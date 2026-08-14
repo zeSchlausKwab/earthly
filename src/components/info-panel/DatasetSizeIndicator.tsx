@@ -21,6 +21,7 @@ import {
 } from '@/lib/blossom/blossomUpload'
 import type { FeatureCollection } from 'geojson'
 import { cn } from '@/lib/utils'
+import { serializedJsonBytes } from '@/lib/geo/serializedSize'
 
 interface DatasetSizeIndicatorProps {
 	/** The current feature collection to measure */
@@ -61,8 +62,7 @@ export function DatasetSizeIndicator({
 		if (!featureCollection) {
 			return { size: 0, percentOfLimit: 0, isOverLimit: false }
 		}
-		const jsonString = JSON.stringify(featureCollection)
-		const bytes = new TextEncoder().encode(jsonString).length
+		const bytes = serializedJsonBytes(featureCollection)
 		const percent = (bytes / BLOSSOM_UPLOAD_THRESHOLD_BYTES) * 100
 		return {
 			size: bytes,
@@ -299,8 +299,7 @@ export function useDatasetSize(featureCollection: FeatureCollection | null) {
 		if (!featureCollection) {
 			return { size: 0, percentOfLimit: 0, isOverLimit: false, formattedSize: '0 B' }
 		}
-		const jsonString = JSON.stringify(featureCollection)
-		const bytes = new TextEncoder().encode(jsonString).length
+		const bytes = serializedJsonBytes(featureCollection)
 		const percent = (bytes / BLOSSOM_UPLOAD_THRESHOLD_BYTES) * 100
 		return {
 			size: bytes,

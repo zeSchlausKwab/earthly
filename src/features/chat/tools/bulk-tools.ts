@@ -649,6 +649,17 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 					// normalizeStyleOptions throws InvalidStyleOptionError on an unknown key
 					// → surfaces as a ToolError so the model self-corrects (Pitfall 3).
 					const styleProps = normalizeStyleOptions(chosen)
+					// The point renderer uses `color` for its backing disc; `fillColor`
+					// is a polygon property. Models naturally describe that disc as a fill,
+					// so accept the harmless alias here instead of silently leaving an old
+					// point color in place (which previously hid same-colored icon glyphs).
+					if (
+						(f.geometry.type === 'Point' || f.geometry.type === 'MultiPoint') &&
+						typeof styleProps.fillColor === 'string' &&
+						styleProps.color === undefined
+					) {
+						styleProps.color = styleProps.fillColor
+					}
 					return {
 						...f,
 						properties: {

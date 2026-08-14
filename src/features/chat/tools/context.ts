@@ -17,6 +17,8 @@ import type { ChatMessage } from '../routstr'
 import type { CachedMapSnapshot } from './types'
 import { MAX_SNAPSHOT_CACHE_SIZE } from './types'
 import { countFeaturesByGeometry } from './helpers'
+import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '@/features/geo-editor/constants'
+import { serializedFeatureCollectionBytes } from '@/lib/geo/serializedSize'
 
 export const mapSnapshotCache = new Map<string, CachedMapSnapshot>()
 
@@ -27,6 +29,7 @@ export const mapSnapshotCache = new Map<string, CachedMapSnapshot>()
  * mutation, so a WeakMap entry is exactly as fresh as the dataset.
  */
 const datasetMeasurementCache = new WeakMap<EditorFeature[], DatasetMeasurements | null>()
+const datasetSizeCache = new WeakMap<EditorFeature[], number>()
 
 function getDatasetMeasurements(features: EditorFeature[]): DatasetMeasurements | null {
 	if (datasetMeasurementCache.has(features)) {
@@ -35,6 +38,14 @@ function getDatasetMeasurements(features: EditorFeature[]): DatasetMeasurements 
 	const aggregates = aggregateMeasurements(features)
 	datasetMeasurementCache.set(features, aggregates)
 	return aggregates
+}
+
+function getDatasetSerializedBytes(features: EditorFeature[]): number {
+	const cached = datasetSizeCache.get(features)
+	if (cached !== undefined) return cached
+	const bytes = serializedFeatureCollectionBytes(features)
+	datasetSizeCache.set(features, bytes)
+	return bytes
 }
 
 /**
@@ -141,6 +152,7 @@ export function getMapContextSnapshot() {
 				version: store.activeDataset.version ?? null,
 			}
 		: null
+	const serializedBytes = getDatasetSerializedBytes(store.features)
 
 	return {
 		editorReady: Boolean(store.editor),
@@ -149,6 +161,11 @@ export function getMapContextSnapshot() {
 		activeDataset,
 		localDraftDirty: store.isDirty,
 		featureCount: store.features.length,
+		datasetSize: {
+			serializedBytes,
+			limitBytes: BLOSSOM_UPLOAD_THRESHOLD_BYTES,
+			overLimit: serializedBytes > BLOSSOM_UPLOAD_THRESHOLD_BYTES,
+		},
 		datasetMeasurements: getDatasetMeasurements(store.features),
 		selectedFeatureCount: store.selectedFeatureIds.length,
 		selectedFeatures: selectedSummary,
@@ -185,6 +202,7 @@ export function getCompactMapContextForPrompt(snapshot: ReturnType<typeof getMap
 		activeDataset: snapshot.activeDataset,
 		localDraftDirty: snapshot.localDraftDirty,
 		featureCount: snapshot.featureCount,
+		datasetSize: snapshot.datasetSize,
 		datasetMeasurements: snapshot.datasetMeasurements,
 		selectedFeatureCount: snapshot.selectedFeatureCount,
 		mapView: snapshot.mapView,
@@ -205,6 +223,7 @@ export function getCompactMapContextForTool(snapshot: ReturnType<typeof getMapCo
 		mode: snapshot.mode,
 		datasetMetadata: snapshot.datasetMetadata,
 		featureCount: snapshot.featureCount,
+		datasetSize: snapshot.datasetSize,
 		datasetMeasurements: snapshot.datasetMeasurements,
 		selectedFeatureCount: snapshot.selectedFeatureCount,
 		featureGeometryCounts: snapshot.featureGeometryCounts,

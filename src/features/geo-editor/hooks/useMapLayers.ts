@@ -737,7 +737,7 @@ export function useMapLayers({
 				}
 
 				// Point icon layer — remote dataset points with a `displayIcon` style
-				// property render an SDF glyph tinted with the feature's `strokeColor`
+				// property render an SDF glyph automatically contrasted against `color`
 				// on top of the circle layer's disc + ring.
 				// Unknown icon ids resolve to the always-registered fallback marker
 				// (coalesce/image pattern), so points never silently vanish.

@@ -179,6 +179,52 @@ describe('set_dataset_metadata host-builtin + get_editor_state datasetMetadata (
 		expect(full.datasetMetadata?.name).toBe('Visible Name')
 		expect(full.datasetMetadata?.customProperties).toEqual({ k: 'v' })
 	})
+
+	it('get_editor_state reports fresh serialized dataset bytes after a geometry mutation', async () => {
+		const editor = createHeadlessEditor()
+		useEditorStore.getState().setEditor(editor)
+		const detailedFeatures = [
+			{
+				type: 'Feature',
+				id: 'route',
+				geometry: {
+					type: 'LineString',
+					coordinates: Array.from({ length: 120 }, (_, index) => [index / 1000, 0]),
+				},
+				properties: { kind: 'road' },
+			},
+		]
+		editor.setFeatures(detailedFeatures)
+		useEditorStore.setState({ features: detailedFeatures })
+
+		const before = (await dispatch('get_editor_state', {})) as {
+			datasetSize?: { serializedBytes: number; limitBytes: number; overLimit: boolean }
+		}
+		expect(before.datasetSize?.serializedBytes).toBeGreaterThan(0)
+
+		editor.updateFeature('route', {
+			type: 'Feature',
+			id: 'route',
+			geometry: {
+				type: 'LineString',
+				coordinates: [
+					[0, 0],
+					[0.119, 0],
+				],
+			},
+			properties: { kind: 'road' },
+		})
+		useEditorStore.setState({ features: editor.getAllFeatures() })
+
+		const after = (await dispatch('get_editor_state', {})) as {
+			datasetSize?: { serializedBytes: number; limitBytes: number; overLimit: boolean }
+		}
+		expect(after.datasetSize?.serializedBytes).toBeLessThan(
+			before.datasetSize?.serializedBytes ?? 0,
+		)
+		expect(after.datasetSize?.limitBytes).toBeGreaterThan(0)
+		expect(after.datasetSize?.overLimit).toBe(false)
+	})
 })
 
 describe('authoring-primitive tools: draw_circle + buffer_feature (TOOLS-01 / D-14)', () => {

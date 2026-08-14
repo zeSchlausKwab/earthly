@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry, Position } from 'geojson'
 import { bboxClip } from '@turf/bbox-clip'
 import { LUCIDE_ICONS } from '../../features/geo-editor/icons/lucideIcons'
+import { contrastingDisplayIconColor } from '../../features/geo-editor/icons/displayIcon'
 
 export type Bbox = [number, number, number, number]
 
@@ -262,14 +263,20 @@ function featureAnchor(feature: Feature, projection: Projection): [number, numbe
 	return projection.project([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2])
 }
 
-function iconMarkup(displayIcon: unknown, x: number, y: number, size: number): string {
+function iconMarkup(
+	displayIcon: unknown,
+	x: number,
+	y: number,
+	size: number,
+	color: string,
+): string {
 	if (typeof displayIcon !== 'string' || !displayIcon.startsWith('lucide:')) return ''
 	const name = displayIcon.slice('lucide:'.length)
 	const raw = (LUCIDE_ICONS as Record<string, string>)[name]
 	if (!raw) return ''
 	const body = raw.replace(/^<svg[^>]*>/u, '').replace(/<\/svg>$/u, '')
 	const scale = size / 24
-	return `<g transform="translate(${(x - size / 2).toFixed(1)} ${(y - size / 2).toFixed(1)}) scale(${scale.toFixed(3)})" fill="none" stroke="white" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">${body}</g>`
+	return `<g transform="translate(${(x - size / 2).toFixed(1)} ${(y - size / 2).toFixed(1)}) scale(${scale.toFixed(3)})" fill="none" stroke="${color}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">${body}</g>`
 }
 
 function renderPoint(
@@ -280,12 +287,18 @@ function renderPoint(
 	const projected = projection.project(position)
 	if (!projected) return ''
 	const [x, y] = projected
-	const fill = colorProperty(properties, ['fillColor', 'color'], DEFAULT_DATA_COLOR)
+	const fill = colorProperty(properties, ['color', 'fillColor'], DEFAULT_DATA_COLOR)
 	const stroke = colorProperty(properties, ['strokeColor'], '#ffffff')
 	const radius = numberProperty(properties, 'radius', 7, 3, 18)
 	const hasIcon = typeof properties?.displayIcon === 'string'
 	const discRadius = hasIcon ? Math.max(radius * 1.55, 11) : radius
-	const icon = iconMarkup(properties?.displayIcon, x, y, discRadius * 1.35)
+	const icon = iconMarkup(
+		properties?.displayIcon,
+		x,
+		y,
+		discRadius * 1.35,
+		contrastingDisplayIconColor(fill),
+	)
 	return `<g data-og-feature="point"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${discRadius.toFixed(1)}" fill="${fill}" fill-opacity="${numberProperty(properties, 'fillOpacity', 0.9, 0, 1)}" stroke="${stroke}" stroke-width="2"/>${icon}</g>`
 }
 

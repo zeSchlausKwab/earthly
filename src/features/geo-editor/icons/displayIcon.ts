@@ -11,8 +11,8 @@
  * Rendering contract (see `core/managers/LayerManager.ts` + `hooks/useMapLayers.ts`):
  * iconed points render as a tintable SDF glyph ON TOP of the circle layer —
  * the circle becomes a backing disc (`color` fill) with a ring
- * (`strokeColor`), and the glyph is tinted via `icon-color` from the same
- * `strokeColor` (white fallback). Unknown/missing icons fall back to a
+ * (`strokeColor`), and the glyph is tinted black/white for automatic contrast
+ * against the disc. Unknown/missing icons fall back to a
  * visible marker image — a point with a bad `displayIcon` must never vanish
  * from the map.
  */
@@ -119,9 +119,10 @@ const DISPLAY_ICON_DISC_RADIUS_FACTOR = 1.75
 /** Selected-state boost shared by the glyph and its backing disc. */
 const DISPLAY_ICON_ACTIVE_BOOST = 1.25
 
-/** Glyph/ring color when the feature has no `strokeColor` — there is always a
- * `color`-filled disc underneath, so white reads on any fill. */
-const DISPLAY_ICON_DEFAULT_GLYPH_COLOR = '#ffffff'
+const DISPLAY_ICON_LIGHT_GLYPH_COLOR = '#ffffff'
+const DISPLAY_ICON_DARK_GLYPH_COLOR = '#111827'
+const DISPLAY_ICON_DEFAULT_DISC_COLOR = '#3bb2d0'
+const DISPLAY_ICON_BRIGHTNESS_THRESHOLD = 160
 
 /** Filter clause: the feature carries a displayIcon. */
 export function hasDisplayIconFilter(): ExpressionSpecification {
@@ -166,19 +167,58 @@ export function displayIconSizeExpression(options?: {
 }
 
 /**
- * `icon-color` paint expression for the SDF glyph (and the SDF fallback dot):
- * the feature's `strokeColor` with a white fallback, so the glyph color always
- * matches the ring around the backing disc. `activeColor`, when given,
+ * Pick the same black/white icon contrast used by the MapLibre expression for
+ * static renderers. CSS colors outside the common #rgb/#rrggbb forms safely
+ * fall back to white; MapLibre itself handles its complete color vocabulary.
+ */
+export function contrastingDisplayIconColor(value: unknown): string {
+	if (typeof value !== 'string') return DISPLAY_ICON_LIGHT_GLYPH_COLOR
+	const hex = value.trim()
+	const expanded = /^#[0-9a-f]{3}$/iu.test(hex)
+		? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+		: hex
+	if (!/^#[0-9a-f]{6}$/iu.test(expanded)) return DISPLAY_ICON_LIGHT_GLYPH_COLOR
+	const red = Number.parseInt(expanded.slice(1, 3), 16)
+	const green = Number.parseInt(expanded.slice(3, 5), 16)
+	const blue = Number.parseInt(expanded.slice(5, 7), 16)
+	const brightness = red * 0.299 + green * 0.587 + blue * 0.114
+	return brightness > DISPLAY_ICON_BRIGHTNESS_THRESHOLD
+		? DISPLAY_ICON_DARK_GLYPH_COLOR
+		: DISPLAY_ICON_LIGHT_GLYPH_COLOR
+}
+
+/**
+ * `icon-color` paint expression for the SDF glyph (and fallback dot): derive
+ * black/white from the actual `color`-filled backing disc. Ring styling remains
+ * independent, so `color === strokeColor` can no longer erase the glyph.
+ * `activeColor`, when given,
  * overrides the tint while the editor marks the feature active (the disc turns
  * selection-blue, so the glyph flips to a fixed high-contrast color).
  */
 export function displayIconColorExpression(options?: {
 	activeColor?: string
 }): DataDrivenPropertyValueSpecification<string> {
+	const rgba: ExpressionSpecification = [
+		'to-rgba',
+		['to-color', ['coalesce', ['get', 'color'], DISPLAY_ICON_DEFAULT_DISC_COLOR]],
+	]
+	const component = (index: number): ExpressionSpecification => ['at', index, ['var', 'icon-bg']]
+	const brightness: ExpressionSpecification = [
+		'+',
+		['*', component(0), 0.299],
+		['*', component(1), 0.587],
+		['*', component(2), 0.114],
+	]
 	const base: ExpressionSpecification = [
-		'coalesce',
-		['get', 'strokeColor'],
-		DISPLAY_ICON_DEFAULT_GLYPH_COLOR,
+		'let',
+		'icon-bg',
+		rgba,
+		[
+			'case',
+			['>', brightness, DISPLAY_ICON_BRIGHTNESS_THRESHOLD],
+			DISPLAY_ICON_DARK_GLYPH_COLOR,
+			DISPLAY_ICON_LIGHT_GLYPH_COLOR,
+		],
 	]
 	if (!options?.activeColor) {
 		return base as unknown as DataDrivenPropertyValueSpecification<string>

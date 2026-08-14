@@ -32,6 +32,7 @@
 import { runOptimize } from '@/features/chat/geometry/optimizeClient'
 import type { OptimizeFeatureCollection, OptimizeReport } from '@/features/chat/geometry/types'
 import { buildPostWriteValidation } from '@/features/chat/safeEditing/autoValidate'
+import { runFixAllRule } from '@/features/chat/safeEditing/fixAll'
 import { gateBulkApply } from '@/features/chat/safeEditing/gateBulkEdit'
 import { getSafetyLevel } from '@/features/chat/safeEditing/safetyAccess'
 import { createAuthoring } from '@/features/geo-editor/api/authoring'
@@ -39,15 +40,18 @@ import { deleteFeaturesById } from '@/features/geo-editor/api/authoring'
 import { performGeometryOperation } from '@/features/geo-editor/api/geometryOperations'
 import type { GeometryOperationRequest, PrimitiveUnits } from '@/features/geo-editor/api'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '@/features/geo-editor/constants'
+import { matchesPredicate } from '@/features/geo-editor/api/predicate'
 import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { featureCollection, union as turfUnion } from '@turf/turf'
 import type { Feature, MultiPolygon, Polygon } from 'geojson'
+import { countGeometryVertices, isSimplifiableGeometryType } from '@/lib/geo/geometry'
+import { serializedFeatureCollectionBytes } from '@/lib/geo/serializedSize'
 // TYPE-ONLY import from the registry (never the value `register`) — Pitfall 6.
 import type { ToolEntry } from './registry'
 import { schemaFor } from './schemas'
 import type { Tool } from './types'
-import { resolveSelectionScope } from './bulk-tools'
+import { parsePredicate, resolveSelectionScope } from './bulk-tools'
 
 const GEOMETRY_UNITS: PrimitiveUnits[] = ['meters', 'kilometers', 'miles']
 
@@ -480,6 +484,100 @@ export function registerGeometryTools(register: (entry: ToolEntry) => void): voi
 				sourceFeatureIds: targets.map((target) => target.id),
 				resultFeatureIds: outcome.status === 'applied' ? resultFeatureIds : [],
 				merged: args.merge === 'union',
+				...(touched.length > 0 ? { validation: await buildPostWriteValidation(touched) } : {}),
+			}
+		},
+	})
+
+	register({
+		name: 'simplify_features',
+		kind: 'authoring-primitive',
+		schema: schemaFor('simplify_features'),
+		handler: async (args) => {
+			const editor = requireEditor()
+			const predicate = parsePredicate(args.predicate)
+			if (predicate.all.some((clause) => clause.field === '$selected')) {
+				throw new Error(
+					"simplify_features is selection-independent; target stable properties, $id, or $geometryType instead of '$selected'.",
+				)
+			}
+			const rawTolerance = args.tolerance
+			const tolerance =
+				typeof rawTolerance === 'number' && Number.isFinite(rawTolerance)
+					? Math.min(1, Math.max(1e-8, rawTolerance))
+					: 0.0001
+			const all = editor.getAllFeatures()
+			const targets = all.filter(
+				(feature) =>
+					isSimplifiableGeometryType(feature.geometry.type) && matchesPredicate(feature, predicate),
+			)
+			const simplifiedById = new Map<string, (typeof targets)[number]>()
+			let verticesBefore = 0
+			let verticesAfter = 0
+			let skipped = 0
+
+			for (const feature of targets) {
+				verticesBefore += countGeometryVertices(feature.geometry)
+				try {
+					const simplified = editor.transform.simplify(feature, tolerance)
+					if (JSON.stringify(simplified.geometry) === JSON.stringify(feature.geometry)) {
+						verticesAfter += countGeometryVertices(feature.geometry)
+						skipped += 1
+						continue
+					}
+					const next = { ...feature, geometry: simplified.geometry }
+					simplifiedById.set(feature.id, next)
+					verticesAfter += countGeometryVertices(next.geometry)
+				} catch {
+					verticesAfter += countGeometryVertices(feature.geometry)
+					skipped += 1
+				}
+			}
+
+			const datasetBytesBefore = serializedFeatureCollectionBytes(all)
+			const projected = all.map((feature) => simplifiedById.get(feature.id) ?? feature)
+			const datasetBytesAfter = serializedFeatureCollectionBytes(projected)
+			if (simplifiedById.size === 0) {
+				return {
+					cancelled: false,
+					matched: targets.length,
+					updated: 0,
+					skipped,
+					tolerance,
+					verticesBefore,
+					verticesAfter,
+					datasetBytesBefore,
+					datasetBytesAfter,
+				}
+			}
+
+			const outcome = await gateBulkApply(
+				editor,
+				{
+					getSafetyLevel,
+					label: `Simplify ${simplifiedById.size} feature(s)`,
+					headline: `${formatBytes(datasetBytesBefore)} → ${formatBytes(datasetBytesAfter)} · ${formatCount(verticesBefore)}→${formatCount(verticesAfter)} pts`,
+				},
+				'modify',
+				() => {
+					runFixAllRule(editor, {
+						predicate: (feature) => simplifiedById.has(feature.id),
+						transform: (feature) => simplifiedById.get(feature.id) ?? feature,
+					})
+				},
+			)
+			const touched = outcome.diff.modified.map((change) => change.after)
+			const cancelled = outcome.status === 'cancelled'
+			return {
+				cancelled,
+				matched: targets.length,
+				updated: cancelled ? 0 : simplifiedById.size,
+				skipped,
+				tolerance,
+				verticesBefore,
+				verticesAfter: cancelled ? verticesBefore : verticesAfter,
+				datasetBytesBefore,
+				datasetBytesAfter: cancelled ? datasetBytesBefore : datasetBytesAfter,
 				...(touched.length > 0 ? { validation: await buildPostWriteValidation(touched) } : {}),
 			}
 		},
