@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.2] - 2026-08-14
+
+- Overhauled AI map authoring with the complete tool surface available throughout a conversation,
+  richer map-building guidance, longer model timeouts, visible streamed reasoning, retry recovery,
+  and safer continuation after tool failures.
+- Added source-selecting reference boundaries that prefer bundled Natural Earth data for countries
+  and administrative regions, plus road and maritime routing that follows real networks instead of
+  drawing coarse straight lines.
+- Improved large-map workflows with untruncated ContextVM tool transport, uncapped administrative
+  boundary batches and chat tool rounds, faster batched callout authoring, and early visible map
+  scaffolds while longer research continues.
+- Added selection-independent targeted geometry simplification with authoritative before/after byte
+  and vertex counts, and fixed the editor's dataset-size indicator remaining stale after geometry
+  changes.
+- Fixed icon styling ambiguity by accepting point fills naturally and automatically choosing a
+  readable glyph color, so matching marker and stroke colors cannot make map icons disappear.
+- Added richer example prompts, including a multi-layer Belt and Road map, and expanded conversation
+  dumps and diagnostics for evaluating model and prompt behavior.
+
 ## [0.1.1] - 2026-08-11
 
 - Added fine-grained Story references to individual Dataset geometries, OpenStreetMap elements,
