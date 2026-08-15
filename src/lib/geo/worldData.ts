@@ -66,6 +66,12 @@ export function loadWorldLayer(id: WorldLayerId): Promise<GeoJSON.FeatureCollect
 		if (!response.ok) {
 			throw new Error(`world layer ${id}: HTTP ${response.status}`)
 		}
+		const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+		if (contentType.includes('text/html')) {
+			throw new Error(
+				`world layer ${id} was served as text/html; the bundled asset is missing from this build`,
+			)
+		}
 		const fc = (await response.json()) as GeoJSON.FeatureCollection
 		if (fc?.type !== 'FeatureCollection' || !Array.isArray(fc.features)) {
 			throw new Error(`world layer ${id}: not a FeatureCollection`)

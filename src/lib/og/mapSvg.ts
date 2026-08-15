@@ -435,7 +435,10 @@ function renderWorld(land: FeatureCollection | null, projection: Projection): st
 			}
 		})
 		.filter(Boolean)
-		.map((path) => `<path d="${path}" fill="#f2efe6" stroke="none"/>`)
+		.map(
+			(path) =>
+				`<path data-og-world="land" d="${path}" fill="#f2efe6" fill-rule="evenodd" stroke="none"/>`,
+		)
 		.join('')
 }
 
@@ -457,7 +460,7 @@ function renderCountryBoundaries(
 		.filter(Boolean)
 		.map(
 			(path) =>
-				`<path d="${path}" fill="none" stroke="#9cae9f" stroke-width="1.05" vector-effect="non-scaling-stroke"/>`,
+				`<path data-og-world="boundary" d="${path}" fill="none" stroke="#9cae9f" stroke-width="1.05" vector-effect="non-scaling-stroke"/>`,
 		)
 		.join('')
 }
@@ -492,7 +495,10 @@ export async function renderOGMapSvg(options: OGMapOptions): Promise<string> {
 				})()
 			: ''
 
-	return `<g data-og-map="true" clip-path="url(#map-frame)">
+	// The root 1200×630 SVG already clips its viewport. A second group-level
+	// clip makes Resvg discard the Natural Earth paths when unbounded country
+	// boundary coordinates coexist with locally clipped land polygons.
+	return `<g data-og-map="true">
   <rect width="${WIDTH}" height="${HEIGHT}" fill="#dcebf1"/>
   <g opacity="0.98">${world}</g>
   <g>${extentHint}${data}${labels}</g>

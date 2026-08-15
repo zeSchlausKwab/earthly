@@ -49,6 +49,11 @@ describe('renderOGMapSvg', () => {
 	test('renders a meaningful extent when only bbox metadata is available', async () => {
 		const svg = await renderOGMapSvg({ bbox: [-9.6, 36.8, -6.0, 42.2] })
 		expect(svg).toContain('data-og-feature="extent"')
+		expect(svg).toContain('data-og-world="land"')
+		// Resvg drops the Natural Earth paths when this group-level clip is
+		// combined with country paths extending outside the viewport. The root SVG
+		// already clips to 1200x630, so the extra clip must stay absent.
+		expect(svg).not.toContain('clip-path="url(#map-frame)"')
 	})
 
 	test('does not interpolate hostile style values into SVG attributes', async () => {

@@ -24,6 +24,28 @@ export function calloutDisplayModeActionLabel(mode: CalloutDisplayMode): string 
 	}
 }
 
+export function calloutPresentation({
+	displayMode,
+	automaticDisplayMode,
+	automaticPriority,
+	explicitlyExpanded,
+	explicitlyCollapsed,
+	isComposer,
+}: {
+	displayMode: CalloutDisplayMode
+	automaticDisplayMode: Extract<CalloutDisplayMode, 'full' | 'compact'>
+	automaticPriority: boolean
+	explicitlyExpanded: boolean
+	explicitlyCollapsed: boolean
+	isComposer: boolean
+}): Pick<CalloutLayoutCandidate, 'priority' | 'initialMode'> {
+	if (explicitlyCollapsed) return { priority: false, initialMode: 'collapsed' }
+	return {
+		priority: isComposer || explicitlyExpanded || (displayMode === 'full' && automaticPriority),
+		initialMode: displayMode === 'full' ? automaticDisplayMode : displayMode,
+	}
+}
+
 export interface ScreenPoint {
 	x: number
 	y: number

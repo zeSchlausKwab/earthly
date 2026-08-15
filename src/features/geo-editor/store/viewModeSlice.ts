@@ -96,7 +96,7 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 					? {
 							mobilePanelTab: hasFocus ? ('edit' as const) : mobileTab,
 							mobilePanelOpen: true,
-							mobilePanelSnap: 'half' as const,
+							mobilePanelSnap: mobileTab === 'chat' ? ('full' as const) : ('half' as const),
 							mobileSidebarOpen: false,
 							mobilePanelResumeOnSidebarClose: null,
 						}

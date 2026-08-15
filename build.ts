@@ -227,6 +227,21 @@ if (existsSync(wellKnownSrc)) {
 	await cp(wellKnownSrc, wellKnownDest, { recursive: true });
 }
 
+// World reference layers are fetched by URL at runtime (routing, geographic
+// validation, and chat context). Bun cannot discover those string-built URLs,
+// so a production/native build must copy them explicitly. Without this the SPA
+// fallback answers `/static/world/*.json` with index.html and callers see the
+// misleading `Unexpected token '<' / <!DOCTYPE is not valid JSON` error.
+const worldDataSrc = path.join(process.cwd(), "public", "static", "world");
+const worldDataDest = path.join(outdir, "static", "world");
+if (!existsSync(worldDataSrc)) {
+	console.error(`\n❌ Bundled world data not found at ${worldDataSrc}\n`);
+	process.exit(1);
+}
+console.log(`\n📋 Copying bundled world data to ${worldDataDest}`);
+await mkdir(worldDataDest, { recursive: true });
+await cp(worldDataSrc, worldDataDest, { recursive: true });
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Emit the QuickJS WASM asset (Phase 4 criterion c)
 // ─────────────────────────────────────────────────────────────────────────────

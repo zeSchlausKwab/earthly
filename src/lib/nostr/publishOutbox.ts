@@ -1,4 +1,10 @@
-import type { OutboxItem, OutboxRelayResult } from '@/platform/contracts'
+import type {
+	OutboxEnqueueRequest,
+	OutboxItem,
+	OutboxRelayResult,
+	PublishOutboxService,
+} from '@/platform/contracts'
+import { PlatformCommandError } from '@/platform/errors'
 
 function canonicalRelayUrl(relay: string): string {
 	try {
@@ -28,4 +34,21 @@ export function pendingOutboxRelays(item: OutboxItem): string[] {
 export function failedRelayResults(relays: string[], error: unknown): OutboxRelayResult[] {
 	const message = error instanceof Error ? error.message : String(error)
 	return relays.map((relayUrl) => ({ relayUrl, ok: false, message }))
+}
+
+/**
+ * Enqueueing is idempotent because the native outbox keys rows by the signed
+ * event id. A transient Tauri command failure can therefore be retried once
+ * without publishing a duplicate or asking the user to sign again.
+ */
+export async function enqueueDurablePublish(
+	service: PublishOutboxService,
+	input: OutboxEnqueueRequest,
+): Promise<OutboxItem> {
+	try {
+		return await service.enqueue(input)
+	} catch (error) {
+		if (!(error instanceof PlatformCommandError)) throw error
+		return service.enqueue(input)
+	}
 }

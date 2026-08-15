@@ -3,6 +3,7 @@ import {
 	ArrowUpRight,
 	BetweenHorizontalStart,
 	Circle,
+	CircleDot,
 	Combine,
 	Copy,
 	CopyPlus,
@@ -16,8 +17,11 @@ import {
 	Lock,
 	LockOpen,
 	Magnet,
+	MapPin,
+	Maximize2,
 	Merge,
 	Minus,
+	Minimize2,
 	MousePointer2,
 	MoveHorizontal,
 	MoreHorizontal,
@@ -66,6 +70,7 @@ import {
 } from './toolbar/GeometryOperationDialog'
 import type { EditorMode } from '../core'
 import { useEditorStore } from '../store'
+import { calloutDisplayModeActionLabel, type CalloutDisplayMode } from '../callouts/layout'
 
 const geometryOperationIcons: Record<GeometryOperationIcon, typeof Scissors> = {
 	split: Scissors,
@@ -110,6 +115,10 @@ export interface MobileToolMenuProps {
 	onOsmClick?: () => void
 	onOsmView?: () => void
 	onOsmAdvanced?: () => void
+	calloutsEnabled: boolean
+	calloutDisplayMode: CalloutDisplayMode
+	onToggleCallouts: () => void
+	onCycleCalloutDisplayMode: () => void
 }
 
 export function MobileToolMenu({
@@ -137,6 +146,10 @@ export function MobileToolMenu({
 	onOsmClick,
 	onOsmView,
 	onOsmAdvanced,
+	calloutsEnabled,
+	calloutDisplayMode,
+	onToggleCallouts,
+	onCycleCalloutDisplayMode,
 }: MobileToolMenuProps) {
 	const [proposalDialogOpen, setProposalDialogOpen] = useState(false)
 	const [numericGeometryOperation, setNumericGeometryOperation] =
@@ -214,6 +227,28 @@ export function MobileToolMenu({
 						<DropdownMenuSeparator />
 					</>
 				) : null}
+				<DropdownMenuLabel>Map display</DropdownMenuLabel>
+				<DropdownMenuGroup>
+					<DropdownMenuCheckboxItem checked={calloutsEnabled} onSelect={onToggleCallouts}>
+						<MapPin className="h-4 w-4" />
+						Map callouts
+					</DropdownMenuCheckboxItem>
+					<DropdownMenuItem
+						disabled={!calloutsEnabled}
+						onSelect={onCycleCalloutDisplayMode}
+						aria-label={calloutDisplayModeActionLabel(calloutDisplayMode)}
+					>
+						{calloutDisplayMode === 'full' ? (
+							<Maximize2 className="h-4 w-4" />
+						) : calloutDisplayMode === 'compact' ? (
+							<Minimize2 className="h-4 w-4" />
+						) : (
+							<CircleDot className="h-4 w-4" />
+						)}
+						Cycle callout size ({calloutDisplayMode})
+					</DropdownMenuItem>
+				</DropdownMenuGroup>
+				<DropdownMenuSeparator />
 				<DropdownMenuLabel>History</DropdownMenuLabel>
 				<DropdownMenuGroup>
 					<DropdownMenuItem disabled={!canUndo} onSelect={() => executeEditorCommand('undo')}>

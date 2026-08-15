@@ -134,4 +134,32 @@ describe('resolveBinding — SAFE-01', () => {
 
 		expect(result.needsAutoCreate).toBe(false)
 	})
+
+	test('does not bind a new conversation to another conversations active workspace', () => {
+		const result = resolveBinding({
+			collectionMeta: meta('Existing map'),
+			featureCount: 9,
+			activeGeoEditDraftId: 'draft-old',
+			isDirty: true,
+			activeChatId: 'chat-new',
+			workspaceChatSessionId: 'chat-old',
+		})
+
+		expect(result.needsAutoCreate).toBe(true)
+		expect(result.featureCount).toBe(0)
+	})
+
+	test('binds the workspace owned by the active conversation', () => {
+		const result = resolveBinding({
+			collectionMeta: meta('Conversation map'),
+			featureCount: 4,
+			activeGeoEditDraftId: 'draft-chat',
+			isDirty: true,
+			activeChatId: 'chat-active',
+			workspaceChatSessionId: 'chat-active',
+		})
+
+		expect(result.needsAutoCreate).toBe(false)
+		expect(result.featureCount).toBe(4)
+	})
 })

@@ -277,7 +277,10 @@ export const mobilePanelHeightPx = (
 	if (snap === 'peek') return MOBILE_SHEET_PEEK_PX
 	if (snap === 'half') return Math.min(viewportHeight * 0.55, viewportHeight - MOBILE_DOCK_PX - 80)
 	// Keep an honest map/attribution band visible even at the largest detent.
-	return Math.max(MOBILE_SHEET_PEEK_PX, viewportHeight - MOBILE_DOCK_PX - 56)
+	return Math.max(
+		MOBILE_SHEET_PEEK_PX,
+		Math.min(viewportHeight * 0.75, viewportHeight - MOBILE_DOCK_PX - 56),
+	)
 }
 
 export function MobilePanel(props: MobilePanelProps) {
@@ -427,6 +430,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		),
 	)
 	const [headerActionTarget, setHeaderActionTarget] = useState<HTMLDivElement | null>(null)
+	const [panelTranslucent, setPanelTranslucent] = useState(false)
 
 	const handleClose = () => setMobilePanelOpen(false)
 	const sidebarIsMenu = mobileSidebarMode === 'menu'
@@ -537,6 +541,12 @@ export function MobilePanel(props: MobilePanelProps) {
 			// restore) — don't double-navigate here.
 			onOpenGeometryEditor?.()
 		} else if (id === 'map-stack' || id === 'context-editor') {
+			if (id === 'map-stack') navigateToView(mobileTabToView(id))
+			openMobilePanel(id)
+		} else if (id === 'chat') {
+			// Chat is map-bound work: keep the map visible and swap it with Map
+			// Stack in the bottom sheet instead of covering the map with navigation.
+			navigateToView(mobileTabToView(id))
 			openMobilePanel(id)
 		} else {
 			// Switcher selection is a real navigation: write the URL through the
@@ -566,6 +576,8 @@ export function MobilePanel(props: MobilePanelProps) {
 	const ActiveIcon =
 		mobilePanelTab === 'edit' && editPresentation.intent === 'inspect' ? Eye : activeMeta.icon
 	const activeCount = panelCount(mobilePanelTab)
+	const mapWorkTabsVisible =
+		mobilePanelOpen && (mobilePanelTab === 'map-stack' || mobilePanelTab === 'chat')
 
 	// The "+ new" action in the sheet header, per active browse tab.
 	const newAction: { label: string; onClick: () => void } | null =
@@ -677,7 +689,8 @@ export function MobilePanel(props: MobilePanelProps) {
 								role="dialog"
 								aria-label={mobileSidebarOpen ? 'Earthly navigation' : `${activeLabel} panel`}
 								className={cn(
-									'fixed z-40 flex flex-col overflow-hidden border-border bg-card md:hidden',
+									'fixed z-40 flex flex-col overflow-hidden border-border md:hidden',
+									panelTranslucent && mobilePanelOpen ? 'bg-card/80 backdrop-blur-md' : 'bg-card',
 									mobileSidebarOpen
 										? cn(
 												'left-0 top-0 bottom-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] z-50 rounded-r-lg border-r shadow-xl transition-[width] duration-200 ease-out',
@@ -707,7 +720,7 @@ export function MobilePanel(props: MobilePanelProps) {
 										tabIndex={0}
 										onPointerDown={handleDragStart}
 										style={{ touchAction: 'none' }}
-										className="flex w-full shrink-0 cursor-grab touch-none items-center justify-center border-b border-border bg-card/95 py-3 backdrop-blur active:cursor-grabbing"
+										className="flex w-full shrink-0 cursor-grab touch-none items-center justify-center border-b border-border bg-card/90 py-3 backdrop-blur active:cursor-grabbing"
 									>
 										<span className="h-1.5 w-12 rounded-full bg-accent" />
 									</div>
@@ -795,8 +808,42 @@ export function MobilePanel(props: MobilePanelProps) {
 													<ArrowLeft className="h-4 w-4" />
 												</Button>
 											) : null}
-											<ActiveIcon className="h-4 w-4 text-primary" />
-											<h2 className="text-sm font-semibold text-foreground">{activeLabel}</h2>
+											{mapWorkTabsVisible ? (
+												<div
+													role="tablist"
+													aria-label="Map workspace panel"
+													className="flex min-w-0 items-center rounded-md border border-border bg-muted/45 p-0.5"
+												>
+													{(['map-stack', 'chat'] as const).map((id) => {
+														const meta = tabMeta(id)
+														const Icon = meta.icon
+														const active = mobilePanelTab === id
+														return (
+															<button
+																key={id}
+																type="button"
+																role="tab"
+																aria-selected={active}
+																onClick={() => selectPanel(id)}
+																className={cn(
+																	'flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium',
+																	active
+																		? 'bg-background text-foreground shadow-sm'
+																		: 'text-muted-foreground',
+																)}
+															>
+																<Icon className="h-3.5 w-3.5" />
+																{id === 'map-stack' ? 'Map' : 'Chat'}
+															</button>
+														)
+													})}
+												</div>
+											) : (
+												<>
+													<ActiveIcon className="h-4 w-4 text-primary" />
+													<h2 className="text-sm font-semibold text-foreground">{activeLabel}</h2>
+												</>
+											)}
 											{activeCount != null ? (
 												<span className="font-mono text-[9px] text-muted-foreground">
 													{activeCount}
@@ -816,6 +863,21 @@ export function MobilePanel(props: MobilePanelProps) {
 														aria-label={newAction.label}
 													>
 														<Plus className="h-3.5 w-3.5" />
+													</Button>
+												) : null}
+												{mapWorkTabsVisible ? (
+													<Button
+														type="button"
+														size="icon-sm"
+														variant={panelTranslucent ? 'default' : 'ghost'}
+														onClick={() => setPanelTranslucent((value) => !value)}
+														aria-pressed={panelTranslucent}
+														aria-label={
+															panelTranslucent ? 'Use opaque panel' : 'See map through panel'
+														}
+														title={panelTranslucent ? 'Use opaque panel' : 'See map through panel'}
+													>
+														<Eye className="h-4 w-4" />
 													</Button>
 												) : null}
 												<Button

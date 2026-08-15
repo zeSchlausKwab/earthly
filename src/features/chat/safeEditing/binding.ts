@@ -21,6 +21,10 @@ export interface BindingResolverInput {
 	activeGeoEditDraftId: string | null
 	/** Whether the open dataset has unsaved in-memory edits. */
 	isDirty: boolean
+	/** Active conversation and workspace owner. When supplied, binding is scoped
+	 * to that conversation instead of whichever draft happens to be on screen. */
+	activeChatId?: string | null
+	workspaceChatSessionId?: string | null
 }
 
 export interface BindingIdentity {
@@ -41,23 +45,37 @@ export interface BindingIdentity {
 const UNTITLED_DRAFT_NAME = 'Untitled draft'
 
 export function resolveBinding(input: BindingResolverInput): BindingIdentity {
-	const { collectionMeta, featureCount, activeGeoEditDraftId, isDirty } = input
+	const {
+		collectionMeta,
+		featureCount,
+		activeGeoEditDraftId,
+		isDirty,
+		activeChatId,
+		workspaceChatSessionId,
+	} = input
 
 	const trimmedName = collectionMeta.name.trim()
 	const name = trimmedName === '' ? UNTITLED_DRAFT_NAME : trimmedName
 
 	const hasOpenDraft = activeGeoEditDraftId !== null
-	const unsaved = hasOpenDraft || isDirty
+	const conversationScopeProvided =
+		activeChatId !== undefined || workspaceChatSessionId !== undefined
+	const conversationOwnsWorkspace =
+		!conversationScopeProvided ||
+		(activeChatId != null &&
+			workspaceChatSessionId != null &&
+			activeChatId === workspaceChatSessionId)
+	const unsaved = conversationOwnsWorkspace && (hasOpenDraft || isDirty)
 
 	// A bound target exists when a draft is open OR features are already present (a loaded /
 	// saved dataset). Only when neither holds is there nothing to show → auto-create-and-bind.
-	const hasBoundTarget = hasOpenDraft || featureCount > 0
+	const hasBoundTarget = conversationOwnsWorkspace && (hasOpenDraft || featureCount > 0)
 	const needsAutoCreate = !hasBoundTarget
 
 	return {
 		name,
 		unsaved,
-		featureCount,
+		featureCount: hasBoundTarget ? featureCount : 0,
 		needsAutoCreate,
 	}
 }

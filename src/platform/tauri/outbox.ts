@@ -7,13 +7,7 @@ import {
 	type OutboxRelayResult,
 	type PublishOutboxService,
 } from '../contracts'
-
-function commandError(error: unknown): Error {
-	if (typeof error === 'object' && error !== null && 'message' in error) {
-		return new Error(String(error.message))
-	}
-	return new Error(String(error))
-}
+import { platformCommandError } from '../errors'
 
 async function invokeValidated<T>(
 	command: string,
@@ -23,7 +17,7 @@ async function invokeValidated<T>(
 	try {
 		return schema.parse(await invoke(command, args))
 	} catch (error) {
-		throw commandError(error)
+		throw platformCommandError(error)
 	}
 }
 

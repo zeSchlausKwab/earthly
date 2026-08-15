@@ -1,4 +1,4 @@
-export const OG_IMAGE_RENDER_VERSION = 'v2'
+export const OG_IMAGE_RENDER_VERSION = 'v3'
 
 const EVENT_ID_PATTERN = /^[0-9a-f]{64}$/u
 const VERSION_PATTERN = /^([0-9a-f]{64})-(v\d+)$/u

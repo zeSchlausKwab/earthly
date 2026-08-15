@@ -4,7 +4,12 @@
  * owns the route-aware implementation; chat tools only know that a mutation
  * must have a recoverable target.
  */
-type DatasetDraftEnsurer = () => void | Promise<void>
+export interface DatasetDraftRequest {
+	/** Start a fresh map even when this conversation already owns a target. */
+	forceNew?: boolean
+}
+
+type DatasetDraftEnsurer = (request?: DatasetDraftRequest) => void | Promise<void>
 
 let datasetDraftEnsurer: DatasetDraftEnsurer | null = null
 
@@ -17,4 +22,9 @@ export function registerDatasetDraftEnsurer(ensurer: DatasetDraftEnsurer): () =>
 
 export async function ensureDatasetDraftForMutation(): Promise<void> {
 	await datasetDraftEnsurer?.()
+}
+
+/** Explicit UI intent: attach the active conversation to a brand-new map. */
+export async function startDatasetDraftForActiveChat(): Promise<void> {
+	await datasetDraftEnsurer?.({ forceNew: true })
 }

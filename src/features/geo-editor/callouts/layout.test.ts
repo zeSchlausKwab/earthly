@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+	calloutPresentation,
 	calloutDisplayModeActionLabel,
 	defaultCalloutDisplayMode,
 	nextCalloutDisplayMode,
@@ -132,5 +133,18 @@ describe('responsive map callout layout', () => {
 		)
 
 		expect(layout?.mode).toBe('collapsed')
+	})
+
+	test('an explicitly collapsed editable callout is never forced open as priority', () => {
+		expect(
+			calloutPresentation({
+				displayMode: 'full',
+				automaticDisplayMode: 'full',
+				automaticPriority: true,
+				explicitlyExpanded: false,
+				explicitlyCollapsed: true,
+				isComposer: false,
+			}),
+		).toEqual({ priority: false, initialMode: 'collapsed' })
 	})
 })

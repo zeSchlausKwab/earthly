@@ -1040,14 +1040,30 @@ export function GeoEditorView() {
 		if (useEditorStore.getState().activeGeoEditDraftId) surfaceDraftOnMobile()
 	}, [routePublishChannel, startNewDatasetWithOptions, surfaceDraftOnMobile])
 
-	const ensureAiDatasetDraft = useCallback(() => {
-		const state = useEditorStore.getState()
-		if (state.activeGeoEditDraftId || state.features.length > 0) return
-		startNewDatasetWithOptions({
-			publishChannel: routePublishChannel,
-			chatSessionId: useChatStore.getState().activeChatId,
-		})
-	}, [routePublishChannel, startNewDatasetWithOptions])
+	const ensureAiDatasetDraft = useCallback(
+		(request?: { forceNew?: boolean }) => {
+			const state = useEditorStore.getState()
+			const activeChatId = useChatStore.getState().activeChatId
+			const activeWorkspace = state.activeWorkspaceId
+				? state.workspaces[state.activeWorkspaceId]
+				: null
+			const activeConversationOwnsTarget =
+				activeChatId != null && activeWorkspace?.chatSessionId === activeChatId
+			if (
+				!request?.forceNew &&
+				activeConversationOwnsTarget &&
+				(state.activeGeoEditDraftId || state.features.length > 0)
+			) {
+				return
+			}
+			startNewDatasetWithOptions({
+				publishChannel: routePublishChannel,
+				chatSessionId: activeChatId,
+			})
+			surfaceDraftOnMobile()
+		},
+		[routePublishChannel, startNewDatasetWithOptions, surfaceDraftOnMobile],
+	)
 
 	useEffect(() => registerDatasetDraftEnsurer(ensureAiDatasetDraft), [ensureAiDatasetDraft])
 
@@ -1100,6 +1116,17 @@ export function GeoEditorView() {
 			syncRouteToDraftChannel,
 		],
 	)
+
+	const activeChatId = useChatStore((state) => state.activeChatId)
+	useEffect(() => {
+		if (!activeChatId) return
+		const state = useEditorStore.getState()
+		const ownedWorkspace = Object.values(state.workspaces)
+			.filter((workspace) => workspace.chatSessionId === activeChatId)
+			.sort((a, b) => b.updatedAt - a.updatedAt)[0]
+		if (!ownedWorkspace || ownedWorkspace.id === state.activeWorkspaceId) return
+		void handleSwitchWorkspace(ownedWorkspace.id)
+	}, [activeChatId, handleSwitchWorkspace])
 
 	const handleAddDraftToWorkspace = useCallback(
 		async (workspaceId: string) => {
@@ -4208,7 +4235,7 @@ export function GeoEditorView() {
 				mapSource={mapSource}
 				onLocate={handleLocate}
 				onLocateError={handleLocateError}
-				attributionCompact={!isMobile}
+				attributionCompact
 				// On mobile the bottom sheet + tool strip/dock occupy the lower edge,
 				// so the control stack lives top-right (clear of the sheet at every
 				// detent). Desktop keeps them bottom-right (thumb-free, above the status bar).
@@ -4818,6 +4845,10 @@ export function GeoEditorView() {
 						onOsmClick={handleOsmQueryClick}
 						onOsmView={handleOsmQueryView}
 						onOsmAdvanced={() => setImportOsmDialogOpen(true)}
+						calloutsEnabled={calloutsEnabled}
+						calloutDisplayMode={calloutDisplayMode}
+						onToggleCallouts={() => setCalloutsEnabled(!calloutsEnabled)}
+						onCycleCalloutDisplayMode={cycleCalloutDisplayMode}
 					/>
 					{currentMode === 'draw_linestring' || currentMode === 'draw_polygon' ? (
 						<Button

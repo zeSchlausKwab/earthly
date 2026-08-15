@@ -58,7 +58,12 @@ import { eventStore, isEventDeleted } from './store'
 import { cacheQueryableFilters } from './filterGuards'
 import { LIVE_BEACON_KIND } from './kinds'
 import { invalidateCachedMapLayerSetForDeletion } from './map-layer-set/cache'
-import { failedRelayResults, pendingOutboxRelays, requiredPublishRelays } from './publishOutbox'
+import {
+	enqueueDurablePublish,
+	failedRelayResults,
+	pendingOutboxRelays,
+	requiredPublishRelays,
+} from './publishOutbox'
 import {
 	bucketForKind,
 	guardedWebSocketCtor,
@@ -693,7 +698,7 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 	const outbox = event.kind === LIVE_BEACON_KIND ? null : await getPublishOutboxService()
 	const durableRouting: PublishRouting = relays ? 'configured' : routing
 	const queued = outbox
-		? await outbox.enqueue({
+		? await enqueueDurablePublish(outbox, {
 				version: 1,
 				eventJson: JSON.stringify(event),
 				routing: durableRouting,
