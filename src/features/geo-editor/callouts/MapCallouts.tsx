@@ -6,6 +6,7 @@ import {
 	GripHorizontal,
 	MapPin,
 	MessageSquarePlus,
+	Minimize2,
 	Trash2,
 	X,
 } from 'lucide-react'
@@ -27,6 +28,7 @@ import {
 } from '@/lib/geo/callouts'
 import type { EditorFeature } from '../core/types'
 import {
+	calloutPresentation,
 	defaultCalloutDisplayMode,
 	resolveCalloutLayout,
 	type CalloutDisplayMode,
@@ -253,6 +255,7 @@ export function MapCallouts({
 }: MapCalloutsProps) {
 	const [revision, setRevision] = useState(0)
 	const [expandedKey, setExpandedKey] = useState<string | null>(null)
+	const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(() => new Set())
 	const [dragOffsets, setDragOffsets] = useState<Record<string, [number, number]>>({})
 	const frameRef = useRef<number | null>(null)
 	const dragCleanupRef = useRef<(() => void) | null>(null)
@@ -428,8 +431,11 @@ export function MapCallouts({
 	const automaticPriorityKey = expandedKey
 		? null
 		: (visibleEntries.find(({ entry }) => entry.callout === null)?.entry.key ??
-			visibleEntries.find(({ entry }) => entry.editable && entry.selected)?.entry.key ??
-			visibleEntries.find(({ entry }) => entry.editable)?.entry.key ??
+			visibleEntries.find(
+				({ entry }) => entry.editable && entry.selected && !collapsedKeys.has(entry.key),
+			)?.entry.key ??
+			visibleEntries.find(({ entry }) => entry.editable && !collapsedKeys.has(entry.key))?.entry
+				.key ??
 			null)
 	const automaticDisplayMode = defaultCalloutDisplayMode({
 		zoom: map.getZoom(),
@@ -439,6 +445,15 @@ export function MapCallouts({
 	const layouts = resolveCalloutLayout(
 		visibleEntries.map(({ entry, anchor }) => {
 			const explicitlyExpanded = expandedKey === entry.key
+			const explicitlyCollapsed = collapsedKeys.has(entry.key)
+			const presentation = calloutPresentation({
+				displayMode,
+				automaticDisplayMode,
+				automaticPriority: automaticPriorityKey === entry.key,
+				explicitlyExpanded,
+				explicitlyCollapsed,
+				isComposer: entry.callout === null,
+			})
 			return {
 				key: entry.key,
 				anchor,
@@ -451,11 +466,7 @@ export function MapCallouts({
 					),
 					height: estimatedFullHeight(entry.callout, entry.editable, explicitlyExpanded),
 				},
-				priority:
-					entry.callout === null ||
-					explicitlyExpanded ||
-					(displayMode === 'full' && automaticPriorityKey === entry.key),
-				initialMode: displayMode === 'full' ? automaticDisplayMode : displayMode,
+				...presentation,
 			}
 		}),
 		viewport,
@@ -504,7 +515,15 @@ export function MapCallouts({
 						>
 							<button
 								type="button"
-								onClick={() => setExpandedKey(layout.key)}
+								onClick={() => {
+									setCollapsedKeys((current) => {
+										if (!current.has(layout.key)) return current
+										const next = new Set(current)
+										next.delete(layout.key)
+										return next
+									})
+									setExpandedKey(layout.key)
+								}}
 								className="pointer-events-auto flex size-[30px] items-center justify-center rounded-full border border-foreground/20 bg-background/95 text-foreground shadow-md backdrop-blur transition-transform hover:scale-105"
 								aria-label={`Expand callout${callout?.title ? `: ${callout.title}` : ''}`}
 							>
@@ -568,6 +587,20 @@ export function MapCallouts({
 											Map callout
 										</span>
 										<div className="flex-1" />
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-xs"
+											className="h-6 w-6"
+											onClick={() => {
+												setExpandedKey((current) => (current === entry.key ? null : current))
+												setCollapsedKeys((current) => new Set(current).add(entry.key))
+											}}
+											aria-label={`Collapse callout${callout.title ? `: ${callout.title}` : ''}`}
+											title="Collapse callout to a map pin"
+										>
+											<Minimize2 className="h-3.5 w-3.5" />
+										</Button>
 										<Button
 											type="button"
 											variant="ghost"

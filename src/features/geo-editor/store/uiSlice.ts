@@ -63,7 +63,7 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 		set((state) => ({
 			mobilePanelOpen: true,
 			mobilePanelTab: tab ?? state.mobilePanelTab,
-			mobilePanelSnap: 'half',
+			mobilePanelSnap: tab === 'chat' ? 'full' : 'half',
 			mobileSidebarOpen: false,
 			mobilePanelResumeOnSidebarClose: null,
 		})),

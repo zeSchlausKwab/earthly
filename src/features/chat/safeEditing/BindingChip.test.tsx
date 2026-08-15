@@ -42,7 +42,7 @@ describe('BindingChip render (SAFE-01 / D-03)', () => {
 			/>,
 		)
 		expect(html).toContain('Conversation only')
-		expect(html).toContain('AI edits will start a local draft for review')
+		expect(html).toContain('AI edits will start a new draft')
 		expect(html).not.toContain('Untitled draft')
 	})
 })

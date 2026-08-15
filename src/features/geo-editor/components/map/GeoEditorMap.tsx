@@ -192,7 +192,7 @@ export function GeoEditorMap({
 			// maplibre-gl 5.x. Required for canvas snapshot export (share image).
 			canvasContextAttributes={{ preserveDrawingBuffer: true }}
 		>
-			<MapInternals mapSource={mapSource} onLoad={onLoad} />
+			<MapInternals mapSource={mapSource} onLoad={onLoad} attributionCompact={attributionCompact} />
 			{showControls ? (
 				<MapControls
 					position={controlsPosition}
@@ -223,9 +223,11 @@ export function GeoEditorMap({
 function MapInternals({
 	mapSource,
 	onLoad,
+	attributionCompact,
 }: {
 	mapSource: MapSource
 	onLoad?: (map: maplibregl.Map) => void
+	attributionCompact: boolean
 }) {
 	const { map, isLoaded } = useMap()
 
@@ -233,6 +235,39 @@ function MapInternals({
 	useDisplayIconImages(map, isLoaded)
 	useMapLayerStateSync(map, isLoaded)
 	usePmtilesBoundsLock(map, isLoaded, mapSource)
+
+	// MapLibre briefly opens a compact AttributionControl when source credits
+	// arrive after the control was created empty. On mobile that late auto-open
+	// becomes a wide white bar above the sheet. Normalize only the first populated
+	// state; the native summary remains fully interactive afterwards.
+	useEffect(() => {
+		if (!map || !attributionCompact) return
+		const mapContainer = map.getContainer()
+		let normalized = false
+		const normalizeInitialState = () => {
+			if (normalized) return
+			const attribution = mapContainer.querySelector<HTMLElement>('.maplibregl-ctrl-attrib')
+			if (
+				!attribution ||
+				attribution.classList.contains('maplibregl-attrib-empty') ||
+				!attribution.classList.contains('maplibregl-compact')
+			) {
+				return
+			}
+			attribution.classList.remove('maplibregl-compact-show')
+			attribution.removeAttribute('open')
+			normalized = true
+			observer.disconnect()
+		}
+		const observer = new MutationObserver(normalizeInitialState)
+		observer.observe(mapContainer, {
+			attributes: true,
+			childList: true,
+			subtree: true,
+		})
+		normalizeInitialState()
+		return () => observer.disconnect()
+	}, [map, attributionCompact])
 
 	useEffect(() => {
 		if (!map || !isLoaded) return
@@ -248,7 +283,9 @@ function MapInternals({
 		}
 		persistViewport()
 		map.on('moveend', persistViewport)
-		return () => map.off('moveend', persistViewport)
+		return () => {
+			map.off('moveend', persistViewport)
+		}
 	}, [map, isLoaded])
 
 	// Fire onLoad exactly once when the map first becomes loaded.

@@ -83,6 +83,11 @@ describe('mobileTabRoute — tab↔view mapping', () => {
 	})
 
 	test('only map-bound destinations use the bottom sheet', () => {
-		expect(ALL_TABS.filter(isMobileMapSurfaceTab)).toEqual(['map-stack', 'context-editor', 'edit'])
+		expect(ALL_TABS.filter(isMobileMapSurfaceTab)).toEqual([
+			'map-stack',
+			'context-editor',
+			'edit',
+			'chat',
+		])
 	})
 })

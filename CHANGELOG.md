@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.4] - 2026-08-15
+
+- Stabilized Android dataset publishing with a safe transient retry and useful on-device failure
+  feedback, and restored bundled reference data needed by native network routing.
+- Reworked mobile authoring into a map-bound sheet with compact Map and Chat tabs, explicit
+  conversation-to-draft ownership, and reliable access to the active editing panel.
+- Made editable callouts collapsible, restored the world basemap in Story previews, and kept mobile
+  MapLibre attribution compact and clear of the sheet and bottom toolbar.
+
 ## [0.1.3] - 2026-08-15
 
 - Fixed bundled point icons so Lucide symbols render with readable contrast in both draft and

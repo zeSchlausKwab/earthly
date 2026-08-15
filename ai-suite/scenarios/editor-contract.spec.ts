@@ -27,6 +27,7 @@ import {
 	attemptDeniedDeviceLocation,
 	installDeterministicGeolocation,
 } from '../tasks/setup/deterministic-geolocation'
+import { installDeterministicMapStyle } from '../tasks/setup/deterministic-map-style'
 
 test('cancel drawing unlocks panning and leaves the editor usable @editor-contract', async ({
 	earthly,
@@ -221,7 +222,37 @@ test('mobile non-geometry editors keep their primary actions in the sheet header
 	await expect(earthly.page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(1)
 })
 
-test('mobile Dataset editing keeps global navigation and restores its map-bound sheet @editor-contract', async ({
+test('mobile map attribution remains a compact control above every sheet detent @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'The responsive attribution layout is mobile-only')
+	await earthly.open({ tour: 'seen' })
+	await installDeterministicMapStyle(earthly)
+
+	const attribution = earthly.page.locator('.maplibregl-ctrl-attrib').first()
+	await expect(attribution).toBeVisible()
+	await expect(attribution).toHaveClass(/maplibregl-compact/)
+	const viewport = earthly.page.viewportSize()
+	expect(viewport).not.toBeNull()
+
+	const expectCompactAttribution = async () => {
+		const box = await attribution.boundingBox()
+		expect(box).not.toBeNull()
+		expect(box?.width ?? Number.POSITIVE_INFINITY).toBeLessThan((viewport?.width ?? 0) * 0.5)
+	}
+
+	await expectCompactAttribution()
+	const attributionToggle = attribution.locator('.maplibregl-ctrl-attrib-button')
+	await attributionToggle.click()
+	await expect.poll(async () => (await attribution.boundingBox())?.width ?? 0).toBeGreaterThan(80)
+	await attributionToggle.click()
+	await expectCompactAttribution()
+	await startDataset(earthly)
+	await expect(earthly.page.getByTestId('mobile-sheet')).toBeVisible()
+	await expectCompactAttribution()
+})
+
+test('mobile Dataset editing swaps Map and Chat in the map-bound sheet @editor-contract', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'The author dock is mobile-only')
@@ -235,13 +266,20 @@ test('mobile Dataset editing keeps global navigation and restores its map-bound 
 	const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
 	await expect(drawer).toBeVisible()
 	await drawer.getByRole('button', { name: /^AI chat(?:\s|$)/ }).click()
-	await expect(drawer.getByRole('heading', { name: 'AI chat', exact: true })).toBeVisible()
+	await expect(drawer).toBeHidden()
+	const sheet = earthly.page.getByTestId('mobile-sheet')
+	await expect(sheet).toBeVisible()
+	await expect(sheet.getByRole('tab', { name: 'Chat', exact: true })).toHaveAttribute(
+		'aria-selected',
+		'true',
+	)
 	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe('/chat')
 
-	await drawer.getByRole('button', { name: 'Close AI chat', exact: true }).click()
-	await expect(drawer).toBeHidden()
-	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe('/edit')
-	await expect(earthly.page.getByTestId('mobile-sheet')).toBeVisible()
+	await sheet.getByRole('tab', { name: 'Map', exact: true }).click()
+	await expect(sheet.getByRole('tab', { name: 'Map', exact: true })).toHaveAttribute(
+		'aria-selected',
+		'true',
+	)
 	await expect(earthly.page.getByPlaceholder('Name').first()).toHaveValue('Menu-safe mobile draft')
 	await expect(menu).toBeVisible()
 })

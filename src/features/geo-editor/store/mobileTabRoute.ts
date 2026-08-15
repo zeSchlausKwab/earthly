@@ -18,7 +18,12 @@ export function viewToMobileTab(view: SidebarViewMode): MobilePanelTab | null {
 	return view
 }
 
-const MOBILE_MAP_SURFACE_TABS = new Set<MobilePanelTab>(['map-stack', 'context-editor', 'edit'])
+const MOBILE_MAP_SURFACE_TABS = new Set<MobilePanelTab>([
+	'map-stack',
+	'context-editor',
+	'edit',
+	'chat',
+])
 
 /** Map-bound surfaces belong in the vertical sheet. Every other destination is
  * navigation/discovery/account content and belongs in the horizontal drawer. */

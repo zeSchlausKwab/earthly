@@ -1,6 +1,7 @@
 import { expect, test } from '../fixtures/earthly'
 import { inspectSurface } from '../tasks/diagnostics/inspect-surface'
 import { openPanel } from '../tasks/navigation/open-panel'
+import { installDeterministicMapStyle } from '../tasks/setup/deterministic-map-style'
 
 const viewports = [
 	{ width: 320, height: 568 },
@@ -51,16 +52,17 @@ test('settings and navigation adapt across breakpoint boundaries @audit', async 
 	})
 })
 
-test('mobile attribution remains expanded and above transient chrome @audit', async ({
+test('mobile attribution remains compact and above transient chrome @audit', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'Mobile chrome contract')
 	await earthly.open({ tour: 'seen' })
+	await installDeterministicMapStyle(earthly)
 
 	const attribution = earthly.page.locator('.maplibregl-ctrl-attrib')
 	const dock = earthly.page.locator('[data-tour="mobile-dock"]')
 	await expect(attribution).toBeVisible()
-	await expect(attribution).not.toHaveClass(/maplibregl-compact/)
+	await expect(attribution).toHaveClass(/maplibregl-compact/)
 
 	const idleLayout = await earthly.page.evaluate(() => {
 		const attributionBox = document
@@ -69,10 +71,12 @@ test('mobile attribution remains expanded and above transient chrome @audit', as
 		const dockBox = document.querySelector('[data-tour="mobile-dock"]')?.getBoundingClientRect()
 		return {
 			attributionBottom: attributionBox?.bottom ?? Number.POSITIVE_INFINITY,
+			attributionWidth: attributionBox?.width ?? Number.POSITIVE_INFINITY,
 			dockTop: dockBox?.top ?? 0,
 		}
 	})
 	expect(idleLayout.attributionBottom).toBeLessThanOrEqual(idleLayout.dockTop)
+	expect(idleLayout.attributionWidth).toBeLessThan(80)
 	await testInfo.attach('mobile-attribution-idle.png', {
 		body: await earthly.page.screenshot({ animations: 'disabled' }),
 		contentType: 'image/png',
@@ -86,29 +90,18 @@ test('mobile attribution remains expanded and above transient chrome @audit', as
 			.querySelector('.maplibregl-ctrl-attrib')
 			?.getBoundingClientRect()
 		const sheetBox = document.querySelector('[data-testid="mobile-sheet"]')?.getBoundingClientRect()
-		const mapControlsBox = document
-			.querySelector('.maplibregl-ctrl-top-right')
-			?.getBoundingClientRect()
-		const attributionLinks = Array.from(
-			document.querySelectorAll('.maplibregl-ctrl-attrib-inner a'),
-		).map((link) => link.getBoundingClientRect())
 		return {
 			attributionBottom: attributionBox?.bottom ?? Number.POSITIVE_INFINITY,
-			attributionRight: attributionBox?.right ?? Number.POSITIVE_INFINITY,
+			attributionWidth: attributionBox?.width ?? Number.POSITIVE_INFINITY,
 			attributionFits:
 				(document.querySelector('.maplibregl-ctrl-attrib')?.scrollWidth ?? 1) <=
 				(document.querySelector('.maplibregl-ctrl-attrib')?.clientWidth ?? 0) + 1,
 			sheetTop: sheetBox?.top ?? 0,
-			mapControlsLeft: mapControlsBox?.left ?? 0,
-			contentRight: Math.max(...attributionLinks.map((box) => box.right)),
-			contentBottom: Math.max(...attributionLinks.map((box) => box.bottom)),
 		}
 	})
 	expect(sheetLayout.attributionBottom).toBeLessThanOrEqual(sheetLayout.sheetTop)
-	expect(sheetLayout.attributionRight).toBeLessThanOrEqual(sheetLayout.mapControlsLeft)
+	expect(sheetLayout.attributionWidth).toBeLessThan(80)
 	expect(sheetLayout.attributionFits).toBe(true)
-	expect(sheetLayout.contentRight).toBeLessThanOrEqual(sheetLayout.mapControlsLeft)
-	expect(sheetLayout.contentBottom).toBeLessThanOrEqual(sheetLayout.sheetTop)
 	await expect
 		.poll(() =>
 			earthly.page.evaluate(

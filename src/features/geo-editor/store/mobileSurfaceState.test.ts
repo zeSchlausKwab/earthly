@@ -31,6 +31,17 @@ describe('mobile surface state machine', () => {
 		expect(state.mobileSidebarOpen).toBe(false)
 	})
 
+	test('AI chat is a map-bound sheet at the largest detent', () => {
+		harness.getState().openMobileSidebar()
+		harness.getState().openMobilePanel('chat')
+
+		const state = harness.getState()
+		expect(state.mobilePanelOpen).toBe(true)
+		expect(state.mobilePanelTab).toBe('chat')
+		expect(state.mobilePanelSnap).toBe('full')
+		expect(state.mobileSidebarOpen).toBe(false)
+	})
+
 	test('opening the menu over a map-bound sheet restores the same detent on close', () => {
 		harness.getState().openMobilePanel('edit')
 		harness.getState().setMobilePanelSnap('full')

@@ -23,6 +23,7 @@ import { useEditorStore, type SidebarViewMode } from '../store'
 import type { EditorBlobReference } from '../types'
 import { extractCollectionMeta, sanitizeEditorProperties } from '../utils'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '../constants'
+import { publishFailureMessage } from './publishFailure'
 
 /**
  * One advisory, per-rule attach warning surfaced to the contributor when their
@@ -650,7 +651,7 @@ export function usePublishing({
 			navigateToPublishedDataset(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset', error)
-			setPublishError('Failed to publish dataset. Check console for details.')
+			setPublishError(publishFailureMessage('publish this dataset', error))
 		} finally {
 			setIsPublishing(false)
 		}
@@ -741,7 +742,7 @@ export function usePublishing({
 				setBlossomUploadDialogOpen(false)
 			} catch (error) {
 				console.error('Failed to publish with blossom', error)
-				setPublishError('Failed to publish. Check console for details.')
+				setPublishError(publishFailureMessage('publish this dataset', error))
 			} finally {
 				setIsPublishing(false)
 			}
@@ -854,7 +855,7 @@ export function usePublishing({
 			navigateToPublishedDataset(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset update', error)
-			setPublishError('Failed to publish dataset update. Check console for details.')
+			setPublishError(publishFailureMessage('publish this dataset update', error))
 		} finally {
 			setIsPublishing(false)
 		}
@@ -944,7 +945,7 @@ export function usePublishing({
 			navigateToPublishedDataset(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset copy', error)
-			setPublishError('Failed to publish dataset copy. Check console for details.')
+			setPublishError(publishFailureMessage('publish this dataset copy', error))
 		} finally {
 			setIsPublishing(false)
 		}
@@ -1019,7 +1020,7 @@ export function usePublishing({
 				setSelectedFeatureIds([])
 			} catch (error) {
 				console.error('Failed to publish edit proposal', error)
-				setPublishError('Failed to publish edit proposal. Check console for details.')
+				setPublishError(publishFailureMessage('publish this edit proposal', error))
 				toast.error('Failed to publish edit proposal.')
 			} finally {
 				setIsPublishing(false)

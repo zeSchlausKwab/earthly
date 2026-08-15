@@ -3,6 +3,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { useChatStore } from '@/features/chat/store'
+import { startDatasetDraftForActiveChat } from '@/features/geo-editor/authoringTaskBridge'
 import type { SafetyLevel } from './AuthoringGate'
 import { resolveBinding } from './binding'
 
@@ -41,6 +42,9 @@ export interface BindingChipProps {
 	onToggleAutoAccept: (nextLevel: SafetyLevel) => void
 	/** Opens the editor surface for the concrete target. Omitted in conversation-only scope. */
 	onOpenTarget?: () => void
+	/** Explicit conversation-only choices. */
+	onStartNewTarget?: () => void
+	onUseCurrentTarget?: () => void
 }
 
 export function BindingChip({
@@ -51,6 +55,8 @@ export function BindingChip({
 	safetyLevel,
 	onToggleAutoAccept,
 	onOpenTarget,
+	onStartNewTarget,
+	onUseCurrentTarget,
 }: BindingChipProps) {
 	const autoAcceptOn = safetyLevel === 3
 	const featureLabel = featureCount === 1 ? 'feature' : 'features'
@@ -95,9 +101,29 @@ export function BindingChip({
 					) : null}
 				</div>
 				{needsAutoCreate ? (
-					<p className="mt-1 pl-1 text-[11px] text-muted-foreground">
-						AI edits will start a local draft for review.
-					</p>
+					<div className="mt-1 flex flex-wrap items-center gap-1 pl-1 text-[11px]">
+						<span className="mr-1 text-muted-foreground">
+							Choose a map now, or AI edits will start a new draft.
+						</span>
+						{onStartNewTarget ? (
+							<button
+								type="button"
+								onClick={onStartNewTarget}
+								className="rounded border border-edit/35 px-1.5 py-0.5 font-semibold text-edit hover:bg-edit/10"
+							>
+								New map
+							</button>
+						) : null}
+						{onUseCurrentTarget ? (
+							<button
+								type="button"
+								onClick={onUseCurrentTarget}
+								className="rounded border border-border px-1.5 py-0.5 font-medium text-foreground hover:bg-muted"
+							>
+								Use current edit
+							</button>
+						) : null}
+					</div>
 				) : null}
 			</div>
 
@@ -136,6 +162,12 @@ export function BindingChipContainer({ onOpenTarget }: { onOpenTarget?: () => vo
 	const featureCount = useEditorStore((state) => state.features.length)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
 	const isDirty = useEditorStore((state) => state.isDirty)
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
+	const activeWorkspace = useEditorStore((state) =>
+		state.activeWorkspaceId ? state.workspaces[state.activeWorkspaceId] : null,
+	)
+	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
+	const activeChatId = useChatStore((state) => state.activeChatId)
 	const safetyLevel = useChatStore((state) => state.safetyLevel)
 	const setSafetyLevel = useChatStore((state) => state.setSafetyLevel)
 
@@ -144,7 +176,10 @@ export function BindingChipContainer({ onOpenTarget }: { onOpenTarget?: () => vo
 		featureCount,
 		activeGeoEditDraftId,
 		isDirty,
+		activeChatId,
+		workspaceChatSessionId: activeWorkspace?.chatSessionId ?? null,
 	})
+	const hasCurrentTarget = Boolean(activeGeoEditDraftId || featureCount > 0)
 
 	return (
 		<BindingChip
@@ -155,6 +190,14 @@ export function BindingChipContainer({ onOpenTarget }: { onOpenTarget?: () => vo
 			safetyLevel={safetyLevel}
 			onToggleAutoAccept={setSafetyLevel}
 			onOpenTarget={binding.needsAutoCreate ? undefined : onOpenTarget}
+			onStartNewTarget={
+				binding.needsAutoCreate ? () => void startDatasetDraftForActiveChat() : undefined
+			}
+			onUseCurrentTarget={
+				binding.needsAutoCreate && hasCurrentTarget && activeWorkspaceId && activeChatId
+					? () => updateWorkspace(activeWorkspaceId, { chatSessionId: activeChatId })
+					: undefined
+			}
 		/>
 	)
 }
