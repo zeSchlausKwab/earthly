@@ -202,7 +202,7 @@ export function displayIconColorExpression(options?: {
 		'to-rgba',
 		['to-color', ['coalesce', ['get', 'color'], DISPLAY_ICON_DEFAULT_DISC_COLOR]],
 	]
-	const component = (index: number): ExpressionSpecification => ['at', index, ['var', 'icon-bg']]
+	const component = (index: number): ExpressionSpecification => ['at', index, ['var', 'icon_bg']]
 	const brightness: ExpressionSpecification = [
 		'+',
 		['*', component(0), 0.299],
@@ -211,7 +211,7 @@ export function displayIconColorExpression(options?: {
 	]
 	const base: ExpressionSpecification = [
 		'let',
-		'icon-bg',
+		'icon_bg',
 		rgba,
 		[
 			'case',
