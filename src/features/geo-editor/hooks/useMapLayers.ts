@@ -24,6 +24,7 @@ import {
 } from '../icons/displayIcon'
 import { LINE_ARROW_IMAGE_ID } from '../icons/registerDisplayIconImages'
 import { collectLineArrowFeatures } from '../utils/lineArrows'
+import { SOLID_LINE_DASH_FILTER } from '../utils/lineDashFilters'
 import { useEditorStore } from '../store'
 import { convertGeoEventsToFeatureCollection } from '../utils'
 import {
@@ -624,7 +625,7 @@ export function useMapLayers({
 								['==', ['geometry-type'], 'LineString'],
 								['==', ['geometry-type'], 'MultiLineString'],
 							],
-							['any', ['!', ['has', 'lineDash']], ['==', ['get', 'lineDash'], 'solid']],
+							SOLID_LINE_DASH_FILTER,
 						],
 						paint: {
 							'line-color': ['coalesce', ['get', 'strokeColor'], ['get', 'color'], '#1d4ed8'],

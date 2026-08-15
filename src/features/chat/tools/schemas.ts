@@ -1317,7 +1317,7 @@ export const geoStaticToolSchemas: Tool[] = [
 				'every matching feature across the full dataset — this is ONE rule pass, NOT a per-feature ' +
 				'recolor loop. Features matching no bucket are LEFT UNTOUCHED unless you supply a `fallback`. ' +
 				'Style keys MUST be canonical: color, fillColor, strokeColor, fillOpacity, strokeOpacity, ' +
-				'strokeWidth, radius, label, displayIcon. `label` is literal display text only: never pass ' +
+				'strokeWidth, lineDash (`solid`, `dashed`, or `dotted` only), radius, label, displayIcon. `label` is literal display text only: never pass ' +
 				'`{name}` or another template, and omit labels on dense bulk results. For Point icons, displayIcon must be a bundled ' +
 				'Lucide id such as `lucide:tree-pine` or `lucide:anchor` (never a URL). On Points, `color` is the backing-disc fill (`fillColor` is accepted as an alias), `strokeColor` is the outer ring, and the glyph color is chosen automatically for contrast. ' +
 				'For semantic POI maps, use displayIcon on every Point category rather than leaving plain dots. ' +
@@ -1374,7 +1374,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								style: {
 									type: 'object',
 									description:
-										'Canonical style keys: color, fillColor, strokeColor, fillOpacity, strokeOpacity, strokeWidth, radius, label, displayIcon (`lucide:<name>` for Point features). For Points, color is the backing-disc fill and fillColor is accepted as its alias; glyph contrast is automatic. `label` is literal text, not a `{name}` template; omit it for dense results.',
+										'Canonical style keys: color, fillColor, strokeColor, fillOpacity, strokeOpacity, strokeWidth, lineDash (`solid`, `dashed`, or `dotted` only), radius, label, displayIcon (`lucide:<name>` for Point features). For Points, color is the backing-disc fill and fillColor is accepted as its alias; glyph contrast is automatic. `label` is literal text, not a `{name}` template; omit it for dense results.',
 									additionalProperties: true,
 								},
 							},
@@ -1389,7 +1389,7 @@ export const geoStaticToolSchemas: Tool[] = [
 							style: {
 								type: 'object',
 								description:
-									'Canonical style keys (same set as a bucket style, including displayIcon as `lucide:<name>`). Labels are literal text only and should be omitted for dense results.',
+									'Canonical style keys (same set as a bucket style, including lineDash as `solid`, `dashed`, or `dotted`, and displayIcon as `lucide:<name>`). Labels are literal text only and should be omitted for dense results.',
 								additionalProperties: true,
 							},
 						},

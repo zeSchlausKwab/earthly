@@ -37,7 +37,7 @@ export function registerRoutingTools(register: (entry: ToolEntry) => void): void
 			function: {
 				name: 'route_over_network',
 				description:
-					'Compute a shortest path that follows an actual GeoJSON line network using geojson-path-finder. Use for maritime lanes and for rail, river, canal, trail, or custom networks already present in/selected in the editor. For ordinary road, bus, bicycle, or pedestrian routing, prefer valhalla_route. Never substitute a hand-drawn straight line when this tool or Valhalla can represent the requested alignment.',
+					'Default to this cheap host tool automatically for requested shipping/maritime lanes and for routes over actual rail, river, canal, trail, or custom GeoJSON line networks, without requiring the user to ask for routing. It computes a shortest path with geojson-path-finder and imports compact network-derived geometry when toEditor=true. Prefer it over building the same route with sandbox pathfinder or hand-authored coordinates. For ordinary road, bus, bicycle, or pedestrian routing, prefer valhalla_route. Never substitute a hand-drawn straight line when this tool or Valhalla can represent the requested alignment.',
 				parameters: {
 					type: 'object',
 					properties: {
