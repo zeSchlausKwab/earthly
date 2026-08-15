@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.3] - 2026-08-15
+
+- Fixed bundled point icons so Lucide symbols render with readable contrast in both draft and
+  published maps.
+- Made requested transport corridors prefer the dedicated road and maritime network-routing tools
+  without requiring users to ask for routing explicitly.
+- Fixed lines with legacy or noncanonical dash styles disappearing from draft and published maps;
+  unsupported values now render safely as solid lines while dashed and dotted styles remain intact.
+
 ## [0.1.2] - 2026-08-14
 
 - Overhauled AI map authoring with the complete tool surface available throughout a conversation,

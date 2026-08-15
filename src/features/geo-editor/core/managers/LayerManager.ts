@@ -20,6 +20,7 @@ import {
 	GIZMO_SCALE_IMAGE_ID,
 	LINE_ARROW_IMAGE_ID,
 } from '../../icons/registerDisplayIconImages'
+import { SOLID_LINE_DASH_FILTER } from '../../utils/lineDashFilters'
 
 const FALLBACK_TEXT_FONT_STACK = ['Open Sans Regular', 'Arial Unicode MS Regular']
 
@@ -269,7 +270,7 @@ export class LayerManager {
 							['==', ['geometry-type'], 'MultiPolygon'],
 						],
 						['any', ['==', ['get', 'meta'], 'feature'], ['==', ['get', 'meta'], 'feature-temp']],
-						['any', ['!', ['has', 'lineDash']], ['==', ['get', 'lineDash'], 'solid']],
+						SOLID_LINE_DASH_FILTER,
 					],
 					paint: {
 						'line-color': [

@@ -109,6 +109,12 @@ function wikipediaExtractDescription(): string {
 	return tool?.function.description ?? ''
 }
 
+function routeOverNetworkDescription(): string {
+	const tool = getGeoTools().find((candidate) => candidate.function.name === 'route_over_network')
+	expect(tool).toBeDefined()
+	return tool?.function.description ?? ''
+}
+
 describe('fix #4 — agent map-context steering', () => {
 	const text = mapContextText()
 
@@ -178,6 +184,27 @@ describe('fix #4 — agent map-context steering', () => {
 		expect(text).toMatch(/Do not write `\{name\}`/i)
 		expect(text).toMatch(/6–12 nearest or representative/i)
 		expect(text).toMatch(/distinct colors\/icons/i)
+	})
+
+	it('defaults transport authoring to the cheap dedicated routing tools without user prompting', () => {
+		for (const prompt of [text, compactMapContextText()]) {
+			expect(prompt).toMatch(/default.+route_over_network|route_over_network.+default/i)
+			expect(prompt).toMatch(/user.+(?:need|have).+ask|without.+user.+ask/i)
+			expect(prompt).toMatch(/prefer.+route_over_network.+pathfinder/i)
+		}
+	})
+})
+
+describe('network-routing tool steering', () => {
+	it('presents route_over_network as the automatic default for maritime and line-network routes', () => {
+		const description = routeOverNetworkDescription()
+		expect(description).toMatch(/default/i)
+		expect(description).toMatch(/shipping|maritime/i)
+		expect(description).toMatch(/user.+(?:need|have).+ask|without.+user.+ask/i)
+	})
+
+	it('keeps the code sandbox pathfinder as a fallback behind the dedicated host tool', () => {
+		expect(runCodeDescription()).toMatch(/prefer.+route_over_network.+pathfinder/i)
 	})
 })
 
@@ -250,6 +277,11 @@ describe('display-icon authoring steering', () => {
 		expect(description).toMatch(/label.*literal display text/i)
 		expect(description).toContain('{name}')
 		expect(description).toMatch(/omit labels on dense bulk results/i)
+	})
+
+	it('advertises only canonical line dash values', () => {
+		expect(styleByAttributeDescription()).toMatch(/lineDash.+solid.+dashed.+dotted/i)
+		expect(runCodeDescription()).toMatch(/lineDash.+solid.+dashed.+dotted/i)
 	})
 })
 
