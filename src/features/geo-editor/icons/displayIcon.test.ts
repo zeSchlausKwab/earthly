@@ -127,6 +127,21 @@ describe('MapLibre expression builders', () => {
 		expect(contrastingDisplayIconColor('#1e40af')).toBe('#ffffff')
 	})
 
+	it('uses MapLibre-safe let/var names in the icon-color expression', () => {
+		const variableNames: string[] = []
+		const visit = (value: unknown): void => {
+			if (!Array.isArray(value)) return
+			if ((value[0] === 'let' || value[0] === 'var') && typeof value[1] === 'string') {
+				variableNames.push(value[1])
+			}
+			for (const child of value) visit(child)
+		}
+
+		visit(displayIconColorExpression())
+		expect(variableNames).not.toHaveLength(0)
+		expect(variableNames.every((name) => /^[A-Za-z0-9_]+$/u.test(name))).toBe(true)
+	})
+
 	it('icon-color activeColor overrides the tint while the feature is active', () => {
 		expect(displayIconColorExpression({ activeColor: '#ffffff' })).toEqual([
 			'case',
