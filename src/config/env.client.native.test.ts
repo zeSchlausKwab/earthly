@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 
 const originalNodeEnv = process.env.NODE_ENV
 const originalBlossomServer = process.env.BLOSSOM_SERVER
+const originalDiscoveryFeaturedPubkeys = process.env.DISCOVERY_FEATURED_PUBKEYS
 const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location')
 
 afterEach(() => {
@@ -9,8 +10,25 @@ afterEach(() => {
 	else process.env.NODE_ENV = originalNodeEnv
 	if (originalBlossomServer === undefined) delete process.env.BLOSSOM_SERVER
 	else process.env.BLOSSOM_SERVER = originalBlossomServer
+	if (originalDiscoveryFeaturedPubkeys === undefined) {
+		delete process.env.DISCOVERY_FEATURED_PUBKEYS
+	} else {
+		process.env.DISCOVERY_FEATURED_PUBKEYS = originalDiscoveryFeaturedPubkeys
+	}
 	if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation)
 	else Reflect.deleteProperty(globalThis, 'location')
+})
+
+describe('Discover curation configuration', () => {
+	test('parses, filters, and deduplicates public author keys for the frontend', async () => {
+		const first = '5'.repeat(64)
+		const second = '6'.repeat(64)
+		process.env.DISCOVERY_FEATURED_PUBKEYS = `${first},invalid,${second},${first}`
+
+		const { config } = await import(`./env.client.ts?discover=${Date.now()}`)
+
+		expect(config.discoveryFeaturedPubkeys).toEqual([first, second])
+	})
 })
 
 describe('native Blossom fallback', () => {

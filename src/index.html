@@ -63,9 +63,193 @@
     <!-- PWA Manifest -->
     <link rel="manifest" href="./assets/site.webmanifest" />
 
-    <script type="module" src="./frontend.tsx" async></script>
+    <style>
+      .earthly-boot {
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        color: #20211f;
+        background:
+          linear-gradient(rgba(45, 84, 66, 0.08) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(45, 84, 66, 0.08) 1px, transparent 1px),
+          #f1f0e9;
+        background-size: 32px 32px;
+        font-family: "IBM Plex Sans", ui-sans-serif, sans-serif;
+      }
+      .dark .earthly-boot {
+        color: #f3f1e8;
+        background-color: #171a18;
+        background-image:
+          linear-gradient(rgba(189, 222, 203, 0.07) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(189, 222, 203, 0.07) 1px, transparent 1px);
+      }
+      .earthly-boot__card {
+        width: min(32rem, calc(100vw - 2rem));
+        border: 1px solid currentColor;
+        border-top: 5px solid #f4c400;
+        padding: 1.4rem;
+        background: color-mix(in srgb, Canvas 92%, transparent);
+        box-shadow: 10px 10px 0 rgba(32, 33, 31, 0.12);
+      }
+      .earthly-boot__eyebrow {
+        margin: 0 0 1.1rem;
+        color: #247748;
+        font: 600 0.72rem/1 "JetBrains Mono", ui-monospace, monospace;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      .earthly-boot h1 { margin: 0; font: 700 2rem/1 "Playfair Display", Georgia, serif; }
+      .earthly-boot p { margin: 0.65rem 0 0; line-height: 1.45; }
+      .earthly-boot__progress {
+        width: 100%;
+        height: 3px;
+        margin-top: 1.35rem;
+        overflow: hidden;
+        background: rgba(32, 33, 31, 0.14);
+      }
+      .earthly-boot__progress::after {
+        display: block;
+        width: 42%;
+        height: 100%;
+        content: "";
+        background: #247748;
+        animation: earthly-boot-scan 1.15s ease-in-out infinite alternate;
+      }
+      .earthly-boot[data-state="error"] .earthly-boot__progress { display: none; }
+      .earthly-boot__retry {
+        margin-top: 1.25rem;
+        border: 1px solid #20211f;
+        padding: 0.65rem 0.9rem;
+        color: #20211f;
+        background: #f4c400;
+        font: 600 0.82rem/1 "JetBrains Mono", ui-monospace, monospace;
+        cursor: pointer;
+      }
+      @keyframes earthly-boot-scan { to { transform: translateX(138%); } }
+      @media (prefers-reduced-motion: reduce) {
+        .earthly-boot__progress::after { animation: none; width: 72%; }
+      }
+    </style>
+
+    <script data-earthly-boot-guard>
+      (function () {
+        var retryKey = "earthly-boot-import-retry-v1";
+        var bootTemplate = null;
+
+        function getBootElement() {
+          var boot = document.querySelector("[data-earthly-boot]");
+          if (boot) {
+            if (!bootTemplate) bootTemplate = boot.cloneNode(true);
+            return boot;
+          }
+
+          var root = document.getElementById("root");
+          if (!root || !bootTemplate) return null;
+          boot = bootTemplate.cloneNode(true);
+          root.replaceChildren(boot);
+          return boot;
+        }
+
+        function showFailure(titleText, detailText) {
+          function updateBootUi() {
+            var boot = getBootElement();
+            if (!boot) return;
+            boot.setAttribute("data-state", "error");
+            var title = boot.querySelector("[data-earthly-boot-title]");
+            var detail = boot.querySelector("[data-earthly-boot-detail]");
+            var retry = boot.querySelector("[data-earthly-boot-retry]");
+            if (title) title.textContent = titleText;
+            if (detail) detail.textContent = detailText;
+            if (retry) {
+              retry.hidden = false;
+              retry.onclick = function () { window.location.reload(); };
+              retry.focus();
+            }
+          }
+
+          if (document.readyState === "loading" && !document.querySelector("[data-earthly-boot]")) {
+            document.addEventListener("DOMContentLoaded", updateBootUi, { once: true });
+            return;
+          }
+          updateBootUi();
+        }
+
+        function reloadOnce() {
+          try {
+            if (window.sessionStorage.getItem(retryKey) === "1") return false;
+            window.sessionStorage.setItem(retryKey, "1");
+            window.location.reload();
+            return true;
+          } catch (error) {
+            return false;
+          }
+        }
+
+        function clearReloadGuard() {
+          window.removeEventListener("error", handleEntryModuleError, true);
+          try {
+            window.sessionStorage.removeItem(retryKey);
+          } catch (error) {}
+        }
+
+        function entryModuleFailed() {
+          if (reloadOnce()) return;
+          showFailure(
+            "Earthly could not load the app file",
+            "The connection dropped while loading Earthly. Your local work is safe."
+          );
+        }
+
+        function handleEntryModuleError(event) {
+          var target = event && event.target;
+          if (!target || target.tagName !== "SCRIPT" || target.type !== "module") return;
+          entryModuleFailed();
+        }
+
+        // Bun rewrites the entry module tag during production builds and strips
+        // inline `onerror` attributes. A capture listener installed beforehand
+        // observes the generated module's resource error in both dev and prod.
+        window.addEventListener("error", handleEntryModuleError, true);
+
+        window.__earthlyBoot = {
+          captureTemplate: getBootElement,
+          clearReloadGuard: clearReloadGuard,
+          reloadOnce: reloadOnce,
+          showFailure: showFailure,
+          entryModuleFailed: entryModuleFailed,
+        };
+      })();
+    </script>
+    <script
+      type="module"
+      src="./frontend.tsx"
+    ></script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="earthly-boot" data-earthly-boot role="status" aria-live="polite">
+        <section class="earthly-boot__card" aria-labelledby="earthly-boot-title">
+          <p class="earthly-boot__eyebrow">Earthly · loading field atlas</p>
+          <h1 id="earthly-boot-title" data-earthly-boot-title>Opening the map</h1>
+          <p data-earthly-boot-detail>Connecting to the map index and restoring this view…</p>
+          <div class="earthly-boot__progress" aria-hidden="true"></div>
+          <button class="earthly-boot__retry" data-earthly-boot-retry type="button" hidden>
+            Retry loading
+          </button>
+        </section>
+      </main>
+    </div>
+    <script>
+      window.__earthlyBoot.captureTemplate();
+      window.setTimeout(function () {
+        var boot = document.querySelector("[data-earthly-boot]");
+        if (!boot || boot.getAttribute("data-state") === "error") return;
+        window.__earthlyBoot.showFailure(
+          "Earthly is taking longer than expected",
+          "The app may have missed a file during loading. You can safely try again."
+        );
+      }, 15000);
+    </script>
   </body>
 </html>

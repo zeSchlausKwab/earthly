@@ -1,5 +1,5 @@
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
-import { ChatPanel } from '@/features/chat'
+import { ChatPanel } from '@/features/chat/ChatPanel'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { cn } from '@/lib/utils'

@@ -1,7 +1,6 @@
 import { driver, type DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
 import { useEffect, useRef } from 'react'
-import { isDeepLinkLanding } from '@/features/geo-editor/hooks/useRouting'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useTourStore } from './store'
 import { desktopTourSteps, mobileTourSteps } from './steps'
@@ -27,27 +26,11 @@ function resolvableSteps(steps: DriveStep[]): DriveStep[] {
 }
 
 export function TourManager() {
-	const { isActive, hasSeenTour, startTour, endTour, markAsSeen } = useTourStore()
+	const { isActive, endTour, markAsSeen } = useTourStore()
 	// Same 768px breakpoint as the rest of the app — the tour must describe the
 	// chrome this viewport actually renders (bottom dock vs sidebar rail).
 	const isMobile = useIsMobile()
 	const driverRef = useRef<ReturnType<typeof driver> | null>(null)
-	// Capture the deep-link signal ONCE at mount (a shared/deep-linked initial
-	// URL). Reading it in a ref initializer freezes it to the landing URL, so a
-	// later in-app navigation to an entity cannot retroactively suppress a
-	// legitimately-earned tour. We only SKIP the auto-start — we never call
-	// markAsSeen, so a suppressed recipient still gets the tour on a later plain load.
-	const isDeepLinkLandingRef = useRef(isDeepLinkLanding())
-
-	// Auto-start on first visit (small delay so the map has time to render),
-	// UNLESS the initial URL is a shared/deep-linked route.
-	useEffect(() => {
-		if (!hasSeenTour && !isDeepLinkLandingRef.current) {
-			const t = setTimeout(startTour, 800)
-			return () => clearTimeout(t)
-		}
-	}, [hasSeenTour, startTour])
-
 	useEffect(() => {
 		if (!isActive) {
 			driverRef.current?.destroy()

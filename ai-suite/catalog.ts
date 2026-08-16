@@ -30,8 +30,14 @@ import { inspectSurfaceTask } from './tasks/diagnostics/inspect-surface'
 import { observeJourneyStepTask } from './tasks/diagnostics/journey-observation'
 import { keyboardWalkTask } from './tasks/diagnostics/keyboard-walk'
 import { openPanelTask } from './tasks/navigation/open-panel'
+import { openDiscoverTask } from './tasks/navigation/open-discover'
 import { copyCurrentShareLinkTask } from './tasks/navigation/share-current-view'
-import { completeTourTask, inspectTourTask, skipTourTask } from './tasks/onboarding/tour'
+import {
+	completeTourTask,
+	inspectTourTask,
+	skipTourTask,
+	startTourTask,
+} from './tasks/onboarding/tour'
 import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-native-local-node'
 import { installDeterministicChatProviderTask } from './tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyleTask } from './tasks/setup/deterministic-map-style'
@@ -71,6 +77,8 @@ const tasks = [
 	completeTourTask,
 	skipTourTask,
 	inspectTourTask,
+	startTourTask,
+	openDiscoverTask,
 	openPanelTask,
 	copyCurrentShareLinkTask,
 	postCommentTask,

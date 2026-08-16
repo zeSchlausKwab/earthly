@@ -9,10 +9,13 @@ import {
 } from '../tasks/create/story'
 import { startDataset } from '../tasks/create/dataset'
 import { openPanel } from '../tasks/navigation/open-panel'
-import { completeTour, skipTour } from '../tasks/onboarding/tour'
+import { openDiscover } from '../tasks/navigation/open-discover'
+import { completeTour, skipTour, startTour } from '../tasks/onboarding/tour'
 
 test('anonymous first visit can complete the tour', async ({ earthly }) => {
-	await earthly.open({ tour: 'new' })
+	await earthly.open({ tour: 'new', discover: 'new' })
+	await expect(earthly.page.getByRole('dialog', { name: 'Discover Earthly' })).toBeVisible()
+	await startTour(earthly)
 	await expect(earthly.page.getByText('Welcome to Earthly')).toBeVisible()
 	await completeTour(earthly)
 	await expect
@@ -40,9 +43,30 @@ test('a new visitor can create a fresh identity', async ({ earthly }, testInfo) 
 })
 
 test('anonymous first visit can skip the tour', async ({ earthly }) => {
-	await earthly.open({ tour: 'new' })
+	await earthly.open({ tour: 'new', discover: 'new' })
+	await startTour(earthly)
 	await skipTour(earthly)
 	await expect(earthly.page.locator('.driver-popover')).toBeHidden()
+})
+
+test('Discover opens once automatically and remains available from navigation', async ({
+	earthly,
+}) => {
+	await earthly.open({ discover: 'new' })
+	const dialog = earthly.page.getByRole('dialog', { name: 'Discover Earthly' })
+	await expect(dialog).toBeVisible()
+	await earthly.page.getByRole('button', { name: 'Close Discover' }).click()
+	await expect(dialog).toBeHidden()
+	await expect
+		.poll(() => earthly.page.evaluate(() => localStorage.getItem('earthly-discover-welcome-v1')))
+		.toBe('seen')
+
+	await earthly.page.reload({ waitUntil: 'domcontentloaded' })
+	await expect(dialog).toBeHidden()
+	const pathname = await earthly.page.evaluate(() => location.pathname)
+	await openDiscover(earthly)
+	await expect(dialog).toBeVisible()
+	await expect.poll(() => earthly.page.evaluate(() => location.pathname)).toBe(pathname)
 })
 
 test('Contexts can be opened through the current viewport navigation', async ({ earthly }) => {

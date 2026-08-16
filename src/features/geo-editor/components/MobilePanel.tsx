@@ -11,6 +11,7 @@ import {
 	BookOpen,
 	ArrowLeft,
 	CloudUpload,
+	Compass,
 	Database,
 	Eye,
 	FilePenLine,
@@ -64,9 +65,10 @@ import {
 	type WorkspaceDraftNavigatorProps,
 } from '@/components/WorkspaceDraftNavigator'
 import { MapSettingsPanel } from './MapSettingsPanel'
-import { ChatPanel } from '@/features/chat'
+import { ChatPanel } from '@/features/chat/ChatPanel'
 import { Nip60Wallet } from '@/features/wallet/components/Nip60Wallet'
 import { useRouting } from '../hooks/useRouting'
+import { DEFAULT_WORK_VIEW } from '../defaults'
 import { PublishOutboxPanel } from '@/features/delivery'
 import { MobilePanelHeaderActionProvider } from './MobilePanelHeaderAction'
 import { resolveMobileEditPanelPresentation } from './mobileEditPanelPresentation'
@@ -92,6 +94,7 @@ export type MobilePanelTab =
 	| 'help'
 
 export interface MobilePanelProps {
+	onOpenDiscover: () => void
 	geoEvents: GeoDataset[]
 	mapContextEvents: MapContext[]
 	activeDataset: GeoDataset | null
@@ -285,6 +288,7 @@ export const mobilePanelHeightPx = (
 
 export function MobilePanel(props: MobilePanelProps) {
 	const {
+		onOpenDiscover,
 		geoEvents,
 		mapContextEvents,
 		activeDataset,
@@ -435,7 +439,7 @@ export function MobilePanel(props: MobilePanelProps) {
 	const handleClose = () => setMobilePanelOpen(false)
 	const sidebarIsMenu = mobileSidebarMode === 'menu'
 	const closeNavigationSurface = useCallback(() => {
-		if (!sidebarIsMenu) navigateToView(editorStance === 'author' ? 'edit' : 'sightings')
+		if (!sidebarIsMenu) navigateToView(editorStance === 'author' ? 'edit' : DEFAULT_WORK_VIEW)
 		closeMobileSidebar()
 	}, [closeMobileSidebar, editorStance, navigateToView, sidebarIsMenu])
 	const leaveSidebar = () => {
@@ -753,6 +757,24 @@ export function MobilePanel(props: MobilePanelProps) {
 											aria-label="Earthly sections"
 											className="flex-1 overflow-y-auto px-1.5 py-2"
 										>
+											<div className="mb-2 border-b border-border pb-2">
+												<button
+													type="button"
+													onClick={() => {
+														closeMobileSidebar()
+														onOpenDiscover()
+													}}
+													className="flex w-full items-center gap-3 rounded-[2px] border border-primary/30 bg-primary/10 px-2.5 py-2.5 text-left transition-colors hover:bg-primary/15"
+												>
+													<Compass className="h-4 w-4 shrink-0 text-primary" />
+													<span className="flex-1 text-[13.5px] font-medium text-foreground">
+														Discover
+													</span>
+													<span className="font-mono text-[8.5px] uppercase tracking-wide text-muted-foreground">
+														Latest
+													</span>
+												</button>
+											</div>
 											{SIDEBAR_GROUPS.map((group) => (
 												<div key={group.label} className="mb-1">
 													<div className="px-2.5 py-1 font-mono text-[8.5px] uppercase tracking-wide text-muted-foreground">

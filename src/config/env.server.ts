@@ -38,6 +38,15 @@ export const serverConfig = {
 	/** Blossom base URL used by the server when publishing map layer set announcements */
 	blossomServer: serverEnv.BLOSSOM_SERVER,
 
+	/** Curated public authors whose maps are eligible for Discover. */
+	discoveryFeaturedPubkeys: Array.from(
+		new Set(
+			serverEnv.DISCOVERY_FEATURED_PUBKEYS.split(',')
+				.map((pubkey) => pubkey.trim())
+				.filter(Boolean),
+		),
+	),
+
 	/** SearXNG base URL for web search */
 	searxngUrl: serverEnv.SEARXNG_URL,
 

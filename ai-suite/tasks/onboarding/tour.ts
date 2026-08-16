@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
+import { openDiscover } from '../navigation/open-discover'
 
 export interface TourStepObservation {
 	step: number
@@ -33,6 +34,22 @@ export const inspectTourTask: AiTaskMetadata = {
 	preconditions: ['Earthly opened with tour state new'],
 	sideEffects: ['Completes the tour', 'Sets earthly-tour-seen in browser storage'],
 	viewports: 'both',
+}
+
+export const startTourTask: AiTaskMetadata = {
+	id: 'onboarding.start-tour',
+	summary: 'Start the optional guided tour from Discover.',
+	preconditions: ['Earthly is ready'],
+	sideEffects: ['Opens Discover', 'Starts the guided tour'],
+	viewports: 'both',
+}
+
+export async function startTour(earthly: EarthlySession): Promise<void> {
+	await openDiscover(earthly)
+	const takeTour = earthly.page.getByRole('button', { name: 'Take the tour' })
+	await expect(takeTour).toBeEnabled()
+	await takeTour.click()
+	await waitForTour(earthly)
 }
 
 async function waitForTour(earthly: EarthlySession): Promise<void> {

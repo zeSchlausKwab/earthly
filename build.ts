@@ -152,6 +152,9 @@ console.log(
 console.log(
 	`   MAPNOLIA_TRUSTED_PUBKEYS: ${env.MAPNOLIA_TRUSTED_PUBKEYS.split(",").filter(Boolean).length} configured`,
 );
+console.log(
+	`   DISCOVERY_FEATURED_PUBKEYS: ${env.DISCOVERY_FEATURED_PUBKEYS.split(",").filter(Boolean).length} configured`,
+);
 console.log();
 
 // Build define object for frontend env injection

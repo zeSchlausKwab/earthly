@@ -1,6 +1,6 @@
 import { Toaster } from './components/ui/sonner'
 import { TooltipProvider } from './components/ui/tooltip'
-import { useChatSettingsSync } from './features/chat'
+import { useChatSettingsSync } from './features/chat/useChatSettingsSync'
 import { GeoEditorView } from './features/geo-editor/GeoEditorView'
 import { ZapDialogHost } from './features/social/comments/GeoSocialActions'
 import { CurrentUserReactionSync } from './features/social/reactions/CurrentUserReactionSync'

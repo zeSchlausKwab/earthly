@@ -193,7 +193,7 @@ describe('parsePathSegments — landing default', () => {
 		})
 	})
 
-	test('an empty landing path opens the default sightings feed', () => {
+	test('an empty landing path opens the default datasets catalog', () => {
 		expect(parsePathSegments([])).toEqual({
 			focusType: 'none',
 			sidebarView: DEFAULT_SIDEBAR_VIEW,

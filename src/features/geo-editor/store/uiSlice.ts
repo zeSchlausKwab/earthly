@@ -15,7 +15,7 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	mobileSearchOpen: false,
 	mobileActionsOpen: false,
 	mobilePanelOpen: false,
-	mobilePanelTab: 'sightings',
+	mobilePanelTab: 'datasets',
 	mobilePanelSnap: 'peek',
 	mobileSidebarOpen: false,
 	mobileSidebarMode: 'menu',

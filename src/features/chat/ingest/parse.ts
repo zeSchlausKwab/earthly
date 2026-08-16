@@ -12,7 +12,6 @@
  * `src/lib/geo/geoJsonParseWorker.ts`).
  */
 
-import ExcelJS from 'exceljs'
 import Papa from 'papaparse'
 
 export interface TabularParseResult {
@@ -55,6 +54,7 @@ export function parseCsv(text: string): TabularParseResult {
  * from row 1; each subsequent row becomes a `Record<string, unknown>`.
  */
 export async function parseXlsx(buffer: ArrayBuffer): Promise<TabularParseResult> {
+	const { default: ExcelJS } = await import('exceljs')
 	const wb = new ExcelJS.Workbook()
 	await wb.xlsx.load(buffer)
 	const ws = wb.worksheets[0]
