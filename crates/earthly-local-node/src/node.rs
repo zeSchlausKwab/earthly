@@ -830,6 +830,44 @@ mod tests {
         restored_client.disconnect().await;
     }
 
+    #[tokio::test]
+    async fn paired_nostr_client_accepts_the_editor_inline_dataset_budget() {
+        use nostr_sdk::{Client, Filter};
+
+        const EDITOR_INLINE_DATASET_BYTES: usize = 1024 * 1024;
+
+        let dir = tempfile::tempdir().unwrap();
+        let config =
+            NodeConfig::loopback(dir.path(), NodeAvailability::Process).with_ephemeral_ports();
+        let peer = Keys::generate();
+        let signing_keys = peer.clone();
+        let node = LocalNode::start(config).await.unwrap();
+        node.grant_peer(peer.public_key()).await.unwrap();
+
+        let client = Client::new(peer);
+        client
+            .add_relay(node.descriptor().relay_url.as_str())
+            .await
+            .unwrap();
+        client.connect().await;
+
+        let event = EventBuilder::new(
+            Kind::Custom(37_515),
+            "x".repeat(EDITOR_INLINE_DATASET_BYTES),
+        )
+        .sign_with_keys(&signing_keys)
+        .unwrap();
+        let event_id = event.id;
+        client.send_event(&event).await.unwrap();
+
+        let events = client
+            .fetch_events(Filter::new().id(event_id), Duration::from_secs(3))
+            .await
+            .unwrap();
+        assert!(events.iter().any(|candidate| candidate.id == event_id));
+        client.disconnect().await;
+    }
+
     fn authorization(keys: &Keys, action: &str, hash: &str) -> String {
         let event = EventBuilder::new(Kind::Custom(24_242), format!("{action} local blob"))
             .tags([

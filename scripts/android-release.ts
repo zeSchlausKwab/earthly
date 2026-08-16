@@ -27,9 +27,11 @@ const PUBLIC_ENV_KEYS = new Set([
 	'EXTRA_READ_RELAYS',
 	'BLOSSOM_SERVER',
 	'MAPNOLIA_TRUSTED_PUBKEYS',
+	'DISCOVERY_FEATURED_PUBKEYS',
 	'SERVER_PUBKEY',
 	'CORDN_SERVER_PUBKEY',
 ])
+const OPTIONAL_PUBLIC_ENV_KEYS = new Set(['DISCOVERY_FEATURED_PUBKEYS'])
 
 export interface AndroidReleaseMetadata {
 	packageName: string
@@ -60,7 +62,9 @@ export function parsePublicReleaseEnvironment(contents: string): Record<string, 
 		values[key] = line.slice(separator + 1).trim()
 	}
 	for (const key of PUBLIC_ENV_KEYS) {
-		if (!(key in values)) throw new Error(`Public Android environment is missing ${key}`)
+		if (!(key in values) && !OPTIONAL_PUBLIC_ENV_KEYS.has(key)) {
+			throw new Error(`Public Android environment is missing ${key}`)
+		}
 	}
 	for (const key of ['RELAY_URL', 'EXTRA_READ_RELAYS']) {
 		for (const value of (values[key] ?? '').split(',').map((entry) => entry.trim()).filter(Boolean)) {
@@ -74,8 +78,14 @@ export function parsePublicReleaseEnvironment(contents: string): Record<string, 
 	if (blossomUrl.protocol !== 'https:') {
 		throw new Error('BLOSSOM_SERVER must use https:// in the Android release')
 	}
-	for (const key of ['SERVER_PUBKEY', 'CORDN_SERVER_PUBKEY', 'MAPNOLIA_TRUSTED_PUBKEYS']) {
+	for (const key of [
+		'SERVER_PUBKEY',
+		'CORDN_SERVER_PUBKEY',
+		'MAPNOLIA_TRUSTED_PUBKEYS',
+		'DISCOVERY_FEATURED_PUBKEYS',
+	]) {
 		const pubkeys = (values[key] ?? '').split(',').map((entry) => entry.trim()).filter(Boolean)
+		if (pubkeys.length === 0 && OPTIONAL_PUBLIC_ENV_KEYS.has(key)) continue
 		if (pubkeys.length === 0 || pubkeys.some((value) => !/^[0-9a-f]{64}$/u.test(value))) {
 			throw new Error(`${key} must contain lowercase 64-character public keys`)
 		}

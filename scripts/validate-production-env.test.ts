@@ -28,6 +28,7 @@ function validEnvironment(): Record<string, string> {
 		BLOSSOM_SERVER: 'https://blossom.earthly.city',
 		SEARXNG_URL: 'http://127.0.0.1:8888',
 		MAPNOLIA_TRUSTED_PUBKEYS: '5'.repeat(64),
+		DISCOVERY_FEATURED_PUBKEYS: '6'.repeat(64),
 	}
 }
 
@@ -81,6 +82,18 @@ describe('production environment validation', () => {
 		malformed.MAPNOLIA_TRUSTED_PUBKEYS = 'not-a-pubkey'
 		expect(validateProductionEnv(malformed).errors.join('\n')).toContain(
 			'MAPNOLIA_TRUSTED_PUBKEYS',
+		)
+	})
+
+	test('accepts an omitted Discover curator list but rejects malformed configured authors', () => {
+		const missing = validEnvironment()
+		delete missing.DISCOVERY_FEATURED_PUBKEYS
+		expect(validateProductionEnv(missing).errors).toEqual([])
+
+		const malformed = validEnvironment()
+		malformed.DISCOVERY_FEATURED_PUBKEYS = 'not-a-pubkey'
+		expect(validateProductionEnv(malformed).errors.join('\n')).toContain(
+			'DISCOVERY_FEATURED_PUBKEYS',
 		)
 	})
 

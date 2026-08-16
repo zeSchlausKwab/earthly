@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.5] - 2026-08-16
+
+- Added a Discover welcome surface with curated recent Datasets, Stories, and Contexts; direct
+  entry points for Sightings, Private groups, the Android app, and the optional product tour; and
+  the latest eligible map already loaded underneath.
+- Made startup more resilient to stale deployment chunks with a visible boot shell and bounded
+  retry path, tightened static-asset cache policy, and deferred spreadsheet and QR dependencies
+  until they are needed.
+- Removed the legacy 65,535-byte NIP-44 ceiling from Earthly's NIP-46 signing path and expanded the
+  public relay's rate-limited signer-transport envelope so remote signers can publish the editor's
+  full 1 MiB inline Dataset budget.
+
 ## [0.1.4] - 2026-08-15
 
 - Stabilized Android dataset publishing with a safe transient retry and useful on-device failure

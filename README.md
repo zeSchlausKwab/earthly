@@ -213,6 +213,7 @@ Important public configuration:
 | `SERVER_PUBKEY` | Earthly ContextVM server identity |
 | `CORDN_SERVER_PUBKEY` | Cordn-compatible private-group coordinator identity |
 | `MAPNOLIA_TRUSTED_PUBKEYS` | Trusted kind-34444 map-layer announcers |
+| `DISCOVERY_FEATURED_PUBKEYS` | Curated public authors eligible for the Discover catalog; an empty production list promotes nothing, while local development may fall back to local relay content |
 
 Local loopback development isolates writes from public relays even when broader read relays are configured. See [relay stages](docs/RELAY_STAGES.md).
 

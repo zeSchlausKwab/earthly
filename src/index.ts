@@ -6,6 +6,11 @@ import type { FeatureCollection } from 'geojson'
 import { nip19 } from 'nostr-tools'
 import { getPublicKey } from 'nostr-tools/pure'
 import { serverConfig } from './config/env.server'
+import {
+	getBuiltFileHeaders,
+	getMissingAssetHeaders,
+	isBrowserAssetPath,
+} from './lib/http/staticAssetHeaders'
 import { GEO_EVENT_KIND } from './lib/nostr/kinds'
 import { buildWorkerSource } from './lib/workers/buildWorker'
 import { WORKER_ASSETS, type WorkerId } from './lib/workers/workerAssets'
@@ -168,20 +173,7 @@ function getBaseUrl(req: Request): string {
  * QuickJS code-interpreter sandbox (Phase 4) fails to instantiate in the browser.
  */
 function serveBuiltFile(builtFile: ReturnType<typeof file>, pathname: string): Response {
-	const headers: Record<string, string> = {}
-	if (pathname.endsWith('.wasm')) {
-		headers['Content-Type'] = 'application/wasm'
-		// The QuickJS sandbox wasm is a fixed, content-addressable asset. Let the browser
-		// cache it aggressively so a worker (re)spawn never re-downloads the ~503KB blob
-		// (defence-in-depth against the Phase 4 wasm re-fetch runaway, on top of the
-		// worker-side compile-once memoization).
-		headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-	} else if (pathname.endsWith('.js') || pathname.endsWith('.mjs')) {
-		// Worker modules (and any served JS) MUST have a JS MIME — a module Worker
-		// refuses to load a script served as anything else.
-		headers['Content-Type'] = 'text/javascript; charset=utf-8'
-	}
-	return new Response(builtFile, { headers })
+	return new Response(builtFile, { headers: getBuiltFileHeaders(pathname) })
 }
 
 /**
@@ -589,9 +581,9 @@ if (!isProduction) {
 		const url = new URL(req.url)
 		const staticFile = file(join(process.cwd(), 'public', url.pathname))
 		if (await staticFile.exists()) {
-			return new Response(staticFile)
+			return serveBuiltFile(staticFile, url.pathname)
 		}
-		return new Response('Not found', { status: 404 })
+		return new Response('Not found', { status: 404, headers: getMissingAssetHeaders() })
 	}
 
 	if (isProduction) {
@@ -628,7 +620,7 @@ if (!isProduction) {
 						const baseUrl = getBaseUrl(req)
 						const html = generateHomeOGHtml(baseUrl)
 						return new Response(html, {
-							headers: { 'Content-Type': 'text/html; charset=utf-8' },
+							headers: getBuiltFileHeaders('/index.html'),
 						})
 					}
 
@@ -655,14 +647,15 @@ if (!isProduction) {
 					// "Expected a JavaScript-or-Wasm module script" failure instead of a
 					// debuggable 404. Route paths (naddr segments, d-tags) never end in
 					// these extensions, so this cannot shadow client-side routes.
-					const assetExtension =
-						/\.(js|mjs|css|map|wasm|json|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf)$/i
-					if (assetExtension.test(pathname) || pathname.startsWith('/workers/')) {
-						return new Response('Not found', { status: 404 })
+					if (isBrowserAssetPath(pathname)) {
+						return new Response('Not found', {
+							status: 404,
+							headers: getMissingAssetHeaders(),
+						})
 					}
 
 					// If file not found, serve index.html for client-side routing
-					return new Response(file(join(process.cwd(), 'dist', 'index.html')))
+					return serveBuiltFile(file(join(process.cwd(), 'dist', 'index.html')), '/index.html')
 				},
 			},
 		})
@@ -692,7 +685,10 @@ if (!isProduction) {
 			const servedName = req.params.name ?? ''
 			const sourcePath = workerSourceByServedName.get(servedName)
 			if (!sourcePath) {
-				return new Response('Unknown worker', { status: 404 })
+				return new Response('Unknown worker', {
+					status: 404,
+					headers: getMissingAssetHeaders(),
+				})
 			}
 			try {
 				let pending = devWorkerCache.get(servedName)

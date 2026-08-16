@@ -128,15 +128,41 @@ export function useTimelineWithEose(
 
 		setEose(false)
 
+		let cancelled = false
+		let cacheHydrated = false
+		let relaysCompleted = false
+
+		// Cache hydration and relay EOSE race each other. Do not expose EOSE until
+		// both have finished, otherwise consumers can latch the relay-only snapshot
+		// before cached events have reached the reactive timeline. The deadline is
+		// still authoritative if either side hangs.
+		const eoseTimeout = setTimeout(() => {
+			if (!cancelled) setEose(true)
+		}, EOSE_TIMEOUT_MS)
+		const reportEoseIfReady = () => {
+			if (cancelled || !cacheHydrated || !relaysCompleted) return
+			clearTimeout(eoseTimeout)
+			setEose(true)
+		}
+
 		// Hydrate matching events from the IndexedDB cache so the timeline renders
 		// instantly on reload; relay events stream in on top and deduplicate.
-		let cancelled = false
-		void queryCache(filterList(activeFilters)).then((cached) => {
-			if (cancelled) return
-			for (const event of cached) eventStore.add(event)
-		})
-
-		const eoseTimeout = setTimeout(() => setEose(true), EOSE_TIMEOUT_MS)
+		void queryCache(filterList(activeFilters)).then(
+			(cached) => {
+				if (cancelled) return
+				for (const event of cached) eventStore.add(event)
+				cacheHydrated = true
+				reportEoseIfReady()
+			},
+			() => {
+				// queryCache normally degrades failures to an empty result. Treat an
+				// unexpected rejection as a completed hydration attempt so relay EOSE
+				// can still settle the hook without waiting for the deadline.
+				if (cancelled) return
+				cacheHydrated = true
+				reportEoseIfReady()
+			},
+		)
 
 		const doneRelays = new Set<string>()
 		const stopSubscription = startLiveTimelineSubscription({
@@ -147,8 +173,8 @@ export function useTimelineWithEose(
 			onRelayDone: (relay) => {
 				doneRelays.add(relay)
 				if (doneRelays.size >= activeRelays.length) {
-					clearTimeout(eoseTimeout)
-					setEose(true)
+					relaysCompleted = true
+					reportEoseIfReady()
 				}
 			},
 		})

@@ -1,5 +1,3 @@
-import jsQR from 'jsqr'
-
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const MAX_DECODE_EDGE = 1_600
 const INVITATION_PREFIX = 'earthly-pair-v1:'
@@ -77,6 +75,7 @@ export async function decodePairingQrImage(file: File): Promise<string> {
 		if (!context) throw new Error('This device cannot read QR images')
 		context.drawImage(image, 0, 0, width, height)
 		const pixels = context.getImageData(0, 0, width, height)
+		const { default: jsQR } = await import('jsqr')
 		const code = jsQR(pixels.data, width, height, { inversionAttempts: 'attemptBoth' })
 		if (!code) throw new Error('No QR code was found in that image')
 		const invitation = normalizePairingInvitation(code.data)

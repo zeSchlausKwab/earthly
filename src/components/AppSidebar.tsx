@@ -5,6 +5,7 @@ import {
 	HelpCircle,
 	BookOpen,
 	CloudUpload,
+	Compass,
 	Eye,
 	FilePenLine,
 	Newspaper,
@@ -209,6 +210,8 @@ export function resolveActiveInspectEntity(
 }
 
 interface AppSidebarProps {
+	onOpenDiscover: () => void
+	discoverOpen?: boolean
 	geoEvents: GeoDataset[]
 	mapContextEvents: MapContext[]
 	activeDataset: GeoDataset | null
@@ -357,6 +360,8 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({
+	onOpenDiscover,
+	discoverOpen = false,
 	geoEvents,
 	mapContextEvents,
 	activeDataset,
@@ -1328,6 +1333,24 @@ export function AppSidebar({
 							</SidebarGroupContent>
 						</SidebarGroup>
 					) : null}
+
+					<SidebarGroup className="border-sidebar-border border-b pb-1">
+						<SidebarGroupContent className="px-1.5 md:px-0">
+							<SidebarMenu>
+								<SidebarMenuItem data-tour="sidebar-discover">
+									<SidebarMenuButton
+										tooltip={{ children: 'Discover', hidden: false }}
+										onClick={onOpenDiscover}
+										isActive={discoverOpen}
+										className="border border-sidebar-border/70 bg-sidebar-accent/20 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground md:px-2"
+									>
+										<Compass />
+										<span>Discover</span>
+									</SidebarMenuButton>
+								</SidebarMenuItem>
+							</SidebarMenu>
+						</SidebarGroupContent>
+					</SidebarGroup>
 
 					<SidebarGroup>
 						<SidebarGroupContent className="px-1.5 md:px-0">

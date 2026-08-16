@@ -21,6 +21,16 @@ const publicKeyListSchema = z.string().refine(
 	{ message: 'must contain one or more comma-separated lowercase hexadecimal public keys' },
 )
 
+const optionalPublicKeyListSchema = z.string().refine(
+	(value) =>
+		value
+			.split(',')
+			.map((key) => key.trim())
+			.filter(Boolean)
+			.every((key) => /^[0-9a-f]{64}$/u.test(key)),
+	{ message: 'must contain comma-separated lowercase hexadecimal public keys' },
+)
+
 /**
  * Zod schema defining all environment variables with their types and defaults.
  *
@@ -99,6 +109,13 @@ export const envSchema = z.object({
 	/** Trusted kind-34444 Mapnolia announcement authors, never signing credentials. */
 	MAPNOLIA_TRUSTED_PUBKEYS: publicKeyListSchema.default(DEFAULT_MAPNOLIA_TRUSTED_PUBKEY),
 
+	/**
+	 * Curated authors whose public maps appear in Discover. Empty is intentional
+	 * for local development, where the UI may fall back to local relay content.
+	 * In production, an empty list fails closed and promotes no public content.
+	 */
+	DISCOVERY_FEATURED_PUBKEYS: optionalPublicKeyListSchema.default(''),
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// Web Search Configuration
 	// ─────────────────────────────────────────────────────────────────────────
@@ -127,6 +144,7 @@ export const FRONTEND_ENV_KEYS = [
 	'CORDN_SERVER_PUBKEY',
 	'BLOSSOM_SERVER',
 	'MAPNOLIA_TRUSTED_PUBKEYS',
+	'DISCOVERY_FEATURED_PUBKEYS',
 	'NODE_ENV',
 ] as const
 

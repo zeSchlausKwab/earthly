@@ -27,6 +27,7 @@ const DEV_DEFAULTS = {
 	SERVER_PUBKEY: 'ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc',
 	BLOSSOM_SERVER: 'https://blossom.earthly.city',
 	MAPNOLIA_TRUSTED_PUBKEYS: DEFAULT_MAPNOLIA_TRUSTED_PUBKEY,
+	DISCOVERY_FEATURED_PUBKEYS: '',
 } as const
 
 const LOCAL_DEV_RELAY_URL = 'ws://localhost:3334'
@@ -198,6 +199,12 @@ const trustedMapnoliaPubkeys = parsePublicKeyList(
 		DEV_DEFAULTS.MAPNOLIA_TRUSTED_PUBKEYS,
 	),
 )
+const discoveryFeaturedPubkeys = parsePublicKeyList(
+	safeEnv(
+		() => process.env.DISCOVERY_FEATURED_PUBKEYS as string,
+		DEV_DEFAULTS.DISCOVERY_FEATURED_PUBKEYS,
+	),
+)
 
 const writeRelays = buildWriteRelays({ relayUrl, isDevelopment })
 const readRelays = buildReadRelays({ writeRelays, relayUrl, extraReadRelays })
@@ -248,6 +255,12 @@ export const config = {
 
 	/** Authors allowed to select remote Mapnolia layers and offline-region provenance. */
 	trustedMapnoliaPubkeys,
+
+	/**
+	 * Curated authors shown by Discover. An empty list is reserved for the
+	 * local-development fallback and fails closed in production.
+	 */
+	discoveryFeaturedPubkeys,
 
 	/** Whether running in production mode */
 	isProduction,

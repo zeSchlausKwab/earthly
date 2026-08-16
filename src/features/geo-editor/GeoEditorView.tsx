@@ -46,6 +46,8 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
+import { config } from '@/config/env.client'
+import { EARTHLY_ZAPSTORE_URL } from '@/config/app-downloads'
 import type { LocalDraftDestinationOption } from '@/components/WorkspaceDraftNavigator'
 import { ControlButton, ControlGroup } from '@/components/ui/map'
 import { BlossomUploadDialog } from '@/components/BlossomUploadDialog'
@@ -62,7 +64,21 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { executeEditorCommand } from './commands'
-import { shouldSeedAggregateLayers } from './aggregateLayerSeed'
+import {
+	DiscoverDialog,
+	getDiscoverWelcomeStorage,
+	hasSeenDiscoverWelcome,
+	isRenderableDiscoveryDataset,
+	markDiscoverWelcomeSeen,
+	normalizeDiscoveryText,
+	selectLatestEligibleDataset,
+	selectRecentDiscoveryItems,
+	shouldAutoOpenDiscover,
+	shouldSeedLandingDataset,
+	type DiscoveryItem,
+	type DiscoveryItemKind,
+} from '@/features/discovery'
+import { useTourStore } from '@/features/tour'
 import { StudioShell } from './components/StudioShell'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
@@ -188,7 +204,7 @@ import {
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import { useEditorStore, type MapStackEntry, type PublishChannel } from './store'
-import { useChatStore } from '@/features/chat'
+import { useChatStore } from '@/features/chat/store'
 import { registerDatasetDraftEnsurer } from './authoringTaskBridge'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
@@ -302,6 +318,23 @@ export function shouldSweepStackEntry(status: { resolved: boolean; expired: bool
 
 const NO_SAVED_REGION_EVENTS: readonly NostrEvent[] = []
 
+function discoverySummary(...candidates: unknown[]): string | undefined {
+	for (const candidate of candidates) {
+		const summary = normalizeDiscoveryText(candidate, 280)
+		if (summary) return summary
+	}
+	return undefined
+}
+
+function discoveryDate(createdAt: number): string | undefined {
+	if (!Number.isFinite(createdAt)) return undefined
+	try {
+		return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(createdAt * 1000)
+	} catch {
+		return undefined
+	}
+}
+
 function SavedRegionDeletionMonitor({
 	regionId,
 	targets,
@@ -346,6 +379,12 @@ export function GeoEditorView() {
 	const map = useRef<maplibregl.Map | null>(null)
 	const [mounted, setMounted] = useState(false)
 	const [loadedMap, setLoadedMap] = useState<maplibregl.Map | null>(null)
+	const [discoverOpen, setDiscoverOpen] = useState(false)
+	const discoverAutoOpenedRef = useRef(false)
+	const discoverOpenedAutomaticallyRef = useRef(false)
+	const landingDatasetSeededRef = useRef(false)
+	const landingDatasetFitPendingRef = useRef<GeoDataset | null>(null)
+	const startTour = useTourStore((state) => state.startTour)
 	const {
 		route,
 		navigateTo,
@@ -621,7 +660,7 @@ export function GeoEditorView() {
 	}, [mapSource.type, mapSource.location, mapSource.url, mapSource.blossomServer, mapSource.file])
 
 	// External data
-	const { events: geoEvents } = useGeoDatasets()
+	const { events: geoEvents, eose: geoEventsSettled } = useGeoDatasets()
 	const fieldSessions = useFieldSessions()
 	const localDraftDestinationOptions = useMemo<LocalDraftDestinationOption[]>(
 		() => [
@@ -735,12 +774,12 @@ export function GeoEditorView() {
 		if (!privateWorkspaceRuntime || !privateWorkspaceScopeId || !privateWorkspaceId) return
 		return privateWorkspaceRuntime.watchWorkspace(privateWorkspaceScopeId)
 	}, [privateWorkspaceRuntime, privateWorkspaceScopeId, privateWorkspaceId])
-	const { events: mapContextEvents } = useMapContexts()
+	const { events: mapContextEvents, eose: mapContextsSettled } = useMapContexts()
 	// Groups (kind 37518, slimmed) the contributor can `c`-attach to (GROUP-02).
 	const { events: groups } = useGroups()
 	// Stories (kind 37520) — used to resolve a /stories/story/:naddr deep link to the
 	// Article cast so the focus-route effect can open it (Phase 10, D-04).
-	const { events: stories } = useStories()
+	const { events: stories, eose: storiesSettled } = useStories()
 	// Temporal Sightings (kind 37522) — rendered as observation-state markers on the
 	// browse map (D-05/D-06) and listed in the Sightings rail (D-07). useSightings
 	// already drops expired at the subscription (SIGHT-03 / Pitfall P-1).
@@ -1027,6 +1066,90 @@ export function GeoEditorView() {
 		tearDownEditSession,
 		startNewDataset: startNewDatasetWithOptions,
 	} = useDatasetManagement(map, mapGeoEvents)
+
+	const discoverySelectionOptions = useMemo(
+		() => ({
+			featuredPubkeys: config.discoveryFeaturedPubkeys,
+			allowUnfeaturedFallback: !config.isProduction,
+		}),
+		[],
+	)
+	const recentDiscoveryDatasets = useMemo(
+		() =>
+			selectRecentDiscoveryItems(
+				geoEvents.filter(isRenderableDiscoveryDataset),
+				discoverySelectionOptions,
+				3,
+			),
+		[geoEvents, discoverySelectionOptions],
+	)
+	const recentDiscoveryStories = useMemo(
+		() => selectRecentDiscoveryItems(stories, discoverySelectionOptions, 3),
+		[stories, discoverySelectionOptions],
+	)
+	const recentDiscoveryContexts = useMemo(
+		() => selectRecentDiscoveryItems(mapContextEvents, discoverySelectionOptions, 3),
+		[mapContextEvents, discoverySelectionOptions],
+	)
+	const latestDiscoveryDataset = useMemo(
+		() => selectLatestEligibleDataset(geoEvents, discoverySelectionOptions),
+		[geoEvents, discoverySelectionOptions],
+	)
+	const discoveryDatasets = useMemo<DiscoveryItem[]>(
+		() =>
+			recentDiscoveryDatasets.map((event) => {
+				const collection = event.featureCollection as FeatureCollection & {
+					description?: unknown
+					summary?: unknown
+					properties?: Record<string, unknown>
+				}
+				const date = discoveryDate(event.created_at)
+				return {
+					id: event.id,
+					title: getDatasetName(event),
+					summary: discoverySummary(
+						collection.description,
+						collection.summary,
+						collection.properties?.description,
+						collection.properties?.summary,
+					),
+					meta: [
+						`${collection.features.length} feature${collection.features.length === 1 ? '' : 's'}`,
+						date,
+					]
+						.filter(Boolean)
+						.join(' · '),
+				}
+			}),
+		[getDatasetName, recentDiscoveryDatasets],
+	)
+	const discoveryStories = useMemo<DiscoveryItem[]>(
+		() =>
+			recentDiscoveryStories.map((story) => ({
+				id: story.id,
+				title:
+					normalizeDiscoveryText(story.article.title, 120) ??
+					normalizeDiscoveryText(story.dTag, 120) ??
+					'Untitled story',
+				summary: discoverySummary(story.article.summary, story.article.content),
+				meta: discoveryDate(story.created_at),
+			})),
+		[recentDiscoveryStories],
+	)
+	const discoveryContexts = useMemo<DiscoveryItem[]>(
+		() =>
+			recentDiscoveryContexts.map((context) => ({
+				id: context.id,
+				title:
+					normalizeDiscoveryText(context.context.name, 120) ??
+					normalizeDiscoveryText(context.contextId, 120) ??
+					'Untitled context',
+				summary: discoverySummary(context.context.description),
+				meta: discoveryDate(context.created_at),
+			})),
+		[recentDiscoveryContexts],
+	)
+	const discoveryLoading = !geoEventsSettled || !storiesSettled || !mapContextsSettled
 
 	const surfaceDraftOnMobile = useCallback(() => {
 		if (!isMobile) return
@@ -1714,14 +1837,25 @@ export function GeoEditorView() {
 	// not shareable.
 	useEffect(() => {
 		if (!stackUrlHydratedRef.current) return
+		// The route object is also our pathname-change signal; stack membership
+		// itself often stays stable while the user moves between catalogs.
+		void route
 		let cancelled = false
 		const handle = window.requestAnimationFrame(() => {
 			if (cancelled) return
 			const params = new URLSearchParams(window.location.search)
-			const shareableEntries = mapStackOrder
+			const candidates = mapStackOrder
 				.map((id) => mapStackEntries[id])
 				.filter((entry): entry is MapStackEntry => Boolean(entry))
 				.filter((entry) => entry.entityType !== 'draft' && entry.source !== 'private-group')
+			// An untouched landing default is ambient page state, not a share intent.
+			// Keep `/` stable so the next visit can choose the newest featured map.
+			const hasExplicitEntry = candidates.some((entry) => entry.source !== 'browse-default')
+			const isPlainRoot = window.location.pathname === '/'
+			const shareableEntries =
+				!hasExplicitEntry && isPlainRoot
+					? candidates.filter((entry) => entry.source !== 'browse-default')
+					: candidates
 			const tokens = shareableEntries.map((entry) => `${entry.entityType}:${entry.entityKey}`)
 			if (tokens.length > 0) {
 				params.set('ms', tokens.join(','))
@@ -1754,62 +1888,98 @@ export function GeoEditorView() {
 			cancelled = true
 			window.cancelAnimationFrame(handle)
 		}
-	}, [mapStackEntries, mapStackOrder])
-	// Round E.2: the former auto-seed, now triggered by the landing prompt's
-	// "Show recent datasets" button — the 5 most recent datasets by created_at.
-	// Phase 13 (SPEC §3.3, D-05) + landing default: cold-start auto-adds BOTH
-	// aggregate layer entries — 'All sightings' + 'Live beacons' — so the user
-	// NEVER lands on an empty map (this replaced the 'Your map is empty'
-	// BrowseLandingPrompt; mobile and desktop alike). Entries are removable/
-	// toggleable Map Stack rows (source 'browse-default', entityKey 'all',
-	// visible). Seeded exactly once per session on the first cold-start (no
-	// `?ms=` URL), guarded by a ref so it never re-seeds after the user Clears
-	// them (browse-default entries clear normally per clearMapStack) or removes
-	// them. A `?ms=`-bearing deep link hydrates its own stack and is NOT seeded
-	// (its membership is the shared view; the observer should see exactly what
-	// was shared). Author stance is exempt — a restored draft shouldn't get
-	// layers pushed under it mid-edit.
-	const aggregateLayersSeededRef = useRef(false)
+	}, [mapStackEntries, mapStackOrder, route])
+	// A plain, unscoped `/` starts with the newest eligible featured map. The
+	// selection waits for relay EOSE so streaming order cannot pin an older map.
+	// Restored drafts, shared stacks, scoped routes and explicit catalog routes
+	// remain authoritative and are never modified.
 	useEffect(() => {
-		if (aggregateLayersSeededRef.current) return
-		if (stance === 'author' || !stackUrlHydrated) return
-		aggregateLayersSeededRef.current = true
-		const shouldSeed = shouldSeedAggregateLayers({
-			stance,
-			stackUrlHydrated,
-			hasSharedStack: new URLSearchParams(window.location.search).has('ms'),
+		if (landingDatasetSeededRef.current || !latestDiscoveryDataset || getPendingNativeDeepLink())
+			return
+		const state = useEditorStore.getState()
+		const shouldSeed = shouldSeedLandingDataset({
+			pathname: window.location.pathname,
+			search: window.location.search,
+			hash: window.location.hash,
 			route,
+			stance: state.stance,
+			stackUrlHydrated,
+			catalogSettled: geoEventsSettled,
+			activeDraftId: state.activeGeoEditDraftId,
+			activeWorkspaceId: state.activeWorkspaceId,
+			hasEditorFeatures: state.features.length > 0,
+			hasDraftStackEntry: state.mapStackOrder.some(
+				(id) => state.mapStackEntries[id]?.entityType === 'draft',
+			),
+			mapStackSize: state.mapStackOrder.length,
 		})
 		if (!shouldSeed) return
-		// Idempotent: addMapStackEntry keys by `${entityType}:${entityKey}` so a
-		// second call with entityKey 'all' is a no-op merge, never a duplicate row.
-		const hasSightingLayer = mapStackOrder.some(
-			(id) => mapStackEntries[id]?.entityType === 'sighting-layer',
-		)
-		const hasBeaconLayer = mapStackOrder.some(
-			(id) => mapStackEntries[id]?.entityType === 'beacon-layer',
-		)
-		if (!hasSightingLayer) {
-			addMapStackEntry({
-				entityType: 'sighting-layer',
-				entityKey: 'all',
-				title: 'All sightings',
-				source: 'browse-default',
-				visible: true,
-				pinned: false,
+		addDatasetToMapStack(latestDiscoveryDataset, 'browse-default')
+		landingDatasetSeededRef.current = true
+		landingDatasetFitPendingRef.current = latestDiscoveryDataset
+	}, [addDatasetToMapStack, geoEventsSettled, latestDiscoveryDataset, route, stackUrlHydrated])
+
+	useEffect(() => {
+		if (!mounted || !landingDatasetFitPendingRef.current) return
+		zoomToDataset(landingDatasetFitPendingRef.current)
+		landingDatasetFitPendingRef.current = null
+	}, [mounted, zoomToDataset])
+
+	// First-visit welcome is deliberately independent from tour completion. It
+	// opens only on the safe plain-root landing and can always be reopened via
+	// Discover in the desktop rail or mobile navigation.
+	useEffect(() => {
+		if (discoverAutoOpenedRef.current || getPendingNativeDeepLink()) return
+		const state = useEditorStore.getState()
+		if (
+			!shouldAutoOpenDiscover({
+				pathname: window.location.pathname,
+				search: window.location.search,
+				hash: window.location.hash,
+				route,
+				stance: state.stance,
+				stackUrlHydrated,
+				activeDraftId: state.activeGeoEditDraftId,
+				activeWorkspaceId: state.activeWorkspaceId,
+				hasEditorFeatures: state.features.length > 0,
+				hasDraftStackEntry: state.mapStackOrder.some(
+					(id) => state.mapStackEntries[id]?.entityType === 'draft',
+				),
 			})
-		}
-		if (!hasBeaconLayer) {
-			addMapStackEntry({
-				entityType: 'beacon-layer',
-				entityKey: 'all',
-				title: 'Live beacons',
-				source: 'browse-default',
-				visible: true,
-				pinned: false,
+		)
+			return
+		if (hasSeenDiscoverWelcome(getDiscoverWelcomeStorage())) return
+		discoverAutoOpenedRef.current = true
+		discoverOpenedAutomaticallyRef.current = true
+		setDiscoverOpen(true)
+	}, [route, stackUrlHydrated])
+
+	// A native cold-launch link can arrive after the first root render. Close
+	// only an automatically-opened welcome in that case; a user-invoked Discover
+	// modal is intentionally available on every route.
+	useEffect(() => {
+		if (!discoverOpen || !discoverOpenedAutomaticallyRef.current) return
+		const state = useEditorStore.getState()
+		const stillSafeToWelcome =
+			!getPendingNativeDeepLink() &&
+			shouldAutoOpenDiscover({
+				pathname: window.location.pathname,
+				search: window.location.search,
+				hash: window.location.hash,
+				route,
+				stance: state.stance,
+				stackUrlHydrated,
+				activeDraftId: state.activeGeoEditDraftId,
+				activeWorkspaceId: state.activeWorkspaceId,
+				hasEditorFeatures: state.features.length > 0,
+				hasDraftStackEntry: state.mapStackOrder.some(
+					(id) => state.mapStackEntries[id]?.entityType === 'draft',
+				),
 			})
-		}
-	}, [stance, stackUrlHydrated, route, mapStackEntries, mapStackOrder, addMapStackEntry])
+		if (stillSafeToWelcome) return
+		discoverOpenedAutomaticallyRef.current = false
+		setDiscoverOpen(false)
+	}, [discoverOpen, route, stackUrlHydrated])
 
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
@@ -3239,6 +3409,78 @@ export function GeoEditorView() {
 		onBeforeAuthoring: tearDownEditSession,
 	})
 
+	const handleDiscoverOpenChange = useCallback((open: boolean) => {
+		discoverOpenedAutomaticallyRef.current = false
+		setDiscoverOpen(open)
+		if (!open) markDiscoverWelcomeSeen(getDiscoverWelcomeStorage())
+	}, [])
+
+	const handleOpenDiscover = useCallback(() => {
+		discoverOpenedAutomaticallyRef.current = false
+		setDiscoverOpen(true)
+	}, [])
+
+	const handleSelectDiscoveryItem = useCallback(
+		(kind: DiscoveryItemKind, id: string) => {
+			if (kind === 'dataset') {
+				const dataset = recentDiscoveryDatasets.find((event) => event.id === id)
+				if (!dataset) return
+				addDatasetToMapStack(dataset, 'manual')
+				handleInspectDatasetWithModeSwitch(dataset)
+				zoomToDataset(dataset)
+				return
+			}
+			if (kind === 'story') {
+				const story = recentDiscoveryStories.find((event) => event.id === id)
+				if (story) handleInspectStory(story)
+				return
+			}
+			const context = recentDiscoveryContexts.find((event) => event.id === id)
+			if (context) handleInspectContext(context)
+		},
+		[
+			addDatasetToMapStack,
+			handleInspectContext,
+			handleInspectDatasetWithModeSwitch,
+			handleInspectStory,
+			recentDiscoveryContexts,
+			recentDiscoveryDatasets,
+			recentDiscoveryStories,
+			zoomToDataset,
+		],
+	)
+
+	const handleBrowseDiscoverSightings = useCallback(() => {
+		const state = useEditorStore.getState()
+		if (
+			!state.mapStackOrder.some((id) => state.mapStackEntries[id]?.entityType === 'sighting-layer')
+		) {
+			addMapStackEntry({
+				entityType: 'sighting-layer',
+				entityKey: 'all',
+				title: 'All sightings',
+				source: 'manual',
+				visible: true,
+				pinned: false,
+			})
+		}
+		navigateToUnscopedView('sightings')
+		if (isMobile) selectMobileSidebarDestination('sightings')
+	}, [addMapStackEntry, isMobile, navigateToUnscopedView, selectMobileSidebarDestination])
+
+	const handleCreateDiscoverPrivateGroup = useCallback(() => {
+		navigateToUnscopedView('private-groups')
+		if (isMobile) selectMobileSidebarDestination('private-groups')
+	}, [isMobile, navigateToUnscopedView, selectMobileSidebarDestination])
+
+	const handleGetEarthlyApp = useCallback(() => {
+		window.open(EARTHLY_ZAPSTORE_URL, '_blank', 'noopener,noreferrer')
+	}, [])
+
+	const handleTakeDiscoverTour = useCallback(() => {
+		window.requestAnimationFrame(() => startTour())
+	}, [startTour])
+
 	const handleDeleteStory = useCallback(
 		async (story: Article) => {
 			const signer = accounts.signer
@@ -4098,6 +4340,8 @@ export function GeoEditorView() {
 			chat={chatSlot}
 			sidebar={
 				<AppSidebar
+					onOpenDiscover={handleOpenDiscover}
+					discoverOpen={discoverOpen}
 					geoEvents={scopedGeoEvents}
 					mapContextEvents={mapContextEvents}
 					activeDataset={activeDataset}
@@ -4213,6 +4457,22 @@ export function GeoEditorView() {
 				/>
 			}
 		>
+			<DiscoverDialog
+				open={discoverOpen}
+				onOpenChange={handleDiscoverOpenChange}
+				datasets={discoveryDatasets}
+				stories={discoveryStories}
+				contexts={discoveryContexts}
+				onSelectItem={handleSelectDiscoveryItem}
+				onBrowseSightings={handleBrowseDiscoverSightings}
+				onCreatePrivateGroup={handleCreateDiscoverPrivateGroup}
+				onGetApp={handleGetEarthlyApp}
+				onTakeTour={handleTakeDiscoverTour}
+				// The tour targets stable editor chrome and filters unavailable steps.
+				// Do not make it depend on remote basemap/style completion.
+				tourReady
+				loading={discoveryLoading}
+			/>
 			{savedRegionHydration.state === 'ready'
 				? Object.entries(savedRegionHydration.regionDeletionTargets).map(([regionId, targets]) => (
 						<SavedRegionDeletionMonitor key={regionId} regionId={regionId} targets={targets} />
@@ -4609,6 +4869,7 @@ export function GeoEditorView() {
 			{/* Mobile Panel - unified tabbed drawer */}
 			{isMobile && (
 				<MobilePanel
+					onOpenDiscover={handleOpenDiscover}
 					geoEvents={scopedGeoEvents}
 					mapContextEvents={mapContextEvents}
 					activeDataset={activeDataset}

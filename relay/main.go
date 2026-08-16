@@ -39,6 +39,15 @@ var (
 	// refuses writes instead of crash-looping the machine (the 2026-06-08
 	// incident mode).
 	minFreeBytes = flag.Int64("min-free-bytes", 512*1024*1024, "Refuse event writes when the data volume has less free space than this")
+
+	// Large remote-signing envelopes are expensive to parse and verify. Keep a
+	// generous burst for real request/response pairs while bounding abuse.
+	largeNostrConnectEnvelopeRateLimit = policies.EventIPRateLimiter(4, time.Minute, 24)
+)
+
+const (
+	maxRelayMessageBytes         = 8 * 1024 * 1024
+	maxNostrConnectEnvelopeBytes = 7 * 1024 * 1024
 )
 
 func main() {
@@ -105,14 +114,19 @@ func main() {
 	}
 
 	relay := khatru.NewRelay()
-	relay.MaxMessageSize = 2 * 1024 * 1024 // large GeoJSON dataset events
+	// A one-MiB dataset remains the public content contract. NIP-46 has to
+	// JSON-wrap, pad, and base64 that content for remote signing, so its
+	// ephemeral transport event needs a larger whole-message allowance.
+	relay.MaxMessageSize = maxRelayMessageBytes
 	relay.Info.Name = "Earthly City Relay"
 	relay.Info.Description = "Nostr relay for collaborative geographic mapping. Geo-aware NIP-50 search — capability document at /earthly-search."
 	relay.Info.Icon = "https://earthly.city/icons/logo.png"
 	relay.Info.Contact = "https://github.com/schlaus/earthly-rewrite"
 	relay.Info.Limitation = &nip11.RelayLimitationDocument{
 		MaxMessageLength: int(relay.MaxMessageSize),
-		MaxContentLength: largecontent.MaxContentBytes,
+		// NIP-11 has no per-kind limit. Advertise the true transport ceiling;
+		// ordinary persisted content is still policy-limited to one MiB below.
+		MaxContentLength: maxNostrConnectEnvelopeBytes,
 	}
 	relay.Info.AddSupportedNIP(40)
 	relay.Info.AddSupportedNIP(50)
@@ -186,15 +200,8 @@ func main() {
 			}
 			return false, ""
 		},
-		func(ctx context.Context, evt nostr.Event) (bool, string) {
-			if len(evt.Content) > largecontent.MaxContentBytes {
-				return true, fmt.Sprintf(
-					"blocked: event content exceeds the %d-byte relay limit",
-					largecontent.MaxContentBytes,
-				)
-			}
-			return false, ""
-		},
+		rejectOversizedEventContent,
+		rateLimitLargeNostrConnectEnvelope,
 		policies.PreventTimestampsInTheFuture(30*time.Minute),
 		func(ctx context.Context, evt nostr.Event) (bool, string) {
 			logger.Debug("event", "kind", int(evt.Kind), "id", evt.ID.Hex(), "pubkey", evt.PubKey.Hex()[:8])
@@ -232,6 +239,29 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	server.Shutdown(shutdownCtx)
+}
+
+func rejectOversizedEventContent(_ context.Context, evt nostr.Event) (bool, string) {
+	limit := largecontent.MaxContentBytes
+	if evt.Kind == nostr.KindNostrConnect {
+		// Kind 24133 is ephemeral signer transport, not published application
+		// content. Khatru does not persist ephemeral events.
+		limit = maxNostrConnectEnvelopeBytes
+	}
+	if len(evt.Content) > limit {
+		return true, fmt.Sprintf("blocked: event content exceeds the %d-byte relay limit", limit)
+	}
+	return false, ""
+}
+
+func rateLimitLargeNostrConnectEnvelope(
+	ctx context.Context,
+	evt nostr.Event,
+) (bool, string) {
+	if evt.Kind != nostr.KindNostrConnect || len(evt.Content) <= largecontent.MaxContentBytes {
+		return false, ""
+	}
+	return largeNostrConnectEnvelopeRateLimit(ctx, evt)
 }
 
 func newLogger(level string) *slog.Logger {

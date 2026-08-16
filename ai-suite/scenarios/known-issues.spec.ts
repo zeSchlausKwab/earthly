@@ -3,7 +3,7 @@ import { startDataset } from '../tasks/create/dataset'
 import { inspectSurface } from '../tasks/diagnostics/inspect-surface'
 import { walkKeyboardOrder } from '../tasks/diagnostics/keyboard-walk'
 import { openPanel } from '../tasks/navigation/open-panel'
-import { inspectTourTargets } from '../tasks/onboarding/tour'
+import { inspectTourTargets, startTour } from '../tasks/onboarding/tour'
 
 test('Connect to Nostr choices fit a generous desktop dialog @regression', async ({
 	earthly,
@@ -36,7 +36,8 @@ test('Connect to Nostr choices fit a generous desktop dialog @regression', async
 // point at a visible control. Steps without a target (welcome, finale, and the
 // desktop collaboration concept step) are intentionally centered.
 test('all anchored tour steps point at visible controls @regression', async ({ earthly }) => {
-	await earthly.open({ tour: 'new' })
+	await earthly.open({ tour: 'new', discover: 'new' })
+	await startTour(earthly)
 	const observations = await inspectTourTargets(earthly)
 	const anchoredSteps = observations.filter(({ target }) => target != null)
 	// Guard against the degenerate all-centered tour: both variants anchor at

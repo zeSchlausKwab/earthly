@@ -8,6 +8,7 @@ describe('frontend environment allow-list', () => {
 		expect(FRONTEND_ENV_KEYS).not.toContain('APP_PRIVATE_KEY' as never)
 		expect(FRONTEND_ENV_KEYS).not.toContain('PUBLIC_BASE_URL' as never)
 		expect(FRONTEND_ENV_KEYS).toContain('MAPNOLIA_TRUSTED_PUBKEYS')
+		expect(FRONTEND_ENV_KEYS).toContain('DISCOVERY_FEATURED_PUBKEYS')
 	})
 
 	test('does not retain the retired shared client key', () => {
@@ -22,6 +23,19 @@ describe('frontend environment allow-list', () => {
 	test('rejects an invalid trusted Mapnolia author list', () => {
 		expect(() =>
 			parseEnv({ NODE_ENV: 'production', MAPNOLIA_TRUSTED_PUBKEYS: 'not-a-pubkey' }),
+		).toThrow()
+	})
+
+	test('allows an empty local Discover curator list but validates configured authors', () => {
+		expect(parseEnv({ NODE_ENV: 'development' }).DISCOVERY_FEATURED_PUBKEYS).toBe('')
+		expect(
+			parseEnv({
+				NODE_ENV: 'production',
+				DISCOVERY_FEATURED_PUBKEYS: `${'5'.repeat(64)},${'6'.repeat(64)}`,
+			}).DISCOVERY_FEATURED_PUBKEYS,
+		).toBe(`${'5'.repeat(64)},${'6'.repeat(64)}`)
+		expect(() =>
+			parseEnv({ NODE_ENV: 'production', DISCOVERY_FEATURED_PUBKEYS: 'not-a-pubkey' }),
 		).toThrow()
 	})
 

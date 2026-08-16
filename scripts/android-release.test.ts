@@ -15,6 +15,7 @@ RELAY_URL=wss://relay.earthly.city
 EXTRA_READ_RELAYS=wss://nos.lol,wss://relay.nostr.net
 BLOSSOM_SERVER=https://blossom.earthly.city
 MAPNOLIA_TRUSTED_PUBKEYS=${'a'.repeat(64)}
+DISCOVERY_FEATURED_PUBKEYS=${'d'.repeat(64)}
 SERVER_PUBKEY=${'b'.repeat(64)}
 CORDN_SERVER_PUBKEY=${'c'.repeat(64)}
 `
@@ -77,12 +78,18 @@ describe('Android release tooling', () => {
 			EXTRA_READ_RELAYS: 'wss://nos.lol,wss://relay.nostr.net',
 			BLOSSOM_SERVER: 'https://blossom.earthly.city',
 			MAPNOLIA_TRUSTED_PUBKEYS: 'a'.repeat(64),
+			DISCOVERY_FEATURED_PUBKEYS: 'd'.repeat(64),
 			SERVER_PUBKEY: 'b'.repeat(64),
 			CORDN_SERVER_PUBKEY: 'c'.repeat(64),
 		})
 		expect(() =>
 			parsePublicReleaseEnvironment(`${publicEnvironment}\nSERVER_KEY=${'d'.repeat(64)}`),
 		).toThrow('not an allowed public Android environment value')
+		expect(
+			parsePublicReleaseEnvironment(
+				publicEnvironment.replace(/^DISCOVERY_FEATURED_PUBKEYS=.*\n/mu, ''),
+			).DISCOVERY_FEATURED_PUBKEYS,
+		).toBeUndefined()
 		expect(() =>
 			parsePublicReleaseEnvironment(publicEnvironment.replace('wss://relay.earthly.city', 'ws://localhost:3334')),
 		).toThrow('must contain only secure public wss:// relay URLs')
@@ -95,6 +102,7 @@ describe('Android release tooling', () => {
 		const environment = androidReleaseBuildEnvironment(publicEnvironment)
 
 		expect(environment.MAPNOLIA_TRUSTED_PUBKEYS).toBe('a'.repeat(64))
+		expect(environment.DISCOVERY_FEATURED_PUBKEYS).toBe('d'.repeat(64))
 		expect(environment.EARTHLY_PUBLIC_ENV_PRELOADED).toBe('1')
 	})
 
@@ -122,6 +130,9 @@ describe('Android release tooling', () => {
 		expect(androidEnvironment.EXTRA_READ_RELAYS).not.toBe('')
 		expect(browserEnvironment.EXTRA_READ_RELAYS).toBe(androidEnvironment.EXTRA_READ_RELAYS)
 		expect(browserEnvironment.RELAY_URL).toBe(androidEnvironment.RELAY_URL)
+		expect(browserEnvironment.DISCOVERY_FEATURED_PUBKEYS).toBe(
+			androidEnvironment.DISCOVERY_FEATURED_PUBKEYS,
+		)
 	})
 
 	test('requires aligned versions and a matching release tag', () => {
