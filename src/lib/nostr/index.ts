@@ -38,6 +38,7 @@ import {
 	notifyPublishOutboxChanged,
 } from '@/platform/registry'
 import type { OutboxItem, OutboxRelayResult, PublishOutboxService } from '@/platform/contracts'
+import { EarthlyNostrConnectAccount } from './largeEventNip46'
 
 // Bun HMR bundler tree-shaking bug: rxjs/index.js re-exports some values via
 // source files that Bun's HMR runtime can stub without populating. Referencing
@@ -129,6 +130,8 @@ export interface EarthlyAccountMetadata {
 /** Multi-account signer manager. Common account types are registered eagerly. */
 export const accounts = new AccountManager<EarthlyAccountMetadata>()
 registerCommonAccountTypes(accounts)
+accounts.unregisterType(EarthlyNostrConnectAccount.type)
+accounts.registerType(EarthlyNostrConnectAccount)
 
 const ACCOUNTS_STORAGE_KEY = 'earthly:accounts'
 const ACTIVE_ACCOUNT_STORAGE_KEY = 'earthly:active-account'

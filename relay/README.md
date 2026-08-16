@@ -13,7 +13,11 @@ Design document: [docs/GEO_SEARCH_REWRITE.md](../docs/GEO_SEARCH_REWRITE.md)
   a bbolt sidecar retains bodies above the upstream codec's 65,535-byte field.
   Reads rehydrate the byte-identical signed event before it leaves the store.
 - **Size policy:** event content is accepted through 1 MiB and the same limit is
-  advertised in NIP-11. Larger geographic datasets use Blossom references.
+  enforced for ordinary events. Larger geographic datasets use Blossom references.
+  Ephemeral NIP-46 signer envelopes get a separate 7 MiB transport allowance
+  because JSON wrapping, padding, and base64 expand a valid 1 MiB dataset. Since
+  NIP-11 cannot express per-kind limits, it advertises this larger transport ceiling.
+  Large signer envelopes are additionally rate-limited per client IP.
 - **Search/geo:** bleve v2 with geoshape fields (`earthlysearch/` package) —
   derived data, rebuilt from the canonical store via `--reindex` or automatically
   when empty.

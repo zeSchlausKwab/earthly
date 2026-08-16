@@ -1,5 +1,3 @@
-import { NostrConnectAccount } from 'applesauce-accounts/accounts'
-import { NostrConnectSigner, PrivateKeySigner } from 'applesauce-signers'
 import { Scanner } from '@yudiel/react-qr-scanner'
 import { ExternalLink, Loader2, QrCode } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
@@ -25,6 +23,11 @@ import {
 	SelectValue,
 } from '@/components/ui/select'
 import { allowRelays, loginWithAccount } from '@/lib/nostr'
+import {
+	EARTHLY_NIP46_PERMISSIONS,
+	EarthlyNostrConnectAccount,
+	EarthlyNostrConnectSigner,
+} from '@/lib/nostr/largeEventNip46'
 import { openExternalProtocol } from '@/platform/externalProtocol'
 import { earthlyPublicOrigin } from '@/platform/publicUrl'
 
@@ -47,7 +50,7 @@ const DEFAULT_RELAYS = [
 const APP_METADATA = {
 	name: 'Earthly City',
 	url: earthlyPublicOrigin(),
-	permissions: NostrConnectSigner.buildSigningPermissions([0, 1, 3, 10002]),
+	permissions: EARTHLY_NIP46_PERMISSIONS,
 }
 
 type ConnectionState = 'idle' | 'generating' | 'waiting' | 'connected' | 'error'
@@ -64,7 +67,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 
 	// Scan tab state — the URI we display + the signer we're awaiting on
 	const [connectionUri, setConnectionUri] = useState('')
-	const signerRef = useRef<NostrConnectSigner | null>(null)
+	const signerRef = useRef<EarthlyNostrConnectSigner | null>(null)
 	const abortRef = useRef<AbortController | null>(null)
 
 	// Paste tab state
@@ -118,7 +121,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 
 		let cancelled = false
 		let handedOff = false
-		let ownedSigner: NostrConnectSigner | null = null
+		let ownedSigner: EarthlyNostrConnectSigner | null = null
 		let ownedAbort: AbortController | null = null
 		const run = async () => {
 			setState('generating')
@@ -128,10 +131,8 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 				// NIP-46 relays are signer transport, not content — vouch for them
 				// with the dev pool guard so bunker login works under relay isolation.
 				allowRelays([selectedRelay])
-				const localSigner = new PrivateKeySigner()
-				const ncSigner = new NostrConnectSigner({
+				const ncSigner = new EarthlyNostrConnectSigner({
 					relays: [selectedRelay],
-					signer: localSigner,
 				})
 				ownedSigner = ncSigner
 				signerRef.current = ncSigner
@@ -149,7 +150,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 				if (cancelled) return
 
 				const pubkey = await ncSigner.getPublicKey()
-				const account = new NostrConnectAccount(pubkey, ncSigner)
+				const account = new EarthlyNostrConnectAccount(pubkey, ncSigner)
 				await loginWithAccount(account, { remember: rememberMeRef.current })
 				// The account now owns the live signer. Closing the dialog must not
 				// close the connection it just adopted.
@@ -201,11 +202,11 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 			} catch {
 				// Malformed URL — fromBunkerURI below will produce the user-facing error.
 			}
-			const ncSigner = await NostrConnectSigner.fromBunkerURI(bunkerUrl, {
+			const ncSigner = await EarthlyNostrConnectSigner.fromBunkerURI(bunkerUrl, {
 				permissions: APP_METADATA.permissions,
 			})
 			const pubkey = await ncSigner.getPublicKey()
-			const account = new NostrConnectAccount(pubkey, ncSigner)
+			const account = new EarthlyNostrConnectAccount(pubkey, ncSigner)
 			await loginWithAccount(account, { remember: rememberMe })
 
 			setState('connected')
