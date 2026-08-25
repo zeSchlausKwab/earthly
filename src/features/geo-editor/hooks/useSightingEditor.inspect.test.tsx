@@ -133,4 +133,45 @@ describe('useSightingEditor inspect routing', () => {
 		expect(focusedCalls).toEqual([])
 		expect(listCalls).toEqual(['sightings'])
 	})
+
+	test('rearms placement when a placed point is replaced by an area', async () => {
+		let latest: ReturnType<typeof useSightingEditor> | null = null
+		let armCount = 0
+		let disarmCount = 0
+
+		function Probe(): ReactNode {
+			latest = useSightingEditor({
+				isMobile: false,
+				ensureInfoPanelVisible: () => {},
+				navigateToView: () => {},
+				navigateTo: () => {},
+				encodeSightingNaddr: () => null,
+				clearFocus: () => {},
+				armPlacement: () => {
+					armCount += 1
+				},
+				disarmPlacement: () => {
+					disarmCount += 1
+				},
+			})
+			return null
+		}
+
+		const container = document.createElement('div')
+		document.body.append(container)
+		const root = createRoot(container)
+		mountedRoots.push(root)
+		await flush(() => root.render(createElement(Probe)))
+		if (!latest) throw new Error('Sighting editor hook did not render')
+
+		await flush(() => latest?.handleCreateSighting())
+		expect(latest?.placementArmed).toBe(true)
+		await flush(() => latest?.handleGeometryPlaced({ type: 'Point', coordinates: [13.4, 52.5] }))
+		expect(latest?.placementArmed).toBe(false)
+
+		await flush(() => latest?.rearmPlacement())
+		expect(latest?.placementArmed).toBe(true)
+		expect(armCount).toBe(2)
+		expect(disarmCount).toBe(1)
+	})
 })

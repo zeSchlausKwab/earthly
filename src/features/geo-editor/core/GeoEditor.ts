@@ -95,6 +95,18 @@ export class GeoEditor {
 	private options: Required<GeoEditorOptions>
 	private mode: EditorMode = 'static'
 	/**
+	 * Whether this editor's authored geometry is materialized on the map. This is
+	 * intentionally independent from the feature model: hiding a retained draft
+	 * must not discard it, and showing it again must render the same features.
+	 */
+	private geometryVisible: boolean = true
+	/**
+	 * Whether an in-progress draw preview may render while retained Dataset
+	 * geometry is hidden. Sighting placement uses this narrow channel so its
+	 * temporary point/area is visible without leaking the retained draft layer.
+	 */
+	private transientDrawingVisible: boolean = false
+	/**
 	 * Whether map/keyboard gestures may mutate the editor. The active mode is
 	 * deliberately retained while this is false so moving to Inspector (or a
 	 * catalog) pauses authoring without throwing away an in-progress drawing.
@@ -301,31 +313,31 @@ export class GeoEditor {
 
 		// Set cursor style on hover
 		this.map.on('mouseenter', this.layers.LAYER_VERTEX, () => {
-			if (this.interactionEnabled) this.map.getCanvas().style.cursor = 'move'
+			if (this.canInteract()) this.map.getCanvas().style.cursor = 'move'
 		})
 		this.map.on('mouseleave', this.layers.LAYER_VERTEX, () => {
 			this.map.getCanvas().style.cursor = ''
 		})
 		this.map.on('mouseenter', this.layers.LAYER_MIDPOINT, () => {
-			if (this.interactionEnabled) this.map.getCanvas().style.cursor = 'pointer'
+			if (this.canInteract()) this.map.getCanvas().style.cursor = 'pointer'
 		})
 		this.map.on('mouseleave', this.layers.LAYER_MIDPOINT, () => {
 			this.map.getCanvas().style.cursor = ''
 		})
 		this.map.on('mouseenter', this.layers.LAYER_GIZMO_ROTATE, () => {
-			if (this.interactionEnabled) this.map.getCanvas().style.cursor = 'crosshair'
+			if (this.canInteract()) this.map.getCanvas().style.cursor = 'crosshair'
 		})
 		this.map.on('mouseleave', this.layers.LAYER_GIZMO_ROTATE, () => {
 			this.map.getCanvas().style.cursor = ''
 		})
 		this.map.on('mouseenter', this.layers.LAYER_GIZMO_MOVE, () => {
-			if (this.interactionEnabled) this.map.getCanvas().style.cursor = 'move'
+			if (this.canInteract()) this.map.getCanvas().style.cursor = 'move'
 		})
 		this.map.on('mouseleave', this.layers.LAYER_GIZMO_MOVE, () => {
 			this.map.getCanvas().style.cursor = ''
 		})
 		this.map.on('mouseenter', this.layers.LAYER_GIZMO_SCALE, () => {
-			if (this.interactionEnabled) this.map.getCanvas().style.cursor = 'nwse-resize'
+			if (this.canInteract()) this.map.getCanvas().style.cursor = 'nwse-resize'
 		})
 		this.map.on('mouseleave', this.layers.LAYER_GIZMO_SCALE, () => {
 			this.map.getCanvas().style.cursor = ''
@@ -343,7 +355,7 @@ export class GeoEditor {
 		]
 		for (const layer of selectableLayers) {
 			this.map.on('mouseenter', layer, () => {
-				if (this.interactionEnabled && (this.mode === 'select' || this.mode === 'box_select')) {
+				if (this.canInteract() && (this.mode === 'select' || this.mode === 'box_select')) {
 					this.map.getCanvas().style.cursor = 'pointer'
 				}
 			})
@@ -360,7 +372,7 @@ export class GeoEditor {
 	// ==============================
 
 	private onClick(e: MapMouseEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		if (this.skipClickUntil && Date.now() < this.skipClickUntil) return
 		this.skipClickUntil = 0
 
@@ -553,7 +565,7 @@ export class GeoEditor {
 	}
 
 	private onMouseDown(e: MapMouseEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		if (this.isTouchLikeEvent(e) && this.isDrawMode(this.mode) && !this.panLockEnabled) return
 		if (this.geometryOperation?.inputMode === 'drag') {
 			const button = (e.originalEvent as MouseEvent).button
@@ -609,7 +621,7 @@ export class GeoEditor {
 	}
 
 	private onMouseUp(_e: MapMouseEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		if (this.geometryOperationDragState) {
 			this.finishGeometryOperationDrag(true)
 			return
@@ -645,21 +657,21 @@ export class GeoEditor {
 	}
 
 	private onTouchStart(e: MapTouchEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		this.touchDrawInProgress = false
 		this.lastTouchPoint = { x: e.point.x, y: e.point.y }
 		this.onMouseDown(e as unknown as MapMouseEvent)
 	}
 
 	private onTouchMove(e: MapTouchEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		this.touchDrawInProgress = true
 		this.lastTouchPoint = { x: e.point.x, y: e.point.y }
 		this.onMouseMove(e as unknown as MapMouseEvent)
 	}
 
 	private onTouchEnd(e: MapTouchEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		if (
 			this.touchDrawInProgress &&
 			this.lastTouchPoint &&
@@ -675,7 +687,7 @@ export class GeoEditor {
 	}
 
 	private onDoubleClick(_e: MapMouseEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		if (this.mode === 'draw_linestring') {
 			const feature = this.drawLineMode.onKeyDown({ key: 'Enter' } as KeyboardEvent)
 			if (feature) {
@@ -701,7 +713,7 @@ export class GeoEditor {
 	}
 
 	private onMouseMove(e: MapMouseEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		if (this.geometryOperationDragState) {
 			this.updateGeometryOperationDrag(e)
 			return
@@ -764,7 +776,7 @@ export class GeoEditor {
 	}
 
 	private onContextMenu(e: MapMouseEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		e.preventDefault()
 
 		if (this.mode === 'edit') {
@@ -790,7 +802,7 @@ export class GeoEditor {
 	}
 
 	private onKeyDown(e: KeyboardEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		// Don't hijack keys while the user is typing in an input / textarea /
 		// contenteditable. Without this guard, Backspace clears selected
 		// features while the user types in the search box, Ctrl+Z conflicts
@@ -900,7 +912,7 @@ export class GeoEditor {
 	}
 
 	private onKeyUp(e: KeyboardEvent): void {
-		if (!this.interactionEnabled) return
+		if (!this.canInteract()) return
 		if (e.key === 'Shift' && this.selectionDragState) {
 			this.completeSelectionDrag(true)
 		}
@@ -1367,36 +1379,11 @@ export class GeoEditor {
 	 */
 	setInteractionEnabled(enabled: boolean): void {
 		if (this.interactionEnabled === enabled) return
+		const wasInteractive = this.canInteract()
 		this.interactionEnabled = enabled
 
-		if (!enabled) {
-			// Cancel transient drags before making the map navigable. Transform and
-			// geometry-operation drags know how to restore their pre-drag geometry.
-			this.finishGeometryOperationDrag(false)
-			this.finishTransformDrag(false)
-			this.completeSelectionDrag(true)
-
-			// Vertex dragging mutates the in-memory feature as the pointer moves, so
-			// restore its captured start position before clearing the gesture.
-			const editState = this.editMode.getState()
-			if (editState.draggingVertex) {
-				const { featureId, coordinatePath, startPosition } = editState.draggingVertex
-				const feature = this.features.get(featureId)
-				if (feature) {
-					const restored = this.editMode.updateVertexPosition(
-						feature,
-						coordinatePath,
-						startPosition,
-					)
-					this.features.set(featureId, restored)
-				}
-			}
-			this.editMode.clearDragging()
-			this.touchDrawInProgress = false
-			this.lastTouchPoint = undefined
-			this.map.getCanvas().style.cursor = ''
-			this.rendering.updateCursorIndicator()
-			this.render()
+		if (wasInteractive && !this.canInteract()) {
+			this.suspendTransientInteraction()
 		}
 
 		// A paused draw mode must not keep navigation locked. These helpers also
@@ -1408,6 +1395,54 @@ export class GeoEditor {
 
 	isInteractionEnabled(): boolean {
 		return this.interactionEnabled
+	}
+
+	/**
+	 * Show or hide every MapLibre source owned by this editor without changing
+	 * its retained feature model, selection, history, or active mode. Hidden
+	 * geometry is also non-interactive, so an invisible draft cannot respond to
+	 * map gestures or global editing shortcuts.
+	 */
+	setGeometryVisible(visible: boolean): void {
+		if (this.geometryVisible === visible) return
+		const wasInteractive = this.canInteract()
+		this.geometryVisible = visible
+
+		if (wasInteractive && !this.canInteract()) {
+			this.suspendTransientInteraction()
+		}
+
+		// Selection boxes and cursor indicators live in independent sources and
+		// therefore must be cleared explicitly when the main source is hidden.
+		if (!visible) {
+			this.rendering.renderSelectionBox()
+			this.rendering.updateCursorIndicator()
+		}
+
+		this.render()
+		this.renderVertices()
+		this.updateDoubleClickZoomState()
+		this.updatePanLockForMode()
+	}
+
+	/**
+	 * Allow only the current draw preview to render while retained geometry is
+	 * hidden. This is deliberately separate from `setGeometryVisible`: transient
+	 * entity placement must never make an absent Map Stack draft reappear.
+	 */
+	setTransientDrawingVisible(visible: boolean): void {
+		if (this.transientDrawingVisible === visible) return
+		const wasInteractive = this.canInteract()
+		this.transientDrawingVisible = visible
+
+		if (wasInteractive && !this.canInteract()) {
+			this.suspendTransientInteraction()
+		}
+
+		this.render()
+		this.renderVertices()
+		this.updateDoubleClickZoomState()
+		this.updatePanLockForMode()
 	}
 
 	setMode(mode: EditorMode): void {
@@ -2460,6 +2495,41 @@ export class GeoEditor {
 		return feature
 	}
 
+	private canInteract(): boolean {
+		return this.interactionEnabled && (this.geometryVisible || this.transientDrawingVisible)
+	}
+
+	/**
+	 * Cancel pointer-only state before either interaction or rendering is paused.
+	 * Long-lived authoring state (mode, selection, in-progress draw geometry,
+	 * history) is deliberately retained.
+	 */
+	private suspendTransientInteraction(): void {
+		// Transform and geometry-operation drags know how to restore their
+		// pre-drag geometry; selection drag only owns an overlay.
+		this.finishGeometryOperationDrag(false)
+		this.finishTransformDrag(false)
+		this.completeSelectionDrag(true)
+
+		// Vertex dragging mutates the feature model while the pointer moves, so
+		// restore the captured start position before clearing the gesture.
+		const editState = this.editMode.getState()
+		if (editState.draggingVertex) {
+			const { featureId, coordinatePath, startPosition } = editState.draggingVertex
+			const feature = this.features.get(featureId)
+			if (feature) {
+				const restored = this.editMode.updateVertexPosition(feature, coordinatePath, startPosition)
+				this.features.set(featureId, restored)
+			}
+		}
+		this.editMode.clearDragging()
+		this.touchDrawInProgress = false
+		this.lastTouchPoint = undefined
+		this.map.getCanvas().style.cursor = ''
+		this.rendering.updateCursorIndicator()
+		this.render()
+	}
+
 	private updateActiveStates(): void {
 		const selectedIds = new Set(this.selection.getSelected())
 		this.features.forEach((feature: EditorFeature) => {
@@ -2489,7 +2559,7 @@ export class GeoEditor {
 
 	private updateDoubleClickZoomState(): void {
 		if (!this.map.doubleClickZoom) return
-		const shouldDisable = this.interactionEnabled && this.isDrawMode(this.mode)
+		const shouldDisable = this.canInteract() && this.isDrawMode(this.mode)
 		if (shouldDisable && !this.doubleClickZoomDisabled) {
 			if (this.map.doubleClickZoom.isEnabled()) {
 				this.map.doubleClickZoom.disable()
@@ -2503,7 +2573,7 @@ export class GeoEditor {
 
 	private updatePanLockForMode(): void {
 		if (!this.map.dragPan) return
-		const shouldDisablePan = this.interactionEnabled && this.panLockEnabled
+		const shouldDisablePan = this.canInteract() && this.panLockEnabled
 		if (shouldDisablePan) {
 			if (this.map.dragPan.isEnabled()) {
 				this.panLockDragPanWasEnabled = true
@@ -2707,24 +2777,32 @@ export class GeoEditor {
 	// ==============================
 
 	private getFeatureCollection(): FeatureCollection {
-		const features: Feature[] = Array.from(this.features.values()) as Feature[]
+		const features: Feature[] = this.geometryVisible
+			? (Array.from(this.features.values()) as Feature[])
+			: []
 		const currentDrawFeature =
 			this.drawLineMode.getCurrentFeature() ||
 			this.drawPolygonMode.getCurrentFeature() ||
 			this.drawPrimitiveMode.getCurrentFeature()
-		if (currentDrawFeature) features.push(currentDrawFeature as Feature)
-		features.push(...(this.geometryOperationPreview as Feature[]))
+		if ((this.geometryVisible || this.transientDrawingVisible) && currentDrawFeature) {
+			features.push(currentDrawFeature as Feature)
+		}
+		if (this.geometryVisible) features.push(...(this.geometryOperationPreview as Feature[]))
 		features.push(...collectLineArrowFeatures(features))
 		return { type: 'FeatureCollection', features }
 	}
 
 	render(): void {
 		this.rendering.render(this.getFeatureCollection())
-		this.rendering.renderSelectionIndicator(this.getSelectedFeatures())
+		this.rendering.renderSelectionIndicator(this.geometryVisible ? this.getSelectedFeatures() : [])
 		this.renderGizmo()
 	}
 
 	private renderGizmo(): void {
+		if (!this.geometryVisible) {
+			this.rendering.renderGizmo('static', null)
+			return
+		}
 		const center = this.getSelectionCentroid()
 		this.rendering.renderGizmo(this.mode, center, this.transformDragState?.center)
 	}
@@ -2732,8 +2810,8 @@ export class GeoEditor {
 	renderVertices(): void {
 		const selectedVertex = this.editMode.getSelectedVertex()
 		this.rendering.renderVertices(
-			this.mode,
-			this.getAllFeatures(),
+			this.geometryVisible ? this.mode : 'static',
+			this.geometryVisible ? this.getAllFeatures() : [],
 			(feature) => this.editMode.extractVerticesWithPaths(feature),
 			(feature) => this.editMode.extractMidpoints(feature),
 			selectedVertex,

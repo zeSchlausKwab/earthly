@@ -154,6 +154,7 @@ import {
 	inspectRouteKey,
 	markInAppInspectRoute,
 } from './inspectRouteOrigin'
+import { isDraftGeometryVisible } from './draftMapVisibility'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
@@ -608,6 +609,10 @@ export function GeoEditorView() {
 	const stance = useEditorStore((state) => state.stance)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
+	const draftGeometryVisible = useMemo(
+		() => isDraftGeometryVisible(mapStackEntries, mapStackOrder),
+		[mapStackEntries, mapStackOrder],
+	)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
 	const setMapStackEntryIsolated = useEditorStore((state) => state.setMapStackEntryIsolated)
@@ -1955,9 +1960,9 @@ export function GeoEditorView() {
 	// visits Inspector, a catalog, Story/Context editing, or Chat; its event
 	// boundary simply becomes read-only until Dataset authoring is explicitly restored.
 	useEffect(() => {
-		const datasetSurfaceActive = viewMode === 'edit' && stance === 'author'
+		const datasetSurfaceActive = viewMode === 'edit' && stance === 'author' && draftGeometryVisible
 		editor?.setInteractionEnabled(datasetSurfaceActive || sightingPlacementArmedRef.current)
-	}, [editor, stance, viewMode])
+	}, [draftGeometryVisible, editor, stance, viewMode])
 
 	useEffect(() => {
 		if (!calloutAuthoringFeatureId) return
@@ -2562,10 +2567,7 @@ export function GeoEditorView() {
 	// has unchecked in the inline expand panel (`entry.exclusions`).
 	const visibleGeoEvents = useMemo(() => {
 		const sourceIsReplacedByDraft = (event: GeoDataset) =>
-			stance === 'author' &&
-			viewMode === 'edit' &&
-			activeDatasetKey !== null &&
-			getDatasetKey(event) === activeDatasetKey
+			draftGeometryVisible && activeDatasetKey !== null && getDatasetKey(event) === activeDatasetKey
 		const contextByKey = new Map<string, MapContext>()
 		for (const ctx of mapContextEvents) {
 			const key = ctx.contextCoordinate ?? ctx.id ?? ctx.contextId ?? ctx.dTag
@@ -2637,14 +2639,13 @@ export function GeoEditorView() {
 			)
 	}, [
 		activeDatasetKey,
+		draftGeometryVisible,
 		geoEvents,
 		getDatasetKey,
 		mapContextEvents,
 		mapGeoEvents,
 		mapStackEntries,
 		mapStackOrder,
-		stance,
-		viewMode,
 	])
 	const referenceMapRenderState = useMemo(
 		() => deriveReferenceMapRenderState(mapStackOrder.map((entryId) => mapStackEntries[entryId])),
@@ -3521,12 +3522,14 @@ export function GeoEditorView() {
 		// lock off (otherwise touch taps in draw mode are ignored — the tap never
 		// drops the pin on mobile). A drag still pans the map.
 		editor?.setTouchTapDrawEnabled(true)
+		editor?.setTransientDrawingVisible(true)
 		editor?.setInteractionEnabled(true)
 		editor?.setMode('draw_point')
 	}, [editor])
 	const disarmSightingPlacement = useCallback(() => {
 		sightingPlacementArmedRef.current = false
 		editor?.setTouchTapDrawEnabled(false)
+		editor?.setTransientDrawingVisible(false)
 		editor?.setInteractionEnabled(false)
 		// Return the editor to a non-drawing idle mode.
 		if (editor && editor.getMode() !== 'select') editor.setMode('select')
@@ -3540,6 +3543,7 @@ export function GeoEditorView() {
 		sightingFocusCommentId,
 		placedGeometry: placedSightingGeometry,
 		placementArmed: sightingPlacementArmed,
+		rearmPlacement: rearmSightingPlacement,
 		clearSightingEditorModes,
 		clearSightingView,
 		handleInspectSighting,
@@ -3565,6 +3569,15 @@ export function GeoEditorView() {
 		sightingPlacementArmedRef.current = sightingPlacementArmed
 	}, [sightingPlacementArmed])
 
+	// The editor's retained feature model is deliberately independent from its
+	// MapLibre materialization. Publishing swaps the draft row for a Dataset row;
+	// removing that Dataset must therefore leave no editor geometry behind. A
+	// later explicit Open editor action restores the draft row and this layer.
+	useEffect(() => {
+		editor?.setGeometryVisible(draftGeometryVisible)
+		editor?.setTransientDrawingVisible(sightingPlacementArmed)
+	}, [draftGeometryVisible, editor, sightingPlacementArmed])
+
 	// The responsive shell can become interactive a moment before the GeoEditor
 	// instance finishes mounting. If Sighting creation is armed during that gap,
 	// `armSightingPlacement` cannot set a mode yet and the visible map prompt would
@@ -3574,6 +3587,7 @@ export function GeoEditorView() {
 		if (!editor || !sightingPlacementArmed) return
 		sightingPlacementArmedRef.current = true
 		editor.setTouchTapDrawEnabled(true)
+		editor.setTransientDrawingVisible(true)
 		editor.setInteractionEnabled(true)
 		if (editor.getMode() !== 'draw_point') editor.setMode('draw_point')
 	}, [editor, sightingPlacementArmed])
@@ -3645,11 +3659,13 @@ export function GeoEditorView() {
 
 	// Switch the armed create flow to an area draw (D-02 "Draw an area instead").
 	const handleDrawSightingArea = useCallback(() => {
+		rearmSightingPlacement()
 		sightingPlacementArmedRef.current = true
 		editor?.setTouchTapDrawEnabled(true)
+		editor?.setTransientDrawingVisible(true)
 		editor?.setInteractionEnabled(true)
 		editor?.setMode('draw_polygon')
-	}, [editor])
+	}, [editor, rearmSightingPlacement])
 
 	// ── Live Beacon Start/Stop/Adjust/inspect (Phase 12, BEACON-01..04, D-12) ──
 	// The controller binds the Plan-03 useBeaconPublisher (the live watch loop +
@@ -4691,10 +4707,10 @@ export function GeoEditorView() {
 				enabled={calloutsEnabled}
 				displayMode={calloutDisplayMode}
 				draftFeatures={features}
-				draftVisible={stance === 'author' && viewMode === 'edit'}
+				draftVisible={draftGeometryVisible}
 				selectedFeatureIds={selectedFeatureIds}
 				authoringFeatureId={calloutAuthoringFeatureId}
-				canAuthor={stance === 'author' && viewMode === 'edit'}
+				canAuthor={draftGeometryVisible && stance === 'author' && viewMode === 'edit'}
 				visibleDatasets={visibleCalloutDatasets}
 				availableFeatures={availableFeatures}
 				onCalloutsChange={handleCalloutsChange}

@@ -282,10 +282,9 @@ export function useDatasetManagement(
 			// has committed to authoring it.
 			setStance('author')
 			// Round C.3: surface the in-edit state as a map-stack entry. It's
-			// rendered by the editor's draft layer (not via `visibleGeoEvents`)
-			// so the stack entry is informational — but it lets the panel
-			// honestly reflect what's contributing to the map and lets the
-			// user end the session from the same surface.
+			// rendered by the editor's draft layer (not via `visibleGeoEvents`).
+			// This row is the visibility authority for that retained layer and
+			// also lets the user end the session from the same surface.
 			const draftTitle =
 				collectionMeta?.name || (activeDataset ? getDatasetName(activeDataset) : 'Untitled draft')
 			addMapStackEntry({

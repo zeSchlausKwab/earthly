@@ -180,6 +180,11 @@ export function useSightingEditor({
 		}
 	}, [disarmPlacement, sightingEditorMode, placedGeometry])
 
+	const rearmPlacement = useCallback(() => {
+		setPlacementArmed(true)
+		armPlacement()
+	}, [armPlacement])
+
 	const handleEditSighting = useCallback(
 		(sighting: TemporalSighting) => {
 			clearSightingEditorModes()
@@ -236,6 +241,7 @@ export function useSightingEditor({
 		sightingFocusCommentId: focusCommentId,
 		placedGeometry,
 		placementArmed,
+		rearmPlacement,
 		clearSightingEditorModes,
 		clearSightingView,
 		handleInspectSighting,

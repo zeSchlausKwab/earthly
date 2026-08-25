@@ -108,9 +108,8 @@ export interface MapLayerState {
 /**
  * Round C.3: the in-edit draft is also represented as a map-stack entry so the
  * panel honestly reflects what's contributing to the map render. The draft is
- * rendered by the editor's draft layer, not by `visibleGeoEvents`, so the
- * stack entry is cosmetic — but it lets the user see, isolate, and end the
- * edit session from the same surface.
+ * rendered by the editor's draft layer, not by `visibleGeoEvents`; this entry
+ * gates that layer while the retained editor model stays intact.
  */
 export type MapStackEntryType =
 	| 'dataset'
