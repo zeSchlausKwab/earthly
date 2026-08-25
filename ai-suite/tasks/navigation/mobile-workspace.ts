@@ -42,7 +42,7 @@ export function mobileWorkspaceSheetControls(earthly: EarthlySession) {
 }
 
 export function mobileWorkspaceTabs(earthly: EarthlySession) {
-	return mobileWorkspaceSheet(earthly).getByRole('tablist', {
+	return mobileWorkspaceSheetControls(earthly).getByRole('tablist', {
 		name: 'Map workspace panels',
 		exact: true,
 	})
@@ -117,16 +117,24 @@ export interface MobileWorkspaceChromeSnapshot {
 	sheet: { x: number; y: number; width: number; height: number }
 	controls: { x: number; y: number; width: number; height: number }
 	slider: { x: number; y: number; width: number; height: number }
+	detentPx: number
 	transparency: { x: number; y: number; width: number; height: number }
 	close: { x: number; y: number; width: number; height: number }
 	tablist: { x: number; y: number; width: number; height: number }
-	tabs: Array<{ x: number; y: number; width: number; height: number }>
+	tabs: Array<{
+		x: number
+		y: number
+		width: number
+		height: number
+		label: string
+		labelFits: boolean
+	}>
 }
 
 /**
- * Capture the geometry of the sheet-wide controls and compact workspace tabs.
- * Keeping this in one task makes the responsive contract reusable without
- * baking production layout classes into scenarios.
+ * Capture the geometry of the single sheet-wide rail: resize handle, workspace
+ * tabs, transparency, and close. Keeping this in one task makes the responsive
+ * contract reusable without baking production layout classes into scenarios.
  */
 export async function mobileWorkspaceChromeSnapshot(
 	earthly: EarthlySession,
@@ -141,6 +149,10 @@ export async function mobileWorkspaceChromeSnapshot(
 	const close = controls.getByRole('button', { name: 'Close map workspace', exact: true })
 	const tablist = mobileWorkspaceTabs(earthly)
 	const tabs = tablist.getByRole('tab')
+	const sheetTablists = sheet.getByRole('tablist', {
+		name: 'Map workspace panels',
+		exact: true,
+	})
 
 	await expect(sheet).toBeVisible()
 	await expect(controls).toBeVisible()
@@ -148,7 +160,11 @@ export async function mobileWorkspaceChromeSnapshot(
 	await expect(transparency).toBeVisible()
 	await expect(close).toBeVisible()
 	await expect(tablist).toBeVisible()
+	await expect(sheetTablists).toHaveCount(1)
 	await expect(tabs).toHaveCount(3)
+	for (const tabId of ['map-stack', 'edit', 'chat']) {
+		await expect(sheet.locator(`[id="mobile-workspace-tab-${tabId}"]`)).toHaveCount(1)
+	}
 
 	const [sheetBox, controlsBox, sliderBox, transparencyBox, closeBox, tablistBox] =
 		await Promise.all([
@@ -162,17 +178,46 @@ export async function mobileWorkspaceChromeSnapshot(
 	const tabBoxes = await tabs.evaluateAll((elements) =>
 		elements.map((element) => {
 			const box = element.getBoundingClientRect()
-			return { x: box.x, y: box.y, width: box.width, height: box.height }
+			const labelElement = Array.from(element.querySelectorAll<HTMLElement>('span')).find(
+				(candidate) => {
+					const text = candidate.textContent?.trim()
+					return (
+						candidate.childElementCount === 0 &&
+						text !== undefined &&
+						['Stack', 'Edit', 'Inspect', 'Chat'].includes(text)
+					)
+				},
+			)
+			const labelBox = labelElement?.getBoundingClientRect()
+			return {
+				x: box.x,
+				y: box.y,
+				width: box.width,
+				height: box.height,
+				label: labelElement?.textContent?.trim() ?? '',
+				labelFits:
+					labelElement !== undefined &&
+					labelElement.scrollWidth <= labelElement.clientWidth + 1 &&
+					labelBox !== undefined &&
+					labelBox.left >= box.left - 1 &&
+					labelBox.right <= box.right + 1,
+			}
 		}),
 	)
+	const detentAttribute = await slider.getAttribute('aria-valuenow')
+	const detentValue = detentAttribute === null ? Number.NaN : Number(detentAttribute)
 	if (!sheetBox || !controlsBox || !sliderBox || !transparencyBox || !closeBox || !tablistBox) {
 		throw new Error('The mobile workspace chrome did not produce measurable controls.')
+	}
+	if (!Number.isFinite(detentValue)) {
+		throw new Error('The mobile workspace resize control did not expose its current detent.')
 	}
 
 	return {
 		sheet: sheetBox,
 		controls: controlsBox,
 		slider: sliderBox,
+		detentPx: detentValue,
 		transparency: transparencyBox,
 		close: closeBox,
 		tablist: tablistBox,

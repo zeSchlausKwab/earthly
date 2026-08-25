@@ -468,28 +468,103 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		}
 		await expect(editNameInput).toHaveValue(datasetName)
 
-		// Sheet-wide eye and close controls share the handle's compact chrome row.
-		// The tab hit areas remain accessible while their visual footprint stays
-		// deliberately narrower than the sheet.
-		const assertCompactGlobalChrome = async () => {
+		// The handle, three workspace tabs, eye, and close action form one compact
+		// sheet-wide rail. Every target remains accessible without wrapping,
+		// overlapping, or escaping the viewport at narrow mobile widths.
+		const assertSingleRowWorkspaceRail = async (expectedViewportWidth?: number) => {
 			const chrome = await mobileWorkspaceChromeSnapshot(earthly)
+			expect(chrome.controls.height).toBe(48)
 			const controlsCenter = chrome.controls.y + chrome.controls.height / 2
-			for (const control of [chrome.slider, chrome.transparency, chrome.close]) {
+			const orderedTargets = [chrome.slider, ...chrome.tabs, chrome.transparency, chrome.close]
+			for (const control of orderedTargets) {
 				expect(control.width).toBeGreaterThanOrEqual(44)
 				expect(control.height).toBeGreaterThanOrEqual(44)
 				expect(Math.abs(control.y + control.height / 2 - controlsCenter)).toBeLessThanOrEqual(2)
+				expect(control.x).toBeGreaterThanOrEqual(chrome.controls.x - 1)
 				expect(control.y).toBeGreaterThanOrEqual(chrome.controls.y)
+				expect(control.x + control.width).toBeLessThanOrEqual(
+					chrome.controls.x + chrome.controls.width + 1,
+				)
 				expect(control.y + control.height).toBeLessThanOrEqual(
 					chrome.controls.y + chrome.controls.height,
 				)
 			}
-			expect(chrome.tablist.width).toBeLessThan(chrome.sheet.width * 0.75)
+			for (let index = 0; index < orderedTargets.length - 1; index += 1) {
+				const current = orderedTargets[index]
+				const next = orderedTargets[index + 1]
+				expect(current).toBeDefined()
+				expect(next).toBeDefined()
+				expect((current?.x ?? 0) + (current?.width ?? 0)).toBeLessThanOrEqual((next?.x ?? 0) + 1)
+			}
+			expect(chrome.controls.x).toBeGreaterThanOrEqual(chrome.sheet.x - 1)
+			expect(chrome.controls.x + chrome.controls.width).toBeLessThanOrEqual(
+				chrome.sheet.x + chrome.sheet.width + 1,
+			)
+			expect(chrome.tablist.x).toBeGreaterThanOrEqual(chrome.controls.x - 1)
+			expect(chrome.tablist.x + chrome.tablist.width).toBeLessThanOrEqual(
+				chrome.controls.x + chrome.controls.width + 1,
+			)
 			for (const tab of chrome.tabs) {
 				expect(tab.width).toBeGreaterThanOrEqual(44)
 				expect(tab.width).toBeLessThanOrEqual(88)
 				expect(tab.height).toBeGreaterThanOrEqual(44)
+				expect(tab.labelFits).toBe(true)
+			}
+			expect(chrome.tabs.map((tab) => tab.label)).toEqual(['Stack', 'Edit', 'Chat'])
+			if (expectedViewportWidth !== undefined) {
+				expect(chrome.sheet.x + chrome.sheet.width).toBeLessThanOrEqual(expectedViewportWidth + 1)
+				expect(chrome.controls.x + chrome.controls.width).toBeLessThanOrEqual(
+					expectedViewportWidth + 1,
+				)
+				if (expectedViewportWidth === 320) {
+					const firstTarget = orderedTargets.at(0)
+					const lastTarget = orderedTargets.at(-1)
+					expect(firstTarget).toBeDefined()
+					expect(lastTarget).toBeDefined()
+					const leftBoundary = Math.max(chrome.sheet.x, 0)
+					const rightBoundary = Math.min(chrome.sheet.x + chrome.sheet.width, expectedViewportWidth)
+					expect(firstTarget?.x ?? 0).toBeGreaterThanOrEqual(leftBoundary + 3)
+					expect((lastTarget?.x ?? 0) + (lastTarget?.width ?? 0)).toBeLessThanOrEqual(
+						rightBoundary - 3,
+					)
+				}
 			}
 		}
+
+		const regularMobileViewport = earthly.page.viewportSize()
+		expect(regularMobileViewport).not.toBeNull()
+		await assertSingleRowWorkspaceRail(regularMobileViewport?.width)
+		await earthly.page.setViewportSize({
+			width: 320,
+			height: regularMobileViewport?.height ?? 844,
+		})
+		try {
+			await assertSingleRowWorkspaceRail(320)
+		} finally {
+			if (regularMobileViewport) await earthly.page.setViewportSize(regularMobileViewport)
+		}
+
+		// Moving the tabs into the resize rail must not make panel selection a
+		// resize gesture. Preserve both the stored detent and rendered sheet height
+		// across a click transition and a successful keyboard-arrow transition.
+		const railBeforePanelSwitch = await mobileWorkspaceChromeSnapshot(earthly)
+		const expectUnchangedSheetDetent = async () => {
+			const currentRail = await mobileWorkspaceChromeSnapshot(earthly)
+			expect(currentRail.detentPx).toBe(railBeforePanelSwitch.detentPx)
+			expect(
+				Math.abs(currentRail.sheet.height - railBeforePanelSwitch.sheet.height),
+			).toBeLessThanOrEqual(1)
+		}
+		await switchMobileWorkspacePanel(earthly, 'Stack')
+		await expectUnchangedSheetDetent()
+		const stackRailTab = mobileWorkspaceTab(earthly, 'Stack')
+		await stackRailTab.focus()
+		await expect(stackRailTab).toBeFocused()
+		await stackRailTab.press('ArrowRight')
+		const editRailTab = mobileWorkspaceTab(earthly, 'Edit')
+		await expect(editRailTab).toHaveAttribute('aria-selected', 'true')
+		await expect(editRailTab).toBeFocused()
+		await expectUnchangedSheetDetent()
 
 		// Transparency must affect the root and every workspace body, not just
 		// paint a blue border around an otherwise opaque child panel. The eye and
@@ -501,7 +576,7 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		for (const panel of workspacePanels) {
 			await switchMobileWorkspacePanel(earthly, panel)
 			await expect.poll(currentRouteIdentity).toBe(workspaceRouteBeforeSwitches)
-			await assertCompactGlobalChrome()
+			await assertSingleRowWorkspaceRail()
 			opaqueAlphas[panel] = await mobileWorkspaceBodyBackgroundAlpha(earthly)
 			expect(opaqueAlphas[panel]).toBeGreaterThan(0.98)
 		}
@@ -511,7 +586,7 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		expect(opaqueRootAlpha - translucentRootAlpha).toBeGreaterThan(0.25)
 		for (const panel of workspacePanels) {
 			await switchMobileWorkspacePanel(earthly, panel)
-			await assertCompactGlobalChrome()
+			await assertSingleRowWorkspaceRail()
 			const translucentAlpha = await mobileWorkspaceBodyBackgroundAlpha(earthly)
 			expect(translucentAlpha).toBeLessThan(0.7)
 			expect((opaqueAlphas[panel] ?? 0) - translucentAlpha).toBeGreaterThan(0.25)
