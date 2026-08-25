@@ -1,6 +1,10 @@
 import { test, expect, describe, mock } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { BindingChip, resolveWorkspaceBindingIdentity } from './BindingChip'
+import {
+	BindingChip,
+	bindingChipTargetClassName,
+	resolveWorkspaceBindingIdentity,
+} from './BindingChip'
 
 /**
  * BindingChip is a thin presentational shell over the Plan-03 `resolveBinding`
@@ -188,6 +192,21 @@ describe('BindingChip render (SAFE-01 / D-03)', () => {
 		expect(html).toContain('Use visible')
 		expect(html.match(/min-h-11/g)).toHaveLength(2)
 		expect(html.match(/min-w-11/g)).toHaveLength(2)
+	})
+
+	test('paints a denser mobile capsule inside the retained 44px interaction row', () => {
+		const compactClasses = bindingChipTargetClassName(true)
+		const desktopClasses = bindingChipTargetClassName(false)
+
+		// 44px interaction row minus 6px at each edge = a visibly denser 32px capsule.
+		expect(compactClasses).toContain('h-11')
+		expect(compactClasses).toContain('before:inset-y-1.5')
+		expect(compactClasses).not.toContain('py-0.5')
+
+		// Desktop keeps its established full-painted chip sizing.
+		expect(desktopClasses).toContain('py-0.5')
+		expect(desktopClasses).not.toContain('h-11')
+		expect(desktopClasses).not.toContain('before:inset-y-1.5')
 	})
 
 	test('shows target creation as pending instead of leaving New map apparently send-ready', () => {

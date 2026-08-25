@@ -57,6 +57,8 @@ describe('mobile sheet presentation', () => {
 
 		expect(mobileWorkspaceRailClassName(false)).toContain('h-12')
 		expect(mobileWorkspaceRailClassName(false)).toContain('grid')
+		expect(mobileWorkspaceRailClassName(false)).toContain('justify-between')
+		expect(mobileWorkspaceRailClassName(false)).not.toContain('justify-center')
 		expect(mobileWorkspaceRailGridTemplateColumns()).toBe('44px minmax(132px, 180px) 44px 44px')
 		expect(layout).toEqual({
 			handlePx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
@@ -64,16 +66,22 @@ describe('mobile sheet presentation', () => {
 			tabPx: MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX / 3,
 			transparencyPx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
 			closePx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
-			outerGutterPx: 4,
+			interTrackGapPx: 8 / 3,
+			handleStartPx: 0,
+			closeEndPx: 320,
+			outerGutterPx: 0,
 		})
 		expect(layout.tabPx).toBeGreaterThanOrEqual(44)
 	})
 
-	test('centers the same compact rail instead of stretching tabs on wider phones', () => {
+	test('puts spare width between tracks while retaining edge-aligned outer controls', () => {
 		const layout = resolveMobileWorkspaceRailLayout(390)
 
 		expect(layout.tabListPx).toBe(180)
-		expect(layout.outerGutterPx).toBe(39)
+		expect(layout.interTrackGapPx).toBe(26)
+		expect(layout.handleStartPx).toBe(0)
+		expect(layout.closeEndPx).toBe(390)
+		expect(layout.outerGutterPx).toBe(0)
 		expect(mobileWorkspaceTabListClassName(false)).toContain('w-full')
 		expect(mobileWorkspaceTabListClassName(true)).toContain('bg-card/10')
 	})

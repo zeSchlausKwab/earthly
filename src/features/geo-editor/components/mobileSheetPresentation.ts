@@ -11,9 +11,9 @@ export const MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX = 180
  * resize handle → Stack/Edit/Chat → transparency → close.
  *
  * A 44px control and three 44px tabs fit as far down as 264px. At our
- * supported 320px floor, the tab list grows to 180px; that leaves a 4px focus
- * and edge-gesture gutter on both sides. Wider phones center the same compact
- * 312px rail instead of stretching its controls apart.
+ * supported 320px floor, the tab list grows to 180px. The remaining width is
+ * distributed only between the four tracks: the resize handle stays flush to
+ * the rail's leading edge and close stays flush to its trailing edge.
  */
 export function mobileWorkspaceRailGridTemplateColumns(): string {
 	return `${MOBILE_WORKSPACE_RAIL_CONTROL_PX}px minmax(${MOBILE_WORKSPACE_RAIL_TABLIST_MIN_PX}px, ${MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX}px) ${MOBILE_WORKSPACE_RAIL_CONTROL_PX}px ${MOBILE_WORKSPACE_RAIL_CONTROL_PX}px`
@@ -25,6 +25,9 @@ export function resolveMobileWorkspaceRailLayout(viewportWidthPx: number): {
 	tabPx: number
 	transparencyPx: number
 	closePx: number
+	interTrackGapPx: number
+	handleStartPx: number
+	closeEndPx: number
 	outerGutterPx: number
 } {
 	const fixedControlsPx = MOBILE_WORKSPACE_RAIL_CONTROL_PX * 3
@@ -33,6 +36,10 @@ export function resolveMobileWorkspaceRailLayout(viewportWidthPx: number): {
 		Math.max(MOBILE_WORKSPACE_RAIL_TABLIST_MIN_PX, viewportWidthPx - fixedControlsPx),
 	)
 	const contentPx = fixedControlsPx + tabListPx
+	const interTrackGapPx = Math.max(
+		0,
+		(viewportWidthPx - contentPx) / MOBILE_WORKSPACE_RAIL_TAB_COUNT,
+	)
 
 	return {
 		handlePx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
@@ -40,7 +47,10 @@ export function resolveMobileWorkspaceRailLayout(viewportWidthPx: number): {
 		tabPx: tabListPx / MOBILE_WORKSPACE_RAIL_TAB_COUNT,
 		transparencyPx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
 		closePx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
-		outerGutterPx: Math.max(0, (viewportWidthPx - contentPx) / 2),
+		interTrackGapPx,
+		handleStartPx: 0,
+		closeEndPx: contentPx + interTrackGapPx * MOBILE_WORKSPACE_RAIL_TAB_COUNT,
+		outerGutterPx: 0,
 	}
 }
 
@@ -61,7 +71,7 @@ export function mobileSheetChromeClassName(translucent: boolean): string {
 /** One 48px rail for every map-workspace control. */
 export function mobileWorkspaceRailClassName(translucent: boolean): string {
 	return cn(
-		'grid h-12 w-full shrink-0 items-center justify-center border-b border-border',
+		'grid h-12 w-full shrink-0 items-center justify-between border-b border-border',
 		mobileSheetChromeClassName(translucent),
 	)
 }

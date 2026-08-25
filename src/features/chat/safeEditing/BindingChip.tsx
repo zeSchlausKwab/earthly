@@ -17,6 +17,18 @@ import { cn } from '@/lib/utils'
 import type { SafetyLevel } from './AuthoringGate'
 import { resolveBinding, type BindingIdentity } from './binding'
 
+const compactActionDividerClassName =
+	"relative before:pointer-events-none before:absolute before:inset-y-1.5 before:left-0 before:border-edit/30 before:border-l before:content-['']"
+
+export function bindingChipTargetClassName(compact: boolean) {
+	return cn(
+		'flex min-w-0 items-center gap-1.5 px-2 text-edit',
+		compact
+			? "relative isolate h-11 before:pointer-events-none before:absolute before:inset-x-0 before:inset-y-1.5 before:-z-10 before:rounded-full before:border before:border-edit/40 before:bg-edit/15 before:content-['']"
+			: 'rounded-full border border-edit/40 bg-edit/15 py-0.5',
+	)
+}
+
 /**
  * BindingChip — the always-visible bound-target indicator in the chat panel
  * (SAFE-01 / D-03) plus the prominent "Just accept" (Level 3) toggle (SAFE-04 /
@@ -83,7 +95,10 @@ export function BindingChip({
 		>
 			{/* Bound-target chip — always visible (SAFE-01) */}
 			<div className="min-w-0">
-				<div className="flex min-w-0 items-center gap-1.5 rounded-full border border-edit/40 bg-edit/15 px-2 py-0.5 text-edit">
+				<div
+					className={bindingChipTargetClassName(compact)}
+					data-binding-chip-density={compact ? 'compact' : 'default'}
+				>
 					{targetRequired ? (
 						<MessageCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
 					) : (
@@ -97,7 +112,10 @@ export function BindingChip({
 							type="button"
 							onClick={onStartNewTarget}
 							disabled={targetPending}
-							className="ml-0.5 min-h-11 min-w-11 shrink-0 border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
+							className={cn(
+								'ml-0.5 min-h-11 min-w-11 shrink-0 pl-1.5 font-semibold hover:text-foreground',
+								compactActionDividerClassName,
+							)}
 						>
 							{targetPending ? 'Creating…' : 'New map'}
 						</button>
@@ -107,7 +125,10 @@ export function BindingChip({
 							type="button"
 							onClick={onUseCurrentTarget}
 							disabled={targetPending}
-							className="ml-0.5 min-h-11 min-w-11 shrink-0 border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
+							className={cn(
+								'ml-0.5 min-h-11 min-w-11 shrink-0 pl-1.5 font-semibold hover:text-foreground',
+								compactActionDividerClassName,
+							)}
 						>
 							Use current
 						</button>
@@ -133,8 +154,10 @@ export function BindingChip({
 							type="button"
 							onClick={onOpenTarget}
 							className={cn(
-								'ml-0.5 inline-flex shrink-0 items-center gap-1 border-edit/30 border-l font-semibold hover:text-foreground',
-								compact ? 'min-h-11 min-w-11 justify-center pl-1.5' : 'pl-1.5',
+								'ml-0.5 inline-flex shrink-0 items-center gap-1 font-semibold hover:text-foreground',
+								compact
+									? cn('min-h-11 min-w-11 justify-center pl-1.5', compactActionDividerClassName)
+									: 'border-edit/30 border-l pl-1.5',
 							)}
 							aria-label={`Open ${name} in geometry editor`}
 							title="Open geometry editor"
@@ -148,8 +171,10 @@ export function BindingChip({
 							type="button"
 							onClick={onUseCurrentTarget}
 							className={cn(
-								'ml-0.5 inline-flex shrink-0 items-center border-edit/30 border-l font-semibold hover:text-foreground',
-								compact ? 'min-h-11 min-w-11 pl-1.5' : 'pl-1.5',
+								'ml-0.5 inline-flex shrink-0 items-center font-semibold hover:text-foreground',
+								compact
+									? cn('min-h-11 min-w-11 pl-1.5', compactActionDividerClassName)
+									: 'border-edit/30 border-l pl-1.5',
 							)}
 							title="Rebind this conversation to the currently visible edit"
 						>
