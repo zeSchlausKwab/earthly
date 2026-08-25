@@ -1,0 +1,19 @@
+{
+  "id": "vienna-water-catchments",
+  "title": "Turn a spatial question into an editable Earthly map",
+  "post": "A useful AI map shouldn't end as a screenshot. Here Earthly researches nearby drinking-water points, turns them into editable geometry, and keeps the proposed change behind a human approval step.",
+  "videoAltText": "A desktop recording of Earthly's AI chat creating drinking-water points and walking catchments, followed by a tour of the editable geometry and map.",
+  "target": "new-dataset",
+  "xAccountTier": "standard",
+  "prompts": [
+    {
+      "text": "Find the nearest public drinking-water point to each of these Vienna trailheads: Kahlenberg (48.2767, 16.3339) and Lainzer Tor (48.1775, 16.2574). Add both water points and a 15-minute walking catchment around each one. Keep useful source metadata, make the result editable, and show every proposed map change before applying it.",
+      "approvals": ["edits"]
+    }
+  ],
+  "tour": ["geometry"],
+  "typingDelayMs": 28,
+  "actionDelayMs": 240,
+  "maxTurnMs": 180000,
+  "safetyLevel": 1
+}
