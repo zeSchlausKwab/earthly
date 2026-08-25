@@ -32,6 +32,14 @@ export const mapStackDraftLifecycleTask: AiTaskMetadata = {
 	viewports: 'desktop',
 }
 
+export const openDatasetEditorTask: AiTaskMetadata = {
+	id: 'editor.open-dataset-editor',
+	summary: 'Reveal the retained Dataset editor without creating or replacing a draft.',
+	preconditions: ['Earthly is open', 'A retained Dataset draft exists'],
+	sideEffects: ['Changes only the visible left-sidebar surface'],
+	viewports: 'desktop',
+}
+
 export interface EditorLifecycleSnapshot {
 	featureCount: number
 	mode: string
@@ -131,6 +139,16 @@ async function clickHistoryAction(earthly: EarthlySession, action: 'Undo' | 'Red
 
 	await earthly.page.getByText('Edit', { exact: true }).first().click()
 	await earthly.page.getByRole('menuitem', { name: action, exact: true }).click()
+}
+
+export async function openDatasetEditor(earthly: EarthlySession): Promise<Locator> {
+	if (earthly.isMobile) throw new Error('The persistent Dataset editor rail is desktop-only')
+	const datasetSurface = earthly.page.getByRole('button', { name: 'Dataset', exact: true })
+	await expect(datasetSurface).toBeVisible()
+	await datasetSurface.click()
+	const nameInput = earthly.page.getByPlaceholder('Name').first()
+	await expect(nameInput).toBeVisible()
+	return nameInput
 }
 
 export async function cancelDrawingAndVerifyRecovery(

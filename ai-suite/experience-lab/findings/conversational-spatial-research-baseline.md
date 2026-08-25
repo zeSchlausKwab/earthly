@@ -9,6 +9,8 @@
   without explicit local configuration and was not run against a paid provider
 - Research status: **context gathering only; no product UI experiment was implemented**
 
+> Superseded on 2026-08-24: Earthly no longer has a sendable **Conversation only** mode. A user may compose while unbound, but must explicitly choose **New map** or **Use current edit** before Send can start a model request.
+
 ## First-pass implementation update — 2026-07-19
 
 The transition portion of `EXP-AI-012` is now resolved for the replayed path. **New conversation**

@@ -4,9 +4,11 @@ import { expect, test } from '../../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../../tasks/auth/authorize-journey-identity'
 import {
 	approveAiEdit,
+	aiChatSurfaceSnapshot,
 	configureChatProvider,
 	hideAiChat,
 	openAiChat,
+	selectAiChatTarget,
 	sendAiChatMessage,
 	startNewAiChat,
 } from '../../tasks/chat/conversation'
@@ -55,6 +57,7 @@ test('an analyst turns a chat proposal into a canonical Dataset @experience-audi
 	// also proves that the encrypted snapshot can be decrypted by the test signer.
 	await earthly.open({ tour: 'preserve' })
 	await openAiChat(earthly)
+	await selectAiChatTarget(earthly, 'new-dataset')
 
 	const recorder = new ExperienceRunRecorder(earthly, testInfo, run)
 	let evidence: Awaited<ReturnType<ExperienceRunRecorder['finish']>> | undefined
@@ -142,6 +145,12 @@ test('an analyst turns a chat proposal into a canonical Dataset @experience-audi
 		expect(taskAfterConversationChange.activeWorkspaceChatSessionId).toBe(
 			taskBeforeConversationChange.activeWorkspaceChatSessionId,
 		)
+		expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
+			chatId: chatTransition.newChatId,
+			sendEnabled: false,
+			targetRequired: true,
+			targetName: null,
+		})
 		await recorder.observe(
 			'new-conversation-same-task',
 			'New conversation clears the transcript without retargeting the saved Dataset task or changing its geometry.',

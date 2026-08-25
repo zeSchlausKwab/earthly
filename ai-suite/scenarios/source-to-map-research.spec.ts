@@ -4,7 +4,9 @@ import {
 	approveAiEdit,
 	configureChatProvider,
 	openAiChat,
+	selectAiChatTarget,
 	sendAiChatMessage,
+	waitForAiChatCompletion,
 } from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
 import { expectGeometryFeatureCount } from '../tasks/create/geometry'
@@ -22,6 +24,8 @@ test('structured research commits one provenance-valid Dataset behind a compact 
 	await earthly.open({ tour: 'preserve' })
 	await startDataset(earthly)
 	await openAiChat(earthly)
+	await selectAiChatTarget(earthly, 'current-dataset')
+	const assistantMessagesBefore = await earthly.page.getByTitle('Copy assistant message').count()
 	await sendAiChatMessage(
 		earthly,
 		'Create a map from the current cases in the researched source and retain exact provenance.',
@@ -34,6 +38,7 @@ test('structured research commits one provenance-valid Dataset behind a compact 
 	// author can inspect the real geometry. Apply makes that preview canonical.
 	await expectGeometryFeatureCount(earthly, 2)
 	await approveAiEdit(earthly)
+	await waitForAiChatCompletion(earthly, assistantMessagesBefore)
 	await expectGeometryFeatureCount(earthly, 2)
 	await expect(earthly.page.getByText(/I created one validated Dataset/)).toBeVisible({
 		timeout: 15_000,

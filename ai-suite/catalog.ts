@@ -3,10 +3,16 @@ import { authorizeJourneyIdentityTask } from './tasks/auth/authorize-journey-ide
 import { signInTask } from './tasks/auth/sign-in'
 import {
 	approveAiEditTask,
+	attemptTargetRequiredAiChatSendTask,
+	composeAiChatMessageTask,
+	completeAiChatTurnTask,
 	configureChatProviderTask,
 	openAiChatTask,
+	selectAiChatTargetTask,
 	sendAiChatMessageTask,
 	startNewAiChatTask,
+	switchAiChatTask,
+	waitForAiChatCompletionTask,
 } from './tasks/chat/conversation'
 import { startDatasetTask } from './tasks/create/dataset'
 import { createContextTask } from './tasks/create/context'
@@ -20,6 +26,7 @@ import { createSightingTask } from './tasks/create/sighting'
 import {
 	cancelDrawingTask,
 	mapStackDraftLifecycleTask,
+	openDatasetEditorTask,
 	undoRedoGeometryTask,
 } from './tasks/editor/lifecycle'
 import { placeMobilePrecisionPointTask } from './tasks/editor/mobile-precision-drawing'
@@ -71,9 +78,15 @@ const tasks = [
 	signInTask,
 	configureChatProviderTask,
 	openAiChatTask,
+	selectAiChatTargetTask,
+	composeAiChatMessageTask,
+	attemptTargetRequiredAiChatSendTask,
 	sendAiChatMessageTask,
+	waitForAiChatCompletionTask,
 	startNewAiChatTask,
+	switchAiChatTask,
 	approveAiEditTask,
+	completeAiChatTurnTask,
 	completeTourTask,
 	skipTourTask,
 	inspectTourTask,
@@ -104,6 +117,7 @@ const tasks = [
 	cancelDrawingTask,
 	undoRedoGeometryTask,
 	mapStackDraftLifecycleTask,
+	openDatasetEditorTask,
 	placeMobilePrecisionPointTask,
 	geometryOperationsTask,
 	geometryWorkbenchTask,
