@@ -41,6 +41,7 @@ export function useStoryEditor({
 	const setViewStory = useEditorStore((state) => state.setViewStory)
 	const setStance = useEditorStore((state) => state.setStance)
 	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
+	const selectMobileEntitySurface = useEditorStore((state) => state.selectMobileEntitySurface)
 
 	const [storyEditorMode, setStoryEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingStory, setEditingStory] = useState<Article | null>(null)
@@ -68,6 +69,7 @@ export function useStoryEditor({
 
 	const handleInspectStory = useCallback(
 		(story: Article) => {
+			selectMobileEntitySurface('inspector')
 			setViewModeState('view')
 			setViewDatasetState(null)
 			setViewContext(null)
@@ -95,16 +97,19 @@ export function useStoryEditor({
 			recordRecentEntity,
 			encodeStoryNaddr,
 			navigateTo,
+			selectMobileEntitySurface,
 		],
 	)
 
 	const handleCreateStory = useCallback(() => {
+		selectMobileEntitySurface('story')
 		onBeforeAuthoring?.()
 		clearStoryEditorModes()
 		setStoryEditorMode('create')
 		prepareNonGeometryWorkspace()
 		navigateToView('stories')
-		if (!isMobile) setShowInfoPanel(true)
+		if (isMobile) ensureInfoPanelVisible()
+		else setShowInfoPanel(true)
 	}, [
 		clearStoryEditorModes,
 		prepareNonGeometryWorkspace,
@@ -112,17 +117,21 @@ export function useStoryEditor({
 		isMobile,
 		setShowInfoPanel,
 		onBeforeAuthoring,
+		ensureInfoPanelVisible,
+		selectMobileEntitySurface,
 	])
 
 	const handleEditStory = useCallback(
 		(story: Article) => {
+			selectMobileEntitySurface('story')
 			onBeforeAuthoring?.()
 			clearStoryEditorModes()
 			setStoryEditorMode('edit')
 			setEditingStory(story)
 			prepareNonGeometryWorkspace()
 			navigateToView('stories')
-			if (!isMobile) setShowInfoPanel(true)
+			if (isMobile) ensureInfoPanelVisible()
+			else setShowInfoPanel(true)
 		},
 		[
 			clearStoryEditorModes,
@@ -131,6 +140,8 @@ export function useStoryEditor({
 			isMobile,
 			setShowInfoPanel,
 			onBeforeAuthoring,
+			ensureInfoPanelVisible,
+			selectMobileEntitySurface,
 		],
 	)
 

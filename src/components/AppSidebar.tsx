@@ -61,7 +61,12 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './ui/resizable'
 import { MapSettingsPanel } from '../features/geo-editor/components/MapSettingsPanel'
 import { Nip60Wallet } from '../features/wallet/components/Nip60Wallet'
-import { useEditorStore, type InspectionSubject } from '../features/geo-editor/store'
+import {
+	getRetainedDatasetSurfaceTarget,
+	hasRetainedDatasetSurface,
+	useEditorStore,
+	type InspectionSubject,
+} from '../features/geo-editor/store'
 import { useRouting, type SidebarViewMode } from '../features/geo-editor/hooks/useRouting'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import type { EditorFeature } from '../features/geo-editor/core'
@@ -553,14 +558,12 @@ export function AppSidebar({
 	const chatDock = useEditorStore((state) => state.chatDock)
 	const setChatOpen = useEditorStore((state) => state.setChatOpen)
 	const toggleChatAtDock = useEditorStore((state) => state.toggleChatAtDock)
-	const datasetEditorRetained = useEditorStore(
-		(state) => state.mapStackEntries['draft:active'] != null,
-	)
+	// Dataset task lifetime is the validated workspace -> draft relationship.
+	// Map Stack only controls whether that retained geometry is rendered, so
+	// hiding/removing `draft:active` must not clear the rail indicator or resume.
+	const datasetEditorRetained = useEditorStore(hasRetainedDatasetSurface)
 	const datasetEditorResumable = useEditorStore(
-		(state) =>
-			state.mapStackEntries['draft:active'] != null &&
-			state.activeWorkspaceId != null &&
-			state.activeGeoEditDraftId != null,
+		(state) => getRetainedDatasetSurfaceTarget(state) !== null,
 	)
 	const runningChatId = useChatStore((state) => state.runningChatId)
 	const activeChatRun = useChatStore((state) => state.activeRun)
@@ -1002,9 +1005,9 @@ export function AppSidebar({
 	const returnToDatasetEditor = () => {
 		revealLeftSidebarSurface()
 		leaveMetaOverrideIfNeeded()
-		// The rail is a return affordance, never a create command. A retained
-		// draft resumes through the canonical workspace transition so `/edit`,
-		// stance, toolbar state, and GeoEditor interaction all agree again.
+		// The rail is a return affordance, never a create command. It reveals the
+		// validated active task without changing workspace or Map Stack visibility;
+		// `/edit`, stance, and the editor interaction boundary are presentation here.
 		if (datasetEditorResumable) onOpenGeometryEditor?.()
 		setActiveEntity('geometry')
 		setSelectedEntitySurface('dataset')
@@ -1323,7 +1326,7 @@ export function AppSidebar({
 			setViewDatasetState(null)
 			setViewStoryState(null)
 			onClearSightingView?.()
-			setStance(useEditorStore.getState().mapStackEntries['draft:active'] ? 'author' : 'browse')
+			setStance(hasRetainedDatasetSurface(useEditorStore.getState()) ? 'author' : 'browse')
 			setShowEntityAsFullPanel(false)
 			navigateToPrivateGroup(privateGroupId)
 			return

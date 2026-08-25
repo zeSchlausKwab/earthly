@@ -63,6 +63,26 @@ interface MapStackPanelProps {
 	onClear: () => void
 	onClose?: () => void
 	compact?: boolean
+	/** Let the map remain legible through the mobile sheet. Desktop stays opaque. */
+	translucent?: boolean
+}
+
+export function mapStackPanelSurfaceClassName({
+	compact,
+	translucent,
+	isDragOver,
+}: {
+	compact: boolean
+	translucent: boolean
+	isDragOver: boolean
+}): string {
+	return cn(
+		'flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-background',
+		compact ? 'h-auto' : 'h-full',
+		compact && 'bg-background/95 backdrop-blur',
+		translucent && 'bg-background/55 backdrop-blur-md',
+		isDragOver && 'border-ok/40 bg-ok/15',
+	)
 }
 
 const sourceLabel: Record<MapStackEntry['source'], string> = {
@@ -643,14 +663,14 @@ function EntryRow({
 						onClick={() => onRemoveEntry(entry)}
 						label={
 							entry.entityType === 'draft'
-								? 'Stop editing'
+								? 'Hide edit from map'
 								: entry.pinned
 									? 'Remove pinned entry'
 									: 'Remove from map stack'
 						}
 						tooltip={
 							entry.entityType === 'draft'
-								? 'Stop editing and remove the draft from the map'
+								? 'Hide this draft from the map and keep its editing state'
 								: entry.pinned
 									? 'Remove this pinned entry from the map stack'
 									: 'Remove this entry from the map stack'
@@ -1196,6 +1216,7 @@ export function MapStackPanel({
 	onClear,
 	onClose,
 	compact = false,
+	translucent = false,
 }: MapStackPanelProps) {
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
@@ -1289,12 +1310,8 @@ export function MapStackPanel({
 	return (
 		<section
 			aria-label="Map stack"
-			className={cn(
-				'flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-background',
-				compact ? 'h-auto' : 'h-full',
-				compact && 'bg-background/95 backdrop-blur',
-				isDragOver && 'border-ok/40 bg-ok/15',
-			)}
+			data-translucent={translucent ? 'true' : 'false'}
+			className={mapStackPanelSurfaceClassName({ compact, translucent, isDragOver })}
 			onDragEnter={(event) => {
 				if (hasDatasetDragData(event)) {
 					setIsDragOver(true)
@@ -1391,8 +1408,8 @@ export function MapStackPanel({
 							'text-muted-foreground',
 						)}
 						onClick={onClear}
-						disabled={!entries.some((entry) => !entry.pinned && entry.entityType !== 'draft')}
-						title="Remove all unpinned entries (pinned and the active draft stay)"
+						disabled={!entries.some((entry) => !entry.pinned)}
+						title="Remove all unpinned entries (pinned entries stay)"
 					>
 						Clear
 					</Button>
@@ -1482,11 +1499,9 @@ export function MapStackPanel({
 					</div>
 				)
 			) : draftEntries.length > 0 ? (
-				// Collapsed + active draft: the draft editor's row must stay MOUNTED —
-				// unmounting it would tear down the portal slot and bounce the editor
-				// into the left sidebar mid-edit — but it must not stay VISIBLE, or the
-				// panel is never fully collapsible while editing. `hidden` keeps the
-				// portal target in the DOM while the collapse hides everything.
+				// The draft is a visibility row only. Keep it mounted while the compact
+				// stack is collapsed so expanding restores the same ordered row without
+				// affecting the independently retained editor surface.
 				<div className="hidden" aria-hidden="true">
 					<EntryGroupList
 						compact={compact}

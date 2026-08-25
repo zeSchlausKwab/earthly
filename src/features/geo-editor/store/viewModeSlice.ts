@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand'
 import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
 import { isMobileMapSurfaceTab, viewToMobileTab } from './mobileTabRoute'
+import { hasRetainedDatasetSurface } from './mobileEntitySurface'
 import type { EditorState, ViewModeSlice } from './types'
 
 export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlice> = (
@@ -93,11 +94,10 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 	applyRouteState: (route, options) =>
 		set((state) => {
 			const hasFocus = route.focusType !== 'none'
-			// "Edit session live" = the `draft:active` map-stack entry exists. It is
-			// added by applyEditingState and removed by teardown or a successful
-			// publish replacement, so it is the one
-			// honest UI signal that the geometry editor owns a visible draft line.
-			const editSessionLive = state.mapStackEntries['draft:active'] != null
+			// A retained Dataset editor is a valid workspace -> draft relationship.
+			// Map Stack controls whether its geometry is drawn; hiding/removing that
+			// visibility row must not discard or make the editor unreachable.
+			const editSessionLive = hasRetainedDatasetSurface(state)
 			// The context editor edits metadata, not geometry — treat it as a
 			// non-geometry surface so a live geo draft doesn't flip us into 'edit'.
 			const inContextEditor = route.sidebarView === 'context-editor'

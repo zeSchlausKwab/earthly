@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { resolveChatSendState } from './ChatPanel'
+import { resolveChatHeaderControlSizing, resolveChatSendState } from './ChatPanel'
 import { useChatComposerStore } from './composerState'
 import { useChatStore } from './store'
 
@@ -49,5 +49,19 @@ describe('ChatPanel editing-target send contract', () => {
 				anotherChatIsRunning: false,
 			}),
 		).toEqual({ canSend: true, title: 'Send' })
+	})
+})
+
+describe('ChatPanel mobile control sizing', () => {
+	test('gives all conversation header controls 44px mobile hit areas only', () => {
+		expect(resolveChatHeaderControlSizing(true, 'new-conversation')).toContain('min-h-11')
+		expect(resolveChatHeaderControlSizing(true, 'conversation-select')).toContain(
+			'[&>select]:min-h-11',
+		)
+		expect(resolveChatHeaderControlSizing(true, 'icon')).toContain('min-w-11')
+
+		expect(resolveChatHeaderControlSizing(false, 'new-conversation')).toBe('h-8 px-2.5')
+		expect(resolveChatHeaderControlSizing(false, 'conversation-select')).toBe('')
+		expect(resolveChatHeaderControlSizing(false, 'icon')).toBe('h-8 w-8')
 	})
 })

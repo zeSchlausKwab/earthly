@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
-import { useEditorStore, type SidebarViewMode } from '../store'
+import { getRetainedDatasetSurfaceTarget, useEditorStore, type SidebarViewMode } from '../store'
 
 interface UseContextEditorParams {
 	isMobile: boolean
@@ -13,7 +13,10 @@ interface UseContextEditorParams {
 	handleInspectDataset: (event: GeoDataset) => void
 	loadDatasetForEditing: (event: GeoDataset) => void
 	startNewDataset: () => void
-	switchToWorkspace: (workspaceId: string) => void | Promise<void>
+	switchToWorkspace: (
+		workspaceId: string,
+		options?: { syncMapStackVisibility?: boolean },
+	) => void | Promise<void>
 }
 
 export function useContextEditor({
@@ -35,8 +38,8 @@ export function useContextEditor({
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const setStance = useEditorStore((state) => state.setStance)
 	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
-	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
-	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
+	const selectMobileEntitySurface = useEditorStore((state) => state.selectMobileEntitySurface)
+	const activateMobileEntitySurface = useEditorStore((state) => state.activateMobileEntitySurface)
 
 	const [contextEditorMode, setContextEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingContext, setEditingContext] = useState<MapContext | null>(null)
@@ -57,12 +60,15 @@ export function useContextEditor({
 	const handleLoadDatasetForEditing = useCallback(
 		(event: GeoDataset) => {
 			loadDatasetForEditing(event)
+			selectMobileEntitySurface('dataset')
+			if (isMobile) ensureInfoPanelVisible()
 		},
-		[loadDatasetForEditing],
+		[ensureInfoPanelVisible, isMobile, loadDatasetForEditing, selectMobileEntitySurface],
 	)
 
 	const handleInspectContext = useCallback(
 		(context: MapContext) => {
+			selectMobileEntitySurface('inspector')
 			setViewModeState('view')
 			setViewDatasetState(null)
 			setViewContext(context)
@@ -91,37 +97,46 @@ export function useContextEditor({
 			navigateTo,
 			setStance,
 			recordRecentEntity,
+			selectMobileEntitySurface,
 		],
 	)
 
 	const handleCreateContext = useCallback(() => {
+		selectMobileEntitySurface('context')
 		clearEditorModes()
 		setContextEditorMode('create')
 		prepareNonGeometryEditorWorkspace()
 		navigateToView('context-editor')
-		if (!isMobile) setShowInfoPanel(true)
+		if (isMobile) ensureInfoPanelVisible()
+		else setShowInfoPanel(true)
 	}, [
 		clearEditorModes,
 		prepareNonGeometryEditorWorkspace,
 		navigateToView,
 		isMobile,
+		ensureInfoPanelVisible,
+		selectMobileEntitySurface,
 		setShowInfoPanel,
 	])
 
 	const handleEditContext = useCallback(
 		(context: MapContext) => {
+			selectMobileEntitySurface('context')
 			clearEditorModes()
 			setContextEditorMode('edit')
 			setEditingContext(context)
 			prepareNonGeometryEditorWorkspace()
 			navigateToView('context-editor')
-			if (!isMobile) setShowInfoPanel(true)
+			if (isMobile) ensureInfoPanelVisible()
+			else setShowInfoPanel(true)
 		},
 		[
 			clearEditorModes,
 			prepareNonGeometryEditorWorkspace,
 			navigateToView,
 			isMobile,
+			ensureInfoPanelVisible,
+			selectMobileEntitySurface,
 			setShowInfoPanel,
 		],
 	)
@@ -144,43 +159,66 @@ export function useContextEditor({
 		if (wasOpen) navigateToView('contexts')
 	}, [contextEditorMode, navigateToView])
 
-	const handleOpenGeometryEditor = useCallback(() => {
-		if (!activeWorkspaceId || !activeGeoEditDraftId) {
-			startNewDataset()
-			return
-		}
-		const workspaceId = activeWorkspaceId
-		void (async () => {
-			await switchToWorkspace(workspaceId)
-			const state = useEditorStore.getState()
-			if (
-				state.activeWorkspaceId !== workspaceId ||
-				!state.activeGeoEditDraftId ||
-				!state.mapStackEntries['draft:active']
-			) {
-				return
+	const handleOpenGeometryEditor = useCallback(
+		async (requestedWorkspaceId?: string): Promise<boolean> => {
+			let initialState = useEditorStore.getState()
+			let retainedTarget = getRetainedDatasetSurfaceTarget(
+				initialState,
+				requestedWorkspaceId ?? initialState.activeWorkspaceId,
+			)
+			if (!retainedTarget) {
+				// An explicit Chat/run target must fail closed: falling back to the active
+				// Dataset (or creating a new one) would silently edit the wrong entity.
+				if (requestedWorkspaceId) return false
+				startNewDataset()
+				initialState = useEditorStore.getState()
+				retainedTarget = getRetainedDatasetSurfaceTarget(initialState)
+				if (!retainedTarget) return false
 			}
+			const workspaceId = retainedTarget.workspace.id
+			const changingExactTarget =
+				requestedWorkspaceId != null && initialState.activeWorkspaceId !== workspaceId
+			try {
+				if (changingExactTarget) {
+					await switchToWorkspace(workspaceId, { syncMapStackVisibility: false })
+				}
+				const state = useEditorStore.getState()
+				if (
+					state.activeWorkspaceId !== workspaceId ||
+					!getRetainedDatasetSurfaceTarget(state, workspaceId)
+				) {
+					return false
+				}
+				if (changingExactTarget) state.removeMapStackEntry('draft:active')
 
-			// This is the canonical resume transition for a retained Dataset draft.
-			// Inspection remains remembered, but it no longer owns the visible route
-			// or the GeoEditor interaction boundary.
-			setViewDatasetState(null)
-			setViewContext(null)
-			setViewModeState('edit')
-			setStance('author')
-			navigateToView('edit')
-		})()
-	}, [
-		activeWorkspaceId,
-		activeGeoEditDraftId,
-		startNewDataset,
-		switchToWorkspace,
-		setViewDatasetState,
-		setViewContext,
-		setViewModeState,
-		setStance,
-		navigateToView,
-	])
+				const activated = activateMobileEntitySurface('dataset', {
+					inspector: state.inspectionSubject != null,
+					dataset: true,
+					story: false,
+					context: false,
+					sighting: false,
+					beacon: false,
+				})
+				if (!activated) return false
+
+				// Desktop keeps its canonical route. Mobile's map-bound workspace tabs are
+				// presentation-only and reveal the sheet without rewriting location state.
+				if (!isMobile) navigateToView('edit')
+				if (isMobile) ensureInfoPanelVisible()
+				return true
+			} catch {
+				return false
+			}
+		},
+		[
+			activateMobileEntitySurface,
+			startNewDataset,
+			switchToWorkspace,
+			navigateToView,
+			isMobile,
+			ensureInfoPanelVisible,
+		],
+	)
 
 	const handleInspectDatasetWithModeSwitch = useCallback(
 		(event: GeoDataset) => {

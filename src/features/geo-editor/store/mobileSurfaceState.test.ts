@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { createUISlice } from './uiSlice'
-import type { EditorState, UISlice } from './types'
+import type { EditorState } from './types'
 
-function createUiHarness(): { getState: () => UISlice } {
-	let state = {} as UISlice
+function createUiHarness(seed: Partial<EditorState> = {}): { getState: () => EditorState } {
+	let state = { ...seed } as EditorState
 	const set = (update: Partial<EditorState> | ((current: EditorState) => Partial<EditorState>)) => {
-		const partial = typeof update === 'function' ? update(state as EditorState) : update
+		const partial = typeof update === 'function' ? update(state) : update
 		state = { ...state, ...partial }
 	}
-	const get = () => state as EditorState
-	state = createUISlice(set as never, get as never, {} as never)
+	const get = () => state
+	state = { ...createUISlice(set as never, get as never, {} as never), ...state }
 	return { getState: () => state }
 }
 
@@ -40,6 +40,96 @@ describe('mobile surface state machine', () => {
 		expect(state.mobilePanelTab).toBe('chat')
 		expect(state.mobilePanelSnap).toBe('full')
 		expect(state.mobileSidebarOpen).toBe(false)
+	})
+
+	test('Edit tab navigation preserves the selected entity and has no authoring side effects', () => {
+		Object.assign(harness.getState(), {
+			viewMode: 'view',
+			stance: 'focus',
+			activeWorkspaceId: 'workspace-1',
+			mapStackOrder: ['dataset:visible'],
+		})
+		harness.getState().selectMobileEntitySurface('story')
+		harness.getState().openMobilePanel('chat')
+		harness.getState().openMobilePanel('edit')
+
+		const state = harness.getState()
+		expect(state.mobileEntitySurface).toBe('story')
+		expect(state.mobilePanelTab).toBe('edit')
+		expect(state.mobilePanelOpen).toBe(true)
+		expect(state.viewMode).toBe('view')
+		expect(state.stance).toBe('focus')
+		expect(state.activeWorkspaceId).toBe('workspace-1')
+		expect(state.mapStackOrder).toEqual(['dataset:visible'])
+	})
+
+	test('explicit retained surface activation changes interaction stance without retargeting or changing visibility', () => {
+		const workspace = {
+			id: 'workspace-1',
+			sourceId: 'dataset:owner:map',
+			activeDraftId: 'draft-1',
+		}
+		const draft = { id: 'draft-1', sourceId: workspace.sourceId }
+		const seeded = createUiHarness({
+			activeWorkspaceId: workspace.id,
+			activeGeoEditDraftId: draft.id,
+			workspaces: { [workspace.id]: workspace },
+			geoEditDrafts: { [draft.id]: draft },
+			mapStackEntries: {
+				'dataset:visible': { id: 'dataset:visible', visible: true },
+			},
+			mapStackOrder: ['dataset:visible'],
+			viewMode: 'view',
+			stance: 'focus',
+		} as unknown as Partial<EditorState>)
+		const availability = {
+			inspector: false,
+			dataset: true,
+			story: true,
+			context: true,
+			sighting: false,
+			beacon: false,
+		}
+
+		expect(seeded.getState().activateMobileEntitySurface('dataset', availability)).toBe(true)
+		expect(seeded.getState().viewMode).toBe('edit')
+		expect(seeded.getState().stance).toBe('author')
+
+		expect(seeded.getState().activateMobileEntitySurface('story', availability)).toBe(true)
+		const state = seeded.getState()
+		expect(state.mobileEntitySurface).toBe('story')
+		expect(state.viewMode).toBe('view')
+		expect(state.stance).toBe('focus')
+		expect(state.activeWorkspaceId).toBe(workspace.id)
+		expect(state.mapStackOrder).toEqual(['dataset:visible'])
+	})
+
+	test('explicit activation fails closed when the selected surface is stale', () => {
+		const seeded = createUiHarness({
+			mobileEntitySurface: 'story',
+			viewMode: 'view',
+			stance: 'focus',
+			activeWorkspaceId: null,
+			activeGeoEditDraftId: null,
+			workspaces: {},
+			geoEditDrafts: {},
+			mapStackEntries: {},
+			mapStackOrder: [],
+		} as Partial<EditorState>)
+		const availability = {
+			inspector: false,
+			dataset: true,
+			story: false,
+			context: false,
+			sighting: false,
+			beacon: false,
+		}
+
+		expect(seeded.getState().activateMobileEntitySurface('dataset', availability)).toBe(false)
+		expect(seeded.getState().activateMobileEntitySurface('story', availability)).toBe(false)
+		expect(seeded.getState().mobileEntitySurface).toBe('story')
+		expect(seeded.getState().viewMode).toBe('view')
+		expect(seeded.getState().stance).toBe('focus')
 	})
 
 	test('opening the menu over a map-bound sheet restores the same detent on close', () => {

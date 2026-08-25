@@ -97,7 +97,7 @@ export function BindingChip({
 							type="button"
 							onClick={onStartNewTarget}
 							disabled={targetPending}
-							className="ml-0.5 shrink-0 border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
+							className="ml-0.5 min-h-11 min-w-11 shrink-0 border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
 						>
 							{targetPending ? 'Creating…' : 'New map'}
 						</button>
@@ -107,7 +107,7 @@ export function BindingChip({
 							type="button"
 							onClick={onUseCurrentTarget}
 							disabled={targetPending}
-							className="ml-0.5 shrink-0 border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
+							className="ml-0.5 min-h-11 min-w-11 shrink-0 border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
 						>
 							Use current
 						</button>
@@ -132,7 +132,10 @@ export function BindingChip({
 						<button
 							type="button"
 							onClick={onOpenTarget}
-							className="ml-0.5 inline-flex shrink-0 items-center gap-1 border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
+							className={cn(
+								'ml-0.5 inline-flex shrink-0 items-center gap-1 border-edit/30 border-l font-semibold hover:text-foreground',
+								compact ? 'min-h-11 min-w-11 justify-center pl-1.5' : 'pl-1.5',
+							)}
 							aria-label={`Open ${name} in geometry editor`}
 							title="Open geometry editor"
 						>
@@ -144,7 +147,10 @@ export function BindingChip({
 						<button
 							type="button"
 							onClick={onUseCurrentTarget}
-							className="ml-0.5 inline-flex shrink-0 items-center border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
+							className={cn(
+								'ml-0.5 inline-flex shrink-0 items-center border-edit/30 border-l font-semibold hover:text-foreground',
+								compact ? 'min-h-11 min-w-11 pl-1.5' : 'pl-1.5',
+							)}
 							title="Rebind this conversation to the currently visible edit"
 						>
 							{compact ? 'Use visible' : 'Use current'}

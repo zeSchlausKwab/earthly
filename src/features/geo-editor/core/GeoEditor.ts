@@ -500,7 +500,11 @@ export class GeoEditor {
 			}
 			this.selection.clearSelection()
 			this.updateActiveStates()
-			this.emit('selection.change', { type: 'selection.change', features: [] })
+			this.emit('selection.change', {
+				type: 'selection.change',
+				features: [],
+				origin: 'user',
+			})
 		}
 	}
 
@@ -559,7 +563,11 @@ export class GeoEditor {
 				this.selection.clearSelection()
 				this.updateActiveStates()
 				this.renderVertices()
-				this.emit('selection.change', { type: 'selection.change', features: [] })
+				this.emit('selection.change', {
+					type: 'selection.change',
+					features: [],
+					origin: 'user',
+				})
 			}
 		}
 	}
@@ -1003,6 +1011,7 @@ export class GeoEditor {
 			this.emit('selection.change', {
 				type: 'selection.change',
 				features: this.getSelectedFeatures(),
+				origin: 'user',
 			})
 		}
 	}
@@ -2621,6 +2630,7 @@ export class GeoEditor {
 		this.emit('selection.change', {
 			type: 'selection.change',
 			features: this.getSelectedFeatures(),
+			origin: 'user',
 		})
 	}
 

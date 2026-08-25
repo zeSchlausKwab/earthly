@@ -52,6 +52,7 @@ export function useSightingEditor({
 	const setStance = useEditorStore((state) => state.setStance)
 	const setInspectionSubject = useEditorStore((state) => state.setInspectionSubject)
 	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
+	const selectMobileEntitySurface = useEditorStore((state) => state.selectMobileEntitySurface)
 
 	const [sightingEditorMode, setSightingEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingSighting, setEditingSighting] = useState<TemporalSighting | null>(null)
@@ -104,6 +105,7 @@ export function useSightingEditor({
 
 	const handleInspectSighting = useCallback(
 		(sighting: TemporalSighting, commentId?: string) => {
+			selectMobileEntitySurface('sighting')
 			setViewModeState('view')
 			setViewDatasetState(null)
 			setViewContext(null)
@@ -138,10 +140,12 @@ export function useSightingEditor({
 			navigateToView,
 			encodeSightingNaddr,
 			recordRecentEntity,
+			selectMobileEntitySurface,
 		],
 	)
 
 	const handleCreateSighting = useCallback(() => {
+		selectMobileEntitySurface('sighting')
 		clearSightingEditorModes()
 		setViewSighting(null)
 		setFocusCommentId(undefined)
@@ -150,7 +154,13 @@ export function useSightingEditor({
 		// Map-first (D-01): arm the pin-drop; the editor opens on the placed geometry.
 		setPlacementArmed(true)
 		armPlacement()
-	}, [clearSightingEditorModes, prepareNonGeometryWorkspace, navigateToView, armPlacement])
+	}, [
+		armPlacement,
+		clearSightingEditorModes,
+		navigateToView,
+		prepareNonGeometryWorkspace,
+		selectMobileEntitySurface,
+	])
 
 	/**
 	 * The GeoEditor `'create'` event delivered the placed feature's geometry (D-01,
@@ -159,6 +169,7 @@ export function useSightingEditor({
 	 */
 	const handleGeometryPlaced = useCallback(
 		(geometry: PlacedSightingGeometry) => {
+			selectMobileEntitySurface('sighting')
 			setPlacedGeometry(geometry)
 			setPlacementArmed(false)
 			disarmPlacement()
@@ -167,9 +178,18 @@ export function useSightingEditor({
 			setFocusCommentId(undefined)
 			prepareNonGeometryWorkspace()
 			navigateToView('sightings')
-			if (!isMobile) setShowInfoPanel(true)
+			if (isMobile) ensureInfoPanelVisible()
+			else setShowInfoPanel(true)
 		},
-		[disarmPlacement, prepareNonGeometryWorkspace, navigateToView, isMobile, setShowInfoPanel],
+		[
+			disarmPlacement,
+			ensureInfoPanelVisible,
+			isMobile,
+			navigateToView,
+			prepareNonGeometryWorkspace,
+			selectMobileEntitySurface,
+			setShowInfoPanel,
+		],
 	)
 
 	const cancelPlacement = useCallback(() => {
@@ -187,6 +207,7 @@ export function useSightingEditor({
 
 	const handleEditSighting = useCallback(
 		(sighting: TemporalSighting) => {
+			selectMobileEntitySurface('sighting')
 			clearSightingEditorModes()
 			setPlacementArmed(false)
 			disarmPlacement()
@@ -196,7 +217,8 @@ export function useSightingEditor({
 			setFocusCommentId(undefined)
 			prepareNonGeometryWorkspace()
 			navigateToView('sightings')
-			if (!isMobile) setShowInfoPanel(true)
+			if (isMobile) ensureInfoPanelVisible()
+			else setShowInfoPanel(true)
 		},
 		[
 			clearSightingEditorModes,
@@ -204,6 +226,8 @@ export function useSightingEditor({
 			prepareNonGeometryWorkspace,
 			navigateToView,
 			isMobile,
+			ensureInfoPanelVisible,
+			selectMobileEntitySurface,
 			setShowInfoPanel,
 		],
 	)

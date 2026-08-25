@@ -233,6 +233,29 @@ export type MobilePanelTab =
 	| 'settings'
 	| 'help'
 
+/**
+ * The entity surface selected inside the mobile Edit/Inspect sheet.
+ *
+ * This is deliberately only a presentation pointer. Selecting one of these
+ * values must not create an entity, activate a Dataset workspace, change a
+ * Chat target, or alter Map Stack visibility. The concrete entity/editor state
+ * remains owned by its existing store/hook; this discriminant makes the sheet
+ * header and body choose the same one when several are retained.
+ *
+ * Sightings and Beacons are transient entries in this union. They may own the
+ * visible sheet while their create/control/inspect flow is active, but they are
+ * not advertised as durable authoring tasks after that flow closes.
+ */
+export type MobileEntitySurface =
+	| 'inspector'
+	| 'dataset'
+	| 'story'
+	| 'context'
+	| 'sighting'
+	| 'beacon'
+
+export type MobileEntitySurfaceAvailability = Record<MobileEntitySurface, boolean>
+
 /** Mobile bottom-sheet detents (redesign §5a "one sheet, three detents"):
  *  peek ≈ 15% (browse, map owns the screen), half ≈ 55% (properties on select),
  *  full ≈ 92% (the outliner, full height). */
@@ -493,9 +516,9 @@ export interface ViewModeSlice {
 	 * GeoEditorView fills them once the matching event has streamed in (so this
 	 * reducer stays free of event-data lookups).
 	 *
-	 * It never touches the active draft, the `draft:active` stack entry, or the
-	 * workspace — those are edit-session state, owned by applyEditingState /
-	 * tearDownEditSession (the draft invariant, Phase 1.4).
+	 * It never touches the active draft, workspace, or independent `draft:active`
+	 * visibility row. Authoring lifetime and Map Stack presentation are reconciled
+	 * by their respective owners, not by route changes.
 	 */
 	applyRouteState: (route: RouteSnapshot, options?: ApplyRouteStateOptions) => void
 }
@@ -536,10 +559,7 @@ export interface MapStackSlice {
 	 * exactly the current ids — otherwise the call is ignored.
 	 */
 	setMapStackOrder: (order: string[]) => void
-	/**
-	 * Removes all entries except pinned ones and the active draft. Pinning is
-	 * the contract for "keep this through a Clear".
-	 */
+	/** Removes all entries except pinned ones. Map Stack is visibility-only. */
 	clearMapStack: () => void
 }
 
@@ -561,6 +581,8 @@ export interface UISlice {
 	mobileSidebarOpen: boolean
 	mobileSidebarMode: MobileSidebarMode
 	mobilePanelResumeOnSidebarClose: MobilePanelResume | null
+	/** Last entity surface explicitly selected by the user on mobile. */
+	mobileEntitySurface: MobileEntitySurface | null
 	inspectorActive: boolean
 	sidebarViewMode: SidebarViewMode
 	sidebarExpanded: boolean
@@ -599,6 +621,18 @@ export interface UISlice {
 		options?: { preserveSuspendedPanel?: boolean },
 	) => void
 	closeMobileSidebar: () => void
+	/** Presentation-only selection; never mutates authoring or visibility state. */
+	selectMobileEntitySurface: (surface: MobileEntitySurface | null) => void
+	/**
+	 * Explicitly activate one retained mobile entity surface. Unlike a sheet-tab
+	 * switch, this transition updates the editor interaction stance. It validates
+	 * the target first and never creates, closes, retargets, or changes Map Stack
+	 * visibility.
+	 */
+	activateMobileEntitySurface: (
+		surface: MobileEntitySurface,
+		availability: MobileEntitySurfaceAvailability,
+	) => boolean
 	setInspectorActive: (active: boolean) => void
 	setSidebarViewMode: (mode: SidebarViewMode) => void
 	setSettingsTab: (tab: SettingsTab | null) => void

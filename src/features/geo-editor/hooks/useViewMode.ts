@@ -58,6 +58,7 @@ export function useViewMode({
 	const setStance = useEditorStore((state) => state.setStance)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
 	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
+	const selectMobileEntitySurface = useEditorStore((state) => state.selectMobileEntitySurface)
 
 	const exitViewMode = useCallback(() => {
 		setInfoMode('edit')
@@ -86,6 +87,7 @@ export function useViewMode({
 
 	const handleInspectDataset = useCallback(
 		(event: GeoDataset) => {
+			selectMobileEntitySurface('inspector')
 			setViewingDataset(event)
 			setViewingContext(null)
 			setViewingContextDatasets([])
@@ -112,6 +114,7 @@ export function useViewMode({
 			onNavigateToFocus,
 			setStance,
 			recordRecentEntity,
+			selectMobileEntitySurface,
 		],
 	)
 
@@ -121,6 +124,7 @@ export function useViewMode({
 	 */
 	const handleInspectDatasetWithoutFocus = useCallback(
 		(event: GeoDataset) => {
+			selectMobileEntitySurface('inspector')
 			setViewingDataset(event)
 			setViewingContext(null)
 			setViewingContextDatasets([])
@@ -140,6 +144,7 @@ export function useViewMode({
 			onEnsureInfoPanelVisible,
 			setStance,
 			recordRecentEntity,
+			selectMobileEntitySurface,
 		],
 	)
 

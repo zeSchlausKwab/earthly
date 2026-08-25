@@ -164,7 +164,30 @@ describe('BindingChip render (SAFE-01 / D-03)', () => {
 		expect(html).toContain('New map')
 		expect(html).toContain('Use current')
 		expect(html).toContain('Auto')
+		expect(html.match(/min-h-11/g)).toHaveLength(2)
+		expect(html.match(/min-w-11/g)).toHaveLength(2)
 		expect(html).not.toContain('Choose an editing target')
+	})
+
+	test('gives compact Open and Use visible actions 44px touch heights', () => {
+		const html = renderToStaticMarkup(
+			<BindingChip
+				name="Berlin Bike Lanes"
+				unsaved
+				featureCount={42}
+				targetRequired={false}
+				safetyLevel={2}
+				onToggleAutoAccept={() => {}}
+				onOpenTarget={() => {}}
+				onUseCurrentTarget={() => {}}
+				compact
+			/>,
+		)
+
+		expect(html).toContain('Open Berlin Bike Lanes in geometry editor')
+		expect(html).toContain('Use visible')
+		expect(html.match(/min-h-11/g)).toHaveLength(2)
+		expect(html.match(/min-w-11/g)).toHaveLength(2)
 	})
 
 	test('shows target creation as pending instead of leaving New map apparently send-ready', () => {

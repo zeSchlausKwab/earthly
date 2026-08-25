@@ -164,6 +164,17 @@ export function resolveChatSendState(input: {
 	return { canSend, title }
 }
 
+export function resolveChatHeaderControlSizing(
+	isMobile: boolean,
+	control: 'new-conversation' | 'conversation-select' | 'icon',
+): string {
+	if (control === 'new-conversation') return isMobile ? 'h-11 min-h-11 px-2' : 'h-8 px-2.5'
+	if (control === 'conversation-select') {
+		return isMobile ? '[&>select]:h-11 [&>select]:min-h-11' : ''
+	}
+	return isMobile ? 'h-11 min-h-11 w-11 min-w-11' : 'h-8 w-8'
+}
+
 interface ChatPanelProps {
 	geoEvents?: GeoDataset[]
 	mapContextEvents?: MapContext[]
@@ -764,7 +775,10 @@ export function ChatPanel({
 						type="button"
 						variant="outline"
 						size="sm"
-						className={cn('shrink-0 gap-1.5 text-xs', isMobile ? 'h-7 px-2' : 'h-8 px-2.5')}
+						className={cn(
+							'shrink-0 gap-1.5 text-xs',
+							resolveChatHeaderControlSizing(isMobile, 'new-conversation'),
+						)}
 						aria-label="New conversation"
 						onClick={handleCreateChat}
 					>
@@ -780,7 +794,10 @@ export function ChatPanel({
 							if (chatId) handleSwitchChat(chatId)
 						}}
 						aria-label="Select conversation"
-						className="min-w-0 flex-1"
+						className={cn(
+							'min-w-0 flex-1',
+							resolveChatHeaderControlSizing(isMobile, 'conversation-select'),
+						)}
 					>
 						{activeChatSession ? null : (
 							<NativeSelectOption value="" disabled>
@@ -797,7 +814,7 @@ export function ChatPanel({
 						type="button"
 						variant="ghost"
 						size="icon"
-						className={cn('shrink-0', isMobile ? 'h-7 w-7' : 'h-8 w-8')}
+						className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
 						onClick={handleExportConversation}
 						disabled={messages.length === 0}
 						title="Export conversation (copy JSON + download .json)"
@@ -809,7 +826,7 @@ export function ChatPanel({
 						type="button"
 						variant="ghost"
 						size="icon"
-						className={cn('shrink-0', isMobile ? 'h-7 w-7' : 'h-8 w-8')}
+						className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
 						onClick={handleDeleteChat}
 						disabled={!activeChatId}
 						title="Delete conversation"

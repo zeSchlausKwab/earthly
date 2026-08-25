@@ -14,7 +14,11 @@ import {
 	formatAreaKm2,
 	formatLengthKm,
 } from '../features/geo-editor/api/measure'
-import { useEditorStore } from '../features/geo-editor/store'
+import {
+	hasRetainedDatasetSurface,
+	useEditorStore,
+	type InspectionSubject,
+} from '../features/geo-editor/store'
 import { sanitizeEditorProperties } from '../features/geo-editor/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContextValidationMode, MapContext } from '@/lib/nostr/map-context'
@@ -50,6 +54,7 @@ import type { BlossomUploadResult } from '../lib/blossom/blossomUpload'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace'
 import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
 import { LocalDraftPersistenceWarning } from '@/features/geo-editor/components/LocalDraftPersistenceWarning'
+import { resolveInfoPanelViewState } from '@/features/geo-editor/components/mobileEditPanelPresentation'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -133,6 +138,8 @@ export interface GeoEditorInfoPanelProps {
 	focusCommentId?: string
 	entityWorkspace?: 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
 	entityIntent?: 'inspect' | 'edit'
+	/** Retained Inspector subject used without restoring route-owned view state. */
+	inspectionSubjectOverride?: InspectionSubject | null
 	/** Story editor mode (Phase 10, D-03). */
 	storyEditorMode?: 'none' | 'create' | 'edit'
 	/** Story being edited (create ⇒ null). */
@@ -251,6 +258,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		focusCommentId,
 		entityWorkspace,
 		entityIntent,
+		inspectionSubjectOverride,
 		storyEditorMode = 'none',
 		editingStory,
 		onSaveStory,
@@ -261,7 +269,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onStoryUpdated,
 		sightingEditorMode = 'none',
 		editingSighting,
-		viewSighting,
+		viewSighting: suppliedViewSighting,
 		sightingFocusCommentId,
 		beaconFocusCommentId,
 		placedSightingGeometry,
@@ -273,7 +281,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onAddSightingToMapStack,
 		beaconControlMode = 'none',
 		adjustingBeacon,
-		viewBeacon,
+		viewBeacon: suppliedViewBeacon,
 		isFollowingBeacon,
 		onToggleFollowBeacon,
 		beaconIsStarting,
@@ -302,22 +310,28 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const publishMessage = useEditorStore((state) => state.publishMessage)
 	const publishError = useEditorStore((state) => state.publishError)
 	const viewMode = useEditorStore((state) => state.viewMode)
-	const viewDataset = useEditorStore((state) => state.viewDataset)
+	const storedViewDataset = useEditorStore((state) => state.viewDataset)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
 	const blobReferences = useEditorStore((state) => state.blobReferences)
-	const viewContext = useEditorStore((state) => state.viewContext)
+	const storedViewContext = useEditorStore((state) => state.viewContext)
 	const setViewContext = useEditorStore((state) => state.setViewContext)
-	const viewStory = useEditorStore((state) => state.viewStory)
+	const storedViewStory = useEditorStore((state) => state.viewStory)
+	const { viewDataset, viewContext, viewStory, viewSighting, viewBeacon } =
+		resolveInfoPanelViewState(inspectionSubjectOverride, {
+			viewDataset: storedViewDataset,
+			viewContext: storedViewContext,
+			viewStory: storedViewStory,
+			viewSighting: suppliedViewSighting ?? null,
+			viewBeacon: suppliedViewBeacon ?? null,
+		})
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
-	const datasetEditorRetained = useEditorStore(
-		(state) => state.mapStackEntries['draft:active'] != null,
-	)
+	const datasetEditorRetained = useEditorStore(hasRetainedDatasetSurface)
 	const createGeoEditDraft = useEditorStore((state) => state.createGeoEditDraft)
 	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
 	const [attachedGeojson, setAttachedGeojson] = useState<FeatureCollection | null>(null)

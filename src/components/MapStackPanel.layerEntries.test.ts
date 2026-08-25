@@ -19,6 +19,7 @@ import {
 	bucketMapStackEntries,
 	entityTypeLabel,
 	entryTypeMetaLabel,
+	mapStackPanelSurfaceClassName,
 	orderedMapStackEntries,
 } from './MapStackPanel'
 
@@ -38,6 +39,18 @@ function entry(entityType: MapStackEntryType, title = ''): MapStackEntry {
 }
 
 describe('MapStackPanel bucketing / ordering (D-05)', () => {
+	it('lets the translucent mobile surface replace the opaque panel background', () => {
+		const className = mapStackPanelSurfaceClassName({
+			compact: false,
+			translucent: true,
+			isDragOver: false,
+		})
+
+		expect(className).toContain('bg-background/55')
+		expect(className).toContain('backdrop-blur-md')
+		expect(className.split(' ')).not.toContain('bg-background')
+	})
+
 	it('pins aggregate sighting-layer + beacon-layer entries ABOVE dataset/context entries', () => {
 		// Insertion order deliberately interleaves the aggregate layers AFTER the
 		// dataset/context entries so a naive insertion-order render would put them

@@ -33,6 +33,36 @@ function createMapStackHarness(seed: Partial<EditorState>) {
 }
 
 describe('published Dataset Map Stack removal', () => {
+	test('Clear removes an unpinned draft visibility row without touching retained work', () => {
+		const draftId = 'draft-1'
+		const workspaceId = 'workspace-1'
+		const retainedDraft = {
+			id: draftId,
+			sourceId: 'session:one',
+		} as GeoCollectionEditDraft
+		const retainedWorkspace = {
+			id: workspaceId,
+			sourceId: retainedDraft.sourceId,
+			activeDraftId: draftId,
+		} as GeoEditorWorkspace
+		const harness = createMapStackHarness({
+			mapStackEntries: { 'draft:active': draftEntry() },
+			mapStackOrder: ['draft:active'],
+			geoEditDrafts: { [draftId]: retainedDraft },
+			activeGeoEditDraftId: draftId,
+			workspaces: { [workspaceId]: retainedWorkspace },
+			activeWorkspaceId: workspaceId,
+		})
+
+		harness.getState().clearMapStack()
+
+		const state = harness.getState()
+		expect(state.mapStackOrder).toEqual([])
+		expect(state.mapStackEntries).toEqual({})
+		expect(state.geoEditDrafts[draftId]).toBe(retainedDraft)
+		expect(state.workspaces[workspaceId]).toBe(retainedWorkspace)
+	})
+
 	test('uses canonical visibility and isolation precedence for the retained draft layer', () => {
 		const visibleDraft = draftEntry()
 		const hiddenDraft = draftEntry({ visible: false })

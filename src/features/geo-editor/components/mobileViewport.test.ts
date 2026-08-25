@@ -10,8 +10,14 @@ describe('resolveMobileViewportLayout', () => {
 				visualOffsetTop: 0,
 				baselineHeight: 800,
 				editableFocused: true,
+				persistentDockHeightPx: 52,
 			}),
-		).toEqual({ keyboardOpen: true, fixedBottomInsetPx: 320, usableHeightPx: 472 })
+		).toEqual({
+			keyboardOpen: true,
+			fixedBottomInsetPx: 320,
+			dockClearancePx: 0,
+			usableHeightPx: 472,
+		})
 	})
 
 	test('does not double-raise a sheet when Android resizes the layout viewport', () => {
@@ -22,8 +28,32 @@ describe('resolveMobileViewportLayout', () => {
 				visualOffsetTop: 0,
 				baselineHeight: 800,
 				editableFocused: true,
+				persistentDockHeightPx: 52,
 			}),
-		).toEqual({ keyboardOpen: true, fixedBottomInsetPx: 0, usableHeightPx: 472 })
+		).toEqual({
+			keyboardOpen: true,
+			fixedBottomInsetPx: 0,
+			dockClearancePx: 52,
+			usableHeightPx: 420,
+		})
+	})
+
+	test('keeps a 524px Android Edit or Chat sheet above the 52px persistent dock', () => {
+		expect(
+			resolveMobileViewportLayout({
+				layoutHeight: 524,
+				visualHeight: 524,
+				visualOffsetTop: 0,
+				baselineHeight: 844,
+				editableFocused: true,
+				persistentDockHeightPx: 52,
+			}),
+		).toEqual({
+			keyboardOpen: true,
+			fixedBottomInsetPx: 0,
+			dockClearancePx: 52,
+			usableHeightPx: 464,
+		})
 	})
 
 	test('does not mistake an orientation change for a keyboard without an editable focus', () => {
@@ -34,6 +64,7 @@ describe('resolveMobileViewportLayout', () => {
 				visualOffsetTop: 0,
 				baselineHeight: 800,
 				editableFocused: false,
+				persistentDockHeightPx: 52,
 			}).keyboardOpen,
 		).toBe(false)
 	})

@@ -177,6 +177,12 @@ export type EditorEventType =
 export interface EditorEvent {
 	type: EditorEventType
 	features?: EditorFeature[]
+	/**
+	 * Present for selection events whose provenance matters to responsive UI.
+	 * Map/touch selection is `user`; command/API selection is intentionally left
+	 * programmatic so background writes cannot steal the mobile sheet.
+	 */
+	origin?: 'user' | 'programmatic'
 	mode?: EditorMode
 	geometryOperation?: ActiveGeometryInteraction | null
 	selectionCandidates?: SelectionCandidateRequest | null

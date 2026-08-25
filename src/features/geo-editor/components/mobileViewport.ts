@@ -4,11 +4,14 @@ export interface MobileViewportInput {
 	visualOffsetTop: number
 	baselineHeight: number
 	editableFocused: boolean
+	/** Height of the persistent dock that remains visible after layout-viewport resize. */
+	persistentDockHeightPx?: number
 }
 
 export interface MobileViewportLayout {
 	keyboardOpen: boolean
 	fixedBottomInsetPx: number
+	dockClearancePx: number
 	usableHeightPx: number
 }
 
@@ -26,6 +29,7 @@ export function resolveMobileViewportLayout({
 	visualOffsetTop,
 	baselineHeight,
 	editableFocused,
+	persistentDockHeightPx = 0,
 }: MobileViewportInput): MobileViewportLayout {
 	const safeLayoutHeight = Math.max(0, layoutHeight)
 	const safeVisualHeight = Math.max(0, visualHeight)
@@ -35,10 +39,18 @@ export function resolveMobileViewportLayout({
 	const keyboardOpen =
 		editableFocused &&
 		(fixedBottomInsetPx > KEYBOARD_THRESHOLD_PX || resizedViewportDrop > KEYBOARD_THRESHOLD_PX)
+	// An occluding visual viewport (the usual iOS strategy) already hides the dock
+	// below its bottom edge. A resized layout viewport (the common Android
+	// strategy) keeps the fixed dock visible, so the sheet must stop above it.
+	const dockClearancePx =
+		keyboardOpen && fixedBottomInsetPx <= KEYBOARD_THRESHOLD_PX
+			? Math.max(0, persistentDockHeightPx)
+			: 0
 
 	return {
 		keyboardOpen,
 		fixedBottomInsetPx: keyboardOpen ? fixedBottomInsetPx : 0,
-		usableHeightPx: Math.max(0, safeVisualHeight - VIEWPORT_EDGE_GAP_PX),
+		dockClearancePx,
+		usableHeightPx: Math.max(0, safeVisualHeight - VIEWPORT_EDGE_GAP_PX - dockClearancePx),
 	}
 }

@@ -5,7 +5,7 @@ import type { MapContext } from '@/lib/nostr/map-context'
 import { createViewModeSlice } from './viewModeSlice'
 import type { EditorState } from './types'
 
-function createViewModeHarness(options?: { editSessionLive?: boolean }): {
+function createViewModeHarness(options?: { retainedDataset?: boolean }): {
 	getState: () => EditorState
 } {
 	let state = {} as EditorState
@@ -16,7 +16,21 @@ function createViewModeHarness(options?: { editSessionLive?: boolean }): {
 	const get = () => state as EditorState
 	state = {
 		...createViewModeSlice(set as never, get as never, {} as never),
-		mapStackEntries: options?.editSessionLive ? { 'draft:active': { id: 'draft:active' } } : {},
+		mapStackEntries: {},
+		activeWorkspaceId: options?.retainedDataset ? 'workspace-1' : null,
+		activeGeoEditDraftId: options?.retainedDataset ? 'draft-1' : null,
+		workspaces: options?.retainedDataset
+			? {
+					'workspace-1': {
+						id: 'workspace-1',
+						sourceId: 'dataset:owner:map',
+						activeDraftId: 'draft-1',
+					},
+				}
+			: {},
+		geoEditDrafts: options?.retainedDataset
+			? { 'draft-1': { id: 'draft-1', sourceId: 'dataset:owner:map' } }
+			: {},
 	} as EditorState
 	return { getState: () => state }
 }
@@ -71,7 +85,7 @@ describe('retained inspection subject', () => {
 	})
 
 	test('a retained draft authors only on the explicit Dataset edit surface', () => {
-		const harness = createViewModeHarness({ editSessionLive: true })
+		const harness = createViewModeHarness({ retainedDataset: true })
 
 		harness.getState().applyRouteState({ sidebarView: 'edit', focusType: 'none' })
 		expect(harness.getState().viewMode).toBe('edit')

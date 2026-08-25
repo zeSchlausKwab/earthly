@@ -15,6 +15,14 @@ import { createCatalogSlice } from './catalogSlice'
 import { createGeoQuerySlice } from './geoQuerySlice'
 import type { EditorState } from './types'
 
+export {
+	getRetainedDatasetSurfaceTarget,
+	hasRetainedDatasetSurface,
+	resolveDraftEditorOpenPlan,
+	resolveMobileEntitySurface,
+} from './mobileEntitySurface'
+export type { DraftEditorOpenPlan, RetainedDatasetSurfaceTarget } from './mobileEntitySurface'
+
 export const useEditorStore = create<EditorState>((...a) => ({
 	...createEditorCoreSlice(...a),
 	...createDraftSlice(...a),
@@ -53,6 +61,8 @@ export type {
 	MobilePanelSnap,
 	MobileSidebarMode,
 	MobilePanelResume,
+	MobileEntitySurface,
+	MobileEntitySurfaceAvailability,
 	GeoCollectionEditDraft,
 	GeoEditorWorkspace,
 	PublishChannel,

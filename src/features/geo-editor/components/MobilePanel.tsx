@@ -4,9 +4,11 @@ import {
 	useRef,
 	useState,
 	type PointerEvent as ReactPointerEvent,
+	type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { FeatureCollection } from 'geojson'
+import { toast } from 'sonner'
 import {
 	BookOpen,
 	ArrowLeft,
@@ -18,6 +20,7 @@ import {
 	Globe,
 	HelpCircle,
 	Layers,
+	LoaderCircle,
 	MessageCircle,
 	MessageSquare,
 	Pencil,
@@ -47,6 +50,7 @@ import {
 } from '@/features/field-sessions/FieldSessionsPanel'
 import type { PrivateDatasetActions } from '@/features/private-maps/PrivateGeometryReferences'
 import { Button } from '@/components/ui/button'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { cn } from '@/lib/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
@@ -54,7 +58,15 @@ import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { EntitySearchPopover, type EntitySearchResult } from '@/components/entity-search'
 import type { EditorFeature } from '../core'
 import type { BlossomUploadResult } from '@/lib/blossom/blossomUpload'
-import { useEditorStore, type MapStackEntry, type MobilePanelSnap } from '../store'
+import {
+	getRetainedDatasetSurfaceTarget,
+	hasRetainedDatasetSurface,
+	resolveMobileEntitySurface,
+	useEditorStore,
+	type MapStackEntry,
+	type MobileEntitySurface,
+	type MobilePanelSnap,
+} from '../store'
 import { mobileTabToView } from '../store/mobileTabRoute'
 import { SignedOutCta } from '@/features/auth/SignedOutCta'
 import { LoginSessionButtons } from '@/features/auth/LoginSessionButtons'
@@ -66,13 +78,25 @@ import {
 } from '@/components/WorkspaceDraftNavigator'
 import { MapSettingsPanel } from './MapSettingsPanel'
 import { ChatPanel } from '@/features/chat/ChatPanel'
+import { useChatStore } from '@/features/chat/store'
 import { Nip60Wallet } from '@/features/wallet/components/Nip60Wallet'
 import { useRouting } from '../hooks/useRouting'
 import { DEFAULT_WORK_VIEW } from '../defaults'
 import { PublishOutboxPanel } from '@/features/delivery'
+import { NEW_STORY_DRAFT_KEY, readStoryDraft } from '@/lib/nostr/story'
 import { MobilePanelHeaderActionProvider } from './MobilePanelHeaderAction'
 import { resolveMobileViewportLayout } from './mobileViewport'
-import { resolveMobileEditPanelPresentation } from './mobileEditPanelPresentation'
+import {
+	attemptConversationEditTargetRestore,
+	CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE,
+	mobileWorkspacePanelUsesKeyboardViewport,
+	resolveActiveConversationEditTarget,
+	resolveMobileDatasetSurfaceTitle,
+	resolveMobileEditPanelPresentation,
+	resolveMobileStorySurfaceTitle,
+	resolveMobileWorkspaceTabKey,
+	type MobileWorkspacePanelTab,
+} from './mobileEditPanelPresentation'
 
 export type MobilePanelTab =
 	| 'drafts'
@@ -128,14 +152,14 @@ export interface MobilePanelProps {
 	onSetMapStackEntryVisible: (entry: MapStackEntry, visible: boolean) => void
 	onSetMapStackEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
 	onRemoveMapStackEntry: (entry: MapStackEntry) => void
-	onOpenDraftEditor?: (workspaceId?: string) => void
+	onOpenDraftEditor?: (workspaceId?: string) => Promise<boolean>
 	onZoomToDraft?: () => void
 	onClearMapStack: () => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
-	onOpenGeometryEditor?: () => void
+	onOpenGeometryEditor?: (workspaceId?: string) => Promise<boolean>
 	onInspectDataset?: (event: GeoDataset) => void
 	onExitFocus?: () => void
 	onInspectContext?: (context: MapContext) => void
@@ -218,7 +242,7 @@ const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[]
 	{ id: 'beacons', label: 'Live beacons', icon: Radio },
 	{ id: 'stories', label: 'Stories', icon: BookOpen },
 	{ id: 'datasets', label: 'Datasets', icon: Database },
-	{ id: 'map-stack', label: 'Map', icon: Layers },
+	{ id: 'map-stack', label: 'Stack', icon: Layers },
 	{ id: 'contexts', label: 'Contexts', icon: Globe },
 	{ id: 'field-sessions', label: 'Field sessions', icon: RadioTower },
 	{ id: 'private-groups', label: 'Private groups', icon: UsersRound },
@@ -270,6 +294,15 @@ const SIDEBAR_GROUPS: { label: string; tabs: MobilePanelTab[] }[] = [
  */
 export const MOBILE_DOCK_PX = 52
 export const MOBILE_SHEET_PEEK_PX = 34
+const MOBILE_WORKSPACE_TABPANEL_ID = 'mobile-workspace-tabpanel'
+
+function configuredMobileDockHeightPx(): number {
+	if (typeof window === 'undefined') return MOBILE_DOCK_PX
+	const configured = Number.parseFloat(
+		window.getComputedStyle(document.documentElement).getPropertyValue('--mobile-dock-height'),
+	)
+	return Number.isFinite(configured) && configured >= 0 ? configured : MOBILE_DOCK_PX
+}
 const SNAP_ORDER: MobilePanelSnap[] = ['peek', 'half', 'full']
 /** Peek = just the grab handle (px). Retracted shows only the handle + toolbar
  *  (the grab-handle row is ~34px: py-3 + the 6px bar + its bottom border). */
@@ -423,6 +456,18 @@ export function MobilePanel(props: MobilePanelProps) {
 	const viewDataset = useEditorStore((state) => state.viewDataset)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const viewStory = useEditorStore((state) => state.viewStory)
+	const inspectionSubject = useEditorStore((state) => state.inspectionSubject)
+	const mobileEntitySurface = useEditorStore((state) => state.mobileEntitySurface)
+	const activateMobileEntitySurface = useEditorStore((state) => state.activateMobileEntitySurface)
+	const datasetEditorRetained = useEditorStore(hasRetainedDatasetSurface)
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
+	const retainedDatasetSurfaceTitle = useEditorStore((state) =>
+		resolveMobileDatasetSurfaceTitle(getRetainedDatasetSurfaceTarget(state)),
+	)
+	const activeChatId = useChatStore((state) => state.activeChatId)
+	const chatSessions = useChatStore((state) => state.chatSessions)
+	const runningChatId = useChatStore((state) => state.runningChatId)
+	const activeChatRun = useChatStore((state) => state.activeRun)
 	const localDraftCount = useEditorStore((state) =>
 		countVisibleLocalDraftWorkspaces(
 			state.workspaces,
@@ -432,10 +477,15 @@ export function MobilePanel(props: MobilePanelProps) {
 	)
 	const [headerActionTarget, setHeaderActionTarget] = useState<HTMLDivElement | null>(null)
 	const [panelTranslucent, setPanelTranslucent] = useState(false)
+	const [retainedStoryDraftTitle, setRetainedStoryDraftTitle] = useState<string | null>(null)
 	const viewportBaselineRef = useRef(viewportHeightPx())
+	const workspaceTabRefs = useRef<
+		Partial<Record<MobileWorkspacePanelTab, HTMLButtonElement | null>>
+	>({})
 	const [keyboardViewport, setKeyboardViewport] = useState(() => ({
 		keyboardOpen: false,
 		fixedBottomInsetPx: 0,
+		dockClearancePx: 0,
 		usableHeightPx: viewportHeightPx(),
 		layoutHeightPx: viewportHeightPx(),
 	}))
@@ -489,12 +539,17 @@ export function MobilePanel(props: MobilePanelProps) {
 	])
 
 	useEffect(() => {
-		if (!mobilePanelOpen || mobilePanelTab !== 'chat' || typeof window === 'undefined') {
+		if (
+			!mobilePanelOpen ||
+			!mobileWorkspacePanelUsesKeyboardViewport(mobilePanelTab) ||
+			typeof window === 'undefined'
+		) {
 			setKeyboardViewport((current) =>
 				current.keyboardOpen || current.fixedBottomInsetPx !== 0
 					? {
 							keyboardOpen: false,
 							fixedBottomInsetPx: 0,
+							dockClearancePx: 0,
 							usableHeightPx: viewportHeightPx(),
 							layoutHeightPx: viewportHeightPx(),
 						}
@@ -519,6 +574,7 @@ export function MobilePanel(props: MobilePanelProps) {
 				visualOffsetTop,
 				baselineHeight: viewportBaselineRef.current,
 				editableFocused,
+				persistentDockHeightPx: configuredMobileDockHeightPx(),
 			})
 
 			// When no keyboard-capable element owns focus, a height change is an
@@ -531,6 +587,7 @@ export function MobilePanel(props: MobilePanelProps) {
 				if (
 					current.keyboardOpen === layout.keyboardOpen &&
 					current.fixedBottomInsetPx === layout.fixedBottomInsetPx &&
+					current.dockClearancePx === layout.dockClearancePx &&
 					current.usableHeightPx === layout.usableHeightPx &&
 					current.layoutHeightPx === layoutHeight
 				) {
@@ -554,6 +611,15 @@ export function MobilePanel(props: MobilePanelProps) {
 			document.removeEventListener('focusout', syncViewport)
 		}
 	}, [mobilePanelOpen, mobilePanelTab])
+
+	useEffect(() => {
+		if (storyEditorMode === 'none' || editingStory) {
+			setRetainedStoryDraftTitle(null)
+			return
+		}
+		const title = readStoryDraft(NEW_STORY_DRAFT_KEY, currentUserPubkey)?.title ?? null
+		setRetainedStoryDraftTitle(title?.trim() || null)
+	}, [currentUserPubkey, editingStory, storyEditorMode])
 
 	// The sheet height is driven from the store detent, but the grab handle can be
 	// DRAGGED to resize live and snaps to the nearest detent on release (a plain
@@ -610,18 +676,30 @@ export function MobilePanel(props: MobilePanelProps) {
 				: id === 'contexts'
 					? mapContextEvents.length
 					: undefined
-	const selectPanel = (id: MobilePanelTab) => {
-		if (id === 'edit') {
-			// The geometry-editor opener owns its own navigation (draft/workspace
-			// restore) — don't double-navigate here.
-			onOpenGeometryEditor?.()
-		} else if (id === 'map-stack' || id === 'context-editor') {
-			if (id === 'map-stack') navigateToView(mobileTabToView(id))
+	const activeConversationEditTarget = resolveActiveConversationEditTarget(
+		activeChatId,
+		activeChatRun,
+		chatSessions,
+	)
+	const selectPanel = async (id: MobilePanelTab) => {
+		if (id === 'map-stack' || id === 'edit' || id === 'chat') {
+			// The workspace triad is presentation-only: it must not write a route or
+			// derive viewMode/stance from one. Chat → Edit has one explicit exception:
+			// the user's tap may restore that conversation's exact retained Dataset.
+			if (id === 'edit' && mobilePanelTab === 'chat') {
+				const restored = await attemptConversationEditTargetRestore(
+					activeConversationEditTarget,
+					onOpenGeometryEditor,
+					() => toast.error(CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE),
+				)
+				if (!restored) {
+					// A stale or unsupported target must leave the user in Chat. Revealing a
+					// different retained surface here would make the conversation ambiguous.
+					return
+				}
+			}
 			openMobilePanel(id)
-		} else if (id === 'chat') {
-			// Chat is map-bound work: keep the map visible and swap it with Map
-			// Stack in the bottom sheet instead of covering the map with navigation.
-			navigateToView(mobileTabToView(id))
+		} else if (id === 'context-editor') {
 			openMobilePanel(id)
 		} else {
 			// Switcher selection is a real navigation: write the URL through the
@@ -635,8 +713,36 @@ export function MobilePanel(props: MobilePanelProps) {
 		}
 		setMobilePanelTab(id)
 	}
+	const handleWorkspaceTabKeyDown = (
+		event: ReactKeyboardEvent<HTMLButtonElement>,
+		current: MobileWorkspacePanelTab,
+	) => {
+		const next = resolveMobileWorkspaceTabKey(current, event.key)
+		if (!next) return
+		event.preventDefault()
+		void selectPanel(next)
+		workspaceTabRefs.current[next]?.focus()
+	}
 	const activeMeta = tabMeta(mobilePanelTab)
+	const entitySurfaceAvailability: Record<MobileEntitySurface, boolean> = {
+		inspector: inspectionSubject != null,
+		dataset: datasetEditorRetained,
+		story: storyEditorMode != null && storyEditorMode !== 'none',
+		context: contextEditorMode != null && contextEditorMode !== 'none',
+		// Transient authoring/control remains reachable while its real lifecycle is
+		// active, even after another surface is selected. Read-only entities live in
+		// the retained Inspector instead.
+		sighting: sightingEditorMode != null && sightingEditorMode !== 'none',
+		beacon: beaconControlMode != null && beaconControlMode !== 'none',
+	}
+	const resolvedEntitySurface = resolveMobileEntitySurface(
+		mobileEntitySurface,
+		entitySurfaceAvailability,
+	)
 	const editPresentation = resolveMobileEditPanelPresentation({
+		surface: resolvedEntitySurface,
+		inspectionKind: inspectionSubject?.kind,
+		hasRetainedDataset: datasetEditorRetained,
 		contextEditorMode,
 		storyEditorMode,
 		sightingEditorMode,
@@ -652,10 +758,101 @@ export function MobilePanel(props: MobilePanelProps) {
 		mobilePanelTab === 'edit' && editPresentation.intent === 'inspect' ? Eye : activeMeta.icon
 	const activeCount = panelCount(mobilePanelTab)
 	const mapWorkTabsVisible =
-		mobilePanelOpen && (mobilePanelTab === 'map-stack' || mobilePanelTab === 'chat')
+		mobilePanelOpen &&
+		(mobilePanelTab === 'map-stack' || mobilePanelTab === 'edit' || mobilePanelTab === 'chat')
+	const chatWorking = runningChatId !== null
+	const workingEntitySurface: MobileEntitySurface | null =
+		activeChatRun?.target.entityType === 'dataset' &&
+		activeChatRun.target.workspaceId === activeWorkspaceId
+			? 'dataset'
+			: null
+	const selectedEntitySurfaceWorking = workingEntitySurface === resolvedEntitySurface
+	const surfaceLabel = (surface: MobileEntitySurface): string => {
+		if (surface === 'dataset') {
+			return `Dataset · ${retainedDatasetSurfaceTitle}${workingEntitySurface === surface ? ' · AI working' : ''}`
+		}
+		if (surface === 'story') {
+			return `Story · ${resolveMobileStorySurfaceTitle(
+				editingStory?.article.title,
+				retainedStoryDraftTitle,
+			)}`
+		}
+		if (surface === 'context') {
+			return `Context · ${editingContext?.context.name?.trim() || 'Untitled context'}`
+		}
+		if (surface === 'sighting') {
+			return `Sighting · ${editingSighting?.sighting.title?.trim() || viewSighting?.sighting.title?.trim() || 'Untitled sighting'}`
+		}
+		if (surface === 'beacon') {
+			return `Live · ${adjustingBeacon?.beacon.label?.trim() || viewBeacon?.beacon.label?.trim() || 'Location'}`
+		}
+		if (!inspectionSubject) return 'Inspect'
+		if (inspectionSubject.kind === 'dataset') {
+			return `Inspect · ${getDatasetName(inspectionSubject.entity)}`
+		}
+		if (inspectionSubject.kind === 'context') {
+			return `Inspect · ${inspectionSubject.entity.context.name || 'Context'}`
+		}
+		if (inspectionSubject.kind === 'story') {
+			return `Inspect · ${inspectionSubject.entity.article.title || 'Story'}`
+		}
+		if (inspectionSubject.kind === 'sighting') {
+			return `Inspect · ${inspectionSubject.entity.sighting.title || 'Sighting'}`
+		}
+		return `Inspect · ${inspectionSubject.entity.beacon.label || 'Live location'}`
+	}
+	const surfaceOptionOrder: MobileEntitySurface[] = [
+		...(resolvedEntitySurface ? [resolvedEntitySurface] : []),
+		'sighting',
+		'beacon',
+		'dataset',
+		'story',
+		'context',
+		'inspector',
+	]
+	const entitySurfaceOptions = surfaceOptionOrder
+		.filter(
+			(surface, index) =>
+				entitySurfaceAvailability[surface] && surfaceOptionOrder.indexOf(surface) === index,
+		)
+		.map((surface) => ({ surface, label: surfaceLabel(surface) }))
+	const retainedEntitySurface = resolvedEntitySurface != null
+	const selectedEntityWorkspace =
+		resolvedEntitySurface === 'dataset'
+			? 'geometry'
+			: resolvedEntitySurface === 'inspector'
+				? inspectionSubject?.kind === 'dataset'
+					? 'geometry'
+					: inspectionSubject?.kind
+				: resolvedEntitySurface
+	const workspacePanelTabs: Array<{
+		id: MobileWorkspacePanelTab
+		label: string
+		icon: typeof Layers
+		working: boolean
+		retained: boolean
+	}> = [
+		{ id: 'map-stack', label: 'Stack', icon: Layers, working: false, retained: false },
+		{
+			id: 'edit',
+			label: editPresentation.intent === 'author' ? 'Edit' : 'Inspect',
+			icon: editPresentation.intent === 'author' ? Pencil : Eye,
+			working: selectedEntitySurfaceWorking,
+			retained: retainedEntitySurface,
+		},
+		{ id: 'chat', label: 'Chat', icon: MessageCircle, working: chatWorking, retained: false },
+	]
 	const resolvedSheetHeight = keyboardViewport.keyboardOpen
 		? Math.max(MOBILE_SHEET_PEEK_PX, keyboardViewport.usableHeightPx)
 		: (dragPx ?? mobilePanelHeightPx(mobilePanelSnap, keyboardViewport.layoutHeightPx))
+	const keyboardDockIsVisible =
+		keyboardViewport.keyboardOpen && keyboardViewport.dockClearancePx > 0
+	const keyboardSheetHeight = keyboardDockIsVisible
+		? `max(0px, calc(${resolvedSheetHeight}px - env(safe-area-inset-bottom)))`
+		: `${resolvedSheetHeight}px`
+	const keyboardSheetBottom = keyboardDockIsVisible
+		? `calc(${keyboardViewport.fixedBottomInsetPx + keyboardViewport.dockClearancePx}px + env(safe-area-inset-bottom))`
+		: `${keyboardViewport.fixedBottomInsetPx}px`
 
 	// The "+ new" action in the sheet header, per active browse tab.
 	const newAction: { label: string; onClick: () => void } | null =
@@ -673,17 +870,22 @@ export function MobilePanel(props: MobilePanelProps) {
 								? { label: 'New story', onClick: storiesPanelProps.onCreateStory }
 								: null
 
-	// The entity/geometry editor — rendered in the Map Stack draft slot while
-	// authoring a draft (editor-in-Map-Stack), otherwise in the 'edit' tab body
-	// (e.g. a sighting/story/context inspected from a link).
+	// Every entity editor/Inspector lives in the Edit sheet. The selected surface
+	// chooses both its title and its body so retained tasks never compete through
+	// independent priority lists.
 	const editorPanel = (
 		<MobilePanelHeaderActionProvider target={headerActionTarget}>
 			<GeoEditorInfoPanelContent
+				entityWorkspace={selectedEntityWorkspace ?? undefined}
+				entityIntent={editPresentation.intent === 'author' ? 'edit' : 'inspect'}
+				inspectionSubjectOverride={
+					resolvedEntitySurface === 'inspector' ? inspectionSubject : undefined
+				}
 				currentUserPubkey={currentUserPubkey}
 				onLoadDataset={onLoadDataset}
 				onStartNewDataset={onStartNewDataset}
 				onSwitchWorkspace={onSwitchWorkspace}
-				onOpenGeometryEditor={onOpenGeometryEditor}
+				onOpenGeometryEditor={onOpenGeometryEditor ? () => void onOpenGeometryEditor() : undefined}
 				onToggleVisibility={onToggleVisibility}
 				onZoomToDataset={handleMobileZoomToDataset}
 				onDeleteDataset={onDeleteDataset}
@@ -761,11 +963,12 @@ export function MobilePanel(props: MobilePanelProps) {
 							) : null}
 							<div
 								data-testid={mobileSidebarOpen ? 'mobile-sidebar' : 'mobile-sheet'}
+								data-translucent={panelTranslucent && mobilePanelOpen ? 'true' : 'false'}
 								role="dialog"
 								aria-label={mobileSidebarOpen ? 'Earthly navigation' : `${activeLabel} panel`}
 								className={cn(
 									'fixed z-40 flex flex-col overflow-hidden border-border md:hidden',
-									panelTranslucent && mobilePanelOpen ? 'bg-card/80 backdrop-blur-md' : 'bg-card',
+									panelTranslucent && mobilePanelOpen ? 'bg-card/45 backdrop-blur-xl' : 'bg-card',
 									mobileSidebarOpen
 										? cn(
 												'left-0 top-0 bottom-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] z-50 rounded-r-lg border-r shadow-xl transition-[width] duration-200 ease-out',
@@ -781,10 +984,10 @@ export function MobilePanel(props: MobilePanelProps) {
 								style={
 									mobilePanelOpen
 										? {
-												height: `${resolvedSheetHeight}px`,
-												...(keyboardViewport.keyboardOpen
-													? { bottom: `${keyboardViewport.fixedBottomInsetPx}px` }
-													: {}),
+												height: keyboardViewport.keyboardOpen
+													? keyboardSheetHeight
+													: `${resolvedSheetHeight}px`,
+												...(keyboardViewport.keyboardOpen ? { bottom: keyboardSheetBottom } : {}),
 											}
 										: undefined
 								}
@@ -801,7 +1004,8 @@ export function MobilePanel(props: MobilePanelProps) {
 										onPointerDown={handleDragStart}
 										style={{ touchAction: 'none' }}
 										className={cn(
-											'flex w-full shrink-0 cursor-grab touch-none items-center justify-center border-b border-border bg-card/90 backdrop-blur active:cursor-grabbing',
+											'flex w-full shrink-0 cursor-grab touch-none items-center justify-center border-b border-border backdrop-blur active:cursor-grabbing',
+											panelTranslucent ? 'bg-card/65' : 'bg-card/90',
 											mobilePanelTab === 'chat' ? 'py-1.5' : 'py-3',
 										)}
 									>
@@ -868,7 +1072,7 @@ export function MobilePanel(props: MobilePanelProps) {
 															<button
 																key={id}
 																type="button"
-																onClick={() => selectPanel(id)}
+																onClick={() => void selectPanel(id)}
 																className={cn(
 																	'flex w-full items-center gap-3 rounded-[2px] px-2.5 py-2.5 text-left transition-colors',
 																	isActive ? 'bg-primary/15' : 'hover:bg-muted',
@@ -899,8 +1103,13 @@ export function MobilePanel(props: MobilePanelProps) {
 									<>
 										<div
 											className={cn(
-												'flex shrink-0 items-center gap-2 border-b border-border bg-card pt-[max(0.25rem,env(safe-area-inset-top))]',
-												mobilePanelTab === 'chat' ? 'px-2 py-1' : 'px-3 py-2',
+												'flex shrink-0 items-center gap-1 border-b border-border px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))]',
+												panelTranslucent ? 'bg-card/70' : 'bg-card',
+												mapWorkTabsVisible
+													? 'px-2 py-1'
+													: mobilePanelTab === 'chat'
+														? 'px-2 py-1'
+														: 'px-3 py-2',
 											)}
 										>
 											{mobileSidebarOpen ? (
@@ -917,32 +1126,55 @@ export function MobilePanel(props: MobilePanelProps) {
 											{mapWorkTabsVisible ? (
 												<div
 													role="tablist"
-													aria-label="Map workspace panel"
-													className="flex min-w-0 items-center rounded-md border border-border bg-muted/45 p-0.5"
+													aria-label="Map workspace panels"
+													className="grid min-w-0 flex-1 grid-cols-3 items-stretch rounded-md border border-border bg-muted/45 p-0.5"
 												>
-													{(['map-stack', 'chat'] as const).map((id) => {
-														const meta = tabMeta(id)
-														const Icon = meta.icon
-														const active = mobilePanelTab === id
-														return (
-															<button
-																key={id}
-																type="button"
-																role="tab"
-																aria-selected={active}
-																onClick={() => selectPanel(id)}
-																className={cn(
-																	'flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium',
-																	active
-																		? 'bg-background text-foreground shadow-sm'
-																		: 'text-muted-foreground',
-																)}
-															>
-																<Icon className="h-3.5 w-3.5" />
-																{id === 'map-stack' ? 'Map' : 'Chat'}
-															</button>
-														)
-													})}
+													{workspacePanelTabs.map(
+														({ id, label, icon: Icon, working, retained }) => {
+															const active = mobilePanelTab === id
+															return (
+																<button
+																	key={id}
+																	type="button"
+																	role="tab"
+																	aria-selected={active}
+																	aria-controls={MOBILE_WORKSPACE_TABPANEL_ID}
+																	aria-label={`${label}${working ? ', working' : ''}${retained ? ', retained' : ''}`}
+																	id={`mobile-workspace-tab-${id}`}
+																	data-testid={`mobile-workspace-tab-${id}`}
+																	tabIndex={active ? 0 : -1}
+																	ref={(node) => {
+																		workspaceTabRefs.current[id] = node
+																	}}
+																	onClick={() => void selectPanel(id)}
+																	onKeyDown={(event) => handleWorkspaceTabKeyDown(event, id)}
+																	className={cn(
+																		'flex min-h-11 min-w-11 items-center justify-center gap-1 rounded px-1 text-xs font-medium transition-colors',
+																		active
+																			? cn(
+																					panelTranslucent ? 'bg-background/80' : 'bg-background',
+																					'text-foreground shadow-sm',
+																				)
+																			: 'text-muted-foreground',
+																	)}
+																>
+																	<Icon className="h-3.5 w-3.5" />
+																	<span className="truncate">{label}</span>
+																	{working ? (
+																		<LoaderCircle
+																			aria-hidden="true"
+																			className="h-3 w-3 shrink-0 animate-spin text-primary"
+																		/>
+																	) : retained ? (
+																		<span
+																			aria-hidden="true"
+																			className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-edit)]"
+																		/>
+																	) : null}
+																</button>
+															)
+														},
+													)}
 												</div>
 											) : (
 												<>
@@ -960,7 +1192,8 @@ export function MobilePanel(props: MobilePanelProps) {
 												{newAction && mobileSidebarOpen ? (
 													<Button
 														type="button"
-														size="icon-sm"
+														size="icon"
+														className="h-11 w-11 shrink-0"
 														variant="outline"
 														onClick={() => {
 															leaveSidebar()
@@ -974,7 +1207,8 @@ export function MobilePanel(props: MobilePanelProps) {
 												{mapWorkTabsVisible ? (
 													<Button
 														type="button"
-														size="icon-sm"
+														size="icon"
+														className="h-11 w-11 shrink-0"
 														variant={panelTranslucent ? 'default' : 'ghost'}
 														onClick={() => setPanelTranslucent((value) => !value)}
 														aria-pressed={panelTranslucent}
@@ -988,8 +1222,9 @@ export function MobilePanel(props: MobilePanelProps) {
 												) : null}
 												<Button
 													type="button"
-													size="icon-sm"
+													size="icon"
 													variant="ghost"
+													className="h-11 w-11 shrink-0"
 													onClick={mobileSidebarOpen ? closeNavigationSurface : handleClose}
 													aria-label={`Close ${activeLabel}`}
 												>
@@ -997,6 +1232,52 @@ export function MobilePanel(props: MobilePanelProps) {
 												</Button>
 											</div>
 										</div>
+										{mobilePanelOpen && mobilePanelTab === 'edit' ? (
+											<div
+												data-testid="mobile-entity-surface-picker"
+												className={cn(
+													'flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-2 py-1',
+													panelTranslucent ? 'bg-card/55' : 'bg-card',
+												)}
+											>
+												<ActiveIcon
+													aria-hidden="true"
+													className="h-4 w-4 shrink-0 text-[var(--accent-edit)]"
+												/>
+												{entitySurfaceOptions.length > 1 && resolvedEntitySurface ? (
+													<NativeSelect
+														value={resolvedEntitySurface}
+														onChange={(event) => {
+															activateMobileEntitySurface(
+																event.target.value as MobileEntitySurface,
+																entitySurfaceAvailability,
+															)
+														}}
+														aria-label="Edit or inspect target"
+														className="min-w-0 flex-1 [&>select]:h-11 [&>select]:min-h-11"
+													>
+														{entitySurfaceOptions.map((option) => (
+															<NativeSelectOption key={option.surface} value={option.surface}>
+																{option.label}
+															</NativeSelectOption>
+														))}
+													</NativeSelect>
+												) : (
+													<span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+														{entitySurfaceOptions[0]?.label ?? 'No editing or inspection target'}
+													</span>
+												)}
+												{selectedEntitySurfaceWorking ? (
+													<span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
+														<LoaderCircle
+															aria-hidden="true"
+															className="h-3 w-3 animate-spin text-primary"
+														/>
+														AI
+													</span>
+												) : null}
+											</div>
+										) : null}
 										{mobileSidebarOpen &&
 										mobilePanelTab !== 'private-groups' &&
 										mobilePanelTab !== 'field-sessions' &&
@@ -1029,9 +1310,17 @@ export function MobilePanel(props: MobilePanelProps) {
 											</div>
 										) : null}
 										<EmbeddedListPanelContext.Provider value={true}>
+											{/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: role and label are paired by the same map-workspace condition. */}
 											<div
+												id={mapWorkTabsVisible ? MOBILE_WORKSPACE_TABPANEL_ID : undefined}
+												role={mapWorkTabsVisible ? 'tabpanel' : undefined}
+												aria-labelledby={
+													mapWorkTabsVisible ? `mobile-workspace-tab-${mobilePanelTab}` : undefined
+												}
+												data-testid={mobilePanelOpen ? 'mobile-sheet-body' : undefined}
 												className={cn(
 													'flex-1',
+													panelTranslucent && mapWorkTabsVisible && 'bg-transparent',
 													mobilePanelTab === 'chat'
 														? 'min-h-0 overflow-hidden'
 														: 'overflow-y-auto px-3 pb-4 pt-2',
@@ -1099,10 +1388,13 @@ export function MobilePanel(props: MobilePanelProps) {
 															onSetEntryVisible={onSetMapStackEntryVisible}
 															onSetEntryIsolated={onSetMapStackEntryIsolated}
 															onRemoveEntry={onRemoveMapStackEntry}
-															onOpenDraftEditor={onOpenDraftEditor}
+															onOpenDraftEditor={
+																onOpenDraftEditor ? () => void onOpenDraftEditor() : undefined
+															}
 															onZoomToDraft={onZoomToDraft}
 															onClear={onClearMapStack}
 															onClose={handleClose}
+															translucent={panelTranslucent}
 														/>
 													</div>
 												) : null}
@@ -1253,14 +1545,19 @@ export function MobilePanel(props: MobilePanelProps) {
 												{mobilePanelTab === 'edit' ? editorPanel : null}
 
 												{mobilePanelTab === 'chat' ? (
-													<div className="h-full min-h-0">
+													<div
+														className={cn(
+															'h-full min-h-0',
+															panelTranslucent && '[&>section>div:first-child]:!bg-background/70',
+														)}
+													>
 														<ChatPanel
 															geoEvents={geoEvents}
 															mapContextEvents={mapContextEvents}
 															availableFeatures={availableFeatures}
 															getDatasetName={getDatasetName}
 															onOpenAuthoringTarget={onOpenDraftEditor}
-															onOpenSettings={() => selectPanel('settings')}
+															onOpenSettings={() => void selectPanel('settings')}
 														/>
 													</div>
 												) : null}
@@ -1281,6 +1578,7 @@ export function MobilePanel(props: MobilePanelProps) {
 														onToggleAllVisibility={onToggleAllVisibility}
 														onZoomToDataset={handleMobileZoomToDataset}
 														onDeleteDataset={onDeleteDataset}
+														onDeleteContext={onDeleteContext}
 														getDatasetKey={getDatasetKey}
 														getDatasetName={getDatasetName}
 														onInspectDataset={handleMobileInspectDataset}
@@ -1345,6 +1643,7 @@ interface MobileProfileContentProps {
 	onAddDatasetToMap?: (event: GeoDataset) => void
 	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
+	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset?: (event: GeoDataset) => void

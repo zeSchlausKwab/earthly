@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { FeatureCollection, Position } from 'geojson'
 import type { MapMouseEvent } from 'maplibre-gl'
 import { createHeadlessEditor } from './test-harness'
-import type { EditorFeature, EditorMode } from './types'
+import type { EditorEvent, EditorFeature, EditorMode } from './types'
 
 function makePoint(id: string, coordinates: Position = [13.4, 52.5]): EditorFeature {
 	return {
@@ -18,6 +18,21 @@ function featureIds(collection: FeatureCollection | undefined): Array<string | n
 }
 
 describe('GeoEditor geometry visibility', () => {
+	test('marks only direct map-selection choices as user-originated', () => {
+		const editor = createHeadlessEditor()
+		const events: EditorEvent[] = []
+		editor.setFeatures([makePoint('selected')])
+		editor.on('selection.change', (event) => events.push(event))
+
+		// API selection is used by AI tools and hydration; it must not claim the
+		// user's mobile surface. Completing a rendered-map candidate is a direct
+		// user gesture and carries provenance for the responsive shell.
+		editor.selectFeature('selected')
+		editor.chooseSelectionCandidate('selected')
+
+		expect(events.map((event) => event.origin)).toEqual([undefined, 'user'])
+	})
+
 	test('hides the rendered feature source without discarding the retained feature model', () => {
 		const editor = createHeadlessEditor()
 		const renderedCollections: FeatureCollection[] = []

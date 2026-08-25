@@ -1,8 +1,9 @@
 import type { StateCreator } from 'zustand'
 import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
+import { hasRetainedDatasetSurface } from './mobileEntitySurface'
 import type { EditorState, UISlice } from './types'
 
-export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) => ({
+export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set, get) => ({
 	newCollectionProp: { key: '', value: '' },
 	newFeatureProp: { key: '', value: '' },
 
@@ -20,6 +21,7 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	mobileSidebarOpen: false,
 	mobileSidebarMode: 'menu',
 	mobilePanelResumeOnSidebarClose: null,
+	mobileEntitySurface: null,
 	inspectorActive: false,
 	sidebarViewMode: DEFAULT_SIDEBAR_VIEW,
 	sidebarExpanded: false,
@@ -111,6 +113,25 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 					: {}),
 			}
 		}),
+	selectMobileEntitySurface: (mobileEntitySurface) => set({ mobileEntitySurface }),
+	activateMobileEntitySurface: (mobileEntitySurface, availability) => {
+		const state = get()
+		const available =
+			availability[mobileEntitySurface] &&
+			(mobileEntitySurface === 'dataset'
+				? hasRetainedDatasetSurface(state)
+				: mobileEntitySurface === 'inspector'
+					? state.inspectionSubject != null
+					: true)
+		if (!available) return false
+
+		set({
+			mobileEntitySurface,
+			viewMode: mobileEntitySurface === 'dataset' ? 'edit' : 'view',
+			stance: mobileEntitySurface === 'dataset' ? 'author' : 'focus',
+		})
+		return true
+	},
 	setInspectorActive: (active) => set({ inspectorActive: active }),
 	setSidebarViewMode: (mode) => set({ sidebarViewMode: mode }),
 	setSettingsTab: (settingsTab) => set({ settingsTab }),

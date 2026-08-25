@@ -74,6 +74,7 @@ export const createSessionSyncSlice: StateCreator<EditorState, [], [], SessionSy
 			viewMode: 'view',
 			inspectionSubject: null,
 			viewDataset: null,
+			mobileEntitySurface: null,
 		})
 
 		editor?.setMode('select')
