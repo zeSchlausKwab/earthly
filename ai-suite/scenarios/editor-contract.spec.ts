@@ -33,6 +33,7 @@ import {
 } from '../tasks/editor/geometry-workbench'
 import { openPanel } from '../tasks/navigation/open-panel'
 import {
+	mobileEditingTargetPillSnapshot,
 	mobileWorkspaceBodyBackgroundAlpha,
 	mobileWorkspaceChromeSnapshot,
 	mobileWorkspaceRootBackgroundAlpha,
@@ -302,6 +303,15 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().click()
 		await clickEditorMap(earthly, 0.62, 0.38)
 		await expectGeometryFeatureCount(earthly, 1)
+		// This journey later opens Local drafts to create a competing workspace.
+		// Leave point drawing through the visible mobile action first so its
+		// persistent pan-lock guidance cannot cover that next explicit choice.
+		const mobileTools = earthly.page.getByRole('button', { name: /^More tools/ })
+		await expect(mobileTools).toBeVisible()
+		await mobileTools.click()
+		await earthly.page.getByRole('menuitem', { name: 'Cancel drawing', exact: true }).click()
+		await expect.poll(async () => (await editorLifecycleSnapshot(earthly)).mode).toBe('select')
+		await expect(earthly.page.getByText('Lock panning to draw', { exact: true })).toBeHidden()
 		const materializedDraftFeatureCount = () =>
 			earthly.page.evaluate(() => {
 				const map = (
@@ -469,8 +479,8 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		await expect(editNameInput).toHaveValue(datasetName)
 
 		// The handle, three workspace tabs, eye, and close action form one compact
-		// sheet-wide rail. Every target remains accessible without wrapping,
-		// overlapping, or escaping the viewport at narrow mobile widths.
+		// sheet-wide rail. Its four groups distribute spare width between them so
+		// the handle and close action anchor the sheet edges at every phone width.
 		const assertSingleRowWorkspaceRail = async (expectedViewportWidth?: number) => {
 			const chrome = await mobileWorkspaceChromeSnapshot(earthly)
 			expect(chrome.controls.height).toBe(48)
@@ -496,6 +506,14 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 				expect(next).toBeDefined()
 				expect((current?.x ?? 0) + (current?.width ?? 0)).toBeLessThanOrEqual((next?.x ?? 0) + 1)
 			}
+			const groupedTargets = [chrome.slider, chrome.tablist, chrome.transparency, chrome.close]
+			const interGroupGaps = groupedTargets.slice(0, -1).map((current, index) => {
+				const next = groupedTargets[index + 1]
+				expect(next).toBeDefined()
+				return (next?.x ?? 0) - (current.x + current.width)
+			})
+			for (const gap of interGroupGaps) expect(gap).toBeGreaterThanOrEqual(-1)
+			expect(Math.max(...interGroupGaps) - Math.min(...interGroupGaps)).toBeLessThanOrEqual(2)
 			expect(chrome.controls.x).toBeGreaterThanOrEqual(chrome.sheet.x - 1)
 			expect(chrome.controls.x + chrome.controls.width).toBeLessThanOrEqual(
 				chrome.sheet.x + chrome.sheet.width + 1,
@@ -516,18 +534,16 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 				expect(chrome.controls.x + chrome.controls.width).toBeLessThanOrEqual(
 					expectedViewportWidth + 1,
 				)
-				if (expectedViewportWidth === 320) {
-					const firstTarget = orderedTargets.at(0)
-					const lastTarget = orderedTargets.at(-1)
-					expect(firstTarget).toBeDefined()
-					expect(lastTarget).toBeDefined()
-					const leftBoundary = Math.max(chrome.sheet.x, 0)
-					const rightBoundary = Math.min(chrome.sheet.x + chrome.sheet.width, expectedViewportWidth)
-					expect(firstTarget?.x ?? 0).toBeGreaterThanOrEqual(leftBoundary + 3)
-					expect((lastTarget?.x ?? 0) + (lastTarget?.width ?? 0)).toBeLessThanOrEqual(
-						rightBoundary - 3,
-					)
-				}
+				const leftBoundary = Math.max(chrome.controls.x, 0)
+				const rightBoundary = Math.min(
+					chrome.controls.x + chrome.controls.width,
+					expectedViewportWidth,
+				)
+				const leftInset = chrome.slider.x - leftBoundary
+				const rightInset = rightBoundary - (chrome.close.x + chrome.close.width)
+				expect(Math.abs(leftInset)).toBeLessThanOrEqual(1)
+				expect(Math.abs(rightInset)).toBeLessThanOrEqual(1)
+				expect(Math.min(...interGroupGaps)).toBeGreaterThan(1)
 			}
 		}
 
@@ -543,6 +559,18 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		} finally {
 			if (regularMobileViewport) await earthly.page.setViewportSize(regularMobileViewport)
 		}
+
+		// The purple target capsule is a compact visual inside a full-size action
+		// row: reducing header density must not shrink the semantic open target.
+		await switchMobileWorkspacePanel(earthly, 'Chat')
+		const targetPill = await mobileEditingTargetPillSnapshot(earthly, datasetName)
+		expect(targetPill.shell.height).toBeGreaterThanOrEqual(44)
+		expect(targetPill.visualCapsule.height).toBeGreaterThanOrEqual(28)
+		expect(targetPill.visualCapsule.height).toBeLessThanOrEqual(36)
+		expect(targetPill.shell.height - targetPill.visualCapsule.height).toBeGreaterThanOrEqual(8)
+		expect(targetPill.openAction.width).toBeGreaterThanOrEqual(44)
+		expect(targetPill.openAction.height).toBeGreaterThanOrEqual(44)
+		expect(targetPill.label).toBe(datasetName)
 
 		// Moving the tabs into the resize rail must not make panel selection a
 		// resize gesture. Preserve both the stored detent and rendered sheet height

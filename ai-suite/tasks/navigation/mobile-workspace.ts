@@ -131,6 +131,13 @@ export interface MobileWorkspaceChromeSnapshot {
 	}>
 }
 
+export interface MobileEditingTargetPillSnapshot {
+	shell: { x: number; y: number; width: number; height: number }
+	visualCapsule: { x: number; y: number; width: number; height: number }
+	openAction: { x: number; y: number; width: number; height: number }
+	label: string
+}
+
 /**
  * Capture the geometry of the single sheet-wide rail: resize handle, workspace
  * tabs, transparency, and close. Keeping this in one task makes the responsive
@@ -222,6 +229,72 @@ export async function mobileWorkspaceChromeSnapshot(
 		close: closeBox,
 		tablist: tablistBox,
 		tabs: tabBoxes,
+	}
+}
+
+/**
+ * Measure the compact painted target capsule independently from its preserved
+ * 44px interaction row. The semantic editor action identifies the correct
+ * target when more than one retained entity is present.
+ */
+export async function mobileEditingTargetPillSnapshot(
+	earthly: EarthlySession,
+	targetName: string,
+): Promise<MobileEditingTargetPillSnapshot> {
+	requireMobile(earthly)
+	const sheet = mobileWorkspaceSheet(earthly)
+	const openAction = sheet.getByRole('button', {
+		name: `Open ${targetName} in geometry editor`,
+		exact: true,
+	})
+	await expect(openAction).toBeVisible()
+	const shell = openAction.locator('xpath=ancestor::*[@data-binding-chip-density="compact"][1]')
+	await expect(shell).toHaveCount(1)
+	await expect(shell).toBeVisible()
+	const label = shell.getByText(targetName, { exact: true })
+	await expect(label).toBeVisible()
+	await expect(label).toHaveAttribute('title', targetName)
+
+	const [openActionBox, measurement, labelText] = await Promise.all([
+		openAction.boundingBox(),
+		shell.evaluate((element) => {
+			if (!(element instanceof HTMLElement)) {
+				throw new Error('The mobile editing-target shell is not an HTML element.')
+			}
+			const shellBox = element.getBoundingClientRect()
+			const before = getComputedStyle(element, '::before')
+			const insetTop = Number.parseFloat(before.top)
+			const insetRight = Number.parseFloat(before.right)
+			const insetBottom = Number.parseFloat(before.bottom)
+			const insetLeft = Number.parseFloat(before.left)
+			if (![insetTop, insetRight, insetBottom, insetLeft].every(Number.isFinite)) {
+				throw new Error('The compact editing-target capsule did not expose measurable insets.')
+			}
+			return {
+				shell: {
+					x: shellBox.x,
+					y: shellBox.y,
+					width: shellBox.width,
+					height: shellBox.height,
+				},
+				visualCapsule: {
+					x: shellBox.x + insetLeft,
+					y: shellBox.y + insetTop,
+					width: shellBox.width - insetLeft - insetRight,
+					height: shellBox.height - insetTop - insetBottom,
+				},
+			}
+		}),
+		label.textContent(),
+	])
+	if (!openActionBox) {
+		throw new Error('The mobile editing-target action did not produce a measurable hit target.')
+	}
+
+	return {
+		...measurement,
+		openAction: openActionBox,
+		label: labelText?.trim() ?? '',
 	}
 }
 
