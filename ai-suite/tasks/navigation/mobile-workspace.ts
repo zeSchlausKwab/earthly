@@ -37,6 +37,10 @@ export function mobileWorkspaceSheet(earthly: EarthlySession) {
 	return earthly.page.getByTestId('mobile-sheet')
 }
 
+export function mobileWorkspaceSheetControls(earthly: EarthlySession) {
+	return mobileWorkspaceSheet(earthly).getByTestId('mobile-sheet-controls')
+}
+
 export function mobileWorkspaceTabs(earthly: EarthlySession) {
 	return mobileWorkspaceSheet(earthly).getByRole('tablist', {
 		name: 'Map workspace panels',
@@ -101,10 +105,98 @@ export async function setMobileWorkspaceTransparency(
 	await expect(sheet).toBeVisible()
 	const currentAction = translucent ? 'See map through panel' : 'Use opaque panel'
 	const resultingAction = translucent ? 'Use opaque panel' : 'See map through panel'
-	const toggle = sheet.getByRole('button', { name: currentAction, exact: true })
+	const controls = mobileWorkspaceSheetControls(earthly)
+	await expect(controls).toBeVisible()
+	const toggle = controls.getByRole('button', { name: currentAction, exact: true })
 	if (await toggle.isVisible()) await toggle.click()
-	await expect(sheet.getByRole('button', { name: resultingAction, exact: true })).toBeVisible()
+	await expect(controls.getByRole('button', { name: resultingAction, exact: true })).toBeVisible()
 	await expect(sheet).toHaveAttribute('data-translucent', translucent ? 'true' : 'false')
+}
+
+export interface MobileWorkspaceChromeSnapshot {
+	sheet: { x: number; y: number; width: number; height: number }
+	controls: { x: number; y: number; width: number; height: number }
+	slider: { x: number; y: number; width: number; height: number }
+	transparency: { x: number; y: number; width: number; height: number }
+	close: { x: number; y: number; width: number; height: number }
+	tablist: { x: number; y: number; width: number; height: number }
+	tabs: Array<{ x: number; y: number; width: number; height: number }>
+}
+
+/**
+ * Capture the geometry of the sheet-wide controls and compact workspace tabs.
+ * Keeping this in one task makes the responsive contract reusable without
+ * baking production layout classes into scenarios.
+ */
+export async function mobileWorkspaceChromeSnapshot(
+	earthly: EarthlySession,
+): Promise<MobileWorkspaceChromeSnapshot> {
+	requireMobile(earthly)
+	const sheet = mobileWorkspaceSheet(earthly)
+	const controls = mobileWorkspaceSheetControls(earthly)
+	const slider = controls.getByRole('slider', { name: 'Resize panel', exact: true })
+	const transparency = controls.getByRole('button', {
+		name: /^(?:See map through panel|Use opaque panel)$/,
+	})
+	const close = controls.getByRole('button', { name: 'Close map workspace', exact: true })
+	const tablist = mobileWorkspaceTabs(earthly)
+	const tabs = tablist.getByRole('tab')
+
+	await expect(sheet).toBeVisible()
+	await expect(controls).toBeVisible()
+	await expect(slider).toBeVisible()
+	await expect(transparency).toBeVisible()
+	await expect(close).toBeVisible()
+	await expect(tablist).toBeVisible()
+	await expect(tabs).toHaveCount(3)
+
+	const [sheetBox, controlsBox, sliderBox, transparencyBox, closeBox, tablistBox] =
+		await Promise.all([
+			sheet.boundingBox(),
+			controls.boundingBox(),
+			slider.boundingBox(),
+			transparency.boundingBox(),
+			close.boundingBox(),
+			tablist.boundingBox(),
+		])
+	const tabBoxes = await tabs.evaluateAll((elements) =>
+		elements.map((element) => {
+			const box = element.getBoundingClientRect()
+			return { x: box.x, y: box.y, width: box.width, height: box.height }
+		}),
+	)
+	if (!sheetBox || !controlsBox || !sliderBox || !transparencyBox || !closeBox || !tablistBox) {
+		throw new Error('The mobile workspace chrome did not produce measurable controls.')
+	}
+
+	return {
+		sheet: sheetBox,
+		controls: controlsBox,
+		slider: sliderBox,
+		transparency: transparencyBox,
+		close: closeBox,
+		tablist: tablistBox,
+		tabs: tabBoxes,
+	}
+}
+
+/** Raw alpha painted by the sheet root before its translucent children. */
+export async function mobileWorkspaceRootBackgroundAlpha(earthly: EarthlySession): Promise<number> {
+	requireMobile(earthly)
+	const sheet = mobileWorkspaceSheet(earthly)
+	await expect(sheet).toBeVisible()
+	return sheet.evaluate((element) => {
+		const canvas = document.createElement('canvas')
+		canvas.width = 1
+		canvas.height = 1
+		const context = canvas.getContext('2d', { willReadFrequently: true })
+		if (!context) throw new Error('Canvas context unavailable while sampling sheet opacity.')
+		context.clearRect(0, 0, 1, 1)
+		context.fillStyle = 'rgba(0, 0, 0, 0)'
+		context.fillStyle = getComputedStyle(element).backgroundColor
+		context.fillRect(0, 0, 1, 1)
+		return (context.getImageData(0, 0, 1, 1).data[3] ?? 0) / 255
+	})
 }
 
 /**

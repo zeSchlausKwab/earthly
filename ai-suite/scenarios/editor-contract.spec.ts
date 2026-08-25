@@ -34,6 +34,8 @@ import {
 import { openPanel } from '../tasks/navigation/open-panel'
 import {
 	mobileWorkspaceBodyBackgroundAlpha,
+	mobileWorkspaceChromeSnapshot,
+	mobileWorkspaceRootBackgroundAlpha,
 	mobileWorkspaceSheet,
 	mobileWorkspaceTab,
 	selectMobileEntitySurface,
@@ -466,22 +468,53 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		}
 		await expect(editNameInput).toHaveValue(datasetName)
 
-		// Transparency must affect every workspace body, not just paint a border
-		// around an otherwise opaque Stack, Edit, or Chat child panel.
+		// Sheet-wide eye and close controls share the handle's compact chrome row.
+		// The tab hit areas remain accessible while their visual footprint stays
+		// deliberately narrower than the sheet.
+		const assertCompactGlobalChrome = async () => {
+			const chrome = await mobileWorkspaceChromeSnapshot(earthly)
+			const controlsCenter = chrome.controls.y + chrome.controls.height / 2
+			for (const control of [chrome.slider, chrome.transparency, chrome.close]) {
+				expect(control.width).toBeGreaterThanOrEqual(44)
+				expect(control.height).toBeGreaterThanOrEqual(44)
+				expect(Math.abs(control.y + control.height / 2 - controlsCenter)).toBeLessThanOrEqual(2)
+				expect(control.y).toBeGreaterThanOrEqual(chrome.controls.y)
+				expect(control.y + control.height).toBeLessThanOrEqual(
+					chrome.controls.y + chrome.controls.height,
+				)
+			}
+			expect(chrome.tablist.width).toBeLessThan(chrome.sheet.width * 0.75)
+			for (const tab of chrome.tabs) {
+				expect(tab.width).toBeGreaterThanOrEqual(44)
+				expect(tab.width).toBeLessThanOrEqual(88)
+				expect(tab.height).toBeGreaterThanOrEqual(44)
+			}
+		}
+
+		// Transparency must affect the root and every workspace body, not just
+		// paint a blue border around an otherwise opaque child panel. The eye and
+		// close controls stay global and measurable while each panel is selected.
 		const workspacePanels = ['Stack', 'Edit', 'Chat'] as const
 		const opaqueAlphas: Partial<Record<(typeof workspacePanels)[number], number>> = {}
+		const opaqueRootAlpha = await mobileWorkspaceRootBackgroundAlpha(earthly)
+		expect(opaqueRootAlpha).toBeGreaterThan(0.98)
 		for (const panel of workspacePanels) {
 			await switchMobileWorkspacePanel(earthly, panel)
 			await expect.poll(currentRouteIdentity).toBe(workspaceRouteBeforeSwitches)
+			await assertCompactGlobalChrome()
 			opaqueAlphas[panel] = await mobileWorkspaceBodyBackgroundAlpha(earthly)
 			expect(opaqueAlphas[panel]).toBeGreaterThan(0.98)
 		}
 		await setMobileWorkspaceTransparency(earthly, true)
+		const translucentRootAlpha = await mobileWorkspaceRootBackgroundAlpha(earthly)
+		expect(translucentRootAlpha).toBeLessThan(0.7)
+		expect(opaqueRootAlpha - translucentRootAlpha).toBeGreaterThan(0.25)
 		for (const panel of workspacePanels) {
 			await switchMobileWorkspacePanel(earthly, panel)
+			await assertCompactGlobalChrome()
 			const translucentAlpha = await mobileWorkspaceBodyBackgroundAlpha(earthly)
-			expect(translucentAlpha).toBeLessThan(0.98)
-			expect(translucentAlpha).toBeLessThan(opaqueAlphas[panel] ?? 0)
+			expect(translucentAlpha).toBeLessThan(0.7)
+			expect((opaqueAlphas[panel] ?? 0) - translucentAlpha).toBeGreaterThan(0.25)
 		}
 		await setMobileWorkspaceTransparency(earthly, false)
 

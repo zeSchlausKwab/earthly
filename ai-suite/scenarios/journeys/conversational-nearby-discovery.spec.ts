@@ -119,7 +119,7 @@ test('a nearby explorer explicitly chooses an empty Dataset task before asking C
 			'chat-closed',
 			'Closing Chat retains the located viewport and leaves no recommendation geometry beyond the explicit empty edit task.',
 		)
-		await earthly.page.getByRole('button', { name: 'Close Stack', exact: true }).click()
+		await earthly.page.getByRole('button', { name: 'Close map workspace', exact: true }).click()
 
 		await startSightingPlacement(earthly)
 		await recorder.observe(

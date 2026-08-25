@@ -2,6 +2,7 @@ import { expect } from '@playwright/test'
 import type { AiSuiteChatSettings } from '../../core/chat-provider-settings'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
+import { mobileWorkspaceSheetControls } from '../navigation/mobile-workspace'
 import { openPanel } from '../navigation/open-panel'
 
 export const configureChatProviderTask: AiTaskMetadata = {
@@ -484,7 +485,9 @@ export async function hideAiChat(earthly: EarthlySession): Promise<void> {
 	if (!(await panel.isVisible())) return
 	if (earthly.isMobile) {
 		const chatPanel = earthly.page.getByRole('dialog', { name: 'AI chat panel', exact: true })
-		await chatPanel.getByRole('button', { name: 'Close AI chat', exact: true }).click()
+		const sheetControls = mobileWorkspaceSheetControls(earthly)
+		await expect(sheetControls).toBeVisible()
+		await sheetControls.getByRole('button', { name: 'Close map workspace', exact: true }).click()
 		await expect(chatPanel).toBeHidden()
 		return
 	}
