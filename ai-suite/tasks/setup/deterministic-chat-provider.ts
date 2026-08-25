@@ -23,6 +23,7 @@ export type DeterministicChatScenario =
 	| 'spatial-research'
 	| 'target-binding'
 	| 'metadata-then-geometry'
+	| 'mobile-workspace-switch'
 	| 'nearby-discovery'
 	| 'source-to-map-research'
 	| 'repeated-tool-error'
@@ -39,6 +40,10 @@ const scenarioModels: Record<DeterministicChatScenario, { id: string; name: stri
 	'metadata-then-geometry': {
 		id: 'earthly-metadata-then-geometry-fixture',
 		name: 'Earthly sequential edit fixture',
+	},
+	'mobile-workspace-switch': {
+		id: 'earthly-mobile-workspace-fixture',
+		name: 'Earthly mobile workspace fixture',
 	},
 	'nearby-discovery': {
 		id: 'earthly-nearby-fixture',
@@ -67,6 +72,17 @@ export interface DeterministicChatRequestSummary {
 export interface DeterministicChatProviderHarness {
 	settings: ReturnType<typeof deterministicChatSettings>
 	requests(): DeterministicChatRequestSummary[]
+	/** Release completion responses held by `holdCompletionResponses`. Safe to call repeatedly. */
+	releaseCompletionResponses(): void
+}
+
+export interface DeterministicChatProviderOptions {
+	/**
+	 * Leave chat-completion requests pending until the scenario explicitly
+	 * releases them. Model discovery remains immediate. This makes background-run
+	 * navigation deterministic without sleeps or a deliberately slow endpoint.
+	 */
+	holdCompletionResponses?: boolean
 }
 
 const syntheticSpatialDraft = {
@@ -185,6 +201,7 @@ async function fulfillModelRoute(
 	route: Route,
 	requests: DeterministicChatRequestSummary[],
 	scenario: DeterministicChatScenario,
+	completionGate?: Promise<void>,
 ): Promise<void> {
 	const model = scenarioModels[scenario]
 	const request = route.request()
@@ -383,6 +400,38 @@ async function fulfillModelRoute(
 					'tool_calls',
 					model.id,
 				)
+	const mobileWorkspaceBodyText = completedToolCallIds.has('call-mobile-background-story')
+		? streamBody(
+				{
+					role: 'assistant',
+					content:
+						'I retained the background Story draft without changing your visible mobile workspace.',
+				},
+				'stop',
+				model.id,
+			)
+		: streamBody(
+				{
+					role: 'assistant',
+					tool_calls: [
+						{
+							index: 0,
+							id: 'call-mobile-background-story',
+							type: 'function',
+							function: {
+								name: 'write_story_draft',
+								arguments: JSON.stringify({
+									title: 'Background mobile Story',
+									markdown:
+										'This deterministic Story is retained without stealing the active Chat panel.',
+								}),
+							},
+						},
+					],
+				},
+				'tool_calls',
+				model.id,
+			)
 	const sourceToMapCode = `
 		authoring.commitDataset({
 			featureCollection: ${JSON.stringify(syntheticSourcedDraft)},
@@ -462,12 +511,15 @@ async function fulfillModelRoute(
 				? targetBindingBodyText
 				: scenario === 'metadata-then-geometry'
 					? metadataThenGeometryBodyText
-					: scenario === 'source-to-map-research'
-						? sourceToMapBodyText
-						: scenario === 'repeated-tool-error'
-							? repeatedToolErrorBodyText
-							: spatialBodyText
+					: scenario === 'mobile-workspace-switch'
+						? mobileWorkspaceBodyText
+						: scenario === 'source-to-map-research'
+							? sourceToMapBodyText
+							: scenario === 'repeated-tool-error'
+								? repeatedToolErrorBodyText
+								: spatialBodyText
 
+	if (completionGate) await completionGate
 	await route.fulfill({
 		status: 200,
 		headers: corsHeaders('text/event-stream; charset=utf-8'),
@@ -478,14 +530,22 @@ async function fulfillModelRoute(
 export async function installDeterministicChatProvider(
 	earthly: EarthlySession,
 	scenario: DeterministicChatScenario = 'spatial-research',
+	options: DeterministicChatProviderOptions = {},
 ): Promise<DeterministicChatProviderHarness> {
 	const recorded: DeterministicChatRequestSummary[] = []
+	let releaseCompletionResponses = () => {}
+	const completionGate = options.holdCompletionResponses
+		? new Promise<void>((resolve) => {
+				releaseCompletionResponses = resolve
+			})
+		: undefined
 	await earthly.page.route(`${DETERMINISTIC_CHAT_BASE_URL}/**`, (route) =>
-		fulfillModelRoute(route, recorded, scenario),
+		fulfillModelRoute(route, recorded, scenario, completionGate),
 	)
 	const model = scenarioModels[scenario]
 	return {
 		settings: deterministicChatSettings(DETERMINISTIC_CHAT_BASE_URL, model.id),
 		requests: () => structuredClone(recorded),
+		releaseCompletionResponses,
 	}
 }

@@ -150,10 +150,24 @@ export interface AiChatSurfaceSnapshot {
 export async function aiChatSurfaceSnapshot(
 	earthly: EarthlySession,
 ): Promise<AiChatSurfaceSnapshot> {
+	// During a run the composer intentionally replaces its submit button with
+	// Stop. evaluateAll receives an empty array immediately in that state instead
+	// of waiting for a submit locator that cannot appear until the run finishes.
+	const sendEnabled = await chatSendButton(earthly).evaluateAll((buttons) =>
+		buttons.some((button) => {
+			if (!(button instanceof HTMLButtonElement) || button.disabled) return false
+			const style = getComputedStyle(button)
+			return (
+				style.display !== 'none' &&
+				style.visibility !== 'hidden' &&
+				button.getClientRects().length > 0
+			)
+		}),
+	)
 	return {
 		chatId: await chatSelector(earthly).inputValue(),
 		prompt: await chatComposer(earthly).inputValue(),
-		sendEnabled: await chatSendButton(earthly).isEnabled(),
+		sendEnabled,
 		targetRequired: await targetRequiredLabel(earthly).isVisible(),
 		targetName: await boundTargetName(earthly),
 		userMessageCount: await chatRegion(earthly).getByTitle('Copy user message').count(),

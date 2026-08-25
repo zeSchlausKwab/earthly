@@ -49,6 +49,12 @@ export interface EditorLifecycleSnapshot {
 	activeDraftId: string | null
 	activeWorkspaceId: string | null
 	activeWorkspaceChatSessionId: string | null
+	workspaceCount: number
+	workspaces: Array<{
+		id: string
+		label: string
+		chatSessionId: string | null
+	}>
 	mapStack: Array<{
 		id: string
 		entityType: string
@@ -73,7 +79,7 @@ export async function editorLifecycleSnapshot(
 						history: { canUndo: boolean; canRedo: boolean }
 						activeGeoEditDraftId: string | null
 						activeWorkspaceId: string | null
-						workspaces: Record<string, { chatSessionId: string | null }>
+						workspaces: Record<string, { label: string; chatSessionId: string | null }>
 						mapStackEntries: Record<
 							string,
 							{
@@ -104,6 +110,12 @@ export async function editorLifecycleSnapshot(
 			activeDraftId: state.activeGeoEditDraftId,
 			activeWorkspaceId: state.activeWorkspaceId,
 			activeWorkspaceChatSessionId: activeWorkspace?.chatSessionId ?? null,
+			workspaceCount: Object.keys(state.workspaces).length,
+			workspaces: Object.entries(state.workspaces).map(([id, workspace]) => ({
+				id,
+				label: workspace.label,
+				chatSessionId: workspace.chatSessionId,
+			})),
 			mapStack: state.mapStackOrder
 				.map((id) => state.mapStackEntries[id])
 				.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),

@@ -40,6 +40,11 @@ import { openPanelTask } from './tasks/navigation/open-panel'
 import { openDiscoverTask } from './tasks/navigation/open-discover'
 import { copyCurrentShareLinkTask } from './tasks/navigation/share-current-view'
 import {
+	selectMobileEntitySurfaceTask,
+	setMobileWorkspaceTransparencyTask,
+	switchMobileWorkspacePanelTask,
+} from './tasks/navigation/mobile-workspace'
+import {
 	completeTourTask,
 	inspectTourTask,
 	skipTourTask,
@@ -48,6 +53,7 @@ import {
 import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-native-local-node'
 import { installDeterministicChatProviderTask } from './tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyleTask } from './tasks/setup/deterministic-map-style'
+import { installInMemoryContextFixtureTask } from './tasks/setup/in-memory-context-fixture'
 import {
 	installDeterministicGeolocationTask,
 	recoverDeviceLocationTask,
@@ -93,6 +99,9 @@ const tasks = [
 	startTourTask,
 	openDiscoverTask,
 	openPanelTask,
+	switchMobileWorkspacePanelTask,
+	selectMobileEntitySurfaceTask,
+	setMobileWorkspaceTransparencyTask,
 	copyCurrentShareLinkTask,
 	postCommentTask,
 	replyToCommentTask,
@@ -111,6 +120,7 @@ const tasks = [
 	installSimulatedNativeLocalNodeTask,
 	installDeterministicChatProviderTask,
 	installDeterministicMapStyleTask,
+	installInMemoryContextFixtureTask,
 	installDeterministicGeolocationTask,
 	recoverDeviceLocationTask,
 	startDatasetTask,
