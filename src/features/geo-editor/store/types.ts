@@ -2,6 +2,8 @@ import type { FeatureCollection } from 'geojson'
 import type { Article } from '@/lib/nostr/article'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
+import type { LiveBeacon } from '@/lib/nostr/live-beacon'
+import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import type { ContextFilterMode } from '@/lib/context/validation'
 import type { ContextMapScopeMode } from '@/lib/context/scope'
 import type { PmtilesKind } from '@/lib/localPmtiles'
@@ -31,6 +33,20 @@ export type SidebarViewMode =
 	| 'delivery'
 
 export type SettingsTab = 'map' | 'profile' | 'relays' | 'offline' | 'chat' | 'sessions'
+
+export type ChatDock = 'left' | 'right'
+
+/**
+ * The last explicitly inspected authored entity. This is retained independently
+ * from the currently visible route/surface so catalog and editor navigation can
+ * never leave several stale per-kind subjects competing for the Inspector.
+ */
+export type InspectionSubject =
+	| { kind: 'dataset'; entity: GeoDataset }
+	| { kind: 'context'; entity: MapContext }
+	| { kind: 'story'; entity: Article }
+	| { kind: 'sighting'; entity: TemporalSighting }
+	| { kind: 'beacon'; entity: LiveBeacon }
 
 /**
  * Phase 1.3: the minimal parsed-route shape consumed by `applyRouteState`. A
@@ -270,6 +286,8 @@ export interface GeoEditorWorkspace {
 	label: string
 	kind: 'dataset' | 'scratch'
 	datasetKey: string | null
+	/** Exact published revision the retained draft was opened from. */
+	baseRevisionId?: string | null
 	activeDraftId: string | null
 	chatSessionId: string | null
 	createdAt: number
@@ -323,6 +341,7 @@ export interface DraftSlice {
 				| 'blobReferences'
 			>
 		>,
+		options?: { activate?: boolean },
 	) => string
 	setActiveGeoEditDraftId: (id: string | null) => void
 	saveGeoEditDraft: (
@@ -356,8 +375,11 @@ export interface WorkspaceSlice {
 		label: string
 		kind: GeoEditorWorkspace['kind']
 		datasetKey?: string | null
+		baseRevisionId?: string | null
 		activeDraftId?: string | null
 		chatSessionId?: string | null
+		/** Retain the workspace without changing the visible editor surface. */
+		activate?: boolean
 	}) => string
 	updateWorkspace: (
 		id: string,
@@ -367,7 +389,10 @@ export interface WorkspaceSlice {
 	setActiveWorkspaceId: (id: string | null) => void
 	touchActiveWorkspace: (
 		updates?: Partial<
-			Pick<GeoEditorWorkspace, 'label' | 'activeDraftId' | 'chatSessionId' | 'datasetKey'>
+			Pick<
+				GeoEditorWorkspace,
+				'label' | 'activeDraftId' | 'chatSessionId' | 'datasetKey' | 'baseRevisionId'
+			>
 		>,
 	) => void
 }
@@ -422,6 +447,7 @@ export interface PublishingSlice {
 
 export interface ViewModeSlice {
 	viewMode: 'edit' | 'view'
+	inspectionSubject: InspectionSubject | null
 	viewDataset: GeoDataset | null
 	viewContext: MapContext | null
 	viewStory: Article | null
@@ -441,6 +467,7 @@ export interface ViewModeSlice {
 	} | null
 
 	setViewMode: (mode: 'edit' | 'view') => void
+	setInspectionSubject: (subject: InspectionSubject | null) => void
 	setViewDataset: (dataset: GeoDataset | null) => void
 	setViewContext: (context: MapContext | null) => void
 	setViewStory: (story: Article | null) => void
@@ -539,16 +566,15 @@ export interface UISlice {
 	sidebarViewMode: SidebarViewMode
 	sidebarExpanded: boolean
 	/** Desktop right-side assistant/chat panel open state (single source of truth,
-	 *  read by the shell + the toolbar toggle). */
+	 *  read by the shell + the two explicit dock toggles). */
 	chatOpen: boolean
+	/** Which side owns the single mounted desktop Chat panel. */
+	chatDock: ChatDock
 	/** Desktop floating Map Stack panel open state. */
 	mapStackOpen: boolean
 	/** Deep-link target tab for the settings panel (e.g. from the status-bar
 	 *  relay indicator). Consumed by MapSettingsPanel; null = its own default. */
 	settingsTab: SettingsTab | null
-	/** DOM slot in the Map Stack's expanded draft entry that the sidebar editor
-	 *  portals into (editor-in-Map-Stack). Null when no draft slot is mounted. */
-	draftEditorSlot: HTMLElement | null
 
 	setNewCollectionProp: (prop: { key: string; value: string }) => void
 	setNewFeatureProp: (prop: { key: string; value: string }) => void
@@ -577,11 +603,16 @@ export interface UISlice {
 	setInspectorActive: (active: boolean) => void
 	setSidebarViewMode: (mode: SidebarViewMode) => void
 	setSettingsTab: (tab: SettingsTab | null) => void
-	setDraftEditorSlot: (el: HTMLElement | null) => void
 	setSidebarExpanded: (expanded: boolean) => void
 	toggleSidebarExpanded: () => void
 	setChatOpen: (open: boolean) => void
 	toggleChat: () => void
+	setChatDock: (dock: ChatDock) => void
+	/**
+	 * Toggle Chat at an explicit side. Selecting the other side moves the same
+	 * mounted panel and keeps it open; selecting its current side closes it.
+	 */
+	toggleChatAtDock: (dock: ChatDock) => void
 	setMapStackOpen: (open: boolean) => void
 	toggleMapStack: () => void
 }

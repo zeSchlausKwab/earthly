@@ -2,7 +2,6 @@ import { coordAll } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import maplibregl from 'maplibre-gl'
 import { useCallback, useRef } from 'react'
-import { useChatStore } from '@/features/chat/store'
 import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
 import { resolveGeoEventFeatureCollection } from '@/lib/geo/resolveBlobReferences'
 import type { GeoDataset, GeoBlobReference } from '@/lib/nostr/geo-event'
@@ -32,6 +31,8 @@ export interface DraftAuthoringOptions {
 	publishChannel?: PublishChannel
 	/** Associate an AI-created draft with the conversation that caused the mutation. */
 	chatSessionId?: string | null
+	/** Create retained Saved work without changing the visible editor/Inspector. */
+	activate?: boolean
 }
 
 const PUBLIC_PUBLISH_CHANNEL: PublishChannel = { kind: 'public' }
@@ -229,17 +230,6 @@ export function useDatasetManagement(
 		setBlobDraftError,
 	])
 
-	const activateWorkspaceChat = useCallback((chatSessionId: string | null) => {
-		if (!chatSessionId) return
-		useChatStore.getState().switchChat(chatSessionId)
-	}, [])
-
-	const createWorkspaceChat = useCallback(() => {
-		const chatStore = useChatStore.getState()
-		chatStore.createChat()
-		return useChatStore.getState().activeChatId
-	}, [])
-
 	const applyEditingState = useCallback(
 		({
 			features,
@@ -346,18 +336,17 @@ export function useDatasetManagement(
 			if (!workspace || !draft || draft.sourceId !== workspace.sourceId) return
 
 			setActiveWorkspaceId(workspaceId)
-			const chatSessionId = workspace.chatSessionId ?? createWorkspaceChat()
-			if (!workspace.chatSessionId) {
-				updateWorkspace(workspaceId, { chatSessionId })
-			}
-			activateWorkspaceChat(chatSessionId)
 
 			const event = workspace.datasetKey
 				? (geoEventsRef.current.find(
+						(geoEvent) => geoEvent.event.id === workspace.baseRevisionId,
+					) ??
+					geoEventsRef.current.find(
 						(geoEvent) =>
 							getDatasetKey(geoEvent) === workspace.datasetKey &&
 							datasetMatchesPublishChannel(geoEvent, draft.publishChannel),
-					) ?? null)
+					) ??
+					null)
 				: null
 			const isLegacyDraft = draft.persistenceVersion === 1
 			const contextRefs = isLegacyDraft ? (event?.contextReferences ?? []) : draft.contextRefs
@@ -392,9 +381,7 @@ export function useDatasetManagement(
 		[
 			editor,
 			setActiveWorkspaceId,
-			createWorkspaceChat,
 			updateWorkspace,
-			activateWorkspaceChat,
 			getDatasetKey,
 			convertGeoBlobReferencesToEditor,
 			applyEditingState,
@@ -432,18 +419,17 @@ export function useDatasetManagement(
 			}
 
 			setActiveWorkspaceId(workspaceId)
-			const chatSessionId = workspace.chatSessionId ?? createWorkspaceChat()
-			if (!workspace.chatSessionId) {
-				updateWorkspace(workspaceId, { chatSessionId })
-			}
-			activateWorkspaceChat(chatSessionId)
 
 			const event = workspace.datasetKey
 				? (geoEventsRef.current.find(
+						(geoEvent) => geoEvent.event.id === workspace.baseRevisionId,
+					) ??
+					geoEventsRef.current.find(
 						(geoEvent) =>
 							getDatasetKey(geoEvent) === workspace.datasetKey &&
 							datasetMatchesPublishChannel(geoEvent, publishChannel),
-					) ?? null)
+					) ??
+					null)
 				: null
 
 			if (event) {
@@ -513,8 +499,6 @@ export function useDatasetManagement(
 		[
 			editor,
 			setActiveWorkspaceId,
-			activateWorkspaceChat,
-			createWorkspaceChat,
 			getDatasetKey,
 			ensureResolvedFeatureCollection,
 			setPublishError,
@@ -657,15 +641,14 @@ export function useDatasetManagement(
 					label: collectionMeta.name || getDatasetName(event),
 					kind: 'dataset',
 					datasetKey,
-					chatSessionId: existingWorkspace?.chatSessionId ?? createWorkspaceChat(),
+					baseRevisionId: event.event.id,
+					chatSessionId: existingWorkspace?.chatSessionId ?? null,
 				})
 			if (existingWorkspace) {
-				const chatSessionId = existingWorkspace.chatSessionId ?? createWorkspaceChat()
 				setActiveWorkspaceId(existingWorkspace.id)
-				activateWorkspaceChat(chatSessionId)
 				updateWorkspace(existingWorkspace.id, {
 					datasetKey,
-					chatSessionId,
+					baseRevisionId: event.event.id,
 				})
 			}
 			applyEditingState({
@@ -688,6 +671,7 @@ export function useDatasetManagement(
 			updateWorkspace(workspaceId, {
 				activeDraftId: draftId,
 				datasetKey,
+				baseRevisionId: event.event.id,
 			})
 		},
 		[
@@ -698,9 +682,7 @@ export function useDatasetManagement(
 			switchToWorkspace,
 			resolvedCollectionResolver,
 			createWorkspace,
-			createWorkspaceChat,
 			setActiveWorkspaceId,
-			activateWorkspaceChat,
 			updateWorkspace,
 			applyEditingState,
 			createGeoEditDraft,
@@ -801,9 +783,6 @@ export function useDatasetManagement(
 						.sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null)
 				: store.activeWorkspaceId
 
-			if (workspace.chatSessionId) {
-				useChatStore.getState().deleteChat(workspace.chatSessionId)
-			}
 			deleteWorkspaceState(workspaceId)
 			deleteGeoEditDraftsBySourceId(workspace.sourceId)
 
@@ -967,15 +946,40 @@ export function useDatasetManagement(
 	 */
 	const startNewDataset = useCallback(
 		(options?: DraftAuthoringOptions) => {
-			if (!editor) return
+			const activate = options?.activate !== false
+			if (!editor && activate) return null
 			const collectionMeta = createDefaultCollectionMeta()
 			const contextRefs = activeContextScopeCoordinate ? [activeContextScopeCoordinate] : []
 			const draftSourceId = createBlankDraftSourceId()
+			if (!activate) {
+				const draftId = createGeoEditDraft(
+					draftSourceId,
+					{
+						name: '',
+						description: '',
+						collectionMeta,
+						features: [],
+						selectedFeatureIds: [],
+						publishChannel: options?.publishChannel ?? PUBLIC_PUBLISH_CHANNEL,
+						contextRefs,
+						blobReferences: [],
+					},
+					{ activate: false },
+				)
+				return createWorkspace({
+					sourceId: draftSourceId,
+					label: 'Untitled workspace',
+					kind: 'scratch',
+					activeDraftId: draftId,
+					chatSessionId: options?.chatSessionId ?? null,
+					activate: false,
+				})
+			}
 			const workspaceId = createWorkspace({
 				sourceId: draftSourceId,
 				label: 'Untitled workspace',
 				kind: 'scratch',
-				chatSessionId: options?.chatSessionId ?? createWorkspaceChat(),
+				chatSessionId: options?.chatSessionId ?? null,
 			})
 			applyEditingState({
 				features: [],
@@ -997,12 +1001,12 @@ export function useDatasetManagement(
 			updateWorkspace(workspaceId, {
 				activeDraftId: draftId,
 			})
+			return workspaceId
 		},
 		[
 			editor,
 			activeContextScopeCoordinate,
 			createWorkspace,
-			createWorkspaceChat,
 			applyEditingState,
 			createGeoEditDraft,
 			updateWorkspace,

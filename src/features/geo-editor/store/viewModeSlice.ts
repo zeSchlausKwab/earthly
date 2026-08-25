@@ -3,8 +3,12 @@ import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
 import { isMobileMapSurfaceTab, viewToMobileTab } from './mobileTabRoute'
 import type { EditorState, ViewModeSlice } from './types'
 
-export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlice> = (set) => ({
+export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlice> = (
+	set,
+	get,
+) => ({
 	viewMode: 'view',
+	inspectionSubject: null,
 	viewDataset: null,
 	viewContext: null,
 	viewStory: null,
@@ -18,10 +22,58 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 	focusedType: null,
 	focusedMapGeometry: null,
 
-	setViewMode: (viewMode) => set({ viewMode }),
-	setViewDataset: (viewDataset) => set({ viewDataset }),
-	setViewContext: (viewContext) => set({ viewContext }),
-	setViewStory: (viewStory) => set({ viewStory }),
+	setViewMode: (viewMode) => {
+		if (viewMode !== 'edit') get().editor?.setInteractionEnabled(false)
+		set({ viewMode })
+	},
+	setInspectionSubject: (inspectionSubject) => {
+		if (inspectionSubject) get().editor?.setInteractionEnabled(false)
+		set({
+			inspectionSubject,
+			viewDataset: inspectionSubject?.kind === 'dataset' ? inspectionSubject.entity : null,
+			viewContext: inspectionSubject?.kind === 'context' ? inspectionSubject.entity : null,
+			viewStory: inspectionSubject?.kind === 'story' ? inspectionSubject.entity : null,
+		})
+	},
+	setViewDataset: (viewDataset) => {
+		if (viewDataset) get().editor?.setInteractionEnabled(false)
+		set(
+			viewDataset
+				? {
+						viewDataset,
+						viewContext: null,
+						viewStory: null,
+						inspectionSubject: { kind: 'dataset', entity: viewDataset },
+					}
+				: { viewDataset: null },
+		)
+	},
+	setViewContext: (viewContext) => {
+		if (viewContext) get().editor?.setInteractionEnabled(false)
+		set(
+			viewContext
+				? {
+						viewContext,
+						viewDataset: null,
+						viewStory: null,
+						inspectionSubject: { kind: 'context', entity: viewContext },
+					}
+				: { viewContext: null },
+		)
+	},
+	setViewStory: (viewStory) => {
+		if (viewStory) get().editor?.setInteractionEnabled(false)
+		set(
+			viewStory
+				? {
+						viewStory,
+						viewDataset: null,
+						viewContext: null,
+						inspectionSubject: { kind: 'story', entity: viewStory },
+					}
+				: { viewStory: null },
+		)
+	},
 	setViewContextDatasets: (viewContextDatasets) => set({ viewContextDatasets }),
 	setContextFilterMode: (contextFilterMode) => set({ contextFilterMode }),
 	setContextMapScopeMode: (contextMapScopeMode) => set({ contextMapScopeMode }),
@@ -44,9 +96,7 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 			// "Edit session live" = the `draft:active` map-stack entry exists. It is
 			// added by applyEditingState and removed by teardown or a successful
 			// publish replacement, so it is the one
-			// honest signal that the geometry editor owns a draft. (Note:
-			// `activeGeoEditDraftId` is only ever cleared, never assigned, so it
-			// cannot serve as this signal.)
+			// honest UI signal that the geometry editor owns a visible draft line.
 			const editSessionLive = state.mapStackEntries['draft:active'] != null
 			// The context editor edits metadata, not geometry — treat it as a
 			// non-geometry surface so a live geo draft doesn't flip us into 'edit'.
@@ -56,25 +106,23 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 			// subject being open; never *set* here — handlers and the resolver effect
 			// own that. This is the Back/Forward stale-inspector fix (report 7.4).
 			//
-			// The dataset inspector is keyed to a geoevent focus (always
-			// URL-derivable). The context inspector is subtler: in-app inspect drives
-			// a context *scope* (`/context/:naddr/...`), not a focus, and browsing a
-			// catalog within that scope clears viewContext explicitly — so we only
-			// drop viewContext when the scope itself is gone (and it isn't a
-			// mapcontext share-form focus). Keeping it while the scope is active means
-			// an inspected context survives a sidebar-view switch within the scope.
+			// Dataset, Context and Story inspectors are all keyed to explicit focus
+			// routes. A `/context/:naddr` scope is filtering state, never an implicit
+			// request to inspect that Context.
 			const viewDataset = route.focusType === 'geoevent' ? state.viewDataset : null
-			const viewContext =
-				route.focusType === 'mapcontext' || route.contextNaddr != null ? state.viewContext : null
+			const viewContext = route.focusType === 'mapcontext' ? state.viewContext : null
 			// The Story inspector is keyed to a `story` focus (always URL-derivable),
 			// like the dataset inspector. Drop it whenever the route isn't a story focus.
 			const viewStory = route.focusType === 'story' ? state.viewStory : null
 
-			// Inspecting iff a focus route is active or a context inspector is open.
-			const inspectingSubject = hasFocus || viewContext != null
+			const inspectingSubject = hasFocus
 			// The geometry editor is the active interaction surface only when a draft
 			// is live and we're neither inspecting a subject nor editing a context.
-			const editingGeometry = editSessionLive && !inspectingSubject && !inContextEditor
+			const editingGeometry =
+				editSessionLive &&
+				(route.sidebarView === 'edit' || route.sidebarView === 'combined') &&
+				!inspectingSubject &&
+				!inContextEditor
 
 			const viewMode = editingGeometry ? 'edit' : 'view'
 			// stance: author while actively editing geometry; focus while inspecting a

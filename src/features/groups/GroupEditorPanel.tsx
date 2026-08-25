@@ -59,6 +59,9 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { ensureDatasetReferencePublished } from '@/features/chat/referencePublishing'
+import { captureVisibleDatasetReferenceTarget } from '@/features/chat/store'
+import { useRetainedEditorDraft } from '@/hooks/useRetainedEditorDraft'
 import { computeSchemaHash } from '@/lib/group/schemaHash'
 import { accounts, eventStore, publish } from '@/lib/nostr'
 import {
@@ -84,6 +87,14 @@ import {
 } from '@/lib/nostr/references'
 import { validateSchema } from '@/lib/validation/schemaWorker'
 import {
+	NEW_GROUP_EDITOR_DRAFT_KEY,
+	clearGroupEditorDraft,
+	type GroupEditorDraftSnapshot,
+	type GroupSchemaAuthorMode,
+	readGroupEditorDraft,
+	writeGroupEditorDraft,
+} from './editorDraft'
+import {
 	compileBuilderSchema,
 	decodeAllowedGeometryTypes,
 	decodeBuilderSchema,
@@ -91,7 +102,7 @@ import {
 	type SchemaFieldType,
 } from './schemaBuilder'
 
-type SchemaAuthorMode = 'builder' | 'advanced'
+type SchemaAuthorMode = GroupSchemaAuthorMode
 
 interface BuilderRow extends SchemaBuilderRow {
 	/** Stable React key for the row (not serialized into the schema). */
@@ -137,6 +148,10 @@ function rowsFromSchema(schema: unknown): BuilderRow[] {
 	return decodeBuilderSchema(schema).map((row) => ({ ...row, id: createRowId() }))
 }
 
+function rowsFromDraft(rows: SchemaBuilderRow[]): BuilderRow[] {
+	return rows.map((row) => ({ ...row, id: createRowId() }))
+}
+
 /** Read the slimmed Group content out of an editable MapContext (defensive). */
 function readInitialGroupContent(context?: MapContext | null): GroupContent | undefined {
 	if (!context) return undefined
@@ -161,6 +176,85 @@ function readInitialCuratedReferences(context?: MapContext | null): string[] {
 		.filter((reference): reference is string => reference !== null)
 }
 
+interface InitialGroupEditorState extends Omit<GroupEditorDraftSnapshot, 'rows'> {
+	rows: BuilderRow[]
+	draftKey: string
+}
+
+function groupEditorDraftKey(context?: MapContext | null): string {
+	if (!context) return NEW_GROUP_EDITOR_DRAFT_KEY
+	const event = context.rawEvent()
+	if (!isGroup(event)) return NEW_GROUP_EDITOR_DRAFT_KEY
+	return `edit:${event.pubkey}:${context.dTag ?? event.id}`
+}
+
+function readInitialGroupEditorState(context?: MapContext | null): InitialGroupEditorState {
+	const draftKey = groupEditorDraftKey(context)
+	const retained = readGroupEditorDraft(draftKey)
+	if (retained) {
+		return {
+			...retained,
+			rows: rowsFromDraft(retained.rows),
+			draftKey,
+		}
+	}
+
+	const content = readInitialGroupContent(context)
+	const rows = rowsFromSchema(content?.schema)
+	const allowedGeometryTypes =
+		content?.geometryConstraints?.allowedTypes ?? decodeAllowedGeometryTypes(content?.schema)
+	return {
+		name: content?.name ?? '',
+		description: content?.description ?? '',
+		curatedReferences: readInitialCuratedReferences(context),
+		image: content?.image ?? '',
+		governance: content?.governance ?? 'open',
+		schemaMode: 'builder',
+		allowedGeometryTypes,
+		rows,
+		advancedJson: JSON.stringify(
+			content?.schema ?? compileBuilderSchema(rows, allowedGeometryTypes),
+			null,
+			2,
+		),
+		sampleJson: '{}',
+		draftKey,
+	}
+}
+
+function groupDraftSnapshot(values: {
+	name: string
+	description: string
+	curatedReferences: string[]
+	image: string
+	governance: GroupGovernance
+	schemaMode: SchemaAuthorMode
+	allowedGeometryTypes: GroupGeometryType[]
+	rows: BuilderRow[]
+	advancedJson: string
+	sampleJson: string
+}): GroupEditorDraftSnapshot {
+	return {
+		name: values.name,
+		description: values.description,
+		curatedReferences: [...values.curatedReferences],
+		image: values.image,
+		governance: values.governance,
+		schemaMode: values.schemaMode,
+		allowedGeometryTypes: [...values.allowedGeometryTypes],
+		rows: values.rows.map(({ id: _id, ...row }) => ({
+			...row,
+			allowedValues: row.allowedValues ? [...row.allowedValues] : undefined,
+		})),
+		advancedJson: values.advancedJson,
+		sampleJson: values.sampleJson,
+	}
+}
+
+function persistGroupEditorDraft(identity: string, snapshot: GroupEditorDraftSnapshot): void {
+	writeGroupEditorDraft(identity, snapshot)
+}
+
 export function GroupEditorPanel({
 	initialContext,
 	onClose,
@@ -169,57 +263,90 @@ export function GroupEditorPanel({
 }: GroupEditorPanelProps) {
 	const currentUser = useActiveAccount()
 	const mobileHeaderActionTarget = useMobilePanelHeaderActionTarget()
-	const initial = useMemo(() => readInitialGroupContent(initialContext), [initialContext])
+	const initial = useMemo(() => readInitialGroupEditorState(initialContext), [initialContext])
 	const descriptionEditorRef = useRef<GeoRichTextEditorRef>(null)
 
-	const [name, setName] = useState(initial?.name ?? '')
-	const [description, setDescription] = useState(initial?.description ?? '')
+	const [name, setName] = useState(initial.name)
+	const [description, setDescription] = useState(initial.description)
 	// CR-03: seed from the edited Group's existing curated `a` refs so a name/description/
 	// governance edit does not silently wipe the curated lane (empty for a new Group).
-	const [curatedReferences, setCuratedReferences] = useState<string[]>(() =>
-		readInitialCuratedReferences(initialContext),
-	)
-	const [image, setImage] = useState(initial?.image ?? '')
-	const [governance, setGovernance] = useState<GroupGovernance>(initial?.governance ?? 'open')
-	const [schemaMode, setSchemaMode] = useState<SchemaAuthorMode>('builder')
+	const [curatedReferences, setCuratedReferences] = useState<string[]>(initial.curatedReferences)
+	const [image, setImage] = useState(initial.image)
+	const [governance, setGovernance] = useState<GroupGovernance>(initial.governance)
+	const [schemaMode, setSchemaMode] = useState<SchemaAuthorMode>(initial.schemaMode)
 	const [allowedGeometryTypes, setAllowedGeometryTypes] = useState<GroupGeometryType[]>(
-		initial?.geometryConstraints?.allowedTypes ?? decodeAllowedGeometryTypes(initial?.schema),
+		initial.allowedGeometryTypes,
 	)
-	const [rows, setRows] = useState<BuilderRow[]>(() => rowsFromSchema(initial?.schema))
-	const [advancedJson, setAdvancedJson] = useState(() =>
-		JSON.stringify(compileBuilderSchema(rowsFromSchema(initial?.schema), []), null, 2),
-	)
-	const [sampleJson, setSampleJson] = useState('{}')
+	const [rows, setRows] = useState<BuilderRow[]>(initial.rows)
+	const [advancedJson, setAdvancedJson] = useState(initial.advancedJson)
+	const [sampleJson, setSampleJson] = useState(initial.sampleJson)
 	const [sampleVerdict, setSampleVerdict] = useState<{
 		status: 'valid' | 'invalid' | 'error'
 		message: string
 	} | null>(null)
 	const [isSaving, setIsSaving] = useState(false)
 	const [saveError, setSaveError] = useState<string | null>(null)
+	const draftSnapshot = useMemo(
+		() =>
+			groupDraftSnapshot({
+				name,
+				description,
+				curatedReferences,
+				image,
+				governance,
+				schemaMode,
+				allowedGeometryTypes,
+				rows,
+				advancedJson,
+				sampleJson,
+			}),
+		[
+			name,
+			description,
+			curatedReferences,
+			image,
+			governance,
+			schemaMode,
+			allowedGeometryTypes,
+			rows,
+			advancedJson,
+			sampleJson,
+		],
+	)
+	const draftSignature = useMemo(() => JSON.stringify(draftSnapshot), [draftSnapshot])
+	const cleanDraftSignatureRef = useRef(JSON.stringify(groupDraftSnapshot(initial)))
+	const { setDirty, clearRetainedDraft } = useRetainedEditorDraft({
+		identity: initial.draftKey,
+		snapshot: draftSnapshot,
+		persist: persistGroupEditorDraft,
+		clear: clearGroupEditorDraft,
+	})
 
 	const isEditing = Boolean(readInitialGroupContent(initialContext))
 
 	// Reset all fields when the edited Group changes.
 	useEffect(() => {
-		const next = readInitialGroupContent(initialContext)
-		const nextRows = rowsFromSchema(next?.schema)
-		setName(next?.name ?? '')
-		setDescription(next?.description ?? '')
-		descriptionEditorRef.current?.setContent(next?.description ?? '')
+		const next = readInitialGroupEditorState(initialContext)
+		cleanDraftSignatureRef.current = JSON.stringify(groupDraftSnapshot(next))
+		setName(next.name)
+		setDescription(next.description)
+		descriptionEditorRef.current?.setContent(next.description)
 		// CR-03: re-seed curated refs from the edited Group (not []) so they survive the edit.
-		setCuratedReferences(readInitialCuratedReferences(initialContext))
-		setImage(next?.image ?? '')
-		setGovernance(next?.governance ?? 'open')
-		setSchemaMode('builder')
-		setAllowedGeometryTypes(
-			next?.geometryConstraints?.allowedTypes ?? decodeAllowedGeometryTypes(next?.schema),
-		)
-		setRows(nextRows)
-		setAdvancedJson(JSON.stringify(next?.schema ?? compileBuilderSchema(nextRows, []), null, 2))
-		setSampleJson('{}')
+		setCuratedReferences(next.curatedReferences)
+		setImage(next.image)
+		setGovernance(next.governance)
+		setSchemaMode(next.schemaMode)
+		setAllowedGeometryTypes(next.allowedGeometryTypes)
+		setRows(next.rows)
+		setAdvancedJson(next.advancedJson)
+		setSampleJson(next.sampleJson)
 		setSampleVerdict(null)
 		setSaveError(null)
 	}, [initialContext])
+
+	useEffect(() => {
+		setDirty(draftSignature !== cleanDraftSignatureRef.current)
+	}, [draftSignature, setDirty])
 
 	const builderSchema = useMemo(
 		() => compileBuilderSchema(rows, allowedGeometryTypes),
@@ -345,6 +472,11 @@ export function GroupEditorPanel({
 		setSchemaMode('advanced')
 	}
 
+	const handleDiscardAndClose = () => {
+		clearRetainedDraft()
+		onClose()
+	}
+
 	const handleSave = async () => {
 		if (!currentUser) return
 		setSaveError(null)
@@ -358,7 +490,6 @@ export function GroupEditorPanel({
 		// leaving 'schema' strips geometryConstraints/schema from content).
 		let schema: Record<string, unknown> | undefined
 		let geometryConstraints: GroupContent['geometryConstraints']
-		let schemaHashTag: string | undefined
 
 		if (governance === 'schema') {
 			if (effectiveSchema.error || !effectiveSchema.schema) {
@@ -375,12 +506,26 @@ export function GroupEditorPanel({
 			schema = effectiveSchema.schema
 			geometryConstraints =
 				allowedGeometryTypes.length > 0 ? { allowedTypes: allowedGeometryTypes } : undefined
-			const hash = await computeSchemaHash(schema)
-			schemaHashTag = hash
 		}
 
+		// Capture the exact visible Dataset before any dialog/async boundary. If the
+		// description or curated lane references it, an unpublished edit must be
+		// persisted before this Context can store its stable Nostr address.
+		const referenceTarget = captureVisibleDatasetReferenceTarget()
 		setIsSaving(true)
 		try {
+			const referenceGate = await ensureDatasetReferencePublished({
+				markdown: [description, ...curatedReferences].filter(Boolean).join('\n'),
+				chatId: `manual-context:${initial.draftKey}`,
+				toolCallId: `publish-context:${Date.now()}`,
+				target: referenceTarget,
+			})
+			if (referenceGate.status === 'blocked') {
+				setSaveError(referenceGate.message)
+				return
+			}
+
+			const schemaHashTag = schema ? await computeSchemaHash(schema) : undefined
 			const signer = accounts.signer
 			if (!signer) throw new Error('No active account')
 
@@ -423,6 +568,7 @@ export function GroupEditorPanel({
 				.sign(signer)
 
 			await publish(signedEvent, { routing: 'outbox' })
+			clearRetainedDraft()
 			toast.success(isEditing ? 'Context updated.' : 'Context published.')
 			// Surface the saved Group through the existing MapContext cast so the
 			// current GeoEditorInfoPanel view/save lifecycle is unchanged (Plan 06).
@@ -444,7 +590,7 @@ export function GroupEditorPanel({
 		<EntityPanelShell title={isEditing ? 'Edit Context' : 'Create Context'}>
 			<MobilePanelHeaderActions>
 				<div className="flex items-center gap-1">
-					<Button type="button" variant="ghost" size="sm" onClick={onClose}>
+					<Button type="button" variant="ghost" size="sm" onClick={handleDiscardAndClose}>
 						Cancel
 					</Button>
 					<Button type="button" size="sm" onClick={handleSave} disabled={isSaving || !currentUser}>
@@ -817,7 +963,7 @@ Write in Markdown. Use $ to insert datasets, Groups, or features.`}
 				{saveError && <p className="text-xs text-destructive">{saveError}</p>}
 				{!mobileHeaderActionTarget ? (
 					<div className="flex items-center justify-end gap-2">
-						<Button variant="outline" onClick={onClose} className="rounded-none">
+						<Button variant="outline" onClick={handleDiscardAndClose} className="rounded-none">
 							Cancel
 						</Button>
 						<Button

@@ -57,6 +57,7 @@ export interface UserProfilePanelProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
+	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset?: (event: GeoDataset) => void
@@ -144,6 +145,7 @@ export function UserProfilePanel({
 	onToggleAllVisibility,
 	onZoomToDataset,
 	onDeleteDataset,
+	onDeleteContext,
 	getDatasetKey,
 	getDatasetName,
 	onInspectDataset,
@@ -341,7 +343,7 @@ export function UserProfilePanel({
 					datasetKey,
 					datasetName: getDatasetName(event),
 					isActive: false,
-					isOwned: true,
+					isOwned: Boolean(currentUserPubkey) && event.pubkey === currentUserPubkey,
 					isVisible: datasetVisibility[datasetKey] !== false,
 					isInMapStack: Boolean(mapStackEntries[`dataset:${datasetKey}`]),
 					isCatalogPinned: pinnedEntitySet.has(`dataset:${datasetKey}`),
@@ -354,6 +356,7 @@ export function UserProfilePanel({
 			getDatasetName,
 			datasetVisibility,
 			isOwnProfile,
+			currentUserPubkey,
 			mapStackEntries,
 			pinnedEntitySet,
 		],
@@ -472,6 +475,8 @@ export function UserProfilePanel({
 			currentUserPubkey,
 			onInspectContext,
 			onEditContext,
+			onDeleteContext,
+			deletingKey,
 			onToggleContextOnMap: toggleContextOnMap,
 			onToggleCatalogPin: toggleContextFavorite,
 			onOpenDebug,
@@ -480,6 +485,8 @@ export function UserProfilePanel({
 			currentUserPubkey,
 			onInspectContext,
 			onEditContext,
+			onDeleteContext,
+			deletingKey,
 			onOpenDebug,
 			toggleContextOnMap,
 			toggleContextFavorite,

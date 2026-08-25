@@ -19,6 +19,7 @@
 import { nip19 } from 'nostr-tools'
 import type { NostrEvent } from 'nostr-tools'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { getExecutionEditor } from './executionTarget'
 import {
 	ARTICLE_KIND,
 	GEO_EVENT_KIND,
@@ -155,8 +156,9 @@ export function resolveArea(
 		return bboxFromFeatureCollection(context.attachedGeometry)
 	}
 
-	const { editor, currentBbox } = useEditorStore.getState()
-	const viewport = editor?.getMapBounds() ?? currentBbox
+	const { currentBbox } = useEditorStore.getState()
+	const editor = getExecutionEditor()
+	const viewport = editor?.getMapBounds() ?? (context?.run ? null : currentBbox)
 	if (viewport) return viewport as SearchBBox
 
 	throw new Error(

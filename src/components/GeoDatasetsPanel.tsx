@@ -40,6 +40,7 @@ export interface GeoDatasetsPanelProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
+	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset?: (event: GeoDataset) => void
@@ -112,6 +113,7 @@ export function GeoDatasetsPanelContent({
 	onToggleAllVisibility,
 	onZoomToDataset,
 	onDeleteDataset,
+	onDeleteContext,
 	getDatasetKey,
 	getDatasetName,
 	onInspectDataset,
@@ -444,6 +446,8 @@ export function GeoDatasetsPanelContent({
 			currentUserPubkey,
 			onInspectContext,
 			onEditContext,
+			onDeleteContext,
+			deletingKey,
 			onToggleContextOnMap: toggleContextOnMap,
 			onToggleCatalogPin: toggleContextFavorite,
 			onOpenDebug: onOpenDebug
@@ -456,6 +460,8 @@ export function GeoDatasetsPanelContent({
 			currentUserPubkey,
 			onInspectContext,
 			onEditContext,
+			onDeleteContext,
+			deletingKey,
 			onOpenDebug,
 			toggleContextOnMap,
 			toggleContextFavorite,

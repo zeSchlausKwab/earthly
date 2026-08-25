@@ -1,7 +1,5 @@
 /** Dedicated AI authoring verbs for the `earthly:callouts` feature property. */
-import { createAuthoring } from '@/features/geo-editor/api/authoring'
 import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
-import { useEditorStore } from '@/features/geo-editor/store'
 import { gateBulkApply } from '@/features/chat/safeEditing/gateBulkEdit'
 import { getSafetyLevel } from '@/features/chat/safeEditing/safetyAccess'
 import {
@@ -13,9 +11,10 @@ import {
 } from '@/lib/geo/callouts'
 import type { ToolEntry } from './registry'
 import { schemaFor } from './schemas'
+import { createExecutionAuthoring, getExecutionEditor } from './executionTarget'
 
 function requireEditor(): GeoEditor {
-	const editor = useEditorStore.getState().editor
+	const editor = getExecutionEditor()
 	if (!editor)
 		throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 	return editor
@@ -58,7 +57,7 @@ async function gateCalloutMutation(
 	const existing = editor.getFeature(featureId)
 	if (!existing) throw new Error(`Feature '${featureId}' was not found in the active dataset.`)
 	return gateBulkApply(editor, { getSafetyLevel, label }, 'modify', () => {
-		createAuthoring(editor).modifyFeature(
+		createExecutionAuthoring(editor).modifyFeature(
 			featureId,
 			withFeatureCallouts(existing, callouts),
 			'ai_callout_tool',
@@ -122,7 +121,7 @@ export function registerCalloutTools(register: (entry: ToolEntry) => void): void
 				{ getSafetyLevel, label: 'Add map callouts' },
 				'modify',
 				() => {
-					const authoring = createAuthoring(editor)
+					const authoring = createExecutionAuthoring(editor)
 					for (const [featureId, featureAdditions] of additionsByFeature) {
 						const feature = editor.getFeature(featureId)
 						if (!feature) throw new Error(`Feature '${featureId}' disappeared before apply.`)

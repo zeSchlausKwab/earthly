@@ -71,6 +71,7 @@ import { useRouting } from '../hooks/useRouting'
 import { DEFAULT_WORK_VIEW } from '../defaults'
 import { PublishOutboxPanel } from '@/features/delivery'
 import { MobilePanelHeaderActionProvider } from './MobilePanelHeaderAction'
+import { resolveMobileViewportLayout } from './mobileViewport'
 import { resolveMobileEditPanelPresentation } from './mobileEditPanelPresentation'
 
 export type MobilePanelTab =
@@ -127,7 +128,7 @@ export interface MobilePanelProps {
 	onSetMapStackEntryVisible: (entry: MapStackEntry, visible: boolean) => void
 	onSetMapStackEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
 	onRemoveMapStackEntry: (entry: MapStackEntry) => void
-	onOpenDraftEditor?: () => void
+	onOpenDraftEditor?: (workspaceId?: string) => void
 	onZoomToDraft?: () => void
 	onClearMapStack: () => void
 	onDeleteDataset: (event: GeoDataset) => void
@@ -418,11 +419,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		(state) => state.selectMobileSidebarDestination,
 	)
 	const closeMobileSidebar = useEditorStore((state) => state.closeMobileSidebar)
-	// Editor-in-Map-Stack (same as desktop): while a geometry draft is authored,
-	// the editor forms portal into the draft entry's slot in the Map Stack instead
-	// of living in a separate panel.
 	const editorStance = useEditorStore((state) => state.stance)
-	const draftEditorSlot = useEditorStore((state) => state.draftEditorSlot)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const viewStory = useEditorStore((state) => state.viewStory)
@@ -435,6 +432,13 @@ export function MobilePanel(props: MobilePanelProps) {
 	)
 	const [headerActionTarget, setHeaderActionTarget] = useState<HTMLDivElement | null>(null)
 	const [panelTranslucent, setPanelTranslucent] = useState(false)
+	const viewportBaselineRef = useRef(viewportHeightPx())
+	const [keyboardViewport, setKeyboardViewport] = useState(() => ({
+		keyboardOpen: false,
+		fixedBottomInsetPx: 0,
+		usableHeightPx: viewportHeightPx(),
+		layoutHeightPx: viewportHeightPx(),
+	}))
 
 	const handleClose = () => setMobilePanelOpen(false)
 	const sidebarIsMenu = mobileSidebarMode === 'menu'
@@ -483,6 +487,73 @@ export function MobilePanel(props: MobilePanelProps) {
 		showMobileSidebarMenu,
 		sidebarIsMenu,
 	])
+
+	useEffect(() => {
+		if (!mobilePanelOpen || mobilePanelTab !== 'chat' || typeof window === 'undefined') {
+			setKeyboardViewport((current) =>
+				current.keyboardOpen || current.fixedBottomInsetPx !== 0
+					? {
+							keyboardOpen: false,
+							fixedBottomInsetPx: 0,
+							usableHeightPx: viewportHeightPx(),
+							layoutHeightPx: viewportHeightPx(),
+						}
+					: current,
+			)
+			return
+		}
+
+		const visualViewport = window.visualViewport
+		const syncViewport = () => {
+			const layoutHeight = window.innerHeight
+			const visualHeight = visualViewport?.height ?? layoutHeight
+			const visualOffsetTop = visualViewport?.offsetTop ?? 0
+			const activeElement = document.activeElement
+			const editableFocused =
+				activeElement instanceof HTMLInputElement ||
+				activeElement instanceof HTMLTextAreaElement ||
+				(activeElement instanceof HTMLElement && activeElement.isContentEditable)
+			const layout = resolveMobileViewportLayout({
+				layoutHeight,
+				visualHeight,
+				visualOffsetTop,
+				baselineHeight: viewportBaselineRef.current,
+				editableFocused,
+			})
+
+			// When no keyboard-capable element owns focus, a height change is an
+			// orientation/browser-chrome change and becomes the new stable baseline.
+			if (!editableFocused && !layout.keyboardOpen) {
+				viewportBaselineRef.current = visualHeight
+			}
+
+			setKeyboardViewport((current) => {
+				if (
+					current.keyboardOpen === layout.keyboardOpen &&
+					current.fixedBottomInsetPx === layout.fixedBottomInsetPx &&
+					current.usableHeightPx === layout.usableHeightPx &&
+					current.layoutHeightPx === layoutHeight
+				) {
+					return current
+				}
+				return { ...layout, layoutHeightPx: layoutHeight }
+			})
+		}
+
+		syncViewport()
+		visualViewport?.addEventListener('resize', syncViewport)
+		visualViewport?.addEventListener('scroll', syncViewport)
+		window.addEventListener('resize', syncViewport)
+		document.addEventListener('focusin', syncViewport)
+		document.addEventListener('focusout', syncViewport)
+		return () => {
+			visualViewport?.removeEventListener('resize', syncViewport)
+			visualViewport?.removeEventListener('scroll', syncViewport)
+			window.removeEventListener('resize', syncViewport)
+			document.removeEventListener('focusin', syncViewport)
+			document.removeEventListener('focusout', syncViewport)
+		}
+	}, [mobilePanelOpen, mobilePanelTab])
 
 	// The sheet height is driven from the store detent, but the grab handle can be
 	// DRAGGED to resize live and snaps to the nearest detent on release (a plain
@@ -582,6 +653,9 @@ export function MobilePanel(props: MobilePanelProps) {
 	const activeCount = panelCount(mobilePanelTab)
 	const mapWorkTabsVisible =
 		mobilePanelOpen && (mobilePanelTab === 'map-stack' || mobilePanelTab === 'chat')
+	const resolvedSheetHeight = keyboardViewport.keyboardOpen
+		? Math.max(MOBILE_SHEET_PEEK_PX, keyboardViewport.usableHeightPx)
+		: (dragPx ?? mobilePanelHeightPx(mobilePanelSnap, keyboardViewport.layoutHeightPx))
 
 	// The "+ new" action in the sheet header, per active browse tab.
 	const newAction: { label: string; onClick: () => void } | null =
@@ -674,9 +748,6 @@ export function MobilePanel(props: MobilePanelProps) {
 	// at the same time.
 	return (
 		<>
-			{editorStance === 'author' && draftEditorSlot
-				? createPortal(<div className="min-w-0">{editorPanel}</div>, draftEditorSlot)
-				: null}
 			{mobileSidebarOpen || mobilePanelOpen
 				? createPortal(
 						<>
@@ -709,12 +780,17 @@ export function MobilePanel(props: MobilePanelProps) {
 								)}
 								style={
 									mobilePanelOpen
-										? { height: `${dragPx ?? mobilePanelHeightPx(mobilePanelSnap)}px` }
+										? {
+												height: `${resolvedSheetHeight}px`,
+												...(keyboardViewport.keyboardOpen
+													? { bottom: `${keyboardViewport.fixedBottomInsetPx}px` }
+													: {}),
+											}
 										: undefined
 								}
 							>
 								{/* Grab handle — drag up/down to resize; snaps to the nearest detent. */}
-								{mobilePanelOpen ? (
+								{mobilePanelOpen && !keyboardViewport.keyboardOpen ? (
 									<div
 										role="slider"
 										aria-label="Resize panel"
@@ -724,7 +800,10 @@ export function MobilePanel(props: MobilePanelProps) {
 										tabIndex={0}
 										onPointerDown={handleDragStart}
 										style={{ touchAction: 'none' }}
-										className="flex w-full shrink-0 cursor-grab touch-none items-center justify-center border-b border-border bg-card/90 py-3 backdrop-blur active:cursor-grabbing"
+										className={cn(
+											'flex w-full shrink-0 cursor-grab touch-none items-center justify-center border-b border-border bg-card/90 backdrop-blur active:cursor-grabbing',
+											mobilePanelTab === 'chat' ? 'py-1.5' : 'py-3',
+										)}
 									>
 										<span className="h-1.5 w-12 rounded-full bg-accent" />
 									</div>
@@ -818,7 +897,12 @@ export function MobilePanel(props: MobilePanelProps) {
 									</div>
 								) : (
 									<>
-										<div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+										<div
+											className={cn(
+												'flex shrink-0 items-center gap-2 border-b border-border bg-card pt-[max(0.25rem,env(safe-area-inset-top))]',
+												mobilePanelTab === 'chat' ? 'px-2 py-1' : 'px-3 py-2',
+											)}
+										>
 											{mobileSidebarOpen ? (
 												<Button
 													type="button"
@@ -945,7 +1029,14 @@ export function MobilePanel(props: MobilePanelProps) {
 											</div>
 										) : null}
 										<EmbeddedListPanelContext.Provider value={true}>
-											<div className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
+											<div
+												className={cn(
+													'flex-1',
+													mobilePanelTab === 'chat'
+														? 'min-h-0 overflow-hidden'
+														: 'overflow-y-auto px-3 pb-4 pt-2',
+												)}
+											>
 												{mobilePanelTab === 'drafts' ? (
 													<div className="-mx-3 -mb-4 -mt-2 h-full min-h-[18rem]">
 														<LocalDraftsPanel
@@ -978,6 +1069,7 @@ export function MobilePanel(props: MobilePanelProps) {
 														onAddDatasetToMap={onAddDatasetToMap}
 														onRemoveDatasetFromMap={onRemoveDatasetFromMap}
 														onDeleteDataset={onDeleteDataset}
+														onDeleteContext={onDeleteContext}
 														getDatasetKey={getDatasetKey}
 														getDatasetName={getDatasetName}
 														onInspectDataset={handleMobileInspectDataset}
@@ -1032,6 +1124,7 @@ export function MobilePanel(props: MobilePanelProps) {
 														onAddDatasetToMap={onAddDatasetToMap}
 														onRemoveDatasetFromMap={onRemoveDatasetFromMap}
 														onDeleteDataset={onDeleteDataset}
+														onDeleteContext={onDeleteContext}
 														getDatasetKey={getDatasetKey}
 														getDatasetName={getDatasetName}
 														onInspectDataset={handleMobileInspectDataset}
@@ -1155,15 +1248,12 @@ export function MobilePanel(props: MobilePanelProps) {
 													) : null
 												) : null}
 
-												{/* The 'edit' tab hosts the editor only for non-draft entity views
-						    (sighting/story). A geometry draft renders via the Map Stack
-						    portal instead (see the editor-in-Map-Stack portal below). */}
-												{mobilePanelTab === 'edit' && editorStance !== 'author'
-													? editorPanel
-													: null}
+												{/* Every entity editor, including a geometry draft, lives in the
+												    dedicated Edit sheet. The Map Stack only represents visibility. */}
+												{mobilePanelTab === 'edit' ? editorPanel : null}
 
 												{mobilePanelTab === 'chat' ? (
-													<div className="-mx-3 -mb-4 -mt-2 h-full">
+													<div className="h-full min-h-0">
 														<ChatPanel
 															geoEvents={geoEvents}
 															mapContextEvents={mapContextEvents}

@@ -94,6 +94,12 @@ export class GeoEditor {
 	private map: MapLibreMap
 	private options: Required<GeoEditorOptions>
 	private mode: EditorMode = 'static'
+	/**
+	 * Whether map/keyboard gestures may mutate the editor. The active mode is
+	 * deliberately retained while this is false so moving to Inspector (or a
+	 * catalog) pauses authoring without throwing away an in-progress drawing.
+	 */
+	private interactionEnabled: boolean = true
 	features: Map<string, EditorFeature> = new Map()
 	private eventHandlers: Map<EditorEventType, Set<EditorEventHandler>> = new Map()
 
@@ -295,31 +301,31 @@ export class GeoEditor {
 
 		// Set cursor style on hover
 		this.map.on('mouseenter', this.layers.LAYER_VERTEX, () => {
-			this.map.getCanvas().style.cursor = 'move'
+			if (this.interactionEnabled) this.map.getCanvas().style.cursor = 'move'
 		})
 		this.map.on('mouseleave', this.layers.LAYER_VERTEX, () => {
 			this.map.getCanvas().style.cursor = ''
 		})
 		this.map.on('mouseenter', this.layers.LAYER_MIDPOINT, () => {
-			this.map.getCanvas().style.cursor = 'pointer'
+			if (this.interactionEnabled) this.map.getCanvas().style.cursor = 'pointer'
 		})
 		this.map.on('mouseleave', this.layers.LAYER_MIDPOINT, () => {
 			this.map.getCanvas().style.cursor = ''
 		})
 		this.map.on('mouseenter', this.layers.LAYER_GIZMO_ROTATE, () => {
-			this.map.getCanvas().style.cursor = 'crosshair'
+			if (this.interactionEnabled) this.map.getCanvas().style.cursor = 'crosshair'
 		})
 		this.map.on('mouseleave', this.layers.LAYER_GIZMO_ROTATE, () => {
 			this.map.getCanvas().style.cursor = ''
 		})
 		this.map.on('mouseenter', this.layers.LAYER_GIZMO_MOVE, () => {
-			this.map.getCanvas().style.cursor = 'move'
+			if (this.interactionEnabled) this.map.getCanvas().style.cursor = 'move'
 		})
 		this.map.on('mouseleave', this.layers.LAYER_GIZMO_MOVE, () => {
 			this.map.getCanvas().style.cursor = ''
 		})
 		this.map.on('mouseenter', this.layers.LAYER_GIZMO_SCALE, () => {
-			this.map.getCanvas().style.cursor = 'nwse-resize'
+			if (this.interactionEnabled) this.map.getCanvas().style.cursor = 'nwse-resize'
 		})
 		this.map.on('mouseleave', this.layers.LAYER_GIZMO_SCALE, () => {
 			this.map.getCanvas().style.cursor = ''
@@ -337,7 +343,7 @@ export class GeoEditor {
 		]
 		for (const layer of selectableLayers) {
 			this.map.on('mouseenter', layer, () => {
-				if (this.mode === 'select' || this.mode === 'box_select') {
+				if (this.interactionEnabled && (this.mode === 'select' || this.mode === 'box_select')) {
 					this.map.getCanvas().style.cursor = 'pointer'
 				}
 			})
@@ -354,6 +360,7 @@ export class GeoEditor {
 	// ==============================
 
 	private onClick(e: MapMouseEvent): void {
+		if (!this.interactionEnabled) return
 		if (this.skipClickUntil && Date.now() < this.skipClickUntil) return
 		this.skipClickUntil = 0
 
@@ -546,6 +553,7 @@ export class GeoEditor {
 	}
 
 	private onMouseDown(e: MapMouseEvent): void {
+		if (!this.interactionEnabled) return
 		if (this.isTouchLikeEvent(e) && this.isDrawMode(this.mode) && !this.panLockEnabled) return
 		if (this.geometryOperation?.inputMode === 'drag') {
 			const button = (e.originalEvent as MouseEvent).button
@@ -601,6 +609,7 @@ export class GeoEditor {
 	}
 
 	private onMouseUp(_e: MapMouseEvent): void {
+		if (!this.interactionEnabled) return
 		if (this.geometryOperationDragState) {
 			this.finishGeometryOperationDrag(true)
 			return
@@ -636,18 +645,21 @@ export class GeoEditor {
 	}
 
 	private onTouchStart(e: MapTouchEvent): void {
+		if (!this.interactionEnabled) return
 		this.touchDrawInProgress = false
 		this.lastTouchPoint = { x: e.point.x, y: e.point.y }
 		this.onMouseDown(e as unknown as MapMouseEvent)
 	}
 
 	private onTouchMove(e: MapTouchEvent): void {
+		if (!this.interactionEnabled) return
 		this.touchDrawInProgress = true
 		this.lastTouchPoint = { x: e.point.x, y: e.point.y }
 		this.onMouseMove(e as unknown as MapMouseEvent)
 	}
 
 	private onTouchEnd(e: MapTouchEvent): void {
+		if (!this.interactionEnabled) return
 		if (
 			this.touchDrawInProgress &&
 			this.lastTouchPoint &&
@@ -663,6 +675,7 @@ export class GeoEditor {
 	}
 
 	private onDoubleClick(_e: MapMouseEvent): void {
+		if (!this.interactionEnabled) return
 		if (this.mode === 'draw_linestring') {
 			const feature = this.drawLineMode.onKeyDown({ key: 'Enter' } as KeyboardEvent)
 			if (feature) {
@@ -688,6 +701,7 @@ export class GeoEditor {
 	}
 
 	private onMouseMove(e: MapMouseEvent): void {
+		if (!this.interactionEnabled) return
 		if (this.geometryOperationDragState) {
 			this.updateGeometryOperationDrag(e)
 			return
@@ -750,6 +764,7 @@ export class GeoEditor {
 	}
 
 	private onContextMenu(e: MapMouseEvent): void {
+		if (!this.interactionEnabled) return
 		e.preventDefault()
 
 		if (this.mode === 'edit') {
@@ -775,6 +790,7 @@ export class GeoEditor {
 	}
 
 	private onKeyDown(e: KeyboardEvent): void {
+		if (!this.interactionEnabled) return
 		// Don't hijack keys while the user is typing in an input / textarea /
 		// contenteditable. Without this guard, Backspace clears selected
 		// features while the user types in the search box, Ctrl+Z conflicts
@@ -884,6 +900,7 @@ export class GeoEditor {
 	}
 
 	private onKeyUp(e: KeyboardEvent): void {
+		if (!this.interactionEnabled) return
 		if (e.key === 'Shift' && this.selectionDragState) {
 			this.completeSelectionDrag(true)
 		}
@@ -1341,6 +1358,57 @@ export class GeoEditor {
 	// ==============================
 	// Public API Methods
 	// ==============================
+
+	/**
+	 * Pause or resume direct user interaction without changing the active editor
+	 * mode. This is the read-only boundary used by Inspector and non-editor
+	 * sidebar surfaces: a partially drawn line/polygon remains available when the
+	 * user returns, while map gestures and global editing shortcuts are inert.
+	 */
+	setInteractionEnabled(enabled: boolean): void {
+		if (this.interactionEnabled === enabled) return
+		this.interactionEnabled = enabled
+
+		if (!enabled) {
+			// Cancel transient drags before making the map navigable. Transform and
+			// geometry-operation drags know how to restore their pre-drag geometry.
+			this.finishGeometryOperationDrag(false)
+			this.finishTransformDrag(false)
+			this.completeSelectionDrag(true)
+
+			// Vertex dragging mutates the in-memory feature as the pointer moves, so
+			// restore its captured start position before clearing the gesture.
+			const editState = this.editMode.getState()
+			if (editState.draggingVertex) {
+				const { featureId, coordinatePath, startPosition } = editState.draggingVertex
+				const feature = this.features.get(featureId)
+				if (feature) {
+					const restored = this.editMode.updateVertexPosition(
+						feature,
+						coordinatePath,
+						startPosition,
+					)
+					this.features.set(featureId, restored)
+				}
+			}
+			this.editMode.clearDragging()
+			this.touchDrawInProgress = false
+			this.lastTouchPoint = undefined
+			this.map.getCanvas().style.cursor = ''
+			this.rendering.updateCursorIndicator()
+			this.render()
+		}
+
+		// A paused draw mode must not keep navigation locked. These helpers also
+		// restore the mode's normal navigation policy when authoring resumes.
+		this.updateDoubleClickZoomState()
+		this.updatePanLockForMode()
+		this.updateActiveStates()
+	}
+
+	isInteractionEnabled(): boolean {
+		return this.interactionEnabled
+	}
 
 	setMode(mode: EditorMode): void {
 		const previousMode = this.mode
@@ -2421,7 +2489,7 @@ export class GeoEditor {
 
 	private updateDoubleClickZoomState(): void {
 		if (!this.map.doubleClickZoom) return
-		const shouldDisable = this.isDrawMode(this.mode)
+		const shouldDisable = this.interactionEnabled && this.isDrawMode(this.mode)
 		if (shouldDisable && !this.doubleClickZoomDisabled) {
 			if (this.map.doubleClickZoom.isEnabled()) {
 				this.map.doubleClickZoom.disable()
@@ -2435,7 +2503,7 @@ export class GeoEditor {
 
 	private updatePanLockForMode(): void {
 		if (!this.map.dragPan) return
-		const shouldDisablePan = this.panLockEnabled
+		const shouldDisablePan = this.interactionEnabled && this.panLockEnabled
 		if (shouldDisablePan) {
 			if (this.map.dragPan.isEnabled()) {
 				this.panLockDragPanWasEnabled = true

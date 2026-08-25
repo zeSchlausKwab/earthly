@@ -85,3 +85,28 @@ describe('mobile surface state machine', () => {
 		expect(state.mobilePanelSnap).toBe('full')
 	})
 })
+
+describe('desktop Chat docking', () => {
+	test('starts closed on the right and moves without an intermediate close', () => {
+		const harness = createUiHarness()
+		expect(harness.getState().chatOpen).toBe(false)
+		expect(harness.getState().chatDock).toBe('right')
+
+		harness.getState().toggleChatAtDock('left')
+		expect(harness.getState().chatOpen).toBe(true)
+		expect(harness.getState().chatDock).toBe('left')
+
+		harness.getState().toggleChatAtDock('right')
+		expect(harness.getState().chatOpen).toBe(true)
+		expect(harness.getState().chatDock).toBe('right')
+	})
+
+	test('selecting the currently open dock closes Chat', () => {
+		const harness = createUiHarness()
+		harness.getState().toggleChatAtDock('right')
+		harness.getState().toggleChatAtDock('right')
+
+		expect(harness.getState().chatOpen).toBe(false)
+		expect(harness.getState().chatDock).toBe('right')
+	})
+})

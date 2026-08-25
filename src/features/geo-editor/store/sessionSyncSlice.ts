@@ -2,18 +2,48 @@ import type { StateCreator } from 'zustand'
 import { setCurrentPubkey } from '@/lib/wallet/currentUser'
 import { createDefaultCollectionMeta } from '../utils'
 import { readPersistedGeoCollectionDraftState } from './draftSlice'
+import {
+	flushPersistedGeoCollectionDraftState,
+	writePersistedGeoCollectionDraftState,
+} from './editorCoreSlice'
 import type { EditorState, SessionSyncSlice } from './types'
-import { readPersistedWorkspaceState } from './workspaceSlice'
+import {
+	readPersistedWorkspaceState,
+	repairWorkspaceActiveDraftIds,
+	writePersistedWorkspaceState,
+} from './workspaceSlice'
 
 export const createSessionSyncSlice: StateCreator<EditorState, [], [], SessionSyncSlice> = (
 	set,
 	get,
 ) => ({
 	hydrateEditorSessionForPubkey: (pubkey) => {
+		// Finish any write owned by the previous account before changing the global
+		// scope. The queued snapshot also carries its original scope as a second line
+		// of defence against cross-account leakage.
+		flushPersistedGeoCollectionDraftState()
 		setCurrentPubkey(pubkey)
 
 		const persistedDrafts = readPersistedGeoCollectionDraftState(pubkey)
 		const persistedWorkspaces = readPersistedWorkspaceState(pubkey)
+		const repairedWorkspaces = repairWorkspaceActiveDraftIds(
+			persistedWorkspaces.workspaces,
+			persistedDrafts.drafts,
+		)
+		const repairedActiveDraftId = persistedWorkspaces.activeWorkspaceId
+			? (repairedWorkspaces.workspaces[persistedWorkspaces.activeWorkspaceId]?.activeDraftId ??
+				null)
+			: null
+		if (repairedWorkspaces.repaired) {
+			writePersistedWorkspaceState(
+				repairedWorkspaces.workspaces,
+				persistedWorkspaces.activeWorkspaceId,
+				pubkey,
+			)
+		}
+		if (persistedDrafts.activeDraftId !== repairedActiveDraftId) {
+			writePersistedGeoCollectionDraftState(persistedDrafts.drafts, repairedActiveDraftId)
+		}
 		const editor = get().editor
 
 		set({
@@ -42,6 +72,7 @@ export const createSessionSyncSlice: StateCreator<EditorState, [], [], SessionSy
 			previewingBlobReferenceId: null,
 			blobPreviewCollection: null,
 			viewMode: 'view',
+			inspectionSubject: null,
 			viewDataset: null,
 		})
 
@@ -50,8 +81,8 @@ export const createSessionSyncSlice: StateCreator<EditorState, [], [], SessionSy
 
 		set({
 			geoEditDrafts: persistedDrafts.drafts,
-			activeGeoEditDraftId: persistedDrafts.activeDraftId,
-			workspaces: persistedWorkspaces.workspaces,
+			activeGeoEditDraftId: repairedActiveDraftId,
+			workspaces: repairedWorkspaces.workspaces,
 			activeWorkspaceId: persistedWorkspaces.activeWorkspaceId,
 		})
 	},

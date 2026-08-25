@@ -13,8 +13,6 @@ interface UseViewModeOptions {
 		sidebarView?: 'datasets' | 'contexts',
 	) => void
 	onClearRouteFocus?: () => void
-	/** Callback to zoom/fly to a dataset's bounds */
-	onZoomToDataset?: (event: GeoDataset) => void
 }
 
 /**
@@ -40,7 +38,6 @@ export function useViewMode({
 	onEnsureInfoPanelVisible,
 	onNavigateToFocus,
 	onClearRouteFocus,
-	onZoomToDataset,
 }: UseViewModeOptions) {
 	const [infoMode, setInfoMode] = useState<'properties' | 'json' | 'edit' | 'view'>('properties')
 	const [sidebarMode, setSidebarMode] = useState<
@@ -105,9 +102,6 @@ export function useViewMode({
 			if (naddr) {
 				onNavigateToFocus?.('geoevent', naddr, 'datasets')
 			}
-
-			// Fly to the dataset bounds
-			onZoomToDataset?.(event)
 		},
 		[
 			setViewingDataset,
@@ -116,7 +110,6 @@ export function useViewMode({
 			setViewMode,
 			onEnsureInfoPanelVisible,
 			onNavigateToFocus,
-			onZoomToDataset,
 			setStance,
 			recordRecentEntity,
 		],

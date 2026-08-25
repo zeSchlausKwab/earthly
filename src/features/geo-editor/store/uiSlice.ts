@@ -24,9 +24,9 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	sidebarViewMode: DEFAULT_SIDEBAR_VIEW,
 	sidebarExpanded: false,
 	chatOpen: false,
+	chatDock: 'right',
 	mapStackOpen: true,
 	settingsTab: null,
-	draftEditorSlot: null,
 
 	setNewCollectionProp: (newCollectionProp) => set({ newCollectionProp }),
 	setNewFeatureProp: (newFeatureProp) => set({ newFeatureProp }),
@@ -114,11 +114,17 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	setInspectorActive: (active) => set({ inspectorActive: active }),
 	setSidebarViewMode: (mode) => set({ sidebarViewMode: mode }),
 	setSettingsTab: (settingsTab) => set({ settingsTab }),
-	setDraftEditorSlot: (draftEditorSlot) => set({ draftEditorSlot }),
 	setSidebarExpanded: (sidebarExpanded) => set({ sidebarExpanded }),
 	toggleSidebarExpanded: () => set((state) => ({ sidebarExpanded: !state.sidebarExpanded })),
 	setChatOpen: (chatOpen) => set({ chatOpen }),
 	toggleChat: () => set((state) => ({ chatOpen: !state.chatOpen })),
+	setChatDock: (chatDock) => set({ chatDock }),
+	toggleChatAtDock: (chatDock) =>
+		set((state) =>
+			state.chatOpen && state.chatDock === chatDock
+				? { chatOpen: false }
+				: { chatOpen: true, chatDock },
+		),
 	setMapStackOpen: (mapStackOpen) => set({ mapStackOpen }),
 	toggleMapStack: () => set((state) => ({ mapStackOpen: !state.mapStackOpen })),
 })

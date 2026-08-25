@@ -18,8 +18,10 @@
  *     dropped current ids classify as deletions and the gate confirms at Level 2).
  */
 
-import { useEditorStore } from '@/features/geo-editor/store'
-import { ensureDatasetDraftForMutation } from '@/features/geo-editor/authoringTaskBridge'
+import {
+	ensureExecutionTargetForMutation,
+	getExecutionEditor,
+} from '@/features/chat/tools/executionTarget'
 import { toEditorFeature } from '@/features/geo-editor/utils'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { type GateResult, type GateStatus, createAuthoringGate } from './AuthoringGate'
@@ -54,7 +56,7 @@ export async function gateEditorImport(
 		totalFeaturesInEditor: number
 	},
 ): Promise<GatedImportOutcome> {
-	const editor = useEditorStore.getState().editor
+	const editor = getExecutionEditor()
 	if (!editor) {
 		throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 	}
@@ -71,7 +73,7 @@ export async function gateEditorImport(
 	let pendingId: string | null = null
 	const gate = createAuthoringGate(editor, {
 		getSafetyLevel,
-		ensureBinding: ensureDatasetDraftForMutation,
+		ensureBinding: ensureExecutionTargetForMutation,
 		emitDiffBlock: (diff) => {
 			const handle = emitDiffBlock(diff)
 			pendingId = handle.id

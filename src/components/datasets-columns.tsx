@@ -13,6 +13,7 @@ import {
 	ZoomActionIcon,
 } from './entity-action-icons'
 import { GlyphTile, ListRow, RowActionButton } from './entity-list'
+import { ConfirmDeleteAction } from './info-panel/ConfirmDeleteAction'
 import { UserProfile } from './user-profile'
 import { useEditorStore } from '../features/geo-editor/store'
 import { GeoSocialActions } from '../features/social/comments/GeoSocialActions'
@@ -119,8 +120,16 @@ export const createDatasetColumns = (
 	{
 		accessorKey: 'datasetName',
 		cell: ({ row }) => {
-			const { event, datasetName, isActive, isInMapStack, isCatalogPinned, isVisible } =
-				row.original
+			const {
+				event,
+				datasetKey,
+				datasetName,
+				isActive,
+				isOwned,
+				isInMapStack,
+				isCatalogPinned,
+				isVisible,
+			} = row.original
 
 			const handleDragStart = (e: React.DragEvent<HTMLButtonElement>) => {
 				const datasetId = event.datasetId ?? event.dTag
@@ -193,7 +202,7 @@ export const createDatasetColumns = (
 					actions={
 						<>
 							{/* Canonical order map-stack → zoom → inspect → load → favorite →
-							    debug, using the shared action icons so every entity matches. */}
+							    debug → owned delete, using shared actions across entity rows. */}
 							{context.onAddDatasetToMap ? (
 								<RowActionButton
 									icon={MapStackActionIcon}
@@ -254,6 +263,13 @@ export const createDatasetColumns = (
 									label="Debug event"
 									hover="hover:text-primary"
 									onClick={() => context.onOpenDebug?.(event)}
+								/>
+							) : null}
+							{isOwned ? (
+								<ConfirmDeleteAction
+									label="Dataset"
+									isDeleting={context.deletingKey === datasetKey}
+									onConfirm={() => context.onDeleteDataset(event)}
 								/>
 							) : null}
 							<DatasetResolvingIndicator datasetKey={row.original.datasetKey} />

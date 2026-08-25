@@ -27,6 +27,7 @@ import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
 import { getDataset } from '@/features/chat/ingest/ingestStore'
 import type { ToolEntry } from './registry'
 import { clampPositiveInt, getGeoClient, importFeaturesToEditor } from './helpers'
+import { ensureExecutionTargetForMutation } from './executionTarget'
 import { schemaFor } from './schemas'
 
 const REMOTE_MCP_ORIGIN = EarthlyGeoServerClient.SERVER_PUBKEY
@@ -491,7 +492,7 @@ export function registerIngestTools(
 		name: 'place_dataset_features',
 		kind: 'host-builtin',
 		schema: schemaFor('place_dataset_features'),
-		handler: async (args) => {
+		handler: async (args, context) => {
 			const handleId = String(args.handleId ?? '')
 			const ds = getDataset(handleId)
 			if (!ds) throw new Error(`Unknown ingest handle: ${handleId || '(none)'}`)
@@ -541,6 +542,7 @@ export function registerIngestTools(
 					? `${built.geocodeNotAttempted} row(s) had no geometry columns and no placeNameColumn mapping — re-run with a placeNameColumn or lat/lon/wkt/geometry mapping to place them.`
 					: undefined
 
+			if (context?.run) await ensureExecutionTargetForMutation(context.run)
 			const result = importFeaturesToEditor(features, false)
 			return {
 				importedCount: result.importedCount,
@@ -560,7 +562,7 @@ export function registerIngestTools(
 		kind: 'remote-mcp',
 		origin: REMOTE_MCP_ORIGIN,
 		schema: schemaFor('batch_geocode'),
-		handler: async (args) => {
+		handler: async (args, context) => {
 			const handleId = String(args.handleId ?? '')
 			const ds = getDataset(handleId)
 			if (!ds) throw new Error(`Unknown ingest handle: ${handleId || '(none)'}`)
@@ -605,6 +607,7 @@ export function registerIngestTools(
 			let skippedDuplicates = 0
 			let totalFeaturesInEditor = 0
 			if (features.length > 0) {
+				if (context?.run) await ensureExecutionTargetForMutation(context.run)
 				const result = importFeaturesToEditor(features, false)
 				importedCount = result.importedCount
 				skippedDuplicates = result.skippedDuplicates

@@ -27,10 +27,13 @@ import {
 	getGeoTools,
 	executeToolCall,
 	consumeMapSnapshot,
+	getMapContextSnapshotForTarget,
 	compactToolMessageContentForPrompt,
 	type PromptProfile,
 } from './tools'
-import { isToolError } from './tools/errors'
+import type { ToolExecutionRunIdentity, ToolExecutionTarget } from './tools/types'
+import { prepareToolExecutionRun, releaseToolExecutionRun } from './tools/executionTarget'
+import { isToolError, type ToolError } from './tools/errors'
 import { appendRequestContextToLatestUserMessage } from './requestContext'
 import { ToolLoopRecovery } from './toolLoopRecovery'
 import { getTokenMetadata } from '@cashu/cashu-ts'
@@ -46,10 +49,28 @@ import { gateToolsForVision } from './vision/gateToolsForVision'
 import { setSafetyLevelProvider } from './safeEditing/safetyAccess'
 import {
 	cancelPendingDiffs,
-	setPendingDiffChatContext,
+	getAllPendingDiffs,
+	setPendingDiffRunContext,
 	setPendingDiffToolContext,
+	subscribePendingDiffs,
 } from './safeEditing/pendingDiffStore'
 import { toast } from 'sonner'
+import {
+	useEditorStore,
+	type GeoCollectionEditDraft,
+	type GeoEditorWorkspace,
+} from '@/features/geo-editor/store'
+import { eventStore } from '@/lib/nostr'
+import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import {
+	cancelPendingReferencePublishes,
+	getReferencePublishRequest,
+	setReferencePublishingChatContext,
+	setReferencePublishingRunTarget,
+	setReferencePublishingToolContext,
+	subscribeReferencePublishRequest,
+} from '@/features/chat/referencePublishing'
+import { chatComposerActions } from './composerState'
 
 // Output is NOT artificially capped. We size the completion budget from the
 // room left in the context window (see deriveOutputBudget). The constants below
@@ -122,7 +143,7 @@ type StreamPhase =
 	| 'recovering_context'
 	| 'finalizing'
 
-interface ChatDiagnostics {
+export interface ChatDiagnostics {
 	provider: ProviderType | null
 	modelId: string | null
 	modelReportedContextTokens: number | null
@@ -152,6 +173,14 @@ interface ChatDiagnostics {
 	advertisedToolSchemaChars: number
 	systemPromptChars: number
 }
+
+export type ChatRunStatus =
+	| 'idle'
+	| 'working'
+	| 'awaiting_approval'
+	| 'completed'
+	| 'error'
+	| 'stopped'
 
 const EMPTY_CHAT_DIAGNOSTICS: ChatDiagnostics = {
 	provider: null,
@@ -194,6 +223,27 @@ function serializedToolResultIsError(content: string): boolean {
 	}
 }
 
+const TERMINAL_DATASET_TARGET_ERROR_CODES = new Set([
+	'dataset_target_required',
+	'dataset_target_unavailable',
+	'dataset_target_conflict',
+])
+
+/** Target failures need explicit user action; another model round only burns
+ * context while retrying the same immutable run identity. */
+export function terminalDatasetTargetError(content: string): ToolError | null {
+	try {
+		const value = JSON.parse(content)
+		return isToolError(value) &&
+			typeof value.code === 'string' &&
+			TERMINAL_DATASET_TARGET_ERROR_CODES.has(value.code)
+			? value
+			: null
+	} catch {
+		return null
+	}
+}
+
 function serializedToolResultChangedMap(content: string): boolean {
 	try {
 		const value = JSON.parse(content) as Record<string, unknown>
@@ -230,6 +280,8 @@ export interface ChatSession {
 	title: string
 	messages: ChatMessage[]
 	references: ChatReference[]
+	/** Explicit authoring target. Multiple conversations may point at one workspace. */
+	targetWorkspaceId: string | null
 	createdAt: number
 	updatedAt: number
 }
@@ -245,6 +297,41 @@ export interface ChatReference {
 	featureId?: string
 	pubkey?: string
 	createdAt?: number
+}
+
+export interface SendMessageOptions {
+	referenceContextMessage?: string
+	selectionContextMessage?: string
+	geometryContextMessage?: string
+	geometryAttachment?: FeatureCollection | null
+	/**
+	 * The D-11 composed outbound content (ChatPanel `composeOutboundContent`):
+	 * attached datasets as `{ ingestHandle, ingestSummary }` text parts + gated
+	 * `image_url` parts. When present it OVERRIDES the plain-string `content` as
+	 * the user message — carrying the handle+summary, never `fullRows`.
+	 */
+	composedContent?: ChatMessageContent
+	/** Retry an immediately-failed user turn without appending duplicate text. */
+	reuseLastUserMessage?: boolean
+}
+
+/** Per-conversation runtime. It is intentionally memory-only (never persisted). */
+export interface ChatRunState {
+	identity: ToolExecutionRunIdentity | null
+	status: ChatRunStatus
+	streamingContent: string
+	streamingReasoningContent: string
+	pendingToolCalls: ToolCall[]
+	executingTools: boolean
+	streamPhase: StreamPhase
+	streamWarning: string | null
+	lastProgressAt: number | null
+	lastProgressKind: StreamProgressKind | null
+	error: string | null
+	diagnostics: ChatDiagnostics
+	lastTurnRequest: { content: string; options?: SendMessageOptions } | null
+	totalSpent: number
+	totalRefunded: number
 }
 
 export interface ProviderOverride {
@@ -320,18 +407,170 @@ function createEmptyChatSession(): ChatSession {
 		title: DEFAULT_CHAT_TITLE,
 		messages: [],
 		references: [],
+		targetWorkspaceId: null,
 		createdAt: now,
 		updatedAt: now,
 	}
 }
 
-function applyMessagesToActiveChat(
+function cloneEmptyDiagnostics(): ChatDiagnostics {
+	return { ...EMPTY_CHAT_DIAGNOSTICS, toolStats: {} }
+}
+
+function createEmptyChatRunState(): ChatRunState {
+	return {
+		identity: null,
+		status: 'idle',
+		streamingContent: '',
+		streamingReasoningContent: '',
+		pendingToolCalls: [],
+		executingTools: false,
+		streamPhase: 'idle',
+		streamWarning: null,
+		lastProgressAt: null,
+		lastProgressKind: null,
+		error: null,
+		diagnostics: cloneEmptyDiagnostics(),
+		lastTurnRequest: null,
+		totalSpent: 0,
+		totalRefunded: 0,
+	}
+}
+
+function emptyToolExecutionTarget(): ToolExecutionTarget {
+	return Object.freeze({
+		entityType: null,
+		draftId: null,
+		entityId: null,
+		sourceId: null,
+		baseRevisionId: null,
+		draftUpdatedAt: null,
+		wasDirty: false,
+		workspaceId: null,
+	})
+}
+
+function datasetKeyParts(datasetKey: string | null): { pubkey: string; identifier: string } | null {
+	if (!datasetKey) return null
+	const separator = datasetKey.indexOf(':')
+	if (separator <= 0 || separator === datasetKey.length - 1) return null
+	return {
+		pubkey: datasetKey.slice(0, separator),
+		identifier: datasetKey.slice(separator + 1),
+	}
+}
+
+function activeDatasetKey(editorState: ReturnType<typeof useEditorStore.getState>): string | null {
+	const dataset = editorState.activeDataset
+	return dataset?.dTag ? `${dataset.pubkey}:${dataset.dTag}` : null
+}
+
+function resolveWorkspaceBaseRevisionId(
+	workspace: GeoEditorWorkspace,
+	editorState: ReturnType<typeof useEditorStore.getState>,
+): string | null {
+	if (workspace.baseRevisionId) return workspace.baseRevisionId
+
+	let resolved: string | null = null
+	if (
+		editorState.activeWorkspaceId === workspace.id &&
+		workspace.datasetKey !== null &&
+		activeDatasetKey(editorState) === workspace.datasetKey
+	) {
+		resolved = editorState.activeDataset?.event.id ?? null
+	}
+
+	if (!resolved) {
+		const parts = datasetKeyParts(workspace.datasetKey)
+		if (parts) {
+			resolved =
+				eventStore.getReplaceable(GEO_EVENT_KIND, parts.pubkey, parts.identifier)?.id ?? null
+		}
+	}
+	if (resolved) {
+		// One-time migration/backfill for legacy retained workspaces. Subsequent
+		// remote replaceable updates cannot silently change the draft's base.
+		editorState.updateWorkspace(workspace.id, { baseRevisionId: resolved })
+	}
+	return resolved
+}
+
+export function resolveChatTargetWorkspace(
+	chatId: string | null,
+	chatSessions: readonly ChatSession[],
+	workspaces: Record<string, GeoEditorWorkspace>,
+): GeoEditorWorkspace | null {
+	if (!chatId) return null
+	const session = chatSessions.find((chat) => chat.id === chatId)
+	if (!session?.targetWorkspaceId) return null
+	return workspaces[session.targetWorkspaceId] ?? null
+}
+
+/**
+ * Resolve the exact writable draft owned by a workspace.
+ *
+ * The Chat header and Send-time capture must use the same identity rule. A
+ * stale `activeDraftId` is not enough: the draft must still belong to the
+ * workspace source. Returning null fails closed instead of showing a target
+ * that the tool runtime will later reject.
+ */
+export function resolveWorkspaceTargetDraft(
+	workspace: GeoEditorWorkspace | null,
+	drafts: Record<string, GeoCollectionEditDraft>,
+): GeoCollectionEditDraft | null {
+	if (!workspace?.activeDraftId) return null
+	const draft = drafts[workspace.activeDraftId]
+	if (!draft || draft.sourceId !== workspace.sourceId) return null
+	return draft
+}
+
+function captureDatasetTarget(
+	workspace: GeoEditorWorkspace | null,
+	editorState: ReturnType<typeof useEditorStore.getState>,
+): ToolExecutionTarget {
+	if (!workspace) return emptyToolExecutionTarget()
+	const draft = resolveWorkspaceTargetDraft(workspace, editorState.geoEditDrafts)
+	if (!draft) return emptyToolExecutionTarget()
+	const baseRevisionId = resolveWorkspaceBaseRevisionId(workspace, editorState)
+	const entityId = workspace.datasetKey ?? null
+	return Object.freeze({
+		entityType: 'dataset' as const,
+		draftId: draft.id,
+		entityId,
+		sourceId: draft.sourceId,
+		baseRevisionId,
+		draftUpdatedAt: draft.updatedAt,
+		wasDirty: Boolean(editorState.activeWorkspaceId === workspace.id ? editorState.isDirty : true),
+		workspaceId: workspace.id,
+	})
+}
+
+export function captureVisibleDatasetReferenceTarget(): ToolExecutionTarget {
+	const editorState = useEditorStore.getState()
+	const workspace = editorState.activeWorkspaceId
+		? (editorState.workspaces[editorState.activeWorkspaceId] ?? null)
+		: null
+	return captureDatasetTarget(workspace, editorState)
+}
+
+export function captureActiveToolExecutionTarget(chatId: string | null): ToolExecutionTarget {
+	const editorState = useEditorStore.getState()
+	const chatState = useChatStore.getState()
+	const workspace = resolveChatTargetWorkspace(
+		chatId,
+		chatState.chatSessions,
+		editorState.workspaces,
+	)
+	return captureDatasetTarget(workspace, editorState)
+}
+
+export function applyMessagesToChat(
 	chatSessions: ChatSession[],
-	activeChatId: string | null,
+	chatId: string | null,
 	messages: ChatMessage[],
 ): ChatSession[] {
 	const nextSessions = chatSessions.map((chat) => {
-		if (chat.id !== activeChatId) return chat
+		if (chat.id !== chatId) return chat
 		return {
 			...chat,
 			messages,
@@ -340,20 +579,22 @@ function applyMessagesToActiveChat(
 			updatedAt: Date.now(),
 		}
 	})
-	if (nextSessions.some((chat) => chat.id === activeChatId)) return nextSessions
+	if (nextSessions.some((chat) => chat.id === chatId)) return nextSessions
 
 	const fallback = createEmptyChatSession()
 	return [
 		...nextSessions,
 		{
 			...fallback,
-			id: activeChatId ?? fallback.id,
+			id: chatId ?? fallback.id,
 			messages,
 			title: buildChatTitle(messages),
 			references: [],
 		},
 	]
 }
+
+const applyMessagesToActiveChat = applyMessagesToChat
 
 function hasChatSession(chatSessions: ChatSession[], chatId: string | null): boolean {
 	if (!chatId) return false
@@ -941,6 +1182,10 @@ interface ChatState {
 	// Sessions
 	chatSessions: ChatSession[]
 	activeChatId: string | null
+	/** The one globally executing run; activeChatId remains presentation-only. */
+	runningChatId: string | null
+	activeRun: ToolExecutionRunIdentity | null
+	chatRunStates: Record<string, ChatRunState>
 	// Messages
 	messages: ChatMessage[]
 	// Models
@@ -959,7 +1204,7 @@ interface ChatState {
 	toolsEnabled: boolean // Whether to send tools with requests
 	safetyLevel: 1 | 2 | 3 // Edit-safety level (SAFE-04): 1 preview-all / 2 confirm-destructive (default) / 3 trust+undo
 	promptProfile: PromptProfile
-	// Chat state
+	// Chat state. `isStreaming` is a global execution lock, not an active-chat flag.
 	isStreaming: boolean
 	streamingContent: string
 	streamingReasoningContent: string
@@ -999,7 +1244,9 @@ interface ChatActions {
 	createChat: () => void
 	switchChat: (chatId: string) => void
 	deleteChat: (chatId: string) => void
+	setChatTargetWorkspace: (chatId: string, workspaceId: string | null) => void
 	setReferences: (references: ChatReference[]) => void
+	addReferenceToChat: (chatId: string, reference: ChatReference) => void
 	// Chat actions
 	sendMessage: (content: string, options?: SendMessageOptions) => Promise<void>
 	retryLastMessage: () => Promise<void>
@@ -1008,23 +1255,60 @@ interface ChatActions {
 	reset: () => void
 }
 
-export interface SendMessageOptions {
-	referenceContextMessage?: string
-	selectionContextMessage?: string
-	geometryContextMessage?: string
-	geometryAttachment?: FeatureCollection | null
-	/**
-	 * The D-11 composed outbound content (ChatPanel `composeOutboundContent`):
-	 * attached datasets as `{ ingestHandle, ingestSummary }` text parts + gated
-	 * `image_url` parts. When present it OVERRIDES the plain-string `content` as
-	 * the user message — carrying the handle+summary, never `fullRows`.
-	 */
-	composedContent?: ChatMessageContent
-	/** Retry an immediately-failed user turn without appending duplicate text. */
-	reuseLastUserMessage?: boolean
+type ChatStore = ChatState & ChatActions
+
+type ActiveChatRunView = Pick<
+	ChatState,
+	| 'streamingContent'
+	| 'streamingReasoningContent'
+	| 'pendingToolCalls'
+	| 'executingTools'
+	| 'streamPhase'
+	| 'streamWarning'
+	| 'lastProgressAt'
+	| 'lastProgressKind'
+	| 'error'
+	| 'diagnostics'
+	| 'lastTurnRequest'
+	| 'totalSpent'
+	| 'totalRefunded'
+>
+
+function chatRunStateToActiveView(runState: ChatRunState): ActiveChatRunView {
+	return {
+		streamingContent: runState.streamingContent,
+		streamingReasoningContent: runState.streamingReasoningContent,
+		pendingToolCalls: runState.pendingToolCalls,
+		executingTools: runState.executingTools,
+		streamPhase: runState.streamPhase,
+		streamWarning: runState.streamWarning,
+		lastProgressAt: runState.lastProgressAt,
+		lastProgressKind: runState.lastProgressKind,
+		error: runState.error,
+		diagnostics: runState.diagnostics,
+		lastTurnRequest: runState.lastTurnRequest,
+		totalSpent: runState.totalSpent,
+		totalRefunded: runState.totalRefunded,
+	}
 }
 
-type ChatStore = ChatState & ChatActions
+function getChatRunState(state: ChatState, chatId: string | null): ChatRunState {
+	if (!chatId) return createEmptyChatRunState()
+	return state.chatRunStates[chatId] ?? createEmptyChatRunState()
+}
+
+export function buildChatRunStateUpdate(
+	state: ChatState,
+	chatId: string,
+	updater: Partial<ChatRunState> | ((current: ChatRunState) => ChatRunState),
+): Partial<ChatState> {
+	const current = getChatRunState(state, chatId)
+	const next = typeof updater === 'function' ? updater(current) : { ...current, ...updater }
+	return {
+		chatRunStates: { ...state.chatRunStates, [chatId]: next },
+		...(state.activeChatId === chatId ? chatRunStateToActiveView(next) : {}),
+	}
+}
 
 function createInitialState(): ChatState {
 	const initialChat = createEmptyChatSession()
@@ -1032,6 +1316,9 @@ function createInitialState(): ChatState {
 		...DEFAULT_CHAT_SETTINGS,
 		chatSessions: [initialChat],
 		activeChatId: initialChat.id,
+		runningChatId: null,
+		activeRun: null,
+		chatRunStates: { [initialChat.id]: createEmptyChatRunState() },
 		messages: [],
 		models: [],
 		selectedModel: null,
@@ -1302,77 +1589,71 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			clearMessages: () => {
-				set((state) => ({
-					messages: [],
-					chatSessions: applyMessagesToActiveChat(state.chatSessions, state.activeChatId, []),
-					totalSpent: 0,
-					totalRefunded: 0,
-					error: null,
-					streamWarning: null,
-					streamPhase: 'idle',
-					lastProgressAt: null,
-					lastProgressKind: null,
-					diagnostics: EMPTY_CHAT_DIAGNOSTICS,
-				}))
+				const activeChatId = get().activeChatId
+				if (activeChatId && get().runningChatId === activeChatId) {
+					toast.info('Stop this conversation before clearing it')
+					return
+				}
+				set((state) => {
+					if (!activeChatId) return {}
+					const clearedRun = createEmptyChatRunState()
+					return {
+						messages: [],
+						chatSessions: applyMessagesToActiveChat(state.chatSessions, activeChatId, []),
+						chatRunStates: { ...state.chatRunStates, [activeChatId]: clearedRun },
+						...chatRunStateToActiveView(clearedRun),
+					}
+				})
 			},
 
 			createChat: () => {
-				// Abort any in-flight stream rather than silently no-opping. A stuck or
-				// runaway stream pins isStreaming true; if "New conversation" just returned here
-				// the user would be locked out with no recourse but a page reload.
-				if (get().isStreaming) {
-					get().cancelStream()
-				}
 				const chat = createEmptyChatSession()
+				const runState = createEmptyChatRunState()
 				set((state) => ({
 					chatSessions: sortChatSessionsByRecent([...state.chatSessions, chat]),
 					activeChatId: chat.id,
 					messages: [],
-					totalSpent: 0,
-					totalRefunded: 0,
-					error: null,
-					streamWarning: null,
-					streamPhase: 'idle',
-					lastProgressAt: null,
-					lastProgressKind: null,
-					diagnostics: EMPTY_CHAT_DIAGNOSTICS,
+					chatRunStates: { ...state.chatRunStates, [chat.id]: runState },
+					...chatRunStateToActiveView(runState),
 				}))
 			},
 
 			switchChat: (chatId: string) => {
-				// Abort any in-flight stream before switching away (same lock-out reason
-				// as createChat) — leaving a chat cancels its running response.
-				if (get().isStreaming) {
-					get().cancelStream()
-				}
 				set((state) => {
 					const target = state.chatSessions.find((chat) => chat.id === chatId)
 					if (!target) return {}
+					const runState = getChatRunState(state, target.id)
 					return {
 						activeChatId: target.id,
 						messages: target.messages,
 						references: target.references ?? [],
-						error: null,
-						streamWarning: null,
-						streamPhase: 'idle',
-						lastProgressAt: null,
-						lastProgressKind: null,
-						diagnostics: EMPTY_CHAT_DIAGNOSTICS,
+						chatRunStates: state.chatRunStates[target.id]
+							? state.chatRunStates
+							: { ...state.chatRunStates, [target.id]: runState },
+						...chatRunStateToActiveView(runState),
 					}
 				})
 			},
 
 			deleteChat: (chatId: string) => {
-				if (currentStreamingChatId === chatId && streamAbortController) {
+				chatComposerActions.deleteDraft(chatId)
+				const deletingRunningChat = currentStreamingChatId === chatId
+				if (currentStreamingChatId === chatId) {
+					const stoppedRunId = get().activeRun?.runId
 					currentStreamRunId += 1
-					streamAbortController.abort()
+					streamAbortController?.abort()
 					streamAbortController = null
 					currentStreamingChatId = null
 					// Release any confirm gate the aborted run was awaiting, else its
 					// tool loop stays parked on requestConfirm forever.
 					cancelPendingDiffs()
-				} else if (get().isStreaming) {
-					return
+					cancelPendingReferencePublishes()
+					setPendingDiffRunContext(null)
+					setPendingDiffToolContext(null)
+					setReferencePublishingChatContext(null)
+					setReferencePublishingRunTarget(null)
+					setReferencePublishingToolContext(null)
+					releaseToolExecutionRun(stoppedRunId)
 				}
 				set((state) => {
 					const remaining = state.chatSessions.filter((chat) => chat.id !== chatId)
@@ -1381,27 +1662,39 @@ export const useChatStore = create<ChatStore>()(
 						? state.activeChatId
 						: (ensured[0]?.id ?? null)
 					const activeChat = ensured.find((chat) => chat.id === nextActiveId)
+					const nextRunStates = { ...state.chatRunStates }
+					delete nextRunStates[chatId]
+					if (nextActiveId && !nextRunStates[nextActiveId]) {
+						nextRunStates[nextActiveId] = createEmptyChatRunState()
+					}
+					const nextActiveRunState = getChatRunState(
+						{ ...state, chatRunStates: nextRunStates },
+						nextActiveId,
+					)
 					return {
 						chatSessions: sortChatSessionsByRecent(ensured),
 						activeChatId: nextActiveId,
 						messages: activeChat?.messages ?? [],
 						references: activeChat?.references ?? [],
-						error: null,
-						// Deleting the chat that is mid-stream aborts the run above. The
-						// aborted request rejects as DETACHED_STREAM_ERROR, which the
-						// sendMessage catch deliberately ignores — so these streaming flags
-						// must be cleared HERE, or isStreaming stays true forever and every
-						// isStreaming-gated control (provider/model pickers, new/switch chat)
-						// is stuck disabled until a reload.
-						isStreaming: false,
-						streamingContent: '',
-						streamingReasoningContent: '',
-						executingTools: false,
-						streamWarning: null,
-						streamPhase: 'idle',
-						lastProgressAt: null,
-						lastProgressKind: null,
-						diagnostics: EMPTY_CHAT_DIAGNOSTICS,
+						chatRunStates: nextRunStates,
+						...(deletingRunningChat
+							? { isStreaming: false, runningChatId: null, activeRun: null }
+							: {}),
+						...chatRunStateToActiveView(nextActiveRunState),
+					}
+				})
+			},
+
+			setChatTargetWorkspace: (chatId: string, workspaceId: string | null) => {
+				set((state) => {
+					if (!state.chatSessions.some((chat) => chat.id === chatId)) return {}
+					if (workspaceId && !useEditorStore.getState().workspaces[workspaceId]) return {}
+					return {
+						chatSessions: state.chatSessions.map((chat) =>
+							chat.id === chatId
+								? { ...chat, targetWorkspaceId: workspaceId, updatedAt: Date.now() }
+								: chat,
+						),
 					}
 				})
 			},
@@ -1417,6 +1710,33 @@ export const useChatStore = create<ChatStore>()(
 				}))
 			},
 
+			addReferenceToChat: (chatId: string, reference: ChatReference) => {
+				set((state) => {
+					const target = state.chatSessions.find((chat) => chat.id === chatId)
+					if (!target) return {}
+					const key = `${reference.type}:${reference.id || reference.name}:${reference.pubkey ?? ''}`
+					const currentReferences = target.references ?? []
+					if (
+						currentReferences.some(
+							(candidate) =>
+								`${candidate.type}:${candidate.id || candidate.name}:${candidate.pubkey ?? ''}` ===
+								key,
+						)
+					) {
+						return {}
+					}
+					const nextReferences = [...currentReferences, reference]
+					return {
+						chatSessions: state.chatSessions.map((chat) =>
+							chat.id === chatId
+								? { ...chat, references: nextReferences, updatedAt: Date.now() }
+								: chat,
+						),
+						...(state.activeChatId === chatId ? { references: nextReferences } : {}),
+					}
+				})
+			},
+
 			sendMessage: async (content: string, options?: SendMessageOptions) => {
 				// Atomic turn acquisition: Zustand writes synchronously, so a second
 				// rapid submission cannot append another user turn while this one owns
@@ -1426,9 +1746,20 @@ export const useChatStore = create<ChatStore>()(
 					return
 				}
 				const targetChatId = get().activeChatId
-				// Stamp safe-editing diff blocks emitted during this run with the chat
-				// they belong to, so applied/cancelled cards render only in that chat.
-				setPendingDiffChatContext(targetChatId)
+				if (!targetChatId || !hasChatSession(get().chatSessions, targetChatId)) {
+					toast.error('Select a conversation first')
+					return
+				}
+				const targetChat = get().chatSessions.find((chat) => chat.id === targetChatId)
+				if (!targetChat?.targetWorkspaceId) {
+					toast.error('Choose New map or Use current edit before sending.')
+					return
+				}
+				const sendTarget = captureActiveToolExecutionTarget(targetChatId)
+				if (sendTarget.entityType !== 'dataset' || !sendTarget.workspaceId || !sendTarget.draftId) {
+					toast.error('The selected map edit is no longer available. Choose an editing target.')
+					return
+				}
 				const { selectedModel, models, toolsEnabled, provider, providerOverrides, promptProfile } =
 					get()
 				const providerConfig = resolveProvider(provider, providerOverrides)
@@ -1470,32 +1801,67 @@ export const useChatStore = create<ChatStore>()(
 					content: options?.composedContent ?? content,
 				}
 				const streamRunId = currentStreamRunId + 1
+				const runStartedAt = Date.now()
+				const runIdentity: ToolExecutionRunIdentity = Object.freeze({
+					runId: streamRunId,
+					chatId: targetChatId,
+					target: sendTarget,
+					startedAt: runStartedAt,
+				})
+				prepareToolExecutionRun(runIdentity)
+				const capturedMapSnapshot = getMapContextSnapshotForTarget(runIdentity.target)
+				const capturedSessionPublishContext = buildSessionPublishContextMessage() ?? null
+				const setOwnedRunState = (
+					updater: Partial<ChatRunState> | ((current: ChatRunState) => ChatRunState),
+				) => {
+					set((state) => buildChatRunStateUpdate(state, targetChatId, updater))
+				}
+				const finishOwnedRun = (
+					updater: Partial<ChatRunState> | ((current: ChatRunState) => ChatRunState),
+				) => {
+					set((state) => ({
+						...buildChatRunStateUpdate(state, targetChatId, updater),
+						...(state.activeRun?.runId === streamRunId
+							? { isStreaming: false, runningChatId: null, activeRun: null }
+							: {}),
+					}))
+				}
 				currentStreamRunId = streamRunId
 				currentStreamingChatId = targetChatId
+				// Stamp confirmation requests emitted during this run with immutable
+				// ownership. Presentation changes never rewrite these module contexts.
+				setPendingDiffRunContext(runIdentity)
+				setReferencePublishingChatContext(targetChatId)
+				setReferencePublishingRunTarget(runIdentity.target)
 				set((state) => {
+					const targetChat = state.chatSessions.find((chat) => chat.id === targetChatId)
+					if (!targetChat) return {}
 					const reuseLastUserMessage =
-						options?.reuseLastUserMessage === true && state.messages.at(-1)?.role === 'user'
+						options?.reuseLastUserMessage === true && targetChat.messages.at(-1)?.role === 'user'
 					const nextMessages = reuseLastUserMessage
-						? state.messages
-						: [...state.messages, userMessage]
-					return {
-						messages: nextMessages,
-						chatSessions: applyMessagesToActiveChat(state.chatSessions, targetChatId, [
-							...nextMessages,
-						]),
-						isStreaming: true,
-						streamingContent: '',
-						streamingReasoningContent: '',
-						error: null,
-						pendingToolCalls: [],
-						streamWarning: null,
+						? targetChat.messages
+						: [...targetChat.messages, userMessage]
+					const nextRun: ChatRunState = {
+						...createEmptyChatRunState(),
+						identity: runIdentity,
+						status: 'working',
 						streamPhase: 'requesting',
-						lastProgressAt: Date.now(),
+						lastProgressAt: runStartedAt,
 						lastProgressKind: 'request_start',
 						lastTurnRequest: {
 							content,
 							options: options ? { ...options, reuseLastUserMessage: false } : undefined,
 						},
+					}
+					return {
+						chatSessions: applyMessagesToActiveChat(state.chatSessions, targetChatId, nextMessages),
+						...(state.activeChatId === targetChatId
+							? { messages: nextMessages, ...chatRunStateToActiveView(nextRun) }
+							: {}),
+						chatRunStates: { ...state.chatRunStates, [targetChatId]: nextRun },
+						isStreaming: true,
+						runningChatId: targetChatId,
+						activeRun: runIdentity,
 					}
 				})
 
@@ -1519,7 +1885,10 @@ export const useChatStore = create<ChatStore>()(
 						await receiveCashuToken(refundToken)
 						try {
 							const amount = getTokenMetadata(refundToken).amount.toNumber()
-							set((state) => ({ totalRefunded: state.totalRefunded + amount }))
+							setOwnedRunState((current) => ({
+								...current,
+								totalRefunded: current.totalRefunded + amount,
+							}))
 						} catch {
 							// Amount accounting is best-effort; the redeem already succeeded.
 						}
@@ -1603,7 +1972,10 @@ export const useChatStore = create<ChatStore>()(
 							)
 						}
 
-						set((state) => ({ totalSpent: state.totalSpent + estimatedCost }))
+						setOwnedRunState((current) => ({
+							...current,
+							totalSpent: current.totalSpent + estimatedCost,
+						}))
 					}
 
 					return new Promise((resolve, reject) => {
@@ -1654,7 +2026,7 @@ export const useChatStore = create<ChatStore>()(
 							settled = true
 							clearTimers()
 							cancelStreamingFlush()
-							set({
+							setOwnedRunState({
 								streamWarning: null,
 								lastProgressAt: Date.now(),
 								lastProgressKind: 'error',
@@ -1669,7 +2041,7 @@ export const useChatStore = create<ChatStore>()(
 						const armStallTimers = () => {
 							clearTimers()
 							warningTimer = setTimeout(() => {
-								set({
+								setOwnedRunState({
 									streamWarning: `No stream updates for ${STREAM_STALL_WARNING_SECONDS}s. The provider may be stuck. You can stop and retry.`,
 								})
 							}, STREAM_STALL_WARNING_MS)
@@ -1678,7 +2050,7 @@ export const useChatStore = create<ChatStore>()(
 
 						const refreshActivity = (kind: StreamProgressKind) => {
 							if (!isStreamRunActive()) return
-							set({
+							setOwnedRunState({
 								lastProgressAt: Date.now(),
 								lastProgressKind: kind,
 								streamWarning: null,
@@ -1705,7 +2077,7 @@ export const useChatStore = create<ChatStore>()(
 							streamFlushScheduled = false
 							streamFlushRaf = null
 							if (settled || !isStreamRunActive()) return
-							set({
+							setOwnedRunState({
 								streamingContent: accumulatedContent,
 								streamingReasoningContent: accumulatedReasoningContent,
 								lastProgressAt: Date.now(),
@@ -1776,7 +2148,7 @@ export const useChatStore = create<ChatStore>()(
 									resultFinishReason = finishReason
 									clearTimers()
 									cancelStreamingFlush()
-									set({
+									setOwnedRunState({
 										streamWarning: null,
 										lastProgressAt: Date.now(),
 										lastProgressKind: 'round_complete',
@@ -1809,7 +2181,7 @@ export const useChatStore = create<ChatStore>()(
 										console.log('[Chat] Processing refund from error response')
 										await processRefund(refundToken)
 									}
-									set({
+									setOwnedRunState({
 										streamWarning: null,
 										lastProgressAt: Date.now(),
 										lastProgressKind: 'error',
@@ -1826,7 +2198,7 @@ export const useChatStore = create<ChatStore>()(
 							settled = true
 							clearTimers()
 							cancelStreamingFlush()
-							set({
+							setOwnedRunState({
 								streamWarning: null,
 								lastProgressAt: Date.now(),
 								lastProgressKind: 'error',
@@ -1840,7 +2212,11 @@ export const useChatStore = create<ChatStore>()(
 					streamAbortController = new AbortController()
 					// Repair any assistant tool_calls left unanswered by a stopped run
 					// (protocol requirement) — heals previously wedged chats on send.
-					let conversationMessages = [...sanitizeDanglingToolCalls(get().messages)]
+					let conversationMessages = [
+						...sanitizeDanglingToolCalls(
+							get().chatSessions.find((chat) => chat.id === targetChatId)?.messages ?? [],
+						),
+					]
 					let oneShotVisionMessages: ChatMessage[] = []
 					let oneShotGeometryContextMessage = geometryContextMessage
 					let totalToolCalls = 0
@@ -1853,6 +2229,7 @@ export const useChatStore = create<ChatStore>()(
 					let toolResultBytes = 0
 					let totalToolDurationMs = 0
 					let toolStats: ChatDiagnostics['toolStats'] = {}
+					let terminalTargetError: ToolError | null = null
 					let round = 0
 					const effectiveContextTokens = getEffectiveContextTokens(model, providerConfig)
 					const requiresReasoningContent = providerMayRequireReasoningContent(
@@ -1874,7 +2251,8 @@ export const useChatStore = create<ChatStore>()(
 					const advertisedTools = getAdvertisedGeoTools(canUseVision)
 					const streamStartAt = Date.now()
 
-					set({
+					setOwnedRunState({
+						status: 'working',
 						streamPhase: 'requesting',
 						streamWarning: null,
 						lastProgressAt: streamStartAt,
@@ -1912,9 +2290,10 @@ export const useChatStore = create<ChatStore>()(
 					const recordModelRequest = (promptTokens: number) => {
 						modelRequestCount += 1
 						cumulativeEstimatedPromptTokens += promptTokens
-						set((state) => ({
+						setOwnedRunState((current) => ({
+							...current,
 							diagnostics: {
-								...state.diagnostics,
+								...current.diagnostics,
 								modelRequestCount,
 								cumulativeEstimatedPromptTokens,
 							},
@@ -1922,9 +2301,10 @@ export const useChatStore = create<ChatStore>()(
 					}
 					const recordModelCompletion = (completionTokens: number) => {
 						cumulativeEstimatedCompletionTokens += completionTokens
-						set((state) => ({
+						setOwnedRunState((current) => ({
+							...current,
 							diagnostics: {
-								...state.diagnostics,
+								...current.diagnostics,
 								cumulativeEstimatedCompletionTokens,
 							},
 						}))
@@ -1955,7 +2335,10 @@ export const useChatStore = create<ChatStore>()(
 							: []
 						const systemSections = [
 							toolsEnabled
-								? createMapContextSystemMessage(promptProfile, advertisedToolNames)?.content
+								? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
+										mapSnapshot: capturedMapSnapshot,
+										sessionPublishContextMessage: capturedSessionPublishContext,
+									})?.content
 								: null,
 							referenceContextMessage || null,
 							selectionContextMessage || null,
@@ -1993,7 +2376,7 @@ export const useChatStore = create<ChatStore>()(
 						}
 						requestMessages = appendRequestContextToLatestUserMessage(requestMessages, [
 							referenceContextMessage,
-							buildSessionPublishContextMessage(),
+							capturedSessionPublishContext ?? undefined,
 						])
 						requestMessages = ensureReasoningContentForToolMessages(
 							requestMessages,
@@ -2012,12 +2395,13 @@ export const useChatStore = create<ChatStore>()(
 						// send the derived budget (cost estimate uses the same number).
 						const outputBudget = deriveOutputBudget(model, providerConfig, estimatedPromptTokens)
 
-						set((state) => ({
+						setOwnedRunState((current) => ({
+							...current,
 							streamPhase: 'requesting',
 							lastProgressAt: Date.now(),
 							lastProgressKind: 'request_start',
 							diagnostics: {
-								...state.diagnostics,
+								...current.diagnostics,
 								mapContextTokens: combinedSystemTokens,
 								requestMessageCount: requestMessages.length,
 								estimatedPromptTokens,
@@ -2058,7 +2442,7 @@ export const useChatStore = create<ChatStore>()(
 										OVERLOAD_RETRY_DELAYS_MS[attempt] ??
 										OVERLOAD_RETRY_DELAYS_MS[OVERLOAD_RETRY_DELAYS_MS.length - 1] ??
 										1500
-									set({
+									setOwnedRunState({
 										streamPhase: 'requesting',
 										streamWarning: `Provider overloaded. Retrying in ${Math.ceil(
 											retryDelayMs / 1000,
@@ -2078,14 +2462,14 @@ export const useChatStore = create<ChatStore>()(
 							}
 
 							console.warn('[Chat] Context overflow detected. Retrying with reduced prompt.')
-							set({
+							setOwnedRunState({
 								streamPhase: 'recovering_context',
 								streamWarning:
 									'Context overflow detected. Retrying with a reduced prompt window...',
 							})
 							const emergencyMessages = appendRequestContextToLatestUserMessage(
 								buildEmergencyRetryMessages(conversationMessages),
-								[referenceContextMessage, buildSessionPublishContextMessage()],
+								[referenceContextMessage, capturedSessionPublishContext ?? undefined],
 							)
 							// Re-derive the budget for the reduced prompt so a paid retry's
 							// cost estimate matches the smaller request (more room => budget
@@ -2117,7 +2501,9 @@ export const useChatStore = create<ChatStore>()(
 								throw new Error(DETACHED_STREAM_ERROR)
 							}
 							totalToolCalls += result.toolCalls.length
-							set((state) => ({
+							setOwnedRunState((current) => ({
+								...current,
+								status: 'working',
 								executingTools: true,
 								streamingContent: '',
 								streamingReasoningContent: '',
@@ -2126,7 +2512,7 @@ export const useChatStore = create<ChatStore>()(
 								lastProgressAt: Date.now(),
 								lastProgressKind: 'tool_calls',
 								diagnostics: {
-									...state.diagnostics,
+									...current.diagnostics,
 									estimatedCompletionTokens: result.estimatedCompletionTokens,
 									finishReason: result.finishReason ?? null,
 									toolCallCount: totalToolCalls,
@@ -2145,16 +2531,16 @@ export const useChatStore = create<ChatStore>()(
 							}
 							conversationMessages = [...conversationMessages, assistantMessage]
 							set((state) => ({
-								messages: conversationMessages,
 								chatSessions: applyMessagesToActiveChat(
 									state.chatSessions,
 									targetChatId,
 									conversationMessages,
 								),
+								...(state.activeChatId === targetChatId ? { messages: conversationMessages } : {}),
 							}))
 
-							// PROTOCOL INTEGRITY on detach: the assistant message carrying
-							// tool_calls is already persisted above, so a detached run MUST
+							// PROTOCOL INTEGRITY on any early round exit: the assistant message
+							// carrying tool_calls is already persisted above, so the run MUST
 							// still persist one tool result per call id — a dangling
 							// tool_calls message makes the whole chat unsendable ("must be
 							// followed by tool messages responding to each tool_call_id").
@@ -2162,18 +2548,17 @@ export const useChatStore = create<ChatStore>()(
 							// not-yet-run call gets a synthetic cancelled result. Writes go
 							// to the OWNING chat session (and to the visible transcript only
 							// when that chat is still active) — never to another chat's UI.
-							const persistDetachedRoundResults = (
+							const persistRemainingRoundResults = (
 								pendingCalls: ToolCall[],
 								executedResult: { tool_call_id: string; content: string } | null,
+								cancellationReason = 'The run was stopped before this tool call completed. Nothing was applied for it.',
 							): void => {
 								const filler: ChatMessage[] = pendingCalls.map((call, index) => ({
 									role: 'tool' as const,
 									content:
 										index === 0 && executedResult
 											? executedResult.content
-											: syntheticCancelledToolResult(
-													'The run was stopped before this tool call completed. Nothing was applied for it.',
-												),
+											: syntheticCancelledToolResult(cancellationReason),
 									tool_call_id:
 										index === 0 && executedResult ? executedResult.tool_call_id : call.id,
 								}))
@@ -2194,28 +2579,31 @@ export const useChatStore = create<ChatStore>()(
 							const roundToolCalls = result.toolCalls
 							for (let callIndex = 0; callIndex < roundToolCalls.length; callIndex++) {
 								const toolCall = roundToolCalls[callIndex] as ToolCall
-								// Run-currency check PER TOOL, not just per round: STOP /
-								// chat-switch / delete bump the run id mid-round, and without
+								// Run-currency check PER TOOL, not just per round: STOP, delete,
+								// and reset bump the run id mid-round, and without
 								// this check the rest of the round's tools kept executing in
 								// the background — mutating the editor through the gates and
 								// flipping the visible transcript between chats.
 								if (!isStreamRunActive()) {
-									persistDetachedRoundResults(roundToolCalls.slice(callIndex), null)
+									persistRemainingRoundResults(roundToolCalls.slice(callIndex), null)
 									throw new Error(DETACHED_STREAM_ERROR)
 								}
 								console.log(`[Chat] Executing tool: ${toolCall.function.name}`)
 								// Tag any safe-editing diff this tool emits with its call id so
 								// the transcript can render the card inline at this turn.
 								setPendingDiffToolContext(toolCall.id)
+								setReferencePublishingToolContext(toolCall.id)
 								let toolResult: Awaited<ReturnType<typeof executeToolCall>>
 								const toolStartedAt = performance.now()
 								try {
 									toolResult = await executeToolCall(toolCall, {
 										attachedGeometry: geometryAttachment,
 										userMessage: content,
+										run: runIdentity,
 									})
 								} finally {
 									setPendingDiffToolContext(null)
+									setReferencePublishingToolContext(null)
 								}
 								const toolDurationMs = performance.now() - toolStartedAt
 								const resultBytes = utf8ByteLength(toolResult.content)
@@ -2238,9 +2626,10 @@ export const useChatStore = create<ChatStore>()(
 								}
 								toolResultBytes += resultBytes
 								totalToolDurationMs += toolDurationMs
-								set((state) => ({
+								setOwnedRunState((current) => ({
+									...current,
 									diagnostics: {
-										...state.diagnostics,
+										...current.diagnostics,
 										toolResultBytes,
 										totalToolDurationMs,
 										toolStats,
@@ -2258,8 +2647,9 @@ export const useChatStore = create<ChatStore>()(
 								if (!isStreamRunActive()) {
 									if (!get().isStreaming) {
 										cancelPendingDiffs()
+										cancelPendingReferencePublishes()
 									}
-									persistDetachedRoundResults(roundToolCalls.slice(callIndex), toolResult)
+									persistRemainingRoundResults(roundToolCalls.slice(callIndex), toolResult)
 									throw new Error(DETACHED_STREAM_ERROR)
 								}
 
@@ -2271,17 +2661,32 @@ export const useChatStore = create<ChatStore>()(
 								}
 								conversationMessages = [...conversationMessages, toolMessage]
 								set((state) => ({
-									messages: conversationMessages,
 									chatSessions: applyMessagesToActiveChat(
 										state.chatSessions,
 										targetChatId,
 										conversationMessages,
 									),
+									...(state.activeChatId === targetChatId
+										? { messages: conversationMessages }
+										: {}),
 								}))
-								set({
+								setOwnedRunState({
 									lastProgressAt: Date.now(),
 									lastProgressKind: 'tool_result',
 								})
+								const currentTerminalTargetError = terminalDatasetTargetError(toolResult.content)
+								if (currentTerminalTargetError) {
+									terminalTargetError ??= currentTerminalTargetError
+									const unexecutedCalls = roundToolCalls.slice(callIndex + 1)
+									if (unexecutedCalls.length > 0) {
+										persistRemainingRoundResults(
+											unexecutedCalls,
+											null,
+											'A previous tool call ended the run with a Dataset editing-target error. This tool call was not executed; nothing was applied for it.',
+										)
+									}
+									break
+								}
 
 								const mapChanged = serializedToolResultChangedMap(toolResult.content)
 								if (mapChanged) mapChangingToolResultCount += 1
@@ -2295,9 +2700,10 @@ export const useChatStore = create<ChatStore>()(
 								} else if (loopRecoveryInstruction) {
 									pendingLoopRecoveryInstruction = loopRecoveryInstruction
 								}
-								set((state) => ({
+								setOwnedRunState((current) => ({
+									...current,
 									diagnostics: {
-										...state.diagnostics,
+										...current.diagnostics,
 										mapChangingToolResultCount,
 									},
 								}))
@@ -2327,7 +2733,29 @@ export const useChatStore = create<ChatStore>()(
 								}
 							}
 
-							set({ executingTools: false })
+							if (terminalTargetError) {
+								const completedAt = Date.now()
+								const terminalTargetErrorMessage = terminalTargetError.message
+								finishOwnedRun((current) => ({
+									...current,
+									status: 'error',
+									executingTools: false,
+									streamPhase: 'idle',
+									streamWarning: null,
+									lastProgressAt: completedAt,
+									lastProgressKind: 'error',
+									error: terminalTargetErrorMessage,
+									diagnostics: {
+										...current.diagnostics,
+										toolCallCount: totalToolCalls,
+										mapChangingToolResultCount,
+										completedAt,
+									},
+								}))
+								break
+							}
+
+							setOwnedRunState({ executingTools: false, status: 'working' })
 							// Continue loop to get next response
 							continue
 						}
@@ -2351,21 +2779,25 @@ export const useChatStore = create<ChatStore>()(
 							}
 							conversationMessages = [...conversationMessages, assistantMessage]
 							set((state) => ({
-								messages: conversationMessages,
 								chatSessions: applyMessagesToActiveChat(
 									state.chatSessions,
 									targetChatId,
 									conversationMessages,
 								),
-								isStreaming: false,
+								...(state.activeChatId === targetChatId ? { messages: conversationMessages } : {}),
+							}))
+							finishOwnedRun((current) => ({
+								...current,
+								status: 'completed',
 								streamingContent: '',
 								streamingReasoningContent: '',
+								executingTools: false,
 								streamPhase: 'idle',
 								streamWarning: null,
 								lastProgressAt: Date.now(),
 								lastProgressKind: 'complete',
 								diagnostics: {
-									...state.diagnostics,
+									...current.diagnostics,
 									estimatedCompletionTokens: result.estimatedCompletionTokens,
 									finishReason: result.finishReason ?? null,
 									toolCallCount: totalToolCalls,
@@ -2378,8 +2810,9 @@ export const useChatStore = create<ChatStore>()(
 							// ChatPanel renders for failures, with truncation-specific copy
 							// when the model hit its output-token limit.
 							const { message: emptyNotice } = describeEmptyCompletion(result.finishReason)
-							set((state) => ({
-								isStreaming: false,
+							finishOwnedRun((current) => ({
+								...current,
+								status: 'error',
 								streamingContent: '',
 								streamingReasoningContent: '',
 								streamPhase: 'idle',
@@ -2388,7 +2821,7 @@ export const useChatStore = create<ChatStore>()(
 								lastProgressKind: 'error',
 								error: emptyNotice,
 								diagnostics: {
-									...state.diagnostics,
+									...current.diagnostics,
 									estimatedCompletionTokens: result.estimatedCompletionTokens,
 									finishReason: result.finishReason ?? null,
 									toolCallCount: totalToolCalls,
@@ -2409,8 +2842,8 @@ export const useChatStore = create<ChatStore>()(
 						// nobody else will clear the flags — so clear them here to avoid a
 						// stuck-disabled UI.
 						if (currentStreamRunId === streamRunId) {
-							set({
-								isStreaming: false,
+							finishOwnedRun({
+								status: 'stopped',
 								streamingContent: '',
 								streamingReasoningContent: '',
 								executingTools: false,
@@ -2420,8 +2853,9 @@ export const useChatStore = create<ChatStore>()(
 						}
 						return
 					}
-					set((state) => ({
-						isStreaming: false,
+					finishOwnedRun((current) => ({
+						...current,
+						status: 'error',
 						streamingContent: '',
 						streamingReasoningContent: '',
 						executingTools: false,
@@ -2431,15 +2865,21 @@ export const useChatStore = create<ChatStore>()(
 						lastProgressKind: 'error',
 						error: message,
 						diagnostics: {
-							...state.diagnostics,
+							...current.diagnostics,
 							completedAt: Date.now(),
 						},
 					}))
 					toast.error(message)
 				} finally {
+					releaseToolExecutionRun(streamRunId)
 					if (currentStreamRunId === streamRunId) {
 						streamAbortController = null
 						currentStreamingChatId = null
+						setPendingDiffRunContext(null)
+						setPendingDiffToolContext(null)
+						setReferencePublishingChatContext(null)
+						setReferencePublishingRunTarget(null)
+						setReferencePublishingToolContext(null)
 					}
 				}
 			},
@@ -2455,36 +2895,64 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			cancelStream: () => {
-				if (streamAbortController) {
+				const ownedChatId = currentStreamingChatId ?? get().runningChatId
+				const stoppedRunId = get().activeRun?.runId
+				if (ownedChatId) {
 					currentStreamRunId += 1
-					streamAbortController.abort()
-					streamAbortController = null
-					currentStreamingChatId = null
 				}
+				streamAbortController?.abort()
+				streamAbortController = null
+				currentStreamingChatId = null
 				// Settle any confirm gate the cancelled run was awaiting (resolves as
 				// 'cancel', zero editor mutation) so the tool loop can unwind.
 				cancelPendingDiffs()
-				set((state) => ({
-					isStreaming: false,
-					streamingContent: '',
-					streamingReasoningContent: '',
-					executingTools: false,
-					streamPhase: 'idle',
-					streamWarning: null,
-					lastProgressAt: Date.now(),
-					lastProgressKind: 'error',
-					error: state.error,
-				}))
+				cancelPendingReferencePublishes()
+				setPendingDiffRunContext(null)
+				setPendingDiffToolContext(null)
+				setReferencePublishingChatContext(null)
+				setReferencePublishingRunTarget(null)
+				setReferencePublishingToolContext(null)
+				releaseToolExecutionRun(stoppedRunId)
+				set((state) => {
+					const runUpdate = ownedChatId
+						? buildChatRunStateUpdate(state, ownedChatId, (current) => ({
+								...current,
+								status: 'stopped',
+								streamingContent: '',
+								streamingReasoningContent: '',
+								executingTools: false,
+								streamPhase: 'idle',
+								streamWarning: null,
+								lastProgressAt: Date.now(),
+								lastProgressKind: 'error',
+							}))
+						: {}
+					return {
+						...runUpdate,
+						isStreaming: false,
+						runningChatId: null,
+						activeRun: null,
+					}
+				})
 			},
 
 			reset: () => {
-				if (streamAbortController) {
+				chatComposerActions.reset()
+				const stoppedRunId = get().activeRun?.runId
+				if (streamAbortController || currentStreamingChatId) {
 					currentStreamRunId += 1
-					streamAbortController.abort()
-					streamAbortController = null
-					currentStreamingChatId = null
 				}
+				streamAbortController?.abort()
+				streamAbortController = null
+				currentStreamingChatId = null
 				cancelPendingDiffs()
+				cancelPendingReferencePublishes()
+				setPendingDiffRunContext(null)
+				setPendingDiffToolContext(null)
+				setReferencePublishingChatContext(null)
+				setReferencePublishingRunTarget(null)
+				setReferencePublishingToolContext(null)
+				releaseToolExecutionRun(stoppedRunId)
 				set(createInitialState())
 			},
 		}),
@@ -2497,27 +2965,67 @@ export const useChatStore = create<ChatStore>()(
 				const persistedSessions = Array.isArray(persisted.chatSessions)
 					? persisted.chatSessions.filter((session) => typeof session?.id === 'string')
 					: []
-				const chatSessions =
+				const rawChatSessions =
 					persistedSessions.length > 0
 						? persistedSessions
 						: (currentState.chatSessions ?? [createEmptyChatSession()])
+				const chatSessions = rawChatSessions.map((session) => ({
+					...session,
+					targetWorkspaceId:
+						typeof session.targetWorkspaceId === 'string' ? session.targetWorkspaceId : null,
+				}))
 				const persistedActiveChatId =
 					typeof persisted.activeChatId === 'string' ? persisted.activeChatId : null
 				const activeChatId = chatSessions.some((session) => session.id === persistedActiveChatId)
 					? persistedActiveChatId
 					: (chatSessions[0]?.id ?? null)
 				const activeChat = chatSessions.find((session) => session.id === activeChatId)
+				const chatRunStates = Object.fromEntries(
+					chatSessions.map((session) => [session.id, createEmptyChatRunState()]),
+				)
+				const activeRunState = activeChatId
+					? (chatRunStates[activeChatId] ?? createEmptyChatRunState())
+					: createEmptyChatRunState()
 				return {
 					...currentState,
 					chatSessions: sortChatSessionsByRecent(chatSessions),
 					activeChatId,
 					messages: activeChat?.messages ?? [],
 					references: activeChat?.references ?? [],
+					chatRunStates,
+					runningChatId: null,
+					activeRun: null,
+					isStreaming: false,
+					...chatRunStateToActiveView(activeRunState),
 				}
 			},
 		},
 	),
 )
+
+function syncRunningChatApprovalStatus(): void {
+	const state = useChatStore.getState()
+	const chatId = state.runningChatId
+	if (!chatId) return
+	const current = state.chatRunStates[chatId]
+	if (!current || (current.status !== 'working' && current.status !== 'awaiting_approval')) return
+
+	const awaitingDiff = getAllPendingDiffs().some(
+		(entry) => entry.chatId === chatId && entry.status === 'pending',
+	)
+	const publishRequest = getReferencePublishRequest()
+	const awaitingPublish = publishRequest?.chatId === chatId
+	const status: ChatRunStatus = awaitingDiff || awaitingPublish ? 'awaiting_approval' : 'working'
+	if (current.status === status) return
+
+	useChatStore.setState((latest) => buildChatRunStateUpdate(latest, chatId, { status }))
+}
+
+// Confirmation surfaces live outside Zustand, so bridge their lifecycle into
+// the per-conversation status shown by the selector/rail. Both subscriptions
+// are module-lifetime singletons, just like their backing request stores.
+subscribePendingDiffs(syncRunningChatApprovalStatus)
+subscribeReferencePublishRequest(syncRunningChatApprovalStatus)
 
 // SAFE-04: expose the persisted safety level to the run_code gate without a
 // static import cycle (runCode is pulled into the registry bootstrap that this
@@ -2547,7 +3055,11 @@ export const chatActions = {
 	createChat: () => useChatStore.getState().createChat(),
 	switchChat: (chatId: string) => useChatStore.getState().switchChat(chatId),
 	deleteChat: (chatId: string) => useChatStore.getState().deleteChat(chatId),
+	setChatTargetWorkspace: (chatId: string, workspaceId: string | null) =>
+		useChatStore.getState().setChatTargetWorkspace(chatId, workspaceId),
 	setReferences: (references: ChatReference[]) => useChatStore.getState().setReferences(references),
+	addReferenceToChat: (chatId: string, reference: ChatReference) =>
+		useChatStore.getState().addReferenceToChat(chatId, reference),
 	cancelStream: () => useChatStore.getState().cancelStream(),
 	reset: () => useChatStore.getState().reset(),
 }

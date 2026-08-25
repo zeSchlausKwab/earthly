@@ -216,10 +216,11 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 		geoEditDrafts: persisted.drafts,
 		activeGeoEditDraftId: persisted.activeDraftId,
 
-		createGeoEditDraft: (sourceId, seed) => {
+		createGeoEditDraft: (sourceId, seed, options) => {
 			const id = createGeoDraftId()
 			const now = Date.now()
 			const state = get()
+			const activate = options?.activate !== false
 			const draft: GeoCollectionEditDraft = {
 				persistenceVersion: 2,
 				id,
@@ -241,9 +242,10 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 			}
 			set({
 				geoEditDrafts: nextDrafts,
-				activeGeoEditDraftId: id,
+				...(activate ? { activeGeoEditDraftId: id } : {}),
 			})
-			writePersistedGeoCollectionDraftState(nextDrafts, id)
+			writePersistedGeoCollectionDraftState(nextDrafts, activate ? id : state.activeGeoEditDraftId)
+			if (!activate) return id
 			const workspaceState = get()
 			const activeWorkspace = workspaceState.activeWorkspaceId
 				? workspaceState.workspaces[workspaceState.activeWorkspaceId]

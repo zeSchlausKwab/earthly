@@ -44,7 +44,12 @@ export const createPublishingSlice: StateCreator<EditorState, [], [], Publishing
 		setPendingPublishCollection: (pendingPublishCollection) => set({ pendingPublishCollection }),
 
 		setBlobReferences: (blobReferences) => {
-			set({ blobReferences })
+			const state = get()
+			if (JSON.stringify(state.blobReferences) === JSON.stringify(blobReferences)) return
+			set({
+				blobReferences,
+				...(state.activeGeoEditDraftId ? { isDirty: true } : {}),
+			})
 			syncActiveDraftBlobReferences()
 		},
 		setBlobDraftUrl: (blobDraftUrl) => set({ blobDraftUrl }),
@@ -87,6 +92,7 @@ export const createPublishingSlice: StateCreator<EditorState, [], [], Publishing
 					previewingBlobReferenceId: id,
 					blobDraftUrl: '',
 					blobDraftStatus: 'idle',
+					...(state.activeGeoEditDraftId ? { isDirty: true } : {}),
 				}))
 				syncActiveDraftBlobReferences()
 			} catch (error) {
@@ -117,7 +123,6 @@ export const createPublishingSlice: StateCreator<EditorState, [], [], Publishing
 					ref.id === id ? { ...ref, status: 'loading', error: undefined } : ref,
 				),
 			}))
-			syncActiveDraftBlobReferences()
 
 			try {
 				const { payload, size, mimeType } = await fetchGeoJsonPayload(reference.url)
@@ -143,6 +148,7 @@ export const createPublishingSlice: StateCreator<EditorState, [], [], Publishing
 					),
 					blobPreviewCollection: collection,
 					previewingBlobReferenceId: id,
+					...(state.activeGeoEditDraftId ? { isDirty: true } : {}),
 				}))
 				syncActiveDraftBlobReferences()
 			} catch (error) {
@@ -164,10 +170,12 @@ export const createPublishingSlice: StateCreator<EditorState, [], [], Publishing
 		},
 
 		removeBlobReference: (id: string) => {
-			const { previewingBlobReferenceId } = get()
+			const { previewingBlobReferenceId, blobReferences } = get()
+			if (!blobReferences.some((reference) => reference.id === id)) return
 			set((state) => {
 				const newState: Partial<EditorState> = {
 					blobReferences: state.blobReferences.filter((reference) => reference.id !== id),
+					...(state.activeGeoEditDraftId ? { isDirty: true } : {}),
 				}
 				if (previewingBlobReferenceId === id) {
 					newState.previewingBlobReferenceId = null

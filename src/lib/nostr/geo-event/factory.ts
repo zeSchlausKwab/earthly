@@ -24,6 +24,7 @@ import type { NostrEvent } from 'nostr-tools'
 import type { FeatureCollection } from 'geojson'
 import { generateShortDTag } from '@/lib/nostr/dTag'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { assertCanDeleteOwnedEntity } from '@/lib/nostr/deletion'
 import { publish } from '..'
 import { collectCalloutMedia } from '@/lib/geo/callouts'
 import {
@@ -261,6 +262,7 @@ export async function deleteDataset(
 	const datasetId = getDatasetId(dataset)
 	if (!datasetId) throw new Error('Dataset is missing a d tag and cannot be deleted.')
 	if (!dataset.pubkey) throw new Error('Dataset is missing a pubkey and cannot be deleted.')
+	await assertCanDeleteOwnedEntity(dataset, signer, 'Dataset')
 
 	const event = await DeleteFactory.fromEvents([dataset], reason).sign(signer)
 	await publish(event as NostrEvent, { routing: 'outbox' })

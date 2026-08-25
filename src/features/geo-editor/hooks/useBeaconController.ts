@@ -8,8 +8,8 @@ import { useBeaconPublisher } from './useBeaconPublisher'
 interface UseBeaconControllerParams {
 	ensureInfoPanelVisible: () => void
 	navigateToView: (view: SidebarViewMode) => void
-	/** Focus-preserving nav — keeps `/beacons/beacon/:naddr` in the URL so a
-	 *  deep-linked beacon opens the read view and STAYS on the route (not the list). */
+	/** Focus-preserving inspect nav. GeoEditorView marks in-app writes so the route
+	 * hydrator does not mistake them for fresh shared-link landings. */
 	navigateTo: (
 		focusType: 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon',
 		naddr: string,
@@ -17,8 +17,6 @@ interface UseBeaconControllerParams {
 	) => void
 	/** Encode a beacon to its share naddr (throwaway pubkey). */
 	encodeBeaconNaddr: (beacon: LiveBeacon) => string | null
-	/** Zoom/center the map on a beacon's position. */
-	zoomToBeacon: (beacon: LiveBeacon) => void
 	clearFocus: () => void
 }
 
@@ -41,7 +39,6 @@ export function useBeaconController({
 	navigateToView,
 	navigateTo,
 	encodeBeaconNaddr,
-	zoomToBeacon,
 	clearFocus,
 }: UseBeaconControllerParams) {
 	const setViewModeState = useEditorStore((state) => state.setViewMode)
@@ -50,6 +47,7 @@ export function useBeaconController({
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const setViewStory = useEditorStore((state) => state.setViewStory)
 	const setStance = useEditorStore((state) => state.setStance)
+	const setInspectionSubject = useEditorStore((state) => state.setInspectionSubject)
 	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
 
 	// The live publish loop + per-session throwaway signer (Plan 03).
@@ -144,12 +142,13 @@ export function useBeaconController({
 	// when inspecting someone else's beacon.
 	useEffect(() => {
 		if (pendingOwnView && publisher.liveBeacon) {
+			setInspectionSubject({ kind: 'beacon', entity: publisher.liveBeacon })
 			setViewBeacon(publisher.liveBeacon)
 			setViewModeState('view')
 			setStance('focus')
 			setPendingOwnView(false)
 		}
-	}, [pendingOwnView, publisher.liveBeacon, setViewModeState, setStance])
+	}, [pendingOwnView, publisher.liveBeacon, setInspectionSubject, setViewModeState, setStance])
 
 	/** Stop the user's own live beacon (the no-delete-recap alert-dialog confirms first). */
 	const handleStopBeacon = useCallback(async () => {
@@ -179,12 +178,11 @@ export function useBeaconController({
 	/** Open a beacon in the read/detail view panel. */
 	const handleInspectBeacon = useCallback(
 		(beacon: LiveBeacon, commentId?: string) => {
-			setBeaconControlMode('none')
-			setAdjustingBeacon(null)
 			setViewModeState('view')
 			setViewDatasetState(null)
 			setViewContext(null)
 			setViewStory(null)
+			setInspectionSubject({ kind: 'beacon', entity: beacon })
 			setViewBeacon(beacon)
 			// D-10: honor the OG comment deep link beneath this Beacon. Held in hook
 			// state because navigateTo/navigateToView wipes the URL `/comment/:id`
@@ -201,9 +199,6 @@ export function useBeaconController({
 			} else {
 				navigateToView('beacons')
 			}
-			// Center the map on the beacon so an opened/shared beacon is immediately visible.
-			zoomToBeacon(beacon)
-
 			const beaconKey = beacon.dTag ?? beacon.id
 			setLastInspectedBeaconKey(beaconKey ?? null)
 			if (beaconKey) recordRecentEntity(`beacon:${beaconKey}`)
@@ -213,12 +208,12 @@ export function useBeaconController({
 			setViewDatasetState,
 			setViewContext,
 			setViewStory,
+			setInspectionSubject,
 			ensureInfoPanelVisible,
 			setStance,
 			navigateTo,
 			navigateToView,
 			encodeBeaconNaddr,
-			zoomToBeacon,
 			recordRecentEntity,
 		],
 	)

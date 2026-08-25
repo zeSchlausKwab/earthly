@@ -15,6 +15,7 @@ import type { ArticleContent } from '@/lib/nostr/article'
 
 /** The editable slice of a Story we persist locally, plus a save timestamp. */
 export type StoryDraft = Pick<ArticleContent, 'title' | 'summary' | 'image' | 'content'> & {
+	bodyTab?: 'write' | 'preview'
 	updatedAt: number
 }
 
@@ -38,6 +39,7 @@ function readDraftMap(pubkey?: string | null): Record<string, StoryDraft> {
 			summary: typeof r.summary === 'string' ? r.summary : undefined,
 			image: typeof r.image === 'string' ? r.image : undefined,
 			content: typeof r.content === 'string' ? r.content : undefined,
+			bodyTab: r.bodyTab === 'preview' ? 'preview' : r.bodyTab === 'write' ? 'write' : undefined,
 			updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : 0,
 		}
 	}

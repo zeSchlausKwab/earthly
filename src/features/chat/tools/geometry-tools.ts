@@ -35,20 +35,23 @@ import { buildPostWriteValidation } from '@/features/chat/safeEditing/autoValida
 import { runFixAllRule } from '@/features/chat/safeEditing/fixAll'
 import { gateBulkApply } from '@/features/chat/safeEditing/gateBulkEdit'
 import { getSafetyLevel } from '@/features/chat/safeEditing/safetyAccess'
-import { createAuthoring } from '@/features/geo-editor/api/authoring'
 import { deleteFeaturesById } from '@/features/geo-editor/api/authoring'
 import { performGeometryOperation } from '@/features/geo-editor/api/geometryOperations'
 import type { GeometryOperationRequest, PrimitiveUnits } from '@/features/geo-editor/api'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '@/features/geo-editor/constants'
 import { matchesPredicate } from '@/features/geo-editor/api/predicate'
 import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
-import { useEditorStore } from '@/features/geo-editor/store'
 import { featureCollection, union as turfUnion } from '@turf/turf'
 import type { Feature, MultiPolygon, Polygon } from 'geojson'
 import { countGeometryVertices, isSimplifiableGeometryType } from '@/lib/geo/geometry'
 import { serializedFeatureCollectionBytes } from '@/lib/geo/serializedSize'
 // TYPE-ONLY import from the registry (never the value `register`) — Pitfall 6.
 import type { ToolEntry } from './registry'
+import {
+	createExecutionAuthoring,
+	ensureExecutionTargetForMutation,
+	getExecutionEditor,
+} from './executionTarget'
 import { schemaFor } from './schemas'
 import type { Tool } from './types'
 import { parsePredicate, resolveSelectionScope } from './bulk-tools'
@@ -184,7 +187,7 @@ const TARGET_BYTES_MAX = 1024 * 1024 * 1024 // 1GB ceiling
  * editor). The same idiom every host-builtin uses (mirrors `bulk-tools.requireEditor`).
  */
 function requireEditor(): GeoEditor {
-	const editor = useEditorStore.getState().editor
+	const editor = getExecutionEditor()
 	if (!editor) {
 		throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 	}
@@ -255,7 +258,11 @@ async function gateGeometryOperation(
 		{ getSafetyLevel, label },
 		resultMode === 'replace' ? 'modify' : 'add',
 		() => {
-			const result = createAuthoring(editor).geometryOperation(featureId, request, resultMode)
+			const result = createExecutionAuthoring(editor).geometryOperation(
+				featureId,
+				request,
+				resultMode,
+			)
 			if (!result.ok) throw new Error(`Feature '${featureId}' was not found.`)
 			featureIds = result.featureIds.slice(1)
 		},
@@ -322,7 +329,7 @@ export function applyOptimizedCollection(
 	editor: GeoEditor,
 	result: OptimizeFeatureCollection,
 ): void {
-	createAuthoring(editor).writeGeoJSON(result.features, { replace: true })
+	createExecutionAuthoring(editor).writeGeoJSON(result.features, { replace: true })
 }
 
 /**
@@ -473,7 +480,7 @@ export function registerGeometryTools(register: (entry: ToolEntry) => void): voi
 							targets.map((target) => target.id),
 						)
 					}
-					resultFeatureIds = createAuthoring(editor).writeGeoJSON(outputs).featureIds
+					resultFeatureIds = createExecutionAuthoring(editor).writeGeoJSON(outputs).featureIds
 				},
 			)
 			const touched = resultFeatureIds
@@ -588,7 +595,7 @@ export function registerGeometryTools(register: (entry: ToolEntry) => void): voi
 		name: 'optimize_geometry',
 		kind: 'authoring-primitive',
 		schema: schemaFor('optimize_geometry'),
-		handler: async (args) => {
+		handler: async (args, context) => {
 			const editor = requireEditor()
 			// Read the FULL id-keyed bound set — never the model's compacted view (SAFE-05).
 			const all = editor.getAllFeatures()
@@ -606,6 +613,7 @@ export function registerGeometryTools(register: (entry: ToolEntry) => void): voi
 			const collection: OptimizeFeatureCollection = { type: 'FeatureCollection', features: all }
 			// Off-thread (always-settling RPC client; worker + sync-fallback + 30s timeout).
 			const { result, report } = await runOptimize(collection, budget)
+			if (context?.run) await ensureExecutionTargetForMutation(context.run)
 
 			// ONE gated 'modify' apply with the metrics-aware headline (D-04b). The result
 			// routes through createAuthoring (facade → runInterceptors) — NO raw editor.*

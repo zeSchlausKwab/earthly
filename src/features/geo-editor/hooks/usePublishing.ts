@@ -1059,6 +1059,7 @@ export function usePublishing({
 			const key = getDatasetKey(event)
 			try {
 				await deleteDataset(event.event, signer)
+				removeMapStackEntry(`dataset:${key}`)
 				if (activeDataset && getDatasetKey(activeDataset) === key) {
 					onClear()
 				}
@@ -1068,7 +1069,7 @@ export function usePublishing({
 				toast.error('Failed to delete dataset. Check console for details.')
 			}
 		},
-		[activeDataset, getDatasetKey, getDatasetName, hasWorkspaceScope],
+		[activeDataset, getDatasetKey, getDatasetName, hasWorkspaceScope, removeMapStackEntry],
 	)
 
 	// Check if there's a collection blob reference (uploaded to Blossom)

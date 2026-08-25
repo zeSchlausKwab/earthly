@@ -15,17 +15,31 @@
  */
 import type { ChatMessage, ProviderType, RoutstrModel, ToolCall } from './routstr'
 import { resolveProvider } from './store'
-import type { ChatReference, ChatSession, ProviderOverrideMap } from './store'
+import type { ChatReference, ChatRunStatus, ChatSession, ProviderOverrideMap } from './store'
 import type { PromptProfile } from './tools/context'
 import { isToolError } from './tools/errors'
+import type { ToolExecutionRunIdentity, ToolExecutionTarget } from './tools/types'
 
 export const CONVERSATION_DUMP_SCHEMA = 'earthly.chat.dump'
-export const CONVERSATION_DUMP_VERSION = 2 as const
+export const CONVERSATION_DUMP_VERSION = 3 as const
+
+export interface ConversationDumpLastRunInput {
+	identity: ToolExecutionRunIdentity | null
+	completedAt: number | null
+	status: ChatRunStatus | null
+}
 
 export interface ConversationDumpInput {
 	/** Wall-clock of the export, passed in so the builder stays pure. */
 	exportedAt: number
-	activeChat: Pick<ChatSession, 'id' | 'title' | 'createdAt' | 'updatedAt'> | null
+	activeChat: Pick<
+		ChatSession,
+		'id' | 'title' | 'targetWorkspaceId' | 'createdAt' | 'updatedAt'
+	> | null
+	/** Freshly resolved target for the active Chat at export time. */
+	currentTarget: ToolExecutionTarget | null
+	/** Last memory-resident run owned by the active Chat. */
+	lastRun: ConversationDumpLastRunInput | null
 	messages: ChatMessage[]
 	references: ChatReference[]
 	provider: ProviderType
@@ -52,7 +66,13 @@ export interface ConversationDump {
 	schema: typeof CONVERSATION_DUMP_SCHEMA
 	version: typeof CONVERSATION_DUMP_VERSION
 	exportedAt: string
-	chat: { id: string; title: string; createdAt: number; updatedAt: number } | null
+	chat: {
+		id: string
+		title: string
+		targetWorkspaceId: string | null
+		createdAt: number
+		updatedAt: number
+	} | null
 	endpoint: {
 		provider: ProviderType
 		/** Endpoint URL — NOT a secret. The `apiKey` is intentionally omitted. */
@@ -63,10 +83,48 @@ export interface ConversationDump {
 		promptProfile: PromptProfile
 	}
 	analysis: ConversationDumpAnalysis
+	editingTarget: ConversationDumpEditingTarget
 	diagnostics: Record<string, unknown> | null
 	references: ChatReference[]
 	messageCount: number
 	messages: ConversationDumpMessage[]
+}
+
+export interface ConversationDumpTargetIdentity {
+	entityType: ToolExecutionTarget['entityType']
+	draftId: string | null
+	entityId: string | null
+	sourceId: string | null
+	baseRevisionId: string | null
+	draftUpdatedAt: number | null
+	wasDirty: boolean | null
+	workspaceId: string | null
+}
+
+export type ConversationDumpCurrentTargetStatus =
+	| 'no_active_chat'
+	| 'unbound'
+	| 'legacy_resolved'
+	| 'resolved'
+	| 'unavailable'
+	| 'mismatch'
+
+export interface ConversationDumpEditingTarget {
+	current: {
+		chatId: string | null
+		/** Persisted Chat pointer, separate from the freshly resolved target below. */
+		targetWorkspaceId: string | null
+		status: ConversationDumpCurrentTargetStatus
+		target: ConversationDumpTargetIdentity
+	}
+	lastRun: {
+		runId: number | null
+		chatId: string | null
+		startedAt: number | null
+		completedAt: number | null
+		status: ChatRunStatus | null
+		target: ConversationDumpTargetIdentity
+	}
 }
 
 export interface ConversationDumpAnalysis {
@@ -78,6 +136,71 @@ export interface ConversationDumpAnalysis {
 	completedWithAssistant: boolean
 	endedOnToolResult: boolean
 	stopReason: string | null
+}
+
+function dumpTargetIdentity(target: ToolExecutionTarget | null): ConversationDumpTargetIdentity {
+	if (!target) {
+		return {
+			entityType: null,
+			draftId: null,
+			entityId: null,
+			sourceId: null,
+			baseRevisionId: null,
+			draftUpdatedAt: null,
+			wasDirty: null,
+			workspaceId: null,
+		}
+	}
+	const hasIdentity = Boolean(
+		target.entityType ||
+			target.draftId ||
+			target.entityId ||
+			target.sourceId ||
+			target.baseRevisionId ||
+			target.workspaceId,
+	)
+	return {
+		entityType: target.entityType,
+		draftId: target.draftId,
+		entityId: target.entityId,
+		sourceId: target.sourceId,
+		baseRevisionId: target.baseRevisionId,
+		draftUpdatedAt: target.draftUpdatedAt,
+		wasDirty: hasIdentity ? target.wasDirty : null,
+		workspaceId: target.workspaceId,
+	}
+}
+
+function currentTargetStatus(
+	activeChat: ConversationDumpInput['activeChat'],
+	target: ToolExecutionTarget | null,
+): ConversationDumpCurrentTargetStatus {
+	if (!activeChat) return 'no_active_chat'
+	if (!activeChat.targetWorkspaceId) {
+		return target?.entityType && target.workspaceId ? 'legacy_resolved' : 'unbound'
+	}
+	if (!target?.entityType || !target.workspaceId) return 'unavailable'
+	return target.workspaceId === activeChat.targetWorkspaceId ? 'resolved' : 'mismatch'
+}
+
+function buildEditingTargetDump(input: ConversationDumpInput): ConversationDumpEditingTarget {
+	const runIdentity = input.lastRun?.identity ?? null
+	return {
+		current: {
+			chatId: input.activeChat?.id ?? null,
+			targetWorkspaceId: input.activeChat?.targetWorkspaceId ?? null,
+			status: currentTargetStatus(input.activeChat, input.currentTarget),
+			target: dumpTargetIdentity(input.currentTarget),
+		},
+		lastRun: {
+			runId: runIdentity?.runId ?? null,
+			chatId: runIdentity?.chatId ?? null,
+			startedAt: runIdentity?.startedAt ?? null,
+			completedAt: runIdentity ? (input.lastRun?.completedAt ?? null) : null,
+			status: runIdentity ? (input.lastRun?.status ?? null) : null,
+			target: dumpTargetIdentity(runIdentity?.target ?? null),
+		},
+	}
 }
 
 function parseToolContent(content: ChatMessage['content']): unknown {
@@ -148,6 +271,7 @@ export function buildConversationDump(input: ConversationDumpInput): Conversatio
 			? {
 					id: input.activeChat.id,
 					title: input.activeChat.title,
+					targetWorkspaceId: input.activeChat.targetWorkspaceId,
 					createdAt: input.activeChat.createdAt,
 					updatedAt: input.activeChat.updatedAt,
 				}
@@ -161,6 +285,7 @@ export function buildConversationDump(input: ConversationDumpInput): Conversatio
 			promptProfile: input.promptProfile ?? 'legacy',
 		},
 		analysis: analyzeConversationDumpMessages(input.messages, input.diagnostics),
+		editingTarget: buildEditingTargetDump(input),
 		diagnostics: input.diagnostics ?? null,
 		references: input.references,
 		messageCount: input.messages.length,

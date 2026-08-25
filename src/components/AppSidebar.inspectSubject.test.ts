@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { hasActiveInspectSubject, resolveActiveInspectEntity } from './AppSidebar'
+import {
+	hasActiveInspectSubject,
+	replayInspectionSubject,
+	resolveActiveInspectEntity,
+} from './AppSidebar'
 
 // Phase 13 (13-uat, finding B): a shared /beacon/:naddr deep link resolved the
 // beacon and called handleInspectBeacon (setting viewBeacon), but AppSidebar omitted
@@ -75,5 +79,63 @@ describe('resolveActiveInspectEntity — beacon resolves to full panel (13-uat)'
 		expect(resolveActiveInspectEntity({ ...EMPTY, viewStory: { id: 's' } })).toBe('story')
 		expect(resolveActiveInspectEntity({ ...EMPTY, viewContext: { id: 'c' } })).toBe('context')
 		expect(resolveActiveInspectEntity({ ...EMPTY, viewDataset: { id: 'd' } })).toBe('geometry')
+	})
+
+	test('an inspected dataset wins over a retained Story editor', () => {
+		expect(
+			resolveActiveInspectEntity({
+				...EMPTY,
+				storyEditorMode: 'edit',
+				viewDataset: { id: 'dataset' },
+			}),
+		).toBe('geometry')
+	})
+
+	test('the normalized subject wins over stale hook-local Beacon/Sighting views', () => {
+		expect(
+			resolveActiveInspectEntity({
+				...EMPTY,
+				inspectionSubject: {
+					kind: 'dataset',
+					entity: { id: 'dataset' } as never,
+				},
+				viewBeacon: { id: 'stale-beacon' },
+				viewSighting: { id: 'stale-sighting' },
+			}),
+		).toBe('geometry')
+	})
+})
+
+describe('replayInspectionSubject — Inspector recall restores entity routing', () => {
+	test('replays the same retained Beacon object on every recall', () => {
+		const beacon = { id: 'beacon-1' } as never
+		const calls: unknown[] = []
+
+		replayInspectionSubject(
+			{ kind: 'beacon', entity: beacon },
+			{ beacon: (entity) => calls.push(entity) },
+		)
+		replayInspectionSubject(
+			{ kind: 'beacon', entity: beacon },
+			{ beacon: (entity) => calls.push(entity) },
+		)
+
+		expect(calls).toEqual([beacon, beacon])
+	})
+
+	test('replays the same retained Sighting object even when hook-local state can already hold it', () => {
+		const sighting = { id: 'sighting-1' } as never
+		const calls: unknown[] = []
+
+		replayInspectionSubject(
+			{ kind: 'sighting', entity: sighting },
+			{ sighting: (entity) => calls.push(entity) },
+		)
+		replayInspectionSubject(
+			{ kind: 'sighting', entity: sighting },
+			{ sighting: (entity) => calls.push(entity) },
+		)
+
+		expect(calls).toEqual([sighting, sighting])
 	})
 })

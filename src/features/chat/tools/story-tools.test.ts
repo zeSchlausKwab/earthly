@@ -7,6 +7,15 @@ import {
 	getStoryEditorOpenRequest,
 	resetStoryEditorOpenRequests,
 } from '@/features/geo-editor/storyEditorBridge'
+import { useEditorStore, type GeoCollectionEditDraft } from '@/features/geo-editor/store'
+import {
+	cancelReferencePublish,
+	clearReferencePublishRequests,
+	getReferencePublishRequest,
+	setReferencePublishingChatContext,
+	setReferencePublishingRunTarget,
+	setReferencePublishingToolContext,
+} from '@/features/chat/referencePublishing'
 import type { ToolEntry } from './registry'
 import { registerStoryTools, resetStoryDraftOwnership } from './story-tools'
 import type { ToolExecutionContext } from './types'
@@ -54,7 +63,94 @@ beforeEach(() => {
 	backing.clear()
 	resetStoryDraftOwnership()
 	resetStoryEditorOpenRequests()
+	clearReferencePublishRequests()
+	useEditorStore.setState({
+		geoEditDrafts: {},
+		activeGeoEditDraftId: null,
+		workspaces: {},
+		activeWorkspaceId: null,
+		activeDataset: null,
+		features: [],
+		activeDatasetContextRefs: [],
+		blobReferences: [],
+		isDirty: false,
+	})
 })
+
+function installNewDatasetDraft(
+	channel: GeoCollectionEditDraft['publishChannel'] = { kind: 'public' },
+) {
+	const draft: GeoCollectionEditDraft = {
+		persistenceVersion: 2,
+		id: 'dataset-draft',
+		sourceId: 'session:story-dataset',
+		name: 'AI survey',
+		description: '',
+		collectionMeta: {
+			name: 'AI survey',
+			description: '',
+			color: '#334455',
+			customProperties: {},
+		},
+		features: [
+			{
+				type: 'Feature',
+				id: 'site-1',
+				geometry: { type: 'Point', coordinates: [16.37, 48.2] },
+				properties: { name: 'Site 1' },
+			},
+		],
+		selectedFeatureIds: [],
+		publishChannel: channel,
+		contextRefs: [],
+		blobReferences: [],
+		createdAt: 1,
+		updatedAt: 2,
+	}
+	useEditorStore.setState({
+		geoEditDrafts: { [draft.id]: draft },
+		activeGeoEditDraftId: draft.id,
+		workspaces: {
+			'workspace-story': {
+				id: 'workspace-story',
+				sourceId: draft.sourceId,
+				label: draft.name,
+				kind: 'scratch',
+				datasetKey: null,
+				activeDraftId: draft.id,
+				chatSessionId: 'chat-story',
+				createdAt: 1,
+				updatedAt: 2,
+			},
+		},
+		activeWorkspaceId: 'workspace-story',
+		activeDataset: null,
+		features: draft.features,
+		collectionMeta: draft.collectionMeta,
+		isDirty: true,
+	})
+	setReferencePublishingChatContext('chat-story')
+	setReferencePublishingToolContext('write-story-call')
+	const target = {
+		entityType: 'dataset' as const,
+		workspaceId: 'workspace-story',
+		draftId: draft.id,
+		sourceId: draft.sourceId,
+		entityId: draft.sourceId,
+		baseRevisionId: null,
+		draftUpdatedAt: draft.updatedAt,
+		wasDirty: true,
+	}
+	setReferencePublishingRunTarget(target)
+	return {
+		run: {
+			runId: 1,
+			chatId: 'chat-story',
+			target,
+			startedAt: 1,
+		},
+	} satisfies ToolExecutionContext
+}
 
 describe('story draft tools', () => {
 	it('registers both tools', () => {
@@ -195,6 +291,73 @@ describe('story draft tools', () => {
 			/overwrite/,
 		)
 		expect(getStoryEditorOpenRequest()).toBeNull()
+	})
+
+	it('does not durably save or open a Story when Dataset publication is cancelled', async () => {
+		const context = installNewDatasetDraft()
+		const writing = call(
+			'write_story_draft',
+			{
+				title: 'Survey story',
+				markdown: 'The survey found one important site.',
+				referencesActiveDataset: true,
+			},
+			context,
+		)
+		await Promise.resolve()
+		const request = getReferencePublishRequest()
+		expect(request).toMatchObject({
+			chatId: 'chat-story',
+			toolCallId: 'write-story-call',
+			draftId: 'dataset-draft',
+		})
+		if (!request) throw new Error('expected publish-before-reference request')
+		cancelReferencePublish(request.id)
+
+		await expect(writing).resolves.toMatchObject({
+			ok: false,
+			status: 'blocked',
+			code: 'reference_publish_cancelled',
+		})
+		expect(getStoryEditorOpenRequest()).toBeNull()
+		await expect(call('read_story_draft')).resolves.toMatchObject({ exists: false, draft: null })
+	})
+
+	it('does not infer that every Story intends to reference a new working Dataset', async () => {
+		const context = installNewDatasetDraft()
+		await expect(
+			call(
+				'write_story_draft',
+				{
+					title: 'Unrelated Story',
+					markdown: 'This prose intentionally has no Dataset reference.',
+				},
+				context,
+			),
+		).resolves.toMatchObject({ ok: true })
+		expect(getReferencePublishRequest()).toBeNull()
+	})
+
+	it('refuses a public Story write that would depend on a private Dataset draft', async () => {
+		const context = installNewDatasetDraft({ kind: 'private-group', id: 'group-a' })
+		await expect(
+			call(
+				'write_story_draft',
+				{
+					title: 'Private survey story',
+					markdown: 'The survey found one important site.',
+					referencesActiveDataset: true,
+				},
+				context,
+			),
+		).resolves.toMatchObject({
+			ok: false,
+			status: 'blocked',
+			code: 'reference_publish_scope_incompatible',
+		})
+		expect(getReferencePublishRequest()).toBeNull()
+		expect(getStoryEditorOpenRequest()).toBeNull()
+		await expect(call('read_story_draft')).resolves.toMatchObject({ exists: false, draft: null })
 	})
 
 	it('validates required fields', async () => {

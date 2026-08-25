@@ -6,11 +6,11 @@
  * `storyEditorMode` is LOCAL state inside `useStoryEditor` (instantiated by
  * GeoEditorView), so a chat tool handler cannot reach it directly. Instead the
  * `write_story_draft` handler calls `requestOpenStoryEditor()` after a
- * successful draft write; `useStoryEditor` subscribes and honors the request by
- * opening the Story editor in create or edit mode (which pre-fills from the
- * matching local draft), and `StoryEditorPanel` subscribes to re-run its draft
- * pre-fill when it is already open. The monotonically increasing nonce lets an
- * already-open panel distinguish "a new write happened" from its own mount.
+ * successful draft write; `useStoryEditor` subscribes and retains the matching
+ * create/edit state without changing the visible surface, while an already-open
+ * `StoryEditorPanel` subscribes to re-run its draft pre-fill. The monotonically
+ * increasing nonce lets the panel distinguish "a new write happened" from its
+ * own mount.
  *
  * Framework-light (a counter + a subscriber set) so the chat tool — which must
  * not pull in React — can fire it, and consumers can wire it into effects.
@@ -31,10 +31,9 @@ let lastRequest: StoryEditorOpenRequest | null = null
 const subscribers = new Set<() => void>()
 
 /**
- * Fire an "open the Story editor" request (create when no Story is supplied,
- * edit otherwise). Called by the
- * `write_story_draft` tool handler after the draft is persisted so the app
- * surfaces the draft instead of leaving the user to hunt for it.
+ * Fire a Story editor-state request (create when no Story is supplied, edit
+ * otherwise). Called after the draft is persisted; consumers retain that state
+ * but do not navigate or reveal it automatically.
  */
 export function requestOpenStoryEditor(story?: Article | null): void {
 	counter += 1

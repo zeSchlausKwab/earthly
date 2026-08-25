@@ -129,6 +129,36 @@ describe('DatasetDiffDisclosure render (SAFE-03 / D-04 / D-05 / D-08)', () => {
 		expect(html.toLowerCase()).toContain('cancelled')
 		expect(html).not.toContain('>Apply<')
 	})
+
+	test("status='failed' says the proposed edit was not applied", () => {
+		const html = renderToStaticMarkup(
+			<DatasetDiffDisclosure diff={DIFF} onApply={() => {}} onCancel={() => {}} status="failed" />,
+		)
+		expect(html.toLowerCase()).toContain('not applied')
+		expect(html).not.toContain('>Apply<')
+		expect(html).not.toContain('>Cancel<')
+	})
+
+	test("status='undone' reports the exact commit was reverted", () => {
+		const html = renderToStaticMarkup(
+			<DatasetDiffDisclosure diff={DIFF} onApply={() => {}} onCancel={() => {}} status="undone" />,
+		)
+		expect(html.toLowerCase()).toContain('undone')
+		expect(html).not.toContain('>Apply<')
+	})
+
+	test("status='undo-unavailable' reports a stale same-field edit honestly", () => {
+		const html = renderToStaticMarkup(
+			<DatasetDiffDisclosure
+				diff={DIFF}
+				onApply={() => {}}
+				onCancel={() => {}}
+				status="undo-unavailable"
+			/>,
+		)
+		expect(html.toLowerCase()).toContain('undo unavailable')
+		expect(html).not.toContain('>Apply<')
+	})
 })
 
 describe('metrics-aware optimization headline (D-04b / GEO-02)', () => {

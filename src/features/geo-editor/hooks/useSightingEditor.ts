@@ -10,6 +10,9 @@ interface UseSightingEditorParams {
 	isMobile: boolean
 	ensureInfoPanelVisible: () => void
 	navigateToView: (view: SidebarViewMode) => void
+	/** Write the canonical entity focus URL for an in-app inspection. */
+	navigateTo: (focusType: 'sighting', naddr: string, sidebarView?: SidebarViewMode) => void
+	encodeSightingNaddr: (sighting: TemporalSighting) => string | null
 	clearFocus: () => void
 	/**
 	 * Arm the GeoEditor pin-drop (D-01). Called by `handleCreateSighting`; the
@@ -27,13 +30,15 @@ interface UseSightingEditorParams {
  * structural twin of `useStoryEditor`, but map-first: `handleCreateSighting` arms
  * the GeoEditor pin-drop (via the injected `armPlacement`) and the placed geometry
  * flows in through `handleGeometryPlaced` to open the editor. `viewSighting` is
- * held as local hook state (the canonical /sighting/:naddr focus route is Plan 04;
- * this plan keeps the wiring a thin per-kind clone — Phase 13 owns convergence).
+ * held as local hook state while every inspection also writes the canonical
+ * `/sightings/sighting/:naddr` focus route.
  */
 export function useSightingEditor({
 	isMobile,
 	ensureInfoPanelVisible,
 	navigateToView,
+	navigateTo,
+	encodeSightingNaddr,
 	clearFocus,
 	armPlacement,
 	disarmPlacement,
@@ -45,6 +50,7 @@ export function useSightingEditor({
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const setViewStory = useEditorStore((state) => state.setViewStory)
 	const setStance = useEditorStore((state) => state.setStance)
+	const setInspectionSubject = useEditorStore((state) => state.setInspectionSubject)
 	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
 
 	const [sightingEditorMode, setSightingEditorMode] = useState<'none' | 'create' | 'edit'>('none')
@@ -60,12 +66,9 @@ export function useSightingEditor({
 	const [placedGeometry, setPlacedGeometry] = useState<PlacedSightingGeometry | null>(null)
 	// True while the create flow is armed and waiting for a map click (D-01 overlay).
 	const [placementArmed, setPlacementArmed] = useState(false)
-	// WR-06: the deep-linked comment d-tag to focus beneath the viewed Sighting. The
-	// canonical /sighting/:naddr focus route is deferred (Plan 04/Phase 13), so
-	// `handleInspectSighting` switches the sidebar via `navigateToView`, which does
-	// NOT preserve the URL `/comment/:id` segment — `route.commentId` would be wiped
-	// before CommentsPanel could act on it. Holding it as hook state survives that
-	// navigation so the OG comment deep link is honored.
+	// WR-06: the deep-linked comment d-tag to focus beneath the viewed Sighting.
+	// Inspect navigation intentionally omits the comment suffix after capturing it
+	// here, so CommentsPanel can focus it even as the canonical entity URL is written.
 	const [focusCommentId, setFocusCommentId] = useState<string | undefined>(undefined)
 
 	const clearSightingEditorModes = useCallback(() => {
@@ -101,35 +104,39 @@ export function useSightingEditor({
 
 	const handleInspectSighting = useCallback(
 		(sighting: TemporalSighting, commentId?: string) => {
-			clearSightingEditorModes()
-			setPlacementArmed(false)
-			disarmPlacement()
 			setViewModeState('view')
 			setViewDatasetState(null)
 			setViewContext(null)
 			setViewStory(null)
+			setInspectionSubject({ kind: 'sighting', entity: sighting })
 			setViewSighting(sighting)
 			// WR-06: honor the OG comment deep link beneath this Sighting. Held in hook
-			// state because navigateToView wipes the URL `/comment/:id` segment.
+			// state because canonical inspect navigation omits `/comment/:id`.
 			setFocusCommentId(commentId)
 			ensureInfoPanelVisible()
 			setStance('focus')
-			navigateToView('sightings')
+			const naddr = encodeSightingNaddr(sighting)
+			if (naddr) {
+				navigateTo('sighting', naddr, 'sightings')
+			} else {
+				navigateToView('sightings')
+			}
 
 			const sightingKey = sighting.dTag ?? sighting.id
 			setLastInspectedSightingKey(sightingKey ?? null)
 			if (sightingKey) recordRecentEntity(`sighting:${sightingKey}`)
 		},
 		[
-			clearSightingEditorModes,
-			disarmPlacement,
 			setViewModeState,
 			setViewDatasetState,
 			setViewContext,
 			setViewStory,
+			setInspectionSubject,
 			ensureInfoPanelVisible,
 			setStance,
+			navigateTo,
 			navigateToView,
+			encodeSightingNaddr,
 			recordRecentEntity,
 		],
 	)

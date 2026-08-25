@@ -10,8 +10,12 @@
  */
 
 import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
-import { createAuthoring } from '@/features/geo-editor/api'
-import { useEditorStore } from '@/features/geo-editor/store'
+import {
+	createExecutionAuthoring,
+	getExecutionEditor,
+	getExecutionFeatures,
+	getExecutionSelectedFeatureIds,
+} from './executionTarget'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import {
 	bbox as turfBbox,
@@ -417,12 +421,13 @@ export function ensureBbox(value: unknown): [number, number, number, number] | n
 // --- Editor Viewport ---
 
 export function getEditorViewportBbox(): [number, number, number, number] | null {
-	const { editor } = useEditorStore.getState()
+	const editor = getExecutionEditor()
 	return editor?.getMapBounds() ?? null
 }
 
 export function getSelectedEditorFeatures(): EditorFeature[] {
-	const { features, selectedFeatureIds } = useEditorStore.getState()
+	const features = getExecutionFeatures()
+	const selectedFeatureIds = getExecutionSelectedFeatureIds()
 	if (selectedFeatureIds.length === 0) return []
 	const selectedIds = new Set(selectedFeatureIds)
 	return features.filter((feature) => selectedIds.has(feature.id))
@@ -840,7 +845,7 @@ export function importFeaturesToEditor(features: GeoJSON.Feature[], replaceExist
 	// goes through the Authoring API (INFRA-02), which is the only caller of
 	// editor.addFeature/setFeatures; the Editor.tsx mirror catches the resulting
 	// events (incl. bulk 'features.replace') and updates the store downstream.
-	const { editor } = useEditorStore.getState()
+	const editor = getExecutionEditor()
 	if (!editor) {
 		throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 	}
@@ -852,7 +857,7 @@ export function importFeaturesToEditor(features: GeoJSON.Feature[], replaceExist
 		throw new Error('No valid GeoJSON features available to import.')
 	}
 
-	const authoring = createAuthoring(editor)
+	const authoring = createExecutionAuthoring(editor)
 	const result = authoring.writeGeoJSON(usable, { replace: replaceExisting })
 
 	return {

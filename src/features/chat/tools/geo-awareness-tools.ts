@@ -19,7 +19,6 @@ import {
 	measureFeatures,
 } from '@/features/geo-editor/api/measure'
 import type { EditorFeature } from '@/features/geo-editor/core/types'
-import { useEditorStore } from '@/features/geo-editor/store'
 import {
 	describeLocation,
 	describeViewport,
@@ -30,9 +29,10 @@ import { normalizeGeoJsonToFeatures } from './helpers'
 // TYPE-ONLY import from the registry (never the value `register`) — Pitfall 4.
 import type { ToolEntry } from './registry'
 import { schemaFor } from './schemas'
+import { getExecutionEditor, getExecutionSelectedFeatureIds } from './executionTarget'
 
 function requireEditor() {
-	const editor = useEditorStore.getState().editor
+	const editor = getExecutionEditor()
 	if (!editor) {
 		throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 	}
@@ -79,7 +79,7 @@ function resolveMeasureTargets(args: Record<string, unknown>): EditorFeature[] {
 		return matched
 	}
 	if (args.selected === true) {
-		const selectedIds = new Set(useEditorStore.getState().selectedFeatureIds)
+		const selectedIds = new Set(getExecutionSelectedFeatureIds())
 		const selected = all.filter((feature) => selectedIds.has(feature.id))
 		if (selected.length === 0) {
 			throw new Error('Nothing is selected on the map. Pass featureIds or geometry instead.')

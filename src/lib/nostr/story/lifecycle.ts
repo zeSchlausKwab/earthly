@@ -24,6 +24,7 @@ import { DeleteFactory } from 'applesauce-core/factories'
 import type { EventSigner } from 'applesauce-core/factories/types'
 import type { NostrEvent } from 'applesauce-core/helpers/event'
 import type { SignerLike } from '@/lib/nostr/entityFactory'
+import { assertCanDeleteOwnedEntity } from '@/lib/nostr/deletion'
 import { publish } from '@/lib/nostr'
 import { ArticleFactory, getArticleId } from '@/lib/nostr/article'
 import type { ArticleContent } from '@/lib/nostr/article'
@@ -94,6 +95,7 @@ export async function deleteStory(
 	if (!getArticleId(story)) {
 		throw new Error('Story is missing a d tag and cannot be deleted.')
 	}
+	await assertCanDeleteOwnedEntity(story, signer, 'Story')
 	const event = await DeleteFactory.fromEvents([story], reason).sign(signer)
 	await publish(event as NostrEvent, { routing: 'outbox' })
 }

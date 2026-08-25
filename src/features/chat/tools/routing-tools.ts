@@ -1,7 +1,7 @@
-import { useEditorStore } from '@/features/geo-editor/store'
 import { loadWorldLayer } from '@/lib/geo/worldData'
 import { runPathfinder } from '../sandbox/sandboxPathfinder'
 import type { ToolEntry } from './registry'
+import { getExecutionFeatures, getExecutionSelectedFeatureIds } from './executionTarget'
 
 function asFeatureCollection(value: unknown): GeoJSON.FeatureCollection | null {
 	if (!value || typeof value !== 'object') return null
@@ -12,9 +12,8 @@ function asFeatureCollection(value: unknown): GeoJSON.FeatureCollection | null {
 }
 
 function editorLineNetwork(selectedOnly: boolean): GeoJSON.FeatureCollection {
-	const state = useEditorStore.getState()
-	const selected = new Set(state.selectedFeatureIds)
-	const features = state.features.filter((feature) => {
+	const selected = new Set(getExecutionSelectedFeatureIds())
+	const features = getExecutionFeatures().filter((feature) => {
 		if (selectedOnly && !selected.has(feature.id)) return false
 		return feature.geometry?.type === 'LineString' || feature.geometry?.type === 'MultiLineString'
 	})

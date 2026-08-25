@@ -1,16 +1,22 @@
 import { test, expect, describe, beforeEach } from 'bun:test'
 import type { DatasetDiff } from '@/features/geo-editor/api/diff'
+import type { EditorFeature } from '@/features/geo-editor/core'
 import {
+	attachPendingDiffCommit,
 	cancelPendingDiffs,
 	emitDiffBlock,
 	getAllPendingDiffs,
 	getPendingDiff,
+	markToolDiffsNotApplied,
 	requestConfirm,
 	resolvePendingDiff,
 	clearPendingDiffs,
 	setPendingDiffChatContext,
+	setPendingDiffRunTarget,
+	setPendingDiffRunContext,
 	setPendingDiffToolContext,
 } from './pendingDiffStore'
+import { buildPendingDatasetFeatureCommitInput } from './pendingDiffCommit'
 
 const DIFF: DatasetDiff = {
 	added: [],
@@ -18,9 +24,33 @@ const DIFF: DatasetDiff = {
 	deleted: [],
 }
 
+const TARGET = {
+	entityType: 'dataset' as const,
+	workspaceId: 'workspace-a',
+	draftId: 'draft-a',
+	sourceId: 'session:a',
+	entityId: null,
+	baseRevisionId: null,
+	draftUpdatedAt: 1,
+	wasDirty: true,
+}
+
+const RUN = { runId: 7, chatId: 'chat-a', target: TARGET, startedAt: 2 }
+
+function feature(id: string, name: string): EditorFeature {
+	return {
+		type: 'Feature',
+		id,
+		geometry: { type: 'Point', coordinates: [0, 0] },
+		properties: { name },
+	} as EditorFeature
+}
+
 beforeEach(() => {
 	clearPendingDiffs()
 	setPendingDiffChatContext(null)
+	setPendingDiffRunTarget(null)
+	setPendingDiffRunContext(null)
 	setPendingDiffToolContext(null)
 })
 
@@ -49,6 +79,14 @@ describe('emitDiffBlock registration', () => {
 		const unanchored = emitDiffBlock(DIFF)
 		expect(getPendingDiff(anchored.id)?.toolCallId).toBe('style_by_attribute:12')
 		expect(getPendingDiff(unanchored.id)?.toolCallId).toBeUndefined()
+	})
+
+	test('stamps the immutable Dataset target so Undo cannot affect a later visible edit', () => {
+		setPendingDiffRunContext(RUN)
+		const handle = emitDiffBlock(DIFF, { status: 'applied' })
+		expect(getPendingDiff(handle.id)?.target).toEqual(TARGET)
+		expect(getPendingDiff(handle.id)?.target).not.toBe(TARGET)
+		expect(getPendingDiff(handle.id)?.runId).toBe(7)
 	})
 })
 
@@ -143,6 +181,64 @@ describe('auto-apply registration (Level 3, D-12)', () => {
 		expect(entry?.status).toBe('applied')
 		// the diff still renders even though no confirm was awaited
 		expect(entry?.diff).toBe(DIFF)
+	})
+})
+
+describe('durable persistence failure', () => {
+	test('reclassifies only cards from the exact chat/run/tool/target scope', () => {
+		setPendingDiffRunContext(RUN)
+		setPendingDiffToolContext('geometry-a')
+		const failed = emitDiffBlock(DIFF, { status: 'applied' })
+		setPendingDiffRunContext({ ...RUN, runId: 8 })
+		setPendingDiffToolContext('geometry-a')
+		const reusedCallId = emitDiffBlock(DIFF, { status: 'applied' })
+		setPendingDiffRunContext(RUN)
+		setPendingDiffToolContext('geometry-b')
+		const unrelated = emitDiffBlock(DIFF, { status: 'applied' })
+
+		expect(
+			markToolDiffsNotApplied({
+				runId: RUN.runId,
+				chatId: RUN.chatId,
+				toolCallId: 'geometry-a',
+				target: TARGET,
+			}),
+		).toBe(1)
+		expect(getPendingDiff(failed.id)?.status).toBe('failed')
+		expect(getPendingDiff(reusedCallId.id)?.status).toBe('applied')
+		expect(getPendingDiff(unrelated.id)?.status).toBe('applied')
+		expect(
+			markToolDiffsNotApplied({
+				runId: RUN.runId,
+				chatId: RUN.chatId,
+				toolCallId: 'geometry-a',
+				target: TARGET,
+			}),
+		).toBe(0)
+	})
+})
+
+describe('successful target-bound commit attachment', () => {
+	test('attaches only to the exact emitted diff and retains no full feature arrays', () => {
+		const before = [feature('existing', 'Before')]
+		const after = [feature('existing', 'After'), feature('added', 'New')]
+		const features = buildPendingDatasetFeatureCommitInput(before, after)
+		expect(features).not.toBeNull()
+		setPendingDiffRunContext(RUN)
+		setPendingDiffToolContext('geometry-a')
+		const handle = emitDiffBlock(features?.diff ?? DIFF, { status: 'applied' })
+
+		const attached = attachPendingDiffCommit(
+			{ runId: 7, chatId: 'chat-a', toolCallId: 'geometry-a', target: TARGET },
+			{ target: TARGET, fields: { features: features ?? undefined } },
+		)
+
+		expect(attached).toBe(1)
+		const commit = getPendingDiff(handle.id)?.commit
+		expect(commit?.fields.features?.addedIds).toEqual(['added'])
+		expect(commit?.fields.features?.modifiedIds).toEqual(['existing'])
+		expect(commit?.fields.features).not.toHaveProperty('before')
+		expect(commit?.fields.features).not.toHaveProperty('after')
 	})
 })
 

@@ -1,29 +1,25 @@
 import { describe, expect, test } from 'bun:test'
 import { resolveBinding } from './binding'
 
-// SAFE-01 / D-01 / D-02 / D-03: the binding resolver is a PURE function over editor-store
-// identity fields. It never mounts React, never subscribes to the store, and never refuses a
-// mutation — when nothing is bound it signals auto-create-and-bind (D-02), the chip + gate
-// (Plan 04/05) consume its output.
+// SAFE-01: the binding resolver is pure over one explicitly selected edit target.
+// Visible editor state is never supplied as an implicit fallback.
 
 function meta(name: string) {
 	return { name, description: '', color: '#3b82f6', customProperties: {} }
 }
 
 describe('resolveBinding — SAFE-01', () => {
-	// (a) An open draft auto-binds (D-01): identity reflects the open target.
-	test('auto-binds to the open draft and reflects its identity (D-01)', () => {
+	test('reflects the explicitly selected target draft', () => {
 		const result = resolveBinding({
 			collectionMeta: meta('Vienna districts'),
 			featureCount: 7,
-			activeGeoEditDraftId: 'draft-abc',
-			isDirty: false,
+			targetDraftId: 'draft-abc',
 		})
 
 		expect(result.name).toBe('Vienna districts')
 		expect(result.unsaved).toBe(true)
 		expect(result.featureCount).toBe(7)
-		expect(result.needsAutoCreate).toBe(false)
+		expect(result.targetRequired).toBe(false)
 	})
 
 	// (b) Empty collection name falls back to 'Untitled draft' (D-03).
@@ -31,8 +27,7 @@ describe('resolveBinding — SAFE-01', () => {
 		const result = resolveBinding({
 			collectionMeta: meta(''),
 			featureCount: 3,
-			activeGeoEditDraftId: 'draft-xyz',
-			isDirty: false,
+			targetDraftId: 'draft-xyz',
 		})
 
 		expect(result.name).toBe('Untitled draft')
@@ -42,42 +37,38 @@ describe('resolveBinding — SAFE-01', () => {
 		const result = resolveBinding({
 			collectionMeta: meta('   '),
 			featureCount: 1,
-			activeGeoEditDraftId: 'draft-xyz',
-			isDirty: false,
+			targetDraftId: 'draft-xyz',
 		})
 
 		expect(result.name).toBe('Untitled draft')
 	})
 
-	// (c) unsaved is true for an open draft OR a dirty dataset.
-	test('marks unsaved when there is an open draft or the dataset is dirty', () => {
+	// (c) Unsaved state belongs to the selected target, never the merely visible editor.
+	test('does not leak visible dirty state into a conversation without a target', () => {
 		// open draft, not dirty → unsaved
 		expect(
 			resolveBinding({
 				collectionMeta: meta('A'),
 				featureCount: 2,
-				activeGeoEditDraftId: 'draft-1',
-				isDirty: false,
+				targetDraftId: 'draft-1',
 			}).unsaved,
 		).toBe(true)
 
-		// no draft, but dirty → unsaved
+		// no selected target draft, but visible editor is dirty → not this Chat's state
 		expect(
 			resolveBinding({
 				collectionMeta: meta('A'),
 				featureCount: 2,
-				activeGeoEditDraftId: null,
-				isDirty: true,
+				targetDraftId: null,
 			}).unsaved,
-		).toBe(true)
+		).toBe(false)
 
 		// no draft, clean, but has features (a loaded/saved dataset) → not unsaved
 		expect(
 			resolveBinding({
 				collectionMeta: meta('A'),
 				featureCount: 2,
-				activeGeoEditDraftId: null,
-				isDirty: false,
+				targetDraftId: null,
 			}).unsaved,
 		).toBe(false)
 	})
@@ -88,78 +79,46 @@ describe('resolveBinding — SAFE-01', () => {
 			resolveBinding({
 				collectionMeta: meta('A'),
 				featureCount: 42,
-				activeGeoEditDraftId: 'd',
-				isDirty: false,
+				targetDraftId: 'd',
 			}).featureCount,
 		).toBe(42)
 	})
 
-	// (e) Nothing bound (no draft, no features, clean) → auto-create-and-bind signal (D-02),
-	// NOT a refuse/throw.
-	test('signals needsAutoCreate when nothing is bound (D-02, not a refusal)', () => {
+	// Nothing selected is an explicit target-required state, never a creation signal.
+	test('requires an explicit editing target when no draft is selected', () => {
 		const result = resolveBinding({
 			collectionMeta: meta(''),
 			featureCount: 0,
-			activeGeoEditDraftId: null,
-			isDirty: false,
+			targetDraftId: null,
 		})
 
-		expect(result.needsAutoCreate).toBe(true)
-		// Still a shown target identity, never a refuse state.
+		expect(result.targetRequired).toBe(true)
+		// The presentation remains total even though sending is refused.
 		expect(result.name).toBe('Untitled draft')
 		expect(result.featureCount).toBe(0)
 	})
 
-	// A clean, empty, but explicitly-open draft is a bound target — NOT auto-create.
-	test('does not signal needsAutoCreate when a draft is open even with zero features', () => {
+	// A clean, empty, explicitly selected draft is a valid target.
+	test('accepts an explicitly selected empty draft as an editing target', () => {
 		const result = resolveBinding({
 			collectionMeta: meta(''),
 			featureCount: 0,
-			activeGeoEditDraftId: 'draft-empty',
-			isDirty: false,
+			targetDraftId: 'draft-empty',
 		})
 
-		expect(result.needsAutoCreate).toBe(false)
+		expect(result.targetRequired).toBe(false)
 		expect(result.unsaved).toBe(true)
 	})
 
-	// Features present (a loaded dataset) is a bound target even with no draft id.
-	test('does not signal needsAutoCreate when features are present', () => {
+	// A visible loaded Dataset is reference context, not a persistent edit target.
+	test('requires an editing target when visible features have no draft', () => {
 		const result = resolveBinding({
 			collectionMeta: meta('Loaded set'),
 			featureCount: 5,
-			activeGeoEditDraftId: null,
-			isDirty: false,
+			targetDraftId: null,
 		})
 
-		expect(result.needsAutoCreate).toBe(false)
-	})
-
-	test('does not bind a new conversation to another conversations active workspace', () => {
-		const result = resolveBinding({
-			collectionMeta: meta('Existing map'),
-			featureCount: 9,
-			activeGeoEditDraftId: 'draft-old',
-			isDirty: true,
-			activeChatId: 'chat-new',
-			workspaceChatSessionId: 'chat-old',
-		})
-
-		expect(result.needsAutoCreate).toBe(true)
+		expect(result.targetRequired).toBe(true)
 		expect(result.featureCount).toBe(0)
-	})
-
-	test('binds the workspace owned by the active conversation', () => {
-		const result = resolveBinding({
-			collectionMeta: meta('Conversation map'),
-			featureCount: 4,
-			activeGeoEditDraftId: 'draft-chat',
-			isDirty: true,
-			activeChatId: 'chat-active',
-			workspaceChatSessionId: 'chat-active',
-		})
-
-		expect(result.needsAutoCreate).toBe(false)
-		expect(result.featureCount).toBe(4)
 	})
 })

@@ -362,7 +362,6 @@ function EntryRow({
 	onReorderEntry,
 }: EntryRowProps) {
 	const isolated = entry.isolated === true
-	const setDraftEditorSlot = useEditorStore((state) => state.setDraftEditorSlot)
 	// Live draft name — reactive so the entry title updates on the fly as you type
 	// it in the editor. Returns a constant '' for non-draft rows so only the draft
 	// row re-renders on name changes (keeps the rest of the stack cheap).
@@ -371,8 +370,7 @@ function EntryRow({
 	)
 	const displayTitle =
 		entry.entityType === 'draft' && liveDraftName.trim() ? liveDraftName.trim() : title
-	// The live draft opens expanded by default (editor-in-place, redesign §9).
-	const [expanded, setExpanded] = useState(entry.entityType === 'draft')
+	const [expanded, setExpanded] = useState(false)
 	// Resolve curated datasets only when this is a context entry. We compute
 	// regardless of `expanded` (cheap; usually a handful) so the row can show
 	// an accurate counter — but only render the checklist when expanded.
@@ -395,10 +393,9 @@ function EntryRow({
 	// curated set is empty. That makes "this context loaded but resolved to 0
 	// datasets" legible instead of looking like the entry does nothing.
 	const isContextEntry = entry.entityType === 'context'
-	const isDraftEntry = entry.entityType === 'draft'
-	// Draft entries expand into the geometry editor inline (SPEC: edit where the
-	// layers are); context entries expand into their curated-dataset checklist.
-	const canExpand = isContextEntry || isDraftEntry
+	// Contexts expand into their curated-dataset checklist. Drafts remain a single
+	// Map Stack line; their explicit action opens the retained sidebar editor.
+	const canExpand = isContextEntry
 	const [isReorderTarget, setIsReorderTarget] = useState(false)
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: drag-to-reorder container; all click targets inside are real buttons, and reordering stays reachable via the row action buttons for keyboard users.
@@ -525,23 +522,11 @@ function EntryRow({
 							}
 							className={cn(actionButtonClassName, 'hover:text-foreground')}
 							onClick={() => setExpanded((open) => !open)}
-							label={
-								isDraftEntry
-									? expanded
-										? 'Collapse editor'
-										: 'Expand editor'
-									: expanded
-										? 'Collapse curated datasets'
-										: 'Expand curated datasets'
-							}
+							label={expanded ? 'Collapse curated datasets' : 'Expand curated datasets'}
 							tooltip={
-								isDraftEntry
-									? expanded
-										? 'Hide the geometry editor'
-										: 'Edit geometries inline'
-									: expanded
-										? 'Hide the curated dataset checklist'
-										: 'Show the curated dataset checklist — uncheck to exclude per-context'
+								expanded
+									? 'Hide the curated dataset checklist'
+									: 'Show the curated dataset checklist — uncheck to exclude per-context'
 							}
 							pressed={expanded}
 						/>
@@ -673,14 +658,7 @@ function EntryRow({
 					/>
 				</div>
 			</div>
-			{canExpand && expanded && isDraftEntry ? (
-				// DS "editor in Map Stack" (redesign doc §9/§10): the FULL sidebar
-				// editor (metadata + color + context-attach searchbar + geometries +
-				// publish) portals into this slot, so there's one editor with full
-				// parity — no duplicate in the sidebar. See AppSidebar renderContent.
-				<div ref={setDraftEditorSlot} className="border-border border-t bg-muted/30 p-2" />
-			) : null}
-			{canExpand && expanded && !isDraftEntry ? (
+			{isContextEntry && expanded ? (
 				<div
 					className={cn(
 						'border-border border-t bg-muted/30 px-2 py-1.5',

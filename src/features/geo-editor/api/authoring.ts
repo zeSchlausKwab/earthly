@@ -307,11 +307,19 @@ export interface Authoring {
 	getDatasetMetadata(): DatasetMetadataResult
 }
 
+export interface AuthoringMetadataAccess {
+	getCollectionMeta(): CollectionMeta
+	setCollectionMeta(meta: CollectionMeta): void
+}
+
 /**
  * Construct the Authoring facade bound to a `GeoEditor` instance. The editor
  * reference is captured in the closure and never exposed.
  */
-export function createAuthoring(editor: GeoEditor): Authoring {
+export function createAuthoring(
+	editor: GeoEditor,
+	metadataAccess?: AuthoringMetadataAccess,
+): Authoring {
 	function addFeature(feature: Feature, source: string = DEFAULT_SOURCE): MutationResult {
 		// Null/undefined stays a quiet { ok:false } no-op (existing boundary contract).
 		if (feature == null) {
@@ -549,12 +557,14 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 	}
 
 	function getDatasetMetadata(): DatasetMetadataResult {
-		return snapshotMeta(useEditorStore.getState().collectionMeta)
+		return snapshotMeta(
+			metadataAccess?.getCollectionMeta() ?? useEditorStore.getState().collectionMeta,
+		)
 	}
 
 	function setDatasetMetadata(meta: DatasetMetadataInput): DatasetMetadataResult {
 		const store = useEditorStore.getState()
-		const current = store.collectionMeta
+		const current = metadataAccess?.getCollectionMeta() ?? store.collectionMeta
 		// MERGE: only set fields the caller provided; merge properties into the
 		// existing customProperties (do not clobber unrelated keys).
 		const next: CollectionMeta = {
@@ -565,7 +575,8 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 				? { ...current.customProperties, ...meta.properties }
 				: current.customProperties,
 		}
-		store.setCollectionMeta(next)
+		if (metadataAccess) metadataAccess.setCollectionMeta(next)
+		else store.setCollectionMeta(next)
 		return snapshotMeta(next)
 	}
 
@@ -574,7 +585,9 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 			requireFeatureProvenance: input.requireFeatureProvenance,
 		})
 		const previousFeatures = editor.getAllFeatures()
-		const previousMeta = { ...useEditorStore.getState().collectionMeta }
+		const previousMeta = {
+			...(metadataAccess?.getCollectionMeta() ?? useEditorStore.getState().collectionMeta),
+		}
 		let geometryMutated = false
 		try {
 			// Treat any failure inside the replace path as potentially partial. The
@@ -587,7 +600,8 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 		} catch (error) {
 			if (geometryMutated) {
 				editor.setFeatures(previousFeatures)
-				useEditorStore.getState().setCollectionMeta(previousMeta)
+				if (metadataAccess) metadataAccess.setCollectionMeta(previousMeta)
+				else useEditorStore.getState().setCollectionMeta(previousMeta)
 			}
 			throw error
 		}

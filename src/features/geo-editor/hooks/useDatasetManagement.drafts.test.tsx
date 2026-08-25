@@ -14,19 +14,26 @@ let useEditorStore: typeof import('../store').useEditorStore
 let initialEditorState: ReturnType<typeof import('../store').useEditorStore.getState>
 
 const mountedRoots: Array<{ root: Root; container: HTMLElement }> = []
+const chatCalls: string[] = []
 const chatState = {
 	activeChatId: null as string | null,
 	createChat() {
+		chatCalls.push('create')
 		this.activeChatId = 'test-chat'
 	},
-	switchChat(_chatId: string) {},
-	deleteChat(_chatId: string) {},
+	switchChat(chatId: string) {
+		chatCalls.push(`switch:${chatId}`)
+	},
+	deleteChat(chatId: string) {
+		chatCalls.push(`delete:${chatId}`)
+	},
 }
 
 mock.module('@/features/chat', () => ({
 	useChatStore: { getState: () => chatState },
 }))
 mock.module('@/platform/registry', () => ({
+	getAccountSessionService: async () => null,
 	getLocalBlobRevision: () => 0,
 	getLocalNodeService: async () => null,
 	getPublishOutboxService: async () => null,
@@ -69,6 +76,7 @@ function draft(id: string, feature: EditorFeature, updatedAt: number): GeoCollec
 function workspace(
 	activeDraftId: string | null,
 	datasetKey: string | null = null,
+	chatSessionId: string | null = null,
 ): GeoEditorWorkspace {
 	return {
 		id: 'workspace-1',
@@ -77,7 +85,7 @@ function workspace(
 		kind: 'scratch',
 		datasetKey,
 		activeDraftId,
-		chatSessionId: null,
+		chatSessionId,
 		createdAt: 1,
 		updatedAt: 1,
 	}
@@ -141,6 +149,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
+	chatCalls.length = 0
 	useEditorStore.setState(initialEditorState, true)
 })
 
@@ -152,6 +161,59 @@ afterEach(async () => {
 })
 
 describe('local draft transitions', () => {
+	test('creates an AI New map as retained work without changing the visible Dataset or Inspector', async () => {
+		const visibleFeature = point('visible-feature', 16.37)
+		const visibleDraft = draft('visible-draft', visibleFeature, 1)
+		const visibleDataset = { id: 'visible-dataset' } as GeoDataset
+		const editor = {
+			setFeatures: (_features: EditorFeature[]) => {},
+			setInteractionEnabled: (_enabled: boolean) => {},
+		} as unknown as GeoEditor
+		useEditorStore.setState({
+			editor,
+			features: [visibleFeature],
+			geoEditDrafts: { [visibleDraft.id]: visibleDraft },
+			activeGeoEditDraftId: visibleDraft.id,
+			workspaces: { 'workspace-1': workspace(visibleDraft.id) },
+			activeWorkspaceId: 'workspace-1',
+			viewMode: 'view',
+			stance: 'focus',
+			viewDataset: visibleDataset,
+			inspectionSubject: { kind: 'dataset', entity: visibleDataset },
+		})
+		const inspectionSubject = useEditorStore.getState().inspectionSubject
+		const current = await mountHook()
+		let newWorkspaceId: string | null | undefined
+
+		await flush(() => {
+			newWorkspaceId = current().startNewDataset({
+				publishChannel: { kind: 'private-group', id: 'group-new' },
+				chatSessionId: 'chat-origin',
+				activate: false,
+			})
+		})
+
+		const state = useEditorStore.getState()
+		expect(typeof newWorkspaceId).toBe('string')
+		const retainedWorkspace = state.workspaces[newWorkspaceId as string]
+		const retainedDraft = retainedWorkspace?.activeDraftId
+			? state.geoEditDrafts[retainedWorkspace.activeDraftId]
+			: null
+		expect(retainedWorkspace?.chatSessionId).toBe('chat-origin')
+		expect(retainedDraft?.features).toEqual([])
+		expect(retainedDraft?.publishChannel).toEqual({
+			kind: 'private-group',
+			id: 'group-new',
+		})
+		expect(state.activeWorkspaceId).toBe('workspace-1')
+		expect(state.activeGeoEditDraftId).toBe(visibleDraft.id)
+		expect(state.features).toEqual([visibleFeature])
+		expect(state.viewMode).toBe('view')
+		expect(state.stance).toBe('focus')
+		expect(state.viewDataset).toBe(visibleDataset)
+		expect(state.inspectionSubject).toBe(inspectionSubject)
+	})
+
 	test('editing a stacked dataset replaces its published map row with the draft row', async () => {
 		const feature = point('feature-a', 14)
 		const dataset = {
@@ -171,6 +233,7 @@ describe('local draft transitions', () => {
 		} as unknown as GeoDataset
 		const editor = {
 			setFeatures: (_features: EditorFeature[]) => {},
+			setInteractionEnabled: (_enabled: boolean) => {},
 		} as unknown as GeoEditor
 		useEditorStore.setState({ editor, features: [] })
 		useEditorStore.getState().addMapStackEntry({
@@ -202,6 +265,7 @@ describe('local draft transitions', () => {
 			setFeatures: (features: EditorFeature[]) => {
 				editorFeatures = features
 			},
+			setInteractionEnabled: (_enabled: boolean) => {},
 		} as unknown as GeoEditor
 
 		useEditorStore.setState({
@@ -227,6 +291,26 @@ describe('local draft transitions', () => {
 		})
 	})
 
+	test('loading saved work never switches or creates a conversation', async () => {
+		const featureA = point('feature-a', 14)
+		const draftA = draft('draft-a', featureA, 1)
+		const editor = {
+			setFeatures: (_features: EditorFeature[]) => {},
+			setInteractionEnabled: (_enabled: boolean) => {},
+		} as unknown as GeoEditor
+		useEditorStore.setState({
+			editor,
+			geoEditDrafts: { [draftA.id]: draftA },
+			workspaces: { 'workspace-1': workspace(draftA.id, null, 'legacy-chat') },
+		})
+		const current = await mountHook()
+
+		await flush(() => current().loadDraftInWorkspace('workspace-1', draftA.id))
+
+		expect(chatCalls).toEqual([])
+		expect(useEditorStore.getState().workspaces['workspace-1']?.chatSessionId).toBe('legacy-chat')
+	})
+
 	test('deleting the active revision selects a sibling without manufacturing a public draft', async () => {
 		const featureA = point('feature-a', 14)
 		const featureB = point('feature-b', 15)
@@ -237,6 +321,7 @@ describe('local draft transitions', () => {
 			setFeatures: (features: EditorFeature[]) => {
 				editorFeatures = features
 			},
+			setInteractionEnabled: (_enabled: boolean) => {},
 		} as unknown as GeoEditor
 
 		useEditorStore.setState({
@@ -270,6 +355,7 @@ describe('local draft transitions', () => {
 			setFeatures: (features: EditorFeature[]) => {
 				editorFeatures = features
 			},
+			setInteractionEnabled: (_enabled: boolean) => {},
 		} as unknown as GeoEditor
 
 		useEditorStore.setState({
@@ -292,9 +378,33 @@ describe('local draft transitions', () => {
 		expect(editorFeatures).toEqual([])
 	})
 
+	test('deleting saved work never deletes its legacy conversation', async () => {
+		const featureA = point('feature-a', 14)
+		const draftA = draft('draft-a', featureA, 1)
+		const editor = {
+			setFeatures: (_features: EditorFeature[]) => {},
+			setInteractionEnabled: (_enabled: boolean) => {},
+		} as unknown as GeoEditor
+		useEditorStore.setState({
+			editor,
+			features: [featureA],
+			geoEditDrafts: { [draftA.id]: draftA },
+			activeGeoEditDraftId: draftA.id,
+			workspaces: { 'workspace-1': workspace(draftA.id, null, 'legacy-chat') },
+			activeWorkspaceId: 'workspace-1',
+		})
+		const current = await mountHook()
+
+		await flush(() => current().deleteWorkspace('workspace-1'))
+
+		expect(chatCalls).toEqual([])
+		expect(useEditorStore.getState().workspaces['workspace-1']).toBeUndefined()
+	})
+
 	test('an empty saved-work index cannot create a draft without an explicit channel', async () => {
 		const editor = {
 			setFeatures: (_features: EditorFeature[]) => {},
+			setInteractionEnabled: (_enabled: boolean) => {},
 		} as unknown as GeoEditor
 		useEditorStore.setState({
 			editor,
@@ -319,6 +429,7 @@ describe('local draft transitions', () => {
 		const draftA = draft('draft-a', featureA, 1)
 		const editor = {
 			setFeatures: (_features: EditorFeature[]) => {},
+			setInteractionEnabled: (_enabled: boolean) => {},
 		} as unknown as GeoEditor
 		useEditorStore.setState({
 			editor,
@@ -347,6 +458,7 @@ describe('local draft transitions', () => {
 		const draftA = draft('draft-a', featureA, 1)
 		const editor = {
 			setFeatures: (_features: EditorFeature[]) => {},
+			setInteractionEnabled: (_enabled: boolean) => {},
 		} as unknown as GeoEditor
 		useEditorStore.setState({
 			editor,

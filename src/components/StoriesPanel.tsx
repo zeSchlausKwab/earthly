@@ -33,7 +33,7 @@ export interface StoriesPanelProps {
 	onCreateStory: () => void
 	onEditStory: (story: Article) => void
 	onDeleteStory: (story: Article) => void
-	/** The d-tag key of a Story whose delete is in flight (disables its row menu). */
+	/** `story:<d-tag>` for the Story whose delete is in flight. */
 	deletingKey?: string | null
 }
 
@@ -85,7 +85,7 @@ export function StoriesPanelContent({
 					story,
 					hasLocalDraft: Boolean(story.dTag && draftKeys.has(story.dTag)),
 					isOwner: Boolean(currentUserPubkey) && story.pubkey === currentUserPubkey,
-					isDeleting: deletingKey === dTag,
+					isDeleting: deletingKey === `story:${dTag}`,
 				}
 			}),
 		[displayed, draftKeys, currentUserPubkey, deletingKey],

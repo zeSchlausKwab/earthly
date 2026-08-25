@@ -37,9 +37,7 @@
  * runtime).
  */
 
-import { createAuthoring } from '@/features/geo-editor/api'
 import type { MutationCounts } from '@/features/geo-editor/api'
-import { useEditorStore } from '@/features/geo-editor/store'
 import type { ToolEntry } from '@/features/chat/tools/registry'
 import type { Tool } from '@/features/chat/tools/types'
 import { buildReadSnapshot } from './readSnapshot'
@@ -47,6 +45,11 @@ import { DEFAULT_SANDBOX_DEADLINE_MS, type SandboxTransport, runSandbox } from '
 import { buildPostWriteValidation } from '@/features/chat/safeEditing/autoValidate'
 import { gateRunCodeBatch } from '@/features/chat/safeEditing/gateRunCode'
 import { getSafetyLevel } from '@/features/chat/safeEditing/safetyAccess'
+import {
+	createExecutionAuthoring,
+	ensureExecutionTargetForMutation,
+	getExecutionEditor,
+} from '@/features/chat/tools/executionTarget'
 
 /**
  * Bounded self-correction cap (D-06, planner discretion = 3). Timeouts count
@@ -179,7 +182,7 @@ const runCodeSchema: Tool = {
 
 /** Resolve the active editor, or throw a model-facing error. */
 function getEditorOrThrow() {
-	const { editor } = useEditorStore.getState()
+	const editor = getExecutionEditor()
 	if (!editor) {
 		throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 	}
@@ -206,7 +209,7 @@ export function registerSandboxTools(register: (entry: ToolEntry) => void): void
 		name: 'run_code',
 		kind: 'code-interpreter',
 		schema: runCodeSchema,
-		handler: async (args) => {
+		handler: async (args, context) => {
 			const code = typeof args.code === 'string' ? args.code : ''
 			if (!code.trim()) {
 				throw new Error('run_code requires a non-empty `code` string.')
@@ -284,13 +287,20 @@ export function registerSandboxTools(register: (entry: ToolEntry) => void): void
 				)
 			}
 
+			// The sandbox may outlive a stopped model run. Revalidate the immutable
+			// run-bound target after that await and before reconstructing any authoring
+			// facade; otherwise metadata replay would fall back to the visible editor.
+			if (result.recordedCalls.length > 0 && context?.run) {
+				await ensureExecutionTargetForMutation(context.run)
+			}
+
 			// (4) replay recorded authoring.* calls IN ORDER through the facade (D-03/D-08).
 			// Phase 5: the WHOLE batch is ONE safe-editing apply unit (D-11). It is
 			// gated through `gateRunCodeBatch` — one snapshot, one diff block, one undo
 			// — which awaits Apply/Cancel at Level 1 and rolls the batch back on Cancel
 			// (zero net mutation). The replay below is the real, interceptor-routed write
 			// the gate fronts.
-			const authoring = createAuthoring(editor) as unknown as Record<
+			const authoring = createExecutionAuthoring(editor) as unknown as Record<
 				string,
 				(...a: unknown[]) => { counts?: MutationCounts } | unknown
 			>

@@ -1,11 +1,8 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { BookOpen } from 'lucide-react'
-import {
-	DeleteActionIcon,
-	InspectActionIcon,
-	LoadEditorActionIcon,
-} from '@/components/entity-action-icons'
+import { InspectActionIcon, LoadEditorActionIcon } from '@/components/entity-action-icons'
 import { CoverThumb, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
+import { ConfirmDeleteAction } from '@/components/info-panel/ConfirmDeleteAction'
 import { GeoSocialActions } from '@/features/social/comments/GeoSocialActions'
 import { UserProfile } from '@/components/user-profile'
 import type { Article } from '@/lib/nostr/article'
@@ -94,12 +91,10 @@ export const createStoryColumns = (context: StoryColumnsContext): ColumnDef<Stor
 										disabled={isDeleting}
 										onClick={() => context.onEdit(story)}
 									/>
-									<RowActionButton
-										icon={DeleteActionIcon}
-										label="Delete story"
-										hover="hover:text-destructive"
-										disabled={isDeleting}
-										onClick={() => context.onDelete(story)}
+									<ConfirmDeleteAction
+										label="Story"
+										isDeleting={isDeleting}
+										onConfirm={() => context.onDelete(story)}
 									/>
 								</>
 							) : null}

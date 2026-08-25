@@ -58,6 +58,8 @@ export type {
 	PublishChannel,
 	SidebarViewMode,
 	SettingsTab,
+	ChatDock,
+	InspectionSubject,
 	Stance,
 	RecentEntity,
 } from './types'

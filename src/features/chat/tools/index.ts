@@ -8,6 +8,9 @@ export type {
 	ToolCall,
 	ToolResult,
 	ToolExecutionContext,
+	ToolExecutionRunIdentity,
+	ToolExecutionTarget,
+	ToolExecutionTargetEntityType,
 	GeometryBakeAnalysis,
 	GeometryBakeResult,
 	CachedMapSnapshot,
@@ -37,6 +40,7 @@ export {
 	createMapContextSystemMessage,
 	consumeMapSnapshot,
 	getMapContextSnapshot,
+	getMapContextSnapshotForTarget,
 } from './context'
 export type { PromptProfile } from './context'
 

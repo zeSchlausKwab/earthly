@@ -7,7 +7,7 @@ interface UseContextEditorParams {
 	isMobile: boolean
 	ensureInfoPanelVisible: () => void
 	encodeContextNaddr: (context: MapContext) => string | null
-	navigateToContext: (contextNaddr: string, sidebarView?: SidebarViewMode) => void
+	navigateTo: (focusType: 'mapcontext', naddr: string, sidebarView?: SidebarViewMode) => void
 	navigateToView: (view: SidebarViewMode) => void
 	clearFocus: () => void
 	handleInspectDataset: (event: GeoDataset) => void
@@ -20,7 +20,7 @@ export function useContextEditor({
 	isMobile,
 	ensureInfoPanelVisible,
 	encodeContextNaddr,
-	navigateToContext,
+	navigateTo,
 	navigateToView,
 	clearFocus,
 	loadDatasetForEditing,
@@ -34,7 +34,6 @@ export function useContextEditor({
 	const setViewContext = useEditorStore((state) => state.setViewContext)
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const setStance = useEditorStore((state) => state.setStance)
-	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
@@ -57,62 +56,40 @@ export function useContextEditor({
 
 	const handleLoadDatasetForEditing = useCallback(
 		(event: GeoDataset) => {
-			clearEditorModes()
 			loadDatasetForEditing(event)
 		},
-		[loadDatasetForEditing, clearEditorModes],
+		[loadDatasetForEditing],
 	)
 
 	const handleInspectContext = useCallback(
 		(context: MapContext) => {
-			clearEditorModes()
 			setViewModeState('view')
 			setViewDatasetState(null)
 			setViewContext(context)
 			ensureInfoPanelVisible()
 			setStance('focus')
 
-			// Round C: stack = visibility. Add the context as a stack entry so its
-			// curated datasets render (C.2 expands the entry inline).
 			const contextKey =
 				context.contextCoordinate ?? context.id ?? context.contextId ?? context.dTag
 			if (contextKey) {
-				const title = context.context?.name || `Context ${contextKey.slice(0, 12)}`
-				// D.1: heuristic for "exclusive on add". Validation-mode contexts
-				// exist to enforce a strict authoritative scope (think: "only the
-				// canonical wheelchair-toilet dataset counts"), so isolating on
-				// add matches the author's intent. Taxonomy/hybrid stay additive
-				// — they're meant to compose with other map content. The user can
-				// always un-isolate via the row's Focus button.
-				const isExclusiveByDefault = context.context?.contextUse === 'validation'
-				addMapStackEntry({
-					entityType: 'context',
-					entityKey: contextKey,
-					title,
-					source: 'manual',
-					visible: true,
-					pinned: false,
-					isolated: isExclusiveByDefault,
-				})
-				// Round G.2: feed the catalog's Recent tab.
+				// Recent history is metadata only; inspection deliberately does not
+				// add the Context to the Map Stack or change browse scope.
 				recordRecentEntity(`context:${contextKey}`)
 			}
 
 			const naddr = encodeContextNaddr(context)
 			if (naddr) {
-				navigateToContext(naddr, 'contexts')
+				navigateTo('mapcontext', naddr, 'contexts')
 			}
 		},
 		[
-			clearEditorModes,
 			setViewModeState,
 			setViewDatasetState,
 			setViewContext,
 			ensureInfoPanelVisible,
 			encodeContextNaddr,
-			navigateToContext,
+			navigateTo,
 			setStance,
-			addMapStackEntry,
 			recordRecentEntity,
 		],
 	)
@@ -168,26 +145,48 @@ export function useContextEditor({
 	}, [contextEditorMode, navigateToView])
 
 	const handleOpenGeometryEditor = useCallback(() => {
-		clearEditorModes()
 		if (!activeWorkspaceId || !activeGeoEditDraftId) {
 			startNewDataset()
 			return
 		}
-		void switchToWorkspace(activeWorkspaceId)
+		const workspaceId = activeWorkspaceId
+		void (async () => {
+			await switchToWorkspace(workspaceId)
+			const state = useEditorStore.getState()
+			if (
+				state.activeWorkspaceId !== workspaceId ||
+				!state.activeGeoEditDraftId ||
+				!state.mapStackEntries['draft:active']
+			) {
+				return
+			}
+
+			// This is the canonical resume transition for a retained Dataset draft.
+			// Inspection remains remembered, but it no longer owns the visible route
+			// or the GeoEditor interaction boundary.
+			setViewDatasetState(null)
+			setViewContext(null)
+			setViewModeState('edit')
+			setStance('author')
+			navigateToView('edit')
+		})()
 	}, [
-		clearEditorModes,
 		activeWorkspaceId,
 		activeGeoEditDraftId,
 		startNewDataset,
 		switchToWorkspace,
+		setViewDatasetState,
+		setViewContext,
+		setViewModeState,
+		setStance,
+		navigateToView,
 	])
 
 	const handleInspectDatasetWithModeSwitch = useCallback(
 		(event: GeoDataset) => {
-			clearEditorModes()
 			handleInspectDataset(event)
 		},
-		[clearEditorModes, handleInspectDataset],
+		[handleInspectDataset],
 	)
 
 	return {

@@ -33,7 +33,7 @@
 import { type DatasetDiff, classifyMutation } from '@/features/geo-editor/api/diff'
 import type { MutationIntent } from '@/features/geo-editor/api/interceptor'
 import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
-import { ensureDatasetDraftForMutation } from '@/features/geo-editor/authoringTaskBridge'
+import { ensureExecutionTargetForMutation } from '@/features/chat/tools/executionTarget'
 import type { SafetyLevel } from './AuthoringGate'
 import { emitDiffBlock, requestConfirm } from './pendingDiffStore'
 
@@ -82,7 +82,7 @@ export async function gateBulkApply(
 	intent: MutationIntent,
 	apply: () => void,
 ): Promise<GateBulkResult> {
-	await ensureDatasetDraftForMutation()
+	await ensureExecutionTargetForMutation()
 	const before = editor.getAllFeatures()
 
 	// One snapshot per batch (D-11) — taken BEFORE the apply so Cancel restores it.

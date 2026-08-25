@@ -1,6 +1,6 @@
 import { test, expect, describe, mock } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { BindingChip } from './BindingChip'
+import { BindingChip, resolveWorkspaceBindingIdentity } from './BindingChip'
 
 /**
  * BindingChip is a thin presentational shell over the Plan-03 `resolveBinding`
@@ -9,13 +9,21 @@ import { BindingChip } from './BindingChip'
  */
 
 describe('BindingChip render (SAFE-01 / D-03)', () => {
+	test('resolves a brand-new conversation with no workspace or draft', () => {
+		expect(resolveWorkspaceBindingIdentity(null, null)).toMatchObject({
+			unsaved: false,
+			featureCount: 0,
+			targetRequired: true,
+		})
+	})
+
 	test('shows the bound name, unsaved indicator, and feature count', () => {
 		const html = renderToStaticMarkup(
 			<BindingChip
 				name="Berlin Bike Lanes"
 				unsaved
 				featureCount={42}
-				needsAutoCreate={false}
+				targetRequired={false}
 				safetyLevel={2}
 				onToggleAutoAccept={() => {}}
 				onOpenTarget={() => {}}
@@ -30,20 +38,151 @@ describe('BindingChip render (SAFE-01 / D-03)', () => {
 		expect(html).toContain('aria-label="Open Berlin Bike Lanes in geometry editor"')
 	})
 
-	test('shows conversation-only scope when no authoring target exists', () => {
+	test('shows a clear target-required state when no map edit is selected', () => {
 		const html = renderToStaticMarkup(
 			<BindingChip
 				name="Untitled draft"
 				unsaved={false}
 				featureCount={0}
-				needsAutoCreate
+				targetRequired
 				safetyLevel={2}
 				onToggleAutoAccept={() => {}}
 			/>,
 		)
-		expect(html).toContain('Conversation only')
-		expect(html).toContain('AI edits will start a new draft')
+		expect(html).toContain('Editing target required')
+		expect(html).toContain('Choose New map or Use current edit before sending.')
 		expect(html).not.toContain('Untitled draft')
+	})
+
+	test('derives identity from the Chat-bound inactive workspace draft', () => {
+		const identity = resolveWorkspaceBindingIdentity(
+			{
+				id: 'workspace-a',
+				sourceId: 'session:a',
+				label: 'Workspace A',
+				kind: 'scratch',
+				datasetKey: null,
+				activeDraftId: 'draft-a',
+				chatSessionId: null,
+				createdAt: 1,
+				updatedAt: 2,
+			},
+			{
+				persistenceVersion: 2,
+				id: 'draft-a',
+				sourceId: 'session:a',
+				name: 'Dataset A',
+				description: '',
+				collectionMeta: {
+					name: 'Dataset A',
+					description: '',
+					color: '#000000',
+					customProperties: {},
+				},
+				features: [
+					{
+						type: 'Feature',
+						id: 'a',
+						geometry: { type: 'Point', coordinates: [1, 2] },
+						properties: {},
+					},
+				],
+				selectedFeatureIds: [],
+				publishChannel: { kind: 'public' },
+				contextRefs: [],
+				blobReferences: [],
+				createdAt: 1,
+				updatedAt: 2,
+			},
+		)
+
+		expect(identity).toEqual({
+			name: 'Dataset A',
+			unsaved: true,
+			featureCount: 1,
+			targetRequired: false,
+		})
+	})
+
+	test('does not display a stale cross-source draft as an editing target', () => {
+		const identity = resolveWorkspaceBindingIdentity(
+			{
+				id: 'workspace-a',
+				sourceId: 'session:workspace',
+				label: 'Untitled workspace',
+				kind: 'scratch',
+				datasetKey: null,
+				activeDraftId: 'draft-a',
+				chatSessionId: null,
+				createdAt: 1,
+				updatedAt: 2,
+			},
+			{
+				persistenceVersion: 2,
+				id: 'draft-a',
+				sourceId: 'session:draft',
+				name: 'Untitled draft',
+				description: '',
+				collectionMeta: {
+					name: 'Untitled draft',
+					description: '',
+					color: '#000000',
+					customProperties: {},
+				},
+				features: [],
+				selectedFeatureIds: [],
+				publishChannel: { kind: 'public' },
+				contextRefs: [],
+				blobReferences: [],
+				createdAt: 1,
+				updatedAt: 2,
+			},
+		)
+
+		expect(identity).toMatchObject({
+			unsaved: false,
+			featureCount: 0,
+			targetRequired: true,
+		})
+	})
+
+	test('keeps compact target choices and a labelled safety switch on one row', () => {
+		const html = renderToStaticMarkup(
+			<BindingChip
+				name="Untitled draft"
+				unsaved={false}
+				featureCount={0}
+				targetRequired
+				safetyLevel={2}
+				onToggleAutoAccept={() => {}}
+				onStartNewTarget={() => {}}
+				onUseCurrentTarget={() => {}}
+				compact
+			/>,
+		)
+		expect(html).toContain('Target required')
+		expect(html).toContain('New map')
+		expect(html).toContain('Use current')
+		expect(html).toContain('Auto')
+		expect(html).not.toContain('Choose an editing target')
+	})
+
+	test('shows target creation as pending instead of leaving New map apparently send-ready', () => {
+		const html = renderToStaticMarkup(
+			<BindingChip
+				name="Untitled draft"
+				unsaved={false}
+				featureCount={0}
+				targetRequired
+				safetyLevel={2}
+				onToggleAutoAccept={() => {}}
+				onStartNewTarget={() => {}}
+				targetPending
+			/>,
+		)
+
+		expect(html).toContain('Creating editing target…')
+		expect(html).toContain('disabled=""')
 	})
 })
 
@@ -54,7 +193,7 @@ describe('Just accept toggle (SAFE-04 / D-12)', () => {
 				name="X"
 				unsaved={false}
 				featureCount={1}
-				needsAutoCreate={false}
+				targetRequired={false}
 				safetyLevel={3}
 				onToggleAutoAccept={() => {}}
 			/>,
@@ -66,7 +205,7 @@ describe('Just accept toggle (SAFE-04 / D-12)', () => {
 				name="X"
 				unsaved={false}
 				featureCount={1}
-				needsAutoCreate={false}
+				targetRequired={false}
 				safetyLevel={2}
 				onToggleAutoAccept={() => {}}
 			/>,
@@ -97,19 +236,19 @@ describe('Just accept toggle (SAFE-04 / D-12)', () => {
 })
 
 describe('always-visible invariant (SAFE-01)', () => {
-	test('renders the conversation scope even when nothing is bound (never null)', () => {
+	test('renders the target-required state even when nothing is bound (never null)', () => {
 		const html = renderToStaticMarkup(
 			<BindingChip
 				name="Untitled draft"
 				unsaved={false}
 				featureCount={0}
-				needsAutoCreate
+				targetRequired
 				safetyLevel={2}
 				onToggleAutoAccept={() => {}}
 			/>,
 		)
 		expect(html.length).toBeGreaterThan(0)
-		expect(html).toContain('Conversation only')
+		expect(html).toContain('Editing target required')
 	})
 })
 

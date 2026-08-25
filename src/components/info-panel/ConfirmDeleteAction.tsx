@@ -39,7 +39,9 @@ export function ConfirmDeleteAction({
 				>
 					<X className="h-3 w-3" />
 				</Button>
-				<span className="text-[10px] text-destructive leading-tight px-0.5">Cannot be undone</span>
+				<span className="px-0.5 text-[10px] leading-tight text-destructive">
+					Copies may remain elsewhere
+				</span>
 				<Button
 					type="button"
 					size="sm"

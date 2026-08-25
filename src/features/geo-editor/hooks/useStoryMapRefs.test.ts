@@ -6,8 +6,8 @@ import { parseStoryRefs } from './useStoryMapRefs'
 
 // A Story exposes its `a`-tag coordinates via `referencedAddresses`. parseStoryRefs
 // turns those into map-stack identities. The key derivation MUST match
-// getDatasetKey(dataset) === `${pubkey}:${datasetId}` so the auto-stacked entry
-// and the inline eye-toggle operate on the same map-stack entry.
+// getDatasetKey(dataset) === `${pubkey}:${datasetId}` so the explicit inline
+// eye-toggle and the map operate on the same entry.
 
 const PK = 'a'.repeat(64)
 
