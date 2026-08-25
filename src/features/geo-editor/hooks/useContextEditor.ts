@@ -2,6 +2,10 @@ import { useCallback, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { getRetainedDatasetSurfaceTarget, useEditorStore, type SidebarViewMode } from '../store'
+import {
+	shouldOpenMobileEditSheet,
+	type MobileWorkspaceOpenOptions,
+} from '../components/mobileEditPanelPresentation'
 
 interface UseContextEditorParams {
 	isMobile: boolean
@@ -160,7 +164,10 @@ export function useContextEditor({
 	}, [contextEditorMode, navigateToView])
 
 	const handleOpenGeometryEditor = useCallback(
-		async (requestedWorkspaceId?: string): Promise<boolean> => {
+		async (
+			requestedWorkspaceId?: string,
+			options?: MobileWorkspaceOpenOptions,
+		): Promise<boolean> => {
 			let initialState = useEditorStore.getState()
 			let retainedTarget = getRetainedDatasetSurfaceTarget(
 				initialState,
@@ -204,7 +211,9 @@ export function useContextEditor({
 				// Desktop keeps its canonical route. Mobile's map-bound workspace tabs are
 				// presentation-only and reveal the sheet without rewriting location state.
 				if (!isMobile) navigateToView('edit')
-				if (isMobile) ensureInfoPanelVisible()
+				if (isMobile && shouldOpenMobileEditSheet(options)) {
+					ensureInfoPanelVisible()
+				}
 				return true
 			} catch {
 				return false

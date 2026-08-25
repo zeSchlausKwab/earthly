@@ -7,6 +7,27 @@ import type { InspectionSubject, MobileEntitySurface, RetainedDatasetSurfaceTarg
 
 export type MobileWorkspacePanelTab = 'map-stack' | 'edit' | 'chat'
 
+export interface MobileWorkspaceOpenOptions {
+	preserveMobileSnap?: boolean
+}
+
+export interface MobileWorkspaceIntentClock {
+	advance: () => number
+	isCurrent: (generation: number) => boolean
+}
+
+/** Monotonic intent identity prevents A → B → A state from reviving stale work. */
+export function createMobileWorkspaceIntentClock(): MobileWorkspaceIntentClock {
+	let generation = 0
+	return {
+		advance: () => {
+			generation += 1
+			return generation
+		},
+		isCurrent: (candidate) => candidate === generation,
+	}
+}
+
 const MOBILE_WORKSPACE_PANEL_TABS: readonly MobileWorkspacePanelTab[] = [
 	'map-stack',
 	'edit',
@@ -15,6 +36,30 @@ const MOBILE_WORKSPACE_PANEL_TABS: readonly MobileWorkspacePanelTab[] = [
 
 export function mobileWorkspacePanelUsesKeyboardViewport(panel: string): boolean {
 	return panel === 'edit' || panel === 'chat'
+}
+
+/**
+ * A rail-originated Chat → Edit restoration may finish after the user closes
+ * or leaves the sheet. Never reopen from that stale async intent; direct opens
+ * still surface Edit at the usual default height.
+ */
+export function shouldOpenMobileEditSheet(options?: MobileWorkspaceOpenOptions): boolean {
+	return options?.preserveMobileSnap !== true
+}
+
+export function mobileChatEditIntentIsCurrent(
+	initiatingActiveChatId: string | null,
+	current: {
+		mobilePanelOpen: boolean
+		mobilePanelTab: string
+		activeChatId: string | null
+	},
+): boolean {
+	return (
+		current.mobilePanelOpen &&
+		current.mobilePanelTab === 'chat' &&
+		current.activeChatId === initiatingActiveChatId
+	)
 }
 
 export function resolveMobileWorkspaceTabKey(

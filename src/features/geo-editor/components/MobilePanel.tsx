@@ -89,6 +89,8 @@ import { resolveMobileViewportLayout } from './mobileViewport'
 import {
 	attemptConversationEditTargetRestore,
 	CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE,
+	createMobileWorkspaceIntentClock,
+	mobileChatEditIntentIsCurrent,
 	mobileWorkspacePanelUsesKeyboardViewport,
 	resolveActiveConversationEditTarget,
 	resolveMobileDatasetSurfaceTitle,
@@ -96,6 +98,7 @@ import {
 	resolveMobileStorySurfaceTitle,
 	resolveMobileWorkspaceTabKey,
 	type MobileWorkspacePanelTab,
+	type MobileWorkspaceOpenOptions,
 } from './mobileEditPanelPresentation'
 import {
 	mobileSheetCloseLabel,
@@ -103,7 +106,10 @@ import {
 	mobileSheetInnerSurfaceClassName,
 	mobileSheetSurfaceClassName,
 	mobileWorkspaceHeaderActionRowClassName,
+	mobileWorkspaceRailClassName,
+	mobileWorkspaceRailGridTemplateColumns,
 	mobileWorkspaceTabHitAreaClassName,
+	mobileWorkspaceTabListClassName,
 	mobileWorkspaceTabVisualClassName,
 } from './mobileSheetPresentation'
 
@@ -168,7 +174,10 @@ export interface MobilePanelProps {
 	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
-	onOpenGeometryEditor?: (workspaceId?: string) => Promise<boolean>
+	onOpenGeometryEditor?: (
+		workspaceId?: string,
+		options?: MobileWorkspaceOpenOptions,
+	) => Promise<boolean>
 	onInspectDataset?: (event: GeoDataset) => void
 	onExitFocus?: () => void
 	onInspectContext?: (context: MapContext) => void
@@ -296,9 +305,9 @@ const SIDEBAR_GROUPS: { label: string; tabs: MobilePanelTab[] }[] = [
 
 /**
  * The three detents (redesign §5a "one sheet, three detents"): peek (retracted —
- * ONLY the grab handle shows, the map owns the screen), half (properties on
- * select), full (the outliner, full height). Half/full are viewport fractions;
- * peek is a FIXED handle height so the switcher/filter/list are clipped away when
+ * only the sheet-wide handle/workspace controls remain above the map), half
+ * (properties on select), full (the outliner, full height). Half/full are viewport
+ * fractions; peek is a FIXED rail height so all body content is clipped away when
  * retracted. All heights are resolved to px so the drag math is uniform.
  */
 export const MOBILE_DOCK_PX = 52
@@ -490,6 +499,13 @@ export function MobilePanel(props: MobilePanelProps) {
 	const workspaceTabRefs = useRef<
 		Partial<Record<MobileWorkspacePanelTab, HTMLButtonElement | null>>
 	>({})
+	const workspaceIntentClockRef = useRef<ReturnType<
+		typeof createMobileWorkspaceIntentClock
+	> | null>(null)
+	if (workspaceIntentClockRef.current === null) {
+		workspaceIntentClockRef.current = createMobileWorkspaceIntentClock()
+	}
+	const workspaceIntentClock = workspaceIntentClockRef.current
 	const [keyboardViewport, setKeyboardViewport] = useState(() => ({
 		keyboardOpen: false,
 		fixedBottomInsetPx: 0,
@@ -498,7 +514,10 @@ export function MobilePanel(props: MobilePanelProps) {
 		layoutHeightPx: viewportHeightPx(),
 	}))
 
-	const handleClose = () => setMobilePanelOpen(false)
+	const handleClose = () => {
+		workspaceIntentClock.advance()
+		setMobilePanelOpen(false)
+	}
 	const sidebarIsMenu = mobileSidebarMode === 'menu'
 	const closeNavigationSurface = useCallback(() => {
 		if (!sidebarIsMenu) navigateToView(editorStance === 'author' ? 'edit' : DEFAULT_WORK_VIEW)
@@ -523,6 +542,30 @@ export function MobilePanel(props: MobilePanelProps) {
 		leaveSidebar()
 		onZoomToBounds?.(bounds)
 	}
+
+	useEffect(() => {
+		let panelOpen = useEditorStore.getState().mobilePanelOpen
+		let panelTab = useEditorStore.getState().mobilePanelTab
+		let chatId = useChatStore.getState().activeChatId
+		const unsubscribeEditor = useEditorStore.subscribe((state) => {
+			if (state.mobilePanelOpen !== panelOpen || state.mobilePanelTab !== panelTab) {
+				panelOpen = state.mobilePanelOpen
+				panelTab = state.mobilePanelTab
+				workspaceIntentClock.advance()
+			}
+		})
+		const unsubscribeChat = useChatStore.subscribe((state) => {
+			if (state.activeChatId !== chatId) {
+				chatId = state.activeChatId
+				workspaceIntentClock.advance()
+			}
+		})
+		return () => {
+			workspaceIntentClock.advance()
+			unsubscribeEditor()
+			unsubscribeChat()
+		}
+	}, [workspaceIntentClock])
 
 	useEffect(() => {
 		if (!mobileSidebarOpen && !mobilePanelOpen) return
@@ -702,24 +745,48 @@ export function MobilePanel(props: MobilePanelProps) {
 		activeChatRun,
 		chatSessions,
 	)
-	const selectPanel = async (id: MobilePanelTab) => {
+	const selectPanel = async (id: MobilePanelTab): Promise<boolean> => {
 		if (id === 'map-stack' || id === 'edit' || id === 'chat') {
+			const workspaceIntentGeneration = workspaceIntentClock.advance()
 			// The workspace triad is presentation-only: it must not write a route or
 			// derive viewMode/stance from one. Chat → Edit has one explicit exception:
 			// the user's tap may restore that conversation's exact retained Dataset.
 			if (id === 'edit' && mobilePanelTab === 'chat') {
+				const initiatingChatId = activeChatId
+				let targetUnavailable = false
 				const restored = await attemptConversationEditTargetRestore(
 					activeConversationEditTarget,
-					onOpenGeometryEditor,
-					() => toast.error(CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE),
+					onOpenGeometryEditor
+						? (workspaceId) => onOpenGeometryEditor(workspaceId, { preserveMobileSnap: true })
+						: undefined,
+					() => {
+						targetUnavailable = true
+					},
 				)
+				const latestEditorState = useEditorStore.getState()
+				if (
+					!workspaceIntentClock.isCurrent(workspaceIntentGeneration) ||
+					!mobileChatEditIntentIsCurrent(initiatingChatId, {
+						mobilePanelOpen: latestEditorState.mobilePanelOpen,
+						mobilePanelTab: latestEditorState.mobilePanelTab,
+						activeChatId: useChatStore.getState().activeChatId,
+					})
+				) {
+					// A close, workspace-tab switch, or conversation switch supersedes
+					// this async completion. Do not reopen, select, focus, or notify.
+					return false
+				}
 				if (!restored) {
 					// A stale or unsupported target must leave the user in Chat. Revealing a
 					// different retained surface here would make the conversation ambiguous.
-					return
+					if (targetUnavailable) toast.error(CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE)
+					return false
 				}
 			}
-			openMobilePanel(id)
+			// Switching adjacent workspace tabs must not move the rail under the
+			// user's finger or keyboard focus. Only a first launch chooses the
+			// destination's default detent (Chat full; Stack/Edit half).
+			if (!mobilePanelOpen) openMobilePanel(id)
 		} else if (id === 'context-editor') {
 			openMobilePanel(id)
 		} else {
@@ -733,6 +800,7 @@ export function MobilePanel(props: MobilePanelProps) {
 			})
 		}
 		setMobilePanelTab(id)
+		return true
 	}
 	const handleWorkspaceTabKeyDown = (
 		event: ReactKeyboardEvent<HTMLButtonElement>,
@@ -741,8 +809,9 @@ export function MobilePanel(props: MobilePanelProps) {
 		const next = resolveMobileWorkspaceTabKey(current, event.key)
 		if (!next) return
 		event.preventDefault()
-		void selectPanel(next)
-		workspaceTabRefs.current[next]?.focus()
+		void selectPanel(next).then((selected) => {
+			if (selected) workspaceTabRefs.current[next]?.focus()
+		})
 	}
 	const activeMeta = tabMeta(mobilePanelTab)
 	const entitySurfaceAvailability: Record<MobileEntitySurface, boolean> = {
@@ -966,6 +1035,76 @@ export function MobilePanel(props: MobilePanelProps) {
 			/>
 		</MobilePanelHeaderActionProvider>
 	)
+	const workspaceTabList = (
+		<div
+			role="tablist"
+			aria-label="Map workspace panels"
+			className={mobileWorkspaceTabListClassName(panelTranslucent)}
+		>
+			{workspacePanelTabs.map(({ id, label, icon: Icon, working, retained }) => {
+				const active = mobilePanelTab === id
+				return (
+					<button
+						key={id}
+						type="button"
+						role="tab"
+						aria-selected={active}
+						aria-controls={MOBILE_WORKSPACE_TABPANEL_ID}
+						aria-label={`${label}${working ? ', working' : ''}${retained ? ', retained' : ''}`}
+						id={`mobile-workspace-tab-${id}`}
+						data-testid={`mobile-workspace-tab-${id}`}
+						tabIndex={active ? 0 : -1}
+						ref={(node) => {
+							workspaceTabRefs.current[id] = node
+						}}
+						onClick={() => void selectPanel(id)}
+						onKeyDown={(event) => handleWorkspaceTabKeyDown(event, id)}
+						className={mobileWorkspaceTabHitAreaClassName()}
+					>
+						<span className={mobileWorkspaceTabVisualClassName(active, panelTranslucent)}>
+							<span className="relative h-3 w-3 shrink-0" aria-hidden="true">
+								{working ? (
+									<LoaderCircle className="h-3 w-3 animate-spin text-primary" />
+								) : (
+									<Icon className="h-3 w-3" />
+								)}
+								{retained && !working ? (
+									<span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-[var(--accent-edit)] ring-1 ring-background" />
+								) : null}
+							</span>
+							<span className="truncate">{label}</span>
+						</span>
+					</button>
+				)
+			})}
+		</div>
+	)
+	const sheetTransparencyControl = (
+		<Button
+			type="button"
+			size="icon"
+			className="h-11 w-11 shrink-0 rounded-none"
+			variant={panelTranslucent ? 'default' : 'ghost'}
+			onClick={() => setPanelTranslucent((value) => !value)}
+			aria-pressed={panelTranslucent}
+			aria-label={panelTranslucent ? 'Use opaque panel' : 'See map through panel'}
+			title={panelTranslucent ? 'Use opaque panel' : 'See map through panel'}
+		>
+			<Eye className="h-4 w-4" />
+		</Button>
+	)
+	const sheetCloseControl = (
+		<Button
+			type="button"
+			size="icon"
+			variant="ghost"
+			className="h-11 w-11 shrink-0 rounded-none"
+			onClick={handleClose}
+			aria-label={sheetCloseLabel}
+		>
+			<X className="h-4 w-4" />
+		</Button>
+	)
 
 	// Mobile has two deliberately different surfaces: horizontal navigation and
 	// vertical map-bound inspection. They share the tab body below, but never open
@@ -1014,20 +1153,29 @@ export function MobilePanel(props: MobilePanelProps) {
 										: undefined
 								}
 							>
-								{/* Sheet-level chrome: the handle owns resizing; eye and close own the
-								    entire sheet and therefore stay out of the active tab's header. */}
+								{/* Map-workspace chrome is one literal sequence: resize, tabs,
+								    transparency, close. Other panels retain their normal title row. */}
 								{mobilePanelOpen ? (
 									<div
 										data-testid="mobile-sheet-controls"
 										className={cn(
-											'grid h-12 w-full shrink-0 grid-cols-[5.5rem_minmax(0,1fr)_5.5rem] items-center border-b border-border',
-											mobileSheetChromeClassName(panelTranslucent),
+											mapWorkTabsVisible
+												? mobileWorkspaceRailClassName(panelTranslucent)
+												: cn(
+														'grid h-12 w-full shrink-0 grid-cols-[5.5rem_minmax(0,1fr)_5.5rem] items-center border-b border-border',
+														mobileSheetChromeClassName(panelTranslucent),
+													),
 										)}
+										style={
+											mapWorkTabsVisible
+												? { gridTemplateColumns: mobileWorkspaceRailGridTemplateColumns() }
+												: undefined
+										}
 									>
-										<span aria-hidden="true" />
+										{mapWorkTabsVisible ? null : <span aria-hidden="true" />}
 										{keyboardViewport.keyboardOpen ? (
 											<div aria-hidden="true" className="flex h-12 items-center justify-center">
-												<span className="h-1.5 w-12 rounded-full bg-accent" />
+												<span className="h-1.5 w-7 rounded-full bg-accent" />
 											</div>
 										) : (
 											<div
@@ -1043,33 +1191,21 @@ export function MobilePanel(props: MobilePanelProps) {
 												style={{ touchAction: 'none' }}
 												className="flex h-12 min-w-11 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
 											>
-												<span className="h-1.5 w-12 rounded-full bg-accent" />
+												<span className="h-1.5 w-7 rounded-full bg-accent" />
 											</div>
 										)}
-										<div className="flex h-12 items-center justify-end">
-											<Button
-												type="button"
-												size="icon"
-												className="h-11 w-11 shrink-0 rounded-none"
-												variant={panelTranslucent ? 'default' : 'ghost'}
-												onClick={() => setPanelTranslucent((value) => !value)}
-												aria-pressed={panelTranslucent}
-												aria-label={panelTranslucent ? 'Use opaque panel' : 'See map through panel'}
-												title={panelTranslucent ? 'Use opaque panel' : 'See map through panel'}
-											>
-												<Eye className="h-4 w-4" />
-											</Button>
-											<Button
-												type="button"
-												size="icon"
-												variant="ghost"
-												className="h-11 w-11 shrink-0 rounded-none"
-												onClick={handleClose}
-												aria-label={sheetCloseLabel}
-											>
-												<X className="h-4 w-4" />
-											</Button>
-										</div>
+										{mapWorkTabsVisible ? workspaceTabList : null}
+										{mapWorkTabsVisible ? (
+											<>
+												{sheetTransparencyControl}
+												{sheetCloseControl}
+											</>
+										) : (
+											<div className="flex h-12 items-center justify-end">
+												{sheetTransparencyControl}
+												{sheetCloseControl}
+											</div>
+										)}
 									</div>
 								) : null}
 
@@ -1161,95 +1297,34 @@ export function MobilePanel(props: MobilePanelProps) {
 									</div>
 								) : (
 									<>
-										<div
-											className={cn(
-												'flex shrink-0 items-center border-b border-border',
-												mobileSheetInnerSurfaceClassName(panelTranslucent),
-												mapWorkTabsVisible
-													? 'relative h-11 justify-center px-1 py-0'
-													: mobilePanelTab === 'chat'
-														? 'gap-1 px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))]'
-														: 'gap-1 px-3 py-2 pt-[max(0.25rem,env(safe-area-inset-top))]',
-											)}
-										>
-											{mobileSidebarOpen ? (
-												<Button
-													type="button"
-													size="icon-sm"
-													variant="ghost"
-													onClick={showMobileSidebarMenu}
-													aria-label="Back to menu"
-												>
-													<ArrowLeft className="h-4 w-4" />
-												</Button>
-											) : null}
-											{mapWorkTabsVisible ? (
-												<div
-													role="tablist"
-													aria-label="Map workspace panels"
-													className={cn(
-														'flex w-fit max-w-full items-center justify-center rounded-md border border-border p-0',
-														panelTranslucent ? 'bg-card/10' : 'bg-muted/45',
-													)}
-												>
-													{workspacePanelTabs.map(
-														({ id, label, icon: Icon, working, retained }) => {
-															const active = mobilePanelTab === id
-															return (
-																<button
-																	key={id}
-																	type="button"
-																	role="tab"
-																	aria-selected={active}
-																	aria-controls={MOBILE_WORKSPACE_TABPANEL_ID}
-																	aria-label={`${label}${working ? ', working' : ''}${retained ? ', retained' : ''}`}
-																	id={`mobile-workspace-tab-${id}`}
-																	data-testid={`mobile-workspace-tab-${id}`}
-																	tabIndex={active ? 0 : -1}
-																	ref={(node) => {
-																		workspaceTabRefs.current[id] = node
-																	}}
-																	onClick={() => void selectPanel(id)}
-																	onKeyDown={(event) => handleWorkspaceTabKeyDown(event, id)}
-																	className={mobileWorkspaceTabHitAreaClassName()}
-																>
-																	<span
-																		className={mobileWorkspaceTabVisualClassName(
-																			active,
-																			panelTranslucent,
-																		)}
-																	>
-																		<Icon className="h-3.5 w-3.5 shrink-0" />
-																		<span className="truncate">{label}</span>
-																		{working ? (
-																			<LoaderCircle
-																				aria-hidden="true"
-																				className="h-3 w-3 shrink-0 animate-spin text-primary"
-																			/>
-																		) : retained ? (
-																			<span
-																				aria-hidden="true"
-																				className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-edit)]"
-																			/>
-																		) : null}
-																	</span>
-																</button>
-															)
-														},
-													)}
-												</div>
-											) : (
-												<>
-													<ActiveIcon className="h-4 w-4 text-primary" />
-													<h2 className="text-sm font-semibold text-foreground">{activeLabel}</h2>
-												</>
-											)}
-											{activeCount != null ? (
-												<span className="font-mono text-[9px] text-muted-foreground">
-													{activeCount}
-												</span>
-											) : null}
-											{!mapWorkTabsVisible ? (
+										{!mapWorkTabsVisible ? (
+											<div
+												className={cn(
+													'flex shrink-0 items-center gap-1 border-b border-border',
+													mobileSheetInnerSurfaceClassName(panelTranslucent),
+													mobilePanelTab === 'chat'
+														? 'px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))]'
+														: 'px-3 py-2 pt-[max(0.25rem,env(safe-area-inset-top))]',
+												)}
+											>
+												{mobileSidebarOpen ? (
+													<Button
+														type="button"
+														size="icon-sm"
+														variant="ghost"
+														onClick={showMobileSidebarMenu}
+														aria-label="Back to menu"
+													>
+														<ArrowLeft className="h-4 w-4" />
+													</Button>
+												) : null}
+												<ActiveIcon className="h-4 w-4 text-primary" />
+												<h2 className="text-sm font-semibold text-foreground">{activeLabel}</h2>
+												{activeCount != null ? (
+													<span className="font-mono text-[9px] text-muted-foreground">
+														{activeCount}
+													</span>
+												) : null}
 												<div className="ml-auto flex items-center gap-1">
 													<div ref={setHeaderActionTarget} className="flex min-w-0 items-center" />
 													{newAction && mobileSidebarOpen ? (
@@ -1280,8 +1355,8 @@ export function MobilePanel(props: MobilePanelProps) {
 														</Button>
 													) : null}
 												</div>
-											) : null}
-										</div>
+											</div>
+										) : null}
 										{mapWorkTabsVisible ? (
 											<div
 												ref={setHeaderActionTarget}

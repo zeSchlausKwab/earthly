@@ -6,6 +6,8 @@ import type { RetainedDatasetSurfaceTarget } from '../store'
 import {
 	attemptConversationEditTargetRestore,
 	CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE,
+	createMobileWorkspaceIntentClock,
+	mobileChatEditIntentIsCurrent,
 	mobileWorkspacePanelUsesKeyboardViewport,
 	resolveActiveConversationEditTarget,
 	resolveInfoPanelViewState,
@@ -13,6 +15,7 @@ import {
 	resolveMobileEditPanelPresentation,
 	resolveMobileStorySurfaceTitle,
 	resolveMobileWorkspaceTabKey,
+	shouldOpenMobileEditSheet,
 	type InfoPanelViewState,
 } from './mobileEditPanelPresentation'
 
@@ -37,6 +40,39 @@ describe('mobile workspace interaction helpers', () => {
 		expect(resolveMobileWorkspaceTabKey('edit', 'Home')).toBe('map-stack')
 		expect(resolveMobileWorkspaceTabKey('edit', 'End')).toBe('chat')
 		expect(resolveMobileWorkspaceTabKey('edit', 'Enter')).toBeNull()
+	})
+
+	test('never reopens a sheet from a rail-originated async restore', () => {
+		expect(shouldOpenMobileEditSheet({ preserveMobileSnap: true })).toBe(false)
+		expect(shouldOpenMobileEditSheet()).toBe(true)
+	})
+
+	test('accepts Chat → Edit completion only while its initiating intent is current', () => {
+		const initiatingChatId = 'chat-a'
+		expect(
+			mobileChatEditIntentIsCurrent(initiatingChatId, {
+				mobilePanelOpen: true,
+				mobilePanelTab: 'chat',
+				activeChatId: initiatingChatId,
+			}),
+		).toBe(true)
+		for (const current of [
+			{ mobilePanelOpen: false, mobilePanelTab: 'chat', activeChatId: initiatingChatId },
+			{ mobilePanelOpen: true, mobilePanelTab: 'map-stack', activeChatId: initiatingChatId },
+			{ mobilePanelOpen: true, mobilePanelTab: 'chat', activeChatId: 'chat-b' },
+		]) {
+			expect(mobileChatEditIntentIsCurrent(initiatingChatId, current)).toBe(false)
+		}
+	})
+
+	test('rejects ABA when Chat A returns after an intervening workspace intent', () => {
+		const clock = createMobileWorkspaceIntentClock()
+		const delayedChatAToEdit = clock.advance()
+
+		clock.advance() // Chat A → Stack
+		clock.advance() // Stack → Chat A (same visible tuple, newer intent)
+
+		expect(clock.isCurrent(delayedChatAToEdit)).toBe(false)
 	})
 
 	test('uses the retained local Story title when no published Story is attached', () => {

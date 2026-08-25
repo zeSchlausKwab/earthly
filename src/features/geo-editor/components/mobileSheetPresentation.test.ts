@@ -1,12 +1,18 @@
 import { describe, expect, test } from 'bun:test'
 import {
+	MOBILE_WORKSPACE_RAIL_CONTROL_PX,
+	MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX,
 	mobileSheetCloseLabel,
 	mobileSheetChromeClassName,
 	mobileSheetInnerSurfaceClassName,
 	mobileSheetSurfaceClassName,
 	mobileWorkspaceHeaderActionRowClassName,
+	mobileWorkspaceRailClassName,
+	mobileWorkspaceRailGridTemplateColumns,
 	mobileWorkspaceTabHitAreaClassName,
+	mobileWorkspaceTabListClassName,
 	mobileWorkspaceTabVisualClassName,
+	resolveMobileWorkspaceRailLayout,
 } from './mobileSheetPresentation'
 
 describe('mobile sheet presentation', () => {
@@ -33,15 +39,43 @@ describe('mobile sheet presentation', () => {
 		expect(mobileSheetCloseLabel(false, 'Datasets')).toBe('Close Datasets')
 	})
 
-	test('draws compact tabs inside 44px touch targets', () => {
+	test('draws flexible compact tabs inside 44px touch targets', () => {
 		const hitArea = mobileWorkspaceTabHitAreaClassName()
 		const activeGlass = mobileWorkspaceTabVisualClassName(true, true)
 
 		expect(hitArea).toContain('min-h-11')
 		expect(hitArea).toContain('min-w-11')
+		expect(hitArea).toContain('flex-1')
+		expect(hitArea).not.toContain('w-20')
 		expect(activeGlass).toContain('h-8')
 		expect(activeGlass).toContain('bg-background/35')
 		expect(activeGlass).not.toContain('min-h-11')
+	})
+
+	test('fits resize, tabs, transparency, and close in one 48px rail at 320px', () => {
+		const layout = resolveMobileWorkspaceRailLayout(320)
+
+		expect(mobileWorkspaceRailClassName(false)).toContain('h-12')
+		expect(mobileWorkspaceRailClassName(false)).toContain('grid')
+		expect(mobileWorkspaceRailGridTemplateColumns()).toBe('44px minmax(132px, 180px) 44px 44px')
+		expect(layout).toEqual({
+			handlePx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
+			tabListPx: MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX,
+			tabPx: MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX / 3,
+			transparencyPx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
+			closePx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
+			outerGutterPx: 4,
+		})
+		expect(layout.tabPx).toBeGreaterThanOrEqual(44)
+	})
+
+	test('centers the same compact rail instead of stretching tabs on wider phones', () => {
+		const layout = resolveMobileWorkspaceRailLayout(390)
+
+		expect(layout.tabListPx).toBe(180)
+		expect(layout.outerGutterPx).toBe(39)
+		expect(mobileWorkspaceTabListClassName(false)).toContain('w-full')
+		expect(mobileWorkspaceTabListClassName(true)).toContain('bg-card/10')
 	})
 
 	test('keeps editor actions in a collision-free row that vanishes when empty', () => {
