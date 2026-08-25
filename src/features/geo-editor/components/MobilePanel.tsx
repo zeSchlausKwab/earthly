@@ -97,6 +97,15 @@ import {
 	resolveMobileWorkspaceTabKey,
 	type MobileWorkspacePanelTab,
 } from './mobileEditPanelPresentation'
+import {
+	mobileSheetCloseLabel,
+	mobileSheetChromeClassName,
+	mobileSheetInnerSurfaceClassName,
+	mobileSheetSurfaceClassName,
+	mobileWorkspaceHeaderActionRowClassName,
+	mobileWorkspaceTabHitAreaClassName,
+	mobileWorkspaceTabVisualClassName,
+} from './mobileSheetPresentation'
 
 export type MobilePanelTab =
 	| 'drafts'
@@ -293,7 +302,7 @@ const SIDEBAR_GROUPS: { label: string; tabs: MobilePanelTab[] }[] = [
  * retracted. All heights are resolved to px so the drag math is uniform.
  */
 export const MOBILE_DOCK_PX = 52
-export const MOBILE_SHEET_PEEK_PX = 34
+export const MOBILE_SHEET_PEEK_PX = 48
 const MOBILE_WORKSPACE_TABPANEL_ID = 'mobile-workspace-tabpanel'
 
 function configuredMobileDockHeightPx(): number {
@@ -304,8 +313,7 @@ function configuredMobileDockHeightPx(): number {
 	return Number.isFinite(configured) && configured >= 0 ? configured : MOBILE_DOCK_PX
 }
 const SNAP_ORDER: MobilePanelSnap[] = ['peek', 'half', 'full']
-/** Peek = just the grab handle (px). Retracted shows only the handle + toolbar
- *  (the grab-handle row is ~34px: py-3 + the 6px bar + its bottom border). */
+/** Peek = the 48px sheet-chrome row: handle plus sheet-wide controls. */
 const viewportHeightPx = () => (typeof window !== 'undefined' ? window.innerHeight : 812)
 export const mobilePanelHeightPx = (
 	snap: MobilePanelSnap,
@@ -636,6 +644,19 @@ export function MobilePanel(props: MobilePanelProps) {
 				? snap
 				: best,
 		)
+	const handleResizeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+		const currentIndex = SNAP_ORDER.indexOf(mobilePanelSnap)
+		let nextSnap: MobilePanelSnap | null = null
+		if (event.key === 'ArrowUp')
+			nextSnap = SNAP_ORDER[Math.min(currentIndex + 1, SNAP_ORDER.length - 1)]
+		if (event.key === 'ArrowDown') nextSnap = SNAP_ORDER[Math.max(currentIndex - 1, 0)]
+		if (event.key === 'Home') nextSnap = 'peek'
+		if (event.key === 'End') nextSnap = 'full'
+		if (!nextSnap) return
+		event.preventDefault()
+		setDragPx(null)
+		setMobilePanelSnap(nextSnap)
+	}
 
 	const handleDragStart = (event: ReactPointerEvent<HTMLDivElement>) => {
 		if (typeof window === 'undefined') return
@@ -853,6 +874,7 @@ export function MobilePanel(props: MobilePanelProps) {
 	const keyboardSheetBottom = keyboardDockIsVisible
 		? `calc(${keyboardViewport.fixedBottomInsetPx + keyboardViewport.dockClearancePx}px + env(safe-area-inset-bottom))`
 		: `${keyboardViewport.fixedBottomInsetPx}px`
+	const sheetCloseLabel = mobileSheetCloseLabel(mapWorkTabsVisible, activeLabel)
 
 	// The "+ new" action in the sheet header, per active browse tab.
 	const newAction: { label: string; onClick: () => void } | null =
@@ -968,7 +990,7 @@ export function MobilePanel(props: MobilePanelProps) {
 								aria-label={mobileSidebarOpen ? 'Earthly navigation' : `${activeLabel} panel`}
 								className={cn(
 									'fixed z-40 flex flex-col overflow-hidden border-border md:hidden',
-									panelTranslucent && mobilePanelOpen ? 'bg-card/45 backdrop-blur-xl' : 'bg-card',
+									mobileSheetSurfaceClassName(panelTranslucent && mobilePanelOpen),
 									mobileSidebarOpen
 										? cn(
 												'left-0 top-0 bottom-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] z-50 rounded-r-lg border-r shadow-xl transition-[width] duration-200 ease-out',
@@ -992,24 +1014,62 @@ export function MobilePanel(props: MobilePanelProps) {
 										: undefined
 								}
 							>
-								{/* Grab handle — drag up/down to resize; snaps to the nearest detent. */}
-								{mobilePanelOpen && !keyboardViewport.keyboardOpen ? (
+								{/* Sheet-level chrome: the handle owns resizing; eye and close own the
+								    entire sheet and therefore stay out of the active tab's header. */}
+								{mobilePanelOpen ? (
 									<div
-										role="slider"
-										aria-label="Resize panel"
-										aria-valuemin={MOBILE_SHEET_PEEK_PX}
-										aria-valuemax={Math.round(mobilePanelHeightPx('full'))}
-										aria-valuenow={Math.round(dragPx ?? mobilePanelHeightPx(mobilePanelSnap))}
-										tabIndex={0}
-										onPointerDown={handleDragStart}
-										style={{ touchAction: 'none' }}
+										data-testid="mobile-sheet-controls"
 										className={cn(
-											'flex w-full shrink-0 cursor-grab touch-none items-center justify-center border-b border-border backdrop-blur active:cursor-grabbing',
-											panelTranslucent ? 'bg-card/65' : 'bg-card/90',
-											mobilePanelTab === 'chat' ? 'py-1.5' : 'py-3',
+											'grid h-12 w-full shrink-0 grid-cols-[5.5rem_minmax(0,1fr)_5.5rem] items-center border-b border-border',
+											mobileSheetChromeClassName(panelTranslucent),
 										)}
 									>
-										<span className="h-1.5 w-12 rounded-full bg-accent" />
+										<span aria-hidden="true" />
+										{keyboardViewport.keyboardOpen ? (
+											<div aria-hidden="true" className="flex h-12 items-center justify-center">
+												<span className="h-1.5 w-12 rounded-full bg-accent" />
+											</div>
+										) : (
+											<div
+												role="slider"
+												aria-label="Resize panel"
+												aria-orientation="vertical"
+												aria-valuemin={MOBILE_SHEET_PEEK_PX}
+												aria-valuemax={Math.round(mobilePanelHeightPx('full'))}
+												aria-valuenow={Math.round(dragPx ?? mobilePanelHeightPx(mobilePanelSnap))}
+												tabIndex={0}
+												onPointerDown={handleDragStart}
+												onKeyDown={handleResizeKeyDown}
+												style={{ touchAction: 'none' }}
+												className="flex h-12 min-w-11 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
+											>
+												<span className="h-1.5 w-12 rounded-full bg-accent" />
+											</div>
+										)}
+										<div className="flex h-12 items-center justify-end">
+											<Button
+												type="button"
+												size="icon"
+												className="h-11 w-11 shrink-0 rounded-none"
+												variant={panelTranslucent ? 'default' : 'ghost'}
+												onClick={() => setPanelTranslucent((value) => !value)}
+												aria-pressed={panelTranslucent}
+												aria-label={panelTranslucent ? 'Use opaque panel' : 'See map through panel'}
+												title={panelTranslucent ? 'Use opaque panel' : 'See map through panel'}
+											>
+												<Eye className="h-4 w-4" />
+											</Button>
+											<Button
+												type="button"
+												size="icon"
+												variant="ghost"
+												className="h-11 w-11 shrink-0 rounded-none"
+												onClick={handleClose}
+												aria-label={sheetCloseLabel}
+											>
+												<X className="h-4 w-4" />
+											</Button>
+										</div>
 									</div>
 								) : null}
 
@@ -1103,13 +1163,13 @@ export function MobilePanel(props: MobilePanelProps) {
 									<>
 										<div
 											className={cn(
-												'flex shrink-0 items-center gap-1 border-b border-border px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))]',
-												panelTranslucent ? 'bg-card/70' : 'bg-card',
+												'flex shrink-0 items-center border-b border-border',
+												mobileSheetInnerSurfaceClassName(panelTranslucent),
 												mapWorkTabsVisible
-													? 'px-2 py-1'
+													? 'relative h-11 justify-center px-1 py-0'
 													: mobilePanelTab === 'chat'
-														? 'px-2 py-1'
-														: 'px-3 py-2',
+														? 'gap-1 px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))]'
+														: 'gap-1 px-3 py-2 pt-[max(0.25rem,env(safe-area-inset-top))]',
 											)}
 										>
 											{mobileSidebarOpen ? (
@@ -1127,7 +1187,10 @@ export function MobilePanel(props: MobilePanelProps) {
 												<div
 													role="tablist"
 													aria-label="Map workspace panels"
-													className="grid min-w-0 flex-1 grid-cols-3 items-stretch rounded-md border border-border bg-muted/45 p-0.5"
+													className={cn(
+														'flex w-fit max-w-full items-center justify-center rounded-md border border-border p-0',
+														panelTranslucent ? 'bg-card/10' : 'bg-muted/45',
+													)}
 												>
 													{workspacePanelTabs.map(
 														({ id, label, icon: Icon, working, retained }) => {
@@ -1148,29 +1211,28 @@ export function MobilePanel(props: MobilePanelProps) {
 																	}}
 																	onClick={() => void selectPanel(id)}
 																	onKeyDown={(event) => handleWorkspaceTabKeyDown(event, id)}
-																	className={cn(
-																		'flex min-h-11 min-w-11 items-center justify-center gap-1 rounded px-1 text-xs font-medium transition-colors',
-																		active
-																			? cn(
-																					panelTranslucent ? 'bg-background/80' : 'bg-background',
-																					'text-foreground shadow-sm',
-																				)
-																			: 'text-muted-foreground',
-																	)}
+																	className={mobileWorkspaceTabHitAreaClassName()}
 																>
-																	<Icon className="h-3.5 w-3.5" />
-																	<span className="truncate">{label}</span>
-																	{working ? (
-																		<LoaderCircle
-																			aria-hidden="true"
-																			className="h-3 w-3 shrink-0 animate-spin text-primary"
-																		/>
-																	) : retained ? (
-																		<span
-																			aria-hidden="true"
-																			className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-edit)]"
-																		/>
-																	) : null}
+																	<span
+																		className={mobileWorkspaceTabVisualClassName(
+																			active,
+																			panelTranslucent,
+																		)}
+																	>
+																		<Icon className="h-3.5 w-3.5 shrink-0" />
+																		<span className="truncate">{label}</span>
+																		{working ? (
+																			<LoaderCircle
+																				aria-hidden="true"
+																				className="h-3 w-3 shrink-0 animate-spin text-primary"
+																			/>
+																		) : retained ? (
+																			<span
+																				aria-hidden="true"
+																				className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-edit)]"
+																			/>
+																		) : null}
+																	</span>
 																</button>
 															)
 														},
@@ -1187,57 +1249,52 @@ export function MobilePanel(props: MobilePanelProps) {
 													{activeCount}
 												</span>
 											) : null}
-											<div className="ml-auto flex items-center gap-1">
-												<div ref={setHeaderActionTarget} className="flex min-w-0 items-center" />
-												{newAction && mobileSidebarOpen ? (
-													<Button
-														type="button"
-														size="icon"
-														className="h-11 w-11 shrink-0"
-														variant="outline"
-														onClick={() => {
-															leaveSidebar()
-															newAction.onClick()
-														}}
-														aria-label={newAction.label}
-													>
-														<Plus className="h-3.5 w-3.5" />
-													</Button>
-												) : null}
-												{mapWorkTabsVisible ? (
-													<Button
-														type="button"
-														size="icon"
-														className="h-11 w-11 shrink-0"
-														variant={panelTranslucent ? 'default' : 'ghost'}
-														onClick={() => setPanelTranslucent((value) => !value)}
-														aria-pressed={panelTranslucent}
-														aria-label={
-															panelTranslucent ? 'Use opaque panel' : 'See map through panel'
-														}
-														title={panelTranslucent ? 'Use opaque panel' : 'See map through panel'}
-													>
-														<Eye className="h-4 w-4" />
-													</Button>
-												) : null}
-												<Button
-													type="button"
-													size="icon"
-													variant="ghost"
-													className="h-11 w-11 shrink-0"
-													onClick={mobileSidebarOpen ? closeNavigationSurface : handleClose}
-													aria-label={`Close ${activeLabel}`}
-												>
-													<X className="h-4 w-4" />
-												</Button>
-											</div>
+											{!mapWorkTabsVisible ? (
+												<div className="ml-auto flex items-center gap-1">
+													<div ref={setHeaderActionTarget} className="flex min-w-0 items-center" />
+													{newAction && mobileSidebarOpen ? (
+														<Button
+															type="button"
+															size="icon"
+															className="h-11 w-11 shrink-0"
+															variant="outline"
+															onClick={() => {
+																leaveSidebar()
+																newAction.onClick()
+															}}
+															aria-label={newAction.label}
+														>
+															<Plus className="h-3.5 w-3.5" />
+														</Button>
+													) : null}
+													{mobileSidebarOpen ? (
+														<Button
+															type="button"
+															size="icon"
+															variant="ghost"
+															className="h-11 w-11 shrink-0"
+															onClick={closeNavigationSurface}
+															aria-label={`Close ${activeLabel}`}
+														>
+															<X className="h-4 w-4" />
+														</Button>
+													) : null}
+												</div>
+											) : null}
 										</div>
+										{mapWorkTabsVisible ? (
+											<div
+												ref={setHeaderActionTarget}
+												data-testid="mobile-workspace-header-actions"
+												className={mobileWorkspaceHeaderActionRowClassName(panelTranslucent)}
+											/>
+										) : null}
 										{mobilePanelOpen && mobilePanelTab === 'edit' ? (
 											<div
 												data-testid="mobile-entity-surface-picker"
 												className={cn(
 													'flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-2 py-1',
-													panelTranslucent ? 'bg-card/55' : 'bg-card',
+													mobileSheetInnerSurfaceClassName(panelTranslucent),
 												)}
 											>
 												<ActiveIcon
@@ -1320,7 +1377,7 @@ export function MobilePanel(props: MobilePanelProps) {
 												data-testid={mobilePanelOpen ? 'mobile-sheet-body' : undefined}
 												className={cn(
 													'flex-1',
-													panelTranslucent && mapWorkTabsVisible && 'bg-transparent',
+													panelTranslucent && mobilePanelOpen && 'bg-transparent',
 													mobilePanelTab === 'chat'
 														? 'min-h-0 overflow-hidden'
 														: 'overflow-y-auto px-3 pb-4 pt-2',
@@ -1374,7 +1431,12 @@ export function MobilePanel(props: MobilePanelProps) {
 												) : null}
 
 												{mobilePanelTab === 'map-stack' ? (
-													<div className="-mx-1 -mb-2 h-full min-h-[18rem]">
+													<div
+														className={cn(
+															'-mx-1 -mb-2 h-full min-h-[18rem]',
+															panelTranslucent && '[&>section]:!bg-background/25',
+														)}
+													>
 														<MapStackPanel
 															geoEvents={geoEvents}
 															mapContextEvents={mapContextEvents}
@@ -1393,7 +1455,6 @@ export function MobilePanel(props: MobilePanelProps) {
 															}
 															onZoomToDraft={onZoomToDraft}
 															onClear={onClearMapStack}
-															onClose={handleClose}
 															translucent={panelTranslucent}
 														/>
 													</div>
@@ -1548,7 +1609,7 @@ export function MobilePanel(props: MobilePanelProps) {
 													<div
 														className={cn(
 															'h-full min-h-0',
-															panelTranslucent && '[&>section>div:first-child]:!bg-background/70',
+															panelTranslucent && '[&>section>div:first-child]:!bg-background/25',
 														)}
 													>
 														<ChatPanel
