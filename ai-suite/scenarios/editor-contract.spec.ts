@@ -479,7 +479,7 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		await expect(editNameInput).toHaveValue(datasetName)
 
 		// The handle, three workspace tabs, eye, and close action form one compact
-		// sheet-wide rail. Its four groups distribute spare width between them so
+		// sheet-wide rail. Its three groups distribute spare width between them so
 		// the handle and close action anchor the sheet edges at every phone width.
 		const assertSingleRowWorkspaceRail = async (expectedViewportWidth?: number) => {
 			const chrome = await mobileWorkspaceChromeSnapshot(earthly)
@@ -506,7 +506,7 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 				expect(next).toBeDefined()
 				expect((current?.x ?? 0) + (current?.width ?? 0)).toBeLessThanOrEqual((next?.x ?? 0) + 1)
 			}
-			const groupedTargets = [chrome.slider, chrome.tablist, chrome.transparency, chrome.close]
+			const groupedTargets = [chrome.slider, chrome.tablist, chrome.actionGroup]
 			const interGroupGaps = groupedTargets.slice(0, -1).map((current, index) => {
 				const next = groupedTargets[index + 1]
 				expect(next).toBeDefined()
@@ -514,6 +514,20 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 			})
 			for (const gap of interGroupGaps) expect(gap).toBeGreaterThanOrEqual(-1)
 			expect(Math.max(...interGroupGaps) - Math.min(...interGroupGaps)).toBeLessThanOrEqual(2)
+			expect(chrome.transparency.width).toBeGreaterThanOrEqual(44)
+			expect(chrome.close.width).toBeGreaterThanOrEqual(44)
+			expect(
+				chrome.close.x - (chrome.transparency.x + chrome.transparency.width),
+			).toBeLessThanOrEqual(1)
+			expect(
+				chrome.close.x - (chrome.transparency.x + chrome.transparency.width),
+			).toBeGreaterThanOrEqual(-1)
+			expect(Math.abs(chrome.actionGroup.x - chrome.transparency.x)).toBeLessThanOrEqual(1)
+			expect(
+				Math.abs(
+					chrome.actionGroup.x + chrome.actionGroup.width - (chrome.close.x + chrome.close.width),
+				),
+			).toBeLessThanOrEqual(1)
 			expect(chrome.controls.x).toBeGreaterThanOrEqual(chrome.sheet.x - 1)
 			expect(chrome.controls.x + chrome.controls.width).toBeLessThanOrEqual(
 				chrome.sheet.x + chrome.sheet.width + 1,
@@ -571,6 +585,11 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		expect(targetPill.openAction.width).toBeGreaterThanOrEqual(44)
 		expect(targetPill.openAction.height).toBeGreaterThanOrEqual(44)
 		expect(targetPill.label).toBe(datasetName)
+		// The label is normal-size text, so its rendered foreground and effective
+		// capsule background must meet WCAG AA. This catches opaque color fallbacks
+		// that collapse both sides of the compact purple pill to the same token.
+		expect(targetPill.foregroundRgb).not.toEqual(targetPill.visualCapsuleBackgroundRgb)
+		expect(targetPill.textContrastRatio).toBeGreaterThanOrEqual(4.5)
 
 		// Moving the tabs into the resize rail must not make panel selection a
 		// resize gesture. Preserve both the stored detent and rendered sheet height

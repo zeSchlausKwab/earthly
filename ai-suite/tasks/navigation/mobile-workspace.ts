@@ -120,6 +120,7 @@ export interface MobileWorkspaceChromeSnapshot {
 	detentPx: number
 	transparency: { x: number; y: number; width: number; height: number }
 	close: { x: number; y: number; width: number; height: number }
+	actionGroup: { x: number; y: number; width: number; height: number }
 	tablist: { x: number; y: number; width: number; height: number }
 	tabs: Array<{
 		x: number
@@ -136,6 +137,9 @@ export interface MobileEditingTargetPillSnapshot {
 	visualCapsule: { x: number; y: number; width: number; height: number }
 	openAction: { x: number; y: number; width: number; height: number }
 	label: string
+	foregroundRgb: [number, number, number]
+	visualCapsuleBackgroundRgb: [number, number, number]
+	textContrastRatio: number
 }
 
 /**
@@ -154,6 +158,7 @@ export async function mobileWorkspaceChromeSnapshot(
 		name: /^(?:See map through panel|Use opaque panel)$/,
 	})
 	const close = controls.getByRole('button', { name: 'Close map workspace', exact: true })
+	const actionGroup = transparency.locator('xpath=parent::*')
 	const tablist = mobileWorkspaceTabs(earthly)
 	const tabs = tablist.getByRole('tab')
 	const sheetTablists = sheet.getByRole('tablist', {
@@ -166,6 +171,8 @@ export async function mobileWorkspaceChromeSnapshot(
 	await expect(slider).toBeVisible()
 	await expect(transparency).toBeVisible()
 	await expect(close).toBeVisible()
+	await expect(actionGroup).toBeVisible()
+	await expect(actionGroup.getByRole('button')).toHaveCount(2)
 	await expect(tablist).toBeVisible()
 	await expect(sheetTablists).toHaveCount(1)
 	await expect(tabs).toHaveCount(3)
@@ -173,13 +180,14 @@ export async function mobileWorkspaceChromeSnapshot(
 		await expect(sheet.locator(`[id="mobile-workspace-tab-${tabId}"]`)).toHaveCount(1)
 	}
 
-	const [sheetBox, controlsBox, sliderBox, transparencyBox, closeBox, tablistBox] =
+	const [sheetBox, controlsBox, sliderBox, transparencyBox, closeBox, actionGroupBox, tablistBox] =
 		await Promise.all([
 			sheet.boundingBox(),
 			controls.boundingBox(),
 			slider.boundingBox(),
 			transparency.boundingBox(),
 			close.boundingBox(),
+			actionGroup.boundingBox(),
 			tablist.boundingBox(),
 		])
 	const tabBoxes = await tabs.evaluateAll((elements) =>
@@ -213,7 +221,15 @@ export async function mobileWorkspaceChromeSnapshot(
 	)
 	const detentAttribute = await slider.getAttribute('aria-valuenow')
 	const detentValue = detentAttribute === null ? Number.NaN : Number(detentAttribute)
-	if (!sheetBox || !controlsBox || !sliderBox || !transparencyBox || !closeBox || !tablistBox) {
+	if (
+		!sheetBox ||
+		!controlsBox ||
+		!sliderBox ||
+		!transparencyBox ||
+		!closeBox ||
+		!actionGroupBox ||
+		!tablistBox
+	) {
 		throw new Error('The mobile workspace chrome did not produce measurable controls.')
 	}
 	if (!Number.isFinite(detentValue)) {
@@ -227,6 +243,7 @@ export async function mobileWorkspaceChromeSnapshot(
 		detentPx: detentValue,
 		transparency: transparencyBox,
 		close: closeBox,
+		actionGroup: actionGroupBox,
 		tablist: tablistBox,
 		tabs: tabBoxes,
 	}
@@ -270,6 +287,82 @@ export async function mobileEditingTargetPillSnapshot(
 			if (![insetTop, insetRight, insetBottom, insetLeft].every(Number.isFinite)) {
 				throw new Error('The compact editing-target capsule did not expose measurable insets.')
 			}
+
+			const labelElement = element.querySelector<HTMLElement>('span[title]')
+			if (!labelElement) {
+				throw new Error('The compact editing-target capsule did not expose its visible label.')
+			}
+
+			type Rgba = { red: number; green: number; blue: number; alpha: number }
+			const canvas = document.createElement('canvas')
+			canvas.width = 1
+			canvas.height = 1
+			const context = canvas.getContext('2d', { willReadFrequently: true })
+			if (!context) {
+				throw new Error('Canvas context unavailable while measuring target-pill contrast.')
+			}
+			const parseColor = (value: string): Rgba => {
+				context.clearRect(0, 0, 1, 1)
+				context.fillStyle = 'rgba(0, 0, 0, 0)'
+				context.fillStyle = value
+				context.fillRect(0, 0, 1, 1)
+				const [red = 0, green = 0, blue = 0, alpha = 0] = context.getImageData(0, 0, 1, 1).data
+				return { red, green, blue, alpha: alpha / 255 }
+			}
+			const composite = (front: Rgba, back: Rgba): Rgba => {
+				const alpha = front.alpha + back.alpha * (1 - front.alpha)
+				if (alpha === 0) return { red: 0, green: 0, blue: 0, alpha: 0 }
+				const channel = (frontValue: number, backValue: number) =>
+					(frontValue * front.alpha + backValue * back.alpha * (1 - front.alpha)) / alpha
+				return {
+					red: channel(front.red, back.red),
+					green: channel(front.green, back.green),
+					blue: channel(front.blue, back.blue),
+					alpha,
+				}
+			}
+
+			// Rebuild the solid color beneath the capsule from the page root inward,
+			// then paint the capsule pseudo-element over it. The target is measured
+			// before the workspace transparency check, so no map imagery or backdrop
+			// sampling is involved in this normal-text contrast contract.
+			const ancestors: HTMLElement[] = []
+			for (let current = element.parentElement; current; current = current.parentElement) {
+				ancestors.unshift(current)
+			}
+			let capsuleBackground: Rgba = { red: 255, green: 255, blue: 255, alpha: 1 }
+			for (const ancestor of ancestors) {
+				capsuleBackground = composite(
+					parseColor(getComputedStyle(ancestor).backgroundColor),
+					capsuleBackground,
+				)
+			}
+			capsuleBackground = composite(
+				parseColor(getComputedStyle(element).backgroundColor),
+				capsuleBackground,
+			)
+			capsuleBackground = composite(parseColor(before.backgroundColor), capsuleBackground)
+			const foreground = composite(
+				parseColor(getComputedStyle(labelElement).color),
+				capsuleBackground,
+			)
+			const relativeLuminance = ({ red, green, blue }: Rgba) => {
+				const linearize = (channel: number) => {
+					const normalized = channel / 255
+					return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4
+				}
+				return 0.2126 * linearize(red) + 0.7152 * linearize(green) + 0.0722 * linearize(blue)
+			}
+			const foregroundLuminance = relativeLuminance(foreground)
+			const backgroundLuminance = relativeLuminance(capsuleBackground)
+			const textContrastRatio =
+				(Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+				(Math.min(foregroundLuminance, backgroundLuminance) + 0.05)
+			const roundedRgb = ({ red, green, blue }: Rgba): [number, number, number] => [
+				Math.round(red),
+				Math.round(green),
+				Math.round(blue),
+			]
 			return {
 				shell: {
 					x: shellBox.x,
@@ -283,6 +376,9 @@ export async function mobileEditingTargetPillSnapshot(
 					width: shellBox.width - insetLeft - insetRight,
 					height: shellBox.height - insetTop - insetBottom,
 				},
+				foregroundRgb: roundedRgb(foreground),
+				visualCapsuleBackgroundRgb: roundedRgb(capsuleBackground),
+				textContrastRatio,
 			}
 		}),
 		label.textContent(),
