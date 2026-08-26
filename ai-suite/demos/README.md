@@ -28,9 +28,8 @@ Copy `example.geometry.json` and edit its human-facing fields:
   add `edits` when the turn must visibly pass through one or more **Apply** gates, and
   `reference-publish` when it must ask **Publish and continue**. Every listed gate must appear at
   least once, every repeated gate of that kind is handled, and any unlisted gate stops the run.
-- `target` makes the opening intent explicit: `conversation`, `new-dataset`, or `current-dataset`.
-  Geometry tours and map-edit approvals require one of the Dataset targets; Earthly never silently
-  creates an edit state for a read-only conversation.
+- `target` makes the editing intent explicit: `new-dataset` or `current-dataset`. Every Chat needs
+  an editing target, and Earthly never silently creates or retargets one.
 - `tour` can contain `chat`, `geometry`, or `story`. Geometry zooms to the result and opens one
   editable feature. Story switches the AI-authored Story draft to its reader preview.
 - `post` is the natural explanatory X copy emitted beside the video. `videoAltText` is optional but
