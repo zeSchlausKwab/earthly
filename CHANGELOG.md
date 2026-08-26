@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.6] - 2026-08-26
+
+- Reworked Chat around explicit, persistent Dataset edit targets: conversations, edit surfaces, and
+  Inspectors can be switched independently without cancelling work or silently creating,
+  reopening, closing, or retargeting drafts.
+- Made AI edits safer by binding each run to the exact captured draft, committing tool results
+  atomically, preserving changes produced earlier in the same run, supporting target-bound undo,
+  and pausing references until the current Dataset is published.
+- Unified the mobile authoring sheet around compact Stack, Edit, and Chat tabs, with persistent run
+  and edit-target status, sheet-wide visibility controls, readable target styling, and reliable
+  keyboard-aware composition.
+- Made the Map Stack authoritative for rendered content, so removing or hiding a retained draft
+  immediately removes its geometry from the map without deleting the saved work or its Chat
+  binding.
+- Added manifest-driven rehearsal and recording for repeatable 1920x1080 AI map demos, including
+  prompt validation, edit-target setup, result tours, and campaign copy.
+
 ## [0.1.5] - 2026-08-16
 
 - Added a Discover welcome surface with curated recent Datasets, Stories, and Contexts; direct
