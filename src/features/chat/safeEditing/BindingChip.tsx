@@ -22,10 +22,10 @@ const compactActionDividerClassName =
 
 export function bindingChipTargetClassName(compact: boolean) {
 	return cn(
-		'flex min-w-0 items-center gap-1.5 px-2 text-edit',
+		'flex min-w-0 items-center gap-1.5 px-2',
 		compact
-			? "relative isolate h-11 before:pointer-events-none before:absolute before:inset-x-0 before:inset-y-1.5 before:-z-10 before:rounded-full before:border before:border-edit/40 before:bg-edit/15 before:content-['']"
-			: 'rounded-full border border-edit/40 bg-edit/15 py-0.5',
+			? "relative isolate h-11 text-[var(--accent-edit-text)] before:pointer-events-none before:absolute before:inset-x-0 before:inset-y-1.5 before:-z-10 before:rounded-full before:border before:border-edit/40 before:bg-[var(--fill-edit-14)] before:content-['']"
+			: 'rounded-full border border-edit/40 bg-edit/15 py-0.5 text-edit',
 	)
 }
 

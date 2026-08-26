@@ -59,18 +59,13 @@ describe('mobile sheet presentation', () => {
 		expect(mobileWorkspaceRailClassName(false)).toContain('grid')
 		expect(mobileWorkspaceRailClassName(false)).toContain('justify-between')
 		expect(mobileWorkspaceRailClassName(false)).not.toContain('justify-center')
-		expect(mobileWorkspaceRailGridTemplateColumns()).toBe('44px minmax(132px, 180px) 44px 44px')
-		expect(layout).toEqual({
-			handlePx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
-			tabListPx: MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX,
-			tabPx: MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX / 3,
-			transparencyPx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
-			closePx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
-			interTrackGapPx: 8 / 3,
-			handleStartPx: 0,
-			closeEndPx: 320,
-			outerGutterPx: 0,
-		})
+		expect(layout.handlePx).toBe(MOBILE_WORKSPACE_RAIL_CONTROL_PX)
+		expect(layout.tabListPx).toBe(MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX)
+		expect(layout.transparencyPx).toBe(MOBILE_WORKSPACE_RAIL_CONTROL_PX)
+		expect(layout.closePx).toBe(MOBILE_WORKSPACE_RAIL_CONTROL_PX)
+		expect(layout.handleStartPx).toBe(0)
+		expect(layout.closeEndPx).toBe(320)
+		expect(layout.outerGutterPx).toBe(0)
 		expect(layout.tabPx).toBeGreaterThanOrEqual(44)
 	})
 
@@ -78,12 +73,28 @@ describe('mobile sheet presentation', () => {
 		const layout = resolveMobileWorkspaceRailLayout(390)
 
 		expect(layout.tabListPx).toBe(180)
-		expect(layout.interTrackGapPx).toBe(26)
 		expect(layout.handleStartPx).toBe(0)
 		expect(layout.closeEndPx).toBe(390)
 		expect(layout.outerGutterPx).toBe(0)
 		expect(mobileWorkspaceTabListClassName(false)).toContain('w-full')
 		expect(mobileWorkspaceTabListClassName(true)).toContain('bg-card/10')
+	})
+
+	test('keeps transparency directly beside close in a trailing 88px action group', () => {
+		expect(mobileWorkspaceRailGridTemplateColumns()).toBe('44px minmax(132px, 180px) 88px')
+
+		for (const [viewportPx, expectedGapPx] of [
+			[320, 4],
+			[390, 39],
+		] as const) {
+			const layout = resolveMobileWorkspaceRailLayout(viewportPx)
+
+			expect(layout.handleStartPx).toBe(0)
+			expect(layout.closeEndPx).toBe(viewportPx)
+			expect(layout.transparencyPx + layout.closePx).toBe(88)
+			expect(layout.interTrackGapPx).toBe(expectedGapPx)
+			expect(layout.tabPx).toBeGreaterThanOrEqual(44)
+		}
 	})
 
 	test('keeps editor actions in a collision-free row that vanishes when empty', () => {

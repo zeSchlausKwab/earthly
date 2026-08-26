@@ -5,18 +5,20 @@ export const MOBILE_WORKSPACE_RAIL_TAB_COUNT = 3
 export const MOBILE_WORKSPACE_RAIL_TABLIST_MIN_PX =
 	MOBILE_WORKSPACE_RAIL_CONTROL_PX * MOBILE_WORKSPACE_RAIL_TAB_COUNT
 export const MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX = 180
+const MOBILE_WORKSPACE_RAIL_GROUP_GAP_COUNT = 2
 
 /**
  * The map workspace has one literal control sequence:
  * resize handle → Stack/Edit/Chat → transparency → close.
  *
  * A 44px control and three 44px tabs fit as far down as 264px. At our
- * supported 320px floor, the tab list grows to 180px. The remaining width is
- * distributed only between the four tracks: the resize handle stays flush to
- * the rail's leading edge and close stays flush to its trailing edge.
+ * supported 320px floor, the tab list grows to 180px. Transparency and close
+ * form one trailing 88px action group, so the remaining width is distributed
+ * only between handle, tabs, and actions. The handle stays flush to the rail's
+ * leading edge and close stays flush to its trailing edge.
  */
 export function mobileWorkspaceRailGridTemplateColumns(): string {
-	return `${MOBILE_WORKSPACE_RAIL_CONTROL_PX}px minmax(${MOBILE_WORKSPACE_RAIL_TABLIST_MIN_PX}px, ${MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX}px) ${MOBILE_WORKSPACE_RAIL_CONTROL_PX}px ${MOBILE_WORKSPACE_RAIL_CONTROL_PX}px`
+	return `${MOBILE_WORKSPACE_RAIL_CONTROL_PX}px minmax(${MOBILE_WORKSPACE_RAIL_TABLIST_MIN_PX}px, ${MOBILE_WORKSPACE_RAIL_TABLIST_MAX_PX}px) ${MOBILE_WORKSPACE_RAIL_CONTROL_PX * 2}px`
 }
 
 export function resolveMobileWorkspaceRailLayout(viewportWidthPx: number): {
@@ -38,7 +40,7 @@ export function resolveMobileWorkspaceRailLayout(viewportWidthPx: number): {
 	const contentPx = fixedControlsPx + tabListPx
 	const interTrackGapPx = Math.max(
 		0,
-		(viewportWidthPx - contentPx) / MOBILE_WORKSPACE_RAIL_TAB_COUNT,
+		(viewportWidthPx - contentPx) / MOBILE_WORKSPACE_RAIL_GROUP_GAP_COUNT,
 	)
 
 	return {
@@ -49,7 +51,7 @@ export function resolveMobileWorkspaceRailLayout(viewportWidthPx: number): {
 		closePx: MOBILE_WORKSPACE_RAIL_CONTROL_PX,
 		interTrackGapPx,
 		handleStartPx: 0,
-		closeEndPx: contentPx + interTrackGapPx * MOBILE_WORKSPACE_RAIL_TAB_COUNT,
+		closeEndPx: contentPx + interTrackGapPx * MOBILE_WORKSPACE_RAIL_GROUP_GAP_COUNT,
 		outerGutterPx: 0,
 	}
 }

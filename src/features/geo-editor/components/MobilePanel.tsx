@@ -1196,10 +1196,10 @@ export function MobilePanel(props: MobilePanelProps) {
 										)}
 										{mapWorkTabsVisible ? workspaceTabList : null}
 										{mapWorkTabsVisible ? (
-											<>
+											<div className="flex h-12 items-center justify-end">
 												{sheetTransparencyControl}
 												{sheetCloseControl}
-											</>
+											</div>
 										) : (
 											<div className="flex h-12 items-center justify-end">
 												{sheetTransparencyControl}

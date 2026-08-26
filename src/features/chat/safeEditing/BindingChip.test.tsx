@@ -201,10 +201,14 @@ describe('BindingChip render (SAFE-01 / D-03)', () => {
 		// 44px interaction row minus 6px at each edge = a visibly denser 32px capsule.
 		expect(compactClasses).toContain('h-11')
 		expect(compactClasses).toContain('before:inset-y-1.5')
+		expect(compactClasses).toContain('before:bg-[var(--fill-edit-14)]')
+		expect(compactClasses).not.toContain('before:bg-edit/15')
+		expect(compactClasses).toContain('text-[var(--accent-edit-text)]')
 		expect(compactClasses).not.toContain('py-0.5')
 
 		// Desktop keeps its established full-painted chip sizing.
 		expect(desktopClasses).toContain('py-0.5')
+		expect(desktopClasses).toContain('text-edit')
 		expect(desktopClasses).not.toContain('h-11')
 		expect(desktopClasses).not.toContain('before:inset-y-1.5')
 	})
