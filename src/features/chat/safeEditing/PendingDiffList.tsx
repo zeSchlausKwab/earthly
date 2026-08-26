@@ -2,7 +2,6 @@ import { useSyncExternalStore } from 'react'
 import { Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useChatStore } from '@/features/chat/store'
-import { useEditorStore } from '@/features/geo-editor/store'
 import { DatasetDiffDisclosure } from './DatasetDiffDisclosure'
 import {
 	getAllPendingDiffs,
@@ -10,6 +9,7 @@ import {
 	subscribePendingDiffs,
 	type PendingDiffEntry,
 } from './pendingDiffStore'
+import { undoPendingDiff } from './targetBoundUndo'
 
 /**
  * Subscribe the React transcript to the host-side pending-diff bridge. The gate
@@ -31,37 +31,36 @@ function useActiveChatDiffs(): PendingDiffEntry[] {
 function DiffCardStack({ entries }: { entries: PendingDiffEntry[] }) {
 	if (entries.length === 0) return null
 
-	const undoLastAiEdit = () => {
-		useEditorStore.getState().editor?.undoLastDatasetSnapshot()
-	}
-
 	return (
 		<div className="space-y-2">
-			{entries.map((entry) => (
-				<div key={entry.id} className="ml-8 min-w-0 max-w-[85%]">
-					<DatasetDiffDisclosure
-						diff={entry.diff}
-						status={entry.status}
-						headline={entry.headline}
-						onApply={() => resolvePendingDiff(entry.id, 'applied')}
-						onCancel={() => resolvePendingDiff(entry.id, 'cancelled')}
-					/>
-					{entry.status === 'applied' ? (
-						<div className="mt-1 flex justify-end">
-							<Button
-								type="button"
-								variant="ghost"
-								size="sm"
-								className="h-auto gap-1 px-2 py-0.5 text-[11px] text-muted-foreground"
-								onClick={undoLastAiEdit}
-							>
-								<Undo2 className="h-3 w-3" />
-								Undo last AI edit
-							</Button>
-						</div>
-					) : null}
-				</div>
-			))}
+			{entries.map((entry) => {
+				return (
+					<div key={entry.id} className="ml-8 min-w-0 max-w-[85%]">
+						<DatasetDiffDisclosure
+							diff={entry.diff}
+							status={entry.status}
+							headline={entry.headline}
+							onApply={() => resolvePendingDiff(entry.id, 'applied')}
+							onCancel={() => resolvePendingDiff(entry.id, 'cancelled')}
+						/>
+						{entry.status === 'applied' && entry.commit ? (
+							<div className="mt-1 flex justify-end">
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									className="h-auto gap-1 px-2 py-0.5 text-[11px] text-muted-foreground"
+									onClick={() => undoPendingDiff(entry.id)}
+									title="Undo this exact AI edit in its bound Dataset"
+								>
+									<Undo2 className="h-3 w-3" />
+									Undo AI edit
+								</Button>
+							</div>
+						) : null}
+					</div>
+				)
+			})}
 		</div>
 	)
 }

@@ -47,6 +47,8 @@ import {
 	EntityPanelSurface,
 } from '@/components/info-panel/EntityPanelShell'
 import { Checkbox } from '@radix-ui/react-checkbox'
+import { captureVisibleDatasetReferenceTarget } from '@/features/chat/store'
+import { ensureDatasetReferencePublished } from '@/features/chat/referencePublishing'
 
 type SchemaFieldType = 'string' | 'number' | 'integer' | 'boolean'
 type ContextEditorTab = 'content' | 'policy' | 'schema'
@@ -562,6 +564,22 @@ export function MapContextEditorPanel({
 				...extractReferencedCoordinates(description),
 				...extractReferencedCoordinatesFromList(curatedReferences),
 			]
+
+			// Context descriptions and curated references share the same invariant as
+			// Stories: a referenced Dataset must identify the current published draft,
+			// never an older revision. Capture the exact edit state before awaiting the
+			// global publish confirmation so sidebar navigation cannot retarget it.
+			const target = captureVisibleDatasetReferenceTarget()
+			const referenceGate = await ensureDatasetReferencePublished({
+				markdown: [description, ...curatedReferences].join('\n'),
+				chatId: `manual-context:${initialContext?.contextId ?? 'new'}`,
+				toolCallId: `publish-context:${Date.now()}`,
+				target,
+			})
+			if (referenceGate.status === 'blocked') {
+				setSaveError(referenceGate.message)
+				return
+			}
 
 			const factory = initialContext
 				? MapContextFactory.modify(initialContext.event).context(contextContent)

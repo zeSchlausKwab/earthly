@@ -15,9 +15,15 @@ export const installDeterministicChatProviderTask: AiTaskMetadata = {
 export const DETERMINISTIC_CHAT_BASE_URL = 'http://model.earthly.localhost/v1'
 export const DETERMINISTIC_CHAT_MODEL_ID = 'earthly-spatial-fixture'
 export const DETERMINISTIC_CHAT_SECONDARY_MODEL_ID = 'earthly-compact-fixture'
+export const DETERMINISTIC_SEQUENTIAL_DATASET_NAME = 'Sequential AI edit regression'
+export const DETERMINISTIC_SEQUENTIAL_DATASET_DESCRIPTION =
+	'Non-empty AI-authored description applied while the Dataset metadata editor is mounted.'
 
 export type DeterministicChatScenario =
 	| 'spatial-research'
+	| 'target-binding'
+	| 'metadata-then-geometry'
+	| 'mobile-workspace-switch'
 	| 'nearby-discovery'
 	| 'source-to-map-research'
 	| 'repeated-tool-error'
@@ -26,6 +32,18 @@ const scenarioModels: Record<DeterministicChatScenario, { id: string; name: stri
 	'spatial-research': {
 		id: DETERMINISTIC_CHAT_MODEL_ID,
 		name: 'Earthly spatial fixture',
+	},
+	'target-binding': {
+		id: 'earthly-target-binding-fixture',
+		name: 'Earthly target binding fixture',
+	},
+	'metadata-then-geometry': {
+		id: 'earthly-metadata-then-geometry-fixture',
+		name: 'Earthly sequential edit fixture',
+	},
+	'mobile-workspace-switch': {
+		id: 'earthly-mobile-workspace-fixture',
+		name: 'Earthly mobile workspace fixture',
 	},
 	'nearby-discovery': {
 		id: 'earthly-nearby-fixture',
@@ -54,6 +72,17 @@ export interface DeterministicChatRequestSummary {
 export interface DeterministicChatProviderHarness {
 	settings: ReturnType<typeof deterministicChatSettings>
 	requests(): DeterministicChatRequestSummary[]
+	/** Release completion responses held by `holdCompletionResponses`. Safe to call repeatedly. */
+	releaseCompletionResponses(): void
+}
+
+export interface DeterministicChatProviderOptions {
+	/**
+	 * Leave chat-completion requests pending until the scenario explicitly
+	 * releases them. Model discovery remains immediate. This makes background-run
+	 * navigation deterministic without sleeps or a deliberately slow endpoint.
+	 */
+	holdCompletionResponses?: boolean
 }
 
 const syntheticSpatialDraft = {
@@ -172,6 +201,7 @@ async function fulfillModelRoute(
 	route: Route,
 	requests: DeterministicChatRequestSummary[],
 	scenario: DeterministicChatScenario,
+	completionGate?: Promise<void>,
 ): Promise<void> {
 	const model = scenarioModels[scenario]
 	const request = route.request()
@@ -206,7 +236,7 @@ async function fulfillModelRoute(
 	}
 
 	const body = (request.postDataJSON() ?? {}) as {
-		messages?: Array<{ role?: string; content?: unknown }>
+		messages?: Array<{ role?: string; content?: unknown; tool_call_id?: string }>
 		tools?: Array<{ function?: { name?: string } }>
 	}
 	const messages = Array.isArray(body.messages) ? body.messages : []
@@ -305,6 +335,103 @@ async function fulfillModelRoute(
 				'tool_calls',
 				model.id,
 			)
+	const targetBindingBodyText = streamBody(
+		{
+			role: 'assistant',
+			content: 'The explicitly selected Dataset target received this prompt.',
+		},
+		'stop',
+		model.id,
+	)
+	const completedToolCallIds = new Set(
+		messages.flatMap((message) =>
+			message.role === 'tool' && typeof message.tool_call_id === 'string'
+				? [message.tool_call_id]
+				: [],
+		),
+	)
+	const metadataThenGeometryBodyText = completedToolCallIds.has('call-sequential-geometry')
+		? streamBody(
+				{
+					role: 'assistant',
+					content:
+						'I updated the Dataset description first, then added four synthetic geometries to the same draft.',
+				},
+				'stop',
+				model.id,
+			)
+		: completedToolCallIds.has('call-sequential-metadata')
+			? streamBody(
+					{
+						role: 'assistant',
+						tool_calls: [
+							{
+								index: 0,
+								id: 'call-sequential-geometry',
+								type: 'function',
+								function: {
+									name: 'write_geojson_to_editor',
+									arguments: JSON.stringify({ geojson: syntheticSpatialDraft }),
+								},
+							},
+						],
+					},
+					'tool_calls',
+					model.id,
+				)
+			: streamBody(
+					{
+						role: 'assistant',
+						tool_calls: [
+							{
+								index: 0,
+								id: 'call-sequential-metadata',
+								type: 'function',
+								function: {
+									name: 'set_dataset_metadata',
+									arguments: JSON.stringify({
+										name: DETERMINISTIC_SEQUENTIAL_DATASET_NAME,
+										description: DETERMINISTIC_SEQUENTIAL_DATASET_DESCRIPTION,
+									}),
+								},
+							},
+						],
+					},
+					'tool_calls',
+					model.id,
+				)
+	const mobileWorkspaceBodyText = completedToolCallIds.has('call-mobile-background-story')
+		? streamBody(
+				{
+					role: 'assistant',
+					content:
+						'I retained the background Story draft without changing your visible mobile workspace.',
+				},
+				'stop',
+				model.id,
+			)
+		: streamBody(
+				{
+					role: 'assistant',
+					tool_calls: [
+						{
+							index: 0,
+							id: 'call-mobile-background-story',
+							type: 'function',
+							function: {
+								name: 'write_story_draft',
+								arguments: JSON.stringify({
+									title: 'Background mobile Story',
+									markdown:
+										'This deterministic Story is retained without stealing the active Chat panel.',
+								}),
+							},
+						},
+					],
+				},
+				'tool_calls',
+				model.id,
+			)
 	const sourceToMapCode = `
 		authoring.commitDataset({
 			featureCollection: ${JSON.stringify(syntheticSourcedDraft)},
@@ -380,12 +507,19 @@ async function fulfillModelRoute(
 	const bodyText =
 		scenario === 'nearby-discovery'
 			? nearbyBodyText
-			: scenario === 'source-to-map-research'
-				? sourceToMapBodyText
-				: scenario === 'repeated-tool-error'
-					? repeatedToolErrorBodyText
-					: spatialBodyText
+			: scenario === 'target-binding'
+				? targetBindingBodyText
+				: scenario === 'metadata-then-geometry'
+					? metadataThenGeometryBodyText
+					: scenario === 'mobile-workspace-switch'
+						? mobileWorkspaceBodyText
+						: scenario === 'source-to-map-research'
+							? sourceToMapBodyText
+							: scenario === 'repeated-tool-error'
+								? repeatedToolErrorBodyText
+								: spatialBodyText
 
+	if (completionGate) await completionGate
 	await route.fulfill({
 		status: 200,
 		headers: corsHeaders('text/event-stream; charset=utf-8'),
@@ -396,14 +530,22 @@ async function fulfillModelRoute(
 export async function installDeterministicChatProvider(
 	earthly: EarthlySession,
 	scenario: DeterministicChatScenario = 'spatial-research',
+	options: DeterministicChatProviderOptions = {},
 ): Promise<DeterministicChatProviderHarness> {
 	const recorded: DeterministicChatRequestSummary[] = []
+	let releaseCompletionResponses = () => {}
+	const completionGate = options.holdCompletionResponses
+		? new Promise<void>((resolve) => {
+				releaseCompletionResponses = resolve
+			})
+		: undefined
 	await earthly.page.route(`${DETERMINISTIC_CHAT_BASE_URL}/**`, (route) =>
-		fulfillModelRoute(route, recorded, scenario),
+		fulfillModelRoute(route, recorded, scenario, completionGate),
 	)
 	const model = scenarioModels[scenario]
 	return {
 		settings: deterministicChatSettings(DETERMINISTIC_CHAT_BASE_URL, model.id),
 		requests: () => structuredClone(recorded),
+		releaseCompletionResponses,
 	}
 }

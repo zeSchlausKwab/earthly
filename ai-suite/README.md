@@ -11,6 +11,9 @@ by default because that command resets and seeds the relay.
 
 ```bash
 bun run ai:list
+bun run demo:check -- ai-suite/demos/example.geometry.json
+bun run demo:rehearse -- ai-suite/demos/example.geometry.json
+bun run demo:record -- ai-suite/demos/example.geometry.json
 bun run experience:list
 bun run experience:card -- --journey squirrel-capture
 bun run experience:audit -- --project mobile
@@ -52,6 +55,7 @@ traces for failures.
 - `fixtures/` — Playwright fixtures exposed to scenarios.
 - `test-identities/` — deterministic local identities and browser-extension adapters.
 - `experience-lab/` — behavioral personas, journeys, review lenses, and human session cards.
+- `demos/` — manifest-driven 1920×1080 AI-chat recordings and matching campaign copy.
 - `tasks/` — reusable Earthly actions. Tasks own selectors and action sequencing.
 - `scenarios/` — product claims composed from tasks.
 - `scratch/` — disposable scripts and investigations.

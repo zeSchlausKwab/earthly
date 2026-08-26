@@ -2,6 +2,8 @@ import type { FeatureCollection } from 'geojson'
 import type { Article } from '@/lib/nostr/article'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
+import type { LiveBeacon } from '@/lib/nostr/live-beacon'
+import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import type { ContextFilterMode } from '@/lib/context/validation'
 import type { ContextMapScopeMode } from '@/lib/context/scope'
 import type { PmtilesKind } from '@/lib/localPmtiles'
@@ -31,6 +33,20 @@ export type SidebarViewMode =
 	| 'delivery'
 
 export type SettingsTab = 'map' | 'profile' | 'relays' | 'offline' | 'chat' | 'sessions'
+
+export type ChatDock = 'left' | 'right'
+
+/**
+ * The last explicitly inspected authored entity. This is retained independently
+ * from the currently visible route/surface so catalog and editor navigation can
+ * never leave several stale per-kind subjects competing for the Inspector.
+ */
+export type InspectionSubject =
+	| { kind: 'dataset'; entity: GeoDataset }
+	| { kind: 'context'; entity: MapContext }
+	| { kind: 'story'; entity: Article }
+	| { kind: 'sighting'; entity: TemporalSighting }
+	| { kind: 'beacon'; entity: LiveBeacon }
 
 /**
  * Phase 1.3: the minimal parsed-route shape consumed by `applyRouteState`. A
@@ -92,9 +108,8 @@ export interface MapLayerState {
 /**
  * Round C.3: the in-edit draft is also represented as a map-stack entry so the
  * panel honestly reflects what's contributing to the map render. The draft is
- * rendered by the editor's draft layer, not by `visibleGeoEvents`, so the
- * stack entry is cosmetic — but it lets the user see, isolate, and end the
- * edit session from the same surface.
+ * rendered by the editor's draft layer, not by `visibleGeoEvents`; this entry
+ * gates that layer while the retained editor model stays intact.
  */
 export type MapStackEntryType =
 	| 'dataset'
@@ -218,6 +233,29 @@ export type MobilePanelTab =
 	| 'settings'
 	| 'help'
 
+/**
+ * The entity surface selected inside the mobile Edit/Inspect sheet.
+ *
+ * This is deliberately only a presentation pointer. Selecting one of these
+ * values must not create an entity, activate a Dataset workspace, change a
+ * Chat target, or alter Map Stack visibility. The concrete entity/editor state
+ * remains owned by its existing store/hook; this discriminant makes the sheet
+ * header and body choose the same one when several are retained.
+ *
+ * Sightings and Beacons are transient entries in this union. They may own the
+ * visible sheet while their create/control/inspect flow is active, but they are
+ * not advertised as durable authoring tasks after that flow closes.
+ */
+export type MobileEntitySurface =
+	| 'inspector'
+	| 'dataset'
+	| 'story'
+	| 'context'
+	| 'sighting'
+	| 'beacon'
+
+export type MobileEntitySurfaceAvailability = Record<MobileEntitySurface, boolean>
+
 /** Mobile bottom-sheet detents (redesign §5a "one sheet, three detents"):
  *  peek ≈ 15% (browse, map owns the screen), half ≈ 55% (properties on select),
  *  full ≈ 92% (the outliner, full height). */
@@ -270,6 +308,8 @@ export interface GeoEditorWorkspace {
 	label: string
 	kind: 'dataset' | 'scratch'
 	datasetKey: string | null
+	/** Exact published revision the retained draft was opened from. */
+	baseRevisionId?: string | null
 	activeDraftId: string | null
 	chatSessionId: string | null
 	createdAt: number
@@ -323,6 +363,7 @@ export interface DraftSlice {
 				| 'blobReferences'
 			>
 		>,
+		options?: { activate?: boolean },
 	) => string
 	setActiveGeoEditDraftId: (id: string | null) => void
 	saveGeoEditDraft: (
@@ -356,8 +397,11 @@ export interface WorkspaceSlice {
 		label: string
 		kind: GeoEditorWorkspace['kind']
 		datasetKey?: string | null
+		baseRevisionId?: string | null
 		activeDraftId?: string | null
 		chatSessionId?: string | null
+		/** Retain the workspace without changing the visible editor surface. */
+		activate?: boolean
 	}) => string
 	updateWorkspace: (
 		id: string,
@@ -367,7 +411,10 @@ export interface WorkspaceSlice {
 	setActiveWorkspaceId: (id: string | null) => void
 	touchActiveWorkspace: (
 		updates?: Partial<
-			Pick<GeoEditorWorkspace, 'label' | 'activeDraftId' | 'chatSessionId' | 'datasetKey'>
+			Pick<
+				GeoEditorWorkspace,
+				'label' | 'activeDraftId' | 'chatSessionId' | 'datasetKey' | 'baseRevisionId'
+			>
 		>,
 	) => void
 }
@@ -422,6 +469,7 @@ export interface PublishingSlice {
 
 export interface ViewModeSlice {
 	viewMode: 'edit' | 'view'
+	inspectionSubject: InspectionSubject | null
 	viewDataset: GeoDataset | null
 	viewContext: MapContext | null
 	viewStory: Article | null
@@ -441,6 +489,7 @@ export interface ViewModeSlice {
 	} | null
 
 	setViewMode: (mode: 'edit' | 'view') => void
+	setInspectionSubject: (subject: InspectionSubject | null) => void
 	setViewDataset: (dataset: GeoDataset | null) => void
 	setViewContext: (context: MapContext | null) => void
 	setViewStory: (story: Article | null) => void
@@ -467,9 +516,9 @@ export interface ViewModeSlice {
 	 * GeoEditorView fills them once the matching event has streamed in (so this
 	 * reducer stays free of event-data lookups).
 	 *
-	 * It never touches the active draft, the `draft:active` stack entry, or the
-	 * workspace — those are edit-session state, owned by applyEditingState /
-	 * tearDownEditSession (the draft invariant, Phase 1.4).
+	 * It never touches the active draft, workspace, or independent `draft:active`
+	 * visibility row. Authoring lifetime and Map Stack presentation are reconciled
+	 * by their respective owners, not by route changes.
 	 */
 	applyRouteState: (route: RouteSnapshot, options?: ApplyRouteStateOptions) => void
 }
@@ -510,10 +559,7 @@ export interface MapStackSlice {
 	 * exactly the current ids — otherwise the call is ignored.
 	 */
 	setMapStackOrder: (order: string[]) => void
-	/**
-	 * Removes all entries except pinned ones and the active draft. Pinning is
-	 * the contract for "keep this through a Clear".
-	 */
+	/** Removes all entries except pinned ones. Map Stack is visibility-only. */
 	clearMapStack: () => void
 }
 
@@ -535,20 +581,21 @@ export interface UISlice {
 	mobileSidebarOpen: boolean
 	mobileSidebarMode: MobileSidebarMode
 	mobilePanelResumeOnSidebarClose: MobilePanelResume | null
+	/** Last entity surface explicitly selected by the user on mobile. */
+	mobileEntitySurface: MobileEntitySurface | null
 	inspectorActive: boolean
 	sidebarViewMode: SidebarViewMode
 	sidebarExpanded: boolean
 	/** Desktop right-side assistant/chat panel open state (single source of truth,
-	 *  read by the shell + the toolbar toggle). */
+	 *  read by the shell + the two explicit dock toggles). */
 	chatOpen: boolean
+	/** Which side owns the single mounted desktop Chat panel. */
+	chatDock: ChatDock
 	/** Desktop floating Map Stack panel open state. */
 	mapStackOpen: boolean
 	/** Deep-link target tab for the settings panel (e.g. from the status-bar
 	 *  relay indicator). Consumed by MapSettingsPanel; null = its own default. */
 	settingsTab: SettingsTab | null
-	/** DOM slot in the Map Stack's expanded draft entry that the sidebar editor
-	 *  portals into (editor-in-Map-Stack). Null when no draft slot is mounted. */
-	draftEditorSlot: HTMLElement | null
 
 	setNewCollectionProp: (prop: { key: string; value: string }) => void
 	setNewFeatureProp: (prop: { key: string; value: string }) => void
@@ -574,14 +621,31 @@ export interface UISlice {
 		options?: { preserveSuspendedPanel?: boolean },
 	) => void
 	closeMobileSidebar: () => void
+	/** Presentation-only selection; never mutates authoring or visibility state. */
+	selectMobileEntitySurface: (surface: MobileEntitySurface | null) => void
+	/**
+	 * Explicitly activate one retained mobile entity surface. Unlike a sheet-tab
+	 * switch, this transition updates the editor interaction stance. It validates
+	 * the target first and never creates, closes, retargets, or changes Map Stack
+	 * visibility.
+	 */
+	activateMobileEntitySurface: (
+		surface: MobileEntitySurface,
+		availability: MobileEntitySurfaceAvailability,
+	) => boolean
 	setInspectorActive: (active: boolean) => void
 	setSidebarViewMode: (mode: SidebarViewMode) => void
 	setSettingsTab: (tab: SettingsTab | null) => void
-	setDraftEditorSlot: (el: HTMLElement | null) => void
 	setSidebarExpanded: (expanded: boolean) => void
 	toggleSidebarExpanded: () => void
 	setChatOpen: (open: boolean) => void
 	toggleChat: () => void
+	setChatDock: (dock: ChatDock) => void
+	/**
+	 * Toggle Chat at an explicit side. Selecting the other side moves the same
+	 * mounted panel and keeps it open; selecting its current side closes it.
+	 */
+	toggleChatAtDock: (dock: ChatDock) => void
 	setMapStackOpen: (open: boolean) => void
 	toggleMapStack: () => void
 }

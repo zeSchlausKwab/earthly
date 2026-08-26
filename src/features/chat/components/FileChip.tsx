@@ -122,14 +122,14 @@ export function FileChip({ file, onRemove }: FileChipProps) {
 	const isImageUnsupported = file.status === 'image' && file.visionTier === 'no-vision'
 	const expandable = isExpandable(file)
 
-	const chipBody = (
-		<div
-			className={cn(
-				'flex max-w-full items-center gap-1.5 rounded border bg-background px-2 py-1 text-xs',
-				isImageUnsupported && 'opacity-60',
-				isImageUncertain && 'border-primary/40',
-			)}
-		>
+	const chipClassName = cn(
+		'flex max-w-full items-center gap-1.5 rounded border bg-background px-2 py-1 text-xs',
+		isImageUnsupported && 'opacity-60',
+		isImageUncertain && 'border-primary/40',
+	)
+
+	const chipLabel = (
+		<>
 			{isParsing ? (
 				<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
 			) : (
@@ -154,45 +154,51 @@ export function FileChip({ file, onRemove }: FileChipProps) {
 					)}
 				/>
 			)}
-			<Button
-				type="button"
-				size="icon"
-				variant="ghost"
-				className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
-				onClick={(event) => {
-					event.stopPropagation()
-					onRemove(file.id)
-				}}
-				aria-label={`Remove ${file.fileName}`}
-			>
-				<X className="h-3 w-3" />
-			</Button>
-		</div>
+		</>
+	)
+
+	const removeButton = (
+		<Button
+			type="button"
+			size="icon"
+			variant="ghost"
+			className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+			onClick={() => onRemove(file.id)}
+			aria-label={`Remove ${file.fileName}`}
+		>
+			<X className="h-3 w-3" />
+		</Button>
 	)
 
 	return (
 		<div className="flex max-w-full flex-col gap-1">
 			{expandable ? (
 				<Collapsible open={open} onOpenChange={setOpen}>
-					<CollapsibleTrigger asChild>
-						<button type="button" className="max-w-full text-left">
-							{chipBody}
-						</button>
-					</CollapsibleTrigger>
+					<div className={chipClassName}>
+						<CollapsibleTrigger asChild>
+							<button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+								{chipLabel}
+							</button>
+						</CollapsibleTrigger>
+						{removeButton}
+					</div>
 					<CollapsibleContent>
 						<ExpandedSummary file={file} />
 					</CollapsibleContent>
 				</Collapsible>
 			) : (
-				chipBody
+				<div className={chipClassName}>
+					<div className="flex min-w-0 flex-1 items-center gap-1.5">{chipLabel}</div>
+					{removeButton}
+				</div>
 			)}
 			{/* Compact caption stat line under the chip (status-colored). */}
-			<p
+			<div
 				className={cn('px-1 text-[11px]', isFailed ? 'text-destructive' : 'text-muted-foreground')}
 			>
 				{isParsing && <Progress value={66} className="mb-1 h-1 w-24" />}
 				{compactStatLine(file)}
-			</p>
+			</div>
 		</div>
 	)
 }

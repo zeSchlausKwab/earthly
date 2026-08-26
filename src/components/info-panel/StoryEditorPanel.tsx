@@ -62,6 +62,9 @@ import {
 	getStoryEditorOpenRequest,
 	subscribeStoryEditorOpenRequests,
 } from '@/features/geo-editor/storyEditorBridge'
+import { captureVisibleDatasetReferenceTarget } from '@/features/chat/store'
+import { ensureDatasetReferencePublished } from '@/features/chat/referencePublishing'
+import { useRetainedEditorDraft } from '@/hooks/useRetainedEditorDraft'
 import { accounts, eventStore } from '@/lib/nostr'
 import { Article, type ArticleContent, getArticleContent, isArticle } from '@/lib/nostr/article'
 import {
@@ -92,6 +95,7 @@ function readInitialContent(initialStory?: Article | null): {
 	summary: string
 	image: string
 	body: string
+	bodyTab: 'write' | 'preview'
 	draftKey: string
 } {
 	const draftKey = initialStory?.dTag ?? NEW_STORY_DRAFT_KEY
@@ -102,6 +106,7 @@ function readInitialContent(initialStory?: Article | null): {
 			summary: draft.summary ?? '',
 			image: draft.image ?? '',
 			body: draft.content ?? '',
+			bodyTab: draft.bodyTab ?? 'write',
 			draftKey,
 		}
 	}
@@ -113,6 +118,7 @@ function readInitialContent(initialStory?: Article | null): {
 			summary: content.summary ?? '',
 			image: content.image ?? '',
 			body: content.content ?? '',
+			bodyTab: 'write',
 			draftKey,
 		}
 	}
@@ -121,8 +127,37 @@ function readInitialContent(initialStory?: Article | null): {
 		summary: '',
 		image: '',
 		body: '',
+		bodyTab: 'write',
 		draftKey,
 	}
+}
+
+interface StoryEditorDraftSnapshot {
+	title: string
+	summary: string
+	image: string
+	content: string
+	bodyTab: 'write' | 'preview'
+}
+
+function storyDraftSnapshot(values: {
+	title: string
+	summary: string
+	image: string
+	body: string
+	bodyTab: 'write' | 'preview'
+}): StoryEditorDraftSnapshot {
+	return {
+		title: values.title,
+		summary: values.summary,
+		image: values.image,
+		content: values.body,
+		bodyTab: values.bodyTab,
+	}
+}
+
+function persistStoryEditorDraft(identity: string, snapshot: StoryEditorDraftSnapshot): void {
+	writeStoryDraft(identity, snapshot)
 }
 
 export function StoryEditorPanel({
@@ -147,19 +182,35 @@ export function StoryEditorPanel({
 	const [summary, setSummary] = useState(initial.summary)
 	const [image, setImage] = useState(initial.image)
 	const [body, setBody] = useState(initial.body)
-	const [bodyTab, setBodyTab] = useState<'write' | 'preview'>('write')
+	const [bodyTab, setBodyTab] = useState<'write' | 'preview'>(initial.bodyTab)
 	const [isSaving, setIsSaving] = useState(false)
 	const [saveError, setSaveError] = useState<string | null>(null)
+	const draftKey = initial.draftKey
+	const draftSnapshot = useMemo(
+		() => storyDraftSnapshot({ title, summary, image, body, bodyTab }),
+		[title, summary, image, body, bodyTab],
+	)
+	const draftSignature = useMemo(() => JSON.stringify(draftSnapshot), [draftSnapshot])
+	const cleanDraftSignatureRef = useRef(
+		JSON.stringify(storyDraftSnapshot({ ...initial, bodyTab: initial.bodyTab })),
+	)
+	const { setDirty, persistNow, clearRetainedDraft } = useRetainedEditorDraft({
+		identity: draftKey,
+		snapshot: draftSnapshot,
+		persist: persistStoryEditorDraft,
+		clear: clearStoryDraft,
+	})
 
 	// Reset all fields when the edited Story changes.
 	useEffect(() => {
 		const next = readInitialContent(initialStory)
+		cleanDraftSignatureRef.current = JSON.stringify(storyDraftSnapshot(next))
 		setTitle(next.title)
 		setSummary(next.summary)
 		setImage(next.image)
 		setBody(next.body)
 		bodyEditorRef.current?.setContent(next.body)
-		setBodyTab('write')
+		setBodyTab(next.bodyTab)
 		setSaveError(null)
 	}, [initialStory])
 
@@ -180,34 +231,41 @@ export function StoryEditorPanel({
 				return
 			}
 			const next = readInitialContent(initialStory)
+			cleanDraftSignatureRef.current = JSON.stringify(storyDraftSnapshot(next))
 			setTitle(next.title)
 			setSummary(next.summary)
 			setImage(next.image)
 			setBody(next.body)
 			bodyEditorRef.current?.setContent(next.body)
-			setBodyTab('write')
+			setBodyTab(next.bodyTab)
 			setSaveError(null)
 		})
 	}, [initialStory])
 
-	const draftKey = initial.draftKey
+	useEffect(() => {
+		setDirty(draftSignature !== cleanDraftSignatureRef.current)
+	}, [draftSignature, setDirty])
 
 	const handleSaveDraft = () => {
 		setSaveError(null)
 		try {
-			writeStoryDraft(draftKey, {
-				title: title.trim() || undefined,
-				summary: summary.trim() || undefined,
-				image: image.trim() || undefined,
-				content: body || undefined,
-			})
+			persistNow()
+			cleanDraftSignatureRef.current = draftSignature
 		} catch {
 			setSaveError("Couldn't save your draft locally. Your text is still here — try again.")
 		}
 	}
 
 	const handleDiscardDraft = () => {
-		clearStoryDraft(draftKey)
+		const discarded = storyDraftSnapshot({
+			title: '',
+			summary: '',
+			image: '',
+			body: '',
+			bodyTab: 'write',
+		})
+		cleanDraftSignatureRef.current = JSON.stringify(discarded)
+		clearRetainedDraft()
 		setTitle('')
 		setSummary('')
 		setImage('')
@@ -241,6 +299,22 @@ export function StoryEditorPanel({
 				content: body,
 			}
 
+			// A Story must never persist an address for an older Dataset revision while
+			// the referenced Dataset has local changes. Capture the visible edit state
+			// before the dialog boundary so navigating elsewhere cannot retarget this
+			// publish-and-continue operation.
+			const target = captureVisibleDatasetReferenceTarget()
+			const referenceGate = await ensureDatasetReferencePublished({
+				markdown: content.content ?? '',
+				chatId: `manual-story:${draftKey}`,
+				toolCallId: `publish-story:${Date.now()}`,
+				target,
+			})
+			if (referenceGate.status === 'blocked') {
+				setSaveError(referenceGate.message)
+				return
+			}
+
 			const editedEvent = initialStory?.rawEvent()
 			// publishStory/editStory (Plan 01) own the STORY-03 naddr→`a` re-derive
 			// and the STORY-04 d-tag lineage — never re-inline ArticleFactory here.
@@ -249,7 +323,7 @@ export function StoryEditorPanel({
 					? await editStory(editedEvent, content, signer)
 					: await publishStory(content, signer)
 
-			clearStoryDraft(draftKey)
+			clearRetainedDraft()
 			const cast = castEvent(signed, Article, eventStore)
 			// onSave (handleSaveStory) both tears the editor down AND navigates to
 			// the published story's canonical /stories/story/:naddr route. Do NOT

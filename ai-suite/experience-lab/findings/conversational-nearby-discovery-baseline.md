@@ -8,6 +8,8 @@
 - Model lane: controlled OpenAI-compatible fixture using a read-only `get_editor_state` call
 - Research status: baseline preserved; targeted responsive shell corrections implemented on 2026-07-20
 
+> Superseded on 2026-08-24: Earthly no longer permits conversation-only submission or lazy Dataset creation. A conversation must be explicitly bound to a retained Dataset edit state before Send; the visible editor never binds it automatically.
+
 ## First-pass implementation update — 2026-07-19
 
 `EXP-AI-006` is now resolved and protected by the deterministic mobile journey. A read-only prompt

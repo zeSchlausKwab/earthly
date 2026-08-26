@@ -319,6 +319,14 @@ export function upgradeLegacyHashRoute(): void {
 /** Custom event so in-app `pushState` navigations sync the route (popstate only fires on back/forward). */
 const LOCATION_CHANGE_EVENT = 'earthly:locationchange'
 
+export interface UseRoutingOptions {
+	/**
+	 * Own reconciliation from the browser URL into the global editor store.
+	 * GeoEditorView is the single owner; nested panels are route observers only.
+	 */
+	reconcileStore?: boolean
+}
+
 /**
  * Build a clean route path from route components. The returned string is an
  * absolute path (no leading `#`) suitable for `history.pushState`.
@@ -389,7 +397,7 @@ export function navigateToRoute(routePath: string, options?: { replace?: boolean
  * - #/context/{contextNaddr}/{sidebarView?} → context scope + sidebar
  * - #/context/{contextNaddr}/{sidebarView?}/{focusType}/{naddr} → context scope + sidebar + focus
  */
-export function useRouting() {
+export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 	const [route, setRoute] = useState<RouteState>(parseLocation)
 
 	// Phase 1.3: the single atomic reducer that reconciles every piece of
@@ -401,6 +409,7 @@ export function useRouting() {
 		const syncRoute = (event?: Event) => {
 			const newRoute = parseLocation()
 			setRoute(newRoute)
+			if (!reconcileStore) return
 			// Phase 1.3: in-app pushState, Back/Forward (popstate), and hashchange
 			// all funnel through one reducer so they share a single reconstruction
 			// path. This is what stops Back/Forward from leaving a stale inspector
@@ -422,7 +431,9 @@ export function useRouting() {
 		window.addEventListener('popstate', syncRoute)
 		window.addEventListener(LOCATION_CHANGE_EVENT, syncRoute)
 
-		// Initial sync on mount (the legacy hash redirect already ran in frontend.tsx).
+		// Every consumer initializes its local route. Only the explicit owner also
+		// reconciles navigation-derived global state; mounting a nested route user
+		// must remain presentational.
 		syncRoute()
 
 		return () => {
@@ -430,7 +441,7 @@ export function useRouting() {
 			window.removeEventListener('popstate', syncRoute)
 			window.removeEventListener(LOCATION_CHANGE_EVENT, syncRoute)
 		}
-	}, [applyRouteState])
+	}, [applyRouteState, reconcileStore])
 
 	/**
 	 * Phase 1.3: the single navigation primitive. Every navigate* wrapper builds

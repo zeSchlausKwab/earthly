@@ -71,7 +71,42 @@ const MESSAGES: ChatMessage[] = [
 function baseInput(overrides?: Partial<ConversationDumpInput>): ConversationDumpInput {
 	return {
 		exportedAt: 1_700_000_000_000,
-		activeChat: { id: 'chat-abcdef12', title: 'Buffer chat', createdAt: 1, updatedAt: 2 },
+		activeChat: {
+			id: 'chat-abcdef12',
+			title: 'Buffer chat',
+			targetWorkspaceId: 'workspace-now',
+			createdAt: 1,
+			updatedAt: 2,
+		},
+		currentTarget: {
+			entityType: 'dataset',
+			draftId: 'draft-now',
+			entityId: 'pubkey:dataset-now',
+			sourceId: 'source-now',
+			baseRevisionId: 'revision-now',
+			draftUpdatedAt: 1_699_999_999_900,
+			wasDirty: true,
+			workspaceId: 'workspace-now',
+		},
+		lastRun: {
+			identity: {
+				runId: 17,
+				chatId: 'chat-abcdef12',
+				startedAt: 1_699_999_999_000,
+				target: {
+					entityType: 'dataset',
+					draftId: 'draft-at-send',
+					entityId: 'pubkey:dataset-at-send',
+					sourceId: 'source-at-send',
+					baseRevisionId: 'revision-at-send',
+					draftUpdatedAt: 1_699_999_998_000,
+					wasDirty: false,
+					workspaceId: 'workspace-at-send',
+				},
+			},
+			completedAt: 1_699_999_999_800,
+			status: 'error',
+		},
 		messages: MESSAGES,
 		references: [],
 		provider: 'custom',
@@ -88,6 +123,7 @@ describe('buildConversationDump', () => {
 	test('includes schema, endpoint label, and message count', () => {
 		const dump = buildConversationDump(baseInput())
 		expect(dump.schema).toBe(CONVERSATION_DUMP_SCHEMA)
+		expect(CONVERSATION_DUMP_VERSION).toBe(3)
 		expect(dump.version).toBe(CONVERSATION_DUMP_VERSION)
 		expect(dump.exportedAt).toBe(new Date(1_700_000_000_000).toISOString())
 		expect(dump.endpoint.provider).toBe('custom')
@@ -96,11 +132,84 @@ describe('buildConversationDump', () => {
 		expect(dump.endpoint.modelLabel).toBe('Local Model One')
 		expect(dump.endpoint.toolsEnabled).toBe(true)
 		expect(dump.endpoint.promptProfile).toBe('legacy')
+		expect(dump.chat?.targetWorkspaceId).toBe('workspace-now')
 		expect(dump.messageCount).toBe(MESSAGES.length)
 		expect(dump.diagnostics).toEqual({ finishReason: 'tool_calls', toolCallCount: 2 })
 		expect(dump.analysis.toolCallCount).toBe(2)
 		expect(dump.analysis.toolErrorCount).toBe(1)
 		expect(dump.analysis.completedWithAssistant).toBe(true)
+	})
+
+	test('labels current Chat pointer failures instead of presenting them as resolved targets', () => {
+		const emptyTarget = {
+			entityType: null,
+			draftId: null,
+			entityId: null,
+			sourceId: null,
+			baseRevisionId: null,
+			draftUpdatedAt: null,
+			wasDirty: false,
+			workspaceId: null,
+		} as const
+		const unavailable = buildConversationDump(baseInput({ currentTarget: emptyTarget }))
+		expect(unavailable.editingTarget.current.status).toBe('unavailable')
+		expect(unavailable.editingTarget.current.target.wasDirty).toBeNull()
+
+		const populated = baseInput()
+		if (!populated.activeChat || !populated.currentTarget) {
+			throw new Error('Expected the diagnostic fixture to have a current target')
+		}
+		const unbound = buildConversationDump(
+			baseInput({
+				activeChat: { ...populated.activeChat, targetWorkspaceId: null },
+				currentTarget: emptyTarget,
+			}),
+		)
+		expect(unbound.editingTarget.current.status).toBe('unbound')
+
+		const mismatch = buildConversationDump(
+			baseInput({
+				currentTarget: { ...populated.currentTarget, workspaceId: 'workspace-other' },
+			}),
+		)
+		expect(mismatch.editingTarget.current.status).toBe('mismatch')
+	})
+
+	test('distinguishes the current Chat target from the immutable target captured at Send', () => {
+		const dump = buildConversationDump(baseInput())
+
+		expect(dump.editingTarget.current).toEqual({
+			chatId: 'chat-abcdef12',
+			targetWorkspaceId: 'workspace-now',
+			status: 'resolved',
+			target: {
+				entityType: 'dataset',
+				draftId: 'draft-now',
+				entityId: 'pubkey:dataset-now',
+				sourceId: 'source-now',
+				baseRevisionId: 'revision-now',
+				draftUpdatedAt: 1_699_999_999_900,
+				wasDirty: true,
+				workspaceId: 'workspace-now',
+			},
+		})
+		expect(dump.editingTarget.lastRun).toEqual({
+			runId: 17,
+			chatId: 'chat-abcdef12',
+			startedAt: 1_699_999_999_000,
+			completedAt: 1_699_999_999_800,
+			status: 'error',
+			target: {
+				entityType: 'dataset',
+				draftId: 'draft-at-send',
+				entityId: 'pubkey:dataset-at-send',
+				sourceId: 'source-at-send',
+				baseRevisionId: 'revision-at-send',
+				draftUpdatedAt: 1_699_999_998_000,
+				wasDirty: false,
+				workspaceId: 'workspace-at-send',
+			},
+		})
 	})
 
 	test('captures tool calls (id/name/arguments) and RAW tool results', () => {
@@ -146,9 +255,43 @@ describe('buildConversationDump', () => {
 		expect(dump.endpoint.modelLabel).toBe('local-model-1')
 	})
 
-	test('handles a null active chat', () => {
-		const dump = buildConversationDump(baseInput({ activeChat: null }))
+	test('uses explicit nulls when there is no active Chat or previous run', () => {
+		const dump = buildConversationDump(
+			baseInput({ activeChat: null, currentTarget: null, lastRun: null }),
+		)
 		expect(dump.chat).toBeNull()
+		expect(dump.editingTarget.current).toEqual({
+			chatId: null,
+			targetWorkspaceId: null,
+			status: 'no_active_chat',
+			target: {
+				entityType: null,
+				draftId: null,
+				entityId: null,
+				sourceId: null,
+				baseRevisionId: null,
+				draftUpdatedAt: null,
+				wasDirty: null,
+				workspaceId: null,
+			},
+		})
+		expect(dump.editingTarget.lastRun).toEqual({
+			runId: null,
+			chatId: null,
+			startedAt: null,
+			completedAt: null,
+			status: null,
+			target: {
+				entityType: null,
+				draftId: null,
+				entityId: null,
+				sourceId: null,
+				baseRevisionId: null,
+				draftUpdatedAt: null,
+				wasDirty: null,
+				workspaceId: null,
+			},
+		})
 	})
 })
 

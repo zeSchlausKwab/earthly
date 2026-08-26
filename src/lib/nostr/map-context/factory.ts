@@ -16,6 +16,7 @@ import type { EventSigner } from 'applesauce-core/factories/types'
 import type { NostrEvent } from 'nostr-tools'
 import { generateShortDTag } from '@/lib/nostr/dTag'
 import { MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
+import { assertCanDeleteOwnedEntity } from '@/lib/nostr/deletion'
 import { publish } from '..'
 import {
 	DEFAULT_CONTEXT_CONTENT,
@@ -129,6 +130,7 @@ export async function deleteMapContext(
 ): Promise<void> {
 	const id = getContextId(context)
 	if (!id) throw new Error('Context is missing a d tag and cannot be deleted.')
+	await assertCanDeleteOwnedEntity(context, signer, 'Context')
 	const event = await DeleteFactory.fromEvents([context], reason).sign(signer)
 	await publish(event as NostrEvent, { routing: 'outbox' })
 }

@@ -121,6 +121,20 @@ interface SuggestionState {
 }
 
 type GeoSuggestionProps = SuggestionProps<GeoFeatureItem, GeoFeatureItem>
+type GeoRichTextEditorInstance = NonNullable<ReturnType<typeof useEditor>>
+type GeoRichTextEditorContent = Parameters<GeoRichTextEditorInstance['commands']['setContent']>[0]
+
+/**
+ * Replace content supplied by application state without reporting it back as a
+ * user edit. TipTap 3 emits `onUpdate` from `setContent` by default, so every
+ * prop/ref-driven replacement must go through this boundary.
+ */
+export function replaceGeoRichTextEditorContent(
+	editor: GeoRichTextEditorInstance,
+	content: GeoRichTextEditorContent,
+): boolean {
+	return editor.commands.setContent(content, { emitUpdate: false })
+}
 
 export function getGeoReferenceTypeLabel(item: GeoFeatureItem): string {
 	switch (item.entityType) {
@@ -577,7 +591,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 				setContent: (text: string) => {
 					if (!editor) return
 					const content = text ? parseFromText(text, createNameResolver()) : ''
-					editor.commands.setContent(content)
+					replaceGeoRichTextEditorContent(editor, content)
 				},
 				clear: () => {
 					editor?.commands.clearContent()
@@ -620,7 +634,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 
 			// Re-parse with the name resolver to update display names
 			const newContent = parseFromText(text, createNameResolver())
-			editor.commands.setContent(newContent)
+			replaceGeoRichTextEditorContent(editor, newContent)
 		}, [editor, availableFeatures, createNameResolver])
 
 		// Update content when initialValue prop changes (e.g., switching between collections)
@@ -631,7 +645,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			if (currentText === initialValue) return
 
 			const newContent = initialValue ? parseFromText(initialValue, createNameResolver()) : ''
-			editor.commands.setContent(newContent)
+			replaceGeoRichTextEditorContent(editor, newContent)
 		}, [editor, initialValue, createNameResolver])
 
 		// Drag & drop handlers

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
+import { finalizeEvent } from 'nostr-tools'
 import { BUILTIN_PROVIDERS, estimateMaxCost } from './routstr'
 import type { ProviderConfig, RoutstrModel } from './routstr'
 import {
@@ -7,16 +8,34 @@ import {
 	TRUNCATION_CONTENT_SUFFIX,
 	chatStorePartialize,
 	compactIngestHandlePartForPrompt,
+	applyMessagesToChat,
+	buildChatRunStateUpdate,
+	captureActiveToolExecutionTarget,
+	captureVisibleDatasetReferenceTarget,
 	deriveOutputBudget,
 	describeEmptyCompletion,
 	getPromptBudgetTokens,
 	getAdvertisedGeoTools,
 	resolveProvider,
 	sanitizeMessageForPrompt,
+	terminalDatasetTargetError,
 	useChatStore,
 } from './store'
 import type { ProviderOverrideMap } from './store'
-import { getGeoTools } from './tools'
+import { getGeoTools, getMapContextSnapshotForTarget } from './tools'
+import { register, unregister } from './tools/registry'
+import type { ToolExecutionRunIdentity } from './tools/types'
+import { resolveWorkspaceBindingIdentity } from './safeEditing/BindingChip'
+import {
+	clearPendingDiffs,
+	emitDiffBlock,
+	getPendingDiff,
+	requestConfirm,
+} from './safeEditing/pendingDiffStore'
+import type { DatasetDiff } from '@/features/geo-editor/api/diff'
+import { useEditorStore } from '@/features/geo-editor/store'
+import { eventStore } from '@/lib/nostr'
+import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 
 function makeModel(overrides: Partial<RoutstrModel> = {}): RoutstrModel {
 	return {
@@ -35,9 +54,623 @@ const FREE_PROVIDERS: ProviderConfig[] = [
 	{ type: 'custom', baseUrl: 'http://custom/v1', name: 'Custom', requiresPayment: false },
 ]
 
+function runIdentity(chatId: string, runId = 42): ToolExecutionRunIdentity {
+	return {
+		runId,
+		chatId,
+		startedAt: Date.now(),
+		target: {
+			entityType: null,
+			draftId: null,
+			entityId: null,
+			sourceId: null,
+			baseRevisionId: null,
+			draftUpdatedAt: null,
+			wasDirty: false,
+			workspaceId: null,
+		},
+	}
+}
+
+function bindActiveChatToEmptyDatasetTarget(label = 'Bound test Dataset'): void {
+	const chatId = useChatStore.getState().activeChatId
+	if (!chatId) throw new Error('Expected an active Chat')
+	const sourceId = `session:${chatId}`
+	const draftId = `draft:${chatId}`
+	const workspaceId = `workspace:${chatId}`
+	const now = Date.now()
+	useEditorStore.setState({
+		activeWorkspaceId: workspaceId,
+		activeGeoEditDraftId: draftId,
+		geoEditDrafts: {
+			[draftId]: {
+				persistenceVersion: 2,
+				id: draftId,
+				sourceId,
+				name: label,
+				description: '',
+				collectionMeta: {
+					name: label,
+					description: '',
+					color: '#1d4ed8',
+					customProperties: {},
+				},
+				features: [],
+				selectedFeatureIds: [],
+				publishChannel: { kind: 'public' },
+				contextRefs: [],
+				blobReferences: [],
+				createdAt: now,
+				updatedAt: now,
+			},
+		},
+		workspaces: {
+			[workspaceId]: {
+				id: workspaceId,
+				sourceId,
+				label,
+				kind: 'scratch',
+				datasetKey: null,
+				baseRevisionId: null,
+				activeDraftId: draftId,
+				chatSessionId: null,
+				createdAt: now,
+				updatedAt: now,
+			},
+		},
+	})
+	useChatStore.getState().setChatTargetWorkspace(chatId, workspaceId)
+}
+
+describe('single global run remains owned across conversation navigation', () => {
+	beforeEach(() => {
+		useChatStore.getState().reset()
+		clearPendingDiffs()
+	})
+
+	test('switching and creating conversations never aborts the existing run', () => {
+		const ownerId = useChatStore.getState().activeChatId as string
+		useChatStore.getState().createChat()
+		const browsedId = useChatStore.getState().activeChatId as string
+		const identity = runIdentity(ownerId)
+		useChatStore.setState((state) => ({
+			...buildChatRunStateUpdate(state, ownerId, {
+				identity,
+				status: 'working',
+				streamingContent: 'owned stream',
+			}),
+			isStreaming: true,
+			runningChatId: ownerId,
+			activeRun: identity,
+		}))
+
+		useChatStore.getState().switchChat(browsedId)
+		useChatStore.getState().createChat()
+
+		const state = useChatStore.getState()
+		expect(state.isStreaming).toBe(true)
+		expect(state.runningChatId).toBe(ownerId)
+		expect(state.activeRun).toBe(identity)
+		expect(state.chatRunStates[ownerId]?.streamingContent).toBe('owned stream')
+		expect(state.activeChatId).not.toBe(ownerId)
+	})
+
+	test('late runtime and message updates stay in the owning conversation', () => {
+		const ownerId = useChatStore.getState().activeChatId as string
+		useChatStore.getState().createChat()
+		const browsedId = useChatStore.getState().activeChatId as string
+		useChatStore.setState({ streamingContent: 'browsed view' })
+
+		useChatStore.setState((state) =>
+			buildChatRunStateUpdate(state, ownerId, { streamingContent: 'late owner token' }),
+		)
+		const afterRuntime = useChatStore.getState()
+		expect(afterRuntime.chatRunStates[ownerId]?.streamingContent).toBe('late owner token')
+		expect(afterRuntime.streamingContent).toBe('browsed view')
+
+		const ownerMessages = [{ role: 'assistant' as const, content: 'late owner result' }]
+		const sessions = applyMessagesToChat(afterRuntime.chatSessions, ownerId, ownerMessages)
+		expect(sessions.find((chat) => chat.id === ownerId)?.messages).toEqual(ownerMessages)
+		expect(sessions.find((chat) => chat.id === browsedId)?.messages).toEqual([])
+	})
+
+	test('a second send is refused while another conversation owns the run', async () => {
+		const ownerId = useChatStore.getState().activeChatId as string
+		useChatStore.getState().createChat()
+		const browsedId = useChatStore.getState().activeChatId as string
+		const identity = runIdentity(ownerId)
+		useChatStore.setState({
+			isStreaming: true,
+			runningChatId: ownerId,
+			activeRun: identity,
+		})
+
+		await useChatStore.getState().sendMessage('must not be appended')
+
+		expect(
+			useChatStore.getState().chatSessions.find((chat) => chat.id === browsedId)?.messages,
+		).toEqual([])
+	})
+
+	test('an unbound conversation cannot send or create authoring state', async () => {
+		const chatId = useChatStore.getState().activeChatId as string
+		const originalFetch = globalThis.fetch
+		let providerRequests = 0
+		const providerOverrides = emptyOverrides()
+		providerOverrides.custom = { baseUrl: 'http://unbound-chat.test/v1', apiKey: '' }
+		useChatStore.setState({
+			provider: 'custom',
+			providerOverrides,
+			models: [makeModel()],
+			selectedModel: 'test-model',
+		})
+		globalThis.fetch = (async () => {
+			providerRequests += 1
+			throw new Error('An unbound conversation must not reach the provider')
+		}) as typeof fetch
+
+		const editorBefore = useEditorStore.getState()
+		const workspaceIdsBefore = Object.keys(editorBefore.workspaces).sort()
+		const draftIdsBefore = Object.keys(editorBefore.geoEditDrafts).sort()
+
+		try {
+			await useChatStore.getState().sendMessage('Keep this typed prompt for later')
+
+			const chat = useChatStore.getState().chatSessions.find((session) => session.id === chatId)
+			expect(providerRequests).toBe(0)
+			expect(chat?.targetWorkspaceId).toBeNull()
+			expect(chat?.messages).toEqual([])
+			expect(useChatStore.getState().activeRun).toBeNull()
+			expect(useChatStore.getState().runningChatId).toBeNull()
+			expect(Object.keys(useEditorStore.getState().workspaces).sort()).toEqual(workspaceIdsBefore)
+			expect(Object.keys(useEditorStore.getState().geoEditDrafts).sort()).toEqual(draftIdsBefore)
+		} finally {
+			globalThis.fetch = originalFetch
+		}
+	})
+
+	test('Stop targets the owner and releases a parked approval while browsing elsewhere', async () => {
+		const ownerId = useChatStore.getState().activeChatId as string
+		useChatStore.getState().createChat()
+		const identity = runIdentity(ownerId)
+		const diff: DatasetDiff = { added: [], modified: [], deleted: [] }
+		const handle = emitDiffBlock(diff)
+		const decision = requestConfirm(handle.id)
+		useChatStore.setState((state) => ({
+			...buildChatRunStateUpdate(state, ownerId, {
+				identity,
+				status: 'awaiting_approval',
+			}),
+			isStreaming: true,
+			runningChatId: ownerId,
+			activeRun: identity,
+		}))
+
+		useChatStore.getState().cancelStream()
+
+		expect(await decision).toBe('cancel')
+		expect(getPendingDiff(handle.id)?.status).toBe('cancelled')
+		const stopped = useChatStore.getState()
+		expect(stopped.isStreaming).toBe(false)
+		expect(stopped.runningChatId).toBeNull()
+		expect(stopped.chatRunStates[ownerId]?.status).toBe('stopped')
+	})
+
+	test('an awaited reference completion adds only to its initiating conversation', () => {
+		const initiatingId = useChatStore.getState().activeChatId as string
+		useChatStore.getState().createChat()
+		const browsedId = useChatStore.getState().activeChatId as string
+		useChatStore.getState().addReferenceToChat(initiatingId, {
+			id: 'published-dataset',
+			name: 'Published dataset',
+			type: 'dataset',
+			address: 'naddr1fresh',
+		})
+
+		const state = useChatStore.getState()
+		expect(state.activeChatId).toBe(browsedId)
+		expect(state.references).toEqual([])
+		expect(state.chatSessions.find((chat) => chat.id === initiatingId)?.references).toHaveLength(1)
+	})
+
+	test('visible edit state never binds a conversation but remains available as reference context', () => {
+		const chatId = useChatStore.getState().activeChatId as string
+		const visibleDraft = {
+			persistenceVersion: 2 as const,
+			id: 'draft-visible',
+			sourceId: 'dataset:author:map',
+			name: 'Visible map',
+			description: '',
+			collectionMeta: {
+				name: 'Visible map',
+				description: '',
+				color: '#000000',
+				customProperties: {},
+			},
+			features: [],
+			selectedFeatureIds: [],
+			publishChannel: { kind: 'public' as const },
+			contextRefs: [],
+			blobReferences: [],
+			createdAt: 1,
+			updatedAt: 1,
+		}
+		useEditorStore.setState({
+			activeWorkspaceId: 'workspace-visible',
+			geoEditDrafts: { [visibleDraft.id]: visibleDraft },
+			workspaces: {
+				'workspace-visible': {
+					id: 'workspace-visible',
+					sourceId: 'dataset:author:map',
+					label: 'Visible map',
+					kind: 'dataset',
+					datasetKey: 'author:map',
+					activeDraftId: visibleDraft.id,
+					chatSessionId: chatId,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			},
+			activeGeoEditDraftId: visibleDraft.id,
+		})
+
+		expect(captureActiveToolExecutionTarget(chatId).entityType).toBeNull()
+		expect(
+			useChatStore.getState().chatSessions.find((chat) => chat.id === chatId)?.targetWorkspaceId,
+		).toBeNull()
+		expect(captureVisibleDatasetReferenceTarget()).toMatchObject({
+			entityType: 'dataset',
+			entityId: 'author:map',
+			workspaceId: 'workspace-visible',
+		})
+
+		useChatStore.getState().setChatTargetWorkspace(chatId, 'workspace-visible')
+		expect(captureActiveToolExecutionTarget(chatId)).toMatchObject({
+			entityType: 'dataset',
+			entityId: 'author:map',
+			workspaceId: 'workspace-visible',
+			draftId: visibleDraft.id,
+		})
+	})
+
+	test('a Dataset shown as a concrete Chat binding is also capturable by the tool run', () => {
+		const chatId = useChatStore.getState().activeChatId as string
+		const draft = {
+			persistenceVersion: 2 as const,
+			id: 'draft-ui',
+			sourceId: 'scratch:draft',
+			name: 'Untitled draft',
+			description: '',
+			collectionMeta: {
+				name: 'Untitled draft',
+				description: '',
+				color: '#000000',
+				customProperties: {},
+			},
+			features: [],
+			selectedFeatureIds: [],
+			publishChannel: { kind: 'public' as const },
+			contextRefs: [],
+			blobReferences: [],
+			createdAt: 1,
+			updatedAt: 1,
+		}
+		const workspace = {
+			id: 'workspace-ui',
+			sourceId: 'scratch:workspace',
+			label: 'Untitled workspace',
+			kind: 'scratch' as const,
+			datasetKey: null,
+			baseRevisionId: null,
+			activeDraftId: draft.id,
+			chatSessionId: chatId,
+			createdAt: 1,
+			updatedAt: 1,
+		}
+		useEditorStore.setState({
+			activeWorkspaceId: workspace.id,
+			activeGeoEditDraftId: draft.id,
+			geoEditDrafts: { [draft.id]: draft },
+			workspaces: { [workspace.id]: workspace },
+		})
+		useChatStore.getState().setChatTargetWorkspace(chatId, workspace.id)
+
+		const binding = resolveWorkspaceBindingIdentity(workspace, draft)
+		const captured = captureActiveToolExecutionTarget(chatId)
+
+		expect(binding.targetRequired).toBe(captured.entityType !== 'dataset')
+	})
+
+	test('an inactive retained workspace remains the Chat target and may be shared by two Chats', () => {
+		const base = finalizeEvent(
+			{
+				kind: GEO_EVENT_KIND,
+				created_at: 1,
+				content: JSON.stringify({ type: 'FeatureCollection', features: [] }),
+				tags: [['d', 'bound-a']],
+			},
+			new Uint8Array(32).fill(7),
+		)
+		eventStore.add(base)
+		const sourceA = `dataset:${base.pubkey}:bound-a`
+		const draftA = {
+			persistenceVersion: 2 as const,
+			id: 'draft-a',
+			sourceId: sourceA,
+			name: 'Bound A',
+			description: '',
+			collectionMeta: {
+				name: 'Bound A',
+				description: '',
+				color: '#000000',
+				customProperties: {},
+			},
+			features: [
+				{
+					type: 'Feature' as const,
+					id: 'a-feature',
+					geometry: { type: 'Point' as const, coordinates: [1, 2] },
+					properties: {},
+				},
+			],
+			selectedFeatureIds: [],
+			publishChannel: { kind: 'public' as const },
+			contextRefs: [],
+			blobReferences: [],
+			createdAt: 1,
+			updatedAt: 10,
+		}
+		const draftB = {
+			...draftA,
+			id: 'draft-b',
+			sourceId: 'session:b',
+			name: 'Visible B',
+			collectionMeta: { ...draftA.collectionMeta, name: 'Visible B' },
+			features: [
+				{
+					type: 'Feature' as const,
+					id: 'b-feature',
+					geometry: { type: 'Point' as const, coordinates: [3, 4] },
+					properties: {},
+				},
+			],
+		}
+		useEditorStore.setState({
+			activeWorkspaceId: 'workspace-b',
+			activeGeoEditDraftId: 'draft-b',
+			activeDataset: null,
+			isDirty: true,
+			geoEditDrafts: { 'draft-a': draftA, 'draft-b': draftB },
+			workspaces: {
+				'workspace-a': {
+					id: 'workspace-a',
+					sourceId: sourceA,
+					label: 'Bound A',
+					kind: 'dataset',
+					datasetKey: `${base.pubkey}:bound-a`,
+					activeDraftId: 'draft-a',
+					chatSessionId: null,
+					createdAt: 1,
+					updatedAt: 10,
+				},
+				'workspace-b': {
+					id: 'workspace-b',
+					sourceId: 'session:b',
+					label: 'Visible B',
+					kind: 'scratch',
+					datasetKey: null,
+					activeDraftId: 'draft-b',
+					chatSessionId: null,
+					createdAt: 2,
+					updatedAt: 20,
+				},
+			},
+		})
+
+		const firstChatId = useChatStore.getState().activeChatId as string
+		useChatStore.getState().setChatTargetWorkspace(firstChatId, 'workspace-a')
+		const firstTarget = captureActiveToolExecutionTarget(firstChatId)
+		expect(firstTarget).toMatchObject({
+			workspaceId: 'workspace-a',
+			draftId: 'draft-a',
+			sourceId: sourceA,
+			baseRevisionId: base.id,
+		})
+		const targetContext = getMapContextSnapshotForTarget(firstTarget)
+		expect(targetContext.featureCount).toBe(1)
+		expect(targetContext.featureGeometryCounts).toEqual({ Point: 1 })
+		expect(targetContext.viewportBbox).toBeNull()
+		expect(JSON.stringify(targetContext)).not.toContain('b-feature')
+
+		useChatStore.getState().createChat()
+		const secondChatId = useChatStore.getState().activeChatId as string
+		useChatStore.getState().setChatTargetWorkspace(secondChatId, 'workspace-a')
+		expect(
+			useChatStore.getState().chatSessions.find((chat) => chat.id === firstChatId)
+				?.targetWorkspaceId,
+		).toBe('workspace-a')
+		expect(
+			useChatStore.getState().chatSessions.find((chat) => chat.id === secondChatId)
+				?.targetWorkspaceId,
+		).toBe('workspace-a')
+		expect(useEditorStore.getState().activeWorkspaceId).toBe('workspace-b')
+		expect(captureActiveToolExecutionTarget(secondChatId).draftId).toBe('draft-a')
+
+		eventStore.remove(base.id)
+	})
+})
+
 describe('stream stall watchdog', () => {
 	test('allows slow reasoning providers at least four minutes without a response update', () => {
 		expect(STREAM_STALL_TIMEOUT_MS).toBeGreaterThanOrEqual(240_000)
+	})
+})
+
+describe('tool-loop terminal target errors', () => {
+	test('stops for an editing-target requirement instead of spending another model round', () => {
+		const error = terminalDatasetTargetError(
+			JSON.stringify({
+				ok: false,
+				kind: 'handler_error',
+				toolName: 'write_geojson_to_editor',
+				message: 'Choose an editing target.',
+				code: 'dataset_target_required',
+			}),
+		)
+
+		expect(error?.code).toBe('dataset_target_required')
+	})
+
+	test('lets the model correct ordinary tool errors', () => {
+		expect(
+			terminalDatasetTargetError(
+				JSON.stringify({
+					ok: false,
+					kind: 'handler_error',
+					toolName: 'run_code',
+					message: 'Syntax error',
+					code: 'handler_error',
+				}),
+			),
+		).toBeNull()
+	})
+
+	test('cancels unexecuted sibling calls after a terminal target error and preserves pairing', async () => {
+		const terminalToolName = '__test_terminal_dataset_target'
+		const laterToolName = '__test_unexecuted_sibling'
+		const terminalCallId = 'call_terminal'
+		const laterCallId = 'call_later'
+		const modelId = 'terminal-sibling-regression'
+		const providerBaseUrl = 'http://terminal-sibling.test/v1'
+		const originalFetch = globalThis.fetch
+		let terminalInvocations = 0
+		let laterInvocations = 0
+		let completionRequests = 0
+
+		const schema = (name: string) => ({
+			type: 'function' as const,
+			function: {
+				name,
+				description: 'Store tool-loop regression fixture.',
+				parameters: { type: 'object' as const, properties: {} },
+			},
+		})
+		const encoder = new TextEncoder()
+		const streamResponse = () =>
+			new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.enqueue(
+							encoder.encode(
+								`data: ${JSON.stringify({
+									id: 'chunk',
+									object: 'chat.completion.chunk',
+									created: 1,
+									model: modelId,
+									choices: [
+										{
+											index: 0,
+											delta: {
+												tool_calls: [
+													{
+														index: 0,
+														id: terminalCallId,
+														type: 'function',
+														function: { name: terminalToolName, arguments: '{}' },
+													},
+													{
+														index: 1,
+														id: laterCallId,
+														type: 'function',
+														function: { name: laterToolName, arguments: '{}' },
+													},
+												],
+											},
+											finish_reason: 'tool_calls',
+										},
+									],
+								})}\n`,
+							),
+						)
+						controller.enqueue(encoder.encode('data: [DONE]\n'))
+						controller.close()
+					},
+				}),
+				{ status: 200, headers: { 'content-type': 'text/event-stream' } },
+			)
+
+		register({
+			name: terminalToolName,
+			schema: schema(terminalToolName),
+			kind: 'host-builtin',
+			handler: () => {
+				terminalInvocations += 1
+				throw Object.assign(new Error('The bound Dataset changed.'), {
+					code: 'dataset_target_conflict',
+				})
+			},
+		})
+		register({
+			name: laterToolName,
+			schema: schema(laterToolName),
+			kind: 'host-builtin',
+			handler: () => {
+				laterInvocations += 1
+				return { ok: true }
+			},
+		})
+
+		try {
+			useChatStore.getState().reset()
+			bindActiveChatToEmptyDatasetTarget('Terminal sibling target')
+			const providerOverrides = emptyOverrides()
+			providerOverrides.custom = { baseUrl: providerBaseUrl, apiKey: '' }
+			useChatStore.setState({
+				provider: 'custom',
+				providerOverrides,
+				models: [makeModel({ id: modelId })],
+				selectedModel: modelId,
+				toolsEnabled: true,
+			})
+			globalThis.fetch = (async (input) => {
+				const url = String(input)
+				if (url === `${providerBaseUrl}/models`) {
+					return new Response(JSON.stringify({ data: [{ id: modelId, capabilities: ['text'] }] }), {
+						status: 200,
+						headers: { 'content-type': 'application/json' },
+					})
+				}
+				if (url === `${providerBaseUrl}/chat/completions`) {
+					completionRequests += 1
+					return streamResponse()
+				}
+				throw new Error(`Unexpected request: ${url}`)
+			}) as typeof fetch
+
+			await useChatStore.getState().sendMessage('Trigger the terminal sibling fixture.')
+
+			const state = useChatStore.getState()
+			const assistantToolCalls = state.messages.find(
+				(message) => message.role === 'assistant' && message.tool_calls?.length === 2,
+			)?.tool_calls
+			const toolMessages = state.messages.filter((message) => message.role === 'tool')
+			expect(terminalInvocations).toBe(1)
+			expect(laterInvocations).toBe(0)
+			expect(completionRequests).toBe(1)
+			expect(assistantToolCalls?.map((call) => call.id)).toEqual([terminalCallId, laterCallId])
+			expect(toolMessages.map((message) => message.tool_call_id)).toEqual([
+				terminalCallId,
+				laterCallId,
+			])
+			expect(JSON.parse(String(toolMessages[0]?.content)).code).toBe('dataset_target_conflict')
+			expect(JSON.parse(String(toolMessages[1]?.content))).toMatchObject({ cancelled: true })
+			expect(state.error).toBe('The bound Dataset changed.')
+		} finally {
+			globalThis.fetch = originalFetch
+			unregister(terminalToolName)
+			unregister(laterToolName)
+			useChatStore.getState().reset()
+		}
 	})
 })
 
@@ -87,7 +720,7 @@ describe('loadModels — empty list must not drive an infinite refetch loop', ()
 			new Response(JSON.stringify({ data: [] }), {
 				status: 200,
 				headers: { 'content-type': 'application/json' },
-			})) as typeof fetch
+			})) as unknown as typeof fetch
 		try {
 			useChatStore.setState({
 				provider: 'routstr',
@@ -113,7 +746,7 @@ describe('loadModels — empty list must not drive an infinite refetch loop', ()
 			new Response(JSON.stringify({ data: [{ id: 'm1', name: 'M1' }] }), {
 				status: 200,
 				headers: { 'content-type': 'application/json' },
-			})) as typeof fetch
+			})) as unknown as typeof fetch
 		try {
 			useChatStore.setState({
 				provider: 'routstr',
@@ -134,11 +767,11 @@ describe('loadModels — empty list must not drive an infinite refetch loop', ()
 
 	test('a stale model response cannot replace settings hydrated while it was in flight', async () => {
 		const originalFetch = globalThis.fetch
-		let resolveFetch: ((response: Response) => void) | null = null
+		let resolveFetch!: (response: Response) => void
 		globalThis.fetch = (() =>
 			new Promise<Response>((resolve) => {
 				resolveFetch = resolve
-			})) as typeof fetch
+			})) as unknown as typeof fetch
 		try {
 			const firstOverrides = emptyOverrides()
 			firstOverrides.custom = { baseUrl: 'http://first.example/v1', apiKey: 'first' }
@@ -161,7 +794,7 @@ describe('loadModels — empty list must not drive an infinite refetch loop', ()
 				selectedModel: 'imported-model',
 			})
 
-			resolveFetch?.(
+			resolveFetch(
 				new Response(JSON.stringify({ data: [{ id: 'stale-vision-model', name: 'Stale' }] }), {
 					status: 200,
 					headers: { 'content-type': 'application/json' },
@@ -258,6 +891,19 @@ describe('persist partialize secret-exclusion (SC-1 / T-01-01)', () => {
 		expect(serialized).not.toContain('providerOverrides')
 
 		expect(Object.keys(partialized).sort()).toEqual(['activeChatId', 'chatSessions'])
+	})
+
+	test('persists each Chat-owned workspace pointer independently', () => {
+		const chatId = useChatStore.getState().activeChatId as string
+		useChatStore.setState((state) => ({
+			chatSessions: state.chatSessions.map((chat) =>
+				chat.id === chatId ? { ...chat, targetWorkspaceId: 'workspace-a' } : chat,
+			),
+		}))
+		const partialized = chatStorePartialize(useChatStore.getState())
+		expect(partialized.chatSessions.find((chat) => chat.id === chatId)?.targetWorkspaceId).toBe(
+			'workspace-a',
+		)
 	})
 })
 

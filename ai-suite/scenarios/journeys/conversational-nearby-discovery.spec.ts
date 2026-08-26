@@ -6,8 +6,10 @@ import {
 	configureChatProvider,
 	hideAiChat,
 	openAiChat,
+	selectAiChatTarget,
 	sendAiChatMessage,
 } from '../../tasks/chat/conversation'
+import { startDataset } from '../../tasks/create/dataset'
 import { expectGeometryFeatureCount } from '../../tasks/create/geometry'
 import { cancelSightingPlacement, startSightingPlacement } from '../../tasks/create/sighting'
 import { installDeterministicChatProvider } from '../../tasks/setup/deterministic-chat-provider'
@@ -28,14 +30,14 @@ const run: ScenarioRunDefinition = {
 	startingState: [
 		'Explorer is pre-authorized on mobile web so provider setup is not part of the journey.',
 		'Device location begins denied and can be granted through a deterministic browser fixture.',
-		'No authoring workspace or private destination is active.',
+		'No authoring workspace or private destination is active; Chat requires an explicit Dataset task.',
 	],
 	reviewLensIds: ['product-complexity', 'privacy-destination', 'accessibility', 'platform-parity'],
 }
 
 const firstPrompt = 'I have 45 minutes. Find a quiet park and coffee nearby, without a car.'
 
-test('a nearby explorer can ask a read-only question without starting an authoring task @experience-audit @ai-journey @journey-conversational-nearby-discovery', async ({
+test('a nearby explorer explicitly chooses an empty Dataset task before asking Chat @experience-audit @ai-journey @journey-conversational-nearby-discovery', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'Nearby discovery evaluates the mobile surface')
@@ -72,10 +74,18 @@ test('a nearby explorer can ask a read-only question without starting an authori
 		)
 		await stopDeviceLocationTracking(earthly)
 
+		const scratch = await startDataset(earthly)
+		await scratch.nameInput.fill('Nearby ideas — Vienna')
+		await recorder.observe(
+			'authoring-target-created',
+			'Before Chat is available for work, the explorer explicitly creates and names its empty Dataset task.',
+		)
+
 		await openAiChat(earthly)
+		await selectAiChatTarget(earthly, 'current-dataset')
 		await recorder.observe(
 			'chat-ready',
-			'AI chat replaces the mobile navigation menu; the map is no longer simultaneously visible.',
+			'AI Chat opens in the map-bound sheet with the named Dataset visibly bound as its target.',
 		)
 
 		const firstSendOutcome = await sendAiChatMessage(earthly, firstPrompt)
@@ -83,11 +93,8 @@ test('a nearby explorer can ask a read-only question without starting an authori
 		await expectGeometryFeatureCount(earthly, 0)
 		await recorder.observe(
 			'first-prompt-stays-in-conversation',
-			'Sending a read-only question keeps the conversation visible and does not create an empty Dataset draft.',
+			'Sending an informational prompt keeps the conversation visible and leaves the explicitly chosen Dataset empty.',
 		)
-		await expect(
-			earthly.page.getByRole('button', { name: 'Stop editing', exact: true }),
-		).toBeHidden()
 		await expect(earthly.page.getByText(/Two synthetic candidates are Riverside Park/)).toBeVisible(
 			{
 				timeout: 15_000,
@@ -95,7 +102,7 @@ test('a nearby explorer can ask a read-only question without starting an authori
 		)
 		await recorder.observe(
 			'answer-visible',
-			'The prose-only answer remains in the conversation and the explorer can continue or leave without recovering from an unintended editor state.',
+			'The prose-only answer remains in Chat while the empty Dataset stays an intentional, recoverable editing task.',
 		)
 
 		const requestRounds = provider.requests()
@@ -104,18 +111,15 @@ test('a nearby explorer can ask a read-only question without starting an authori
 		expect(requestRounds[1]?.messageRoles).toContain('tool')
 
 		await hideAiChat(earthly)
-		await expect(
-			earthly.page.getByRole('button', { name: 'Stop editing', exact: true }),
-		).toBeHidden()
 		await expect(earthly.page.getByText('Garden Court Park', { exact: false })).toBeHidden()
 		await expectGeometryFeatureCount(earthly, 0)
 		await earthly.page.getByRole('button', { name: 'Map stack', exact: true }).click()
 		await expect(earthly.page.getByText('Map Stack', { exact: true })).toBeVisible()
 		await recorder.observe(
 			'chat-closed',
-			'Closing chat retains the located viewport but leaves no inspectable recommendation or route in Map Stack.',
+			'Closing Chat retains the located viewport and leaves no recommendation geometry beyond the explicit empty edit task.',
 		)
-		await earthly.page.getByRole('button', { name: 'Close Map', exact: true }).click()
+		await earthly.page.getByRole('button', { name: 'Close map workspace', exact: true }).click()
 
 		await startSightingPlacement(earthly)
 		await recorder.observe(

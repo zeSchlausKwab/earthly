@@ -9,10 +9,11 @@ import {
 	Eye,
 	FilePenLine,
 	Newspaper,
+	LoaderCircle,
+	MessageCircle,
 	PanelLeftClose,
 	PanelLeftOpen,
 	ArrowLeft,
-	Pencil,
 	Radio,
 	RadioTower,
 	Search,
@@ -22,8 +23,7 @@ import {
 	Wallet,
 	X,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoProposal } from '@/lib/nostr/geo-proposal'
@@ -61,7 +61,12 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './ui/resizable'
 import { MapSettingsPanel } from '../features/geo-editor/components/MapSettingsPanel'
 import { Nip60Wallet } from '../features/wallet/components/Nip60Wallet'
-import { useEditorStore } from '../features/geo-editor/store'
+import {
+	getRetainedDatasetSurfaceTarget,
+	hasRetainedDatasetSurface,
+	useEditorStore,
+	type InspectionSubject,
+} from '../features/geo-editor/store'
 import { useRouting, type SidebarViewMode } from '../features/geo-editor/hooks/useRouting'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import type { EditorFeature } from '../features/geo-editor/core'
@@ -74,6 +79,7 @@ import {
 } from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
 import { PublishOutboxPanel } from '../features/delivery'
+import { useChatStore } from '../features/chat/store'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
@@ -163,6 +169,7 @@ function isMetaMode(mode: SidebarContentMode): mode is MetaViewMode {
  * without a live React tree. All fields optional so callers pass their raw props.
  */
 export interface InspectSubjectState {
+	inspectionSubject?: InspectionSubject | null
 	viewContext?: unknown
 	viewDataset?: unknown
 	viewStory?: unknown
@@ -172,6 +179,47 @@ export interface InspectSubjectState {
 	storyEditorMode?: 'none' | 'create' | 'edit'
 	sightingEditorMode?: 'none' | 'create' | 'edit'
 	beaconControlMode?: 'none' | 'create' | 'adjust'
+}
+
+type InspectionEntity<K extends InspectionSubject['kind']> = Extract<
+	InspectionSubject,
+	{ kind: K }
+>['entity']
+
+export interface InspectionSubjectReplayHandlers {
+	dataset?: (entity: InspectionEntity<'dataset'>) => void
+	context?: (entity: InspectionEntity<'context'>) => void
+	story?: (entity: InspectionEntity<'story'>) => void
+	sighting?: (entity: InspectionEntity<'sighting'>) => void
+	beacon?: (entity: InspectionEntity<'beacon'>) => void
+}
+
+/**
+ * Re-enter the canonical inspect path whenever the Inspector is recalled. This
+ * deliberately does not compare object identity: the panel may already retain
+ * the entity while its focused URL was replaced by catalog/editor navigation.
+ */
+export function replayInspectionSubject(
+	subject: InspectionSubject,
+	handlers: InspectionSubjectReplayHandlers,
+): void {
+	switch (subject.kind) {
+		case 'dataset':
+			handlers.dataset?.(subject.entity)
+			break
+		case 'context':
+			handlers.context?.(subject.entity)
+			break
+		case 'story':
+			handlers.story?.(subject.entity)
+			break
+		case 'sighting':
+			handlers.sighting?.(subject.entity)
+			break
+		case 'beacon':
+			handlers.beacon?.(subject.entity)
+			break
+	}
 }
 
 /** True when ANY kind has an active inspect/edit subject — beacon INCLUDED. */
@@ -191,21 +239,37 @@ export function hasActiveInspectSubject(s: InspectSubjectState): boolean {
 
 /**
  * The active entity a subject resolves to for the full inspect panel, or null for
- * the catalog list. Beacon is checked FIRST — mirroring currentSurface /
- * returnToCurrentSurface, which resolve beacon before the other kinds.
+ * the catalog list. The normalized subject is authoritative; legacy hook-local
+ * subjects are only fallbacks while all inspect flows move onto the shared state.
  */
 export function resolveActiveInspectEntity(
 	s: InspectSubjectState,
 ): 'beacon' | 'sighting' | 'story' | 'context' | 'geometry' | null {
-	if ((s.beaconControlMode !== undefined && s.beaconControlMode !== 'none') || s.viewBeacon)
-		return 'beacon'
-	if ((s.sightingEditorMode !== undefined && s.sightingEditorMode !== 'none') || s.viewSighting)
-		return 'sighting'
-	if ((s.storyEditorMode !== undefined && s.storyEditorMode !== 'none') || s.viewStory)
-		return 'story'
-	if ((s.contextEditorMode !== undefined && s.contextEditorMode !== 'none') || s.viewContext)
-		return 'context'
+	if (s.inspectionSubject) {
+		switch (s.inspectionSubject.kind) {
+			case 'dataset':
+				return 'geometry'
+			case 'context':
+				return 'context'
+			case 'story':
+				return 'story'
+			case 'sighting':
+				return 'sighting'
+			case 'beacon':
+				return 'beacon'
+		}
+	}
+	// An explicit read subject wins over every retained editor. This is what lets
+	// Inspector show Dataset B while a Story or Context draft remains parked.
+	if (s.viewBeacon) return 'beacon'
+	if (s.viewSighting) return 'sighting'
+	if (s.viewStory) return 'story'
+	if (s.viewContext) return 'context'
 	if (s.viewDataset) return 'geometry'
+	if (s.beaconControlMode !== undefined && s.beaconControlMode !== 'none') return 'beacon'
+	if (s.sightingEditorMode !== undefined && s.sightingEditorMode !== 'none') return 'sighting'
+	if (s.storyEditorMode !== undefined && s.storyEditorMode !== 'none') return 'story'
+	if (s.contextEditorMode !== undefined && s.contextEditorMode !== 'none') return 'context'
 	return null
 }
 
@@ -323,6 +387,8 @@ interface AppSidebarProps {
 	) => void
 	onStopBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	onAdjustBeacon?: (beacon?: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	isFollowingBeacon?: boolean
+	onToggleFollowBeacon?: () => void
 	/** The d-tag/id of the last-inspected/viewed beacon — highlights + scrolls its rail row. */
 	selectedBeaconKey?: string | null
 	/** Beacon control panel mode (Phase 12, BEACON-01). 'none' ⇒ no control surface. */
@@ -442,6 +508,8 @@ export function AppSidebar({
 	onAddBeaconToMapStack,
 	onStopBeacon,
 	onAdjustBeacon,
+	isFollowingBeacon,
+	onToggleFollowBeacon,
 	selectedBeaconKey,
 	beaconControlMode = 'none',
 	adjustingBeacon,
@@ -450,7 +518,6 @@ export function AppSidebar({
 	onStartBeacon,
 	onCloseBeaconControl,
 	onInspectBeacon,
-	onClearBeaconView,
 	onZoomToFeature,
 	onExitViewMode,
 	featureCollectionForUpload,
@@ -466,12 +533,12 @@ export function AppSidebar({
 }: AppSidebarProps) {
 	const { setOpen, sidebarExpanded, setSidebarExpanded } = useSidebar()
 	const viewMode = useEditorStore((state) => state.sidebarViewMode)
-	// Editor-in-Map-Stack: when a draft's editor slot is mounted in the Map Stack,
-	// the entity editor portals there instead of rendering in this sidebar.
-	const draftEditorSlot = useEditorStore((state) => state.draftEditorSlot)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const viewStory = useEditorStore((state) => state.viewStory)
+	const inspectionSubject = useEditorStore((state) => state.inspectionSubject)
+	const setInspectionSubject = useEditorStore((state) => state.setInspectionSubject)
+	const setViewModeState = useEditorStore((state) => state.setViewMode)
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
 	const setViewContextState = useEditorStore((state) => state.setViewContext)
 	const setViewStoryState = useEditorStore((state) => state.setViewStory)
@@ -487,11 +554,32 @@ export function AppSidebar({
 		encodeContextNaddr,
 	} = useRouting()
 	const setStance = useEditorStore((state) => state.setStance)
+	const chatOpen = useEditorStore((state) => state.chatOpen)
+	const chatDock = useEditorStore((state) => state.chatDock)
+	const setChatOpen = useEditorStore((state) => state.setChatOpen)
+	const toggleChatAtDock = useEditorStore((state) => state.toggleChatAtDock)
+	// Dataset task lifetime is the validated workspace -> draft relationship.
+	// Map Stack only controls whether that retained geometry is rendered, so
+	// hiding/removing `draft:active` must not clear the rail indicator or resume.
+	const datasetEditorRetained = useEditorStore(hasRetainedDatasetSurface)
+	const datasetEditorResumable = useEditorStore(
+		(state) => getRetainedDatasetSurfaceTarget(state) !== null,
+	)
+	const runningChatId = useChatStore((state) => state.runningChatId)
+	const activeChatRun = useChatStore((state) => state.activeRun)
+	const chatWorking = runningChatId !== null
+	const datasetAiWorking = activeChatRun?.target.entityType === 'dataset'
+	const storyAiWorking = activeChatRun?.target.entityType === 'story'
+	const contextAiWorking = activeChatRun?.target.entityType === 'context'
 
 	const [splitWithEditor, setSplitWithEditor] = useState(viewMode === 'combined')
 	const [activeEntity, setActiveEntity] = useState<EntityWorkspace>('geometry')
+	const [selectedEntitySurface, setSelectedEntitySurface] = useState<
+		'inspector' | 'dataset' | 'story' | 'context' | null
+	>(null)
 	const [activeWorkMode, setActiveWorkMode] = useState<WorkViewMode>(DEFAULT_WORK_VIEW)
 	const [showEntityAsFullPanel, setShowEntityAsFullPanel] = useState(viewMode === 'edit')
+	const lastResolvedInspectionSubjectRef = useRef<InspectionSubject | null>(null)
 	// Round E.4: the Inspect/Edit toggle's displayed side derives from actual
 	// app state instead of a locally-synced mirror. The old `entityIntent`
 	// state chronically desynced (starting a draft left the toggle on
@@ -581,81 +669,58 @@ export function AppSidebar({
 		// inspected beacon (viewBeacon) or the Share-live-location control
 		// (beaconControlMode) now opens the full inspect/control panel instead of
 		// snapping back to the beacons LIST.
+		const inspectionChanged = inspectionSubject !== lastResolvedInspectionSubjectRef.current
+		lastResolvedInspectionSubjectRef.current = inspectionSubject
+		if (selectedEntitySurface && showEntityAsFullPanel) return
+		// Hiding the Inspector (for a catalog/editor/Chat) retains its subject and
+		// legacy per-kind view objects. Those retained values must not reopen it;
+		// only a newly inspected subject may claim an otherwise unselected surface.
+		if (!showEntityAsFullPanel && !inspectionChanged) return
+		const viewingEntity = Boolean(
+			viewContext || viewDataset || viewStory || viewSighting || viewBeacon,
+		)
+		// `inspectionSubject` is deliberately retained while the user browses other
+		// surfaces. It disambiguates the Inspector when explicitly recalled, but it
+		// must never reopen itself after the user selects a catalog or editor.
+		if (!viewingEntity) return
 		const activeEntity = resolveActiveInspectEntity({
+			// Retained editor modes are intentionally omitted. A background AI write
+			// may populate one, but only the corresponding rail button may reveal it.
+			inspectionSubject,
 			viewContext,
 			viewDataset,
 			viewStory,
 			viewSighting,
 			viewBeacon,
-			contextEditorMode,
-			storyEditorMode,
-			sightingEditorMode,
-			beaconControlMode,
 		})
 		if (activeEntity) {
 			setActiveEntity(activeEntity)
+			setSelectedEntitySurface('inspector')
 			if (!splitWithEditor) {
 				setShowEntityAsFullPanel(true)
 			}
 		}
 	}, [
-		contextEditorMode,
-		storyEditorMode,
-		sightingEditorMode,
-		beaconControlMode,
 		splitWithEditor,
+		inspectionSubject,
 		viewContext,
 		viewStory,
 		viewSighting,
 		viewBeacon,
 		viewDataset,
+		selectedEntitySurface,
+		showEntityAsFullPanel,
 	])
 
 	useEffect(() => {
-		// A live geometry draft (author stance) is deliberately NOT one of the
-		// inspect subjects above — but nothing kept its editor reachable either.
-		// Loading a dataset for editing clears `viewDataset`, so the reset effect
-		// snapped the sidebar back to the catalog, and with the Map Stack panel
-		// closed (`draftEditorSlot` null — no portal target) the edit UI rendered
-		// NOWHERE. When a draft is live and no other subject/editor owns the
-		// panel, reclaim the geometry surface; and when the Map Stack cannot host
-		// the editor, host it here as the full panel (redesign §9's sidebar
-		// fallback, now deterministic). Declared after the reset effect so this
-		// write wins when both fire in the same commit. Deliberate catalog
-		// browsing (handleSelectWorkMode) changes none of these deps, so
-		// browse-while-editing still works.
-		if (editorStance !== 'author') return
-		const hasInspectSubject = hasActiveInspectSubject({
-			viewContext,
-			viewDataset,
-			viewStory,
-			viewSighting,
-			viewBeacon,
-			contextEditorMode,
-			storyEditorMode,
-			sightingEditorMode,
-			beaconControlMode,
-		})
-		if (hasInspectSubject) return
+		// `/edit` is reached by the Map Stack row's explicit "Open editor" action.
+		// Draft creation by a background Chat run does not navigate here, so it only
+		// lights the Dataset rail state and never steals the visible surface.
+		if (contentMode !== 'edit' || editorStance !== 'author') return
 		setActiveEntity('geometry')
-		if (!draftEditorSlot && !splitWithEditor && !metaModeActive) {
-			setShowEntityAsFullPanel(true)
-		}
-	}, [
-		editorStance,
-		draftEditorSlot,
-		splitWithEditor,
-		metaModeActive,
-		viewContext,
-		viewDataset,
-		viewStory,
-		viewSighting,
-		viewBeacon,
-		contextEditorMode,
-		storyEditorMode,
-		sightingEditorMode,
-		beaconControlMode,
-	])
+		setSelectedEntitySurface('dataset')
+		setShowEntityAsFullPanel(true)
+	}, [contentMode, editorStance])
 
 	const leaveMetaOverrideIfNeeded = () => {
 		if (metaModeActive) {
@@ -664,24 +729,14 @@ export function AppSidebar({
 	}
 
 	const handleSelectWorkMode = (mode: WorkViewMode) => {
-		// Round H.6: browsing a catalog is a deliberate "leave the inspect
-		// subject" — clear it so the show-panel guard lets the list through.
-		// (The active edit draft is separate store state and is untouched, so
-		// browse-while-editing still works and the Editor return path stays.)
-		setViewContextState(null)
-		setViewDatasetState(null)
-		setViewStoryState(null)
-		onClearSightingView?.()
+		revealLeftSidebarSurface()
 		setActiveWorkMode(mode)
 		setShowEntityAsFullPanel(false)
 		navigateToView(mode)
 	}
 
 	const handleSelectMetaMode = (mode: MetaViewMode) => {
-		setViewContextState(null)
-		setViewDatasetState(null)
-		setViewStoryState(null)
-		onClearSightingView?.()
+		revealLeftSidebarSurface()
 		setShowEntityAsFullPanel(false)
 		navigateToView(mode)
 	}
@@ -690,40 +745,62 @@ export function AppSidebar({
 		onLoadDataset(event)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('geometry')
+		setSelectedEntitySurface('dataset')
 		setShowEntityAsFullPanel(true)
 	}
 
+	const handleStartNewDataset = onStartNewDataset
+		? () => {
+				revealLeftSidebarSurface()
+				onStartNewDataset()
+				leaveMetaOverrideIfNeeded()
+				setActiveEntity('geometry')
+				setSelectedEntitySurface('dataset')
+				setShowEntityAsFullPanel(true)
+				setOpen(true)
+			}
+		: undefined
+
 	const handleInspectDataset = (event: GeoDataset) => {
+		revealLeftSidebarSurface()
 		onInspectDataset(event)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('geometry')
+		setSelectedEntitySurface('inspector')
 		setShowEntityAsFullPanel(true)
 	}
 
 	const handleInspectContext = (context: MapContext) => {
+		revealLeftSidebarSurface()
 		onInspectContext(context)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
+		setSelectedEntitySurface('inspector')
 		setShowEntityAsFullPanel(true)
 	}
 
 	const handleCreateContext = () => {
+		revealLeftSidebarSurface()
 		onCreateContext()
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
+		setSelectedEntitySurface('context')
 		setShowEntityAsFullPanel(true)
 	}
 
 	const handleEditContext = (context: MapContext) => {
+		revealLeftSidebarSurface()
 		onEditContext(context)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
+		setSelectedEntitySurface('context')
 		setShowEntityAsFullPanel(true)
 	}
 
 	const handleSaveContext = (context: MapContext) => {
 		onSaveContext?.(context)
 		setShowEntityAsFullPanel(false)
+		setSelectedEntitySurface(null)
 		setActiveWorkMode('contexts')
 		navigateToView('contexts')
 	}
@@ -731,6 +808,7 @@ export function AppSidebar({
 	const handleCloseContextEditor = () => {
 		onCloseContextEditor?.()
 		setShowEntityAsFullPanel(false)
+		setSelectedEntitySurface(null)
 		setActiveWorkMode('contexts')
 		navigateToView('contexts')
 	}
@@ -738,29 +816,36 @@ export function AppSidebar({
 	// Story handlers (D-01/D-02/D-03) — mirror the context handlers: each opens the
 	// Story surface as the full info panel and marks the active entity as 'story'.
 	const handleInspectStory = (story: import('@/lib/nostr/article').Article) => {
+		revealLeftSidebarSurface()
 		onInspectStory?.(story)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('story')
+		setSelectedEntitySurface('inspector')
 		setShowEntityAsFullPanel(true)
 	}
 
 	const handleCreateStory = () => {
+		revealLeftSidebarSurface()
 		onCreateStory?.()
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('story')
+		setSelectedEntitySurface('story')
 		setShowEntityAsFullPanel(true)
 	}
 
 	const handleEditStory = (story: import('@/lib/nostr/article').Article) => {
+		revealLeftSidebarSurface()
 		onEditStory?.(story)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('story')
+		setSelectedEntitySurface('story')
 		setShowEntityAsFullPanel(true)
 	}
 
 	const handleSaveStory = (story: import('@/lib/nostr/article').Article) => {
 		onSaveStory?.(story)
 		setActiveEntity('story')
+		setSelectedEntitySurface('inspector')
 		setShowEntityAsFullPanel(true)
 		setActiveWorkMode('stories')
 	}
@@ -768,6 +853,7 @@ export function AppSidebar({
 	const handleCloseStoryEditor = () => {
 		onCloseStoryEditor?.()
 		setShowEntityAsFullPanel(false)
+		setSelectedEntitySurface(null)
 		setActiveWorkMode('stories')
 		navigateToView('stories')
 	}
@@ -777,9 +863,11 @@ export function AppSidebar({
 	const handleInspectSighting = (
 		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
 	) => {
+		setInspectionSubject({ kind: 'sighting', entity: sighting })
 		onInspectSighting?.(sighting)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('sighting')
+		setSelectedEntitySurface('inspector')
 		setShowEntityAsFullPanel(true)
 	}
 
@@ -826,9 +914,11 @@ export function AppSidebar({
 	}
 
 	const handleInspectBeacon = (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => {
+		setInspectionSubject({ kind: 'beacon', entity: beacon })
 		onInspectBeacon?.(beacon)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('beacon')
+		setSelectedEntitySurface('inspector')
 		setShowEntityAsFullPanel(true)
 	}
 
@@ -846,54 +936,127 @@ export function AppSidebar({
 		navigateToView('beacons')
 	}
 
-	// Round E.4/F.4: derived, not stored. Geometry mirrors the stance; the
-	// context entity mirrors whether the context editor is open. Used by the
-	// info panel (empty-state copy) and the rail surface highlighting.
+	const activeEntityIsEditing =
+		(activeEntity === 'geometry' && datasetEditorRetained) ||
+		(activeEntity === 'context' && contextEditorMode !== 'none') ||
+		(activeEntity === 'story' && storyEditorMode !== 'none') ||
+		(activeEntity === 'sighting' && sightingEditorMode !== 'none') ||
+		(activeEntity === 'beacon' && beaconControlMode !== 'none')
 	const currentEntityIntent: 'inspect' | 'edit' =
-		activeEntity === 'geometry'
-			? editorStance === 'author'
-				? 'edit'
-				: 'inspect'
-			: contextEditorMode !== 'none'
+		selectedEntitySurface === 'inspector'
+			? 'inspect'
+			: selectedEntitySurface === 'dataset' ||
+					selectedEntitySurface === 'story' ||
+					selectedEntitySurface === 'context' ||
+					activeEntityIsEditing
 				? 'edit'
 				: 'inspect'
 
-	// Round H.4: a single CONTEXTUAL "current work" rail entry, derived from
-	// stance. It only exists while you're actually editing (author) or
-	// inspecting (focus) — so it never reads as an always-on peer of the
-	// browse catalogs, and there's no empty-void state. It's the way back to
-	// your editor/inspector panel after you've wandered off to a catalog.
-	const currentSurface: 'editor' | 'inspector' | null =
-		editorStance === 'author' ||
-		contextEditorMode !== 'none' ||
-		storyEditorMode !== 'none' ||
-		sightingEditorMode !== 'none' ||
-		beaconControlMode !== 'none'
-			? 'editor'
-			: editorStance === 'focus' ||
-					viewDataset ||
-					viewContext ||
-					viewStory ||
-					viewSighting ||
-					viewBeacon
-				? 'inspector'
-				: null
-
-	const returnToCurrentSurface = () => {
-		leaveMetaOverrideIfNeeded()
-		setShowEntityAsFullPanel(true)
-		setActiveEntity(
-			beaconControlMode !== 'none' || viewBeacon
-				? 'beacon'
-				: sightingEditorMode !== 'none' || viewSighting
-					? 'sighting'
-					: storyEditorMode !== 'none' || viewStory
-						? 'story'
-						: contextEditorMode !== 'none' || viewContext
-							? 'context'
-							: 'geometry',
-		)
+	const revealLeftSidebarSurface = () => {
+		// Chat remains mounted (and any run keeps going); this only reveals the
+		// retained sidebar surface the user explicitly selected.
+		if (chatOpen && chatDock === 'left') setChatOpen(false)
 	}
+
+	const returnToInspector = () => {
+		revealLeftSidebarSurface()
+		leaveMetaOverrideIfNeeded()
+		if (inspectionSubject) {
+			setInspectionSubject(inspectionSubject)
+			// Re-enter through the kind's side-effect-free inspect path so the
+			// visible Inspector and the share/reload URL describe the same subject.
+			// None of these paths may add to the Map Stack or alter Context scope.
+			replayInspectionSubject(inspectionSubject, {
+				dataset: onInspectDataset,
+				context: onInspectContext,
+				story: onInspectStory,
+				sighting: onInspectSighting,
+				beacon: onInspectBeacon,
+			})
+			setViewModeState('view')
+			setStance('focus')
+		}
+		setShowEntityAsFullPanel(true)
+		setSelectedEntitySurface('inspector')
+		setActiveEntity(
+			inspectionSubject?.kind === 'story'
+				? 'story'
+				: inspectionSubject?.kind === 'context'
+					? 'context'
+					: inspectionSubject?.kind === 'dataset'
+						? 'geometry'
+						: inspectionSubject?.kind === 'sighting'
+							? 'sighting'
+							: inspectionSubject?.kind === 'beacon'
+								? 'beacon'
+								: viewBeacon
+									? 'beacon'
+									: viewSighting
+										? 'sighting'
+										: viewStory
+											? 'story'
+											: viewContext
+												? 'context'
+												: 'geometry',
+		)
+		setOpen(true)
+	}
+
+	const returnToDatasetEditor = () => {
+		revealLeftSidebarSurface()
+		leaveMetaOverrideIfNeeded()
+		// The rail is a return affordance, never a create command. It reveals the
+		// validated active task without changing workspace or Map Stack visibility;
+		// `/edit`, stance, and the editor interaction boundary are presentation here.
+		if (datasetEditorResumable) onOpenGeometryEditor?.()
+		setActiveEntity('geometry')
+		setSelectedEntitySurface('dataset')
+		setShowEntityAsFullPanel(true)
+		setOpen(true)
+	}
+
+	const returnToStoryEditor = () => {
+		revealLeftSidebarSurface()
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('story')
+		setSelectedEntitySurface('story')
+		setShowEntityAsFullPanel(true)
+		setOpen(true)
+	}
+
+	const returnToContextEditor = () => {
+		revealLeftSidebarSurface()
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('context')
+		setSelectedEntitySurface('context')
+		setShowEntityAsFullPanel(true)
+		setOpen(true)
+	}
+
+	const toggleChatOnLeft = () => {
+		const openingOnLeft = !chatOpen || chatDock !== 'left'
+		if (openingOnLeft) setOpen(true)
+		toggleChatAtDock('left')
+	}
+	const chatOnLeft = chatOpen && chatDock === 'left'
+	const leftChatButtonLabel = chatOnLeft
+		? 'Hide AI chat'
+		: chatOpen
+			? 'Move AI chat to the left'
+			: chatWorking
+				? 'AI chat is working; show it on the left'
+				: 'Show AI chat on the left'
+	const inspectorRetained = Boolean(
+		inspectionSubject || viewDataset || viewContext || viewStory || viewSighting || viewBeacon,
+	)
+	const inspectorSelected =
+		!chatOnLeft && showEntityAsFullPanel && selectedEntitySurface === 'inspector'
+	const datasetEditorSelected =
+		!chatOnLeft && showEntityAsFullPanel && selectedEntitySurface === 'dataset'
+	const storyEditorSelected =
+		!chatOnLeft && showEntityAsFullPanel && selectedEntitySurface === 'story'
+	const contextEditorSelected =
+		!chatOnLeft && showEntityAsFullPanel && selectedEntitySurface === 'context'
 
 	const datasetsPanelProps = {
 		geoEvents,
@@ -915,7 +1078,7 @@ export function AppSidebar({
 		onInspectDataset: handleInspectDataset,
 		onInspectContext: handleInspectContext,
 		onOpenDebug,
-		onStartNewDataset,
+		onStartNewDataset: handleStartNewDataset,
 		onCreateContext: handleCreateContext,
 		onEditContext: handleEditContext,
 		isFocused,
@@ -990,7 +1153,7 @@ export function AppSidebar({
 		currentUserPubkey,
 		onLoadDataset: handleLoadDataset,
 		onInspectDataset: handleInspectDataset,
-		onStartNewDataset,
+		onStartNewDataset: handleStartNewDataset,
 		onOpenGeometryEditor,
 		onSwitchWorkspace,
 		onToggleVisibility,
@@ -1014,10 +1177,12 @@ export function AppSidebar({
 		visibleProposalIds,
 		contextEditorMode,
 		editingContext,
+		onCreateContext: handleCreateContext,
 		onSaveContext: handleSaveContext,
 		onCloseContextEditor: handleCloseContextEditor,
 		storyEditorMode,
 		editingStory,
+		onCreateStory: handleCreateStory,
 		onSaveStory: handleSaveStory,
 		onCloseStoryEditor: handleCloseStoryEditor,
 		onEditStory: handleEditStory,
@@ -1044,6 +1209,8 @@ export function AppSidebar({
 		onCloseBeaconControl: handleCloseBeaconControl,
 		onStopBeacon,
 		onAdjustBeacon: handleAdjustBeacon,
+		isFollowingBeacon,
+		onToggleFollowBeacon,
 		onZoomToBeacon: onWatchOnMapBeacon,
 		onAddBeaconToMapStack,
 		mapContextEvents,
@@ -1063,7 +1230,7 @@ export function AppSidebar({
 			case 'drafts':
 				return (
 					<LocalDraftsPanel
-						onStartNewDataset={onStartNewDataset}
+						onStartNewDataset={handleStartNewDataset}
 						onSwitchWorkspace={onSwitchWorkspace}
 						onDeleteWorkspace={onDeleteWorkspace}
 						onAddDraftToWorkspace={onAddDraftToWorkspace}
@@ -1080,7 +1247,7 @@ export function AppSidebar({
 			case 'field-sessions':
 				return (
 					<FieldSessionsPanel
-						onStartNewDataset={onStartNewDataset}
+						onStartNewDataset={handleStartNewDataset}
 						datasetActions={fieldDatasetActions}
 						fieldSessionEvents={fieldSessionEvents}
 						onPublishFieldSessionEvent={onPublishFieldSessionEvent}
@@ -1095,7 +1262,7 @@ export function AppSidebar({
 			case 'private-groups':
 				return (
 					<PrivateGroupsPanel
-						onStartNewDataset={onStartNewDataset}
+						onStartNewDataset={handleStartNewDataset}
 						datasetActions={privateDatasetActions}
 						onCommentGeometryVisibility={onCommentGeometryVisibility}
 						onZoomToBounds={onZoomToBounds}
@@ -1159,7 +1326,7 @@ export function AppSidebar({
 			setViewDatasetState(null)
 			setViewStoryState(null)
 			onClearSightingView?.()
-			setStance(useEditorStore.getState().mapStackEntries['draft:active'] ? 'author' : 'browse')
+			setStance(hasRetainedDatasetSurface(useEditorStore.getState()) ? 'author' : 'browse')
 			setShowEntityAsFullPanel(false)
 			navigateToPrivateGroup(privateGroupId)
 			return
@@ -1196,32 +1363,9 @@ export function AppSidebar({
 	const renderEntityContent = () => <GeoEditorInfoPanelContent {...editorPanelProps} />
 
 	const renderContent = () => {
-		// Editor-in-Map-Stack (redesign §9): the Map Stack portal is ONLY for the
-		// geometry/dataset draft. When a geometry draft is being authored
-		// (`editorStance === 'author'` → the Map Stack mounts the draft's editor slot)
-		// AND the geometry editor is the active surface, portal it into the slot — no
-		// sidebar view-mode navigation required. Every OTHER entity (context / story /
-		// sighting / beacon) is created/edited/forked in the LEFT SIDEBAR, even while a
-		// dataset draft is open (`activeEntity !== 'geometry'` → fall through below), so
-		// a non-geometry editor never gets hijacked into the Map Stack. If the Map Stack
-		// is closed (no slot) the editor still renders here as a fallback.
-		if (
-			draftEditorSlot &&
-			!metaModeActive &&
-			editorStance === 'author' &&
-			activeEntity === 'geometry'
-		) {
-			return (
-				<>
-					{renderWorkContent(activeWorkMode)}
-					{createPortal(<div className="min-w-0">{renderEntityContent()}</div>, draftEditorSlot)}
-				</>
-			)
-		}
-
 		if (splitWithEditor && !metaModeActive) {
 			return (
-				<ResizablePanelGroup direction="vertical" className="h-full">
+				<ResizablePanelGroup orientation="vertical" className="h-full">
 					<ResizablePanel id={`${activeEntity}-editor`} defaultSize={52} minSize={20}>
 						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
 							{renderEntityContent()}
@@ -1238,21 +1382,7 @@ export function AppSidebar({
 		}
 
 		if (metaModeActive && isMetaMode(contentMode)) {
-			// A meta view (settings/wallet/help/posts) takes over the SIDEBAR, but
-			// an in-progress geometry draft must not vanish with it — the draft
-			// editor lives in the Map Stack (redesign §9), so keep portaling it
-			// there while the sidebar shows the meta content. Without this the
-			// settings route made the whole edit UI disappear.
-			const keepDraftEditorInStack =
-				draftEditorSlot && editorStance === 'author' && activeEntity === 'geometry'
-			return (
-				<>
-					{renderMetaContent(contentMode)}
-					{keepDraftEditorInStack
-						? createPortal(<div className="min-w-0">{renderEntityContent()}</div>, draftEditorSlot)
-						: null}
-				</>
-			)
+			return renderMetaContent(contentMode)
 		}
 
 		if (showEntityAsFullPanel || contentMode === 'edit' || contentMode === 'context-editor') {
@@ -1302,37 +1432,91 @@ export function AppSidebar({
 				</SidebarHeader>
 
 				<SidebarContent>
-					{/* Round H.4: contextual "current work" surface — only present
-					    while editing/inspecting, separated from the browse catalogs
-					    by its own group + divider. This is the return path to the
-					    editor/inspector panel after navigating to a catalog. */}
-					{/* The "Editor" rail surface is gone — geometry editing now lives in
-					    the Map Stack. Only the "Inspector" return surface remains. */}
-					{currentSurface === 'inspector' ? (
-						<SidebarGroup className="border-sidebar-border border-b pb-1">
-							<SidebarGroupContent className="px-1.5 md:px-0">
-								<SidebarMenu>
-									<SidebarMenuItem>
-										<SidebarMenuButton
-											tooltip={{
-												children: currentSurface === 'editor' ? 'Editor' : 'Inspector',
-												hidden: false,
-											}}
-											onClick={() => {
-												returnToCurrentSurface()
-												setOpen(true)
-											}}
-											isActive={!metaModeActive && (showEntityAsFullPanel || splitWithEditor)}
-											className="border border-sidebar-border/70 bg-sidebar-accent/30 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground md:px-2"
-										>
-											{currentSurface === 'editor' ? <Pencil /> : <Search />}
-											<span>{currentSurface === 'editor' ? 'Editor' : 'Inspector'}</span>
-										</SidebarMenuButton>
-									</SidebarMenuItem>
-								</SidebarMenu>
-							</SidebarGroupContent>
-						</SidebarGroup>
-					) : null}
+					{/* Stable work surfaces. Their presence never implies that a draft
+					    exists; the small dot does. Selecting one changes only the visible
+					    left surface. A hidden Chat and its run remain mounted. */}
+					<SidebarGroup className="border-sidebar-border border-b pb-1">
+						<SidebarGroupContent className="px-1.5 md:px-0">
+							<SidebarMenu>
+								<SidebarMenuItem>
+									<SidebarMenuButton
+										tooltip={{ children: 'Inspector', hidden: false }}
+										onClick={returnToInspector}
+										isActive={inspectorSelected}
+										className="relative px-2.5 md:px-2 data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground"
+									>
+										<Search />
+										{inspectorRetained ? (
+											<span className="pointer-events-none absolute left-5 top-1 size-1.5 rounded-full bg-emerald-400 ring-2 ring-sidebar" />
+										) : null}
+										<span>Inspector</span>
+									</SidebarMenuButton>
+								</SidebarMenuItem>
+
+								<SidebarMenuItem>
+									<SidebarMenuButton
+										tooltip={{ children: 'Dataset editor', hidden: false }}
+										onClick={returnToDatasetEditor}
+										isActive={datasetEditorSelected}
+										className="relative px-2.5 md:px-2 data-[active=true]:bg-edit data-[active=true]:text-white"
+									>
+										{datasetAiWorking ? <LoaderCircle className="animate-spin" /> : <Database />}
+										{datasetEditorRetained ? (
+											<span className="pointer-events-none absolute left-5 top-1 size-1.5 rounded-full bg-edit ring-2 ring-sidebar" />
+										) : null}
+										<span>Dataset</span>
+									</SidebarMenuButton>
+								</SidebarMenuItem>
+
+								<SidebarMenuItem>
+									<SidebarMenuButton
+										tooltip={{ children: 'Story editor', hidden: false }}
+										onClick={returnToStoryEditor}
+										isActive={storyEditorSelected}
+										className="relative px-2.5 md:px-2 data-[active=true]:bg-edit data-[active=true]:text-white"
+									>
+										{storyAiWorking ? <LoaderCircle className="animate-spin" /> : <BookOpen />}
+										{storyEditorMode !== 'none' ? (
+											<span className="pointer-events-none absolute left-5 top-1 size-1.5 rounded-full bg-edit ring-2 ring-sidebar" />
+										) : null}
+										<span>Story</span>
+									</SidebarMenuButton>
+								</SidebarMenuItem>
+
+								<SidebarMenuItem>
+									<SidebarMenuButton
+										tooltip={{ children: 'Context editor', hidden: false }}
+										onClick={returnToContextEditor}
+										isActive={contextEditorSelected}
+										className="relative px-2.5 md:px-2 data-[active=true]:bg-edit data-[active=true]:text-white"
+									>
+										{contextAiWorking ? <LoaderCircle className="animate-spin" /> : <Globe />}
+										{contextEditorMode !== 'none' ? (
+											<span className="pointer-events-none absolute left-5 top-1 size-1.5 rounded-full bg-edit ring-2 ring-sidebar" />
+										) : null}
+										<span>Context</span>
+									</SidebarMenuButton>
+								</SidebarMenuItem>
+
+								<SidebarMenuItem className="mt-1 border-t border-sidebar-border pt-1">
+									<SidebarMenuButton
+										tooltip={{
+											children: leftChatButtonLabel,
+											hidden: false,
+										}}
+										aria-label={leftChatButtonLabel}
+										onClick={toggleChatOnLeft}
+										isActive={chatOnLeft}
+										className="relative px-2.5 md:px-2 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+										data-tour="sidebar-chat-left"
+									>
+										{chatWorking ? <LoaderCircle className="animate-spin" /> : <MessageCircle />}
+										<span>Chat</span>
+									</SidebarMenuButton>
+								</SidebarMenuItem>
+							</SidebarMenu>
+						</SidebarGroupContent>
+					</SidebarGroup>
 
 					<SidebarGroup className="border-sidebar-border border-b pb-1">
 						<SidebarGroupContent className="px-1.5 md:px-0">
@@ -1340,7 +1524,10 @@ export function AppSidebar({
 								<SidebarMenuItem data-tour="sidebar-discover">
 									<SidebarMenuButton
 										tooltip={{ children: 'Discover', hidden: false }}
-										onClick={onOpenDiscover}
+										onClick={() => {
+											revealLeftSidebarSurface()
+											onOpenDiscover()
+										}}
 										isActive={discoverOpen}
 										className="border border-sidebar-border/70 bg-sidebar-accent/20 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground md:px-2"
 									>
@@ -1435,6 +1622,8 @@ export function AppSidebar({
 			<Sidebar
 				collapsible="none"
 				className="hidden w-[calc(var(--sidebar-width)-var(--sidebar-width-icon)-1px)]! min-w-0 flex-1 md:flex"
+				aria-hidden={chatOnLeft}
+				inert={chatOnLeft ? true : undefined}
 			>
 				<SidebarHeader className="gap-3.5 border-b p-4">
 					{/* Round F.4: the Inspect/Edit segmented toggle that lived here was
@@ -1508,7 +1697,7 @@ export function AppSidebar({
 					</div>
 					{contentMode !== 'drafts' && contentMode !== 'delivery' && (
 						<WorkspaceDraftNavigator
-							onStartNewDataset={onStartNewDataset}
+							onStartNewDataset={handleStartNewDataset}
 							onSwitchWorkspace={onSwitchWorkspace}
 							onDeleteWorkspace={onDeleteWorkspace}
 							onAddDraftToWorkspace={onAddDraftToWorkspace}

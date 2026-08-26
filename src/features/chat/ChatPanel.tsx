@@ -1,9 +1,16 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
-import { resolveProvider, useChatStore } from './store'
+import {
+	captureActiveToolExecutionTarget,
+	captureVisibleDatasetReferenceTarget,
+	resolveChatTargetWorkspace,
+	resolveProvider,
+	resolveWorkspaceTargetDraft,
+	useChatStore,
+	type ChatRunStatus,
+} from './store'
 import { composeOutboundContent } from './composeOutboundContent'
 import { FileChipStrip } from './components/FileChipStrip'
-import { evictDataset } from './ingest/ingestStore'
 import type { AttachedFileView, ImageVisionTier } from './components/FileChip'
 import type { IngestSummary } from './ingest/datasetTypes'
 import { VisionGateControl } from './components/VisionGateControl'
@@ -14,7 +21,6 @@ import { useEditorStore } from '@/features/geo-editor/store'
 import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import {
 	EntityReferenceToolbar,
-	getEntityReferenceKey,
 	type EntitySearchResult,
 	type EntityType,
 } from '@/components/entity-search'
@@ -84,6 +90,8 @@ import {
 } from './chatTimeline'
 import { buildLiveAssistantMessage } from './liveAssistantMessage'
 import { EMPTY_STATE_PROMPTS } from './examplePrompts'
+import { ensureDatasetReferencePublished } from './referencePublishing'
+import { useChatComposerStore } from './composerState'
 
 const PROVIDER_LABELS: Record<ProviderType, string> = {
 	routstr: 'Routstr (paid)',
@@ -124,8 +132,47 @@ function ChatMetric({ label, title, value }: { label: string; title?: string; va
 	)
 }
 
-function formatChatSessionOption(chat: { title: string; updatedAt: number }): string {
-	return `${chat.title} · ${new Date(chat.updatedAt).toLocaleTimeString()}`
+function formatChatSessionOption(
+	chat: { title: string; updatedAt: number },
+	status: ChatRunStatus = 'idle',
+): string {
+	const statusLabel: Partial<Record<ChatRunStatus, string>> = {
+		working: 'Working',
+		awaiting_approval: 'Awaiting approval',
+		completed: 'Completed',
+		error: 'Needs attention',
+		stopped: 'Stopped',
+	}
+	const suffix = statusLabel[status]
+	return `${chat.title}${suffix ? ` · ${suffix}` : ''} · ${new Date(chat.updatedAt).toLocaleTimeString()}`
+}
+
+export function resolveChatSendState(input: {
+	canCompose: boolean
+	hasValidEditingTarget: boolean
+	targetCreationPending: boolean
+	anotherChatIsRunning: boolean
+}): { canSend: boolean; title: string } {
+	const canSend = input.canCompose && input.hasValidEditingTarget && !input.targetCreationPending
+	const title = input.targetCreationPending
+		? 'Wait for the editing target to finish'
+		: !input.hasValidEditingTarget
+			? 'Choose New map or Use current edit before sending.'
+			: input.anotherChatIsRunning
+				? 'Wait for or stop the active AI run'
+				: 'Send'
+	return { canSend, title }
+}
+
+export function resolveChatHeaderControlSizing(
+	isMobile: boolean,
+	control: 'new-conversation' | 'conversation-select' | 'icon',
+): string {
+	if (control === 'new-conversation') return isMobile ? 'h-11 min-h-11 px-2' : 'h-8 px-2.5'
+	if (control === 'conversation-select') {
+		return isMobile ? '[&>select]:h-11 [&>select]:min-h-11' : ''
+	}
+	return isMobile ? 'h-11 min-h-11 w-11 min-w-11' : 'h-8 w-8'
 }
 
 interface ChatPanelProps {
@@ -133,7 +180,7 @@ interface ChatPanelProps {
 	mapContextEvents?: MapContext[]
 	availableFeatures?: GeoFeatureItem[]
 	getDatasetName?: (event: GeoDataset) => string
-	onOpenAuthoringTarget?: () => void
+	onOpenAuthoringTarget?: (workspaceId: string) => void
 	onOpenSettings?: () => void
 }
 
@@ -167,6 +214,8 @@ export function ChatPanel({
 		messages,
 		chatSessions,
 		activeChatId,
+		runningChatId,
+		chatRunStates,
 		models,
 		selectedModel,
 		modelsLoading,
@@ -195,13 +244,18 @@ export function ChatPanel({
 		deleteChat,
 		references,
 		setReferences,
+		addReferenceToChat,
 		cancelStream,
 	} = useChatStore()
+	const composerDrafts = useChatComposerStore((state) => state.drafts)
+	const setChatComposerDraft = useChatComposerStore((state) => state.setDraft)
 	const selectMobileSidebarDestination = useEditorStore(
 		(state) => state.selectMobileSidebarDestination,
 	)
 	const editorFeatures = useEditorStore((state) => state.features)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
+	const editorWorkspaces = useEditorStore((state) => state.workspaces)
+	const editorDrafts = useEditorStore((state) => state.geoEditDrafts)
 
 	const {
 		exists: walletExists,
@@ -233,15 +287,43 @@ export function ChatPanel({
 		: null
 	const isMobile = useIsMobile()
 
-	const [input, setInput] = useState('')
-	const [selectionContextEnabled, setSelectionContextEnabled] = useState(false)
-	const [attachedGeometry, setAttachedGeometry] = useState<FeatureCollection | null>(null)
-	const [attachedFiles, setAttachedFiles] = useState<AttachedFileView[]>([])
-	const [sendAnyway, setSendAnyway] = useState(false)
+	const activeComposerDraft = activeChatId ? composerDrafts[activeChatId] : undefined
+	const input = activeComposerDraft?.input ?? ''
+	const setInput = (value: string) => {
+		if (!activeChatId) return
+		setChatComposerDraft(activeChatId, (current) => ({ ...current, input: value }))
+	}
+	const attachedSelection = activeComposerDraft?.selectionContext ?? []
+	const selectionContextEnabled = attachedSelection.length > 0
+	const attachedGeometry = activeComposerDraft?.geometry ?? null
+	const attachedFiles = activeComposerDraft?.files ?? []
+	const sendAnyway = activeComposerDraft?.sendAnyway ?? false
+	const setAttachedGeometry = (next: React.SetStateAction<FeatureCollection | null>) => {
+		if (!activeChatId) return
+		setChatComposerDraft(activeChatId, (current) => ({
+			...current,
+			geometry: typeof next === 'function' ? next(current.geometry) : next,
+		}))
+	}
+	const setAttachedFiles = (next: React.SetStateAction<AttachedFileView[]>) => {
+		if (!activeChatId) return
+		setChatComposerDraft(activeChatId, (current) => ({
+			...current,
+			files: typeof next === 'function' ? next(current.files) : next,
+		}))
+	}
+	const setSendAnyway = (next: React.SetStateAction<boolean>) => {
+		if (!activeChatId) return
+		setChatComposerDraft(activeChatId, (current) => ({
+			...current,
+			sendAnyway: typeof next === 'function' ? next(current.sendAnyway) : next,
+		}))
+	}
 	const [visionSupport, setVisionSupport] = useState<VisionSupport>('no-vision')
 	const [nowMs, setNowMs] = useState(Date.now())
 	const [connectionDetailsOpen, setConnectionDetailsOpen] = useState(false)
 	const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+	const [targetPendingChatIds, setTargetPendingChatIds] = useState<Set<string>>(() => new Set())
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -296,47 +378,38 @@ export function ChatPanel({
 		}
 	}, [inputLength])
 
+	const activeChatIsRunning = isStreaming && runningChatId === activeChatId
+	const anotherChatIsRunning = isStreaming && Boolean(runningChatId) && !activeChatIsRunning
+
 	useEffect(() => {
-		if (!isStreaming) return
+		if (!activeChatIsRunning) return
 		const interval = window.setInterval(() => setNowMs(Date.now()), 1000)
 		return () => window.clearInterval(interval)
-	}, [isStreaming])
+	}, [activeChatIsRunning])
 
 	const selectedEditorFeatures = useMemo(() => {
 		if (selectedFeatureIds.length === 0) return []
 		const selectedIds = new Set(selectedFeatureIds)
 		return editorFeatures.filter((feature) => selectedIds.has(feature.id))
 	}, [editorFeatures, selectedFeatureIds])
-	const selectedPolygonCount = useMemo(
+	const attachedSelectionPolygonCount = useMemo(
 		() =>
-			selectedEditorFeatures.filter(
+			attachedSelection.filter(
 				(feature) =>
 					feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon',
 			).length,
-		[selectedEditorFeatures],
+		[attachedSelection],
 	)
 
-	useEffect(() => {
-		if (selectedEditorFeatures.length > 0) return
-		setSelectionContextEnabled(false)
-	}, [selectedEditorFeatures.length])
-
-	useEffect(() => {
-		void activeChatId
-		setAttachedGeometry(null)
-		// WR-02: evict any not-yet-sent attached datasets before dropping the list,
-		// so switching/clearing chats doesn't leave their `fullRows` resident in the
-		// session-only ingest store. (Sent datasets are cleared without eviction in
-		// `handleSubmit` because the placement tools still need their handles.)
-		setAttachedFiles((prev) => {
-			for (const file of prev) {
-				if (file.summary?.handleId) evictDataset(file.summary.handleId)
-			}
-			return []
-		})
-		setSendAnyway(false)
-		setSelectionContextEnabled(false)
-	}, [activeChatId])
+	const handleToggleSelectionContext = () => {
+		if (!activeChatId) return
+		setChatComposerDraft(activeChatId, (current) => ({
+			...current,
+			selectionContext: current.selectionContext.length
+				? []
+				: selectedEditorFeatures.map((feature) => structuredClone(feature)),
+		}))
+	}
 
 	// D-09: resolve the single vision verdict for the selected model. The same
 	// ladder result gates user-attached images here AND the autonomous
@@ -370,7 +443,7 @@ export function ChatPanel({
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault()
-		if (!input.trim() || isStreaming) return
+		if (!input.trim() || isStreaming || !canSend) return
 
 		const message = input.trim()
 		const geometryContextMessage = attachedGeometry
@@ -391,7 +464,7 @@ export function ChatPanel({
 		await sendMessage(message, {
 			referenceContextMessage: buildReferenceContextMessage(references),
 			selectionContextMessage: selectionContextEnabled
-				? buildSelectedGeometryContextMessage(selectedEditorFeatures)
+				? buildSelectedGeometryContextMessage(attachedSelection)
 				: undefined,
 			geometryContextMessage,
 			geometryAttachment: attachedGeometry,
@@ -406,11 +479,8 @@ export function ChatPanel({
 		}
 	}
 
-	// No isStreaming guards here: the store actions are the recovery path for a
-	// stuck/runaway stream — createChat/switchChat cancel any in-flight run, and
-	// deleteChat aborts the active chat's stream (and safely no-ops when a
-	// DIFFERENT chat is streaming). Guarding them re-created the lockout the
-	// store actions were written to break.
+	// Conversation navigation is presentation-only. Creating or switching never
+	// cancels the globally-owned run; Stop remains the only ordinary cancellation.
 	const handleCreateChat = () => {
 		createChat()
 	}
@@ -429,9 +499,25 @@ export function ChatPanel({
 			toast.error('Nothing to export yet')
 			return
 		}
+		const currentTarget = activeChatId ? captureActiveToolExecutionTarget(activeChatId) : null
+		// Capture target-now independently while the last run identity remains the
+		// immutable target-at-Send. Resolution is read-only and never repairs or
+		// retargets the conversation as a side effect of exporting diagnostics.
+		const latestChatState = useChatStore.getState()
+		const exportedChat =
+			latestChatState.chatSessions.find((chat) => chat.id === activeChatId) ?? null
+		const lastRunState = activeChatId ? (latestChatState.chatRunStates[activeChatId] ?? null) : null
 		const dump = buildConversationDump({
 			exportedAt: Date.now(),
-			activeChat: activeChatSession,
+			activeChat: exportedChat,
+			currentTarget,
+			lastRun: lastRunState
+				? {
+						identity: lastRunState.identity,
+						completedAt: lastRunState.diagnostics.completedAt,
+						status: lastRunState.status,
+					}
+				: null,
 			messages,
 			references,
 			provider,
@@ -489,20 +575,64 @@ export function ChatPanel({
 		})
 	}
 
-	const handleAddReference = (result: EntitySearchResult) => {
-		const key = getEntityReferenceKey(result)
-		const nextReference: ChatReference = {
-			id: result.id,
-			name: result.name,
-			type: result.type,
-			subtitle: result.subtitle,
-			address: resolveReferenceAddress(result),
-			featureId: resolveReferenceFeatureId(result),
-			pubkey: result.pubkey,
-			createdAt: result.createdAt,
+	const handleAddReference = async (result: EntitySearchResult) => {
+		const initiatingChatId = activeChatId
+		if (!initiatingChatId) return
+		let referenceResult = result
+		if (result.type === 'dataset' || result.type === 'feature') {
+			const target = captureVisibleDatasetReferenceTarget()
+			const address = resolveReferenceAddress(result)
+			const mention = address
+				? stringifyNostrAddressReference({
+						address,
+						featureId: resolveReferenceFeatureId(result),
+					})
+				: ''
+			const operationId =
+				typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+					? crypto.randomUUID()
+					: `reference-picker-${Date.now()}`
+			const ensured = await ensureDatasetReferencePublished({
+				markdown: mention,
+				chatId: initiatingChatId,
+				toolCallId: operationId,
+				target,
+				referencesNewDataset: !address,
+			})
+			if (ensured.status === 'blocked') {
+				if (ensured.code !== 'reference_publish_cancelled') toast.error(ensured.message)
+				return
+			}
+			if (ensured.published) {
+				const freshAddress = ensured.published.datasetMention.replace(/^nostr:/, '')
+				let freshPubkey = result.pubkey
+				try {
+					const decoded = nip19.decode(freshAddress)
+					if (decoded.type === 'naddr') freshPubkey = decoded.data.pubkey
+				} catch {
+					// The freshly published address remains authoritative even if its
+					// optional display metadata cannot be decoded.
+				}
+				referenceResult = {
+					...result,
+					id: ensured.published.eventId,
+					address: freshAddress,
+					pubkey: freshPubkey,
+				}
+			}
 		}
-		if (references.some((reference) => getChatReferenceKey(reference) === key)) return
-		setReferences([...references, nextReference])
+
+		const nextReference: ChatReference = {
+			id: referenceResult.id,
+			name: referenceResult.name,
+			type: referenceResult.type,
+			subtitle: referenceResult.subtitle,
+			address: resolveReferenceAddress(referenceResult),
+			featureId: resolveReferenceFeatureId(referenceResult),
+			pubkey: referenceResult.pubkey,
+			createdAt: referenceResult.createdAt,
+		}
+		addReferenceToChat(initiatingChatId, nextReference)
 	}
 
 	const handleRemoveReference = (referenceKey: string) => {
@@ -522,6 +652,15 @@ export function ChatPanel({
 		() => sortedChatSessions.find((chat) => chat.id === activeChatId) ?? null,
 		[activeChatId, sortedChatSessions],
 	)
+	const boundWorkspace = useMemo(
+		() => resolveChatTargetWorkspace(activeChatId, chatSessions, editorWorkspaces),
+		[activeChatId, chatSessions, editorWorkspaces],
+	)
+	const hasValidEditingTarget = Boolean(resolveWorkspaceTargetDraft(boundWorkspace, editorDrafts))
+	const runningChatSession = useMemo(
+		() => sortedChatSessions.find((chat) => chat.id === runningChatId) ?? null,
+		[runningChatId, sortedChatSessions],
+	)
 	const selectedModelLabel = selectedModelData?.name ?? 'No model selected'
 	const providerLabel = PROVIDER_LABELS[provider]
 	const providerConfig = useMemo(
@@ -530,7 +669,23 @@ export function ChatPanel({
 	)
 	const providerEndpointLabel = formatProviderEndpoint(providerConfig.baseUrl)
 	const isWalletRequired = provider === 'routstr'
-	const canSend = !!selectedModel && (!isWalletRequired || walletStatus === 'ready')
+	const targetCreationPending = Boolean(activeChatId && targetPendingChatIds.has(activeChatId))
+	const canCompose = !!selectedModel && (!isWalletRequired || walletStatus === 'ready')
+	const sendState = resolveChatSendState({
+		canCompose,
+		hasValidEditingTarget,
+		targetCreationPending,
+		anotherChatIsRunning,
+	})
+	const canSend = sendState.canSend
+	const handleTargetPendingChange = (chatId: string, pending: boolean) => {
+		setTargetPendingChatIds((current) => {
+			const next = new Set(current)
+			if (pending) next.add(chatId)
+			else next.delete(chatId)
+			return next
+		})
+	}
 	const handleOpenSettings = () => {
 		if (onOpenSettings) {
 			onOpenSettings()
@@ -543,7 +698,9 @@ export function ChatPanel({
 		navigateToRoute('/settings')
 	}
 	const stalledSeconds =
-		isStreaming && lastProgressAt ? Math.max(0, Math.floor((nowMs - lastProgressAt) / 1000)) : 0
+		activeChatIsRunning && lastProgressAt
+			? Math.max(0, Math.floor((nowMs - lastProgressAt) / 1000))
+			: 0
 	const phaseLabel = useMemo(() => {
 		switch (streamPhase) {
 			case 'requesting':
@@ -576,7 +733,7 @@ export function ChatPanel({
 	const requestSummary = `${diagnostics.modelRequestCount} ${
 		diagnostics.modelRequestCount === 1 ? 'request' : 'requests'
 	}`
-	const activitySummary = isStreaming
+	const activitySummary = activeChatIsRunning
 		? `${phaseLabel}${stalledSeconds > 0 ? ` · ${stalledSeconds}s` : ''}`
 		: diagnostics.toolCallCount > 0
 			? `${diagnostics.toolCallCount} tool ${diagnostics.toolCallCount === 1 ? 'call' : 'calls'}`
@@ -607,13 +764,21 @@ export function ChatPanel({
 
 	return (
 		<section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden" aria-label="AI chat">
-			<div className="space-y-2 border-b bg-background/95 px-3 py-2.5">
+			<div
+				className={cn(
+					'border-b bg-background/95',
+					isMobile ? 'space-y-1 px-2 py-1.5' : 'space-y-2 px-3 py-2.5',
+				)}
+			>
 				<div className="flex items-center gap-1.5">
 					<Button
 						type="button"
 						variant="outline"
 						size="sm"
-						className="h-8 shrink-0 gap-1.5 px-2.5 text-xs"
+						className={cn(
+							'shrink-0 gap-1.5 text-xs',
+							resolveChatHeaderControlSizing(isMobile, 'new-conversation'),
+						)}
 						aria-label="New conversation"
 						onClick={handleCreateChat}
 					>
@@ -621,11 +786,7 @@ export function ChatPanel({
 						<span className="hidden sm:inline">New conversation</span>
 						<span className="sm:hidden">New</span>
 					</Button>
-					{/* Deliberately NOT disabled while streaming: createChat/switchChat
-					    cancel any in-flight (or stuck/runaway) stream themselves — these
-					    controls ARE the recovery path. Hard-disabling them locked users
-					    out whenever isStreaming got pinned, with no visual cue (a Radix
-					    disabled select looks normal but swallows clicks). */}
+					{/* Navigation remains enabled while another conversation works. */}
 					<NativeSelect
 						value={activeChatSession ? (activeChatId ?? '') : ''}
 						onChange={(event) => {
@@ -633,7 +794,10 @@ export function ChatPanel({
 							if (chatId) handleSwitchChat(chatId)
 						}}
 						aria-label="Select conversation"
-						className="min-w-0 flex-1"
+						className={cn(
+							'min-w-0 flex-1',
+							resolveChatHeaderControlSizing(isMobile, 'conversation-select'),
+						)}
 					>
 						{activeChatSession ? null : (
 							<NativeSelectOption value="" disabled>
@@ -642,7 +806,7 @@ export function ChatPanel({
 						)}
 						{sortedChatSessions.map((chat) => (
 							<NativeSelectOption key={chat.id} value={chat.id}>
-								{formatChatSessionOption(chat)}
+								{formatChatSessionOption(chat, chatRunStates[chat.id]?.status)}
 							</NativeSelectOption>
 						))}
 					</NativeSelect>
@@ -650,7 +814,7 @@ export function ChatPanel({
 						type="button"
 						variant="ghost"
 						size="icon"
-						className="h-8 w-8 shrink-0"
+						className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
 						onClick={handleExportConversation}
 						disabled={messages.length === 0}
 						title="Export conversation (copy JSON + download .json)"
@@ -662,7 +826,7 @@ export function ChatPanel({
 						type="button"
 						variant="ghost"
 						size="icon"
-						className="h-8 w-8 shrink-0"
+						className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
 						onClick={handleDeleteChat}
 						disabled={!activeChatId}
 						title="Delete conversation"
@@ -678,10 +842,18 @@ export function ChatPanel({
 							<CollapsibleTrigger asChild>
 								<button
 									type="button"
-									className="group flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+									className={cn(
+										'group flex min-w-0 flex-1 items-center text-left outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+										isMobile ? 'gap-1.5 px-2 py-1' : 'gap-2.5 px-2.5 py-2',
+									)}
 									aria-label="AI connection details"
 								>
-									<span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
+									<span
+										className={cn(
+											'flex shrink-0 items-center justify-center rounded-md bg-foreground text-background',
+											isMobile ? 'h-6 w-6' : 'h-7 w-7',
+										)}
+									>
 										<Bot className="h-3.5 w-3.5" />
 									</span>
 									<span className="min-w-0 flex-1">
@@ -689,8 +861,8 @@ export function ChatPanel({
 											<span className="truncate text-xs font-semibold">{selectedModelLabel}</span>
 											{provider === 'routstr' ? <DangerIndicator /> : null}
 										</span>
-										<span className="block truncate text-[10px] text-muted-foreground">
-											{providerLabel} · {providerEndpointLabel}
+										<span className="block truncate text-[10px] leading-none text-muted-foreground">
+											{isMobile ? providerLabel : `${providerLabel} · ${providerEndpointLabel}`}
 										</span>
 									</span>
 									<ChevronDown
@@ -705,7 +877,7 @@ export function ChatPanel({
 								type="button"
 								variant="ghost"
 								size="icon"
-								className="h-auto w-9 shrink-0 rounded-none border-l"
+								className={cn('h-auto shrink-0 rounded-none border-l', isMobile ? 'w-8' : 'w-9')}
 								onClick={handleOpenSettings}
 								title="Open provider settings"
 								aria-label="Open provider settings"
@@ -800,14 +972,25 @@ export function ChatPanel({
 				</Collapsible>
 
 				{/* Bound-target chip + "Just accept" toggle — always visible (SAFE-01 / SAFE-04 / D-12) */}
-				<BindingChipContainer onOpenTarget={onOpenAuthoringTarget} />
+				<BindingChipContainer
+					compact={isMobile}
+					onOpenTarget={onOpenAuthoringTarget}
+					onTargetPendingChange={handleTargetPendingChange}
+				/>
 
-				<Collapsible open={diagnosticsOpen} onOpenChange={setDiagnosticsOpen}>
+				<Collapsible
+					open={diagnosticsOpen}
+					onOpenChange={setDiagnosticsOpen}
+					className={isMobile ? 'hidden' : undefined}
+				>
 					<div className="overflow-hidden rounded-md border">
 						<CollapsibleTrigger asChild>
 							<button
 								type="button"
-								className="flex min-h-8 w-full min-w-0 items-center gap-1.5 px-2.5 py-1.5 text-left text-[10px] text-muted-foreground outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+								className={cn(
+									'flex w-full min-w-0 items-center gap-1.5 text-left text-[10px] text-muted-foreground outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+									isMobile ? 'min-h-7 px-2 py-1' : 'min-h-8 px-2.5 py-1.5',
+								)}
 								aria-label="Chat usage details"
 							>
 								<Gauge className="h-3.5 w-3.5 shrink-0" />
@@ -865,7 +1048,7 @@ export function ChatPanel({
 									label="Current phase"
 									value={activitySummary}
 									title={
-										isStreaming && stalledSeconds > 0
+										activeChatIsRunning && stalledSeconds > 0
 											? `${phaseLabel}; ${stalledSeconds}s since the last model or tool progress`
 											: undefined
 									}
@@ -929,7 +1112,7 @@ export function ChatPanel({
 
 			{/* Messages */}
 			<div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-3">
-				{messages.length === 0 && !isStreaming ? (
+				{messages.length === 0 && !activeChatIsRunning ? (
 					<div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-4">
 						<Bot className="h-12 w-12 mb-4 opacity-50" />
 						<p className="text-sm font-medium">AI Chat</p>
@@ -986,12 +1169,12 @@ export function ChatPanel({
 						)}
 
 						{/* Streaming message */}
-						{isStreaming && liveAssistantMessage && (
+						{activeChatIsRunning && liveAssistantMessage && (
 							<MessageBubble message={liveAssistantMessage} isStreaming />
 						)}
 
 						{/* Streaming/executing indicator */}
-						{isStreaming && !liveAssistantMessage && (
+						{activeChatIsRunning && !liveAssistantMessage && (
 							<div className="flex gap-2">
 								<div
 									className={cn(
@@ -1019,7 +1202,7 @@ export function ChatPanel({
 							</div>
 						)}
 
-						{isStreaming && streamWarning && (
+						{activeChatIsRunning && streamWarning && (
 							<div className="flex gap-2">
 								<div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-primary/10">
 									<AlertCircle className="h-3.5 w-3.5 text-primary" />
@@ -1055,6 +1238,8 @@ export function ChatPanel({
 							size="sm"
 							variant="outline"
 							className="h-7 shrink-0 gap-1.5"
+							disabled={targetCreationPending}
+							title={targetCreationPending ? 'Wait for the editing target to finish' : 'Retry'}
 							onClick={() => void retryLastMessage()}
 						>
 							<RefreshCw className="h-3.5 w-3.5" />
@@ -1063,8 +1248,38 @@ export function ChatPanel({
 					) : null}
 				</div>
 			)}
+			{anotherChatIsRunning && runningChatId ? (
+				<div
+					role="status"
+					className="flex shrink-0 items-center gap-2 border-t bg-primary/5 px-3 py-2 text-xs"
+				>
+					<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+					<span className="min-w-0 flex-1 truncate">
+						Working in {runningChatSession?.title ?? 'another conversation'}. You can compose here,
+						but only one AI run can work at a time.
+					</span>
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						className="h-7 shrink-0 px-2 text-xs"
+						onClick={() => switchChat(runningChatId)}
+					>
+						Jump
+					</Button>
+					<Button
+						type="button"
+						size="sm"
+						variant="destructive"
+						className="h-7 shrink-0 px-2 text-xs"
+						onClick={cancelStream}
+					>
+						Stop
+					</Button>
+				</div>
+			) : null}
 			{/* Input */}
-			<form onSubmit={handleSubmit} className="shrink-0 border-t p-3">
+			<form onSubmit={handleSubmit} className={cn('shrink-0 border-t', isMobile ? 'p-2' : 'p-3')}>
 				<div className="space-y-2">
 					<div className="flex flex-wrap items-start gap-2">
 						<EntityReferenceToolbar
@@ -1088,12 +1303,14 @@ export function ChatPanel({
 							variant={selectionContextEnabled ? 'default' : 'outline'}
 							size="sm"
 							className="h-8 shrink-0 gap-1.5 text-xs"
-							onClick={() => setSelectionContextEnabled((prev) => !prev)}
-							disabled={selectedEditorFeatures.length === 0}
+							onClick={handleToggleSelectionContext}
+							disabled={!selectionContextEnabled && selectedEditorFeatures.length === 0}
 							title={
-								selectedEditorFeatures.length === 0
+								!selectionContextEnabled && selectedEditorFeatures.length === 0
 									? 'Select one or more map features first'
-									: 'Attach current selection as spatial chat context'
+									: selectionContextEnabled
+										? 'Remove the attached spatial selection'
+										: 'Attach current selection as spatial chat context'
 							}
 						>
 							{selectionContextEnabled ? (
@@ -1111,6 +1328,7 @@ export function ChatPanel({
 							panelClassName="w-full"
 						/>
 						<FileChipStrip
+							key={activeChatId ?? 'chat-files'}
 							files={displayedFiles}
 							onChange={setAttachedFiles}
 							visionTier={visionTier}
@@ -1122,17 +1340,17 @@ export function ChatPanel({
 							sendAnyway={sendAnyway}
 							onSendAnywayChange={setSendAnyway}
 						/>
-						{(selectedEditorFeatures.length > 0 || attachedGeometry) && (
+						{(attachedSelection.length > 0 || attachedGeometry) && (
 							<div className="basis-full text-[11px] text-muted-foreground">
-								{selectedEditorFeatures.length > 0 && (
+								{attachedSelection.length > 0 && (
 									<span>
-										{selectedEditorFeatures.length} selected
-										{selectedPolygonCount > 0
-											? ` · ${selectedPolygonCount} polygon${selectedPolygonCount === 1 ? '' : 's'}`
+										{attachedSelection.length} selected
+										{attachedSelectionPolygonCount > 0
+											? ` · ${attachedSelectionPolygonCount} polygon${attachedSelectionPolygonCount === 1 ? '' : 's'}`
 											: ''}
 									</span>
 								)}
-								{selectedEditorFeatures.length > 0 && attachedGeometry ? <span> · </span> : null}
+								{attachedSelection.length > 0 && attachedGeometry ? <span> · </span> : null}
 								{attachedGeometry ? (
 									<span>{attachedGeometry.features.length} drawn attached</span>
 								) : null}
@@ -1150,13 +1368,17 @@ export function ChatPanel({
 									? 'Select a model...'
 									: isWalletRequired && walletStatus !== 'ready'
 										? 'Connect wallet to chat...'
-										: 'Type a message...'
+										: targetCreationPending
+											? 'Creating editing target...'
+											: anotherChatIsRunning
+												? 'Compose while the other conversation works...'
+												: 'Type a message...'
 							}
-							disabled={isStreaming || !canSend}
+							disabled={!canCompose}
 							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-[150px]"
 							rows={1}
 						/>
-						{isStreaming ? (
+						{activeChatIsRunning ? (
 							<Button
 								type="button"
 								variant="destructive"
@@ -1167,7 +1389,12 @@ export function ChatPanel({
 								<span className="h-3 w-3 bg-current" />
 							</Button>
 						) : (
-							<Button type="submit" size="icon" disabled={!input.trim() || !canSend} title="Send">
+							<Button
+								type="submit"
+								size="icon"
+								disabled={isStreaming || !input.trim() || !canSend}
+								title={sendState.title}
+							>
 								<Send className="h-4 w-4" />
 							</Button>
 						)}

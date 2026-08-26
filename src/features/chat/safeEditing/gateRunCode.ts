@@ -32,7 +32,7 @@
 
 import { type DatasetDiff, classifyMutation } from '@/features/geo-editor/api/diff'
 import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
-import { ensureDatasetDraftForMutation } from '@/features/geo-editor/authoringTaskBridge'
+import { ensureExecutionTargetForMutation } from '@/features/chat/tools/executionTarget'
 import { emitDiffBlock, requestConfirm } from './pendingDiffStore'
 import type { SafetyLevel } from './AuthoringGate'
 
@@ -63,7 +63,7 @@ export async function gateRunCodeBatch(
 	deps: GateRunCodeDeps,
 	replay: () => void,
 ): Promise<GateRunCodeResult> {
-	await ensureDatasetDraftForMutation()
+	await ensureExecutionTargetForMutation()
 	const before = editor.getAllFeatures()
 
 	// One snapshot per batch (D-11) — taken BEFORE the replay so Cancel restores it.

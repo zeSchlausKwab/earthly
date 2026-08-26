@@ -63,8 +63,15 @@ export function subscribeScopedStorageWriteFailures(listener: () => void): () =>
 	return () => scopedStorageWriteFailureListeners.delete(listener)
 }
 
+function resolveStorageScope(pubkey?: string | null): string | null {
+	// `undefined` means "use the active account". `null` is an explicit guest
+	// scope, which lets delayed writes retain their original destination even if
+	// an account becomes active before the write runs.
+	return pubkey === undefined ? getCurrentPubkey() : pubkey
+}
+
 function getScopedStorageKey(baseKey: string, pubkey?: string | null): string {
-	const scope = pubkey ?? getCurrentPubkey()
+	const scope = resolveStorageScope(pubkey)
 	return scope ? `${baseKey}:${scope.slice(0, 8)}` : `${baseKey}:guest`
 }
 
@@ -85,7 +92,7 @@ export function readScopedStorage<T>(baseKey: string, fallback: T, pubkey?: stri
 export function writeScopedStorage<T>(baseKey: string, value: T, pubkey?: string | null): void {
 	if (typeof window === 'undefined') return
 
-	const scope = pubkey ?? getCurrentPubkey()
+	const scope = resolveStorageScope(pubkey)
 	const scopedKey = getScopedStorageKey(baseKey, pubkey)
 	try {
 		window.localStorage.setItem(scopedKey, JSON.stringify(value))

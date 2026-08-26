@@ -4,9 +4,11 @@ import {
 	DebugActionIcon,
 	FavoriteActionIcon,
 	InspectActionIcon,
+	LoadEditorActionIcon,
 	MapStackActionIcon,
 } from '@/components/entity-action-icons'
 import { CoverThumb, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
+import { ConfirmDeleteAction } from '@/components/info-panel/ConfirmDeleteAction'
 import { UserProfile } from '@/components/user-profile'
 import { cn } from '@/lib/utils'
 import type { MapContext } from '@/lib/nostr/map-context'
@@ -33,6 +35,8 @@ export interface ContextColumnsContext {
 	currentUserPubkey?: string
 	onInspectContext?: (context: MapContext) => void
 	onEditContext?: (context: MapContext) => void
+	onDeleteContext?: (context: MapContext) => void
+	deletingKey?: string | null
 	/** Round F.3: add/remove the context's stack entry (the primary row verb). */
 	onToggleContextOnMap?: (context: MapContext) => void
 	/** Round G.2: toggle catalog favorite (Star). */
@@ -61,6 +65,9 @@ export const createContextColumns = (
 				isCatalogPinned,
 			} = row.original
 			const image = contextEvent.context.image
+			const contextKey = contextEvent.contextId ?? contextEvent.dTag ?? contextEvent.id ?? ''
+			const isOwner =
+				Boolean(context.currentUserPubkey) && contextEvent.pubkey === context.currentUserPubkey
 
 			return (
 				<ListRow
@@ -150,6 +157,14 @@ export const createContextColumns = (
 								hover="hover:text-ok"
 								onClick={() => context.onInspectContext?.(contextEvent)}
 							/>
+							{isOwner && context.onEditContext ? (
+								<RowActionButton
+									icon={LoadEditorActionIcon}
+									label="Edit context"
+									disabled={context.deletingKey === `context:${contextKey}`}
+									onClick={() => context.onEditContext?.(contextEvent)}
+								/>
+							) : null}
 							{context.onToggleCatalogPin ? (
 								// P2.2: favorites persist per-pubkey — disable with a sign-in hint
 								// rather than silently writing guest-scoped state.
@@ -176,6 +191,13 @@ export const createContextColumns = (
 									label="Open debug dialog"
 									hover="hover:text-primary"
 									onClick={() => context.onOpenDebug?.(contextEvent)}
+								/>
+							) : null}
+							{isOwner && context.onDeleteContext ? (
+								<ConfirmDeleteAction
+									label="Context"
+									isDeleting={context.deletingKey === `context:${contextKey}`}
+									onConfirm={() => context.onDeleteContext?.(contextEvent)}
 								/>
 							) : null}
 						</>

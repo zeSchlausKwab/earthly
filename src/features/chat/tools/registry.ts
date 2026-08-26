@@ -15,10 +15,8 @@
 
 import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
 import { loadWorldLayer } from '@/lib/geo/worldData'
-import { createAuthoring } from '@/features/geo-editor/api'
 import { executeEditorAiTool, getEditorAiToolDefinitions } from '@/features/geo-editor/commands'
 import { useEditorStore } from '@/features/geo-editor/store'
-import { ensureDatasetDraftForMutation } from '@/features/geo-editor/authoringTaskBridge'
 import {
 	getMapContextSnapshot,
 	getCompactMapContextForTool,
@@ -79,6 +77,11 @@ import {
 	type Tool,
 	type ToolExecutionContext,
 } from './types'
+import {
+	createExecutionAuthoring,
+	ensureExecutionTargetForMutation,
+	getExecutionEditor,
+} from './executionTarget'
 
 /** The nature/origin of a tool — required on every entry (D-03, Pitfall 5). */
 export type ToolKind =
@@ -330,9 +333,9 @@ function registerHostBuiltins(): void {
 		name: 'set_dataset_metadata',
 		kind: 'host-builtin',
 		schema: schemaFor('set_dataset_metadata'),
-		handler: async (args) => {
-			await ensureDatasetDraftForMutation()
-			const editor = useEditorStore.getState().editor
+		handler: async (args, context) => {
+			await ensureExecutionTargetForMutation(context?.run)
+			const editor = getExecutionEditor()
 			if (!editor) {
 				throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 			}
@@ -364,7 +367,7 @@ function registerHostBuiltins(): void {
 				}
 				meta.properties = props
 			}
-			const result = createAuthoring(editor).setDatasetMetadata(meta)
+			const result = createExecutionAuthoring(editor).setDatasetMetadata(meta)
 			return {
 				ok: result.ok,
 				name: result.name,
@@ -889,7 +892,7 @@ function registerRemoteMcpTools(): void {
 		kind: 'remote-mcp',
 		origin: REMOTE_MCP_ORIGIN,
 		schema: schemaFor('import_osm_to_editor'),
-		handler: async (args) => {
+		handler: async (args, context) => {
 			const client = getGeoClient()
 			const name = typeof args.name === 'string' ? args.name.trim() : ''
 			const relationId = toFiniteNumber(args.relationId)
@@ -1016,6 +1019,7 @@ function registerRemoteMcpTools(): void {
 				matchedByName.length > 0 ? matchedByName : validFeatures,
 			)
 
+			if (context?.run) await ensureExecutionTargetForMutation(context.run)
 			const importResult = importFeaturesToEditor(selected, replaceExisting)
 
 			return {

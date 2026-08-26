@@ -43,6 +43,7 @@ export function StudioShell({
 	const isMobile = useIsMobile()
 	const sidebarExpanded = useEditorStore((state) => state.sidebarExpanded)
 	const setSidebarExpanded = useEditorStore((state) => state.setSidebarExpanded)
+	const chatDock = useEditorStore((state) => state.chatDock)
 
 	// Every dimension is a --shell-* CSS var (globals.css). Only the expanded/default
 	// width choice and the mobile/desktop branch are decided here in JS.
@@ -62,6 +63,7 @@ export function StudioShell({
 			sidebarExpanded={sidebarExpanded}
 			onExpandedChange={setSidebarExpanded}
 			style={shellStyle}
+			data-chat-dock={chatDock}
 		>
 			{!isMobile && sidebar}
 

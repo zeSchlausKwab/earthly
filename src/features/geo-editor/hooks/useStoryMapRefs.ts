@@ -1,7 +1,6 @@
 import { nip19 } from 'nostr-tools'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { Article } from '@/lib/nostr/article'
-import { extractGeoReferences, geoReferenceLabel, stringifyGeoReference } from '@/lib/geo/reference'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import {
@@ -13,17 +12,13 @@ import { useEditorStore, type MapStackEntryVia } from '../store'
 import { datasetReferenceEntryId } from '../referenceMapStack'
 
 /**
- * Consolidate a Story's inline geo-references with the map-stack paradigm
- * ("whatever is in the map stack is visible"). When a Story is open this hook:
+ * Resolve a Story's inline geo-references without changing the user's map.
+ * When a Story is open this hook:
  *
  *  1. **Fetches on demand** — pulls the referenced kind-37515 datasets into the
  *     event store by `kind:pubkey:d`, so they land in `geoEvents` and can render
  *     even when the broad dataset timeline was relay-capped and omitted them.
- *  2. **Auto-stacks them visible** — the author curated these refs, so the
- *     article's geometry shows on open (rather than the old hidden-by-default
- *     behaviour). Entries are removed when the viewed story changes, so refs
- *     don't leak across navigation (mirrors the Round F.2 comment-overlay rule).
- *  3. **Exposes `isMentionVisible`** — the inline ref eye-toggles derive their
+ *  2. **Exposes `isMentionVisible`** — the inline ref eye-toggles derive their
  *     state from map-stack membership instead of a private local boolean, so the
  *     chip and the map can never drift.
  *
@@ -100,51 +95,10 @@ export function parseStoryRefs(story: Article | null): ParsedStoryRef[] {
 	return out
 }
 
-function parseStoryCoordinateRefs(story: Article | null) {
-	if (!story) return []
-	const via: MapStackEntryVia = {
-		entityType: 'story',
-		entityKey: `${story.pubkey}:${story.dTag ?? ''}`,
-		title: story.article.title?.trim() || story.dTag || 'Story',
-	}
-	const seen = new Set<string>()
-	return extractGeoReferences(story.article.content).flatMap(({ reference }) => {
-		if (reference.kind !== 'coordinate') return []
-		const canonical = stringifyGeoReference(reference)
-		if (seen.has(canonical)) return []
-		seen.add(canonical)
-		return [
-			{
-				entryId: `coordinate:${canonical}`,
-				reference: canonical,
-				title: geoReferenceLabel(reference),
-				via,
-			},
-		]
-	})
-}
-
 export function useStoryMapRefs(story: Article | null) {
-	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
-	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 
 	const refs = useMemo(() => parseStoryRefs(story), [story])
-	const coordinateRefs = useMemo(() => parseStoryCoordinateRefs(story), [story])
-
-	// Stable identity for the ref SET — effects re-run when the referenced
-	// coordinates change, not on every new Article instance for the same story.
-	const refsKey = useMemo(
-		() => [...refs.map((r) => r.entryId), ...coordinateRefs.map((r) => r.entryId)].sort().join(','),
-		[coordinateRefs, refs],
-	)
-
-	// Keep the latest parsed refs reachable from effects keyed on `refsKey`
-	// without listing the churning `refs` identity as a dependency.
-	const refsRef = useRef(refs)
-	refsRef.current = refs
-	const coordinateRefsRef = useRef(coordinateRefs)
-	coordinateRefsRef.current = coordinateRefs
 
 	// (1) Fetch-on-demand: subscribe to the referenced datasets so they enter the
 	// event store and `geoEvents`. `null` when there are no refs → no subscription.
@@ -158,47 +112,10 @@ export function useStoryMapRefs(story: Article | null) {
 	}, [refs])
 	useTimelineWithEose(fetchFilters)
 
-	// (2) Auto-stack the curated refs as VISIBLE while the story is open; remove
-	// them when the story (ref set) changes or the panel unmounts. Keyed on
-	// `refsKey` so it re-runs only when the referenced coordinates change, reading
-	// the latest refs via `refsRef` to avoid re-running on every Article instance.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: refsKey is the intentional trigger; refs are read via ref
-	useEffect(() => {
-		const current = refsRef.current
-		const currentCoordinates = coordinateRefsRef.current
-		if (current.length === 0 && currentCoordinates.length === 0) return
-		for (const ref of current) {
-			addMapStackEntry({
-				id: ref.entryId,
-				entityType: 'dataset',
-				entityKey: ref.datasetKey,
-				title: ref.featureId ?? ref.identifier,
-				featureIds: ref.featureId ? [ref.featureId] : undefined,
-				source: 'story',
-				via: ref.via,
-				visible: true,
-				pinned: false,
-			})
-		}
-		for (const ref of currentCoordinates) {
-			addMapStackEntry({
-				id: ref.entryId,
-				entityType: 'coordinate',
-				entityKey: ref.reference,
-				title: ref.title,
-				source: 'story',
-				via: ref.via,
-				visible: true,
-				pinned: false,
-			})
-		}
-		return () => {
-			for (const ref of current) removeMapStackEntry(ref.entryId)
-			for (const ref of currentCoordinates) removeMapStackEntry(ref.entryId)
-		}
-	}, [refsKey, addMapStackEntry, removeMapStackEntry])
+	// Inspection is read-only: referenced geometry enters/leaves the Map Stack only
+	// through the Story panel's explicit eye / "Show on map" actions.
 
-	// (3) Single source of truth for an inline ref's eye state: is the resolved
+	// (2) Single source of truth for an inline ref's eye state: is the resolved
 	// dataset present and visible in the map stack?
 	const isMentionVisible = useCallback(
 		(address: string, featureId: string | undefined) => {

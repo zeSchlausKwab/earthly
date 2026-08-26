@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { LocalDraftPersistenceWarning } from '../components/LocalDraftPersistenceWarning'
+import { setCurrentPubkey } from '@/lib/wallet/currentUser'
 import {
 	getScopedStorageWriteFailures,
 	subscribeScopedStorageWriteFailures,
@@ -10,7 +11,7 @@ import {
 
 const TEST_KEY = 'earthly:test:scoped-write-failure'
 const DRAFT_KEY = 'earthly:geo-editor:collection-drafts:v1'
-const globalWithWindow = globalThis as typeof globalThis & { window?: Window }
+const globalWithWindow = globalThis as unknown as { window?: Window }
 const originalWindow = globalWithWindow.window
 
 let shouldFail = false
@@ -34,6 +35,7 @@ afterEach(() => {
 	shouldFail = false
 	writeScopedStorage(TEST_KEY, { recovered: true }, null)
 	writeScopedStorage(DRAFT_KEY, { recovered: true }, null)
+	setCurrentPubkey(null)
 	globalWithWindow.window = originalWindow
 })
 
@@ -90,5 +92,14 @@ describe('scoped storage write failures', () => {
 		)
 		expect(markup).toContain('Local draft not saved')
 		expect(markup).toContain('only in this open session')
+	})
+
+	test('treats an explicit null scope as guest even when an account is active', () => {
+		setCurrentPubkey('a'.repeat(64))
+
+		writeScopedStorage(TEST_KEY, { guest: true }, null)
+
+		expect(JSON.parse(stored.get(`${TEST_KEY}:guest`) ?? 'null')).toEqual({ guest: true })
+		expect(stored.has(`${TEST_KEY}:aaaaaaaa`)).toBe(false)
 	})
 })

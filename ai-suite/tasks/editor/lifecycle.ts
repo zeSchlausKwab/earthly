@@ -32,6 +32,14 @@ export const mapStackDraftLifecycleTask: AiTaskMetadata = {
 	viewports: 'desktop',
 }
 
+export const openDatasetEditorTask: AiTaskMetadata = {
+	id: 'editor.open-dataset-editor',
+	summary: 'Reveal the retained Dataset editor without creating or replacing a draft.',
+	preconditions: ['Earthly is open', 'A retained Dataset draft exists'],
+	sideEffects: ['Changes only the visible left-sidebar surface'],
+	viewports: 'desktop',
+}
+
 export interface EditorLifecycleSnapshot {
 	featureCount: number
 	mode: string
@@ -41,6 +49,12 @@ export interface EditorLifecycleSnapshot {
 	activeDraftId: string | null
 	activeWorkspaceId: string | null
 	activeWorkspaceChatSessionId: string | null
+	workspaceCount: number
+	workspaces: Array<{
+		id: string
+		label: string
+		chatSessionId: string | null
+	}>
 	mapStack: Array<{
 		id: string
 		entityType: string
@@ -65,7 +79,7 @@ export async function editorLifecycleSnapshot(
 						history: { canUndo: boolean; canRedo: boolean }
 						activeGeoEditDraftId: string | null
 						activeWorkspaceId: string | null
-						workspaces: Record<string, { chatSessionId: string | null }>
+						workspaces: Record<string, { label: string; chatSessionId: string | null }>
 						mapStackEntries: Record<
 							string,
 							{
@@ -96,6 +110,12 @@ export async function editorLifecycleSnapshot(
 			activeDraftId: state.activeGeoEditDraftId,
 			activeWorkspaceId: state.activeWorkspaceId,
 			activeWorkspaceChatSessionId: activeWorkspace?.chatSessionId ?? null,
+			workspaceCount: Object.keys(state.workspaces).length,
+			workspaces: Object.entries(state.workspaces).map(([id, workspace]) => ({
+				id,
+				label: workspace.label,
+				chatSessionId: workspace.chatSessionId,
+			})),
 			mapStack: state.mapStackOrder
 				.map((id) => state.mapStackEntries[id])
 				.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
@@ -131,6 +151,16 @@ async function clickHistoryAction(earthly: EarthlySession, action: 'Undo' | 'Red
 
 	await earthly.page.getByText('Edit', { exact: true }).first().click()
 	await earthly.page.getByRole('menuitem', { name: action, exact: true }).click()
+}
+
+export async function openDatasetEditor(earthly: EarthlySession): Promise<Locator> {
+	if (earthly.isMobile) throw new Error('The persistent Dataset editor rail is desktop-only')
+	const datasetSurface = earthly.page.getByRole('button', { name: 'Dataset', exact: true })
+	await expect(datasetSurface).toBeVisible()
+	await datasetSurface.click()
+	const nameInput = earthly.page.getByPlaceholder('Name').first()
+	await expect(nameInput).toBeVisible()
+	return nameInput
 }
 
 export async function cancelDrawingAndVerifyRecovery(

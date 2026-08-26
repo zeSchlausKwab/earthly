@@ -3,10 +3,16 @@ import { authorizeJourneyIdentityTask } from './tasks/auth/authorize-journey-ide
 import { signInTask } from './tasks/auth/sign-in'
 import {
 	approveAiEditTask,
+	attemptTargetRequiredAiChatSendTask,
+	composeAiChatMessageTask,
+	completeAiChatTurnTask,
 	configureChatProviderTask,
 	openAiChatTask,
+	selectAiChatTargetTask,
 	sendAiChatMessageTask,
 	startNewAiChatTask,
+	switchAiChatTask,
+	waitForAiChatCompletionTask,
 } from './tasks/chat/conversation'
 import { startDatasetTask } from './tasks/create/dataset'
 import { createContextTask } from './tasks/create/context'
@@ -20,6 +26,7 @@ import { createSightingTask } from './tasks/create/sighting'
 import {
 	cancelDrawingTask,
 	mapStackDraftLifecycleTask,
+	openDatasetEditorTask,
 	undoRedoGeometryTask,
 } from './tasks/editor/lifecycle'
 import { placeMobilePrecisionPointTask } from './tasks/editor/mobile-precision-drawing'
@@ -33,6 +40,11 @@ import { openPanelTask } from './tasks/navigation/open-panel'
 import { openDiscoverTask } from './tasks/navigation/open-discover'
 import { copyCurrentShareLinkTask } from './tasks/navigation/share-current-view'
 import {
+	selectMobileEntitySurfaceTask,
+	setMobileWorkspaceTransparencyTask,
+	switchMobileWorkspacePanelTask,
+} from './tasks/navigation/mobile-workspace'
+import {
 	completeTourTask,
 	inspectTourTask,
 	skipTourTask,
@@ -41,6 +53,7 @@ import {
 import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-native-local-node'
 import { installDeterministicChatProviderTask } from './tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyleTask } from './tasks/setup/deterministic-map-style'
+import { installInMemoryContextFixtureTask } from './tasks/setup/in-memory-context-fixture'
 import {
 	installDeterministicGeolocationTask,
 	recoverDeviceLocationTask,
@@ -71,15 +84,24 @@ const tasks = [
 	signInTask,
 	configureChatProviderTask,
 	openAiChatTask,
+	selectAiChatTargetTask,
+	composeAiChatMessageTask,
+	attemptTargetRequiredAiChatSendTask,
 	sendAiChatMessageTask,
+	waitForAiChatCompletionTask,
 	startNewAiChatTask,
+	switchAiChatTask,
 	approveAiEditTask,
+	completeAiChatTurnTask,
 	completeTourTask,
 	skipTourTask,
 	inspectTourTask,
 	startTourTask,
 	openDiscoverTask,
 	openPanelTask,
+	switchMobileWorkspacePanelTask,
+	selectMobileEntitySurfaceTask,
+	setMobileWorkspaceTransparencyTask,
 	copyCurrentShareLinkTask,
 	postCommentTask,
 	replyToCommentTask,
@@ -98,12 +120,14 @@ const tasks = [
 	installSimulatedNativeLocalNodeTask,
 	installDeterministicChatProviderTask,
 	installDeterministicMapStyleTask,
+	installInMemoryContextFixtureTask,
 	installDeterministicGeolocationTask,
 	recoverDeviceLocationTask,
 	startDatasetTask,
 	cancelDrawingTask,
 	undoRedoGeometryTask,
 	mapStackDraftLifecycleTask,
+	openDatasetEditorTask,
 	placeMobilePrecisionPointTask,
 	geometryOperationsTask,
 	geometryWorkbenchTask,

@@ -143,7 +143,10 @@ describe('geo collection draft persistence', () => {
 			publishChannel: { kind: 'field-session', id: 'field-42' },
 		})
 
+		harness.getState().setIsDirty(false)
 		harness.getState().setActiveDatasetContextRefs(['context:ruins'])
+		expect(harness.getState().isDirty).toBe(true)
+		harness.getState().setIsDirty(false)
 		harness.getState().setBlobReferences([
 			{
 				id: 'blob-2',
@@ -153,6 +156,7 @@ describe('geo collection draft persistence', () => {
 				status: 'ready',
 			},
 		])
+		expect(harness.getState().isDirty).toBe(true)
 		expect(harness.getState().geoEditDrafts[draftId]?.contextRefs).toEqual(['context:ruins'])
 		expect(harness.getState().geoEditDrafts[draftId]?.blobReferences).toHaveLength(1)
 
@@ -170,6 +174,61 @@ describe('geo collection draft persistence', () => {
 			kind: 'field-session',
 			id: 'field-42',
 		})
+	})
+
+	test('marks fetched, previewed, and removed blob references as dirty', async () => {
+		const harness = createDraftHarness()
+		const originalFetch = globalThis.fetch
+		globalThis.fetch = (async () =>
+			new Response(
+				JSON.stringify({
+					type: 'FeatureCollection',
+					features: [
+						{
+							type: 'Feature',
+							id: 'point-1',
+							geometry: { type: 'Point', coordinates: [16.37, 48.2] },
+							properties: {},
+						},
+					],
+				}),
+				{ headers: { 'content-type': 'application/geo+json' } },
+			)) as unknown as typeof fetch
+
+		try {
+			const draftId = harness.getState().createGeoEditDraft('session:blob-dirty')
+			harness.getState().setBlobDraftUrl('https://blossom.example/collection.json')
+			harness.getState().setIsDirty(false)
+			await harness.getState().fetchBlobReference()
+
+			expect(harness.getState().isDirty).toBe(true)
+			expect(harness.getState().geoEditDrafts[draftId]?.blobReferences).toHaveLength(1)
+
+			harness.getState().setBlobReferences([
+				{
+					id: 'blob-preview',
+					scope: 'collection',
+					url: 'https://blossom.example/preview.json',
+					status: 'idle',
+				},
+			])
+			harness.getState().setIsDirty(false)
+			await harness.getState().previewBlobReference('blob-preview')
+
+			expect(harness.getState().isDirty).toBe(true)
+			expect(harness.getState().blobReferences[0]).toMatchObject({
+				id: 'blob-preview',
+				status: 'ready',
+				featureCount: 1,
+			})
+
+			harness.getState().setIsDirty(false)
+			harness.getState().removeBlobReference('blob-preview')
+			expect(harness.getState().isDirty).toBe(true)
+			expect(harness.getState().geoEditDrafts[draftId]?.blobReferences).toEqual([])
+		} finally {
+			globalThis.fetch = originalFetch
+		}
 	})
 
 	test('deleting a workspace source removes every draft for that source', () => {

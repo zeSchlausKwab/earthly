@@ -94,9 +94,9 @@ export interface AuthoringGateDeps {
 	 */
 	requestConfirm(): Promise<ConfirmDecision>
 	/**
-	 * OPTIONAL: ensure a bound target exists before applying (auto-create-and-bind
-	 * via the Plan-03 resolver when `needsAutoCreate`). Wired in Plan 05; when
-	 * omitted the gate assumes a target is already bound (the headless default).
+	 * OPTIONAL: verify that the explicitly selected target still exists before applying.
+	 * Target selection or creation is a user action that happens before this gate. When
+	 * omitted, the gate assumes a target is already bound (the headless default).
 	 */
 	ensureBinding?(): void | Promise<void>
 }

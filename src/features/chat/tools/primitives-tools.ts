@@ -15,8 +15,8 @@
  * silent no-op.
  */
 
-import { createAuthoring, type PrimitiveUnits } from '@/features/geo-editor/api'
-import { useEditorStore } from '@/features/geo-editor/store'
+import type { PrimitiveUnits } from '@/features/geo-editor/api'
+import { createExecutionAuthoring, getExecutionEditor } from './executionTarget'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
 
@@ -24,11 +24,11 @@ const UNITS_ENUM: PrimitiveUnits[] = ['meters', 'kilometers', 'miles']
 
 /** Resolve the active editor + Authoring facade, or throw a model-facing error. */
 function resolveAuthoring() {
-	const { editor } = useEditorStore.getState()
+	const editor = getExecutionEditor()
 	if (!editor) {
 		throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 	}
-	return createAuthoring(editor)
+	return createExecutionAuthoring(editor)
 }
 
 /** Coerce + validate the `units` arg; default meters (D-14). */

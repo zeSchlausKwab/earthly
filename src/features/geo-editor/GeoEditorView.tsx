@@ -46,6 +46,7 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
+import { ReferencePublishDialog } from '@/features/chat/referencePublishing'
 import { config } from '@/config/env.client'
 import { EARTHLY_ZAPSTORE_URL } from '@/config/app-downloads'
 import type { LocalDraftDestinationOption } from '@/components/WorkspaceDraftNavigator'
@@ -148,6 +149,12 @@ import {
 	getBeaconMapStackKey,
 	getSightingMapStackKey,
 } from './mapStackEntityKeys'
+import {
+	consumeInAppInspectRoute,
+	inspectRouteKey,
+	markInAppInspectRoute,
+} from './inspectRouteOrigin'
+import { isDraftGeometryVisible } from './draftMapVisibility'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
@@ -203,13 +210,21 @@ import {
 } from './hooks'
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
-import { useEditorStore, type MapStackEntry, type PublishChannel } from './store'
-import { useChatStore } from '@/features/chat/store'
-import { registerDatasetDraftEnsurer } from './authoringTaskBridge'
+import {
+	getRetainedDatasetSurfaceTarget,
+	resolveDraftEditorOpenPlan,
+	useEditorStore,
+	type MapStackEntry,
+	type PublishChannel,
+	type SidebarViewMode,
+} from './store'
+import { registerDatasetDraftEnsurer, type DatasetDraftRequest } from './authoringTaskBridge'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
 import { getMobileDrawingGuidance, isDrawingEditorMode } from './mobileDrawingGuidance'
+import { isDatasetMapInteractionEnabled } from './mobileDatasetInteraction'
+import { switchWorkspaceFromView } from './workspaceSwitchPresentation'
 import { deriveReferenceMapRenderState, featureMatchesReferenceSelector } from './referenceMapStack'
 import {
 	cancelCoordinateReferencePick,
@@ -404,7 +419,7 @@ export function GeoEditorView() {
 		privateGroupId,
 		fieldSessionId,
 		commentId: focusCommentId,
-	} = useRouting()
+	} = useRouting({ reconcileStore: true })
 	const {
 		account: privateWorkspaceAccount,
 		runtime: privateWorkspaceRuntime,
@@ -574,8 +589,6 @@ export function GeoEditorView() {
 	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
 	const setViewModeState = useEditorStore((state) => state.setViewMode)
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
-	const setViewContext = useEditorStore((state) => state.setViewContext)
-	const setStance = useEditorStore((state) => state.setStance)
 	const setSettingsTab = useEditorStore((state) => state.setSettingsTab)
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const contextFilterMode = useEditorStore((state) => state.contextFilterMode)
@@ -598,6 +611,10 @@ export function GeoEditorView() {
 	const stance = useEditorStore((state) => state.stance)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
+	const draftGeometryVisible = useMemo(
+		() => isDraftGeometryVisible(mapStackEntries, mapStackOrder),
+		[mapStackEntries, mapStackOrder],
+	)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
 	const setMapStackEntryIsolated = useEditorStore((state) => state.setMapStackEntryIsolated)
@@ -627,6 +644,7 @@ export function GeoEditorView() {
 	const mobilePanelOpen = useEditorStore((state) => state.mobilePanelOpen)
 	const mobilePanelTab = useEditorStore((state) => state.mobilePanelTab)
 	const mobilePanelSnap = useEditorStore((state) => state.mobilePanelSnap)
+	const mobileEntitySurface = useEditorStore((state) => state.mobileEntitySurface)
 	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
 	const setMobilePanelSnap = useEditorStore((state) => state.setMobilePanelSnap)
 	const mobileSidebarOpen = useEditorStore((state) => state.mobileSidebarOpen)
@@ -1007,25 +1025,33 @@ export function GeoEditorView() {
 		}
 	}, [isMobile, openMobilePanel, setShowInfoPanel])
 
-	// Mobile §14a: selecting a feature raises the sheet to Half; deselecting drops
-	// it back to Peek. The editor lives in the Map Stack (editor-in-Map-Stack), so
-	// we surface that panel. Only fire on the empty↔selected transition so a manual
-	// drag between selections is respected.
-	const prevSelectionCountRef = useRef(0)
+	// A direct map/touch selection explicitly asks to see Dataset properties, so it
+	// may surface the Edit sheet. Programmatic selection changes (including AI tool
+	// writes and workspace hydration) carry no `user` origin and must never steal
+	// the current Chat/Stack surface. Map Stack remains visibility-only.
 	useEffect(() => {
-		if (!isMobile) {
-			prevSelectionCountRef.current = selectionCount
-			return
+		if (!isMobile || !editor) return
+		const handleUserSelection = (event: EditorEvent) => {
+			if (event.origin !== 'user') return
+			const state = useEditorStore.getState()
+			if ((event.features?.length ?? 0) > 0) {
+				if (!getRetainedDatasetSurfaceTarget(state)) return
+				state.selectMobileEntitySurface('dataset')
+				state.openMobilePanel('edit')
+				state.setMobilePanelSnap('half')
+				return
+			}
+			if (
+				state.mobilePanelOpen &&
+				state.mobilePanelTab === 'edit' &&
+				state.mobileEntitySurface === 'dataset'
+			) {
+				state.setMobilePanelSnap('peek')
+			}
 		}
-		const prev = prevSelectionCountRef.current
-		prevSelectionCountRef.current = selectionCount
-		if (prev === 0 && selectionCount > 0) {
-			openMobilePanel('map-stack')
-			setMobilePanelSnap('half')
-		} else if (prev > 0 && selectionCount === 0) {
-			setMobilePanelSnap('peek')
-		}
-	}, [isMobile, selectionCount, openMobilePanel, setMobilePanelSnap])
+		editor.on('selection.change', handleUserSelection)
+		return () => editor.off('selection.change', handleUserSelection)
+	}, [editor, isMobile])
 
 	// Keep camera moves and MapLibre attribution above the exact live sheet
 	// height. The old percentage approximation disagreed with the fixed peek
@@ -1151,41 +1177,32 @@ export function GeoEditorView() {
 	)
 	const discoveryLoading = !geoEventsSettled || !storiesSettled || !mapContextsSettled
 
-	const surfaceDraftOnMobile = useCallback(() => {
+	const surfaceDraftEditorOnMobile = useCallback(() => {
 		if (!isMobile) return
+		useEditorStore.getState().selectMobileEntitySurface('dataset')
 		closeMobileSidebar()
-		openMobilePanel('map-stack')
+		openMobilePanel('edit')
 		setMobilePanelSnap('half')
 	}, [closeMobileSidebar, isMobile, openMobilePanel, setMobilePanelSnap])
 
 	const startNewDataset = useCallback(() => {
 		startNewDatasetWithOptions({ publishChannel: routePublishChannel })
-		if (useEditorStore.getState().activeGeoEditDraftId) surfaceDraftOnMobile()
-	}, [routePublishChannel, startNewDatasetWithOptions, surfaceDraftOnMobile])
+		if (useEditorStore.getState().activeGeoEditDraftId) surfaceDraftEditorOnMobile()
+	}, [routePublishChannel, startNewDatasetWithOptions, surfaceDraftEditorOnMobile])
 
 	const ensureAiDatasetDraft = useCallback(
-		(request?: { forceNew?: boolean }) => {
+		(request?: DatasetDraftRequest) => {
 			const state = useEditorStore.getState()
-			const activeChatId = useChatStore.getState().activeChatId
-			const activeWorkspace = state.activeWorkspaceId
-				? state.workspaces[state.activeWorkspaceId]
-				: null
-			const activeConversationOwnsTarget =
-				activeChatId != null && activeWorkspace?.chatSessionId === activeChatId
-			if (
-				!request?.forceNew &&
-				activeConversationOwnsTarget &&
-				(state.activeGeoEditDraftId || state.features.length > 0)
-			) {
-				return
+			if (!request?.forceNew && (state.activeGeoEditDraftId || state.features.length > 0)) {
+				return state.activeWorkspaceId
 			}
-			startNewDatasetWithOptions({
+			return startNewDatasetWithOptions({
 				publishChannel: routePublishChannel,
-				chatSessionId: activeChatId,
+				chatSessionId: request?.chatSessionId ?? null,
+				activate: request?.activate,
 			})
-			surfaceDraftOnMobile()
 		},
-		[routePublishChannel, startNewDatasetWithOptions, surfaceDraftOnMobile],
+		[routePublishChannel, startNewDatasetWithOptions],
 	)
 
 	useEffect(() => registerDatasetDraftEnsurer(ensureAiDatasetDraft), [ensureAiDatasetDraft])
@@ -1226,42 +1243,39 @@ export function GeoEditorView() {
 	}, [])
 
 	const handleSwitchWorkspace = useCallback(
-		async (workspaceId: string) => {
-			await switchToWorkspace(workspaceId, { publishChannel: routePublishChannel })
-			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
-			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftOnMobile()
+		async (workspaceId: string, options?: { syncMapStackVisibility?: boolean }) => {
+			await switchWorkspaceFromView({
+				workspaceId,
+				options,
+				isMobile,
+				routePublishChannel,
+				switchToWorkspace,
+				readActiveWorkspaceDraftChannel,
+				syncRouteToDraftChannel,
+				surfaceDraftEditorOnMobile,
+			})
 		},
 		[
+			isMobile,
 			readActiveWorkspaceDraftChannel,
 			routePublishChannel,
-			surfaceDraftOnMobile,
+			surfaceDraftEditorOnMobile,
 			switchToWorkspace,
 			syncRouteToDraftChannel,
 		],
 	)
 
-	const activeChatId = useChatStore((state) => state.activeChatId)
-	useEffect(() => {
-		if (!activeChatId) return
-		const state = useEditorStore.getState()
-		const ownedWorkspace = Object.values(state.workspaces)
-			.filter((workspace) => workspace.chatSessionId === activeChatId)
-			.sort((a, b) => b.updatedAt - a.updatedAt)[0]
-		if (!ownedWorkspace || ownedWorkspace.id === state.activeWorkspaceId) return
-		void handleSwitchWorkspace(ownedWorkspace.id)
-	}, [activeChatId, handleSwitchWorkspace])
-
 	const handleAddDraftToWorkspace = useCallback(
 		async (workspaceId: string) => {
 			await createDraftInWorkspace(workspaceId, { publishChannel: routePublishChannel })
 			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
-			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftOnMobile()
+			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftEditorOnMobile()
 		},
 		[
 			createDraftInWorkspace,
 			readActiveWorkspaceDraftChannel,
 			routePublishChannel,
-			surfaceDraftOnMobile,
+			surfaceDraftEditorOnMobile,
 			syncRouteToDraftChannel,
 		],
 	)
@@ -1270,12 +1284,12 @@ export function GeoEditorView() {
 		(workspaceId: string, draftId: string) => {
 			loadDraftInWorkspace(workspaceId, draftId)
 			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
-			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftOnMobile()
+			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftEditorOnMobile()
 		},
 		[
 			loadDraftInWorkspace,
 			readActiveWorkspaceDraftChannel,
-			surfaceDraftOnMobile,
+			surfaceDraftEditorOnMobile,
 			syncRouteToDraftChannel,
 		],
 	)
@@ -1643,14 +1657,9 @@ export function GeoEditorView() {
 
 	const removeFromMapStack = useCallback(
 		(entry: MapStackEntry) => {
-			// Phase 1.1: removing the draft entry equals "stop editing." A single
-			// tearDownEditSession() clears the editor AND removes `draft:active`
-			// AND resets stance/viewMode — the unified teardown that fixes the
-			// stop-editing desync (report 3.6).
-			if (entry.entityType === 'draft') {
-				tearDownEditSession()
-				return
-			}
+			// Map Stack is visibility-only. In particular, removing `draft:active`
+			// hides the retained Dataset geometry but does not discard its workspace,
+			// local draft, Chat binding, or currently selected mobile Edit surface.
 			if (entry.source === 'private-group') {
 				dismissedPrivateDatasetIds().add(entry.id)
 			}
@@ -1659,7 +1668,7 @@ export function GeoEditorView() {
 			}
 			removeMapStackEntry(entry.id)
 		},
-		[removeMapStackEntry, tearDownEditSession, dismissedPrivateDatasetIds],
+		[removeMapStackEntry, dismissedPrivateDatasetIds],
 	)
 
 	const removePrivateDatasetFromMapStack = useCallback(
@@ -1710,29 +1719,6 @@ export function GeoEditorView() {
 		}
 		clearMapStack()
 	}, [clearMapStack, dismissedPrivateDatasetIds])
-
-	// Entering the author stance (a geometry draft) surfaces the Map Stack panel —
-	// the draft entry there hosts the editor forms (editor-in-Map-Stack). Mobile
-	// opens the sheet on the map-stack tab at Half; desktop opens the floating
-	// Map Stack panel. The desktop half fixes the "edit UI nowhere / draft not in
-	// the Map Stack" report: with the panel closed, `draftEditorSlot` stays null,
-	// so a freshly started edit session (AI draw in a fresh chat, or a catalog
-	// "Load into editor") had no visible draft entry and its editor either fell
-	// back into the sidebar or rendered nowhere. Fires once per browse/focus →
-	// author transition so the user can still close the panel or navigate away
-	// while drafting.
-	const prevStanceRef = useRef(stance)
-	useEffect(() => {
-		const wasAuthor = prevStanceRef.current === 'author'
-		prevStanceRef.current = stance
-		if (stance !== 'author' || wasAuthor) return
-		if (isMobile) {
-			openMobilePanel('map-stack')
-			setMobilePanelSnap('half')
-			return
-		}
-		setMapStackOpen(true)
-	}, [isMobile, stance, openMobilePanel, setMobilePanelSnap, setMapStackOpen])
 
 	// Round C.5: stack ⇄ URL serialization. Read URL params on mount once data
 	// is loaded; afterwards push stack mutations back to the URL (debounced via
@@ -1983,6 +1969,25 @@ export function GeoEditorView() {
 
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
+	const datasetMapInteractionEnabled = isDatasetMapInteractionEnabled({
+		draftGeometryVisible,
+		isMobile,
+		mobilePanelOpen,
+		mobilePanelTab,
+		mobileEntitySurface,
+		viewMode,
+		stance,
+	})
+
+	// Direct geometry gestures are owned exclusively by the Dataset authoring
+	// surface. The editor keeps its mode (and partial drawing) while the user
+	// visits Inspector, a catalog, Story/Context editing, or Chat; its event
+	// boundary simply becomes read-only until Dataset authoring is explicitly restored.
+	useEffect(() => {
+		const sightingSurfaceActive =
+			sightingPlacementArmedRef.current && (!isMobile || mobileEntitySurface === 'sighting')
+		editor?.setInteractionEnabled(datasetMapInteractionEnabled || sightingSurfaceActive)
+	}, [datasetMapInteractionEnabled, editor, isMobile, mobileEntitySurface])
 
 	useEffect(() => {
 		if (!calloutAuthoringFeatureId) return
@@ -2084,6 +2089,13 @@ export function GeoEditorView() {
 		},
 		[authoringFieldSession, authoringFieldSessionId, fieldTransport.publishEvent],
 	)
+	// A Dataset inspect writes a shareable focus URL, but that in-app URL update
+	// must not be mistaken for a fresh shared-link landing by the route hydrator.
+	const inAppDatasetInspectRouteRef = useRef<string | null>(null)
+	// Sightings and Beacons share the same distinction: an in-app Inspect action
+	// writes a canonical URL but must not route-add/isolate the entity. Only a fresh
+	// shared-link landing gets that Map Stack behavior.
+	const inAppEphemeralInspectRouteRef = useRef<string | null>(null)
 	const navigateToEntityFocus = useCallback(
 		(
 			focusType: 'geoevent' | 'mapcontext',
@@ -2093,9 +2105,29 @@ export function GeoEditorView() {
 			// Projected private datasets have no public naddr route. Keep inspection
 			// inside /privategroup/:id so opening a map row cannot drop the MLS scope.
 			if ((privateWorkspaceScopeId || fieldSessionScopeId) && focusType === 'geoevent') return
+			if (focusType === 'geoevent') {
+				const nextRouteKey = `${focusType}:${naddr}`
+				const currentRouteKey =
+					route.focusType !== 'none' && route.naddr ? `${route.focusType}:${route.naddr}` : null
+				inAppDatasetInspectRouteRef.current = currentRouteKey === nextRouteKey ? null : nextRouteKey
+			}
 			navigateTo(focusType, naddr, sidebarView)
 		},
-		[privateWorkspaceScopeId, fieldSessionScopeId, navigateTo],
+		[privateWorkspaceScopeId, fieldSessionScopeId, navigateTo, route.focusType, route.naddr],
+	)
+	const navigateToEphemeralInspectFocus = useCallback(
+		(focusType: 'sighting' | 'beacon', naddr: string, sidebarView?: SidebarViewMode) => {
+			const nextRouteKey = inspectRouteKey(focusType, naddr)
+			const currentRouteKey =
+				route.focusType === 'sighting' || route.focusType === 'beacon'
+					? route.naddr
+						? inspectRouteKey(route.focusType, route.naddr)
+						: null
+					: null
+			markInAppInspectRoute(inAppEphemeralInspectRouteRef, currentRouteKey, nextRouteKey)
+			navigateTo(focusType, naddr, sidebarView)
+		},
+		[navigateTo, route.focusType, route.naddr],
 	)
 
 	const {
@@ -2168,60 +2200,77 @@ export function GeoEditorView() {
 	}, [buildCollectionFromEditor, viewMode])
 
 	// Round H.5: the in-edit draft row in the Map Stack gets the usual row
-	// actions' analogues. "Open editor panel" routes to the editor view so the
-	// sidebar shows the edit state; "Zoom to edit" fits the map to the draft's
-	// geometry (falling back to the active dataset's bounds when empty).
-	// Edit-isolation reuses the row's Focus button (draft.isolated). Declared
-	// after useRouting so `navigateToView` is in scope.
-	const openDraftEditor = useCallback(() => {
-		const state = useEditorStore.getState()
-		if (
-			!state.mapStackEntries['draft:active'] &&
-			(state.activeGeoEditDraftId || state.activeWorkspaceId || state.features.length > 0)
-		) {
-			addMapStackEntry({
-				id: 'draft:active',
-				entityType: 'draft',
-				entityKey: 'draft:active',
-				title:
-					state.collectionMeta.name ||
-					(state.activeDataset ? getDatasetName(state.activeDataset) : 'Untitled draft'),
-				source: 'workspace',
-				visible: true,
-				pinned: false,
-			})
-		}
-		// The entity panel is multiplexed on viewDataset/viewContext — clear those
-		// so it shows the editor (not whatever was being inspected), put the store
-		// in edit mode, restore the author stance (the toolbar pill + rail surface
-		// read stance directly — without this they'd stay on INSPECT), and route
-		// to the editor view so the sidebar surfaces it.
-		setViewContext(null)
-		setViewDatasetState(null)
-		setViewModeState('edit')
-		setStance('author')
-		navigateToView('edit')
-		if (isMobile) {
-			closeMobileSidebar()
-			openMobilePanel('map-stack')
-			setMobilePanelSnap('half')
-		} else {
-			setMapStackOpen(true)
-		}
-	}, [
-		addMapStackEntry,
-		closeMobileSidebar,
-		getDatasetName,
-		isMobile,
-		navigateToView,
-		openMobilePanel,
-		setMapStackOpen,
-		setMobilePanelSnap,
-		setStance,
-		setViewContext,
-		setViewDatasetState,
-		setViewModeState,
-	])
+	// actions' analogues. "Open editor panel" activates the validated retained
+	// Dataset; on mobile it reveals the route-neutral Edit sheet, while desktop
+	// keeps its canonical /edit route. "Zoom to edit" fits the draft geometry.
+	// Edit-isolation reuses the row's Focus button (draft.isolated).
+	const openDraftEditor = useCallback(
+		async (workspaceId?: string): Promise<boolean> => {
+			const initialState = useEditorStore.getState()
+			const plan = resolveDraftEditorOpenPlan(initialState, workspaceId, isMobile)
+			if (!plan) {
+				toast.error(
+					workspaceId
+						? 'The bound Dataset workspace has no retained draft to open.'
+						: 'No retained Dataset work is available to open.',
+				)
+				return false
+			}
+
+			try {
+				if (plan.switchWorkspace) {
+					// Exact Chat/BindingChip activation may switch only to the validated ID.
+					// Visibility synchronization remains disabled: opening a target is not an
+					// instruction to show it on the map.
+					await switchToWorkspace(plan.workspaceId, { syncMapStackVisibility: false })
+				}
+
+				const state = useEditorStore.getState()
+				if (
+					state.activeWorkspaceId !== plan.workspaceId ||
+					!getRetainedDatasetSurfaceTarget(state, plan.workspaceId)
+				) {
+					toast.error('The bound Dataset workspace could not be opened.')
+					return false
+				}
+
+				// `draft:active` represents whichever workspace is active, so it cannot
+				// survive an exact cross-workspace switch without silently making the new
+				// target visible. Remove that stale visibility row only after success.
+				if (plan.removeStaleDraftVisibility) state.removeMapStackEntry('draft:active')
+
+				const activated = state.activateMobileEntitySurface('dataset', {
+					inspector: state.inspectionSubject != null,
+					dataset: true,
+					story: false,
+					context: false,
+					sighting: false,
+					beacon: false,
+				})
+				if (!activated) return false
+
+				if (!plan.navigateToEditRoute) {
+					closeMobileSidebar()
+					openMobilePanel('edit')
+					setMobilePanelSnap('half')
+				} else {
+					navigateToView('edit')
+				}
+				return true
+			} catch {
+				toast.error('The bound Dataset workspace could not be opened.')
+				return false
+			}
+		},
+		[
+			closeMobileSidebar,
+			isMobile,
+			navigateToView,
+			openMobilePanel,
+			setMobilePanelSnap,
+			switchToWorkspace,
+		],
+	)
 
 	const zoomToDraft = useCallback(async () => {
 		const drawn = (features ?? []).filter((feature) => feature.geometry !== null)
@@ -2254,11 +2303,9 @@ export function GeoEditorView() {
 		onEnsureInfoPanelVisible: ensureInfoPanelVisible,
 		onNavigateToFocus: navigateToEntityFocus,
 		onClearRouteFocus: clearFocus,
-		onZoomToDataset: zoomToDataset,
 	})
 
 	// Store focus state
-	const focusedNaddr = useEditorStore((state) => state.focusedNaddr)
 	const focusedType = useEditorStore((state) => state.focusedType)
 
 	// Round C: sidebar filter is sidebar-only (no longer affects map visibility,
@@ -2294,16 +2341,6 @@ export function GeoEditorView() {
 	// Keep the upstream context-scope and focus state as-is — they still
 	// drive sidebar/info-panel and routing behaviour — just stop computing
 	// the toolbar-specific labels.
-
-	const focusedContext = useMemo(() => {
-		if (focusedType !== 'mapcontext' || !focusedNaddr) return null
-		return (
-			mapContextEvents.find((context) => {
-				const contextNaddr = encodeContextNaddr(context)
-				return contextNaddr === focusedNaddr
-			}) ?? null
-		)
-	}, [focusedType, focusedNaddr, mapContextEvents, encodeContextNaddr])
 
 	const destinationContextCoordinate =
 		authoringPublishChannel.kind === 'public'
@@ -2465,11 +2502,13 @@ export function GeoEditorView() {
 
 	// Note: `focusedDataset` was only ever read by the now-removed toolbar focus
 	// label. The focus state itself still drives routing + sidebar — see
-	// `focusedNaddr` / `focusedType` reads below — but the dataset resolution
+	// `focusedType` read below — but the dataset resolution
 	// is no longer needed in this scope.
 
-	const explicitContext = activeContextScope ?? focusedContext
-	const mapFilterContext = explicitContext
+	// Scope and inspection are separate verbs. A focused/inspected Context owns
+	// only the read panel; only `/context/:naddr` scope may filter catalogs/map
+	// data, reset scope defaults, or seed a new Dataset's context references.
+	const mapFilterContext = activeContextScope
 	const mapFilterContextCoordinate = useMemo(() => {
 		if (activeContextScope && contextCoordinate) return contextCoordinate
 		if (!mapFilterContext) return null
@@ -2559,10 +2598,7 @@ export function GeoEditorView() {
 	// has unchecked in the inline expand panel (`entry.exclusions`).
 	const visibleGeoEvents = useMemo(() => {
 		const sourceIsReplacedByDraft = (event: GeoDataset) =>
-			stance === 'author' &&
-			viewMode === 'edit' &&
-			activeDatasetKey !== null &&
-			getDatasetKey(event) === activeDatasetKey
+			draftGeometryVisible && activeDatasetKey !== null && getDatasetKey(event) === activeDatasetKey
 		const contextByKey = new Map<string, MapContext>()
 		for (const ctx of mapContextEvents) {
 			const key = ctx.contextCoordinate ?? ctx.id ?? ctx.contextId ?? ctx.dTag
@@ -2634,14 +2670,13 @@ export function GeoEditorView() {
 			)
 	}, [
 		activeDatasetKey,
+		draftGeometryVisible,
 		geoEvents,
 		getDatasetKey,
 		mapContextEvents,
 		mapGeoEvents,
 		mapStackEntries,
 		mapStackOrder,
-		stance,
-		viewMode,
 	])
 	const referenceMapRenderState = useMemo(
 		() => deriveReferenceMapRenderState(mapStackOrder.map((entryId) => mapStackEntries[entryId])),
@@ -2873,26 +2908,23 @@ export function GeoEditorView() {
 
 	const lastContextCoordinateRef = useRef<string | null>(null)
 	useEffect(() => {
-		if (!explicitContext) {
+		if (!mapFilterContext) {
 			lastContextCoordinateRef.current = null
-			setViewContext(null)
 			setViewContextDatasets([])
 			return
 		}
 
-		const coordinate = getContextCoordinate(explicitContext)
-		setViewContext(explicitContext)
+		const coordinate = getContextCoordinate(mapFilterContext)
 		setViewContextDatasets(activeContextDatasets)
 
 		if (coordinate && lastContextCoordinateRef.current !== coordinate) {
 			lastContextCoordinateRef.current = coordinate
-			setContextFilterMode(defaultContextFilterMode(explicitContext))
-			setContextMapScopeMode(getDefaultContextMapScopeMode(explicitContext))
+			setContextFilterMode(defaultContextFilterMode(mapFilterContext))
+			setContextMapScopeMode(getDefaultContextMapScopeMode(mapFilterContext))
 		}
 	}, [
-		explicitContext,
+		mapFilterContext,
 		activeContextDatasets,
-		setViewContext,
 		setViewContextDatasets,
 		setContextFilterMode,
 		setContextMapScopeMode,
@@ -2903,7 +2935,7 @@ export function GeoEditorView() {
 		if (activeDataset) return
 		if (features.length > 0) return
 
-		const canAutoAttachToContext = explicitContext?.context.allowForeignAttachments ?? false
+		const canAutoAttachToContext = mapFilterContext?.context.allowForeignAttachments ?? false
 
 		if (mapFilterContextCoordinate && canAutoAttachToContext) {
 			if (
@@ -2923,7 +2955,7 @@ export function GeoEditorView() {
 		activeDataset,
 		features.length,
 		mapFilterContextCoordinate,
-		explicitContext?.context.allowForeignAttachments,
+		mapFilterContext?.context.allowForeignAttachments,
 		activeDatasetContextRefs,
 		setActiveDatasetContextRefs,
 	])
@@ -3221,6 +3253,7 @@ export function GeoEditorView() {
 				const signer = accounts.signer
 				if (!signer) throw new Error('No active account')
 				await deleteMapContext(context.event, signer)
+				if (targetCoordinate) removeMapStackEntry(`context:${targetCoordinate}`)
 
 				const viewedContext = useEditorStore.getState().viewContext
 				const viewedContextId = viewedContext ? getContextKey(viewedContext) : null
@@ -3239,7 +3272,7 @@ export function GeoEditorView() {
 				setDeletingKey(null)
 			}
 		},
-		[getContextKey, exitViewMode, clearContextScope, contextCoordinate],
+		[getContextKey, exitViewMode, clearContextScope, contextCoordinate, removeMapStackEntry],
 	)
 
 	// Export/Import
@@ -3352,7 +3385,7 @@ export function GeoEditorView() {
 		isMobile,
 		ensureInfoPanelVisible,
 		encodeContextNaddr,
-		navigateToContext,
+		navigateTo,
 		navigateToView,
 		clearFocus,
 		loadDatasetForEditing: loadDatasetForCurrentChannel,
@@ -3406,7 +3439,6 @@ export function GeoEditorView() {
 		navigateTo,
 		navigateToView,
 		clearFocus,
-		onBeforeAuthoring: tearDownEditSession,
 	})
 
 	const handleDiscoverOpenChange = useCallback((open: boolean) => {
@@ -3521,11 +3553,15 @@ export function GeoEditorView() {
 		// lock off (otherwise touch taps in draw mode are ignored — the tap never
 		// drops the pin on mobile). A drag still pans the map.
 		editor?.setTouchTapDrawEnabled(true)
+		editor?.setTransientDrawingVisible(true)
+		editor?.setInteractionEnabled(true)
 		editor?.setMode('draw_point')
 	}, [editor])
 	const disarmSightingPlacement = useCallback(() => {
 		sightingPlacementArmedRef.current = false
 		editor?.setTouchTapDrawEnabled(false)
+		editor?.setTransientDrawingVisible(false)
+		editor?.setInteractionEnabled(false)
 		// Return the editor to a non-drawing idle mode.
 		if (editor && editor.getMode() !== 'select') editor.setMode('select')
 	}, [editor])
@@ -3538,6 +3574,7 @@ export function GeoEditorView() {
 		sightingFocusCommentId,
 		placedGeometry: placedSightingGeometry,
 		placementArmed: sightingPlacementArmed,
+		rearmPlacement: rearmSightingPlacement,
 		clearSightingEditorModes,
 		clearSightingView,
 		handleInspectSighting,
@@ -3551,6 +3588,8 @@ export function GeoEditorView() {
 		isMobile,
 		ensureInfoPanelVisible,
 		navigateToView,
+		navigateTo: navigateToEphemeralInspectFocus,
+		encodeSightingNaddr,
 		clearFocus,
 		armPlacement: armSightingPlacement,
 		disarmPlacement: disarmSightingPlacement,
@@ -3561,17 +3600,31 @@ export function GeoEditorView() {
 		sightingPlacementArmedRef.current = sightingPlacementArmed
 	}, [sightingPlacementArmed])
 
+	// The editor's retained feature model is deliberately independent from its
+	// MapLibre materialization. Publishing swaps the draft row for a Dataset row;
+	// removing that Dataset must therefore leave no editor geometry behind. A
+	// later Edit-sheet/rail reveal remains presentation-only; geometry returns only
+	// through an explicit Map Stack visibility/load action.
+	useEffect(() => {
+		editor?.setGeometryVisible(draftGeometryVisible)
+		editor?.setTransientDrawingVisible(sightingPlacementArmed)
+	}, [draftGeometryVisible, editor, sightingPlacementArmed])
+
 	// The responsive shell can become interactive a moment before the GeoEditor
 	// instance finishes mounting. If Sighting creation is armed during that gap,
 	// `armSightingPlacement` cannot set a mode yet and the visible map prompt would
 	// otherwise accept taps that do nothing. Reconcile the late editor with the
 	// already-armed lifecycle state as soon as it exists.
 	useEffect(() => {
-		if (!editor || !sightingPlacementArmed) return
+		if (!editor || !sightingPlacementArmed || (isMobile && mobileEntitySurface !== 'sighting')) {
+			return
+		}
 		sightingPlacementArmedRef.current = true
 		editor.setTouchTapDrawEnabled(true)
+		editor.setTransientDrawingVisible(true)
+		editor.setInteractionEnabled(true)
 		if (editor.getMode() !== 'draw_point') editor.setMode('draw_point')
-	}, [editor, sightingPlacementArmed])
+	}, [editor, isMobile, mobileEntitySurface, sightingPlacementArmed])
 
 	// Intercept the GeoEditor 'create' event ONLY while a Sighting placement is
 	// armed: capture the placed feature's geometry, open the editor with it, and
@@ -3640,10 +3693,13 @@ export function GeoEditorView() {
 
 	// Switch the armed create flow to an area draw (D-02 "Draw an area instead").
 	const handleDrawSightingArea = useCallback(() => {
+		rearmSightingPlacement()
 		sightingPlacementArmedRef.current = true
 		editor?.setTouchTapDrawEnabled(true)
+		editor?.setTransientDrawingVisible(true)
+		editor?.setInteractionEnabled(true)
 		editor?.setMode('draw_polygon')
-	}, [editor])
+	}, [editor, rearmSightingPlacement])
 
 	// ── Live Beacon Start/Stop/Adjust/inspect (Phase 12, BEACON-01..04, D-12) ──
 	// The controller binds the Plan-03 useBeaconPublisher (the live watch loop +
@@ -3669,9 +3725,8 @@ export function GeoEditorView() {
 	} = useBeaconController({
 		ensureInfoPanelVisible,
 		navigateToView,
-		navigateTo,
+		navigateTo: navigateToEphemeralInspectFocus,
 		encodeBeaconNaddr,
-		zoomToBeacon: handleZoomToBeacon,
 		clearFocus,
 	})
 
@@ -3706,33 +3761,10 @@ export function GeoEditorView() {
 		map.current.easeTo({ center: followedBeaconCoords, duration: 600 })
 	}, [followingBeaconKey, followedBeaconCoords])
 
-	// Mobile: when a non-dataset entity editor becomes ready for data entry, slide
-	// the sheet up to the 'edit' tab at Half so the form is visible (a dataset draft
-	// uses the author-stance effect → Map Stack instead). A Sighting create waits for
-	// the point to be dropped first (map-first placement) so the map stays usable
-	// while you place the pin; every other editor rises as soon as it opens. Fires
-	// only on the rising edge so a manual drag afterwards is respected.
-	const mobileEntityEditorReady =
-		contextEditorMode !== 'none' ||
-		storyEditorMode !== 'none' ||
-		beaconControlMode !== 'none' ||
-		viewSighting != null ||
-		viewBeacon != null ||
-		sightingEditorMode === 'edit' ||
-		(sightingEditorMode === 'create' && placedSightingGeometry != null)
-	const prevEntityEditorReadyRef = useRef(false)
-	useEffect(() => {
-		if (!isMobile) {
-			prevEntityEditorReadyRef.current = mobileEntityEditorReady
-			return
-		}
-		const wasReady = prevEntityEditorReadyRef.current
-		prevEntityEditorReadyRef.current = mobileEntityEditorReady
-		if (!wasReady && mobileEntityEditorReady) {
-			openMobilePanel('edit')
-			setMobilePanelSnap('half')
-		}
-	}, [isMobile, mobileEntityEditorReady, openMobilePanel, setMobilePanelSnap])
+	// Entity handlers own mobile surfacing at the moment of explicit user intent.
+	// Do not infer navigation from an editor becoming ready: Story/Context writes
+	// may finish in the background while the user is following a Chat run, and a
+	// readiness effect would steal that surface.
 
 	// Sighting pin-drop is map-first: when placement arms (create mode, no geometry
 	// yet), drop the sheet to peek so the whole map is reachable for dropping the
@@ -3831,7 +3863,17 @@ export function GeoEditorView() {
 			route.focusType !== 'none' && route.naddr ? `${route.focusType}:${route.naddr}` : null
 		if (!routeKey) {
 			focusHandledRef.current = null
+			inAppDatasetInspectRouteRef.current = null
+			inAppEphemeralInspectRouteRef.current = null
 			return
+		}
+		if (
+			inAppEphemeralInspectRouteRef.current &&
+			inAppEphemeralInspectRouteRef.current !== routeKey
+		) {
+			// A different navigation won before the intended entity resolved. Forget
+			// the obsolete marker so a later real landing on that key is never skipped.
+			inAppEphemeralInspectRouteRef.current = null
 		}
 
 		// Skip if no focus route (just sidebar view change)
@@ -3884,6 +3926,13 @@ export function GeoEditorView() {
 			if (dataset) {
 				const handledKey = `${routeKey}:${dataset.id}`
 				if (focusHandledRef.current === handledKey) return
+				if (inAppDatasetInspectRouteRef.current === routeKey) {
+					// `handleInspectDataset` already selected the Inspector. Mark this URL
+					// handled without changing Map Stack membership or camera position.
+					inAppDatasetInspectRouteRef.current = null
+					focusHandledRef.current = handledKey
+					return
+				}
 				addDatasetToMapStack(dataset, 'route')
 				handleInspectDataset(dataset)
 				// Shared-link contract: landing zooms to the entity, not just
@@ -3930,6 +3979,12 @@ export function GeoEditorView() {
 			if (sighting) {
 				const handledKey = `${routeKey}:${sighting.id}`
 				if (focusHandledRef.current === handledKey) return
+				if (consumeInAppInspectRoute(inAppEphemeralInspectRouteRef, routeKey)) {
+					// The inspect handler already selected this Sighting. Keep its
+					// canonical URL without turning inspection into Map Stack mutation.
+					focusHandledRef.current = handledKey
+					return
+				}
 				// Phase 13 (D-03/SPEC §2.2): the routed sighting lands on the Map Stack
 				// ISOLATED (deep-link-solo), mirroring the dataset route dispatch above
 				// (addDatasetToMapStack(dataset, 'route')). This replaces any ambient
@@ -3954,6 +4009,12 @@ export function GeoEditorView() {
 			if (beacon) {
 				const handledKey = `${routeKey}:${beacon.id}`
 				if (focusHandledRef.current === handledKey) return
+				if (consumeInAppInspectRoute(inAppEphemeralInspectRouteRef, routeKey)) {
+					// In-app inspection is stack-neutral. Only a fresh shared-link route
+					// reaches the add/isolate branch below.
+					focusHandledRef.current = handledKey
+					return
+				}
 				// Phase 13 (D-03/SPEC §2.2): the routed beacon lands on the Map Stack
 				// ISOLATED (deep-link-solo). This is what makes a link-only / deep-linked
 				// beacon render now that the `66a155e` side-channel is gone — the isolated
@@ -4067,7 +4128,7 @@ export function GeoEditorView() {
 	const closeMobileNavigation = useCallback(() => {
 		const state = useEditorStore.getState()
 		if (state.mobileSidebarMode === 'content') {
-			navigateToView(state.mapStackEntries['draft:active'] ? 'edit' : 'sightings')
+			navigateToView(getRetainedDatasetSurfaceTarget(state) ? 'edit' : 'sightings')
 		}
 		closeMobileSidebar()
 	}, [closeMobileSidebar, navigateToView])
@@ -4314,23 +4375,14 @@ export function GeoEditorView() {
 		onLoadIntoEditor: handleDatasetSelect,
 	}
 
-	// Entity editors are mutually exclusive: close any OTHER open editor before
-	// starting a new one so a lingering editor (e.g. an unfinished Story) can't leak
-	// into the next entity's surface (incl. the dataset draft's Map Stack editor).
-	// `keep` names the entity being created — we must NOT close it: the create-handler
-	// resets its own state, and for map-first entities (sighting/beacon) closing it
-	// first would disarm the pin-drop (`editor.setMode('select')`) in the same tick as
-	// the create arms it (`setMode('draw_point')`), which cancels the placement.
-	const startCreate = (create: () => void, keep?: 'story' | 'context' | 'sighting' | 'beacon') => {
+	// Starting one entity is explicit, but it does not discard any other retained
+	// editor. The persistent rail lets the user return to those states independently.
+	const startCreate = (create: () => void) => {
 		if (isMobile) {
 			closeMobileSidebar()
 			setMobilePanelOpen(false)
 			setMobileSearchOpen(false)
 		}
-		if (keep !== 'story') handleCloseStoryEditor()
-		if (keep !== 'context') handleCloseContextEditor()
-		if (keep !== 'sighting') handleCloseSightingEditor()
-		if (keep !== 'beacon') handleCloseBeaconControl()
 		create()
 	}
 	return (
@@ -4372,7 +4424,7 @@ export function GeoEditorView() {
 					onDeleteContext={onDeleteContext}
 					getDatasetKey={getDatasetKey}
 					getDatasetName={getDatasetName}
-					onOpenGeometryEditor={handleOpenGeometryEditor}
+					onOpenGeometryEditor={() => void handleOpenGeometryEditor()}
 					onInspectDataset={handleInspectDatasetWithModeSwitch}
 					onInspectContext={handleInspectContext}
 					onOpenDebug={handleOpenDebug}
@@ -4666,10 +4718,10 @@ export function GeoEditorView() {
 				enabled={calloutsEnabled}
 				displayMode={calloutDisplayMode}
 				draftFeatures={features}
-				draftVisible={stance === 'author' && viewMode === 'edit'}
+				draftVisible={draftGeometryVisible}
 				selectedFeatureIds={selectedFeatureIds}
 				authoringFeatureId={calloutAuthoringFeatureId}
-				canAuthor={stance === 'author' && viewMode === 'edit'}
+				canAuthor={datasetMapInteractionEnabled}
 				visibleDatasets={visibleCalloutDatasets}
 				availableFeatures={availableFeatures}
 				onCalloutsChange={handleCalloutsChange}
@@ -4858,7 +4910,7 @@ export function GeoEditorView() {
 						onSetEntryVisible={setMapStackVisibility}
 						onSetEntryIsolated={setMapStackIsolation}
 						onRemoveEntry={removeFromMapStack}
-						onOpenDraftEditor={openDraftEditor}
+						onOpenDraftEditor={() => void openDraftEditor()}
 						onZoomToDraft={zoomToDraft}
 						onClear={clearMapStackAndVisibility}
 						onClose={() => setMapStackOpen(false)}
@@ -5182,19 +5234,19 @@ export function GeoEditorView() {
 								<Database className="h-4 w-4" />
 								Dataset
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleCreateContext, 'context')}>
+							<DropdownMenuItem onSelect={() => startCreate(handleCreateContext)}>
 								<Globe className="h-4 w-4" />
 								Context
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleCreateStory, 'story')}>
+							<DropdownMenuItem onSelect={() => startCreate(handleCreateStory)}>
 								<BookOpen className="h-4 w-4" />
 								Story
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleCreateSighting, 'sighting')}>
+							<DropdownMenuItem onSelect={() => startCreate(handleCreateSighting)}>
 								<Eye className="h-4 w-4" />
 								Sighting
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleShareLocation, 'beacon')}>
+							<DropdownMenuItem onSelect={() => startCreate(handleShareLocation)}>
 								<Radio className="h-4 w-4" />
 								Live beacon
 							</DropdownMenuItem>
@@ -5231,6 +5283,7 @@ export function GeoEditorView() {
 			{debugEvent && (
 				<DebugDialog event={debugEvent} open={debugDialogOpen} onOpenChange={setDebugDialogOpen} />
 			)}
+			<ReferencePublishDialog />
 			{/* Blossom Upload Dialog */}
 			;
 			<BlossomUploadDialog

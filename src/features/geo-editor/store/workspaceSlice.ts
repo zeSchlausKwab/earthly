@@ -1,11 +1,90 @@
 import type { StateCreator } from 'zustand'
 import { readPersistedGeoCollectionDraftState } from './draftSlice'
 import { readScopedStorage, writeScopedStorage } from './persistence'
-import type { EditorState, GeoEditorWorkspace, WorkspaceSlice } from './types'
+import type {
+	EditorState,
+	GeoCollectionEditDraft,
+	GeoEditorWorkspace,
+	WorkspaceSlice,
+} from './types'
 
 interface PersistedWorkspaceState {
 	workspaces: Record<string, GeoEditorWorkspace>
 	activeWorkspaceId: string | null
+}
+
+export function repairWorkspaceActiveDraftIds(
+	workspaces: Record<string, GeoEditorWorkspace>,
+	drafts: Record<string, GeoCollectionEditDraft>,
+): { workspaces: Record<string, GeoEditorWorkspace>; repaired: boolean } {
+	const newestDraftBySource = new Map<string, GeoCollectionEditDraft>()
+	for (const draft of Object.values(drafts)) {
+		const current = newestDraftBySource.get(draft.sourceId)
+		if (
+			!current ||
+			draft.updatedAt > current.updatedAt ||
+			(draft.updatedAt === current.updatedAt && draft.createdAt > current.createdAt) ||
+			(draft.updatedAt === current.updatedAt &&
+				draft.createdAt === current.createdAt &&
+				draft.id.localeCompare(current.id) > 0)
+		) {
+			newestDraftBySource.set(draft.sourceId, draft)
+		}
+	}
+
+	let repairedWorkspaces = workspaces
+	let repaired = false
+	for (const workspace of Object.values(workspaces)) {
+		const pointedDraft = workspace.activeDraftId ? drafts[workspace.activeDraftId] : null
+		if (pointedDraft?.sourceId === workspace.sourceId) continue
+
+		const nextActiveDraftId = newestDraftBySource.get(workspace.sourceId)?.id ?? null
+		if (nextActiveDraftId === workspace.activeDraftId) continue
+		if (!repaired) repairedWorkspaces = { ...workspaces }
+		repairedWorkspaces[workspace.id] = {
+			...workspace,
+			activeDraftId: nextActiveDraftId,
+		}
+		repaired = true
+	}
+
+	const workspaceSourceIds = new Set(
+		Object.values(repairedWorkspaces).map((workspace) => workspace.sourceId),
+	)
+	for (const [sourceId, newestDraft] of newestDraftBySource) {
+		if (workspaceSourceIds.has(sourceId)) continue
+		if (!repaired) repairedWorkspaces = { ...workspaces }
+
+		const baseWorkspaceId = `recovered-${newestDraft.id}`
+		let workspaceId = baseWorkspaceId
+		let suffix = 2
+		while (repairedWorkspaces[workspaceId]) {
+			workspaceId = `${baseWorkspaceId}-${suffix}`
+			suffix += 1
+		}
+
+		const kind: GeoEditorWorkspace['kind'] = sourceId.startsWith('dataset:') ? 'dataset' : 'scratch'
+		const draftLabel = normalizeWorkspaceLabel(
+			newestDraft.collectionMeta.name || newestDraft.name,
+			kind,
+		)
+		repairedWorkspaces[workspaceId] = {
+			id: workspaceId,
+			sourceId,
+			label: `Recovered ${draftLabel}`,
+			kind,
+			datasetKey: inferDatasetKeyFromSourceId(sourceId),
+			baseRevisionId: null,
+			activeDraftId: newestDraft.id,
+			chatSessionId: null,
+			createdAt: newestDraft.createdAt,
+			updatedAt: newestDraft.updatedAt,
+		}
+		workspaceSourceIds.add(sourceId)
+		repaired = true
+	}
+
+	return { workspaces: repairedWorkspaces, repaired }
 }
 
 const GEO_EDITOR_WORKSPACES_STORAGE_KEY = 'earthly:geo-editor:workspaces:v1'
@@ -58,6 +137,7 @@ function buildWorkspaceMigrationState(pubkey?: string | null): PersistedWorkspac
 			label: normalizeWorkspaceLabel(latestDraft.collectionMeta.name || latestDraft.name, kind),
 			kind,
 			datasetKey: inferDatasetKeyFromSourceId(sourceId),
+			baseRevisionId: null,
 			activeDraftId: latestDraft.id,
 			chatSessionId: null,
 			createdAt: latestDraft.createdAt,
@@ -76,6 +156,17 @@ function buildWorkspaceMigrationState(pubkey?: string | null): PersistedWorkspac
 	}
 
 	return { workspaces, activeWorkspaceId }
+}
+
+function buildAndPersistWorkspaceMigrationState(pubkey?: string | null): PersistedWorkspaceState {
+	const migrated = buildWorkspaceMigrationState(pubkey)
+	// A Chat stores the workspace id as its durable authoring-target pointer. A
+	// draft-only legacy migration therefore cannot expose a freshly generated id
+	// without also making that id stable across reloads.
+	if (Object.keys(migrated.workspaces).length > 0) {
+		writeScopedStorage(GEO_EDITOR_WORKSPACES_STORAGE_KEY, migrated, pubkey)
+	}
+	return migrated
 }
 
 function dedupeWorkspacesBySourceId(
@@ -105,6 +196,10 @@ function dedupeWorkspacesBySourceId(
 				preferred.datasetKey ??
 				sorted.find((workspace) => workspace.datasetKey)?.datasetKey ??
 				inferDatasetKeyFromSourceId(preferred.sourceId),
+			baseRevisionId:
+				preferred.baseRevisionId ??
+				sorted.find((workspace) => workspace.baseRevisionId)?.baseRevisionId ??
+				null,
 			activeDraftId:
 				preferred.activeDraftId ??
 				sorted.find((workspace) => workspace.activeDraftId)?.activeDraftId ??
@@ -145,7 +240,9 @@ export function readPersistedWorkspaceState(pubkey?: string | null): PersistedWo
 			null,
 			pubkey,
 		)
-		if (!parsed || typeof parsed !== 'object') return buildWorkspaceMigrationState(pubkey)
+		if (!parsed || typeof parsed !== 'object') {
+			return buildAndPersistWorkspaceMigrationState(pubkey)
+		}
 
 		const rawWorkspaces =
 			parsed.workspaces &&
@@ -166,6 +263,7 @@ export function readPersistedWorkspaceState(pubkey?: string | null): PersistedWo
 				label: normalizeWorkspaceLabel(typeof record.label === 'string' ? record.label : '', kind),
 				kind,
 				datasetKey: typeof record.datasetKey === 'string' ? record.datasetKey : null,
+				baseRevisionId: typeof record.baseRevisionId === 'string' ? record.baseRevisionId : null,
 				activeDraftId: typeof record.activeDraftId === 'string' ? record.activeDraftId : null,
 				chatSessionId: typeof record.chatSessionId === 'string' ? record.chatSessionId : null,
 				createdAt,
@@ -181,15 +279,16 @@ export function readPersistedWorkspaceState(pubkey?: string | null): PersistedWo
 		return dedupeWorkspacesBySourceId(workspaces, activeWorkspaceId)
 	} catch (error) {
 		console.warn('Failed to read geo editor workspaces from scoped storage', error)
-		return buildWorkspaceMigrationState(pubkey)
+		return buildAndPersistWorkspaceMigrationState(pubkey)
 	}
 }
 
-function writePersistedWorkspaceState(
+export function writePersistedWorkspaceState(
 	workspaces: Record<string, GeoEditorWorkspace>,
 	activeWorkspaceId: string | null,
+	pubkey?: string | null,
 ) {
-	writeScopedStorage(GEO_EDITOR_WORKSPACES_STORAGE_KEY, { workspaces, activeWorkspaceId })
+	writeScopedStorage(GEO_EDITOR_WORKSPACES_STORAGE_KEY, { workspaces, activeWorkspaceId }, pubkey)
 }
 
 export const createWorkspaceSlice: StateCreator<EditorState, [], [], WorkspaceSlice> = (
@@ -203,6 +302,7 @@ export const createWorkspaceSlice: StateCreator<EditorState, [], [], WorkspaceSl
 		activeWorkspaceId: persisted.activeWorkspaceId,
 
 		createWorkspace: (input) => {
+			const activate = input.activate !== false
 			const existingWorkspace = Object.values(get().workspaces).find(
 				(workspace) => workspace.sourceId === input.sourceId,
 			)
@@ -218,6 +318,7 @@ export const createWorkspaceSlice: StateCreator<EditorState, [], [], WorkspaceSl
 						existingWorkspace.datasetKey ??
 						inferDatasetKeyFromSourceId(input.sourceId),
 					activeDraftId: input.activeDraftId ?? existingWorkspace.activeDraftId,
+					baseRevisionId: input.baseRevisionId ?? existingWorkspace.baseRevisionId ?? null,
 					chatSessionId: input.chatSessionId ?? existingWorkspace.chatSessionId,
 					updatedAt: now,
 				}
@@ -225,11 +326,15 @@ export const createWorkspaceSlice: StateCreator<EditorState, [], [], WorkspaceSl
 					...get().workspaces,
 					[existingWorkspace.id]: nextWorkspace,
 				}
+				const currentActiveWorkspaceId = get().activeWorkspaceId
 				set({
 					workspaces: nextWorkspaces,
-					activeWorkspaceId: existingWorkspace.id,
+					...(activate ? { activeWorkspaceId: existingWorkspace.id } : {}),
 				})
-				writePersistedWorkspaceState(nextWorkspaces, existingWorkspace.id)
+				writePersistedWorkspaceState(
+					nextWorkspaces,
+					activate ? existingWorkspace.id : currentActiveWorkspaceId,
+				)
 				return existingWorkspace.id
 			}
 			const workspace: GeoEditorWorkspace = {
@@ -239,6 +344,7 @@ export const createWorkspaceSlice: StateCreator<EditorState, [], [], WorkspaceSl
 				kind: input.kind,
 				datasetKey: input.datasetKey ?? inferDatasetKeyFromSourceId(input.sourceId),
 				activeDraftId: input.activeDraftId ?? null,
+				baseRevisionId: input.baseRevisionId ?? null,
 				chatSessionId: input.chatSessionId ?? null,
 				createdAt: now,
 				updatedAt: now,
@@ -247,11 +353,15 @@ export const createWorkspaceSlice: StateCreator<EditorState, [], [], WorkspaceSl
 				...get().workspaces,
 				[workspaceId]: workspace,
 			}
+			const currentActiveWorkspaceId = get().activeWorkspaceId
 			set({
 				workspaces: nextWorkspaces,
-				activeWorkspaceId: workspaceId,
+				...(activate ? { activeWorkspaceId: workspaceId } : {}),
 			})
-			writePersistedWorkspaceState(nextWorkspaces, workspaceId)
+			writePersistedWorkspaceState(
+				nextWorkspaces,
+				activate ? workspaceId : currentActiveWorkspaceId,
+			)
 			return workspaceId
 		},
 

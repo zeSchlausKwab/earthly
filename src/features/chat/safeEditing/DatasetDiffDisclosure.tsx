@@ -24,7 +24,13 @@ import type { EditorFeature } from '@/features/geo-editor/core'
  */
 
 /** Terminal render state of a diff block. `pending` shows the live Apply/Cancel. */
-export type DiffBlockStatus = 'pending' | 'applied' | 'cancelled'
+export type DiffBlockStatus =
+	| 'pending'
+	| 'applied'
+	| 'cancelled'
+	| 'failed'
+	| 'undone'
+	| 'undo-unavailable'
 
 /**
  * The D-05 counts headline: `+N added · ~N changed · −N deleted`, computed from a
@@ -101,9 +107,9 @@ interface DatasetDiffDisclosureProps {
 	 */
 	defaultOpen?: boolean
 	/**
-	 * `pending` (default) shows the live Apply/Cancel buttons; `applied`/`cancelled`
-	 * shows the resolved outcome label (diff stays visible; Level-3 auto-apply uses
-	 * `applied` — D-12).
+	 * `pending` (default) shows the live Apply/Cancel buttons. Terminal states keep
+	 * the diff visible and report whether it was applied, cancelled, or could not
+	 * be durably applied after its final target check.
 	 */
 	status?: DiffBlockStatus
 	/**
@@ -177,10 +183,22 @@ export function DatasetDiffDisclosure({
 				) : (
 					<span
 						className={`text-[11px] font-medium uppercase tracking-wide ${
-							status === 'applied' ? 'text-ok' : 'text-muted-foreground'
+							status === 'applied'
+								? 'text-ok'
+								: status === 'failed' || status === 'undo-unavailable'
+									? 'text-destructive'
+									: 'text-muted-foreground'
 						}`}
 					>
-						{status === 'applied' ? 'Applied' : 'Cancelled'}
+						{status === 'applied'
+							? 'Applied'
+							: status === 'failed'
+								? 'Not applied'
+								: status === 'undone'
+									? 'Undone'
+									: status === 'undo-unavailable'
+										? 'Undo unavailable'
+										: 'Cancelled'}
 					</span>
 				)}
 			</div>

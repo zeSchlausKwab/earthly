@@ -40,6 +40,39 @@ export interface ToolExecutionContext {
 	attachedGeometry?: GeoJSON.FeatureCollection | null
 	/** The user-authored text that initiated this tool loop. */
 	userMessage?: string
+	/**
+	 * Immutable identity of the model run that owns this call. Tool handlers must
+	 * not infer ownership from whichever conversation or editor happens to be
+	 * visible when an awaited call eventually resumes.
+	 */
+	run?: ToolExecutionRunIdentity
+}
+
+export type ToolExecutionTargetEntityType = 'dataset' | 'story' | 'context'
+
+export interface ToolExecutionTarget {
+	readonly entityType: ToolExecutionTargetEntityType | null
+	/** Durable local draft captured when the user sent the turn, when one exists. */
+	readonly draftId: string | null
+	/** Published event/source identifier captured with the draft. */
+	readonly entityId: string | null
+	/** Draft source id captured independently from the active editor surface. */
+	readonly sourceId: string | null
+	/** Exact published revision the local draft was based on, when applicable. */
+	readonly baseRevisionId: string | null
+	/** Draft revision marker captured before the model run starts. */
+	readonly draftUpdatedAt: number | null
+	/** Whether that exact draft already had unpublished changes at send time. */
+	readonly wasDirty: boolean
+	/** Retained editor surface that owned the draft at send time. */
+	readonly workspaceId: string | null
+}
+
+export interface ToolExecutionRunIdentity {
+	readonly runId: number
+	readonly chatId: string
+	readonly target: ToolExecutionTarget
+	readonly startedAt: number
 }
 
 export interface GeometryBakeAnalysis {

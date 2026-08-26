@@ -20,6 +20,7 @@ import { eventStore } from '@/lib/nostr'
 import { NEW_STORY_DRAFT_KEY, readStoryDraft, writeStoryDraft } from '@/lib/nostr/story'
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { gateStoryDatasetReferences } from '@/features/chat/referencePublishing'
 import { fetchLatestByCoordinate, parseEntityReference } from './entity-tools'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
@@ -88,10 +89,10 @@ function explicitlyConfirmsOverwrite(message: string | undefined): boolean {
 }
 
 const MENTION_SYNTAX_HINT =
-	'Cite datasets inline as bare nostr:naddr1… references. For one dataset feature, append the percent-encoded feature id fragment returned by read_entity (for example #relation%2F62504). Coordinates use bare RFC 5870 geo:latitude,longitude URIs; OSM elements use canonical https://www.openstreetmap.org/{node|way|relation}/{id} URLs. Never wrap references in code spans. On publish, Nostr mentions are mirrored into queryable references and all supported forms render as interactive pills.'
+	'Cite datasets inline as bare nostr:naddr1… references. For one dataset feature, append the percent-encoded feature id fragment returned by read_entity (for example #relation%2F62504). When the working Dataset is new and has no naddr yet, set referencesActiveDataset=true: Earthly will ask the user to publish it, return its fresh mention, and require this Story write to be retried with that mention. Coordinates use bare RFC 5870 geo:latitude,longitude URIs; OSM elements use canonical https://www.openstreetmap.org/{node|way|relation}/{id} URLs. Never wrap references in code spans. On publish, Nostr mentions are mirrored into queryable references and all supported forms render as interactive pills.'
 
 const REVIEW_HINT =
-	'Draft saved locally and the Story editor is now open on the left with the draft loaded. Tell the user to review it there and publish when ready — publishing is always their action.'
+	'Draft saved locally. The Story edit state is ready behind the Story icon. Tell the user to review it there and publish when ready — publishing is always their action.'
 
 const readStoryDraftSchema: Tool = {
 	type: 'function',
@@ -142,6 +143,11 @@ const writeStoryDraftSchema: Tool = {
 					type: 'boolean',
 					description:
 						'Required (true) to replace an existing draft that this session did not write. Only pass after the user confirmed.',
+				},
+				referencesActiveDataset: {
+					type: 'boolean',
+					description:
+						'Set true only when this Story is intended to cite the working Dataset or one of its features and that Dataset is new (so no naddr exists yet). This triggers an explicit Publish and continue dialog before any Story draft is saved.',
 				},
 			},
 			required: ['title', 'markdown'],
@@ -241,6 +247,16 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 			}
 
 			const normalizedBody = normalizeStoryFeatureReferences(markdown)
+			const referenceGate = await gateStoryDatasetReferences(normalizedBody.markdown, {
+				run: context?.run,
+				referencesActiveDataset: args.referencesActiveDataset === true,
+			})
+			if (referenceGate.status !== 'ready') {
+				return {
+					ok: false,
+					...referenceGate,
+				}
+			}
 			writeStoryDraft(draftKey, {
 				title: title.trim(),
 				summary,
@@ -249,8 +265,8 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 			})
 			sessionOwnedDraftKeys.add(draftKey)
 
-			// Surface the draft: open the Story editor in create mode (or re-run its
-			// pre-fill if it is already open) so the user never has to hunt for it.
+			// Retain the Story edit state in create mode (or refresh its pre-fill if
+			// it already exists). The sidebar decides whether that state is visible.
 			requestOpenStoryEditor(target?.story)
 
 			return {
@@ -262,12 +278,14 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 					markdownChars: normalizedBody.markdown.length,
 					normalizedReferenceCount: normalizedBody.normalizedCount,
 				},
-				...(useEditorStore.getState().activeDataset && useEditorStore.getState().isDirty
-					? {
-							datasetWarning:
-								'The active dataset has unpublished local edits. Publish it before publishing this Story so cited references resolve to the intended version.',
-						}
-					: {}),
+				...(referenceGate.published
+					? { datasetPublication: referenceGate.published }
+					: useEditorStore.getState().activeDataset && useEditorStore.getState().isDirty
+						? {
+								datasetWarning:
+									'This Story does not cite the active Dataset, which still has unpublished local edits.',
+							}
+						: {}),
 				note: REVIEW_HINT,
 			}
 		},

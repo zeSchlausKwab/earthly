@@ -14,7 +14,7 @@ import { getLoadedWorldLayer } from '@/lib/geo/worldData'
 import { getSessionPublishes } from '@/lib/nostr/sessionPublishes'
 import { lonLatToWorldGeohash } from '@/lib/worldGeohash'
 import type { ChatMessage } from '../routstr'
-import type { CachedMapSnapshot } from './types'
+import type { CachedMapSnapshot, ToolExecutionTarget } from './types'
 import { MAX_SNAPSHOT_CACHE_SIZE } from './types'
 import { countFeaturesByGeometry } from './helpers'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '@/features/geo-editor/constants'
@@ -186,6 +186,84 @@ export function getMapContextSnapshot() {
 	}
 }
 
+/**
+ * Capture the textual context for the immutable authoring target selected at
+ * Send. If that Dataset is retained in the background, derive context from its
+ * draft instead of whichever workspace is currently visible.
+ */
+export function getMapContextSnapshotForTarget(
+	target: ToolExecutionTarget,
+): ReturnType<typeof getMapContextSnapshot> {
+	if (target.entityType !== 'dataset') return getMapContextSnapshot()
+
+	const store = useEditorStore.getState()
+	const workspace = target.workspaceId ? store.workspaces[target.workspaceId] : null
+	const draft = target.draftId ? store.geoEditDrafts[target.draftId] : null
+	const exactTargetVisible =
+		store.activeWorkspaceId === target.workspaceId &&
+		store.activeGeoEditDraftId === target.draftId &&
+		workspace?.activeDraftId === target.draftId &&
+		workspace.sourceId === target.sourceId &&
+		draft?.sourceId === target.sourceId
+	if (exactTargetVisible) return getMapContextSnapshot()
+
+	const features = draft?.sourceId === target.sourceId ? draft.features : []
+	const selectedFeatureIds = draft?.sourceId === target.sourceId ? draft.selectedFeatureIds : []
+	const selectedIds = new Set(selectedFeatureIds)
+	const selectedEditorFeatures = features.filter((feature) => selectedIds.has(feature.id))
+	const selectedSummary = selectedEditorFeatures.slice(0, 20).map((feature) => {
+		const measurements = summarizeFeatureMeasurements(feature)
+		return {
+			id: feature.id,
+			geometryType: feature.geometry?.type ?? 'Unknown',
+			name: typeof feature.properties?.name === 'string' ? feature.properties.name : undefined,
+			lengthKm: measurements?.lengthKm,
+			areaKm2: measurements?.areaKm2,
+		}
+	})
+	const serializedBytes = getDatasetSerializedBytes(features)
+	const datasetCoordinate = target.entityId
+
+	return {
+		editorReady: Boolean(draft),
+		mode: 'static',
+		datasetMetadata: {
+			name: draft?.collectionMeta.name ?? '',
+			description: draft?.collectionMeta.description ?? '',
+			color: draft?.collectionMeta.color ?? '',
+			customProperties: draft?.collectionMeta.customProperties ?? {},
+		},
+		activeDataset:
+			datasetCoordinate && target.baseRevisionId
+				? {
+						address: `37515:${datasetCoordinate}`,
+						eventId: target.baseRevisionId,
+						version: null,
+					}
+				: null,
+		localDraftDirty: target.wasDirty,
+		featureCount: features.length,
+		datasetSize: {
+			serializedBytes,
+			limitBytes: BLOSSOM_UPLOAD_THRESHOLD_BYTES,
+			overLimit: serializedBytes > BLOSSOM_UPLOAD_THRESHOLD_BYTES,
+		},
+		datasetMeasurements: getDatasetMeasurements(features),
+		selectedFeatureCount: selectedFeatureIds.length,
+		selectedFeatures: selectedSummary,
+		selectedFeatureGeometryCounts: countFeaturesByGeometry(selectedEditorFeatures),
+		featureGeometryCounts: countFeaturesByGeometry(features),
+		viewportBbox: null,
+		mapCenter: null,
+		mapZoom: null,
+		mapView: { center: null, zoom: null, bbox: null },
+		viewportAnchors: null,
+		visibleLayers: [],
+		visibleDatasets: datasetCoordinate ? [datasetCoordinate] : [],
+		mapSource: store.mapSource,
+	}
+}
+
 export function getCompactMapContextForPrompt(snapshot: ReturnType<typeof getMapContextSnapshot>) {
 	const selectedFeatureHints = snapshot.selectedFeatures.slice(0, 4).map((feature) => ({
 		geometryType: feature.geometryType,
@@ -249,6 +327,14 @@ export type PromptProfile = 'compact' | 'legacy'
 interface MapContextPromptOptions {
 	isContinuation?: boolean
 	continuationRequest?: string
+	/**
+	 * A send-time snapshot pins the request to the entity/map the user actually
+	 * addressed. Without it, clicking into another retained editor while the
+	 * model is between rounds silently changes the next round's system context.
+	 */
+	mapSnapshot?: ReturnType<typeof getMapContextSnapshot>
+	/** `null` deliberately captures "no session publishes" at send time. */
+	sessionPublishContextMessage?: string | null
 }
 
 function continuationInstruction(options: MapContextPromptOptions): string | null {
@@ -271,9 +357,12 @@ function firstVisibleGeometryInstruction(): string {
 function createLegacyMapContextSystemMessage(
 	options: MapContextPromptOptions = {},
 ): ChatMessage | null {
-	const snapshot = getMapContextSnapshot()
+	const snapshot = options.mapSnapshot ?? getMapContextSnapshot()
 	const compact = getCompactMapContextForPrompt(snapshot)
-	const sessionPublishBlock = buildSessionPublishContextMessage()
+	const sessionPublishBlock =
+		options.sessionPublishContextMessage === undefined
+			? buildSessionPublishContextMessage()
+			: (options.sessionPublishContextMessage ?? undefined)
 	return {
 		role: 'system',
 		content: [
@@ -345,9 +434,12 @@ function createCompactMapContextSystemMessage(
 	toolNames: readonly string[],
 	options: MapContextPromptOptions = {},
 ): ChatMessage | null {
-	const snapshot = getMapContextSnapshot()
+	const snapshot = options.mapSnapshot ?? getMapContextSnapshot()
 	const compact = getCompactMapContextForPrompt(snapshot)
-	const sessionPublishBlock = buildSessionPublishContextMessage()
+	const sessionPublishBlock =
+		options.sessionPublishContextMessage === undefined
+			? buildSessionPublishContextMessage()
+			: (options.sessionPublishContextMessage ?? undefined)
 	const hasStoryTools = toolNames.some((name) => name.includes('story'))
 	const hasResearchTools = toolNames.some((name) =>
 		['web_search', 'wikipedia_lookup', 'wikipedia_extract', 'fetch_url'].includes(name),

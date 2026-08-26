@@ -39,7 +39,7 @@
  * owns the list; the rule-mode schemas expose NO `features`/`featureIds` array param).
  */
 
-import { createAuthoring, deleteFeaturesById } from '@/features/geo-editor/api/authoring'
+import { deleteFeaturesById } from '@/features/geo-editor/api/authoring'
 import { findDuplicateGroups } from '@/features/geo-editor/api/dedup'
 import {
 	type Predicate,
@@ -49,7 +49,11 @@ import {
 import { validateGeometryFeatures } from '@/features/geo-editor/api/geometryValidation'
 import { normalizeStyleOptions } from '@/features/geo-editor/api/styleOptions'
 import type { EditorFeature } from '@/features/geo-editor/core/types'
-import { useEditorStore } from '@/features/geo-editor/store'
+import {
+	createExecutionAuthoring,
+	getExecutionEditor,
+	getExecutionSelectedFeatureIds,
+} from './executionTarget'
 import { type FixAllRule, runFixAllRule } from '@/features/chat/safeEditing/fixAll'
 import { gateBulkApply } from '@/features/chat/safeEditing/gateBulkEdit'
 import { getSafetyLevel } from '@/features/chat/safeEditing/safetyAccess'
@@ -90,7 +94,7 @@ const PREDICATE_OPS = new Set([
  * opens the editor). The same idiom every host-builtin uses.
  */
 function requireEditor() {
-	const editor = useEditorStore.getState().editor
+	const editor = getExecutionEditor()
 	if (!editor) {
 		throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 	}
@@ -143,7 +147,7 @@ export function resolveSelectionScope(raw: unknown): SelectionScopedPredicate {
 			filter: (features) => selectByPredicate(features, predicate),
 		}
 	}
-	const selectedIds = new Set(useEditorStore.getState().selectedFeatureIds.map(String))
+	const selectedIds = new Set(getExecutionSelectedFeatureIds().map(String))
 	const matches = (feature: EditorFeature) =>
 		selectedIds.has(String(feature.id)) === selectedOnly && matchesPredicate(feature, predicate)
 	return {
@@ -510,7 +514,7 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 				{ getSafetyLevel, label: 'Batch edit features (intelligence)' },
 				'modify',
 				() => {
-					const authoring = createAuthoring(editor)
+					const authoring = createExecutionAuthoring(editor)
 					for (const [id, value] of capById) {
 						const existing = editor.getFeature(id)
 						if (!existing) continue

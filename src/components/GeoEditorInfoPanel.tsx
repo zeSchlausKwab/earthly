@@ -14,7 +14,11 @@ import {
 	formatAreaKm2,
 	formatLengthKm,
 } from '../features/geo-editor/api/measure'
-import { useEditorStore } from '../features/geo-editor/store'
+import {
+	hasRetainedDatasetSurface,
+	useEditorStore,
+	type InspectionSubject,
+} from '../features/geo-editor/store'
 import { sanitizeEditorProperties } from '../features/geo-editor/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContextValidationMode, MapContext } from '@/lib/nostr/map-context'
@@ -50,6 +54,7 @@ import type { BlossomUploadResult } from '../lib/blossom/blossomUpload'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace'
 import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
 import { LocalDraftPersistenceWarning } from '@/features/geo-editor/components/LocalDraftPersistenceWarning'
+import { resolveInfoPanelViewState } from '@/features/geo-editor/components/mobileEditPanelPresentation'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -104,6 +109,8 @@ export interface GeoEditorInfoPanelProps {
 	onSaveContext?: (context: MapContext) => void
 	/** Callback to close context editor */
 	onCloseContextEditor?: () => void
+	/** Explicit creation action shown by the empty Context edit-state surface. */
+	onCreateContext?: () => void
 	/** Available contexts for dataset attachment */
 	mapContextEvents?: MapContext[]
 	/** Callback when a proposal overlay visibility is toggled */
@@ -131,6 +138,8 @@ export interface GeoEditorInfoPanelProps {
 	focusCommentId?: string
 	entityWorkspace?: 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
 	entityIntent?: 'inspect' | 'edit'
+	/** Retained Inspector subject used without restoring route-owned view state. */
+	inspectionSubjectOverride?: InspectionSubject | null
 	/** Story editor mode (Phase 10, D-03). */
 	storyEditorMode?: 'none' | 'create' | 'edit'
 	/** Story being edited (create ⇒ null). */
@@ -139,6 +148,8 @@ export interface GeoEditorInfoPanelProps {
 	onSaveStory?: (story: Article) => void
 	/** Callback to close the Story editor. */
 	onCloseStoryEditor?: () => void
+	/** Explicit creation action shown by the empty Story edit-state surface. */
+	onCreateStory?: () => void
 	/** Callback to open a Story in the editor (owner Edit affordance in the view). */
 	onEditStory?: (story: Article) => void
 	/** Callback to delete a Story (owner). */
@@ -216,6 +227,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onDeleteDataset,
 		onDeleteContext,
 		currentUserPubkey,
+		onStartNewDataset,
 		onOpenGeometryEditor,
 		deletingKey,
 		onExitViewMode,
@@ -232,6 +244,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		editingContext,
 		onSaveContext,
 		onCloseContextEditor,
+		onCreateContext,
 		mapContextEvents = [],
 		onToggleProposalOverlay,
 		onProposalAccepted,
@@ -245,16 +258,18 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		focusCommentId,
 		entityWorkspace,
 		entityIntent,
+		inspectionSubjectOverride,
 		storyEditorMode = 'none',
 		editingStory,
 		onSaveStory,
 		onCloseStoryEditor,
+		onCreateStory,
 		onEditStory,
 		onDeleteStory,
 		onStoryUpdated,
 		sightingEditorMode = 'none',
 		editingSighting,
-		viewSighting,
+		viewSighting: suppliedViewSighting,
 		sightingFocusCommentId,
 		beaconFocusCommentId,
 		placedSightingGeometry,
@@ -266,7 +281,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onAddSightingToMapStack,
 		beaconControlMode = 'none',
 		adjustingBeacon,
-		viewBeacon,
+		viewBeacon: suppliedViewBeacon,
 		isFollowingBeacon,
 		onToggleFollowBeacon,
 		beaconIsStarting,
@@ -295,19 +310,28 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const publishMessage = useEditorStore((state) => state.publishMessage)
 	const publishError = useEditorStore((state) => state.publishError)
 	const viewMode = useEditorStore((state) => state.viewMode)
-	const viewDataset = useEditorStore((state) => state.viewDataset)
+	const storedViewDataset = useEditorStore((state) => state.viewDataset)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
 	const blobReferences = useEditorStore((state) => state.blobReferences)
-	const viewContext = useEditorStore((state) => state.viewContext)
+	const storedViewContext = useEditorStore((state) => state.viewContext)
 	const setViewContext = useEditorStore((state) => state.setViewContext)
-	const viewStory = useEditorStore((state) => state.viewStory)
+	const storedViewStory = useEditorStore((state) => state.viewStory)
+	const { viewDataset, viewContext, viewStory, viewSighting, viewBeacon } =
+		resolveInfoPanelViewState(inspectionSubjectOverride, {
+			viewDataset: storedViewDataset,
+			viewContext: storedViewContext,
+			viewStory: storedViewStory,
+			viewSighting: suppliedViewSighting ?? null,
+			viewBeacon: suppliedViewBeacon ?? null,
+		})
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
+	const datasetEditorRetained = useEditorStore(hasRetainedDatasetSurface)
 	const createGeoEditDraft = useEditorStore((state) => state.createGeoEditDraft)
 	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
 	const [attachedGeojson, setAttachedGeojson] = useState<FeatureCollection | null>(null)
@@ -664,10 +688,46 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		[onZoomToBounds],
 	)
 
+	// Persistent rail buttons are destinations, not creation commands. An empty
+	// edit-state surface explains itself and requires a second, explicit action.
+	if (entityIntent === 'edit') {
+		const emptyEditor = (label: string, onCreate: (() => void) | undefined) => (
+			<div className="flex h-full items-center justify-center p-6">
+				<div className="max-w-xs space-y-3 text-center">
+					<p className="text-sm font-medium text-foreground">No {label} being edited</p>
+					<p className="text-xs text-muted-foreground">
+						Choose an existing {label.toLowerCase()} to edit, or start a new one.
+					</p>
+					{onCreate ? (
+						<Button type="button" size="sm" onClick={onCreate}>
+							New {label}
+						</Button>
+					) : null}
+				</div>
+			</div>
+		)
+
+		if (entityWorkspace === 'geometry' && !datasetEditorRetained) {
+			return emptyEditor('Dataset', onOpenGeometryEditor ?? onStartNewDataset)
+		}
+		if (entityWorkspace === 'story' && storyEditorMode === 'none') {
+			return emptyEditor('Story', onCreateStory)
+		}
+		if (entityWorkspace === 'context' && contextEditorMode === 'none') {
+			return emptyEditor('Context', onCreateContext)
+		}
+	}
+
 	// Beacon control mode (Phase 12, BEACON-01) — the Start-beacon authoring surface
 	// (time-box / visibility / identity / consent). No pin-drop: position comes from
 	// GPS via the publisher. Mounted before the Sighting/Story/context branches.
-	if (beaconControlMode !== 'none' && onStartBeacon && onCloseBeaconControl) {
+	if (
+		beaconControlMode !== 'none' &&
+		entityIntent !== 'inspect' &&
+		(!entityWorkspace || entityWorkspace === 'beacon') &&
+		onStartBeacon &&
+		onCloseBeaconControl
+	) {
 		const isAdjusting = beaconControlMode === 'adjust'
 		return (
 			<BeaconControlPanel
@@ -682,7 +742,13 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 	// Sighting Editor mode (D-01/D-07) — create/edit a Sighting in place. The
 	// create form opens with the map-first placed geometry as a prop.
-	if (sightingEditorMode !== 'none' && onSaveSighting && onCloseSightingEditor) {
+	if (
+		sightingEditorMode !== 'none' &&
+		entityIntent !== 'inspect' &&
+		(!entityWorkspace || entityWorkspace === 'sighting') &&
+		onSaveSighting &&
+		onCloseSightingEditor
+	) {
 		return (
 			<SightingEditorPanel
 				initialSighting={editingSighting}
@@ -695,7 +761,13 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	}
 
 	// Story Editor mode (D-03) — create/edit a Story in place.
-	if (storyEditorMode !== 'none' && onSaveStory && onCloseStoryEditor) {
+	if (
+		storyEditorMode !== 'none' &&
+		entityIntent !== 'inspect' &&
+		(!entityWorkspace || entityWorkspace === 'story') &&
+		onSaveStory &&
+		onCloseStoryEditor
+	) {
 		return (
 			<StoryEditorPanel
 				initialStory={editingStory}
@@ -707,7 +779,13 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	}
 
 	// Context Editor mode
-	if (contextEditorMode !== 'none' && onSaveContext && onCloseContextEditor) {
+	if (
+		contextEditorMode !== 'none' &&
+		entityIntent !== 'inspect' &&
+		(!entityWorkspace || entityWorkspace === 'context') &&
+		onSaveContext &&
+		onCloseContextEditor
+	) {
 		return (
 			<GroupEditorPanel
 				initialContext={editingContext}
@@ -719,7 +797,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	}
 
 	// View mode - delegate to ViewModePanel
-	if (viewMode === 'view') {
+	if (entityIntent === 'inspect' || (entityIntent == null && viewMode === 'view')) {
 		// Beacon view (Phase 12, BEACON-03/04, D-11) — opened beacon renders the
 		// read surface (label + live/stale/ended status + last-seen + countdown +
 		// Copy-share-link with the throwaway pubkey). Owner sees inline Stop/Adjust.
@@ -728,7 +806,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		// comment deep link here so /beacon/:naddr/comment/:id focuses a comment,
 		// reaching parity with Story/Sighting. Mounted before the Sighting/Story/
 		// context branches.
-		if (viewBeacon) {
+		if (viewBeacon && (!entityWorkspace || entityWorkspace === 'beacon')) {
 			return (
 				<BeaconViewPanel
 					beacon={viewBeacon}
@@ -753,7 +831,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		// the right info panel (observation-time range + expiry countdown + comments /
 		// react); the main map stays the canvas. Mounted before the Story/context/
 		// dataset branches. Expired sightings are gated inside the panel (SIGHT-03).
-		if (viewSighting) {
+		if (viewSighting && (!entityWorkspace || entityWorkspace === 'sighting')) {
 			return (
 				<SightingViewPanel
 					sighting={viewSighting}
@@ -775,7 +853,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 		// Story view (D-03) — opened Story renders in the right info panel; the main
 		// map stays the canvas. Mounted before the context/dataset branches.
-		if (viewStory) {
+		if (viewStory && (!entityWorkspace || entityWorkspace === 'story')) {
 			return (
 				<StoryViewPanel
 					story={viewStory}
@@ -800,7 +878,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			)
 		}
 
-		if (viewContext) {
+		if (viewContext && (!entityWorkspace || entityWorkspace === 'context')) {
 			return (
 				<GroupViewPanel
 					currentUserPubkey={currentUserPubkey}
@@ -823,6 +901,17 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onMentionZoomTo={onMentionZoomTo}
 					focusCommentId={focusCommentId}
 				/>
+			)
+		}
+
+		if (entityWorkspace && entityWorkspace !== 'geometry') {
+			return (
+				<div className="h-full flex items-center justify-center p-6">
+					<div className="max-w-sm text-center space-y-3">
+						<p className="text-sm font-medium text-foreground">Nothing selected</p>
+						<p className="text-xs text-muted-foreground">Choose an entity to inspect.</p>
+					</div>
+				</div>
 			)
 		}
 

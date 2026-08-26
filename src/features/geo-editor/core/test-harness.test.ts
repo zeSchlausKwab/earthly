@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import type { MapMouseEvent } from 'maplibre-gl'
 import type { EditorEvent, EditorFeature } from './types'
 import { createHeadlessEditor, createMockMap } from './test-harness'
 
@@ -49,6 +50,30 @@ describe('headless GeoEditor harness', () => {
 		const editor = createHeadlessEditor()
 		editor.setFeatures([makePoint('a'), makePoint('b')])
 		expect(editor.getAllFeatures()).toHaveLength(2)
+	})
+
+	test('read-only interaction gate blocks map mutations without changing the mode', () => {
+		const editor = createHeadlessEditor()
+		editor.setMode('draw_point')
+		const click = {
+			lngLat: { lng: 13.4, lat: 52.5 },
+			point: { x: 13.4, y: 52.5 },
+			originalEvent: {},
+			preventDefault: () => {},
+		} as unknown as MapMouseEvent
+		const invokeMapClick = () => {
+			;(editor as unknown as { onClick: (event: MapMouseEvent) => void }).onClick(click)
+		}
+
+		editor.setInteractionEnabled(false)
+		invokeMapClick()
+		expect(editor.getAllFeatures()).toHaveLength(0)
+		expect(editor.getMode()).toBe('draw_point')
+
+		editor.setInteractionEnabled(true)
+		invokeMapClick()
+		expect(editor.getAllFeatures()).toHaveLength(1)
+		expect(editor.getMode()).toBe('draw_point')
 	})
 
 	test('reorderFeatures persists order and participates in undo/redo', () => {

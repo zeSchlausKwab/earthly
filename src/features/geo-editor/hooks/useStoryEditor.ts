@@ -41,6 +41,7 @@ export function useStoryEditor({
 	const setViewStory = useEditorStore((state) => state.setViewStory)
 	const setStance = useEditorStore((state) => state.setStance)
 	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
+	const selectMobileEntitySurface = useEditorStore((state) => state.selectMobileEntitySurface)
 
 	const [storyEditorMode, setStoryEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingStory, setEditingStory] = useState<Article | null>(null)
@@ -68,7 +69,7 @@ export function useStoryEditor({
 
 	const handleInspectStory = useCallback(
 		(story: Article) => {
-			clearStoryEditorModes()
+			selectMobileEntitySurface('inspector')
 			setViewModeState('view')
 			setViewDatasetState(null)
 			setViewContext(null)
@@ -87,7 +88,6 @@ export function useStoryEditor({
 			}
 		},
 		[
-			clearStoryEditorModes,
 			setViewModeState,
 			setViewDatasetState,
 			setViewContext,
@@ -97,16 +97,19 @@ export function useStoryEditor({
 			recordRecentEntity,
 			encodeStoryNaddr,
 			navigateTo,
+			selectMobileEntitySurface,
 		],
 	)
 
 	const handleCreateStory = useCallback(() => {
+		selectMobileEntitySurface('story')
 		onBeforeAuthoring?.()
 		clearStoryEditorModes()
 		setStoryEditorMode('create')
 		prepareNonGeometryWorkspace()
 		navigateToView('stories')
-		if (!isMobile) setShowInfoPanel(true)
+		if (isMobile) ensureInfoPanelVisible()
+		else setShowInfoPanel(true)
 	}, [
 		clearStoryEditorModes,
 		prepareNonGeometryWorkspace,
@@ -114,17 +117,21 @@ export function useStoryEditor({
 		isMobile,
 		setShowInfoPanel,
 		onBeforeAuthoring,
+		ensureInfoPanelVisible,
+		selectMobileEntitySurface,
 	])
 
 	const handleEditStory = useCallback(
 		(story: Article) => {
+			selectMobileEntitySurface('story')
 			onBeforeAuthoring?.()
 			clearStoryEditorModes()
 			setStoryEditorMode('edit')
 			setEditingStory(story)
 			prepareNonGeometryWorkspace()
 			navigateToView('stories')
-			if (!isMobile) setShowInfoPanel(true)
+			if (isMobile) ensureInfoPanelVisible()
+			else setShowInfoPanel(true)
 		},
 		[
 			clearStoryEditorModes,
@@ -133,12 +140,16 @@ export function useStoryEditor({
 			isMobile,
 			setShowInfoPanel,
 			onBeforeAuthoring,
+			ensureInfoPanelVisible,
+			selectMobileEntitySurface,
 		],
 	)
 
 	// Chat seam: `write_story_draft` can target either a new Story or an existing
-	// published Story. Honor every fresh request by opening the matching editor;
-	// StoryEditorPanel then reads the local draft keyed by the target d-tag.
+	// published Story. Retain the matching editor state without navigating or
+	// selecting it; the rail dot/spinner tells the user it is ready, and only an
+	// explicit Story-button click reveals it. An already-visible StoryEditorPanel
+	// separately observes the same nonce and refreshes its local-draft prefill.
 	const consumedStoryOpenNonceRef = useRef(getStoryEditorOpenRequest()?.nonce ?? 0)
 	useEffect(() => {
 		return subscribeStoryEditorOpenRequests(() => {
@@ -146,12 +157,14 @@ export function useStoryEditor({
 			if (!request || request.nonce === consumedStoryOpenNonceRef.current) return
 			consumedStoryOpenNonceRef.current = request.nonce
 			if (request.mode === 'edit' && request.story) {
-				handleEditStory(request.story)
+				setStoryEditorMode('edit')
+				setEditingStory(request.story)
 			} else {
-				handleCreateStory()
+				setStoryEditorMode('create')
+				setEditingStory(null)
 			}
 		})
-	}, [handleCreateStory, handleEditStory])
+	}, [])
 
 	const handleSaveStory = useCallback(
 		(story: Article) => {

@@ -1,11 +1,33 @@
+import { useState } from 'react'
 import { Crosshair, ListTree, MessageCircle } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useEditorStore } from '@/features/geo-editor/store'
-import { useChatStore } from '@/features/chat/store'
+import {
+	useEditorStore,
+	type GeoCollectionEditDraft,
+	type GeoEditorWorkspace,
+} from '@/features/geo-editor/store'
+import {
+	resolveChatTargetWorkspace,
+	resolveWorkspaceTargetDraft,
+	useChatStore,
+} from '@/features/chat/store'
 import { startDatasetDraftForActiveChat } from '@/features/geo-editor/authoringTaskBridge'
+import { cn } from '@/lib/utils'
 import type { SafetyLevel } from './AuthoringGate'
-import { resolveBinding } from './binding'
+import { resolveBinding, type BindingIdentity } from './binding'
+
+const compactActionDividerClassName =
+	"relative before:pointer-events-none before:absolute before:inset-y-1.5 before:left-0 before:border-edit/30 before:border-l before:content-['']"
+
+export function bindingChipTargetClassName(compact: boolean) {
+	return cn(
+		'flex min-w-0 items-center gap-1.5 px-2',
+		compact
+			? "relative isolate h-11 text-[var(--accent-edit-text)] before:pointer-events-none before:absolute before:inset-x-0 before:inset-y-1.5 before:-z-10 before:rounded-full before:border before:border-edit/40 before:bg-[var(--fill-edit-14)] before:content-['']"
+			: 'rounded-full border border-edit/40 bg-edit/15 py-0.5 text-edit',
+	)
+}
 
 /**
  * BindingChip — the always-visible bound-target indicator in the chat panel
@@ -32,7 +54,7 @@ export interface BindingChipProps {
 	/** Number of features in the bound target. */
 	featureCount: number
 	/** True when chat has no current authoring target. */
-	needsAutoCreate: boolean
+	targetRequired: boolean
 	/** The user's persisted safety posture (SAFE-04). */
 	safetyLevel: SafetyLevel
 	/**
@@ -40,85 +62,147 @@ export interface BindingChipProps {
 	 * `setSafetyLevel`; turning ON requests Level 3, OFF requests Level 2 (D-12).
 	 */
 	onToggleAutoAccept: (nextLevel: SafetyLevel) => void
-	/** Opens the editor surface for the concrete target. Omitted in conversation-only scope. */
+	/** Opens the editor surface for the concrete target. Omitted while a target is required. */
 	onOpenTarget?: () => void
-	/** Explicit conversation-only choices. */
+	/** Explicit choices for establishing the editing target. */
 	onStartNewTarget?: () => void
 	onUseCurrentTarget?: () => void
+	/** A New map binding transaction is still creating its durable draft. */
+	targetPending?: boolean
+	/** Compact two-row maximum presentation for the mobile Chat header. */
+	compact?: boolean
 }
 
 export function BindingChip({
 	name,
 	unsaved,
 	featureCount,
-	needsAutoCreate,
+	targetRequired,
 	safetyLevel,
 	onToggleAutoAccept,
 	onOpenTarget,
 	onStartNewTarget,
 	onUseCurrentTarget,
+	targetPending = false,
+	compact = false,
 }: BindingChipProps) {
 	const autoAcceptOn = safetyLevel === 3
 	const featureLabel = featureCount === 1 ? 'feature' : 'features'
 
 	return (
-		<div className="flex items-start justify-between gap-2 text-xs">
+		<div
+			className={cn('flex justify-between gap-2 text-xs', compact ? 'items-center' : 'items-start')}
+		>
 			{/* Bound-target chip — always visible (SAFE-01) */}
 			<div className="min-w-0">
-				<div className="flex min-w-0 items-center gap-1.5 rounded-full border border-edit/40 bg-edit/15 px-2 py-0.5 text-edit">
-					{needsAutoCreate ? (
+				<div
+					className={bindingChipTargetClassName(compact)}
+					data-binding-chip-density={compact ? 'compact' : 'default'}
+				>
+					{targetRequired ? (
 						<MessageCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
 					) : (
 						<Crosshair className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
 					)}
-					<span className="truncate font-medium" title={needsAutoCreate ? undefined : name}>
-						{needsAutoCreate ? 'Conversation only' : name}
+					<span className="truncate font-medium" title={targetRequired ? undefined : name}>
+						{targetRequired ? (compact ? 'Target required' : 'Editing target required') : name}
 					</span>
-					{!needsAutoCreate && unsaved ? (
+					{compact && targetRequired && onStartNewTarget ? (
+						<button
+							type="button"
+							onClick={onStartNewTarget}
+							disabled={targetPending}
+							className={cn(
+								'ml-0.5 min-h-11 min-w-11 shrink-0 pl-1.5 font-semibold hover:text-foreground',
+								compactActionDividerClassName,
+							)}
+						>
+							{targetPending ? 'Creating…' : 'New map'}
+						</button>
+					) : null}
+					{compact && targetRequired && onUseCurrentTarget ? (
+						<button
+							type="button"
+							onClick={onUseCurrentTarget}
+							disabled={targetPending}
+							className={cn(
+								'ml-0.5 min-h-11 min-w-11 shrink-0 pl-1.5 font-semibold hover:text-foreground',
+								compactActionDividerClassName,
+							)}
+						>
+							Use current
+						</button>
+					) : null}
+					{!targetRequired && unsaved ? (
 						<span
-							className="flex-shrink-0 rounded-full bg-primary/10 px-1 text-[10px] font-medium uppercase tracking-wide text-primary"
+							className={cn(
+								'flex-shrink-0 rounded-full bg-primary/10 text-[10px] font-medium uppercase tracking-wide text-primary',
+								compact ? 'h-1.5 w-1.5 p-0 text-transparent' : 'px-1',
+							)}
 							title="Unsaved in-memory edits"
 						>
 							unsaved
 						</span>
 					) : null}
-					{!needsAutoCreate ? (
+					{!targetRequired && !compact ? (
 						<span className="flex-shrink-0 text-edit">
 							· {featureCount} {featureLabel}
 						</span>
 					) : null}
-					{!needsAutoCreate && onOpenTarget ? (
+					{!targetRequired && onOpenTarget ? (
 						<button
 							type="button"
 							onClick={onOpenTarget}
-							className="ml-0.5 inline-flex shrink-0 items-center gap-1 border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
+							className={cn(
+								'ml-0.5 inline-flex shrink-0 items-center gap-1 font-semibold hover:text-foreground',
+								compact
+									? cn('min-h-11 min-w-11 justify-center pl-1.5', compactActionDividerClassName)
+									: 'border-edit/30 border-l pl-1.5',
+							)}
 							aria-label={`Open ${name} in geometry editor`}
 							title="Open geometry editor"
 						>
 							<ListTree className="h-3 w-3" aria-hidden="true" />
-							<span>Open</span>
+							<span className={cn(compact && 'sr-only')}>Open</span>
+						</button>
+					) : null}
+					{!targetRequired && onUseCurrentTarget ? (
+						<button
+							type="button"
+							onClick={onUseCurrentTarget}
+							className={cn(
+								'ml-0.5 inline-flex shrink-0 items-center font-semibold hover:text-foreground',
+								compact
+									? cn('min-h-11 min-w-11 pl-1.5', compactActionDividerClassName)
+									: 'border-edit/30 border-l pl-1.5',
+							)}
+							title="Rebind this conversation to the currently visible edit"
+						>
+							{compact ? 'Use visible' : 'Use current'}
 						</button>
 					) : null}
 				</div>
-				{needsAutoCreate ? (
-					<div className="mt-1 flex flex-wrap items-center gap-1 pl-1 text-[11px]">
+				{targetRequired && !compact ? (
+					<div className={cn('flex items-center gap-1 text-[11px]', 'mt-1 flex-wrap pl-1')}>
 						<span className="mr-1 text-muted-foreground">
-							Choose a map now, or AI edits will start a new draft.
+							Choose New map or Use current edit before sending.
 						</span>
 						{onStartNewTarget ? (
 							<button
 								type="button"
 								onClick={onStartNewTarget}
-								className="rounded border border-edit/35 px-1.5 py-0.5 font-semibold text-edit hover:bg-edit/10"
+								disabled={targetPending}
+								className="rounded border border-edit/35 px-1.5 py-0.5 font-semibold text-edit hover:bg-edit/10 disabled:cursor-wait disabled:opacity-60"
 							>
-								New map
+								{targetPending ? 'Creating editing target…' : 'New map'}
 							</button>
 						) : null}
 						{onUseCurrentTarget ? (
 							<button
 								type="button"
 								onClick={onUseCurrentTarget}
-								className="rounded border border-border px-1.5 py-0.5 font-medium text-foreground hover:bg-muted"
+								disabled={targetPending}
+								className="rounded border border-border px-1.5 py-0.5 font-medium text-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-60"
 							>
 								Use current edit
 							</button>
@@ -132,7 +216,7 @@ export function BindingChip({
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<div className="flex flex-shrink-0 cursor-pointer items-center gap-1.5 text-muted-foreground">
-							<span className="select-none">Just accept</span>
+							<span className="select-none">{compact ? 'Auto' : 'Just accept'}</span>
 							<Switch
 								checked={autoAcceptOn}
 								onCheckedChange={(checked) => onToggleAutoAccept(checked ? 3 : 2)}
@@ -154,50 +238,107 @@ export function BindingChip({
  * region. It reads the editor-store identity, feeds it through the Plan-03
  * `resolveBinding`, reads `safetyLevel` from the chat store, and wires
  * `setSafetyLevel` as the toggle handler. Like the chip, it NEVER returns null
- * (SAFE-01) — it always renders either a conversation-only scope or a concrete
+ * (SAFE-01) — it always renders either a target-required state or a concrete
  * authoring identity.
  */
-export function BindingChipContainer({ onOpenTarget }: { onOpenTarget?: () => void }) {
-	const collectionMeta = useEditorStore((state) => state.collectionMeta)
-	const featureCount = useEditorStore((state) => state.features.length)
-	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
-	const isDirty = useEditorStore((state) => state.isDirty)
+export function resolveWorkspaceBindingIdentity(
+	workspace: GeoEditorWorkspace | null,
+	draft: GeoCollectionEditDraft | null,
+): BindingIdentity {
+	const targetDraft =
+		workspace &&
+		draft &&
+		workspace.activeDraftId === draft.id &&
+		workspace.sourceId === draft.sourceId
+			? draft
+			: null
+	return resolveBinding({
+		collectionMeta: {
+			name: targetDraft?.collectionMeta.name || targetDraft?.name || workspace?.label || '',
+		},
+		featureCount: targetDraft?.features.length ?? 0,
+		targetDraftId: targetDraft?.id ?? null,
+	})
+}
+
+export function BindingChipContainer({
+	onOpenTarget,
+	onTargetPendingChange,
+	compact = false,
+}: {
+	onOpenTarget?: (workspaceId: string) => void
+	onTargetPendingChange?: (chatId: string, pending: boolean) => void
+	compact?: boolean
+}) {
+	const [pendingChatIds, setPendingChatIds] = useState<Set<string>>(() => new Set())
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
-	const activeWorkspace = useEditorStore((state) =>
-		state.activeWorkspaceId ? state.workspaces[state.activeWorkspaceId] : null,
-	)
-	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
+	const workspaces = useEditorStore((state) => state.workspaces)
+	const drafts = useEditorStore((state) => state.geoEditDrafts)
 	const activeChatId = useChatStore((state) => state.activeChatId)
+	const chatSessions = useChatStore((state) => state.chatSessions)
 	const safetyLevel = useChatStore((state) => state.safetyLevel)
 	const setSafetyLevel = useChatStore((state) => state.setSafetyLevel)
+	const setChatTargetWorkspace = useChatStore((state) => state.setChatTargetWorkspace)
 
-	const binding = resolveBinding({
-		collectionMeta: { name: collectionMeta.name },
-		featureCount,
-		activeGeoEditDraftId,
-		isDirty,
-		activeChatId,
-		workspaceChatSessionId: activeWorkspace?.chatSessionId ?? null,
-	})
-	const hasCurrentTarget = Boolean(activeGeoEditDraftId || featureCount > 0)
+	const boundWorkspace = resolveChatTargetWorkspace(activeChatId, chatSessions, workspaces)
+	const boundDraft = resolveWorkspaceTargetDraft(boundWorkspace, drafts)
+	const binding = resolveWorkspaceBindingIdentity(boundWorkspace, boundDraft)
+	const activeWorkspace = activeWorkspaceId ? workspaces[activeWorkspaceId] : null
+	const activeDraft = resolveWorkspaceTargetDraft(activeWorkspace, drafts)
+	const hasCurrentTarget = Boolean(activeWorkspace && activeDraft)
+	const canReassignToCurrent = Boolean(
+		activeChatId &&
+			activeWorkspaceId &&
+			hasCurrentTarget &&
+			boundWorkspace?.id !== activeWorkspaceId,
+	)
+	const targetCreationPending = Boolean(activeChatId && pendingChatIds.has(activeChatId))
 
 	return (
 		<BindingChip
 			name={binding.name}
 			unsaved={binding.unsaved}
 			featureCount={binding.featureCount}
-			needsAutoCreate={binding.needsAutoCreate}
+			targetRequired={binding.targetRequired}
+			targetPending={targetCreationPending}
 			safetyLevel={safetyLevel}
 			onToggleAutoAccept={setSafetyLevel}
-			onOpenTarget={binding.needsAutoCreate ? undefined : onOpenTarget}
-			onStartNewTarget={
-				binding.needsAutoCreate ? () => void startDatasetDraftForActiveChat() : undefined
+			onOpenTarget={
+				binding.targetRequired || !boundWorkspace || !onOpenTarget
+					? undefined
+					: () => onOpenTarget(boundWorkspace.id)
 			}
-			onUseCurrentTarget={
-				binding.needsAutoCreate && hasCurrentTarget && activeWorkspaceId && activeChatId
-					? () => updateWorkspace(activeWorkspaceId, { chatSessionId: activeChatId })
+			onStartNewTarget={
+				binding.targetRequired && activeChatId
+					? () => {
+							if (targetCreationPending) return
+							const initiatingChatId = activeChatId
+							setPendingChatIds((current) => new Set(current).add(initiatingChatId))
+							onTargetPendingChange?.(initiatingChatId, true)
+							void startDatasetDraftForActiveChat(initiatingChatId)
+								.then((workspaceId) => {
+									if (workspaceId) setChatTargetWorkspace(initiatingChatId, workspaceId)
+								})
+								.finally(() => {
+									setPendingChatIds((current) => {
+										const next = new Set(current)
+										next.delete(initiatingChatId)
+										return next
+									})
+									onTargetPendingChange?.(initiatingChatId, false)
+								})
+						}
 					: undefined
 			}
+			onUseCurrentTarget={
+				!targetCreationPending &&
+				activeWorkspaceId &&
+				activeChatId &&
+				(binding.targetRequired || canReassignToCurrent)
+					? () => setChatTargetWorkspace(activeChatId, activeWorkspaceId)
+					: undefined
+			}
+			compact={compact}
 		/>
 	)
 }

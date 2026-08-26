@@ -1,7 +1,8 @@
 import type { StateCreator } from 'zustand'
+import { getCurrentPubkey } from '@/lib/wallet/currentUser'
 import { isDrawingEditorMode } from '../mobileDrawingGuidance'
 import { writeScopedStorage } from './persistence'
-import type { EditorCoreSlice, EditorState } from './types'
+import type { EditorCoreSlice, EditorState, GeoCollectionEditDraft } from './types'
 
 export const createEditorCoreSlice: StateCreator<EditorState, [], [], EditorCoreSlice> = (
 	set,
@@ -108,9 +109,6 @@ export const createEditorCoreSlice: StateCreator<EditorState, [], [], EditorCore
 	},
 })
 
-// Draft persistence helpers used by both editorCoreSlice and draftSlice
-import type { GeoCollectionEditDraft } from './types'
-
 const GEO_COLLECTION_DRAFTS_STORAGE_KEY = 'earthly:geo-editor:collection-drafts:v1'
 
 // Persisting drafts means JSON.stringify-ing every draft (each carries its full
@@ -121,18 +119,19 @@ const GEO_COLLECTION_DRAFTS_STORAGE_KEY = 'earthly:geo-editor:collection-drafts:
 let pendingGeoCollectionDraftPersist: {
 	drafts: Record<string, GeoCollectionEditDraft>
 	activeDraftId: string | null
+	scope: string | null
 } | null = null
 let geoCollectionDraftPersistTimer: ReturnType<typeof setTimeout> | null = null
 
-const flushPersistedGeoCollectionDraftState = () => {
+export const flushPersistedGeoCollectionDraftState = () => {
 	if (geoCollectionDraftPersistTimer !== null) {
 		clearTimeout(geoCollectionDraftPersistTimer)
 		geoCollectionDraftPersistTimer = null
 	}
 	if (!pendingGeoCollectionDraftPersist) return
-	const { drafts, activeDraftId } = pendingGeoCollectionDraftPersist
+	const { drafts, activeDraftId, scope } = pendingGeoCollectionDraftPersist
 	pendingGeoCollectionDraftPersist = null
-	writeScopedStorage(GEO_COLLECTION_DRAFTS_STORAGE_KEY, { drafts, activeDraftId })
+	writeScopedStorage(GEO_COLLECTION_DRAFTS_STORAGE_KEY, { drafts, activeDraftId }, scope)
 }
 
 if (typeof window !== 'undefined') {
@@ -144,7 +143,11 @@ export const writePersistedGeoCollectionDraftState = (
 	drafts: Record<string, GeoCollectionEditDraft>,
 	activeDraftId: string | null,
 ) => {
-	pendingGeoCollectionDraftPersist = { drafts, activeDraftId }
+	pendingGeoCollectionDraftPersist = {
+		drafts,
+		activeDraftId,
+		scope: getCurrentPubkey(),
+	}
 	if (geoCollectionDraftPersistTimer !== null) {
 		clearTimeout(geoCollectionDraftPersistTimer)
 	}

@@ -4,12 +4,19 @@
  * owns the route-aware implementation; chat tools only know that a mutation
  * must have a recoverable target.
  */
+import { useEditorStore } from './store'
+
 export interface DatasetDraftRequest {
 	/** Start a fresh map even when this conversation already owns a target. */
 	forceNew?: boolean
+	/** Retain the new target without changing the currently presented surface. */
+	activate?: boolean
+	chatSessionId?: string | null
 }
 
-type DatasetDraftEnsurer = (request?: DatasetDraftRequest) => void | Promise<void>
+type DatasetDraftEnsurer = (
+	request?: DatasetDraftRequest,
+) => string | null | undefined | Promise<string | null | undefined>
 
 let datasetDraftEnsurer: DatasetDraftEnsurer | null = null
 
@@ -25,6 +32,18 @@ export async function ensureDatasetDraftForMutation(): Promise<void> {
 }
 
 /** Explicit UI intent: attach the active conversation to a brand-new map. */
-export async function startDatasetDraftForActiveChat(): Promise<void> {
-	await datasetDraftEnsurer?.({ forceNew: true })
+export async function startDatasetDraftForActiveChat(
+	chatSessionId: string,
+): Promise<string | null> {
+	const workspaceId =
+		(await datasetDraftEnsurer?.({ forceNew: true, activate: false, chatSessionId })) ?? null
+	if (!workspaceId) return null
+	const state = useEditorStore.getState()
+	if (state.workspaces[workspaceId]) {
+		// Keep the legacy reverse pointer populated for persisted-session migration.
+		// New code owns the binding on ChatSession.targetWorkspaceId, allowing more
+		// than one conversation to reference this same workspace.
+		state.updateWorkspace(workspaceId, { chatSessionId })
+	}
+	return workspaceId
 }

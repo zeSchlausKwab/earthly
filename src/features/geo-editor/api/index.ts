@@ -14,6 +14,7 @@ export type { Interceptor, InterceptorContext } from './interceptor'
 export { runInterceptors } from './interceptor'
 export type {
 	Authoring,
+	AuthoringMetadataAccess,
 	CommitDatasetInput,
 	CommitDatasetResult,
 	DatasetMetadataInput,

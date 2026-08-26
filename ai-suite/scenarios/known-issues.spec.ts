@@ -1,9 +1,18 @@
 import { test, expect } from '../fixtures/earthly'
+import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
+import {
+	configureChatProvider,
+	openAiChat,
+	selectAiChatTarget,
+	sendAiChatMessage,
+} from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
 import { inspectSurface } from '../tasks/diagnostics/inspect-surface'
 import { walkKeyboardOrder } from '../tasks/diagnostics/keyboard-walk'
+import { editorLifecycleSnapshot } from '../tasks/editor/lifecycle'
 import { openPanel } from '../tasks/navigation/open-panel'
 import { inspectTourTargets, startTour } from '../tasks/onboarding/tour'
+import { installDeterministicChatProvider } from '../tasks/setup/deterministic-chat-provider'
 
 test('Connect to Nostr choices fit a generous desktop dialog @regression', async ({
 	earthly,
@@ -177,4 +186,47 @@ test('mobile Posts tabs retain descriptive visible labels @regression', async ({
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Posts')
 	await expect(earthly.page.getByText('Announcements', { exact: true })).toBeVisible()
+})
+
+test('a visibly bound detached Chat target is captured when another Dataset remains open @regression', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'The reported target mismatch was on desktop')
+	test.setTimeout(120_000)
+
+	const provider = await installDeterministicChatProvider(earthly, 'spatial-research')
+	await authorizeJourneyIdentity(earthly, 'owner')
+	await configureChatProvider(earthly, provider.settings)
+	await earthly.open({ tour: 'preserve' })
+
+	await startDataset(earthly)
+	const visibleWorkspace = await editorLifecycleSnapshot(earthly)
+	expect(visibleWorkspace.activeWorkspaceId).not.toBeNull()
+
+	await openAiChat(earthly)
+	await selectAiChatTarget(earthly, 'new-dataset')
+
+	// "New map" creates a Chat-owned target without silently replacing the
+	// Dataset the user is currently viewing or editing.
+	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(
+		visibleWorkspace.activeWorkspaceId,
+	)
+
+	const panel = earthly.page.getByRole('region', { name: 'AI chat', exact: true })
+	await expect(panel.getByRole('button', { name: /^Open .+ in geometry editor$/ })).toBeVisible()
+
+	await sendAiChatMessage(earthly, 'Add the deterministic map result to this Chat target.')
+
+	// The edit gate proves the immutable run captured the same Dataset target
+	// advertised by the chip. The reported failure emitted only tool errors and
+	// never reached this gate.
+	await expect(panel.getByRole('button', { name: 'Apply', exact: true })).toBeVisible({
+		timeout: 15_000,
+	})
+	await expect(
+		panel.getByText(
+			'This conversation has no editing target. Choose New map or Use current edit, then send the request again.',
+			{ exact: true },
+		),
+	).toHaveCount(0)
 })

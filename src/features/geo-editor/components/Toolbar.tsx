@@ -14,6 +14,7 @@ import {
 	GitFork,
 	Layers,
 	Link2,
+	LoaderCircle,
 	MapPin,
 	Magnet,
 	MessageCircle,
@@ -54,6 +55,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { HelpPopover } from '@/components/HelpPopover'
 import { LoginSessionButtons } from '@/features/auth/LoginSessionButtons'
+import { useChatStore } from '@/features/chat/store'
 import { Button } from '@/components/ui/button'
 import {
 	Menubar,
@@ -435,7 +437,6 @@ export function Toolbar({
 	mapStackVisibleCount = 0,
 	chatOpen = false,
 	onToggleMapStack,
-	onToggleChat,
 	onOpenSelectedCallout,
 	selectedFeatureCount = 0,
 	selectedFeatureHasCallout = false,
@@ -476,6 +477,9 @@ export function Toolbar({
 	const mobileActionsOpen = useEditorStore((state) => state.mobileActionsOpen)
 	const inspectorActive = useEditorStore((state) => state.inspectorActive)
 	const setInspectorActive = useEditorStore((state) => state.setInspectorActive)
+	const chatDock = useEditorStore((state) => state.chatDock)
+	const toggleChatAtDock = useEditorStore((state) => state.toggleChatAtDock)
+	const chatWorking = useChatStore((state) => state.runningChatId !== null)
 	const showMapSettings = useEditorStore((state) => state.showMapSettings)
 	const setShowMapSettings = useEditorStore((state) => state.setShowMapSettings)
 
@@ -1774,17 +1778,38 @@ export function Toolbar({
 						type="button"
 						variant="ghost"
 						size="icon-sm"
-						onClick={onToggleChat}
+						onClick={() => toggleChatAtDock('right')}
 						data-tour="sidebar-chat"
-						aria-label={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
-						title={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
+						aria-label={
+							chatOpen && chatDock === 'right'
+								? 'Hide AI chat'
+								: chatWorking
+									? 'AI chat is working; show it on the right'
+									: chatOpen
+										? 'Move AI chat to the right'
+										: 'Show AI chat on the right'
+						}
+						title={
+							chatOpen && chatDock === 'right'
+								? 'Hide AI chat'
+								: chatWorking
+									? 'AI chat is working; show it on the right'
+									: chatOpen
+										? 'Move AI chat to the right'
+										: 'Show AI chat on the right'
+						}
 						className={cn(
 							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
 							chatOpen &&
+								chatDock === 'right' &&
 								'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
 						)}
 					>
-						<MessageCircle className="h-4 w-4" />
+						{chatWorking ? (
+							<LoaderCircle className="h-4 w-4 animate-spin" />
+						) : (
+							<MessageCircle className="h-4 w-4" />
+						)}
 					</Button>
 				</div>
 

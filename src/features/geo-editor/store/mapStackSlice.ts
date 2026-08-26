@@ -40,15 +40,9 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 		return id
 	},
 
-	// Phase 1.4 — the DRAFT INVARIANT. The `draft:active` entry represents a live
-	// geometry edit session, not an ordinary stack item. It is added by
-	// applyEditingState and removed by teardown or the successful publish transition.
-	// No navigation, inspect, or catalog handler may remove
-	// it through this method — removing the draft IS "stop editing", so route such
-	// requests through tearDownEditSession instead (see GeoEditorView's
-	// removeFromMapStack draft branch). Keeping the draft on the stack regardless
-	// of navigation is what lets an in-progress (even anonymous) draft survive
-	// inspecting a context and be reopened afterwards (report 1.5 / 3.2 / 3.3).
+	// Map Stack is visibility-only. `draft:active` represents the retained
+	// Dataset's rendered geometry, not the lifetime of its workspace/edit task;
+	// removing it must therefore have the same narrow semantics as any other row.
 	removeMapStackEntry: (id) =>
 		set((state) => {
 			if (!state.mapStackEntries[id]) return {}
@@ -173,13 +167,12 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 
 	clearMapStack: () =>
 		set((state) => {
-			// Pinned entries and the active draft survive — pin is the contract
-			// for "keep this through a Clear", and the draft's lifecycle belongs
-			// to the editing session, not the stack panel (the Phase 1.4 draft
-			// invariant: only tearDownEditSession ends a draft, never a Clear).
+			// Pinning is the sole "keep this through a Clear" contract. A draft
+			// visibility row is ordinary map presentation state; clearing it hides
+			// geometry while the workspace/editor remains retained elsewhere.
 			const keptIds = state.mapStackOrder.filter((id) => {
 				const entry = state.mapStackEntries[id]
-				return entry && (entry.pinned || entry.entityType === 'draft')
+				return entry?.pinned
 			})
 			const nextEntries: typeof state.mapStackEntries = {}
 			for (const id of keptIds) {
