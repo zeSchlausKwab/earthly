@@ -280,7 +280,7 @@ async function main() {
     {
       title: "Search Locations (Nominatim)",
       description:
-        "Search for locations using OpenStreetMap Nominatim API. Returns coordinates, bounding boxes, and geojson outlines.",
+        "Remote Nominatim fallback for geocoding or name detail absent from query_geography and bundled world layers. Use query_geography first and do not call this merely to verify a catalog match. Returns coordinates, bounding boxes, and GeoJSON outlines.",
       inputSchema: searchLocationInputSchema,
       outputSchema: searchLocationOutputSchema,
     },
@@ -311,7 +311,7 @@ async function main() {
     {
       title: "Reverse Geocode (Nominatim)",
       description:
-        "Reverse geocode coordinates using OpenStreetMap Nominatim API. Returns address information for a point.",
+        "Remote Nominatim fallback for address detail at a coordinate. Use only when the local catalog and bundled world layers cannot answer the request. Returns address information for a point.",
       inputSchema: reverseLookupInputSchema,
       outputSchema: reverseLookupOutputSchema,
     },
@@ -416,7 +416,7 @@ async function main() {
     {
       title: "Query OSM Element by ID (Overpass)",
       description:
-        "Query a single OpenStreetMap element by type and ID. Returns full geometry as GeoJSON.",
+        "Fetch one exact OpenStreetMap element by type and ID. Use directly for an exact user-supplied OSM id; otherwise use only as a last resort after query_geography and bundled world layers lack the required detail. Returns full geometry as GeoJSON.",
       inputSchema: queryByIdInputSchema,
       outputSchema: queryByIdOutputSchema,
     },
@@ -446,7 +446,7 @@ async function main() {
     {
       title: "Query OSM Elements Nearby (Overpass)",
       description:
-        "Query OpenStreetMap elements near a point. Supports filtering by OSM tags. Returns GeoJSON features.",
+        "Remote Overpass last resort for local detail absent from query_geography and bundled world layers. Queries OpenStreetMap elements near a point with optional tag filters and returns GeoJSON features.",
       inputSchema: queryNearbyInputSchema,
       outputSchema: queryFeaturesOutputSchema,
     },
@@ -498,7 +498,7 @@ async function main() {
     {
       title: "Query OSM Elements in Bounding Box (Overpass)",
       description:
-        "Query OpenStreetMap elements within a bounding box. Supports filtering by OSM tags. Returns GeoJSON features.",
+        "Remote Overpass last resort for local detail absent from query_geography and bundled world layers. Queries OpenStreetMap elements within a bounding box with optional tag filters and returns GeoJSON features.",
       inputSchema: queryBboxInputSchema,
       outputSchema: queryFeaturesOutputSchema,
     },
@@ -554,7 +554,7 @@ async function main() {
     {
       title: "Resolve OSM Entity",
       description:
-        "Resolve a place/entity name to concrete OSM ids (relation/way/node) using Nominatim. Useful before boundary imports.",
+        "Remote Nominatim last resort for resolving a name to concrete OSM ids before an OSM import. Use query_geography first for boundaries and places; do not call this merely to verify a catalog match.",
       inputSchema: resolveOsmEntityInputSchema,
       outputSchema: resolveOsmEntityOutputSchema,
     },
@@ -848,7 +848,7 @@ async function main() {
     {
       title: "Get OSM Relation Geometry",
       description:
-        "Fetch and assemble OSM relation geometry (especially boundaries) into clean GeoJSON.",
+        "Remote OSM geometry fetch for one exact relation id. Use directly only for a user-supplied OSM relation id; otherwise use as a last resort after query_geography lacks the required boundary detail. Assembles the relation into clean GeoJSON.",
       inputSchema: getOsmRelationGeometryInputSchema,
       outputSchema: getOsmRelationGeometryOutputSchema,
     },
@@ -895,7 +895,7 @@ async function main() {
     {
       title: "Get Country Boundary",
       description:
-        "Resolve and fetch a country administrative boundary relation (admin_level=2 by default).",
+        "Compatibility fallback for a country administrative boundary absent from query_geography and bundled world layers. Resolves and fetches a remote OSM relation (admin_level=2 by default); do not use it to verify a catalog match.",
       inputSchema: getCountryBoundaryInputSchema,
       outputSchema: getCountryBoundaryOutputSchema,
     },
