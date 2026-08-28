@@ -3286,16 +3286,8 @@ export function GeoEditorView() {
 	)
 
 	// Export/Import
-	const buildEditorFeatureCollection = useCallback(() => {
-		if (!editor) return
-		return {
-			type: 'FeatureCollection',
-			features: editor.getAllFeatures(),
-		}
-	}, [editor])
-
 	const exportGeoJSON = useCallback(() => {
-		const geojson = buildEditorFeatureCollection()
+		const geojson = buildCollectionFromEditor()
 		if (!geojson) return
 
 		const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' })
@@ -3305,10 +3297,10 @@ export function GeoEditorView() {
 		a.download = 'features.geojson'
 		a.click()
 		URL.revokeObjectURL(url)
-	}, [buildEditorFeatureCollection])
+	}, [buildCollectionFromEditor])
 
 	const exportSHP = useCallback(async () => {
-		const collection = buildEditorFeatureCollection()
+		const collection = buildCollectionFromEditor()
 		if (!collection) return
 
 		try {
@@ -3329,7 +3321,7 @@ export function GeoEditorView() {
 			console.error('Failed to export SHP:', error)
 			toast.error(error instanceof Error ? error.message : 'Failed to export SHP.')
 		}
-	}, [buildEditorFeatureCollection])
+	}, [buildCollectionFromEditor])
 
 	const handleImport = useCallback(
 		async (file: File) => {
