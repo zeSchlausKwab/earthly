@@ -246,8 +246,11 @@
      Dimensions only (theme-independent), so they live on the base :root. ---- */
   --shell-toolbar-h: 44px;          /* docked top toolbar height (desktop) */
   --shell-statusbar-h: 23px;        /* bottom status bar height (desktop) */
-  --shell-sidebar-w: clamp(25rem, 25vw, 30rem);          /* left panel; keeps settings ≥280px */
-  --shell-sidebar-w-expanded: clamp(30rem, 32vw, 40rem); /* left panel, expanded */
+  /* Give dense catalog/editor controls ~10% more room on wide screens while
+     retaining the old minimums so narrower desktop layouts do not lose map
+     real estate. */
+  --shell-sidebar-w: clamp(25rem, 27.5vw, 33rem);          /* left panel; keeps settings ≥280px */
+  --shell-sidebar-w-expanded: clamp(30rem, 35vw, 44rem);   /* left panel, expanded */
   --shell-chat-w: 25vw;             /* right chat, open */
   --shell-chat-w-min: 20rem;
   --shell-chat-w-max: 32rem;

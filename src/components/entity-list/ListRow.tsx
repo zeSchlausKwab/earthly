@@ -180,10 +180,14 @@ export function ListRow({
 				</div>
 			</div>
 			{hasActionBar ? (
-				<div className="mt-2 flex items-center gap-3">
+				<div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
 					{engage ? <div className="flex shrink-0 items-center">{engage}</div> : null}
 					<div className="flex-1" />
-					{actions ? <div className="flex shrink-0 items-center gap-0.5">{actions}</div> : null}
+					{actions ? (
+						<div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-0.5">
+							{actions}
+						</div>
+					) : null}
 				</div>
 			) : null}
 		</div>

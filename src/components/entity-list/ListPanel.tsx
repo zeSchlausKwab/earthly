@@ -97,7 +97,7 @@ export function ListPanel({
 			</div>
 
 			{/* Body — the list, the only scroll region. */}
-			<div className="min-h-0 flex-1 overflow-y-auto py-2 [scrollbar-gutter:stable]">
+			<div className="min-h-0 flex-1 overflow-y-auto py-2 pr-2 [scrollbar-gutter:stable]">
 				{children}
 			</div>
 

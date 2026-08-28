@@ -7,6 +7,10 @@ interface ConfirmDeleteActionProps {
 	isDeleting?: boolean
 	onConfirm: () => void
 	className?: string
+	/** Short, entity-specific warning shown during the inline confirmation step. */
+	message?: string
+	/** Allows local-only deletion to use the more accurate "Discard" verb. */
+	confirmText?: string
 }
 
 export function ConfirmDeleteAction({
@@ -14,6 +18,8 @@ export function ConfirmDeleteAction({
 	isDeleting = false,
 	onConfirm,
 	className = '',
+	message = 'Copies may remain elsewhere',
+	confirmText = 'Delete',
 }: ConfirmDeleteActionProps) {
 	const [confirming, setConfirming] = useState(false)
 
@@ -26,7 +32,7 @@ export function ConfirmDeleteAction({
 	if (confirming || isDeleting) {
 		return (
 			<div
-				className={`flex items-center gap-1 rounded-md border border-destructive/40 bg-destructive/10 p-0.5 ${className}`}
+				className={`flex max-w-full flex-wrap items-center justify-end gap-1 rounded-md border border-destructive/40 bg-destructive/10 p-0.5 ${className}`}
 			>
 				<Button
 					type="button"
@@ -39,9 +45,7 @@ export function ConfirmDeleteAction({
 				>
 					<X className="h-3 w-3" />
 				</Button>
-				<span className="px-0.5 text-[10px] leading-tight text-destructive">
-					Copies may remain elsewhere
-				</span>
+				<span className="min-w-0 px-0.5 text-[10px] leading-tight text-destructive">{message}</span>
 				<Button
 					type="button"
 					size="sm"
@@ -56,7 +60,7 @@ export function ConfirmDeleteAction({
 					) : (
 						<Trash2 className="h-3 w-3" />
 					)}
-					{isDeleting ? 'Deleting…' : 'Delete'}
+					{isDeleting ? 'Deleting…' : confirmText}
 				</Button>
 			</div>
 		)

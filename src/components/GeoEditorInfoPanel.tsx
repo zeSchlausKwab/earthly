@@ -55,6 +55,8 @@ import { privateWorkspaceIdForDataset } from '@/lib/private-workspace'
 import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
 import { LocalDraftPersistenceWarning } from '@/features/geo-editor/components/LocalDraftPersistenceWarning'
 import { resolveInfoPanelViewState } from '@/features/geo-editor/components/mobileEditPanelPresentation'
+import { ConfirmDeleteAction } from './info-panel/ConfirmDeleteAction'
+import { resolveDatasetEditorDeleteMode } from './info-panel/datasetEditorDeletion'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -70,6 +72,8 @@ export interface GeoEditorInfoPanelProps {
 	onStartNewDataset?: () => void
 	onOpenGeometryEditor?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
+	/** Discard an unpublished local Dataset workspace using the draft store's existing semantics. */
+	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
 	onToggleVisibility: (event: GeoDataset) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
@@ -229,6 +233,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		currentUserPubkey,
 		onStartNewDataset,
 		onOpenGeometryEditor,
+		onDeleteWorkspace,
 		deletingKey,
 		onExitViewMode,
 		getDatasetKey,
@@ -331,6 +336,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 	const datasetEditorRetained = useEditorStore(hasRetainedDatasetSurface)
 	const createGeoEditDraft = useEditorStore((state) => state.createGeoEditDraft)
 	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
@@ -346,6 +352,12 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				isOwner: currentUserPubkey === activeDataset.pubkey,
 			}
 		: null
+	const datasetEditorDeleteMode = resolveDatasetEditorDeleteMode({
+		hasActiveDataset: Boolean(activeDataset),
+		isDatasetOwner: Boolean(activeDatasetInfo?.isOwner),
+		hasActiveWorkspace: Boolean(activeWorkspaceId),
+		canDeleteWorkspace: Boolean(onDeleteWorkspace),
+	})
 
 	const activeDraft = useMemo(
 		() => (activeGeoEditDraftId ? (geoEditDrafts[activeGeoEditDraftId] ?? null) : null),
@@ -976,11 +988,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	return (
 		<div className="space-y-2 text-sm">
 			<LocalDraftPersistenceWarning currentUserPubkey={currentUserPubkey ?? null} />
-			{/* Header — only rendered when it has content (a fresh draft has neither
-			    the View button nor a dataset name, so we skip it to avoid an empty
-			    separator above the stats row). */}
-			{(activeDataset || activeDatasetInfo) && (
-				<div className="flex items-center justify-between gap-2 border-b border-border pb-1">
+			{/* Dataset-level actions. Scratch work has no View target or published
+			    name yet, but still exposes an explicit local discard action. */}
+			{(activeDataset || activeDatasetInfo || datasetEditorDeleteMode) && (
+				<div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1">
 					<div className="flex items-center gap-2">
 						{activeDataset && (
 							<Button
@@ -995,11 +1006,28 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 							</Button>
 						)}
 					</div>
-					{activeDatasetInfo && (
-						<span className="max-w-[100px] truncate text-[10px] text-muted-foreground">
-							{activeDatasetInfo.name} {activeDatasetInfo.isOwner ? '' : '(copy)'}
-						</span>
-					)}
+					<div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1.5">
+						{activeDatasetInfo && (
+							<span className="max-w-[160px] truncate text-[10px] text-muted-foreground">
+								{activeDatasetInfo.name} {activeDatasetInfo.isOwner ? '' : '(copy)'}
+							</span>
+						)}
+						{datasetEditorDeleteMode === 'published-dataset' && activeDataset ? (
+							<ConfirmDeleteAction
+								label="Dataset"
+								message="Delete this Dataset from Nostr?"
+								isDeleting={deletingKey === getDatasetKey(activeDataset)}
+								onConfirm={() => onDeleteDataset(activeDataset)}
+							/>
+						) : datasetEditorDeleteMode === 'local-workspace' && activeWorkspaceId ? (
+							<ConfirmDeleteAction
+								label="Saved work"
+								message="Delete this unpublished work from this device?"
+								confirmText="Discard"
+								onConfirm={() => void onDeleteWorkspace?.(activeWorkspaceId)}
+							/>
+						) : null}
+					</div>
 				</div>
 			)}
 
@@ -1083,7 +1111,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					Geometries ({features.length})
 				</div>
 				<GeometriesTable
-					className="max-h-[50vh] overflow-y-auto"
+					className="max-h-[50vh] overflow-y-auto pr-2 [scrollbar-gutter:stable]"
 					onZoomToFeature={onZoomToFeature}
 					contextValidationIssuesByFeatureId={contextValidationIssuesByFeatureId}
 					contextPropertyTypeHints={contextPropertyTypeHints}
