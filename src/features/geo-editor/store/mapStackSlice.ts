@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand'
+import { resolveActiveDraftMapPresentation } from './activeDraftMapPresentation'
 import type { EditorState, MapStackSlice } from './types'
 
 function createMapStackEntryId(entityType: string, entityKey: string) {
@@ -13,11 +14,13 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 		const id = input.id ?? createMapStackEntryId(input.entityType, input.entityKey)
 		set((state) => {
 			const existing = state.mapStackEntries[id]
+			const activeDraftLocked =
+				id === 'draft:active' && resolveActiveDraftMapPresentation(state) !== null
 			const entry = {
 				...input,
 				id,
 				addedAt: existing?.addedAt ?? input.addedAt ?? Date.now(),
-				visible: input.visible,
+				visible: activeDraftLocked ? true : input.visible,
 				pinned: input.pinned,
 				isolated: input.isolated ?? existing?.isolated ?? false,
 				exclusions: input.exclusions ?? existing?.exclusions ?? [],
@@ -40,12 +43,12 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 		return id
 	},
 
-	// Map Stack is visibility-only. `draft:active` represents the retained
-	// Dataset's rendered geometry, not the lifetime of its workspace/edit task;
-	// removing it must therefore have the same narrow semantics as any other row.
+	// The active Dataset edit is an invariant, not an optional layer. Legitimate
+	// teardown clears authoring state before removing this row.
 	removeMapStackEntry: (id) =>
 		set((state) => {
 			if (!state.mapStackEntries[id]) return {}
+			if (id === 'draft:active' && resolveActiveDraftMapPresentation(state)) return {}
 			const nextEntries = { ...state.mapStackEntries }
 			delete nextEntries[id]
 			return {
@@ -57,6 +60,7 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 	setMapStackEntryVisible: (id, visible) =>
 		set((state) => {
 			const entry = state.mapStackEntries[id]
+			if (id === 'draft:active' && !visible && resolveActiveDraftMapPresentation(state)) return {}
 			if (!entry || entry.visible === visible) return {}
 			return {
 				mapStackEntries: {
@@ -70,6 +74,15 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 		set((state) => {
 			const entry = state.mapStackEntries[id]
 			if (!entry) return {}
+			if (id === 'draft:active' && resolveActiveDraftMapPresentation(state)) {
+				if (entry.visible) return {}
+				return {
+					mapStackEntries: {
+						...state.mapStackEntries,
+						[id]: { ...entry, visible: true },
+					},
+				}
+			}
 			return {
 				mapStackEntries: {
 					...state.mapStackEntries,
@@ -167,17 +180,26 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 
 	clearMapStack: () =>
 		set((state) => {
-			// Pinning is the sole "keep this through a Clear" contract. A draft
-			// visibility row is ordinary map presentation state; clearing it hides
-			// geometry while the workspace/editor remains retained elsewhere.
+			const activeDraft = resolveActiveDraftMapPresentation(state)
+			// Pinned rows survive Clear. Active Dataset authoring additionally keeps
+			// its canonical visible draft row and suppresses the published twin.
 			const keptIds = state.mapStackOrder.filter((id) => {
 				const entry = state.mapStackEntries[id]
-				return entry?.pinned
+				if (!entry?.pinned) return false
+				return !(
+					activeDraft?.datasetKey &&
+					entry.entityType === 'dataset' &&
+					entry.entityKey === activeDraft.datasetKey
+				)
 			})
 			const nextEntries: typeof state.mapStackEntries = {}
 			for (const id of keptIds) {
 				const entry = state.mapStackEntries[id]
 				if (entry) nextEntries[id] = entry
+			}
+			if (activeDraft) {
+				nextEntries[activeDraft.entry.id] = activeDraft.entry
+				if (!keptIds.includes(activeDraft.entry.id)) keptIds.push(activeDraft.entry.id)
 			}
 			return { mapStackEntries: nextEntries, mapStackOrder: keptIds }
 		}),

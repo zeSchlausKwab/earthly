@@ -61,7 +61,7 @@ describe('mobile entity surface selection', () => {
 		expect(getRetainedDatasetSurfaceTarget(state, workspace.id)).toEqual({ workspace, draft })
 	})
 
-	test('plans route-neutral mobile opens and only clears visibility for a successful exact switch', () => {
+	test('plans route-neutral mobile opens without weakening Dataset visibility', () => {
 		const secondWorkspace = {
 			...workspace,
 			id: 'workspace-2',
@@ -87,13 +87,11 @@ describe('mobile entity surface selection', () => {
 		expect(resolveDraftEditorOpenPlan(state, undefined, true)).toEqual({
 			workspaceId: workspace.id,
 			switchWorkspace: false,
-			removeStaleDraftVisibility: false,
 			navigateToEditRoute: false,
 		})
 		expect(resolveDraftEditorOpenPlan(state, secondWorkspace.id, true)).toEqual({
 			workspaceId: secondWorkspace.id,
 			switchWorkspace: true,
-			removeStaleDraftVisibility: true,
 			navigateToEditRoute: false,
 		})
 		expect(resolveDraftEditorOpenPlan(state, secondWorkspace.id, false)?.navigateToEditRoute).toBe(

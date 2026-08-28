@@ -1380,10 +1380,12 @@ export function MobilePanel(props: MobilePanelProps) {
 													<NativeSelect
 														value={resolvedEntitySurface}
 														onChange={(event) => {
-															activateMobileEntitySurface(
-																event.target.value as MobileEntitySurface,
-																entitySurfaceAvailability,
-															)
+															const surface = event.target.value as MobileEntitySurface
+															if (surface === 'dataset' && onOpenDraftEditor) {
+																void onOpenDraftEditor()
+																return
+															}
+															activateMobileEntitySurface(surface, entitySurfaceAvailability)
 														}}
 														aria-label="Edit or inspect target"
 														className="min-w-0 flex-1 [&>select]:h-11 [&>select]:min-h-11"

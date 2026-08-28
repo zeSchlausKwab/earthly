@@ -211,7 +211,9 @@ import {
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import {
+	ensureActiveDraftMapPresentation,
 	getRetainedDatasetSurfaceTarget,
+	resolveActiveDraftMapPresentation,
 	resolveDraftEditorOpenPlan,
 	useEditorStore,
 	type MapStackEntry,
@@ -611,9 +613,15 @@ export function GeoEditorView() {
 	const stance = useEditorStore((state) => state.stance)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
+	const activeDraftAuthoring = useEditorStore(
+		(state) => resolveActiveDraftMapPresentation(state) !== null,
+	)
 	const draftGeometryVisible = useMemo(
-		() => isDraftGeometryVisible(mapStackEntries, mapStackOrder),
-		[mapStackEntries, mapStackOrder],
+		() =>
+			isDraftGeometryVisible(mapStackEntries, mapStackOrder, {
+				activeAuthoring: activeDraftAuthoring,
+			}),
+		[activeDraftAuthoring, mapStackEntries, mapStackOrder],
 	)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
@@ -1243,7 +1251,7 @@ export function GeoEditorView() {
 	}, [])
 
 	const handleSwitchWorkspace = useCallback(
-		async (workspaceId: string, options?: { syncMapStackVisibility?: boolean }) => {
+		async (workspaceId: string, options?: { preserveMobileRoute?: boolean }) => {
 			await switchWorkspaceFromView({
 				workspaceId,
 				options,
@@ -1657,9 +1665,8 @@ export function GeoEditorView() {
 
 	const removeFromMapStack = useCallback(
 		(entry: MapStackEntry) => {
-			// Map Stack is visibility-only. In particular, removing `draft:active`
-			// hides the retained Dataset geometry but does not discard its workspace,
-			// local draft, Chat binding, or currently selected mobile Edit surface.
+			// Active Dataset drafts are not removable presentation rows. The panel
+			// withholds that action and the store guards the invariant as a backstop.
 			if (entry.source === 'private-group') {
 				dismissedPrivateDatasetIds().add(entry.id)
 			}
@@ -1969,6 +1976,15 @@ export function GeoEditorView() {
 
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
+
+	// Dataset authoring and map presentation are one product state. Repair old or
+	// externally-mutated sessions immediately so an editor can never remain open
+	// while its geometry is absent from the Map Stack or map.
+	useEffect(() => {
+		const repair = () => ensureActiveDraftMapPresentation(useEditorStore.getState())
+		repair()
+		return useEditorStore.subscribe(repair)
+	}, [])
 	const datasetMapInteractionEnabled = isDatasetMapInteractionEnabled({
 		draftGeometryVisible,
 		isMobile,
@@ -2220,9 +2236,7 @@ export function GeoEditorView() {
 			try {
 				if (plan.switchWorkspace) {
 					// Exact Chat/BindingChip activation may switch only to the validated ID.
-					// Visibility synchronization remains disabled: opening a target is not an
-					// instruction to show it on the map.
-					await switchToWorkspace(plan.workspaceId, { syncMapStackVisibility: false })
+					await switchToWorkspace(plan.workspaceId)
 				}
 
 				const state = useEditorStore.getState()
@@ -2234,11 +2248,6 @@ export function GeoEditorView() {
 					return false
 				}
 
-				// `draft:active` represents whichever workspace is active, so it cannot
-				// survive an exact cross-workspace switch without silently making the new
-				// target visible. Remove that stale visibility row only after success.
-				if (plan.removeStaleDraftVisibility) state.removeMapStackEntry('draft:active')
-
 				const activated = state.activateMobileEntitySurface('dataset', {
 					inspector: state.inspectionSubject != null,
 					dataset: true,
@@ -2248,6 +2257,7 @@ export function GeoEditorView() {
 					beacon: false,
 				})
 				if (!activated) return false
+				ensureActiveDraftMapPresentation(useEditorStore.getState())
 
 				if (!plan.navigateToEditRoute) {
 					closeMobileSidebar()
@@ -3600,11 +3610,9 @@ export function GeoEditorView() {
 		sightingPlacementArmedRef.current = sightingPlacementArmed
 	}, [sightingPlacementArmed])
 
-	// The editor's retained feature model is deliberately independent from its
-	// MapLibre materialization. Publishing swaps the draft row for a Dataset row;
-	// removing that Dataset must therefore leave no editor geometry behind. A
-	// later Edit-sheet/rail reveal remains presentation-only; geometry returns only
-	// through an explicit Map Stack visibility/load action.
+	// Publishing swaps the active draft row for a saved Dataset row. While Dataset
+	// authoring is active, the invariant repair above keeps this materialization
+	// visible; outside authoring, no stale editor geometry remains behind.
 	useEffect(() => {
 		editor?.setGeometryVisible(draftGeometryVisible)
 		editor?.setTransientDrawingVisible(sightingPlacementArmed)

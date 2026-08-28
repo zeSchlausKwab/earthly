@@ -18,6 +18,7 @@ import { useMemo, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import {
+	resolveActiveDraftMapPresentation,
 	useEditorStore,
 	type GeoQueryStatus,
 	type MapStackEntry,
@@ -388,6 +389,9 @@ function EntryRow({
 	const liveDraftName = useEditorStore((state) =>
 		entry.entityType === 'draft' ? (state.collectionMeta?.name ?? '') : '',
 	)
+	const activeDraftAuthoring = useEditorStore(
+		(state) => entry.id === 'draft:active' && resolveActiveDraftMapPresentation(state) !== null,
+	)
 	const displayTitle =
 		entry.entityType === 'draft' && liveDraftName.trim() ? liveDraftName.trim() : title
 	const [expanded, setExpanded] = useState(false)
@@ -632,7 +636,7 @@ function EntryRow({
 							) : null}
 						</>
 					) : null}
-					{entry.entityType !== 'draft' ? (
+					{entry.entityType !== 'draft' || !activeDraftAuthoring ? (
 						<RowAction
 							icon={
 								<PinActionIcon
@@ -651,31 +655,33 @@ function EntryRow({
 							pressed={entry.pinned}
 						/>
 					) : null}
-					<RowAction
-						icon={
-							entry.pinned ? (
-								<DeleteActionIcon className={actionIconClassName} />
-							) : (
-								<RemoveActionIcon className={actionIconClassName} />
-							)
-						}
-						className={cn(actionButtonClassName, 'hover:text-destructive')}
-						onClick={() => onRemoveEntry(entry)}
-						label={
-							entry.entityType === 'draft'
-								? 'Hide edit from map'
-								: entry.pinned
-									? 'Remove pinned entry'
-									: 'Remove from map stack'
-						}
-						tooltip={
-							entry.entityType === 'draft'
-								? 'Hide this draft from the map and keep its editing state'
-								: entry.pinned
-									? 'Remove this pinned entry from the map stack'
-									: 'Remove this entry from the map stack'
-						}
-					/>
+					{entry.entityType !== 'draft' ? (
+						<RowAction
+							icon={
+								entry.pinned ? (
+									<DeleteActionIcon className={actionIconClassName} />
+								) : (
+									<RemoveActionIcon className={actionIconClassName} />
+								)
+							}
+							className={cn(actionButtonClassName, 'hover:text-destructive')}
+							onClick={() => onRemoveEntry(entry)}
+							label={
+								entry.entityType === 'draft'
+									? 'Remove edit from map stack'
+									: entry.pinned
+										? 'Remove pinned entry'
+										: 'Remove from map stack'
+							}
+							tooltip={
+								entry.entityType === 'draft'
+									? 'Remove this parked edit from the map stack'
+									: entry.pinned
+										? 'Remove this pinned entry from the map stack'
+										: 'Remove this entry from the map stack'
+							}
+						/>
+					) : null}
 				</div>
 			</div>
 			{isContextEntry && expanded ? (

@@ -508,6 +508,9 @@ export function usePublishing({
 			// A successful save ends the map's draft representation and restores the
 			// saved dataset under the same scope-specific identity used by stack
 			// reconciliation. This keeps public, private, and nearby saves single-row.
+			setMode('select')
+			setViewMode('view')
+			setStance('focus')
 			removeMapStackEntry('draft:active')
 			const datasetKey = getDatasetKey(dataset)
 			const scopedEntry = privateWorkspaceId
@@ -529,10 +532,7 @@ export function usePublishing({
 				visible: true,
 				pinned: false,
 			})
-			setMode('select')
-			setViewMode('view')
 			setViewDataset(dataset)
-			setStance('focus')
 		},
 		[
 			addMapStackEntry,

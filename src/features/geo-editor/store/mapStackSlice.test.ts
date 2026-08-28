@@ -3,9 +3,14 @@ import type { EditorFeature, GeoEditor } from '../core'
 import { isDraftGeometryVisible } from '../draftMapVisibility'
 import { createDefaultCollectionMeta } from '../utils'
 import { createMapStackSlice } from './mapStackSlice'
-import type { EditorState, GeoCollectionEditDraft, GeoEditorWorkspace } from './types'
+import type {
+	EditorState,
+	GeoCollectionEditDraft,
+	GeoEditorWorkspace,
+	MapStackEntry,
+} from './types'
 
-function draftEntry(overrides: Partial<EditorState['mapStackEntries'][string]> = {}) {
+function draftEntry(overrides: Partial<MapStackEntry> = {}): MapStackEntry {
 	return {
 		id: 'draft:active',
 		entityType: 'draft' as const,
@@ -29,11 +34,16 @@ function createMapStackHarness(seed: Partial<EditorState>) {
 	}
 	const actions = createMapStackSlice(set as never, (() => state) as never, {} as never)
 	state = { ...state, ...actions, ...seed }
-	return { getState: () => state }
+	return {
+		getState: () => state,
+		setState: (partial: Partial<EditorState>) => {
+			state = { ...state, ...partial }
+		},
+	}
 }
 
 describe('published Dataset Map Stack removal', () => {
-	test('Clear removes an unpinned draft visibility row without touching retained work', () => {
+	test('Clear preserves the active Dataset edit as a visible draft row', () => {
 		const draftId = 'draft-1'
 		const workspaceId = 'workspace-1'
 		const retainedDraft = {
@@ -52,18 +62,20 @@ describe('published Dataset Map Stack removal', () => {
 			activeGeoEditDraftId: draftId,
 			workspaces: { [workspaceId]: retainedWorkspace },
 			activeWorkspaceId: workspaceId,
+			viewMode: 'edit',
+			stance: 'author',
 		})
 
 		harness.getState().clearMapStack()
 
 		const state = harness.getState()
-		expect(state.mapStackOrder).toEqual([])
-		expect(state.mapStackEntries).toEqual({})
+		expect(state.mapStackOrder).toEqual(['draft:active'])
+		expect(state.mapStackEntries['draft:active']?.visible).toBe(true)
 		expect(state.geoEditDrafts[draftId]).toBe(retainedDraft)
 		expect(state.workspaces[workspaceId]).toBe(retainedWorkspace)
 	})
 
-	test('uses canonical visibility and isolation precedence for the retained draft layer', () => {
+	test('only active authoring overrides ordinary draft visibility and isolation', () => {
 		const visibleDraft = draftEntry()
 		const hiddenDraft = draftEntry({ visible: false })
 		const isolatedDraft = draftEntry({ visible: false, isolated: true })
@@ -86,9 +98,21 @@ describe('published Dataset Map Stack removal', () => {
 				'dataset:other',
 			]),
 		).toBe(false)
+		expect(
+			isDraftGeometryVisible({ 'draft:active': hiddenDraft }, ['draft:active'], {
+				activeAuthoring: true,
+			}),
+		).toBe(true)
+		expect(
+			isDraftGeometryVisible(
+				{ 'draft:active': visibleDraft, 'dataset:other': other },
+				['draft:active', 'dataset:other'],
+				{ activeAuthoring: true },
+			),
+		).toBe(true)
 	})
 
-	test('hides retained active Dataset geometry without deleting saved work', () => {
+	test('cannot hide or remove active Dataset geometry until authoring ends', () => {
 		const feature: EditorFeature = {
 			type: 'Feature',
 			id: 'published-point',
@@ -150,14 +174,29 @@ describe('published Dataset Map Stack removal', () => {
 
 		const syncEditorVisibility = () => {
 			const state = harness.getState()
-			editor.setGeometryVisible(isDraftGeometryVisible(state.mapStackEntries, state.mapStackOrder))
+			editor.setGeometryVisible(
+				isDraftGeometryVisible(state.mapStackEntries, state.mapStackOrder, {
+					activeAuthoring: state.viewMode === 'edit' && state.stance === 'author',
+				}),
+			)
 		}
 		expect(
-			isDraftGeometryVisible(harness.getState().mapStackEntries, harness.getState().mapStackOrder),
+			isDraftGeometryVisible(harness.getState().mapStackEntries, harness.getState().mapStackOrder, {
+				activeAuthoring: true,
+			}),
 		).toBe(true)
 
-		// Successful publication swaps the draft row for the saved Dataset row,
-		// while retaining the local draft/workspace for Chat and later editing.
+		// Map presentation actions cannot contradict the active editor.
+		harness.getState().removeMapStackEntry('draft:active')
+		harness.getState().setMapStackEntryVisible('draft:active', false)
+		harness.getState().toggleMapStackEntryVisible('draft:active')
+		syncEditorVisibility()
+		expect(editorGeometryVisible).toBe(true)
+		expect(harness.getState().mapStackEntries['draft:active']?.visible).toBe(true)
+
+		// Successful publication first ends authoring, then swaps the draft row for
+		// the saved Dataset while retaining local work for Chat and later editing.
+		harness.setState({ viewMode: 'view', stance: 'focus' })
 		harness.getState().removeMapStackEntry('draft:active')
 		harness.getState().addMapStackEntry({
 			id: stackEntryId,
