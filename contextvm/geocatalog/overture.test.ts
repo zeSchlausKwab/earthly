@@ -402,7 +402,10 @@ describe('Overture sequence streaming', () => {
 			attribution:
 				'Overture Maps Foundation; Copyright 2024 Foursquare Labs, Inc. All rights reserved. ' +
 				'Foursquare data was transformed to the Overture schema. Changed: 2026-03-18.; ' +
-				'Data from AllThePlaces; Per-feature provenance is retained in properties.sources; ' +
+				'Data from AllThePlaces; Earthly modification notice: Overture Places records were ' +
+				'filtered and normalized into GeoCatalog and editor fields; native record identifiers ' +
+				'and per-feature source records were retained.; Per-feature provenance is retained in ' +
+				'properties.sources; ' +
 				'consult the release attribution manifest',
 			attributionUrl: 'https://docs.overturemaps.org/attribution/',
 			license:
@@ -429,6 +432,7 @@ describe('Overture sequence streaming', () => {
 		expect(apacheLicense?.content).toContain(
 			'You must give any other recipients of the Work',
 		)
+		expect(places.attribution).toContain('Earthly modification notice:')
 		expect(places.attribution).not.toContain('OpenStreetMap')
 		expect(places.license).not.toContain('ODbL')
 

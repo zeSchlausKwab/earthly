@@ -134,7 +134,9 @@ manifest so it survives the editor's scalar metadata controls, local drafts,
 and Nostr publication without repeating long legal text on every feature. The
 manifest includes release attribution, license document URLs, the full
 Foursquare Places NOTICE, and a full copy of the Apache 2.0 license when Places
-data is present. Those document bodies travel only with geometry/editor
+data is present. Places manifests also state that Earthly filtered and
+normalized the source records, while retaining native record identifiers and
+per-feature source records. Those document bodies travel only with geometry/editor
 requests; discovery responses retain their names and URLs but omit the bulky
 text. If later imports use a different immutable snapshot, its manifest is
 stored under its own key; older features therefore keep a resolvable source

@@ -1003,6 +1003,8 @@ const CDLA_PERMISSIVE_2_LICENSE_URL = 'https://cdla.dev/permissive-2-0/'
 const CC0_LICENSE_URL = 'https://creativecommons.org/publicdomain/zero/1.0/'
 const OVERTURE_FOURSQUARE_ATTRIBUTION =
 	'Copyright 2024 Foursquare Labs, Inc. All rights reserved. Foursquare data was transformed to the Overture schema. Changed: 2026-03-18.'
+const EARTHLY_PLACES_MODIFICATION_NOTICE =
+	'Earthly modification notice: Overture Places records were filtered and normalized into GeoCatalog and editor fields; native record identifiers and per-feature source records were retained.'
 const FOURSQUARE_NOTICE = `© 2026 Foursquare Labs, Inc. All rights reserved.
 The Foursquare OS Places dataset (the “Data”) is licensed under the Apache License, Version 2.0 (the “License”). You may not use, modify, or distribute the Data except in compliance with the License.
 As set forth more fully in the License, if you use, modify, or distribute the Data, you must:
@@ -1055,7 +1057,11 @@ export function createOvertureSourceRelease(
 		documents.push({ name: 'Open Database License 1.0', url: ODBL_LICENSE_URL })
 	}
 	if (includesPlaces) {
-		attribution.push(OVERTURE_FOURSQUARE_ATTRIBUTION, 'Data from AllThePlaces')
+		attribution.push(
+			OVERTURE_FOURSQUARE_ATTRIBUTION,
+			'Data from AllThePlaces',
+			EARTHLY_PLACES_MODIFICATION_NOTICE,
+		)
 		licenses.push('CDLA-Permissive-2.0', 'Apache-2.0', 'CC0-1.0')
 		documents.push(
 			{
