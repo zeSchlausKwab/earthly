@@ -191,12 +191,18 @@ function compactCatalogMetadata(
 	metadata: Record<string, unknown>,
 	manifest: CatalogSourceManifest,
 ): Record<string, unknown> {
+	const sourceSnapshot = isRecord(metadata.snapshot) ? metadata.snapshot : null
+	const coverage =
+		sourceSnapshot && isRecord(sourceSnapshot.coverage)
+			? structuredClone(sourceSnapshot.coverage)
+			: undefined
 	return {
 		...metadata,
 		snapshot: {
 			id: manifest.snapshotId,
 			createdAt: manifest.createdAt,
 			schemaVersion: 1,
+			...(coverage ? { coverage } : {}),
 			sources: manifest.sources.map((source) => ({
 				...source,
 				...(Array.isArray(source.documents)
@@ -950,6 +956,28 @@ function registerRemoteMcpTools(): void {
 				metadata: compactCatalogMetadata(metadata, manifest),
 				items,
 				...(features.length > 0 ? { features } : {}),
+				...(!toEditor
+					? (() => {
+							const candidateIds = rawItems.flatMap((item) => {
+								if (!isRecord(item) || typeof item.id !== 'string' || item.id.length === 0) {
+									return []
+								}
+								const categories = Array.isArray(item.categories) ? item.categories : []
+								return categories.includes('administrative-label') ? [] : [item.id]
+							})
+							if (candidateIds.length === 0) return {}
+							return {
+								editorImport: {
+									available: true,
+									candidateIds,
+									nextCall: {
+										name: 'query_geography',
+										arguments: { ids: candidateIds, toEditor: true },
+									},
+								},
+							}
+						})()
+					: {}),
 			}
 			return toEditor && features.length > 0
 				? attachEditorDatasetMetadata(output, {
@@ -1495,10 +1523,12 @@ function registerRemoteMcpTools(): void {
 			const matchedByName = name
 				? validFeatures.filter((feature) => featureMatchesName(feature, name))
 				: validFeatures
-			const selected = prepareMapToolFeaturesForEditor(
-				'import_osm_to_editor',
-				matchedByName.length > 0 ? matchedByName : validFeatures,
-			)
+			if (name && matchedByName.length === 0) {
+				throw new Error(
+					`No OSM features named "${name}" matched among ${validFeatures.length} query results. Nothing was imported; refine the name or omit it intentionally to import all query results.`,
+				)
+			}
+			const selected = prepareMapToolFeaturesForEditor('import_osm_to_editor', matchedByName)
 
 			if (context?.run) await ensureExecutionTargetForMutation(context.run)
 			const importResult = importFeaturesToEditor(selected, replaceExisting)
@@ -1518,10 +1548,7 @@ function registerRemoteMcpTools(): void {
 				replaceExisting,
 				usedSearchFallback,
 				includeRelations,
-				warning:
-					name && matchedByName.length === 0
-						? 'No name-matching features found; imported unfiltered query results.'
-						: null,
+				warning: null,
 			}
 		},
 	})

@@ -51,6 +51,12 @@ describe('compact prompt profile', () => {
 		expect(compact).toMatch(/valhalla_route.+route_over_network/i)
 	})
 
+	it('grounds time-sensitive research in the current date', () => {
+		for (const text of [compact, legacy]) {
+			expect(text).toMatch(/CURRENT DATE[^\n]+\d{4}-\d{2}-\d{2}/i)
+		}
+	})
+
 	it('pins the original task into a continuation prompt', () => {
 		const message = createMapContextSystemMessage('compact', ['run_code'], {
 			isContinuation: true,
@@ -156,8 +162,18 @@ describe('fix #4 — agent map-context steering', () => {
 	it('states the catalog-first data source order', () => {
 		expect(text).toMatch(/DATA SOURCE ORDER/i)
 		expect(text).toMatch(/query_geography.+fast, self-hosted/i)
+		expect(text).toMatch(/discover human-readable queries first.+stable ids/i)
 		expect(text).toMatch(/BUNDLED WORLD LAYERS/i)
 		expect(text).toMatch(/remote OSM tools only as a last resort/i)
+		expect(compactMapContextText()).toMatch(/discover human-readable queries first.+stable ids/i)
+	})
+
+	it('does not require the model to guess an undocumented catalog category', () => {
+		for (const prompt of [text, compactMapContextText()]) {
+			expect(prompt).toMatch(/categories are exact filters/i)
+			expect(prompt).toMatch(/start with (?:the )?name and kind|begin with (?:the )?name and kind/i)
+			expect(prompt).toMatch(/category suggestions|suggested categories/i)
+		}
 	})
 
 	it('scopes OSM boundary/line guidance to LOCAL features (no country-scale OSM)', () => {

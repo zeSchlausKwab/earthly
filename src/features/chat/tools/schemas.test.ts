@@ -21,6 +21,19 @@ function collectDescriptions(value: unknown): string[] {
 }
 
 describe('catalog-first geography tool descriptions', () => {
+	it('steers human-readable discovery into an exact stable-id import', () => {
+		const tool = schemaFor('query_geography')
+		expect(tool.function.description.toLowerCase()).toMatch(
+			/discover human-readable searches first.+stable-id continuation/,
+		)
+		const toEditor = tool.function.parameters.properties.toEditor
+		expect(toEditor).toBeDefined()
+		if (!toEditor || typeof toEditor.description !== 'string') {
+			throw new Error('query_geography.toEditor must have a description')
+		}
+		expect(toEditor.description.toLowerCase()).toMatch(/stable ids returned by discovery/)
+	})
+
 	it('makes remote OSM discovery and import conditional on a catalog gap', () => {
 		for (const name of OSM_LAST_RESORT_TOOLS) {
 			const description = schemaFor(name).function.description.toLowerCase()

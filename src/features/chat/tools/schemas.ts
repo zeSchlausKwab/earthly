@@ -223,7 +223,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_geography',
 			description:
-				"Query Earthly's fast, self-hosted geography catalog for administrative areas, localities, places, roads, rail, waterways, and infrastructure. This is the primary source for reusable real-world geometry and place discovery; use remote OSM tools only when this catalog cannot answer. Filter groups combine with AND semantics; values within a list use OR semantics. Set toEditor=true to fetch geometry and import the exact returned features into the bound Dataset.",
+				"Query Earthly's fast, self-hosted geography catalog for administrative areas, localities, places, roads, rail, waterways, and infrastructure. This is the primary source for reusable real-world geometry and place discovery; use remote OSM tools only when this catalog reports a genuine coverage gap. Filter groups combine with AND semantics; values within a list use OR semantics. Discover human-readable searches first, then use the returned stable-id continuation to import chosen matches without remote re-search.",
 			parameters: {
 				type: 'object',
 				properties: {
@@ -290,7 +290,8 @@ export const geoStaticToolSchemas: Tool[] = [
 					},
 					toEditor: {
 						type: 'boolean',
-						description: 'Import the exact returned catalog geometries into the bound Dataset.',
+						description:
+							'Import exact catalog geometries into the bound Dataset. Prefer this with stable ids returned by discovery; if stable ids are already known, they may be imported directly.',
 					},
 					replaceExisting: {
 						type: 'boolean',
