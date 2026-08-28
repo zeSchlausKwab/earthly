@@ -346,6 +346,8 @@ test('the SQLite snapshot writer consumes an async entry stream', async () => {
 	try {
 		await writeSqliteGeoCatalogSnapshot({ path, snapshot, entries: streamEntries() })
 		expect(pulled).toBe(3)
+		expect(existsSync(`${path}-wal`)).toBe(false)
+		expect(existsSync(`${path}-shm`)).toBe(false)
 		const catalog = openSqliteGeoCatalog({ path })
 		const result = await catalog.query({ countryCode: 'NP' })
 		expect(result.items.map((entry) => entry.id)).toEqual([
@@ -379,6 +381,24 @@ test('a failed snapshot build removes only its incomplete artifacts and can be r
 		const catalog = openSqliteGeoCatalog({ path })
 		const result = await catalog.query({ ids: ['admin:np'] })
 		expect(result.items[0]?.name).toBe('Nepal')
+	} finally {
+		rmSync(directory, { recursive: true })
+	}
+})
+
+test('the snapshot writer refuses an existing output without changing it', async () => {
+	const directory = mkdtempSync(join(tmpdir(), 'earthly-geocatalog-existing-'))
+	const path = join(directory, 'snapshot.sqlite')
+
+	try {
+		await writeSqliteGeoCatalogSnapshot({ path, snapshot, entries: entries.slice(0, 1) })
+		await expect(
+			writeSqliteGeoCatalogSnapshot({ path, snapshot, entries: entries.slice(1, 2) }),
+		).rejects.toMatchObject({ code: 'snapshot_invalid' })
+
+		const catalog = openSqliteGeoCatalog({ path })
+		const result = await catalog.query({ limit: 10 })
+		expect(result.items.map((entry) => entry.id)).toEqual(['admin:np'])
 	} finally {
 		rmSync(directory, { recursive: true })
 	}

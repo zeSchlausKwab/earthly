@@ -1,4 +1,11 @@
-import { existsSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs'
+import {
+	closeSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	openSync,
+	unlinkSync,
+} from 'node:fs'
 import { dirname } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { createGeoCatalog } from './catalog'
@@ -118,6 +125,57 @@ function removeIncompleteSnapshot(path: string): void {
 			)
 		}
 		unlinkSync(artifact)
+	}
+}
+
+function removeSnapshotSidecars(path: string): void {
+	for (const artifact of [`${path}-wal`, `${path}-shm`]) {
+		if (!existsSync(artifact)) continue
+		const stat = lstatSync(artifact)
+		if (!stat.isFile() && !stat.isSymbolicLink()) {
+			throw new GeoCatalogError(
+				'snapshot_invalid',
+				`GeoCatalog sidecar is not a file and was not removed: ${artifact}`,
+			)
+		}
+		unlinkSync(artifact)
+	}
+}
+
+function reserveSnapshotPath(path: string): void {
+	let descriptor: number
+	try {
+		descriptor = openSync(path, 'wx', 0o600)
+	} catch (error) {
+		const code =
+			error && typeof error === 'object' && 'code' in error
+				? String((error as { code: unknown }).code)
+				: null
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			code === 'EEXIST'
+				? `Refusing to replace existing GeoCatalog snapshot at ${path}`
+				: `Cannot reserve GeoCatalog snapshot path ${path}`,
+			{ cause: error },
+		)
+	}
+	try {
+		closeSync(descriptor)
+	} catch (error) {
+		try {
+			unlinkSync(path)
+		} catch (cleanupError) {
+			throw new GeoCatalogError(
+				'snapshot_invalid',
+				`Cannot close or remove reserved GeoCatalog snapshot path ${path}`,
+				{ cause: { error, cleanupError } },
+			)
+		}
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			`Cannot close reserved GeoCatalog snapshot path ${path}`,
+			{ cause: error },
+		)
 	}
 }
 
@@ -517,7 +575,24 @@ export async function writeSqliteGeoCatalogSnapshot(
 		)
 	}
 	mkdirSync(dirname(path), { recursive: true })
-	const database = new Database(path, { create: true, strict: true })
+	reserveSnapshotPath(path)
+	let database: Database
+	try {
+		database = new Database(path, { strict: true })
+	} catch (error) {
+		try {
+			removeIncompleteSnapshot(path)
+		} catch (cleanupError) {
+			throw new GeoCatalogError(
+				'snapshot_invalid',
+				`Cannot initialize or remove reserved GeoCatalog snapshot at ${path}`,
+				{ cause: { error, cleanupError } },
+			)
+		}
+		throw new GeoCatalogError('snapshot_invalid', `Cannot initialize snapshot at ${path}`, {
+			cause: error,
+		})
+	}
 	const noFailure = Symbol('no-failure')
 	let failure: unknown | typeof noFailure = noFailure
 	try {
@@ -543,6 +618,13 @@ export async function writeSqliteGeoCatalogSnapshot(
 		}
 	} finally {
 		database.close()
+	}
+	if (failure === noFailure) {
+		try {
+			removeSnapshotSidecars(path)
+		} catch (error) {
+			failure = error
+		}
 	}
 	if (failure !== noFailure) {
 		try {
