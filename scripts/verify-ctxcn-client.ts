@@ -41,9 +41,8 @@ const serverVersion = normalizedServer.match(
 const clientVersion = normalizedClient.match(
   /name:\s*"EarthlyGeoServerClient",\s*\n\s*version:\s*"([^"]+)"/u,
 )?.[1];
-if (!serverVersion || !clientVersion || serverVersion !== clientVersion) {
-  errors.push(`ContextVM version mismatch: server=${serverVersion || "?"}, client=${clientVersion || "?"}`);
-}
+if (!serverVersion) errors.push("ContextVM server identity/version is missing");
+if (!clientVersion) errors.push("ContextVM client identity/version is missing");
 
 if (errors.length > 0) {
   console.error("ContextVM generated-client verification failed:");
@@ -55,5 +54,5 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `ContextVM client ${clientVersion} contains the generated search contract and Earthly runtime safeguards.`,
+  `ContextVM server ${serverVersion}; client ${clientVersion}. The generated search contract and Earthly runtime safeguards are present.`,
 );

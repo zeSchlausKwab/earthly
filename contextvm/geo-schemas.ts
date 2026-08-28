@@ -87,6 +87,145 @@ export type ReverseLookupOutput = {
 };
 
 // ==========================================
+// Local GeoCatalog Schemas
+// ==========================================
+
+export const geoCatalogKindSchema = z.enum([
+	"admin",
+	"locality",
+	"place",
+	"road",
+	"rail",
+	"waterway",
+	"infrastructure",
+]);
+
+export const queryGeographyInputSchema = {
+	text: z
+		.string()
+		.min(1)
+		.optional()
+		.describe("Name or free-text geography search."),
+	ids: z
+		.array(z.string().min(1))
+		.min(1)
+		.optional()
+		.describe("Stable catalog ids to resolve exactly."),
+	kinds: z
+		.array(geoCatalogKindSchema)
+		.min(1)
+		.optional()
+		.describe("Optional normalized feature kinds to include."),
+	categories: z
+		.array(z.string().min(1))
+		.min(1)
+		.optional()
+		.describe(
+			"Exact normalized classifications such as hospital, village, river, motorway, or corridor.",
+		),
+	adminLevels: z
+		.array(z.number().int().nonnegative())
+		.min(1)
+		.optional()
+		.describe("Administrative hierarchy levels, where 0 is country and 1 is first subdivision."),
+	countryCode: z
+		.string()
+		.length(2)
+		.optional()
+		.describe("Optional ISO alpha-2 country code."),
+	bbox: z
+		.object({
+			west: z.number().min(-180).max(180),
+			south: z.number().min(-90).max(90),
+			east: z.number().min(-180).max(180),
+			north: z.number().min(-90).max(90),
+		})
+		.optional()
+		.describe("Optional WGS84 bounding box."),
+	near: z
+		.object({
+			longitude: z.number().min(-180).max(180),
+			latitude: z.number().min(-90).max(90),
+		})
+		.optional()
+		.describe("Optional point used for proximity filtering and ordering."),
+	radiusMeters: z
+		.number()
+		.positive()
+		.optional()
+		.describe("Optional radius around near, in meters."),
+	limit: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe("Maximum number of results to return."),
+	includeGeometry: z
+		.boolean()
+		.optional()
+		.describe("Include GeoJSON geometry. Leave false for lightweight discovery."),
+};
+
+const geoCatalogSourceSchema = z.object({
+	name: z.string(),
+	release: z.string(),
+	recordId: z.string().optional(),
+});
+
+const geoCatalogEntrySchema = z.object({
+	id: z.string(),
+	kind: geoCatalogKindSchema,
+	name: z.string(),
+	aliases: z.array(z.string()),
+	categories: z.array(z.string()),
+	countryCode: z.string().optional(),
+	adminLevel: z.number().int().nonnegative().optional(),
+	bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+	center: z
+		.object({ longitude: z.number(), latitude: z.number() }),
+	importance: z.number(),
+	source: geoCatalogSourceSchema,
+	properties: z.record(z.string(), z.unknown()),
+	geometry: z.unknown().optional(),
+});
+
+export const queryGeographyOutputSchema = {
+	result: z.object({
+		items: z.array(geoCatalogEntrySchema),
+		metadata: z.object({
+			snapshot: z.object({
+				id: z.string(),
+				createdAt: z.string(),
+				schemaVersion: z.literal(1),
+				sources: z.array(
+					z.object({
+						name: z.string(),
+						release: z.string(),
+						attribution: z.string().optional(),
+						attributionUrl: z.string().optional(),
+						license: z.string().optional(),
+						documents: z
+							.array(
+								z.object({
+									name: z.string(),
+									url: z.string(),
+									content: z.string().optional(),
+								}),
+							)
+							.optional(),
+					}),
+				),
+			}),
+			query: z.object({
+				returned: z.number(),
+				limit: z.number(),
+				hasMore: z.boolean(),
+			}),
+		}),
+	}),
+};
+
+// ==========================================
 // Overpass API Schemas
 // ==========================================
 

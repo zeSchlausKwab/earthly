@@ -53,6 +53,9 @@ export const serverConfig = {
 	/** Valhalla API base URL for routing/isochrone tools */
 	valhallaUrl: serverEnv.VALHALLA_URL,
 
+	/** Read-only local geography catalog snapshot */
+	geoCatalogPath: serverEnv.GEOCATALOG_PATH,
+
 	/** Whether running in production mode */
 	isProduction: serverEnv.NODE_ENV === 'production',
 

@@ -126,6 +126,9 @@ export const envSchema = z.object({
 	/** Valhalla API base URL for routing/isochrone tools (backend only) */
 	VALHALLA_URL: z.string().url().optional(),
 
+	/** Read-only GeoCatalog SQLite snapshot used by the ContextVM server (backend only) */
+	GEOCATALOG_PATH: z.string().min(1).default('./data/geocatalog/current.sqlite'),
+
 	/** Runtime environment */
 	NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 })

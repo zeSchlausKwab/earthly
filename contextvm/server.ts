@@ -8,6 +8,8 @@ import { serverConfig } from "../src/config/env.server";
 import {
   reverseLookupInputSchema,
   reverseLookupOutputSchema,
+  queryGeographyInputSchema,
+  queryGeographyOutputSchema,
   searchLocationInputSchema,
   searchLocationOutputSchema,
   queryByIdInputSchema,
@@ -30,6 +32,12 @@ import {
   createMapUploadInputSchema,
   createMapUploadOutputSchema,
 } from "./geo-schemas.ts";
+import {
+  GeoCatalogError,
+  formatGeoCatalogReadiness,
+  openSqliteGeoCatalog,
+  preflightGeoCatalog,
+} from "./geocatalog/index.ts";
 import {
   webSearchInputSchema,
   webSearchOutputSchema,
@@ -86,6 +94,8 @@ const RELAYS = serverConfig.isProduction
       ]),
     ]
   : ["ws://localhost:3334"];
+
+const geoCatalog = openSqliteGeoCatalog({ path: serverConfig.geoCatalogPath });
 
 function requestClientPubkey(extra: { _meta?: unknown }): string {
   const metadata = extra._meta as Record<string, unknown> | undefined;
@@ -203,6 +213,19 @@ function simplifyFeatureGeometry(
 }
 
 function structuredToolFailure(error: unknown): Record<string, unknown> {
+  if (error instanceof GeoCatalogError) {
+    return {
+      ok: false,
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable,
+      suggestedAction:
+        error.code === "snapshot_unavailable" || error.code === "snapshot_invalid"
+          ? "Ask the Earthly operator to install a valid GeoCatalog snapshot; do not retry this request unchanged or fall back silently."
+          : "Correct the geography query before retrying.",
+      sideEffectsApplied: false,
+    };
+  }
   if (error instanceof NominatimRequestError) {
     return {
       ok: false,
@@ -226,6 +249,15 @@ function structuredToolFailure(error: unknown): Record<string, unknown> {
 }
 
 async function main() {
+  const geoCatalogReadiness = await preflightGeoCatalog({
+    catalog: geoCatalog,
+    required: serverConfig.isProduction,
+  });
+  if (geoCatalogReadiness) {
+    console.log(
+      `🗂️ GeoCatalog ready: ${formatGeoCatalogReadiness(geoCatalogReadiness)}`,
+    );
+  }
   console.log("🗺️ Starting ContextVM Geo Server...\n");
 
   // 1. Setup Signer and Relay Pool
@@ -239,7 +271,7 @@ async function main() {
   // 2. Create and Configure the MCP Server
   const mcpServer = new McpServer({
     name: "earthly-geo-server",
-    version: "0.2.1",
+    version: "0.3.0",
   });
 
   // 9. Register Tool: Search Locations (Nominatim)
@@ -300,6 +332,78 @@ async function main() {
         return {
           content: [],
           structuredContent: { error: structuredToolFailure(error) },
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // Register Tool: Query the local immutable geography catalog
+  mcpServer.registerTool(
+    "query_geography",
+    {
+      title: "Query Earthly GeoCatalog",
+      description:
+        "Query Earthly's fast, self-hosted geography snapshot for administrative areas, localities, places, roads, rail, waterways, and infrastructure. Use this before remote OpenStreetMap tools. Filters combine with AND semantics; request geometry only for results that will be mapped.",
+      inputSchema: queryGeographyInputSchema,
+      outputSchema: queryGeographyOutputSchema,
+    },
+    async ({
+      text,
+      ids,
+      kinds,
+      categories,
+      adminLevels,
+      countryCode,
+      bbox,
+      near,
+      radiusMeters,
+      limit,
+      includeGeometry,
+    }) => {
+      try {
+        console.log(
+          `🗂️ Querying GeoCatalog: ${text || ids?.join(",") || kinds?.join(",") || "browse"}`,
+        );
+        const result = await geoCatalog.query({
+          ...(text ? { text } : {}),
+          ...(ids ? { ids } : {}),
+          ...(kinds ? { kinds } : {}),
+          ...(categories ? { categories } : {}),
+          ...(adminLevels ? { adminLevels } : {}),
+          ...(countryCode ? { countryCode } : {}),
+          ...(bbox
+            ? { bbox: [bbox.west, bbox.south, bbox.east, bbox.north] }
+            : {}),
+          ...(near ? { near } : {}),
+          ...(radiusMeters !== undefined ? { radiusMeters } : {}),
+          ...(limit !== undefined ? { limit } : {}),
+          ...(includeGeometry !== undefined ? { includeGeometry } : {}),
+        });
+        console.log(
+          `📦 GeoCatalog returned ${result.metadata.query.returned} result(s) from ${result.metadata.snapshot.id}`,
+        );
+        return { content: [], structuredContent: { result } };
+      } catch (error: unknown) {
+        const failure = structuredToolFailure(error);
+        const message =
+          typeof failure.message === "string"
+            ? failure.message
+            : "GeoCatalog query failed";
+        const suggestedAction =
+          typeof failure.suggestedAction === "string"
+            ? ` ${failure.suggestedAction}`
+            : "";
+        console.error(`❌ GeoCatalog query failed: ${message}`);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${String(failure.code)}: ${message}.${suggestedAction}`,
+            },
+          ],
+          // Do not send structuredContent for errors: MCP validates it against
+          // the success-only output schema after tools/list has been cached.
           isError: true,
         };
       }
@@ -1227,7 +1331,7 @@ async function main() {
       name: "Earthly Geo Server",
       website: "https://earthly.city",
       about:
-        "Geocoding, OSM entity/boundary queries, Valhalla routing, web search, URL fetching, and provenance-aware Wikipedia extraction.",
+        "Fast self-hosted geography catalog, geocoding, OSM fallback queries, Valhalla routing, web search, URL fetching, and provenance-aware Wikipedia extraction.",
       picture: "https://openmaptiles.org/img/home-banner-map.png",
     },
   });
@@ -1238,6 +1342,7 @@ async function main() {
 
   console.log("✅ Server is running and listening for requests on Nostr");
   console.log("📋 Available tools:");
+  console.log("   - query_geography");
   console.log("   - search_location");
   console.log("   - reverse_lookup");
   console.log("   - query_osm_by_id");

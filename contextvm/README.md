@@ -4,7 +4,8 @@ Earthly exposes map, geographic research, and web-research tools as an MCP serve
 
 ## Tool families
 
-- **Places and OpenStreetMap** — forward/reverse geocoding, nearby and bounding-box queries, relation geometry, and country boundaries.
+- **GeoCatalog** — fast, self-hosted semantic/spatial search and geometry retrieval from an immutable, release-pinned geography snapshot, including derived non-stitched transport corridors.
+- **Places and OpenStreetMap** — forward/reverse geocoding plus last-resort remote queries for details absent from GeoCatalog.
 - **Routing** — Valhalla routes and isochrones.
 - **Offline map preparation** — PMTiles extraction and authenticated Blossom upload.
 - **Research** — federated web search, protected URL reading, Wikipedia discovery, and provenance-preserving structured Wikipedia extraction.
@@ -43,6 +44,15 @@ Development is deliberately restricted to `ws://localhost:3334`. Production anno
 - `RELAY_URL` — the primary relay.
 - `SEARXNG_URL` — `http://127.0.0.1:8888` in production.
 - `VALHALLA_URL` — routing backend.
+- `GEOCATALOG_PATH` — immutable SQLite snapshot; defaults to `./data/geocatalog/current.sqlite`.
+
+Development starts even when no GeoCatalog snapshot is installed, and
+`query_geography` returns a typed, non-retryable availability error rather than
+silently sending the same request to a remote OSM service. Production performs
+a real catalog query before connecting to relays and refuses to become healthy
+when the configured snapshot is missing, invalid, or empty. See
+[GeoCatalog operations](../docs/operations/geocatalog.md) for snapshot builds,
+promotion, and rollback.
 
 See [Private SearXNG operations](../docs/operations/searxng.md) for VPS setup and maintenance.
 
@@ -63,7 +73,11 @@ The generated type and method surface is authoritative. Earthly deliberately cus
 - awaiting transport connection before the first call;
 - MCP error unwrapping and live `listTools`/generic-call support.
 
-`ctxcn:verify` fails if regeneration removes these safeguards or if client and server versions diverge. Review generated diffs before committing; do not hand-author tool input/output interfaces.
+`ctxcn:verify` fails if regeneration removes these safeguards or either endpoint
+loses its identity/version. The MCP server and generated client have independent
+implementation versions; their contracts are checked by generated/static schema
+tests rather than by falsely requiring those two versions to be equal. Review
+generated diffs before committing; do not hand-author generated tool interfaces.
 
 ## Verification
 
