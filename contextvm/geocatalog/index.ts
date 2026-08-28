@@ -12,6 +12,7 @@ export {
 	type PreflightGeoCatalogOptions,
 } from './preflight'
 export {
+	GEO_CATALOG_ADMIN_LABEL_CATEGORY,
 	GEO_CATALOG_KINDS,
 	GeoCatalogError,
 	type GeoCatalog,
@@ -24,6 +25,7 @@ export {
 	type GeoCatalogQueryRequest,
 	type GeoCatalogQueryResult,
 	type GeoCatalogSnapshotMetadata,
+	type GeoCatalogSnapshotSpatialCoverage,
 	type GeoCatalogSourceDocument,
 	type GeoCatalogSourceReference,
 	type GeoCatalogSourceRelease,

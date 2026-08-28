@@ -1,17 +1,19 @@
 import { createReadStream, readFileSync } from 'node:fs'
 import type { Geometry } from 'geojson'
-import type {
-	GeoCatalogBbox,
-	GeoCatalogEntry,
-	GeoCatalogJsonValue,
-	GeoCatalogKind,
-	GeoCatalogSourceRelease,
-} from './index'
+import {
+	GEO_CATALOG_ADMIN_LABEL_CATEGORY,
+	type GeoCatalogBbox,
+	type GeoCatalogEntry,
+	type GeoCatalogJsonValue,
+	type GeoCatalogKind,
+	type GeoCatalogSourceRelease,
+} from './types'
 
 export const OVERTURE_SOURCE_NAME = 'Overture Maps'
 const OVERTURE_RELEASE_PATTERN = /^(\d{4}-\d{2}-\d{2})\.\d+$/u
 
 export const OVERTURE_FEATURE_TYPES = [
+	'division',
 	'division_area',
 	'place',
 	'segment',
@@ -48,6 +50,7 @@ interface OvertureTypeDescriptor {
 }
 
 const OVERTURE_TYPE_DESCRIPTORS: Record<OvertureFeatureType, OvertureTypeDescriptor> = {
+	division: { theme: 'divisions', type: 'division', geometryTypes: ['Point'] },
 	division_area: {
 		theme: 'divisions',
 		type: 'division_area',
@@ -68,6 +71,8 @@ const OVERTURE_TYPE_DESCRIPTORS: Record<OvertureFeatureType, OvertureTypeDescrip
 }
 
 const INPUT_TYPE_ALIASES: Readonly<Record<string, OvertureFeatureType>> = {
+	division: 'division',
+	'divisions/division': 'division',
 	division_area: 'division_area',
 	'division-area': 'division_area',
 	'divisions/division_area': 'division_area',
@@ -277,6 +282,29 @@ function decodeStructuredValue(value: unknown, field: string): unknown {
 	}
 }
 
+function structuredTextMap(value: unknown, field: string): Record<string, string> | undefined {
+	if (value === undefined || value === null) return undefined
+	const decoded = decodeStructuredValue(value, field)
+	const entries = isRecord(decoded)
+		? Object.entries(decoded)
+		: Array.isArray(decoded)
+			? decoded.map((candidate, index): [unknown, unknown] => {
+					if (!Array.isArray(candidate) || candidate.length !== 2) {
+						throw new Error(`${field}[${index}] must be a [key, value] tuple`)
+					}
+					return [candidate[0], candidate[1]]
+				})
+			: undefined
+	if (!entries) throw new Error(`${field} must be an object or an array of [key, value] tuples`)
+
+	const normalized: Record<string, string> = {}
+	for (const [index, [key, candidate]] of entries.entries()) {
+		const normalizedKey = requiredText(key, `${field}[${index}][0]`)
+		normalized[normalizedKey] = requiredText(candidate, `${field}[${index}][1]`)
+	}
+	return normalized
+}
+
 function createFeatureView(value: unknown): FeatureView {
 	if (!isRecord(value)) throw new Error('Overture record must be a JSON object')
 	const isFeature = value.type === 'Feature'
@@ -315,7 +343,7 @@ function inferDescriptor(
 	).find((candidate) => candidate.theme === theme && candidate.type === type)
 	if (!descriptor) {
 		throw new Error(
-			'Cannot infer supported Overture feature type; supply division_area, place, ' +
+			'Cannot infer supported Overture feature type; supply division, division_area, place, ' +
 				'segment, infrastructure, or water',
 		)
 	}
@@ -537,8 +565,8 @@ function extractNames(value: unknown, directName: unknown): ExtractedNames {
 	const collected: string[] = []
 	if (primary) collected.push(primary)
 
-	const common = decodeStructuredValue(names.common, 'names.common')
-	if (isRecord(common)) {
+	const common = structuredTextMap(names.common, 'names.common')
+	if (common) {
 		for (const language of Object.keys(common).sort(compareText)) {
 			const name = optionalText(common[language])
 			if (name) collected.push(name)
@@ -621,13 +649,12 @@ function countryFromAddresses(value: unknown): string | undefined {
 }
 
 function countryFromSourceTags(value: unknown): string | undefined {
-	const decoded = decodeStructuredValue(value, 'source_tags')
-	if (!isRecord(decoded)) return undefined
-	const country = optionalText(decoded['addr:country'])?.toUpperCase()
+	const sourceTags = structuredTextMap(value, 'source_tags')
+	const country = optionalText(sourceTags?.['addr:country'])?.toUpperCase()
 	return country && /^[A-Z]{2}$/u.test(country) ? country : undefined
 }
 
-function normalizeDivision(
+function normalizeDivisionArea(
 	view: FeatureView,
 	nativeId: string,
 	release: string,
@@ -661,9 +688,73 @@ function normalizeDivision(
 		kind,
 		name: names.primary,
 		aliases: names.all.filter((name) => name !== names.primary),
-		categories: uniqueCategories(subtype),
+		categories: uniqueCategories(
+			subtype,
+			kind === 'admin' ? 'administrative-boundary' : undefined,
+		),
 		...(countryCode ? { countryCode } : {}),
 		...(adminLevel !== undefined ? { adminLevel } : {}),
+		bbox,
+		center: representativeCenter(geometry, bbox),
+		importance: ADMIN_IMPORTANCE[subtype] ?? (kind === 'admin' ? 60 : 40),
+		source: { name: OVERTURE_SOURCE_NAME, release, recordId: nativeId },
+		properties,
+		geometry,
+	}
+}
+
+function normalizeDivision(
+	view: FeatureView,
+	nativeId: string,
+	release: string,
+	geometry: Geometry,
+	bbox: GeoCatalogBbox,
+): GeoCatalogEntry {
+	const subtype = requiredText(view.field('subtype'), 'division.subtype')
+	const names = extractNames(view.field('names'), view.field('name'))
+	if (!names.primary) throw new Error('division.names.primary is required')
+	const classification = optionalText(view.field('class'))
+	const localType = structuredTextMap(view.field('local_type'), 'division.local_type')
+	const properties: Record<string, GeoCatalogJsonValue> = {
+		overtureTheme: 'divisions',
+		overtureType: 'division',
+		divisionId: nativeId,
+		subtype,
+	}
+	setJsonProperty(properties, 'version', view.field('version'))
+	setJsonProperty(properties, 'sources', view.field('sources'))
+	setJsonProperty(properties, 'class', classification)
+	if (localType) properties.localType = localType
+	setJsonProperty(properties, 'region', view.field('region'))
+	setJsonProperty(properties, 'hierarchies', view.field('hierarchies'))
+	setJsonProperty(
+		properties,
+		'parentDivisionId',
+		view.field('parent_division_id'),
+		'parent_division_id',
+	)
+	setJsonProperty(
+		properties,
+		'capitalOfDivisions',
+		view.field('capital_of_divisions'),
+		'capital_of_divisions',
+	)
+	setJsonProperty(properties, 'cartography', view.field('cartography'))
+	setJsonProperty(properties, 'wikidata', view.field('wikidata'))
+	const countryCode = normalizeCountryCode(view.field('country'), 'division.country')
+	const kind: GeoCatalogKind = LOCALITY_DIVISION_SUBTYPES.has(subtype) ? 'locality' : 'admin'
+	return {
+		id: `overture:divisions:division:${nativeId}`,
+		kind,
+		name: names.primary,
+		aliases: names.all.filter((name) => name !== names.primary),
+		categories: uniqueCategories(
+			classification,
+			subtype,
+			kind === 'admin' ? GEO_CATALOG_ADMIN_LABEL_CATEGORY : undefined,
+			...Object.values(localType ?? {}),
+		),
+		...(countryCode ? { countryCode } : {}),
 		bbox,
 		center: representativeCenter(geometry, bbox),
 		importance: ADMIN_IMPORTANCE[subtype] ?? (kind === 'admin' ? 60 : 40),
@@ -862,7 +953,8 @@ function normalizeInfrastructure(
 	setJsonProperty(properties, 'surface', view.field('surface'))
 	setJsonProperty(properties, 'level', view.field('level'))
 	setJsonProperty(properties, 'wikidata', view.field('wikidata'))
-	setJsonProperty(properties, 'sourceTags', view.field('source_tags'), 'source_tags')
+	const sourceTags = structuredTextMap(view.field('source_tags'), 'source_tags')
+	if (sourceTags) properties.sourceTags = sourceTags
 	const directCountry = normalizeCountryCode(view.field('country'), 'infrastructure.country')
 	const countryCode = directCountry ?? countryFromSourceTags(view.field('source_tags'))
 	return {
@@ -928,7 +1020,8 @@ function normalizeWater(
 	setJsonProperty(properties, 'isSalt', view.field('is_salt'), 'is_salt')
 	setJsonProperty(properties, 'level', view.field('level'))
 	setJsonProperty(properties, 'wikidata', view.field('wikidata'))
-	setJsonProperty(properties, 'sourceTags', view.field('source_tags'), 'source_tags')
+	const sourceTags = structuredTextMap(view.field('source_tags'), 'source_tags')
+	if (sourceTags) properties.sourceTags = sourceTags
 	const directCountry = normalizeCountryCode(view.field('country'), 'water.country')
 	const countryCode = directCountry ?? countryFromSourceTags(view.field('source_tags'))
 	const importanceKey = subtype ?? classification ?? ''
@@ -971,8 +1064,10 @@ export function normalizeOvertureFeature(
 	const bbox = parseBbox(view.bbox, parsedGeometry.computedBbox)
 
 	switch (descriptor.type) {
-		case 'division_area':
+		case 'division':
 			return normalizeDivision(view, nativeId, release, parsedGeometry.geometry, bbox)
+		case 'division_area':
+			return normalizeDivisionArea(view, nativeId, release, parsedGeometry.geometry, bbox)
 		case 'place':
 			return normalizePlace(view, nativeId, release, parsedGeometry.geometry, bbox)
 		case 'segment':
@@ -985,6 +1080,7 @@ export function normalizeOvertureFeature(
 }
 
 const ODBL_THEME_FEATURE_TYPES = new Set<OvertureFeatureType>([
+	'division',
 	'division_area',
 	'segment',
 	'infrastructure',
@@ -1103,7 +1199,7 @@ export function parseOvertureInputSpec(value: string): OvertureInputSpec {
 	if (!featureType) {
 		throw new Error(
 			`Unsupported Overture input type ${JSON.stringify(typeValue)}; expected ` +
-				'division_area, place, segment, infrastructure, or water',
+				'division, division_area, place, segment, infrastructure, or water',
 		)
 	}
 	const path = value.slice(separator + 1).trim()

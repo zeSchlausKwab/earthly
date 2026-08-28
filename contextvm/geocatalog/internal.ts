@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Geometry, Position } from 'geojson'
 import {
+	GEO_CATALOG_ADMIN_LABEL_CATEGORY,
 	GEO_CATALOG_KINDS,
 	GeoCatalogError,
 	type GeoCatalogBbox,
@@ -403,8 +404,45 @@ export function validateSnapshotMetadata(value: unknown): GeoCatalogSnapshotMeta
 		assertOverturePlacesManifest(normalizedSource, index)
 		return normalizedSource
 	})
+	let coverage: GeoCatalogSnapshotMetadata['coverage']
+	if (value.coverage !== undefined) {
+		if (!isRecord(value.coverage) || !isRecord(value.coverage.spatial)) {
+			throw new GeoCatalogError('snapshot_invalid', 'snapshot.coverage is invalid')
+		}
+		const scope = value.coverage.spatial.scope
+		if (scope !== 'global' && scope !== 'bbox') {
+			throw new GeoCatalogError(
+				'snapshot_invalid',
+				'snapshot.coverage.spatial.scope must be global or bbox',
+			)
+		}
+		const spatial =
+			scope === 'global'
+				? { scope } as const
+				: {
+						scope,
+						bbox: validateStoredBbox(
+							value.coverage.spatial.bbox,
+							'snapshot.coverage.spatial.bbox',
+						),
+					} as const
+		if (
+			!Array.isArray(value.coverage.kinds) ||
+			value.coverage.kinds.length === 0 ||
+			!value.coverage.kinds.every(isGeoCatalogKind)
+		) {
+			throw new GeoCatalogError(
+				'snapshot_invalid',
+				'snapshot.coverage.kinds must contain supported catalog kinds',
+			)
+		}
+		coverage = {
+			spatial,
+			kinds: Array.from(new Set(value.coverage.kinds)),
+		}
+	}
 
-	return { id, createdAt, schemaVersion: 1, sources }
+	return { id, createdAt, schemaVersion: 1, sources, ...(coverage ? { coverage } : {}) }
 }
 
 function isGeoCatalogKind(value: unknown): value is GeoCatalogKind {
@@ -673,6 +711,42 @@ export function bboxIntersects(left: GeoCatalogBbox, right: GeoCatalogBbox): boo
 	)
 }
 
+export function bboxContains(container: GeoCatalogBbox, contained: GeoCatalogBbox): boolean {
+	if (container[1] > contained[1] || container[3] < contained[3]) return false
+	const containerRanges = longitudeRanges(container)
+	return longitudeRanges(contained).every(([containedWest, containedEast]) =>
+		containerRanges.some(
+			([containerWest, containerEast]) =>
+				containerWest <= containedWest && containerEast >= containedEast,
+		),
+	)
+}
+
+export function radiusBbox(
+	longitude: number,
+	latitude: number,
+	radiusMeters: number,
+): GeoCatalogBbox {
+	const angularRadius = radiusMeters / EARTH_RADIUS_METERS
+	const latitudeDelta = (angularRadius * 180) / Math.PI
+	const south = Math.max(-90, latitude - latitudeDelta)
+	const north = Math.min(90, latitude + latitudeDelta)
+	if (south <= -90 || north >= 90 || angularRadius >= Math.PI / 2) {
+		return [-180, south, 180, north]
+	}
+	const longitudeScale = Math.cos((latitude * Math.PI) / 180)
+	if (Math.abs(longitudeScale) < 1e-9) return [-180, south, 180, north]
+	const longitudeDelta =
+		(Math.asin(Math.min(1, Math.sin(angularRadius) / Math.abs(longitudeScale))) * 180) /
+		Math.PI
+	if (longitudeDelta >= 180) return [-180, south, 180, north]
+	const westRaw = longitude - longitudeDelta
+	const eastRaw = longitude + longitudeDelta
+	const west = westRaw < -180 ? westRaw + 360 : westRaw
+	const east = eastRaw > 180 ? eastRaw - 360 : eastRaw
+	return [west, south, east, north]
+}
+
 function toRadians(value: number): number {
 	return (value * Math.PI) / 180
 }
@@ -709,6 +783,13 @@ function rankEntry(
 	entry: GeoCatalogEntry,
 	request: PreparedGeoCatalogQuery,
 ): RankedEntry | null {
+	if (
+		request.includeGeometry &&
+		entry.kind === 'admin' &&
+		entry.categories.includes(GEO_CATALOG_ADMIN_LABEL_CATEGORY)
+	) {
+		return null
+	}
 	const idRank = request.ids.length === 0 ? 0 : request.ids.indexOf(entry.id)
 	if (idRank < 0) return null
 	if (request.kinds.length > 0 && !request.kinds.includes(entry.kind)) return null

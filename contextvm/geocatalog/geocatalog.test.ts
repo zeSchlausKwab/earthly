@@ -21,6 +21,10 @@ const snapshot: GeoCatalogSnapshotMetadata = {
 	id: 'earthly-test-2026-08-28',
 	createdAt: '2026-08-28T12:00:00.000Z',
 	schemaVersion: 1,
+	coverage: {
+		spatial: { scope: 'bbox', bbox: [85.05, 27.75, 86.1, 29.1] },
+		kinds: ['admin', 'locality', 'place', 'road', 'rail', 'waterway', 'infrastructure'],
+	},
 	sources: [
 		{
 			name: 'Overture Maps',
@@ -172,6 +176,20 @@ const entries: GeoCatalogEntry[] = [
 		properties: { class: 'bridge' },
 	},
 	{
+		id: 'infrastructure:devighat-hydropower',
+		kind: 'infrastructure',
+		name: 'Devighat Hydropower Plant',
+		aliases: [],
+		categories: ['power', 'generator'],
+		countryCode: 'NP',
+		bbox: [85.08, 27.93, 85.09, 27.94],
+		center: { longitude: 85.085, latitude: 27.935 },
+		importance: 36,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: { class: 'power' },
+		geometry: { type: 'Point', coordinates: [85.085, 27.935] },
+	},
+	{
 		id: 'admin:np-p3',
 		kind: 'admin',
 		name: 'Bagmati Province',
@@ -184,6 +202,20 @@ const entries: GeoCatalogEntry[] = [
 		importance: 82,
 		source: { name: 'Overture Maps', release: '2026-08-19.0' },
 		properties: { subtype: 'region' },
+	},
+	{
+		id: 'admin:np-rasuwa',
+		kind: 'admin',
+		name: 'Rasuwa',
+		aliases: [],
+		categories: ['administrative-boundary', 'district'],
+		countryCode: 'NP',
+		adminLevel: 2,
+		bbox: [85.15, 27.95, 85.75, 28.4],
+		center: { longitude: 85.4, latitude: 28.17 },
+		importance: 45,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: { subtype: 'county' },
 	},
 	{
 		id: 'place:langtang-health',
@@ -210,6 +242,20 @@ const entries: GeoCatalogEntry[] = [
 		importance: 38,
 		source: { name: 'Overture Maps', release: '2026-08-19.0' },
 		properties: {},
+	},
+	{
+		id: 'admin:np-synthetic-label',
+		kind: 'admin',
+		name: 'Synthetic County Label',
+		aliases: [],
+		categories: ['administrative-label', 'county'],
+		countryCode: 'NP',
+		bbox: [85.3, 28.1, 85.3, 28.1],
+		center: { longitude: 85.3, latitude: 28.1 },
+		importance: 10,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: { overtureType: 'division' },
+		geometry: { type: 'Point', coordinates: [85.3, 28.1] },
 	},
 ]
 
@@ -334,6 +380,146 @@ for (const harnessDefinition of harnesses) {
 			})
 		})
 
+		test('recovers a named administrative area by explicitly relaxing a generic suffix', async () => {
+			await usingCatalog(async (catalog) => {
+				const result = await catalog.query({ text: 'Rasuwa District' })
+
+				expect(result.items.map((entry) => entry.id)).toEqual(['admin:np-rasuwa'])
+				expect(result.metadata.query.diagnostics?.textRelaxation).toEqual({
+					status: 'applied',
+					strategy: 'generic_suffix',
+					removedTokens: ['district'],
+					effectiveText: 'rasuwa',
+				})
+
+				const authoringLookup = await catalog.query({
+					text: 'Rasuwa District',
+					includeGeometry: true,
+				})
+				expect(authoringLookup.items).toEqual([])
+				expect(authoringLookup.metadata.query.diagnostics).toBeUndefined()
+			})
+		})
+
+		test('does not strip a meaningful feature-type suffix into an unrelated place', async () => {
+			await usingCatalog(async (catalog) => {
+				const result = await catalog.query({ text: 'Rasuwagadhi Station' })
+				expect(result.items).toEqual([])
+				expect(result.metadata.query.diagnostics).toBeUndefined()
+			})
+		})
+
+		test('diagnoses a category that eliminated text matches without silently widening it', async () => {
+			await usingCatalog(async (catalog) => {
+				const result = await catalog.query({
+					text: 'hydropower',
+					kinds: ['infrastructure'],
+					categories: ['hydropower_plant'],
+				})
+
+				expect(result.items).toEqual([])
+				expect(result.metadata.query.diagnostics?.categorySuggestions).toEqual([
+					'generator',
+					'power',
+				])
+				expect(result.metadata.query.diagnostics?.nearMatches).toEqual([
+					{
+						id: 'infrastructure:devighat-hydropower',
+						name: 'Devighat Hydropower Plant',
+						kind: 'infrastructure',
+						categories: ['power', 'generator'],
+					},
+				])
+
+				const withGeometry = await catalog.query({
+					text: 'hydropower',
+					kinds: ['infrastructure'],
+					categories: ['hydropower_plant'],
+					includeGeometry: true,
+				})
+				expect(
+					withGeometry.metadata.query.diagnostics?.nearMatches?.[0]?.geometry?.type,
+				).toBe('Point')
+			})
+		})
+
+		test('reports whether a requested bounding box is inside, partial, or outside the snapshot', async () => {
+			await usingCatalog(async (catalog) => {
+				const inside = await catalog.query({
+					bbox: [85.2, 28, 85.4, 28.3],
+					kinds: ['locality'],
+				})
+				expect(inside.metadata.coverage).toMatchObject({
+					spatial: { status: 'inside' },
+					kinds: { status: 'available', missing: [] },
+				})
+
+				const partial = await catalog.query({ bbox: [84.9, 28, 85.2, 28.3] })
+				expect(partial.metadata.coverage.spatial.status).toBe('partial')
+
+				const outside = await catalog.query({ bbox: [70, 10, 71, 11] })
+				expect(outside.items).toEqual([])
+				expect(outside.metadata.coverage).toMatchObject({
+					spatial: { status: 'outside' },
+					zeroResultReason: 'outside_snapshot',
+				})
+			})
+		})
+
+		test('evaluates a near-radius query against snapshot coverage', async () => {
+			await usingCatalog(async (catalog) => {
+				const inside = await catalog.query({
+					near: { longitude: 85.375, latitude: 28.275 },
+					radiusMeters: 1_500,
+				})
+				expect(inside.metadata.coverage.spatial).toMatchObject({
+					status: 'inside',
+					snapshotBbox: [85.05, 27.75, 86.1, 29.1],
+				})
+				expect(inside.metadata.coverage.spatial.queryBbox).toHaveLength(4)
+
+				const outside = await catalog.query({
+					near: { longitude: 80, latitude: 25 },
+					radiusMeters: 1_500,
+				})
+				expect(outside.metadata.coverage).toMatchObject({
+					spatial: { status: 'outside' },
+					zeroResultReason: 'outside_snapshot',
+				})
+			})
+		})
+
+		test('treats conjunctive spatial constraints as outside when either footprint is outside', async () => {
+			await usingCatalog(async (catalog) => {
+				const result = await catalog.query({
+					bbox: [85.2, 28, 85.4, 28.3],
+					near: { longitude: 80, latitude: 25 },
+					radiusMeters: 1_500,
+				})
+
+				expect(result.items).toEqual([])
+				expect(result.metadata.coverage).toMatchObject({
+					spatial: { status: 'outside' },
+					zeroResultReason: 'outside_snapshot',
+				})
+			})
+		})
+
+		test('marks a query without a spatial filter as unscoped within a bounded snapshot', async () => {
+			await usingCatalog(async (catalog) => {
+				const result = await catalog.query({ text: 'feature that is not installed' })
+
+				expect(result.metadata.coverage).toMatchObject({
+					spatial: {
+						status: 'unscoped',
+						snapshotBbox: [85.05, 27.75, 86.1, 29.1],
+					},
+					zeroResultReason: 'query_location_unscoped',
+				})
+				expect(result.metadata.coverage.spatial).not.toHaveProperty('queryBbox')
+			})
+		})
+
 		test('preserves explicit id order and reports truncation', async () => {
 			await usingCatalog(async (catalog) => {
 				const result = await catalog.query({
@@ -381,6 +567,24 @@ for (const harnessDefinition of harnesses) {
 				expect(fresh.items[0]?.aliases).not.toContain('mutated by caller')
 				expect(fresh.items[0]?.categories).not.toContain('mutated-by-caller')
 				expect(fresh.items[0]?.properties.rank).toBe(1)
+			})
+		})
+
+		test('keeps administrative label points available only for discovery', async () => {
+			await usingCatalog(async (catalog) => {
+				const discovery = await catalog.query({ ids: ['admin:np-synthetic-label'] })
+				expect(discovery.items[0]).toMatchObject({
+					id: 'admin:np-synthetic-label',
+					kind: 'admin',
+					categories: ['administrative-label', 'county'],
+				})
+				expect(discovery.items[0]).not.toHaveProperty('geometry')
+
+				const authoring = await catalog.query({
+					ids: ['admin:np-synthetic-label'],
+					includeGeometry: true,
+				})
+				expect(authoring.items).toEqual([])
 			})
 		})
 
@@ -470,6 +674,39 @@ test('snapshot entries reject empty categories and invalid admin levels', () => 
 			entries: [{ ...entries[0]!, adminLevel: 1.5 }],
 		}),
 	).toThrow(/adminLevel must be a finite nonnegative integer/)
+})
+
+test('reports an unavailable requested kind from declared snapshot coverage', async () => {
+	const catalog = createInMemoryGeoCatalog({
+		snapshot: {
+			...snapshot,
+			coverage: { spatial: { scope: 'global' }, kinds: ['admin'] },
+		},
+		entries: entries.filter((entry) => entry.kind === 'admin'),
+	})
+
+	const result = await catalog.query({ text: 'Trishuli', kinds: ['waterway'] })
+	expect(result.items).toEqual([])
+	expect(result.metadata.coverage).toEqual({
+		spatial: { status: 'global' },
+		kinds: { status: 'unavailable', available: [], missing: ['waterway'] },
+		zeroResultReason: 'kind_unavailable',
+	})
+})
+
+test('marks coverage as unknown for a legacy snapshot without a declaration', async () => {
+	const { coverage: _coverage, ...legacySnapshot } = snapshot
+	const catalog = createInMemoryGeoCatalog({
+		snapshot: legacySnapshot,
+		entries: entries.slice(0, 1),
+	})
+
+	const result = await catalog.query({ text: 'not installed' })
+	expect(result.metadata.coverage).toEqual({
+		spatial: { status: 'unknown' },
+		kinds: { status: 'unknown', available: [], missing: [] },
+		zeroResultReason: 'coverage_unknown',
+	})
 })
 
 test('a missing SQLite snapshot fails on query without failing startup', async () => {

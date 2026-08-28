@@ -13,6 +13,7 @@ keeps chat latency independent of Overture, DuckDB, S3, and Overpass availabilit
 
 The first Overture importer accepts newline-delimited GeoJSON exports for:
 
+- `divisions/division` — settlement and administrative label points;
 - `divisions/division_area` — administrative and locality boundaries;
 - `places/place` — named places and POIs;
 - `transportation/segment` — road, rail, and water-transport segments plus
@@ -28,19 +29,33 @@ preferred source for generalized coastlines, major rivers, lakes, and global
 analytical work; Overture water-transport segments are not presented as a
 complete river network.
 
-The builder retains every raw transportation segment. In addition, it groups
-segments with a strong route identity (Wikidata, or network plus reference) and
-connectivity-scopes weaker reference/name matches. A derived corridor is a
-deterministically ordered `MultiLineString`: member boundaries and real gaps
-remain visible, so Earthly never implies that disconnected source segments form
-one stitched line. Corridors store a member count and membership digest rather
-than a potentially enormous list of member ids.
+The builder retains every raw transportation and base-water segment. In
+addition, it groups transport segments with a strong route identity (Wikidata,
+or network plus reference), connectivity-scopes weaker reference/name matches,
+and assembles connected named base-water fragments. Water fragments may join
+only at a shared source endpoint or connector and must also share a conservative
+identity: a normalized primary/common alias, a feature-specific name after a
+recognized hydronym suffix (such as `River` or `Khola`) is removed, or a strong
+upstream identifier such as Wikidata or an identical provider record id. This
+allows multilingual and punctuation/type variants to form one useful river
+corridor without joining unrelated waterways merely because they meet at a
+confluence. A derived corridor is a deterministically ordered
+`MultiLineString`: member boundaries and real gaps remain visible, so Earthly
+never implies that disconnected source segments form one stitched line.
+Corridors store a member count and membership digest rather than a potentially
+enormous list of member ids.
 
 Semantic classifications are indexed separately from free-text names. Place
 entries include the basic category, the full Overture taxonomy hierarchy and
 alternates, and legacy category alternates when present. Administrative entries
 also expose Overture's source-neutral hierarchy level (`0` country, `1` first
 subdivision, and so on).
+
+Administrative `division` points are useful labels during discovery, but they
+are not boundary geometry. They are marked `administrative-label` and excluded
+from geometry-bearing queries; editable administrative results therefore come
+from `division_area` entries marked `administrative-boundary`. Settlement
+`division` points remain available for locality authoring.
 
 ## Prepare local exports
 
@@ -75,12 +90,21 @@ bun run geocatalog:build -- \
   --snapshot-id overture-2026-08-19.0-v1 \
   --created-at 2026-08-28T00:00:00Z \
   --output data/geocatalog/overture-2026-08-19.0-v1.sqlite \
+  --coverage 85.05,27.75,86.10,29.10 \
+  --input division=/srv/overture/division.geojsonseq \
   --input division_area=/srv/overture/division_area.geojsonseq \
   --input place=/srv/overture/place.geojsonseq \
   --input segment=/srv/overture/segment.geojsonseq \
   --input water=/srv/overture/water.geojsonseq \
   --input infrastructure=/srv/overture/infrastructure.geojsonseq
 ```
+
+Use `--coverage global` for a planet extract. For an area-of-interest snapshot,
+pass the exact source-extract bounds as `west,south,east,north`. Wrapped
+antimeridian bounds (`west > east`) are not supported in this snapshot format.
+The query result then distinguishes a genuine miss inside the installed slice
+from a request that falls outside it or asks for a kind the snapshot does not
+contain.
 
 The builder streams records into one transaction and retains only the current
 input record plus the corridor currently being emitted in memory. Corridor
@@ -140,7 +164,10 @@ geographic query or expose an intermediate geometry result that could be copied
 without its collection provenance.
 
 Discovery responses omit bulky source-document contents from the model-visible
-result. Editor imports preserve each feature's native Overture source records
+result and include an exact continuation containing the returned stable ids.
+Earthly resolves selected ids with geometry only when importing them into the
+bound Dataset; it does not repeat the human-readable search. Editor imports
+preserve each feature's native Overture source records
 and add a compact pointer to a snapshot manifest. Earthly stores that manifest
 once as a FeatureCollection-level property named
 `earthly:geoCatalogSourceManifest:<snapshot-id>`. Its value is a JSON-encoded

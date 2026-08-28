@@ -68,7 +68,7 @@ describe('Overture feature normalization', () => {
 			kind: 'admin',
 			name: 'Vienna',
 			aliases: ['City of Vienna', 'Wien'],
-			categories: ['region'],
+			categories: ['administrative-boundary', 'region'],
 			countryCode: 'AT',
 			adminLevel: 1,
 			bbox: [16.18, 48.11, 16.58, 48.33],
@@ -89,6 +89,122 @@ describe('Overture feature normalization', () => {
 				adminLevel: 1,
 				isLand: true,
 			},
+		})
+	})
+
+	test('normalizes division points as stable locality records with division metadata', () => {
+		const entry = normalizeOvertureFeature(
+			{
+				type: 'Feature',
+				id: 'd1e2fe75-9d99-4cfb-970f-62082f03e0bc',
+				geometry: { type: 'Point', coordinates: [85.2960583, 28.1127948] },
+				properties: {
+					theme: 'divisions',
+					type: 'division',
+					country: 'NP',
+					version: 3,
+					sources: [
+						{
+							property: '',
+							dataset: 'OpenStreetMap',
+							license: 'ODbL-1.0',
+							record_id: 'node/10315965426',
+						},
+					],
+					subtype: 'macrohood',
+					names: {
+						primary: 'धुन्चे',
+						common: [
+							['en', 'Dhunche'],
+							['ne', 'धुन्चे'],
+						],
+						rules: null,
+					},
+					local_type: [['en', 'suburb']],
+					region: 'NP-P3',
+					hierarchies: [
+						[
+							{
+								division_id: '05661c9d-68f5-4a26-a653-05f6ef959b50',
+								subtype: 'country',
+								name: 'नेपाल',
+							},
+							{
+								division_id: 'd1e2fe75-9d99-4cfb-970f-62082f03e0bc',
+								subtype: 'macrohood',
+								name: 'धुन्चे',
+							},
+						],
+					],
+					parent_division_id: '35cf3dc7-c842-456a-88b4-9707de33d3f3',
+					capital_of_divisions: [
+						{
+							division_id: '3e190a02-07d1-45d8-97c5-d52d02295d28',
+							subtype: 'county',
+						},
+					],
+				},
+			},
+			{ release: RELEASE, featureType: 'division' },
+		)
+
+		expect(entry).toMatchObject({
+			id: 'overture:divisions:division:d1e2fe75-9d99-4cfb-970f-62082f03e0bc',
+			kind: 'locality',
+			name: 'धुन्चे',
+			aliases: ['Dhunche'],
+			categories: ['macrohood', 'suburb'],
+			countryCode: 'NP',
+			bbox: [85.2960583, 28.1127948, 85.2960583, 28.1127948],
+			center: { longitude: 85.2960583, latitude: 28.1127948 },
+			source: {
+				name: 'Overture Maps',
+				release: RELEASE,
+				recordId: 'd1e2fe75-9d99-4cfb-970f-62082f03e0bc',
+			},
+			properties: {
+				overtureTheme: 'divisions',
+				overtureType: 'division',
+				divisionId: 'd1e2fe75-9d99-4cfb-970f-62082f03e0bc',
+				subtype: 'macrohood',
+				localType: { en: 'suburb' },
+				region: 'NP-P3',
+				parentDivisionId: '35cf3dc7-c842-456a-88b4-9707de33d3f3',
+				capitalOfDivisions: [
+					{
+						division_id: '3e190a02-07d1-45d8-97c5-d52d02295d28',
+						subtype: 'county',
+					},
+				],
+			},
+		})
+		expect(entry?.properties.hierarchies).toHaveLength(1)
+	})
+
+	test('keeps administrative division points out of locality results', () => {
+		const entry = normalizeOvertureFeature(
+			{
+				type: 'Feature',
+				id: 'division-rasuwa-county-label',
+				geometry: { type: 'Point', coordinates: [85.3, 28.1] },
+				properties: {
+					theme: 'divisions',
+					type: 'division',
+					country: 'NP',
+					subtype: 'county',
+					names: { primary: 'रसुवा जिल्ला', common: [['en', 'Rasuwa']] },
+				},
+			},
+			{ release: RELEASE, featureType: 'division' },
+		)
+
+		expect(entry).toMatchObject({
+			id: 'overture:divisions:division:division-rasuwa-county-label',
+			kind: 'admin',
+			name: 'रसुवा जिल्ला',
+			aliases: ['Rasuwa'],
+			categories: ['administrative-label', 'county'],
+			countryCode: 'NP',
 		})
 	})
 
@@ -262,6 +378,53 @@ describe('Overture feature normalization', () => {
 		expect(
 			normalizeOvertureFeature(unnamedPond, { release: RELEASE, featureType: 'water' }),
 		).toBeNull()
+	})
+
+	test('decodes tuple-form names and source tags from Overture GeoJSON exports', () => {
+		const entry = normalizeOvertureFeature(
+			{
+				type: 'Feature',
+				id: 'water-lende-khola',
+				geometry: {
+					type: 'LineString',
+					coordinates: [
+						[85.4399756, 28.3353006],
+						[85.4311091, 28.3306367],
+					],
+				},
+				properties: {
+					theme: 'base',
+					type: 'water',
+					subtype: 'river',
+					class: 'river',
+					names: {
+						primary: '东林藏布',
+						common: [
+							['en', 'Lende Khola'],
+							['zh', '东林藏布'],
+						],
+						rules: null,
+					},
+					source_tags: [
+						['addr:country', 'NP'],
+						['waterway', 'river'],
+					],
+				},
+			},
+			{ release: RELEASE, featureType: 'water' },
+		)
+
+		expect(entry).toMatchObject({
+			name: '东林藏布',
+			aliases: ['Lende Khola'],
+			countryCode: 'NP',
+			properties: {
+				sourceTags: {
+					'addr:country': 'NP',
+					waterway: 'river',
+				},
+			},
+		})
 	})
 
 	test('rejects a spec/record type mismatch instead of misclassifying it', async () => {
@@ -636,6 +799,99 @@ describe('Overture sequence streaming', () => {
 		expect(result.snapshot.sources[0]?.attribution).not.toContain('OpenStreetMap')
 		expect(result.snapshot.sources[0]?.license).not.toContain('ODbL')
 		expect(result).toMatchObject({ entriesWritten: 1, corridorsWritten: 0 })
+	})
+
+	test('keeps administrative label points discoverable but out of editor geometry', async () => {
+		const directory = await temporaryDirectory()
+		const divisionInput = join(directory, 'divisions.ndjson')
+		const divisionAreaInput = join(directory, 'division-areas.ndjson')
+		const output = join(directory, 'divisions.sqlite')
+		const records = [
+			{
+				type: 'Feature',
+				id: 'division-county',
+				geometry: { type: 'Point', coordinates: [85.3, 28.1] },
+				properties: { subtype: 'county', names: { primary: 'Rasuwa' } },
+			},
+			{
+				type: 'Feature',
+				id: 'division-locality',
+				geometry: { type: 'Point', coordinates: [85.29, 28.11] },
+				properties: { subtype: 'macrohood', names: { primary: 'Dhunche' } },
+			},
+		]
+		await Bun.write(
+			divisionInput,
+			`${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+		)
+		await Bun.write(
+			divisionAreaInput,
+			`${JSON.stringify({
+				type: 'Feature',
+				id: 'division-area-rasuwa',
+				geometry: {
+					type: 'Polygon',
+					coordinates: [
+						[
+							[85.15, 27.95],
+							[85.75, 27.95],
+							[85.75, 28.4],
+							[85.15, 28.4],
+							[85.15, 27.95],
+						],
+					],
+				},
+				properties: { subtype: 'county', names: { primary: 'Rasuwa' } },
+			})}\n`,
+		)
+
+		const result = await buildOvertureGeoCatalogSnapshot({
+			release: RELEASE,
+			snapshotId: 'earthly-overture-division-labels-v1',
+			createdAt: '2026-08-28T10:00:00Z',
+			coverage: { scope: 'bbox', bbox: [85.05, 27.75, 86.1, 29.1] },
+			output,
+			inputs: [
+				{ featureType: 'division', path: divisionInput },
+				{ featureType: 'division_area', path: divisionAreaInput },
+			],
+		})
+
+		expect(result.snapshot.coverage?.kinds).toEqual(['admin', 'locality'])
+
+		const catalog = openSqliteGeoCatalog({ path: output })
+		const discovery = await catalog.query({ text: 'Rasuwa', kinds: ['admin'] })
+		expect(discovery.items.map((entry) => entry.id)).toEqual([
+			'overture:divisions:division:division-county',
+			'overture:divisions:division_area:division-area-rasuwa',
+		])
+		expect(discovery.items[0]).toMatchObject({
+			categories: ['administrative-label', 'county'],
+		})
+		expect(discovery.items[0]).not.toHaveProperty('geometry')
+
+		const authoring = await catalog.query({
+			ids: discovery.items.map((entry) => entry.id),
+			includeGeometry: true,
+		})
+		expect(authoring.items).toHaveLength(1)
+		expect(authoring.items[0]).toMatchObject({
+			id: 'overture:divisions:division_area:division-area-rasuwa',
+			categories: ['administrative-boundary', 'county'],
+			geometry: { type: 'Polygon' },
+		})
+
+		const labelOnlyAuthoring = await catalog.query({
+			ids: ['overture:divisions:division:division-county'],
+			includeGeometry: true,
+		})
+		expect(labelOnlyAuthoring.items).toEqual([])
+
+		const localityAuthoring = await catalog.query({
+			ids: ['overture:divisions:division:division-locality'],
+			includeGeometry: true,
+		})
+		expect(localityAuthoring.items[0]?.geometry?.type).toBe('Point')
 	})
 
 	test('assembles connected named rail and water segments without merging name collisions', async () => {

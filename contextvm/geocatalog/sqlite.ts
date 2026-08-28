@@ -13,12 +13,14 @@ import {
 	encodeNormalizedAliases,
 	normalizeSearchText,
 	parseJson,
+	radiusBbox,
 	type GeoCatalogAdapter,
 	type PreparedGeoCatalogQuery,
 	validateEntry,
 	validateSnapshotMetadata,
 } from './internal'
 import {
+	GEO_CATALOG_ADMIN_LABEL_CATEGORY,
 	GeoCatalogError,
 	type GeoCatalog,
 	type GeoCatalogBbox,
@@ -217,31 +219,6 @@ function createFtsQuery(tokens: readonly string[]): string {
 	return tokens.map((token) => `"${token}"*`).join(' AND ')
 }
 
-function radiusBbox(
-	longitude: number,
-	latitude: number,
-	radiusMeters: number,
-): GeoCatalogBbox {
-	const angularRadius = radiusMeters / 6_371_008.8
-	const latitudeDelta = (angularRadius * 180) / Math.PI
-	const south = Math.max(-90, latitude - latitudeDelta)
-	const north = Math.min(90, latitude + latitudeDelta)
-	if (south <= -90 || north >= 90 || angularRadius >= Math.PI / 2) {
-		return [-180, south, 180, north]
-	}
-	const longitudeScale = Math.cos((latitude * Math.PI) / 180)
-	if (Math.abs(longitudeScale) < 1e-9) return [-180, south, 180, north]
-	const longitudeDelta =
-		(Math.asin(Math.min(1, Math.sin(angularRadius) / Math.abs(longitudeScale))) * 180) /
-		Math.PI
-	if (longitudeDelta >= 180) return [-180, south, 180, north]
-	const westRaw = longitude - longitudeDelta
-	const eastRaw = longitude + longitudeDelta
-	const west = westRaw < -180 ? westRaw + 360 : westRaw
-	const east = eastRaw > 180 ? eastRaw - 360 : eastRaw
-	return [west, south, east, north]
-}
-
 function addBboxCondition(
 	conditions: string[],
 	bindings: NamedBindings,
@@ -321,6 +298,18 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 		const bindings: NamedBindings = { fetch_limit: request.limit + 1 }
 		const conditions: string[] = []
 		const joins: string[] = []
+
+		if (request.includeGeometry) {
+			bindings.admin_label_category = GEO_CATALOG_ADMIN_LABEL_CATEGORY
+			conditions.push(`NOT (
+				f.kind = 'admin' AND EXISTS (
+					SELECT 1
+					FROM geocatalog_feature_categories AS non_authoring_category
+					WHERE non_authoring_category.feature_rowid = f.rowid
+						AND non_authoring_category.category = $admin_label_category
+				)
+			)`)
+		}
 
 		if (request.ids.length > 0) {
 			const placeholders = request.ids.map((id, index) => {

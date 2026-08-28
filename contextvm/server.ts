@@ -344,7 +344,7 @@ async function main() {
     {
       title: "Query Earthly GeoCatalog",
       description:
-        "Query Earthly's fast, self-hosted geography snapshot for administrative areas, localities, places, roads, rail, waterways, and infrastructure. Use this before remote OpenStreetMap tools. Filters combine with AND semantics; request geometry only for results that will be mapped.",
+        "Query Earthly's fast, self-hosted geography snapshot for administrative areas, localities, places, roads, rail, waterways, and infrastructure. Use this before remote OpenStreetMap tools. Filters combine with AND semantics. Discover human-readable searches without geometry, then resolve chosen stable ids with geometry for mapping.",
       inputSchema: queryGeographyInputSchema,
       outputSchema: queryGeographyOutputSchema,
     },

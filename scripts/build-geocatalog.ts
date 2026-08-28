@@ -13,11 +13,13 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Database, type Statement } from 'bun:sqlite'
 import {
+	GEO_CATALOG_KINDS,
 	type GeoCatalogBbox,
 	type GeoCatalogEntry,
 	type GeoCatalogJsonValue,
 	type GeoCatalogKind,
 	type GeoCatalogSnapshotMetadata,
+	type GeoCatalogSnapshotSpatialCoverage,
 	writeSqliteGeoCatalogSnapshot,
 } from '../contextvm/geocatalog/index'
 import {
@@ -35,6 +37,8 @@ export interface BuildGeoCatalogOptions {
 	output: string
 	inputs: OvertureInputSpec[]
 	createdAt?: string
+	/** Declared source extract footprint. Omit only for legacy/unknown-coverage builds. */
+	coverage?: GeoCatalogSnapshotSpatialCoverage
 	/** Test/embedding seam; the CLI always uses the private OS temporary directory. */
 	stagingDirectoryRoot?: string
 }
@@ -67,10 +71,11 @@ Usage:
     --input <type>=<local.geojsonseq> [--input <type>=<local.ndjson> ...]
 
 Input types:
-  division_area | place | segment | infrastructure | water
+  division | division_area | place | segment | infrastructure | water
 
-Named segment routes with at least two members also produce derived, non-stitched
-MultiLineString corridor entries. Raw segment entries remain in the snapshot.
+Named transport routes and connected base-water fragments with at least two
+members also produce derived, non-stitched MultiLineString corridor entries.
+Raw source entries remain in the snapshot.
 
 Options:
   --release <value>           Required Overture release, for example 2026-08-19.0
@@ -78,6 +83,7 @@ Options:
   --output <path>             Required new SQLite path; existing paths are refused
   --input <type>=<path>       Repeatable local GeoJSONSeq/NDJSON input
   --created-at <ISO date>     Optional reproducible snapshot creation time
+  --coverage <global|bbox>    Source footprint: global or west,south,east,north
   --format <text|json>        Result format (default: text)
   --help                      Show this help
 
@@ -95,8 +101,55 @@ function canonicalIsoDate(value: string): string {
 	return new Date(timestamp).toISOString()
 }
 
+function parseCoverage(value: string): GeoCatalogSnapshotSpatialCoverage {
+	const text = requiredText(value, '--coverage')
+	if (text === 'global') return { scope: 'global' }
+	const coordinates = text.split(',').map((coordinate) => Number(coordinate.trim()))
+	if (coordinates.length !== 4 || coordinates.some((coordinate) => !Number.isFinite(coordinate))) {
+		throw new Error('--coverage must be global or west,south,east,north')
+	}
+	const [west, south, east, north] = coordinates as GeoCatalogBbox
+	if (
+		west < -180 ||
+		west > 180 ||
+		east < -180 ||
+		east > 180 ||
+		south < -90 ||
+		south > 90 ||
+		north < -90 ||
+		north > 90 ||
+		south > north
+	) {
+		throw new Error('--coverage contains invalid WGS84 bounds')
+	}
+	if (west > east) {
+		throw new Error(
+			'--coverage west must be less than or equal to east; wrapped antimeridian bounds are not supported',
+		)
+	}
+	return { scope: 'bbox', bbox: [west, south, east, north] }
+}
+
+const INPUT_CATALOG_KINDS: Readonly<Record<OvertureFeatureType, readonly GeoCatalogKind[]>> = {
+	division: ['admin', 'locality'],
+	division_area: ['admin', 'locality'],
+	place: ['place'],
+	segment: ['road', 'rail', 'waterway'],
+	infrastructure: ['infrastructure'],
+	water: ['waterway'],
+}
+
+function installedKinds(inputs: readonly OvertureInputSpec[]): GeoCatalogKind[] {
+	const installed = new Set<GeoCatalogKind>()
+	for (const input of inputs) {
+		for (const kind of INPUT_CATALOG_KINDS[input.featureType]) installed.add(kind)
+	}
+	return GEO_CATALOG_KINDS.filter((kind) => installed.has(kind))
+}
+
 function createTypeCounts(): BuildGeoCatalogResult['byType'] {
 	return {
+		division: { recordsRead: 0, entriesWritten: 0, recordsSkipped: 0 },
 		division_area: { recordsRead: 0, entriesWritten: 0, recordsSkipped: 0 },
 		place: { recordsRead: 0, entriesWritten: 0, recordsSkipped: 0 },
 		segment: { recordsRead: 0, entriesWritten: 0, recordsSkipped: 0 },
@@ -170,6 +223,94 @@ function jsonText(value: GeoCatalogJsonValue | undefined): string | undefined {
 
 function canonicalCorridorText(value: string): string {
 	return value.normalize('NFKC').trim().toLocaleLowerCase('und').replace(/\s+/gu, ' ')
+}
+
+const GENERIC_WATER_NAMES = new Set([
+	'brook',
+	'canal',
+	'creek',
+	'ditch',
+	'drain',
+	'khola',
+	'nadi',
+	'nadī',
+	'river',
+	'rivière',
+	'stream',
+	'नदी',
+])
+
+/**
+ * Normalize display variants without transliterating across scripts. Common-name
+ * aliases provide that bridge when upstream has one; punctuation and spacing do
+ * not need to match byte-for-byte.
+ */
+function canonicalWaterIdentityText(value: string): string {
+	return value
+		.normalize('NFKC')
+		.trim()
+		.toLocaleLowerCase('und')
+		.replace(/[\p{P}\p{S}]+/gu, ' ')
+		.replace(/\s+/gu, ' ')
+		.trim()
+}
+
+function waterNameIdentityTokens(entry: GeoCatalogEntry, nativeName: string): string[] {
+	const tokens = new Set<string>()
+	for (const candidate of [nativeName, entry.name, ...entry.aliases]) {
+		const normalized = canonicalWaterIdentityText(candidate)
+		if (!normalized || GENERIC_WATER_NAMES.has(normalized)) continue
+		tokens.add(`name:${normalized}`)
+		const words = normalized.split(' ')
+		const suffix = words.at(-1)
+		if (!suffix || !GENERIC_WATER_NAMES.has(suffix)) continue
+		const stem = words.slice(0, -1).join(' ')
+		if (stem && !GENERIC_WATER_NAMES.has(stem)) tokens.add(`name:${stem}`)
+	}
+	return Array.from(tokens).sort()
+}
+
+function upstreamSourceIdentityTokens(entry: GeoCatalogEntry): string[] {
+	const tokens = new Set<string>()
+	const addStrongIdentifier = (namespace: string, value: string | undefined): void => {
+		if (!value) return
+		const normalized = canonicalWaterIdentityText(value)
+		if (normalized) tokens.add(`${namespace}:${normalized}`)
+	}
+
+	addStrongIdentifier('wikidata', jsonText(entry.properties.wikidata))
+	const sourceTags = jsonObject(entry.properties.sourceTags)
+	addStrongIdentifier('wikidata', jsonText(sourceTags?.wikidata))
+	addStrongIdentifier('wikipedia', jsonText(sourceTags?.wikipedia))
+
+	const sources = entry.properties.sources
+	if (Array.isArray(sources)) {
+		for (const sourceValue of sources) {
+			const source = jsonObject(sourceValue)
+			const recordId = jsonText(source?.record_id)?.replace(/@[^@]+$/u, '')
+			if (!recordId) continue
+			const provider =
+				jsonText(source?.provider) ?? jsonText(source?.dataset) ?? 'unknown-provider'
+			addStrongIdentifier(
+				`source:${canonicalWaterIdentityText(provider)}`,
+				recordId,
+			)
+		}
+	}
+	return Array.from(tokens).sort()
+}
+
+function identityScopedConnections(
+	connectionKeys: readonly string[],
+	identityTokens: readonly string[],
+): string[] {
+	const scoped: string[] = []
+	for (const connectionKey of connectionKeys) {
+		for (const identityToken of identityTokens) {
+			scoped.push(`${connectionKey}\u0000${identityToken}`)
+		}
+	}
+	return scoped.sort()
 }
 
 function sha256(value: string): string {
@@ -343,13 +484,15 @@ function connectorKeys(
 }
 
 function corridorMemberships(entry: GeoCatalogEntry): CorridorMembership[] {
-	if (
-		entry.properties.overtureType !== 'segment' ||
-		entry.geometry?.type !== 'LineString'
-	) {
-		return []
-	}
-	const subtypeValue = jsonText(entry.properties.subtype)
+	if (entry.geometry?.type !== 'LineString') return []
+	const overtureTheme = jsonText(entry.properties.overtureTheme)
+	const overtureType = jsonText(entry.properties.overtureType)
+	const isTransportationSegment =
+		overtureTheme === 'transportation' && overtureType === 'segment'
+	const isBaseWater = overtureTheme === 'base' && overtureType === 'water'
+	if (!isTransportationSegment && !isBaseWater) return []
+
+	const subtypeValue = isBaseWater ? 'water' : jsonText(entry.properties.subtype)
 	if (subtypeValue !== 'road' && subtypeValue !== 'rail' && subtypeValue !== 'water') {
 		return []
 	}
@@ -358,7 +501,7 @@ function corridorMemberships(entry: GeoCatalogEntry): CorridorMembership[] {
 	const memberships: CorridorMembership[] = []
 	const seen = new Set<string>()
 	const routes = entry.properties.routes
-	if (Array.isArray(routes)) {
+	if (isTransportationSegment && Array.isArray(routes)) {
 		for (const routeValue of routes) {
 			const route = jsonObject(routeValue)
 			if (!route) continue
@@ -452,9 +595,50 @@ function corridorMemberships(entry: GeoCatalogEntry): CorridorMembership[] {
 	// an explicit route identity.
 	if (memberships.length > 0) return memberships
 	const nativeNames = jsonObject(entry.properties.names)
-	const nativeName = jsonText(nativeNames?.primary) ?? jsonText(entry.properties.nativeName)
+	const nativeName = isBaseWater
+		? entry.name
+		: jsonText(nativeNames?.primary) ?? jsonText(entry.properties.nativeName)
 	if (!nativeName) return []
-	const classification = jsonText(entry.properties.class)
+	const classification =
+		jsonText(entry.properties.subtype) ?? jsonText(entry.properties.class)
+	const wikidata = jsonText(entry.properties.wikidata)
+	if (isBaseWater) {
+		const identityTokens = Array.from(
+			new Set([
+				...waterNameIdentityTokens(entry, nativeName),
+				...upstreamSourceIdentityTokens(entry),
+			]),
+		).sort()
+		if (identityTokens.length === 0) return []
+		const corridorKey = JSON.stringify([
+			'base-water',
+			subtype,
+			canonicalCorridorText(classification ?? ''),
+		])
+		return [
+			{
+				corridorKey,
+				scope: 'connected-name',
+				identity: {
+					type: 'connected-identity',
+					subtype,
+					sourceFeatureType: 'water',
+					matchBasis: 'normalized-name-alias-or-source-identity',
+					...(classification ? { class: classification } : {}),
+				},
+				displayName: nativeName,
+				aliases: Array.from(new Set([entry.name, ...entry.aliases]))
+					.filter((value) => value !== nativeName)
+					.sort(),
+				coordinates: baseCoordinates,
+				connectionKeys: identityScopedConnections(
+					connectorKeys(entry, baseCoordinates),
+					identityTokens,
+				),
+				subtype,
+			},
+		]
+	}
 	const corridorKey = JSON.stringify([
 		'name',
 		subtype,
@@ -470,6 +654,7 @@ function corridorMemberships(entry: GeoCatalogEntry): CorridorMembership[] {
 				type: 'name',
 				subtype,
 				name: nativeName,
+				...(wikidata ? { wikidata } : {}),
 				...(classification ? { class: classification } : {}),
 				...(entry.countryCode ? { countryCode: entry.countryCode } : {}),
 			},
@@ -551,9 +736,14 @@ function createCorridorEntry(
 	const countryCode =
 		everyMemberHasCountry && countries.size === 1 ? countries.values().next().value : undefined
 	const identity = parseStagedJson(first.identityJson, 'identity')
+	const identityObject = jsonObject(identity)
+	const sourceFeatureType =
+		jsonText(identityObject?.sourceFeatureType) === 'water' ? 'water' : 'segment'
+	const sourceTheme = sourceFeatureType === 'water' ? 'base' : 'transportation'
+	const derivedType = sourceFeatureType === 'water' ? 'water_corridor' : 'corridor'
 	const properties: JsonObject = {
-		overtureTheme: 'transportation',
-		overtureType: 'corridor',
+		overtureTheme: sourceTheme,
+		overtureType: derivedType,
 		corridorScope: scope,
 		geometrySemantics: 'deterministically-ordered, non-stitched member centerlines',
 		memberCount: members.length,
@@ -562,11 +752,11 @@ function createCorridorEntry(
 		derivedFrom: {
 			name: OVERTURE_SOURCE_NAME,
 			release,
-			featureType: 'segment',
+			featureType: sourceFeatureType,
 		},
 	}
 	return {
-		id: `overture:transportation:corridor:${identityDigest}`,
+		id: `overture:${sourceTheme}:${derivedType}:${identityDigest}`,
 		kind: first.kind,
 		name,
 		aliases: Array.from(aliases).sort(),
@@ -574,7 +764,9 @@ function createCorridorEntry(
 		...(countryCode ? { countryCode } : {}),
 		bbox: [west, south, east, north],
 		center: { longitude: (west + east) / 2, latitude: (south + north) / 2 },
-		importance,
+		// Prefer the useful whole-corridor result over any equally named raw
+		// member while keeping the source feature's relative ranking intact.
+		importance: importance + 1,
 		source: {
 			name: OVERTURE_SOURCE_NAME,
 			release,
@@ -893,6 +1085,9 @@ export async function buildOvertureGeoCatalogSnapshot(
 			? canonicalIsoDate(options.createdAt)
 			: new Date().toISOString(),
 		schemaVersion: 1,
+		...(options.coverage
+			? { coverage: { spatial: options.coverage, kinds: installedKinds(options.inputs) } }
+			: {}),
 		sources: [
 			createOvertureSourceRelease(
 				release,
@@ -970,6 +1165,7 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 	let snapshotId: string | undefined
 	let output: string | undefined
 	let createdAt: string | undefined
+	let coverage: GeoCatalogSnapshotSpatialCoverage | undefined
 	let format: 'text' | 'json' = 'text'
 	const inputValues: string[] = []
 	const seen = new Set<string>()
@@ -1013,6 +1209,9 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 			case '--created-at':
 				createdAt = canonicalIsoDate(assignOnce(option.name, value))
 				break
+			case '--coverage':
+				coverage = parseCoverage(assignOnce(option.name, value))
+				break
 			case '--format': {
 				const parsed = assignOnce(option.name, value)
 				if (parsed !== 'text' && parsed !== 'json') {
@@ -1050,6 +1249,7 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 		output: resolve(output),
 		inputs,
 		...(createdAt ? { createdAt } : {}),
+		...(coverage ? { coverage } : {}),
 		format,
 	}
 }

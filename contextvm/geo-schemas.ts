@@ -189,6 +189,49 @@ const geoCatalogEntrySchema = z.object({
 	geometry: z.unknown().optional(),
 });
 
+const geoCatalogBboxSchema = z.tuple([
+	z.number(),
+	z.number(),
+	z.number(),
+	z.number(),
+]);
+
+const geoCatalogCoverageSchema = z.object({
+	spatial: z.object({
+		status: z.enum([
+			"global",
+			"inside",
+			"partial",
+			"outside",
+			"unscoped",
+			"unknown",
+		]),
+		snapshotBbox: geoCatalogBboxSchema.optional(),
+		queryBbox: geoCatalogBboxSchema.optional(),
+	}),
+	kinds: z.object({
+		status: z.enum([
+			"available",
+			"partial",
+			"unavailable",
+			"unscoped",
+			"unknown",
+		]),
+		available: z.array(geoCatalogKindSchema),
+		missing: z.array(geoCatalogKindSchema),
+	}),
+	zeroResultReason: z
+		.enum([
+			"no_match_within_snapshot",
+			"outside_snapshot",
+			"kind_unavailable",
+			"outside_snapshot_and_kind_unavailable",
+			"query_location_unscoped",
+			"coverage_unknown",
+		])
+		.optional(),
+});
+
 export const queryGeographyOutputSchema = {
 	result: z.object({
 		items: z.array(geoCatalogEntrySchema),
@@ -197,6 +240,18 @@ export const queryGeographyOutputSchema = {
 				id: z.string(),
 				createdAt: z.string(),
 				schemaVersion: z.literal(1),
+				coverage: z
+					.object({
+						spatial: z.union([
+							z.object({ scope: z.literal("global") }),
+							z.object({
+								scope: z.literal("bbox"),
+								bbox: geoCatalogBboxSchema,
+							}),
+						]),
+						kinds: z.array(geoCatalogKindSchema),
+					})
+					.optional(),
 				sources: z.array(
 					z.object({
 						name: z.string(),
@@ -216,10 +271,35 @@ export const queryGeographyOutputSchema = {
 					}),
 				),
 			}),
+			coverage: geoCatalogCoverageSchema,
 			query: z.object({
 				returned: z.number(),
 				limit: z.number(),
 				hasMore: z.boolean(),
+				diagnostics: z
+					.object({
+						textRelaxation: z
+							.object({
+								status: z.literal("applied"),
+								strategy: z.literal("generic_suffix"),
+								removedTokens: z.array(z.string()),
+								effectiveText: z.string(),
+							})
+							.optional(),
+						categorySuggestions: z.array(z.string()).optional(),
+						nearMatches: z
+							.array(
+								z.object({
+									id: z.string(),
+									name: z.string(),
+									kind: geoCatalogKindSchema,
+									categories: z.array(z.string()),
+									geometry: z.unknown().optional(),
+								}),
+							)
+							.optional(),
+					})
+					.optional(),
 			}),
 		}),
 	}),

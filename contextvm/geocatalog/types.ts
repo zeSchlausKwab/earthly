@@ -10,6 +10,13 @@ export const GEO_CATALOG_KINDS = [
 	'infrastructure',
 ] as const
 
+/**
+ * Administrative `division` records are label points, not boundary geometry.
+ * They remain useful for discovery, but geometry-bearing queries must not
+ * expose them as editor-import candidates.
+ */
+export const GEO_CATALOG_ADMIN_LABEL_CATEGORY = 'administrative-label'
+
 export type GeoCatalogKind = (typeof GEO_CATALOG_KINDS)[number]
 
 export type GeoCatalogBbox = [west: number, south: number, east: number, north: number]
@@ -50,11 +57,23 @@ export interface GeoCatalogSourceReference {
 	recordId?: string
 }
 
+export type GeoCatalogSnapshotSpatialCoverage =
+	| { scope: 'global' }
+	| { scope: 'bbox'; bbox: GeoCatalogBbox }
+
+export interface GeoCatalogSnapshotCoverage {
+	spatial: GeoCatalogSnapshotSpatialCoverage
+	/** Catalog kinds installed in this immutable snapshot. */
+	kinds: GeoCatalogKind[]
+}
+
 export interface GeoCatalogSnapshotMetadata {
 	id: string
 	createdAt: string
 	schemaVersion: 1
 	sources: GeoCatalogSourceRelease[]
+	/** Optional for legacy snapshots; new builders should always declare it. */
+	coverage?: GeoCatalogSnapshotCoverage
 }
 
 /**
@@ -98,14 +117,74 @@ export interface GeoCatalogQueryRequest {
 	includeGeometry?: boolean
 }
 
+export interface GeoCatalogTextRelaxationDiagnostic {
+	status: 'applied'
+	strategy: 'generic_suffix'
+	removedTokens: string[]
+	effectiveText: string
+}
+
+export interface GeoCatalogNearMatch {
+	id: string
+	name: string
+	kind: GeoCatalogKind
+	categories: string[]
+	geometry?: Geometry
+}
+
+export interface GeoCatalogQueryDiagnostics {
+	textRelaxation?: GeoCatalogTextRelaxationDiagnostic
+	categorySuggestions?: string[]
+	nearMatches?: GeoCatalogNearMatch[]
+}
+
+export type GeoCatalogSpatialCoverageStatus =
+	| 'global'
+	| 'inside'
+	| 'partial'
+	| 'outside'
+	| 'unscoped'
+	| 'unknown'
+
+export type GeoCatalogKindCoverageStatus =
+	| 'available'
+	| 'partial'
+	| 'unavailable'
+	| 'unscoped'
+	| 'unknown'
+
+export type GeoCatalogZeroResultReason =
+	| 'no_match_within_snapshot'
+	| 'outside_snapshot'
+	| 'kind_unavailable'
+	| 'outside_snapshot_and_kind_unavailable'
+	| 'query_location_unscoped'
+	| 'coverage_unknown'
+
+export interface GeoCatalogQueryCoverage {
+	spatial: {
+		status: GeoCatalogSpatialCoverageStatus
+		snapshotBbox?: GeoCatalogBbox
+		queryBbox?: GeoCatalogBbox
+	}
+	kinds: {
+		status: GeoCatalogKindCoverageStatus
+		available: GeoCatalogKind[]
+		missing: GeoCatalogKind[]
+	}
+	zeroResultReason?: GeoCatalogZeroResultReason
+}
+
 export interface GeoCatalogQueryResult {
 	items: GeoCatalogEntry[]
 	metadata: {
 		snapshot: GeoCatalogSnapshotMetadata
+		coverage: GeoCatalogQueryCoverage
 		query: {
 			returned: number
 			limit: number
 			hasMore: boolean
+			diagnostics?: GeoCatalogQueryDiagnostics
 		}
 	}
 }
