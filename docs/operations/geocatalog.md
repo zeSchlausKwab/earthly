@@ -60,6 +60,15 @@ is reproducible and cannot change underneath a running import.
 
 ## Build
 
+Run the builder from a full Earthly source checkout, not from an installed
+production release. The release archive deliberately contains only runtime
+files; it does not contain `scripts/build-geocatalog.ts` or the reviewed legal
+source documents used to assemble a snapshot manifest, including
+`docs/legal/Apache-2.0.txt`. Build and verify the immutable SQLite file in a
+pinned checkout, record the Earthly commit and Overture release, then upload
+only the SQLite file and its SHA-256 checksum into the host's persistent
+`data/geocatalog/` directory for promotion.
+
 ```bash
 bun run geocatalog:build -- \
   --release 2026-08-19.0 \
@@ -103,14 +112,19 @@ do not copy or delete the catalog. Promote a validated file to
 `data/geocatalog/current.sqlite` using the host's atomic file or symlink switch,
 then restart the geo ContextVM so it opens the new read-only snapshot.
 
-The promoted snapshot is a production prerequisite. The geo ContextVM performs
-a real one-entry catalog query before connecting to relays; a missing, invalid,
-or empty snapshot keeps the service offline and causes the existing deployment
-health check to fail instead of reporting a nominally healthy release.
+The promoted snapshot is a production prerequisite. Places-bearing snapshots
+built before the complete Foursquare NOTICE, Apache license, and Earthly
+modification manifest are intentionally rejected; rebuild them under a new
+immutable id with the current source checkout before promotion. The geo
+ContextVM performs a real one-entry catalog query before connecting to relays;
+a missing, invalid, incomplete, or empty snapshot keeps the service offline and
+causes the existing deployment health check to fail instead of reporting a
+nominally healthy release.
 
 Rollback is the same operation in reverse: point `current.sqlite` at the prior
-immutable file and restart the geo ContextVM. Do not edit a promoted SQLite file
-in place.
+immutable file and restart the geo ContextVM. Retain at least one complete
+Places-manifest snapshot for rollback because the new runtime deliberately will
+not reopen a legacy incomplete one. Do not edit a promoted SQLite file in place.
 
 ## Runtime behavior
 

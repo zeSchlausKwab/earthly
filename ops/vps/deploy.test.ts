@@ -211,6 +211,7 @@ describe('deployment environment and bundle isolation', () => {
 			expect(entries).not.toContain('relay/bin')
 			expect(entries).not.toContain('.test.ts')
 			expect(entries).not.toContain('./docs/')
+			expect(entries).not.toContain('./scripts/build-geocatalog.ts')
 		} finally {
 			Bun.env.PATH = originalPath
 		}

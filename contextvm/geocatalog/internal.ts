@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { Geometry, Position } from 'geojson'
 import {
 	GEO_CATALOG_KINDS,
@@ -8,12 +9,96 @@ import {
 	type GeoCatalogKind,
 	type GeoCatalogPoint,
 	type GeoCatalogQueryRequest,
+	type GeoCatalogSourceRelease,
 	type GeoCatalogSnapshotMetadata,
 } from './types'
 
 export const DEFAULT_QUERY_LIMIT = 20
 const EARTH_RADIUS_METERS = 6_371_008.8
 const SEARCH_SEPARATOR = '\u001f'
+const OVERTURE_SOURCE_NAME = 'Overture Maps'
+const OVERTURE_ATTRIBUTION_URL = 'https://docs.overturemaps.org/attribution/'
+const FOURSQUARE_NOTICE_URL = 'https://opensource.foursquare.com/places-notice-txt/'
+const APACHE_2_LICENSE_URL = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+// These hashes pin the reviewed bodies emitted by createOvertureSourceRelease.
+// Updating either body is an explicit source-license review, not a tolerant parse.
+const FOURSQUARE_NOTICE_SHA256 =
+	'33eb06aa7aa66dc2fd44e8b4d117ea717c092dbdacd86a7bdd945c0ea62b3d05'
+const APACHE_2_LICENSE_SHA256 =
+	'283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b'
+
+function sourceDocument(
+	source: GeoCatalogSourceRelease,
+	name: string,
+	url: string,
+): NonNullable<GeoCatalogSourceRelease['documents']>[number] | undefined {
+	return source.documents?.find((document) => document.name === name && document.url === url)
+}
+
+function sha256(value: string): string {
+	return createHash('sha256').update(value.replace(/\r\n?/gu, '\n')).digest('hex')
+}
+
+function assertOverturePlacesManifest(source: GeoCatalogSourceRelease, index: number): void {
+	if (source.name !== OVERTURE_SOURCE_NAME) return
+	const hasPlacesMarker =
+		source.license?.includes('Apache-2.0') === true ||
+		source.attribution?.includes('Foursquare Labs, Inc.') === true ||
+		source.documents?.some((document) => document.name === 'Foursquare OS Places NOTICE.txt') ===
+			true
+	if (!hasPlacesMarker) return
+
+	const field = `snapshot.sources[${index}]`
+	if (!source.license?.includes('Apache-2.0')) {
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			`${field} is missing the Apache 2.0 Places license declaration`,
+		)
+	}
+	if (source.attributionUrl !== OVERTURE_ATTRIBUTION_URL) {
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			`${field} is missing the canonical Overture attribution URL`,
+		)
+	}
+	const attribution = source.attribution ?? ''
+	if (!attribution.includes('Foursquare Labs, Inc.')) {
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			`${field} is missing Foursquare Places attribution`,
+		)
+	}
+	if (!attribution.includes('Earthly modification notice:')) {
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			`${field} is missing Earthly's Places modification notice`,
+		)
+	}
+
+	const notice = sourceDocument(
+		source,
+		'Foursquare OS Places NOTICE.txt',
+		FOURSQUARE_NOTICE_URL,
+	)?.content
+	if (!notice || sha256(notice) !== FOURSQUARE_NOTICE_SHA256) {
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			`${field} is missing the full Foursquare Places NOTICE`,
+		)
+	}
+
+	const apacheLicense = sourceDocument(
+		source,
+		'Apache License 2.0',
+		APACHE_2_LICENSE_URL,
+	)?.content
+	if (!apacheLicense || sha256(apacheLicense) !== APACHE_2_LICENSE_SHA256) {
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			`${field} is missing the full Apache License 2.0 text`,
+		)
+	}
+}
 
 export interface PreparedGeoCatalogQuery {
 	text: string | null
@@ -307,7 +392,7 @@ export function validateSnapshotMetadata(value: unknown): GeoCatalogSnapshotMeta
 				return { name: documentName, url, ...(content ? { content } : {}) }
 			})
 		}
-		return {
+		const normalizedSource: GeoCatalogSourceRelease = {
 			name,
 			release,
 			...(attribution ? { attribution } : {}),
@@ -315,6 +400,8 @@ export function validateSnapshotMetadata(value: unknown): GeoCatalogSnapshotMeta
 			...(license ? { license } : {}),
 			...(documents ? { documents } : {}),
 		}
+		assertOverturePlacesManifest(normalizedSource, index)
+		return normalizedSource
 	})
 
 	return { id, createdAt, schemaVersion: 1, sources }

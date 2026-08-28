@@ -1,16 +1,20 @@
 import { describe, expect, test } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInMemoryGeoCatalog } from './in-memory'
+import { createOvertureSourceRelease } from './overture'
 import {
 	formatGeoCatalogReadiness,
 	preflightGeoCatalog,
 } from './preflight'
-import { openSqliteGeoCatalog } from './sqlite'
+import { openSqliteGeoCatalog, writeSqliteGeoCatalogSnapshot } from './sqlite'
 import type {
 	GeoCatalog,
 	GeoCatalogEntry,
+	GeoCatalogSourceDocument,
+	GeoCatalogSourceRelease,
 	GeoCatalogSnapshotMetadata,
 } from './types'
 
@@ -38,6 +42,123 @@ const entry: GeoCatalogEntry = {
 	source: { name: 'Overture Maps', release: '2026-08-20.0' },
 	properties: {},
 }
+
+function currentPlacesSnapshot(): GeoCatalogSnapshotMetadata {
+	return {
+		id: 'earthly-production-places-2026-08-28',
+		createdAt: '2026-08-28T14:00:00.000Z',
+		schemaVersion: 1,
+		sources: [createOvertureSourceRelease('2026-08-20.0', ['place'])],
+	}
+}
+
+function requiredPlacesSource(snapshot: GeoCatalogSnapshotMetadata): GeoCatalogSourceRelease {
+	const source = snapshot.sources.find((candidate) => candidate.name === 'Overture Maps')
+	if (!source) throw new Error('Test snapshot is missing its Overture source')
+	return source
+}
+
+function requiredSourceDocument(
+	snapshot: GeoCatalogSnapshotMetadata,
+	name: string,
+): GeoCatalogSourceDocument {
+	const document = requiredPlacesSource(snapshot).documents?.find(
+		(candidate) => candidate.name === name,
+	)
+	if (!document) throw new Error(`Test snapshot is missing ${name}`)
+	return document
+}
+
+async function usingStoredPlacesSnapshot(
+	mutate: ((stored: GeoCatalogSnapshotMetadata) => void) | undefined,
+	run: (catalog: GeoCatalog) => Promise<void>,
+): Promise<void> {
+	const directory = mkdtempSync(join(tmpdir(), 'earthly-geocatalog-places-preflight-'))
+	const path = join(directory, 'places.sqlite')
+	const validSnapshot = currentPlacesSnapshot()
+	await writeSqliteGeoCatalogSnapshot({ path, snapshot: validSnapshot, entries: [entry] })
+
+	if (mutate) {
+		const database = new Database(path, { strict: true })
+		try {
+			const row = database
+				.query<{ snapshot_json: string }, []>(
+					'SELECT snapshot_json FROM geocatalog_metadata WHERE singleton = 1',
+				)
+				.get()
+			if (!row) throw new Error('Test snapshot metadata is missing')
+			const stored = JSON.parse(row.snapshot_json) as GeoCatalogSnapshotMetadata
+			mutate(stored)
+			database
+				.query<never, [string]>(
+					'UPDATE geocatalog_metadata SET snapshot_json = ? WHERE singleton = 1',
+				)
+				.run(JSON.stringify(stored))
+		} finally {
+			database.close()
+		}
+	}
+
+	try {
+		await run(openSqliteGeoCatalog({ path }))
+	} finally {
+		rmSync(directory, { recursive: true })
+	}
+}
+
+const incompletePlacesManifests: Array<{
+	name: string
+	expectedMessage: string
+	mutate(snapshot: GeoCatalogSnapshotMetadata): void
+}> = [
+	{
+		name: 'missing Apache license document',
+		expectedMessage: 'is missing the full Apache License 2.0 text',
+		mutate(stored) {
+			const source = requiredPlacesSource(stored)
+			source.documents = source.documents?.filter(
+				(document) => document.name !== 'Apache License 2.0',
+			)
+		},
+	},
+	{
+		name: 'truncated Apache license document',
+		expectedMessage: 'is missing the full Apache License 2.0 text',
+		mutate(stored) {
+			const document = requiredSourceDocument(stored, 'Apache License 2.0')
+			document.content = document.content?.slice(0, -1)
+		},
+	},
+	{
+		name: 'missing Foursquare NOTICE document',
+		expectedMessage: 'is missing the full Foursquare Places NOTICE',
+		mutate(stored) {
+			const source = requiredPlacesSource(stored)
+			source.documents = source.documents?.filter(
+				(document) => document.name !== 'Foursquare OS Places NOTICE.txt',
+			)
+		},
+	},
+	{
+		name: 'truncated Foursquare NOTICE document',
+		expectedMessage: 'is missing the full Foursquare Places NOTICE',
+		mutate(stored) {
+			const document = requiredSourceDocument(stored, 'Foursquare OS Places NOTICE.txt')
+			document.content = document.content?.slice(0, -1)
+		},
+	},
+	{
+		name: 'missing Earthly modification notice',
+		expectedMessage: "is missing Earthly's Places modification notice",
+		mutate(stored) {
+			const source = requiredPlacesSource(stored)
+			source.attribution = source.attribution?.replace(
+				/; Earthly modification notice:[^;]+/u,
+				'',
+			)
+		},
+	},
+]
 
 describe('GeoCatalog production preflight', () => {
 	test('keeps development lazy and does not query the catalog', async () => {
@@ -95,6 +216,30 @@ describe('GeoCatalog production preflight', () => {
 			retryable: false,
 		})
 	})
+
+	test('accepts a stored snapshot with the current complete Overture Places manifest', async () => {
+		await usingStoredPlacesSnapshot(undefined, async (catalog) => {
+			const summary = await preflightGeoCatalog({ catalog, required: true })
+			expect(summary).toMatchObject({
+				snapshot: { id: 'earthly-production-places-2026-08-28', schemaVersion: 1 },
+				sampleEntryId: 'admin:at',
+			})
+		})
+	})
+
+	for (const scenario of incompletePlacesManifests) {
+		test(`rejects a stored Places snapshot with a ${scenario.name}`, async () => {
+			await usingStoredPlacesSnapshot(scenario.mutate, async (catalog) => {
+				await expect(
+					preflightGeoCatalog({ catalog, required: true }),
+				).rejects.toMatchObject({
+					code: 'snapshot_invalid',
+					message: expect.stringContaining(scenario.expectedMessage),
+					retryable: false,
+				})
+			})
+		})
+	}
 
 	test('returns a loggable snapshot and source summary for a usable catalog', async () => {
 		const catalog = createInMemoryGeoCatalog({ snapshot, entries: [entry] })

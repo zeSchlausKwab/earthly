@@ -19,7 +19,10 @@ commands.
 
 `fetch-world-data.ts` regenerates the committed world reference layers.
 `build-geocatalog.ts` streams local, release-pinned Overture GeoJSONSeq exports
-into a new immutable SQLite search snapshot; see
+into a new immutable SQLite search snapshot. Run it only from a full source
+checkout: production release archives intentionally omit the builder and its
+reviewed legal source documents. Upload the verified SQLite output into the
+host's persistent catalog directory; see
 [`docs/operations/geocatalog.md`](../docs/operations/geocatalog.md).
 `purge-old-seeds.sh` is a manual recovery tool for old public-relay fixture
 events; it is intentionally not part of ordinary development or deployment.
