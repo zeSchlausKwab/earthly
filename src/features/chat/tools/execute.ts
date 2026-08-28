@@ -26,7 +26,9 @@ import { dispatch, registry } from './registry'
 import { isToolError, type ToolError } from './errors'
 import { isToolRedirect } from './source-routing'
 import {
+	createExecutionAuthoring,
 	ensureExecutionTargetForMutation,
+	getExecutionEditor,
 	hasPreparedDatasetExecutionTarget,
 	isToolExecutionTargetVisible,
 	persistToolExecutionRun,
@@ -34,6 +36,7 @@ import {
 	rollbackToolExecutionRun,
 	ToolExecutionTargetPersistenceError,
 } from './executionTarget'
+import { getEditorDatasetMetadata } from './editorDatasetMetadata'
 
 function requiresDatasetTarget(toolName: string, args: Record<string, unknown>): boolean {
 	if (args.toEditor === true && TO_EDITOR_COMPATIBLE_TOOLS.has(toolName)) return true
@@ -231,6 +234,14 @@ async function executeToolCallBound(
 			// read-only MCP. Establish the local draft before baking its result so the
 			// geometry appears in Saved work, the Map Stack, and the editor list.
 			await ensureExecutionTargetForMutation(context?.run)
+			const editorMetadata = getEditorDatasetMetadata(result)
+			if (editorMetadata) {
+				const editor = getExecutionEditor()
+				if (!editor) {
+					throw new Error('Map editor is not ready to preserve imported dataset metadata.')
+				}
+				createExecutionAuthoring(editor).setDatasetMetadata(editorMetadata)
+			}
 			const bakeResult = toEditorFromToolResultValue(
 				result,
 				Boolean(args.replaceExisting),

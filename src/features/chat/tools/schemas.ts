@@ -221,9 +221,96 @@ export const geoStaticToolSchemas: Tool[] = [
 	{
 		type: 'function',
 		function: {
+			name: 'query_geography',
+			description:
+				"Query Earthly's fast, self-hosted geography catalog for administrative areas, localities, places, roads, rail, waterways, and infrastructure. This is the primary source for reusable real-world geometry and place discovery; use remote OSM tools only when this catalog cannot answer. Filter groups combine with AND semantics; values within a list use OR semantics. Set toEditor=true to fetch geometry and import the exact returned features into the bound Dataset.",
+			parameters: {
+				type: 'object',
+				properties: {
+					text: {
+						type: 'string',
+						description: 'Name or free-text geography search.',
+					},
+					ids: {
+						type: 'array',
+						description: 'Stable catalog ids to resolve exactly.',
+						items: { type: 'string' },
+					},
+					kinds: {
+						type: 'array',
+						description: 'Normalized geography kinds to include.',
+						items: {
+							type: 'string',
+							enum: ['admin', 'locality', 'place', 'road', 'rail', 'waterway', 'infrastructure'],
+						},
+					},
+					categories: {
+						type: 'array',
+						description:
+							'Exact semantic classifications, such as hospital, museum, village, river, motorway, bridge, or corridor.',
+						items: { type: 'string' },
+					},
+					adminLevels: {
+						type: 'array',
+						description:
+							'Administrative hierarchy levels: 0 is a country, 1 is its first subdivision, and so on.',
+						items: { type: 'number' },
+					},
+					countryCode: {
+						type: 'string',
+						description: 'Optional ISO alpha-2 country code, such as NP or CN.',
+					},
+					bbox: {
+						type: 'object',
+						description: 'Optional WGS84 bounding box.',
+						properties: {
+							west: { type: 'number' },
+							south: { type: 'number' },
+							east: { type: 'number' },
+							north: { type: 'number' },
+						},
+						required: ['west', 'south', 'east', 'north'],
+					},
+					near: {
+						type: 'object',
+						description: 'Optional proximity point with longitude and latitude.',
+						properties: {
+							longitude: { type: 'number' },
+							latitude: { type: 'number' },
+						},
+						required: ['longitude', 'latitude'],
+					},
+					radiusMeters: {
+						type: 'number',
+						description: 'Optional radius around near, in meters.',
+					},
+					limit: {
+						type: 'number',
+						description: 'Maximum results to return.',
+					},
+					includeGeometry: {
+						type: 'boolean',
+						description:
+							'Include GeoJSON geometry in the response. Automatically enabled by toEditor.',
+					},
+					toEditor: {
+						type: 'boolean',
+						description: 'Import the exact returned catalog geometries into the bound Dataset.',
+					},
+					replaceExisting: {
+						type: 'boolean',
+						description: 'Used with toEditor=true. Replace current editor features when true.',
+					},
+				},
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
 			name: 'search_location',
 			description:
-				'Search for locations by name using OpenStreetMap. Returns coordinates, bounding boxes, and addresses.',
+				'Last-resort remote OpenStreetMap name search. Use only after query_geography returned no matches or insufficient detail; this is not an initial place-discovery tool. Returns coordinates, bounding boxes, and addresses.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -270,7 +357,8 @@ export const geoStaticToolSchemas: Tool[] = [
 		type: 'function',
 		function: {
 			name: 'query_osm_by_id',
-			description: 'Fetch one exact OpenStreetMap element by type and ID (node/way/relation).',
+			description:
+				'Last-resort remote lookup for one exact OpenStreetMap element by type and ID. Prefer query_geography unless the user supplied an OSM id or the local catalog reported a coverage gap.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -302,7 +390,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_nearby',
 			description:
-				'Find OpenStreetMap features near a point. Can filter by tags like amenity=cafe, shop=supermarket. Set includeRelations=true for boundaries and route relations.',
+				'Last-resort remote OpenStreetMap query near a point. Use only when query_geography reports that the needed local detail is unavailable. Filter by tags such as amenity=cafe or shop=supermarket; include relations only when the missing detail requires a boundary or route relation.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -361,7 +449,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_bbox',
 			description:
-				'Find OpenStreetMap features within a bounding box. Can filter by tags. Set includeRelations=true for administrative boundaries.',
+				'Last-resort remote OpenStreetMap query within a bounding box. Prefer query_geography and use this only for a confirmed catalog coverage gap. Narrow the request with tags; include relations only when the missing detail requires an administrative boundary.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -424,7 +512,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_area',
 			description:
-				'Find OpenStreetMap features constrained to a polygonal area (SLOW remote call — use for LOCAL/detailed features: POIs, streets, buildings, small waterways; country-scale coastlines and major rivers come from the bundled world layers in run_code instead). The area can come from the current selected polygon(s), explicit areaGeojson, transient chat-attached geometry for the current request, a country boundary, or an OSM relation. Can also clip matching lines to the area or convert results to representative points. Always provide filters, filterSets, or concept; unfiltered area scans are too large for Overpass.',
+				'Last-resort, slow remote OpenStreetMap query constrained to a polygon area. Use only after query_geography reports a coverage gap, and only for local detail such as POIs, streets, buildings, or small waterways; use bundled world layers for generalized country-scale coastlines and major rivers. The area may come from selected polygons, explicit or chat-attached geometry, a country boundary, or an OSM relation. It can clip matching lines or return representative points. Always provide filters, filterSets, or a semantic concept; never run an unfiltered area scan.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -516,7 +604,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'resolve_osm_entity',
 			description:
-				'Resolve a name/place to concrete OSM IDs before importing (best first step for administrative boundaries).',
+				'Last-resort remote lookup that resolves a name/place to concrete OSM IDs. Use only after query_geography returned no matches or insufficient detail. If the user explicitly supplied an OSM id, use the corresponding exact-id OSM tool instead of resolving the name.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -551,7 +639,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'get_osm_relation_geometry',
 			description:
-				'Fetch one OSM relation by id and assemble geometry. Use after resolve_osm_entity for clean boundary imports.',
+				'Last-resort remote fetch that assembles one OSM relation geometry. Use only after query_geography returned no matches or insufficient boundary detail, unless the user explicitly supplied an OSM relation id. After a confirmed catalog gap, resolve_osm_entity can identify the relation id.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -713,7 +801,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'import_osm_to_editor',
 			description:
-				'Import OSM features directly into the editor after narrowing candidates. Recommended flow: run query_osm_bbox/query_osm_nearby first, then import with explicit bbox/point + filters. Name is optional; omit it to import all matched features in the selected area.',
+				'Last-resort remote OpenStreetMap import. Use only after query_geography returned no geometry or insufficient detail, unless the user explicitly supplied an OSM relation id. After a confirmed catalog gap, import with an explicit relation id or narrowed bbox/point and filters; do not use this as the initial discovery or import path.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -730,7 +818,7 @@ export const geoStaticToolSchemas: Tool[] = [
 					relationId: {
 						type: 'number',
 						description:
-							'Optional direct OSM relation id to import. Best for boundaries after resolve_osm_entity.',
+							'Optional direct OSM relation id. Use when the user supplied it, or after resolve_osm_entity identified it following a confirmed catalog gap.',
 					},
 					west: {
 						type: 'number',
@@ -778,7 +866,7 @@ export const geoStaticToolSchemas: Tool[] = [
 					includeRelations: {
 						type: 'boolean',
 						description:
-							'If true, include relation results (recommended for boundaries and administrative areas).',
+							'If true, include relation results when the confirmed catalog gap requires boundaries or administrative areas.',
 					},
 					replaceExisting: {
 						type: 'boolean',

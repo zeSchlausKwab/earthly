@@ -33,7 +33,12 @@ function mockClient(
 }
 
 function manifest(
-	names: Array<{ name: string; description?: string; properties?: Record<string, unknown>; required?: string[] }>,
+	names: Array<{
+		name: string
+		description?: string
+		properties?: Record<string, unknown>
+		required?: string[]
+	}>,
 ): ListToolsResult {
 	return {
 		tools: names.map((t) => ({
@@ -57,7 +62,11 @@ function makeLocalEntry(name: string): ToolEntry {
 		kind: 'host-builtin',
 		schema: {
 			type: 'function',
-			function: { name, description: 'sentinel local handler', parameters: { type: 'object', properties: {} } },
+			function: {
+				name,
+				description: 'sentinel local handler',
+				parameters: { type: 'object', properties: {} },
+			},
 		},
 		handler,
 	}
@@ -80,10 +89,25 @@ afterEach(() => {
 })
 
 describe('mcp-sync (poll-based hot-reload)', () => {
+	it('cannot remove the permanent query_geography handler when a live manifest omits it', async () => {
+		const local = registry.get('query_geography')
+		expect(local?.kind).toBe('remote-mcp')
+
+		await syncMcpTools(mockClient(() => manifest([{ name: 'manifest_only_tool' }])))
+
+		expect(registry.get('query_geography')).toBe(local)
+		expect(getSyncedMcpToolNames()).not.toContain('query_geography')
+	})
+
 	it('registers manifest tools as kind:remote-mcp with origin = SERVER_PUBKEY (T-02-17)', async () => {
 		const client = mockClient(() =>
 			manifest([
-				{ name: 'create_map_upload', description: 'Upload a map extract', properties: { id: { type: 'string', description: 'request id' } }, required: ['id'] },
+				{
+					name: 'create_map_upload',
+					description: 'Upload a map extract',
+					properties: { id: { type: 'string', description: 'request id' } },
+					required: ['id'],
+				},
 				{ name: 'spike_only_tool', description: 'A tool only the live server knows' },
 			]),
 		)

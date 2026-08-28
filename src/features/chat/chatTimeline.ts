@@ -29,6 +29,7 @@ const RESEARCH_TOOLS = new Set([
 ])
 const BUILD_TOOLS = new Set([
 	'run_code',
+	'query_geography',
 	'place_dataset_features',
 	'place_ingest_features',
 	'batch_geocode',

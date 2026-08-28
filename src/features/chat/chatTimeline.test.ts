@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { ChatMessage } from './routstr'
-import { buildChatTimeline } from './chatTimeline'
+import { buildChatTimeline, classifyToolOperation } from './chatTimeline'
 
 function toolCall(id: string, name: string): ChatMessage {
 	return {
@@ -11,6 +11,10 @@ function toolCall(id: string, name: string): ChatMessage {
 }
 
 describe('buildChatTimeline', () => {
+	it('classifies GeoCatalog work as map building', () => {
+		expect(classifyToolOperation('query_geography')).toBe('build')
+	})
+
 	it('collapses a multi-round tool run while preserving user and final answer messages', () => {
 		const messages: ChatMessage[] = [
 			{ role: 'user', content: 'Map the table' },

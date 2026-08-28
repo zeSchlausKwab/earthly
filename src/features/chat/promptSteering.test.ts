@@ -151,18 +151,18 @@ describe('fix #4 — agent map-context steering', () => {
 		expect(text).toMatch(/capture_map_snapshot/i)
 	})
 
-	// AI_GEO_AWARENESS: the bench runs showed the model picking slow OSM calls
-	// for country-scale work because older OSM-forward lines out-competed the
-	// world-layer guidance. The hierarchy must stay explicit and de-conflicted.
-	it('states the world-layers-first data source order', () => {
+	// AI_GEO_AWARENESS: the hierarchy must keep the local catalog ahead of slow,
+	// failure-prone remote OSM calls without losing bundled analytical layers.
+	it('states the catalog-first data source order', () => {
 		expect(text).toMatch(/DATA SOURCE ORDER/i)
+		expect(text).toMatch(/query_geography.+fast, self-hosted/i)
 		expect(text).toMatch(/BUNDLED WORLD LAYERS/i)
-		expect(text).toMatch(/OSM tools ONLY for/i)
+		expect(text).toMatch(/remote OSM tools only as a last resort/i)
 	})
 
 	it('scopes OSM boundary/line guidance to LOCAL features (no country-scale OSM)', () => {
-		expect(text).toMatch(/Nation-state\/country outlines ALWAYS.*Natural Earth/i)
-		expect(text).toMatch(/low-level resolve_osm_entity.+explicitly needs/i)
+		expect(text).toMatch(/query the local catalog.+kinds=\["admin"\].+first/i)
+		expect(text).toMatch(/low-level OSM boundary calls are a last resort/i)
 		expect(text).toMatch(/NEVER query OSM for a country-scale coastline/i)
 		expect(text).toMatch(/world\.get\("countries_110m"\)/)
 	})
