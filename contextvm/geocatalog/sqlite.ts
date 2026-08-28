@@ -307,6 +307,9 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 					ELSE 3
 				END`
 		const distance = request.near === null ? '0' : distanceExpression()
+		const geometryProjection = request.includeGeometry
+			? 'f.geometry_json'
+			: 'NULL AS geometry_json'
 		const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 		const radiusWhere = request.near === null ? '' : 'WHERE distance_meters <= $radius_meters'
 		const sql = `
@@ -315,7 +318,7 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 					f.id, f.kind, f.name, f.aliases_json, f.country_code,
 					f.west, f.south, f.east, f.north, f.center_lon, f.center_lat,
 					f.importance, f.source_name, f.source_release, f.source_record_id,
-					f.properties_json, f.geometry_json,
+					f.properties_json, ${geometryProjection},
 					${idRank} AS id_rank,
 					${textRank} AS text_rank,
 					${distance} AS distance_meters,

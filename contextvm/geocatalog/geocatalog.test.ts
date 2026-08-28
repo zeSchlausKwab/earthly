@@ -310,6 +310,27 @@ test('a missing SQLite snapshot fails on query without failing startup', async (
 	}
 })
 
+test('SQLite discovery does not read or parse stored geometry', async () => {
+		const database = new Database(':memory:', { strict: true })
+		try {
+			initializeSqliteGeoCatalogForTests(database, snapshot, entries)
+			database
+				.query('UPDATE geocatalog_features SET geometry_json = ? WHERE id = ?')
+				.run('{not-valid-json', 'admin:np')
+			const catalog = createSqliteGeoCatalogForDatabase(database)
+
+			const discovery = await catalog.query({ ids: ['admin:np'] })
+			expect(discovery.items[0]?.id).toBe('admin:np')
+			expect(discovery.items[0]).not.toHaveProperty('geometry')
+
+			await expect(
+				catalog.query({ ids: ['admin:np'], includeGeometry: true }),
+			).rejects.toMatchObject({ code: 'snapshot_invalid' })
+		} finally {
+			database.close()
+		}
+	})
+
 test('the SQLite snapshot writer consumes an async entry stream', async () => {
 	const directory = mkdtempSync(join(tmpdir(), 'earthly-geocatalog-'))
 	const path = join(directory, 'snapshot.sqlite')
