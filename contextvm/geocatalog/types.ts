@@ -56,7 +56,11 @@ export interface GeoCatalogEntry {
 	kind: GeoCatalogKind
 	name: string
 	aliases: string[]
+	/** Normalized, exact-match classifications such as `hospital` or `village`. */
+	categories: string[]
 	countryCode?: string
+	/** Source-neutral hierarchy depth: 0 is a country, 1 is its first subdivision. */
+	adminLevel?: number
 	bbox: GeoCatalogBbox
 	center: GeoCatalogPoint
 	importance: number
@@ -66,13 +70,16 @@ export interface GeoCatalogEntry {
 }
 
 /**
- * All supplied filters use AND semantics. `near` measures distance from an
- * entry's representative point and must be paired with `radiusMeters`.
+ * All supplied filter groups use AND semantics. Values within `ids`, `kinds`,
+ * `categories`, and `adminLevels` use OR semantics. `near` measures distance
+ * from an entry's representative point and must be paired with `radiusMeters`.
  */
 export interface GeoCatalogQueryRequest {
 	text?: string
 	ids?: readonly string[]
 	kinds?: readonly GeoCatalogKind[]
+	categories?: readonly string[]
+	adminLevels?: readonly number[]
 	countryCode?: string
 	bbox?: GeoCatalogBbox
 	near?: GeoCatalogPoint
@@ -115,4 +122,3 @@ export class GeoCatalogError extends Error {
 		this.retryable = false
 	}
 }
-

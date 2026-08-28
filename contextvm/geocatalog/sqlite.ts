@@ -42,7 +42,9 @@ const SNAPSHOT_SCHEMA = `
 		normalized_name TEXT NOT NULL,
 		aliases_json TEXT NOT NULL,
 		normalized_aliases TEXT NOT NULL,
+		categories_json TEXT NOT NULL,
 		country_code TEXT,
+		admin_level INTEGER CHECK (admin_level IS NULL OR admin_level >= 0),
 		west REAL NOT NULL,
 		south REAL NOT NULL,
 		east REAL NOT NULL,
@@ -59,8 +61,18 @@ const SNAPSHOT_SCHEMA = `
 
 	CREATE INDEX geocatalog_features_kind ON geocatalog_features(kind);
 	CREATE INDEX geocatalog_features_country ON geocatalog_features(country_code);
+	CREATE INDEX geocatalog_features_admin_level ON geocatalog_features(admin_level);
 	CREATE INDEX geocatalog_features_order
 		ON geocatalog_features(importance DESC, normalized_name, id);
+
+	CREATE TABLE geocatalog_feature_categories (
+		feature_rowid INTEGER NOT NULL,
+		category TEXT NOT NULL,
+		PRIMARY KEY (feature_rowid, category)
+	) STRICT;
+
+	CREATE INDEX geocatalog_feature_categories_category
+		ON geocatalog_feature_categories(category, feature_rowid);
 
 	CREATE VIRTUAL TABLE geocatalog_fts USING fts5(
 		id UNINDEXED,
@@ -89,7 +101,9 @@ interface SqliteFeatureRow {
 	kind: string
 	name: string
 	aliases_json: string
+	categories_json: string
 	country_code: string | null
+	admin_level: number | null
 	west: number
 	south: number
 	east: number
@@ -264,6 +278,7 @@ function parseFeatureRow(
 	snapshot: GeoCatalogSnapshotMetadata,
 ): GeoCatalogEntry {
 	const aliases = parseJson(row.aliases_json, `entry ${row.id}.aliases`)
+	const categories = parseJson(row.categories_json, `entry ${row.id}.categories`)
 	const properties = parseJson(row.properties_json, `entry ${row.id}.properties`)
 	const geometry =
 		row.geometry_json === null
@@ -275,7 +290,9 @@ function parseFeatureRow(
 			kind: row.kind,
 			name: row.name,
 			aliases,
+			categories,
 			...(row.country_code ? { countryCode: row.country_code } : {}),
+			...(row.admin_level !== null ? { adminLevel: row.admin_level } : {}),
 			bbox: [row.west, row.south, row.east, row.north],
 			center: { longitude: row.center_lon, latitude: row.center_lat },
 			importance: row.importance,
@@ -318,6 +335,24 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 				return `$kind_${index}`
 			})
 			conditions.push(`f.kind IN (${placeholders.join(', ')})`)
+		}
+		if (request.categories.length > 0) {
+			const placeholders = request.categories.map((category, index) => {
+				bindings[`category_${index}`] = category
+				return `$category_${index}`
+			})
+			conditions.push(`f.rowid IN (
+				SELECT filtered_category.feature_rowid
+				FROM geocatalog_feature_categories AS filtered_category
+				WHERE filtered_category.category IN (${placeholders.join(', ')})
+			)`)
+		}
+		if (request.adminLevels.length > 0) {
+			const placeholders = request.adminLevels.map((adminLevel, index) => {
+				bindings[`admin_level_${index}`] = adminLevel
+				return `$admin_level_${index}`
+			})
+			conditions.push(`f.admin_level IN (${placeholders.join(', ')})`)
 		}
 		if (request.countryCode !== null) {
 			bindings.country_code = request.countryCode
@@ -373,7 +408,8 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 		const sql = `
 			WITH ranked AS (
 				SELECT
-					f.id, f.kind, f.name, f.aliases_json, f.country_code,
+					f.id, f.kind, f.name, f.aliases_json, f.categories_json,
+					f.country_code, f.admin_level,
 					f.west, f.south, f.east, f.north, f.center_lon, f.center_lat,
 					f.importance, f.source_name, f.source_release, f.source_record_id,
 					f.properties_json, ${geometryProjection},
@@ -386,7 +422,7 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 				${where}
 			)
 			SELECT
-				id, kind, name, aliases_json, country_code,
+				id, kind, name, aliases_json, categories_json, country_code, admin_level,
 				west, south, east, north, center_lon, center_lat,
 				importance, source_name, source_release, source_record_id,
 				properties_json, geometry_json
@@ -472,7 +508,9 @@ function prepareSnapshotWriter(
 		string,
 		string,
 		string,
+		string,
 		string | null,
+		number | null,
 		number,
 		number,
 		number,
@@ -487,11 +525,15 @@ function prepareSnapshotWriter(
 		string | null,
 	]>(`
 		INSERT INTO geocatalog_features(
-			id, kind, name, normalized_name, aliases_json, normalized_aliases, country_code,
+			id, kind, name, normalized_name, aliases_json, normalized_aliases, categories_json,
+			country_code, admin_level,
 			west, south, east, north, center_lon, center_lat, importance,
 			source_name, source_release, source_record_id, properties_json, geometry_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
+	const insertCategory = database.query<never, [number | bigint, string]>(
+		'INSERT INTO geocatalog_feature_categories(feature_rowid, category) VALUES (?, ?)',
+	)
 	const insertFts = database.query<never, [number | bigint, string, string, string]>(
 		'INSERT INTO geocatalog_fts(rowid, id, name, aliases) VALUES (?, ?, ?, ?)',
 	)
@@ -515,7 +557,9 @@ function prepareSnapshotWriter(
 				normalizeSearchText(entry.name),
 				JSON.stringify(entry.aliases),
 				encodeNormalizedAliases(entry.aliases),
+				JSON.stringify(entry.categories),
 				entry.countryCode ?? null,
+				entry.adminLevel ?? null,
 				entry.bbox[0],
 				entry.bbox[1],
 				entry.bbox[2],
@@ -530,6 +574,7 @@ function prepareSnapshotWriter(
 				entry.geometry ? JSON.stringify(entry.geometry) : null,
 			)
 			const rowid = inserted.lastInsertRowid
+			for (const category of entry.categories) insertCategory.run(rowid, category)
 			insertFts.run(
 				rowid,
 				entry.id,

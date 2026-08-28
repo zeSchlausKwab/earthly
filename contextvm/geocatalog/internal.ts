@@ -20,6 +20,8 @@ export interface PreparedGeoCatalogQuery {
 	textTokens: string[]
 	ids: string[]
 	kinds: GeoCatalogKind[]
+	categories: string[]
+	adminLevels: number[]
 	countryCode: string | null
 	bbox: GeoCatalogBbox | null
 	near: GeoCatalogPoint | null
@@ -51,6 +53,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isNonnegativeInteger(value: unknown): value is number {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
 function isPosition(value: unknown): value is Position {
@@ -109,6 +115,15 @@ export function normalizeSearchText(value: string): string {
 		.replace(/[^\p{L}\p{N}]+/gu, ' ')
 		.trim()
 		.replace(/\s+/g, ' ')
+}
+
+/**
+ * Categories are identifiers rather than prose. Preserve their punctuation so
+ * similarly named classifications remain distinct, while making casing and
+ * incidental whitespace deterministic across sources and callers.
+ */
+export function normalizeCategory(value: string): string {
+	return value.normalize('NFKC').toLocaleLowerCase('en-US').trim().replace(/\s+/g, ' ')
 }
 
 export function encodeNormalizedAliases(aliases: readonly string[]): string {
@@ -276,6 +291,17 @@ export function validateEntry(
 	const aliases = Array.from(
 		new Set(value.aliases.map((alias) => alias.trim()).filter((alias) => alias.length > 0)),
 	)
+	if (!Array.isArray(value.categories) || !value.categories.every((category) => typeof category === 'string')) {
+		throw new GeoCatalogError('snapshot_invalid', `entry ${id}.categories must be strings`)
+	}
+	const normalizedCategories = value.categories.map(normalizeCategory)
+	if (normalizedCategories.some((category) => category.length === 0)) {
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			`entry ${id}.categories must not contain empty classifications`,
+		)
+	}
+	const categories = Array.from(new Set(normalizedCategories))
 	const bbox = validateStoredBbox(value.bbox, `entry ${id}.bbox`)
 	if (!isRecord(value.center)) {
 		throw new GeoCatalogError('snapshot_invalid', `entry ${id}.center is invalid`)
@@ -319,13 +345,25 @@ export function validateEntry(
 		}
 		countryCode = value.countryCode.trim().toUpperCase()
 	}
+	let adminLevel: number | undefined
+	if (value.adminLevel !== undefined) {
+		if (!isNonnegativeInteger(value.adminLevel)) {
+			throw new GeoCatalogError(
+				'snapshot_invalid',
+				`entry ${id}.adminLevel must be a finite nonnegative integer`,
+			)
+		}
+		adminLevel = value.adminLevel
+	}
 
 	return {
 		id,
 		kind: value.kind,
 		name,
 		aliases,
+		categories,
 		...(countryCode ? { countryCode } : {}),
+		...(adminLevel !== undefined ? { adminLevel } : {}),
 		bbox,
 		center,
 		importance: value.importance,
@@ -382,6 +420,44 @@ export function prepareQuery(request: GeoCatalogQueryRequest): PreparedGeoCatalo
 		}
 	}
 
+	let categories: string[] = []
+	if (request.categories !== undefined) {
+		if (
+			!Array.isArray(request.categories) ||
+			!request.categories.every((category) => typeof category === 'string')
+		) {
+			throw new GeoCatalogError('invalid_request', 'categories must be an array of strings')
+		}
+		const normalizedCategories = request.categories.map(normalizeCategory)
+		if (normalizedCategories.some((category) => category.length === 0)) {
+			throw new GeoCatalogError(
+				'invalid_request',
+				'categories must not contain empty classifications',
+			)
+		}
+		categories = Array.from(new Set(normalizedCategories))
+		if (categories.length === 0) {
+			throw new GeoCatalogError('invalid_request', 'categories must not be empty')
+		}
+	}
+
+	let adminLevels: number[] = []
+	if (request.adminLevels !== undefined) {
+		if (
+			!Array.isArray(request.adminLevels) ||
+			!request.adminLevels.every(isNonnegativeInteger)
+		) {
+			throw new GeoCatalogError(
+				'invalid_request',
+				'adminLevels must be an array of finite nonnegative integers',
+			)
+		}
+		adminLevels = Array.from(new Set(request.adminLevels))
+		if (adminLevels.length === 0) {
+			throw new GeoCatalogError('invalid_request', 'adminLevels must not be empty')
+		}
+	}
+
 	let countryCode: string | null = null
 	if (request.countryCode !== undefined) {
 		if (typeof request.countryCode !== 'string' || !/^[a-z]{2}$/i.test(request.countryCode.trim())) {
@@ -430,6 +506,8 @@ export function prepareQuery(request: GeoCatalogQueryRequest): PreparedGeoCatalo
 		textTokens,
 		ids,
 		kinds,
+		categories,
+		adminLevels,
 		countryCode,
 		bbox,
 		near,
@@ -496,6 +574,18 @@ function rankEntry(
 	const idRank = request.ids.length === 0 ? 0 : request.ids.indexOf(entry.id)
 	if (idRank < 0) return null
 	if (request.kinds.length > 0 && !request.kinds.includes(entry.kind)) return null
+	if (
+		request.categories.length > 0 &&
+		!entry.categories.some((category) => request.categories.includes(category))
+	) {
+		return null
+	}
+	if (
+		request.adminLevels.length > 0 &&
+		(entry.adminLevel === undefined || !request.adminLevels.includes(entry.adminLevel))
+	) {
+		return null
+	}
 	if (request.countryCode !== null && entry.countryCode !== request.countryCode) return null
 	if (request.bbox !== null && !bboxIntersects(entry.bbox, request.bbox)) return null
 
@@ -564,7 +654,9 @@ export function cloneEntry(entry: GeoCatalogEntry, includeGeometry: boolean): Ge
 		kind: entry.kind,
 		name: entry.name,
 		aliases: [...entry.aliases],
+		categories: [...entry.categories],
 		...(entry.countryCode ? { countryCode: entry.countryCode } : {}),
+		...(entry.adminLevel !== undefined ? { adminLevel: entry.adminLevel } : {}),
 		bbox: [entry.bbox[0], entry.bbox[1], entry.bbox[2], entry.bbox[3]],
 		center: { ...entry.center },
 		importance: entry.importance,

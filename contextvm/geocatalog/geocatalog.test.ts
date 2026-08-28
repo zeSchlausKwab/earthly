@@ -42,12 +42,14 @@ const entries: GeoCatalogEntry[] = [
 		kind: 'admin',
 		name: 'Nepal',
 		aliases: ['Federal Democratic Republic of Nepal'],
+		categories: ['country', 'administrative-boundary'],
 		countryCode: 'NP',
+		adminLevel: 0,
 		bbox: [80.05, 26.35, 88.2, 30.45],
 		center: { longitude: 84.12, latitude: 28.39 },
 		importance: 100,
 		source: { name: 'Overture Maps', release: '2026-08-19.0', recordId: 'gers-nepal' },
-		properties: { adminLevel: 2, rank: 1 },
+		properties: { sourceAdminLevel: 2, rank: 1 },
 		geometry: {
 			type: 'Polygon',
 			coordinates: [
@@ -65,6 +67,7 @@ const entries: GeoCatalogEntry[] = [
 		kind: 'locality',
 		name: 'Rasuwagadhi',
 		aliases: ['Rasuwa Gadhi'],
+		categories: ['village'],
 		countryCode: 'NP',
 		bbox: [85.37, 28.27, 85.38, 28.28],
 		center: { longitude: 85.375, latitude: 28.275 },
@@ -78,6 +81,7 @@ const entries: GeoCatalogEntry[] = [
 		kind: 'locality',
 		name: 'Timure',
 		aliases: ['Timuré'],
+		categories: ['village'],
 		countryCode: 'NP',
 		bbox: [85.37, 28.24, 85.38, 28.25],
 		center: { longitude: 85.374, latitude: 28.245 },
@@ -91,6 +95,7 @@ const entries: GeoCatalogEntry[] = [
 		kind: 'place',
 		name: 'Gyirong Port',
 		aliases: ['Kerung Port'],
+		categories: ['border-crossing'],
 		countryCode: 'CN',
 		bbox: [85.36, 28.28, 85.37, 28.29],
 		center: { longitude: 85.365, latitude: 28.285 },
@@ -104,6 +109,7 @@ const entries: GeoCatalogEntry[] = [
 		kind: 'road',
 		name: 'Pasang Lhamu Highway',
 		aliases: [],
+		categories: ['secondary-road'],
 		countryCode: 'NP',
 		bbox: [85.18, 27.72, 85.42, 28.28],
 		center: { longitude: 85.3, latitude: 28 },
@@ -123,6 +129,7 @@ const entries: GeoCatalogEntry[] = [
 		kind: 'rail',
 		name: 'Lanyungang Railway',
 		aliases: [],
+		categories: ['railway'],
 		countryCode: 'CN',
 		bbox: [85.1, 28.1, 85.8, 28.8],
 		center: { longitude: 85.45, latitude: 28.45 },
@@ -135,6 +142,7 @@ const entries: GeoCatalogEntry[] = [
 		kind: 'waterway',
 		name: 'Trishuli River',
 		aliases: ['Trisuli'],
+		categories: ['river'],
 		countryCode: 'NP',
 		bbox: [84.9, 27.6, 85.5, 28.3],
 		center: { longitude: 85.2, latitude: 27.95 },
@@ -147,12 +155,53 @@ const entries: GeoCatalogEntry[] = [
 		kind: 'infrastructure',
 		name: 'Rasuwagadhi Friendship Bridge',
 		aliases: ['China–Nepal Friendship Bridge'],
+		categories: ['bridge'],
 		countryCode: 'NP',
 		bbox: [85.374, 28.274, 85.376, 28.276],
 		center: { longitude: 85.375, latitude: 28.275 },
 		importance: 35,
 		source: { name: 'Overture Maps', release: '2026-08-19.0' },
 		properties: { class: 'bridge' },
+	},
+	{
+		id: 'admin:np-p3',
+		kind: 'admin',
+		name: 'Bagmati Province',
+		aliases: ['Bagmati Pradesh'],
+		categories: ['administrative-boundary', 'province'],
+		countryCode: 'NP',
+		adminLevel: 1,
+		bbox: [84.45, 26.91, 86.58, 28.35],
+		center: { longitude: 85.35, latitude: 27.7 },
+		importance: 82,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: { subtype: 'region' },
+	},
+	{
+		id: 'place:langtang-health',
+		kind: 'place',
+		name: 'Langtang Health Centre',
+		aliases: [],
+		categories: [' Hospital ', 'healthcare', 'HOSPITAL'],
+		countryCode: 'NP',
+		bbox: [85.5, 28.21, 85.51, 28.22],
+		center: { longitude: 85.505, latitude: 28.215 },
+		importance: 39,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
+	},
+	{
+		id: 'place:himalayan-heritage',
+		kind: 'place',
+		name: 'Himalayan Heritage House',
+		aliases: [],
+		categories: ['museum'],
+		countryCode: 'NP',
+		bbox: [85.31, 27.7, 85.32, 27.71],
+		center: { longitude: 85.315, latitude: 27.705 },
+		importance: 38,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
 	},
 ]
 
@@ -205,6 +254,60 @@ for (const harnessDefinition of harnesses) {
 			})
 		})
 
+		test('filters exact normalized categories with OR within the category list', async () => {
+			await usingCatalog(async (catalog) => {
+				const result = await catalog.query({
+					categories: [' HOSPITAL ', 'museum'],
+					kinds: ['place'],
+					countryCode: 'NP',
+				})
+				expect(result.items.map((entry) => entry.id)).toEqual([
+					'place:langtang-health',
+					'place:himalayan-heritage',
+				])
+				expect(result.items[0]?.categories).toEqual(['hospital', 'healthcare'])
+
+				const prefixOnly = await catalog.query({ categories: ['health'] })
+				expect(prefixOnly.items).toEqual([])
+			})
+		})
+
+		test('selects villages by classification rather than name text', async () => {
+			await usingCatalog(async (catalog) => {
+				const result = await catalog.query({
+					categories: ['village'],
+					kinds: ['locality'],
+					countryCode: 'NP',
+				})
+				expect(result.items.map((entry) => entry.id)).toEqual([
+					'locality:timure',
+					'locality:rasuwagadhi',
+				])
+			})
+		})
+
+		test('uses OR within admin levels and AND across category and level groups', async () => {
+			await usingCatalog(async (catalog) => {
+				const adminOne = await catalog.query({
+					categories: ['administrative-boundary'],
+					adminLevels: [1],
+					countryCode: 'NP',
+				})
+				expect(adminOne.items.map((entry) => entry.id)).toEqual(['admin:np-p3'])
+				expect(adminOne.items[0]?.adminLevel).toBe(1)
+
+				const countryOrAdminOne = await catalog.query({
+					categories: ['administrative-boundary'],
+					adminLevels: [1, 0, 1],
+					countryCode: 'NP',
+				})
+				expect(countryOrAdminOne.items.map((entry) => entry.id)).toEqual([
+					'admin:np',
+					'admin:np-p3',
+				])
+			})
+		})
+
 		test('uses deterministic text, importance, name, and id ordering', async () => {
 			await usingCatalog(async (catalog) => {
 				const first = await catalog.query({ countryCode: 'NP', limit: 20 })
@@ -214,8 +317,8 @@ for (const harnessDefinition of harnesses) {
 				)
 				expect(first.items.slice(0, 3).map((entry) => entry.id)).toEqual([
 					'admin:np',
+					'admin:np-p3',
 					'road:pasang-lhamu',
-					'waterway:trishuli',
 				])
 
 				const aliasMatch = await catalog.query({ text: 'Kerung Port' })
@@ -263,10 +366,12 @@ for (const harnessDefinition of harnesses) {
 				})
 				expect(withGeometry.items[0]?.geometry?.type).toBe('Polygon')
 				withGeometry.items[0]?.aliases.push('mutated by caller')
+				withGeometry.items[0]?.categories.push('mutated-by-caller')
 				if (withGeometry.items[0]) withGeometry.items[0].properties.rank = 999
 
 				const fresh = await catalog.query({ ids: ['admin:np'], includeGeometry: true })
 				expect(fresh.items[0]?.aliases).not.toContain('mutated by caller')
+				expect(fresh.items[0]?.categories).not.toContain('mutated-by-caller')
 				expect(fresh.items[0]?.properties.rank).toBe(1)
 			})
 		})
@@ -285,17 +390,42 @@ for (const harnessDefinition of harnesses) {
 
 		test('raises typed validation errors at the Interface', async () => {
 			await usingCatalog(async (catalog) => {
-				try {
-					await catalog.query({ near: { longitude: 85, latitude: 28 } })
-					throw new Error('expected validation to fail')
-				} catch (error) {
-					expect(error).toBeInstanceOf(GeoCatalogError)
-					expect(error).toMatchObject({ code: 'invalid_request', retryable: false })
+				const invalidRequests = [
+					{ near: { longitude: 85, latitude: 28 } },
+					{ categories: [] },
+					{ categories: [' '] },
+					{ adminLevels: [] },
+					{ adminLevels: [-1] },
+					{ adminLevels: [1.5] },
+				]
+				for (const request of invalidRequests) {
+					try {
+						await catalog.query(request)
+						throw new Error('expected validation to fail')
+					} catch (error) {
+						expect(error).toBeInstanceOf(GeoCatalogError)
+						expect(error).toMatchObject({ code: 'invalid_request', retryable: false })
+					}
 				}
 			})
 		})
 	})
 }
+
+test('snapshot entries reject empty categories and invalid admin levels', () => {
+	expect(() =>
+		createInMemoryGeoCatalog({
+			snapshot,
+			entries: [{ ...entries[0]!, categories: [' '] }],
+		}),
+	).toThrow(/categories must not contain empty classifications/)
+	expect(() =>
+		createInMemoryGeoCatalog({
+			snapshot,
+			entries: [{ ...entries[0]!, adminLevel: 1.5 }],
+		}),
+	).toThrow(/adminLevel must be a finite nonnegative integer/)
+})
 
 test('a missing SQLite snapshot fails on query without failing startup', async () => {
 	const catalog = openSqliteGeoCatalog({
