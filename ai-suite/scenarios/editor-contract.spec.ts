@@ -10,7 +10,11 @@ import {
 	waitForAiChatCompletion,
 } from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
-import { clickEditorMap, expectGeometryFeatureCount } from '../tasks/create/geometry'
+import {
+	clickEditorMap,
+	expectGeometryFeatureCount,
+	publishCurrentGeometryDataset,
+} from '../tasks/create/geometry'
 import {
 	cancelSightingPlacement,
 	placeSighting,
@@ -162,6 +166,94 @@ test('Map Stack Clear preserves and can isolate the active draft @editor-contrac
 	expect(result.mapStack.some((entry) => entry.isolated)).toBe(false)
 })
 
+test('publishing an active Dataset replaces its protected draft presentation @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'Dataset publication setup is desktop-only')
+	await authorizeJourneyIdentity(earthly, 'owner')
+	const draft = await startDataset(earthly)
+	const datasetName = `Published edit presentation ${Date.now().toString(36)}`
+	await draft.nameInput.fill(datasetName)
+	await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().click()
+	await clickEditorMap(earthly, 0.62, 0.43)
+	await expectGeometryFeatureCount(earthly, 1)
+
+	await publishCurrentGeometryDataset(earthly)
+	const published = await editorLifecycleSnapshot(earthly)
+	expect(published.mapStack.some((entry) => entry.id === 'draft:active')).toBe(false)
+	expect(published.mapStack.some((entry) => entry.entityType === 'dataset' && entry.visible)).toBe(
+		true,
+	)
+
+	await earthly.page.getByRole('button', { name: 'Datasets', exact: true }).click()
+	await earthly.page.getByPlaceholder('Search...').first().fill(datasetName)
+	const catalogTitle = earthly.page.getByRole('button', {
+		name: `Zoom to dataset ${datasetName}`,
+		exact: true,
+	})
+	await expect(catalogTitle).toBeVisible()
+	const catalogRow = catalogTitle.locator(
+		'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " border-l-2 ")][1]',
+	)
+	await catalogRow.getByRole('button', { name: 'Delete dataset', exact: true }).click()
+	const confirmCatalogDelete = catalogRow.getByRole('button', {
+		name: 'Confirm dataset deletion',
+		exact: true,
+	})
+	await expect(confirmCatalogDelete).toBeVisible()
+	const catalogLayout = await confirmCatalogDelete.evaluate((button) => {
+		const sidebar = button.closest<HTMLElement>('[data-slot="sidebar-inner"]')
+		const content = button.closest<HTMLElement>('[data-slot="sidebar-content"]')
+		if (!sidebar || !content) throw new Error('Dataset catalog sidebar was not found')
+		return {
+			buttonRight: button.getBoundingClientRect().right,
+			sidebarRight: sidebar.getBoundingClientRect().right,
+			horizontalOverflow: content.scrollWidth - content.clientWidth,
+		}
+	})
+	expect(catalogLayout.buttonRight).toBeLessThanOrEqual(catalogLayout.sidebarRight)
+	expect(catalogLayout.horizontalOverflow).toBeLessThanOrEqual(1)
+})
+
+test('Dataset editor deletion stays inside the desktop sidebar @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(
+		testInfo.project.name !== 'desktop',
+		'The persistent Dataset editor rail is desktop-only',
+	)
+	await earthly.page.setViewportSize({ width: 1024, height: 768 })
+	await earthly.open({ tour: 'seen' })
+	await startDataset(earthly)
+
+	const deleteButton = earthly.page.getByRole('button', {
+		name: 'Delete saved work',
+		exact: true,
+	})
+	await expect(deleteButton).toBeVisible()
+	await deleteButton.click()
+
+	const confirmButton = earthly.page.getByRole('button', {
+		name: 'Confirm saved work deletion',
+		exact: true,
+	})
+	await expect(confirmButton).toBeVisible()
+	const layout = await confirmButton.evaluate((button) => {
+		const sidebar = button.closest<HTMLElement>('[data-slot="sidebar-inner"]')
+		const content = button.closest<HTMLElement>('[data-slot="sidebar-content"]')
+		if (!sidebar || !content) throw new Error('Dataset editor sidebar was not found')
+		const sidebarRect = sidebar.getBoundingClientRect()
+		const buttonRect = button.getBoundingClientRect()
+		return {
+			buttonRight: buttonRect.right,
+			sidebarRight: sidebarRect.right,
+			horizontalOverflow: content.scrollWidth - content.clientWidth,
+		}
+	})
+	expect(layout.buttonRight).toBeLessThanOrEqual(layout.sidebarRight)
+	expect(layout.horizontalOverflow).toBeLessThanOrEqual(1)
+})
+
 test('mobile Sighting pin-drop does not show dataset lock-and-drag guidance @editor-contract', async ({
 	earthly,
 }, testInfo) => {
@@ -274,7 +366,7 @@ test('mobile map attribution remains a compact control above every sheet detent 
 	await expectCompactAttribution()
 })
 
-test('mobile workspace keeps a running Chat, its exact edit target, and map visibility independent @editor-contract', async ({
+test('mobile workspace keeps a running Chat and its exact edit target visible @editor-contract', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'The three-surface workspace is mobile-only')
@@ -331,9 +423,8 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		expect(taskBeforeChat.activeWorkspaceId).not.toBeNull()
 		expect(taskBeforeChat.activeDraftId).not.toBeNull()
 
-		// Hide Dataset A while it still owns the draft:active visibility row. This
-		// removes only its map presence: the exact workspace, draft, features, and
-		// Edit surface remain available for an explicit Chat binding.
+		// Dataset A is active authoring work, so its Map Stack representation is
+		// mandatory: it has no hide/remove action and survives Clear.
 		await switchMobileWorkspacePanel(earthly, 'Stack')
 		const stack = earthly.page.getByRole('region', { name: 'Map stack', exact: true })
 		await expect(stack).toBeVisible()
@@ -344,27 +435,26 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 				),
 			)
 			.toBe(true)
-		await stack.getByRole('button', { name: 'Hide edit from map', exact: true }).click()
+		await expect(
+			stack.getByRole('button', { name: 'Hide edit from map', exact: true }),
+		).toHaveCount(0)
+		const clearStack = stack.getByRole('button', { name: 'Clear', exact: true })
+		if (await clearStack.isEnabled()) await clearStack.click()
 		await expect
 			.poll(async () =>
 				(await editorLifecycleSnapshot(earthly)).mapStack.some(
 					(entry) => entry.id === 'draft:active',
 				),
 			)
-			.toBe(false)
-		await expect.poll(materializedDraftFeatureCount).toBe(0)
-		const hiddenATask = await editorLifecycleSnapshot(earthly)
-		expect(hiddenATask.activeWorkspaceId).toBe(taskBeforeChat.activeWorkspaceId)
-		expect(hiddenATask.activeDraftId).toBe(taskBeforeChat.activeDraftId)
-		expect(hiddenATask.featureCount).toBe(1)
-		expect(hiddenATask.workspaceCount).toBe(taskBeforeChat.workspaceCount)
+			.toBe(true)
+		await expect.poll(materializedDraftFeatureCount).toBeGreaterThan(0)
 		await switchMobileWorkspacePanel(earthly, 'Edit')
 		await expect(earthly.page.getByPlaceholder('Name').first()).toHaveValue(datasetName)
 		const retainedAInEdit = await editorLifecycleSnapshot(earthly)
 		expect(retainedAInEdit.activeWorkspaceId).toBe(taskBeforeChat.activeWorkspaceId)
 		expect(retainedAInEdit.activeDraftId).toBe(taskBeforeChat.activeDraftId)
 		expect(retainedAInEdit.featureCount).toBe(1)
-		expect(retainedAInEdit.mapStack.some((entry) => entry.id === 'draft:active')).toBe(false)
+		expect(retainedAInEdit.mapStack.some((entry) => entry.id === 'draft:active')).toBe(true)
 
 		await openAiChat(earthly)
 		const targetName = await selectAiChatTarget(earthly, 'current-dataset')
@@ -372,10 +462,10 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		const chatBeforeRun = await aiChatSurfaceSnapshot(earthly)
 		expect(chatBeforeRun.targetName).toBe(datasetName)
 		expect(chatBeforeRun.targetRequired).toBe(false)
-		const boundHiddenA = await editorLifecycleSnapshot(earthly)
-		expect(boundHiddenA.activeWorkspaceId).toBe(taskBeforeChat.activeWorkspaceId)
-		expect(boundHiddenA.activeDraftId).toBe(taskBeforeChat.activeDraftId)
-		expect(boundHiddenA.mapStack.some((entry) => entry.id === 'draft:active')).toBe(false)
+		const boundA = await editorLifecycleSnapshot(earthly)
+		expect(boundA.activeWorkspaceId).toBe(taskBeforeChat.activeWorkspaceId)
+		expect(boundA.activeDraftId).toBe(taskBeforeChat.activeDraftId)
+		expect(boundA.mapStack.some((entry) => entry.id === 'draft:active')).toBe(true)
 
 		const chatRegion = earthly.page.getByRole('region', { name: 'AI chat', exact: true })
 		const assistantMessagesBefore = await chatRegion.getByTitle('Copy assistant message').count()
@@ -426,10 +516,10 @@ test('mobile workspace keeps a running Chat, its exact edit target, and map visi
 		expect(taskInEdit.activeWorkspaceId).toBe(taskBeforeChat.activeWorkspaceId)
 		expect(taskInEdit.activeDraftId).toBe(taskBeforeChat.activeDraftId)
 		expect(taskInEdit.workspaceCount).toBe(taskBeforeChat.workspaceCount + 1)
-		// Exact Chat target restoration is intentionally stack-neutral: the stale
-		// Dataset B draft row is cleared, and Dataset A is not silently re-added to
-		// the map merely because its editor became active.
-		expect(taskInEdit.mapStack.some((entry) => entry.id === 'draft:active')).toBe(false)
+		// Exact Chat target restoration replaces Dataset B's shared draft row with
+		// Dataset A's mandatory visible authoring representation.
+		expect(taskInEdit.mapStack.some((entry) => entry.id === 'draft:active')).toBe(true)
+		await expect.poll(materializedDraftFeatureCount).toBeGreaterThan(0)
 		expect(
 			taskInEdit.workspaces.find((workspace) => workspace.id === taskBVisible.activeWorkspaceId)
 				?.chatSessionId,

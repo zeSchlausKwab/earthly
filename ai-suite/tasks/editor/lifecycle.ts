@@ -36,7 +36,7 @@ export const openDatasetEditorTask: AiTaskMetadata = {
 	id: 'editor.open-dataset-editor',
 	summary: 'Reveal the retained Dataset editor without creating or replacing a draft.',
 	preconditions: ['Earthly is open', 'A retained Dataset draft exists'],
-	sideEffects: ['Changes only the visible left-sidebar surface'],
+	sideEffects: ['Restores the Dataset edit and its mandatory visible Map Stack presentation'],
 	viewports: 'desktop',
 }
 

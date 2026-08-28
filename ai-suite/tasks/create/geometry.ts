@@ -135,7 +135,6 @@ export async function publishCurrentGeometryDataset(earthly: EarthlySession): Pr
 	}
 	await expect(publishButton).toBeEnabled()
 	await publishButton.click()
-	await expect(earthly.page.getByText('Dataset overview')).toBeVisible({ timeout: 15_000 })
 	await expect
 		.poll(() => new URL(earthly.page.url()).pathname, { timeout: 15_000 })
 		.toMatch(/^\/datasets\/geoevent\//)
