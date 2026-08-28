@@ -288,11 +288,6 @@ export const geoStaticToolSchemas: Tool[] = [
 						type: 'number',
 						description: 'Maximum results to return.',
 					},
-					includeGeometry: {
-						type: 'boolean',
-						description:
-							'Include GeoJSON geometry in the response. Automatically enabled by toEditor.',
-					},
 					toEditor: {
 						type: 'boolean',
 						description: 'Import the exact returned catalog geometries into the bound Dataset.',

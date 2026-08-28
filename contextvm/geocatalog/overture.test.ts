@@ -419,10 +419,16 @@ describe('Overture sequence streaming', () => {
 			'preserving the full content of this NOTICE.txt file',
 		)
 		expect(foursquareNotice?.content).toContain('provide recipients with a copy of the License')
-		expect(places.documents).toContainEqual({
-			name: 'Apache License 2.0',
+		const apacheLicense = places.documents?.find(
+			(document) => document.name === 'Apache License 2.0',
+		)
+		expect(apacheLicense).toMatchObject({
 			url: 'https://www.apache.org/licenses/LICENSE-2.0.txt',
 		})
+		expect(apacheLicense?.content).toContain('TERMS AND CONDITIONS FOR USE')
+		expect(apacheLicense?.content).toContain(
+			'You must give any other recipients of the Work',
+		)
 		expect(places.attribution).not.toContain('OpenStreetMap')
 		expect(places.license).not.toContain('ODbL')
 

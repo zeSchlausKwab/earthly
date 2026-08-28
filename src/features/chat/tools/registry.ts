@@ -871,10 +871,13 @@ function registerRemoteMcpTools(): void {
 					throw new Error('limit must be a positive integer')
 				}
 			}
-			const requestedGeometry = optionalBoolean('includeGeometry') ?? false
 			const toEditor = optionalBoolean('toEditor') ?? false
 			optionalBoolean('replaceExisting')
-			const includeGeometry = requestedGeometry || toEditor
+			if (has('includeGeometry')) {
+				throw new Error(
+					'includeGeometry is not an Earthly chat option; set toEditor=true to fetch and import catalog geometry with its source manifest',
+				)
+			}
 
 			const response = await client.callRemoteTool<Record<string, unknown>>('query_geography', {
 				...(text ? { text } : {}),
@@ -903,7 +906,7 @@ function registerRemoteMcpTools(): void {
 					: {}),
 				...(radiusMeters !== undefined ? { radiusMeters } : {}),
 				...(limit !== undefined ? { limit } : {}),
-				includeGeometry,
+				includeGeometry: toEditor,
 			})
 			const result = extractMcpToolResult('query_geography', response)
 			if (!Array.isArray(result.items)) {

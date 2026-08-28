@@ -6,7 +6,10 @@ import {
 	type GeoCatalogSnapshotMetadata,
 } from './types'
 
-function cloneSnapshot(snapshot: GeoCatalogSnapshotMetadata): GeoCatalogSnapshotMetadata {
+function cloneSnapshot(
+	snapshot: GeoCatalogSnapshotMetadata,
+	includeDocumentContent: boolean,
+): GeoCatalogSnapshotMetadata {
 	return {
 		id: snapshot.id,
 		createdAt: snapshot.createdAt,
@@ -14,7 +17,12 @@ function cloneSnapshot(snapshot: GeoCatalogSnapshotMetadata): GeoCatalogSnapshot
 		sources: snapshot.sources.map((source) => ({
 			...source,
 			...(source.documents
-				? { documents: source.documents.map((document) => ({ ...document })) }
+				? {
+						documents: source.documents.map(({ content, ...document }) => ({
+							...document,
+							...(includeDocumentContent && content !== undefined ? { content } : {}),
+						})),
+					}
 				: {}),
 		})),
 	}
@@ -35,7 +43,7 @@ export function createGeoCatalog(adapter: GeoCatalogAdapter): GeoCatalog {
 						cloneEntry(entry, prepared.includeGeometry),
 					),
 					metadata: {
-						snapshot: cloneSnapshot(adapter.snapshot),
+						snapshot: cloneSnapshot(adapter.snapshot, prepared.includeGeometry),
 						query: {
 							returned: result.entries.length,
 							limit: prepared.limit,

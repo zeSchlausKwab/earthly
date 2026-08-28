@@ -387,13 +387,26 @@ for (const harnessDefinition of harnesses) {
 		test('returns snapshot and per-entry source release metadata', async () => {
 			await usingCatalog(async (catalog) => {
 				const result = await catalog.query({ ids: ['waterway:trishuli'] })
-				expect(result.metadata.snapshot).toEqual(snapshot)
+				expect(result.metadata.snapshot.sources[0]?.documents?.[0]).toEqual({
+					name: 'Source notice',
+					url: 'https://example.test/NOTICE.txt',
+				})
+				expect(result.metadata.snapshot.sources[0]?.documents?.[0]).not.toHaveProperty(
+					'content',
+				)
 				result.metadata.snapshot.sources[0]?.documents?.push({
 					name: 'Caller mutation',
 					url: 'https://example.test/mutated',
 				})
 				const fresh = await catalog.query({ ids: ['waterway:trishuli'] })
 				expect(fresh.metadata.snapshot.sources[0]?.documents).toHaveLength(1)
+				const editorResult = await catalog.query({
+					ids: ['waterway:trishuli'],
+					includeGeometry: true,
+				})
+				expect(editorResult.metadata.snapshot.sources[0]?.documents?.[0]?.content).toBe(
+					'Preserve this source notice.',
+				)
 				expect(result.items[0]?.source).toEqual({
 					name: 'HydroRIVERS',
 					release: '1.0',

@@ -117,11 +117,13 @@ in place.
 `query_geography` combines text, stable ids, normalized kinds, exact semantic
 categories, administrative hierarchy levels, country, bounding box, and
 proximity filters. Filter groups use AND semantics; values within ids, kinds,
-categories, and admin levels use OR semantics. Geometry is omitted by default
-for inexpensive discovery and returned only when requested. When chat uses
-`toEditor`, Earthly requests geometry once and passes that exact result through
-the existing bound Dataset safety and persistence path; it does not repeat the
-geographic query.
+categories, and admin levels use OR semantics. The ContextVM interface omits
+geometry by default and returns it only when requested. Earthly chat deliberately
+exposes a smaller choice: geometry is available only through `toEditor`, which
+requests it once and passes that exact result plus its source manifest through
+the existing bound Dataset safety and persistence path. It does not repeat the
+geographic query or expose an intermediate geometry result that could be copied
+without its collection provenance.
 
 Discovery responses omit bulky source-document contents from the model-visible
 result. Editor imports preserve each feature's native Overture source records
@@ -130,10 +132,13 @@ once as a FeatureCollection-level property named
 `earthly:geoCatalogSourceManifest:<snapshot-id>`. Its value is a JSON-encoded
 manifest so it survives the editor's scalar metadata controls, local drafts,
 and Nostr publication without repeating long legal text on every feature. The
-manifest includes release attribution, license document URLs, and the full
-Foursquare Places NOTICE when Places data is present. If later imports use a
-different immutable snapshot, its manifest is stored under its own key; older
-features therefore keep a resolvable source pointer.
+manifest includes release attribution, license document URLs, the full
+Foursquare Places NOTICE, and a full copy of the Apache 2.0 license when Places
+data is present. Those document bodies travel only with geometry/editor
+requests; discovery responses retain their names and URLs but omit the bulky
+text. If later imports use a different immutable snapshot, its manifest is
+stored under its own key; older features therefore keep a resolvable source
+pointer.
 
 Do not strip these collection-level manifest properties or feature-level
 `sourceRecords` when transforming/exporting a catalog-derived dataset. Overture

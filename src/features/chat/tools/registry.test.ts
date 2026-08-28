@@ -114,7 +114,7 @@ describe('tool registry', () => {
 		const entry = registry.get('query_geography')
 		expect(entry?.kind).toBe('remote-mcp')
 		const properties = entry?.schema.function.parameters.properties
-		expect(properties).toHaveProperty('includeGeometry')
+		expect(properties).not.toHaveProperty('includeGeometry')
 		expect(properties).toHaveProperty('categories')
 		expect(properties).toHaveProperty('adminLevels')
 		expect(properties).toHaveProperty('toEditor')
@@ -126,7 +126,10 @@ describe('tool registry', () => {
 		const transportFields = Object.keys(properties)
 			.filter((name) => name !== 'toEditor' && name !== 'replaceExisting')
 			.sort()
-		expect(transportFields).toEqual(Object.keys(queryGeographyInputSchema).sort())
+		const discoveryFields = Object.keys(queryGeographyInputSchema)
+			.filter((name) => name !== 'includeGeometry')
+			.sort()
+		expect(transportFields).toEqual(discoveryFields)
 	})
 
 	it('queries the catalog once, forces geometry for toEditor, and exposes exact features', async () => {
@@ -261,7 +264,7 @@ describe('tool registry', () => {
 				{ countryCode: 'Nepal', toEditor: true },
 				{ bbox: { west: -200, south: 0, east: 10, north: 20 }, toEditor: true },
 				{ near: { longitude: 85, latitude: 28 }, toEditor: true },
-				{ includeGeometry: 'false' },
+				{ includeGeometry: true },
 			]
 
 			for (const args of malformedCalls) {

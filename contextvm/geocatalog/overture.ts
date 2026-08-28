@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs'
+import { createReadStream, readFileSync } from 'node:fs'
 import type { Geometry } from 'geojson'
 import type {
 	GeoCatalogBbox,
@@ -995,6 +995,10 @@ const OVERTURE_ATTRIBUTION_URL = 'https://docs.overturemaps.org/attribution/'
 const ODBL_LICENSE_URL = 'https://opendatacommons.org/licenses/odbl/1-0/'
 const FOURSQUARE_NOTICE_URL = 'https://opensource.foursquare.com/places-notice-txt/'
 const APACHE_2_LICENSE_URL = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+const APACHE_2_LICENSE = readFileSync(
+	new URL('../../docs/legal/Apache-2.0.txt', import.meta.url),
+	'utf8',
+).trim()
 const CDLA_PERMISSIVE_2_LICENSE_URL = 'https://cdla.dev/permissive-2-0/'
 const CC0_LICENSE_URL = 'https://creativecommons.org/publicdomain/zero/1.0/'
 const OVERTURE_FOURSQUARE_ATTRIBUTION =
@@ -1059,7 +1063,11 @@ export function createOvertureSourceRelease(
 				url: FOURSQUARE_NOTICE_URL,
 				content: FOURSQUARE_NOTICE,
 			},
-			{ name: 'Apache License 2.0', url: APACHE_2_LICENSE_URL },
+			{
+				name: 'Apache License 2.0',
+				url: APACHE_2_LICENSE_URL,
+				content: APACHE_2_LICENSE,
+			},
 			{ name: 'CDLA Permissive 2.0', url: CDLA_PERMISSIVE_2_LICENSE_URL },
 			{ name: 'CC0 1.0', url: CC0_LICENSE_URL },
 		)
