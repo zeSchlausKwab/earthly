@@ -682,9 +682,12 @@ export async function writeSqliteGeoCatalogSnapshot(
 			)
 		}
 		if (failure instanceof GeoCatalogError) throw failure
-		throw new GeoCatalogError('snapshot_invalid', 'Failed to write GeoCatalog snapshot', {
-			cause: failure,
-		})
+		const detail = failure instanceof Error ? `: ${failure.message}` : ''
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			`Failed to write GeoCatalog snapshot${detail}`,
+			{ cause: failure },
+		)
 	}
 }
 

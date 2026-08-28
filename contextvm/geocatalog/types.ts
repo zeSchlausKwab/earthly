@@ -27,11 +27,21 @@ export type GeoCatalogJsonValue =
 	| GeoCatalogJsonValue[]
 	| { [key: string]: GeoCatalogJsonValue }
 
+/** A license, attribution page, or NOTICE that must travel with a source release. */
+export interface GeoCatalogSourceDocument {
+	name: string
+	url: string
+	/** Full text when the upstream terms require the document itself to be preserved. */
+	content?: string
+}
+
 export interface GeoCatalogSourceRelease {
 	name: string
 	release: string
 	attribution?: string
+	attributionUrl?: string
 	license?: string
+	documents?: GeoCatalogSourceDocument[]
 }
 
 export interface GeoCatalogSourceReference {

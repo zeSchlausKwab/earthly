@@ -26,7 +26,15 @@ const snapshot: GeoCatalogSnapshotMetadata = {
 			name: 'Overture Maps',
 			release: '2026-08-19.0',
 			attribution: 'Overture Maps Foundation',
+			attributionUrl: 'https://docs.overturemaps.org/attribution/',
 			license: 'CDLA-Permissive-2.0',
+			documents: [
+				{
+					name: 'Source notice',
+					url: 'https://example.test/NOTICE.txt',
+					content: 'Preserve this source notice.',
+				},
+			],
 		},
 		{
 			name: 'HydroRIVERS',
@@ -380,12 +388,36 @@ for (const harnessDefinition of harnesses) {
 			await usingCatalog(async (catalog) => {
 				const result = await catalog.query({ ids: ['waterway:trishuli'] })
 				expect(result.metadata.snapshot).toEqual(snapshot)
+				result.metadata.snapshot.sources[0]?.documents?.push({
+					name: 'Caller mutation',
+					url: 'https://example.test/mutated',
+				})
+				const fresh = await catalog.query({ ids: ['waterway:trishuli'] })
+				expect(fresh.metadata.snapshot.sources[0]?.documents).toHaveLength(1)
 				expect(result.items[0]?.source).toEqual({
 					name: 'HydroRIVERS',
 					release: '1.0',
 					recordId: 'hy-442',
 				})
 			})
+		})
+
+		test('rejects malformed source documents in snapshot metadata', () => {
+			expect(() =>
+				createInMemoryGeoCatalog({
+					snapshot: {
+						...snapshot,
+						sources: [
+							{
+								name: 'Broken source',
+								release: '1',
+								documents: [{ name: 'NOTICE', url: 'file:///tmp/NOTICE' }],
+							},
+						],
+					},
+					entries: entries.slice(0, 1),
+				}),
+			).toThrow(/must use HTTP or HTTPS/)
 		})
 
 		test('raises typed validation errors at the Interface', async () => {

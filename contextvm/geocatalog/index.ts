@@ -6,6 +6,12 @@ export {
 	type WriteSqliteGeoCatalogSnapshotOptions,
 } from './sqlite'
 export {
+	formatGeoCatalogReadiness,
+	preflightGeoCatalog,
+	type GeoCatalogReadinessSummary,
+	type PreflightGeoCatalogOptions,
+} from './preflight'
+export {
 	GEO_CATALOG_KINDS,
 	GeoCatalogError,
 	type GeoCatalog,
@@ -18,7 +24,7 @@ export {
 	type GeoCatalogQueryRequest,
 	type GeoCatalogQueryResult,
 	type GeoCatalogSnapshotMetadata,
+	type GeoCatalogSourceDocument,
 	type GeoCatalogSourceReference,
 	type GeoCatalogSourceRelease,
 } from './types'
-

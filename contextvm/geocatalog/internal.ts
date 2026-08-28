@@ -258,11 +258,62 @@ export function validateSnapshotMetadata(value: unknown): GeoCatalogSnapshotMeta
 			source.license === undefined
 				? undefined
 				: assertNonEmptyString(source.license, `snapshot.sources[${index}].license`)
+		const attributionUrl =
+			source.attributionUrl === undefined
+				? undefined
+				: assertNonEmptyString(
+						source.attributionUrl,
+						`snapshot.sources[${index}].attributionUrl`,
+					)
+		let documents: Array<{ name: string; url: string; content?: string }> | undefined
+		if (source.documents !== undefined) {
+			if (!Array.isArray(source.documents) || source.documents.length === 0) {
+				throw new GeoCatalogError(
+					'snapshot_invalid',
+					`snapshot.sources[${index}].documents must be a non-empty array`,
+				)
+			}
+			const documentNames = new Set<string>()
+			documents = source.documents.map((document, documentIndex) => {
+				const field = `snapshot.sources[${index}].documents[${documentIndex}]`
+				if (!isRecord(document)) {
+					throw new GeoCatalogError('snapshot_invalid', `${field} is invalid`)
+				}
+				const documentName = assertNonEmptyString(document.name, `${field}.name`)
+				if (documentNames.has(documentName)) {
+					throw new GeoCatalogError(
+						'snapshot_invalid',
+						`Duplicate source document ${documentName}`,
+					)
+				}
+				documentNames.add(documentName)
+				const url = assertNonEmptyString(document.url, `${field}.url`)
+				let parsedUrl: URL
+				try {
+					parsedUrl = new URL(url)
+				} catch {
+					throw new GeoCatalogError('snapshot_invalid', `${field}.url must be an absolute URL`)
+				}
+				if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+					throw new GeoCatalogError(
+						'snapshot_invalid',
+						`${field}.url must use HTTP or HTTPS`,
+					)
+				}
+				const content =
+					document.content === undefined
+						? undefined
+						: assertNonEmptyString(document.content, `${field}.content`)
+				return { name: documentName, url, ...(content ? { content } : {}) }
+			})
+		}
 		return {
 			name,
 			release,
 			...(attribution ? { attribution } : {}),
+			...(attributionUrl ? { attributionUrl } : {}),
 			...(license ? { license } : {}),
+			...(documents ? { documents } : {}),
 		}
 	})
 

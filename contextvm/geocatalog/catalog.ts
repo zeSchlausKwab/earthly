@@ -11,7 +11,12 @@ function cloneSnapshot(snapshot: GeoCatalogSnapshotMetadata): GeoCatalogSnapshot
 		id: snapshot.id,
 		createdAt: snapshot.createdAt,
 		schemaVersion: 1,
-		sources: snapshot.sources.map((source) => ({ ...source })),
+		sources: snapshot.sources.map((source) => ({
+			...source,
+			...(source.documents
+				? { documents: source.documents.map((document) => ({ ...document })) }
+				: {}),
+		})),
 	}
 }
 
@@ -45,4 +50,3 @@ export function createGeoCatalog(adapter: GeoCatalogAdapter): GeoCatalog {
 		},
 	}
 }
-

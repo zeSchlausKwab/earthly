@@ -51,6 +51,7 @@
     "demo:rehearse": "bun run ai-suite/demos/record.ts --rehearse",
     "demo:record": "bun run ai-suite/demos/record.ts --record",
     "chat:analyze": "bun run scripts/analyze-chat-dump.ts",
+    "geocatalog:build": "bun run scripts/build-geocatalog.ts",
     "experience:list": "bun run ai-suite/experience-lab/catalog.ts",
     "experience:card": "bun run ai-suite/experience-lab/session-card.ts",
     "experience:audit": "playwright test -c ai-suite/playwright.config.ts --grep @experience-audit",
