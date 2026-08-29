@@ -9,6 +9,9 @@
 
 import type { Tool } from './types'
 
+const PREDICATE_FIELD_DESCRIPTION =
+	'The feature property key to test (read directly from properties; no nesting), or a host field: "$id" for the GeoJSON feature id, "$geometryType" for the geometry type, and "$selected" for current map-selection membership.'
+
 /**
  * Look up a hand-authored OpenAI function schema by tool name. Shared by the
  * registry bootstrap and the injected tool modules (e.g. ingest-tools) so every
@@ -1083,8 +1086,7 @@ export const geoStaticToolSchemas: Tool[] = [
 									properties: {
 										field: {
 											type: 'string',
-											description:
-												'The feature property key to test (read directly off properties; no nesting), or the special key "$selected" to test map-selection membership.',
+											description: PREDICATE_FIELD_DESCRIPTION,
 										},
 										op: {
 											type: 'string',
@@ -1139,7 +1141,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								items: {
 									type: 'object',
 									properties: {
-										field: { type: 'string' },
+										field: { type: 'string', description: PREDICATE_FIELD_DESCRIPTION },
 										op: {
 											type: 'string',
 											enum: [
@@ -1191,7 +1193,7 @@ export const geoStaticToolSchemas: Tool[] = [
 									properties: {
 										field: {
 											type: 'string',
-											description: 'The feature property key to test.',
+											description: PREDICATE_FIELD_DESCRIPTION,
 										},
 										op: {
 											type: 'string',
@@ -1256,7 +1258,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								items: {
 									type: 'object',
 									properties: {
-										field: { type: 'string', description: 'The feature property key to test.' },
+										field: { type: 'string', description: PREDICATE_FIELD_DESCRIPTION },
 										op: {
 											type: 'string',
 											description: 'Comparison operator.',
@@ -1356,7 +1358,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								items: {
 									type: 'object',
 									properties: {
-										field: { type: 'string', description: 'The feature property key to test.' },
+										field: { type: 'string', description: PREDICATE_FIELD_DESCRIPTION },
 										op: {
 											type: 'string',
 											description: 'Comparison operator.',
@@ -1423,7 +1425,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												properties: {
 													field: {
 														type: 'string',
-														description: 'The feature property key to test.',
+														description: PREDICATE_FIELD_DESCRIPTION,
 													},
 													op: {
 														type: 'string',

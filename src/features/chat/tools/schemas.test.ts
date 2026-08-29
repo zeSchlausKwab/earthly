@@ -75,3 +75,20 @@ describe('catalog-first geography tool descriptions', () => {
 		}
 	})
 })
+
+describe('feature predicate descriptions', () => {
+	it('advertises host feature ids instead of implying ids live in properties', () => {
+		for (const name of [
+			'find_features',
+			'select_features',
+			'validate_geometry',
+			'batch_edit_features',
+			'dedup_features',
+			'style_by_attribute',
+		] as const) {
+			const descriptions = collectDescriptions(schemaFor(name).function).join(' ')
+			expect(descriptions).toContain('$id')
+			expect(descriptions).toContain('$geometryType')
+		}
+	})
+})
