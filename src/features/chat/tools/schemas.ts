@@ -223,7 +223,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_geography',
 			description:
-				"Query Earthly's fast, self-hosted geography catalog for administrative areas, localities, places, roads, rail, waterways, and infrastructure. This is the primary source for reusable real-world geometry and place discovery; use remote OSM tools only when this catalog reports a genuine coverage gap. Filter groups combine with AND semantics; values within a list use OR semantics. Discover human-readable searches first, then use the returned stable-id continuation to import chosen matches without remote re-search.",
+				"Query Earthly's fast, self-hosted geography catalog for administrative areas, localities, places, roads, rail, waterways, and infrastructure. This is the primary source for reusable real-world geometry and place discovery; use remote OSM tools only when this catalog reports a genuine coverage gap. Filter groups combine with AND semantics; values within a list use OR semantics. Text authoring is always discovered first: the host imports only one unique exact, complete match and otherwise returns a no-match or selectionRequired result without changing the Dataset. Stable ids resolve and import exactly without remote re-search.",
 			parameters: {
 				type: 'object',
 				properties: {
@@ -291,7 +291,7 @@ export const geoStaticToolSchemas: Tool[] = [
 					toEditor: {
 						type: 'boolean',
 						description:
-							'Import exact catalog geometries into the bound Dataset. Prefer this with stable ids returned by discovery; if stable ids are already known, they may be imported directly.',
+							'Import into the bound Dataset. Stable ids import exactly. Text first runs read-only discovery and imports only one unique exact non-truncated match; ambiguity or no match leaves the Dataset unchanged.',
 					},
 					replaceExisting: {
 						type: 'boolean',
@@ -386,7 +386,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_nearby',
 			description:
-				'Last-resort remote OpenStreetMap query near a point. Use only when query_geography reports that the needed local detail is unavailable. Filter by tags such as amenity=cafe or shop=supermarket; include relations only when the missing detail requires a boundary or route relation.',
+				'Last-resort, read-only OpenStreetMap discovery near a point. Use only when query_geography reports that the needed local detail is unavailable. Filter by tags such as amenity=cafe or shop=supermarket; include relations only when the missing detail requires a boundary or route relation. This tool never edits the Dataset; explicitly select an exact result or use import_osm_to_editor after discovery.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -426,15 +426,6 @@ export const geoStaticToolSchemas: Tool[] = [
 						description:
 							'If true, include OSM relations in results (heavier but required for many boundaries).',
 					},
-					toEditor: {
-						type: 'boolean',
-						description:
-							'If true, import returned geometries directly into editor and return a compact import summary.',
-					},
-					replaceExisting: {
-						type: 'boolean',
-						description: 'Used when toEditor=true. If true, replaces current editor features.',
-					},
 				},
 				required: ['lat', 'lon'],
 			},
@@ -445,7 +436,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_bbox',
 			description:
-				'Last-resort remote OpenStreetMap query within a bounding box. Prefer query_geography and use this only for a confirmed catalog coverage gap. Narrow the request with tags; include relations only when the missing detail requires an administrative boundary.',
+				'Last-resort, read-only OpenStreetMap discovery within a bounding box. Prefer query_geography and use this only for a confirmed catalog coverage gap. Narrow the request with tags; include relations only when the missing detail requires an administrative boundary. This tool never edits the Dataset; explicitly select an exact result or use import_osm_to_editor after discovery.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -489,15 +480,6 @@ export const geoStaticToolSchemas: Tool[] = [
 						description:
 							'If true, include OSM relations (recommended for administrative boundaries).',
 					},
-					toEditor: {
-						type: 'boolean',
-						description:
-							'If true, import returned geometries directly into editor and return a compact import summary.',
-					},
-					replaceExisting: {
-						type: 'boolean',
-						description: 'Used when toEditor=true. If true, replaces current editor features.',
-					},
 				},
 				required: ['west', 'south', 'east', 'north'],
 			},
@@ -508,7 +490,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_area',
 			description:
-				'Last-resort, slow remote OpenStreetMap query constrained to a polygon area. Use only after query_geography reports a coverage gap, and only for local detail such as POIs, streets, buildings, or small waterways; use bundled world layers for generalized country-scale coastlines and major rivers. The area may come from selected polygons, explicit or chat-attached geometry, a country boundary, or an OSM relation. It can clip matching lines or return representative points. Always provide filters, filterSets, or a semantic concept; never run an unfiltered area scan.',
+				'Last-resort, slow, read-only OpenStreetMap discovery constrained to a polygon area. Use only after query_geography reports a coverage gap, and only for local detail such as POIs, streets, buildings, or small waterways; use bundled world layers for generalized country-scale coastlines and major rivers. The area may come from selected polygons, explicit or chat-attached geometry, a country boundary, or an OSM relation. It can clip matching lines or return representative points. Always provide filters, filterSets, or a semantic concept; never run an unfiltered area scan. This tool never edits the Dataset; use import_osm_to_editor for a deliberate import.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -581,15 +563,6 @@ export const geoStaticToolSchemas: Tool[] = [
 						type: 'boolean',
 						description:
 							'When outputGeometry="native", clip matching LineString/MultiLineString features to the polygon area. Default true.',
-					},
-					toEditor: {
-						type: 'boolean',
-						description:
-							'If true, import filtered results directly into the editor and return a compact import summary.',
-					},
-					replaceExisting: {
-						type: 'boolean',
-						description: 'Used when toEditor=true. If true, replaces current editor features.',
 					},
 				},
 			},
@@ -908,7 +881,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'fetch_url',
 			description:
-				'Fetch a non-Wikipedia URL and extract its readable text content. Useful for reading articles, documentation, reports, or other web pages after web_search. Wikipedia URLs return a structured redirect to wikipedia_extract.',
+				'Fetch a non-Wikipedia URL and extract its readable text content. Useful for reading articles, documentation, reports, or other web pages after web_search. Wikipedia URLs redirect to bounded wikipedia_extract article/section prose; do not try raw or API variants.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -971,7 +944,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'wikipedia_extract',
 			description:
-				'Extract structured sections or a paged table from one Wikipedia article. Use outline first to discover table indexes, then table mode for rows. The table result has an explicit pagination.status contract: complete means this response contains the full table; more means continue at pagination.nextOffset; final_page still omits earlier rows. Returns article revision plus section/table/source-row provenance; prefer this over fetch_url for Wikipedia tables.',
+				'Read bounded prose or structured tables from one Wikipedia article without trying alternate raw/API URLs. Use article mode for prose, section mode with sectionIndex or sectionTitle for focused prose, outline mode to discover sections/tables, and table mode for rows. For prose, only textPagination.status=complete contains all requested text; status=more requires textPagination.nextOffset and its revisionId to keep offsets stable. For tables, only pagination.status=complete contains the full table; status=more requires pagination.nextOffset and final_page still omits earlier rows. Prefer this over fetch_url for every Wikipedia page.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -980,8 +953,30 @@ export const geoStaticToolSchemas: Tool[] = [
 					language: { type: 'string', description: 'Wikipedia language code (default: en)' },
 					mode: {
 						type: 'string',
-						enum: ['outline', 'table'],
-						description: 'outline discovers sections/tables; table returns bounded rows',
+						enum: ['outline', 'article', 'section', 'table'],
+						description:
+							'article reads bounded prose; section reads one section; outline discovers sections/tables; table returns bounded rows',
+					},
+					revisionId: {
+						type: 'number',
+						description:
+							'Revision returned by the preceding prose page; pass it on every continuation',
+					},
+					sectionIndex: {
+						type: 'string',
+						description: 'Stable section index returned by outline mode',
+					},
+					sectionTitle: {
+						type: 'string',
+						description: 'Exact section title when sectionIndex is unavailable',
+					},
+					textOffset: {
+						type: 'number',
+						description: 'Zero-based prose character offset (default 0)',
+					},
+					textLimit: {
+						type: 'number',
+						description: 'Prose characters to return (default 12000, max 30000)',
 					},
 					tableIndex: { type: 'number', description: 'Zero-based table index for table mode' },
 					rowOffset: { type: 'number', description: 'Zero-based data row offset' },

@@ -13,6 +13,7 @@ import {
 	GeoCatalogError,
 	type GeoCatalog,
 	type GeoCatalogBbox,
+	type GeoCatalogEntry,
 	type GeoCatalogKind,
 	type GeoCatalogQueryCoverage,
 	type GeoCatalogQueryDiagnostics,
@@ -101,6 +102,10 @@ interface RecoveredQuery {
 	state: RecoveryState
 }
 
+type RecoveryEntryPredicate = (entry: GeoCatalogEntry) => boolean
+
+const acceptRecoveryEntry: RecoveryEntryPredicate = () => true
+
 function requestWithText(
 	request: PreparedGeoCatalogQuery,
 	textTokens: string[],
@@ -126,12 +131,14 @@ function isExactTextMatch(entry: { name: string; aliases: string[] }, text: stri
 function queryExactRecovery(
 	adapter: GeoCatalogAdapter,
 	state: RecoveryState,
+	acceptEntry: RecoveryEntryPredicate = acceptRecoveryEntry,
 ): RecoveredQuery | null {
 	if (state.request.text === null) return null
 	const effectiveText = state.request.text
 	const result = adapter.query(state.request)
 	const entries = result.entries.filter(
 		(entry) =>
+			acceptEntry(entry) &&
 			isExactTextMatch(entry, effectiveText) &&
 			(!state.appliedBbox || bboxIntersects(entry.bbox, state.appliedBbox)),
 	)
@@ -381,13 +388,14 @@ function textVariantStates(
 function recoverTextVariant(
 	adapter: GeoCatalogAdapter,
 	state: RecoveryState,
+	acceptEntry: RecoveryEntryPredicate = acceptRecoveryEntry,
 ): RecoveredQuery | null {
 	for (const strategy of [
 		'spacing_variant',
 		'single_character_deletion',
 	] as const) {
 		const recovered = textVariantStates(state, strategy)
-			.map((variant) => queryExactRecovery(adapter, variant))
+			.map((variant) => queryExactRecovery(adapter, variant, acceptEntry))
 			.filter((candidate): candidate is RecoveredQuery => candidate !== null)
 		if (recovered.length > 1) return null
 		if (recovered.length === 1) return recovered[0] ?? null
@@ -399,19 +407,94 @@ function recoverState(
 	adapter: GeoCatalogAdapter,
 	state: RecoveryState,
 	includeVariants = true,
+	acceptEntry: RecoveryEntryPredicate = acceptRecoveryEntry,
 ): RecoveredQuery | null {
-	const direct = queryExactRecovery(adapter, state)
+	const direct = queryExactRecovery(adapter, state, acceptEntry)
 	if (direct) return direct
 	const generic = withGenericSuffixRecovery(state)
 	if (generic) {
-		const genericResult = queryExactRecovery(adapter, generic)
+		const genericResult = queryExactRecovery(adapter, generic, acceptEntry)
 		if (genericResult) return genericResult
 		if (includeVariants) {
-			const genericVariant = recoverTextVariant(adapter, generic)
+			const genericVariant = recoverTextVariant(adapter, generic, acceptEntry)
 			if (genericVariant) return genericVariant
 		}
 	}
-	return includeVariants ? recoverTextVariant(adapter, state) : null
+	return includeVariants ? recoverTextVariant(adapter, state, acceptEntry) : null
+}
+
+interface CountrylessSpatialRecovery {
+	recovered: RecoveredQuery
+	countryCode: string
+	boundaryId: string
+	appliedBbox: GeoCatalogBbox
+}
+
+/**
+ * Overture corridors and a few other derived base records legitimately omit a
+ * country code. For discovery only, recover those records by resolving one
+ * exact admin-0 boundary for the explicit ISO code and post-filtering exact
+ * text matches against its bbox. Stable-id and geometry queries never enter
+ * this path, so authoring remains exact.
+ */
+function recoverCountrylessWithinExplicitCountry(
+	adapter: GeoCatalogAdapter,
+	request: PreparedGeoCatalogQuery,
+): CountrylessSpatialRecovery | null {
+	if (request.countryCode === null || request.text === null) return null
+
+	const boundaryResult = adapter.query({
+		...request,
+		text: null,
+		textTokens: [],
+		ids: [],
+		kinds: ['admin'],
+		categories: ['administrative-boundary'],
+		adminLevels: [0],
+		bbox: null,
+		near: null,
+		radiusMeters: null,
+		limit: Math.max(100, request.limit),
+		includeGeometry: false,
+	})
+	const boundaries = boundaryResult.entries.filter(
+		(entry) =>
+			entry.kind === 'admin' &&
+			entry.adminLevel === 0 &&
+			entry.countryCode === request.countryCode &&
+			entry.categories.includes('administrative-boundary'),
+	)
+	if (boundaryResult.hasMore || boundaries.length !== 1) return null
+	const boundary = boundaries[0]
+	if (!boundary) return null
+	const appliedBbox = intersectBboxes(request.bbox, boundary.bbox)
+	if (appliedBbox === null) return null
+
+	const state: RecoveryState = {
+		request: {
+			...request,
+			countryCode: null,
+			// Preserve a caller-supplied bbox in the adapter query. The usually much
+			// larger country bbox is enforced over the exact-name result set below.
+			bbox: request.bbox,
+		},
+		steps: [],
+		appliedBbox,
+	}
+	const recovered = recoverState(
+		adapter,
+		state,
+		true,
+		(entry) => entry.countryCode === undefined,
+	)
+	return recovered
+		? {
+				recovered,
+				countryCode: request.countryCode,
+				boundaryId: boundary.id,
+				appliedBbox,
+			}
+		: null
 }
 
 function recoveryDiagnostic(
@@ -631,10 +714,31 @@ export function createGeoCatalog(adapter: GeoCatalogAdapter): GeoCatalog {
 					prepared.text !== null
 				) {
 					const initialState: RecoveryState = { request: prepared, steps: [] }
+					const countrylessRecovery = recoverCountrylessWithinExplicitCountry(
+						adapter,
+						prepared,
+					)
 					const qualifiedRecovery = inferTrailingGeographicQualifier(adapter, prepared)
-					let recovered: RecoveredQuery | null = null
+					let recovered: RecoveredQuery | null = countrylessRecovery?.recovered ?? null
+					if (countrylessRecovery) {
+						diagnostics = {
+							countrylessSpatialFallback: {
+								status: 'applied',
+								countryCode: countrylessRecovery.countryCode,
+								boundaryId: countrylessRecovery.boundaryId,
+								appliedBbox: countrylessRecovery.appliedBbox,
+							},
+							...(countrylessRecovery.recovered.state.steps.length > 0
+								? {
+										textRecovery: recoveryDiagnostic(
+											countrylessRecovery.recovered.state,
+										),
+									}
+								: {}),
+						}
+					}
 
-					if (qualifiedRecovery) {
+					if (!recovered && qualifiedRecovery) {
 						recovered = recoverState(adapter, qualifiedRecovery.preferred, false)
 						if (!recovered && qualifiedRecovery.spatialFallback) {
 							recovered = recoverState(adapter, qualifiedRecovery.spatialFallback, false)

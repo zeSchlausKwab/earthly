@@ -53,6 +53,14 @@ function requiresDatasetTarget(toolName: string, args: Record<string, unknown>):
 	return kind === 'editor' || kind === 'authoring-primitive' || kind === 'code-interpreter'
 }
 
+function isDeferredGeoCatalogImport(toolName: string, result: unknown): boolean {
+	if (toolName !== 'query_geography' || !result || typeof result !== 'object') return false
+	const editorImport = (result as Record<string, unknown>).editorImport
+	if (!editorImport || typeof editorImport !== 'object' || Array.isArray(editorImport)) return false
+	const state = editorImport as Record<string, unknown>
+	return state.selectionRequired === true || state.available === false
+}
+
 function getStructuredToolError(result: ToolResult): ToolError | null {
 	try {
 		const parsed = JSON.parse(result.content) as unknown
@@ -230,27 +238,34 @@ async function executeToolCallBound(
 		let result: unknown = dispatched
 
 		if (args.toEditor && TO_EDITOR_COMPATIBLE_TOOLS.has(toolCall.function.name)) {
-			// `toEditor` is an authoring operation even though the originating tool is
-			// read-only MCP. Establish the local draft before baking its result so the
-			// geometry appears in Saved work, the Map Stack, and the editor list.
-			await ensureExecutionTargetForMutation(context?.run)
-			const editorMetadata = getEditorDatasetMetadata(result)
-			if (editorMetadata) {
-				const editor = getExecutionEditor()
-				if (!editor) {
-					throw new Error('Map editor is not ready to preserve imported dataset metadata.')
+			if (isDeferredGeoCatalogImport(toolCall.function.name, result)) {
+				result = {
+					...(result as Record<string, unknown>),
+					toEditor: true,
 				}
-				createExecutionAuthoring(editor).setDatasetMetadata(editorMetadata)
-			}
-			const bakeResult = toEditorFromToolResultValue(
-				result,
-				Boolean(args.replaceExisting),
-				toolCall.function.name,
-			)
-			result = {
-				...compactToolResultAfterBake(result),
-				editorImport: bakeResult,
-				toEditor: true,
+			} else {
+				// `toEditor` is an authoring operation even though the originating tool is
+				// read-only MCP. Establish the local draft before baking its result so the
+				// geometry appears in Saved work, the Map Stack, and the editor list.
+				await ensureExecutionTargetForMutation(context?.run)
+				const editorMetadata = getEditorDatasetMetadata(result)
+				if (editorMetadata) {
+					const editor = getExecutionEditor()
+					if (!editor) {
+						throw new Error('Map editor is not ready to preserve imported dataset metadata.')
+					}
+					createExecutionAuthoring(editor).setDatasetMetadata(editorMetadata)
+				}
+				const bakeResult = toEditorFromToolResultValue(
+					result,
+					Boolean(args.replaceExisting),
+					toolCall.function.name,
+				)
+				result = {
+					...compactToolResultAfterBake(result),
+					editorImport: bakeResult,
+					toEditor: true,
+				}
 			}
 		}
 

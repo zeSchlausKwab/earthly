@@ -137,7 +137,7 @@ describe('fix #4 — agent map-context steering', () => {
 
 	it('defines complete extraction pages independently of prompt-window previews', () => {
 		expect(text).toMatch(/pagination\.status/i)
-		expect(text).toMatch(/complete.*full table/i)
+		expect(text).toMatch(/complete.*full[- ]table/i)
 	})
 
 	it('discourages gratuitous OSM relation/boundary fetches', () => {
@@ -230,6 +230,15 @@ describe('structured extraction steering', () => {
 		expect(description).toMatch(/pagination\.status/i)
 		expect(description).toMatch(/complete.*full table/i)
 		expect(description).toMatch(/more.*nextOffset/i)
+	})
+
+	it('advertises bounded revision-pinned Wikipedia prose instead of raw/API retries', () => {
+		const description = wikipediaExtractDescription()
+		expect(description).toMatch(/article mode.*prose/i)
+		expect(description).toMatch(/section mode.*sectionIndex.*sectionTitle/i)
+		expect(description).toMatch(/textPagination\.status=complete/i)
+		expect(description).toMatch(/revisionId/i)
+		expect(description).toMatch(/without trying alternate raw\/API URLs/i)
 	})
 })
 

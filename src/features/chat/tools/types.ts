@@ -123,9 +123,6 @@ export const MAX_GEOJSON_TEXT_CHARS = 200000
 export const TO_EDITOR_COMPATIBLE_TOOLS = new Set([
 	'query_geography',
 	'query_osm_by_id',
-	'query_osm_nearby',
-	'query_osm_bbox',
-	'query_osm_area',
 	'get_osm_relation_geometry',
 	'get_country_boundary',
 	'valhalla_route',

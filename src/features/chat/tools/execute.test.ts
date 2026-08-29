@@ -1134,6 +1134,61 @@ describe('tool-result geometry authoring lifecycle', () => {
 		expect(persistedManifest.snapshotId).toBe('fixture')
 	})
 
+	it('treats a deferred GeoCatalog selection or no-match as a successful non-mutation', async () => {
+		const existing = pointFeature('keep-me', 'Existing', [1, 2])
+		const editor = createHeadlessEditor()
+		editor.setFeatures([existing])
+		useEditorStore.getState().setEditor(editor)
+		let authoringTargetEnsured = false
+		unregisterEnsurer = registerDatasetDraftEnsurer(() => {
+			authoringTargetEnsured = true
+			return 'draft:active'
+		})
+		register({
+			name: 'query_geography',
+			kind: 'remote-mcp',
+			schema: productionCatalogEntry?.schema ?? {
+				type: 'function',
+				function: {
+					name: 'query_geography',
+					description: 'Return a fixture no-match.',
+					parameters: { type: 'object', properties: {} },
+				},
+			},
+			handler: () => ({
+				items: [],
+				metadata: {
+					coverage: { zeroResultReason: 'no_match_within_snapshot' },
+				},
+				editorImport: {
+					available: false,
+					selectionRequired: false,
+					noMatch: true,
+				},
+			}),
+		})
+
+		const result = await executeToolCall({
+			id: 'catalog-no-match',
+			type: 'function',
+			function: {
+				name: 'query_geography',
+				arguments: JSON.stringify({
+					text: 'Missing River',
+					toEditor: true,
+					replaceExisting: true,
+				}),
+			},
+		})
+		const parsed = JSON.parse(result.content)
+
+		expect(parsed.code).toBeUndefined()
+		expect(parsed.toEditor).toBe(true)
+		expect(parsed.editorImport).toMatchObject({ available: false, noMatch: true })
+		expect(authoringTargetEnsured).toBe(false)
+		expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(['keep-me'])
+	})
+
 	it('does not replace editor contents when a catalog response has missing geometry', async () => {
 		if (!productionCatalogEntry) throw new Error('Expected the production catalog tool')
 		const existing = pointFeature('keep-me', 'Existing', [1, 2])
@@ -1166,8 +1221,11 @@ describe('tool-result geometry authoring lifecycle', () => {
 					metadata: {
 						snapshot: {
 							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
 							sources: [{ name: 'Overture Maps', release: '2026-08-19.0', license: 'ODbL-1.0' }],
 						},
+						query: { returned: 2, limit: 20, hasMore: false },
 					},
 				},
 			}) as T
@@ -1179,7 +1237,7 @@ describe('tool-result geometry authoring lifecycle', () => {
 				function: {
 					name: 'query_geography',
 					arguments: JSON.stringify({
-						text: 'fixture',
+						ids: ['overture:place:complete', 'overture:place:missing'],
 						toEditor: true,
 						replaceExisting: true,
 					}),

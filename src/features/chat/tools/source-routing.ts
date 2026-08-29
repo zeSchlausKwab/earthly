@@ -44,16 +44,34 @@ export function getWikipediaFetchRedirect(rawUrl: string): ToolRedirect | null {
 				? url.searchParams.get('pages')
 				: null
 	const normalizedApiTitle = apiTitle?.split('|', 1)[0]?.replaceAll('_', ' ').trim()
+	const requestedSectionIndex = url.searchParams.get('section')?.trim()
+	let requestedSectionTitle: string | undefined
+	if (url.hash.length > 1) {
+		try {
+			requestedSectionTitle = decodeURIComponent(url.hash.slice(1)).replaceAll('_', ' ').trim()
+		} catch {
+			requestedSectionTitle = undefined
+		}
+	}
+	const proseMode =
+		(requestedSectionIndex && requestedSectionIndex !== '0') || requestedSectionTitle
+			? 'section'
+			: 'article'
 	const redirectArguments: Record<string, unknown> = normalizedApiTitle
-		? { title: normalizedApiTitle, language, mode: 'outline' }
-		: { url: rawUrl, mode: 'outline' }
+		? { title: normalizedApiTitle, language, mode: proseMode }
+		: { url: rawUrl, mode: proseMode }
+	if (requestedSectionIndex && requestedSectionIndex !== '0') {
+		redirectArguments.sectionIndex = requestedSectionIndex
+	} else if (requestedSectionTitle) {
+		redirectArguments.sectionTitle = requestedSectionTitle
+	}
 
 	return {
 		ok: false,
 		kind: 'tool_redirect',
 		toolName: 'fetch_url',
 		message:
-			'Wikipedia articles have a structured, provenance-preserving reader. Use wikipedia_extract instead of fetch_url.',
+			'Wikipedia articles have a bounded, provenance-preserving prose reader. Use wikipedia_extract article/section mode instead of fetch_url or alternate raw/API URLs.',
 		redirectTool: 'wikipedia_extract',
 		redirectArguments,
 	}

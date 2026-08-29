@@ -673,6 +673,45 @@ for (const harnessDefinition of harnesses) {
 			})
 		})
 
+		test('recovers countryless exact matches inside one explicit admin-0 country boundary', async () => {
+			await usingCatalog(async (catalog) => {
+				const result = await catalog.query({
+					text: 'Trishuli River',
+					kinds: ['waterway'],
+					countryCode: 'np',
+				})
+
+				expect(result.items.map((entry) => entry.id)).toEqual(['waterway:trishuli'])
+				expect(result.metadata.query.diagnostics?.countrylessSpatialFallback).toEqual({
+					status: 'applied',
+					countryCode: 'NP',
+					boundaryId: 'admin:np',
+					appliedBbox: [80.05, 26.35, 88.2, 30.45],
+				})
+				expect(result.metadata.query.diagnostics?.textRecovery).toBeUndefined()
+			})
+		})
+
+		test('never uses the countryless fallback for geometry or stable-id resolution', async () => {
+			await usingCatalog(async (catalog) => {
+				const geometry = await catalog.query({
+					text: 'Trishuli River',
+					kinds: ['waterway'],
+					countryCode: 'NP',
+					includeGeometry: true,
+				})
+				expect(geometry.items).toEqual([])
+				expect(geometry.metadata.query.diagnostics).toBeUndefined()
+
+				const stableId = await catalog.query({
+					ids: ['waterway:trishuli'],
+					countryCode: 'NP',
+				})
+				expect(stableId.items).toEqual([])
+				expect(stableId.metadata.query.diagnostics).toBeUndefined()
+			})
+		})
+
 		test('rejects an ambiguous regional qualifier even within one country', async () => {
 			await usingCatalog(async (catalog) => {
 				const result = await catalog.query({ text: 'Dhunche Twin Region' })
@@ -1059,6 +1098,29 @@ for (const harnessDefinition of harnesses) {
 		})
 	})
 }
+
+test('countryless recovery fails closed when an ISO code has multiple admin-0 boundaries', async () => {
+	const nepal = entries.find((entry) => entry.id === 'admin:np')!
+	const duplicateBoundary: GeoCatalogEntry = {
+		...nepal,
+		id: 'admin:np-duplicate',
+		name: 'Duplicate Nepal boundary',
+		aliases: [],
+	}
+	const catalog = createInMemoryGeoCatalog({
+		snapshot,
+		entries: [...entries, duplicateBoundary],
+	})
+
+	const result = await catalog.query({
+		text: 'Trishuli River',
+		kinds: ['waterway'],
+		countryCode: 'NP',
+	})
+
+	expect(result.items).toEqual([])
+	expect(result.metadata.query.diagnostics?.countrylessSpatialFallback).toBeUndefined()
+})
 
 test('recovery preserves adapter truncation after filtering a partial result page', async () => {
 	const tibet = entries.find((entry) => entry.id === 'admin:cn-tibet')!

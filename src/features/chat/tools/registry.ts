@@ -327,6 +327,71 @@ function catalogEditorProperties(
 	return properties
 }
 
+function normalizeCatalogSearchText(value: string): string {
+	return value
+		.normalize('NFKD')
+		.replace(/\p{M}+/gu, '')
+		.toLocaleLowerCase('en-US')
+		.replace(/[^\p{L}\p{N}]+/gu, ' ')
+		.trim()
+		.replace(/\s+/gu, ' ')
+}
+
+function catalogImportCandidateIds(rawItems: unknown[]): string[] {
+	return Array.from(
+		new Set(
+			rawItems.flatMap((item) => {
+				if (!isRecord(item) || typeof item.id !== 'string' || item.id.length === 0) return []
+				const categories = Array.isArray(item.categories) ? item.categories : []
+				return categories.includes('administrative-label') ? [] : [item.id]
+			}),
+		),
+	)
+}
+
+function catalogEffectiveDiscoveryTexts(
+	text: string | undefined,
+	metadata: Record<string, unknown>,
+): Set<string> {
+	const values = new Set<string>()
+	const add = (value: unknown): void => {
+		if (typeof value !== 'string') return
+		const normalized = normalizeCatalogSearchText(value)
+		if (normalized) values.add(normalized)
+	}
+	add(text)
+	const query = isRecord(metadata.query) ? metadata.query : undefined
+	const diagnostics = isRecord(query?.diagnostics) ? query.diagnostics : undefined
+	for (const key of ['textRelaxation', 'textRecovery'] as const) {
+		const recovery = isRecord(diagnostics?.[key]) ? diagnostics[key] : undefined
+		add(recovery?.effectiveText)
+	}
+	return values
+}
+
+function catalogExactImportCandidateIds(
+	rawItems: unknown[],
+	text: string | undefined,
+	metadata: Record<string, unknown>,
+): string[] {
+	const effectiveTexts = catalogEffectiveDiscoveryTexts(text, metadata)
+	if (effectiveTexts.size === 0) return []
+	const safeIds = new Set(catalogImportCandidateIds(rawItems))
+	return Array.from(
+		new Set(
+			rawItems.flatMap((item) => {
+				if (!isRecord(item) || typeof item.id !== 'string' || !safeIds.has(item.id)) return []
+				const names = [item.name, ...(Array.isArray(item.aliases) ? item.aliases : [])]
+				const exact = names.some(
+					(value) =>
+						typeof value === 'string' && effectiveTexts.has(normalizeCatalogSearchText(value)),
+				)
+				return exact ? [item.id] : []
+			}),
+		),
+	)
+}
+
 /** The nature/origin of a tool — required on every entry (D-03, Pitfall 5). */
 export type ToolKind =
 	| 'editor'
@@ -885,7 +950,7 @@ function registerRemoteMcpTools(): void {
 				)
 			}
 
-			const response = await client.callRemoteTool<Record<string, unknown>>('query_geography', {
+			const transportArguments: Record<string, unknown> = {
 				...(text ? { text } : {}),
 				...(ids?.length ? { ids } : {}),
 				...(kinds?.length ? { kinds } : {}),
@@ -912,15 +977,94 @@ function registerRemoteMcpTools(): void {
 					: {}),
 				...(radiusMeters !== undefined ? { radiusMeters } : {}),
 				...(limit !== undefined ? { limit } : {}),
-				includeGeometry: toEditor,
+			}
+			const discoveryBeforeImport = toEditor && !ids?.length
+			let response = await client.callRemoteTool<Record<string, unknown>>('query_geography', {
+				...transportArguments,
+				includeGeometry: toEditor && !discoveryBeforeImport,
 			})
-			const result = extractMcpToolResult('query_geography', response)
+			let result = extractMcpToolResult('query_geography', response)
 			if (!Array.isArray(result.items)) {
 				throw new Error('query_geography returned an invalid items collection')
 			}
 			if (!isRecord(result.metadata) || !isRecord(result.metadata.snapshot)) {
 				throw new Error('query_geography returned invalid snapshot metadata')
 			}
+
+			let deferredEditorImport: Record<string, unknown> | undefined
+			let autoSelectedCatalogId: string | undefined
+			if (discoveryBeforeImport) {
+				const discoveryItems = result.items
+				const discoveryMetadata = result.metadata
+				const candidateIds = catalogImportCandidateIds(discoveryItems)
+				const exactCandidateIds = catalogExactImportCandidateIds(
+					discoveryItems,
+					text,
+					discoveryMetadata,
+				)
+				const discoveryQuery = isRecord(discoveryMetadata.query)
+					? discoveryMetadata.query
+					: undefined
+				const discoveryDiagnostics = isRecord(discoveryQuery?.diagnostics)
+					? discoveryQuery.diagnostics
+					: undefined
+				const usedCountrylessSpatialFallback = isRecord(
+					discoveryDiagnostics?.countrylessSpatialFallback,
+				)
+				const discoveryIsTruncated = discoveryQuery?.hasMore === true
+
+				if (
+					exactCandidateIds.length === 1 &&
+					!discoveryIsTruncated &&
+					!usedCountrylessSpatialFallback
+				) {
+					autoSelectedCatalogId = exactCandidateIds[0]
+					response = await client.callRemoteTool<Record<string, unknown>>('query_geography', {
+						ids: [autoSelectedCatalogId],
+						includeGeometry: true,
+					})
+					result = extractMcpToolResult('query_geography', response)
+					if (!Array.isArray(result.items)) {
+						throw new Error('query_geography returned an invalid stable-id items collection')
+					}
+					if (!isRecord(result.metadata) || !isRecord(result.metadata.snapshot)) {
+						throw new Error('query_geography returned invalid stable-id snapshot metadata')
+					}
+					if (
+						result.items.length !== 1 ||
+						!isRecord(result.items[0]) ||
+						result.items[0].id !== autoSelectedCatalogId
+					) {
+						throw new Error(
+							'query_geography stable-id resolution did not return the one selected discovery candidate',
+						)
+					}
+				} else if (candidateIds.length === 0) {
+					deferredEditorImport = {
+						available: false,
+						selectionRequired: false,
+						noMatch: discoveryItems.length === 0,
+						reason:
+							discoveryItems.length === 0
+								? 'No catalog match was found; the Dataset was not changed.'
+								: 'The matches are discovery-only and cannot be imported; the Dataset was not changed.',
+					}
+				} else {
+					deferredEditorImport = {
+						available: true,
+						candidateIds: exactCandidateIds.length > 0 ? exactCandidateIds : candidateIds,
+						selectionRequired: true,
+						reason: usedCountrylessSpatialFallback
+							? 'The match was recovered spatially because its source record has no country code; choose its stable catalog id before importing.'
+							: discoveryIsTruncated
+								? 'The discovery result is truncated; choose a stable catalog id before importing.'
+								: exactCandidateIds.length > 1
+									? 'More than one exact catalog match exists; choose a stable catalog id before importing.'
+									: 'No unique exact catalog match exists; choose a stable catalog id before importing.',
+					}
+				}
+			}
+
 			const rawItems = result.items
 			const metadata = result.metadata
 			const { manifest, propertyName: manifestProperty } = catalogSourceManifest(metadata)
@@ -945,7 +1089,7 @@ function registerRemoteMcpTools(): void {
 					properties: compactCatalogProperties(rawProperties),
 				}
 			})
-			if (toEditor && features.length !== rawItems.length) {
+			if (toEditor && !deferredEditorImport && features.length !== rawItems.length) {
 				throw new Error(
 					`query_geography returned ${rawItems.length} item(s), but only ${features.length} had valid geometry; no editor changes were applied`,
 				)
@@ -956,45 +1100,45 @@ function registerRemoteMcpTools(): void {
 				metadata: compactCatalogMetadata(metadata, manifest),
 				items,
 				...(features.length > 0 ? { features } : {}),
-				...(!toEditor
-					? (() => {
-							const candidateIds = Array.from(
-								new Set(
-									rawItems.flatMap((item) => {
-										if (!isRecord(item) || typeof item.id !== 'string' || item.id.length === 0) {
-											return []
-										}
-										const categories = Array.isArray(item.categories) ? item.categories : []
-										return categories.includes('administrative-label') ? [] : [item.id]
-									}),
-								),
-							)
-							if (candidateIds.length === 0) return {}
-							const discoveryIsTruncated =
-								isRecord(metadata.query) && metadata.query.hasMore === true
-							if (candidateIds.length > 1 || discoveryIsTruncated) {
+				...(autoSelectedCatalogId
+					? {
+							catalogResolution: {
+								strategy: 'unique-exact-discovery-match',
+								stableId: autoSelectedCatalogId,
+							},
+						}
+					: {}),
+				...(deferredEditorImport
+					? { editorImport: deferredEditorImport }
+					: !toEditor
+						? (() => {
+								const candidateIds = catalogImportCandidateIds(rawItems)
+								if (candidateIds.length === 0) return {}
+								const discoveryIsTruncated =
+									isRecord(metadata.query) && metadata.query.hasMore === true
+								if (candidateIds.length > 1 || discoveryIsTruncated) {
+									return {
+										editorImport: {
+											available: true,
+											candidateIds,
+											selectionRequired: true,
+										},
+									}
+								}
 								return {
 									editorImport: {
 										available: true,
 										candidateIds,
-										selectionRequired: true,
+										nextCall: {
+											name: 'query_geography',
+											arguments: { ids: candidateIds, toEditor: true },
+										},
 									},
 								}
-							}
-							return {
-								editorImport: {
-									available: true,
-									candidateIds,
-									nextCall: {
-										name: 'query_geography',
-										arguments: { ids: candidateIds, toEditor: true },
-									},
-								},
-							}
-						})()
-					: {}),
+							})()
+						: {}),
 			}
-			return toEditor && features.length > 0
+			return toEditor && !deferredEditorImport && features.length > 0
 				? attachEditorDatasetMetadata(output, {
 						properties: { [manifestProperty]: JSON.stringify(manifest) },
 					})
@@ -1641,18 +1785,43 @@ function registerRemoteMcpTools(): void {
 				typeof args.title === 'string' && args.title.trim() ? args.title.trim() : undefined
 			if (!url && !title) throw new Error("Either 'url' or 'title' is required")
 			const language = typeof args.language === 'string' ? args.language : undefined
-			const mode = args.mode === 'table' ? 'table' : args.mode === 'outline' ? 'outline' : undefined
+			const mode =
+				args.mode === 'table' ||
+				args.mode === 'outline' ||
+				args.mode === 'article' ||
+				args.mode === 'section'
+					? args.mode
+					: undefined
+			const revisionId = toFiniteNumber(args.revisionId)
+			const sectionIndex =
+				typeof args.sectionIndex === 'string' && args.sectionIndex.trim()
+					? args.sectionIndex.trim()
+					: undefined
+			const sectionTitle =
+				typeof args.sectionTitle === 'string' && args.sectionTitle.trim()
+					? args.sectionTitle.trim()
+					: undefined
+			const textOffset = toFiniteNumber(args.textOffset)
+			const textLimit = toFiniteNumber(args.textLimit)
 			const tableIndex = toFiniteNumber(args.tableIndex)
 			const rowOffset = toFiniteNumber(args.rowOffset)
 			const rowLimit = toFiniteNumber(args.rowLimit)
 			if (mode === 'table' && tableIndex === undefined) {
 				throw new Error('tableIndex is required in table mode')
 			}
+			if (mode === 'section' && !sectionIndex && !sectionTitle) {
+				throw new Error('sectionIndex or sectionTitle is required in section mode')
+			}
 			const response = await client.WikipediaExtract(
 				url,
 				title,
 				language,
 				mode,
+				revisionId,
+				sectionIndex,
+				sectionTitle,
+				textOffset,
+				textLimit,
 				tableIndex,
 				rowOffset,
 				rowLimit,

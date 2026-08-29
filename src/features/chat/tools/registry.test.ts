@@ -132,7 +132,7 @@ describe('tool registry', () => {
 		expect(transportFields).toEqual(discoveryFields)
 	})
 
-	it('queries the catalog once, forces geometry for toEditor, and exposes exact features', async () => {
+	it('discovers text first, then resolves one unique exact stable id for toEditor', async () => {
 		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
 		const calls: Array<{ name: string; args: Record<string, unknown> }> = []
 		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>(
@@ -159,7 +159,9 @@ describe('tool registry', () => {
 								taxonomy: { primary: 'village', hierarchy: ['place', 'village'] },
 								sources: [{ dataset: 'OpenStreetMap', record_id: 'node/1' }],
 							},
-							geometry: { type: 'Point', coordinates: [85.25, 28.15] },
+							...(args.includeGeometry === true
+								? { geometry: { type: 'Point', coordinates: [85.25, 28.15] } }
+								: {}),
 						},
 					],
 					metadata: {
@@ -229,14 +231,27 @@ describe('tool registry', () => {
 				metadata: Record<string, unknown>
 			}
 
-			expect(calls).toHaveLength(1)
+			expect(calls).toHaveLength(2)
 			expect(calls[0]).toEqual({
 				name: 'query_geography',
 				args: {
 					text: 'Timure',
 					categories: ['village'],
 					countryCode: 'NP',
+					includeGeometry: false,
+				},
+			})
+			expect(calls[1]).toEqual({
+				name: 'query_geography',
+				args: {
+					ids: ['overture:place:gers-1'],
 					includeGeometry: true,
+				},
+			})
+			expect(result).toMatchObject({
+				catalogResolution: {
+					strategy: 'unique-exact-discovery-match',
+					stableId: 'overture:place:gers-1',
 				},
 			})
 			expect(result.items[0]).not.toHaveProperty('geometry')
@@ -286,6 +301,103 @@ describe('tool registry', () => {
 			expect(visibleMetadata.query?.diagnostics).toMatchObject({
 				textRelaxation: { effectiveText: 'Timure' },
 			})
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('requires stable-id selection before importing a countryless spatial fallback', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		const calls: Array<Record<string, unknown>> = []
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>(
+			_name: string,
+			args: Record<string, unknown>,
+		) => {
+			calls.push(args)
+			return {
+				result: {
+					items: [
+						{
+							id: 'overture:water:trishuli',
+							kind: 'waterway',
+							name: 'Trishuli River',
+							aliases: [],
+							categories: ['river'],
+							bbox: [84.9, 27.7, 85.3, 28.4],
+							center: { longitude: 85.1, latitude: 28.05 },
+							importance: 80,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: {},
+							...(args.includeGeometry === true
+								? {
+										geometry: {
+											type: 'LineString',
+											coordinates: [
+												[85.3, 28.4],
+												[84.9, 27.7],
+											],
+										},
+									}
+								: {}),
+						},
+					],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+						},
+						query: {
+							returned: 1,
+							limit: 20,
+							hasMore: false,
+							diagnostics: {
+								countrylessSpatialFallback: {
+									status: 'applied',
+									countryCode: 'NP',
+									boundaryId: 'admin:np',
+									appliedBbox: [80, 26, 89, 31],
+								},
+							},
+						},
+					},
+				},
+			} as T
+		}
+		try {
+			const discovery = (await dispatch('query_geography', {
+				text: 'Trishuli River',
+				countryCode: 'np',
+				toEditor: true,
+			})) as Record<string, unknown>
+
+			expect(calls).toHaveLength(1)
+			expect(calls[0]).toMatchObject({
+				text: 'Trishuli River',
+				countryCode: 'NP',
+				includeGeometry: false,
+			})
+			expect(discovery).not.toHaveProperty('features')
+			expect(discovery).toMatchObject({
+				editorImport: {
+					available: true,
+					candidateIds: ['overture:water:trishuli'],
+					selectionRequired: true,
+					reason: expect.stringContaining('recovered spatially'),
+				},
+			})
+
+			const exact = (await dispatch('query_geography', {
+				ids: ['overture:water:trishuli'],
+				toEditor: true,
+			})) as { features: GeoJSON.Feature[] }
+			expect(calls).toHaveLength(2)
+			expect(calls[1]).toEqual({
+				ids: ['overture:water:trishuli'],
+				includeGeometry: true,
+			})
+			expect(exact.features[0]?.id).toBe('overture:water:trishuli')
 		} finally {
 			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
 		}
@@ -380,6 +492,7 @@ describe('tool registry', () => {
 				text: 'Dhunche',
 				kinds: ['locality'],
 				limit: 1,
+				toEditor: true,
 			})) as Record<string, unknown>
 
 			expect(result).toMatchObject({
@@ -456,6 +569,7 @@ describe('tool registry', () => {
 			const result = (await dispatch('query_geography', {
 				text: 'Trishuli River',
 				kinds: ['waterway'],
+				toEditor: true,
 			})) as Record<string, unknown>
 
 			expect(result).toMatchObject({
@@ -470,6 +584,75 @@ describe('tool registry', () => {
 				},
 			})
 			expect((result.editorImport as Record<string, unknown>)?.nextCall).toBeUndefined()
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('returns a normal coverage-bearing no-op when text discovery finds no import target', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		const calls: Record<string, unknown>[] = []
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>(
+			_name: string,
+			args: Record<string, unknown>,
+		) => {
+			calls.push(args)
+			return {
+				result: {
+					items: [],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							coverage: {
+								spatial: { scope: 'bbox', bbox: [85.05, 27.75, 86.1, 29.1] },
+								kinds: ['waterway'],
+							},
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+						},
+						coverage: {
+							spatial: {
+								status: 'unscoped',
+								snapshotBbox: [85.05, 27.75, 86.1, 29.1],
+							},
+							kinds: { status: 'available', available: ['waterway'], missing: [] },
+							zeroResultReason: 'no_match_within_snapshot',
+						},
+						query: { returned: 0, limit: 20, hasMore: false },
+					},
+				},
+			} as T
+		}
+		try {
+			const result = (await dispatch('query_geography', {
+				text: 'Missing River',
+				kinds: ['waterway'],
+				countryCode: 'NP',
+				toEditor: true,
+			})) as Record<string, unknown>
+
+			expect(calls).toEqual([
+				{
+					text: 'Missing River',
+					kinds: ['waterway'],
+					countryCode: 'NP',
+					includeGeometry: false,
+				},
+			])
+			expect(result).toMatchObject({
+				metadata: {
+					coverage: {
+						zeroResultReason: 'no_match_within_snapshot',
+					},
+				},
+				editorImport: {
+					available: false,
+					selectionRequired: false,
+					noMatch: true,
+				},
+			})
+			expect(result).not.toHaveProperty('features')
 		} finally {
 			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
 		}
@@ -674,6 +857,40 @@ describe('set_dataset_metadata host-builtin + get_editor_state datasetMetadata (
 		}
 		expect(full.datasetMetadata?.name).toBe('Visible Name')
 		expect(full.datasetMetadata?.customProperties).toEqual({ k: 'v' })
+	})
+
+	it('summarizes GeoCatalog manifests in compact editor state without hiding them in full detail', async () => {
+		useEditorStore.getState().setEditor(createHeadlessEditor())
+		const manifestKey = 'earthly:geoCatalogSourceManifest:snapshot-1'
+		const manifest = JSON.stringify({
+			snapshotId: 'snapshot-1',
+			documents: [{ content: 'large legal document' }],
+		})
+		useEditorStore.setState({
+			collectionMeta: {
+				name: 'Catalog-backed',
+				description: '',
+				color: '#abcdef',
+				customProperties: { note: 'visible', [manifestKey]: manifest },
+			},
+		})
+
+		const compact = (await dispatch('get_editor_state', {})) as {
+			datasetMetadata?: {
+				customProperties: Record<string, unknown>
+				geoCatalogSourceManifests: { count: number; snapshotIds: string[] }
+			}
+		}
+		expect(compact.datasetMetadata?.customProperties).toEqual({ note: 'visible' })
+		expect(compact.datasetMetadata?.geoCatalogSourceManifests).toEqual({
+			count: 1,
+			snapshotIds: ['snapshot-1'],
+		})
+
+		const full = (await dispatch('get_editor_state', { detail: 'full' })) as {
+			datasetMetadata?: { customProperties: Record<string, unknown> }
+		}
+		expect(full.datasetMetadata?.customProperties[manifestKey]).toBe(manifest)
 	})
 
 	it('get_editor_state reports fresh serialized dataset bytes after a geometry mutation', async () => {

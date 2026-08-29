@@ -1293,18 +1293,44 @@ async function main() {
     {
       title: "Structured Wikipedia Extraction",
       description:
-        "Inspect a Wikipedia article's sections and tables, then retrieve a bounded page of structured table rows. Table results include pagination.status: complete means the response contains the full table, more points to pagination.nextOffset, and final_page still omits earlier rows. Every response includes article, revision, section, table, and row provenance suitable for researched map datasets.",
+        "Read bounded prose or structured tables from one Wikipedia article without scraping alternate raw/API URLs. Use article mode for prose, section mode with a section index/title for focused prose, outline mode to discover sections and tables, and table mode for rows. For prose, only textPagination.status=complete contains all requested text; status=more requires textPagination.nextOffset and the returned revisionId. For tables, only pagination.status=complete contains the full table; status=more requires pagination.nextOffset and final_page still omits earlier rows. Every response preserves article and revision provenance.",
       inputSchema: wikipediaExtractInputSchema,
       outputSchema: wikipediaExtractOutputSchema,
     },
-    async ({ url, title, language, mode, tableIndex, rowOffset, rowLimit }, extra) => {
+    async ({
+      url,
+      title,
+      language,
+      mode,
+      revisionId,
+      sectionIndex,
+      sectionTitle,
+      textOffset,
+      textLimit,
+      tableIndex,
+      rowOffset,
+      rowLimit,
+    }, extra) => {
       try {
         console.log(`📑 Wikipedia extraction: ${url || title}`);
         const result = await researchToolLimiter.run(
           requestClientPubkey(extra),
-          () => wikipediaExtract({ url, title, language, mode, tableIndex, rowOffset, rowLimit }),
+          () => wikipediaExtract({
+            url,
+            title,
+            language,
+            mode,
+            revisionId,
+            sectionIndex,
+            sectionTitle,
+            textOffset,
+            textLimit,
+            tableIndex,
+            rowOffset,
+            rowLimit,
+          }),
         );
-        console.log(`📦 Extracted ${result.tables.length} table outlines`);
+        console.log(`📦 Extracted Wikipedia ${result.mode} result`);
         return { content: [], structuredContent: { result } };
       } catch (error: any) {
         console.error(`❌ Wikipedia extraction failed: ${error.message}`);

@@ -295,11 +295,35 @@ export function getCompactMapContextForPrompt(snapshot: ReturnType<typeof getMap
 	}
 }
 
+const GEO_CATALOG_SOURCE_MANIFEST_PREFIX = 'earthly:geoCatalogSourceManifest:'
+
+function compactDatasetMetadataForTool(
+	metadata: ReturnType<typeof getMapContextSnapshot>['datasetMetadata'],
+) {
+	const customProperties: typeof metadata.customProperties = {}
+	const geoCatalogSnapshotIds: string[] = []
+	for (const [key, value] of Object.entries(metadata.customProperties)) {
+		if (key.startsWith(GEO_CATALOG_SOURCE_MANIFEST_PREFIX)) {
+			geoCatalogSnapshotIds.push(key.slice(GEO_CATALOG_SOURCE_MANIFEST_PREFIX.length))
+			continue
+		}
+		customProperties[key] = value
+	}
+	return {
+		...metadata,
+		customProperties,
+		geoCatalogSourceManifests: {
+			count: geoCatalogSnapshotIds.length,
+			snapshotIds: geoCatalogSnapshotIds,
+		},
+	}
+}
+
 export function getCompactMapContextForTool(snapshot: ReturnType<typeof getMapContextSnapshot>) {
 	return {
 		editorReady: snapshot.editorReady,
 		mode: snapshot.mode,
-		datasetMetadata: snapshot.datasetMetadata,
+		datasetMetadata: compactDatasetMetadataForTool(snapshot.datasetMetadata),
 		featureCount: snapshot.featureCount,
 		datasetSize: snapshot.datasetSize,
 		datasetMeasurements: snapshot.datasetMeasurements,
@@ -382,7 +406,7 @@ function createLegacyMapContextSystemMessage(
 			'SOURCE-PROVIDED SPATIAL DATA — before geocoding, inspect structured source rows, files, and API results for usable spatial fields such as latitude/longitude, coordinate pairs, GeoJSON, WKT, or geohashes. Normalize those values and preserve their source precision and provenance. Geocode only rows whose source genuinely lacks usable spatial data.',
 			'RESEARCH BUDGET — keep research proportional to the requested map. Batch independent lookups when a tool supports it, reuse facts and coordinates already returned, and stop researching once authoritative sources are sufficient to build the requested result. Do not repeatedly verify the same settled fact through different search tools.',
 			'WORKFLOW COMPLETION — carry an agreed multi-step request through to its final artifact unless a real blocker requires user input. Do not pause after an intermediate map write merely to ask whether to continue. If the user asked for both a dataset and a Story, finish the dataset first and then write or update the Story draft in the same workflow.',
-			'STRUCTURED EXTRACTION PAGINATION — in a table result, pagination.status="complete" is the only status that means the response contains the full table. status="more" requires the nextOffset page; status="final_page" still omits earlier rows. Outline sampleRows are previews, but table rows accompanied by status="complete" are not.',
+			'STRUCTURED EXTRACTION PAGINATION — for Wikipedia prose, only textPagination.status="complete" contains all requested article or section text; status="more" requires textPagination.nextOffset with the returned revisionId. Never probe alternate raw/API Wikipedia URLs. For tables, pagination.status="complete" is the only full-table result; status="more" requires the nextOffset page and status="final_page" still omits earlier rows. Outline sampleRows are previews.',
 			'RESEARCHED DATASETS — preserve provenance on every derived feature: sourceUrl, sourceTitle, sourceRevisionId, sourceSection, sourceTable, sourceRow, sourceRetrievedAt, and coordinatePrecision (exact, approximate, or representative). Keep the source classification verbatim; do not silently broaden terms such as exclave to enclave, disputed territory, or historical case. After the first accurate scaffold is visible, build and validate each bounded enhancement before an atomic authoring.commitDataset(...) replacement or update.',
 			'HISTORICAL PRECISION — distinguish historical administrative entities from present-day boundary proxies and special-status cities. State the mapping basis in dataset metadata instead of presenting modern boundaries as exact historical jurisdictions.',
 			'World layers are GENERALIZED cartography (1:110m / 1:50m). Rankings, topology, routing, and anchoring are reliable; ABSOLUTE lengths of fractal features (coastlines!) are systematic underestimates — say so when reporting them instead of hunting for other sources.',
@@ -400,11 +424,11 @@ function createLegacyMapContextSystemMessage(
 			'Measurements are delivered passively: datasetMeasurements holds dataset totals and selected-feature hints carry lengthKm/areaKm2 — read those first. Call measure (one operation per call) only for something not already in context (distance/bearing between points, perimeter, centroid, bbox, nearest_point).',
 			'To ground coordinates in named places (country, nearest city, on-land/on-water, distance to coast), call describe_location with a point or bbox. Use it to sanity-check where drawn geometry actually landed.',
 			'viewportAnchors in the map state names what the user is looking at (countries in view, center description, geohash) — trust it over guessing from raw coordinates.',
-			'When a geometry-producing tool supports it, set toEditor=true to import directly and keep tool results compact.',
+			'Use toEditor=true only on exact, explicitly selected geometry results whose tool schema advertises it. Human-readable GeoCatalog searches and broad OSM nearby/bbox/area queries are discovery steps; never treat every candidate as an editor import.',
 			'For an OSM fallback constrained to the current selection, query_osm_area may use selectedOnly=true; transient chat geometry can supply that area even when nothing is selected.',
 			'Within an OSM fallback, use concept when tagging is inconsistent, outputGeometry="point_on_feature" when only representative points are needed, and clipLines=true for a specific local stream, canal, road, or trail inside a border. Never query OSM for a country-scale coastline or major river.',
 			'If a border-constrained or polygon-constrained query fails, do not replace it with an unconstrained bbox import. Retry with the same area constraint or report the failure.',
-			'For toolbar-like operations (undo/redo/mode/selection ops), use editor_* tools.',
+			'Do not attempt interactive toolbar operations from a background chat run. Use authoring-native geometry operations, including delete-by-id, for changes to the bound Dataset.',
 			'For add_feature_to_editor, send one feature per call with compact JSON.',
 			'Do not ask the user for intermediate geometry parameters unless they explicitly want to customize shape details.',
 			'After a confirmed catalog coverage gap, an OSM fallback should first query candidates with query_osm_bbox/query_osm_nearby, verify non-empty results, then import with explicit bbox/point and filters.',

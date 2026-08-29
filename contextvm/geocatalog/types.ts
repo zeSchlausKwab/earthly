@@ -155,6 +155,19 @@ export interface GeoCatalogTextRecoveryDiagnostic {
 	appliedBbox?: GeoCatalogBbox
 }
 
+/**
+ * Discovery-only recovery for source records that omit an ISO country code.
+ * The catalog first resolves one unambiguous level-zero boundary for the
+ * caller's explicit country code, then accepts only countryless exact-name
+ * matches whose bbox intersects that boundary.
+ */
+export interface GeoCatalogCountrylessSpatialFallbackDiagnostic {
+	status: 'applied'
+	countryCode: string
+	boundaryId: string
+	appliedBbox: GeoCatalogBbox
+}
+
 export interface GeoCatalogNearMatch {
 	id: string
 	name: string
@@ -166,6 +179,7 @@ export interface GeoCatalogNearMatch {
 export interface GeoCatalogQueryDiagnostics {
 	textRelaxation?: GeoCatalogTextRelaxationDiagnostic
 	textRecovery?: GeoCatalogTextRecoveryDiagnostic
+	countrylessSpatialFallback?: GeoCatalogCountrylessSpatialFallbackDiagnostic
 	categorySuggestions?: string[]
 	nearMatches?: GeoCatalogNearMatch[]
 }

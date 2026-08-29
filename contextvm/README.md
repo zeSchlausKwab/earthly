@@ -16,14 +16,15 @@ Earthly exposes map, geographic research, and web-research tools as an MCP serve
 
 Use `wikipedia_lookup` to find the canonical article, then use `wikipedia_extract` instead of scraping rendered HTML:
 
-1. call `wikipedia_extract` with `mode: "outline"` to inspect section names, table indexes, captions, headers, and sample rows;
-2. call it again with `mode: "table"`, the selected `tableIndex`, and bounded `rowOffset`/`rowLimit` values;
-3. follow the explicit pagination contract: only `pagination.status: "complete"` means the response contains the full table; `"more"` points to `nextOffset`, while `"final_page"` still omits earlier rows;
-4. carry the returned source fields onto every derived map feature: article URL/title, revision ID, section, table, source row, and retrieval time;
-5. prefer spatial values already present in structured source fields (coordinates, latitude/longitude, GeoJSON, WKT, or geohashes), and geocode only missing locations;
-6. label derived coordinates as `exact`, `approximate`, or `representative` rather than implying more precision than the source provides.
+1. use `mode: "article"` for a bounded page of the article's readable prose, or `mode: "section"` with a section index/title for focused prose;
+2. if `textPagination.status` is `"more"`, continue at `textPagination.nextOffset` and pass its `revisionId` so character offsets remain pinned to one revision; only `"complete"` contains all requested prose;
+3. use `mode: "outline"` to inspect section names, table indexes, captions, headers, and sample rows;
+4. use `mode: "table"`, the selected `tableIndex`, and bounded `rowOffset`/`rowLimit` values for structured rows. Only `pagination.status: "complete"` contains the full table; `"more"` points to `nextOffset`, while `"final_page"` still omits earlier rows;
+5. carry the returned source fields onto every derived map feature: article URL/title, revision ID, section, table, source row, and retrieval time;
+6. prefer spatial values already present in structured source fields (coordinates, latitude/longitude, GeoJSON, WKT, or geohashes), and geocode only missing locations;
+7. label derived coordinates as `exact`, `approximate`, or `representative` rather than implying more precision than the source provides.
 
-The extractor accepts only canonical Wikipedia article URLs or article titles. It uses MediaWiki's parse API and returns row-oriented data with stable source-row numbers. This gives the map authoring boundary enough information to reject incomplete researched datasets before they mutate the editor.
+The extractor accepts canonical, raw, and common MediaWiki API article URLs or exact article titles. It uses MediaWiki's parse API and returns revision-pinned prose pages or row-oriented tables with stable source-row numbers. This gives the map authoring boundary enough information to reject incomplete researched datasets before they mutate the editor.
 
 ## Local development
 

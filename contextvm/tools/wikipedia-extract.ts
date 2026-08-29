@@ -2,16 +2,25 @@ import { parseHTML } from "linkedom";
 import type {
   WikipediaExtractInput,
   WikipediaExtractOutput,
+  WikipediaSection,
   WikipediaTable,
+  WikipediaTextPagination,
 } from "../web-schemas";
 
 const USER_AGENT = "EarthlyCity/1.0 Map MCP Server (https://earthly.city)";
 const REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_ROW_LIMIT = 50;
+const DEFAULT_TEXT_LIMIT = 12_000;
 const OUTLINE_SAMPLE_ROWS = 3;
 
-type WikipediaReference = { language: string; title: string };
-type ParsedSection = { index: string; level: number; title: string; anchor: string };
+type WikipediaReference = { language: string; title: string; revisionId?: number };
+type ParsedSection = WikipediaSection;
+type ParsedProseBlock = {
+  kind: "heading" | "paragraph" | "list-item" | "quote" | "preformatted";
+  level: number | null;
+  section: ParsedSection | null;
+  text: string;
+};
 type ParsedTable = Omit<WikipediaTable, "sampleRows" | "rows"> & {
   rows: Array<{ sourceRow: number; cells: Record<string, string> }>;
 };
@@ -36,6 +45,24 @@ function articleUrl(language: string, title: string): string {
   return `https://${language}.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /gu, "_"))}`;
 }
 
+function decodeTitle(value: string): string {
+  try {
+    return decodeURIComponent(value).replace(/_/gu, " ");
+  } catch {
+    throw new Error("The Wikipedia URL contains an invalid article title");
+  }
+}
+
+function parseRevisionId(value: string): number | undefined {
+  if (!value) return undefined;
+  if (!/^\d+$/u.test(value)) throw new Error("The Wikipedia URL contains an invalid revision ID");
+  const revisionId = Number(value);
+  if (!Number.isSafeInteger(revisionId) || revisionId <= 0) {
+    throw new Error("The Wikipedia URL contains an invalid revision ID");
+  }
+  return revisionId;
+}
+
 export function parseWikipediaReference(input: WikipediaExtractInput): WikipediaReference {
   if (input.url) {
     const url = new URL(input.url);
@@ -46,12 +73,25 @@ export function parseWikipediaReference(input: WikipediaExtractInput): Wikipedia
 
     let title = "";
     if (url.pathname.startsWith("/wiki/")) {
-      title = decodeURIComponent(url.pathname.slice("/wiki/".length)).replace(/_/gu, " ");
+      title = decodeTitle(url.pathname.slice("/wiki/".length));
     } else if (url.pathname === "/w/index.php") {
-      title = url.searchParams.get("title")?.replace(/_/gu, " ") || "";
+      title = decodeTitle(url.searchParams.get("title") || "");
+    } else if (url.pathname === "/w/api.php") {
+      title = decodeTitle(
+        (url.searchParams.get("page") || url.searchParams.get("titles") || "").split("|", 1)[0] || "",
+      );
+    } else if (url.pathname.startsWith("/api/rest_v1/page/")) {
+      const parts = url.pathname.split("/");
+      title = decodeTitle(parts[5] || "");
     }
     if (!title) throw new Error("The Wikipedia URL does not identify an article");
-    return { language: normalizeLanguage(match[1]), title };
+    const rawRevisionId = url.searchParams.get("oldid") || (
+      url.pathname.startsWith("/api/rest_v1/page/html/") ? url.pathname.split("/")[6] || "" : ""
+    );
+    const revisionId = parseRevisionId(rawRevisionId);
+    return revisionId === undefined
+      ? { language: normalizeLanguage(match[1]), title }
+      : { language: normalizeLanguage(match[1]), title, revisionId };
   }
 
   const title = input.title?.trim();
@@ -60,7 +100,7 @@ export function parseWikipediaReference(input: WikipediaExtractInput): Wikipedia
 }
 
 function normalizeText(value: string | null | undefined): string {
-  return (value || "").replace(/\[[^\]]{1,12}\]/gu, "").replace(/\s+/gu, " ").trim();
+  return (value || "").replace(/\s+/gu, " ").trim();
 }
 
 function cleanElementText(element: Element | null): string {
@@ -125,21 +165,200 @@ function tableGrid(table: Element): { rows: string[][]; headerRowIndex: number }
   return { rows, headerRowIndex: headerRowIndex < 0 ? 0 : headerRowIndex };
 }
 
+const PROSE_EXCLUDED_ANCESTORS = [
+  "table",
+  "figure",
+  ".infobox",
+  ".sidebar",
+  ".navbox",
+  ".metadata",
+  ".toc",
+  ".mw-references-wrap",
+  ".references",
+  ".reflist",
+  ".authority-control",
+  ".hatnote",
+  ".shortdescription",
+].join(", ");
+
+function headingAnchor(element: Element): string {
+  return element.querySelector(".mw-headline")?.getAttribute("id") || element.getAttribute("id") || "";
+}
+
+function cleanProseText(element: Element): string {
+  const copy = element.cloneNode(true) as Element;
+  copy.querySelectorAll("ul, ol, sup.reference, .mw-editsection, style, script, noscript").forEach((node) => node.remove());
+  return normalizeText(copy.textContent);
+}
+
+function parseProseBlocks(root: Element, sections: ParsedSection[]): ParsedProseBlock[] {
+  const blocks: ParsedProseBlock[] = [];
+  let currentSection: ParsedSection | null = null;
+  let sectionCursor = 0;
+
+  for (const node of Array.from(root.querySelectorAll("h2, h3, h4, h5, h6, p, li, blockquote, pre"))) {
+    if (node.closest(PROSE_EXCLUDED_ANCESTORS)) continue;
+    const tag = node.tagName.toUpperCase();
+    if (/^H[2-6]$/u.test(tag)) {
+      const title = cleanElementText(node);
+      const anchor = headingAnchor(node);
+      const remainingSections = sections.slice(sectionCursor);
+      const relativeMatch = remainingSections.findIndex(
+        (section) => (anchor && section.anchor === anchor) || section.title === title,
+      );
+      const sectionPosition = relativeMatch >= 0 ? sectionCursor + relativeMatch : -1;
+      currentSection = sectionPosition >= 0
+        ? sections[sectionPosition]!
+        : { index: "", level: Number(tag.slice(1)), title, anchor };
+      if (sectionPosition >= 0) sectionCursor = sectionPosition + 1;
+      if (title) {
+        blocks.push({
+          kind: "heading",
+          level: Number(tag.slice(1)),
+          section: currentSection,
+          text: title,
+        });
+      }
+      continue;
+    }
+
+    const text = cleanProseText(node);
+    if (!text) continue;
+    const kind = tag === "LI"
+      ? "list-item"
+      : tag === "BLOCKQUOTE"
+        ? "quote"
+        : tag === "PRE"
+          ? "preformatted"
+          : "paragraph";
+    blocks.push({ kind, level: null, section: currentSection, text });
+  }
+
+  return blocks;
+}
+
+function formatProse(blocks: ParsedProseBlock[]): string {
+  return blocks
+    .map((block) => {
+      if (block.kind === "heading") {
+        const depth = Math.min(Math.max((block.level || 2) - 1, 1), 5);
+        return `${"#".repeat(depth)} ${block.text}`;
+      }
+      if (block.kind === "list-item") return `- ${block.text}`;
+      if (block.kind === "quote") return `> ${block.text}`;
+      return block.text;
+    })
+    .join("\n\n")
+    .trim();
+}
+
+function resolveSection(input: WikipediaExtractInput, sections: ParsedSection[]): ParsedSection {
+  if (input.sectionIndex && input.sectionTitle) {
+    throw new Error("Use either sectionIndex or sectionTitle in section mode, not both");
+  }
+  if (input.sectionIndex) {
+    const match = sections.find((section) => section.index === input.sectionIndex);
+    if (match) return match;
+    throw new Error(`Wikipedia section index ${input.sectionIndex} does not exist`);
+  }
+
+  const normalizeSectionLabel = (value: string | undefined) => {
+    if (!value) return "";
+    let decoded = value;
+    try {
+      decoded = decodeURIComponent(value);
+    } catch {
+      // Keep the literal label. It may be a human-readable title rather than an encoded anchor.
+    }
+    return normalizeText(decoded.replace(/_/gu, " ")).toLocaleLowerCase();
+  };
+  const requestedTitle = normalizeSectionLabel(input.sectionTitle);
+  if (!requestedTitle) {
+    throw new Error("sectionIndex or sectionTitle is required in section mode");
+  }
+  const matches = sections.filter(
+    (section) =>
+      normalizeSectionLabel(section.title) === requestedTitle ||
+      normalizeSectionLabel(section.anchor) === requestedTitle,
+  );
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length > 1) {
+    throw new Error(
+      `Wikipedia section title '${input.sectionTitle}' is ambiguous; use one of these sectionIndex values: ${matches.map((section) => section.index).join(", ")}`,
+    );
+  }
+  throw new Error(`Wikipedia section '${input.sectionTitle}' does not exist`);
+}
+
+function sectionBlocks(blocks: ParsedProseBlock[], section: ParsedSection): ParsedProseBlock[] {
+  const start = blocks.findIndex(
+    (block) => block.kind === "heading" && block.section?.index === section.index,
+  );
+  if (start < 0) throw new Error(`Wikipedia section ${section.index} has no readable prose`);
+  let end = blocks.length;
+  for (let index = start + 1; index < blocks.length; index += 1) {
+    const block = blocks[index]!;
+    if (block.kind === "heading" && (block.level || Number.POSITIVE_INFINITY) <= section.level) {
+      end = index;
+      break;
+    }
+  }
+  return blocks.slice(start, end);
+}
+
+function paginateProse(
+  text: string,
+  offset: number,
+  limit: number,
+  revisionId: number | null,
+): { text: string; truncated: boolean; pagination: WikipediaTextPagination } {
+  // Continuation offsets count Unicode code points. This keeps offsets stable
+  // between pages without ever cutting a UTF-16 surrogate pair in half.
+  const characters = Array.from(text);
+  if (offset > characters.length) {
+    throw new Error(`textOffset ${offset} exceeds the requested prose length (${characters.length} characters)`);
+  }
+  const pageCharacters = characters.slice(offset, offset + limit);
+  const page = pageCharacters.join("");
+  const returnedCharacters = pageCharacters.length;
+  const totalCharacters = characters.length;
+  const hasPrevious = offset > 0;
+  const hasNext = offset + returnedCharacters < totalCharacters;
+  const nextOffset = hasNext ? offset + returnedCharacters : null;
+  const status = !hasPrevious && !hasNext ? "complete" : hasNext ? "more" : "final_page";
+  const firstCharacter = returnedCharacters > 0 ? offset + 1 : offset;
+  const lastCharacter = offset + returnedCharacters;
+  const revisionInstruction = revisionId === null ? "" : ` and revisionId=${revisionId}`;
+  const message = status === "complete"
+    ? `COMPLETE PROSE: returned all ${totalCharacters} characters. This is the full requested article or section prose.`
+    : status === "more"
+      ? `MORE PROSE AVAILABLE: returned characters ${firstCharacter}-${lastCharacter} of ${totalCharacters}. Continue with textOffset=${nextOffset}${revisionInstruction}; this is not the full requested prose.`
+      : `FINAL PAGE ONLY: returned characters ${firstCharacter}-${lastCharacter} of ${totalCharacters}, but characters 1-${offset} are not in this response.`;
+  return {
+    text: page,
+    truncated: hasNext,
+    pagination: {
+      status,
+      offset,
+      returnedCharacters,
+      totalCharacters,
+      hasPrevious,
+      hasNext,
+      nextOffset,
+      revisionId,
+      message,
+    },
+  };
+}
+
 export function parseWikipediaPageHtml(
   html: string,
   sections: ParsedSection[],
-): { lead: string; tables: ParsedTable[] } {
+): { lead: string; tables: ParsedTable[]; proseBlocks: ParsedProseBlock[] } {
   const { document } = parseHTML(html);
   const root = document.querySelector(".mw-parser-output") || document.body;
-  const firstHeading = root.querySelector("h2, h3, h4, h5, h6");
-  const leadParts: string[] = [];
-  for (const child of Array.from(root.children)) {
-    if (child === firstHeading || /^H[2-6]$/u.test(child.tagName)) break;
-    if (child.tagName === "P") {
-      const text = cleanElementText(child);
-      if (text) leadParts.push(text);
-    }
-  }
+  const proseBlocks = parseProseBlocks(root, sections);
+  const lead = formatProse(proseBlocks.filter((block) => block.kind !== "heading" && block.section === null));
 
   const tables: ParsedTable[] = [];
   let currentSection: ParsedSection | null = null;
@@ -147,7 +366,7 @@ export function parseWikipediaPageHtml(
   const visitedTables = new Set<Element>();
   for (const node of Array.from(nodes)) {
     if (/^H[2-6]$/u.test(node.tagName)) {
-      const anchor = node.querySelector(".mw-headline")?.getAttribute("id") || node.getAttribute("id") || "";
+      const anchor = headingAnchor(node);
       const title = cleanElementText(node);
       currentSection = sections.find((section) => section.anchor === anchor || section.title === title) || null;
       continue;
@@ -174,20 +393,25 @@ export function parseWikipediaPageHtml(
     });
   }
 
-  return { lead: leadParts.join("\n\n").slice(0, 6000), tables };
+  return { lead: lead.slice(0, 6000), tables, proseBlocks };
 }
 
-async function fetchParsedPage(reference: WikipediaReference): Promise<ParsedPage> {
+async function fetchParsedPage(reference: WikipediaReference, revisionId?: number): Promise<ParsedPage> {
   const url = new URL(`https://${reference.language}.wikipedia.org/w/api.php`);
-  for (const [key, value] of Object.entries({
+  const parameters: Record<string, string> = {
     action: "parse",
-    page: reference.title,
     prop: "text|sections|displaytitle|revid",
-    redirects: "1",
     format: "json",
     formatversion: "2",
     origin: "*",
-  })) url.searchParams.set(key, value);
+  };
+  if (revisionId === undefined) {
+    parameters.page = reference.title;
+    parameters.redirects = "1";
+  } else {
+    parameters.oldid = String(revisionId);
+  }
+  for (const [key, value] of Object.entries(parameters)) url.searchParams.set(key, value);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -198,10 +422,14 @@ async function fetchParsedPage(reference: WikipediaReference): Promise<ParsedPag
     if (payload.error) throw new Error(payload.error.info || "Wikipedia parse failed");
     const parsed = payload.parse;
     if (!parsed || typeof parsed.text !== "string") throw new Error("Wikipedia did not return article HTML");
+    const returnedRevisionId = typeof parsed.revid === "number" ? parsed.revid : null;
+    if (revisionId !== undefined && returnedRevisionId !== revisionId) {
+      throw new Error(`Wikipedia returned revision ${returnedRevisionId ?? "unknown"}, expected ${revisionId}`);
+    }
     return {
       title: typeof parsed.title === "string" ? parsed.title : reference.title,
       pageId: typeof parsed.pageid === "number" ? parsed.pageid : null,
-      revisionId: typeof parsed.revid === "number" ? parsed.revid : null,
+      revisionId: returnedRevisionId,
       html: parsed.text,
       sections: Array.isArray(parsed.sections)
         ? parsed.sections.flatMap((section) => {
@@ -232,7 +460,26 @@ export async function wikipediaExtract(input: WikipediaExtractInput): Promise<Wi
   if (mode === "table" && input.tableIndex === undefined) {
     throw new Error("tableIndex is required in table mode");
   }
-  const page = await fetchParsedPage(reference);
+  if (mode === "section" && !input.sectionIndex && !input.sectionTitle) {
+    throw new Error("sectionIndex or sectionTitle is required in section mode");
+  }
+  if ((input.textOffset !== undefined || input.textLimit !== undefined) && mode !== "article" && mode !== "section") {
+    throw new Error("textOffset and textLimit are only valid in article or section mode");
+  }
+  if (input.revisionId !== undefined && mode !== "article" && mode !== "section") {
+    throw new Error("revisionId is only valid for article or section continuation");
+  }
+  if (
+    input.revisionId !== undefined &&
+    reference.revisionId !== undefined &&
+    input.revisionId !== reference.revisionId
+  ) {
+    throw new Error(
+      `revisionId ${input.revisionId} conflicts with revision ${reference.revisionId} in the Wikipedia URL`,
+    );
+  }
+  const requestedRevisionId = input.revisionId ?? reference.revisionId;
+  const page = await fetchParsedPage(reference, requestedRevisionId);
   const parsed = parseWikipediaPageHtml(page.html, page.sections);
   const source = {
     title: page.title,
@@ -249,6 +496,30 @@ export async function wikipediaExtract(input: WikipediaExtractInput): Promise<Wi
 
   if (mode === "outline") {
     return { mode, source, lead: parsed.lead, sections: page.sections, tables: tableSummaries };
+  }
+
+  if (mode === "article" || mode === "section") {
+    const selectedSection = mode === "section" ? resolveSection(input, page.sections) : null;
+    const prose = formatProse(
+      selectedSection ? sectionBlocks(parsed.proseBlocks, selectedSection) : parsed.proseBlocks,
+    );
+    const offset = input.textOffset ?? 0;
+    const limit = input.textLimit ?? DEFAULT_TEXT_LIMIT;
+    const paged = paginateProse(prose, offset, limit, page.revisionId);
+    const tableShapes = tableSummaries.map(({ sampleRows: _sampleRows, ...tableShape }) => tableShape);
+    return {
+      mode,
+      source,
+      sections: page.sections,
+      tables: tableShapes,
+      prose: {
+        scope: mode,
+        section: selectedSection,
+        text: paged.text,
+      },
+      textPagination: paged.pagination,
+      truncated: paged.truncated,
+    };
   }
 
   const table = parsed.tables[input.tableIndex!];
