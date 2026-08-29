@@ -21,6 +21,15 @@ Cordn remains a specialized internal module because it snapshots persistent
 SQLite state and can restore its previous binary. The other four PM2 processes
 share `services.config.cjs` as their single runtime definition.
 
+The GeoCatalog snapshot is persistent data, not a release-bundle asset. Install
+and atomically promote a verified immutable snapshot under
+`$VPS_PATH/shared/data/geocatalog/` (or the existing legacy `$VPS_PATH/data/`
+root) before deploying a runtime that requires it. Activation runs the
+production catalog preflight before switching releases, so a missing, corrupt,
+empty, or incomplete snapshot leaves the previous release online. See
+`docs/operations/geocatalog.md` for the build, checksum, promotion, and rollback
+procedure.
+
 ## VPS layout
 
 ```text

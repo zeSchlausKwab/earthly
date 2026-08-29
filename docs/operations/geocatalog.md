@@ -29,10 +29,11 @@ preferred source for generalized coastlines, major rivers, lakes, and global
 analytical work; Overture water-transport segments are not presented as a
 complete river network.
 
-The builder retains every raw transportation and base-water segment. In
-addition, it groups transport segments with a strong route identity (Wikidata,
-or network plus reference), connectivity-scopes weaker reference/name matches,
-and assembles connected named base-water fragments. Water fragments may join
+The builder retains every raw transportation and base-water segment by default.
+In addition, it groups transport segments with a strong route identity
+(Wikidata, or network plus reference), connectivity-scopes weaker
+reference/name matches, and assembles connected named base-water fragments.
+Water fragments may join
 only at a shared source endpoint or connector and must also share a conservative
 identity: a normalized primary/common alias, a feature-specific name after a
 recognized hydronym suffix (such as `River` or `Khola`) is removed, or a strong
@@ -47,17 +48,28 @@ repeat an exact source segment in either direction remains a separate part. The
 guard is an incremental segment-key lookup, so long corridors do not pay for
 pairwise intersection tests. Source-authored crossings are retained;
 byte-identical or reversed duplicate source lines appear once in the derived
-geometry, while their raw entries remain untouched.
+geometry, while their raw entries remain untouched under the default policy.
 
 Corridor properties keep the hot query result bounded: `memberCount`, a
 deterministic `memberIdSample` (at most 12 ids), its truncation flag, and the
 membership digest summarize the source set without copying an unbounded member
-ledger into every response. Complete ids, source records, and geometries remain
-available as the raw catalog entries. Component, gap, path, branch,
-stitched-join, prevented repeated-segment-join, and duplicate-member counts
+ledger into every response. Under the default policy, complete ids, source
+records, and geometries remain available as raw catalog entries. Component,
+gap, path, branch, stitched-join, prevented repeated-segment-join, and
+duplicate-member counts
 state what the `MultiLineString` represents. No missing segment is synthesized,
-no endpoint is snapped, and no raw Overture geometry is simplified, clipped,
-repaired, or discarded.
+no endpoint is snapped, and no retained Overture geometry is simplified,
+clipped, or repaired.
+
+For a compact global snapshot, `--corridor-source-fragments staging-only` still
+uses every selected transportation and base-water `LineString` during corridor
+assembly, but stores only the derived corridors. Water points and polygons, and
+all non-corridor feature types, remain ordinary catalog entries. This policy can
+omit a single-fragment route that cannot form a corridor, and source fragment
+ids are then available only in the pinned export rather than through runtime
+catalog queries. Use the default `retain` policy for rich regional snapshots;
+use `staging-only` only when the reviewed global catalog intentionally favors
+assembled routes and waterways over individual source fragments.
 
 Semantic classifications are indexed separately from free-text names. Place
 entries include the basic category, the full Overture taxonomy hierarchy and
@@ -86,6 +98,81 @@ Use the official Overture release paths and retrieval guidance:
 
 The builder intentionally rejects URLs. Download/export inputs first so a build
 is reproducible and cannot change underneath a running import.
+
+### Reproducible planet-lite export
+
+Earthly includes a pinned, disk-conscious DuckDB exporter for the reviewed
+global selection. It reads only from Overture's official public S3 GeoParquet
+paths and writes six gzip-compressed local GeoJSONSeq files. The output
+directory must not already exist. No raw planet mirror is downloaded. Each
+record projects only
+the Overture fields consumed by Earthly's normalizer, including names,
+classification, route identity, useful authored metadata, and complete source
+provenance; unrelated upstream columns are not copied into the build input.
+The command uses `uv` to run its PEP 723 environment with the pinned DuckDB
+version; neither dependency is installed in or required by the production
+ContextVM.
+
+Run a count-only pass first. It prints a machine-readable report and does not
+create the output directory:
+
+```bash
+bun run geocatalog:export-overture -- \
+  --release 2026-08-19.0 \
+  --output-dir data/geocatalog/source/overture-2026-08-19.0-planet-lite-v1 \
+  --dry-run
+```
+
+Then export the same pinned selection:
+
+```bash
+bun run geocatalog:export-overture -- \
+  --release 2026-08-19.0 \
+  --output-dir data/geocatalog/source/overture-2026-08-19.0-planet-lite-v1
+```
+
+Build that global export with its compact corridor policy:
+
+```bash
+bun run geocatalog:build -- \
+  --release 2026-08-19.0 \
+  --snapshot-id overture-2026-08-19.0-planet-lite-v1 \
+  --created-at 2026-08-29T00:00:00Z \
+  --output data/geocatalog/overture-2026-08-19.0-planet-lite-v1.sqlite \
+  --coverage global \
+  --corridor-source-fragments staging-only \
+  --input division_area=data/geocatalog/source/overture-2026-08-19.0-planet-lite-v1/division_area.geojsonseq.gz \
+  --input division=data/geocatalog/source/overture-2026-08-19.0-planet-lite-v1/division.geojsonseq.gz \
+  --input place=data/geocatalog/source/overture-2026-08-19.0-planet-lite-v1/place.geojsonseq.gz \
+  --input segment=data/geocatalog/source/overture-2026-08-19.0-planet-lite-v1/segment.geojsonseq.gz \
+  --input water=data/geocatalog/source/overture-2026-08-19.0-planet-lite-v1/water.geojsonseq.gz \
+  --input infrastructure=data/geocatalog/source/overture-2026-08-19.0-planet-lite-v1/infrastructure.geojsonseq.gz
+```
+
+The exporter keeps four GiB free by default and checks the output filesystem
+throughout the run. `--reserve-free-gib` changes that operational reserve; it
+does not cap records or silently truncate results. An optional
+`--bbox west,south,east,north` applies the identical policy to a small scale-gate
+or regional extract. Files appear together only after all six exports succeed;
+an interruption removes the exporter-owned staging directory.
+
+The `earthly-overture-planet-lite-v1` policy contains administrative areas at
+levels 0–2, administrative labels, all named cities, towns, villages, and
+hamlets, plus only prominent unclassified localities; selected exact
+high-confidence public-interest place
+categories; major road classes and rail/water transport with explicit route
+membership (the builder resolves strong and connectivity-scoped weaker route
+identities); named selected water features with a strong Wikidata or
+OpenStreetMap relation identity; named reviewed transport, emergency, dam, and
+water infrastructure; and only canonically identified or explicitly
+significant bridge, power, and tower features. It deliberately excludes
+millions of disconnected named water fragments, broad Places parent
+taxonomies, road-name-inheriting bridge fragments, and ubiquitous
+component-scale infrastructure such as poles, lines, hydrants, platforms, bus
+stops, and pipelines. The accompanying
+`export-report.json`
+records the release, exact source paths, policy, selection descriptions, counts,
+compressed bytes, SHA-256 checksums, timings, coverage, and disk state.
 
 ## Build
 
@@ -120,9 +207,16 @@ The query result then distinguishes a genuine miss inside the installed slice
 from a request that falls outside it or asks for a kind the snapshot does not
 contain.
 
-The builder streams records into one transaction and retains only the current
-input record plus the corridor currently being emitted in memory. Corridor
-membership and connectivity are staged in a private on-disk SQLite database;
+For the compact planet build, append:
+
+```bash
+--corridor-source-fragments staging-only
+```
+
+The builder streams plain or `.gz` GeoJSONSeq/NDJSON records into one
+transaction and retains only the current input record plus the corridor
+currently being emitted in memory. Corridor membership and connectivity are
+staged in a private on-disk SQLite database;
 that staging directory is removed after both successful and failed builds. The
 builder refuses to replace an existing output. A malformed record aborts the
 build, reports the input file and record number, and removes only the incomplete
