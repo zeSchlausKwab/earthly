@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { gzipSync } from 'node:zlib'
 import { openSqliteGeoCatalog, type GeoCatalogJsonValue } from './index'
 import {
 	createOvertureSourceRelease,
@@ -553,6 +554,27 @@ describe('Overture sequence streaming', () => {
 				),
 			),
 		).rejects.toThrow(`${path}: record 2 is not valid JSON`)
+	})
+
+	test('streams gzip-compressed GeoJSONSeq without expanding it on disk', async () => {
+		const directory = await temporaryDirectory()
+		const path = join(directory, 'places.geojsonseq.gz')
+		const first = (await fixtureRecord('overture-place.ndjson')) as Record<string, unknown>
+		const second = structuredClone(first)
+		const properties = second.properties as Record<string, unknown>
+		properties.id = 'place-kathmandu-museum-gzip'
+		await Bun.write(
+			path,
+			gzipSync(`${JSON.stringify(first)}\n${JSON.stringify(second)}\n`),
+		)
+
+		const entries = await collect(
+			readOvertureGeoJsonSequence({ featureType: 'place', path }, { release: RELEASE }),
+		)
+		expect(entries.map((entry) => entry.id)).toEqual([
+			'overture:places:place:place-kathmandu-museum',
+			'overture:places:place:place-kathmandu-museum-gzip',
+		])
 	})
 })
 

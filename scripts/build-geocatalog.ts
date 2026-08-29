@@ -101,7 +101,7 @@ Options:
   --release <value>           Required Overture release, for example 2026-08-19.0
   --snapshot-id <value>       Required immutable snapshot identifier
   --output <path>             Required new SQLite path; existing paths are refused
-  --input <type>=<path>       Repeatable local GeoJSONSeq/NDJSON input
+  --input <type>=<path>       Repeatable local GeoJSONSeq/NDJSON input (plain or .gz)
   --created-at <ISO date>     Optional reproducible snapshot creation time
   --coverage <global|bbox>    Source footprint: global or west,south,east,north
   --corridor-source-fragments <retain|staging-only>

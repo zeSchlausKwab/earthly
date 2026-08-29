@@ -1,4 +1,5 @@
 import { createReadStream, readFileSync } from 'node:fs'
+import { createGunzip } from 'node:zlib'
 import type { Geometry } from 'geojson'
 import {
 	GEO_CATALOG_ADMIN_LABEL_CATEGORY,
@@ -1217,7 +1218,11 @@ interface SequenceTextRecord {
 async function* readSequenceTextRecords(
 	path: string,
 ): AsyncGenerator<SequenceTextRecord> {
-	const stream = createReadStream(path, { encoding: 'utf8', highWaterMark: 64 * 1024 })
+	const fileStream = createReadStream(path, { highWaterMark: 64 * 1024 })
+	const stream = path.toLowerCase().endsWith('.gz')
+		? fileStream.pipe(createGunzip())
+		: fileStream
+	stream.setEncoding('utf8')
 	let buffer = ''
 	let mode: 'unknown' | 'lines' | 'record-separator' = 'unknown'
 	let recordNumber = 0
