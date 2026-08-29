@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { writeSqliteGeoCatalogSnapshot } from '../../contextvm/geocatalog/sqlite'
+import type {
+	GeoCatalogEntry,
+	GeoCatalogSnapshotMetadata,
+} from '../../contextvm/geocatalog/types'
 
 const repositoryRoot = join(import.meta.dir, '../..')
 const temporaryDirectories: string[] = []
@@ -9,6 +14,57 @@ async function writeExecutable(path: string, content: string): Promise<void> {
 	await mkdir(join(path, '..'), { recursive: true })
 	await writeFile(path, content)
 	await chmod(path, 0o755)
+}
+
+function geoCatalogPreflightSource(activate: string): string {
+	const startMarker = `echo "Checking the production GeoCatalog snapshot..."\nif ! (cd "$new_release" && bun --env-file=.env -e '\n`
+	const start = activate.indexOf(startMarker)
+	if (start < 0) throw new Error('Activation GeoCatalog preflight start was not found')
+	const sourceStart = start + startMarker.length
+	const sourceEnd = activate.indexOf("\n'); then", sourceStart)
+	if (sourceEnd < 0) throw new Error('Activation GeoCatalog preflight end was not found')
+	return activate.slice(sourceStart, sourceEnd)
+}
+
+async function runGeoCatalogPreflight(source: string, catalogPath: string) {
+	const child = Bun.spawn([process.execPath, '-e', source], {
+		cwd: repositoryRoot,
+		env: {
+			...process.env,
+			NODE_ENV: 'production',
+			GEOCATALOG_PATH: catalogPath,
+		},
+		stdout: 'pipe',
+		stderr: 'pipe',
+	})
+	const [exitCode, stdout, stderr] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+	])
+	return { exitCode, stdout, stderr }
+}
+
+const catalogSnapshot: GeoCatalogSnapshotMetadata = {
+	id: 'activation-test-2026-08-29',
+	createdAt: '2026-08-29T00:00:00.000Z',
+	schemaVersion: 1,
+	sources: [{ name: 'Overture Maps', release: '2026-08-20.0' }],
+}
+
+const catalogEntry: GeoCatalogEntry = {
+	id: 'admin:at',
+	kind: 'admin',
+	name: 'Austria',
+	aliases: [],
+	categories: ['country'],
+	countryCode: 'AT',
+	adminLevel: 0,
+	bbox: [9.53, 46.37, 17.16, 49.02],
+	center: { longitude: 14.13, latitude: 47.59 },
+	importance: 100,
+	source: { name: 'Overture Maps', release: '2026-08-20.0' },
+	properties: {},
 }
 
 afterEach(async () => {
@@ -83,6 +139,83 @@ describe('production deployment runtime', () => {
 		expect(activate).toContain('target.migrating-$release_id')
 		expect(activate).toContain('if [[ "$target_is_empty" == "true" ]]')
 		expect(activate).toContain('mv "$staging_path" "$target"')
+	})
+
+	test('requires a queryable production GeoCatalog before starting the release', async () => {
+		const activate = await Bun.file(join(repositoryRoot, 'ops/vps/activate.sh')).text()
+		const dataLink = activate.indexOf(
+			'link_shared "$persistent_data_root" "$new_release/data"',
+		)
+		const environmentValidation = activate.indexOf('scripts/validate-production-env.ts')
+		const catalogPreflight = activate.indexOf('preflightGeoCatalog({')
+		const runtimeStart = activate.indexOf(
+			'bash "$new_release/ops/vps/runtime.sh" restart "$new_release"',
+		)
+
+		expect(dataLink).toBeGreaterThan(-1)
+		expect(environmentValidation).toBeGreaterThan(dataLink)
+		expect(catalogPreflight).toBeGreaterThan(environmentValidation)
+		expect(runtimeStart).toBeGreaterThan(catalogPreflight)
+		expect(activate).toContain('import("./src/config/env.server.ts")')
+		expect(activate).toContain('import("./contextvm/geocatalog/index.ts")')
+		expect(activate).toContain(
+			'openSqliteGeoCatalog({ path: serverConfig.geoCatalogPath })',
+		)
+		expect(activate).toContain('required: true')
+		expect(activate).toContain(
+			'GeoCatalog production preflight failed; refusing to start release',
+		)
+	})
+
+	test('the activation preflight rejects missing, invalid, and empty snapshots', async () => {
+		await mkdir(join(repositoryRoot, '.cache'), { recursive: true })
+		const fixtureRoot = await mkdtemp(join(repositoryRoot, '.cache', 'activation-geocatalog-'))
+		temporaryDirectories.push(fixtureRoot)
+		const activate = await Bun.file(join(repositoryRoot, 'ops/vps/activate.sh')).text()
+		const source = geoCatalogPreflightSource(activate)
+		const invalidPath = join(fixtureRoot, 'invalid.sqlite')
+		const emptyPath = join(fixtureRoot, 'empty.sqlite')
+		await writeFile(invalidPath, 'not a GeoCatalog snapshot')
+		await writeSqliteGeoCatalogSnapshot({
+			path: emptyPath,
+			snapshot: catalogSnapshot,
+			entries: [],
+		})
+
+		const scenarios = [
+			{
+				path: join(fixtureRoot, 'missing.sqlite'),
+				expected: 'GeoCatalog snapshot is unavailable',
+			},
+			{ path: invalidPath, expected: 'Cannot open GeoCatalog snapshot' },
+			{ path: emptyPath, expected: 'contains no queryable entries' },
+		]
+		for (const scenario of scenarios) {
+			const result = await runGeoCatalogPreflight(source, scenario.path)
+			expect(result.exitCode).not.toBe(0)
+			expect(result.stderr).toContain(scenario.expected)
+		}
+	})
+
+	test('the activation preflight accepts and identifies a queryable snapshot', async () => {
+		await mkdir(join(repositoryRoot, '.cache'), { recursive: true })
+		const fixtureRoot = await mkdtemp(join(repositoryRoot, '.cache', 'activation-geocatalog-'))
+		temporaryDirectories.push(fixtureRoot)
+		const catalogPath = join(fixtureRoot, 'valid.sqlite')
+		await writeSqliteGeoCatalogSnapshot({
+			path: catalogPath,
+			snapshot: catalogSnapshot,
+			entries: [catalogEntry],
+		})
+		const activate = await Bun.file(join(repositoryRoot, 'ops/vps/activate.sh')).text()
+
+		const result = await runGeoCatalogPreflight(geoCatalogPreflightSource(activate), catalogPath)
+
+		expect(result).toEqual({
+			exitCode: 0,
+			stdout: 'GeoCatalog ready: activation-test-2026-08-29 (Overture Maps@2026-08-20.0)\n',
+			stderr: '',
+		})
 	})
 
 	test('keeps a live legacy relay and Cordn data root in place', async () => {

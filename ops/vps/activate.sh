@@ -235,6 +235,23 @@ echo "Installing frozen production dependencies..."
 (cd "$new_release" && bun --env-file=.env scripts/validate-production-env.ts)
 (cd "$new_release" && bun -e "await import('./src/lib/og/index.ts')")
 
+echo "Checking the production GeoCatalog snapshot..."
+if ! (cd "$new_release" && bun --env-file=.env -e '
+  const [{ serverConfig }, geoCatalog] = await Promise.all([
+    import("./src/config/env.server.ts"),
+    import("./contextvm/geocatalog/index.ts"),
+  ])
+  const summary = await geoCatalog.preflightGeoCatalog({
+    catalog: geoCatalog.openSqliteGeoCatalog({ path: serverConfig.geoCatalogPath }),
+    required: true,
+  })
+  if (!summary) throw new Error("Production GeoCatalog preflight returned no readiness result")
+  console.log(`GeoCatalog ready: ${geoCatalog.formatGeoCatalogReadiness(summary)}`)
+'); then
+  echo "GeoCatalog production preflight failed; refusing to start release $release_id" >&2
+  exit 1
+fi
+
 echo "Building the Earthly relay..."
 (cd "$new_release/relay" && CGO_ENABLED=1 go build -o relay .)
 
