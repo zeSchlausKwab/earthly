@@ -39,6 +39,8 @@ export interface BuildGeoCatalogOptions {
 	createdAt?: string
 	/** Declared source extract footprint. Omit only for legacy/unknown-coverage builds. */
 	coverage?: GeoCatalogSnapshotSpatialCoverage
+	/** Keep source line fragments queryable, or use them only to assemble derived corridors. */
+	corridorSourceFragments?: 'retain' | 'staging-only'
 	/** Test/embedding seam; the CLI always uses the private OS temporary directory. */
 	stagingDirectoryRoot?: string
 }
@@ -50,6 +52,7 @@ export interface BuildGeoCatalogResult {
 	inputFiles: number
 	recordsRead: number
 	entriesWritten: number
+	sourceFragmentsStagedOnly: number
 	corridorsWritten: number
 	corridorAssembly: {
 		components: number
@@ -63,7 +66,12 @@ export interface BuildGeoCatalogResult {
 	recordsSkipped: number
 	byType: Record<
 		OvertureFeatureType,
-		{ recordsRead: number; entriesWritten: number; recordsSkipped: number }
+		{
+			recordsRead: number
+			entriesWritten: number
+			sourceFragmentsStagedOnly: number
+			recordsSkipped: number
+		}
 	>
 }
 
@@ -86,7 +94,8 @@ Input types:
 Named transport routes and connected base-water fragments with at least two
 members also produce derived MultiLineString corridor entries. Exact shared
 endpoints are oriented and stitched when unambiguous; branches and real gaps
-remain separate parts. Raw source entries remain unchanged in the snapshot.
+remain separate parts. Source entries are retained unless the explicit
+staging-only corridor-fragment policy is selected.
 
 Options:
   --release <value>           Required Overture release, for example 2026-08-19.0
@@ -95,6 +104,8 @@ Options:
   --input <type>=<path>       Repeatable local GeoJSONSeq/NDJSON input
   --created-at <ISO date>     Optional reproducible snapshot creation time
   --coverage <global|bbox>    Source footprint: global or west,south,east,north
+  --corridor-source-fragments <retain|staging-only>
+                              Persist source lines (default) or only derived corridors
   --format <text|json>        Result format (default: text)
   --help                      Show this help
 
@@ -110,6 +121,15 @@ function canonicalIsoDate(value: string): string {
 	const timestamp = Date.parse(value)
 	if (!Number.isFinite(timestamp)) throw new Error('--created-at must be a valid ISO date')
 	return new Date(timestamp).toISOString()
+}
+
+function parseCorridorSourceFragmentPolicy(
+	value: string,
+): NonNullable<BuildGeoCatalogOptions['corridorSourceFragments']> {
+	if (value !== 'retain' && value !== 'staging-only') {
+		throw new Error('--corridor-source-fragments must be retain or staging-only')
+	}
+	return value
 }
 
 function parseCoverage(value: string): GeoCatalogSnapshotSpatialCoverage {
@@ -160,12 +180,42 @@ function installedKinds(inputs: readonly OvertureInputSpec[]): GeoCatalogKind[] 
 
 function createTypeCounts(): BuildGeoCatalogResult['byType'] {
 	return {
-		division: { recordsRead: 0, entriesWritten: 0, recordsSkipped: 0 },
-		division_area: { recordsRead: 0, entriesWritten: 0, recordsSkipped: 0 },
-		place: { recordsRead: 0, entriesWritten: 0, recordsSkipped: 0 },
-		segment: { recordsRead: 0, entriesWritten: 0, recordsSkipped: 0 },
-		infrastructure: { recordsRead: 0, entriesWritten: 0, recordsSkipped: 0 },
-		water: { recordsRead: 0, entriesWritten: 0, recordsSkipped: 0 },
+		division: {
+			recordsRead: 0,
+			entriesWritten: 0,
+			sourceFragmentsStagedOnly: 0,
+			recordsSkipped: 0,
+		},
+		division_area: {
+			recordsRead: 0,
+			entriesWritten: 0,
+			sourceFragmentsStagedOnly: 0,
+			recordsSkipped: 0,
+		},
+		place: {
+			recordsRead: 0,
+			entriesWritten: 0,
+			sourceFragmentsStagedOnly: 0,
+			recordsSkipped: 0,
+		},
+		segment: {
+			recordsRead: 0,
+			entriesWritten: 0,
+			sourceFragmentsStagedOnly: 0,
+			recordsSkipped: 0,
+		},
+		infrastructure: {
+			recordsRead: 0,
+			entriesWritten: 0,
+			sourceFragmentsStagedOnly: 0,
+			recordsSkipped: 0,
+		},
+		water: {
+			recordsRead: 0,
+			entriesWritten: 0,
+			sourceFragmentsStagedOnly: 0,
+			recordsSkipped: 0,
+		},
 	}
 }
 
@@ -192,6 +242,11 @@ interface CorridorMembership {
 	aliases: string[]
 	coordinates: number[][]
 	connectionKeys: string[]
+	subtype: 'road' | 'rail' | 'water'
+}
+
+interface CorridorSourceFragment {
+	featureType: 'segment' | 'water'
 	subtype: 'road' | 'rail' | 'water'
 }
 
@@ -514,20 +569,26 @@ function connectorKeys(
 	return Array.from(keys).sort()
 }
 
-function corridorMemberships(entry: GeoCatalogEntry): CorridorMembership[] {
-	if (entry.geometry?.type !== 'LineString') return []
+function corridorSourceFragment(entry: GeoCatalogEntry): CorridorSourceFragment | undefined {
+	if (entry.geometry?.type !== 'LineString') return undefined
 	const overtureTheme = jsonText(entry.properties.overtureTheme)
 	const overtureType = jsonText(entry.properties.overtureType)
-	const isTransportationSegment =
-		overtureTheme === 'transportation' && overtureType === 'segment'
-	const isBaseWater = overtureTheme === 'base' && overtureType === 'water'
-	if (!isTransportationSegment && !isBaseWater) return []
-
-	const subtypeValue = isBaseWater ? 'water' : jsonText(entry.properties.subtype)
-	if (subtypeValue !== 'road' && subtypeValue !== 'rail' && subtypeValue !== 'water') {
-		return []
+	if (overtureTheme === 'base' && overtureType === 'water') {
+		return { featureType: 'water', subtype: 'water' }
 	}
-	const subtype = subtypeValue
+	if (overtureTheme !== 'transportation' || overtureType !== 'segment') return undefined
+	const subtype = jsonText(entry.properties.subtype)
+	return subtype === 'road' || subtype === 'rail' || subtype === 'water'
+		? { featureType: 'segment', subtype }
+		: undefined
+}
+
+function corridorMemberships(entry: GeoCatalogEntry): CorridorMembership[] {
+	const sourceFragment = corridorSourceFragment(entry)
+	if (!sourceFragment || entry.geometry?.type !== 'LineString') return []
+	const isTransportationSegment = sourceFragment.featureType === 'segment'
+	const isBaseWater = sourceFragment.featureType === 'water'
+	const subtype = sourceFragment.subtype
 	const baseCoordinates = entry.geometry.coordinates.map((position) => [...position])
 	const memberships: CorridorMembership[] = []
 	const seen = new Set<string>()
@@ -1360,6 +1421,9 @@ export async function buildOvertureGeoCatalogSnapshot(
 	const release = requiredText(options.release, '--release')
 	const snapshotId = requiredText(options.snapshotId, '--snapshot-id')
 	const output = requiredText(options.output, '--output')
+	const corridorSourceFragments = parseCorridorSourceFragmentPolicy(
+		options.corridorSourceFragments ?? 'retain',
+	)
 	if (options.inputs.length === 0) throw new Error('At least one --input spec is required')
 	if (existsSync(output)) {
 		throw new Error(`Refusing to replace existing GeoCatalog snapshot at ${output}`)
@@ -1385,6 +1449,7 @@ export async function buildOvertureGeoCatalogSnapshot(
 	const byType = createTypeCounts()
 	let recordsRead = 0
 	let sourceEntriesWritten = 0
+	let sourceFragmentsStagedOnly = 0
 	let corridorsWritten = 0
 	const corridorAssembly: BuildGeoCatalogResult['corridorAssembly'] = {
 		components: 0,
@@ -1407,16 +1472,23 @@ export async function buildOvertureGeoCatalogSnapshot(
 					onRecord(record) {
 						recordsRead += 1
 						byType[record.featureType].recordsRead += 1
-						if (record.included) {
-							sourceEntriesWritten += 1
-							byType[record.featureType].entriesWritten += 1
-						} else {
+						if (!record.included) {
 							recordsSkipped += 1
 							byType[record.featureType].recordsSkipped += 1
 						}
 					},
 				})) {
 					staging.stage(entry)
+					if (
+						corridorSourceFragments === 'staging-only' &&
+						corridorSourceFragment(entry)
+					) {
+						sourceFragmentsStagedOnly += 1
+						byType[input.featureType].sourceFragmentsStagedOnly += 1
+						continue
+					}
+					sourceEntriesWritten += 1
+					byType[input.featureType].entriesWritten += 1
 					yield entry
 				}
 			}
@@ -1468,6 +1540,7 @@ export async function buildOvertureGeoCatalogSnapshot(
 		inputFiles: options.inputs.length,
 		recordsRead,
 		entriesWritten: sourceEntriesWritten + corridorsWritten,
+		sourceFragmentsStagedOnly,
 		corridorsWritten,
 		corridorAssembly,
 		recordsSkipped,
@@ -1489,6 +1562,9 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 	let output: string | undefined
 	let createdAt: string | undefined
 	let coverage: GeoCatalogSnapshotSpatialCoverage | undefined
+	let corridorSourceFragments: NonNullable<
+		BuildGeoCatalogOptions['corridorSourceFragments']
+	> = 'retain'
 	let format: 'text' | 'json' = 'text'
 	const inputValues: string[] = []
 	const seen = new Set<string>()
@@ -1535,6 +1611,11 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 			case '--coverage':
 				coverage = parseCoverage(assignOnce(option.name, value))
 				break
+			case '--corridor-source-fragments':
+				corridorSourceFragments = parseCorridorSourceFragmentPolicy(
+					assignOnce(option.name, value),
+				)
+				break
 			case '--format': {
 				const parsed = assignOnce(option.name, value)
 				if (parsed !== 'text' && parsed !== 'json') {
@@ -1573,6 +1654,7 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 		inputs,
 		...(createdAt ? { createdAt } : {}),
 		...(coverage ? { coverage } : {}),
+		corridorSourceFragments,
 		format,
 	}
 }
@@ -1592,6 +1674,7 @@ async function main(): Promise<void> {
 		`Built ${result.snapshot.id}: ${result.entriesWritten} entries from ` +
 			`${result.recordsRead} records (${result.corridorsWritten} assembled corridors, ` +
 			`${result.corridorAssembly.paths} stitched/branch-preserving paths, ` +
+			`${result.sourceFragmentsStagedOnly} staging-only source fragments, ` +
 			`${result.recordsSkipped} skipped, ${result.outputBytes} bytes) at ${result.output}`,
 	)
 }

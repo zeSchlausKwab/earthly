@@ -638,6 +638,7 @@ describe('Overture sequence streaming', () => {
 			'--output=./catalog.sqlite',
 			'--input',
 			'place=./places.ndjson',
+			'--corridor-source-fragments=staging-only',
 			'--format=json',
 		])
 		expect(options).toMatchObject({
@@ -645,6 +646,7 @@ describe('Overture sequence streaming', () => {
 			snapshotId: 'earthly-overture-test',
 			output: resolve('./catalog.sqlite'),
 			inputs: [{ featureType: 'place', path: resolve('./places.ndjson') }],
+			corridorSourceFragments: 'staging-only',
 			format: 'json',
 		})
 		expect(parseBuildGeoCatalogArgs(['--help'])).toBeNull()
@@ -662,6 +664,15 @@ describe('Overture sequence streaming', () => {
 				'place=places.ndjson',
 			]),
 		).toThrow('dated YYYY-MM-DD.N format')
+		expect(() =>
+			parseBuildGeoCatalogArgs([
+				`--release=${RELEASE}`,
+				'--snapshot-id=x',
+				'--output=x',
+				'--corridor-source-fragments=discard',
+				'place=places.ndjson',
+			]),
+		).toThrow('--corridor-source-fragments must be retain or staging-only')
 	})
 
 	test('streams fixtures into a queryable immutable SQLite snapshot', async () => {
@@ -697,6 +708,7 @@ describe('Overture sequence streaming', () => {
 			inputFiles: 5,
 			recordsRead: 10,
 			entriesWritten: 9,
+			sourceFragmentsStagedOnly: 0,
 			corridorsWritten: 1,
 			recordsSkipped: 2,
 			byType: {
@@ -730,6 +742,12 @@ describe('Overture sequence streaming', () => {
 		)
 		expect(all.items.map((entry) => entry.id)).not.toContain(
 			'overture:base:infrastructure:infra-ordinary-bench',
+		)
+		expect(all.items.map((entry) => entry.id)).toContain(
+			'overture:transportation:segment:segment-prithvi',
+		)
+		expect(all.items.map((entry) => entry.id)).toContain(
+			'overture:base:water:water-danube-segment',
 		)
 		expect(all.items.every((entry) => entry.geometry !== undefined)).toBe(true)
 		const corridor = all.items.find(
@@ -787,6 +805,167 @@ describe('Overture sequence streaming', () => {
 		)
 		const unchanged = await catalog.query({ limit: 20 })
 		expect(unchanged.items).toHaveLength(9)
+	})
+
+	test('uses corridor source lines for staging without persisting them when requested', async () => {
+		const directory = await temporaryDirectory()
+		const waterInput = join(directory, 'water.geojsonseq')
+		const retainedOutput = join(directory, 'retained.sqlite')
+		const stagingOnlyOutput = join(directory, 'staging-only.sqlite')
+		const waterFeature = (
+			id: string,
+			name: string,
+			subtype: string,
+			geometry: Record<string, unknown>,
+		) => ({
+			type: 'Feature',
+			id,
+			geometry,
+			properties: {
+				theme: 'base',
+				type: 'water',
+				version: 1,
+				sources: [
+					{
+						property: '',
+						dataset: 'OpenStreetMap',
+						license: 'ODbL-1.0',
+						record_id: `way/${id}`,
+					},
+				],
+				subtype,
+				class: subtype,
+				names: { primary: name },
+			},
+		})
+		const waterRecords = [
+			waterFeature('river-a', 'Blue River', 'river', {
+				type: 'LineString',
+				coordinates: [
+					[10, 47],
+					[11, 47],
+				],
+			}),
+			waterFeature('river-b', 'Blue River', 'river', {
+				type: 'LineString',
+				coordinates: [
+					[11, 47],
+					[12, 47],
+				],
+			}),
+			waterFeature('named-lake', 'Example Lake', 'lake', {
+				type: 'Polygon',
+				coordinates: [
+					[
+						[13, 47],
+						[13.2, 47],
+						[13.2, 47.2],
+						[13, 47.2],
+						[13, 47],
+					],
+				],
+			}),
+			waterFeature('named-spring', 'Example Spring', 'spring', {
+				type: 'Point',
+				coordinates: [14, 47],
+			}),
+		]
+		await Bun.write(
+			waterInput,
+			`${waterRecords.map((record) => JSON.stringify(record)).join('\n')}\n`,
+		)
+		const inputs = [
+			{ featureType: 'place' as const, path: fixturePath('overture-place.ndjson') },
+			{ featureType: 'segment' as const, path: fixturePath('overture-segment.ndjson') },
+			{ featureType: 'water' as const, path: waterInput },
+		]
+		const retained = await buildOvertureGeoCatalogSnapshot({
+			release: RELEASE,
+			snapshotId: 'earthly-overture-retained-fragments-v1',
+			createdAt: '2026-08-28T10:00:00Z',
+			output: retainedOutput,
+			inputs,
+		})
+		const stagingOnly = await buildOvertureGeoCatalogSnapshot({
+			release: RELEASE,
+			snapshotId: 'earthly-overture-staging-only-fragments-v1',
+			createdAt: '2026-08-28T10:00:00Z',
+			output: stagingOnlyOutput,
+			inputs,
+			corridorSourceFragments: 'staging-only',
+		})
+
+		expect(retained).toMatchObject({
+			recordsRead: 9,
+			entriesWritten: 11,
+			sourceFragmentsStagedOnly: 0,
+			corridorsWritten: 2,
+			recordsSkipped: 0,
+		})
+		expect(stagingOnly).toMatchObject({
+			recordsRead: 9,
+			entriesWritten: 5,
+			sourceFragmentsStagedOnly: 6,
+			corridorsWritten: 2,
+			recordsSkipped: 0,
+			byType: {
+				place: {
+					recordsRead: 1,
+					entriesWritten: 1,
+					sourceFragmentsStagedOnly: 0,
+					recordsSkipped: 0,
+				},
+				segment: {
+					recordsRead: 4,
+					entriesWritten: 0,
+					sourceFragmentsStagedOnly: 4,
+					recordsSkipped: 0,
+				},
+				water: {
+					recordsRead: 4,
+					entriesWritten: 2,
+					sourceFragmentsStagedOnly: 2,
+					recordsSkipped: 0,
+				},
+			},
+		})
+
+		const retainedItems = (
+			await openSqliteGeoCatalog({ path: retainedOutput }).query({
+				limit: 30,
+				includeGeometry: true,
+			})
+		).items
+		const stagingOnlyItems = (
+			await openSqliteGeoCatalog({ path: stagingOnlyOutput }).query({
+				limit: 30,
+				includeGeometry: true,
+			})
+		).items
+		const stagingOnlyIds = stagingOnlyItems.map((entry) => entry.id)
+		expect(retainedItems.map((entry) => entry.id)).toContain(
+			'overture:transportation:segment:segment-airport-rail',
+		)
+		expect(retainedItems.map((entry) => entry.id)).toContain(
+			'overture:base:water:river-a',
+		)
+		expect(stagingOnlyIds).not.toContain(
+			'overture:transportation:segment:segment-airport-rail',
+		)
+		expect(stagingOnlyIds).not.toContain('overture:base:water:river-a')
+		expect(stagingOnlyIds).toContain('overture:base:water:named-lake')
+		expect(stagingOnlyIds).toContain('overture:base:water:named-spring')
+		expect(stagingOnlyIds).toContain('overture:places:place:place-kathmandu-museum')
+
+		const derived = (entries: typeof retainedItems) =>
+			entries
+				.filter((entry) => ['corridor', 'water_corridor'].includes(String(entry.properties.overtureType)))
+				.sort((left, right) => left.id.localeCompare(right.id))
+		expect(derived(stagingOnlyItems)).toEqual(derived(retainedItems))
+		expect(derived(stagingOnlyItems).map((entry) => entry.properties.overtureType)).toEqual([
+			'water_corridor',
+			'corridor',
+		])
 	})
 
 	test('does not attach OSM attribution to a place-only snapshot', async () => {
