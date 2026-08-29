@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { resolveChatHeaderControlSizing, resolveChatSendState } from './ChatPanel'
+import {
+	resolveChatErrorPresentation,
+	resolveChatHeaderControlSizing,
+	resolveChatSendState,
+} from './ChatPanel'
 import { useChatComposerStore } from './composerState'
 import { useChatStore } from './store'
 
@@ -63,5 +67,23 @@ describe('ChatPanel mobile control sizing', () => {
 		expect(resolveChatHeaderControlSizing(false, 'new-conversation')).toBe('h-8 px-2.5')
 		expect(resolveChatHeaderControlSizing(false, 'conversation-select')).toBe('')
 		expect(resolveChatHeaderControlSizing(false, 'icon')).toBe('h-8 w-8')
+	})
+})
+
+describe('ChatPanel error recovery presentation', () => {
+	test('distinguishes an applied map from a failed final summary', () => {
+		expect(resolveChatErrorPresentation('Provider overloaded.', 'finish_response')).toEqual({
+			message: 'Map changes were applied, but the final summary failed. Provider overloaded.',
+			actionLabel: 'Finish response',
+			changesApplied: true,
+		})
+	})
+
+	test('keeps a normal failed turn retryable', () => {
+		expect(resolveChatErrorPresentation('Provider unavailable.', 'retry_turn')).toEqual({
+			message: 'Provider unavailable.',
+			actionLabel: 'Retry',
+			changesApplied: false,
+		})
 	})
 })

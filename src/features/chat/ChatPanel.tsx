@@ -7,6 +7,7 @@ import {
 	resolveProvider,
 	resolveWorkspaceTargetDraft,
 	useChatStore,
+	type ChatErrorRecovery,
 	type ChatRunStatus,
 } from './store'
 import { composeOutboundContent } from './composeOutboundContent'
@@ -164,6 +165,20 @@ export function resolveChatSendState(input: {
 	return { canSend, title }
 }
 
+export function resolveChatErrorPresentation(
+	error: string,
+	recovery: ChatErrorRecovery | null,
+): { message: string; actionLabel: 'Retry' | 'Finish response'; changesApplied: boolean } {
+	if (recovery === 'finish_response') {
+		return {
+			message: `Map changes were applied, but the final summary failed. ${error}`,
+			actionLabel: 'Finish response',
+			changesApplied: true,
+		}
+	}
+	return { message: error, actionLabel: 'Retry', changesApplied: false }
+}
+
 export function resolveChatHeaderControlSizing(
 	isMobile: boolean,
 	control: 'new-conversation' | 'conversation-select' | 'icon',
@@ -230,6 +245,7 @@ export function ChatPanel({
 		toolsEnabled,
 		promptProfile,
 		error,
+		errorRecovery,
 		totalSpent,
 		diagnostics,
 		lastTurnRequest,
@@ -239,6 +255,7 @@ export function ChatPanel({
 		setSelectedModel,
 		sendMessage,
 		retryLastMessage,
+		finishLastResponse,
 		createChat,
 		switchChat,
 		deleteChat,
@@ -678,6 +695,7 @@ export function ChatPanel({
 		anotherChatIsRunning,
 	})
 	const canSend = sendState.canSend
+	const errorPresentation = error ? resolveChatErrorPresentation(error, errorRecovery) : null
 	const handleTargetPendingChange = (chatId: string, pending: boolean) => {
 		setTargetPendingChatIds((current) => {
 			const next = new Set(current)
@@ -1229,21 +1247,41 @@ export function ChatPanel({
 			</div>
 
 			{/* Error display */}
-			{error && (
-				<div className="flex items-center justify-between gap-3 border-t bg-destructive/10 px-3 py-2 text-xs text-destructive">
-					<span>{error}</span>
+			{errorPresentation && (
+				<div
+					role="alert"
+					className={cn(
+						'flex items-center justify-between gap-3 border-t px-3 py-2 text-xs',
+						errorPresentation.changesApplied
+							? 'border-primary/30 bg-primary/10 text-foreground'
+							: 'bg-destructive/10 text-destructive',
+					)}
+				>
+					<span>{errorPresentation.message}</span>
 					{lastTurnRequest && !isStreaming ? (
 						<Button
 							type="button"
 							size="sm"
 							variant="outline"
 							className="h-7 shrink-0 gap-1.5"
-							disabled={targetCreationPending}
-							title={targetCreationPending ? 'Wait for the editing target to finish' : 'Retry'}
-							onClick={() => void retryLastMessage()}
+							disabled={targetCreationPending || !hasValidEditingTarget}
+							title={
+								targetCreationPending
+									? 'Wait for the editing target to finish'
+									: !hasValidEditingTarget
+										? 'Choose New map or Use current edit before continuing.'
+										: errorPresentation.actionLabel
+							}
+							onClick={() =>
+								void (errorPresentation.changesApplied ? finishLastResponse() : retryLastMessage())
+							}
 						>
-							<RefreshCw className="h-3.5 w-3.5" />
-							Retry
+							{errorPresentation.changesApplied ? (
+								<MessageSquarePlus className="h-3.5 w-3.5" />
+							) : (
+								<RefreshCw className="h-3.5 w-3.5" />
+							)}
+							{errorPresentation.actionLabel}
 						</Button>
 					) : null}
 				</div>

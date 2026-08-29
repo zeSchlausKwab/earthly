@@ -116,13 +116,24 @@ export const STREAM_STALL_TIMEOUT_MS = 240000
 const STREAM_STALL_WARNING_SECONDS = STREAM_STALL_WARNING_MS / 1000
 const STREAM_STALL_TIMEOUT_SECONDS = STREAM_STALL_TIMEOUT_MS / 1000
 const OVERLOAD_RETRY_DELAYS_MS = [1500, 4000]
+const FINISH_APPLIED_CHANGES_INSTRUCTION = [
+	'One or more requested map changes in the preceding tool results were already applied successfully.',
+	'Do not call tools or repeat any map work.',
+	'Give the user a concise final response summarizing what completed and anything that did not complete according to the transcript.',
+].join(' ')
 
 /**
- * Models receive every currently registered tool. The only advertisement gate
- * is a real capability mismatch: text-only models cannot consume map snapshots.
+ * Models receive every currently registered background-safe tool. Interactive
+ * `editor_*` commands depend on the visible toolbar/editor and are rejected by
+ * executeToolCall when a chat run identity is present, so advertising them only
+ * creates guaranteed-failure rounds. Vision-only tools retain their capability
+ * gate as well.
  */
 export function getAdvertisedGeoTools(canUseVision: boolean) {
-	return gateToolsForVision(getGeoTools(), canUseVision)
+	return gateToolsForVision(
+		getGeoTools().filter((tool) => !tool.function.name.startsWith('editor_')),
+		canUseVision,
+	)
 }
 
 type StreamProgressKind =
@@ -181,6 +192,17 @@ export type ChatRunStatus =
 	| 'completed'
 	| 'error'
 	| 'stopped'
+
+export type ChatErrorRecovery = 'retry_turn' | 'finish_response'
+
+export function resolveChatErrorRecovery(
+	mapChangingToolResultCount: number,
+	continuingAfterAppliedChanges = false,
+): ChatErrorRecovery {
+	return continuingAfterAppliedChanges || mapChangingToolResultCount > 0
+		? 'finish_response'
+		: 'retry_turn'
+}
 
 const EMPTY_CHAT_DIAGNOSTICS: ChatDiagnostics = {
 	provider: null,
@@ -244,9 +266,12 @@ export function terminalDatasetTargetError(content: string): ToolError | null {
 	}
 }
 
-function serializedToolResultChangedMap(content: string): boolean {
+function serializedToolResultChangedMap(content: string, toolName?: string): boolean {
 	try {
 		const value = JSON.parse(content) as Record<string, unknown>
+		// Dataset metadata is a real persisted edit, but its compact result predates
+		// the shared mutation-count envelope used by geometry/callout tools.
+		if (toolName === 'set_dataset_metadata' && value.ok === true) return true
 		const editorImport = value.editorImport as Record<string, unknown> | undefined
 		if (typeof editorImport?.importedCount === 'number' && editorImport.importedCount > 0)
 			return true
@@ -313,6 +338,12 @@ export interface SendMessageOptions {
 	composedContent?: ChatMessageContent
 	/** Retry an immediately-failed user turn without appending duplicate text. */
 	reuseLastUserMessage?: boolean
+	/**
+	 * Resume only the missing final narration after a run already applied map
+	 * changes. This is an internal recovery mode: no user message is appended and
+	 * no tools are advertised, so applied work cannot be replayed accidentally.
+	 */
+	continueAfterAppliedChanges?: boolean
 }
 
 /** Per-conversation runtime. It is intentionally memory-only (never persisted). */
@@ -328,6 +359,7 @@ export interface ChatRunState {
 	lastProgressAt: number | null
 	lastProgressKind: StreamProgressKind | null
 	error: string | null
+	errorRecovery: ChatErrorRecovery | null
 	diagnostics: ChatDiagnostics
 	lastTurnRequest: { content: string; options?: SendMessageOptions } | null
 	totalSpent: number
@@ -430,6 +462,7 @@ function createEmptyChatRunState(): ChatRunState {
 		lastProgressAt: null,
 		lastProgressKind: null,
 		error: null,
+		errorRecovery: null,
 		diagnostics: cloneEmptyDiagnostics(),
 		lastTurnRequest: null,
 		totalSpent: 0,
@@ -1140,6 +1173,30 @@ function buildEmergencyRetryMessages(conversationMessages: ChatMessage[]): ChatM
 	return messages
 }
 
+function buildAppliedChangesContinuationMessages(
+	conversationMessages: ChatMessage[],
+): ChatMessage[] {
+	const sanitized = conversationMessages.map(sanitizeMessageForPrompt)
+	const latestUserMessage = [...sanitized].reverse().find((message) => message.role === 'user')
+	const latestToolMessage = [...sanitized].reverse().find((message) => message.role === 'tool')
+	const messages: ChatMessage[] = [{ role: 'system', content: FINISH_APPLIED_CHANGES_INSTRUCTION }]
+
+	if (latestUserMessage) {
+		messages.push(truncateMessageToTokenBudget(latestUserMessage, 300))
+	}
+	if (latestToolMessage) {
+		messages.push({
+			role: 'system',
+			content: `Most recent applied tool output excerpt:\n${truncateTextForPrompt(
+				messageContentToText(latestToolMessage.content),
+				1200,
+			)}`,
+		})
+	}
+
+	return messages
+}
+
 export function resolveProvider(
 	type: ProviderType,
 	providerOverrides: ProviderOverrideMap,
@@ -1215,6 +1272,7 @@ interface ChatState {
 	lastProgressAt: number | null
 	lastProgressKind: StreamProgressKind | null
 	error: string | null
+	errorRecovery: ChatErrorRecovery | null
 	diagnostics: ChatDiagnostics
 	lastTurnRequest: { content: string; options?: SendMessageOptions } | null
 	references: ChatReference[]
@@ -1250,6 +1308,7 @@ interface ChatActions {
 	// Chat actions
 	sendMessage: (content: string, options?: SendMessageOptions) => Promise<void>
 	retryLastMessage: () => Promise<void>
+	finishLastResponse: () => Promise<void>
 	cancelStream: () => void
 	// Reset
 	reset: () => void
@@ -1268,6 +1327,7 @@ type ActiveChatRunView = Pick<
 	| 'lastProgressAt'
 	| 'lastProgressKind'
 	| 'error'
+	| 'errorRecovery'
 	| 'diagnostics'
 	| 'lastTurnRequest'
 	| 'totalSpent'
@@ -1285,6 +1345,7 @@ function chatRunStateToActiveView(runState: ChatRunState): ActiveChatRunView {
 		lastProgressAt: runState.lastProgressAt,
 		lastProgressKind: runState.lastProgressKind,
 		error: runState.error,
+		errorRecovery: runState.errorRecovery,
 		diagnostics: runState.diagnostics,
 		lastTurnRequest: runState.lastTurnRequest,
 		totalSpent: runState.totalSpent,
@@ -1339,6 +1400,7 @@ function createInitialState(): ChatState {
 		lastProgressAt: null,
 		lastProgressKind: null,
 		error: null,
+		errorRecovery: null,
 		diagnostics: EMPTY_CHAT_DIAGNOSTICS,
 		lastTurnRequest: null,
 		references: initialChat.references,
@@ -1762,6 +1824,8 @@ export const useChatStore = create<ChatStore>()(
 				}
 				const { selectedModel, models, toolsEnabled, provider, providerOverrides, promptProfile } =
 					get()
+				const continuingAfterAppliedChanges = options?.continueAfterAppliedChanges === true
+				const toolsEnabledForRun = toolsEnabled && !continuingAfterAppliedChanges
 				const providerConfig = resolveProvider(provider, providerOverrides)
 				// Hoisted so the request-builder closure can gate capture_map_snapshot on
 				// it; assigned once vision support resolves below. Default false fails
@@ -1838,9 +1902,11 @@ export const useChatStore = create<ChatStore>()(
 					if (!targetChat) return {}
 					const reuseLastUserMessage =
 						options?.reuseLastUserMessage === true && targetChat.messages.at(-1)?.role === 'user'
-					const nextMessages = reuseLastUserMessage
+					const nextMessages = continuingAfterAppliedChanges
 						? targetChat.messages
-						: [...targetChat.messages, userMessage]
+						: reuseLastUserMessage
+							? targetChat.messages
+							: [...targetChat.messages, userMessage]
 					const nextRun: ChatRunState = {
 						...createEmptyChatRunState(),
 						identity: runIdentity,
@@ -1997,11 +2063,11 @@ export const useChatStore = create<ChatStore>()(
 						// (or merely 'uncertain') model never sees the tool, calls it, and
 						// then wastes a round reasoning that it cannot view the snapshot.
 						const requestTools =
-							toolsEnabled && allowTools ? getAdvertisedGeoTools(canUseVision) : undefined
+							toolsEnabledForRun && allowTools ? getAdvertisedGeoTools(canUseVision) : undefined
 						console.log('[Chat] Request config:', {
 							provider: providerConfig.type,
 							model: selectedModelId,
-							toolsEnabled,
+							toolsEnabled: toolsEnabledForRun,
 							toolCount: requestTools?.length ?? 0,
 							toolNames: requestTools?.map((t) => t.function.name) ?? [],
 						})
@@ -2208,6 +2274,7 @@ export const useChatStore = create<ChatStore>()(
 					})
 				}
 
+				let mapChangingToolResultCount = 0
 				try {
 					streamAbortController = new AbortController()
 					// Repair any assistant tool_calls left unanswered by a stopped run
@@ -2222,7 +2289,6 @@ export const useChatStore = create<ChatStore>()(
 					let totalToolCalls = 0
 					const toolLoopRecovery = new ToolLoopRecovery()
 					let pendingLoopRecoveryInstruction: string | null = null
-					let mapChangingToolResultCount = 0
 					let modelRequestCount = 0
 					let cumulativeEstimatedPromptTokens = 0
 					let cumulativeEstimatedCompletionTokens = 0
@@ -2248,7 +2314,7 @@ export const useChatStore = create<ChatStore>()(
 						visionSupport === 'vision' &&
 						effectiveContextTokens >= MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE
 					const promptBudgetTokens = getPromptBudgetTokens(model, providerConfig)
-					const advertisedTools = getAdvertisedGeoTools(canUseVision)
+					const advertisedTools = toolsEnabledForRun ? getAdvertisedGeoTools(canUseVision) : []
 					const streamStartAt = Date.now()
 
 					setOwnedRunState({
@@ -2330,26 +2396,28 @@ export const useChatStore = create<ChatStore>()(
 							oneShotVisionMessages = []
 						}
 
-						const advertisedToolNames = toolsEnabled
+						const advertisedToolNames = toolsEnabledForRun
 							? getAdvertisedGeoTools(canUseVision).map((tool) => tool.function.name)
 							: []
-						const systemSections = [
-							toolsEnabled
-								? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
-										mapSnapshot: capturedMapSnapshot,
-										sessionPublishContextMessage: capturedSessionPublishContext,
-									})?.content
-								: null,
-							referenceContextMessage || null,
-							selectionContextMessage || null,
-							oneShotGeometryContextMessage || null,
-						]
-							.map((section) =>
-								typeof section === 'string'
-									? section.trim()
-									: messageContentToText(section ?? null),
-							)
-							.filter((section): section is string => Boolean(section))
+						const systemSections = continuingAfterAppliedChanges
+							? [FINISH_APPLIED_CHANGES_INSTRUCTION]
+							: [
+									toolsEnabledForRun
+										? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
+												mapSnapshot: capturedMapSnapshot,
+												sessionPublishContextMessage: capturedSessionPublishContext,
+											})?.content
+										: null,
+									referenceContextMessage || null,
+									selectionContextMessage || null,
+									oneShotGeometryContextMessage || null,
+								]
+									.map((section) =>
+										typeof section === 'string'
+											? section.trim()
+											: messageContentToText(section ?? null),
+									)
+									.filter((section): section is string => Boolean(section))
 						const combinedSystemMessage: ChatMessage | null =
 							systemSections.length > 0
 								? {
@@ -2374,10 +2442,12 @@ export const useChatStore = create<ChatStore>()(
 							]
 							oneShotGeometryContextMessage = undefined
 						}
-						requestMessages = appendRequestContextToLatestUserMessage(requestMessages, [
-							referenceContextMessage,
-							capturedSessionPublishContext ?? undefined,
-						])
+						if (!continuingAfterAppliedChanges) {
+							requestMessages = appendRequestContextToLatestUserMessage(requestMessages, [
+								referenceContextMessage,
+								capturedSessionPublishContext ?? undefined,
+							])
+						}
 						requestMessages = ensureReasoningContentForToolMessages(
 							requestMessages,
 							requiresReasoningContent,
@@ -2426,7 +2496,11 @@ export const useChatStore = create<ChatStore>()(
 							for (let attempt = 0; attempt <= OVERLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
 								try {
 									recordModelRequest(estimatedPromptTokens)
-									result = await makeRequest(requestMessages, outputBudget)
+									result = await makeRequest(
+										requestMessages,
+										outputBudget,
+										!continuingAfterAppliedChanges,
+									)
 									lastError = null
 									break
 								} catch (error) {
@@ -2467,10 +2541,12 @@ export const useChatStore = create<ChatStore>()(
 								streamWarning:
 									'Context overflow detected. Retrying with a reduced prompt window...',
 							})
-							const emergencyMessages = appendRequestContextToLatestUserMessage(
-								buildEmergencyRetryMessages(conversationMessages),
-								[referenceContextMessage, capturedSessionPublishContext ?? undefined],
-							)
+							const emergencyMessages = continuingAfterAppliedChanges
+								? buildAppliedChangesContinuationMessages(conversationMessages)
+								: appendRequestContextToLatestUserMessage(
+										buildEmergencyRetryMessages(conversationMessages),
+										[referenceContextMessage, capturedSessionPublishContext ?? undefined],
+									)
 							// Re-derive the budget for the reduced prompt so a paid retry's
 							// cost estimate matches the smaller request (more room => budget
 							// floored, never starved).
@@ -2488,7 +2564,11 @@ export const useChatStore = create<ChatStore>()(
 								emergencyPromptTokens,
 							)
 							recordModelRequest(emergencyPromptTokens)
-							result = await makeRequest(emergencyMessages, emergencyOutputBudget)
+							result = await makeRequest(
+								emergencyMessages,
+								emergencyOutputBudget,
+								!continuingAfterAppliedChanges,
+							)
 						}
 						if (!result) {
 							throw new Error('Chat request finished without a result.')
@@ -2688,7 +2768,10 @@ export const useChatStore = create<ChatStore>()(
 									break
 								}
 
-								const mapChanged = serializedToolResultChangedMap(toolResult.content)
+								const mapChanged = serializedToolResultChangedMap(
+									toolResult.content,
+									toolCall.function.name,
+								)
 								if (mapChanged) mapChangingToolResultCount += 1
 								const loopRecoveryInstruction = toolLoopRecovery.observe(
 									toolCall,
@@ -2736,6 +2819,7 @@ export const useChatStore = create<ChatStore>()(
 							if (terminalTargetError) {
 								const completedAt = Date.now()
 								const terminalTargetErrorMessage = terminalTargetError.message
+								const errorRecovery = resolveChatErrorRecovery(mapChangingToolResultCount)
 								finishOwnedRun((current) => ({
 									...current,
 									status: 'error',
@@ -2745,6 +2829,7 @@ export const useChatStore = create<ChatStore>()(
 									lastProgressAt: completedAt,
 									lastProgressKind: 'error',
 									error: terminalTargetErrorMessage,
+									errorRecovery,
 									diagnostics: {
 										...current.diagnostics,
 										toolCallCount: totalToolCalls,
@@ -2796,6 +2881,8 @@ export const useChatStore = create<ChatStore>()(
 								streamWarning: null,
 								lastProgressAt: Date.now(),
 								lastProgressKind: 'complete',
+								error: null,
+								errorRecovery: null,
 								diagnostics: {
 									...current.diagnostics,
 									estimatedCompletionTokens: result.estimatedCompletionTokens,
@@ -2810,6 +2897,10 @@ export const useChatStore = create<ChatStore>()(
 							// ChatPanel renders for failures, with truncation-specific copy
 							// when the model hit its output-token limit.
 							const { message: emptyNotice } = describeEmptyCompletion(result.finishReason)
+							const errorRecovery = resolveChatErrorRecovery(
+								mapChangingToolResultCount,
+								continuingAfterAppliedChanges,
+							)
 							finishOwnedRun((current) => ({
 								...current,
 								status: 'error',
@@ -2820,6 +2911,7 @@ export const useChatStore = create<ChatStore>()(
 								lastProgressAt: Date.now(),
 								lastProgressKind: 'error',
 								error: emptyNotice,
+								errorRecovery,
 								diagnostics: {
 									...current.diagnostics,
 									estimatedCompletionTokens: result.estimatedCompletionTokens,
@@ -2828,7 +2920,13 @@ export const useChatStore = create<ChatStore>()(
 									completedAt: Date.now(),
 								},
 							}))
-							toast.error(emptyNotice)
+							if (errorRecovery === 'finish_response') {
+								toast.warning('Map changes were applied, but the final response was empty.', {
+									description: emptyNotice,
+								})
+							} else {
+								toast.error(emptyNotice)
+							}
 						}
 						break
 					}
@@ -2853,6 +2951,10 @@ export const useChatStore = create<ChatStore>()(
 						}
 						return
 					}
+					const errorRecovery = resolveChatErrorRecovery(
+						mapChangingToolResultCount,
+						continuingAfterAppliedChanges,
+					)
 					finishOwnedRun((current) => ({
 						...current,
 						status: 'error',
@@ -2864,12 +2966,19 @@ export const useChatStore = create<ChatStore>()(
 						lastProgressAt: Date.now(),
 						lastProgressKind: 'error',
 						error: message,
+						errorRecovery,
 						diagnostics: {
 							...current.diagnostics,
 							completedAt: Date.now(),
 						},
 					}))
-					toast.error(message)
+					if (errorRecovery === 'finish_response') {
+						toast.warning('Map changes were applied, but the final response failed.', {
+							description: message,
+						})
+					} else {
+						toast.error(message)
+					}
 				} finally {
 					releaseToolExecutionRun(streamRunId)
 					if (currentStreamRunId === streamRunId) {
@@ -2885,12 +2994,28 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			retryLastMessage: async () => {
-				const request = get().lastTurnRequest
-				if (!request || get().isStreaming) return
-				set({ error: null })
+				const state = get()
+				if (state.errorRecovery === 'finish_response') {
+					await state.finishLastResponse()
+					return
+				}
+				const request = state.lastTurnRequest
+				if (!request || state.isStreaming) return
 				await get().sendMessage(request.content, {
 					...request.options,
 					reuseLastUserMessage: true,
+					continueAfterAppliedChanges: false,
+				})
+			},
+
+			finishLastResponse: async () => {
+				const state = get()
+				const request = state.lastTurnRequest
+				if (!request || state.isStreaming || state.errorRecovery !== 'finish_response') return
+				await get().sendMessage(request.content, {
+					...request.options,
+					reuseLastUserMessage: false,
+					continueAfterAppliedChanges: true,
 				})
 			},
 
@@ -3051,6 +3176,7 @@ export const chatActions = {
 	sendMessage: (content: string, options?: SendMessageOptions) =>
 		useChatStore.getState().sendMessage(content, options),
 	retryLastMessage: () => useChatStore.getState().retryLastMessage(),
+	finishLastResponse: () => useChatStore.getState().finishLastResponse(),
 	clearMessages: () => useChatStore.getState().clearMessages(),
 	createChat: () => useChatStore.getState().createChat(),
 	switchChat: (chatId: string) => useChatStore.getState().switchChat(chatId),
