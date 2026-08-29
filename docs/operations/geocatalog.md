@@ -39,11 +39,25 @@ recognized hydronym suffix (such as `River` or `Khola`) is removed, or a strong
 upstream identifier such as Wikidata or an identical provider record id. This
 allows multilingual and punctuation/type variants to form one useful river
 corridor without joining unrelated waterways merely because they meet at a
-confluence. A derived corridor is a deterministically ordered
-`MultiLineString`: member boundaries and real gaps remain visible, so Earthly
-never implies that disconnected source segments form one stitched line.
-Corridors store a member count and membership digest rather than a potentially
-enormous list of member ids.
+confluence. A derived corridor is a deterministically assembled
+`MultiLineString`. Exact shared endpoints are oriented and stitched only along
+an unambiguous degree-two chain. A branch terminates each path rather than
+letting the builder choose an arbitrary mainline. A prospective join that would
+repeat an exact source segment in either direction remains a separate part. The
+guard is an incremental segment-key lookup, so long corridors do not pay for
+pairwise intersection tests. Source-authored crossings are retained;
+byte-identical or reversed duplicate source lines appear once in the derived
+geometry, while their raw entries remain untouched.
+
+Corridor properties keep the hot query result bounded: `memberCount`, a
+deterministic `memberIdSample` (at most 12 ids), its truncation flag, and the
+membership digest summarize the source set without copying an unbounded member
+ledger into every response. Complete ids, source records, and geometries remain
+available as the raw catalog entries. Component, gap, path, branch,
+stitched-join, prevented repeated-segment-join, and duplicate-member counts
+state what the `MultiLineString` represents. No missing segment is synthesized,
+no endpoint is snapped, and no raw Overture geometry is simplified, clipped,
+repaired, or discarded.
 
 Semantic classifications are indexed separately from free-text names. Place
 entries include the basic category, the full Overture taxonomy hierarchy and
@@ -116,7 +130,30 @@ snapshot artifacts, leaving the same output name safe to retry after correcting
 the input.
 
 Use `--format json` for machine-readable counts. The report includes read,
-written, and intentionally skipped records per Overture type.
+written, and intentionally skipped records per Overture type, final snapshot
+bytes, and corridor assembly totals: components, output paths, safe stitched
+joins, prevented repeated-segment joins, duplicate geometry members, branch
+points, and corridors with gaps.
+
+## Scale gate before a planet build
+
+Do not infer planet-build resource requirements from one small AOI. Before
+building a global snapshot, run the same pinned builder against at least:
+
+1. a dense metropolitan extract with roads, places, and infrastructure;
+2. a country or multi-country extract with administrative areas and named
+   transport/water corridors;
+3. a sparse coastal or antimeridian-adjacent extract.
+
+Record input bytes, `outputBytes`, records read/written/skipped, the corridor
+assembly report, elapsed time, peak resident memory, temporary staging size,
+and representative text/bbox/near query latency. Preserve those results with
+the release/build notes. The first global snapshot should be a reviewed
+planet-lite selection—global administrative geography plus selected places,
+named waterways, and important transport corridors—not an automatic import of
+every raw road, place, and infrastructure record. Rich regional snapshots can
+provide denser authoring data without turning the embedded runtime catalog into
+an unmeasured raw planet mirror.
 
 ## Verify and promote
 

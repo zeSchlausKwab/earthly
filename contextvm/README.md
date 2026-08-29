@@ -4,7 +4,7 @@ Earthly exposes map, geographic research, and web-research tools as an MCP serve
 
 ## Tool families
 
-- **GeoCatalog** — fast, self-hosted semantic/spatial search and geometry retrieval from an immutable, release-pinned geography snapshot, including derived non-stitched transport corridors.
+- **GeoCatalog** — fast, self-hosted semantic/spatial search and geometry retrieval from an immutable, release-pinned geography snapshot, including provenance-preserving corridors that stitch only non-repeating exact-endpoint chains and leave branches or gaps explicit.
 - **Places and OpenStreetMap** — forward/reverse geocoding plus last-resort remote queries for details absent from GeoCatalog.
 - **Routing** — Valhalla routes and isochrones.
 - **Offline map preparation** — PMTiles extraction and authenticated Blossom upload.

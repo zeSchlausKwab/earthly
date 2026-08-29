@@ -46,10 +46,20 @@ export interface BuildGeoCatalogOptions {
 export interface BuildGeoCatalogResult {
 	snapshot: GeoCatalogSnapshotMetadata
 	output: string
+	outputBytes: number
 	inputFiles: number
 	recordsRead: number
 	entriesWritten: number
 	corridorsWritten: number
+	corridorAssembly: {
+		components: number
+		paths: number
+		stitchedJoins: number
+		repeatedSegmentJoinsPrevented: number
+		duplicateGeometryMembers: number
+		branchPoints: number
+		corridorsWithGaps: number
+	}
 	recordsSkipped: number
 	byType: Record<
 		OvertureFeatureType,
@@ -74,8 +84,9 @@ Input types:
   division | division_area | place | segment | infrastructure | water
 
 Named transport routes and connected base-water fragments with at least two
-members also produce derived, non-stitched MultiLineString corridor entries.
-Raw source entries remain in the snapshot.
+members also produce derived MultiLineString corridor entries. Exact shared
+endpoints are oriented and stitched when unambiguous; branches and real gaps
+remain separate parts. Raw source entries remain unchanged in the snapshot.
 
 Options:
   --release <value>           Required Overture release, for example 2026-08-19.0
@@ -209,6 +220,26 @@ interface CorridorKeyRow {
 
 interface MemberIdRow {
 	memberId: string
+}
+
+interface ParsedCorridorMember {
+	memberId: string
+	coordinates: number[][]
+}
+
+interface AssembledCorridorPath {
+	memberIds: string[]
+	coordinates: number[][]
+}
+
+interface AssembledCorridorGeometry {
+	coordinates: number[][][]
+	componentCount: number
+	pathCount: number
+	stitchedJoinCount: number
+	repeatedSegmentJoinCount: number
+	branchPointCount: number
+	duplicateGeometryMemberCount: number
 }
 
 function jsonObject(value: GeoCatalogJsonValue | undefined): JsonObject | undefined {
@@ -679,6 +710,256 @@ function parseStagedJson(value: string, field: string): GeoCatalogJsonValue {
 	return parsed as GeoCatalogJsonValue
 }
 
+function positionKey(position: number[]): string {
+	return JSON.stringify(position)
+}
+
+function compareText(left: string, right: string): number {
+	return left < right ? -1 : left > right ? 1 : 0
+}
+
+function reversedCoordinates(coordinates: readonly number[][]): number[][] {
+	return coordinates.map((position) => [...position]).reverse()
+}
+
+function canonicalLineCoordinates(coordinates: readonly number[][]): {
+	key: string
+	coordinates: number[][]
+} {
+	const forward = coordinates.map((position) => [...position])
+	const reversed = reversedCoordinates(coordinates)
+	const forwardKey = JSON.stringify(forward)
+	const reversedKey = JSON.stringify(reversed)
+	return reversedKey < forwardKey
+		? { key: reversedKey, coordinates: reversed }
+		: { key: forwardKey, coordinates: forward }
+}
+
+interface CorridorAssemblyEdge {
+	memberId: string
+	coordinates: number[][]
+	startKey: string
+	endKey: string
+}
+
+function canonicalSegmentKey(start: number[], end: number[]): string {
+	const startKey = positionKey(start)
+	const endKey = positionKey(end)
+	return startKey < endKey ? `${startKey}\u0000${endKey}` : `${endKey}\u0000${startKey}`
+}
+
+function lineSegmentKeys(coordinates: readonly number[][]): string[] {
+	const keys: string[] = []
+	for (let index = 1; index < coordinates.length; index += 1) {
+		const start = coordinates[index - 1]
+		const end = coordinates[index]
+		if (!start || !end) throw new Error('Corridor member contains an invalid segment')
+		keys.push(canonicalSegmentKey(start, end))
+	}
+	return keys
+}
+
+const CORRIDOR_MEMBER_ID_SAMPLE_LIMIT = 12
+
+function assembleCorridorGeometry(members: readonly StagedMemberRow[]): AssembledCorridorGeometry {
+	const parsedMembers: ParsedCorridorMember[] = members.map((member) => {
+		const coordinates = parseStagedJson(member.coordinatesJson, 'coordinates')
+		if (!Array.isArray(coordinates)) {
+			throw new Error('Corridor staging coordinates must be an array')
+		}
+		return {
+			memberId: member.memberId,
+			coordinates: coordinates as number[][],
+		}
+	})
+	parsedMembers.sort((left, right) => compareText(left.memberId, right.memberId))
+
+	// Preserve every source member in provenance, but emit byte-identical reversed
+	// duplicates only once in the derived geometry. The raw catalog entries remain
+	// untouched and queryable by their own ids.
+	const edgeByGeometry = new Map<string, CorridorAssemblyEdge>()
+	let duplicateGeometryMemberCount = 0
+	for (const member of parsedMembers) {
+		const canonical = canonicalLineCoordinates(member.coordinates)
+		const existing = edgeByGeometry.get(canonical.key)
+		if (existing) {
+			duplicateGeometryMemberCount += 1
+			continue
+		}
+		const first = canonical.coordinates[0]
+		const last = canonical.coordinates.at(-1)
+		if (!first || !last) throw new Error('Corridor member must contain at least two positions')
+		edgeByGeometry.set(canonical.key, {
+			memberId: member.memberId,
+			coordinates: canonical.coordinates,
+			startKey: positionKey(first),
+			endKey: positionKey(last),
+		})
+	}
+
+	const edges = Array.from(edgeByGeometry.values()).sort((left, right) =>
+		compareText(left.memberId, right.memberId),
+	)
+	const parent = new Map<string, string>()
+	for (const edge of edges) parent.set(edge.memberId, edge.memberId)
+	const find = (memberId: string): string => {
+		let root = memberId
+		while (parent.get(root) && parent.get(root) !== root) root = parent.get(root) as string
+		let current = memberId
+		while (current !== root) {
+			const next = parent.get(current)
+			parent.set(current, root)
+			if (!next) break
+			current = next
+		}
+		return root
+	}
+	const union = (left: string, right: string): void => {
+		const leftRoot = find(left)
+		const rightRoot = find(right)
+		if (leftRoot === rightRoot) return
+		if (leftRoot < rightRoot) parent.set(rightRoot, leftRoot)
+		else parent.set(leftRoot, rightRoot)
+	}
+	const endpointOwner = new Map<string, string>()
+	for (const edge of edges) {
+		for (const endpoint of new Set([edge.startKey, edge.endKey])) {
+			const owner = endpointOwner.get(endpoint)
+			if (owner) union(owner, edge.memberId)
+			else endpointOwner.set(endpoint, edge.memberId)
+		}
+	}
+
+	const edgesByComponent = new Map<string, CorridorAssemblyEdge[]>()
+	for (const edge of edges) {
+		const root = find(edge.memberId)
+		const componentEdges = edgesByComponent.get(root) ?? []
+		componentEdges.push(edge)
+		edgesByComponent.set(root, componentEdges)
+	}
+	const sortedComponentEdges = Array.from(edgesByComponent.values())
+		.map((componentEdges) =>
+			componentEdges.sort((left, right) => compareText(left.memberId, right.memberId)),
+		)
+		.sort((left, right) => {
+			const leftId = left[0]?.memberId ?? ''
+			const rightId = right[0]?.memberId ?? ''
+			return compareText(leftId, rightId)
+		})
+
+	const paths: AssembledCorridorPath[] = []
+	let stitchedJoinCount = 0
+	let repeatedSegmentJoinCount = 0
+	let branchPointCount = 0
+	for (const componentEdges of sortedComponentEdges) {
+		const incident = new Map<string, CorridorAssemblyEdge[]>()
+		const degree = new Map<string, number>()
+		const addIncident = (endpoint: string, edge: CorridorAssemblyEdge, contribution = 1): void => {
+			const endpointEdges = incident.get(endpoint) ?? []
+			endpointEdges.push(edge)
+			incident.set(endpoint, endpointEdges)
+			degree.set(endpoint, (degree.get(endpoint) ?? 0) + contribution)
+		}
+		for (const edge of componentEdges) {
+			if (edge.startKey === edge.endKey) addIncident(edge.startKey, edge, 2)
+			else {
+				addIncident(edge.startKey, edge)
+				addIncident(edge.endKey, edge)
+			}
+		}
+		for (const endpointEdges of incident.values()) {
+			endpointEdges.sort((left, right) => compareText(left.memberId, right.memberId))
+		}
+
+		const componentBranchPoints = Array.from(degree.values()).filter(
+			(value) => value > 2,
+		).length
+		branchPointCount += componentBranchPoints
+		const used = new Set<string>()
+		const componentPaths: AssembledCorridorPath[] = []
+		const walk = (initialEndpoint: string, initialEdge: CorridorAssemblyEdge): void => {
+			let endpoint = initialEndpoint
+			let edge: CorridorAssemblyEdge | undefined = initialEdge
+			const memberIds: string[] = []
+			const pathSegmentKeys = new Set<string>()
+			let coordinates: number[][] = []
+			while (edge && !used.has(edge.memberId)) {
+				const oriented =
+					edge.startKey === endpoint
+						? edge.coordinates.map((position) => [...position])
+						: reversedCoordinates(edge.coordinates)
+				const segmentKeys = lineSegmentKeys(oriented)
+				if (
+					coordinates.length > 0 &&
+					segmentKeys.some((segmentKey) => pathSegmentKeys.has(segmentKey))
+				) {
+					repeatedSegmentJoinCount += 1
+					break
+				}
+				used.add(edge.memberId)
+				if (coordinates.length === 0) coordinates = oriented
+				else coordinates.push(...oriented.slice(1))
+				for (const segmentKey of segmentKeys) pathSegmentKeys.add(segmentKey)
+				memberIds.push(edge.memberId)
+				endpoint = edge.startKey === endpoint ? edge.endKey : edge.startKey
+				if ((degree.get(endpoint) ?? 0) !== 2) break
+				const candidates = (incident.get(endpoint) ?? []).filter(
+					(candidate) => !used.has(candidate.memberId),
+				)
+				if (candidates.length !== 1) break
+				edge = candidates[0]
+			}
+			if (coordinates.length < 2) return
+			const reversed = reversedCoordinates(coordinates)
+			if (JSON.stringify(reversed) < JSON.stringify(coordinates)) {
+				coordinates = reversed
+				memberIds.reverse()
+			}
+			componentPaths.push({ memberIds, coordinates })
+		}
+
+		// Starting at every non-degree-two endpoint produces maximal, unambiguous
+		// paths and deliberately stops at branches instead of choosing a direction.
+		const endpoints = Array.from(incident.keys()).sort()
+		for (const endpoint of endpoints) {
+			if ((degree.get(endpoint) ?? 0) === 2) continue
+			for (const edge of incident.get(endpoint) ?? []) {
+				if (!used.has(edge.memberId)) walk(endpoint, edge)
+			}
+		}
+		// Closed rings have no terminal endpoint. Seed each remaining ring from its
+		// smallest member id and canonical endpoint so output is input-order stable.
+		for (const edge of componentEdges) {
+			if (used.has(edge.memberId)) continue
+			walk(edge.startKey < edge.endKey ? edge.startKey : edge.endKey, edge)
+		}
+		componentPaths.sort((left, right) => {
+			const coordinateOrder = compareText(
+				JSON.stringify(left.coordinates),
+				JSON.stringify(right.coordinates),
+			)
+			return (
+				coordinateOrder || compareText(JSON.stringify(left.memberIds), JSON.stringify(right.memberIds))
+			)
+		})
+		paths.push(...componentPaths)
+		stitchedJoinCount += componentPaths.reduce(
+			(total, path) => total + Math.max(0, path.memberIds.length - 1),
+			0,
+		)
+	}
+
+	return {
+		coordinates: paths.map((path) => path.coordinates),
+		componentCount: sortedComponentEdges.length,
+		pathCount: paths.length,
+		stitchedJoinCount,
+		repeatedSegmentJoinCount,
+		branchPointCount,
+		duplicateGeometryMemberCount,
+	}
+}
+
 function createCorridorEntry(
 	corridorKey: string,
 	scope: CorridorScope,
@@ -688,7 +969,7 @@ function createCorridorEntry(
 	if (members.length < 2) return undefined
 	const first = members[0]
 	if (!first) return undefined
-	const memberIds = members.map((member) => member.memberId)
+	const memberIds = members.map((member) => member.memberId).sort()
 	const membershipDigest = sha256(JSON.stringify(memberIds))
 	const identityDigest = sha256(
 		JSON.stringify([corridorKey, scope === 'route' ? null : membershipDigest]),
@@ -700,7 +981,7 @@ function createCorridorEntry(
 	const categories = new Set<string>(
 		scope === 'connected-name' ? ['corridor'] : ['corridor', 'route'],
 	)
-	const coordinates: number[][][] = []
+	const assembly = assembleCorridorGeometry(members)
 	const countries = new Set<string>()
 	let everyMemberHasCountry = true
 	let west = Number.POSITIVE_INFINITY
@@ -719,11 +1000,6 @@ function createCorridorEntry(
 				if (typeof category === 'string') categories.add(category)
 			}
 		}
-		const memberCoordinates = parseStagedJson(member.coordinatesJson, 'coordinates')
-		if (!Array.isArray(memberCoordinates)) {
-			throw new Error('Corridor staging coordinates must be an array')
-		}
-		coordinates.push(memberCoordinates as number[][])
 		west = Math.min(west, member.west)
 		south = Math.min(south, member.south)
 		east = Math.max(east, member.east)
@@ -741,13 +1017,24 @@ function createCorridorEntry(
 		jsonText(identityObject?.sourceFeatureType) === 'water' ? 'water' : 'segment'
 	const sourceTheme = sourceFeatureType === 'water' ? 'base' : 'transportation'
 	const derivedType = sourceFeatureType === 'water' ? 'water_corridor' : 'corridor'
+	const gapCount = Math.max(0, assembly.componentCount - 1)
 	const properties: JsonObject = {
 		overtureTheme: sourceTheme,
 		overtureType: derivedType,
 		corridorScope: scope,
-		geometrySemantics: 'deterministically-ordered, non-stitched member centerlines',
+		geometrySemantics:
+			'exact-endpoint-stitched source centerlines; repeated source segments, branches, and disconnected components remain separate; no inferred connections',
 		memberCount: members.length,
+		memberIdSample: memberIds.slice(0, CORRIDOR_MEMBER_ID_SAMPLE_LIMIT),
+		memberIdSampleTruncated: memberIds.length > CORRIDOR_MEMBER_ID_SAMPLE_LIMIT,
 		membershipDigest: `sha256:${membershipDigest}`,
+		componentCount: assembly.componentCount,
+		gapCount,
+		pathCount: assembly.pathCount,
+		stitchedJoinCount: assembly.stitchedJoinCount,
+		repeatedSegmentJoinCount: assembly.repeatedSegmentJoinCount,
+		branchPointCount: assembly.branchPointCount,
+		duplicateGeometryMemberCount: assembly.duplicateGeometryMemberCount,
 		identity,
 		derivedFrom: {
 			name: OVERTURE_SOURCE_NAME,
@@ -773,7 +1060,7 @@ function createCorridorEntry(
 			recordId: `corridor:${identityDigest}`,
 		},
 		properties,
-		geometry: { type: 'MultiLineString', coordinates },
+		geometry: { type: 'MultiLineString', coordinates: assembly.coordinates },
 	}
 }
 
@@ -1099,6 +1386,15 @@ export async function buildOvertureGeoCatalogSnapshot(
 	let recordsRead = 0
 	let sourceEntriesWritten = 0
 	let corridorsWritten = 0
+	const corridorAssembly: BuildGeoCatalogResult['corridorAssembly'] = {
+		components: 0,
+		paths: 0,
+		stitchedJoins: 0,
+		repeatedSegmentJoinsPrevented: 0,
+		duplicateGeometryMembers: 0,
+		branchPoints: 0,
+		corridorsWithGaps: 0,
+	}
 	let recordsSkipped = 0
 	const staging = await CorridorStaging.create(options.stagingDirectoryRoot)
 
@@ -1131,6 +1427,30 @@ export async function buildOvertureGeoCatalogSnapshot(
 		}
 		for (const corridor of staging.entries(release)) {
 			corridorsWritten += 1
+			const componentCount = corridor.properties.componentCount
+			const pathCount = corridor.properties.pathCount
+			const stitchedJoinCount = corridor.properties.stitchedJoinCount
+			const repeatedSegmentJoinCount = corridor.properties.repeatedSegmentJoinCount
+			const duplicateGeometryMemberCount = corridor.properties.duplicateGeometryMemberCount
+			const branchPointCount = corridor.properties.branchPointCount
+			const gapCount = corridor.properties.gapCount
+			if (typeof componentCount === 'number') corridorAssembly.components += componentCount
+			if (typeof pathCount === 'number') corridorAssembly.paths += pathCount
+			if (typeof stitchedJoinCount === 'number') {
+				corridorAssembly.stitchedJoins += stitchedJoinCount
+			}
+			if (typeof repeatedSegmentJoinCount === 'number') {
+				corridorAssembly.repeatedSegmentJoinsPrevented += repeatedSegmentJoinCount
+			}
+			if (typeof duplicateGeometryMemberCount === 'number') {
+				corridorAssembly.duplicateGeometryMembers += duplicateGeometryMemberCount
+			}
+			if (typeof branchPointCount === 'number') {
+				corridorAssembly.branchPoints += branchPointCount
+			}
+			if (typeof gapCount === 'number' && gapCount > 0) {
+				corridorAssembly.corridorsWithGaps += 1
+			}
 			yield corridor
 		}
 	}
@@ -1140,13 +1460,16 @@ export async function buildOvertureGeoCatalogSnapshot(
 	} finally {
 		await staging.cleanup()
 	}
+	const outputBytes = (await stat(output)).size
 	return {
 		snapshot,
 		output,
+		outputBytes,
 		inputFiles: options.inputs.length,
 		recordsRead,
 		entriesWritten: sourceEntriesWritten + corridorsWritten,
 		corridorsWritten,
+		corridorAssembly,
 		recordsSkipped,
 		byType,
 	}
@@ -1268,7 +1591,8 @@ async function main(): Promise<void> {
 	console.log(
 		`Built ${result.snapshot.id}: ${result.entriesWritten} entries from ` +
 			`${result.recordsRead} records (${result.corridorsWritten} assembled corridors, ` +
-			`${result.recordsSkipped} skipped) at ${result.output}`,
+			`${result.corridorAssembly.paths} stitched/branch-preserving paths, ` +
+			`${result.recordsSkipped} skipped, ${result.outputBytes} bytes) at ${result.output}`,
 	)
 }
 

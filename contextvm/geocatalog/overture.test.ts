@@ -749,9 +749,19 @@ describe('Overture sequence streaming', () => {
 				overtureType: 'corridor',
 				corridorScope: 'route',
 				memberCount: 2,
+				memberIdSample: [
+					'overture:transportation:segment:segment-prithvi',
+					'overture:transportation:segment:segment-prithvi-east',
+				],
+				memberIdSampleTruncated: false,
 				membershipDigest:
 					'sha256:ac8fdf9ae4690cef1a9315d1c8428e6b51df84fb604fdf92cd4af3c60bfa35fd',
-				geometrySemantics: 'deterministically-ordered, non-stitched member centerlines',
+				geometrySemantics:
+					'exact-endpoint-stitched source centerlines; repeated source segments, branches, and disconnected components remain separate; no inferred connections',
+				componentCount: 1,
+				gapCount: 0,
+				pathCount: 1,
+				stitchedJoinCount: 1,
 				identity: {
 					type: 'route',
 					subtype: 'road',
@@ -766,15 +776,11 @@ describe('Overture sequence streaming', () => {
 					[
 						[84.42, 27.82],
 						[85.01, 27.71],
-					],
-					[
-						[85.01, 27.71],
 						[85.25, 27.69],
 					],
 				],
 			},
 		})
-		expect(corridor?.properties).not.toHaveProperty('memberIds')
 
 		await expect(buildOvertureGeoCatalogSnapshot(options)).rejects.toThrow(
 			'Refusing to replace existing GeoCatalog snapshot',
@@ -964,15 +970,18 @@ describe('Overture sequence streaming', () => {
 			['waterway', 'Blue Ferry'],
 		])
 		expect(corridors[0]).toMatchObject({
-			properties: { corridorScope: 'connected-name', memberCount: 2 },
+			properties: {
+				corridorScope: 'connected-name',
+				memberCount: 2,
+				componentCount: 1,
+				pathCount: 1,
+				stitchedJoinCount: 1,
+			},
 			geometry: {
 				type: 'MultiLineString',
 				coordinates: [
 					[
 						[10, 47],
-						[11, 47],
-					],
-					[
 						[11, 47],
 						[12, 47],
 					],
