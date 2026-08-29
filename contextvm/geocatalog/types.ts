@@ -124,6 +124,37 @@ export interface GeoCatalogTextRelaxationDiagnostic {
 	effectiveText: string
 }
 
+export type GeoCatalogTextRecoveryStep =
+	| {
+			strategy: 'trailing_geographic_qualifier'
+			removedText: string
+			inferredCountryCode: string
+	  }
+	| {
+			strategy: 'generic_suffix'
+			removedText: string
+	  }
+	| {
+			strategy: 'spacing_variant' | 'single_character_deletion'
+			from: string
+			to: string
+	  }
+
+/**
+ * A conservative discovery-only recovery. The effective text always exactly
+ * matches a returned entry name or alias; editor geometry must still be
+ * resolved through a returned stable id.
+ */
+export interface GeoCatalogTextRecoveryDiagnostic {
+	status: 'applied'
+	steps: GeoCatalogTextRecoveryStep[]
+	effectiveText: string
+	/** ISO filter actually applied to the recovered lookup. */
+	appliedCountryCode?: string
+	/** Qualifier boundary (or its intersection with the caller bbox) actually applied. */
+	appliedBbox?: GeoCatalogBbox
+}
+
 export interface GeoCatalogNearMatch {
 	id: string
 	name: string
@@ -134,6 +165,7 @@ export interface GeoCatalogNearMatch {
 
 export interface GeoCatalogQueryDiagnostics {
 	textRelaxation?: GeoCatalogTextRelaxationDiagnostic
+	textRecovery?: GeoCatalogTextRecoveryDiagnostic
 	categorySuggestions?: string[]
 	nearMatches?: GeoCatalogNearMatch[]
 }

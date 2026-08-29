@@ -163,10 +163,30 @@ the existing bound Dataset safety and persistence path. It does not repeat the
 geographic query or expose an intermediate geometry result that could be copied
 without its collection provenance.
 
+When an exact discovery query returns nothing, the catalog can recover a short
+human search conservatively. A trailing administrative qualifier must itself
+identify one unique exact administrative boundary; duplicate regional names are
+rejected even when every match belongs to the same country. Only a unique
+level-zero country boundary may recover with its ISO code alone. A regional
+qualifier applies both its country code and exact boundary bbox on the first
+attempt. For source records without country tags, recovery keeps the same
+boundary constraint while dropping only the country-code filter.
+Generic or type suffixes are removed only when their implied kind is compatible,
+and bounded spacing or single-character variants are accepted only when exactly
+one candidate becomes an exact stored name or alias. Diagnostics report the
+effective text and the country or bbox constraint actually applied.
+
+This recovery never runs for a request containing stable ids or
+`includeGeometry: true`. Geometry authoring therefore remains a two-step flow:
+discover a human-readable match, then resolve only its returned stable id.
+
 Discovery responses omit bulky source-document contents from the model-visible
-result and include an exact continuation containing the returned stable ids.
-Earthly resolves selected ids with geometry only when importing them into the
-bound Dataset; it does not repeat the human-readable search. Editor imports
+result. A single importable match includes an exact stable-id continuation only
+when the result set is complete. If several matches remain, or the result set
+was truncated, the response exposes the visible candidate ids and requires an
+explicit selection instead of guessing or importing every result. Earthly
+resolves only the selected ids with geometry when importing them into the bound
+Dataset; it does not repeat the human-readable search. Editor imports
 preserve each feature's native Overture source records
 and add a compact pointer to a snapshot manifest. Earthly stores that manifest
 once as a FeatureCollection-level property named

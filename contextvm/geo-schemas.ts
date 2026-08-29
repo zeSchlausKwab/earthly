@@ -105,7 +105,9 @@ export const queryGeographyInputSchema = {
 		.string()
 		.min(1)
 		.optional()
-		.describe("Name or free-text geography search."),
+		.describe(
+			"Name or short geography search. Discovery can recover catalogued trailing qualifiers such as Nepal or Tibet and a small set of unambiguous spacing/spelling variants; stable-id and geometry lookups remain exact.",
+		),
 	ids: z
 		.array(z.string().min(1))
 		.min(1)
@@ -284,6 +286,35 @@ export const queryGeographyOutputSchema = {
 								strategy: z.literal("generic_suffix"),
 								removedTokens: z.array(z.string()),
 								effectiveText: z.string(),
+							})
+							.optional(),
+						textRecovery: z
+							.object({
+								status: z.literal("applied"),
+								steps: z.array(
+									z.union([
+										z.object({
+											strategy: z.literal("trailing_geographic_qualifier"),
+											removedText: z.string(),
+											inferredCountryCode: z.string().length(2),
+										}),
+										z.object({
+											strategy: z.literal("generic_suffix"),
+											removedText: z.string(),
+										}),
+										z.object({
+											strategy: z.enum([
+												"spacing_variant",
+												"single_character_deletion",
+											]),
+											from: z.string(),
+											to: z.string(),
+										}),
+									]),
+								),
+								effectiveText: z.string(),
+								appliedCountryCode: z.string().length(2).optional(),
+								appliedBbox: geoCatalogBboxSchema.optional(),
 							})
 							.optional(),
 						categorySuggestions: z.array(z.string()).optional(),

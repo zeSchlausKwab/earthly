@@ -3,7 +3,9 @@ import { Database } from 'bun:sqlite'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createGeoCatalog } from './catalog'
 import { createInMemoryGeoCatalog } from './in-memory'
+import type { GeoCatalogAdapter } from './internal'
 import {
 	createSqliteGeoCatalogForDatabase,
 	initializeSqliteGeoCatalogForTests,
@@ -103,6 +105,76 @@ const entries: GeoCatalogEntry[] = [
 		geometry: { type: 'Point', coordinates: [85.374, 28.245] },
 	},
 	{
+		id: 'locality:dhunche',
+		kind: 'locality',
+		name: 'धुन्चे',
+		aliases: ['Dhunche'],
+		categories: ['town'],
+		countryCode: 'NP',
+		bbox: [85.29, 28.1, 85.31, 28.12],
+		center: { longitude: 85.3, latitude: 28.11 },
+		importance: 34,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
+		geometry: { type: 'Point', coordinates: [85.3, 28.11] },
+	},
+	{
+		id: 'locality:rongma-tibet',
+		kind: 'locality',
+		name: 'Rongma',
+		aliases: [],
+		categories: ['village'],
+		countryCode: 'CN',
+		bbox: [88.1, 31.1, 88.12, 31.12],
+		center: { longitude: 88.11, latitude: 31.11 },
+		importance: 22,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
+		geometry: { type: 'Point', coordinates: [88.11, 31.11] },
+	},
+	{
+		id: 'locality:rongma-tibet-west',
+		kind: 'locality',
+		name: 'Rongma',
+		aliases: [],
+		categories: ['village'],
+		countryCode: 'CN',
+		bbox: [87.9, 31, 87.92, 31.02],
+		center: { longitude: 87.91, latitude: 31.01 },
+		importance: 24,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
+		geometry: { type: 'Point', coordinates: [87.91, 31.01] },
+	},
+	{
+		id: 'locality:rongma-tibet-east',
+		kind: 'locality',
+		name: 'Rongma',
+		aliases: [],
+		categories: ['village'],
+		countryCode: 'CN',
+		bbox: [88.3, 31.2, 88.32, 31.22],
+		center: { longitude: 88.31, latitude: 31.21 },
+		importance: 23,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
+		geometry: { type: 'Point', coordinates: [88.31, 31.21] },
+	},
+	{
+		id: 'locality:rongma-henan',
+		kind: 'locality',
+		name: 'Rongma',
+		aliases: [],
+		categories: ['village'],
+		countryCode: 'CN',
+		bbox: [113.6, 34.7, 113.62, 34.72],
+		center: { longitude: 113.61, latitude: 34.71 },
+		importance: 21,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
+		geometry: { type: 'Point', coordinates: [113.61, 34.71] },
+	},
+	{
 		id: 'place:kerung-port',
 		kind: 'place',
 		name: 'Gyirong Port',
@@ -115,6 +187,73 @@ const entries: GeoCatalogEntry[] = [
 		source: { name: 'Overture Maps', release: '2026-08-19.0' },
 		properties: { category: 'border_crossing' },
 		geometry: { type: 'Point', coordinates: [85.365, 28.285] },
+	},
+	{
+		id: 'admin:cn-tibet',
+		kind: 'admin',
+		name: 'Xizang Autonomous Region',
+		aliases: ['Tibet'],
+		categories: ['administrative-boundary', 'region'],
+		countryCode: 'CN',
+		adminLevel: 1,
+		bbox: [78.4, 26.8, 99.1, 36.5],
+		center: { longitude: 88.4, latitude: 31.7 },
+		importance: 86,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
+	},
+	{
+		id: 'admin:np-twin-region-west',
+		kind: 'admin',
+		name: 'Twin Region',
+		aliases: [],
+		categories: ['administrative-boundary', 'region'],
+		countryCode: 'NP',
+		adminLevel: 4,
+		bbox: [80.05, 26.35, 84.1, 30.45],
+		center: { longitude: 82.1, latitude: 28.4 },
+		importance: 25,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
+	},
+	{
+		id: 'admin:np-twin-region-east',
+		kind: 'admin',
+		name: 'Twin Region',
+		aliases: [],
+		categories: ['administrative-boundary', 'region'],
+		countryCode: 'NP',
+		adminLevel: 4,
+		bbox: [84.1, 26.35, 88.2, 30.45],
+		center: { longitude: 86.1, latitude: 28.4 },
+		importance: 24,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
+	},
+	{
+		id: 'admin:cn-gyirong',
+		kind: 'admin',
+		name: '吉隆县',
+		aliases: ['Gyirong', 'Gyirong County', 'Kyirong County'],
+		categories: ['administrative-boundary', 'localadmin'],
+		countryCode: 'CN',
+		adminLevel: 2,
+		bbox: [84.9, 27.75, 86.1, 29.1],
+		center: { longitude: 85.4, latitude: 28.6 },
+		importance: 47,
+		source: { name: 'Overture Maps', release: '2026-08-19.0' },
+		properties: {},
+		geometry: {
+			type: 'Polygon',
+			coordinates: [
+				[
+					[84.9, 27.75],
+					[86.1, 27.75],
+					[86.1, 29.1],
+					[84.9, 27.75],
+				],
+			],
+		},
 	},
 	{
 		id: 'road:pasang-lhamu',
@@ -155,12 +294,35 @@ const entries: GeoCatalogEntry[] = [
 		name: 'Trishuli River',
 		aliases: ['Trisuli'],
 		categories: ['river'],
-		countryCode: 'NP',
 		bbox: [84.9, 27.6, 85.5, 28.3],
 		center: { longitude: 85.2, latitude: 27.95 },
 		importance: 44,
 		source: { name: 'HydroRIVERS', release: '1.0', recordId: 'hy-442' },
 		properties: { order: 5 },
+	},
+	{
+		id: 'waterway:bhote-koshi',
+		kind: 'waterway',
+		name: 'Bhote Koshi',
+		aliases: [],
+		categories: ['corridor', 'river'],
+		bbox: [85.7, 27.7, 86, 28.2],
+		center: { longitude: 85.85, latitude: 27.95 },
+		importance: 41,
+		source: { name: 'HydroRIVERS', release: '1.0' },
+		properties: {},
+	},
+	{
+		id: 'waterway:lende-khola',
+		kind: 'waterway',
+		name: '东林藏布',
+		aliases: ['Lende Khola'],
+		categories: ['corridor', 'river'],
+		bbox: [85.2, 28.2, 85.6, 28.8],
+		center: { longitude: 85.4, latitude: 28.5 },
+		importance: 40,
+		source: { name: 'HydroRIVERS', release: '1.0' },
+		properties: {},
 	},
 	{
 		id: 'infrastructure:rasuwa-bridge',
@@ -398,6 +560,243 @@ for (const harnessDefinition of harnesses) {
 				})
 				expect(authoringLookup.items).toEqual([])
 				expect(authoringLookup.metadata.query.diagnostics).toBeUndefined()
+			})
+		})
+
+		test('recovers exact names followed by catalogued geographic qualifiers', async () => {
+			await usingCatalog(async (catalog) => {
+				const cases = [
+					{
+						bare: 'Trishuli River',
+						qualified: 'Trishuli River Nepal',
+						expectedId: 'waterway:trishuli',
+						effectiveText: 'trishuli river',
+						countryCode: 'NP',
+						appliedBbox: [80.05, 26.35, 88.2, 30.45] as const,
+					},
+					{
+						bare: 'Dhunche',
+						qualified: 'Dhunche Nepal',
+						expectedId: 'locality:dhunche',
+						effectiveText: 'dhunche',
+						countryCode: 'NP',
+						appliedCountryCode: 'NP',
+					},
+					{
+						bare: 'Gyirong County',
+						qualified: 'Gyirong County Tibet',
+						expectedId: 'admin:cn-gyirong',
+						effectiveText: 'gyirong county',
+						countryCode: 'CN',
+						appliedCountryCode: 'CN',
+						appliedBbox: [78.4, 26.8, 99.1, 36.5] as const,
+					},
+				] as const
+
+				for (const candidate of cases) {
+					const bare = await catalog.query({ text: candidate.bare })
+					expect(bare.items.map((entry) => entry.id)).toContain(candidate.expectedId)
+
+					const qualified = await catalog.query({ text: candidate.qualified })
+					expect(qualified.items.map((entry) => entry.id)).toContain(candidate.expectedId)
+					expect(qualified.metadata.query.diagnostics?.textRecovery).toEqual({
+						status: 'applied',
+						steps: [
+							{
+								strategy: 'trailing_geographic_qualifier',
+								removedText:
+									candidate.countryCode === 'CN' ? 'tibet' : 'nepal',
+								inferredCountryCode: candidate.countryCode,
+							},
+						],
+						effectiveText: candidate.effectiveText,
+						...('appliedCountryCode' in candidate
+							? { appliedCountryCode: candidate.appliedCountryCode }
+							: {}),
+						...('appliedBbox' in candidate
+							? { appliedBbox: [...candidate.appliedBbox] }
+							: {}),
+					})
+				}
+			})
+		})
+
+		test('scopes regional qualifiers before accepting same-country homonyms', async () => {
+			await usingCatalog(async (catalog) => {
+				const bare = await catalog.query({ text: 'Rongma' })
+				expect(bare.items.map((entry) => entry.id)).toEqual([
+					'locality:rongma-tibet-west',
+					'locality:rongma-tibet-east',
+					'locality:rongma-tibet',
+					'locality:rongma-henan',
+				])
+
+				const qualified = await catalog.query({ text: 'Rongma Tibet', limit: 2 })
+				expect(qualified.items.map((entry) => entry.id)).toEqual([
+					'locality:rongma-tibet-west',
+					'locality:rongma-tibet-east',
+				])
+				expect(qualified.metadata.query.hasMore).toBe(true)
+				expect(qualified.metadata.query.diagnostics?.textRecovery).toEqual({
+					status: 'applied',
+					steps: [
+						{
+							strategy: 'trailing_geographic_qualifier',
+							removedText: 'tibet',
+							inferredCountryCode: 'CN',
+						},
+					],
+					effectiveText: 'rongma',
+					appliedCountryCode: 'CN',
+					appliedBbox: [78.4, 26.8, 99.1, 36.5],
+				})
+
+				const countryless = await catalog.query({
+					text: 'Lende Khola Tibet',
+					kinds: ['waterway'],
+				})
+				expect(countryless.items.map((entry) => entry.id)).toEqual([
+					'waterway:lende-khola',
+				])
+				expect(countryless.metadata.query.diagnostics?.textRecovery).toEqual({
+					status: 'applied',
+					steps: [
+						{
+							strategy: 'trailing_geographic_qualifier',
+							removedText: 'tibet',
+							inferredCountryCode: 'CN',
+						},
+					],
+					effectiveText: 'lende khola',
+					appliedBbox: [78.4, 26.8, 99.1, 36.5],
+				})
+			})
+		})
+
+		test('rejects an ambiguous regional qualifier even within one country', async () => {
+			await usingCatalog(async (catalog) => {
+				const result = await catalog.query({ text: 'Dhunche Twin Region' })
+				expect(result.items).toEqual([])
+				expect(result.metadata.query.diagnostics?.textRecovery).toBeUndefined()
+			})
+		})
+
+		test('combines a geographic qualifier with a generic administrative suffix', async () => {
+			await usingCatalog(async (catalog) => {
+				const bare = await catalog.query({ text: 'Rasuwa District' })
+				expect(bare.items.map((entry) => entry.id)).toContain('admin:np-rasuwa')
+
+				const result = await catalog.query({ text: 'Rasuwa District Nepal' })
+				expect(result.items.map((entry) => entry.id)).toEqual(['admin:np-rasuwa'])
+				expect(result.metadata.query.diagnostics?.textRecovery).toEqual({
+					status: 'applied',
+					steps: [
+						{
+							strategy: 'trailing_geographic_qualifier',
+							removedText: 'nepal',
+							inferredCountryCode: 'NP',
+						},
+						{ strategy: 'generic_suffix', removedText: 'district' },
+					],
+					effectiveText: 'rasuwa',
+					appliedCountryCode: 'NP',
+				})
+			})
+		})
+
+		test('recovers conservative spacing and one-character spelling variants for discovery', async () => {
+			await usingCatalog(async (catalog) => {
+				const compact = await catalog.query({
+					text: 'Bhotekoshi',
+					kinds: ['waterway'],
+				})
+				expect(compact.items.map((entry) => entry.id)).toEqual(['waterway:bhote-koshi'])
+				expect(compact.metadata.query.diagnostics?.textRecovery).toEqual({
+					status: 'applied',
+					steps: [
+						{
+							strategy: 'spacing_variant',
+							from: 'bhotekoshi',
+							to: 'bhote koshi',
+						},
+					],
+					effectiveText: 'bhote koshi',
+				})
+
+				const typedAndQualified = await catalog.query({
+					text: 'Bhotekoshi River Nepal',
+					kinds: ['waterway'],
+				})
+				expect(typedAndQualified.items.map((entry) => entry.id)).toEqual([
+					'waterway:bhote-koshi',
+				])
+				expect(typedAndQualified.metadata.query.diagnostics?.textRecovery).toEqual({
+					status: 'applied',
+					steps: [
+						{
+							strategy: 'trailing_geographic_qualifier',
+							removedText: 'nepal',
+							inferredCountryCode: 'NP',
+						},
+						{ strategy: 'generic_suffix', removedText: 'river' },
+						{
+							strategy: 'spacing_variant',
+							from: 'bhotekoshi',
+							to: 'bhote koshi',
+						},
+					],
+					effectiveText: 'bhote koshi',
+					appliedBbox: [80.05, 26.35, 88.2, 30.45],
+				})
+
+				const incompatibleKind = await catalog.query({
+					text: 'Bhotekoshi River Nepal',
+					kinds: ['road'],
+				})
+				expect(incompatibleKind.items).toEqual([])
+
+				const spelling = await catalog.query({
+					text: 'Lhende Khola',
+					kinds: ['waterway'],
+				})
+				expect(spelling.items.map((entry) => entry.id)).toEqual(['waterway:lende-khola'])
+				expect(spelling.metadata.query.diagnostics?.textRecovery).toEqual({
+					status: 'applied',
+					steps: [
+						{
+							strategy: 'single_character_deletion',
+							from: 'lhende',
+							to: 'lende',
+						},
+					],
+					effectiveText: 'lende khola',
+				})
+			})
+		})
+
+		test('never applies text recovery to geometry-bearing or stable-id queries', async () => {
+			await usingCatalog(async (catalog) => {
+				const qualifiedGeometry = await catalog.query({
+					text: 'Dhunche Nepal',
+					includeGeometry: true,
+				})
+				expect(qualifiedGeometry.items).toEqual([])
+				expect(qualifiedGeometry.metadata.query.diagnostics).toBeUndefined()
+
+				const fuzzyGeometry = await catalog.query({
+					text: 'Lhende Khola',
+					kinds: ['waterway'],
+					includeGeometry: true,
+				})
+				expect(fuzzyGeometry.items).toEqual([])
+				expect(fuzzyGeometry.metadata.query.diagnostics).toBeUndefined()
+
+				const stableIdWithMismatchedText = await catalog.query({
+					ids: ['locality:dhunche'],
+					text: 'Dhunche Nepal',
+				})
+				expect(stableIdWithMismatchedText.items).toEqual([])
+				expect(stableIdWithMismatchedText.metadata.query.diagnostics).toBeUndefined()
 			})
 		})
 
@@ -660,6 +1059,41 @@ for (const harnessDefinition of harnesses) {
 		})
 	})
 }
+
+test('recovery preserves adapter truncation after filtering a partial result page', async () => {
+	const tibet = entries.find((entry) => entry.id === 'admin:cn-tibet')!
+	const rongma = entries.find((entry) => entry.id === 'locality:rongma-tibet')!
+	const prefixMatch: GeoCatalogEntry = {
+		...rongma,
+		id: 'locality:rongma-prefix-match',
+		name: 'Rongma East',
+	}
+	const adapter: GeoCatalogAdapter = {
+		snapshot,
+		query(request) {
+			if (request.text === 'rongma tibet') return { entries: [], hasMore: false }
+			if (request.text === 'tibet' && request.kinds.includes('admin')) {
+				return { entries: [tibet], hasMore: false }
+			}
+			if (request.text === 'rongma') {
+				return { entries: [rongma, prefixMatch], hasMore: true }
+			}
+			return { entries: [], hasMore: false }
+		},
+	}
+
+	const result = await createGeoCatalog(adapter).query({
+		text: 'Rongma Tibet',
+		limit: 2,
+	})
+
+	expect(result.items.map((entry) => entry.id)).toEqual(['locality:rongma-tibet'])
+	expect(result.metadata.query).toMatchObject({
+		returned: 1,
+		limit: 2,
+		hasMore: true,
+	})
+})
 
 test('snapshot entries reject empty categories and invalid admin levels', () => {
 	expect(() =>
