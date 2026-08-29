@@ -159,15 +159,17 @@ an interruption removes the exporter-owned staging directory.
 The `earthly-overture-planet-lite-v1` policy contains administrative areas at
 levels 0–2, administrative labels, all named cities, towns, villages, and
 hamlets, plus only prominent unclassified localities; selected exact
-high-confidence public-interest place
-categories; major road classes and rail/water transport with explicit route
-membership (the builder resolves strong and connectivity-scoped weaker route
-identities); named selected water features with a strong Wikidata or
+high-confidence emergency, public-safety, transport, government, and selected
+natural destinations; motorway, trunk, and primary roads plus rail transport
+with explicit route membership (the builder resolves strong and
+connectivity-scoped weaker route identities); named selected water features
+with a strong Wikidata or
 OpenStreetMap relation identity; named reviewed transport, emergency, dam, and
 water infrastructure; and only canonically identified or explicitly
 significant bridge, power, and tower features. It deliberately excludes
 millions of disconnected named water fragments, broad Places parent
-taxonomies, road-name-inheriting bridge fragments, and ubiquitous
+taxonomies and non-core commercial/cultural/education POIs, secondary/local
+road fragments, road-name-inheriting bridge fragments, and ubiquitous
 component-scale infrastructure such as poles, lines, hydrants, platforms, bus
 stops, and pipelines. The accompanying
 `export-report.json`

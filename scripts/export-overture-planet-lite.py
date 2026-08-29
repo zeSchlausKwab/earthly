@@ -66,42 +66,25 @@ ADMIN_LOCALITY_SUBTYPES = (
 PLACE_EXACT_CATEGORIES = (
     "airport",
     "ambulance_station",
-    "archaeological_site",
-    "art_gallery",
     "beach",
     "border_crossing",
     "bus_station",
     "cave",
     "clinic",
-    "college",
-    "courthouse",
-    "embassy",
     "emergency_room",
     "ferry_terminal",
     "fire_station",
-    "government_office",
     "hospital",
-    "library",
     "marina",
-    "memorial",
-    "monument",
     "mountain",
-    "museum",
     "national_park",
     "nature_reserve",
-    "park",
-    "pharmacy",
-    "place_of_worship",
     "police_station",
     "port",
-    "post_office",
     "protected_area",
     "rescue_station",
-    "school",
-    "theatre",
     "town_hall",
     "train_station",
-    "university",
     "volcano",
     "waterfall",
 )
@@ -254,20 +237,15 @@ SOURCE_SPECS = (
             f"OR categories.primary IN ({sql_values(PLACE_EXACT_CATEGORIES)}))"
         ),
         selection=(
-            "named, open, confidence >= 0.8 public-interest, emergency, transport, "
-            "education, cultural, and natural destinations"
+            "named, open, confidence >= 0.8 emergency, public-safety, transport, "
+            "government, and selected natural destinations"
         ),
         property_columns=COMMON_PROPERTY_COLUMNS
         + (
             "operating_status",
             "basic_category",
             "taxonomy",
-            "categories",
             "confidence",
-            "addresses",
-            "websites",
-            "phones",
-            "brand",
         ),
     ),
     SourceSpec(
@@ -275,14 +253,12 @@ SOURCE_SPECS = (
         theme="transportation",
         overture_type="segment",
         where=(
-            "subtype IN ('road', 'rail', 'water') "
-            "AND (subtype <> 'road' OR "
-            "class IN ('motorway', 'trunk', 'primary', 'secondary')) "
-            "AND COALESCE(len(routes), 0) > 0"
+            "((subtype = 'road' AND class IN ('motorway', 'trunk', 'primary')) "
+            "OR subtype = 'rail') AND COALESCE(len(routes), 0) > 0"
         ),
         selection=(
-            "motorway/trunk/primary/secondary roads and rail/water transport with at least "
-            "one explicit Overture route membership"
+            "motorway/trunk/primary roads and rail transport with at least one explicit "
+            "Overture route membership"
         ),
         property_columns=COMMON_PROPERTY_COLUMNS
         + (
@@ -291,11 +267,6 @@ SOURCE_SPECS = (
             "subclass",
             "routes",
             "connectors",
-            "road_flags",
-            "rail_flags",
-            "road_surface",
-            "access_restrictions",
-            "speed_limits",
         ),
     ),
     SourceSpec(
