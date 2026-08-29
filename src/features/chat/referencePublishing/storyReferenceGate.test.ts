@@ -6,6 +6,7 @@ import {
 	type GeoCollectionEditDraft,
 	type GeoEditorWorkspace,
 } from '@/features/geo-editor/store'
+import { reconcilePublishedDatasetIdentity } from '@/features/geo-editor/publicationIdentity'
 import type { ToolExecutionRunIdentity, ToolExecutionTarget } from '@/features/chat/tools/types'
 import { eventStore } from '@/lib/nostr'
 import { GeoDataset } from '@/lib/nostr/geo-event'
@@ -20,7 +21,6 @@ import {
 	setReferencePublishingToolContext,
 } from './requestStore'
 import { captureTargetDatasetPublication, gateStoryDatasetReferences } from './storyReferenceGate'
-import { reconcilePublishedDatasetIdentity } from './publishCapturedDataset'
 import type { PublishedDatasetReference } from './types'
 
 const originalState = useEditorStore.getState()
@@ -287,7 +287,7 @@ describe('Story Dataset reference publication gate', () => {
 		expect(result.kind).toBe('captured')
 	})
 
-	test('does not corrupt a workspace when another sibling draft becomes active during publish', () => {
+	test('keeps continued sibling work visible while the captured Chat task is published', () => {
 		const { draft, workspace, target } = installDraft({ base: null })
 		const capture = captureTargetDatasetPublication({
 			markdown: 'A new survey Dataset.',
@@ -313,12 +313,32 @@ describe('Story Dataset reference publication gate', () => {
 			activeGeoEditDraftId: sibling.id,
 		})
 
-		reconcilePublishedDatasetIdentity(capture.captured, makeDataset('published-sibling-race'))
+		const published = makeDataset('published-sibling-race')
+		const result = reconcilePublishedDatasetIdentity(
+			capture.captured.binding,
+			published,
+			capture.captured.title,
+		)
 
 		const state = useEditorStore.getState()
-		expect(state.workspaces[workspace.id]?.sourceId).toBe(workspace.sourceId)
-		expect(state.workspaces[workspace.id]?.activeDraftId).toBe(sibling.id)
-		expect(state.geoEditDrafts[draft.id]?.sourceId).toBe(workspace.sourceId)
+		const publishedSourceId = `dataset:${published.pubkey}:${published.dTag}`
+		const recoveryWorkspace = Object.values(state.workspaces).find(
+			(candidate) => candidate.id !== workspace.id && candidate.sourceId === workspace.sourceId,
+		)
+		if (!recoveryWorkspace) throw new Error('expected a recovery workspace')
+		expect(result).toMatchObject({ status: 'reconciled', stillDisplayed: false })
+		expect(state.workspaces[workspace.id]).toMatchObject({
+			sourceId: publishedSourceId,
+			activeDraftId: draft.id,
+			chatSessionId: 'chat-a',
+		})
+		expect(state.geoEditDrafts[draft.id]?.sourceId).toBe(publishedSourceId)
+		expect(recoveryWorkspace).toMatchObject({
+			activeDraftId: sibling.id,
+			chatSessionId: null,
+		})
+		expect(state.activeWorkspaceId).toBe(recoveryWorkspace.id)
+		expect(state.activeGeoEditDraftId).toBe(sibling.id)
 		expect(state.geoEditDrafts[sibling.id]?.sourceId).toBe(workspace.sourceId)
 	})
 
@@ -345,7 +365,7 @@ describe('Story Dataset reference publication gate', () => {
 		if (capture.kind !== 'captured') return
 		const published = makeDataset('published-with-sibling')
 
-		reconcilePublishedDatasetIdentity(capture.captured, published)
+		reconcilePublishedDatasetIdentity(capture.captured.binding, published, capture.captured.title)
 
 		const state = useEditorStore.getState()
 		const publishedSourceId = `dataset:${published.pubkey}:${published.dTag}`
