@@ -1321,14 +1321,14 @@ export function ChatPanel({
 							Select
 						</Button>
 						<ChatGeometryAttachment
-							key={activeChatId ?? 'chat-geometry'}
+							key={`chat-geometry-${activeChatId ?? 'default'}`}
 							value={attachedGeometry}
 							onChange={setAttachedGeometry}
 							layout="detached"
 							panelClassName="w-full"
 						/>
 						<FileChipStrip
-							key={activeChatId ?? 'chat-files'}
+							key={`chat-files-${activeChatId ?? 'default'}`}
 							files={displayedFiles}
 							onChange={setAttachedFiles}
 							visionTier={visionTier}
