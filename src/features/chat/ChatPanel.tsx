@@ -84,6 +84,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { ChatReference } from './store'
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
+import { parseMarkdownTableAt, type MarkdownTableAlignment } from '@/lib/markdown/table'
 import {
 	buildChatTimeline,
 	TOOL_OPERATION_PHASE_LABELS,
@@ -1681,12 +1682,20 @@ interface ChatMarkdownCodeBlock {
 	code: string
 }
 
+interface ChatMarkdownTableBlock {
+	type: 'table'
+	header: ChatMarkdownInlineToken[][]
+	alignments: MarkdownTableAlignment[]
+	rows: ChatMarkdownInlineToken[][][]
+}
+
 type ChatMarkdownBlock =
 	| ChatMarkdownParagraphBlock
 	| ChatMarkdownHeadingBlock
 	| ChatMarkdownQuoteBlock
 	| ChatMarkdownListBlock
 	| ChatMarkdownCodeBlock
+	| ChatMarkdownTableBlock
 
 const CHAT_MARKDOWN_TOKEN_PATTERN =
 	/(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"{}|\\^`[\]]+)|(`[^`]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)/gi
@@ -1859,7 +1868,8 @@ function parseChatMarkdown(text: string): ChatMarkdownBlock[] {
 		codeLines.length = 0
 	}
 
-	for (const rawLine of lines) {
+	for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+		const rawLine = lines[lineIndex] ?? ''
 		const line = rawLine.trimEnd()
 		const trimmedLine = line.trim()
 
@@ -1882,6 +1892,20 @@ function parseChatMarkdown(text: string): ChatMarkdownBlock[] {
 		if (!trimmedLine) {
 			pushChatMarkdownParagraph(paragraphLines, blocks)
 			flushList()
+			continue
+		}
+
+		const table = parseMarkdownTableAt(lines, lineIndex)
+		if (table) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			flushList()
+			blocks.push({
+				type: 'table',
+				header: table.header.map(parseChatMarkdownInlineTokens),
+				alignments: table.alignments,
+				rows: table.rows.map((row) => row.map(parseChatMarkdownInlineTokens)),
+			})
+			lineIndex = table.endIndex
 			continue
 		}
 
@@ -1959,6 +1983,16 @@ function getChatMarkdownBlockSignature(block: ChatMarkdownBlock): string {
 		return `list:${block.ordered}:${block.items
 			.map((item) => item.map((token) => getChatMarkdownInlineTokenSignature(token)).join('|'))
 			.join('||')}`
+	}
+	if (block.type === 'table') {
+		const cells = [block.header, ...block.rows]
+			.map((row) =>
+				row
+					.map((cell) => cell.map((token) => getChatMarkdownInlineTokenSignature(token)).join('|'))
+					.join('||'),
+			)
+			.join('|||')
+		return `table:${block.alignments.join(',')}:${cells}`
 	}
 	return `codeblock:${block.code}`
 }
@@ -2126,6 +2160,59 @@ function ChatMarkdownContent({
 								)
 							})}
 						</ListTag>
+					)
+				}
+
+				if (block.type === 'table') {
+					return (
+						<div
+							key={key}
+							className={cn(
+								'max-w-full overflow-x-auto rounded-md border',
+								variant === 'assistant'
+									? 'border-border/80 bg-background/60'
+									: 'border-primary-foreground/25 bg-primary-foreground/5',
+							)}
+						>
+							<table className="min-w-full border-collapse text-left text-xs">
+								<thead
+									className={cn(
+										variant === 'assistant' ? 'bg-muted/70' : 'bg-primary-foreground/10',
+									)}
+								>
+									<tr>
+										{block.header.map((cell, cellIndex) => (
+											<th
+												// biome-ignore lint/suspicious/noArrayIndexKey: Table columns are positional by definition.
+												key={`${key}:heading:${cellIndex}`}
+												scope="col"
+												className="border-b border-current/15 px-2.5 py-2 align-top font-semibold"
+												style={{ textAlign: block.alignments[cellIndex] ?? 'left' }}
+											>
+												{renderChatMarkdownInlineTokens(cell, variant)}
+											</th>
+										))}
+									</tr>
+								</thead>
+								<tbody className="divide-y divide-current/10">
+									{block.rows.map((row, rowIndex) => (
+										// biome-ignore lint/suspicious/noArrayIndexKey: Chat Markdown rows are positional in the source text.
+										<tr key={`${key}:row:${rowIndex}`}>
+											{row.map((cell, cellIndex) => (
+												<td
+													// biome-ignore lint/suspicious/noArrayIndexKey: Table columns are positional by definition.
+													key={`${key}:row:${rowIndex}:cell:${cellIndex}`}
+													className="min-w-24 break-words px-2.5 py-2 align-top"
+													style={{ textAlign: block.alignments[cellIndex] ?? 'left' }}
+												>
+													{renderChatMarkdownInlineTokens(cell, variant)}
+												</td>
+											))}
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</div>
 					)
 				}
 
