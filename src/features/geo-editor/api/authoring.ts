@@ -49,6 +49,35 @@ import type { GeometryOperationResultMode } from '../core/managers/GeometryOpera
 
 /** Default import source recorded on features written through the facade. */
 const DEFAULT_SOURCE = 'chat_tool'
+const GEO_CATALOG_SOURCE_MANIFEST_PREFIX = 'earthly:geoCatalogSourceManifest:'
+
+function referencedGeoCatalogManifests(features: Feature[]): Set<string> {
+	const referenced = new Set<string>()
+	for (const feature of features) {
+		const source = feature.properties?.source
+		if (!source || typeof source !== 'object' || Array.isArray(source)) continue
+		const manifestProperty = (source as Record<string, unknown>).manifestProperty
+		if (
+			typeof manifestProperty === 'string' &&
+			manifestProperty.startsWith(GEO_CATALOG_SOURCE_MANIFEST_PREFIX)
+		) {
+			referenced.add(manifestProperty)
+		}
+	}
+	return referenced
+}
+
+function reconcileGeoCatalogManifests(
+	customProperties: CollectionMeta['customProperties'],
+	features: Feature[],
+): CollectionMeta['customProperties'] {
+	const referenced = referencedGeoCatalogManifests(features)
+	return Object.fromEntries(
+		Object.entries(customProperties).filter(
+			([key]) => !key.startsWith(GEO_CATALOG_SOURCE_MANIFEST_PREFIX) || referenced.has(key),
+		),
+	)
+}
 
 function emptyCounts(): MutationCounts {
 	return { created: 0, updated: 0, deleted: 0, skippedDuplicates: 0 }
@@ -320,6 +349,23 @@ export function createAuthoring(
 	editor: GeoEditor,
 	metadataAccess?: AuthoringMetadataAccess,
 ): Authoring {
+	function currentCollectionMeta(): CollectionMeta {
+		return metadataAccess?.getCollectionMeta() ?? useEditorStore.getState().collectionMeta
+	}
+
+	function applyCollectionMeta(meta: CollectionMeta): void {
+		if (metadataAccess) metadataAccess.setCollectionMeta(meta)
+		else useEditorStore.getState().setCollectionMeta(meta)
+	}
+
+	function reconcileDatasetManifests(features: Feature[]): void {
+		const current = currentCollectionMeta()
+		const customProperties = reconcileGeoCatalogManifests(current.customProperties, features)
+		if (Object.keys(customProperties).length === Object.keys(current.customProperties).length)
+			return
+		applyCollectionMeta({ ...current, customProperties })
+	}
+
 	function addFeature(feature: Feature, source: string = DEFAULT_SOURCE): MutationResult {
 		// Null/undefined stays a quiet { ok:false } no-op (existing boundary contract).
 		if (feature == null) {
@@ -381,6 +427,10 @@ export function createAuthoring(
 				featureIds: next.map((f) => f.id),
 			})
 			editor.setFeatures(next)
+			// A complete geometry replacement also replaces its source set. Remove
+			// dataset-level GeoCatalog manifests that no surviving feature references,
+			// while preserving ordinary user metadata and referenced manifests.
+			reconcileDatasetManifests(next)
 			return {
 				ok: true,
 				intent,
@@ -524,6 +574,7 @@ export function createAuthoring(
 		const { intent } = runInterceptors({ intent: 'modify', featureIds: [featureId] })
 		// PRESERVE the original id so the update lands on the same feature.
 		editor.updateFeature(featureId, { ...toEditorFeature(usable, source), id: featureId })
+		reconcileDatasetManifests(editor.getAllFeatures())
 
 		return {
 			ok: true,
@@ -538,6 +589,7 @@ export function createAuthoring(
 		const present = featureIds.filter((id) => editor.getFeature(id) !== undefined)
 		const { intent } = runInterceptors({ intent: 'delete', featureIds: present })
 		editor.deleteFeatures(present)
+		if (present.length > 0) reconcileDatasetManifests(editor.getAllFeatures())
 		return {
 			ok: true,
 			intent,
@@ -557,14 +609,11 @@ export function createAuthoring(
 	}
 
 	function getDatasetMetadata(): DatasetMetadataResult {
-		return snapshotMeta(
-			metadataAccess?.getCollectionMeta() ?? useEditorStore.getState().collectionMeta,
-		)
+		return snapshotMeta(currentCollectionMeta())
 	}
 
 	function setDatasetMetadata(meta: DatasetMetadataInput): DatasetMetadataResult {
-		const store = useEditorStore.getState()
-		const current = metadataAccess?.getCollectionMeta() ?? store.collectionMeta
+		const current = currentCollectionMeta()
 		// MERGE: only set fields the caller provided; merge properties into the
 		// existing customProperties (do not clobber unrelated keys).
 		const next: CollectionMeta = {
@@ -575,8 +624,7 @@ export function createAuthoring(
 				? { ...current.customProperties, ...meta.properties }
 				: current.customProperties,
 		}
-		if (metadataAccess) metadataAccess.setCollectionMeta(next)
-		else store.setCollectionMeta(next)
+		applyCollectionMeta(next)
 		return snapshotMeta(next)
 	}
 
@@ -585,8 +633,10 @@ export function createAuthoring(
 			requireFeatureProvenance: input.requireFeatureProvenance,
 		})
 		const previousFeatures = editor.getAllFeatures()
+		const currentMeta = currentCollectionMeta()
 		const previousMeta = {
-			...(metadataAccess?.getCollectionMeta() ?? useEditorStore.getState().collectionMeta),
+			...currentMeta,
+			customProperties: { ...currentMeta.customProperties },
 		}
 		let geometryMutated = false
 		try {
@@ -595,13 +645,14 @@ export function createAuthoring(
 			// subscriber throws, so rollback must not depend on a successful return.
 			geometryMutated = true
 			const mutation = writeGeoJSON(input.featureCollection, { replace: true })
-			const metadata = input.metadata ? setDatasetMetadata(input.metadata) : getDatasetMetadata()
+			if (input.metadata) setDatasetMetadata(input.metadata)
+			reconcileDatasetManifests(input.featureCollection.features)
+			const metadata = getDatasetMetadata()
 			return { ...mutation, validation, metadata }
 		} catch (error) {
 			if (geometryMutated) {
 				editor.setFeatures(previousFeatures)
-				if (metadataAccess) metadataAccess.setCollectionMeta(previousMeta)
-				else useEditorStore.getState().setCollectionMeta(previousMeta)
+				applyCollectionMeta(previousMeta)
 			}
 			throw error
 		}
