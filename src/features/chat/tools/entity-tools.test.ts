@@ -1,8 +1,17 @@
-import { describe, expect, it } from 'bun:test'
-import { nip19 } from 'nostr-tools'
+import { afterEach, describe, expect, it } from 'bun:test'
+import { finalizeEvent, generateSecretKey, nip19 } from 'nostr-tools'
+import { eventStore } from '@/lib/nostr'
+import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { MAP_CALLOUTS_PROPERTY } from '@/lib/geo/callouts'
 import { parseEntityReference } from './entity-tools'
+import { dispatch } from './registry'
 
 const PUBKEY = 'a'.repeat(64)
+const addedEventIds: string[] = []
+
+afterEach(() => {
+	for (const id of addedEventIds.splice(0)) eventStore.remove(id)
+})
 
 describe('parseEntityReference', () => {
 	it('decodes a bare naddr', () => {
@@ -51,5 +60,84 @@ describe('parseEntityReference', () => {
 		expect(() => parseEntityReference('naddr1notreal')).toThrow()
 		expect(() => parseEntityReference('37515:onlytwo')).toThrow()
 		expect(() => parseEntityReference('nan:pk:d')).toThrow()
+	})
+})
+
+describe('read_entity dataset callout inventory', () => {
+	it('reports compact callout counts and summaries without returning unbounded text', async () => {
+		const identifier = 'flood-map'
+		const longText = `Timeline detail: ${'downstream '.repeat(100)}`
+		const event = finalizeEvent(
+			{
+				kind: GEO_EVENT_KIND,
+				created_at: Math.floor(Date.now() / 1000),
+				tags: [['d', identifier]],
+				content: JSON.stringify({
+					type: 'FeatureCollection',
+					name: 'Flood map',
+					features: [
+						{
+							type: 'Feature',
+							id: 'river-route',
+							geometry: {
+								type: 'LineString',
+								coordinates: [
+									[85, 28],
+									[85.1, 27.9],
+								],
+							},
+							properties: {
+								name: 'Trishuli flood route',
+								[MAP_CALLOUTS_PROPERTY]: [
+									{
+										id: 'callout-a',
+										title: 'Border crossing damaged',
+										text: 'The crossing was reported damaged at 08:44.',
+									},
+									{ id: 'callout-b', text: longText },
+								],
+							},
+						},
+					],
+				}),
+			},
+			generateSecretKey(),
+		)
+		eventStore.add(event)
+		addedEventIds.push(event.id)
+
+		const result = (await dispatch('read_entity', {
+			reference: `${GEO_EVENT_KIND}:${event.pubkey}:${identifier}`,
+		})) as {
+			calloutCount?: number
+			calloutFeatureCount?: number
+			features?: Array<{
+				id: string
+				calloutCount?: number
+				callouts?: Array<{
+					id: string
+					title?: string
+					text: string
+					textTruncated?: boolean
+				}>
+			}>
+		}
+
+		expect(result.calloutCount).toBe(2)
+		expect(result.calloutFeatureCount).toBe(1)
+		expect(result.features?.[0]).toMatchObject({
+			id: 'river-route',
+			calloutCount: 2,
+			callouts: [
+				{
+					id: 'callout-a',
+					title: 'Border crossing damaged',
+					text: 'The crossing was reported damaged at 08:44.',
+				},
+				{ id: 'callout-b', textTruncated: true },
+			],
+		})
+		expect(result.features?.[0]?.callouts?.[1]?.text.length).toBeLessThan(300)
+		expect(JSON.stringify(result)).not.toContain(longText)
 	})
 })

@@ -18,6 +18,7 @@ import type { CachedMapSnapshot, ToolExecutionTarget } from './types'
 import { MAX_SNAPSHOT_CACHE_SIZE } from './types'
 import { countFeaturesByGeometry } from './helpers'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '@/features/geo-editor/constants'
+import { getFeatureCallouts, type MapCallout } from '@/lib/geo/callouts'
 import { serializedFeatureCollectionBytes } from '@/lib/geo/serializedSize'
 
 export const mapSnapshotCache = new Map<string, CachedMapSnapshot>()
@@ -46,6 +47,69 @@ function getDatasetSerializedBytes(features: EditorFeature[]): number {
 	const bytes = serializedFeatureCollectionBytes(features)
 	datasetSizeCache.set(features, bytes)
 	return bytes
+}
+
+const MAX_CALLOUT_FEATURE_SUMMARIES = 40
+const MAX_CALLOUTS_PER_FEATURE_SUMMARY = 5
+const MAX_CALLOUT_SUMMARIES = 60
+const MAX_CALLOUT_SUMMARY_TEXT_CHARS = 180
+
+function summarizeCallout(callout: MapCallout) {
+	const textTruncated = callout.text.length > MAX_CALLOUT_SUMMARY_TEXT_CHARS
+	return {
+		id: callout.id,
+		...(callout.title ? { title: callout.title } : {}),
+		text: textTruncated
+			? `${callout.text.slice(0, MAX_CALLOUT_SUMMARY_TEXT_CHARS)}…`
+			: callout.text,
+		...(textTruncated ? { textTruncated: true } : {}),
+		...(callout.media?.length ? { mediaCount: callout.media.length } : {}),
+		...(callout.placement?.side ? { placementSide: callout.placement.side } : {}),
+	}
+}
+
+function summarizeDatasetCallouts(features: readonly EditorFeature[]) {
+	let total = 0
+	let featureCount = 0
+	let summarizedCalloutCount = 0
+	let truncated = false
+	const byFeature: Array<{
+		featureId: string
+		featureName?: string
+		count: number
+		callouts: ReturnType<typeof summarizeCallout>[]
+		calloutsTruncated: boolean
+	}> = []
+
+	for (const feature of features) {
+		const callouts = getFeatureCallouts(feature)
+		if (callouts.length === 0) continue
+		total += callouts.length
+		featureCount += 1
+		if (byFeature.length >= MAX_CALLOUT_FEATURE_SUMMARIES) {
+			truncated = true
+			continue
+		}
+		const availableSummaries = Math.max(0, MAX_CALLOUT_SUMMARIES - summarizedCalloutCount)
+		const summarizedCallouts = callouts.slice(
+			0,
+			Math.min(MAX_CALLOUTS_PER_FEATURE_SUMMARY, availableSummaries),
+		)
+		summarizedCalloutCount += summarizedCallouts.length
+		const calloutsTruncated = summarizedCallouts.length < callouts.length
+		if (calloutsTruncated) truncated = true
+		const featureName =
+			typeof feature.properties?.name === 'string' ? feature.properties.name : undefined
+		byFeature.push({
+			featureId: String(feature.id),
+			...(featureName ? { featureName } : {}),
+			count: callouts.length,
+			callouts: summarizedCallouts.map(summarizeCallout),
+			calloutsTruncated,
+		})
+	}
+
+	return { total, featureCount, byFeature, truncated }
 }
 
 /**
@@ -161,6 +225,7 @@ export function getMapContextSnapshot() {
 		activeDataset,
 		localDraftDirty: store.isDirty,
 		featureCount: store.features.length,
+		callouts: summarizeDatasetCallouts(store.features),
 		datasetSize: {
 			serializedBytes,
 			limitBytes: BLOSSOM_UPLOAD_THRESHOLD_BYTES,
@@ -243,6 +308,7 @@ export function getMapContextSnapshotForTarget(
 				: null,
 		localDraftDirty: target.wasDirty,
 		featureCount: features.length,
+		callouts: summarizeDatasetCallouts(features),
 		datasetSize: {
 			serializedBytes,
 			limitBytes: BLOSSOM_UPLOAD_THRESHOLD_BYTES,
@@ -280,6 +346,16 @@ export function getCompactMapContextForPrompt(snapshot: ReturnType<typeof getMap
 		activeDataset: snapshot.activeDataset,
 		localDraftDirty: snapshot.localDraftDirty,
 		featureCount: snapshot.featureCount,
+		callouts: {
+			total: snapshot.callouts.total,
+			featureCount: snapshot.callouts.featureCount,
+			byFeature: snapshot.callouts.byFeature.slice(0, 8).map((entry) => ({
+				...entry,
+				callouts: entry.callouts.slice(0, 3),
+				calloutsTruncated: entry.calloutsTruncated || entry.callouts.length > 3,
+			})),
+			truncated: snapshot.callouts.truncated || snapshot.callouts.byFeature.length > 8,
+		},
 		datasetSize: snapshot.datasetSize,
 		datasetMeasurements: snapshot.datasetMeasurements,
 		selectedFeatureCount: snapshot.selectedFeatureCount,
@@ -325,6 +401,7 @@ export function getCompactMapContextForTool(snapshot: ReturnType<typeof getMapCo
 		mode: snapshot.mode,
 		datasetMetadata: compactDatasetMetadataForTool(snapshot.datasetMetadata),
 		featureCount: snapshot.featureCount,
+		callouts: snapshot.callouts,
 		datasetSize: snapshot.datasetSize,
 		datasetMeasurements: snapshot.datasetMeasurements,
 		selectedFeatureCount: snapshot.selectedFeatureCount,

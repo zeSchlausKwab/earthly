@@ -48,6 +48,46 @@ function calloutFromArgs(args: Record<string, unknown>): MapCallout {
 	return { ...base, ...optionalCalloutFields(args), id: base.id, text }
 }
 
+function canonicalize(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(canonicalize)
+	if (!value || typeof value !== 'object') return value
+	return Object.fromEntries(
+		Object.entries(value as Record<string, unknown>)
+			.filter(([, item]) => item !== undefined)
+			.sort(([left], [right]) => left.localeCompare(right))
+			.map(([key, item]) => [key, canonicalize(item)]),
+	)
+}
+
+/**
+ * Compare authored callout content while deliberately ignoring its generated id.
+ * Missing placement fields are normalized to the renderer defaults so replaying
+ * the same add remains safe even when the stored callout predates explicit
+ * placement serialization.
+ */
+function calloutFingerprint(callout: MapCallout): string {
+	return JSON.stringify(
+		canonicalize({
+			text: callout.text,
+			title: callout.title,
+			media: callout.media ?? [],
+			placement: {
+				side: callout.placement?.side ?? 'auto',
+				offset: callout.placement?.offset ?? [0, 0],
+				leader: callout.placement?.leader ?? 'line',
+			},
+		}),
+	)
+}
+
+function findEquivalentCallout(
+	callouts: readonly MapCallout[],
+	candidate: MapCallout,
+): MapCallout | undefined {
+	const fingerprint = calloutFingerprint(candidate)
+	return callouts.find((callout) => calloutFingerprint(callout) === fingerprint)
+}
+
 async function gateCalloutMutation(
 	editor: GeoEditor,
 	label: string,
@@ -76,15 +116,29 @@ export function registerCalloutTools(register: (entry: ToolEntry) => void): void
 			const feature = editor.getFeature(featureId)
 			if (!feature) throw new Error(`Feature '${featureId}' was not found in the active dataset.`)
 			const callout = calloutFromArgs(args)
+			const existing = findEquivalentCallout(getFeatureCallouts(feature), callout)
+			if (existing) {
+				return {
+					cancelled: false,
+					counts: { updated: 0 },
+					featureId,
+					calloutId: existing.id,
+					added: 0,
+					alreadyPresent: 1,
+				}
+			}
 			const outcome = await gateCalloutMutation(editor, 'Add map callout', featureId, [
 				...getFeatureCallouts(feature),
 				callout,
 			])
+			const applied = outcome.status === 'applied'
 			return {
-				cancelled: outcome.status === 'cancelled',
-				counts: { updated: outcome.status === 'applied' ? outcome.diff.modified.length : 0 },
+				cancelled: !applied,
+				counts: { updated: applied ? outcome.diff.modified.length : 0 },
 				featureId,
 				calloutId: callout.id,
+				added: applied ? 1 : 0,
+				alreadyPresent: 0,
 			}
 		},
 	})
@@ -110,11 +164,46 @@ export function registerCalloutTools(register: (entry: ToolEntry) => void): void
 				return { featureId, callout: calloutFromArgs(entry) }
 			})
 			const additionsByFeature = new Map<string, MapCallout[]>()
+			const results: Array<{
+				featureId: string
+				calloutId: string
+				status: 'pending' | 'alreadyPresent'
+			}> = []
 			for (const addition of additions) {
-				additionsByFeature.set(addition.featureId, [
-					...(additionsByFeature.get(addition.featureId) ?? []),
+				const feature = editor.getFeature(addition.featureId)
+				if (!feature) throw new Error(`Feature '${addition.featureId}' disappeared before apply.`)
+				const planned = additionsByFeature.get(addition.featureId) ?? []
+				const equivalent = findEquivalentCallout(
+					[...getFeatureCallouts(feature), ...planned],
 					addition.callout,
-				])
+				)
+				if (equivalent) {
+					results.push({
+						featureId: addition.featureId,
+						calloutId: equivalent.id,
+						status: 'alreadyPresent',
+					})
+					continue
+				}
+				additionsByFeature.set(addition.featureId, [...planned, addition.callout])
+				results.push({
+					featureId: addition.featureId,
+					calloutId: addition.callout.id,
+					status: 'pending',
+				})
+			}
+			const alreadyPresent = results.filter((result) => result.status === 'alreadyPresent').length
+			const pendingAdditions = results.length - alreadyPresent
+			if (pendingAdditions === 0) {
+				return {
+					cancelled: false,
+					counts: { updated: 0 },
+					calloutCount: 0,
+					added: 0,
+					alreadyPresent,
+					featureIds: [...new Set(additions.map((addition) => addition.featureId))],
+					results: results.map((result) => ({ ...result, status: 'alreadyPresent' as const })),
+				}
 			}
 			const outcome = await gateBulkApply(
 				editor,
@@ -137,8 +226,15 @@ export function registerCalloutTools(register: (entry: ToolEntry) => void): void
 			return {
 				cancelled: !applied,
 				counts: { updated: applied ? outcome.diff.modified.length : 0 },
-				calloutCount: applied ? additions.length : 0,
-				featureIds: [...additionsByFeature.keys()],
+				calloutCount: applied ? pendingAdditions : 0,
+				added: applied ? pendingAdditions : 0,
+				alreadyPresent,
+				featureIds: [...new Set(additions.map((addition) => addition.featureId))],
+				results: results.map((result) => ({
+					...result,
+					status:
+						result.status === 'alreadyPresent' ? 'alreadyPresent' : applied ? 'added' : 'cancelled',
+				})),
 			}
 		},
 	})

@@ -60,6 +60,7 @@ describe('map callout AI tools', () => {
 		const batch = advertise().find((tool) => tool.function.name === 'add_feature_callouts')
 		expect(batch?.function.parameters.properties).toHaveProperty('callouts')
 		expect(batch?.function.parameters.required).toContain('callouts')
+		expect(batch?.function.description).toContain('alreadyPresent')
 	})
 
 	test('does not expose geometry or arbitrary feature replacement in callout schemas', () => {
@@ -88,6 +89,96 @@ describe('map callout AI tools', () => {
 		])
 		expect(getFeatureCallouts(editor?.getFeature('route-b') ?? { properties: {} })).toMatchObject([
 			{ title: 'B', text: 'Second callout' },
+		])
+	})
+
+	test('treats an identical repeated single callout as already present', async () => {
+		const first = (await dispatch('add_feature_callout', {
+			featureId: 'route-a',
+			title: 'Flood reaches Muglin',
+			text: 'The reported flood front reached this section at 15:20.',
+		})) as {
+			added: number
+			alreadyPresent: number
+			calloutId: string
+		}
+		const repeated = (await dispatch('add_feature_callout', {
+			featureId: 'route-a',
+			title: 'Flood reaches Muglin',
+			text: 'The reported flood front reached this section at 15:20.',
+		})) as {
+			added: number
+			alreadyPresent: number
+			calloutId: string
+			counts: { updated: number }
+		}
+
+		expect(first).toMatchObject({ added: 1, alreadyPresent: 0 })
+		expect(repeated).toMatchObject({
+			added: 0,
+			alreadyPresent: 1,
+			counts: { updated: 0 },
+		})
+		expect(repeated.calloutId).toBe(first.calloutId)
+		const editor = useEditorStore.getState().editor
+		expect(getFeatureCallouts(editor?.getFeature('route-a') ?? { properties: {} })).toHaveLength(1)
+	})
+
+	test('deduplicates identical callouts across repeated atomic batches', async () => {
+		const args = {
+			callouts: [
+				{ featureId: 'route-a', title: 'A', text: 'First callout' },
+				{ featureId: 'route-b', title: 'B', text: 'Second callout' },
+			],
+		}
+		const first = (await dispatch('add_feature_callouts', args)) as {
+			added: number
+			alreadyPresent: number
+		}
+		const repeated = (await dispatch('add_feature_callouts', args)) as {
+			added: number
+			alreadyPresent: number
+			calloutCount: number
+			counts: { updated: number }
+		}
+
+		expect(first).toMatchObject({ added: 2, alreadyPresent: 0 })
+		expect(repeated).toMatchObject({
+			added: 0,
+			alreadyPresent: 2,
+			calloutCount: 0,
+			counts: { updated: 0 },
+		})
+		const editor = useEditorStore.getState().editor
+		expect(getFeatureCallouts(editor?.getFeature('route-a') ?? { properties: {} })).toHaveLength(1)
+		expect(getFeatureCallouts(editor?.getFeature('route-b') ?? { properties: {} })).toHaveLength(1)
+	})
+
+	test('keeps distinct placement, update, and remove operations intact', async () => {
+		const first = (await dispatch('add_feature_callout', {
+			featureId: 'route-a',
+			text: 'Same authored text',
+		})) as { calloutId: string }
+		const placed = (await dispatch('add_feature_callout', {
+			featureId: 'route-a',
+			text: 'Same authored text',
+			placementSide: 'top',
+		})) as { added: number; calloutId: string }
+		expect(placed.added).toBe(1)
+
+		await dispatch('update_feature_callout', {
+			featureId: 'route-a',
+			calloutId: first.calloutId,
+			text: 'Updated authored text',
+		})
+		await dispatch('remove_feature_callout', {
+			featureId: 'route-a',
+			calloutId: placed.calloutId,
+		})
+
+		const editor = useEditorStore.getState().editor
+		expect(getFeatureCallouts(editor?.getFeature('route-a') ?? { properties: {} })).toMatchObject([
+			{ id: first.calloutId, text: 'Updated authored text' },
 		])
 	})
 

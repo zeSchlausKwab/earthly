@@ -31,7 +31,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'get_editor_state',
 			description:
-				"Get current map editor context (center, zoom, viewport bbox, feature count, current serialized dataset size, mode). Returns compact output by default; use detail='full' only when needed.",
+				"Get current map editor context (center, zoom, viewport bbox, feature count, bounded summaries of existing map callouts, current serialized dataset size, mode). Returns compact output by default; use detail='full' only when needed.",
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1582,7 +1582,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'add_feature_callout',
 			description:
-				'Attach an always-visible contextual map callout to one existing feature. A map callout belongs to its geometry and is not a Point feature, label, icon, popup, or feature with type="callout". Plain text may include nostr:naddr geo references; media uses structured NIP-92-compatible fields. Prefer add_feature_callouts when adding several.',
+				'Attach an always-visible contextual map callout to one existing feature. A map callout belongs to its geometry and is not a Point feature, label, icon, popup, or feature with type="callout". Repeating identical authored content for the same feature is a safe no-op reported as alreadyPresent. Plain text may include nostr:naddr geo references; media uses structured NIP-92-compatible fields. Prefer add_feature_callouts when adding several.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1628,7 +1628,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'add_feature_callouts',
 			description:
-				'Atomically attach several always-visible map callouts to their existing owning geometries. Each callout is authored content stored on its feature; this does not create Point features. Use one batch instead of many add_feature_callout calls.',
+				'Atomically attach several always-visible map callouts to their existing owning geometries. Each callout is authored content stored on its feature; this does not create Point features. Identical content already on the same feature is skipped and reported as alreadyPresent, making retries safe. Use one batch instead of many add_feature_callout calls.',
 			parameters: {
 				type: 'object',
 				properties: {
