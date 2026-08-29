@@ -8,9 +8,9 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rmdir, stat, unlink } from 'node:fs/promises'
+import { mkdtemp, rmdir, stat, statfs, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { Database, type Statement } from 'bun:sqlite'
 import {
 	GEO_CATALOG_KINDS,
@@ -43,6 +43,8 @@ export interface BuildGeoCatalogOptions {
 	corridorSourceFragments?: 'retain' | 'staging-only'
 	/** Test/embedding seam; the CLI always uses the private OS temporary directory. */
 	stagingDirectoryRoot?: string
+	/** Abort before consuming this filesystem reserve. The library default is disabled. */
+	minFreeBytes?: number
 }
 
 export interface BuildGeoCatalogResult {
@@ -79,6 +81,9 @@ export interface BuildGeoCatalogCliOptions extends BuildGeoCatalogOptions {
 	format: 'text' | 'json'
 }
 
+const DEFAULT_CLI_MIN_FREE_GIB = 4
+const DISK_RESERVE_CHECK_INTERVAL = 10_000
+
 const USAGE = `Build an immutable Earthly GeoCatalog snapshot from local Overture exports.
 
 Usage:
@@ -106,6 +111,7 @@ Options:
   --coverage <global|bbox>    Source footprint: global or west,south,east,north
   --corridor-source-fragments <retain|staging-only>
                               Persist source lines (default) or only derived corridors
+  --min-free-gib <value>      Preserve free space while building (default: 4; 0 disables)
   --format <text|json>        Result format (default: text)
   --help                      Show this help
 
@@ -159,6 +165,30 @@ function parseCoverage(value: string): GeoCatalogSnapshotSpatialCoverage {
 		)
 	}
 	return { scope: 'bbox', bbox: [west, south, east, north] }
+}
+
+function parseMinFreeGiB(value: string): number {
+	const gibibytes = Number(requiredText(value, '--min-free-gib'))
+	if (!Number.isFinite(gibibytes) || gibibytes < 0) {
+		throw new Error('--min-free-gib must be a non-negative number')
+	}
+	const bytes = Math.floor(gibibytes * 1024 ** 3)
+	if (!Number.isSafeInteger(bytes)) {
+		throw new Error('--min-free-gib is too large')
+	}
+	return bytes
+}
+
+async function assertBuildDiskReserve(output: string, minFreeBytes: number): Promise<void> {
+	if (minFreeBytes <= 0) return
+	const filesystem = await statfs(dirname(resolve(output)))
+	const availableBytes = filesystem.bavail * filesystem.bsize
+	if (availableBytes < minFreeBytes) {
+		throw new Error(
+			`GeoCatalog build stopped to preserve the configured disk reserve: ` +
+				`${availableBytes} bytes available, ${minFreeBytes} required`,
+		)
+	}
 }
 
 const INPUT_CATALOG_KINDS: Readonly<Record<OvertureFeatureType, readonly GeoCatalogKind[]>> = {
@@ -1424,11 +1454,16 @@ export async function buildOvertureGeoCatalogSnapshot(
 	const corridorSourceFragments = parseCorridorSourceFragmentPolicy(
 		options.corridorSourceFragments ?? 'retain',
 	)
+	const minFreeBytes = options.minFreeBytes ?? 0
+	if (!Number.isSafeInteger(minFreeBytes) || minFreeBytes < 0) {
+		throw new Error('minFreeBytes must be a non-negative safe integer')
+	}
 	if (options.inputs.length === 0) throw new Error('At least one --input spec is required')
 	if (existsSync(output)) {
 		throw new Error(`Refusing to replace existing GeoCatalog snapshot at ${output}`)
 	}
 	await Promise.all(options.inputs.map(assertLocalInput))
+	await assertBuildDiskReserve(output, minFreeBytes)
 
 	const snapshot: GeoCatalogSnapshotMetadata = {
 		id: snapshotId,
@@ -1461,6 +1496,7 @@ export async function buildOvertureGeoCatalogSnapshot(
 		corridorsWithGaps: 0,
 	}
 	let recordsSkipped = 0
+	let entriesSinceDiskReserveCheck = 0
 	const staging = await CorridorStaging.create(options.stagingDirectoryRoot)
 
 	async function* entries(): AsyncGenerator<GeoCatalogEntry> {
@@ -1479,6 +1515,11 @@ export async function buildOvertureGeoCatalogSnapshot(
 					},
 				})) {
 					staging.stage(entry)
+					entriesSinceDiskReserveCheck += 1
+					if (entriesSinceDiskReserveCheck >= DISK_RESERVE_CHECK_INTERVAL) {
+						await assertBuildDiskReserve(output, minFreeBytes)
+						entriesSinceDiskReserveCheck = 0
+					}
 					if (
 						corridorSourceFragments === 'staging-only' &&
 						corridorSourceFragment(entry)
@@ -1565,6 +1606,7 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 	let corridorSourceFragments: NonNullable<
 		BuildGeoCatalogOptions['corridorSourceFragments']
 	> = 'retain'
+	let minFreeBytes = DEFAULT_CLI_MIN_FREE_GIB * 1024 ** 3
 	let format: 'text' | 'json' = 'text'
 	const inputValues: string[] = []
 	const seen = new Set<string>()
@@ -1616,6 +1658,9 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 					assignOnce(option.name, value),
 				)
 				break
+			case '--min-free-gib':
+				minFreeBytes = parseMinFreeGiB(assignOnce(option.name, value))
+				break
 			case '--format': {
 				const parsed = assignOnce(option.name, value)
 				if (parsed !== 'text' && parsed !== 'json') {
@@ -1655,6 +1700,7 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 		...(createdAt ? { createdAt } : {}),
 		...(coverage ? { coverage } : {}),
 		corridorSourceFragments,
+		minFreeBytes,
 		format,
 	}
 }

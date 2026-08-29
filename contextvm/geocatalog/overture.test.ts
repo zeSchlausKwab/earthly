@@ -661,6 +661,7 @@ describe('Overture sequence streaming', () => {
 			'--input',
 			'place=./places.ndjson',
 			'--corridor-source-fragments=staging-only',
+			'--min-free-gib=2.5',
 			'--format=json',
 		])
 		expect(options).toMatchObject({
@@ -669,6 +670,7 @@ describe('Overture sequence streaming', () => {
 			output: resolve('./catalog.sqlite'),
 			inputs: [{ featureType: 'place', path: resolve('./places.ndjson') }],
 			corridorSourceFragments: 'staging-only',
+			minFreeBytes: Math.floor(2.5 * 1024 ** 3),
 			format: 'json',
 		})
 		expect(parseBuildGeoCatalogArgs(['--help'])).toBeNull()
@@ -695,6 +697,31 @@ describe('Overture sequence streaming', () => {
 				'place=places.ndjson',
 			]),
 		).toThrow('--corridor-source-fragments must be retain or staging-only')
+		expect(() =>
+			parseBuildGeoCatalogArgs([
+				`--release=${RELEASE}`,
+				'--snapshot-id=x',
+				'--output=x',
+				'--min-free-gib=-1',
+				'place=places.ndjson',
+			]),
+		).toThrow('--min-free-gib must be a non-negative number')
+	})
+
+	test('refuses a build before consuming the configured disk reserve', async () => {
+		const directory = await temporaryDirectory()
+		const output = join(directory, 'catalog.sqlite')
+
+		await expect(
+			buildOvertureGeoCatalogSnapshot({
+				release: RELEASE,
+				snapshotId: 'earthly-overture-low-disk-v1',
+				output,
+				inputs: [{ featureType: 'place', path: fixturePath('overture-place.ndjson') }],
+				minFreeBytes: Number.MAX_SAFE_INTEGER,
+			}),
+		).rejects.toThrow('GeoCatalog build stopped to preserve the configured disk reserve')
+		expect(await Bun.file(output).exists()).toBe(false)
 	})
 
 	test('streams fixtures into a queryable immutable SQLite snapshot', async () => {

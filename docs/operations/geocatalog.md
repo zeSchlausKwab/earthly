@@ -220,10 +220,14 @@ transaction and retains only the current input record plus the corridor
 currently being emitted in memory. Corridor membership and connectivity are
 staged in a private on-disk SQLite database;
 that staging directory is removed after both successful and failed builds. The
-builder refuses to replace an existing output. A malformed record aborts the
-build, reports the input file and record number, and removes only the incomplete
-snapshot artifacts, leaving the same output name safe to retry after correcting
-the input.
+builder refuses to replace an existing output. The CLI preserves four GiB of
+free space by default, checks the output filesystem throughout the build, and
+removes its incomplete output if that reserve would be crossed. Use
+`--min-free-gib` to raise the reserve for a shared production host, or set it to
+`0` only in an already isolated build environment. A malformed record aborts
+the build, reports the input file and record number, and removes only the
+incomplete snapshot artifacts, leaving the same output name safe to retry after
+correcting the input.
 
 Use `--format json` for machine-readable counts. The report includes read,
 written, and intentionally skipped records per Overture type, final snapshot
