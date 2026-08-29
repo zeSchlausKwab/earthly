@@ -958,14 +958,29 @@ function registerRemoteMcpTools(): void {
 				...(features.length > 0 ? { features } : {}),
 				...(!toEditor
 					? (() => {
-							const candidateIds = rawItems.flatMap((item) => {
-								if (!isRecord(item) || typeof item.id !== 'string' || item.id.length === 0) {
-									return []
-								}
-								const categories = Array.isArray(item.categories) ? item.categories : []
-								return categories.includes('administrative-label') ? [] : [item.id]
-							})
+							const candidateIds = Array.from(
+								new Set(
+									rawItems.flatMap((item) => {
+										if (!isRecord(item) || typeof item.id !== 'string' || item.id.length === 0) {
+											return []
+										}
+										const categories = Array.isArray(item.categories) ? item.categories : []
+										return categories.includes('administrative-label') ? [] : [item.id]
+									}),
+								),
+							)
 							if (candidateIds.length === 0) return {}
+							const discoveryIsTruncated =
+								isRecord(metadata.query) && metadata.query.hasMore === true
+							if (candidateIds.length > 1 || discoveryIsTruncated) {
+								return {
+									editorImport: {
+										available: true,
+										candidateIds,
+										selectionRequired: true,
+									},
+								}
+							}
 							return {
 								editorImport: {
 									available: true,

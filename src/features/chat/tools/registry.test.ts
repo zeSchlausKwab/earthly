@@ -345,6 +345,136 @@ describe('tool registry', () => {
 		}
 	})
 
+	it('requires selection when a single visible discovery hit comes from a truncated result set', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>() =>
+			({
+				result: {
+					items: [
+						{
+							id: 'overture:divisions:division:dhunche',
+							kind: 'locality',
+							name: 'Dhunche',
+							aliases: [],
+							categories: ['locality'],
+							bbox: [85.296, 28.112, 85.296, 28.112],
+							center: { longitude: 85.296, latitude: 28.112 },
+							importance: 60,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: { overtureTheme: 'divisions', overtureType: 'division' },
+						},
+					],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+						},
+						query: { returned: 1, limit: 1, hasMore: true },
+					},
+				},
+			}) as T
+		try {
+			const result = (await dispatch('query_geography', {
+				text: 'Dhunche',
+				kinds: ['locality'],
+				limit: 1,
+			})) as Record<string, unknown>
+
+			expect(result).toMatchObject({
+				editorImport: {
+					available: true,
+					candidateIds: ['overture:divisions:division:dhunche'],
+					selectionRequired: true,
+				},
+			})
+			expect((result.editorImport as Record<string, unknown>)?.nextCall).toBeUndefined()
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('requires an explicit choice when discovery returns a corridor and its raw segments', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>() =>
+			({
+				result: {
+					items: [
+						{
+							id: 'overture:base:water_corridor:trishuli',
+							kind: 'waterway',
+							name: 'Trishuli River',
+							aliases: [],
+							categories: ['corridor', 'river'],
+							bbox: [85.2, 28, 85.22, 28.1],
+							center: { longitude: 85.21, latitude: 28.05 },
+							importance: 80,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: {
+								overtureTheme: 'base',
+								overtureType: 'water_corridor',
+							},
+						},
+						{
+							id: 'overture:base:water:trishuli-a',
+							kind: 'waterway',
+							name: 'Trishuli River',
+							aliases: [],
+							categories: ['river'],
+							bbox: [85.2, 28.05, 85.21, 28.1],
+							center: { longitude: 85.205, latitude: 28.075 },
+							importance: 40,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: { overtureTheme: 'base', overtureType: 'water' },
+						},
+						{
+							id: 'overture:base:water:trishuli-b',
+							kind: 'waterway',
+							name: 'Trishuli River',
+							aliases: [],
+							categories: ['river'],
+							bbox: [85.21, 28, 85.22, 28.05],
+							center: { longitude: 85.215, latitude: 28.025 },
+							importance: 39,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: { overtureTheme: 'base', overtureType: 'water' },
+						},
+					],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+						},
+						query: { returned: 3, limit: 20, hasMore: false },
+					},
+				},
+			}) as T
+		try {
+			const result = (await dispatch('query_geography', {
+				text: 'Trishuli River',
+				kinds: ['waterway'],
+			})) as Record<string, unknown>
+
+			expect(result).toMatchObject({
+				editorImport: {
+					available: true,
+					candidateIds: [
+						'overture:base:water_corridor:trishuli',
+						'overture:base:water:trishuli-a',
+						'overture:base:water:trishuli-b',
+					],
+					selectionRequired: true,
+				},
+			})
+			expect((result.editorImport as Record<string, unknown>)?.nextCall).toBeUndefined()
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
 	it('does not advertise administrative label points as editor imports', async () => {
 		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
 		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>() =>
