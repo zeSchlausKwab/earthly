@@ -175,10 +175,12 @@ In addition to the normal Earthly runtime requirements, GeoCatalog builds need:
 - enough persistent disk for source checkpoints, build staging, the new
   snapshot, and the live/previous snapshots.
 
-`bun run setup:vps` and activation check these commands before changing the
-active release. Production must also configure a reachable `VALHALLA_URL`;
-activation calls its status endpoint because road routing is deliberately not
-inside the catalog.
+Activation downloads a pinned, checksum-verified `uv` release into
+`shared/bin` when it is not already cached; operators do not install it
+globally. `bun run setup:vps` and activation audit the remaining commands
+before changing the active release. Production must also configure a reachable
+`VALHALLA_URL`; activation calls its status endpoint because road routing is
+deliberately not inside the catalog.
 
 ## Manual and regional builds
 

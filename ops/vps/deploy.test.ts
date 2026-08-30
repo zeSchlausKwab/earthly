@@ -59,6 +59,7 @@ async function createDeploymentFixture(): Promise<string> {
 		'scripts/build-production.sh',
 		'scripts/build-geocatalog.ts',
 		'scripts/ensure-pmtiles.sh',
+		'scripts/ensure-uv.sh',
 		'scripts/export-overture-planet-lite.py',
 		'scripts/validate-production-env.ts',
 		'src/config/env.schema.ts',
@@ -258,6 +259,7 @@ describe('deployment environment and bundle isolation', () => {
 			expect(entries).toContain('./docs/legal/Apache-2.0.txt')
 			expect(entries).toContain('./ops/vps/geocatalog.sh')
 			expect(entries).toContain('./scripts/build-geocatalog.ts')
+			expect(entries).toContain('./scripts/ensure-uv.sh')
 			expect(entries).toContain('./scripts/export-overture-planet-lite.py')
 			expect(entries).toContain('./contextvm/geocatalog/index.ts')
 		} finally {

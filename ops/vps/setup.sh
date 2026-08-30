@@ -51,7 +51,7 @@ missing_commands="$(ssh "$remote" '
   export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
   export PATH="$BUN_INSTALL/bin:$HOME/.local/bin:/usr/local/go/bin:$PATH"
   missing=""
-  for command_name in bun go pm2 curl tar sha256sum install caddy docker uv flock nice ionice; do
+  for command_name in bun go pm2 curl tar sha256sum install caddy docker flock nice ionice; do
     command -v "$command_name" >/dev/null 2>&1 || missing="$missing $command_name"
   done
   docker compose version >/dev/null 2>&1 || missing="$missing docker-compose-plugin"
@@ -59,7 +59,7 @@ missing_commands="$(ssh "$remote" '
 ')"
 if [[ -n "$missing_commands" ]]; then
   echo "VPS prerequisites are missing:$missing_commands" >&2
-  echo "Install the normal runtime prerequisites, plus uv and util-linux for GeoCatalog; see docs/operations/geocatalog.md, then rerun this command" >&2
+  echo "Install the normal runtime prerequisites plus util-linux for GeoCatalog; see docs/operations/geocatalog.md, then rerun this command" >&2
   exit 1
 fi
 

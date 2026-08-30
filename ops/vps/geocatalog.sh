@@ -43,8 +43,9 @@ resolve_shared_dir() {
     shared_dir="$app_root/shared"
   fi
   require_safe_absolute_path "$shared_dir" "Shared directory"
-  mkdir -p "$shared_dir/logs" "$shared_dir/geocatalog/workers"
+  mkdir -p "$shared_dir/bin" "$shared_dir/logs" "$shared_dir/geocatalog/workers"
   shared_dir="$(cd "$shared_dir" && pwd -P)"
+  export PATH="$shared_dir/bin:$PATH"
 }
 
 configure_catalog_path() {

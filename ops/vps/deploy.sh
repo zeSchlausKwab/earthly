@@ -128,10 +128,15 @@ if [[ "$mode" == "check" ]]; then
     ops/vps/setup.sh \
     ops/vps/start-cordn.sh \
     scripts/build-production.sh \
-    scripts/ensure-pmtiles.sh
+    scripts/ensure-pmtiles.sh \
+    scripts/ensure-uv.sh
   echo "Deployment configuration and shell scripts are valid; no build, upload, or restart was performed."
   exit 0
 fi
+
+echo "Ensuring the pinned uv CLI on ${remote}..."
+ssh "$remote" "mkdir -p '$VPS_PATH/shared/bin' && bash -s -- '$VPS_PATH/shared/bin'" \
+  < scripts/ensure-uv.sh
 
 echo "Building the production browser bundle..."
 bash scripts/build-production.sh
@@ -154,6 +159,7 @@ runtime_paths=(
   public
   relay
   scripts/ensure-pmtiles.sh
+  scripts/ensure-uv.sh
   scripts/export-overture-planet-lite.py
   scripts/build-geocatalog.ts
   scripts/validate-production-env.ts

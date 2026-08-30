@@ -64,19 +64,6 @@ if [[ -n "$mapnolia_path" && ( ! -f "$mapnolia_path" || -L "$mapnolia_path" ) ]]
   exit 1
 fi
 
-export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
-export PATH="$BUN_INSTALL/bin:$HOME/.local/bin:/usr/local/go/bin:$PATH"
-for command_name in bun go pm2 curl tar sha256sum install docker uv flock nice ionice; do
-  command -v "$command_name" >/dev/null 2>&1 || {
-    echo "Required deployment command is missing: $command_name" >&2
-    exit 1
-  }
-done
-docker compose version >/dev/null 2>&1 || {
-  echo "The Docker Compose plugin is required" >&2
-  exit 1
-}
-
 activation_complete=false
 release_created=false
 release_removable=true
@@ -93,6 +80,19 @@ cleanup_activation() {
   fi
 }
 trap cleanup_activation EXIT
+
+export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+export PATH="$BUN_INSTALL/bin:$HOME/.local/bin:/usr/local/go/bin:$PATH"
+for command_name in bun go pm2 curl tar sha256sum install docker flock nice ionice; do
+  command -v "$command_name" >/dev/null 2>&1 || {
+    echo "Required deployment command is missing: $command_name" >&2
+    exit 1
+  }
+done
+docker compose version >/dev/null 2>&1 || {
+  echo "The Docker Compose plugin is required" >&2
+  exit 1
+}
 
 (cd "$app_root" && sha256sum -c "$checksum_name")
 if tar -tzf "$archive_path" | grep -Eq '(^|/)\.\.(/|$)|^/'; then
@@ -208,6 +208,14 @@ RELEASE_ID="$release_id" MANIFEST="$new_release/release-manifest.json" bun -e '
   if (manifest.releaseId !== process.env.RELEASE_ID) process.exit(1)
 ' || {
   echo "Release manifest does not match the requested release" >&2
+  exit 1
+}
+
+echo "Installing the pinned uv CLI..."
+bash "$new_release/scripts/ensure-uv.sh" "$shared_dir/bin"
+export PATH="$shared_dir/bin:$PATH"
+command -v uv >/dev/null 2>&1 || {
+  echo "Earthly's managed uv installation is unavailable" >&2
   exit 1
 }
 

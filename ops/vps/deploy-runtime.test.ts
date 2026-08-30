@@ -164,6 +164,37 @@ describe('production deployment runtime', () => {
 		expect(pmtiles).toContain('archive_sha256=')
 	})
 
+	test('bootstraps a pinned uv before GeoCatalog can use it', async () => {
+		const activate = await Bun.file(join(repositoryRoot, 'ops/vps/activate.sh')).text()
+		const deploy = await Bun.file(join(repositoryRoot, 'ops/vps/deploy.sh')).text()
+		const geocatalog = await Bun.file(join(repositoryRoot, 'ops/vps/geocatalog.sh')).text()
+		const setup = await Bun.file(join(repositoryRoot, 'ops/vps/setup.sh')).text()
+		const uv = await Bun.file(join(repositoryRoot, 'scripts/ensure-uv.sh')).text()
+		const extraction = activate.indexOf('tar -xzf "$archive_path" -C "$new_release"')
+		const bootstrap = activate.indexOf('bash "$new_release/scripts/ensure-uv.sh"')
+		const dependencyInstall = activate.indexOf('Installing frozen production dependencies')
+		const cleanupTrap = activate.indexOf('trap cleanup_activation EXIT')
+		const prerequisiteAudit = activate.indexOf('for command_name in')
+		const remoteBootstrap = deploy.indexOf('bash -s --')
+		const productionBuild = deploy.indexOf('Building the production browser bundle')
+
+		expect(extraction).toBeGreaterThan(-1)
+		expect(bootstrap).toBeGreaterThan(extraction)
+		expect(dependencyInstall).toBeGreaterThan(bootstrap)
+		expect(remoteBootstrap).toBeGreaterThan(-1)
+		expect(productionBuild).toBeGreaterThan(remoteBootstrap)
+		expect(cleanupTrap).toBeGreaterThan(-1)
+		expect(prerequisiteAudit).toBeGreaterThan(cleanupTrap)
+		expect(activate.slice(0, extraction)).not.toMatch(/\buv\b/u)
+		expect(activate).toContain('export PATH="$shared_dir/bin:$PATH"')
+		expect(geocatalog).toContain('export PATH="$shared_dir/bin:$PATH"')
+		expect(setup).not.toContain('docker uv flock')
+		expect(uv).toContain('UV_VERSION="')
+		expect(uv).toContain('archive_sha256=')
+		expect(uv).toContain('installed_version="$("$candidate" --version)"')
+		expect(uv).not.toContain('/releases/latest/')
+	})
+
 	test('does not duplicate a legacy Mapnolia tile store during first activation', async () => {
 		const activate = await Bun.file(join(repositoryRoot, 'ops/vps/activate.sh')).text()
 

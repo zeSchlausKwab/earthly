@@ -74,8 +74,9 @@ persistent state under `shared/`; an existing in-place relay, Cordn, backup, or
 Mapnolia store is referenced where it already lives instead of being copied
 while live or duplicated during deployment.
 
-GeoCatalog builds additionally require `uv`, `flock`, `nice`, and `ionice` on
-the VPS. Setup and activation audit them before switching releases. The source
-exports, staging databases, state, progress, and immutable snapshots all remain
-under persistent shared storage, so a release prune or interrupted SSH session
-does not discard completed checkpoints.
+GeoCatalog builds additionally require `flock`, `nice`, and `ionice` on the
+VPS. Activation installs a pinned, checksum-verified `uv` into `shared/bin` and
+the persistent worker resolves it there. The source exports, staging databases,
+state, progress, and immutable snapshots all remain under persistent shared
+storage, so a release prune or interrupted SSH session does not discard
+completed checkpoints.
