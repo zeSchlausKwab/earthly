@@ -54,6 +54,10 @@ bun run deploy
 bun run deploy -- --update-geocatalog
 bun run deploy -- --update-geocatalog=2026-08-19.0
 
+# Ship only the current catalog worker and resume a failed build. This leaves
+# the active application release untouched and reuses verified checkpoints.
+bun run geocatalog:vps:resume
+
 # Observe the remote background job
 bun run geocatalog:vps:status
 bun run geocatalog:vps:logs
@@ -74,6 +78,12 @@ The worker processes `division_area`, `division`, `place`, `water`, and
 Overture transportation segment layer. Road, bus, bicycle, pedestrian, and
 truck routing are served by the configured Valhalla service; Valhalla does not
 provide rail routing or a general named-road inventory.
+
+Use the worker-only resume command after correcting a builder or normalization
+bug. It uploads a small, checksummed worker bundle, replaces only a stopped or
+failed GeoCatalog worker through the normal update lifecycle, and never
+changes the `current` application link. It does not bypass an active build or
+remove a valid catalog while the replacement is built.
 
 Completed source checkpoints survive interruption. The worker publishes
 atomic state and progress files, validates the finished immutable snapshot,

@@ -53,6 +53,7 @@
     "chat:analyze": "bun run scripts/analyze-chat-dump.ts",
     "geocatalog:export-overture": "uv run scripts/export-overture-planet-lite.py",
     "geocatalog:build": "bun run scripts/build-geocatalog.ts",
+    "geocatalog:vps:resume": "bash ops/vps/deploy.sh --resume-geocatalog",
     "geocatalog:vps:status": "bash ops/vps/deploy.sh --geocatalog-status",
     "geocatalog:vps:logs": "bash ops/vps/deploy.sh --geocatalog-logs",
     "geocatalog:vps:follow": "bash ops/vps/deploy.sh --follow-geocatalog",

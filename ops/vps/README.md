@@ -14,6 +14,9 @@ activation, PM2 definitions, SearXNG, restart, and rollback live here.
 - `bun run geocatalog:vps:status` reports the remote catalog and build state;
   `geocatalog:vps:logs` prints recent logs and `geocatalog:vps:follow` follows
   them.
+- `bun run geocatalog:vps:resume` uploads only the current catalog worker and
+  resumes a failed build from verified checkpoints without activating an app
+  release.
 - `bash ops/vps/runtime.sh restart` restarts the active release from the VPS.
 - `bash ops/vps/runtime.sh status` shows PM2 and SearXNG status.
 - `bash ops/vps/rollback.sh` activates the retained previous release.

@@ -10,6 +10,12 @@ Production snapshots are built on the VPS. They are not uploaded from a
 developer machine, so ordinary application releases remain small and a slow
 local-to-VPS connection is not part of the catalog update path.
 
+If a builder bug stops a job after its source exports have completed, run
+`bun run geocatalog:vps:resume` after committing the fix. This sends only a
+checksummed worker bundle, keeps the active application release unchanged, and
+re-enters the normal update lifecycle so completed checkpoints are verified
+and reused.
+
 ## Production contents and service boundaries
 
 The reviewed planet-lite v2 policy exports five Overture feature types:
