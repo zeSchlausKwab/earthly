@@ -3,8 +3,8 @@
 
 set -euo pipefail
 
-if [[ "$#" -ne 5 ]]; then
-  echo "Usage: $0 RELEASE_ID ARCHIVE CHECKSUM ENVIRONMENT MAPNOLIA_CONFIG_OR_DASH" >&2
+if [[ "$#" -ne 7 ]]; then
+  echo "Usage: $0 RELEASE_ID ARCHIVE CHECKSUM ENVIRONMENT MAPNOLIA_CONFIG_OR_DASH GEOCATALOG_ACTION OVERTURE_RELEASE" >&2
   exit 1
 fi
 
@@ -13,6 +13,8 @@ archive_name="$2"
 checksum_name="$3"
 environment_name="$4"
 mapnolia_name="$5"
+geocatalog_action="$6"
+geocatalog_release="$7"
 
 for upload_name in "$release_id" "$archive_name" "$checksum_name" "$environment_name"; do
   if [[ ! "$upload_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -22,6 +24,14 @@ for upload_name in "$release_id" "$archive_name" "$checksum_name" "$environment_
 done
 if [[ "$mapnolia_name" != "-" && ! "$mapnolia_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "Unsafe Mapnolia configuration argument" >&2
+  exit 1
+fi
+if [[ "$geocatalog_action" != "ensure" && "$geocatalog_action" != "update" ]]; then
+  echo "GeoCatalog action must be ensure or update" >&2
+  exit 1
+fi
+if [[ ! "$geocatalog_release" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]+$ ]]; then
+  echo "Overture release must use YYYY-MM-DD.N" >&2
   exit 1
 fi
 
@@ -55,8 +65,8 @@ if [[ -n "$mapnolia_path" && ( ! -f "$mapnolia_path" || -L "$mapnolia_path" ) ]]
 fi
 
 export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
-export PATH="$BUN_INSTALL/bin:/usr/local/go/bin:$PATH"
-for command_name in bun go pm2 curl tar sha256sum install docker; do
+export PATH="$BUN_INSTALL/bin:$HOME/.local/bin:/usr/local/go/bin:$PATH"
+for command_name in bun go pm2 curl tar sha256sum install docker uv flock nice ionice; do
   command -v "$command_name" >/dev/null 2>&1 || {
     echo "Required deployment command is missing: $command_name" >&2
     exit 1
@@ -235,18 +245,56 @@ echo "Installing frozen production dependencies..."
 (cd "$new_release" && bun --env-file=.env scripts/validate-production-env.ts)
 (cd "$new_release" && bun -e "await import('./src/lib/og/index.ts')")
 
+echo "Checking the production Valhalla routing service..."
+valhalla_url="$(
+  cd "$new_release"
+  bun --env-file=.env -e '
+    const { serverConfig } = await import("./src/config/env.server.ts")
+    if (!serverConfig.valhallaUrl) process.exit(1)
+    console.log(
+      serverConfig.valhallaUrl
+        .replace(
+          /\/(locate|route|isochrone|sources_to_targets|optimized_route|trace_route|trace_attributes|status|height|expansion|tile)\/?$/iu,
+          "",
+        )
+        .replace(/\/+$/u, ""),
+    )
+  '
+)"
+curl -fsS --max-time 15 "$valhalla_url/status" >/dev/null || {
+  echo "Valhalla production preflight failed; refusing a transport-free GeoCatalog release" >&2
+  exit 1
+}
+
 echo "Checking the production GeoCatalog snapshot..."
 if ! (cd "$new_release" && bun --env-file=.env -e '
   const [{ serverConfig }, geoCatalog] = await Promise.all([
     import("./src/config/env.server.ts"),
     import("./contextvm/geocatalog/index.ts"),
   ])
+  const { existsSync, lstatSync } = await import("node:fs")
+  if (!existsSync(serverConfig.geoCatalogPath)) {
+    try {
+      if (lstatSync(serverConfig.geoCatalogPath).isSymbolicLink()) {
+        throw new geoCatalog.GeoCatalogError(
+          "snapshot_invalid",
+          `GeoCatalog path is a dangling symbolic link: ${serverConfig.geoCatalogPath}`,
+        )
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error
+    }
+  }
   const summary = await geoCatalog.preflightGeoCatalog({
     catalog: geoCatalog.openSqliteGeoCatalog({ path: serverConfig.geoCatalogPath }),
     required: true,
+    allowUnavailable: true,
   })
-  if (!summary) throw new Error("Production GeoCatalog preflight returned no readiness result")
-  console.log(`GeoCatalog ready: ${geoCatalog.formatGeoCatalogReadiness(summary)}`)
+  if (summary) {
+    console.log(`GeoCatalog ready: ${geoCatalog.formatGeoCatalogReadiness(summary)}`)
+  } else {
+    console.log("GeoCatalog unavailable: the release will start in bootstrap mode")
+  }
 '); then
   echo "GeoCatalog production preflight failed; refusing to start release $release_id" >&2
   exit 1
@@ -336,6 +384,22 @@ if ! bash "$new_release/ops/vps/runtime.sh" restart "$new_release"; then
   if [[ -n "$old_release" ]]; then
     # Use the new release's runtime controller so rollback benefits from the
     # current PM2 recreation and release-verification logic as well.
+    if bash "$new_release/ops/vps/runtime.sh" restart "$old_release"; then
+      release_removable=true
+    fi
+  elif [[ -f "$app_root/scripts/restart-remote.sh" ]]; then
+    if (cd "$app_root" && bash scripts/restart-remote.sh); then
+      release_removable=true
+    fi
+  fi
+  exit 1
+fi
+
+echo "Ensuring the persistent GeoCatalog build state..."
+if ! bash "$new_release/ops/vps/geocatalog.sh" \
+  "$geocatalog_action" "$shared_dir" "$new_release" "$geocatalog_release"; then
+  echo "GeoCatalog worker could not be queued; restoring the previous runtime" >&2
+  if [[ -n "$old_release" ]]; then
     if bash "$new_release/ops/vps/runtime.sh" restart "$old_release"; then
       release_removable=true
     fi

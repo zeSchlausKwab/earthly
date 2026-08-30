@@ -3,12 +3,45 @@
 
 set -euo pipefail
 
-mode="${1:-}"
-if [[ -n "$mode" && "$mode" != "--check" ]]; then
-  echo "Usage: $0 [--check]" >&2
-  exit 1
-fi
-
+mode="deploy"
+geocatalog_action="ensure"
+geocatalog_release=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --check)
+      [[ "$mode" == "deploy" ]] || { echo "Only one deployment mode may be selected" >&2; exit 1; }
+      mode="check"
+      ;;
+    --update-geocatalog)
+      geocatalog_action="update"
+      if [[ "${2:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]+$ ]]; then
+        geocatalog_release="$2"
+        shift
+      fi
+      ;;
+    --update-geocatalog=*)
+      geocatalog_action="update"
+      geocatalog_release="${1#*=}"
+      ;;
+    --geocatalog-status)
+      [[ "$mode" == "deploy" ]] || { echo "Only one deployment mode may be selected" >&2; exit 1; }
+      mode="geocatalog-status"
+      ;;
+    --geocatalog-logs)
+      [[ "$mode" == "deploy" ]] || { echo "Only one deployment mode may be selected" >&2; exit 1; }
+      mode="geocatalog-logs"
+      ;;
+    --follow-geocatalog)
+      [[ "$mode" == "deploy" ]] || { echo "Only one deployment mode may be selected" >&2; exit 1; }
+      mode="follow-geocatalog"
+      ;;
+    *)
+      echo "Usage: $0 [--check|--update-geocatalog[=RELEASE]|--geocatalog-status|--geocatalog-logs|--follow-geocatalog]" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
@@ -21,11 +54,6 @@ fi
   echo "Deployment target not found. Copy .env.deploy.example to .env.deploy" >&2
   exit 1
 }
-[[ -f .env.production ]] || {
-  echo "Production configuration not found. Copy .env.production.example to .env.production" >&2
-  exit 1
-}
-
 # shellcheck disable=SC1090
 source "$deploy_env"
 : "${VPS_HOST:?VPS_HOST is required in $deploy_env}"
@@ -41,6 +69,33 @@ if [[ ! "$VPS_USER" =~ ^[A-Za-z0-9._-]+$ ]] ||
   echo "VPS_USER, VPS_HOST, or VPS_PATH contains unsupported shell characters" >&2
   exit 1
 fi
+
+remote="${VPS_USER}@${VPS_HOST}"
+case "$mode" in
+  geocatalog-status)
+    ssh "$remote" "test -x '$VPS_PATH/current/ops/vps/geocatalog.sh' && bash '$VPS_PATH/current/ops/vps/geocatalog.sh' status '$VPS_PATH/shared' '$VPS_PATH/current'"
+    exit 0
+    ;;
+  geocatalog-logs)
+    ssh "$remote" "test -x '$VPS_PATH/current/ops/vps/geocatalog.sh' && bash '$VPS_PATH/current/ops/vps/geocatalog.sh' logs '$VPS_PATH/shared' '$VPS_PATH/current'"
+    exit 0
+    ;;
+  follow-geocatalog)
+    ssh "$remote" "test -x '$VPS_PATH/current/ops/vps/geocatalog.sh' && bash '$VPS_PATH/current/ops/vps/geocatalog.sh' logs '$VPS_PATH/shared' '$VPS_PATH/current' --follow"
+    exit 0
+    ;;
+esac
+
+geocatalog_release="${geocatalog_release:-${GEOCATALOG_OVERTURE_RELEASE:-2026-08-19.0}}"
+[[ "$geocatalog_release" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]+$ ]] || {
+  echo "GeoCatalog Overture release must use YYYY-MM-DD.N" >&2
+  exit 1
+}
+
+[[ -f .env.production ]] || {
+  echo "Production configuration not found. Copy .env.production.example to .env.production" >&2
+  exit 1
+}
 
 for command_name in bun git ssh scp tar; do
   command -v "$command_name" >/dev/null 2>&1 || {
@@ -62,10 +117,11 @@ echo "Validating production identities, URLs, and persistence..."
   bun scripts/validate-production-env.ts
 )
 
-if [[ "$mode" == "--check" ]]; then
+if [[ "$mode" == "check" ]]; then
   bash -n \
     ops/vps/deploy.sh \
     ops/vps/activate.sh \
+    ops/vps/geocatalog.sh \
     ops/vps/runtime.sh \
     ops/vps/rollback.sh \
     ops/vps/searxng.sh \
@@ -86,7 +142,9 @@ release_time="$(date -u +%Y%m%dT%H%M%SZ)"
 release_suffix=""
 runtime_paths=(
   contextvm
+  docs/legal/Apache-2.0.txt
   ops/vps/activate.sh
+  ops/vps/geocatalog.sh
   ops/vps/runtime.sh
   ops/vps/rollback.sh
   ops/vps/searxng.sh
@@ -96,6 +154,8 @@ runtime_paths=(
   public
   relay
   scripts/ensure-pmtiles.sh
+  scripts/export-overture-planet-lite.py
+  scripts/build-geocatalog.ts
   scripts/validate-production-env.ts
   src
   bun.lock
@@ -194,7 +254,6 @@ archive_sha256="$(sha256_file "$archive")"
   exit 1
 }
 
-remote="${VPS_USER}@${VPS_HOST}"
 remote_archive=".$release_id.tar.gz.next"
 remote_checksum=".$release_id.sha256.next"
 remote_environment=".$release_id.env.next"
@@ -227,9 +286,11 @@ printf '%s\n' "$checksum_entries" | \
 
 echo "Activating release on the VPS..."
 ssh "$remote" \
-  "cd '$VPS_PATH' && sha256sum -c '$remote_checksum' && chmod 700 '$remote_activator' && bash '$remote_activator' '$release_id' '$remote_archive' '$remote_checksum' '$remote_environment' '$mapnolia_argument'"
+  "cd '$VPS_PATH' && sha256sum -c '$remote_checksum' && chmod 700 '$remote_activator' && bash '$remote_activator' '$release_id' '$remote_archive' '$remote_checksum' '$remote_environment' '$mapnolia_argument' '$geocatalog_action' '$geocatalog_release'"
 
 echo
 echo "Deployment complete: $release_id"
 echo "Status: ssh $remote 'cd $VPS_PATH/current && bash ops/vps/runtime.sh status'"
 echo "Logs: ssh $remote 'pm2 logs'"
+echo "GeoCatalog: bun run geocatalog:vps:status"
+echo "GeoCatalog logs: bun run geocatalog:vps:follow"

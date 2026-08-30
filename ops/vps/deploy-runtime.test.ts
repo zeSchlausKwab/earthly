@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeSqliteGeoCatalogSnapshot } from '../../contextvm/geocatalog/sqlite'
 import type {
 	GeoCatalogEntry,
+	GeoCatalogKind,
 	GeoCatalogSnapshotMetadata,
 } from '../../contextvm/geocatalog/types'
 
@@ -24,6 +26,43 @@ function geoCatalogPreflightSource(activate: string): string {
 	const sourceEnd = activate.indexOf("\n'); then", sourceStart)
 	if (sourceEnd < 0) throw new Error('Activation GeoCatalog preflight end was not found')
 	return activate.slice(sourceStart, sourceEnd)
+}
+
+function embeddedBunSource(shell: string, functionName: string): string {
+	const functionStart = shell.indexOf(`${functionName}() {`)
+	if (functionStart < 0) throw new Error(`${functionName} was not found`)
+	const sourceMarker = "    bun -e '\n"
+	const sourceMarkerStart = shell.indexOf(sourceMarker, functionStart)
+	if (sourceMarkerStart < 0) throw new Error(`${functionName} Bun source start was not found`)
+	const sourceStart = sourceMarkerStart + sourceMarker.length
+	const sourceEnd = shell.indexOf("\n    '\n}", sourceStart)
+	if (sourceEnd < 0) throw new Error(`${functionName} Bun source end was not found`)
+	return shell.slice(sourceStart, sourceEnd)
+}
+
+function geoCatalogStatusSource(manager: string): string {
+	const sourceMarker = `STATE_FILE="$state_file" PROGRESS_FILE="$progress_file" bun -e '\n`
+	const sourceMarkerStart = manager.indexOf(sourceMarker)
+	if (sourceMarkerStart < 0) throw new Error('GeoCatalog status source start was not found')
+	const sourceStart = sourceMarkerStart + sourceMarker.length
+	const sourceEnd = manager.indexOf("\n    '\n  else", sourceStart)
+	if (sourceEnd < 0) throw new Error('GeoCatalog status source end was not found')
+	return manager.slice(sourceStart, sourceEnd)
+}
+
+async function runEmbeddedBun(source: string, env: Record<string, string>) {
+	const child = Bun.spawn([process.execPath, '-e', source], {
+		cwd: repositoryRoot,
+		env: { ...process.env, ...env },
+		stdout: 'pipe',
+		stderr: 'pipe',
+	})
+	const [exitCode, stdout, stderr] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+	])
+	return { exitCode, stdout, stderr }
 }
 
 async function runGeoCatalogPreflight(source: string, catalogPath: string) {
@@ -141,7 +180,7 @@ describe('production deployment runtime', () => {
 		expect(activate).toContain('mv "$staging_path" "$target"')
 	})
 
-	test('requires a queryable production GeoCatalog before starting the release', async () => {
+	test('allows only a missing GeoCatalog during bootstrap before starting the release', async () => {
 		const activate = await Bun.file(join(repositoryRoot, 'ops/vps/activate.sh')).text()
 		const dataLink = activate.indexOf(
 			'link_shared "$persistent_data_root" "$new_release/data"',
@@ -162,12 +201,23 @@ describe('production deployment runtime', () => {
 			'openSqliteGeoCatalog({ path: serverConfig.geoCatalogPath })',
 		)
 		expect(activate).toContain('required: true')
+		expect(activate).toContain('allowUnavailable: true')
 		expect(activate).toContain(
 			'GeoCatalog production preflight failed; refusing to start release',
 		)
 	})
 
-	test('the activation preflight rejects missing, invalid, and empty snapshots', async () => {
+	test('normalizes an accidental Valhalla endpoint before checking status', async () => {
+		const activate = await Bun.file(join(repositoryRoot, 'ops/vps/activate.sh')).text()
+
+		expect(activate).toContain(
+			'locate|route|isochrone|sources_to_targets|optimized_route|trace_route|trace_attributes|status|height|expansion|tile',
+		)
+		expect(activate).toContain('.replace(/\\/+$/u, "")')
+		expect(activate).toContain('curl -fsS --max-time 15 "$valhalla_url/status"')
+	})
+
+	test('the activation preflight accepts a missing snapshot but rejects invalid states', async () => {
 		await mkdir(join(repositoryRoot, '.cache'), { recursive: true })
 		const fixtureRoot = await mkdtemp(join(repositoryRoot, '.cache', 'activation-geocatalog-'))
 		temporaryDirectories.push(fixtureRoot)
@@ -175,26 +225,323 @@ describe('production deployment runtime', () => {
 		const source = geoCatalogPreflightSource(activate)
 		const invalidPath = join(fixtureRoot, 'invalid.sqlite')
 		const emptyPath = join(fixtureRoot, 'empty.sqlite')
+		const danglingPath = join(fixtureRoot, 'dangling.sqlite')
 		await writeFile(invalidPath, 'not a GeoCatalog snapshot')
+		await symlink(join(fixtureRoot, 'absent-target.sqlite'), danglingPath)
 		await writeSqliteGeoCatalogSnapshot({
 			path: emptyPath,
 			snapshot: catalogSnapshot,
 			entries: [],
 		})
 
+		const missing = await runGeoCatalogPreflight(
+			source,
+			join(fixtureRoot, 'missing.sqlite'),
+		)
+		expect(missing).toEqual({
+			exitCode: 0,
+			stdout: 'GeoCatalog unavailable: the release will start in bootstrap mode\n',
+			stderr: '',
+		})
+
 		const scenarios = [
-			{
-				path: join(fixtureRoot, 'missing.sqlite'),
-				expected: 'GeoCatalog snapshot is unavailable',
-			},
 			{ path: invalidPath, expected: 'Cannot open GeoCatalog snapshot' },
 			{ path: emptyPath, expected: 'contains no queryable entries' },
+			{ path: danglingPath, expected: 'dangling symbolic link' },
 		]
 		for (const scenario of scenarios) {
 			const result = await runGeoCatalogPreflight(source, scenario.path)
 			expect(result.exitCode).not.toBe(0)
 			expect(result.stderr).toContain(scenario.expected)
 		}
+	})
+
+	test('queues GeoCatalog after runtime health but before publishing the release', async () => {
+		const activate = await Bun.file(join(repositoryRoot, 'ops/vps/activate.sh')).text()
+		const runtimeStart = activate.indexOf(
+			'bash "$new_release/ops/vps/runtime.sh" restart "$new_release"',
+		)
+		const currentSwitch = activate.indexOf('ln -sfn "$new_release" "$app_root/current"')
+		const activationComplete = activate.indexOf('activation_complete=true')
+		const catalogManager = activate.indexOf(
+			'bash "$new_release/ops/vps/geocatalog.sh"',
+		)
+
+		expect(runtimeStart).toBeGreaterThan(-1)
+		expect(catalogManager).toBeGreaterThan(runtimeStart)
+		expect(currentSwitch).toBeGreaterThan(catalogManager)
+		expect(currentSwitch).toBeGreaterThan(-1)
+		expect(activationComplete).toBeGreaterThan(currentSwitch)
+		expect(activate).toContain(
+			'GeoCatalog worker could not be queued; restoring the previous runtime',
+		)
+	})
+
+	test('runs a durable transport-free GeoCatalog worker with observable progress', async () => {
+		const manager = await Bun.file(join(repositoryRoot, 'ops/vps/geocatalog.sh')).text()
+
+		expect(manager).toContain(
+			'SOURCE_TYPES=(division_area division place water infrastructure)',
+		)
+		expect(manager).not.toContain('SOURCE_TYPES=(division_area division place segment')
+		expect(manager).toContain('pm2 start "$worker/ops/vps/geocatalog.sh"')
+		expect(manager).toContain('GEOCATALOG_RESERVE_FREE_GIB="$reserve_free_gib"')
+		expect(manager).toContain('--no-autorestart')
+			expect(manager).toContain('exec 9>"$catalog_dir/build.lock"')
+			expect(manager).toContain('flock -n 9')
+			expect(manager).toContain('(set -e; run_pipeline "$worker")')
+			expect(manager).toContain('if [[ "$exit_status" -ne 0 ]]')
+			expect(manager).toContain('exec 8>"$catalog_dir/build.lock"')
+			expect(manager).toContain('wait for it to finish before rolling back')
+			expect(manager).toContain('would be pruned: $catalog_path')
+		expect(manager).toContain('--progress-file "$progress_file"')
+		expect(manager).toContain('Reusing verified $source_type checkpoint')
+		expect(manager).toContain(
+			'replace_catalog_link "snapshots/$snapshot_id.sqlite" "promote"',
+		)
+		expect(manager).toContain('Target snapshot is already active; preserving')
+		expect(manager).toContain('verify_target_snapshot "$target_snapshot" "$worker"')
+		expect(manager).toContain('pm2 restart "$CONTEXTVM_NAME" --update-env')
+		expect(manager).toContain('ContextVM is online and healthy')
+		expect(manager).toContain('matches[0]?.pm2_env?.pm_cwd')
+		expect(manager).toContain('require_active_contextvm_catalog_path || return 1')
+		expect(manager).toContain(
+			"not this job's $catalog_path; refusing GeoCatalog promotion or readiness",
+		)
+		expect(manager).toContain('verify_target_snapshot "$catalog_path" "$active_release"')
+		expect(manager).not.toContain('pm2 restart earthly-web')
+		expect(manager).toContain('GeoCatalog is ready; no background build was requested')
+		expect(manager).toContain('GeoCatalog target $snapshot_id is already ready')
+		expect(manager).toContain('GeoCatalog exists but is invalid; refusing to hide corruption')
+		expect(manager).toContain('refusing to discard requested target $snapshot_id')
+		expect(manager).toContain('worker is running without readable target state')
+		expect(manager).toContain('the newly started worker was stopped')
+		expect(manager).toContain('the prior snapshot was restored and ContextVM recovered')
+		expect(manager).toContain('no distinct valid previous snapshot can compensate')
+		expect(manager).toContain('Retained previous GeoCatalog snapshot failed production validation')
+		expect(manager).toContain('the original catalog link was restored and ContextVM recovered')
+		expect(manager).toContain('Build: ${state.state} / ${state.phase}')
+		expect(manager).toContain('state.finishedAt ? Date.parse(state.finishedAt) : Date.now()')
+		expect(manager).toContain('Elapsed: ${hours}h ${minutes}m')
+		expect(manager).toContain('Failure: ${details.join("; ")')
+		expect(manager).toContain('Exporting $source_type $source_index/$source_count')
+		expect(manager).toContain('tail -n 100 -F')
+	})
+
+	test('accepts only complete global single-source GeoCatalog checkpoints', async () => {
+		await mkdir(join(repositoryRoot, '.cache'), { recursive: true })
+		const fixtureRoot = await mkdtemp(join(repositoryRoot, '.cache', 'geocatalog-checkpoint-'))
+		temporaryDirectories.push(fixtureRoot)
+		const manager = await Bun.file(join(repositoryRoot, 'ops/vps/geocatalog.sh')).text()
+		const source = embeddedBunSource(manager, 'verify_checkpoint')
+		const release = '2026-08-19.0'
+		const type = 'water'
+		const dataPath = join(fixtureRoot, `${type}.geojsonseq.gz`)
+		const payload = new TextEncoder().encode('verified compressed checkpoint bytes')
+		await writeFile(dataPath, payload)
+		const sha256 = createHash('sha256').update(payload).digest('hex')
+		const validReport = {
+			schemaVersion: 1,
+			policyId: 'earthly-overture-planet-lite-v2',
+			release,
+			dryRun: false,
+			coverage: { scope: 'global' },
+			outputDirectory: fixtureRoot,
+			featureTypes: [type],
+			outputFormat: 'GeoJSONSeq+gzip',
+			outputBytes: payload.byteLength,
+			sources: [
+				{
+					featureType: type,
+					theme: 'base',
+					type: 'water',
+					uri: `s3://overturemaps-us-west-2/release/${release}/theme=base/type=water/*.parquet`,
+					selectedRecords: 1,
+					outputFile: `${type}.geojsonseq.gz`,
+					outputBytes: payload.byteLength,
+					sha256,
+				},
+			],
+		}
+		const runVerifier = (report: typeof validReport) =>
+			writeFile(join(fixtureRoot, 'export-report.json'), JSON.stringify(report)).then(() =>
+				runEmbeddedBun(source, {
+					CHECKPOINT_TYPE: type,
+					CHECKPOINT_ROOT: fixtureRoot,
+					EXPECTED_RELEASE: release,
+					EXPECTED_POLICY: 'earthly-overture-planet-lite-v2',
+				}),
+			)
+
+		expect((await runVerifier(validReport)).exitCode).toBe(0)
+
+		const invalidReports = [
+			{ ...validReport, coverage: { scope: 'bbox' } },
+			{ ...validReport, featureTypes: [type, 'place'] },
+			{ ...validReport, sources: [...validReport.sources, validReport.sources[0]] },
+			{
+				...validReport,
+				sources: [{ ...validReport.sources[0], selectedRecords: 0 }],
+			},
+			{
+				...validReport,
+				outputBytes: 0,
+				sources: [{ ...validReport.sources[0], outputBytes: 0 }],
+			},
+			{
+				...validReport,
+				sources: [{ ...validReport.sources[0], sha256: '0'.repeat(64) }],
+			},
+		]
+		for (const report of invalidReports) {
+			expect((await runVerifier(report as typeof validReport)).exitCode).not.toBe(0)
+		}
+	})
+
+	test('verifies a reused target snapshot identity, release, and global coverage', async () => {
+		await mkdir(join(repositoryRoot, '.cache'), { recursive: true })
+		const fixtureRoot = await mkdtemp(join(repositoryRoot, '.cache', 'geocatalog-target-'))
+		temporaryDirectories.push(fixtureRoot)
+		const manager = await Bun.file(join(repositoryRoot, 'ops/vps/geocatalog.sh')).text()
+		const source = embeddedBunSource(manager, 'verify_target_snapshot')
+		const release = '2026-08-19.0'
+		const snapshotId = `overture-${release}-planet-lite-v2`
+		const expectedKinds: GeoCatalogKind[] = [
+			'admin',
+			'locality',
+			'place',
+			'waterway',
+			'infrastructure',
+		]
+		const runVerifier = (path: string) =>
+			runEmbeddedBun(source, {
+				GEOCATALOG_CHECK_PATH: path,
+				GEOCATALOG_WORKER_ROOT: repositoryRoot,
+				EXPECTED_SNAPSHOT_ID: snapshotId,
+				EXPECTED_RELEASE: release,
+			})
+		const writeTarget = async (
+			path: string,
+			id: string,
+			sourceRelease: string,
+			kinds: GeoCatalogKind[] = expectedKinds,
+		) => {
+			await writeSqliteGeoCatalogSnapshot({
+				path,
+				snapshot: {
+					...catalogSnapshot,
+					id,
+					coverage: { spatial: { scope: 'global' }, kinds },
+					sources: [{ name: 'Overture Maps', release: sourceRelease }],
+				},
+				entries: [{ ...catalogEntry, source: { name: 'Overture Maps', release: sourceRelease } }],
+			})
+		}
+
+		const validPath = join(fixtureRoot, 'valid.sqlite')
+		const wrongIdentityPath = join(fixtureRoot, 'wrong-identity.sqlite')
+		const wrongReleasePath = join(fixtureRoot, 'wrong-release.sqlite')
+		const transportKindsPath = join(fixtureRoot, 'transport-kinds.sqlite')
+		await writeTarget(validPath, snapshotId, release)
+		await writeTarget(wrongIdentityPath, 'unexpected-snapshot', release)
+		await writeTarget(wrongReleasePath, snapshotId, '2026-08-18.0')
+		await writeTarget(transportKindsPath, snapshotId, release, [...expectedKinds, 'road'])
+
+		expect((await runVerifier(validPath)).exitCode).toBe(0)
+		for (const path of [wrongIdentityPath, wrongReleasePath, transportKindsPath]) {
+			const result = await runVerifier(path)
+			expect(result.exitCode).not.toBe(0)
+			expect(result.stderr).toContain('GeoCatalog target identity, release, or coverage mismatch')
+		}
+	})
+
+	test('reports terminal elapsed time and failure detail without misleading local source position', async () => {
+		await mkdir(join(repositoryRoot, '.cache'), { recursive: true })
+		const fixtureRoot = await mkdtemp(join(repositoryRoot, '.cache', 'geocatalog-status-'))
+		temporaryDirectories.push(fixtureRoot)
+		const manager = await Bun.file(join(repositoryRoot, 'ops/vps/geocatalog.sh')).text()
+		const statePath = join(fixtureRoot, 'build-state.json')
+		const progressPath = join(fixtureRoot, 'build-progress.json')
+		await writeFile(
+			statePath,
+			JSON.stringify({
+				state: 'failed',
+				phase: 'serving',
+				snapshotId: 'overture-2026-08-19.0-planet-lite-v2',
+				startedAt: '2026-08-29T00:00:00.000Z',
+				updatedAt: '2026-08-29T02:30:00.000Z',
+				finishedAt: '2026-08-29T02:30:00.000Z',
+				message: 'ContextVM health check failed',
+			}),
+		)
+		await writeFile(
+			progressPath,
+			JSON.stringify({
+				state: 'failed',
+				featureType: 'water',
+				sourceIndex: 2,
+				sourceCount: 5,
+				records: 42,
+				outputBytes: 1024,
+				message: 'relay startup marker was not observed',
+			}),
+		)
+
+		const result = await runEmbeddedBun(geoCatalogStatusSource(manager), {
+			STATE_FILE: statePath,
+			PROGRESS_FILE: progressPath,
+		})
+
+		expect(result.exitCode).toBe(0)
+		expect(result.stderr).toBe('')
+		expect(result.stdout).toContain('Elapsed: 2h 30m')
+		expect(result.stdout).toContain(
+			'Failure: ContextVM health check failed; relay startup marker was not observed',
+		)
+		expect(result.stdout).toContain('Progress: failed water · 42 records')
+		expect(result.stdout).not.toContain('water 2/5')
+	})
+
+	test('forwards the remote follow flag to the persistent GeoCatalog logs', async () => {
+		await mkdir(join(repositoryRoot, '.cache'), { recursive: true })
+		const fixtureRoot = await mkdtemp(join(repositoryRoot, '.cache', 'geocatalog-logs-'))
+		temporaryDirectories.push(fixtureRoot)
+		const sharedDir = join(fixtureRoot, 'shared')
+		const fakeBin = join(fixtureRoot, 'fake-bin')
+		const invocation = join(fixtureRoot, 'tail-args')
+		await mkdir(fakeBin, { recursive: true })
+		await writeExecutable(
+			join(fakeBin, 'tail'),
+			'#!/bin/bash\nprintf "%s\\n" "$*" > "$TAIL_INVOCATION"\n',
+		)
+
+		const child = Bun.spawn(
+			[
+				'bash',
+				join(repositoryRoot, 'ops/vps/geocatalog.sh'),
+				'logs',
+				sharedDir,
+				repositoryRoot,
+				'--follow',
+			],
+			{
+				env: {
+					...process.env,
+					PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+					TAIL_INVOCATION: invocation,
+				},
+				stdout: 'pipe',
+				stderr: 'pipe',
+			},
+		)
+		const [exitCode, stderr] = await Promise.all([
+			child.exited,
+			new Response(child.stderr).text(),
+		])
+
+		expect(exitCode).toBe(0)
+		expect(stderr).toBe('')
+		expect(await readFile(invocation, 'utf8')).toContain('-n 100 -F')
 	})
 
 	test('the activation preflight accepts and identifies a queryable snapshot', async () => {

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { hexToBytes } from '@noble/hashes/utils.js'
+import { isAbsolute, normalize } from 'node:path'
 import { getPublicKey } from 'nostr-tools/pure'
 import { safeParseEnv } from '../src/config/env.schema'
 
@@ -154,6 +155,32 @@ export function validateProductionEnv(
 			}
 		} catch {
 			errors.push('SEARXNG_URL must be a valid URL')
+		}
+	}
+	if (!env.VALHALLA_URL) {
+		errors.push('VALHALLA_URL is required when the production GeoCatalog omits transportation')
+	} else {
+		try {
+			const url = new URL(env.VALHALLA_URL)
+			if (!['http:', 'https:'].includes(url.protocol)) {
+				errors.push('VALHALLA_URL must use http:// or https://')
+			}
+		} catch {
+			errors.push('VALHALLA_URL must be a valid URL')
+		}
+	}
+	if (env.GEOCATALOG_RESERVE_FREE_GIB) {
+		const reserve = Number(env.GEOCATALOG_RESERVE_FREE_GIB)
+		if (!Number.isFinite(reserve) || reserve < 0) {
+			errors.push('GEOCATALOG_RESERVE_FREE_GIB must be a non-negative number')
+		}
+	}
+	if (env.GEOCATALOG_PATH && !isAbsolute(env.GEOCATALOG_PATH)) {
+		const normalizedCatalogPath = normalize(env.GEOCATALOG_PATH).replaceAll('\\', '/')
+		if (!normalizedCatalogPath.startsWith('data/geocatalog/')) {
+			errors.push(
+				'GEOCATALOG_PATH must be absolute or remain under data/geocatalog for VPS persistence',
+			)
 		}
 	}
 	const trustedMapnoliaPubkeys = relayUrls(env.MAPNOLIA_TRUSTED_PUBKEYS)
