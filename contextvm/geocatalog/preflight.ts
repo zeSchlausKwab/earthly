@@ -1,6 +1,7 @@
 import {
 	GeoCatalogError,
 	type GeoCatalog,
+	type GeoCatalogQueryResult,
 	type GeoCatalogSnapshotMetadata,
 } from './types'
 
@@ -13,6 +14,11 @@ export interface PreflightGeoCatalogOptions {
 	catalog: GeoCatalog
 	/** Production requires a usable snapshot; development deliberately remains lazy. */
 	required: boolean
+	/**
+	 * Permit only a genuinely unavailable snapshot while an operator-managed
+	 * bootstrap is in progress. Invalid or empty snapshots still fail closed.
+	 */
+	allowUnavailable?: boolean
 }
 
 /**
@@ -25,7 +31,19 @@ export async function preflightGeoCatalog(
 ): Promise<GeoCatalogReadinessSummary | null> {
 	if (!options.required) return null
 
-	const result = await options.catalog.query({ limit: 1 })
+	let result: GeoCatalogQueryResult
+	try {
+		result = await options.catalog.query({ limit: 1 })
+	} catch (error) {
+		if (
+			options.allowUnavailable === true &&
+			error instanceof GeoCatalogError &&
+			error.code === 'snapshot_unavailable'
+		) {
+			return null
+		}
+		throw error
+	}
 	const sample = result.items[0]
 	if (!sample) {
 		throw new GeoCatalogError(

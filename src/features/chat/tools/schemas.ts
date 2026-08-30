@@ -226,7 +226,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_geography',
 			description:
-				"Query Earthly's fast, self-hosted geography catalog for administrative areas, localities, places, roads, rail, waterways, and infrastructure. This is the primary source for reusable real-world geometry and place discovery; use remote OSM tools only when this catalog reports a genuine coverage gap. Filter groups combine with AND semantics; values within a list use OR semantics. Text authoring is always discovered first: the host imports only one unique exact, complete match and otherwise returns a no-match or selectionRequired result without changing the Dataset. Stable ids resolve and import exactly without remote re-search.",
+				"Query Earthly's fast, self-hosted geography catalog. The baseline snapshot covers administrative areas, localities, places, waterways, and infrastructure; road and rail are optional coverage packs. An unavailable road or rail kind is an intentional capability boundary, not a remote OSM fallback signal. This is the primary source for reusable real-world geometry and place discovery in the baseline kinds; use remote OSM tools only when it reports a genuine baseline coverage gap. Filter groups combine with AND semantics; values within a list use OR semantics. Text authoring is always discovered first: the host imports only one unique exact, complete match and otherwise returns a no-match or selectionRequired result without changing the Dataset. Stable ids resolve and import exactly without remote re-search.",
 			parameters: {
 				type: 'object',
 				properties: {
@@ -241,7 +241,8 @@ export const geoStaticToolSchemas: Tool[] = [
 					},
 					kinds: {
 						type: 'array',
-						description: 'Normalized geography kinds to include.',
+						description:
+							'Normalized geography kinds to include. Road and rail may be unavailable unless an optional transport coverage pack is installed.',
 						items: {
 							type: 'string',
 							enum: ['admin', 'locality', 'place', 'road', 'rail', 'waterway', 'infrastructure'],
@@ -309,7 +310,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'search_location',
 			description:
-				'Last-resort remote OpenStreetMap name search. Use only after query_geography returned no matches or insufficient detail; this is not an initial place-discovery tool. Returns coordinates, bounding boxes, and addresses.',
+				'Last-resort remote OpenStreetMap place-name search. Use only after query_geography returned no matches or insufficient detail for a baseline catalog kind; this is not an initial discovery tool. The intentional absence of optional road or rail packs is not a fallback signal. Returns coordinates, bounding boxes, and addresses.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -357,7 +358,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_by_id',
 			description:
-				'Last-resort remote lookup for one exact OpenStreetMap element by type and ID. Prefer query_geography unless the user supplied an OSM id or the local catalog reported a coverage gap.',
+				'Fetch one exact OpenStreetMap element by type and ID. Use directly when the user supplied that OSM id; otherwise prefer query_geography and use this only for a genuine baseline coverage gap. The intentional absence of optional road or rail packs is not such a gap.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -389,7 +390,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_nearby',
 			description:
-				'Last-resort, read-only OpenStreetMap discovery near a point. Use only when query_geography reports that the needed local detail is unavailable. Filter by tags such as amenity=cafe or shop=supermarket; include relations only when the missing detail requires a boundary or route relation. This tool never edits the Dataset; explicitly select an exact result or use import_osm_to_editor after discovery.',
+				'Last-resort, read-only OpenStreetMap discovery near a point. Use only when query_geography reports a genuine local-detail gap in a baseline catalog kind. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. Filter by tags such as amenity=cafe or shop=supermarket; include relations only when the missing baseline detail requires one. This tool never edits the Dataset; explicitly select an exact result or use import_osm_to_editor after discovery.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -439,7 +440,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_bbox',
 			description:
-				'Last-resort, read-only OpenStreetMap discovery within a bounding box. Prefer query_geography and use this only for a confirmed catalog coverage gap. Narrow the request with tags; include relations only when the missing detail requires an administrative boundary. This tool never edits the Dataset; explicitly select an exact result or use import_osm_to_editor after discovery.',
+				'Last-resort, read-only OpenStreetMap discovery within a bounding box. Prefer query_geography and use this only for a confirmed baseline catalog coverage gap. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. Narrow the request with tags; include relations only when the missing baseline detail requires an administrative boundary. This tool never edits the Dataset; explicitly select an exact result or use import_osm_to_editor after discovery.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -493,7 +494,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_area',
 			description:
-				'Last-resort, slow, read-only OpenStreetMap discovery constrained to a polygon area. Use only after query_geography reports a coverage gap, and only for local detail such as POIs, streets, buildings, or small waterways; use bundled world layers for generalized country-scale coastlines and major rivers. The area may come from selected polygons, explicit or chat-attached geometry, a country boundary, or an OSM relation. It can clip matching lines or return representative points. Always provide filters, filterSets, or a semantic concept; never run an unfiltered area scan. This tool never edits the Dataset; use import_osm_to_editor for a deliberate import.',
+				'Last-resort, slow, read-only OpenStreetMap discovery constrained to a polygon area. Use only after query_geography reports a genuine coverage gap in a baseline catalog kind, and only for local detail such as POIs, buildings, or small waterways; use bundled world layers for generalized country-scale coastlines and major rivers. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. The area may come from selected polygons, explicit or chat-attached geometry, a country boundary, or an exact user-supplied OSM relation. It can clip matching lines or return representative points. Always provide filters, filterSets, or a semantic concept; never run an unfiltered area scan. This tool never edits the Dataset; use import_osm_to_editor for a deliberate import.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -576,7 +577,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'resolve_osm_entity',
 			description:
-				'Last-resort remote lookup that resolves a name/place to concrete OSM IDs. Use only after query_geography returned no matches or insufficient detail. If the user explicitly supplied an OSM id, use the corresponding exact-id OSM tool instead of resolving the name.',
+				'Last-resort remote lookup that resolves a name/place to concrete OSM IDs. Use only after query_geography returned no matches or insufficient detail for a baseline catalog kind. The intentional absence of optional road or rail packs is not a fallback signal. If the user explicitly supplied an OSM id, use the corresponding exact-id OSM tool instead of resolving the name.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -611,7 +612,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'get_osm_relation_geometry',
 			description:
-				'Last-resort remote fetch that assembles one OSM relation geometry. Use only after query_geography returned no matches or insufficient boundary detail, unless the user explicitly supplied an OSM relation id. After a confirmed catalog gap, resolve_osm_entity can identify the relation id.',
+				'Last-resort remote fetch that assembles one OSM relation geometry. Use only after query_geography returned no matches or insufficient detail in a baseline catalog kind, unless the user explicitly supplied an OSM relation id. The intentional absence of optional road or rail packs is not a fallback signal. After a confirmed baseline gap, resolve_osm_entity can identify the relation id.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -688,13 +689,13 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'valhalla_route',
 			description:
-				'Compute a network-following road, bus, bicycle, pedestrian, or truck route from waypoints using Valhalla. Prefer this over drawing coarse or straight transport lines. Returns GeoJSON line geometry labeled network-derived plus a summary.',
+				'Compute a network-following road, bus, bicycle, pedestrian, or truck journey through 2 to 25 coordinate waypoints using Valhalla. Prefer this over drawing coarse or straight transport lines. Valhalla is not a road-name search or full-relation retrieval tool and does not route rail. Rail routing requires an actual supplied or editor LineString network with route_over_network; otherwise report it as unsupported. Returns GeoJSON line geometry labeled network-derived plus a summary.',
 			parameters: {
 				type: 'object',
 				properties: {
 					locations: {
 						type: 'array',
-						description: 'Route points as [{lat, lon}, ...] with at least two points.',
+						description: 'Route points as [{lat, lon}, ...] with 2 to 25 coordinates.',
 					},
 					profile: {
 						type: 'string',
@@ -773,7 +774,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'import_osm_to_editor',
 			description:
-				'Last-resort remote OpenStreetMap import. Use only after query_geography returned no geometry or insufficient detail, unless the user explicitly supplied an OSM relation id. After a confirmed catalog gap, import with an explicit relation id or narrowed bbox/point and filters; do not use this as the initial discovery or import path.',
+				'Last-resort remote OpenStreetMap import. Use only after query_geography returned no geometry or insufficient detail for a baseline catalog kind, unless the user explicitly supplied an OSM relation id. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. After a confirmed baseline gap, import with an explicit relation id or narrowed bbox/point and filters; do not use this as the initial discovery or import path.',
 			parameters: {
 				type: 'object',
 				properties: {

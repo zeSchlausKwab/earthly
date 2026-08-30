@@ -9,7 +9,7 @@
 """Export a reviewed Overture planet-lite slice for Earthly GeoCatalog builds.
 
 The exporter queries one pinned Overture release directly from its official
-public S3 GeoParquet paths. It writes six local gzip-compressed GeoJSONSeq files
+public S3 GeoParquet paths. It writes five local gzip-compressed GeoJSONSeq files
 that can be passed to scripts/build-geocatalog.ts. The runtime GeoCatalog never
 calls S3.
 """
@@ -21,6 +21,7 @@ import gzip
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -36,7 +37,7 @@ from typing import Any, Iterable
 import duckdb
 
 
-POLICY_ID = "earthly-overture-planet-lite-v1"
+POLICY_ID = "earthly-overture-planet-lite-v2"
 RELEASE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d+$")
 DEFAULT_RESERVE_GIB = 4.0
 CHECK_DISK_EVERY_ROWS = 2_000
@@ -249,27 +250,6 @@ SOURCE_SPECS = (
         ),
     ),
     SourceSpec(
-        feature_type="segment",
-        theme="transportation",
-        overture_type="segment",
-        where=(
-            "((subtype = 'road' AND class IN ('motorway', 'trunk', 'primary')) "
-            "OR subtype = 'rail') AND COALESCE(len(routes), 0) > 0"
-        ),
-        selection=(
-            "motorway/trunk/primary roads and rail transport with at least one explicit "
-            "Overture route membership"
-        ),
-        property_columns=COMMON_PROPERTY_COLUMNS
-        + (
-            "subtype",
-            "class",
-            "subclass",
-            "routes",
-            "connectors",
-        ),
-    ),
-    SourceSpec(
         feature_type="water",
         theme="base",
         overture_type="water",
@@ -332,6 +312,8 @@ SOURCE_SPECS = (
     ),
 )
 
+FEATURE_TYPES = tuple(spec.feature_type for spec in SOURCE_SPECS)
+
 
 def parse_bbox(value: str) -> tuple[float, float, float, float]:
     try:
@@ -346,12 +328,26 @@ def parse_bbox(value: str) -> tuple[float, float, float, float]:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Export Earthly's reviewed Overture planet-lite selection to six compressed "
+            "Export Earthly's reviewed Overture planet-lite selection to five compressed "
             "GeoJSONSeq files."
         )
     )
     parser.add_argument("--release", required=True, help="Pinned Overture YYYY-MM-DD.N release")
     parser.add_argument("--output-dir", required=True, type=Path, help="New output directory")
+    parser.add_argument(
+        "--feature-type",
+        action="append",
+        choices=FEATURE_TYPES,
+        help=(
+            "Export only this source type; repeat to select several. The default exports "
+            "all five types. This supports resumable per-source VPS builds."
+        ),
+    )
+    parser.add_argument(
+        "--progress-file",
+        type=Path,
+        help="Atomically update this JSON file with machine-readable export progress",
+    )
     parser.add_argument(
         "--bbox",
         type=parse_bbox,
@@ -374,8 +370,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if not RELEASE_PATTERN.fullmatch(args.release):
         parser.error("--release must use the dated YYYY-MM-DD.N format")
-    if args.reserve_free_gib < 0:
-        parser.error("--reserve-free-gib must be zero or greater")
+    if not math.isfinite(args.reserve_free_gib) or args.reserve_free_gib < 0:
+        parser.error("--reserve-free-gib must be a finite number zero or greater")
+    if args.feature_type:
+        args.feature_type = tuple(dict.fromkeys(args.feature_type))
     return args
 
 
@@ -496,6 +494,32 @@ def assert_disk_reserve(path: Path, reserve_bytes: int, context: str) -> int:
     return free_bytes
 
 
+def selected_specs(args: argparse.Namespace) -> tuple[SourceSpec, ...]:
+    if not args.feature_type:
+        return SOURCE_SPECS
+    selected = set(args.feature_type)
+    return tuple(spec for spec in SOURCE_SPECS if spec.feature_type in selected)
+
+
+def write_progress(args: argparse.Namespace, payload: dict[str, Any]) -> None:
+    if args.progress_file is None:
+        return
+    progress_path = args.progress_file.resolve()
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = progress_path.with_name(
+        f".{progress_path.name}.next-{os.getpid()}-{secrets.token_hex(4)}"
+    )
+    document = {
+        "schemaVersion": 1,
+        "policyId": POLICY_ID,
+        "release": args.release,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+    temporary_path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+    os.replace(temporary_path, progress_path)
+
+
 def base_report(args: argparse.Namespace, free_before: int) -> dict[str, Any]:
     exporter_path = Path(__file__).resolve()
     exporter_digest = hashlib.sha256(exporter_path.read_bytes()).hexdigest()
@@ -511,6 +535,7 @@ def base_report(args: argparse.Namespace, free_before: int) -> dict[str, Any]:
             else {"scope": "bbox", "bbox": list(args.bbox)}
         ),
         "outputDirectory": str(args.output_dir.resolve()),
+        "featureTypes": [spec.feature_type for spec in selected_specs(args)],
         "reserveFreeBytes": int(args.reserve_free_gib * 2**30),
         "freeBytesBefore": free_before,
         "duckdbVersion": duckdb.__version__,
@@ -529,7 +554,7 @@ def dry_run(args: argparse.Namespace, connection: duckdb.DuckDBPyConnection) -> 
         parent = Path.cwd()
     report = base_report(args, disk_free_bytes(parent))
     started = time.monotonic()
-    for spec in SOURCE_SPECS:
+    for spec in selected_specs(args):
         source_started = time.monotonic()
         print(
             f"Estimating {spec.theme}/{spec.overture_type}...",
@@ -571,6 +596,9 @@ def write_feature_sequence(
     output: Path,
     reserve_bytes: int,
     disk_path: Path,
+    args: argparse.Namespace,
+    spec: SourceSpec,
+    source_started: float,
 ) -> tuple[int, int, str]:
     cursor = connection.execute(query)
     records = 0
@@ -600,7 +628,18 @@ def write_feature_sequence(
                 )
                 records += 1
             if records % CHECK_DISK_EVERY_ROWS < FETCH_ROWS:
-                assert_disk_reserve(disk_path, reserve_bytes, "while exporting")
+                free_bytes = assert_disk_reserve(disk_path, reserve_bytes, "while exporting")
+                write_progress(
+                    args,
+                    {
+                        "state": "exporting",
+                        "featureType": spec.feature_type,
+                        "records": records,
+                        "outputBytes": output.stat().st_size,
+                        "elapsedSeconds": round(time.monotonic() - source_started, 3),
+                        "freeBytes": free_bytes,
+                    },
+                )
     digest = hashlib.sha256()
     with output.open("rb") as exported:
         while chunk := exported.read(1024 * 1024):
@@ -628,9 +667,22 @@ def export(args: argparse.Namespace) -> dict[str, Any]:
         connection = connect(duckdb_temp)
         report = base_report(args, free_before)
         started = time.monotonic()
-        for spec in SOURCE_SPECS:
+        specs = selected_specs(args)
+        for source_index, spec in enumerate(specs, start=1):
             source_started = time.monotonic()
             output = staging / spec.output_name
+            write_progress(
+                args,
+                {
+                    "state": "querying",
+                    "featureType": spec.feature_type,
+                    "sourceIndex": source_index,
+                    "sourceCount": len(specs),
+                    "records": 0,
+                    "outputBytes": 0,
+                    "freeBytes": disk_free_bytes(output_dir.parent),
+                },
+            )
             print(
                 f"Exporting {spec.theme}/{spec.overture_type} to {output.name}...",
                 file=sys.stderr,
@@ -645,6 +697,9 @@ def export(args: argparse.Namespace) -> dict[str, Any]:
                 output,
                 reserve_bytes,
                 output_dir.parent,
+                args,
+                spec,
+                source_started,
             )
             elapsed_seconds = round(time.monotonic() - source_started, 3)
             print(
@@ -668,6 +723,19 @@ def export(args: argparse.Namespace) -> dict[str, Any]:
                     "elapsedSeconds": elapsed_seconds,
                 }
             )
+            write_progress(
+                args,
+                {
+                    "state": "exported",
+                    "featureType": spec.feature_type,
+                    "sourceIndex": source_index,
+                    "sourceCount": len(specs),
+                    "records": records,
+                    "outputBytes": output_bytes,
+                    "elapsedSeconds": elapsed_seconds,
+                    "freeBytes": disk_free_bytes(output_dir.parent),
+                },
+            )
         report["elapsedSeconds"] = round(time.monotonic() - started, 3)
         report["outputBytes"] = sum(source["outputBytes"] for source in report["sources"])
         report["freeBytesAfter"] = disk_free_bytes(output_dir.parent)
@@ -681,6 +749,17 @@ def export(args: argparse.Namespace) -> dict[str, Any]:
                 f"Output directory appeared during export; refusing to replace it: {output_dir}"
             )
         os.replace(staging, output_dir)
+        write_progress(
+            args,
+            {
+                "state": "complete",
+                "featureTypes": [spec.feature_type for spec in specs],
+                "records": sum(source["selectedRecords"] for source in report["sources"]),
+                "outputBytes": report["outputBytes"],
+                "elapsedSeconds": report["elapsedSeconds"],
+                "freeBytes": report["freeBytesAfter"],
+            },
+        )
         return report
     except BaseException:
         if connection is not None:
@@ -717,6 +796,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Error: export interrupted; staging files were removed", file=sys.stderr)
         return 130
     except (duckdb.Error, OSError, RuntimeError) as error:
+        write_progress(args, {"state": "failed", "message": str(error)})
         print(f"Error: {error}", file=sys.stderr)
         return 1
     print(json.dumps(report, indent=2, ensure_ascii=False))

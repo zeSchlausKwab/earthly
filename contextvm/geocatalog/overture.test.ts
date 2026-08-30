@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
+import * as fsPromises from 'node:fs/promises'
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -20,6 +21,9 @@ import {
 
 const RELEASE = '2026-08-19.0'
 const FIXTURES = fileURLToPath(new URL('./fixtures/', import.meta.url))
+const PLANET_LITE_EXPORTER = fileURLToPath(
+	new URL('../../scripts/export-overture-planet-lite.py', import.meta.url),
+)
 const fixturePath = (name: string): string => join(FIXTURES, name)
 const temporaryDirectories: string[] = []
 
@@ -662,6 +666,9 @@ describe('Overture sequence streaming', () => {
 			'place=./places.ndjson',
 			'--corridor-source-fragments=staging-only',
 			'--min-free-gib=2.5',
+			'--staging-directory-root=./catalog-staging',
+			'--progress-file',
+			'./catalog-progress.json',
 			'--format=json',
 		])
 		expect(options).toMatchObject({
@@ -671,6 +678,8 @@ describe('Overture sequence streaming', () => {
 			inputs: [{ featureType: 'place', path: resolve('./places.ndjson') }],
 			corridorSourceFragments: 'staging-only',
 			minFreeBytes: Math.floor(2.5 * 1024 ** 3),
+			stagingDirectoryRoot: resolve('./catalog-staging'),
+			progressFile: resolve('./catalog-progress.json'),
 			format: 'json',
 		})
 		expect(parseBuildGeoCatalogArgs(['--help'])).toBeNull()
@@ -722,6 +731,79 @@ describe('Overture sequence streaming', () => {
 			}),
 		).rejects.toThrow('GeoCatalog build stopped to preserve the configured disk reserve')
 		expect(await Bun.file(output).exists()).toBe(false)
+	})
+
+	test('enforces the configured disk reserve while assembling corridors', async () => {
+		const directory = await temporaryDirectory()
+		const input = join(directory, 'segments.ndjson')
+		const output = join(directory, 'catalog.sqlite')
+		const segmentLines = (await Bun.file(fixturePath('overture-segment.ndjson')).text())
+			.split(/\r?\n/u)
+			.map((line) => line.trim())
+			.filter(Boolean)
+		await Bun.write(input, `${segmentLines.slice(0, 2).join('\n')}\n`)
+
+		const available = await fsPromises.statfs(directory)
+		const statfs = spyOn(fsPromises, 'statfs').mockResolvedValue({ ...available, bavail: 0 })
+		statfs.mockResolvedValueOnce(available)
+		statfs.mockResolvedValueOnce(available)
+		statfs.mockResolvedValueOnce(available)
+		try {
+			await expect(
+				buildOvertureGeoCatalogSnapshot({
+					release: RELEASE,
+					snapshotId: 'earthly-overture-corridor-low-disk-v1',
+					output,
+					inputs: [{ featureType: 'segment', path: input }],
+					minFreeBytes: 1,
+					diskReserveCheckInterval: 1,
+				}),
+			).rejects.toThrow('GeoCatalog build stopped to preserve the configured disk reserve')
+			expect(statfs).toHaveBeenCalledTimes(4)
+		} finally {
+			statfs.mockRestore()
+		}
+		expect(await Bun.file(output).exists()).toBe(false)
+	})
+
+	test('rejects non-finite planet-lite disk reserves during argument parsing', async () => {
+		const directory = await temporaryDirectory()
+		await Bun.write(
+			join(directory, 'duckdb.py'),
+			"__version__ = 'test'\nclass Error(Exception):\n    pass\nclass DuckDBPyConnection:\n    pass\n",
+		)
+
+		for (const reserve of ['nan', 'inf']) {
+			const child = Bun.spawn(
+				[
+					'python3',
+					PLANET_LITE_EXPORTER,
+					'--release',
+					RELEASE,
+					'--output-dir',
+					join(directory, 'export'),
+					'--reserve-free-gib',
+					reserve,
+				],
+				{
+					env: {
+						PATH: Bun.env.PATH ?? '',
+						PYTHONPATH: directory,
+					},
+					stdout: 'pipe',
+					stderr: 'pipe',
+				},
+			)
+			const [exitCode, stderr] = await Promise.all([
+				child.exited,
+				new Response(child.stderr).text(),
+			])
+			expect(exitCode).toBe(2)
+			expect(stderr).toContain(
+				'--reserve-free-gib must be a finite number zero or greater',
+			)
+			expect(stderr).not.toContain('Traceback')
+		}
 	})
 
 	test('streams fixtures into a queryable immutable SQLite snapshot', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInMemoryGeoCatalog } from './in-memory'
@@ -187,15 +187,41 @@ describe('GeoCatalog production preflight', () => {
 		})
 	})
 
-	test('fails when the production snapshot is invalid', async () => {
+	test('allows only a typed unavailable snapshot during production bootstrap', async () => {
+		const catalog = openSqliteGeoCatalog({
+			path: join(tmpdir(), `earthly-bootstrap-${crypto.randomUUID()}.sqlite`),
+		})
+
+		await expect(
+			preflightGeoCatalog({ catalog, required: true, allowUnavailable: true }),
+		).resolves.toBeNull()
+
+		const untypedUnavailable = Object.assign(new Error('untyped unavailable snapshot'), {
+			code: 'snapshot_unavailable',
+		})
+		const untypedCatalog: GeoCatalog = {
+			async query() {
+				throw untypedUnavailable
+			},
+		}
+		await expect(
+			preflightGeoCatalog({
+				catalog: untypedCatalog,
+				required: true,
+				allowUnavailable: true,
+			}),
+		).rejects.toBe(untypedUnavailable)
+	})
+
+	test('rejects a dangling snapshot symlink during production bootstrap', async () => {
 		const directory = mkdtempSync(join(tmpdir(), 'earthly-geocatalog-preflight-'))
-		const path = join(directory, 'invalid.sqlite')
-		writeFileSync(path, 'not a SQLite snapshot')
+		const path = join(directory, 'snapshot.sqlite')
+		symlinkSync(join(directory, 'missing.sqlite'), path)
 
 		try {
 			const catalog = openSqliteGeoCatalog({ path })
 			await expect(
-				preflightGeoCatalog({ catalog, required: true }),
+				preflightGeoCatalog({ catalog, required: true, allowUnavailable: true }),
 			).rejects.toMatchObject({
 				code: 'snapshot_invalid',
 				retryable: false,
@@ -205,11 +231,29 @@ describe('GeoCatalog production preflight', () => {
 		}
 	})
 
-	test('fails when a valid snapshot has no queryable entries', async () => {
+	test('still fails when the production snapshot is invalid during bootstrap', async () => {
+		const directory = mkdtempSync(join(tmpdir(), 'earthly-geocatalog-preflight-'))
+		const path = join(directory, 'invalid.sqlite')
+		writeFileSync(path, 'not a SQLite snapshot')
+
+		try {
+			const catalog = openSqliteGeoCatalog({ path })
+			await expect(
+				preflightGeoCatalog({ catalog, required: true, allowUnavailable: true }),
+			).rejects.toMatchObject({
+				code: 'snapshot_invalid',
+				retryable: false,
+			})
+		} finally {
+			rmSync(directory, { recursive: true })
+		}
+	})
+
+	test('still fails when a valid snapshot has no queryable entries during bootstrap', async () => {
 		const catalog = createInMemoryGeoCatalog({ snapshot, entries: [] })
 
 		await expect(
-			preflightGeoCatalog({ catalog, required: true }),
+			preflightGeoCatalog({ catalog, required: true, allowUnavailable: true }),
 		).rejects.toMatchObject({
 			code: 'snapshot_invalid',
 			message: `GeoCatalog snapshot ${snapshot.id} contains no queryable entries`,

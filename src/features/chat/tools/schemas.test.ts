@@ -27,6 +27,15 @@ function collectDescriptions(value: unknown): string[] {
 }
 
 describe('catalog-first geography tool descriptions', () => {
+	it('documents the baseline catalog and optional transport packs', () => {
+		const description = schemaFor('query_geography').function.description.toLowerCase()
+		expect(description).toContain(
+			'baseline snapshot covers administrative areas, localities, places, waterways, and infrastructure',
+		)
+		expect(description).toContain('road and rail are optional coverage packs')
+		expect(description).toMatch(/unavailable road or rail.+not a remote osm fallback signal/)
+	})
+
 	it('steers human-readable discovery into a host-enforced exact stable-id import', () => {
 		const tool = schemaFor('query_geography')
 		expect(tool.function.description.toLowerCase()).toMatch(
@@ -47,11 +56,17 @@ describe('catalog-first geography tool descriptions', () => {
 			const description = schemaFor(name).function.description.toLowerCase()
 			expect(description).toMatch(/last[- ]resort/)
 			expect(description).toContain('query_geography')
-			expect(description).toMatch(/no match|no geometry|insufficient|unavailable|coverage gap/)
+			expect(description).toMatch(
+				/no match|no geometry|insufficient|unavailable|coverage gap|local-detail gap/,
+			)
+			expect(description).toMatch(/optional road or rail packs? is not a fallback signal/)
 		}
 	})
 
 	it('allows exact OSM ids without advertising an unconditional OSM-first flow', () => {
+		expect(schemaFor('query_osm_by_id').function.description.toLowerCase()).toMatch(
+			/use directly when the user supplied that osm id/,
+		)
 		for (const name of [
 			'resolve_osm_entity',
 			'get_osm_relation_geometry',
@@ -63,6 +78,20 @@ describe('catalog-first geography tool descriptions', () => {
 				expect(description.toLowerCase()).not.toMatch(/\brecommended\b|\bbest first\b/)
 			}
 		}
+	})
+
+	it('limits Valhalla to supported coordinate routing and keeps rail explicit', () => {
+		const tool = schemaFor('valhalla_route')
+		const description = tool.function.description.toLowerCase()
+		expect(description).toContain('2 to 25 coordinate waypoints')
+		expect(description).toContain('not a road-name search')
+		expect(description).toContain('full-relation retrieval')
+		expect(description).toContain('does not route rail')
+		expect(description).toContain('route_over_network')
+		expect(description).toMatch(/otherwise report it as unsupported/)
+		expect(tool.function.parameters.properties.locations.description).toContain(
+			'2 to 25 coordinates',
+		)
 	})
 
 	it('keeps broad OSM discovery read-only', () => {

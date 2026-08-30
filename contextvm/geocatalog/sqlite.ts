@@ -435,10 +435,30 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 }
 
 function openAdapter(path: string): SqliteGeoCatalogAdapter {
-	if (!existsSync(path)) {
+	let pathStat: ReturnType<typeof lstatSync>
+	try {
+		pathStat = lstatSync(path)
+	} catch (error) {
+		const code =
+			error && typeof error === 'object' && 'code' in error
+				? String((error as { code: unknown }).code)
+				: null
+		if (code === 'ENOENT') {
+			throw new GeoCatalogError(
+				'snapshot_unavailable',
+				`GeoCatalog snapshot is unavailable at ${path}`,
+			)
+		}
 		throw new GeoCatalogError(
-			'snapshot_unavailable',
-			`GeoCatalog snapshot is unavailable at ${path}`,
+			'snapshot_invalid',
+			`Cannot inspect GeoCatalog snapshot at ${path}`,
+			{ cause: error },
+		)
+	}
+	if (pathStat.isSymbolicLink() && !existsSync(path)) {
+		throw new GeoCatalogError(
+			'snapshot_invalid',
+			`GeoCatalog snapshot path is a dangling symbolic link: ${path}`,
 		)
 	}
 	let database: Database | null = null

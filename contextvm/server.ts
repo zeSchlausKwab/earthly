@@ -252,10 +252,15 @@ async function main() {
   const geoCatalogReadiness = await preflightGeoCatalog({
     catalog: geoCatalog,
     required: serverConfig.isProduction,
+    allowUnavailable: serverConfig.isProduction,
   });
   if (geoCatalogReadiness) {
     console.log(
       `🗂️ GeoCatalog ready: ${formatGeoCatalogReadiness(geoCatalogReadiness)}`,
+    );
+  } else if (serverConfig.isProduction) {
+    console.warn(
+      "⚠️ GeoCatalog is not installed yet; query_geography will remain unavailable until the background bootstrap promotes a snapshot and restarts this service.",
     );
   }
   console.log("🗺️ Starting ContextVM Geo Server...\n");
@@ -280,7 +285,7 @@ async function main() {
     {
       title: "Search Locations (Nominatim)",
       description:
-        "Remote Nominatim fallback for geocoding or name detail absent from query_geography and bundled world layers. Use query_geography first and do not call this merely to verify a catalog match. Returns coordinates, bounding boxes, and GeoJSON outlines.",
+        "Remote Nominatim fallback for geocoding or place-name detail absent from query_geography and bundled world layers. Use query_geography first and do not call this merely to verify a catalog match. The intentional absence of optional road or rail catalog packs is not a fallback signal. Returns coordinates, bounding boxes, and GeoJSON outlines.",
       inputSchema: searchLocationInputSchema,
       outputSchema: searchLocationOutputSchema,
     },
@@ -344,7 +349,7 @@ async function main() {
     {
       title: "Query Earthly GeoCatalog",
       description:
-        "Query Earthly's fast, self-hosted geography snapshot for administrative areas, localities, places, roads, rail, waterways, and infrastructure. Use this before remote OpenStreetMap tools. Filters combine with AND semantics. Human discovery safely recovers catalogued trailing qualifiers (for example Nepal or Tibet), typed suffixes, and bounded unambiguous text variants. Geometry and stable-id lookups remain exact: discover without geometry, then resolve chosen stable ids with geometry for mapping.",
+        "Query Earthly's fast, self-hosted geography snapshot. The baseline snapshot covers administrative areas, localities, places, waterways, and infrastructure; road and rail are optional coverage packs. An unavailable road or rail kind is an intentional capability boundary, not a remote OpenStreetMap fallback signal. Use this before remote OpenStreetMap tools for baseline kinds. Filters combine with AND semantics. Human discovery safely recovers catalogued trailing qualifiers (for example Nepal or Tibet), typed suffixes, and bounded unambiguous text variants. Geometry and stable-id lookups remain exact: discover without geometry, then resolve chosen stable ids with geometry for mapping.",
       inputSchema: queryGeographyInputSchema,
       outputSchema: queryGeographyOutputSchema,
     },
@@ -446,7 +451,7 @@ async function main() {
     {
       title: "Query OSM Elements Nearby (Overpass)",
       description:
-        "Remote Overpass last resort for local detail absent from query_geography and bundled world layers. Queries OpenStreetMap elements near a point with optional tag filters and returns GeoJSON features.",
+        "Remote Overpass last resort for local detail in a baseline catalog kind that is genuinely absent from query_geography and bundled world layers. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. Queries OpenStreetMap elements near a point with optional tag filters and returns GeoJSON features.",
       inputSchema: queryNearbyInputSchema,
       outputSchema: queryFeaturesOutputSchema,
     },
@@ -498,7 +503,7 @@ async function main() {
     {
       title: "Query OSM Elements in Bounding Box (Overpass)",
       description:
-        "Remote Overpass last resort for local detail absent from query_geography and bundled world layers. Queries OpenStreetMap elements within a bounding box with optional tag filters and returns GeoJSON features.",
+        "Remote Overpass last resort for local detail in a baseline catalog kind that is genuinely absent from query_geography and bundled world layers. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. Queries OpenStreetMap elements within a bounding box with optional tag filters and returns GeoJSON features.",
       inputSchema: queryBboxInputSchema,
       outputSchema: queryFeaturesOutputSchema,
     },
@@ -554,7 +559,7 @@ async function main() {
     {
       title: "Resolve OSM Entity",
       description:
-        "Remote Nominatim last resort for resolving a name to concrete OSM ids before an OSM import. Use query_geography first for boundaries and places; do not call this merely to verify a catalog match.",
+        "Remote Nominatim last resort for resolving a name to concrete OSM ids before an OSM import. Use query_geography first for boundaries and places; do not call this merely to verify a catalog match. The intentional absence of optional road or rail catalog packs is not a fallback signal. Use the exact-id tools directly when the user supplied an OSM id.",
       inputSchema: resolveOsmEntityInputSchema,
       outputSchema: resolveOsmEntityOutputSchema,
     },
@@ -848,7 +853,7 @@ async function main() {
     {
       title: "Get OSM Relation Geometry",
       description:
-        "Remote OSM geometry fetch for one exact relation id. Use directly only for a user-supplied OSM relation id; otherwise use as a last resort after query_geography lacks the required boundary detail. Assembles the relation into clean GeoJSON.",
+        "Remote OSM geometry fetch for one exact relation id. Use directly only for a user-supplied OSM relation id; otherwise use as a last resort after query_geography lacks required detail in a baseline catalog kind. The intentional absence of optional road or rail packs is not a fallback signal. Assembles the relation into clean GeoJSON.",
       inputSchema: getOsmRelationGeometryInputSchema,
       outputSchema: getOsmRelationGeometryOutputSchema,
     },
@@ -986,7 +991,7 @@ async function main() {
     {
       title: "Valhalla Route",
       description:
-        "Compute a route between waypoints using Valhalla and return GeoJSON line geometry.",
+        "Compute a network-following road, bus, bicycle, pedestrian, or truck journey through 2 to 25 coordinate waypoints using Valhalla and return GeoJSON line geometry. Valhalla is not a road-name search or full-relation retrieval tool and does not route rail. Rail routing requires an actual supplied or editor LineString network with route_over_network; otherwise report it as unsupported.",
       inputSchema: valhallaRouteInputSchema,
       outputSchema: valhallaRouteOutputSchema,
     },

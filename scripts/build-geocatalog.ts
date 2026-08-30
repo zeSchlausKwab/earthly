@@ -8,7 +8,7 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rmdir, stat, statfs, unlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rmdir, stat, statfs, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { Database, type Statement } from 'bun:sqlite'
@@ -41,10 +41,14 @@ export interface BuildGeoCatalogOptions {
 	coverage?: GeoCatalogSnapshotSpatialCoverage
 	/** Keep source line fragments queryable, or use them only to assemble derived corridors. */
 	corridorSourceFragments?: 'retain' | 'staging-only'
-	/** Test/embedding seam; the CLI always uses the private OS temporary directory. */
+	/** Root for private temporary corridor state; defaults to the OS temporary directory. */
 	stagingDirectoryRoot?: string
+	/** Optional atomic machine-readable progress document for long-running builds. */
+	progressFile?: string
 	/** Abort before consuming this filesystem reserve. The library default is disabled. */
 	minFreeBytes?: number
+	/** Optional tighter reserve-check cadence for embeddings and tests. */
+	diskReserveCheckInterval?: number
 }
 
 export interface BuildGeoCatalogResult {
@@ -112,6 +116,9 @@ Options:
   --corridor-source-fragments <retain|staging-only>
                               Persist source lines (default) or only derived corridors
   --min-free-gib <value>      Preserve free space while building (default: 4; 0 disables)
+  --staging-directory-root <path>
+                              Put temporary corridor state on this filesystem
+  --progress-file <path>      Atomically update machine-readable build progress
   --format <text|json>        Result format (default: text)
   --help                      Show this help
 
@@ -189,6 +196,31 @@ async function assertBuildDiskReserve(output: string, minFreeBytes: number): Pro
 				`${availableBytes} bytes available, ${minFreeBytes} required`,
 		)
 	}
+}
+
+async function writeBuildProgress(
+	options: BuildGeoCatalogOptions,
+	payload: Record<string, unknown>,
+): Promise<void> {
+	if (!options.progressFile) return
+	const progressPath = resolve(options.progressFile)
+	await mkdir(dirname(progressPath), { recursive: true })
+	const temporaryPath = `${progressPath}.next-${process.pid}-${Date.now()}`
+	await writeFile(
+		temporaryPath,
+		`${JSON.stringify(
+			{
+				schemaVersion: 1,
+				snapshotId: options.snapshotId,
+				release: options.release,
+				updatedAt: new Date().toISOString(),
+				...payload,
+			},
+			null,
+			2,
+		)}\n`,
+	)
+	await rename(temporaryPath, progressPath)
 }
 
 const INPUT_CATALOG_KINDS: Readonly<Record<OvertureFeatureType, readonly GeoCatalogKind[]>> = {
@@ -1458,6 +1490,17 @@ export async function buildOvertureGeoCatalogSnapshot(
 	if (!Number.isSafeInteger(minFreeBytes) || minFreeBytes < 0) {
 		throw new Error('minFreeBytes must be a non-negative safe integer')
 	}
+	const diskReserveCheckInterval =
+		options.diskReserveCheckInterval ?? DISK_RESERVE_CHECK_INTERVAL
+	if (
+		!Number.isSafeInteger(diskReserveCheckInterval) ||
+		diskReserveCheckInterval <= 0 ||
+		diskReserveCheckInterval > DISK_RESERVE_CHECK_INTERVAL
+	) {
+		throw new Error(
+			`diskReserveCheckInterval must be a positive safe integer no greater than ${DISK_RESERVE_CHECK_INTERVAL}`,
+		)
+	}
 	if (options.inputs.length === 0) throw new Error('At least one --input spec is required')
 	if (existsSync(output)) {
 		throw new Error(`Refusing to replace existing GeoCatalog snapshot at ${output}`)
@@ -1498,11 +1541,29 @@ export async function buildOvertureGeoCatalogSnapshot(
 	let recordsSkipped = 0
 	let entriesSinceDiskReserveCheck = 0
 	const staging = await CorridorStaging.create(options.stagingDirectoryRoot)
+	const buildStartedAt = Date.now()
+
+	const reportProgress = async (
+		phase: string,
+		currentFeatureType?: OvertureFeatureType,
+	): Promise<void> => {
+		await writeBuildProgress(options, {
+			state: 'building',
+			phase,
+			...(currentFeatureType ? { featureType: currentFeatureType } : {}),
+			recordsRead,
+			entriesWritten: sourceEntriesWritten + corridorsWritten,
+			recordsSkipped,
+			corridorsWritten,
+			elapsedSeconds: Math.round((Date.now() - buildStartedAt) / 100) / 10,
+		})
+	}
 
 	async function* entries(): AsyncGenerator<GeoCatalogEntry> {
 		staging.begin()
 		try {
 			for (const input of options.inputs) {
+				await reportProgress('importing', input.featureType)
 				for await (const entry of readOvertureGeoJsonSequence(input, {
 					release,
 					onRecord(record) {
@@ -1516,8 +1577,9 @@ export async function buildOvertureGeoCatalogSnapshot(
 				})) {
 					staging.stage(entry)
 					entriesSinceDiskReserveCheck += 1
-					if (entriesSinceDiskReserveCheck >= DISK_RESERVE_CHECK_INTERVAL) {
+					if (entriesSinceDiskReserveCheck >= diskReserveCheckInterval) {
 						await assertBuildDiskReserve(output, minFreeBytes)
+						await reportProgress('importing', input.featureType)
 						entriesSinceDiskReserveCheck = 0
 					}
 					if (
@@ -1532,12 +1594,14 @@ export async function buildOvertureGeoCatalogSnapshot(
 					byType[input.featureType].entriesWritten += 1
 					yield entry
 				}
+				await reportProgress('imported', input.featureType)
 			}
 			staging.commit()
 		} catch (error) {
 			staging.rollback()
 			throw error
 		}
+		await reportProgress('assembling-corridors')
 		for (const corridor of staging.entries(release)) {
 			corridorsWritten += 1
 			const componentCount = corridor.properties.componentCount
@@ -1564,28 +1628,54 @@ export async function buildOvertureGeoCatalogSnapshot(
 			if (typeof gapCount === 'number' && gapCount > 0) {
 				corridorAssembly.corridorsWithGaps += 1
 			}
+			if (corridorsWritten % diskReserveCheckInterval === 0) {
+				await assertBuildDiskReserve(output, minFreeBytes)
+				await reportProgress('assembling-corridors')
+			}
 			yield corridor
 		}
 	}
 
 	try {
+		await reportProgress('initializing')
 		await writeSqliteGeoCatalogSnapshot({ path: output, snapshot, entries: entries() })
+		await reportProgress('finalizing')
+		const outputBytes = (await stat(output)).size
+		const result: BuildGeoCatalogResult = {
+			snapshot,
+			output,
+			outputBytes,
+			inputFiles: options.inputs.length,
+			recordsRead,
+			entriesWritten: sourceEntriesWritten + corridorsWritten,
+			sourceFragmentsStagedOnly,
+			corridorsWritten,
+			corridorAssembly,
+			recordsSkipped,
+			byType,
+		}
+		await writeBuildProgress(options, {
+			state: 'complete',
+			phase: 'complete',
+			recordsRead,
+			entriesWritten: result.entriesWritten,
+			recordsSkipped,
+			corridorsWritten,
+			outputBytes,
+			elapsedSeconds: Math.round((Date.now() - buildStartedAt) / 100) / 10,
+		})
+		return result
+	} catch (error) {
+		await writeBuildProgress(options, {
+			state: 'failed',
+			phase: 'failed',
+			recordsRead,
+			entriesWritten: sourceEntriesWritten + corridorsWritten,
+			message: error instanceof Error ? error.message : String(error),
+		})
+		throw error
 	} finally {
 		await staging.cleanup()
-	}
-	const outputBytes = (await stat(output)).size
-	return {
-		snapshot,
-		output,
-		outputBytes,
-		inputFiles: options.inputs.length,
-		recordsRead,
-		entriesWritten: sourceEntriesWritten + corridorsWritten,
-		sourceFragmentsStagedOnly,
-		corridorsWritten,
-		corridorAssembly,
-		recordsSkipped,
-		byType,
 	}
 }
 
@@ -1603,6 +1693,8 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 	let output: string | undefined
 	let createdAt: string | undefined
 	let coverage: GeoCatalogSnapshotSpatialCoverage | undefined
+	let stagingDirectoryRoot: string | undefined
+	let progressFile: string | undefined
 	let corridorSourceFragments: NonNullable<
 		BuildGeoCatalogOptions['corridorSourceFragments']
 	> = 'retain'
@@ -1661,6 +1753,12 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 			case '--min-free-gib':
 				minFreeBytes = parseMinFreeGiB(assignOnce(option.name, value))
 				break
+			case '--staging-directory-root':
+				stagingDirectoryRoot = resolve(assignOnce(option.name, value))
+				break
+			case '--progress-file':
+				progressFile = resolve(assignOnce(option.name, value))
+				break
 			case '--format': {
 				const parsed = assignOnce(option.name, value)
 				if (parsed !== 'text' && parsed !== 'json') {
@@ -1699,6 +1797,8 @@ export function parseBuildGeoCatalogArgs(argv: string[]): BuildGeoCatalogCliOpti
 		inputs,
 		...(createdAt ? { createdAt } : {}),
 		...(coverage ? { coverage } : {}),
+		...(stagingDirectoryRoot ? { stagingDirectoryRoot } : {}),
+		...(progressFile ? { progressFile } : {}),
 		corridorSourceFragments,
 		minFreeBytes,
 		format,

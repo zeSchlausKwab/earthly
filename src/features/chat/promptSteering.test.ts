@@ -168,6 +168,17 @@ describe('fix #4 — agent map-context steering', () => {
 		expect(compactMapContextText()).toMatch(/discover human-readable queries first.+stable ids/i)
 	})
 
+	it('treats absent transport packs as intentional, not an OSM coverage gap', () => {
+		for (const prompt of [text, compactMapContextText()]) {
+			expect(prompt).toMatch(
+				/administrative areas, localities, places, waterways, and infrastructure/i,
+			)
+			expect(prompt).toMatch(/road and rail are optional coverage packs/i)
+			expect(prompt).toMatch(/kind_unavailable.+must not trigger.+osm/i)
+			expect(prompt).toMatch(/exact user-supplied OSM (?:element or relation )?id remains valid/i)
+		}
+	})
+
 	it('does not require the model to guess an undocumented catalog category', () => {
 		for (const prompt of [text, compactMapContextText()]) {
 			expect(prompt).toMatch(/categories are exact filters/i)
@@ -207,6 +218,16 @@ describe('fix #4 — agent map-context steering', () => {
 			expect(prompt).toMatch(/default.+route_over_network|route_over_network.+default/i)
 			expect(prompt).toMatch(/user.+(?:need|have).+ask|without.+user.+ask/i)
 			expect(prompt).toMatch(/prefer.+route_over_network.+pathfinder/i)
+		}
+	})
+
+	it('defines supported Valhalla journeys and requires a real network for rail', () => {
+		for (const prompt of [text, compactMapContextText()]) {
+			expect(prompt).toMatch(/valhalla_route.+2–25 coordinate waypoints/i)
+			expect(prompt).toMatch(/not road-name search|not a road-name search/i)
+			expect(prompt).toMatch(/does not route rail/i)
+			expect(prompt).toMatch(/actual (?:supplied\/editor|LineString) network/i)
+			expect(prompt).toMatch(/report rail routing as unsupported/i)
 		}
 	})
 })
