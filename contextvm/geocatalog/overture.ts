@@ -283,7 +283,11 @@ function decodeStructuredValue(value: unknown, field: string): unknown {
 	}
 }
 
-function structuredTextMap(value: unknown, field: string): Record<string, string> | undefined {
+function structuredTextMap(
+	value: unknown,
+	field: string,
+	options: { omitEmptyValues?: boolean } = {},
+): Record<string, string> | undefined {
 	if (value === undefined || value === null) return undefined
 	const decoded = decodeStructuredValue(value, field)
 	const entries = isRecord(decoded)
@@ -301,9 +305,22 @@ function structuredTextMap(value: unknown, field: string): Record<string, string
 	const normalized: Record<string, string> = {}
 	for (const [index, [key, candidate]] of entries.entries()) {
 		const normalizedKey = requiredText(key, `${field}[${index}][0]`)
+		if (
+			options.omitEmptyValues &&
+			(candidate === undefined ||
+				candidate === null ||
+				(typeof candidate === 'string' && candidate.trim().length === 0))
+		) {
+			continue
+		}
 		normalized[normalizedKey] = requiredText(candidate, `${field}[${index}][1]`)
 	}
+	if (options.omitEmptyValues && Object.keys(normalized).length === 0) return undefined
 	return normalized
+}
+
+function sourceTagTextMap(value: unknown): Record<string, string> | undefined {
+	return structuredTextMap(value, 'source_tags', { omitEmptyValues: true })
 }
 
 function createFeatureView(value: unknown): FeatureView {
@@ -650,7 +667,7 @@ function countryFromAddresses(value: unknown): string | undefined {
 }
 
 function countryFromSourceTags(value: unknown): string | undefined {
-	const sourceTags = structuredTextMap(value, 'source_tags')
+	const sourceTags = sourceTagTextMap(value)
 	const country = optionalText(sourceTags?.['addr:country'])?.toUpperCase()
 	return country && /^[A-Z]{2}$/u.test(country) ? country : undefined
 }
@@ -954,7 +971,7 @@ function normalizeInfrastructure(
 	setJsonProperty(properties, 'surface', view.field('surface'))
 	setJsonProperty(properties, 'level', view.field('level'))
 	setJsonProperty(properties, 'wikidata', view.field('wikidata'))
-	const sourceTags = structuredTextMap(view.field('source_tags'), 'source_tags')
+	const sourceTags = sourceTagTextMap(view.field('source_tags'))
 	if (sourceTags) properties.sourceTags = sourceTags
 	const directCountry = normalizeCountryCode(view.field('country'), 'infrastructure.country')
 	const countryCode = directCountry ?? countryFromSourceTags(view.field('source_tags'))
@@ -1021,7 +1038,7 @@ function normalizeWater(
 	setJsonProperty(properties, 'isSalt', view.field('is_salt'), 'is_salt')
 	setJsonProperty(properties, 'level', view.field('level'))
 	setJsonProperty(properties, 'wikidata', view.field('wikidata'))
-	const sourceTags = structuredTextMap(view.field('source_tags'), 'source_tags')
+	const sourceTags = sourceTagTextMap(view.field('source_tags'))
 	if (sourceTags) properties.sourceTags = sourceTags
 	const directCountry = normalizeCountryCode(view.field('country'), 'water.country')
 	const countryCode = directCountry ?? countryFromSourceTags(view.field('source_tags'))

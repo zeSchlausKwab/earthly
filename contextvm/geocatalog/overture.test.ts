@@ -938,6 +938,38 @@ describe('Overture sequence streaming', () => {
 		expect(unchanged.items).toHaveLength(9)
 	})
 
+	test('drops empty optional source tag values while building a snapshot', async () => {
+		const directory = await temporaryDirectory()
+		const input = join(directory, 'infrastructure.geojsonseq.gz')
+		const output = join(directory, 'catalog.sqlite')
+		const stagingDirectoryRoot = join(directory, 'staging')
+		const feature = (await fixtureRecord('overture-infrastructure.ndjson')) as Record<
+			string,
+			unknown
+		>
+		const properties = feature.properties as Record<string, unknown>
+		properties.source_tags = [
+			['railway', 'station'],
+			['operator', ''],
+			['website', null],
+		]
+		await Bun.write(input, gzipSync(`${JSON.stringify(feature)}\n`))
+		await mkdir(stagingDirectoryRoot)
+
+		const build = await buildOvertureGeoCatalogSnapshot({
+			release: RELEASE,
+			snapshotId: 'earthly-overture-empty-source-tag-v1',
+			createdAt: '2026-08-30T16:10:00Z',
+			output,
+			stagingDirectoryRoot,
+			inputs: [{ featureType: 'infrastructure', path: input }],
+		})
+		expect(build).toMatchObject({ recordsRead: 1, entriesWritten: 1 })
+
+		const result = await openSqliteGeoCatalog({ path: output }).query({ limit: 10 })
+		expect(result.items[0]?.properties.sourceTags).toEqual({ railway: 'station' })
+	})
+
 	test('uses corridor source lines for staging without persisting them when requested', async () => {
 		const directory = await temporaryDirectory()
 		const waterInput = join(directory, 'water.geojsonseq')
