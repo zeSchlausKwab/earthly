@@ -101,7 +101,7 @@ async function createResumeFixture(dataRoot: DataRoot): Promise<ResumeFixture> {
 			'#!/usr/bin/env bash',
 			'set -euo pipefail',
 			'printf "%s\\n" "$@" > "$2/resume-invocation.txt"',
-			'[[ "$1" == "update" ]]',
+			'[[ "$1" == "update" || "$1" == "activate" ]]',
 			'',
 		].join('\n'),
 	)
@@ -154,7 +154,7 @@ async function createResumeFixture(dataRoot: DataRoot): Promise<ResumeFixture> {
 	return fixture
 }
 
-async function runResume(fixture: ResumeFixture) {
+async function runResume(fixture: ResumeFixture, action?: 'resume' | 'activate') {
 	const child = Bun.spawn(
 		[
 			'bash',
@@ -164,6 +164,7 @@ async function runResume(fixture: ResumeFixture) {
 			fixture.checksumName,
 			fixture.installerName,
 			overtureRelease,
+			...(action ? [action] : []),
 		],
 		{
 			cwd: fixture.root,
@@ -229,7 +230,7 @@ describe('GeoCatalog worker resume installer', () => {
 
 			expect(result.exitCode).toBe(0)
 			expect(result.stderr).toBe('')
-			expect(result.stdout).toContain('Starting corrected GeoCatalog worker')
+			expect(result.stdout).toContain('Starting GeoCatalog resume worker')
 			expect(result.stdout).toContain('GeoCatalog worker resume queued')
 			expect((await readFile(fixture.invocationPath, 'utf8')).trim().split('\n')).toEqual([
 				'update',
@@ -242,6 +243,26 @@ describe('GeoCatalog worker resume installer', () => {
 			await expectResumeArtifactsCleaned(fixture)
 		})
 	}
+
+	test('activates a completed snapshot synchronously without switching releases', async () => {
+		const fixture = await createResumeFixture('shared')
+		const currentBefore = await readlink(join(fixture.root, 'current'))
+		const result = await runResume(fixture, 'activate')
+
+		expect(result.exitCode).toBe(0)
+		expect(result.stderr).toBe('')
+		expect(result.stdout).toContain('Starting GeoCatalog activation worker')
+		expect(result.stdout).toContain('GeoCatalog snapshot activation finished')
+		expect((await readFile(fixture.invocationPath, 'utf8')).trim().split('\n')).toEqual([
+			'activate',
+			join(fixture.root, 'shared'),
+			fixture.seedDir,
+			overtureRelease,
+		])
+		expect(await readlink(join(fixture.root, 'current'))).toBe(currentBefore)
+		expect(await pathExists(fixture.persistentDataRoot)).toBe(true)
+		await expectResumeArtifactsCleaned(fixture)
+	})
 
 	test('rejects a checksum mismatch and cleans the uploaded files', async () => {
 		const fixture = await createResumeFixture('shared')

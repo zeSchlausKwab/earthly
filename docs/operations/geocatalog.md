@@ -16,6 +16,13 @@ checksummed worker bundle, keeps the active application release unchanged, and
 re-enters the normal update lifecycle so completed checkpoints are verified
 and reused.
 
+If the immutable SQLite snapshot completed but promotion or the ContextVM
+restart failed, run `bun run geocatalog:vps:activate` after committing the
+fix. This uploads the same small, checksummed worker bundle but performs only
+the activation transaction: it does not revisit or hash source checkpoints and
+does not rebuild the snapshot. The target is query-validated by both the worker
+code and the active ContextVM release before `current.sqlite` is changed.
+
 ## Production contents and service boundaries
 
 The reviewed planet-lite v2 policy exports five Overture feature types:
@@ -111,6 +118,13 @@ The worker:
 8. restarts only `earthly-contextvm`, leaving the web, relay, Mapnolia, Cordn,
    and SearXNG services undisturbed.
 
+ContextVM startup is allowed 120 seconds by default because production
+snapshot preflight time grows with catalog size. A startup is accepted only
+after three consecutive observations of the same online PM2 process and a
+fresh Nostr readiness marker. Set
+`GEOCATALOG_CONTEXTVM_HEALTH_TIMEOUT_SECONDS` to an integer from 10 through 900
+in the production environment when the host needs a different bounded window.
+
 Each source directory is an independent checkpoint. A failed or interrupted
 run retains completed, verified sources and resumes at the first missing source
 on the next explicit/default start. Incomplete or checksum-mismatched source
@@ -139,6 +153,9 @@ bun run geocatalog:vps:logs
 
 # Follow both logs until interrupted
 bun run geocatalog:vps:follow
+
+# Promote an already-completed target without rebuilding or rechecking sources
+bun run geocatalog:vps:activate
 ```
 
 The same information is available on the VPS:

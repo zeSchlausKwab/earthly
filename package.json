@@ -54,6 +54,7 @@
     "geocatalog:export-overture": "uv run scripts/export-overture-planet-lite.py",
     "geocatalog:build": "bun run scripts/build-geocatalog.ts",
     "geocatalog:vps:resume": "bash ops/vps/deploy.sh --resume-geocatalog",
+    "geocatalog:vps:activate": "bash ops/vps/deploy.sh --activate-geocatalog",
     "geocatalog:vps:status": "bash ops/vps/deploy.sh --geocatalog-status",
     "geocatalog:vps:logs": "bash ops/vps/deploy.sh --geocatalog-logs",
     "geocatalog:vps:follow": "bash ops/vps/deploy.sh --follow-geocatalog",

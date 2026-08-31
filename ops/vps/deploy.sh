@@ -48,8 +48,21 @@ while [[ "$#" -gt 0 ]]; do
       mode="resume-geocatalog"
       geocatalog_release="${1#*=}"
       ;;
+    --activate-geocatalog)
+      [[ "$mode" == "deploy" ]] || { echo "Only one deployment mode may be selected" >&2; exit 1; }
+      mode="activate-geocatalog"
+      if [[ "${2:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]+$ ]]; then
+        geocatalog_release="$2"
+        shift
+      fi
+      ;;
+    --activate-geocatalog=*)
+      [[ "$mode" == "deploy" ]] || { echo "Only one deployment mode may be selected" >&2; exit 1; }
+      mode="activate-geocatalog"
+      geocatalog_release="${1#*=}"
+      ;;
     *)
-      echo "Usage: $0 [--check|--update-geocatalog[=RELEASE]|--resume-geocatalog[=RELEASE]|--geocatalog-status|--geocatalog-logs|--follow-geocatalog]" >&2
+      echo "Usage: $0 [--check|--update-geocatalog[=RELEASE]|--resume-geocatalog[=RELEASE]|--activate-geocatalog[=RELEASE]|--geocatalog-status|--geocatalog-logs|--follow-geocatalog]" >&2
       exit 1
       ;;
   esac
@@ -129,7 +142,7 @@ create_portable_archive() {
   COPYFILE_DISABLE=1 tar "${tar_args[@]}" -C "$root" .
 }
 
-if [[ "$mode" == "resume-geocatalog" ]]; then
+if [[ "$mode" == "resume-geocatalog" || "$mode" == "activate-geocatalog" ]]; then
   for command_name in git ssh scp tar; do
     command -v "$command_name" >/dev/null 2>&1 || {
       echo "Required GeoCatalog resume command is missing: $command_name" >&2
@@ -207,10 +220,13 @@ if [[ "$mode" == "resume-geocatalog" ]]; then
   remote_archive=".$worker_id.tar.gz.next"
   remote_checksum=".$worker_id.sha256.next"
   remote_installer=".$worker_id.resume.sh"
-  echo "Ensuring the pinned uv CLI on ${remote}..."
-  ssh "$remote" "mkdir -p '$VPS_PATH/shared/bin' && bash -s -- '$VPS_PATH/shared/bin'" \
-    < scripts/ensure-uv.sh
-  echo "Uploading corrected GeoCatalog worker to ${remote}:${VPS_PATH}..."
+  if [[ "$mode" == "resume-geocatalog" ]]; then
+    echo "Ensuring the pinned uv CLI on ${remote}..."
+    ssh "$remote" "mkdir -p '$VPS_PATH/shared/bin' && bash -s -- '$VPS_PATH/shared/bin'" \
+      < scripts/ensure-uv.sh
+  fi
+  geocatalog_worker_action="${mode%-geocatalog}"
+  echo "Uploading GeoCatalog ${geocatalog_worker_action} worker to ${remote}:${VPS_PATH}..."
   ssh "$remote" "mkdir -p '$VPS_PATH'"
   scp "$worker_archive" "$remote:$VPS_PATH/$remote_archive"
   scp ops/vps/resume-geocatalog.sh "$remote:$VPS_PATH/$remote_installer"
@@ -219,10 +235,10 @@ if [[ "$mode" == "resume-geocatalog" ]]; then
     "$(sha256_file ops/vps/resume-geocatalog.sh)" "$remote_installer" | \
     ssh "$remote" "umask 077 && cat > '$VPS_PATH/$remote_checksum'"
   ssh "$remote" \
-    "cd '$VPS_PATH' && sha256sum -c '$remote_checksum' && chmod 700 '$remote_installer' && bash '$remote_installer' '$worker_id' '$remote_archive' '$remote_checksum' '$remote_installer' '$geocatalog_release'"
+    "cd '$VPS_PATH' && sha256sum -c '$remote_checksum' && chmod 700 '$remote_installer' && bash '$remote_installer' '$worker_id' '$remote_archive' '$remote_checksum' '$remote_installer' '$geocatalog_release' '$geocatalog_worker_action'"
 
   echo
-  echo "GeoCatalog worker resume complete: $worker_id"
+  echo "GeoCatalog worker ${geocatalog_worker_action} complete: $worker_id"
   echo "Status: bun run geocatalog:vps:status"
   echo "Logs: bun run geocatalog:vps:follow"
   exit 0

@@ -211,20 +211,6 @@ require_contextvm_catalog_path() {
   }
 }
 
-require_active_contextvm_catalog_path() {
-  local active_release
-  active_release="$(contextvm_release_dir)" || {
-    echo "Cannot determine earthly-contextvm's active release from PM2" >&2
-    return 1
-  }
-  require_safe_absolute_path "$active_release" "ContextVM release directory" || return 1
-  [[ -d "$active_release" ]] || {
-    echo "ContextVM release directory is unavailable: $active_release" >&2
-    return 1
-  }
-  require_contextvm_catalog_path "$active_release"
-}
-
 contextvm_healthy_observation() {
   local log_offset="$1" active_release="$2"
   pm2 jlist | \
@@ -251,10 +237,35 @@ contextvm_healthy_observation() {
     '
 }
 
+contextvm_health_timeout_seconds() {
+  local active_release="$1"
+  (
+    cd "$active_release"
+    bun --env-file=.env -e '
+      const raw = process.env.GEOCATALOG_CONTEXTVM_HEALTH_TIMEOUT_SECONDS || "120"
+      const value = Number(raw)
+      if (!Number.isSafeInteger(value) || value < 10 || value > 900) {
+        console.error(
+          "GEOCATALOG_CONTEXTVM_HEALTH_TIMEOUT_SECONDS must be an integer from 10 to 900",
+        )
+        process.exit(1)
+      }
+      console.log(value)
+    '
+  )
+}
+
 wait_for_contextvm_health() {
-  local log_offset="$1" active_release="$2"
-  local attempt observation previous_observation="" ready_observations=0
-  for attempt in {1..20}; do
+  local log_offset="$1" active_release="$2" timeout_seconds="${3:-}"
+  local started_at deadline now
+  if [[ -z "$timeout_seconds" ]]; then
+    timeout_seconds="$(contextvm_health_timeout_seconds "$active_release")" || return 1
+  fi
+  started_at="$(date +%s)"
+  deadline=$((started_at + timeout_seconds))
+
+  local observation previous_observation="" ready_observations=0
+  while true; do
     observation="$(contextvm_healthy_observation "$log_offset" "$active_release" 2>/dev/null || true)"
     if [[ -n "$observation" ]]; then
       if [[ "$observation" == "$previous_observation" ]]; then
@@ -271,16 +282,19 @@ wait_for_contextvm_health() {
       previous_observation=""
       ready_observations=0
     fi
-    [[ "$attempt" -eq 20 ]] || sleep 1
+    now="$(date +%s)"
+    [[ "$now" -ge "$deadline" ]] && break
+    sleep 1
   done
   pm2 logs "$CONTEXTVM_NAME" --nostream --lines 100 >&2 || true
-  echo "ContextVM did not become online and healthy after restart" >&2
+  echo "ContextVM did not become online and healthy within ${timeout_seconds}s after restart" >&2
   return 1
 }
 
 restart_contextvm_and_wait() {
   local expected_catalog_state="${1:-ready}"
-  local active_release log_offset observed_catalog_state
+  local prevalidated_timeout_seconds="${2:-}"
+  local active_release log_offset observed_catalog_state timeout_seconds
   active_release="$(contextvm_release_dir)" || {
     echo "Cannot determine earthly-contextvm's active release from PM2" >&2
     return 1
@@ -291,9 +305,14 @@ restart_contextvm_and_wait() {
     return 1
   }
   require_contextvm_catalog_path "$active_release" || return 1
+  if [[ -n "$prevalidated_timeout_seconds" ]]; then
+    timeout_seconds="$prevalidated_timeout_seconds"
+  else
+    timeout_seconds="$(contextvm_health_timeout_seconds "$active_release")" || return 1
+  fi
   log_offset="$(contextvm_log_size)"
   pm2 restart "$CONTEXTVM_NAME" --update-env || return 1
-  wait_for_contextvm_health "$log_offset" "$active_release" || return 1
+  wait_for_contextvm_health "$log_offset" "$active_release" "$timeout_seconds" || return 1
   case "$expected_catalog_state" in
     target)
       verify_target_snapshot "$catalog_path" "$active_release"
@@ -558,6 +577,111 @@ verify_checkpoint() {
     '
 }
 
+activate_target_snapshot() {
+  local target_snapshot="$1" worker="$2"
+  local active_release health_timeout_seconds
+
+  write_state "running" "validating" \
+    "Validating the completed snapshot with the worker and active release before promotion"
+  verify_target_snapshot "$target_snapshot" "$worker" || {
+    echo "Built GeoCatalog snapshot failed worker identity, release, coverage, or query validation" >&2
+    return 1
+  }
+  active_release="$(contextvm_release_dir)" || {
+    echo "Cannot determine earthly-contextvm's active release from PM2" >&2
+    return 1
+  }
+  require_safe_absolute_path "$active_release" "ContextVM release directory" || return 1
+  [[ -d "$active_release" ]] || {
+    echo "ContextVM release directory is unavailable: $active_release" >&2
+    return 1
+  }
+  require_contextvm_catalog_path "$active_release" || return 1
+  verify_target_snapshot "$target_snapshot" "$active_release" || {
+    echo "Built GeoCatalog snapshot failed validation with the active ContextVM release" >&2
+    return 1
+  }
+  health_timeout_seconds="$(contextvm_health_timeout_seconds "$active_release")" || return 1
+
+  local previous_link="$catalog_dir/.previous.sqlite.next-$$"
+  local old_target="" promoted="false" original_was_missing="false"
+  if catalog_points_to "$catalog_path" "$target_snapshot"; then
+    local retained_previous="$catalog_dir/previous.sqlite"
+    if [[ ! -e "$retained_previous" && ! -L "$retained_previous" ]]; then
+      original_was_missing="true"
+    elif [[ -L "$retained_previous" && -e "$retained_previous" ]] && \
+      ! catalog_points_to "$retained_previous" "$target_snapshot" && \
+      [[ "$(catalog_state "$retained_previous" "$worker")" == "ready" ]]; then
+      old_target="$(readlink -f "$retained_previous")"
+    else
+      echo "Target is already active but no distinct valid previous snapshot can compensate an interrupted promotion" >&2
+      return 1
+    fi
+    promoted="true"
+    echo "Target snapshot is already active; preserving the retained previous snapshot while resuming service verification"
+  else
+    if [[ -e "$catalog_path" || -L "$catalog_path" ]]; then
+      [[ "$(catalog_state "$catalog_path" "$worker")" == "ready" ]] || {
+        echo "Active GeoCatalog changed or became invalid before promotion" >&2
+        return 1
+      }
+      if [[ -L "$catalog_path" ]]; then
+        old_target="$(readlink -f "$catalog_path")"
+      else
+        old_target="$snapshot_dir/legacy-$(sha256sum "$catalog_path" | awk '{print $1}').sqlite"
+        [[ -e "$old_target" ]] || ln "$catalog_path" "$old_target"
+      fi
+      ln -s -- "$old_target" "$previous_link"
+      mv -Tf -- "$previous_link" "$catalog_dir/previous.sqlite"
+    else
+      original_was_missing="true"
+    fi
+    replace_catalog_link "snapshots/$snapshot_id.sqlite" "promote"
+    promoted="true"
+  fi
+
+  write_state "running" "restarting-contextvm" \
+    "Snapshot promoted; waiting for a fresh healthy geo service startup"
+  if restart_contextvm_and_wait target "$health_timeout_seconds"; then
+    write_state "ready" "ready" "Snapshot validated, promoted, and serving"
+    return
+  fi
+
+  local failure_detail="ContextVM failed its post-promotion restart or health check"
+  if [[ "$promoted" == "true" ]]; then
+    if ! catalog_points_to "$catalog_path" "$target_snapshot"; then
+      failure_detail="$failure_detail; the active link changed concurrently, so it was not overwritten"
+    elif [[ -n "$old_target" ]]; then
+      if [[ "$(catalog_state "$old_target" "$worker")" != "ready" ]]; then
+        failure_detail="$failure_detail; the retained prior snapshot failed validation and was not restored"
+      elif replace_catalog_link "$old_target" "promotion-compensation"; then
+        if restart_contextvm_and_wait ready "$health_timeout_seconds"; then
+          failure_detail="$failure_detail; the prior snapshot was restored and ContextVM recovered"
+        else
+          failure_detail="$failure_detail; the prior snapshot link was restored but ContextVM did not recover"
+        fi
+      else
+        failure_detail="$failure_detail; the prior snapshot link could not be restored"
+      fi
+    elif [[ "$original_was_missing" == "true" && -L "$catalog_path" ]]; then
+      if unlink -- "$catalog_path"; then
+        if restart_contextvm_and_wait missing "$health_timeout_seconds"; then
+          failure_detail="$failure_detail; the bootstrap link was removed and ContextVM recovered"
+        else
+          failure_detail="$failure_detail; the bootstrap link was removed but ContextVM did not recover"
+        fi
+      else
+        failure_detail="$failure_detail; the bootstrap link could not be removed"
+      fi
+    else
+      failure_detail="$failure_detail; the original catalog state could not be reconstructed"
+    fi
+  fi
+  write_state "failed" "serving" "$failure_detail"
+  echo "$failure_detail" >&2
+  return 1
+}
+
 run_pipeline() {
   local worker="$1"
   job_id="$snapshot_id"
@@ -632,105 +756,7 @@ run_pipeline() {
       --input "infrastructure=$source_parent/infrastructure/infrastructure.geojsonseq.gz"
   fi
 
-  write_state "running" "validating" "Validating the completed snapshot before promotion"
-  verify_target_snapshot "$target_snapshot" "$worker" || {
-    echo "Built GeoCatalog snapshot failed identity, release, coverage, or query validation" >&2
-    return 1
-  }
-
-  local previous_link="$catalog_dir/.previous.sqlite.next-$$"
-  local old_target="" promoted="false" original_was_missing="false"
-  if catalog_points_to "$catalog_path" "$target_snapshot"; then
-    local retained_previous="$catalog_dir/previous.sqlite"
-    if [[ ! -e "$retained_previous" && ! -L "$retained_previous" ]]; then
-      original_was_missing="true"
-    elif [[ -L "$retained_previous" && -e "$retained_previous" ]] && \
-      ! catalog_points_to "$retained_previous" "$target_snapshot" && \
-      [[ "$(catalog_state "$retained_previous" "$worker")" == "ready" ]]; then
-      old_target="$(readlink -f "$retained_previous")"
-    else
-      echo "Target is already active but no distinct valid previous snapshot can compensate an interrupted promotion" >&2
-      return 1
-    fi
-    promoted="true"
-    if ! require_active_contextvm_catalog_path; then
-      local resume_failure="Active ContextVM no longer serves this job's GeoCatalog path"
-      if ! catalog_points_to "$catalog_path" "$target_snapshot"; then
-        resume_failure="$resume_failure; the active link changed concurrently, so it was not overwritten"
-      elif [[ -n "$old_target" ]] && replace_catalog_link "$old_target" "resume-path-compensation"; then
-        resume_failure="$resume_failure; the prior snapshot link was restored"
-      elif [[ "$original_was_missing" == "true" ]] && unlink -- "$catalog_path"; then
-        resume_failure="$resume_failure; the interrupted bootstrap link was removed"
-      else
-        resume_failure="$resume_failure; the interrupted promotion could not be compensated"
-      fi
-      write_state "failed" "active-path" "$resume_failure"
-      echo "$resume_failure" >&2
-      return 1
-    fi
-    echo "Target snapshot is already active; preserving the retained previous snapshot while resuming service verification"
-  else
-    require_active_contextvm_catalog_path || return 1
-    if [[ -e "$catalog_path" || -L "$catalog_path" ]]; then
-      [[ "$(catalog_state "$catalog_path" "$worker")" == "ready" ]] || {
-        echo "Active GeoCatalog changed or became invalid before promotion" >&2
-        return 1
-      }
-      if [[ -L "$catalog_path" ]]; then
-        old_target="$(readlink -f "$catalog_path")"
-      else
-        old_target="$snapshot_dir/legacy-$(sha256sum "$catalog_path" | awk '{print $1}').sqlite"
-        [[ -e "$old_target" ]] || ln "$catalog_path" "$old_target"
-      fi
-      ln -s -- "$old_target" "$previous_link"
-      mv -Tf -- "$previous_link" "$catalog_dir/previous.sqlite"
-    else
-      original_was_missing="true"
-    fi
-    replace_catalog_link "snapshots/$snapshot_id.sqlite" "promote"
-    promoted="true"
-  fi
-
-  write_state "running" "restarting-contextvm" \
-    "Snapshot promoted; waiting for a fresh healthy geo service startup"
-  if restart_contextvm_and_wait target; then
-    write_state "ready" "ready" "Snapshot validated, promoted, and serving"
-    return
-  fi
-
-  local failure_detail="ContextVM failed its post-promotion restart or health check"
-  if [[ "$promoted" == "true" ]]; then
-    if ! catalog_points_to "$catalog_path" "$target_snapshot"; then
-      failure_detail="$failure_detail; the active link changed concurrently, so it was not overwritten"
-    elif [[ -n "$old_target" ]]; then
-      if [[ "$(catalog_state "$old_target" "$worker")" != "ready" ]]; then
-        failure_detail="$failure_detail; the retained prior snapshot failed validation and was not restored"
-      elif replace_catalog_link "$old_target" "promotion-compensation"; then
-        if restart_contextvm_and_wait ready; then
-          failure_detail="$failure_detail; the prior snapshot was restored and ContextVM recovered"
-        else
-          failure_detail="$failure_detail; the prior snapshot link was restored but ContextVM did not recover"
-        fi
-      else
-        failure_detail="$failure_detail; the prior snapshot link could not be restored"
-      fi
-    elif [[ "$original_was_missing" == "true" && -L "$catalog_path" ]]; then
-      if unlink -- "$catalog_path"; then
-        if restart_contextvm_and_wait missing; then
-          failure_detail="$failure_detail; the bootstrap link was removed and ContextVM recovered"
-        else
-          failure_detail="$failure_detail; the bootstrap link was removed but ContextVM did not recover"
-        fi
-      else
-        failure_detail="$failure_detail; the bootstrap link could not be removed"
-      fi
-    else
-      failure_detail="$failure_detail; the original catalog state could not be reconstructed"
-    fi
-  fi
-  write_state "failed" "serving" "$failure_detail"
-  echo "$failure_detail" >&2
-  return 1
+  activate_target_snapshot "$target_snapshot" "$worker"
 }
 
 run_worker() {
@@ -810,6 +836,54 @@ run_worker() {
         write_state "failed" "failed" \
           "${failure_message:-The build stopped; completed source checkpoints were retained}"
       fi
+    fi
+  fi
+  flock -u 9
+  exec 9>&-
+  return "$exit_status"
+}
+
+activate_catalog() {
+  resolve_shared_dir
+  if [[ -n "$catalog_path_override" ]]; then
+    configure_catalog_path "$catalog_path_override"
+  else
+    resolve_catalog_path
+  fi
+  require_release
+  snapshot_id="overture-$requested_release-planet-lite-v2"
+  job_id="$snapshot_id"
+
+  local worker target_snapshot exit_status=0
+  worker="$(cd "$script_dir/../.." && pwd -P)"
+  target_snapshot="$snapshot_dir/$snapshot_id.sqlite"
+  [[ -f "$target_snapshot" && ! -L "$target_snapshot" ]] || {
+    echo "Completed GeoCatalog target is unavailable or unsafe: $target_snapshot" >&2
+    return 1
+  }
+
+  exec 9>"$catalog_dir/build.lock"
+  if ! flock -n 9; then
+    echo "A GeoCatalog build or activation owns the catalog lock; retry after it finishes" >&2
+    exec 9>&-
+    return 1
+  fi
+
+  set +e
+  (set -e; activate_target_snapshot "$target_snapshot" "$worker")
+  exit_status=$?
+  set -e
+  if [[ "$exit_status" -ne 0 ]]; then
+    if ! STATE_FILE="$state_file" JOB_ID_VALUE="$job_id" bun -e '
+      try {
+        const state = await Bun.file(process.env.STATE_FILE).json()
+        process.exit(state.state === "failed" && state.jobId === process.env.JOB_ID_VALUE ? 0 : 1)
+      } catch {
+        process.exit(1)
+      }
+    '; then
+      write_state "failed" "activating" \
+        "The completed snapshot could not be validated, promoted, or served"
     fi
   fi
   flock -u 9
@@ -1001,6 +1075,9 @@ case "$mode" in
   run)
     run_worker
     ;;
+  activate)
+    activate_catalog
+    ;;
   status)
     show_status
     ;;
@@ -1011,7 +1088,7 @@ case "$mode" in
     rollback_catalog
     ;;
   *)
-    echo "Usage: $0 [ensure|update|status|logs|rollback] [shared-dir] [release-dir] [overture-release|--follow]" >&2
+    echo "Usage: $0 [ensure|update|run|activate|status|logs|rollback] [shared-dir] [release-dir] [overture-release|--follow] [catalog-path]" >&2
     exit 1
     ;;
 esac

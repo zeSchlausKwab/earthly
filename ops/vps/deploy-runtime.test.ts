@@ -50,6 +50,14 @@ function geoCatalogStatusSource(manager: string): string {
 	return manager.slice(sourceStart, sourceEnd)
 }
 
+function geoCatalogHealthWaitSource(manager: string): string {
+	const start = manager.indexOf('contextvm_health_timeout_seconds() {')
+	if (start < 0) throw new Error('GeoCatalog ContextVM health wait was not found')
+	const end = manager.indexOf('\nrestart_contextvm_and_wait() {', start)
+	if (end < 0) throw new Error('GeoCatalog ContextVM health wait end was not found')
+	return manager.slice(start, end)
+}
+
 async function runEmbeddedBun(source: string, env: Record<string, string>) {
 	const child = Bun.spawn([process.execPath, '-e', source], {
 		cwd: repositoryRoot,
@@ -310,6 +318,15 @@ describe('production deployment runtime', () => {
 
 	test('runs a durable transport-free GeoCatalog worker with observable progress', async () => {
 		const manager = await Bun.file(join(repositoryRoot, 'ops/vps/geocatalog.sh')).text()
+		const activeValidation = manager.indexOf(
+			'verify_target_snapshot "$target_snapshot" "$active_release"',
+		)
+		const targetPromotion = manager.indexOf(
+			'replace_catalog_link "snapshots/$snapshot_id.sqlite" "promote"',
+		)
+		const activationStart = manager.indexOf('activate_catalog() {')
+		const activationEnd = manager.indexOf('\nshow_status() {', activationStart)
+		const activation = manager.slice(activationStart, activationEnd)
 
 		expect(manager).toContain(
 			'SOURCE_TYPES=(division_area division place water infrastructure)',
@@ -334,12 +351,21 @@ describe('production deployment runtime', () => {
 		expect(manager).toContain('verify_target_snapshot "$target_snapshot" "$worker"')
 		expect(manager).toContain('pm2 restart "$CONTEXTVM_NAME" --update-env')
 		expect(manager).toContain('ContextVM is online and healthy')
+		expect(manager).toContain('GEOCATALOG_CONTEXTVM_HEALTH_TIMEOUT_SECONDS')
+		expect(manager).toContain('value < 10 || value > 900')
+		expect(manager).not.toContain('for attempt in {1..20}')
 		expect(manager).toContain('matches[0]?.pm2_env?.pm_cwd')
-		expect(manager).toContain('require_active_contextvm_catalog_path || return 1')
+		expect(manager).toContain('require_contextvm_catalog_path "$active_release" || return 1')
 		expect(manager).toContain(
 			"not this job's $catalog_path; refusing GeoCatalog promotion or readiness",
 		)
 		expect(manager).toContain('verify_target_snapshot "$catalog_path" "$active_release"')
+		expect(activeValidation).toBeGreaterThan(-1)
+		expect(targetPromotion).toBeGreaterThan(activeValidation)
+		expect(activation).toContain('exec 9>"$catalog_dir/build.lock"')
+		expect(activation).toContain('activate_target_snapshot "$target_snapshot" "$worker"')
+		expect(activation).not.toContain('verify_checkpoint')
+		expect(activation).not.toContain('run_pipeline')
 		expect(manager).not.toContain('pm2 restart earthly-web')
 		expect(manager).toContain('GeoCatalog is ready; no background build was requested')
 		expect(manager).toContain('GeoCatalog target $snapshot_id is already ready')
@@ -357,6 +383,162 @@ describe('production deployment runtime', () => {
 		expect(manager).toContain('Failure: ${details.join("; ")')
 		expect(manager).toContain('Exporting $source_type $source_index/$source_count')
 		expect(manager).toContain('tail -n 100 -F')
+	})
+
+	test('accepts a slow ContextVM startup only after stable observations and times out at the configured bound', async () => {
+		await mkdir(join(repositoryRoot, '.cache'), { recursive: true })
+		const fixtureRoot = await mkdtemp(join(repositoryRoot, '.cache', 'geocatalog-health-'))
+		temporaryDirectories.push(fixtureRoot)
+		const manager = await Bun.file(join(repositoryRoot, 'ops/vps/geocatalog.sh')).text()
+		const source = geoCatalogHealthWaitSource(manager)
+		const activeRelease = join(fixtureRoot, 'active-release')
+		const clockPath = join(fixtureRoot, 'clock')
+		const countPath = join(fixtureRoot, 'count')
+		const scenarioPath = join(fixtureRoot, 'scenario.sh')
+		await mkdir(activeRelease, { recursive: true })
+
+		const runScenario = async (timeout: number, observationBody: string) => {
+			await writeFile(
+				join(activeRelease, '.env'),
+				`GEOCATALOG_CONTEXTVM_HEALTH_TIMEOUT_SECONDS=${timeout}\n`,
+			)
+			await writeFile(clockPath, '0\n')
+			await writeFile(countPath, '0\n')
+			await writeFile(
+				scenarioPath,
+				[
+					'#!/usr/bin/env bash',
+					'set -euo pipefail',
+					source,
+					'date() { cat "$CLOCK_PATH"; }',
+					'sleep() { local now; now="$(cat "$CLOCK_PATH")"; printf "%s\\n" "$((now + 1))" > "$CLOCK_PATH"; }',
+					'pm2() { return 0; }',
+					'contextvm_healthy_observation() {',
+					'  local count',
+					'  count="$(cat "$COUNT_PATH")"',
+					'  count=$((count + 1))',
+					'  printf "%s\\n" "$count" > "$COUNT_PATH"',
+					observationBody,
+					'}',
+					'CONTEXTVM_NAME=earthly-contextvm',
+					'wait_for_contextvm_health 0 "$ACTIVE_RELEASE"',
+					'',
+				].join('\n'),
+			)
+			const child = Bun.spawn(['bash', scenarioPath], {
+				env: {
+					...process.env,
+					ACTIVE_RELEASE: activeRelease,
+					CLOCK_PATH: clockPath,
+					COUNT_PATH: countPath,
+				},
+				stdout: 'pipe',
+				stderr: 'pipe',
+			})
+			const [exitCode, stdout, stderr] = await Promise.all([
+				child.exited,
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+			])
+			return {
+				exitCode,
+				stdout,
+				stderr,
+				observations: Number((await readFile(countPath, 'utf8')).trim()),
+			}
+		}
+
+		const slow = await runScenario(
+			60,
+			'  if [[ "$count" -eq 25 ]]; then echo "101:7"; elif [[ "$count" -ge 26 ]]; then echo "202:8"; fi',
+		)
+		expect(slow.exitCode).toBe(0)
+		expect(slow.stdout).toContain('ContextVM is online and healthy')
+		expect(slow.stderr).toBe('')
+		expect(slow.observations).toBe(28)
+
+		const timedOut = await runScenario(10, '  return 1')
+		expect(timedOut.exitCode).not.toBe(0)
+		expect(timedOut.stdout).toBe('')
+		expect(timedOut.stderr).toContain(
+			'ContextVM did not become online and healthy within 10s after restart',
+		)
+		expect(timedOut.observations).toBe(11)
+	})
+
+	test('rejects an invalid ContextVM health timeout before catalog mutation or restart', async () => {
+		await mkdir(join(repositoryRoot, '.cache'), { recursive: true })
+		const fixtureRoot = await mkdtemp(join(repositoryRoot, '.cache', 'geocatalog-activate-'))
+		temporaryDirectories.push(fixtureRoot)
+		const manager = await Bun.file(join(repositoryRoot, 'ops/vps/geocatalog.sh')).text()
+		const timeoutSource = geoCatalogHealthWaitSource(manager)
+		const activationStart = manager.indexOf('activate_target_snapshot() {')
+		const activationEnd = manager.indexOf('\nrun_pipeline() {', activationStart)
+		if (activationStart < 0 || activationEnd < 0) {
+			throw new Error('GeoCatalog target activation source was not found')
+		}
+		const activationSource = manager.slice(activationStart, activationEnd)
+		const activeRelease = join(fixtureRoot, 'active-release')
+		const mutationMarker = join(fixtureRoot, 'catalog-mutated')
+		const restartMarker = join(fixtureRoot, 'contextvm-restarted')
+		const scenarioPath = join(fixtureRoot, 'scenario.sh')
+		await mkdir(activeRelease, { recursive: true })
+		await writeFile(
+			join(activeRelease, '.env'),
+			'GEOCATALOG_CONTEXTVM_HEALTH_TIMEOUT_SECONDS=not-a-number\n',
+		)
+		await writeFile(
+			scenarioPath,
+			[
+				'#!/usr/bin/env bash',
+				'set -euo pipefail',
+				timeoutSource,
+				activationSource,
+				'write_state() { return 0; }',
+				'verify_target_snapshot() { return 0; }',
+				'contextvm_release_dir() { printf "%s\\n" "$ACTIVE_RELEASE"; }',
+				'require_safe_absolute_path() { return 0; }',
+				'require_contextvm_catalog_path() { return 0; }',
+				'catalog_points_to() { return 1; }',
+				'replace_catalog_link() { touch "$MUTATION_MARKER"; return 0; }',
+				'restart_contextvm_and_wait() { touch "$RESTART_MARKER"; return 0; }',
+				'catalog_dir="$FIXTURE_ROOT/catalog"',
+				'catalog_path="$catalog_dir/current.sqlite"',
+				'snapshot_id=overture-test-planet-lite-v2',
+				'mkdir -p "$catalog_dir"',
+				'if activate_target_snapshot "$FIXTURE_ROOT/target.sqlite" "$FIXTURE_ROOT/worker"; then',
+				'  echo "Activation unexpectedly accepted an invalid health timeout" >&2',
+				'  exit 90',
+				'fi',
+				'[[ ! -e "$MUTATION_MARKER" ]]',
+				'[[ ! -e "$RESTART_MARKER" ]]',
+				'',
+			].join('\n'),
+		)
+		const child = Bun.spawn(['bash', scenarioPath], {
+			env: {
+				...process.env,
+				ACTIVE_RELEASE: activeRelease,
+				FIXTURE_ROOT: fixtureRoot,
+				MUTATION_MARKER: mutationMarker,
+				RESTART_MARKER: restartMarker,
+			},
+			stdout: 'pipe',
+			stderr: 'pipe',
+		})
+		const [exitCode, stdout, stderr] = await Promise.all([
+			child.exited,
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+		])
+
+		expect(exitCode).toBe(0)
+		expect(stdout).toBe('')
+		expect(stderr).toContain(
+			'GEOCATALOG_CONTEXTVM_HEALTH_TIMEOUT_SECONDS must be an integer from 10 to 900',
+		)
+		expect(await Bun.file(mutationMarker).exists()).toBe(false)
+		expect(await Bun.file(restartMarker).exists()).toBe(false)
 	})
 
 	test('accepts only complete global single-source GeoCatalog checkpoints', async () => {

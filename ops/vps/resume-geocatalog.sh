@@ -3,8 +3,8 @@
 
 set -euo pipefail
 
-if [[ "$#" -ne 5 ]]; then
-  echo "Usage: $0 WORKER_ID ARCHIVE CHECKSUM INSTALLER OVERTURE_RELEASE" >&2
+if [[ "$#" -lt 5 || "$#" -gt 6 ]]; then
+  echo "Usage: $0 WORKER_ID ARCHIVE CHECKSUM INSTALLER OVERTURE_RELEASE [resume|activate]" >&2
   exit 1
 fi
 
@@ -13,6 +13,7 @@ archive_name="$2"
 checksum_name="$3"
 installer_name="$4"
 overture_release="$5"
+worker_action="${6:-resume}"
 
 for upload_name in "$worker_id" "$archive_name" "$checksum_name" "$installer_name"; do
   if [[ ! "$upload_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -22,6 +23,10 @@ for upload_name in "$worker_id" "$archive_name" "$checksum_name" "$installer_nam
 done
 if [[ ! "$overture_release" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]+$ ]]; then
   echo "Overture release must use YYYY-MM-DD.N" >&2
+  exit 1
+fi
+if [[ "$worker_action" != "resume" && "$worker_action" != "activate" ]]; then
+  echo "GeoCatalog worker action must be resume or activate: $worker_action" >&2
   exit 1
 fi
 
@@ -122,8 +127,18 @@ ln -s "$node_modules_target" "$seed_dir/node_modules"
 ln -s "$data_target" "$seed_dir/data"
 chmod 700 "$seed_dir/ops/vps/geocatalog.sh"
 
-echo "Starting corrected GeoCatalog worker $worker_id without changing the active release..."
+manager_mode="update"
+operation="resume"
+if [[ "$worker_action" == "activate" ]]; then
+  manager_mode="activate"
+  operation="activation"
+fi
+echo "Starting GeoCatalog $operation worker $worker_id without changing the active release..."
 bash "$seed_dir/ops/vps/geocatalog.sh" \
-  update "$shared_dir" "$seed_dir" "$overture_release"
+  "$manager_mode" "$shared_dir" "$seed_dir" "$overture_release"
 
-echo "GeoCatalog worker resume queued: $worker_id"
+if [[ "$worker_action" == "activate" ]]; then
+  echo "GeoCatalog snapshot activation finished: $worker_id"
+else
+  echo "GeoCatalog worker resume queued: $worker_id"
+fi

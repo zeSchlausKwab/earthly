@@ -271,6 +271,34 @@ describe('deployment environment and bundle isolation', () => {
 		}
 	})
 
+	test('activates a completed GeoCatalog with a worker-only archive and no app build', async () => {
+		const fixtureRoot = await createDeploymentFixture()
+		const fakeBin = join(fixtureRoot, 'fake-bin')
+		await writeExecutable(
+			join(fakeBin, 'ssh'),
+			'#!/bin/bash\nprintf "%s\\n" "$*" >> "$CAPTURED_SSH"\ncat >/dev/null || true\nexit 0\n',
+		)
+		await writeExecutable(join(fakeBin, 'scp'), '#!/bin/bash\nexit 0\n')
+
+		const originalPath = Bun.env.PATH ?? ''
+		Bun.env.PATH = `${fakeBin}:${originalPath}`
+		try {
+			const { exitCode, stdout, stderr } = await runDeploy(fixtureRoot, [
+				'--activate-geocatalog',
+			])
+			if (exitCode !== 0) throw new Error(`${stdout}\n${stderr}`)
+			expect(stderr).toBe('')
+			expect(stdout).toContain('GeoCatalog worker activate complete')
+			expect(stdout).not.toContain('Building the production browser bundle')
+			expect(stdout).not.toContain('Ensuring the pinned uv CLI')
+
+			const ssh = await readFile(join(fixtureRoot, 'captured-ssh.txt'), 'utf8')
+			expect(ssh).toContain("'2026-08-19.0' 'activate'")
+		} finally {
+			Bun.env.PATH = originalPath
+		}
+	})
+
 	test('ships the runtime and GeoCatalog worker without ignored secrets or tests', async () => {
 		const fixtureRoot = await createDeploymentFixture()
 		const fakeBin = join(fixtureRoot, 'fake-bin')
