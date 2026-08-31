@@ -72,7 +72,9 @@ export const completeAiChatTurnTask: AiTaskMetadata = {
 	id: 'chat.complete-turn',
 	summary: 'Finish an AI turn while approving only the explicitly allowed interactive gates.',
 	preconditions: ['An AI chat turn is in progress'],
-	sideEffects: ['May apply repeated editor diffs or publish a referenced Dataset version'],
+	sideEffects: [
+		'May apply repeated editor diffs, create a Story edit target, or publish a referenced Dataset version',
+	],
 	viewports: 'both',
 }
 
@@ -316,17 +318,21 @@ export async function attemptTargetRequiredAiChatSend(earthly: EarthlySession): 
 export async function dispatchComposedAiChatMessage(
 	earthly: EarthlySession,
 ): Promise<AiChatSendOutcome> {
-	const panel = chatRegion(earthly)
 	const composer = chatComposer(earthly)
 	const prompt = await composer.inputValue()
 	if (!prompt.trim()) throw new Error('Compose a prompt before dispatching it.')
-	const userMessages = panel.getByTitle('Copy user message')
+	// A tool may synchronously open an approval dialog after the send. Radix then
+	// hides the underlying Chat region from the accessibility tree even though
+	// its submitted user turn remains in the DOM. Keep this post-send assertion
+	// anchored to the user-visible copy control without requiring the region to
+	// remain accessibility-visible during that modal boundary.
+	const userMessages = earthly.page.getByTitle('Copy user message')
 	const userMessageCountBefore = await userMessages.count()
 	await expect(chatSendButton(earthly)).toBeEnabled()
 	await composer.press('Enter')
 	await expect.poll(() => userMessages.count()).toBeGreaterThan(userMessageCountBefore)
 	await expect(userMessages.last()).toBeVisible()
-	await expect(composer).toHaveValue('')
+	await expect(earthly.page.locator('section[aria-label="AI chat"] textarea')).toHaveValue('')
 	return 'chat-visible'
 }
 
@@ -372,9 +378,25 @@ export async function approveAiEdit(
 	await expect.poll(() => appliedStatuses.count()).toBeGreaterThan(appliedCountBefore)
 }
 
-export type AiChatApprovalKind = 'edits' | 'reference-publish'
+export type AiChatApprovalKind = 'edits' | 'reference-publish' | 'story-target'
 
-type TurnCheckpoint = 'waiting' | 'edit-gate' | 'reference-publish-gate' | 'complete'
+type TurnCheckpoint =
+	| 'waiting'
+	| 'edit-gate'
+	| 'reference-publish-gate'
+	| 'story-target-gate'
+	| 'complete'
+
+async function approveStoryTarget(earthly: EarthlySession, timeoutMs: number): Promise<void> {
+	const dialog = earthly.page.getByRole('alertdialog')
+	const create = dialog.getByRole('button', {
+		name: 'New Story and continue',
+		exact: true,
+	})
+	await expect(create).toBeVisible({ timeout: timeoutMs })
+	await create.click()
+	await expect(dialog).toBeHidden({ timeout: timeoutMs })
+}
 
 async function approveDatasetReferencePublish(
 	earthly: EarthlySession,
@@ -430,6 +452,10 @@ export async function completeAiChatTurn(
 		name: 'Publish and continue',
 		exact: true,
 	})
+	const storyTarget = earthly.page.getByRole('button', {
+		name: 'New Story and continue',
+		exact: true,
+	})
 	const remaining = () => Math.max(1, deadline - Date.now())
 
 	for (;;) {
@@ -438,6 +464,7 @@ export async function completeAiChatTurn(
 			.poll(
 				async () => {
 					if (await apply.last().isVisible()) observed.checkpoint = 'edit-gate'
+					else if (await storyTarget.isVisible()) observed.checkpoint = 'story-target-gate'
 					else if (await referencePublish.isVisible()) {
 						observed.checkpoint = 'reference-publish-gate'
 					} else if (
@@ -468,6 +495,14 @@ export async function completeAiChatTurn(
 			}
 			observedApprovals.add('reference-publish')
 			await approveDatasetReferencePublish(earthly, remaining())
+			continue
+		}
+		if (observed.checkpoint === 'story-target-gate') {
+			if (!requiredApprovals.has('story-target')) {
+				throw new Error('The turn requested a Story target not allowed by this approval policy.')
+			}
+			observedApprovals.add('story-target')
+			await approveStoryTarget(earthly, remaining())
 			continue
 		}
 

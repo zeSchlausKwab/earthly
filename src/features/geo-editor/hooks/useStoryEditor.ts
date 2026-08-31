@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Article } from '@/lib/nostr/article'
 import { useEditorStore, type SidebarViewMode } from '../store'
-import { getStoryEditorOpenRequest, subscribeStoryEditorOpenRequests } from '../storyEditorBridge'
+import {
+	clearStoryEditorTarget,
+	getStoryEditorOpenRequest,
+	retainStoryEditorTarget,
+	subscribeStoryEditorOpenRequests,
+} from '../storyEditorBridge'
 
 interface UseStoryEditorParams {
 	isMobile: boolean
@@ -49,6 +54,7 @@ export function useStoryEditor({
 	const clearStoryEditorModes = useCallback(() => {
 		setStoryEditorMode('none')
 		setEditingStory(null)
+		clearStoryEditorTarget()
 	}, [])
 
 	const prepareNonGeometryWorkspace = useCallback(() => {
@@ -106,6 +112,7 @@ export function useStoryEditor({
 		onBeforeAuthoring?.()
 		clearStoryEditorModes()
 		setStoryEditorMode('create')
+		retainStoryEditorTarget()
 		prepareNonGeometryWorkspace()
 		navigateToView('stories')
 		if (isMobile) ensureInfoPanelVisible()
@@ -128,6 +135,7 @@ export function useStoryEditor({
 			clearStoryEditorModes()
 			setStoryEditorMode('edit')
 			setEditingStory(story)
+			retainStoryEditorTarget(story)
 			prepareNonGeometryWorkspace()
 			navigateToView('stories')
 			if (isMobile) ensureInfoPanelVisible()
@@ -150,9 +158,9 @@ export function useStoryEditor({
 	// selecting it; the rail dot/spinner tells the user it is ready, and only an
 	// explicit Story-button click reveals it. An already-visible StoryEditorPanel
 	// separately observes the same nonce and refreshes its local-draft prefill.
-	const consumedStoryOpenNonceRef = useRef(getStoryEditorOpenRequest()?.nonce ?? 0)
+	const consumedStoryOpenNonceRef = useRef(0)
 	useEffect(() => {
-		return subscribeStoryEditorOpenRequests(() => {
+		const consumeOpenRequest = () => {
 			const request = getStoryEditorOpenRequest()
 			if (!request || request.nonce === consumedStoryOpenNonceRef.current) return
 			consumedStoryOpenNonceRef.current = request.nonce
@@ -163,13 +171,18 @@ export function useStoryEditor({
 				setStoryEditorMode('create')
 				setEditingStory(null)
 			}
-		})
+		}
+		// Replay the latest request before subscribing so a request fired during
+		// mount cannot disappear between render and this effect.
+		consumeOpenRequest()
+		return subscribeStoryEditorOpenRequests(consumeOpenRequest)
 	}, [])
 
 	const handleSaveStory = useCallback(
 		(story: Article) => {
 			setStoryEditorMode('none')
 			setEditingStory(null)
+			clearStoryEditorTarget()
 			handleInspectStory(story)
 		},
 		[handleInspectStory],
@@ -181,6 +194,7 @@ export function useStoryEditor({
 		const wasOpen = storyEditorMode !== 'none'
 		setStoryEditorMode('none')
 		setEditingStory(null)
+		clearStoryEditorTarget()
 		if (wasOpen) navigateToView('stories')
 	}, [storyEditorMode, navigateToView])
 

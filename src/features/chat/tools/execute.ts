@@ -302,16 +302,17 @@ export async function executeToolCall(
 	toolCall: ToolCall,
 	context?: ToolExecutionContext,
 ): Promise<ToolResult> {
-	if (context?.run) prepareToolExecutionRun(context.run)
-	const result = await executeToolCallBound(toolCall, context)
+	const boundContext: ToolExecutionContext = { ...context, toolCallId: toolCall.id }
+	if (boundContext.run) prepareToolExecutionRun(boundContext.run)
+	const result = await executeToolCallBound(toolCall, boundContext)
 	if (getStructuredToolError(result)) {
-		rollbackToolExecutionRun(context?.run)
-		markToolCallDiffsNotApplied(toolCall, context)
+		rollbackToolExecutionRun(boundContext.run)
+		markToolCallDiffsNotApplied(toolCall, boundContext)
 		return result
 	}
 	try {
-		const commit = persistToolExecutionRun(context?.run)
-		const scope = getPendingDiffScope(toolCall, context)
+		const commit = persistToolExecutionRun(boundContext.run)
+		const scope = getPendingDiffScope(toolCall, boundContext)
 		if (commit && scope) {
 			try {
 				attachPendingDiffCommit(scope, commit)
@@ -323,7 +324,7 @@ export async function executeToolCall(
 		}
 		return result
 	} catch (error) {
-		markToolCallDiffsNotApplied(toolCall, context)
+		markToolCallDiffsNotApplied(toolCall, boundContext)
 		const toolError: ToolError = {
 			ok: false,
 			kind: 'handler_error',

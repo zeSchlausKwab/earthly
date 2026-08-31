@@ -37,6 +37,7 @@ import type { DatasetDiff } from '@/features/geo-editor/api/diff'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { eventStore } from '@/lib/nostr'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { clearStoryTargetRequests, requestStoryTarget } from '@/features/chat/storyTargeting'
 
 function makeModel(overrides: Partial<RoutstrModel> = {}): RoutstrModel {
 	return {
@@ -127,6 +128,7 @@ describe('single global run remains owned across conversation navigation', () =>
 	beforeEach(() => {
 		useChatStore.getState().reset()
 		clearPendingDiffs()
+		clearStoryTargetRequests()
 	})
 
 	test('switching and creating conversations never aborts the existing run', () => {
@@ -255,6 +257,28 @@ describe('single global run remains owned across conversation navigation', () =>
 		expect(stopped.isStreaming).toBe(false)
 		expect(stopped.runningChatId).toBeNull()
 		expect(stopped.chatRunStates[ownerId]?.status).toBe('stopped')
+	})
+
+	test('a Story-target dialog marks its exact run awaiting approval and Stop releases it', async () => {
+		const ownerId = useChatStore.getState().activeChatId as string
+		const identity = runIdentity(ownerId)
+		useChatStore.setState((state) => ({
+			...buildChatRunStateUpdate(state, ownerId, { identity, status: 'working' }),
+			isStreaming: true,
+			runningChatId: ownerId,
+			activeRun: identity,
+		}))
+
+		const decision = requestStoryTarget(
+			{ chatId: ownerId, toolCallId: 'write-story', storyTitle: 'Awaited Story' },
+			() => undefined,
+		)
+		expect(useChatStore.getState().chatRunStates[ownerId]?.status).toBe('awaiting_approval')
+
+		useChatStore.getState().cancelStream()
+
+		await expect(decision).resolves.toEqual({ decision: 'cancelled' })
+		expect(useChatStore.getState().chatRunStates[ownerId]?.status).toBe('stopped')
 	})
 
 	test('an awaited reference completion adds only to its initiating conversation', () => {

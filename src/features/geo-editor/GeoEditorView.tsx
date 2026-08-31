@@ -47,6 +47,7 @@ import {
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
 import { ReferencePublishDialog } from '@/features/chat/referencePublishing'
+import { StoryTargetDialog } from '@/features/chat/storyTargeting'
 import { config } from '@/config/env.client'
 import { EARTHLY_ZAPSTORE_URL } from '@/config/app-downloads'
 import type { LocalDraftDestinationOption } from '@/components/WorkspaceDraftNavigator'
@@ -5572,6 +5573,7 @@ export function GeoEditorView() {
 				<DebugDialog event={debugEvent} open={debugDialogOpen} onOpenChange={setDebugDialogOpen} />
 			)}
 			<ReferencePublishDialog />
+			<StoryTargetDialog />
 			{/* Blossom Upload Dialog */}
 			;
 			<BlossomUploadDialog

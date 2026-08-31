@@ -4,7 +4,10 @@ import { eventStore } from '@/lib/nostr'
 import { ARTICLE_KIND } from '@/lib/nostr/kinds'
 import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
 import {
+	clearStoryEditorTarget,
+	getStoryEditorTarget,
 	getStoryEditorOpenRequest,
+	retainStoryEditorTarget,
 	resetStoryEditorOpenRequests,
 } from '@/features/geo-editor/storyEditorBridge'
 import { useEditorStore, type GeoCollectionEditDraft } from '@/features/geo-editor/store'
@@ -16,6 +19,12 @@ import {
 	setReferencePublishingRunTarget,
 	setReferencePublishingToolContext,
 } from '@/features/chat/referencePublishing'
+import {
+	cancelStoryTarget,
+	clearStoryTargetRequests,
+	confirmStoryTarget,
+	getStoryTargetRequest,
+} from '@/features/chat/storyTargeting'
 import type { ToolEntry } from './registry'
 import { registerStoryTools, resetStoryDraftOwnership } from './story-tools'
 import type { ToolExecutionContext } from './types'
@@ -64,6 +73,7 @@ beforeEach(() => {
 	resetStoryDraftOwnership()
 	resetStoryEditorOpenRequests()
 	clearReferencePublishRequests()
+	clearStoryTargetRequests()
 	useEditorStore.setState({
 		geoEditDrafts: {},
 		activeGeoEditDraftId: null,
@@ -179,6 +189,151 @@ describe('story draft tools', () => {
 		const draft = read.draft as Record<string, unknown>
 		expect(draft.title).toBe('Ras Laffan shipping lanes')
 		expect(draft.markdown).toContain('nostr:naddr1example')
+	})
+
+	it('parks an AI-authored new Story until the user creates its edit state', async () => {
+		const context = {
+			...installNewDatasetDraft(),
+			toolCallId: 'write-story-call',
+		}
+		let settled = false
+		const writing = call(
+			'write_story_draft',
+			{
+				title: 'Rivers remember',
+				markdown: 'A draft that must wait for an explicit Story target.',
+			},
+			context,
+		).then((result) => {
+			settled = true
+			return result
+		})
+
+		await Promise.resolve()
+		expect(settled).toBe(false)
+		expect(getStoryTargetRequest()).toMatchObject({
+			chatId: 'chat-story',
+			toolCallId: 'write-story-call',
+			storyTitle: 'Rivers remember',
+			status: 'awaiting-confirmation',
+		})
+		expect(getStoryEditorOpenRequest()).toBeNull()
+		expect(getStoryEditorTarget()).toBeNull()
+		await expect(call('read_story_draft')).resolves.toMatchObject({ exists: false, draft: null })
+
+		const request = getStoryTargetRequest()
+		if (!request) throw new Error('expected Story target request')
+		confirmStoryTarget(request.id)
+
+		await expect(writing).resolves.toMatchObject({ ok: true, mode: 'create' })
+		expect(getStoryTargetRequest()).toBeNull()
+		expect(getStoryEditorTarget()).toMatchObject({ mode: 'create' })
+		expect(getStoryEditorOpenRequest()).toMatchObject({ mode: 'create' })
+		await expect(call('read_story_draft')).resolves.toMatchObject({ exists: true })
+	})
+
+	it('cancels a pending new Story target without writing or opening anything', async () => {
+		const context = {
+			...installNewDatasetDraft(),
+			toolCallId: 'write-story-cancel',
+		}
+		const writing = call(
+			'write_story_draft',
+			{ title: 'Cancelled Story', markdown: 'This must never be persisted.' },
+			context,
+		)
+		await Promise.resolve()
+		const request = getStoryTargetRequest()
+		if (!request) throw new Error('expected Story target request')
+		cancelStoryTarget(request.id)
+
+		await expect(writing).resolves.toMatchObject({
+			ok: false,
+			status: 'blocked',
+			code: 'story_target_cancelled',
+		})
+		expect(getStoryEditorOpenRequest()).toBeNull()
+		expect(getStoryEditorTarget()).toBeNull()
+		await expect(call('read_story_draft')).resolves.toMatchObject({ exists: false, draft: null })
+	})
+
+	it('uses an explicitly retained new Story target without another dialog', async () => {
+		retainStoryEditorTarget()
+		const result = await call(
+			'write_story_draft',
+			{ title: 'Already targeted', markdown: 'The author created this edit state first.' },
+			{ ...installNewDatasetDraft(), toolCallId: 'write-story-ready' },
+		)
+
+		expect(result).toMatchObject({ ok: true, mode: 'create' })
+		expect(getStoryTargetRequest()).toBeNull()
+	})
+
+	it('revalidates a new Story target after an awaited prerequisite', async () => {
+		let releasePrerequisite!: () => void
+		let prerequisiteStarted = false
+		const prerequisite = new Promise<void>((resolve) => {
+			releasePrerequisite = resolve
+		})
+		const isolatedTools = new Map<string, ToolEntry>()
+		registerStoryTools((entry) => isolatedTools.set(entry.name, entry), {
+			gateDatasetReferences: async () => {
+				prerequisiteStarted = true
+				await prerequisite
+				return { status: 'ready' }
+			},
+		})
+		const write = isolatedTools.get('write_story_draft')
+		if (!write) throw new Error('expected isolated Story writer')
+		const context = {
+			...installNewDatasetDraft(),
+			toolCallId: 'write-story-after-prerequisite',
+		}
+		const writing = write.handler(
+			{ title: 'Still targeted', markdown: 'Do not write after the target closes.' },
+			context,
+		) as Promise<Record<string, unknown>>
+
+		await Promise.resolve()
+		const firstRequest = getStoryTargetRequest()
+		if (!firstRequest) throw new Error('expected initial Story target request')
+		confirmStoryTarget(firstRequest.id)
+		for (let attempt = 0; attempt < 10 && !prerequisiteStarted; attempt += 1) {
+			await Promise.resolve()
+		}
+		expect(prerequisiteStarted).toBe(true)
+
+		clearStoryEditorTarget()
+		releasePrerequisite()
+		for (let attempt = 0; attempt < 10 && !getStoryTargetRequest(); attempt += 1) {
+			await Promise.resolve()
+		}
+		const replacementRequest = getStoryTargetRequest()
+		expect(replacementRequest).toMatchObject({
+			chatId: 'chat-story',
+			toolCallId: 'write-story-after-prerequisite',
+			storyTitle: 'Still targeted',
+		})
+		expect(replacementRequest?.id).not.toBe(firstRequest.id)
+		await expect(call('read_story_draft')).resolves.toMatchObject({ exists: false, draft: null })
+
+		if (!replacementRequest) throw new Error('expected replacement Story target request')
+		cancelStoryTarget(replacementRequest.id)
+		await expect(writing).resolves.toMatchObject({
+			ok: false,
+			code: 'story_target_cancelled',
+		})
+		await expect(call('read_story_draft')).resolves.toMatchObject({ exists: false, draft: null })
+	})
+
+	it('does not replay a closed Story editor request on a later mount', async () => {
+		await call('write_story_draft', { title: 'Transient target', markdown: 'body' })
+		expect(getStoryEditorOpenRequest()).not.toBeNull()
+
+		clearStoryEditorTarget()
+
+		expect(getStoryEditorTarget()).toBeNull()
+		expect(getStoryEditorOpenRequest()).toBeNull()
 	})
 
 	it('refuses to overwrite a draft this session did not write', async () => {
@@ -304,7 +459,9 @@ describe('story draft tools', () => {
 			},
 			context,
 		)
-		await Promise.resolve()
+		for (let attempt = 0; attempt < 10 && !getReferencePublishRequest(); attempt += 1) {
+			await Promise.resolve()
+		}
 		const request = getReferencePublishRequest()
 		expect(request).toMatchObject({
 			chatId: 'chat-story',

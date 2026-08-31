@@ -2,12 +2,12 @@ import { test, expect } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import {
 	aiChatSurfaceSnapshot,
+	completeAiChatTurn,
 	composeAiChatMessage,
 	configureChatProvider,
 	openAiChat,
 	selectAiChatTarget,
 	sendAiChatMessage,
-	waitForAiChatCompletion,
 } from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
 import {
@@ -812,7 +812,9 @@ test('mobile workspace keeps a running Chat and its exact edit target visible @e
 		expect(provider.requests()).toHaveLength(1)
 
 		provider.releaseCompletionResponses()
-		await waitForAiChatCompletion(earthly, assistantMessagesBefore)
+		await completeAiChatTurn(earthly, assistantMessagesBefore, {
+			approvals: ['story-target'],
+		})
 		await expect(
 			chatRegion.getByText(
 				'I retained the background Story draft without changing your visible mobile workspace.',

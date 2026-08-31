@@ -45,6 +45,8 @@ export interface ToolExecutionContext {
 	attachedGeometry?: GeoJSON.FeatureCollection | null
 	/** The user-authored text that initiated this tool loop. */
 	userMessage?: string
+	/** Exact model tool call currently executing inside the owning run. */
+	toolCallId?: string
 	/**
 	 * Immutable identity of the model run that owns this call. Tool handlers must
 	 * not infer ownership from whichever conversation or editor happens to be

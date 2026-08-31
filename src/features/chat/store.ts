@@ -70,6 +70,11 @@ import {
 	setReferencePublishingToolContext,
 	subscribeReferencePublishRequest,
 } from '@/features/chat/referencePublishing'
+import {
+	cancelPendingStoryTargetRequests,
+	getStoryTargetRequest,
+	subscribeStoryTargetRequest,
+} from '@/features/chat/storyTargeting'
 import { chatComposerActions } from './composerState'
 
 // Output is NOT artificially capped. We size the completion budget from the
@@ -1710,6 +1715,7 @@ export const useChatStore = create<ChatStore>()(
 					// tool loop stays parked on requestConfirm forever.
 					cancelPendingDiffs()
 					cancelPendingReferencePublishes()
+					cancelPendingStoryTargetRequests()
 					setPendingDiffRunContext(null)
 					setPendingDiffToolContext(null)
 					setReferencePublishingChatContext(null)
@@ -2679,6 +2685,7 @@ export const useChatStore = create<ChatStore>()(
 									toolResult = await executeToolCall(toolCall, {
 										attachedGeometry: geometryAttachment,
 										userMessage: content,
+										toolCallId: toolCall.id,
 										run: runIdentity,
 									})
 								} finally {
@@ -2728,6 +2735,7 @@ export const useChatStore = create<ChatStore>()(
 									if (!get().isStreaming) {
 										cancelPendingDiffs()
 										cancelPendingReferencePublishes()
+										cancelPendingStoryTargetRequests()
 									}
 									persistRemainingRoundResults(roundToolCalls.slice(callIndex), toolResult)
 									throw new Error(DETACHED_STREAM_ERROR)
@@ -3032,6 +3040,7 @@ export const useChatStore = create<ChatStore>()(
 				// 'cancel', zero editor mutation) so the tool loop can unwind.
 				cancelPendingDiffs()
 				cancelPendingReferencePublishes()
+				cancelPendingStoryTargetRequests()
 				setPendingDiffRunContext(null)
 				setPendingDiffToolContext(null)
 				setReferencePublishingChatContext(null)
@@ -3072,6 +3081,7 @@ export const useChatStore = create<ChatStore>()(
 				currentStreamingChatId = null
 				cancelPendingDiffs()
 				cancelPendingReferencePublishes()
+				cancelPendingStoryTargetRequests()
 				setPendingDiffRunContext(null)
 				setPendingDiffToolContext(null)
 				setReferencePublishingChatContext(null)
@@ -3140,7 +3150,10 @@ function syncRunningChatApprovalStatus(): void {
 	)
 	const publishRequest = getReferencePublishRequest()
 	const awaitingPublish = publishRequest?.chatId === chatId
-	const status: ChatRunStatus = awaitingDiff || awaitingPublish ? 'awaiting_approval' : 'working'
+	const storyTargetRequest = getStoryTargetRequest()
+	const awaitingStoryTarget = storyTargetRequest?.chatId === chatId
+	const status: ChatRunStatus =
+		awaitingDiff || awaitingPublish || awaitingStoryTarget ? 'awaiting_approval' : 'working'
 	if (current.status === status) return
 
 	useChatStore.setState((latest) => buildChatRunStateUpdate(latest, chatId, { status }))
@@ -3148,9 +3161,10 @@ function syncRunningChatApprovalStatus(): void {
 
 // Confirmation surfaces live outside Zustand, so bridge their lifecycle into
 // the per-conversation status shown by the selector/rail. Both subscriptions
-// are module-lifetime singletons, just like their backing request stores.
+// These subscriptions are module-lifetime singletons, just like their backing request stores.
 subscribePendingDiffs(syncRunningChatApprovalStatus)
 subscribeReferencePublishRequest(syncRunningChatApprovalStatus)
+subscribeStoryTargetRequest(syncRunningChatApprovalStatus)
 
 // SAFE-04: expose the persisted safety level to the run_code gate without a
 // static import cycle (runCode is pulled into the registry bootstrap that this
