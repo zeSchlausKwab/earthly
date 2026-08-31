@@ -8,6 +8,7 @@ import { createInMemoryGeoCatalog } from './in-memory'
 import type { GeoCatalogAdapter } from './internal'
 import {
 	createSqliteGeoCatalogForDatabase,
+	explainSqliteGeoCatalogQueryForTests,
 	initializeSqliteGeoCatalogForTests,
 	openSqliteGeoCatalog,
 	writeSqliteGeoCatalogSnapshot,
@@ -1215,6 +1216,19 @@ test('a missing SQLite snapshot fails on query without failing startup', async (
 	} catch (error) {
 		expect(error).toBeInstanceOf(GeoCatalogError)
 		expect(error).toMatchObject({ code: 'snapshot_unavailable', retryable: false })
+	}
+})
+
+test('the unfiltered SQLite query walks the result-order index without a temporary sort', () => {
+	const database = new Database(':memory:', { strict: true })
+	try {
+		initializeSqliteGeoCatalogForTests(database, snapshot, [...entries].reverse())
+		const plan = explainSqliteGeoCatalogQueryForTests(database, { limit: 1 })
+
+		expect(plan.some((detail) => detail.includes('geocatalog_features_order'))).toBe(true)
+		expect(plan.some((detail) => detail.includes('TEMP B-TREE FOR ORDER BY'))).toBe(false)
+	} finally {
+		database.close()
 	}
 })
 

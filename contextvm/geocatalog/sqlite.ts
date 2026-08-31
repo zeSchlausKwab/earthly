@@ -13,6 +13,7 @@ import {
 	encodeNormalizedAliases,
 	normalizeSearchText,
 	parseJson,
+	prepareQuery,
 	radiusBbox,
 	type GeoCatalogAdapter,
 	type PreparedGeoCatalogQuery,
@@ -25,6 +26,7 @@ import {
 	type GeoCatalog,
 	type GeoCatalogBbox,
 	type GeoCatalogEntry,
+	type GeoCatalogQueryRequest,
 	type GeoCatalogSnapshotMetadata,
 } from './types'
 
@@ -285,13 +287,24 @@ function parseFeatureRow(
 	)
 }
 
+interface CompiledSqliteGeoCatalogQuery {
+	sql: string
+	bindings: NamedBindings
+}
+
 class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 	readonly snapshot: GeoCatalogSnapshotMetadata
 	readonly #database: Database
+	readonly #observeQuery?: (query: CompiledSqliteGeoCatalogQuery) => void
 
-	constructor(database: Database, snapshot: GeoCatalogSnapshotMetadata) {
+	constructor(
+		database: Database,
+		snapshot: GeoCatalogSnapshotMetadata,
+		observeQuery?: (query: CompiledSqliteGeoCatalogQuery) => void,
+	) {
 		this.#database = database
 		this.snapshot = snapshot
+		this.#observeQuery = observeQuery
 	}
 
 	query(request: PreparedGeoCatalogQuery) {
@@ -373,27 +386,41 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 			)
 		}
 
-		const idRank =
-			request.ids.length === 0
-				? '0'
-				: `CASE f.id ${request.ids
-						.map((_id, index) => `WHEN $id_${index} THEN ${index}`)
-						.join(' ')} ELSE ${request.ids.length} END`
-		const textRank =
-			request.text === null
-				? '0'
-				: `CASE
-					WHEN f.normalized_name = $normalized_text THEN 0
-					WHEN instr(f.normalized_aliases, char(31) || $normalized_text || char(31)) > 0 THEN 1
-					WHEN f.normalized_name LIKE $text_prefix THEN 2
-					ELSE 3
-				END`
-		const distance = request.near === null ? '0' : distanceExpression()
+		const rankProjections: string[] = []
+		const rankOrder: string[] = []
+		if (request.ids.length > 0) {
+			rankProjections.push(`CASE f.id ${request.ids
+				.map((_id, index) => `WHEN $id_${index} THEN ${index}`)
+				.join(' ')} ELSE ${request.ids.length} END AS id_rank`)
+			rankOrder.push('id_rank')
+		}
+		if (request.text !== null) {
+			rankProjections.push(`CASE
+				WHEN f.normalized_name = $normalized_text THEN 0
+				WHEN instr(f.normalized_aliases, char(31) || $normalized_text || char(31)) > 0 THEN 1
+				WHEN f.normalized_name LIKE $text_prefix THEN 2
+				ELSE 3
+			END AS text_rank`)
+			rankOrder.push('text_rank')
+		}
+		if (request.near !== null) {
+			rankProjections.push(`${distanceExpression()} AS distance_meters`)
+			rankOrder.push('distance_meters')
+		}
+		const rankProjection =
+			rankProjections.length === 0
+				? ''
+				: `\n\t\t\t\t\t${rankProjections.join(',\n\t\t\t\t\t')},`
+		const orderBy = [...rankOrder, 'importance DESC', 'normalized_name', 'id']
 		const geometryProjection = request.includeGeometry
 			? 'f.geometry_json'
 			: 'NULL AS geometry_json'
 		const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 		const radiusWhere = request.near === null ? '' : 'WHERE distance_meters <= $radius_meters'
+		const featureIndexHint =
+			conditions.length === 0 && joins.length === 0
+				? 'INDEXED BY geocatalog_features_order'
+				: ''
 		const sql = `
 			WITH ranked AS (
 				SELECT
@@ -401,12 +428,9 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 					f.country_code, f.admin_level,
 					f.west, f.south, f.east, f.north, f.center_lon, f.center_lat,
 					f.importance, f.source_name, f.source_release, f.source_record_id,
-					f.properties_json, ${geometryProjection},
-					${idRank} AS id_rank,
-					${textRank} AS text_rank,
-					${distance} AS distance_meters,
+					f.properties_json, ${geometryProjection},${rankProjection}
 					f.normalized_name AS normalized_name
-				FROM geocatalog_features AS f
+				FROM geocatalog_features AS f ${featureIndexHint}
 				${joins.join('\n')}
 				${where}
 			)
@@ -417,10 +441,11 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 				properties_json, geometry_json
 			FROM ranked
 			${radiusWhere}
-			ORDER BY id_rank, text_rank, distance_meters, importance DESC, normalized_name, id
+			ORDER BY ${orderBy.join(', ')}
 			LIMIT $fetch_limit
 		`
 
+		this.#observeQuery?.({ sql, bindings })
 		const rows = this.#database
 			.query<SqliteFeatureRow, NamedBindings>(sql)
 			.all(bindings)
@@ -432,6 +457,26 @@ class SqliteGeoCatalogAdapter implements GeoCatalogAdapter {
 			hasMore,
 		}
 	}
+}
+
+interface SqliteQueryPlanRow {
+	detail: string
+}
+
+// Internal test seam for guarding startup query plans on planet-scale snapshots.
+export function explainSqliteGeoCatalogQueryForTests(
+	database: Database,
+	request: GeoCatalogQueryRequest,
+): string[] {
+	let compiled: CompiledSqliteGeoCatalogQuery | undefined
+	new SqliteGeoCatalogAdapter(database, readSnapshotMetadata(database), (query) => {
+		compiled = query
+	}).query(prepareQuery(request))
+	if (!compiled) throw new Error('SQLite GeoCatalog query was not compiled')
+	return database
+		.query<SqliteQueryPlanRow, NamedBindings>(`EXPLAIN QUERY PLAN ${compiled.sql}`)
+		.all(compiled.bindings)
+		.map((row) => row.detail)
 }
 
 function openAdapter(path: string): SqliteGeoCatalogAdapter {
