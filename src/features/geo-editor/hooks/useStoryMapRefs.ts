@@ -23,8 +23,8 @@ import { datasetReferenceEntryId } from '../referenceMapStack'
  *     chip and the map can never drift.
  *
  * Membership is keyed by `dataset:<pubkey>:<d>`, identical to the key
- * `useMentionActions`/`addDatasetToMapStack` compute, so the inline toggle
- * (add/remove) and this auto-stack operate on the same entry.
+ * `useMentionActions` and shared-route hydration compute, so the inline toggle
+ * and the Map Stack always operate on the same entry.
  */
 
 interface ParsedStoryRef {
