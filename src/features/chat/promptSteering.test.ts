@@ -51,6 +51,12 @@ describe('compact prompt profile', () => {
 		expect(compact).toMatch(/valhalla_route.+route_over_network/i)
 	})
 
+	it('grounds time-sensitive research in the current date', () => {
+		for (const text of [compact, legacy]) {
+			expect(text).toMatch(/CURRENT DATE[^\n]+\d{4}-\d{2}-\d{2}/i)
+		}
+	})
+
 	it('pins the original task into a continuation prompt', () => {
 		const message = createMapContextSystemMessage('compact', ['run_code'], {
 			isContinuation: true,
@@ -131,7 +137,7 @@ describe('fix #4 — agent map-context steering', () => {
 
 	it('defines complete extraction pages independently of prompt-window previews', () => {
 		expect(text).toMatch(/pagination\.status/i)
-		expect(text).toMatch(/complete.*full table/i)
+		expect(text).toMatch(/complete.*full[- ]table/i)
 	})
 
 	it('discourages gratuitous OSM relation/boundary fetches', () => {
@@ -151,18 +157,39 @@ describe('fix #4 — agent map-context steering', () => {
 		expect(text).toMatch(/capture_map_snapshot/i)
 	})
 
-	// AI_GEO_AWARENESS: the bench runs showed the model picking slow OSM calls
-	// for country-scale work because older OSM-forward lines out-competed the
-	// world-layer guidance. The hierarchy must stay explicit and de-conflicted.
-	it('states the world-layers-first data source order', () => {
+	// AI_GEO_AWARENESS: the hierarchy must keep the local catalog ahead of slow,
+	// failure-prone remote OSM calls without losing bundled analytical layers.
+	it('states the catalog-first data source order', () => {
 		expect(text).toMatch(/DATA SOURCE ORDER/i)
+		expect(text).toMatch(/query_geography.+fast, self-hosted/i)
+		expect(text).toMatch(/discover human-readable queries first.+stable ids/i)
 		expect(text).toMatch(/BUNDLED WORLD LAYERS/i)
-		expect(text).toMatch(/OSM tools ONLY for/i)
+		expect(text).toMatch(/remote OSM tools only as a last resort/i)
+		expect(compactMapContextText()).toMatch(/discover human-readable queries first.+stable ids/i)
+	})
+
+	it('treats absent transport packs as intentional, not an OSM coverage gap', () => {
+		for (const prompt of [text, compactMapContextText()]) {
+			expect(prompt).toMatch(
+				/administrative areas, localities, places, waterways, and infrastructure/i,
+			)
+			expect(prompt).toMatch(/road and rail are optional coverage packs/i)
+			expect(prompt).toMatch(/kind_unavailable.+must not trigger.+osm/i)
+			expect(prompt).toMatch(/exact user-supplied OSM (?:element or relation )?id remains valid/i)
+		}
+	})
+
+	it('does not require the model to guess an undocumented catalog category', () => {
+		for (const prompt of [text, compactMapContextText()]) {
+			expect(prompt).toMatch(/categories are exact filters/i)
+			expect(prompt).toMatch(/start with (?:the )?name and kind|begin with (?:the )?name and kind/i)
+			expect(prompt).toMatch(/category suggestions|suggested categories/i)
+		}
 	})
 
 	it('scopes OSM boundary/line guidance to LOCAL features (no country-scale OSM)', () => {
-		expect(text).toMatch(/Nation-state\/country outlines ALWAYS.*Natural Earth/i)
-		expect(text).toMatch(/low-level resolve_osm_entity.+explicitly needs/i)
+		expect(text).toMatch(/query the local catalog.+kinds=\["admin"\].+first/i)
+		expect(text).toMatch(/low-level OSM boundary calls are a last resort/i)
 		expect(text).toMatch(/NEVER query OSM for a country-scale coastline/i)
 		expect(text).toMatch(/world\.get\("countries_110m"\)/)
 	})
@@ -193,6 +220,16 @@ describe('fix #4 — agent map-context steering', () => {
 			expect(prompt).toMatch(/prefer.+route_over_network.+pathfinder/i)
 		}
 	})
+
+	it('defines supported Valhalla journeys and requires a real network for rail', () => {
+		for (const prompt of [text, compactMapContextText()]) {
+			expect(prompt).toMatch(/valhalla_route.+2–25 coordinate waypoints/i)
+			expect(prompt).toMatch(/not road-name search|not a road-name search/i)
+			expect(prompt).toMatch(/does not route rail/i)
+			expect(prompt).toMatch(/actual (?:supplied\/editor|LineString) network/i)
+			expect(prompt).toMatch(/report rail routing as unsupported/i)
+		}
+	})
 })
 
 describe('network-routing tool steering', () => {
@@ -214,6 +251,15 @@ describe('structured extraction steering', () => {
 		expect(description).toMatch(/pagination\.status/i)
 		expect(description).toMatch(/complete.*full table/i)
 		expect(description).toMatch(/more.*nextOffset/i)
+	})
+
+	it('advertises bounded revision-pinned Wikipedia prose instead of raw/API retries', () => {
+		const description = wikipediaExtractDescription()
+		expect(description).toMatch(/article mode.*prose/i)
+		expect(description).toMatch(/section mode.*sectionIndex.*sectionTitle/i)
+		expect(description).toMatch(/textPagination\.status=complete/i)
+		expect(description).toMatch(/revisionId/i)
+		expect(description).toMatch(/without trying alternate raw\/API URLs/i)
 	})
 })
 

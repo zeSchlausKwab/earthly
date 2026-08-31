@@ -2,6 +2,7 @@ import { ExternalLink, Eye, EyeOff, LocateFixed, MapPin, Maximize2, Play, X } fr
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { geoReferenceLabel, parseGeoReference, stringifyGeoReference } from '@/lib/geo/reference'
+import { parseMarkdownTableAt, type MarkdownTableAlignment } from '@/lib/markdown/table'
 import { decodeNostrFeatureId, stringifyNostrAddressReference } from '@/lib/nostr/references'
 import type { GeoFeatureItem } from './GeoRichTextEditor'
 import { Button } from '../ui/button'
@@ -78,7 +79,21 @@ interface MediaBlock {
 	label?: string
 }
 
-type ContentBlock = ParagraphBlock | HeadingBlock | QuoteBlock | ListBlock | CodeBlock | MediaBlock
+interface TableBlock {
+	type: 'table'
+	header: InlineToken[][]
+	alignments: MarkdownTableAlignment[]
+	rows: InlineToken[][][]
+}
+
+type ContentBlock =
+	| ParagraphBlock
+	| HeadingBlock
+	| QuoteBlock
+	| ListBlock
+	| CodeBlock
+	| MediaBlock
+	| TableBlock
 
 const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|avif)(\?.*)?$/i
 const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v)(\?.*)?$/i
@@ -334,7 +349,8 @@ function parseContent(text: string, availableFeatures: GeoFeatureItem[]): Conten
 		codeLines.length = 0
 	}
 
-	for (const rawLine of lines) {
+	for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+		const rawLine = lines[lineIndex] ?? ''
 		const line = rawLine.trimEnd()
 		const trimmedLine = line.trim()
 
@@ -359,6 +375,22 @@ function parseContent(text: string, availableFeatures: GeoFeatureItem[]): Conten
 		if (!trimmedLine) {
 			pushParagraph(paragraphLines, blocks, availableFeatures)
 			flushList()
+			continue
+		}
+
+		const table = parseMarkdownTableAt(lines, lineIndex)
+		if (table) {
+			pushParagraph(paragraphLines, blocks, availableFeatures)
+			flushList()
+			blocks.push({
+				type: 'table',
+				header: table.header.map((cell) => parseInlineTokens(cell, availableFeatures)),
+				alignments: table.alignments,
+				rows: table.rows.map((row) =>
+					row.map((cell) => parseInlineTokens(cell, availableFeatures)),
+				),
+			})
+			lineIndex = table.endIndex
 			continue
 		}
 
@@ -820,6 +852,56 @@ export function RichContentRenderer({
 						>
 							<code>{block.code}</code>
 						</pre>
+					)
+				}
+
+				if (block.type === 'table') {
+					const callbacks = {
+						onMentionVisibilityToggle,
+						onMentionZoomTo,
+						isMentionVisible,
+					}
+					return (
+						<div
+							// biome-ignore lint/suspicious/noArrayIndexKey: Markdown blocks are positional in the immutable source text.
+							key={`table-${index}`}
+							className="max-w-full overflow-x-auto border border-border bg-background"
+						>
+							<table className="min-w-full border-collapse text-left text-xs">
+								<thead className="bg-muted/70">
+									<tr>
+										{block.header.map((cell, cellIndex) => (
+											<th
+												// biome-ignore lint/suspicious/noArrayIndexKey: Table columns are positional by definition.
+												key={`table-${index}-heading-${cellIndex}`}
+												scope="col"
+												className="border-b border-border px-2.5 py-2 align-top font-semibold text-foreground"
+												style={{ textAlign: block.alignments[cellIndex] ?? 'left' }}
+											>
+												{renderInlineTokens(cell, callbacks)}
+											</th>
+										))}
+									</tr>
+								</thead>
+								<tbody className="divide-y divide-border/70">
+									{block.rows.map((row, rowIndex) => (
+										// biome-ignore lint/suspicious/noArrayIndexKey: Table rows are positional in the immutable source text.
+										<tr key={`table-${index}-row-${rowIndex}`}>
+											{row.map((cell, cellIndex) => (
+												<td
+													// biome-ignore lint/suspicious/noArrayIndexKey: Table columns are positional by definition.
+													key={`table-${index}-row-${rowIndex}-cell-${cellIndex}`}
+													className="min-w-24 break-words px-2.5 py-2 align-top text-foreground"
+													style={{ textAlign: block.alignments[cellIndex] ?? 'left' }}
+												>
+													{renderInlineTokens(cell, callbacks)}
+												</td>
+											))}
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</div>
 					)
 				}
 

@@ -47,6 +47,7 @@ import {
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
 import { ReferencePublishDialog } from '@/features/chat/referencePublishing'
+import { StoryTargetDialog } from '@/features/chat/storyTargeting'
 import { config } from '@/config/env.client'
 import { EARTHLY_ZAPSTORE_URL } from '@/config/app-downloads'
 import type { LocalDraftDestinationOption } from '@/components/WorkspaceDraftNavigator'
@@ -156,6 +157,7 @@ import {
 } from './inspectRouteOrigin'
 import { isDraftGeometryVisible } from './draftMapVisibility'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
+import { parseStoryRefs } from './hooks/useStoryMapRefs'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
@@ -211,7 +213,9 @@ import {
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import {
+	ensureActiveDraftMapPresentation,
 	getRetainedDatasetSurfaceTarget,
+	resolveActiveDraftMapPresentation,
 	resolveDraftEditorOpenPlan,
 	useEditorStore,
 	type MapStackEntry,
@@ -348,6 +352,50 @@ function discoveryDate(createdAt: number): string | undefined {
 	} catch {
 		return undefined
 	}
+}
+
+type GeoBounds = [number, number, number, number]
+
+function naddrTargetsSameEntity(left: string, right: string): boolean {
+	if (left === right) return true
+	try {
+		const decodedLeft = nip19.decode(left)
+		const decodedRight = nip19.decode(right)
+		if (decodedLeft.type !== 'naddr' || decodedRight.type !== 'naddr') return false
+		return (
+			decodedLeft.data.kind === decodedRight.data.kind &&
+			decodedLeft.data.pubkey === decodedRight.data.pubkey &&
+			decodedLeft.data.identifier === decodedRight.data.identifier
+		)
+	} catch {
+		return false
+	}
+}
+
+function mergeGeoBounds(
+	current: GeoBounds | null,
+	next: GeoBounds | null | undefined,
+): GeoBounds | null {
+	if (!next?.every(Number.isFinite)) return current
+	if (!current) return [...next] as GeoBounds
+	return [
+		Math.min(current[0], next[0]),
+		Math.min(current[1], next[1]),
+		Math.max(current[2], next[2]),
+		Math.max(current[3], next[3]),
+	]
+}
+
+function collectionGeoBounds(collection: FeatureCollection, featureId?: string): GeoBounds | null {
+	let bounds: GeoBounds | null = null
+	if (!featureId && Array.isArray(collection.bbox) && collection.bbox.length === 4) {
+		bounds = mergeGeoBounds(bounds, collection.bbox as GeoBounds)
+	}
+	for (const feature of collection.features) {
+		if (featureId && !featureMatchesReferenceSelector(feature, [featureId])) continue
+		bounds = mergeGeoBounds(bounds, feature.geometry ? bboxFromGeometry(feature.geometry) : null)
+	}
+	return bounds
 }
 
 function SavedRegionDeletionMonitor({
@@ -611,9 +659,15 @@ export function GeoEditorView() {
 	const stance = useEditorStore((state) => state.stance)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
+	const activeDraftAuthoring = useEditorStore(
+		(state) => resolveActiveDraftMapPresentation(state) !== null,
+	)
 	const draftGeometryVisible = useMemo(
-		() => isDraftGeometryVisible(mapStackEntries, mapStackOrder),
-		[mapStackEntries, mapStackOrder],
+		() =>
+			isDraftGeometryVisible(mapStackEntries, mapStackOrder, {
+				activeAuthoring: activeDraftAuthoring,
+			}),
+		[activeDraftAuthoring, mapStackEntries, mapStackOrder],
 	)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
@@ -1243,7 +1297,7 @@ export function GeoEditorView() {
 	}, [])
 
 	const handleSwitchWorkspace = useCallback(
-		async (workspaceId: string, options?: { syncMapStackVisibility?: boolean }) => {
+		async (workspaceId: string, options?: { preserveMobileRoute?: boolean }) => {
 			await switchWorkspaceFromView({
 				workspaceId,
 				options,
@@ -1657,9 +1711,8 @@ export function GeoEditorView() {
 
 	const removeFromMapStack = useCallback(
 		(entry: MapStackEntry) => {
-			// Map Stack is visibility-only. In particular, removing `draft:active`
-			// hides the retained Dataset geometry but does not discard its workspace,
-			// local draft, Chat binding, or currently selected mobile Edit surface.
+			// Active Dataset drafts are not removable presentation rows. The panel
+			// withholds that action and the store guards the invariant as a backstop.
 			if (entry.source === 'private-group') {
 				dismissedPrivateDatasetIds().add(entry.id)
 			}
@@ -1969,6 +2022,15 @@ export function GeoEditorView() {
 
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
+
+	// Dataset authoring and map presentation are one product state. Repair old or
+	// externally-mutated sessions immediately so an editor can never remain open
+	// while its geometry is absent from the Map Stack or map.
+	useEffect(() => {
+		const repair = () => ensureActiveDraftMapPresentation(useEditorStore.getState())
+		repair()
+		return useEditorStore.subscribe(repair)
+	}, [])
 	const datasetMapInteractionEnabled = isDatasetMapInteractionEnabled({
 		draftGeometryVisible,
 		isMobile,
@@ -2092,15 +2154,23 @@ export function GeoEditorView() {
 	// A Dataset inspect writes a shareable focus URL, but that in-app URL update
 	// must not be mistaken for a fresh shared-link landing by the route hydrator.
 	const inAppDatasetInspectRouteRef = useRef<string | null>(null)
+	const storyRoutePresentationRef = useRef<{
+		routeKey: string
+		storyId: string
+		refSignature: string
+		admittedEntryIds: string[]
+		admitted: boolean
+		fitted: boolean
+	} | null>(null)
 	// Sightings and Beacons share the same distinction: an in-app Inspect action
 	// writes a canonical URL but must not route-add/isolate the entity. Only a fresh
 	// shared-link landing gets that Map Stack behavior.
 	const inAppEphemeralInspectRouteRef = useRef<string | null>(null)
 	const navigateToEntityFocus = useCallback(
 		(
-			focusType: 'geoevent' | 'mapcontext',
+			focusType: 'geoevent' | 'mapcontext' | 'story',
 			naddr: string,
-			sidebarView?: 'datasets' | 'contexts',
+			sidebarView?: SidebarViewMode,
 		) => {
 			// Projected private datasets have no public naddr route. Keep inspection
 			// inside /privategroup/:id so opening a map row cannot drop the MLS scope.
@@ -2110,6 +2180,17 @@ export function GeoEditorView() {
 				const currentRouteKey =
 					route.focusType !== 'none' && route.naddr ? `${route.focusType}:${route.naddr}` : null
 				inAppDatasetInspectRouteRef.current = currentRouteKey === nextRouteKey ? null : nextRouteKey
+			} else if (focusType === 'story') {
+				if (
+					route.focusType === 'story' &&
+					route.naddr &&
+					naddrTargetsSameEntity(route.naddr, naddr)
+				) {
+					// Shared addresses may carry relay hints that disappear when Earthly
+					// re-encodes them. They are still the same route; do not rewrite the URL
+					// while the routed Story is refreshed in the Inspector.
+					return
+				}
 			}
 			navigateTo(focusType, naddr, sidebarView)
 		},
@@ -2220,9 +2301,7 @@ export function GeoEditorView() {
 			try {
 				if (plan.switchWorkspace) {
 					// Exact Chat/BindingChip activation may switch only to the validated ID.
-					// Visibility synchronization remains disabled: opening a target is not an
-					// instruction to show it on the map.
-					await switchToWorkspace(plan.workspaceId, { syncMapStackVisibility: false })
+					await switchToWorkspace(plan.workspaceId)
 				}
 
 				const state = useEditorStore.getState()
@@ -2234,11 +2313,6 @@ export function GeoEditorView() {
 					return false
 				}
 
-				// `draft:active` represents whichever workspace is active, so it cannot
-				// survive an exact cross-workspace switch without silently making the new
-				// target visible. Remove that stale visibility row only after success.
-				if (plan.removeStaleDraftVisibility) state.removeMapStackEntry('draft:active')
-
 				const activated = state.activateMobileEntitySurface('dataset', {
 					inspector: state.inspectionSubject != null,
 					dataset: true,
@@ -2248,6 +2322,7 @@ export function GeoEditorView() {
 					beacon: false,
 				})
 				if (!activated) return false
+				ensureActiveDraftMapPresentation(useEditorStore.getState())
 
 				if (!plan.navigateToEditRoute) {
 					closeMobileSidebar()
@@ -3276,16 +3351,8 @@ export function GeoEditorView() {
 	)
 
 	// Export/Import
-	const buildEditorFeatureCollection = useCallback(() => {
-		if (!editor) return
-		return {
-			type: 'FeatureCollection',
-			features: editor.getAllFeatures(),
-		}
-	}, [editor])
-
 	const exportGeoJSON = useCallback(() => {
-		const geojson = buildEditorFeatureCollection()
+		const geojson = buildCollectionFromEditor()
 		if (!geojson) return
 
 		const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' })
@@ -3295,10 +3362,10 @@ export function GeoEditorView() {
 		a.download = 'features.geojson'
 		a.click()
 		URL.revokeObjectURL(url)
-	}, [buildEditorFeatureCollection])
+	}, [buildCollectionFromEditor])
 
 	const exportSHP = useCallback(async () => {
-		const collection = buildEditorFeatureCollection()
+		const collection = buildCollectionFromEditor()
 		if (!collection) return
 
 		try {
@@ -3319,7 +3386,7 @@ export function GeoEditorView() {
 			console.error('Failed to export SHP:', error)
 			toast.error(error instanceof Error ? error.message : 'Failed to export SHP.')
 		}
-	}, [buildEditorFeatureCollection])
+	}, [buildCollectionFromEditor])
 
 	const handleImport = useCallback(
 		async (file: File) => {
@@ -3436,7 +3503,7 @@ export function GeoEditorView() {
 		isMobile,
 		ensureInfoPanelVisible,
 		encodeStoryNaddr,
-		navigateTo,
+		navigateTo: navigateToEntityFocus,
 		navigateToView,
 		clearFocus,
 	})
@@ -3600,11 +3667,9 @@ export function GeoEditorView() {
 		sightingPlacementArmedRef.current = sightingPlacementArmed
 	}, [sightingPlacementArmed])
 
-	// The editor's retained feature model is deliberately independent from its
-	// MapLibre materialization. Publishing swaps the draft row for a Dataset row;
-	// removing that Dataset must therefore leave no editor geometry behind. A
-	// later Edit-sheet/rail reveal remains presentation-only; geometry returns only
-	// through an explicit Map Stack visibility/load action.
+	// Publishing swaps the active draft row for a saved Dataset row. While Dataset
+	// authoring is active, the invariant repair above keeps this materialization
+	// visible; outside authoring, no stale editor geometry remains behind.
 	useEffect(() => {
 		editor?.setGeometryVisible(draftGeometryVisible)
 		editor?.setTransientDrawingVisible(sightingPlacementArmed)
@@ -3864,8 +3929,15 @@ export function GeoEditorView() {
 		if (!routeKey) {
 			focusHandledRef.current = null
 			inAppDatasetInspectRouteRef.current = null
+			storyRoutePresentationRef.current = null
 			inAppEphemeralInspectRouteRef.current = null
 			return
+		}
+		if (
+			storyRoutePresentationRef.current &&
+			storyRoutePresentationRef.current.routeKey !== routeKey
+		) {
+			storyRoutePresentationRef.current = null
 		}
 		if (
 			inAppEphemeralInspectRouteRef.current &&
@@ -3963,9 +4035,218 @@ export function GeoEditorView() {
 			)
 			if (story) {
 				const handledKey = `${routeKey}:${story.id}`
-				if (focusHandledRef.current === handledKey) return
-				handleInspectStory(story)
-				focusHandledRef.current = handledKey
+				const refs = parseStoryRefs(story)
+				const refSignature = refs
+					.map((ref) => ref.entryId)
+					.sort()
+					.join('\u0000')
+				let presentation = storyRoutePresentationRef.current
+				if (!presentation || presentation.routeKey !== routeKey) {
+					presentation = {
+						routeKey,
+						storyId: story.id,
+						refSignature,
+						admittedEntryIds: [],
+						admitted: false,
+						fitted: false,
+					}
+					storyRoutePresentationRef.current = presentation
+				}
+
+				// Reconcile the Inspector from the routed event, then keep revisiting this
+				// branch until its targeted Dataset subscription has supplied fit geometry.
+				// This intentionally uses the same path for shared URLs and in-app opens.
+				if (focusHandledRef.current !== handledKey) {
+					handleInspectStory(story)
+					focusHandledRef.current = handledKey
+				}
+
+				if (presentation.storyId !== story.id) {
+					const previousEntryIds = new Set(presentation.admittedEntryIds)
+					const nextEntryIds = new Set(refs.map((ref) => ref.entryId))
+					const refsChanged = presentation.refSignature !== refSignature
+
+					if (refsChanged) {
+						// A replaceable Story can arrive in more than one version while the
+						// shared route hydrates. Frame the latest reference set, not the one
+						// that happened to resolve first.
+						presentation.fitted = false
+						const stack = useEditorStore.getState().mapStackEntries
+						const carrierKey = `${story.pubkey}:${story.dTag ?? ''}`
+						for (const entryId of previousEntryIds) {
+							if (nextEntryIds.has(entryId)) continue
+							const entry = stack[entryId]
+							if (
+								entry?.source === 'story' &&
+								entry.via?.entityType === 'story' &&
+								entry.via.entityKey === carrierKey &&
+								!entry.pinned
+							) {
+								removeMapStackEntry(entryId)
+							}
+						}
+
+						// Preserve visibility for refs that survived the replacement, but
+						// reveal genuinely new refs and update the carrier title/provenance.
+						for (const ref of refs) {
+							const existing = useEditorStore.getState().mapStackEntries[ref.entryId]
+							if (previousEntryIds.has(ref.entryId)) {
+								if (existing) {
+									addMapStackEntry({
+										id: existing.id,
+										entityType: existing.entityType,
+										entityKey: existing.entityKey,
+										title: existing.title,
+										featureIds: existing.featureIds,
+										source: existing.source,
+										via: ref.via,
+										visible: existing.visible,
+										pinned: existing.pinned,
+										isolated: existing.isolated,
+										exclusions: existing.exclusions,
+									})
+								}
+								continue
+							}
+
+							if (existing) {
+								addMapStackEntry({
+									id: existing.id,
+									entityType: existing.entityType,
+									entityKey: existing.entityKey,
+									title: existing.title,
+									featureIds: existing.featureIds,
+									source: existing.source,
+									via: ref.via,
+									visible: true,
+									pinned: existing.pinned,
+									isolated: existing.isolated,
+									exclusions: existing.exclusions,
+								})
+							} else {
+								addMapStackEntry({
+									id: ref.entryId,
+									entityType: 'dataset',
+									entityKey: ref.datasetKey,
+									title: ref.identifier,
+									featureIds: ref.featureId ? [ref.featureId] : undefined,
+									source: 'story',
+									via: ref.via,
+									visible: true,
+									pinned: false,
+								})
+							}
+						}
+						presentation.admitted = true
+						presentation.admittedEntryIds = [...nextEntryIds]
+					} else {
+						// The Story text/title may have changed without changing its refs.
+						// Refresh only carrier presentation; never revive a hidden entry.
+						for (const ref of refs) {
+							const existing = useEditorStore.getState().mapStackEntries[ref.entryId]
+							if (!existing) continue
+							addMapStackEntry({
+								id: existing.id,
+								entityType: existing.entityType,
+								entityKey: existing.entityKey,
+								title: existing.title,
+								featureIds: existing.featureIds,
+								source: existing.source,
+								via: ref.via,
+								visible: existing.visible,
+								pinned: existing.pinned,
+								isolated: existing.isolated,
+								exclusions: existing.exclusions,
+							})
+						}
+					}
+
+					presentation.storyId = story.id
+					presentation.refSignature = refSignature
+				}
+
+				if (!presentation.admitted) {
+					for (const ref of refs) {
+						const existing = useEditorStore.getState().mapStackEntries[ref.entryId]
+						if (existing) {
+							addMapStackEntry({
+								id: existing.id,
+								entityType: existing.entityType,
+								entityKey: existing.entityKey,
+								title: existing.title,
+								featureIds: existing.featureIds,
+								source: existing.source,
+								via: ref.via,
+								visible: true,
+								pinned: existing.pinned,
+								isolated: existing.isolated,
+								exclusions: existing.exclusions,
+							})
+							continue
+						}
+						addMapStackEntry({
+							id: ref.entryId,
+							entityType: 'dataset',
+							entityKey: ref.datasetKey,
+							title: ref.identifier,
+							featureIds: ref.featureId ? [ref.featureId] : undefined,
+							source: 'story',
+							via: ref.via,
+							visible: true,
+							pinned: false,
+						})
+					}
+					presentation.admitted = true
+					presentation.admittedEntryIds = refs.map((ref) => ref.entryId)
+				}
+				if (presentation.fitted) return
+				// Blob-backed collections are cached outside React; this explicit read
+				// makes their resolution counter a retry signal for the pending fit.
+				void resolvedCollectionsVersion
+
+				const stack = useEditorStore.getState()
+				const visibleRefs = refs.filter((ref) => {
+					const entry = stack.mapStackEntries[ref.entryId]
+					return Boolean(entry && entry.visible !== false)
+				})
+				// A user removal/hide while reference data was resolving wins over the
+				// original landing intent; never resurrect or refit that removed content.
+				if (refs.length > 0 && visibleRefs.length === 0) {
+					presentation.fitted = true
+					return
+				}
+
+				const datasetByKey = new Map(mapGeoEvents.map((event) => [getDatasetKey(event), event]))
+				if (visibleRefs.some((ref) => !datasetByKey.has(ref.datasetKey))) return
+
+				let bounds: GeoBounds | null = null
+				for (const ref of visibleRefs) {
+					const dataset = datasetByKey.get(ref.datasetKey)
+					if (!dataset) return
+					const resolvedCollection = resolvedCollectionResolver(dataset)
+					const collection = resolvedCollection ?? dataset.featureCollection
+					const inlineBounds = collectionGeoBounds(collection, ref.featureId)
+					if (
+						dataset.blobReferences.length > 0 &&
+						!resolvedCollection &&
+						(ref.featureId || (!dataset.boundingBox && !inlineBounds))
+					) {
+						// Feature-level bounds need the external collection. The blob resolver's
+						// version tick also retries whole-Dataset refs that have no usable
+						// event/inline bounds yet.
+						return
+					}
+					const referenceBounds = ref.featureId
+						? (inlineBounds ?? dataset.boundingBox)
+						: (dataset.boundingBox ?? inlineBounds)
+					bounds = mergeGeoBounds(bounds, referenceBounds)
+				}
+				bounds = bounds ?? story.boundingBox ?? null
+				if (bounds) {
+					if (!mounted || !map.current) return
+					handleZoomToBounds(bounds)
+				}
+				presentation.fitted = true
 			}
 		} else if (route.focusType === 'sighting') {
 			// D-08: resolve the /sighting/:naddr deep link via useSightings (already
@@ -4044,6 +4325,8 @@ export function GeoEditorView() {
 		encodeSightingNaddr,
 		encodeBeaconNaddr,
 		addDatasetToMapStack,
+		addMapStackEntry,
+		removeMapStackEntry,
 		addSightingToMapStack,
 		addBeaconToMapStack,
 		handleInspectDataset,
@@ -4051,6 +4334,12 @@ export function GeoEditorView() {
 		handleInspectStory,
 		handleInspectSighting,
 		handleInspectBeacon,
+		getDatasetKey,
+		handleZoomToBounds,
+		mapGeoEvents,
+		mounted,
+		resolvedCollectionResolver,
+		resolvedCollectionsVersion,
 		zoomToDataset,
 	])
 
@@ -5284,6 +5573,7 @@ export function GeoEditorView() {
 				<DebugDialog event={debugEvent} open={debugDialogOpen} onOpenChange={setDebugDialogOpen} />
 			)}
 			<ReferencePublishDialog />
+			<StoryTargetDialog />
 			{/* Blossom Upload Dialog */}
 			;
 			<BlossomUploadDialog

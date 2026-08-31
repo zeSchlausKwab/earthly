@@ -38,6 +38,7 @@ import {
 	stringifyNostrAddressReference,
 } from '@/lib/nostr/references'
 import { stringifyGeoReference, type OsmElementType } from '@/lib/geo/reference'
+import { getFeatureCallouts, type MapCallout } from '@/lib/geo/callouts'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
 
@@ -56,6 +57,10 @@ const MAX_BODY_CHARS = 20_000
 const MAX_FEATURE_LIST = 150
 /** Cap on a single serialized feature returned via `featureId`. */
 const MAX_FEATURE_CHARS = 30_000
+/** Keep published inventories informative without reproducing long authored cards. */
+const MAX_CALLOUTS_PER_FEATURE = 5
+const MAX_DATASET_CALLOUT_SUMMARIES = 60
+const MAX_CALLOUT_TEXT_CHARS = 180
 
 // ── reference parsing (exported for tests) ─────────────────────────────
 
@@ -158,6 +163,18 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v 
 function truncate(text: string, max: number): { text: string; truncated: boolean } {
 	if (text.length <= max) return { text, truncated: false }
 	return { text: `${text.slice(0, max)}…`, truncated: true }
+}
+
+function compactCallout(callout: MapCallout) {
+	const text = truncate(callout.text, MAX_CALLOUT_TEXT_CHARS)
+	return {
+		id: callout.id,
+		...(callout.title ? { title: callout.title } : {}),
+		text: text.text,
+		...(text.truncated ? { textTruncated: true } : {}),
+		...(callout.media?.length ? { mediaCount: callout.media.length } : {}),
+		...(callout.placement?.side ? { placementSide: callout.placement.side } : {}),
+	}
 }
 
 function toMentions(coordinates: string[]): string[] {
@@ -266,6 +283,15 @@ function shapeDataset(
 	}
 
 	const parsedDatasetMention = parseNostrAddressReference(datasetMention)
+	let calloutCount = 0
+	let calloutFeatureCount = 0
+	for (const feature of features) {
+		const featureCallouts = getFeatureCallouts({ properties: feature.properties ?? null })
+		if (featureCallouts.length === 0) continue
+		calloutCount += featureCallouts.length
+		calloutFeatureCount += 1
+	}
+	let returnedCalloutSummaries = 0
 	const inventory = features.slice(0, MAX_FEATURE_LIST).map((feature, index) => {
 		const id =
 			typeof feature.id === 'string' || typeof feature.id === 'number'
@@ -276,6 +302,16 @@ function shapeDataset(
 			Array.isArray((feature.geometry as { coordinates?: unknown }).coordinates)
 				? (feature.geometry as { coordinates: unknown[] }).coordinates.slice(0, 2)
 				: undefined
+		const featureCallouts = getFeatureCallouts({ properties: feature.properties ?? null })
+		const availableCalloutSummaries = Math.max(
+			0,
+			MAX_DATASET_CALLOUT_SUMMARIES - returnedCalloutSummaries,
+		)
+		const summarizedCallouts = featureCallouts.slice(
+			0,
+			Math.min(MAX_CALLOUTS_PER_FEATURE, availableCalloutSummaries),
+		)
+		returnedCalloutSummaries += summarizedCallouts.length
 		return {
 			id,
 			name: str(feature.properties?.name),
@@ -294,6 +330,13 @@ function shapeDataset(
 			...(compactFeatureProperties(feature.properties)
 				? { properties: compactFeatureProperties(feature.properties) }
 				: {}),
+			...(featureCallouts.length > 0
+				? {
+						calloutCount: featureCallouts.length,
+						callouts: summarizedCallouts.map(compactCallout),
+						calloutsTruncated: summarizedCallouts.length < featureCallouts.length,
+					}
+				: {}),
 		}
 	})
 
@@ -301,6 +344,8 @@ function shapeDataset(
 		name: str(collection.name),
 		description: str(collection.description),
 		featureCount: features.length,
+		calloutCount,
+		calloutFeatureCount,
 		features: inventory,
 		featuresTruncated: features.length > MAX_FEATURE_LIST,
 		...(blobScopes.length > 0
@@ -362,7 +407,7 @@ const readEntitySchema: Tool = {
 	function: {
 		name: 'read_entity',
 		description:
-			"Fetch ONE Earthly entity's full content by reference — use after search_entities (which only returns summaries) or when the user attaches/mentions an entity. Accepts an naddr (nostr:naddr1…), including an encoded #featureId selector, or a kind:pubkey:d coordinate. Returns the full story Markdown body with its referenced mentions, a group/context's content and curated references, or a dataset's metadata and feature inventory. Dataset inventory rows include ready-to-cite fine-grained references, OSM references when present, Point coordinates, and compact semantic properties. An explicit featureId overrides the selector in reference.",
+			"Fetch ONE Earthly entity's full content by reference — use after search_entities (which only returns summaries) or when the user attaches/mentions an entity. Accepts an naddr (nostr:naddr1…), including an encoded #featureId selector, or a kind:pubkey:d coordinate. Returns the full story Markdown body with its referenced mentions, a group/context's content and curated references, or a dataset's metadata and feature inventory. Dataset inventory rows include ready-to-cite fine-grained references, OSM references when present, Point coordinates, compact semantic properties, and bounded summaries of existing map callouts. An explicit featureId overrides the selector in reference.",
 		parameters: {
 			type: 'object',
 			properties: {

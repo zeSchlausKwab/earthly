@@ -1156,6 +1156,7 @@ export function AppSidebar({
 		onStartNewDataset: handleStartNewDataset,
 		onOpenGeometryEditor,
 		onSwitchWorkspace,
+		onDeleteWorkspace,
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
@@ -1367,13 +1368,13 @@ export function AppSidebar({
 			return (
 				<ResizablePanelGroup orientation="vertical" className="h-full">
 					<ResizablePanel id={`${activeEntity}-editor`} defaultSize={52} minSize={20}>
-						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto pr-2 [scrollbar-gutter:stable]">
 							{renderEntityContent()}
 						</div>
 					</ResizablePanel>
 					<ResizableHandle withHandle />
 					<ResizablePanel id={`${activeWorkMode}-panel`} defaultSize={48} minSize={20}>
-						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto pr-2 [scrollbar-gutter:stable]">
 							{renderWorkContent(activeWorkMode)}
 						</div>
 					</ResizablePanel>
@@ -1392,7 +1393,7 @@ export function AppSidebar({
 			return (
 				<div className="flex h-full min-h-0 flex-col">
 					{showEntityAsFullPanel ? renderBackToCatalogBar() : null}
-					<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+					<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pr-2 [scrollbar-gutter:stable]">
 						{renderEntityContent()}
 					</div>
 				</div>
@@ -1709,7 +1710,7 @@ export function AppSidebar({
 					)}
 				</SidebarHeader>
 
-				<SidebarContent className="p-2">
+				<SidebarContent className="p-2 pr-3 [scrollbar-gutter:stable]">
 					<SidebarGroup className="h-full p-0">
 						<SidebarGroupContent className="h-full">{renderContent()}</SidebarGroupContent>
 					</SidebarGroup>

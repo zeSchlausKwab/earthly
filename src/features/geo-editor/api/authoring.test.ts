@@ -16,6 +16,10 @@ describe('createAuthoring — addFeature (D-10/D-11, T-02-04 reuse)', () => {
 	let authoring: Authoring
 
 	beforeEach(() => {
+		useEditorStore.setState({
+			collectionMeta: createDefaultCollectionMeta(),
+			activeGeoEditDraftId: null,
+		})
 		editor = createHeadlessEditor()
 		authoring = createAuthoring(editor)
 	})
@@ -216,6 +220,69 @@ describe('createAuthoring — commitDataset (validated atomic replace)', () => {
 		expect(editor.getFeature('researched-1')?.properties?.sourceRow).toBe(1)
 	})
 
+	it('prunes unreferenced GeoCatalog manifests on a complete replacement', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+		authoring.setDatasetMetadata({
+			properties: {
+				'earthly:geoCatalogSourceManifest:stale': '{"snapshotId":"stale"}',
+				userNote: 'keep this',
+			},
+		})
+
+		authoring.commitDataset({
+			featureCollection: {
+				type: 'FeatureCollection',
+				features: [
+					{
+						type: 'Feature',
+						id: 'fresh-point',
+						geometry: { type: 'Point', coordinates: [85.3, 28.1] },
+						properties: { name: 'Fresh point' },
+					},
+				],
+			},
+		})
+
+		expect(useEditorStore.getState().collectionMeta.customProperties).toEqual({
+			userNote: 'keep this',
+		})
+	})
+
+	it('keeps only GeoCatalog manifests referenced by replacement features', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+		authoring.setDatasetMetadata({
+			properties: {
+				'earthly:geoCatalogSourceManifest:keep': '{"snapshotId":"keep"}',
+				'earthly:geoCatalogSourceManifest:drop': '{"snapshotId":"drop"}',
+			},
+		})
+
+		authoring.writeGeoJSON(
+			{
+				type: 'FeatureCollection',
+				features: [
+					{
+						type: 'Feature',
+						id: 'catalog-point',
+						geometry: { type: 'Point', coordinates: [85.3, 28.1] },
+						properties: {
+							source: {
+								manifestProperty: 'earthly:geoCatalogSourceManifest:keep',
+							},
+						},
+					},
+				],
+			},
+			{ replace: true },
+		)
+
+		expect(useEditorStore.getState().collectionMeta.customProperties).toEqual({
+			'earthly:geoCatalogSourceManifest:keep': '{"snapshotId":"keep"}',
+		})
+	})
+
 	it('rejects unknown geometry precision labels', () => {
 		const editor = createHeadlessEditor()
 		const authoring = createAuthoring(editor)
@@ -401,6 +468,10 @@ describe('createAuthoring — modifyFeature (INFRA-02, intent:modify)', () => {
 	let authoring: Authoring
 
 	beforeEach(() => {
+		useEditorStore.setState({
+			collectionMeta: createDefaultCollectionMeta(),
+			activeGeoEditDraftId: null,
+		})
 		editor = createHeadlessEditor()
 		authoring = createAuthoring(editor)
 	})
@@ -444,6 +515,35 @@ describe('createAuthoring — modifyFeature (INFRA-02, intent:modify)', () => {
 			/authoring\.modifyFeature/,
 		)
 	})
+
+	it('reconciles GeoCatalog manifests when a modification changes its source pointer', () => {
+		const oldManifest = 'earthly:geoCatalogSourceManifest:old'
+		const nextManifest = 'earthly:geoCatalogSourceManifest:next'
+		authoring.setDatasetMetadata({
+			properties: {
+				[oldManifest]: '{"snapshotId":"old"}',
+				[nextManifest]: '{"snapshotId":"next"}',
+				userNote: 'keep',
+			},
+		})
+		authoring.addFeature({
+			type: 'Feature',
+			id: 'catalog-feature',
+			geometry: { type: 'Point', coordinates: [85.3, 28.1] },
+			properties: { source: { manifestProperty: oldManifest } },
+		})
+
+		authoring.modifyFeature('catalog-feature', {
+			type: 'Feature',
+			geometry: { type: 'Point', coordinates: [85.4, 28.2] },
+			properties: { source: { manifestProperty: nextManifest } },
+		})
+
+		expect(useEditorStore.getState().collectionMeta.customProperties).toEqual({
+			[nextManifest]: '{"snapshotId":"next"}',
+			userNote: 'keep',
+		})
+	})
 })
 
 describe('createAuthoring — deleteFeatures (INFRA-02, intent:delete)', () => {
@@ -451,6 +551,10 @@ describe('createAuthoring — deleteFeatures (INFRA-02, intent:delete)', () => {
 	let authoring: Authoring
 
 	beforeEach(() => {
+		useEditorStore.setState({
+			collectionMeta: createDefaultCollectionMeta(),
+			activeGeoEditDraftId: null,
+		})
 		editor = createHeadlessEditor()
 		authoring = createAuthoring(editor)
 	})
@@ -478,6 +582,30 @@ describe('createAuthoring — deleteFeatures (INFRA-02, intent:delete)', () => {
 		expect(result.counts.deleted).toBe(1)
 		expect(result.featureIds).toEqual(['test-point-1'])
 		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+
+	it('keeps a manifest until its last referencing feature is deleted', () => {
+		const manifest = 'earthly:geoCatalogSourceManifest:shared'
+		authoring.setDatasetMetadata({
+			properties: {
+				[manifest]: '{"snapshotId":"shared"}',
+				userNote: 'keep',
+			},
+		})
+		for (const id of ['catalog-a', 'catalog-b']) {
+			authoring.addFeature({
+				type: 'Feature',
+				id,
+				geometry: { type: 'Point', coordinates: [85.3, 28.1] },
+				properties: { source: { manifestProperty: manifest } },
+			})
+		}
+
+		authoring.deleteFeatures(['catalog-a'])
+		expect(useEditorStore.getState().collectionMeta.customProperties).toHaveProperty(manifest)
+
+		authoring.deleteFeatures(['catalog-b'])
+		expect(useEditorStore.getState().collectionMeta.customProperties).toEqual({ userNote: 'keep' })
 	})
 })
 

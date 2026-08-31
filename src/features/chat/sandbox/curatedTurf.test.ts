@@ -26,6 +26,7 @@ const EXPECTED_KEYS = [
 	'destination',
 	'point',
 	'lineString',
+	'multiLineString',
 	'along',
 	'nearestPointOnLine',
 	'booleanPointInPolygon',
@@ -68,6 +69,20 @@ describe('curatedTurf surface (D-02)', () => {
 		expect(d).toBeGreaterThan(100)
 		const c = curatedTurf.circle([14.5, 47.5], 1, { units: 'kilometers' })
 		expect(c.geometry.type).toBe('Polygon')
+	})
+
+	it('constructs a MultiLineString for batched river fragments', () => {
+		const feature = curatedTurf.multiLineString([
+			[
+				[85.2, 28.1],
+				[85.21, 28.05],
+			],
+			[
+				[85.21, 28.05],
+				[85.22, 28],
+			],
+		])
+		expect(feature.geometry.type).toBe('MultiLineString')
 	})
 })
 

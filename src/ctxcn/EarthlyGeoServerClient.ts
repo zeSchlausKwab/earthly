@@ -700,9 +700,29 @@ export interface WikipediaExtractInput {
 	 */
 	language?: string
 	/**
-	 * "outline" lists sections and table shapes with samples; "table" returns a page of rows from tableIndex. Default: "outline".
+	 * "article" reads bounded article prose; "section" reads one bounded section; "outline" lists sections and table shapes; "table" returns rows from tableIndex. Default: "outline".
 	 */
-	mode?: 'outline' | 'table'
+	mode?: 'outline' | 'article' | 'section' | 'table'
+	/**
+	 * Revision ID returned by a previous prose page. Pass it on continuations so textOffset addresses the same article revision.
+	 */
+	revisionId?: number
+	/**
+	 * MediaWiki section index from outline mode (for example "2" or "2.1").
+	 */
+	sectionIndex?: string
+	/**
+	 * Exact section title when sectionIndex is unavailable. Must identify one section.
+	 */
+	sectionTitle?: string
+	/**
+	 * Zero-based character offset in article or section mode (default: 0).
+	 */
+	textOffset?: number
+	/**
+	 * Maximum characters returned in article or section mode (default: 12000, max: 30000).
+	 */
+	textLimit?: number
 	/**
 	 * Zero-based table index. Required in table mode.
 	 */
@@ -719,7 +739,7 @@ export interface WikipediaExtractInput {
 
 export interface WikipediaExtractOutput {
 	result: {
-		mode: 'outline' | 'table'
+		mode: 'outline' | 'article' | 'section' | 'table'
 		source: {
 			title: string
 			url: string
@@ -731,7 +751,7 @@ export interface WikipediaExtractOutput {
 			 */
 			retrievedAt: string
 		}
-		lead: string
+		lead?: string
 		sections: {
 			index: string
 			level: number
@@ -755,6 +775,36 @@ export interface WikipediaExtractOutput {
 				}
 			}[]
 		}[]
+		prose?: {
+			scope: 'article' | 'section'
+			section: {
+				index: string
+				level: number
+				title: string
+				anchor: string
+			} | null
+			text: string
+		}
+		textPagination?: {
+			/**
+			 * "complete" is the only status where this response contains all requested prose; "more" has a next page; "final_page" still omits earlier text.
+			 */
+			status: 'complete' | 'more' | 'final_page'
+			offset: number
+			returnedCharacters: number
+			totalCharacters: number
+			hasPrevious: boolean
+			hasNext: boolean
+			nextOffset: number | null
+			/**
+			 * Revision to pass back on every continuation so character offsets remain stable
+			 */
+			revisionId: number | null
+			/**
+			 * Explicit model-facing statement of prose coverage and next action
+			 */
+			message: string
+		}
 		table?: {
 			index: number
 			sectionIndex: string | null
@@ -880,6 +930,11 @@ export type EarthlyGeoServer = {
 		title?: string,
 		language?: string,
 		mode?: string,
+		revisionId?: number,
+		sectionIndex?: string,
+		sectionTitle?: string,
+		textOffset?: number,
+		textLimit?: number,
 		tableIndex?: number,
 		rowOffset?: number,
 		rowLimit?: number,
@@ -1293,11 +1348,16 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 	}
 
 	/**
-	 * Inspect a Wikipedia article's sections and tables, then retrieve a bounded page of structured table rows. Table results include pagination.status: complete means the response contains the full table, more points to pagination.nextOffset, and final_page still omits earlier rows. Every response includes article, revision, section, table, and row provenance suitable for researched map datasets.
+	 * Read bounded prose or structured tables from one Wikipedia article without scraping alternate raw/API URLs. Use article mode for prose, section mode with a section index/title for focused prose, outline mode to discover sections and tables, and table mode for rows. Prose continuations use textPagination.nextOffset and must pass the returned revisionId; table continuations use pagination.nextOffset. Every response preserves article and revision provenance.
 	 * @param {string} url [optional] A wikipedia.org article URL. Either url or title is required.
 	 * @param {string} title [optional] Exact Wikipedia article title. Either title or url is required.
 	 * @param {string} language [optional] Wikipedia language code when title is used (default: "en").
-	 * @param {string} mode [optional] "outline" lists sections and table shapes with samples; "table" returns a page of rows from tableIndex. Default: "outline".
+	 * @param {string} mode [optional] "article" reads bounded article prose; "section" reads one bounded section; "outline" lists sections and table shapes; "table" returns rows from tableIndex. Default: "outline".
+	 * @param {number} revisionId [optional] Revision ID returned by a previous prose page. Pass it on continuations so textOffset addresses the same article revision.
+	 * @param {string} sectionIndex [optional] MediaWiki section index from outline mode (for example "2" or "2.1").
+	 * @param {string} sectionTitle [optional] Exact section title when sectionIndex is unavailable. Must identify one section.
+	 * @param {number} textOffset [optional] Zero-based character offset in article or section mode (default: 0).
+	 * @param {number} textLimit [optional] Maximum characters returned in article or section mode (default: 12000, max: 30000).
 	 * @param {number} tableIndex [optional] Zero-based table index. Required in table mode.
 	 * @param {number} rowOffset [optional] Zero-based data-row offset in table mode (default: 0).
 	 * @param {number} rowLimit [optional] Maximum rows returned in table mode (default: 50, max: 200).
@@ -1308,6 +1368,11 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		title?: string,
 		language?: string,
 		mode?: string,
+		revisionId?: number,
+		sectionIndex?: string,
+		sectionTitle?: string,
+		textOffset?: number,
+		textLimit?: number,
 		tableIndex?: number,
 		rowOffset?: number,
 		rowLimit?: number,
@@ -1317,6 +1382,11 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 			title,
 			language,
 			mode,
+			revisionId,
+			sectionIndex,
+			sectionTitle,
+			textOffset,
+			textLimit,
 			tableIndex,
 			rowOffset,
 			rowLimit,

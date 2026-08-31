@@ -52,7 +52,6 @@ export function hasRetainedDatasetSurface(state: RetainedDatasetState): boolean 
 export interface DraftEditorOpenPlan {
 	workspaceId: string
 	switchWorkspace: boolean
-	removeStaleDraftVisibility: boolean
 	navigateToEditRoute: boolean
 }
 
@@ -73,9 +72,6 @@ export function resolveDraftEditorOpenPlan(
 	return {
 		workspaceId,
 		switchWorkspace,
-		// `draft:active` follows the active workspace. After an exact switch it
-		// would otherwise make the new target visible without a Map Stack action.
-		removeStaleDraftVisibility: switchWorkspace,
 		navigateToEditRoute: !isMobile,
 	}
 }

@@ -9,7 +9,7 @@ import {
 	setAddressReferenceTags,
 } from '@/lib/nostr/references'
 import { noteSessionPublish } from '@/lib/nostr/sessionPublishes'
-import { useEditorStore } from '@/features/geo-editor/store'
+import { reconcilePublishedDatasetIdentity } from '@/features/geo-editor/publicationIdentity'
 import type {
 	CapturedDatasetPublication,
 	DatasetPublicationMode,
@@ -65,73 +65,6 @@ function applyBlobStrategy(
 		.withSpatialMetadata()
 		.content(JSON.stringify(buildCollectionStub(collection, collectionBlob.url)))
 		.withContentMetadata()
-}
-
-export function reconcilePublishedDatasetIdentity(
-	captured: CapturedDatasetPublication,
-	dataset: GeoDataset,
-): void {
-	const state = useEditorStore.getState()
-	const currentDraft = state.geoEditDrafts[captured.binding.draftId]
-	const currentWorkspace = state.workspaces[captured.binding.workspaceId]
-	if (
-		!currentDraft ||
-		!currentWorkspace ||
-		currentWorkspace.activeDraftId !== captured.binding.draftId ||
-		currentDraft.sourceId !== captured.binding.sourceId ||
-		currentWorkspace.sourceId !== captured.binding.sourceId
-	) {
-		return
-	}
-	const draftWasUnchanged = currentDraft?.updatedAt === captured.binding.draftUpdatedAt
-	const datasetKey = `${dataset.pubkey}:${dataset.dTag}`
-	const sourceId = `dataset:${datasetKey}`
-	const siblingDraft = Object.values(state.geoEditDrafts)
-		.filter((draft) => draft.id !== currentDraft.id && draft.sourceId === captured.binding.sourceId)
-		.sort((a, b) => b.updatedAt - a.updatedAt)[0]
-	const previousWorkspaceIdentity = {
-		sourceId: currentWorkspace.sourceId,
-		kind: currentWorkspace.kind,
-		datasetKey: currentWorkspace.datasetKey,
-		baseRevisionId: currentWorkspace.baseRevisionId,
-	}
-
-	state.saveGeoEditDraft(currentDraft.id, { sourceId })
-	state.updateWorkspace(currentWorkspace.id, {
-		sourceId,
-		kind: 'dataset',
-		datasetKey,
-		baseRevisionId: dataset.event.id,
-		label: captured.title,
-	})
-	if (siblingDraft && previousWorkspaceIdentity.sourceId !== sourceId) {
-		// Publishing a new/copy address moves only the captured revision. Keep
-		// sibling local drafts reachable under their original source instead of
-		// silently orphaning them when this workspace changes identity.
-		state.createWorkspace({
-			sourceId: previousWorkspaceIdentity.sourceId,
-			label: siblingDraft.collectionMeta.name || siblingDraft.name || currentWorkspace.label,
-			kind: previousWorkspaceIdentity.kind,
-			datasetKey: previousWorkspaceIdentity.datasetKey,
-			baseRevisionId: previousWorkspaceIdentity.baseRevisionId,
-			activeDraftId: siblingDraft.id,
-			chatSessionId: null,
-			activate: false,
-		})
-	}
-
-	const latest = useEditorStore.getState()
-	const stillDisplayed =
-		latest.activeWorkspaceId === captured.binding.workspaceId &&
-		(latest.activeGeoEditDraftId === captured.binding.draftId ||
-			latest.workspaces[captured.binding.workspaceId]?.activeDraftId === captured.binding.draftId)
-	if (!stillDisplayed) return
-
-	// Updating the identity is safe while the user looks elsewhere. Updating the
-	// displayed dataset is safe only when the exact captured draft is still the
-	// displayed one. New edits made while the dialog was open remain dirty.
-	latest.setActiveDataset(dataset)
-	latest.setIsDirty(!draftWasUnchanged)
 }
 
 /** Publish the immutable payload captured at gate creation, never live editor state. */
@@ -198,7 +131,7 @@ export async function publishCapturedPublicDataset(
 	if (!mention) throw new Error('The published Dataset did not produce a referenceable address.')
 
 	noteSessionPublish({ type: 'dataset', name: captured.title, coordinate })
-	reconcilePublishedDatasetIdentity(captured, dataset)
+	reconcilePublishedDatasetIdentity(captured.binding, dataset, captured.title)
 	return {
 		mode,
 		datasetCoordinate: coordinate,

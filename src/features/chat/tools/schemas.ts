@@ -9,6 +9,9 @@
 
 import type { Tool } from './types'
 
+const PREDICATE_FIELD_DESCRIPTION =
+	'The feature property key to test (read directly from properties; no nesting), or a host field: "$id" for the GeoJSON feature id, "$geometryType" for the geometry type, and "$selected" for current map-selection membership.'
+
 /**
  * Look up a hand-authored OpenAI function schema by tool name. Shared by the
  * registry bootstrap and the injected tool modules (e.g. ingest-tools) so every
@@ -28,7 +31,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'get_editor_state',
 			description:
-				"Get current map editor context (center, zoom, viewport bbox, feature count, current serialized dataset size, mode). Returns compact output by default; use detail='full' only when needed.",
+				"Get current map editor context (center, zoom, viewport bbox, feature count, bounded summaries of existing map callouts, current serialized dataset size, mode). Returns compact output by default; use detail='full' only when needed.",
 			parameters: {
 				type: 'object',
 				properties: {
@@ -221,9 +224,93 @@ export const geoStaticToolSchemas: Tool[] = [
 	{
 		type: 'function',
 		function: {
+			name: 'query_geography',
+			description:
+				"Query Earthly's fast, self-hosted geography catalog. The baseline snapshot covers administrative areas, localities, places, waterways, and infrastructure; road and rail are optional coverage packs. An unavailable road or rail kind is an intentional capability boundary, not a remote OSM fallback signal. This is the primary source for reusable real-world geometry and place discovery in the baseline kinds; use remote OSM tools only when it reports a genuine baseline coverage gap. Filter groups combine with AND semantics; values within a list use OR semantics. Text authoring is always discovered first: the host imports only one unique exact, complete match and otherwise returns a no-match or selectionRequired result without changing the Dataset. Stable ids resolve and import exactly without remote re-search.",
+			parameters: {
+				type: 'object',
+				properties: {
+					text: {
+						type: 'string',
+						description: 'Name or free-text geography search.',
+					},
+					ids: {
+						type: 'array',
+						description: 'Stable catalog ids to resolve exactly.',
+						items: { type: 'string' },
+					},
+					kinds: {
+						type: 'array',
+						description:
+							'Normalized geography kinds to include. Road and rail may be unavailable unless an optional transport coverage pack is installed.',
+						items: {
+							type: 'string',
+							enum: ['admin', 'locality', 'place', 'road', 'rail', 'waterway', 'infrastructure'],
+						},
+					},
+					categories: {
+						type: 'array',
+						description:
+							'Exact semantic classifications, such as hospital, museum, village, river, motorway, bridge, or corridor.',
+						items: { type: 'string' },
+					},
+					adminLevels: {
+						type: 'array',
+						description:
+							'Administrative hierarchy levels: 0 is a country, 1 is its first subdivision, and so on.',
+						items: { type: 'number' },
+					},
+					countryCode: {
+						type: 'string',
+						description: 'Optional ISO alpha-2 country code, such as NP or CN.',
+					},
+					bbox: {
+						type: 'object',
+						description: 'Optional WGS84 bounding box.',
+						properties: {
+							west: { type: 'number' },
+							south: { type: 'number' },
+							east: { type: 'number' },
+							north: { type: 'number' },
+						},
+						required: ['west', 'south', 'east', 'north'],
+					},
+					near: {
+						type: 'object',
+						description: 'Optional proximity point with longitude and latitude.',
+						properties: {
+							longitude: { type: 'number' },
+							latitude: { type: 'number' },
+						},
+						required: ['longitude', 'latitude'],
+					},
+					radiusMeters: {
+						type: 'number',
+						description: 'Optional radius around near, in meters.',
+					},
+					limit: {
+						type: 'number',
+						description: 'Maximum results to return.',
+					},
+					toEditor: {
+						type: 'boolean',
+						description:
+							'Import into the bound Dataset. Stable ids import exactly. Text first runs read-only discovery and imports only one unique exact non-truncated match; ambiguity or no match leaves the Dataset unchanged.',
+					},
+					replaceExisting: {
+						type: 'boolean',
+						description: 'Used with toEditor=true. Replace current editor features when true.',
+					},
+				},
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
 			name: 'search_location',
 			description:
-				'Search for locations by name using OpenStreetMap. Returns coordinates, bounding boxes, and addresses.',
+				'Last-resort remote OpenStreetMap place-name search. Use only after query_geography returned no matches or insufficient detail for a baseline catalog kind; this is not an initial discovery tool. The intentional absence of optional road or rail packs is not a fallback signal. Returns coordinates, bounding boxes, and addresses.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -270,7 +357,8 @@ export const geoStaticToolSchemas: Tool[] = [
 		type: 'function',
 		function: {
 			name: 'query_osm_by_id',
-			description: 'Fetch one exact OpenStreetMap element by type and ID (node/way/relation).',
+			description:
+				'Fetch one exact OpenStreetMap element by type and ID. Use directly when the user supplied that OSM id; otherwise prefer query_geography and use this only for a genuine baseline coverage gap. The intentional absence of optional road or rail packs is not such a gap.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -302,7 +390,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_nearby',
 			description:
-				'Find OpenStreetMap features near a point. Can filter by tags like amenity=cafe, shop=supermarket. Set includeRelations=true for boundaries and route relations.',
+				'Last-resort, read-only OpenStreetMap discovery near a point. Use only when query_geography reports a genuine local-detail gap in a baseline catalog kind. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. Filter by tags such as amenity=cafe or shop=supermarket; include relations only when the missing baseline detail requires one. This tool never edits the Dataset; explicitly select an exact result or use import_osm_to_editor after discovery.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -342,15 +430,6 @@ export const geoStaticToolSchemas: Tool[] = [
 						description:
 							'If true, include OSM relations in results (heavier but required for many boundaries).',
 					},
-					toEditor: {
-						type: 'boolean',
-						description:
-							'If true, import returned geometries directly into editor and return a compact import summary.',
-					},
-					replaceExisting: {
-						type: 'boolean',
-						description: 'Used when toEditor=true. If true, replaces current editor features.',
-					},
 				},
 				required: ['lat', 'lon'],
 			},
@@ -361,7 +440,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_bbox',
 			description:
-				'Find OpenStreetMap features within a bounding box. Can filter by tags. Set includeRelations=true for administrative boundaries.',
+				'Last-resort, read-only OpenStreetMap discovery within a bounding box. Prefer query_geography and use this only for a confirmed baseline catalog coverage gap. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. Narrow the request with tags; include relations only when the missing baseline detail requires an administrative boundary. This tool never edits the Dataset; explicitly select an exact result or use import_osm_to_editor after discovery.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -405,15 +484,6 @@ export const geoStaticToolSchemas: Tool[] = [
 						description:
 							'If true, include OSM relations (recommended for administrative boundaries).',
 					},
-					toEditor: {
-						type: 'boolean',
-						description:
-							'If true, import returned geometries directly into editor and return a compact import summary.',
-					},
-					replaceExisting: {
-						type: 'boolean',
-						description: 'Used when toEditor=true. If true, replaces current editor features.',
-					},
 				},
 				required: ['west', 'south', 'east', 'north'],
 			},
@@ -424,7 +494,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_area',
 			description:
-				'Find OpenStreetMap features constrained to a polygonal area (SLOW remote call — use for LOCAL/detailed features: POIs, streets, buildings, small waterways; country-scale coastlines and major rivers come from the bundled world layers in run_code instead). The area can come from the current selected polygon(s), explicit areaGeojson, transient chat-attached geometry for the current request, a country boundary, or an OSM relation. Can also clip matching lines to the area or convert results to representative points. Always provide filters, filterSets, or concept; unfiltered area scans are too large for Overpass.',
+				'Last-resort, slow, read-only OpenStreetMap discovery constrained to a polygon area. Use only after query_geography reports a genuine coverage gap in a baseline catalog kind, and only for local detail such as POIs, buildings, or small waterways; use bundled world layers for generalized country-scale coastlines and major rivers. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. The area may come from selected polygons, explicit or chat-attached geometry, a country boundary, or an exact user-supplied OSM relation. It can clip matching lines or return representative points. Always provide filters, filterSets, or a semantic concept; never run an unfiltered area scan. This tool never edits the Dataset; use import_osm_to_editor for a deliberate import.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -498,15 +568,6 @@ export const geoStaticToolSchemas: Tool[] = [
 						description:
 							'When outputGeometry="native", clip matching LineString/MultiLineString features to the polygon area. Default true.',
 					},
-					toEditor: {
-						type: 'boolean',
-						description:
-							'If true, import filtered results directly into the editor and return a compact import summary.',
-					},
-					replaceExisting: {
-						type: 'boolean',
-						description: 'Used when toEditor=true. If true, replaces current editor features.',
-					},
 				},
 			},
 		},
@@ -516,7 +577,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'resolve_osm_entity',
 			description:
-				'Resolve a name/place to concrete OSM IDs before importing (best first step for administrative boundaries).',
+				'Last-resort remote lookup that resolves a name/place to concrete OSM IDs. Use only after query_geography returned no matches or insufficient detail for a baseline catalog kind. The intentional absence of optional road or rail packs is not a fallback signal. If the user explicitly supplied an OSM id, use the corresponding exact-id OSM tool instead of resolving the name.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -551,7 +612,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'get_osm_relation_geometry',
 			description:
-				'Fetch one OSM relation by id and assemble geometry. Use after resolve_osm_entity for clean boundary imports.',
+				'Last-resort remote fetch that assembles one OSM relation geometry. Use only after query_geography returned no matches or insufficient detail in a baseline catalog kind, unless the user explicitly supplied an OSM relation id. The intentional absence of optional road or rail packs is not a fallback signal. After a confirmed baseline gap, resolve_osm_entity can identify the relation id.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -628,13 +689,13 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'valhalla_route',
 			description:
-				'Compute a network-following road, bus, bicycle, pedestrian, or truck route from waypoints using Valhalla. Prefer this over drawing coarse or straight transport lines. Returns GeoJSON line geometry labeled network-derived plus a summary.',
+				'Compute a network-following road, bus, bicycle, pedestrian, or truck journey through 2 to 25 coordinate waypoints using Valhalla. Prefer this over drawing coarse or straight transport lines. Valhalla is not a road-name search or full-relation retrieval tool and does not route rail. Rail routing requires an actual supplied or editor LineString network with route_over_network; otherwise report it as unsupported. Returns GeoJSON line geometry labeled network-derived plus a summary.',
 			parameters: {
 				type: 'object',
 				properties: {
 					locations: {
 						type: 'array',
-						description: 'Route points as [{lat, lon}, ...] with at least two points.',
+						description: 'Route points as [{lat, lon}, ...] with 2 to 25 coordinates.',
 					},
 					profile: {
 						type: 'string',
@@ -713,7 +774,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'import_osm_to_editor',
 			description:
-				'Import OSM features directly into the editor after narrowing candidates. Recommended flow: run query_osm_bbox/query_osm_nearby first, then import with explicit bbox/point + filters. Name is optional; omit it to import all matched features in the selected area.',
+				'Last-resort remote OpenStreetMap import. Use only after query_geography returned no geometry or insufficient detail for a baseline catalog kind, unless the user explicitly supplied an OSM relation id. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. After a confirmed baseline gap, import with an explicit relation id or narrowed bbox/point and filters; do not use this as the initial discovery or import path.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -730,7 +791,7 @@ export const geoStaticToolSchemas: Tool[] = [
 					relationId: {
 						type: 'number',
 						description:
-							'Optional direct OSM relation id to import. Best for boundaries after resolve_osm_entity.',
+							'Optional direct OSM relation id. Use when the user supplied it, or after resolve_osm_entity identified it following a confirmed catalog gap.',
 					},
 					west: {
 						type: 'number',
@@ -778,7 +839,7 @@ export const geoStaticToolSchemas: Tool[] = [
 					includeRelations: {
 						type: 'boolean',
 						description:
-							'If true, include relation results (recommended for boundaries and administrative areas).',
+							'If true, include relation results when the confirmed catalog gap requires boundaries or administrative areas.',
 					},
 					replaceExisting: {
 						type: 'boolean',
@@ -824,7 +885,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'fetch_url',
 			description:
-				'Fetch a non-Wikipedia URL and extract its readable text content. Useful for reading articles, documentation, reports, or other web pages after web_search. Wikipedia URLs return a structured redirect to wikipedia_extract.',
+				'Fetch a non-Wikipedia URL and extract its readable text content. Useful for reading articles, documentation, reports, or other web pages after web_search. Wikipedia URLs redirect to bounded wikipedia_extract article/section prose; do not try raw or API variants.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -887,7 +948,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'wikipedia_extract',
 			description:
-				'Extract structured sections or a paged table from one Wikipedia article. Use outline first to discover table indexes, then table mode for rows. The table result has an explicit pagination.status contract: complete means this response contains the full table; more means continue at pagination.nextOffset; final_page still omits earlier rows. Returns article revision plus section/table/source-row provenance; prefer this over fetch_url for Wikipedia tables.',
+				'Read bounded prose or structured tables from one Wikipedia article without trying alternate raw/API URLs. Use article mode for prose, section mode with sectionIndex or sectionTitle for focused prose, outline mode to discover sections/tables, and table mode for rows. For prose, only textPagination.status=complete contains all requested text; status=more requires textPagination.nextOffset and its revisionId to keep offsets stable. For tables, only pagination.status=complete contains the full table; status=more requires pagination.nextOffset and final_page still omits earlier rows. Prefer this over fetch_url for every Wikipedia page.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -896,8 +957,30 @@ export const geoStaticToolSchemas: Tool[] = [
 					language: { type: 'string', description: 'Wikipedia language code (default: en)' },
 					mode: {
 						type: 'string',
-						enum: ['outline', 'table'],
-						description: 'outline discovers sections/tables; table returns bounded rows',
+						enum: ['outline', 'article', 'section', 'table'],
+						description:
+							'article reads bounded prose; section reads one section; outline discovers sections/tables; table returns bounded rows',
+					},
+					revisionId: {
+						type: 'number',
+						description:
+							'Revision returned by the preceding prose page; pass it on every continuation',
+					},
+					sectionIndex: {
+						type: 'string',
+						description: 'Stable section index returned by outline mode',
+					},
+					sectionTitle: {
+						type: 'string',
+						description: 'Exact section title when sectionIndex is unavailable',
+					},
+					textOffset: {
+						type: 'number',
+						description: 'Zero-based prose character offset (default 0)',
+					},
+					textLimit: {
+						type: 'number',
+						description: 'Prose characters to return (default 12000, max 30000)',
 					},
 					tableIndex: { type: 'number', description: 'Zero-based table index for table mode' },
 					rowOffset: { type: 'number', description: 'Zero-based data row offset' },
@@ -1004,8 +1087,7 @@ export const geoStaticToolSchemas: Tool[] = [
 									properties: {
 										field: {
 											type: 'string',
-											description:
-												'The feature property key to test (read directly off properties; no nesting), or the special key "$selected" to test map-selection membership.',
+											description: PREDICATE_FIELD_DESCRIPTION,
 										},
 										op: {
 											type: 'string',
@@ -1060,7 +1142,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								items: {
 									type: 'object',
 									properties: {
-										field: { type: 'string' },
+										field: { type: 'string', description: PREDICATE_FIELD_DESCRIPTION },
 										op: {
 											type: 'string',
 											enum: [
@@ -1112,7 +1194,7 @@ export const geoStaticToolSchemas: Tool[] = [
 									properties: {
 										field: {
 											type: 'string',
-											description: 'The feature property key to test.',
+											description: PREDICATE_FIELD_DESCRIPTION,
 										},
 										op: {
 											type: 'string',
@@ -1177,7 +1259,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								items: {
 									type: 'object',
 									properties: {
-										field: { type: 'string', description: 'The feature property key to test.' },
+										field: { type: 'string', description: PREDICATE_FIELD_DESCRIPTION },
 										op: {
 											type: 'string',
 											description: 'Comparison operator.',
@@ -1277,7 +1359,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								items: {
 									type: 'object',
 									properties: {
-										field: { type: 'string', description: 'The feature property key to test.' },
+										field: { type: 'string', description: PREDICATE_FIELD_DESCRIPTION },
 										op: {
 											type: 'string',
 											description: 'Comparison operator.',
@@ -1344,7 +1426,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												properties: {
 													field: {
 														type: 'string',
-														description: 'The feature property key to test.',
+														description: PREDICATE_FIELD_DESCRIPTION,
 													},
 													op: {
 														type: 'string',
@@ -1501,7 +1583,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'add_feature_callout',
 			description:
-				'Attach an always-visible contextual map callout to one existing feature. A map callout belongs to its geometry and is not a Point feature, label, icon, popup, or feature with type="callout". Plain text may include nostr:naddr geo references; media uses structured NIP-92-compatible fields. Prefer add_feature_callouts when adding several.',
+				'Attach an always-visible contextual map callout to one existing feature. A map callout belongs to its geometry and is not a Point feature, label, icon, popup, or feature with type="callout". Repeating identical authored content for the same feature is a safe no-op reported as alreadyPresent. Plain text may include nostr:naddr geo references; media uses structured NIP-92-compatible fields. Prefer add_feature_callouts when adding several.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1547,7 +1629,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'add_feature_callouts',
 			description:
-				'Atomically attach several always-visible map callouts to their existing owning geometries. Each callout is authored content stored on its feature; this does not create Point features. Use one batch instead of many add_feature_callout calls.',
+				'Atomically attach several always-visible map callouts to their existing owning geometries. Each callout is authored content stored on its feature; this does not create Point features. Identical content already on the same feature is skipped and reported as alreadyPresent, making retries safe. Use one batch instead of many add_feature_callout calls.',
 			parameters: {
 				type: 'object',
 				properties: {

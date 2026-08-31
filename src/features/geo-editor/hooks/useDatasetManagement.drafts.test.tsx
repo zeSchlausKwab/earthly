@@ -311,7 +311,7 @@ describe('local draft transitions', () => {
 		expect(useEditorStore.getState().workspaces['workspace-1']?.chatSessionId).toBe('legacy-chat')
 	})
 
-	test('exact target activation leaves Map Stack visibility unchanged', async () => {
+	test('exact target activation adds its visible edit to the Map Stack', async () => {
 		const featureA = point('feature-a', 14)
 		const draftA = draft('draft-a', featureA, 1)
 		const editor = {
@@ -336,13 +336,13 @@ describe('local draft transitions', () => {
 		})
 		const current = await mountHook()
 
-		await flush(() => current().switchToWorkspace('workspace-1', { syncMapStackVisibility: false }))
+		await flush(() => current().switchToWorkspace('workspace-1'))
 
 		const state = useEditorStore.getState()
 		expect(state.activeWorkspaceId).toBe('workspace-1')
 		expect(state.activeGeoEditDraftId).toBe(draftA.id)
-		expect(state.mapStackOrder).toEqual(['dataset:other'])
-		expect(state.mapStackEntries['draft:active']).toBeUndefined()
+		expect(state.mapStackOrder).toEqual(['dataset:other', 'draft:active'])
+		expect(state.mapStackEntries['draft:active']?.visible).toBe(true)
 	})
 
 	test('deleting the active revision selects a sibling without manufacturing a public draft', async () => {

@@ -22,6 +22,11 @@ export {
 	resolveMobileEntitySurface,
 } from './mobileEntitySurface'
 export type { DraftEditorOpenPlan, RetainedDatasetSurfaceTarget } from './mobileEntitySurface'
+export {
+	ensureActiveDraftMapPresentation,
+	resolveActiveDraftMapPresentation,
+} from './activeDraftMapPresentation'
+export type { ActiveDraftMapPresentation } from './activeDraftMapPresentation'
 
 export const useEditorStore = create<EditorState>((...a) => ({
 	...createEditorCoreSlice(...a),

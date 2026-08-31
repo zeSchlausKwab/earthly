@@ -1,7 +1,12 @@
 import { useCallback, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
-import { getRetainedDatasetSurfaceTarget, useEditorStore, type SidebarViewMode } from '../store'
+import {
+	ensureActiveDraftMapPresentation,
+	getRetainedDatasetSurfaceTarget,
+	useEditorStore,
+	type SidebarViewMode,
+} from '../store'
 import {
 	shouldOpenMobileEditSheet,
 	type MobileWorkspaceOpenOptions,
@@ -19,7 +24,7 @@ interface UseContextEditorParams {
 	startNewDataset: () => void
 	switchToWorkspace: (
 		workspaceId: string,
-		options?: { syncMapStackVisibility?: boolean },
+		options?: { preserveMobileRoute?: boolean },
 	) => void | Promise<void>
 }
 
@@ -187,7 +192,7 @@ export function useContextEditor({
 				requestedWorkspaceId != null && initialState.activeWorkspaceId !== workspaceId
 			try {
 				if (changingExactTarget) {
-					await switchToWorkspace(workspaceId, { syncMapStackVisibility: false })
+					await switchToWorkspace(workspaceId, { preserveMobileRoute: true })
 				}
 				const state = useEditorStore.getState()
 				if (
@@ -196,8 +201,6 @@ export function useContextEditor({
 				) {
 					return false
 				}
-				if (changingExactTarget) state.removeMapStackEntry('draft:active')
-
 				const activated = activateMobileEntitySurface('dataset', {
 					inspector: state.inspectionSubject != null,
 					dataset: true,
@@ -207,6 +210,7 @@ export function useContextEditor({
 					beacon: false,
 				})
 				if (!activated) return false
+				ensureActiveDraftMapPresentation(useEditorStore.getState())
 
 				// Desktop keeps its canonical route. Mobile's map-bound workspace tabs are
 				// presentation-only and reveal the sheet without rewriting location state.

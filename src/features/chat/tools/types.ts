@@ -1,3 +1,15 @@
+/** Recursive JSON Schema subset used by OpenAI function-calling tools. */
+export interface ToolJsonSchema {
+	type?: string | string[]
+	description?: string
+	enum?: Array<string | number | boolean | null>
+	properties?: Record<string, ToolJsonSchema>
+	items?: ToolJsonSchema
+	required?: string[]
+	additionalProperties?: boolean | ToolJsonSchema
+	[key: string]: unknown
+}
+
 /** OpenAI function calling tool definition */
 export interface Tool {
 	type: 'function'
@@ -6,14 +18,7 @@ export interface Tool {
 		description: string
 		parameters: {
 			type: 'object'
-			properties: Record<
-				string,
-				{
-					type: string
-					description: string
-					enum?: string[]
-				}
-			>
+			properties: Record<string, ToolJsonSchema>
 			required?: string[]
 		}
 	}
@@ -40,6 +45,8 @@ export interface ToolExecutionContext {
 	attachedGeometry?: GeoJSON.FeatureCollection | null
 	/** The user-authored text that initiated this tool loop. */
 	userMessage?: string
+	/** Exact model tool call currently executing inside the owning run. */
+	toolCallId?: string
 	/**
 	 * Immutable identity of the model run that owns this call. Tool handlers must
 	 * not infer ownership from whichever conversation or editor happens to be
@@ -116,10 +123,8 @@ export const MAX_SNAPSHOT_CACHE_SIZE = 5
 export const MAX_GEOJSON_TEXT_CHARS = 200000
 
 export const TO_EDITOR_COMPATIBLE_TOOLS = new Set([
+	'query_geography',
 	'query_osm_by_id',
-	'query_osm_nearby',
-	'query_osm_bbox',
-	'query_osm_area',
 	'get_osm_relation_geometry',
 	'get_country_boundary',
 	'valhalla_route',

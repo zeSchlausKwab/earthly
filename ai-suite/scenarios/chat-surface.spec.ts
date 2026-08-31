@@ -1,6 +1,6 @@
 import { expect, test } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
-import { configureChatProvider, openAiChat } from '../tasks/chat/conversation'
+import { configureChatProvider, openAiChat, startNewAiChat } from '../tasks/chat/conversation'
 import {
 	DETERMINISTIC_CHAT_MODEL_ID,
 	DETERMINISTIC_CHAT_SECONDARY_MODEL_ID,
@@ -56,4 +56,31 @@ test('chat keeps advanced status compact and lets the model change in place', as
 	await expect(panel.getByText('Prompt budget', { exact: true })).toBeVisible()
 	await expect(panel.getByText('Model requests', { exact: true })).toBeVisible()
 	await expect(panel.getByText('Tool work', { exact: true })).toBeVisible()
+})
+
+test('starting a new conversation keeps one composer action set @regression', async ({
+	earthly,
+}) => {
+	const duplicateKeyWarnings: string[] = []
+	earthly.page.on('console', (message) => {
+		if (message.type() === 'error' && message.text().includes('same key')) {
+			duplicateKeyWarnings.push(message.text())
+		}
+	})
+	const provider = await installDeterministicChatProvider(earthly)
+	await authorizeJourneyIdentity(earthly, 'owner')
+	await configureChatProvider(earthly, provider.settings)
+	await earthly.open({ tour: 'seen' })
+	await openAiChat(earthly)
+
+	const panel = earthly.page.getByRole('region', { name: 'AI chat', exact: true })
+	const drawAction = panel.getByRole('button', { name: 'Draw', exact: true })
+	await expect(drawAction).toHaveCount(1)
+
+	for (let index = 0; index < 6; index += 1) {
+		await startNewAiChat(earthly)
+	}
+
+	await expect(drawAction).toHaveCount(1)
+	expect(duplicateKeyWarnings).toEqual([])
 })

@@ -26,7 +26,9 @@ import { dispatch, registry } from './registry'
 import { isToolError, type ToolError } from './errors'
 import { isToolRedirect } from './source-routing'
 import {
+	createExecutionAuthoring,
 	ensureExecutionTargetForMutation,
+	getExecutionEditor,
 	hasPreparedDatasetExecutionTarget,
 	isToolExecutionTargetVisible,
 	persistToolExecutionRun,
@@ -34,6 +36,7 @@ import {
 	rollbackToolExecutionRun,
 	ToolExecutionTargetPersistenceError,
 } from './executionTarget'
+import { getEditorDatasetMetadata } from './editorDatasetMetadata'
 
 function requiresDatasetTarget(toolName: string, args: Record<string, unknown>): boolean {
 	if (args.toEditor === true && TO_EDITOR_COMPATIBLE_TOOLS.has(toolName)) return true
@@ -48,6 +51,14 @@ function requiresDatasetTarget(toolName: string, args: Record<string, unknown>):
 	}
 	const kind = registry.get(toolName)?.kind
 	return kind === 'editor' || kind === 'authoring-primitive' || kind === 'code-interpreter'
+}
+
+function isDeferredGeoCatalogImport(toolName: string, result: unknown): boolean {
+	if (toolName !== 'query_geography' || !result || typeof result !== 'object') return false
+	const editorImport = (result as Record<string, unknown>).editorImport
+	if (!editorImport || typeof editorImport !== 'object' || Array.isArray(editorImport)) return false
+	const state = editorImport as Record<string, unknown>
+	return state.selectionRequired === true || state.available === false
 }
 
 function getStructuredToolError(result: ToolResult): ToolError | null {
@@ -227,19 +238,34 @@ async function executeToolCallBound(
 		let result: unknown = dispatched
 
 		if (args.toEditor && TO_EDITOR_COMPATIBLE_TOOLS.has(toolCall.function.name)) {
-			// `toEditor` is an authoring operation even though the originating tool is
-			// read-only MCP. Establish the local draft before baking its result so the
-			// geometry appears in Saved work, the Map Stack, and the editor list.
-			await ensureExecutionTargetForMutation(context?.run)
-			const bakeResult = toEditorFromToolResultValue(
-				result,
-				Boolean(args.replaceExisting),
-				toolCall.function.name,
-			)
-			result = {
-				...compactToolResultAfterBake(result),
-				editorImport: bakeResult,
-				toEditor: true,
+			if (isDeferredGeoCatalogImport(toolCall.function.name, result)) {
+				result = {
+					...(result as Record<string, unknown>),
+					toEditor: true,
+				}
+			} else {
+				// `toEditor` is an authoring operation even though the originating tool is
+				// read-only MCP. Establish the local draft before baking its result so the
+				// geometry appears in Saved work, the Map Stack, and the editor list.
+				await ensureExecutionTargetForMutation(context?.run)
+				const editorMetadata = getEditorDatasetMetadata(result)
+				if (editorMetadata) {
+					const editor = getExecutionEditor()
+					if (!editor) {
+						throw new Error('Map editor is not ready to preserve imported dataset metadata.')
+					}
+					createExecutionAuthoring(editor).setDatasetMetadata(editorMetadata)
+				}
+				const bakeResult = toEditorFromToolResultValue(
+					result,
+					Boolean(args.replaceExisting),
+					toolCall.function.name,
+				)
+				result = {
+					...compactToolResultAfterBake(result),
+					editorImport: bakeResult,
+					toEditor: true,
+				}
 			}
 		}
 
@@ -276,16 +302,17 @@ export async function executeToolCall(
 	toolCall: ToolCall,
 	context?: ToolExecutionContext,
 ): Promise<ToolResult> {
-	if (context?.run) prepareToolExecutionRun(context.run)
-	const result = await executeToolCallBound(toolCall, context)
+	const boundContext: ToolExecutionContext = { ...context, toolCallId: toolCall.id }
+	if (boundContext.run) prepareToolExecutionRun(boundContext.run)
+	const result = await executeToolCallBound(toolCall, boundContext)
 	if (getStructuredToolError(result)) {
-		rollbackToolExecutionRun(context?.run)
-		markToolCallDiffsNotApplied(toolCall, context)
+		rollbackToolExecutionRun(boundContext.run)
+		markToolCallDiffsNotApplied(toolCall, boundContext)
 		return result
 	}
 	try {
-		const commit = persistToolExecutionRun(context?.run)
-		const scope = getPendingDiffScope(toolCall, context)
+		const commit = persistToolExecutionRun(boundContext.run)
+		const scope = getPendingDiffScope(toolCall, boundContext)
 		if (commit && scope) {
 			try {
 				attachPendingDiffCommit(scope, commit)
@@ -297,7 +324,7 @@ export async function executeToolCall(
 		}
 		return result
 	} catch (error) {
-		markToolCallDiffsNotApplied(toolCall, context)
+		markToolCallDiffsNotApplied(toolCall, boundContext)
 		const toolError: ToolError = {
 			ok: false,
 			kind: 'handler_error',

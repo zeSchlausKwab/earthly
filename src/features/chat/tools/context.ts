@@ -18,6 +18,7 @@ import type { CachedMapSnapshot, ToolExecutionTarget } from './types'
 import { MAX_SNAPSHOT_CACHE_SIZE } from './types'
 import { countFeaturesByGeometry } from './helpers'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '@/features/geo-editor/constants'
+import { getFeatureCallouts, type MapCallout } from '@/lib/geo/callouts'
 import { serializedFeatureCollectionBytes } from '@/lib/geo/serializedSize'
 
 export const mapSnapshotCache = new Map<string, CachedMapSnapshot>()
@@ -46,6 +47,69 @@ function getDatasetSerializedBytes(features: EditorFeature[]): number {
 	const bytes = serializedFeatureCollectionBytes(features)
 	datasetSizeCache.set(features, bytes)
 	return bytes
+}
+
+const MAX_CALLOUT_FEATURE_SUMMARIES = 40
+const MAX_CALLOUTS_PER_FEATURE_SUMMARY = 5
+const MAX_CALLOUT_SUMMARIES = 60
+const MAX_CALLOUT_SUMMARY_TEXT_CHARS = 180
+
+function summarizeCallout(callout: MapCallout) {
+	const textTruncated = callout.text.length > MAX_CALLOUT_SUMMARY_TEXT_CHARS
+	return {
+		id: callout.id,
+		...(callout.title ? { title: callout.title } : {}),
+		text: textTruncated
+			? `${callout.text.slice(0, MAX_CALLOUT_SUMMARY_TEXT_CHARS)}…`
+			: callout.text,
+		...(textTruncated ? { textTruncated: true } : {}),
+		...(callout.media?.length ? { mediaCount: callout.media.length } : {}),
+		...(callout.placement?.side ? { placementSide: callout.placement.side } : {}),
+	}
+}
+
+function summarizeDatasetCallouts(features: readonly EditorFeature[]) {
+	let total = 0
+	let featureCount = 0
+	let summarizedCalloutCount = 0
+	let truncated = false
+	const byFeature: Array<{
+		featureId: string
+		featureName?: string
+		count: number
+		callouts: ReturnType<typeof summarizeCallout>[]
+		calloutsTruncated: boolean
+	}> = []
+
+	for (const feature of features) {
+		const callouts = getFeatureCallouts(feature)
+		if (callouts.length === 0) continue
+		total += callouts.length
+		featureCount += 1
+		if (byFeature.length >= MAX_CALLOUT_FEATURE_SUMMARIES) {
+			truncated = true
+			continue
+		}
+		const availableSummaries = Math.max(0, MAX_CALLOUT_SUMMARIES - summarizedCalloutCount)
+		const summarizedCallouts = callouts.slice(
+			0,
+			Math.min(MAX_CALLOUTS_PER_FEATURE_SUMMARY, availableSummaries),
+		)
+		summarizedCalloutCount += summarizedCallouts.length
+		const calloutsTruncated = summarizedCallouts.length < callouts.length
+		if (calloutsTruncated) truncated = true
+		const featureName =
+			typeof feature.properties?.name === 'string' ? feature.properties.name : undefined
+		byFeature.push({
+			featureId: String(feature.id),
+			...(featureName ? { featureName } : {}),
+			count: callouts.length,
+			callouts: summarizedCallouts.map(summarizeCallout),
+			calloutsTruncated,
+		})
+	}
+
+	return { total, featureCount, byFeature, truncated }
 }
 
 /**
@@ -161,6 +225,7 @@ export function getMapContextSnapshot() {
 		activeDataset,
 		localDraftDirty: store.isDirty,
 		featureCount: store.features.length,
+		callouts: summarizeDatasetCallouts(store.features),
 		datasetSize: {
 			serializedBytes,
 			limitBytes: BLOSSOM_UPLOAD_THRESHOLD_BYTES,
@@ -243,6 +308,7 @@ export function getMapContextSnapshotForTarget(
 				: null,
 		localDraftDirty: target.wasDirty,
 		featureCount: features.length,
+		callouts: summarizeDatasetCallouts(features),
 		datasetSize: {
 			serializedBytes,
 			limitBytes: BLOSSOM_UPLOAD_THRESHOLD_BYTES,
@@ -280,6 +346,16 @@ export function getCompactMapContextForPrompt(snapshot: ReturnType<typeof getMap
 		activeDataset: snapshot.activeDataset,
 		localDraftDirty: snapshot.localDraftDirty,
 		featureCount: snapshot.featureCount,
+		callouts: {
+			total: snapshot.callouts.total,
+			featureCount: snapshot.callouts.featureCount,
+			byFeature: snapshot.callouts.byFeature.slice(0, 8).map((entry) => ({
+				...entry,
+				callouts: entry.callouts.slice(0, 3),
+				calloutsTruncated: entry.calloutsTruncated || entry.callouts.length > 3,
+			})),
+			truncated: snapshot.callouts.truncated || snapshot.callouts.byFeature.length > 8,
+		},
 		datasetSize: snapshot.datasetSize,
 		datasetMeasurements: snapshot.datasetMeasurements,
 		selectedFeatureCount: snapshot.selectedFeatureCount,
@@ -295,12 +371,37 @@ export function getCompactMapContextForPrompt(snapshot: ReturnType<typeof getMap
 	}
 }
 
+const GEO_CATALOG_SOURCE_MANIFEST_PREFIX = 'earthly:geoCatalogSourceManifest:'
+
+function compactDatasetMetadataForTool(
+	metadata: ReturnType<typeof getMapContextSnapshot>['datasetMetadata'],
+) {
+	const customProperties: typeof metadata.customProperties = {}
+	const geoCatalogSnapshotIds: string[] = []
+	for (const [key, value] of Object.entries(metadata.customProperties)) {
+		if (key.startsWith(GEO_CATALOG_SOURCE_MANIFEST_PREFIX)) {
+			geoCatalogSnapshotIds.push(key.slice(GEO_CATALOG_SOURCE_MANIFEST_PREFIX.length))
+			continue
+		}
+		customProperties[key] = value
+	}
+	return {
+		...metadata,
+		customProperties,
+		geoCatalogSourceManifests: {
+			count: geoCatalogSnapshotIds.length,
+			snapshotIds: geoCatalogSnapshotIds,
+		},
+	}
+}
+
 export function getCompactMapContextForTool(snapshot: ReturnType<typeof getMapContextSnapshot>) {
 	return {
 		editorReady: snapshot.editorReady,
 		mode: snapshot.mode,
-		datasetMetadata: snapshot.datasetMetadata,
+		datasetMetadata: compactDatasetMetadataForTool(snapshot.datasetMetadata),
 		featureCount: snapshot.featureCount,
+		callouts: snapshot.callouts,
 		datasetSize: snapshot.datasetSize,
 		datasetMeasurements: snapshot.datasetMeasurements,
 		selectedFeatureCount: snapshot.selectedFeatureCount,
@@ -354,6 +455,10 @@ function firstVisibleGeometryInstruction(): string {
 	].join(' ')
 }
 
+function currentDateInstruction(now = new Date()): string {
+	return `CURRENT DATE — ${now.toISOString().slice(0, 10)}. Treat earlier dates as past events and later dates as future events when researching time-sensitive claims.`
+}
+
 function createLegacyMapContextSystemMessage(
 	options: MapContextPromptOptions = {},
 ): ChatMessage | null {
@@ -367,17 +472,18 @@ function createLegacyMapContextSystemMessage(
 		role: 'system',
 		content: [
 			'You have map-editing tool access in this chat.',
+			currentDateInstruction(),
 			...(continuationInstruction(options) ? [continuationInstruction(options) as string] : []),
 			firstVisibleGeometryInstruction(),
 			'BASEMAP IS CONTEXT — roads, place names, terrain, water, and surrounding political geography already visible in the basemap do not need to become editor features. Author a surrounding country/state boundary only when it is requested or materially encodes the map theme; never import neighboring places merely to provide background context.',
-			'DATA SOURCE ORDER — pick the FIRST tier that can answer: (1) BUNDLED WORLD LAYERS via run_code (instant, local, no network): country outlines/areas/borders, coastlines, offshore work, major named rivers/lakes, land-vs-water tests, world cities, sea routing. (2) OSM tools ONLY for what world layers do not carry: POIs, streets, buildings, small/local admin areas, fine local geometry — they are SLOW remote calls, so keep queries bounded; CEP-22 transports complete large results but cannot prevent upstream Overpass timeouts. (3) wikipedia_lookup/web_search for facts; when a Wikipedia table is the actual dataset, use wikipedia_extract outline then paged table rows instead of fetch_url. (4) fetch_url for non-Wikipedia pages. Never use web text as geometry. Do NOT "verify" world-layer computations against OSM or the web — state the resolution caveat instead.',
-			'REFERENCE BOUNDARIES — use get_reference_boundaries as the source-selecting facade. Nation-state/country outlines ALWAYS come from its bundled Natural Earth country layer, never OSM, and may be batched. States/provinces/admin-1 regions use a slower OSM-backed path and may also be batched in one call. If it remains unavailable, continue with accurate verified anchors and other map content, clearly noting the omitted boundary; do not hunt the web for raw boundary GeoJSON. Do not author boundaries that only duplicate basemap context.',
-			'ROUTE ALIGNMENT — default to network-derived geometry whenever the user asks for a route, corridor, shipping lane, or other expected transport alignment; do this automatically without waiting for the user to ask for routing. Use valhalla_route for road, bus, bicycle, pedestrian, and truck alignments. Use route_over_network for maritime lanes or an actual rail/river/canal/custom LineString network in the editor, and prefer the dedicated route_over_network host tool over sandbox pathfinder. Import the needed line network first when necessary. Air links and explicitly schematic/historical corridors may be stylized, but mark mappingBasis and geometryPrecision="schematic". Never silently substitute coarse hand-drawn or nearly straight lines for available routing.',
+			'DATA SOURCE ORDER — pick the FIRST tier that can answer: (1) query_geography for fast, self-hosted administrative areas, localities, places, waterways, and infrastructure. Road and rail are optional coverage packs; kind_unavailable for either is intentional and MUST NOT trigger an OSM fallback. Categories are exact filters: start with name and kind, and only add a category already observed in results or category suggestions; use adminLevels for hierarchy. Discover human-readable queries first, then import the chosen results by their returned stable ids with toEditor=true; if stable ids are already known, resolve and import them directly without remote re-search. (2) BUNDLED WORLD LAYERS via run_code for generalized global computation: coastlines, offshore work, major named rivers/lakes, land-vs-water tests, world cities, and sea routing. (3) remote OSM tools only as a last resort when the local catalog and world layers genuinely lack requested local detail in a baseline kind; they are slow and failure-prone upstream, so keep any fallback query bounded. An exact user-supplied OSM element or relation id remains valid for the corresponding exact-id tool. (4) wikipedia_lookup/web_search for facts, never geometry; use fetch_url only for non-Wikipedia pages. Do not re-query a settled local result merely to verify it.',
+			'REFERENCE BOUNDARIES — query the local catalog with kinds=["admin"] first, choose area results, then request their geometry by stable id. Country and admin-1 results can be batched by ids in one query. If the snapshot reports missing coverage, use get_reference_boundaries as the generalized compatibility fallback. Low-level OSM boundary calls are a last resort, never a verification step after a catalog hit. Do not author boundaries that only duplicate basemap context.',
+			'ROUTE ALIGNMENT — use valhalla_route for a road, bus, bicycle, pedestrian, or truck journey through 2–25 coordinate waypoints. Valhalla is not road-name search or full-relation retrieval and does not route rail. For rail, use route_over_network only when an actual LineString network was supplied by the user, attached as source data, or is already in the editor; otherwise report rail routing as unsupported. Default to route_over_network automatically for maritime lanes or an actual supplied/editor rail, river, canal, or custom LineString network, without waiting for the user to ask for routing, and prefer the dedicated host tool over sandbox pathfinder. Optional catalog transport packs may provide named corridors; their absence never authorizes an OSM fallback. Air links and explicitly schematic/historical corridors may be stylized, but mark mappingBasis and geometryPrecision="schematic". Never silently substitute coarse hand-drawn or nearly straight lines for available routing.',
 			'MAP CALLOUTS — an Earthly map callout is authored contextual content that belongs to and is stored on an existing geometry. It is always visible without hover or selection. Use add_feature_callout or one atomic add_feature_callouts batch. Never simulate a map callout by creating a Point, label, icon, popup, annotation, or a feature with type="callout".',
 			'SOURCE-PROVIDED SPATIAL DATA — before geocoding, inspect structured source rows, files, and API results for usable spatial fields such as latitude/longitude, coordinate pairs, GeoJSON, WKT, or geohashes. Normalize those values and preserve their source precision and provenance. Geocode only rows whose source genuinely lacks usable spatial data.',
 			'RESEARCH BUDGET — keep research proportional to the requested map. Batch independent lookups when a tool supports it, reuse facts and coordinates already returned, and stop researching once authoritative sources are sufficient to build the requested result. Do not repeatedly verify the same settled fact through different search tools.',
 			'WORKFLOW COMPLETION — carry an agreed multi-step request through to its final artifact unless a real blocker requires user input. Do not pause after an intermediate map write merely to ask whether to continue. If the user asked for both a dataset and a Story, finish the dataset first and then write or update the Story draft in the same workflow.',
-			'STRUCTURED EXTRACTION PAGINATION — in a table result, pagination.status="complete" is the only status that means the response contains the full table. status="more" requires the nextOffset page; status="final_page" still omits earlier rows. Outline sampleRows are previews, but table rows accompanied by status="complete" are not.',
+			'STRUCTURED EXTRACTION PAGINATION — for Wikipedia prose, only textPagination.status="complete" contains all requested article or section text; status="more" requires textPagination.nextOffset with the returned revisionId. Never probe alternate raw/API Wikipedia URLs. For tables, pagination.status="complete" is the only full-table result; status="more" requires the nextOffset page and status="final_page" still omits earlier rows. Outline sampleRows are previews.',
 			'RESEARCHED DATASETS — preserve provenance on every derived feature: sourceUrl, sourceTitle, sourceRevisionId, sourceSection, sourceTable, sourceRow, sourceRetrievedAt, and coordinatePrecision (exact, approximate, or representative). Keep the source classification verbatim; do not silently broaden terms such as exclave to enclave, disputed territory, or historical case. After the first accurate scaffold is visible, build and validate each bounded enhancement before an atomic authoring.commitDataset(...) replacement or update.',
 			'HISTORICAL PRECISION — distinguish historical administrative entities from present-day boundary proxies and special-status cities. State the mapping basis in dataset metadata instead of presenting modern boundaries as exact historical jurisdictions.',
 			'World layers are GENERALIZED cartography (1:110m / 1:50m). Rankings, topology, routing, and anchoring are reliable; ABSOLUTE lengths of fractal features (coastlines!) are systematic underestimates — say so when reporting them instead of hunting for other sources.',
@@ -388,27 +494,22 @@ function createLegacyMapContextSystemMessage(
 			'MAP LEGIBILITY — `label` is literal display text, never a template. Do not write `{name}`, dollar-braced name expressions, or other placeholders into it. Keep the real feature name in `name`; omit `label` on dense/bulk results and label only a small set of anchors that remain readable at the current zoom.',
 			'For multi-category POI or amenity maps, make the overview useful rather than exhaustive unless the user explicitly asks for every result: keep roughly 6–12 nearest or representative named features per category, give categories distinct colors/icons, and avoid importing hundreds of overlapping markers.',
 			'TRAVEL-TIME OVERLAYS — keep isochrones visually subordinate to the POIs and basemap. Unless the user requests another palette, use a cool blue/cyan fill (never yellow or orange), fillOpacity 0.08–0.12, strokeOpacity 0.45–0.65, and strokeWidth no greater than 2. The overlay should remain readable without washing out streets or icons.',
-			'For many OSM features in an area (e.g. all military bases in viewport), prefer import_osm_to_editor with filters and bbox/point instead of embedding large GeoJSON argument strings.',
-			'For polygon-constrained searches (selected polygon, country border, custom area), prefer query_osm_area.',
-			'Do not call query_osm_area as an unfiltered scan. Always include filters, filterSets, or concept.',
-			'For requested administrative reference boundaries, use get_reference_boundaries. Use low-level resolve_osm_entity/get_osm_relation_geometry only when the user explicitly needs a particular OSM entity or relation.',
-			'For network routing use valhalla_route or route_over_network; for travel-time polygons use valhalla_isochrone.',
+			'Only after query_geography confirms a genuine baseline-kind coverage gap: for many OSM features in an area, use one bounded import_osm_to_editor call with filters and bbox/point instead of embedding large GeoJSON argument strings. Missing optional road or rail coverage is not such a gap; an exact user-supplied OSM id remains valid.',
+			'Only after a confirmed baseline-kind catalog gap: use query_osm_area for polygon-constrained OSM searches, and always include filters, filterSets, or concept.',
+			'For requested administrative reference boundaries, use query_geography first. Use get_reference_boundaries only when the catalog reports missing coverage, and use low-level resolve_osm_entity/get_osm_relation_geometry only for an explicit OSM entity or relation.',
+			'For supported road/bus/bicycle/pedestrian/truck routing use valhalla_route with 2–25 coordinate waypoints. For maritime or an actual supplied/editor line network use route_over_network; without such a network, report rail routing as unsupported. For travel-time polygons use valhalla_isochrone.',
 			'Measurements are delivered passively: datasetMeasurements holds dataset totals and selected-feature hints carry lengthKm/areaKm2 — read those first. Call measure (one operation per call) only for something not already in context (distance/bearing between points, perimeter, centroid, bbox, nearest_point).',
 			'To ground coordinates in named places (country, nearest city, on-land/on-water, distance to coast), call describe_location with a point or bbox. Use it to sanity-check where drawn geometry actually landed.',
 			'viewportAnchors in the map state names what the user is looking at (countries in view, center description, geohash) — trust it over guessing from raw coordinates.',
-			'When a geometry-producing tool supports it, set toEditor=true to import directly and keep tool results compact.',
-			'If the user says "within this polygon" or explicitly attaches the current selection, use query_osm_area with selectedOnly=true.',
-			'If the user attached transient chat geometry, query_osm_area can use that attached geometry directly for the current request even when nothing is selected in the editor.',
-			'Use the concept argument when the user intent is semantic but OSM tagging is likely inconsistent. High-value examples: concept="military installation", concept="river", concept="bench".',
-			'If the user asks for points only, set outputGeometry="point_on_feature" unless exact point features already exist.',
-			'If the user asks for a LOCAL line feature within a border (a specific stream, canal, road, trail), use query_osm_area with clipLines=true to keep geometry inside the area. NEVER query OSM for a country-scale coastline or a major river — that is world.get("coastline_110m") / world.get("rivers_50m") territory.',
+			'Use toEditor=true only on exact, explicitly selected geometry results whose tool schema advertises it. Human-readable GeoCatalog searches and broad OSM nearby/bbox/area queries are discovery steps; never treat every candidate as an editor import.',
+			'For an OSM fallback constrained to the current selection, query_osm_area may use selectedOnly=true; transient chat geometry can supply that area even when nothing is selected.',
+			'Within an OSM fallback, use concept when tagging is inconsistent, outputGeometry="point_on_feature" when only representative points are needed, and clipLines=true for a specific local stream, canal, road, or trail inside a border. Never query OSM for a country-scale coastline or major river.',
 			'If a border-constrained or polygon-constrained query fails, do not replace it with an unconstrained bbox import. Retry with the same area constraint or report the failure.',
-			'For toolbar-like operations (undo/redo/mode/selection ops), use editor_* tools.',
+			'Do not attempt interactive toolbar operations from a background chat run. Use authoring-native geometry operations, including delete-by-id, for changes to the bound Dataset.',
 			'For add_feature_to_editor, send one feature per call with compact JSON.',
 			'Do not ask the user for intermediate geometry parameters unless they explicitly want to customize shape details.',
-			'For OSM imports, first query candidates with query_osm_bbox/query_osm_nearby, verify non-empty results, then import with explicit bbox/point and filters.',
-			'When exact OSM tags are brittle, prefer filters with array values or filterSets to cover multiple tagging variants in one query.',
-			'Think in OSM tags and aliases: military often spans military=*, landuse=military, and building=bunker; local rivers are waterway=river (MAJOR rivers come from world.get("rivers_50m") instead); benches are usually amenity=bench.',
+			'After a confirmed baseline-kind catalog coverage gap, an OSM fallback should first query candidates with query_osm_bbox/query_osm_nearby, verify non-empty results, then import with explicit bbox/point and filters. Never treat unavailable optional road or rail coverage as that gap.',
+			'Within that last-resort OSM call, use array-valued filters or filterSets when exact tags are brittle.',
 			'When calling a tool, output strict JSON arguments only.',
 			'For well-known places (capitals, countries, major cities), use their known coordinates directly instead of geocoding. Only call search_location for genuinely ambiguous or unknown places.',
 			'Do not fetch OSM relation geometry or query OSM unless the task explicitly needs real boundary or feature geometry. For a simple shape (arc, circle, line between known points), compute it yourself or with run_code+turf.',
@@ -447,7 +548,9 @@ function createCompactMapContextSystemMessage(
 	const hasAuthoringTools = toolNames.some((name) =>
 		/^(write_|add_|set_|batch_|style_|draw_|buffer_|offset_|split_|create_|import_)/.test(name),
 	)
-	const hasAdministrativeBoundaryTools = toolNames.includes('get_reference_boundaries')
+	const hasAdministrativeBoundaryTools = toolNames.some((name) =>
+		['query_geography', 'get_reference_boundaries'].includes(name),
+	)
 	const hasRoutingTools = toolNames.some((name) =>
 		['valhalla_route', 'route_over_network'].includes(name),
 	)
@@ -457,11 +560,12 @@ function createCompactMapContextSystemMessage(
 		role: 'system',
 		content: [
 			"You are Earthly's spatial assistant. Tool descriptions are authoritative; use only the advertised tools.",
+			currentDateInstruction(),
 			...(continuationInstruction(options) ? [continuationInstruction(options) as string] : []),
 			firstVisibleGeometryInstruction(),
 			'INTENT GATE — answer advisory, explanatory, and planning questions without changing the map. Mutate only when the user explicitly asks to create, add, draw, import, edit, update, or delete something.',
 			'BASEMAP IS CONTEXT — do not author surrounding countries, regions, roads, labels, terrain, or water merely as background. Add a boundary only when requested or thematically meaningful.',
-			'SOURCE ORDER — use bundled world layers for generalized country/coastline/major-river/world-city work; OSM for local POIs, streets, buildings, and detailed local geometry; web/Wikipedia for facts, never geometry. Nation-state boundaries always use bundled Natural Earth through get_reference_boundaries, never OSM. Inspect source-provided coordinates/GeoJSON/WKT before geocoding. Do not repeatedly verify an authoritative result.',
+			"SOURCE ORDER — use query_geography first for administrative areas, localities, places, waterways, and infrastructure from Earthly's fast baseline catalog. Road and rail are optional coverage packs; kind_unavailable for either is intentional and MUST NOT trigger remote OSM. Categories are exact filters: start with name and kind, and only add a category already observed in results or category suggestions; use adminLevels for hierarchy. Discover human-readable queries first, then import selected results by their returned stable ids; known stable ids may be imported directly. Use bundled world layers for generalized global coastline/major-river/world-city computation. Use remote OSM only as a last resort when those sources genuinely lack required local detail in a baseline kind; an exact user-supplied OSM element or relation id remains valid for its exact-id tool. Use web/Wikipedia for facts, never geometry. Inspect source-provided coordinates/GeoJSON/WKT before geocoding, and do not repeatedly verify an authoritative result.",
 			'PRECISION — preserve provenance and coordinate precision. Label geometry as schematic, generalized, network-derived, or exact as appropriate; never imply remembered or hand-drawn geometry follows a real network. Historical maps must state whether modern boundaries are proxies.',
 			'EXECUTION — complete the requested artifact unless genuinely blocked. Prefer one atomic batch write. Trust a successful authoring result; do not re-read the editor merely to verify it. If a tool fails, change approach instead of repeating identical calls.',
 			...(hasAuthoringTools
@@ -471,12 +575,12 @@ function createCompactMapContextSystemMessage(
 				: []),
 			...(hasAdministrativeBoundaryTools
 				? [
-						'REFERENCE BOUNDARIES — use level=country for nation states and batch them freely. Requested states/provinces/regions may also be batched in one level=admin1 call, though that path is remote. If it remains unavailable, continue with accurate verified anchors and note the omission; do not search the web for GeoJSON or orchestrate low-level OSM calls.',
+						'REFERENCE BOUNDARIES — use query_geography with kinds=["admin"] first. Choose area results, then import their exact geometries by stable id; country and admin-1 ids can be batched in one query. If the catalog reports missing coverage, use get_reference_boundaries as a generalized fallback; low-level OSM calls are last resort only.',
 					]
 				: []),
 			...(hasRoutingTools
 				? [
-						'ROUTING — default to network-derived geometry for routes, corridors, and shipping lanes automatically, without waiting for the user to ask for routing. Use valhalla_route for road/bus/bicycle/pedestrian/truck and route_over_network for maritime or actual rail/river/canal/custom line networks; prefer the dedicated route_over_network host tool over sandbox pathfinder. Import a needed network first. Air or explicitly schematic/historical links may be stylized only when clearly marked schematic. Never silently draw coarse straight substitutes.',
+						'ROUTING — default to network-derived geometry automatically, without waiting for the user to ask. Use valhalla_route for road/bus/bicycle/pedestrian/truck journeys through 2–25 coordinate waypoints; it is not road-name search or full-relation retrieval and does not route rail. Use route_over_network for maritime or an actual supplied/editor rail, river, canal, or custom LineString network, and prefer route_over_network over sandbox pathfinder. Without an actual supplied/editor network, report rail routing as unsupported. Air or explicitly schematic/historical links may be stylized only when clearly marked schematic. Never silently draw coarse straight substitutes or use OSM because an optional transport pack is absent.',
 					]
 				: []),
 			...(hasCalloutTools

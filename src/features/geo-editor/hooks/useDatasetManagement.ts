@@ -33,12 +33,6 @@ export interface DraftAuthoringOptions {
 	chatSessionId?: string | null
 	/** Create retained Saved work without changing the visible editor/Inspector. */
 	activate?: boolean
-	/**
-	 * Whether activating this workspace should also replace Map Stack visibility
-	 * with its draft row. Exact Chat-target opens set this false: they activate the
-	 * requested editor, while visibility remains an explicit Map Stack decision.
-	 */
-	syncMapStackVisibility?: boolean
 }
 
 const PUBLIC_PUBLISH_CHANNEL: PublishChannel = { kind: 'public' }
@@ -237,28 +231,25 @@ export function useDatasetManagement(
 	])
 
 	const applyEditingState = useCallback(
-		(
-			{
-				features,
-				activeDataset,
-				contextRefs,
-				collectionMeta,
-				blobReferences,
-			}: {
-				features: ReturnType<typeof convertGeoEventsToEditorFeatures>
-				activeDataset: GeoDataset | null
-				contextRefs: string[]
-				collectionMeta: ReturnType<typeof extractCollectionMeta>
-				blobReferences: GeoBlobReference[]
-			},
-			options?: { syncMapStackVisibility?: boolean },
-		) => {
+		({
+			features,
+			activeDataset,
+			contextRefs,
+			collectionMeta,
+			blobReferences,
+		}: {
+			features: ReturnType<typeof convertGeoEventsToEditorFeatures>
+			activeDataset: GeoDataset | null
+			contextRefs: string[]
+			collectionMeta: ReturnType<typeof extractCollectionMeta>
+			blobReferences: GeoBlobReference[]
+		}) => {
 			if (!editor) return
 			// The editable draft replaces its published source on the map. Keeping both
 			// stack entries renders the same geometry (and its callouts) twice while the
 			// author is editing. Match by entityKey rather than entry id so scoped
 			// private/field dataset rows are suspended as well as ordinary public rows.
-			if (activeDataset && options?.syncMapStackVisibility !== false) {
+			if (activeDataset) {
 				const activeDatasetKey = getDatasetKey(activeDataset)
 				const stack = useEditorStore.getState()
 				for (const id of stack.mapStackOrder) {
@@ -296,17 +287,15 @@ export function useDatasetManagement(
 			// also lets the user end the session from the same surface.
 			const draftTitle =
 				collectionMeta?.name || (activeDataset ? getDatasetName(activeDataset) : 'Untitled draft')
-			if (options?.syncMapStackVisibility !== false) {
-				addMapStackEntry({
-					id: 'draft:active',
-					entityType: 'draft',
-					entityKey: 'draft:active',
-					title: draftTitle,
-					source: 'workspace',
-					visible: true,
-					pinned: false,
-				})
-			}
+			addMapStackEntry({
+				id: 'draft:active',
+				entityType: 'draft',
+				entityKey: 'draft:active',
+				title: draftTitle,
+				source: 'workspace',
+				visible: true,
+				pinned: false,
+			})
 		},
 		[
 			editor,
@@ -338,7 +327,7 @@ export function useDatasetManagement(
 	)
 
 	const loadDraftInWorkspace = useCallback(
-		(workspaceId: string, draftId: string, options?: DraftAuthoringOptions) => {
+		(workspaceId: string, draftId: string) => {
 			if (!editor) return
 			const store = useEditorStore.getState()
 			const workspace = store.workspaces[workspaceId]
@@ -366,16 +355,13 @@ export function useDatasetManagement(
 
 			// Apply the persisted payload to both the actual editor and Zustand before
 			// changing the active draft id. This keeps geometry and destination atomic.
-			applyEditingState(
-				{
-					features: draft.features,
-					activeDataset: event,
-					contextRefs,
-					collectionMeta: draft.collectionMeta,
-					blobReferences,
-				},
-				{ syncMapStackVisibility: options?.syncMapStackVisibility },
-			)
+			applyEditingState({
+				features: draft.features,
+				activeDataset: event,
+				contextRefs,
+				collectionMeta: draft.collectionMeta,
+				blobReferences,
+			})
 			if (isLegacyDraft) {
 				// Legacy drafts keep their quarantined destination. Restoring attachments
 				// must never infer Public from the route that happens to be open.
@@ -419,7 +405,7 @@ export function useDatasetManagement(
 					? activeDraft
 					: mostRecentDraftForSource(store, workspace.sourceId)
 			if (draft) {
-				loadDraftInWorkspace(workspaceId, draft.id, options)
+				loadDraftInWorkspace(workspaceId, draft.id)
 				return
 			}
 
@@ -705,10 +691,8 @@ export function useDatasetManagement(
 		],
 	)
 
-	// The single, complete cancelled/stopped edit-session teardown. This discards
-	// the retained workspace/editor state and also removes any remaining draft
-	// visibility row. Removing that row on its own is deliberately much narrower:
-	// it only hides geometry and never calls this teardown.
+	// The single, complete cancelled/stopped edit-session teardown. Clearing the
+	// authoring pointers first unlocks removal of the mandatory draft row.
 	const tearDownEditSession = useCallback(() => {
 		if (!editor) return
 		setActiveGeoEditDraftId(null)

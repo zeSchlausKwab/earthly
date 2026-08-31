@@ -27,6 +27,7 @@ function validEnvironment(): Record<string, string> {
 		PUBLIC_BASE_URL: 'https://earthly.city',
 		BLOSSOM_SERVER: 'https://blossom.earthly.city',
 		SEARXNG_URL: 'http://127.0.0.1:8888',
+		VALHALLA_URL: 'https://valhalla.earthly.city',
 		MAPNOLIA_TRUSTED_PUBKEYS: '5'.repeat(64),
 		DISCOVERY_FEATURED_PUBKEYS: '6'.repeat(64),
 	}
@@ -103,5 +104,57 @@ describe('production environment validation', () => {
 		expect(validateProductionEnv(env).errors).toContain(
 			'PUBLIC_BASE_URL must use https:// in production',
 		)
+	})
+
+	test('requires a valid HTTP(S) Valhalla routing service', () => {
+		const missing = validEnvironment()
+		delete missing.VALHALLA_URL
+		expect(validateProductionEnv(missing).errors).toContain(
+			'VALHALLA_URL is required when the production GeoCatalog omits transportation',
+		)
+
+		const malformed = validEnvironment()
+		malformed.VALHALLA_URL = 'not a URL'
+		expect(validateProductionEnv(malformed).errors).toContain(
+			'VALHALLA_URL must be a valid URL',
+		)
+
+		const unsupportedProtocol = validEnvironment()
+		unsupportedProtocol.VALHALLA_URL = 'ftp://valhalla.earthly.city'
+		expect(validateProductionEnv(unsupportedProtocol).errors).toContain(
+			'VALHALLA_URL must use http:// or https://',
+		)
+	})
+
+	test('validates the optional GeoCatalog disk reserve', () => {
+		const negative = validEnvironment()
+		negative.GEOCATALOG_RESERVE_FREE_GIB = '-1'
+		expect(validateProductionEnv(negative).errors).toContain(
+			'GEOCATALOG_RESERVE_FREE_GIB must be a non-negative number',
+		)
+
+		const malformed = validEnvironment()
+		malformed.GEOCATALOG_RESERVE_FREE_GIB = 'many'
+		expect(validateProductionEnv(malformed).errors).toContain(
+			'GEOCATALOG_RESERVE_FREE_GIB must be a non-negative number',
+		)
+	})
+
+	test('rejects a release-local relative GeoCatalog path', () => {
+		const releaseLocal = validEnvironment()
+		releaseLocal.GEOCATALOG_PATH = './cache/geocatalog.sqlite'
+		expect(validateProductionEnv(releaseLocal).errors).toContain(
+			'GEOCATALOG_PATH must be absolute or remain under data/geocatalog for VPS persistence',
+		)
+
+		const traversal = validEnvironment()
+		traversal.GEOCATALOG_PATH = './data/geocatalog/../../release-local.sqlite'
+		expect(validateProductionEnv(traversal).errors).toContain(
+			'GEOCATALOG_PATH must be absolute or remain under data/geocatalog for VPS persistence',
+		)
+
+		const persistent = validEnvironment()
+		persistent.GEOCATALOG_PATH = './data/geocatalog/custom.sqlite'
+		expect(validateProductionEnv(persistent).errors).toEqual([])
 	})
 })

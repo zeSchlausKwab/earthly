@@ -7,8 +7,17 @@ describe('frontend environment allow-list', () => {
 		expect(FRONTEND_ENV_KEYS).not.toContain('SERVER_KEY' as never)
 		expect(FRONTEND_ENV_KEYS).not.toContain('APP_PRIVATE_KEY' as never)
 		expect(FRONTEND_ENV_KEYS).not.toContain('PUBLIC_BASE_URL' as never)
+		expect(FRONTEND_ENV_KEYS).not.toContain('GEOCATALOG_PATH' as never)
 		expect(FRONTEND_ENV_KEYS).toContain('MAPNOLIA_TRUSTED_PUBKEYS')
 		expect(FRONTEND_ENV_KEYS).toContain('DISCOVERY_FEATURED_PUBKEYS')
+	})
+
+	test('keeps the GeoCatalog path backend-only with a persistent-data default', () => {
+		expect(parseEnv({ NODE_ENV: 'test' }).GEOCATALOG_PATH).toBe('./data/geocatalog/current.sqlite')
+		expect(
+			parseEnv({ NODE_ENV: 'test', GEOCATALOG_PATH: '/srv/earthly/catalog.sqlite' })
+				.GEOCATALOG_PATH,
+		).toBe('/srv/earthly/catalog.sqlite')
 	})
 
 	test('does not retain the retired shared client key', () => {

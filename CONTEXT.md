@@ -59,13 +59,13 @@ A conversation may refer to any number of published entities. A reference suppli
 
 An **edit state** is retained authoring work for a Dataset, Story, or Context. It owns its local draft and remains alive when another sidebar surface is selected.
 
-Selecting an edit-state button changes only which authoring surface is visible. It does not start a conversation, close another edit state, change the Map Stack, or publish anything. A visible activity indicator may show that an AI run is working on that edit state without forcing it open.
+Selecting an edit-state button changes which retained authoring surface is visible. It does not start a conversation, close another edit state, or publish anything. A Dataset edit is the one deliberate Map Stack exception: while it is the active authoring surface, Earthly maintains exactly one visible draft row and renders its geometry. Story and Context edit states do not change the Map Stack. A visible activity indicator may show that an AI run is working on an edit state without forcing it open.
 
 ## Inspector
 
-The **Inspector** is the single read-only sidebar surface for the most recently inspected published Dataset, Story, Context, Sighting, or Beacon. Inspecting a subject may replace the Inspector's subject, but has no other side effects. Local drafts remain in their retained edit state; viewing one must not masquerade as inspection of a published revision.
+The **Inspector** is the single read-only sidebar surface for the most recently inspected published Dataset, Story, Context, Sighting, or Beacon. Inspecting a subject may replace the Inspector's subject, but has no authoring side effects. Local drafts remain in their retained edit state; viewing one must not masquerade as inspection of a published revision.
 
-In particular, inspection does not add or remove Map Stack entries, change browse scope, create or retarget a local draft, activate an edit state, alter Chat references, or influence an AI run. Showing something on the map, adding it to Chat, and editing or forking it are separate explicit actions.
+In particular, inspection does not change browse scope, create or retarget a local draft, activate an edit state, alter Chat references, or influence an AI run. Opening a Story—from its Browse row or a shared URL—is also an explicit presentation action: Earthly reveals its referenced Datasets on the Map Stack and frames their geometry while showing the read-only Story in the Inspector. Adding something to Chat and editing or forking it remain separate explicit actions.
 
 ## AI run
 

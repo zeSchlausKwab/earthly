@@ -18,12 +18,18 @@ export const DETERMINISTIC_CHAT_SECONDARY_MODEL_ID = 'earthly-compact-fixture'
 export const DETERMINISTIC_SEQUENTIAL_DATASET_NAME = 'Sequential AI edit regression'
 export const DETERMINISTIC_SEQUENTIAL_DATASET_DESCRIPTION =
 	'Non-empty AI-authored description applied while the Dataset metadata editor is mounted.'
+export const DETERMINISTIC_STORY_TARGET_TITLE = 'Dataset-bound Story target regression'
+export const DETERMINISTIC_STORY_TARGET_BODY =
+	'This local Story draft was written only after the author explicitly created its edit state.'
+export const DETERMINISTIC_STORY_TARGET_FINAL_ANSWER =
+	'I created the requested local Story draft after you approved its Story edit state.'
 
 export type DeterministicChatScenario =
 	| 'spatial-research'
 	| 'target-binding'
 	| 'metadata-then-geometry'
 	| 'mobile-workspace-switch'
+	| 'story-target-gate'
 	| 'nearby-discovery'
 	| 'source-to-map-research'
 	| 'repeated-tool-error'
@@ -44,6 +50,10 @@ const scenarioModels: Record<DeterministicChatScenario, { id: string; name: stri
 	'mobile-workspace-switch': {
 		id: 'earthly-mobile-workspace-fixture',
 		name: 'Earthly mobile workspace fixture',
+	},
+	'story-target-gate': {
+		id: 'earthly-story-target-gate-fixture',
+		name: 'Earthly Story target gate fixture',
 	},
 	'nearby-discovery': {
 		id: 'earthly-nearby-fixture',
@@ -432,6 +442,36 @@ async function fulfillModelRoute(
 				'tool_calls',
 				model.id,
 			)
+	const storyTargetGateBodyText = completedToolCallIds.has('call-story-target-gate')
+		? streamBody(
+				{
+					role: 'assistant',
+					content: DETERMINISTIC_STORY_TARGET_FINAL_ANSWER,
+				},
+				'stop',
+				model.id,
+			)
+		: streamBody(
+				{
+					role: 'assistant',
+					tool_calls: [
+						{
+							index: 0,
+							id: 'call-story-target-gate',
+							type: 'function',
+							function: {
+								name: 'write_story_draft',
+								arguments: JSON.stringify({
+									title: DETERMINISTIC_STORY_TARGET_TITLE,
+									markdown: DETERMINISTIC_STORY_TARGET_BODY,
+								}),
+							},
+						},
+					],
+				},
+				'tool_calls',
+				model.id,
+			)
 	const sourceToMapCode = `
 		authoring.commitDataset({
 			featureCollection: ${JSON.stringify(syntheticSourcedDraft)},
@@ -513,11 +553,13 @@ async function fulfillModelRoute(
 					? metadataThenGeometryBodyText
 					: scenario === 'mobile-workspace-switch'
 						? mobileWorkspaceBodyText
-						: scenario === 'source-to-map-research'
-							? sourceToMapBodyText
-							: scenario === 'repeated-tool-error'
-								? repeatedToolErrorBodyText
-								: spatialBodyText
+						: scenario === 'story-target-gate'
+							? storyTargetGateBodyText
+							: scenario === 'source-to-map-research'
+								? sourceToMapBodyText
+								: scenario === 'repeated-tool-error'
+									? repeatedToolErrorBodyText
+									: spatialBodyText
 
 	if (completionGate) await completionGate
 	await route.fulfill({

@@ -12,7 +12,10 @@
  * level (the model must read the draft and confirm with the user first).
  */
 
-import { requestOpenStoryEditor } from '@/features/geo-editor/storyEditorBridge'
+import {
+	getStoryEditorTarget,
+	requestOpenStoryEditor,
+} from '@/features/geo-editor/storyEditorBridge'
 import { castEvent } from 'applesauce-core/casts'
 import { Article } from '@/lib/nostr/article'
 import { ARTICLE_KIND } from '@/lib/nostr/kinds'
@@ -21,6 +24,7 @@ import { NEW_STORY_DRAFT_KEY, readStoryDraft, writeStoryDraft } from '@/lib/nost
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { gateStoryDatasetReferences } from '@/features/chat/referencePublishing'
+import { requestStoryTarget } from '@/features/chat/storyTargeting'
 import { fetchLatestByCoordinate, parseEntityReference } from './entity-tools'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
@@ -94,6 +98,32 @@ const MENTION_SYNTAX_HINT =
 const REVIEW_HINT =
 	'Draft saved locally. The Story edit state is ready behind the Story icon. Tell the user to review it there and publish when ready — publishing is always their action.'
 
+const STORY_TARGET_CANCELLED_RESULT = {
+	ok: false,
+	status: 'blocked',
+	code: 'story_target_cancelled',
+	message:
+		'Story creation was cancelled. No Story draft was written; ask again when a Story edit state is ready.',
+} as const
+
+async function ensureNewStoryTarget(
+	context: Parameters<ToolEntry['handler']>[1],
+	storyTitle: string,
+): Promise<boolean> {
+	if (!context?.run || !context.toolCallId || getStoryEditorTarget()?.mode === 'create') {
+		return true
+	}
+	const decision = await requestStoryTarget(
+		{
+			chatId: context.run.chatId,
+			toolCallId: context.toolCallId,
+			storyTitle,
+		},
+		() => requestOpenStoryEditor(),
+	)
+	return decision.decision === 'created'
+}
+
 const readStoryDraftSchema: Tool = {
 	type: 'function',
 	function: {
@@ -117,7 +147,7 @@ const writeStoryDraftSchema: Tool = {
 	type: 'function',
 	function: {
 		name: 'write_story_draft',
-		description: `Write a local Story draft the user reviews and publishes in the Story editor — this never publishes anything. Omit storyReference to create a new Story; pass an existing Story naddr to update that Story in its edit screen. ${MENTION_SYNTAX_HINT} If a local draft this session didn't author already exists, the call fails unless overwrite is true — read it first and confirm with the user before overwriting.`,
+		description: `Write a local Story draft the user reviews and publishes in the Story editor — this never publishes anything. Omit storyReference to create a new Story; when no new Story edit state exists, Earthly pauses this exact call and asks the user to create one before writing. Pass an existing Story naddr to update that Story in its edit screen. ${MENTION_SYNTAX_HINT} If a local draft this session didn't author already exists, the call fails unless overwrite is true — read it first and confirm with the user before overwriting.`,
 		parameters: {
 			type: 'object',
 			properties: {
@@ -171,7 +201,15 @@ async function resolveStoryTarget(
 	return { draftKey: ref.identifier, story }
 }
 
-export function registerStoryTools(register: (entry: ToolEntry) => void): void {
+export interface StoryToolDependencies {
+	gateDatasetReferences?: typeof gateStoryDatasetReferences
+}
+
+export function registerStoryTools(
+	register: (entry: ToolEntry) => void,
+	dependencies: StoryToolDependencies = {},
+): void {
+	const gateDatasetReferences = dependencies.gateDatasetReferences ?? gateStoryDatasetReferences
 	register({
 		name: 'read_story_draft',
 		kind: 'host-builtin',
@@ -246,8 +284,16 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 				)
 			}
 
+			// A new Story is a distinct retained edit state, not a side effect the
+			// tool may invent. Park the exact AI call until the user explicitly
+			// creates that target. Direct/headless invocations without run ownership
+			// retain the legacy behavior because they cannot own a visible dialog.
+			if (!target && !(await ensureNewStoryTarget(context, title.trim()))) {
+				return STORY_TARGET_CANCELLED_RESULT
+			}
+
 			const normalizedBody = normalizeStoryFeatureReferences(markdown)
-			const referenceGate = await gateStoryDatasetReferences(normalizedBody.markdown, {
+			const referenceGate = await gateDatasetReferences(normalizedBody.markdown, {
 				run: context?.run,
 				referencesActiveDataset: args.referencesActiveDataset === true,
 			})
@@ -256,6 +302,12 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 					ok: false,
 					...referenceGate,
 				}
+			}
+			// Dataset publication is an independent awaited gate. The author may
+			// close the Story state while this tool is parked, so revalidate the
+			// target at the final write boundary instead of reviving it implicitly.
+			if (!target && !(await ensureNewStoryTarget(context, title.trim()))) {
+				return STORY_TARGET_CANCELLED_RESULT
 			}
 			writeStoryDraft(draftKey, {
 				title: title.trim(),

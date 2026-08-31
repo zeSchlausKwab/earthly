@@ -7,7 +7,7 @@ const publicChannel: PublishChannel = { kind: 'public' }
 const targetChannel: PublishChannel = { kind: 'private-group', id: 'target-group' }
 
 describe('view-level workspace switching', () => {
-	test('exact cross-workspace mobile open preserves published-map visibility and route', async () => {
+	test('exact cross-workspace mobile open preserves the route while showing its edit', async () => {
 		let activeWorkspaceId = 'workspace-current'
 		let route = '/mapcontext/current-inspection'
 		const visibleEntries = new Set(['dataset:target', 'dataset:other'])
@@ -17,18 +17,14 @@ describe('view-level workspace switching', () => {
 
 		await switchWorkspaceFromView({
 			workspaceId: 'workspace-target',
-			options: { syncMapStackVisibility: false },
+			options: { preserveMobileRoute: true },
 			isMobile: true,
 			routePublishChannel: publicChannel,
 			switchToWorkspace: (workspaceId, options) => {
 				activeWorkspaceId = workspaceId
 				receivedOptions = options
-				// Model the Dataset hook's ordinary visibility synchronization. The
-				// adapter must pass false or the target's published row is replaced.
-				if (options.syncMapStackVisibility !== false) {
-					visibleEntries.delete('dataset:target')
-					visibleEntries.add('draft:active')
-				}
+				visibleEntries.delete('dataset:target')
+				visibleEntries.add('draft:active')
 			},
 			readActiveWorkspaceDraftChannel: () => targetChannel,
 			syncRouteToDraftChannel: (channel) => {
@@ -43,9 +39,8 @@ describe('view-level workspace switching', () => {
 		expect(activeWorkspaceId).toBe('workspace-target')
 		expect(receivedOptions).toEqual({
 			publishChannel: publicChannel,
-			syncMapStackVisibility: false,
 		})
-		expect([...visibleEntries]).toEqual(['dataset:target', 'dataset:other'])
+		expect([...visibleEntries]).toEqual(['dataset:other', 'draft:active'])
 		expect(route).toBe('/mapcontext/current-inspection')
 		expect(routeSyncCount).toBe(0)
 		expect(surfacedCount).toBe(0)
@@ -74,7 +69,6 @@ describe('view-level workspace switching', () => {
 
 		expect(receivedOptions).toEqual({
 			publishChannel: publicChannel,
-			syncMapStackVisibility: undefined,
 		})
 		expect(route).toBe('/private-group/target-group')
 		expect(surfacedCount).toBe(1)

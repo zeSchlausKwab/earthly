@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { queryGeographyInputSchema } from '../../../../contextvm/geo-schemas'
+import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
+import type { EditorFeature } from '@/features/geo-editor/core'
 import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { isToolError } from './errors'
+import { getEditorDatasetMetadata } from './editorDatasetMetadata'
 import { advertise, dispatch, type ToolEntry, register, registry, unregister } from './registry'
 
 const TEST_TOOL: ToolEntry = {
@@ -97,12 +101,687 @@ describe('tool registry', () => {
 		expect(names).toContain('write_geojson_to_editor') // editor write via authoring
 		expect(names).toContain('add_feature_to_editor')
 		expect(names).toContain('get_editor_state') // host-builtin
+		expect(names).toContain('query_geography') // permanent self-hosted catalog seam
 		expect(names).toContain('search_location') // remote-mcp
 		expect(names).toContain('valhalla_route') // remote-mcp
 		expect(names).toContain('route_over_network') // host pathfinding over line networks
 		expect(names).toContain('get_reference_boundaries') // source-selecting boundary facade
 		expect(names).toContain('editor_set_mode') // editor command (self-registered)
 		expect(names).toContain('editor_undo')
+	})
+
+	it('keeps query_geography statically registered with editor baking controls', () => {
+		const entry = registry.get('query_geography')
+		expect(entry?.kind).toBe('remote-mcp')
+		const properties = entry?.schema.function.parameters.properties
+		expect(properties).not.toHaveProperty('includeGeometry')
+		expect(properties).toHaveProperty('categories')
+		expect(properties).toHaveProperty('adminLevels')
+		expect(properties).toHaveProperty('toEditor')
+		expect(properties).toHaveProperty('replaceExisting')
+	})
+
+	it('keeps the permanent query_geography transport fields aligned with the server', () => {
+		const properties = registry.get('query_geography')?.schema.function.parameters.properties ?? {}
+		const transportFields = Object.keys(properties)
+			.filter((name) => name !== 'toEditor' && name !== 'replaceExisting')
+			.sort()
+		const discoveryFields = Object.keys(queryGeographyInputSchema)
+			.filter((name) => name !== 'includeGeometry')
+			.sort()
+		expect(transportFields).toEqual(discoveryFields)
+	})
+
+	it('discovers text first, then resolves one unique exact stable id for toEditor', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		const calls: Array<{ name: string; args: Record<string, unknown> }> = []
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>(
+			name: string,
+			args: Record<string, unknown>,
+		) => {
+			calls.push({ name, args })
+			return {
+				result: {
+					items: [
+						{
+							id: 'overture:place:gers-1',
+							kind: 'place',
+							name: 'Timure',
+							aliases: [],
+							countryCode: 'NP',
+							bbox: [85.25, 28.15, 85.25, 28.15],
+							center: { longitude: 85.25, latitude: 28.15 },
+							importance: 1,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: {
+								version: 2,
+								subtype: 'locality',
+								taxonomy: { primary: 'village', hierarchy: ['place', 'village'] },
+								sources: [{ dataset: 'OpenStreetMap', record_id: 'node/1' }],
+							},
+							...(args.includeGeometry === true
+								? { geometry: { type: 'Point', coordinates: [85.25, 28.15] } }
+								: {}),
+						},
+					],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							coverage: {
+								spatial: { scope: 'bbox', bbox: [85.05, 27.75, 86.1, 29.1] },
+								kinds: ['admin', 'locality', 'place', 'waterway'],
+							},
+							sources: [
+								{
+									name: 'Overture Maps',
+									release: '2026-08-19.0',
+									attribution: 'Overture Maps Foundation',
+									license: 'ODbL-1.0',
+									documents: [
+										{
+											name: 'Foursquare OS Places NOTICE.txt',
+											url: 'https://example.test/NOTICE.txt',
+											content: 'Preserve this complete notice.',
+										},
+									],
+								},
+							],
+						},
+						coverage: {
+							spatial: {
+								status: 'inside',
+								snapshotBbox: [85.05, 27.75, 86.1, 29.1],
+								queryBbox: [85.2, 28.1, 85.3, 28.2],
+							},
+							kinds: {
+								status: 'available',
+								available: ['locality'],
+								missing: [],
+							},
+						},
+						query: {
+							returned: 1,
+							limit: 20,
+							hasMore: false,
+							diagnostics: {
+								textRelaxation: {
+									status: 'applied',
+									strategy: 'generic_suffix',
+									removedTokens: ['village'],
+									effectiveText: 'Timure',
+								},
+							},
+						},
+					},
+				},
+			} as T
+		}
+		try {
+			const result = (await dispatch('query_geography', {
+				text: 'Timure',
+				categories: ['village'],
+				countryCode: 'np',
+				toEditor: true,
+				replaceExisting: true,
+			})) as {
+				items: Record<string, unknown>[]
+				features: GeoJSON.Feature[]
+				metadata: Record<string, unknown>
+			}
+
+			expect(calls).toHaveLength(2)
+			expect(calls[0]).toEqual({
+				name: 'query_geography',
+				args: {
+					text: 'Timure',
+					categories: ['village'],
+					countryCode: 'NP',
+					includeGeometry: false,
+				},
+			})
+			expect(calls[1]).toEqual({
+				name: 'query_geography',
+				args: {
+					ids: ['overture:place:gers-1'],
+					includeGeometry: true,
+				},
+			})
+			expect(result).toMatchObject({
+				catalogResolution: {
+					strategy: 'unique-exact-discovery-match',
+					stableId: 'overture:place:gers-1',
+				},
+			})
+			expect(result.items[0]).not.toHaveProperty('geometry')
+			expect(result.items[0]?.properties).toEqual({ version: 2, subtype: 'locality' })
+			expect(result.features[0]?.id).toBe('overture:place:gers-1')
+			expect(result.features[0]?.properties).toMatchObject({
+				catalogId: 'overture:place:gers-1',
+				name: 'Timure',
+				kind: 'place',
+				source: {
+					name: 'Overture Maps',
+					release: '2026-08-19.0',
+					snapshotId: 'fixture',
+					manifestProperty: 'earthly:geoCatalogSourceManifest:fixture',
+					attribution: 'Overture Maps Foundation',
+					license: 'ODbL-1.0',
+				},
+			})
+			expect(result.features[0]?.properties?.sourceRecords).toEqual([
+				{ dataset: 'OpenStreetMap', record_id: 'node/1' },
+			])
+			expect(result.features[0]?.properties).not.toHaveProperty('taxonomy')
+			const editorMetadata = getEditorDatasetMetadata(result)
+			const persistedManifest = JSON.parse(
+				String(editorMetadata?.properties['earthly:geoCatalogSourceManifest:fixture']),
+			) as { sources?: Array<{ documents?: Array<{ content?: string }> }> }
+			expect(persistedManifest.sources?.[0]?.documents?.[0]?.content).toBe(
+				'Preserve this complete notice.',
+			)
+			const visibleMetadata = result.metadata as {
+				snapshot?: {
+					coverage?: Record<string, unknown>
+					sources?: Array<{ documents?: Array<{ content?: string }> }>
+				}
+				coverage?: Record<string, unknown>
+				query?: { diagnostics?: Record<string, unknown> }
+			}
+			expect(visibleMetadata.snapshot?.sources?.[0]?.documents?.[0]).not.toHaveProperty('content')
+			expect(visibleMetadata.snapshot?.coverage).toEqual({
+				spatial: { scope: 'bbox', bbox: [85.05, 27.75, 86.1, 29.1] },
+				kinds: ['admin', 'locality', 'place', 'waterway'],
+			})
+			expect(visibleMetadata.coverage).toMatchObject({
+				spatial: { status: 'inside' },
+				kinds: { status: 'available' },
+			})
+			expect(visibleMetadata.query?.diagnostics).toMatchObject({
+				textRelaxation: { effectiveText: 'Timure' },
+			})
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('requires stable-id selection before importing a countryless spatial fallback', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		const calls: Array<Record<string, unknown>> = []
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>(
+			_name: string,
+			args: Record<string, unknown>,
+		) => {
+			calls.push(args)
+			return {
+				result: {
+					items: [
+						{
+							id: 'overture:water:trishuli',
+							kind: 'waterway',
+							name: 'Trishuli River',
+							aliases: [],
+							categories: ['river'],
+							bbox: [84.9, 27.7, 85.3, 28.4],
+							center: { longitude: 85.1, latitude: 28.05 },
+							importance: 80,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: {},
+							...(args.includeGeometry === true
+								? {
+										geometry: {
+											type: 'LineString',
+											coordinates: [
+												[85.3, 28.4],
+												[84.9, 27.7],
+											],
+										},
+									}
+								: {}),
+						},
+					],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+						},
+						query: {
+							returned: 1,
+							limit: 20,
+							hasMore: false,
+							diagnostics: {
+								countrylessSpatialFallback: {
+									status: 'applied',
+									countryCode: 'NP',
+									boundaryId: 'admin:np',
+									appliedBbox: [80, 26, 89, 31],
+								},
+							},
+						},
+					},
+				},
+			} as T
+		}
+		try {
+			const discovery = (await dispatch('query_geography', {
+				text: 'Trishuli River',
+				countryCode: 'np',
+				toEditor: true,
+			})) as Record<string, unknown>
+
+			expect(calls).toHaveLength(1)
+			expect(calls[0]).toMatchObject({
+				text: 'Trishuli River',
+				countryCode: 'NP',
+				includeGeometry: false,
+			})
+			expect(discovery).not.toHaveProperty('features')
+			expect(discovery).toMatchObject({
+				editorImport: {
+					available: true,
+					candidateIds: ['overture:water:trishuli'],
+					selectionRequired: true,
+					reason: expect.stringContaining('recovered spatially'),
+				},
+			})
+
+			const exact = (await dispatch('query_geography', {
+				ids: ['overture:water:trishuli'],
+				toEditor: true,
+			})) as { features: GeoJSON.Feature[] }
+			expect(calls).toHaveLength(2)
+			expect(calls[1]).toEqual({
+				ids: ['overture:water:trishuli'],
+				includeGeometry: true,
+			})
+			expect(exact.features[0]?.id).toBe('overture:water:trishuli')
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('turns discovery hits into an explicit stable-id editor continuation', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>() =>
+			({
+				result: {
+					items: [
+						{
+							id: 'overture:divisions:division:dhunche',
+							kind: 'locality',
+							name: 'Dhunche',
+							aliases: [],
+							categories: ['locality'],
+							bbox: [85.296, 28.112, 85.296, 28.112],
+							center: { longitude: 85.296, latitude: 28.112 },
+							importance: 60,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: { overtureTheme: 'divisions', overtureType: 'division' },
+						},
+					],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+						},
+						query: { returned: 1, limit: 20, hasMore: false },
+					},
+				},
+			}) as T
+		try {
+			const result = (await dispatch('query_geography', {
+				text: 'Dhunche',
+				kinds: ['locality'],
+			})) as Record<string, unknown>
+
+			expect(result).toMatchObject({
+				editorImport: {
+					available: true,
+					candidateIds: ['overture:divisions:division:dhunche'],
+					nextCall: {
+						name: 'query_geography',
+						arguments: {
+							ids: ['overture:divisions:division:dhunche'],
+							toEditor: true,
+						},
+					},
+				},
+			})
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('requires selection when a single visible discovery hit comes from a truncated result set', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>() =>
+			({
+				result: {
+					items: [
+						{
+							id: 'overture:divisions:division:dhunche',
+							kind: 'locality',
+							name: 'Dhunche',
+							aliases: [],
+							categories: ['locality'],
+							bbox: [85.296, 28.112, 85.296, 28.112],
+							center: { longitude: 85.296, latitude: 28.112 },
+							importance: 60,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: { overtureTheme: 'divisions', overtureType: 'division' },
+						},
+					],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+						},
+						query: { returned: 1, limit: 1, hasMore: true },
+					},
+				},
+			}) as T
+		try {
+			const result = (await dispatch('query_geography', {
+				text: 'Dhunche',
+				kinds: ['locality'],
+				limit: 1,
+				toEditor: true,
+			})) as Record<string, unknown>
+
+			expect(result).toMatchObject({
+				editorImport: {
+					available: true,
+					candidateIds: ['overture:divisions:division:dhunche'],
+					selectionRequired: true,
+				},
+			})
+			expect((result.editorImport as Record<string, unknown>)?.nextCall).toBeUndefined()
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('requires an explicit choice when discovery returns a corridor and its raw segments', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>() =>
+			({
+				result: {
+					items: [
+						{
+							id: 'overture:base:water_corridor:trishuli',
+							kind: 'waterway',
+							name: 'Trishuli River',
+							aliases: [],
+							categories: ['corridor', 'river'],
+							bbox: [85.2, 28, 85.22, 28.1],
+							center: { longitude: 85.21, latitude: 28.05 },
+							importance: 80,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: {
+								overtureTheme: 'base',
+								overtureType: 'water_corridor',
+							},
+						},
+						{
+							id: 'overture:base:water:trishuli-a',
+							kind: 'waterway',
+							name: 'Trishuli River',
+							aliases: [],
+							categories: ['river'],
+							bbox: [85.2, 28.05, 85.21, 28.1],
+							center: { longitude: 85.205, latitude: 28.075 },
+							importance: 40,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: { overtureTheme: 'base', overtureType: 'water' },
+						},
+						{
+							id: 'overture:base:water:trishuli-b',
+							kind: 'waterway',
+							name: 'Trishuli River',
+							aliases: [],
+							categories: ['river'],
+							bbox: [85.21, 28, 85.22, 28.05],
+							center: { longitude: 85.215, latitude: 28.025 },
+							importance: 39,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: { overtureTheme: 'base', overtureType: 'water' },
+						},
+					],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+						},
+						query: { returned: 3, limit: 20, hasMore: false },
+					},
+				},
+			}) as T
+		try {
+			const result = (await dispatch('query_geography', {
+				text: 'Trishuli River',
+				kinds: ['waterway'],
+				toEditor: true,
+			})) as Record<string, unknown>
+
+			expect(result).toMatchObject({
+				editorImport: {
+					available: true,
+					candidateIds: [
+						'overture:base:water_corridor:trishuli',
+						'overture:base:water:trishuli-a',
+						'overture:base:water:trishuli-b',
+					],
+					selectionRequired: true,
+				},
+			})
+			expect((result.editorImport as Record<string, unknown>)?.nextCall).toBeUndefined()
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('returns a normal coverage-bearing no-op when text discovery finds no import target', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		const calls: Record<string, unknown>[] = []
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>(
+			_name: string,
+			args: Record<string, unknown>,
+		) => {
+			calls.push(args)
+			return {
+				result: {
+					items: [],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							coverage: {
+								spatial: { scope: 'bbox', bbox: [85.05, 27.75, 86.1, 29.1] },
+								kinds: ['waterway'],
+							},
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+						},
+						coverage: {
+							spatial: {
+								status: 'unscoped',
+								snapshotBbox: [85.05, 27.75, 86.1, 29.1],
+							},
+							kinds: { status: 'available', available: ['waterway'], missing: [] },
+							zeroResultReason: 'no_match_within_snapshot',
+						},
+						query: { returned: 0, limit: 20, hasMore: false },
+					},
+				},
+			} as T
+		}
+		try {
+			const result = (await dispatch('query_geography', {
+				text: 'Missing River',
+				kinds: ['waterway'],
+				countryCode: 'NP',
+				toEditor: true,
+			})) as Record<string, unknown>
+
+			expect(calls).toEqual([
+				{
+					text: 'Missing River',
+					kinds: ['waterway'],
+					countryCode: 'NP',
+					includeGeometry: false,
+				},
+			])
+			expect(result).toMatchObject({
+				metadata: {
+					coverage: {
+						zeroResultReason: 'no_match_within_snapshot',
+					},
+				},
+				editorImport: {
+					available: false,
+					selectionRequired: false,
+					noMatch: true,
+				},
+			})
+			expect(result).not.toHaveProperty('features')
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('does not advertise administrative label points as editor imports', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>() =>
+			({
+				result: {
+					items: [
+						{
+							id: 'overture:divisions:division:rasuwa-label',
+							kind: 'admin',
+							name: 'Rasuwa',
+							aliases: ['Rasuwa District'],
+							categories: ['administrative-label', 'county'],
+							bbox: [85.3, 28.1, 85.3, 28.1],
+							center: { longitude: 85.3, latitude: 28.1 },
+							importance: 60,
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							properties: { overtureTheme: 'divisions', overtureType: 'division' },
+						},
+					],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+						},
+						query: { returned: 1, limit: 20, hasMore: false },
+					},
+				},
+			}) as T
+		try {
+			const result = (await dispatch('query_geography', {
+				text: 'Rasuwa',
+				kinds: ['admin'],
+			})) as Record<string, unknown>
+
+			expect(result).not.toHaveProperty('editorImport')
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('rejects malformed catalog filters instead of widening them into an unfiltered query', async () => {
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		let remoteCalls = 0
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>() => {
+			remoteCalls += 1
+			return { result: { items: [] } } as T
+		}
+		try {
+			const malformedCalls: Record<string, unknown>[] = [
+				{ text: 42, toEditor: true },
+				{ ids: ['overture:ok', ''], toEditor: true },
+				{ kinds: ['admin', 'unsupported'], toEditor: true },
+				{ categories: ['hospital', ''], toEditor: true },
+				{ adminLevels: [1, -1], toEditor: true },
+				{ countryCode: 'Nepal', toEditor: true },
+				{ bbox: { west: -200, south: 0, east: 10, north: 20 }, toEditor: true },
+				{ near: { longitude: 85, latitude: 28 }, toEditor: true },
+				{ includeGeometry: true },
+			]
+
+			for (const args of malformedCalls) {
+				const result = await dispatch('query_geography', args)
+				expect(isToolError(result)).toBe(true)
+			}
+			expect(remoteCalls).toBe(0)
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
+	})
+
+	it('does not import unfiltered OSM candidates when the requested name has no match', async () => {
+		const originalQueryOsmBbox = EarthlyGeoServerClient.prototype.QueryOsmBbox
+		EarthlyGeoServerClient.prototype.QueryOsmBbox = async () => ({
+			result: {
+				count: 1,
+				features: [
+					{
+						type: 'Feature',
+						id: 'way/123',
+						properties: { name: 'Trishuli River', waterway: 'river' },
+						geometry: {
+							type: 'LineString',
+							coordinates: [
+								[85.1, 28.1],
+								[85.2, 28.0],
+							],
+						},
+					},
+				],
+			},
+		})
+
+		const editor = createHeadlessEditor()
+		const existingFeature: EditorFeature = {
+			type: 'Feature',
+			id: 'existing-feature',
+			properties: { name: 'Keep me' },
+			geometry: { type: 'Point', coordinates: [85, 28] },
+		}
+		editor.setFeatures([existingFeature])
+		useEditorStore.setState({ editor, features: [existingFeature] })
+
+		try {
+			const result = await dispatch('import_osm_to_editor', {
+				name: 'Lende Khola',
+				filters: { waterway: 'river' },
+				west: 85,
+				south: 27.8,
+				east: 85.5,
+				north: 28.5,
+				replaceExisting: true,
+			})
+
+			expect(isToolError(result)).toBe(true)
+			if (!isToolError(result)) throw new Error('expected ToolError')
+			expect(result.message).toContain('No OSM features named "Lende Khola" matched')
+			expect(result.sideEffectsApplied).toBe(false)
+			expect(editor.getAllFeatures()).toEqual([existingFeature])
+		} finally {
+			EarthlyGeoServerClient.prototype.QueryOsmBbox = originalQueryOsmBbox
+			useEditorStore.getState().setEditor(null)
+		}
 	})
 
 	it('every registered entry carries a non-empty kind (D-03)', () => {
@@ -180,10 +859,44 @@ describe('set_dataset_metadata host-builtin + get_editor_state datasetMetadata (
 		expect(full.datasetMetadata?.customProperties).toEqual({ k: 'v' })
 	})
 
+	it('summarizes GeoCatalog manifests in compact editor state without hiding them in full detail', async () => {
+		useEditorStore.getState().setEditor(createHeadlessEditor())
+		const manifestKey = 'earthly:geoCatalogSourceManifest:snapshot-1'
+		const manifest = JSON.stringify({
+			snapshotId: 'snapshot-1',
+			documents: [{ content: 'large legal document' }],
+		})
+		useEditorStore.setState({
+			collectionMeta: {
+				name: 'Catalog-backed',
+				description: '',
+				color: '#abcdef',
+				customProperties: { note: 'visible', [manifestKey]: manifest },
+			},
+		})
+
+		const compact = (await dispatch('get_editor_state', {})) as {
+			datasetMetadata?: {
+				customProperties: Record<string, unknown>
+				geoCatalogSourceManifests: { count: number; snapshotIds: string[] }
+			}
+		}
+		expect(compact.datasetMetadata?.customProperties).toEqual({ note: 'visible' })
+		expect(compact.datasetMetadata?.geoCatalogSourceManifests).toEqual({
+			count: 1,
+			snapshotIds: ['snapshot-1'],
+		})
+
+		const full = (await dispatch('get_editor_state', { detail: 'full' })) as {
+			datasetMetadata?: { customProperties: Record<string, unknown> }
+		}
+		expect(full.datasetMetadata?.customProperties[manifestKey]).toBe(manifest)
+	})
+
 	it('get_editor_state reports fresh serialized dataset bytes after a geometry mutation', async () => {
 		const editor = createHeadlessEditor()
 		useEditorStore.getState().setEditor(editor)
-		const detailedFeatures = [
+		const detailedFeatures: EditorFeature[] = [
 			{
 				type: 'Feature',
 				id: 'route',

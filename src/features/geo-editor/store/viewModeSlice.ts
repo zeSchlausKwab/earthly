@@ -95,8 +95,8 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 		set((state) => {
 			const hasFocus = route.focusType !== 'none'
 			// A retained Dataset editor is a valid workspace -> draft relationship.
-			// Map Stack controls whether its geometry is drawn; hiding/removing that
-			// visibility row must not discard or make the editor unreachable.
+			// When the route activates authoring, the editor workflow restores its
+			// mandatory visible Map Stack row after this pure route transition.
 			const editSessionLive = hasRetainedDatasetSurface(state)
 			// The context editor edits metadata, not geometry — treat it as a
 			// non-geometry surface so a live geo draft doesn't flip us into 'edit'.

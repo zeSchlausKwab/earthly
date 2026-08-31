@@ -36,8 +36,19 @@ async function createDeploymentFixture(): Promise<string> {
 	temporaryDirectories.push(fixtureRoot)
 
 	for (const relativePath of [
+		'contextvm/geocatalog/catalog.ts',
+		'contextvm/geocatalog/in-memory.ts',
+		'contextvm/geocatalog/index.ts',
+		'contextvm/geocatalog/internal.ts',
+		'contextvm/geocatalog/overture.ts',
+		'contextvm/geocatalog/preflight.ts',
+		'contextvm/geocatalog/sqlite.ts',
+		'contextvm/geocatalog/types.ts',
+		'docs/legal/Apache-2.0.txt',
 		'ops/vps/activate.sh',
 		'ops/vps/deploy.sh',
+		'ops/vps/geocatalog.sh',
+		'ops/vps/resume-geocatalog.sh',
 		'ops/vps/runtime.sh',
 		'ops/vps/rollback.sh',
 		'ops/vps/searxng.sh',
@@ -47,9 +58,13 @@ async function createDeploymentFixture(): Promise<string> {
 		'ops/vps/setup.sh',
 		'ops/vps/start-cordn.sh',
 		'scripts/build-production.sh',
+		'scripts/build-geocatalog.ts',
 		'scripts/ensure-pmtiles.sh',
+		'scripts/ensure-uv.sh',
+		'scripts/export-overture-planet-lite.py',
 		'scripts/validate-production-env.ts',
 		'src/config/env.schema.ts',
+		'src/config/env.server.ts',
 	]) {
 		await copyFixtureFile(relativePath, fixtureRoot)
 	}
@@ -89,6 +104,7 @@ async function createDeploymentFixture(): Promise<string> {
 			'PUBLIC_BASE_URL=https://earthly.city',
 			'BLOSSOM_SERVER=https://blossom.earthly.city',
 			'SEARXNG_URL=http://127.0.0.1:8888',
+			'VALHALLA_URL=https://valhalla1.openstreetmap.de',
 			`SERVER_KEY=${serverKey}`,
 			`SERVER_PUBKEY=${getPublicKey(hexToBytes(serverKey))}`,
 			`CORDN_SERVER_PRIVATE_KEY=${cordnKey}`,
@@ -137,6 +153,7 @@ async function runDeploy(fixtureRoot: string, args: string[] = []) {
 			PATH: Bun.env.PATH ?? '',
 			TMPDIR: Bun.env.TMPDIR ?? '/tmp',
 			CAPTURED_ARCHIVE: join(fixtureRoot, 'captured-release.tar.gz'),
+			CAPTURED_SSH: join(fixtureRoot, 'captured-ssh.txt'),
 		},
 		stdout: 'pipe',
 		stderr: 'pipe',
@@ -175,7 +192,114 @@ describe('deployment environment and bundle isolation', () => {
 		expect(stderr).toContain('VPS_USER, VPS_HOST, or VPS_PATH contains unsupported')
 	})
 
-	test('ships runtime files without ignored secrets, binaries, tests, or docs', async () => {
+	test('checks GeoCatalog progress remotely without building a release', async () => {
+		const fixtureRoot = await createDeploymentFixture()
+		const fakeBin = join(fixtureRoot, 'fake-bin')
+		await writeFile(
+			join(fixtureRoot, '.env.deploy'),
+			[
+				'VPS_HOST=production.example',
+				'VPS_USER=deploy',
+				'VPS_PATH=/var/www/earthly',
+				'GEOCATALOG_OVERTURE_RELEASE=malformed-but-irrelevant-to-status',
+				'',
+			].join('\n'),
+		)
+		await writeExecutable(join(fakeBin, 'ssh'), '#!/bin/bash\nprintf "%s\\n" "$*"\n')
+
+		const originalPath = Bun.env.PATH ?? ''
+		Bun.env.PATH = `${fakeBin}:${originalPath}`
+		try {
+			const { exitCode, stdout, stderr } = await runDeploy(fixtureRoot, [
+				'--geocatalog-status',
+			])
+			expect(exitCode).toBe(0)
+			expect(stderr).toBe('')
+			expect(stdout).toContain('deploy@production.example')
+			expect(stdout).toContain('ops/vps/geocatalog.sh')
+			expect(stdout).toContain("status '/var/www/earthly/shared'")
+			expect(stdout).not.toContain('Building the production browser bundle')
+		} finally {
+			Bun.env.PATH = originalPath
+		}
+	})
+
+	test('resumes GeoCatalog with a worker-only archive and no app build', async () => {
+		const fixtureRoot = await createDeploymentFixture()
+		const fakeBin = join(fixtureRoot, 'fake-bin')
+		await writeExecutable(
+			join(fakeBin, 'ssh'),
+			'#!/bin/bash\nprintf "%s\\n" "$*" >> "$CAPTURED_SSH"\ncat >/dev/null || true\nexit 0\n',
+		)
+		await writeExecutable(
+			join(fakeBin, 'scp'),
+			[
+				'#!/bin/bash',
+				'if [[ "$1" == *.tar.gz ]]; then cp "$1" "$CAPTURED_ARCHIVE"; fi',
+				'exit 0',
+				'',
+			].join('\n'),
+		)
+
+		const originalPath = Bun.env.PATH ?? ''
+		Bun.env.PATH = `${fakeBin}:${originalPath}`
+		try {
+			const { exitCode, stdout, stderr } = await runDeploy(fixtureRoot, [
+				'--resume-geocatalog',
+			])
+			if (exitCode !== 0) throw new Error(`${stdout}\n${stderr}`)
+			expect(exitCode).toBe(0)
+			expect(stderr).toBe('')
+			expect(stdout).toContain('GeoCatalog worker resume complete')
+			expect(stdout).not.toContain('Building the production browser bundle')
+
+			const archive = Bun.spawnSync(['tar', '-tzf', join(fixtureRoot, 'captured-release.tar.gz')])
+			expect(archive.exitCode).toBe(0)
+			const entries = archive.stdout.toString()
+			expect(entries).toContain('./contextvm/geocatalog/index.ts')
+			expect(entries).toContain('./scripts/build-geocatalog.ts')
+			expect(entries).toContain('./scripts/export-overture-planet-lite.py')
+			expect(entries).toContain('./src/config/env.server.ts')
+			expect(entries).not.toContain('./dist/')
+			expect(entries).not.toContain('.test.ts')
+
+			const ssh = await readFile(join(fixtureRoot, 'captured-ssh.txt'), 'utf8')
+			expect(ssh).toContain('.resume.sh')
+			expect(ssh).toContain('2026-08-19.0')
+		} finally {
+			Bun.env.PATH = originalPath
+		}
+	})
+
+	test('activates a completed GeoCatalog with a worker-only archive and no app build', async () => {
+		const fixtureRoot = await createDeploymentFixture()
+		const fakeBin = join(fixtureRoot, 'fake-bin')
+		await writeExecutable(
+			join(fakeBin, 'ssh'),
+			'#!/bin/bash\nprintf "%s\\n" "$*" >> "$CAPTURED_SSH"\ncat >/dev/null || true\nexit 0\n',
+		)
+		await writeExecutable(join(fakeBin, 'scp'), '#!/bin/bash\nexit 0\n')
+
+		const originalPath = Bun.env.PATH ?? ''
+		Bun.env.PATH = `${fakeBin}:${originalPath}`
+		try {
+			const { exitCode, stdout, stderr } = await runDeploy(fixtureRoot, [
+				'--activate-geocatalog',
+			])
+			if (exitCode !== 0) throw new Error(`${stdout}\n${stderr}`)
+			expect(stderr).toBe('')
+			expect(stdout).toContain('GeoCatalog worker activate complete')
+			expect(stdout).not.toContain('Building the production browser bundle')
+			expect(stdout).not.toContain('Ensuring the pinned uv CLI')
+
+			const ssh = await readFile(join(fixtureRoot, 'captured-ssh.txt'), 'utf8')
+			expect(ssh).toContain("'2026-08-19.0' 'activate'")
+		} finally {
+			Bun.env.PATH = originalPath
+		}
+	})
+
+	test('ships the runtime and GeoCatalog worker without ignored secrets or tests', async () => {
 		const fixtureRoot = await createDeploymentFixture()
 		const fakeBin = join(fixtureRoot, 'fake-bin')
 		await writeExecutable(
@@ -210,7 +334,13 @@ describe('deployment environment and bundle isolation', () => {
 			expect(entries).not.toContain('searxng/.env')
 			expect(entries).not.toContain('relay/bin')
 			expect(entries).not.toContain('.test.ts')
-			expect(entries).not.toContain('./docs/')
+			expect(entries).toContain('./docs/legal/Apache-2.0.txt')
+			expect(entries).toContain('./ops/vps/geocatalog.sh')
+			expect(entries).toContain('./ops/vps/resume-geocatalog.sh')
+			expect(entries).toContain('./scripts/build-geocatalog.ts')
+			expect(entries).toContain('./scripts/ensure-uv.sh')
+			expect(entries).toContain('./scripts/export-overture-planet-lite.py')
+			expect(entries).toContain('./contextvm/geocatalog/index.ts')
 		} finally {
 			Bun.env.PATH = originalPath
 		}

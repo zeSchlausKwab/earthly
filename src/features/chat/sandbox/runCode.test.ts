@@ -79,6 +79,23 @@ describe('run_code — error feedback (CODE-03 / D-11 / D-13)', () => {
 	}, 15_000) // test itself headroom past it. // The run burns the FULL default sandbox deadline (10s) by design — give the
 })
 
+describe('run_code — map constructor surface', () => {
+	it('constructs a MultiLineString from river fragments', async () => {
+		useHeadlessEditor()
+		const result = await dispatch('run_code', {
+			code: `
+				const river = turf.multiLineString([
+					[[85.2, 28.1], [85.21, 28.05]],
+					[[85.21, 28.05], [85.22, 28.0]]
+				])
+				river.geometry.type
+			`,
+		})
+		expect(isToolError(result)).toBe(false)
+		expect(result).toMatchObject({ ok: true, returnValue: 'MultiLineString' })
+	})
+})
+
 describe('run_code — bounded self-correction is a HARD stop (D-06, runaway fix)', () => {
 	it('stops INVOKING the sandbox after RUN_CODE_RETRY_CAP consecutive failures (no spawn storm)', async () => {
 		useHeadlessEditor()
@@ -424,6 +441,6 @@ describe('run_code — Austria→Bosnia cost-weighted overfly (CODE-06 [C])', ()
 		expect(summary).toBeDefined()
 		expect(summary).not.toHaveProperty('fullRows')
 		// The summary projection has no fullRows on its nested summary either.
-		expect((summary as { summary: Record<string, unknown> }).summary).not.toHaveProperty('fullRows')
+		expect(summary?.summary).not.toHaveProperty('fullRows')
 	})
 })

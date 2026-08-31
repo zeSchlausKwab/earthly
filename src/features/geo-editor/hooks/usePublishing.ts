@@ -23,6 +23,10 @@ import { useEditorStore, type SidebarViewMode } from '../store'
 import type { EditorBlobReference } from '../types'
 import { extractCollectionMeta, sanitizeEditorProperties } from '../utils'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '../constants'
+import {
+	captureActiveDatasetPublicationBinding,
+	reconcilePublishedDatasetIdentity,
+} from '../publicationIdentity'
 import { publishFailureMessage } from './publishFailure'
 
 /**
@@ -508,6 +512,9 @@ export function usePublishing({
 			// A successful save ends the map's draft representation and restores the
 			// saved dataset under the same scope-specific identity used by stack
 			// reconciliation. This keeps public, private, and nearby saves single-row.
+			setMode('select')
+			setViewMode('view')
+			setStance('focus')
 			removeMapStackEntry('draft:active')
 			const datasetKey = getDatasetKey(dataset)
 			const scopedEntry = privateWorkspaceId
@@ -529,10 +536,7 @@ export function usePublishing({
 				visible: true,
 				pinned: false,
 			})
-			setMode('select')
-			setViewMode('view')
 			setViewDataset(dataset)
-			setStance('focus')
 		},
 		[
 			addMapStackEntry,
@@ -554,6 +558,9 @@ export function usePublishing({
 			collection: FeatureCollection,
 			action: 'saved' | 'updated' | 'copied',
 		) => {
+			// Private-group and nearby Field saves keep their existing scoped
+			// workspace/draft source identity. Their GeoDataset-shaped result is a
+			// transport representation, not a public `dataset:<pubkey>:<d>` promotion.
 			const label = workspaceMode === 'private' ? 'Private dataset' : 'Nearby dataset'
 			setPublishMessage(`${label} ${action}.`)
 			toast.success(`${label} ${action}.`)
@@ -607,6 +614,7 @@ export function usePublishing({
 				finishWorkspaceDatasetSave(dataset, collection, 'saved')
 				return
 			}
+			const publicationBinding = captureActiveDatasetPublicationBinding()
 
 			const signer = accounts.signer
 			if (!signer) {
@@ -643,12 +651,25 @@ export function usePublishing({
 			setPublishMessage('Dataset published successfully.')
 			toast.success('Dataset published.')
 			noteDatasetSessionPublish(cast, collection)
-			setActiveDataset(cast)
-			setActiveDatasetContextRefs(cast.contextReferences)
-			setCollectionMeta(extractCollectionMeta(collection))
-			setSelectedFeatureIds([])
-			switchToDatasetViewMode(cast)
-			navigateToPublishedDataset(cast)
+			const reconciliation = reconcilePublishedDatasetIdentity(
+				publicationBinding,
+				cast,
+				extractCollectionMeta(collection).name,
+			)
+			const stillOwnsVisibleEditor =
+				!publicationBinding ||
+				(reconciliation.status === 'reconciled' && reconciliation.stillDisplayed)
+			if (stillOwnsVisibleEditor) {
+				setActiveDataset(cast)
+				setActiveDatasetContextRefs(cast.contextReferences)
+				setCollectionMeta(extractCollectionMeta(collection))
+				setSelectedFeatureIds([])
+				switchToDatasetViewMode(cast)
+				if (reconciliation.status === 'reconciled' && !reconciliation.draftWasUnchanged) {
+					setIsDirty(true)
+				}
+				navigateToPublishedDataset(cast)
+			}
 		} catch (error) {
 			console.error('Failed to publish dataset', error)
 			setPublishError(publishFailureMessage('publish this dataset', error))
@@ -674,6 +695,7 @@ export function usePublishing({
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
 		setSelectedFeatureIds,
+		setIsDirty,
 		switchToDatasetViewMode,
 		navigateToPublishedDataset,
 	])
@@ -701,6 +723,7 @@ export function usePublishing({
 			try {
 				const collection = buildCollectionFromEditor()
 				if (!collection) throw new Error('No features to publish')
+				const publicationBinding = captureActiveDatasetPublicationBinding()
 
 				const existingRefs = serializeBlobReferences()
 				const blobRefs: GeoBlobReference[] = [
@@ -731,12 +754,25 @@ export function usePublishing({
 				setPublishMessage('Dataset published with external reference.')
 				toast.success('Dataset published (large geometry stored externally).')
 				noteDatasetSessionPublish(cast, collection)
-				setActiveDataset(cast)
-				setActiveDatasetContextRefs(cast.contextReferences)
-				setCollectionMeta(extractCollectionMeta(collection))
-				setSelectedFeatureIds([])
-				switchToDatasetViewMode(cast)
-				navigateToPublishedDataset(cast)
+				const reconciliation = reconcilePublishedDatasetIdentity(
+					publicationBinding,
+					cast,
+					extractCollectionMeta(collection).name,
+				)
+				const stillOwnsVisibleEditor =
+					!publicationBinding ||
+					(reconciliation.status === 'reconciled' && reconciliation.stillDisplayed)
+				if (stillOwnsVisibleEditor) {
+					setActiveDataset(cast)
+					setActiveDatasetContextRefs(cast.contextReferences)
+					setCollectionMeta(extractCollectionMeta(collection))
+					setSelectedFeatureIds([])
+					switchToDatasetViewMode(cast)
+					if (reconciliation.status === 'reconciled' && !reconciliation.draftWasUnchanged) {
+						setIsDirty(true)
+					}
+					navigateToPublishedDataset(cast)
+				}
 
 				setPendingPublishCollection(null)
 				setBlossomUploadDialogOpen(false)
@@ -762,6 +798,7 @@ export function usePublishing({
 			setActiveDatasetContextRefs,
 			setCollectionMeta,
 			setSelectedFeatureIds,
+			setIsDirty,
 			switchToDatasetViewMode,
 			navigateToPublishedDataset,
 			setPendingPublishCollection,
@@ -791,7 +828,6 @@ export function usePublishing({
 			setIsPublishing(false)
 			return
 		}
-
 		if (hasWorkspaceScope) {
 			try {
 				if (!workspacePublisher) throw new Error('The active workspace is not available')
@@ -808,6 +844,7 @@ export function usePublishing({
 			}
 			return
 		}
+		const publicationBinding = captureActiveDatasetPublicationBinding()
 
 		const signer = accounts.signer
 		if (!signer) {
@@ -846,13 +883,26 @@ export function usePublishing({
 			setPublishMessage('Dataset update published successfully.')
 			toast.success('Dataset updated.')
 			noteDatasetSessionPublish(cast, collection)
-			setIsDirty(false)
-			setActiveDataset(cast)
-			setActiveDatasetContextRefs(cast.contextReferences)
-			setCollectionMeta(extractCollectionMeta(collection))
-			setSelectedFeatureIds([])
-			switchToDatasetViewMode(cast)
-			navigateToPublishedDataset(cast)
+			const reconciliation = reconcilePublishedDatasetIdentity(
+				publicationBinding,
+				cast,
+				extractCollectionMeta(collection).name,
+			)
+			const stillOwnsVisibleEditor =
+				!publicationBinding ||
+				(reconciliation.status === 'reconciled' && reconciliation.stillDisplayed)
+			if (stillOwnsVisibleEditor) {
+				setIsDirty(false)
+				setActiveDataset(cast)
+				setActiveDatasetContextRefs(cast.contextReferences)
+				setCollectionMeta(extractCollectionMeta(collection))
+				setSelectedFeatureIds([])
+				switchToDatasetViewMode(cast)
+				if (reconciliation.status === 'reconciled' && !reconciliation.draftWasUnchanged) {
+					setIsDirty(true)
+				}
+				navigateToPublishedDataset(cast)
+			}
 		} catch (error) {
 			console.error('Failed to publish dataset update', error)
 			setPublishError(publishFailureMessage('publish this dataset update', error))
@@ -904,6 +954,7 @@ export function usePublishing({
 				finishWorkspaceDatasetSave(dataset, collection, 'copied')
 				return
 			}
+			const publicationBinding = captureActiveDatasetPublicationBinding()
 
 			const signer = accounts.signer
 			if (!signer) {
@@ -937,12 +988,25 @@ export function usePublishing({
 			setPublishMessage('Dataset copy published successfully.')
 			toast.success('Dataset copy published.')
 			noteDatasetSessionPublish(cast, collection)
-			setActiveDataset(cast)
-			setActiveDatasetContextRefs(cast.contextReferences)
-			setCollectionMeta(extractCollectionMeta(collection))
-			setSelectedFeatureIds([])
-			switchToDatasetViewMode(cast)
-			navigateToPublishedDataset(cast)
+			const reconciliation = reconcilePublishedDatasetIdentity(
+				publicationBinding,
+				cast,
+				extractCollectionMeta(collection).name,
+			)
+			const stillOwnsVisibleEditor =
+				!publicationBinding ||
+				(reconciliation.status === 'reconciled' && reconciliation.stillDisplayed)
+			if (stillOwnsVisibleEditor) {
+				setActiveDataset(cast)
+				setActiveDatasetContextRefs(cast.contextReferences)
+				setCollectionMeta(extractCollectionMeta(collection))
+				setSelectedFeatureIds([])
+				switchToDatasetViewMode(cast)
+				if (reconciliation.status === 'reconciled' && !reconciliation.draftWasUnchanged) {
+					setIsDirty(true)
+				}
+				navigateToPublishedDataset(cast)
+			}
 		} catch (error) {
 			console.error('Failed to publish dataset copy', error)
 			setPublishError(publishFailureMessage('publish this dataset copy', error))
@@ -968,6 +1032,7 @@ export function usePublishing({
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
 		setSelectedFeatureIds,
+		setIsDirty,
 		switchToDatasetViewMode,
 		navigateToPublishedDataset,
 	])

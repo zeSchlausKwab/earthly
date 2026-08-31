@@ -8,6 +8,8 @@ import { serverConfig } from "../src/config/env.server";
 import {
   reverseLookupInputSchema,
   reverseLookupOutputSchema,
+  queryGeographyInputSchema,
+  queryGeographyOutputSchema,
   searchLocationInputSchema,
   searchLocationOutputSchema,
   queryByIdInputSchema,
@@ -30,6 +32,12 @@ import {
   createMapUploadInputSchema,
   createMapUploadOutputSchema,
 } from "./geo-schemas.ts";
+import {
+  GeoCatalogError,
+  formatGeoCatalogReadiness,
+  openSqliteGeoCatalog,
+  preflightGeoCatalog,
+} from "./geocatalog/index.ts";
 import {
   webSearchInputSchema,
   webSearchOutputSchema,
@@ -86,6 +94,8 @@ const RELAYS = serverConfig.isProduction
       ]),
     ]
   : ["ws://localhost:3334"];
+
+const geoCatalog = openSqliteGeoCatalog({ path: serverConfig.geoCatalogPath });
 
 function requestClientPubkey(extra: { _meta?: unknown }): string {
   const metadata = extra._meta as Record<string, unknown> | undefined;
@@ -203,6 +213,19 @@ function simplifyFeatureGeometry(
 }
 
 function structuredToolFailure(error: unknown): Record<string, unknown> {
+  if (error instanceof GeoCatalogError) {
+    return {
+      ok: false,
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable,
+      suggestedAction:
+        error.code === "snapshot_unavailable" || error.code === "snapshot_invalid"
+          ? "Ask the Earthly operator to install a valid GeoCatalog snapshot; do not retry this request unchanged or fall back silently."
+          : "Correct the geography query before retrying.",
+      sideEffectsApplied: false,
+    };
+  }
   if (error instanceof NominatimRequestError) {
     return {
       ok: false,
@@ -226,6 +249,20 @@ function structuredToolFailure(error: unknown): Record<string, unknown> {
 }
 
 async function main() {
+  const geoCatalogReadiness = await preflightGeoCatalog({
+    catalog: geoCatalog,
+    required: serverConfig.isProduction,
+    allowUnavailable: serverConfig.isProduction,
+  });
+  if (geoCatalogReadiness) {
+    console.log(
+      `🗂️ GeoCatalog ready: ${formatGeoCatalogReadiness(geoCatalogReadiness)}`,
+    );
+  } else if (serverConfig.isProduction) {
+    console.warn(
+      "⚠️ GeoCatalog is not installed yet; query_geography will remain unavailable until the background bootstrap promotes a snapshot and restarts this service.",
+    );
+  }
   console.log("🗺️ Starting ContextVM Geo Server...\n");
 
   // 1. Setup Signer and Relay Pool
@@ -239,7 +276,7 @@ async function main() {
   // 2. Create and Configure the MCP Server
   const mcpServer = new McpServer({
     name: "earthly-geo-server",
-    version: "0.2.1",
+    version: "0.3.0",
   });
 
   // 9. Register Tool: Search Locations (Nominatim)
@@ -248,7 +285,7 @@ async function main() {
     {
       title: "Search Locations (Nominatim)",
       description:
-        "Search for locations using OpenStreetMap Nominatim API. Returns coordinates, bounding boxes, and geojson outlines.",
+        "Remote Nominatim fallback for geocoding or place-name detail absent from query_geography and bundled world layers. Use query_geography first and do not call this merely to verify a catalog match. The intentional absence of optional road or rail catalog packs is not a fallback signal. Returns coordinates, bounding boxes, and GeoJSON outlines.",
       inputSchema: searchLocationInputSchema,
       outputSchema: searchLocationOutputSchema,
     },
@@ -279,7 +316,7 @@ async function main() {
     {
       title: "Reverse Geocode (Nominatim)",
       description:
-        "Reverse geocode coordinates using OpenStreetMap Nominatim API. Returns address information for a point.",
+        "Remote Nominatim fallback for address detail at a coordinate. Use only when the local catalog and bundled world layers cannot answer the request. Returns address information for a point.",
       inputSchema: reverseLookupInputSchema,
       outputSchema: reverseLookupOutputSchema,
     },
@@ -306,13 +343,85 @@ async function main() {
     },
   );
 
+  // Register Tool: Query the local immutable geography catalog
+  mcpServer.registerTool(
+    "query_geography",
+    {
+      title: "Query Earthly GeoCatalog",
+      description:
+        "Query Earthly's fast, self-hosted geography snapshot. The baseline snapshot covers administrative areas, localities, places, waterways, and infrastructure; road and rail are optional coverage packs. An unavailable road or rail kind is an intentional capability boundary, not a remote OpenStreetMap fallback signal. Use this before remote OpenStreetMap tools for baseline kinds. Filters combine with AND semantics. Human discovery safely recovers catalogued trailing qualifiers (for example Nepal or Tibet), typed suffixes, and bounded unambiguous text variants. Geometry and stable-id lookups remain exact: discover without geometry, then resolve chosen stable ids with geometry for mapping.",
+      inputSchema: queryGeographyInputSchema,
+      outputSchema: queryGeographyOutputSchema,
+    },
+    async ({
+      text,
+      ids,
+      kinds,
+      categories,
+      adminLevels,
+      countryCode,
+      bbox,
+      near,
+      radiusMeters,
+      limit,
+      includeGeometry,
+    }) => {
+      try {
+        console.log(
+          `🗂️ Querying GeoCatalog: ${text || ids?.join(",") || kinds?.join(",") || "browse"}`,
+        );
+        const result = await geoCatalog.query({
+          ...(text ? { text } : {}),
+          ...(ids ? { ids } : {}),
+          ...(kinds ? { kinds } : {}),
+          ...(categories ? { categories } : {}),
+          ...(adminLevels ? { adminLevels } : {}),
+          ...(countryCode ? { countryCode } : {}),
+          ...(bbox
+            ? { bbox: [bbox.west, bbox.south, bbox.east, bbox.north] }
+            : {}),
+          ...(near ? { near } : {}),
+          ...(radiusMeters !== undefined ? { radiusMeters } : {}),
+          ...(limit !== undefined ? { limit } : {}),
+          ...(includeGeometry !== undefined ? { includeGeometry } : {}),
+        });
+        console.log(
+          `📦 GeoCatalog returned ${result.metadata.query.returned} result(s) from ${result.metadata.snapshot.id}`,
+        );
+        return { content: [], structuredContent: { result } };
+      } catch (error: unknown) {
+        const failure = structuredToolFailure(error);
+        const message =
+          typeof failure.message === "string"
+            ? failure.message
+            : "GeoCatalog query failed";
+        const suggestedAction =
+          typeof failure.suggestedAction === "string"
+            ? ` ${failure.suggestedAction}`
+            : "";
+        console.error(`❌ GeoCatalog query failed: ${message}`);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${String(failure.code)}: ${message}.${suggestedAction}`,
+            },
+          ],
+          // Do not send structuredContent for errors: MCP validates it against
+          // the success-only output schema after tools/list has been cached.
+          isError: true,
+        };
+      }
+    },
+  );
+
   // 11. Register Tool: Query OSM by ID (Overpass)
   mcpServer.registerTool(
     "query_osm_by_id",
     {
       title: "Query OSM Element by ID (Overpass)",
       description:
-        "Query a single OpenStreetMap element by type and ID. Returns full geometry as GeoJSON.",
+        "Fetch one exact OpenStreetMap element by type and ID. Use directly for an exact user-supplied OSM id; otherwise use only as a last resort after query_geography and bundled world layers lack the required detail. Returns full geometry as GeoJSON.",
       inputSchema: queryByIdInputSchema,
       outputSchema: queryByIdOutputSchema,
     },
@@ -342,7 +451,7 @@ async function main() {
     {
       title: "Query OSM Elements Nearby (Overpass)",
       description:
-        "Query OpenStreetMap elements near a point. Supports filtering by OSM tags. Returns GeoJSON features.",
+        "Remote Overpass last resort for local detail in a baseline catalog kind that is genuinely absent from query_geography and bundled world layers. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. Queries OpenStreetMap elements near a point with optional tag filters and returns GeoJSON features.",
       inputSchema: queryNearbyInputSchema,
       outputSchema: queryFeaturesOutputSchema,
     },
@@ -394,7 +503,7 @@ async function main() {
     {
       title: "Query OSM Elements in Bounding Box (Overpass)",
       description:
-        "Query OpenStreetMap elements within a bounding box. Supports filtering by OSM tags. Returns GeoJSON features.",
+        "Remote Overpass last resort for local detail in a baseline catalog kind that is genuinely absent from query_geography and bundled world layers. The intentional absence of optional road or rail packs is not a fallback signal; use Valhalla for supported journeys. Queries OpenStreetMap elements within a bounding box with optional tag filters and returns GeoJSON features.",
       inputSchema: queryBboxInputSchema,
       outputSchema: queryFeaturesOutputSchema,
     },
@@ -450,7 +559,7 @@ async function main() {
     {
       title: "Resolve OSM Entity",
       description:
-        "Resolve a place/entity name to concrete OSM ids (relation/way/node) using Nominatim. Useful before boundary imports.",
+        "Remote Nominatim last resort for resolving a name to concrete OSM ids before an OSM import. Use query_geography first for boundaries and places; do not call this merely to verify a catalog match. The intentional absence of optional road or rail catalog packs is not a fallback signal. Use the exact-id tools directly when the user supplied an OSM id.",
       inputSchema: resolveOsmEntityInputSchema,
       outputSchema: resolveOsmEntityOutputSchema,
     },
@@ -744,7 +853,7 @@ async function main() {
     {
       title: "Get OSM Relation Geometry",
       description:
-        "Fetch and assemble OSM relation geometry (especially boundaries) into clean GeoJSON.",
+        "Remote OSM geometry fetch for one exact relation id. Use directly only for a user-supplied OSM relation id; otherwise use as a last resort after query_geography lacks required detail in a baseline catalog kind. The intentional absence of optional road or rail packs is not a fallback signal. Assembles the relation into clean GeoJSON.",
       inputSchema: getOsmRelationGeometryInputSchema,
       outputSchema: getOsmRelationGeometryOutputSchema,
     },
@@ -791,7 +900,7 @@ async function main() {
     {
       title: "Get Country Boundary",
       description:
-        "Resolve and fetch a country administrative boundary relation (admin_level=2 by default).",
+        "Compatibility fallback for a country administrative boundary absent from query_geography and bundled world layers. Resolves and fetches a remote OSM relation (admin_level=2 by default); do not use it to verify a catalog match.",
       inputSchema: getCountryBoundaryInputSchema,
       outputSchema: getCountryBoundaryOutputSchema,
     },
@@ -882,7 +991,7 @@ async function main() {
     {
       title: "Valhalla Route",
       description:
-        "Compute a route between waypoints using Valhalla and return GeoJSON line geometry.",
+        "Compute a network-following road, bus, bicycle, pedestrian, or truck journey through 2 to 25 coordinate waypoints using Valhalla and return GeoJSON line geometry. Valhalla is not a road-name search or full-relation retrieval tool and does not route rail. Rail routing requires an actual supplied or editor LineString network with route_over_network; otherwise report it as unsupported.",
       inputSchema: valhallaRouteInputSchema,
       outputSchema: valhallaRouteOutputSchema,
     },
@@ -1189,18 +1298,44 @@ async function main() {
     {
       title: "Structured Wikipedia Extraction",
       description:
-        "Inspect a Wikipedia article's sections and tables, then retrieve a bounded page of structured table rows. Table results include pagination.status: complete means the response contains the full table, more points to pagination.nextOffset, and final_page still omits earlier rows. Every response includes article, revision, section, table, and row provenance suitable for researched map datasets.",
+        "Read bounded prose or structured tables from one Wikipedia article without scraping alternate raw/API URLs. Use article mode for prose, section mode with a section index/title for focused prose, outline mode to discover sections and tables, and table mode for rows. For prose, only textPagination.status=complete contains all requested text; status=more requires textPagination.nextOffset and the returned revisionId. For tables, only pagination.status=complete contains the full table; status=more requires pagination.nextOffset and final_page still omits earlier rows. Every response preserves article and revision provenance.",
       inputSchema: wikipediaExtractInputSchema,
       outputSchema: wikipediaExtractOutputSchema,
     },
-    async ({ url, title, language, mode, tableIndex, rowOffset, rowLimit }, extra) => {
+    async ({
+      url,
+      title,
+      language,
+      mode,
+      revisionId,
+      sectionIndex,
+      sectionTitle,
+      textOffset,
+      textLimit,
+      tableIndex,
+      rowOffset,
+      rowLimit,
+    }, extra) => {
       try {
         console.log(`📑 Wikipedia extraction: ${url || title}`);
         const result = await researchToolLimiter.run(
           requestClientPubkey(extra),
-          () => wikipediaExtract({ url, title, language, mode, tableIndex, rowOffset, rowLimit }),
+          () => wikipediaExtract({
+            url,
+            title,
+            language,
+            mode,
+            revisionId,
+            sectionIndex,
+            sectionTitle,
+            textOffset,
+            textLimit,
+            tableIndex,
+            rowOffset,
+            rowLimit,
+          }),
         );
-        console.log(`📦 Extracted ${result.tables.length} table outlines`);
+        console.log(`📦 Extracted Wikipedia ${result.mode} result`);
         return { content: [], structuredContent: { result } };
       } catch (error: any) {
         console.error(`❌ Wikipedia extraction failed: ${error.message}`);
@@ -1227,7 +1362,7 @@ async function main() {
       name: "Earthly Geo Server",
       website: "https://earthly.city",
       about:
-        "Geocoding, OSM entity/boundary queries, Valhalla routing, web search, URL fetching, and provenance-aware Wikipedia extraction.",
+        "Fast self-hosted geography catalog, geocoding, OSM fallback queries, Valhalla routing, web search, URL fetching, and provenance-aware Wikipedia extraction.",
       picture: "https://openmaptiles.org/img/home-banner-map.png",
     },
   });
@@ -1238,6 +1373,7 @@ async function main() {
 
   console.log("✅ Server is running and listening for requests on Nostr");
   console.log("📋 Available tools:");
+  console.log("   - query_geography");
   console.log("   - search_location");
   console.log("   - reverse_lookup");
   console.log("   - query_osm_by_id");

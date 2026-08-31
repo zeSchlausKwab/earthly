@@ -7,6 +7,7 @@ import {
 	resolveProvider,
 	resolveWorkspaceTargetDraft,
 	useChatStore,
+	type ChatErrorRecovery,
 	type ChatRunStatus,
 } from './store'
 import { composeOutboundContent } from './composeOutboundContent'
@@ -83,6 +84,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { ChatReference } from './store'
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
+import { parseMarkdownTableAt, type MarkdownTableAlignment } from '@/lib/markdown/table'
 import {
 	buildChatTimeline,
 	TOOL_OPERATION_PHASE_LABELS,
@@ -164,6 +166,20 @@ export function resolveChatSendState(input: {
 	return { canSend, title }
 }
 
+export function resolveChatErrorPresentation(
+	error: string,
+	recovery: ChatErrorRecovery | null,
+): { message: string; actionLabel: 'Retry' | 'Finish response'; changesApplied: boolean } {
+	if (recovery === 'finish_response') {
+		return {
+			message: `Map changes were applied, but the final summary failed. ${error}`,
+			actionLabel: 'Finish response',
+			changesApplied: true,
+		}
+	}
+	return { message: error, actionLabel: 'Retry', changesApplied: false }
+}
+
 export function resolveChatHeaderControlSizing(
 	isMobile: boolean,
 	control: 'new-conversation' | 'conversation-select' | 'icon',
@@ -230,6 +246,7 @@ export function ChatPanel({
 		toolsEnabled,
 		promptProfile,
 		error,
+		errorRecovery,
 		totalSpent,
 		diagnostics,
 		lastTurnRequest,
@@ -239,6 +256,7 @@ export function ChatPanel({
 		setSelectedModel,
 		sendMessage,
 		retryLastMessage,
+		finishLastResponse,
 		createChat,
 		switchChat,
 		deleteChat,
@@ -678,6 +696,7 @@ export function ChatPanel({
 		anotherChatIsRunning,
 	})
 	const canSend = sendState.canSend
+	const errorPresentation = error ? resolveChatErrorPresentation(error, errorRecovery) : null
 	const handleTargetPendingChange = (chatId: string, pending: boolean) => {
 		setTargetPendingChatIds((current) => {
 			const next = new Set(current)
@@ -1229,21 +1248,41 @@ export function ChatPanel({
 			</div>
 
 			{/* Error display */}
-			{error && (
-				<div className="flex items-center justify-between gap-3 border-t bg-destructive/10 px-3 py-2 text-xs text-destructive">
-					<span>{error}</span>
+			{errorPresentation && (
+				<div
+					role="alert"
+					className={cn(
+						'flex items-center justify-between gap-3 border-t px-3 py-2 text-xs',
+						errorPresentation.changesApplied
+							? 'border-primary/30 bg-primary/10 text-foreground'
+							: 'bg-destructive/10 text-destructive',
+					)}
+				>
+					<span>{errorPresentation.message}</span>
 					{lastTurnRequest && !isStreaming ? (
 						<Button
 							type="button"
 							size="sm"
 							variant="outline"
 							className="h-7 shrink-0 gap-1.5"
-							disabled={targetCreationPending}
-							title={targetCreationPending ? 'Wait for the editing target to finish' : 'Retry'}
-							onClick={() => void retryLastMessage()}
+							disabled={targetCreationPending || !hasValidEditingTarget}
+							title={
+								targetCreationPending
+									? 'Wait for the editing target to finish'
+									: !hasValidEditingTarget
+										? 'Choose New map or Use current edit before continuing.'
+										: errorPresentation.actionLabel
+							}
+							onClick={() =>
+								void (errorPresentation.changesApplied ? finishLastResponse() : retryLastMessage())
+							}
 						>
-							<RefreshCw className="h-3.5 w-3.5" />
-							Retry
+							{errorPresentation.changesApplied ? (
+								<MessageSquarePlus className="h-3.5 w-3.5" />
+							) : (
+								<RefreshCw className="h-3.5 w-3.5" />
+							)}
+							{errorPresentation.actionLabel}
 						</Button>
 					) : null}
 				</div>
@@ -1321,14 +1360,14 @@ export function ChatPanel({
 							Select
 						</Button>
 						<ChatGeometryAttachment
-							key={activeChatId ?? 'chat-geometry'}
+							key={`chat-geometry-${activeChatId ?? 'default'}`}
 							value={attachedGeometry}
 							onChange={setAttachedGeometry}
 							layout="detached"
 							panelClassName="w-full"
 						/>
 						<FileChipStrip
-							key={activeChatId ?? 'chat-files'}
+							key={`chat-files-${activeChatId ?? 'default'}`}
 							files={displayedFiles}
 							onChange={setAttachedFiles}
 							visionTier={visionTier}
@@ -1643,12 +1682,20 @@ interface ChatMarkdownCodeBlock {
 	code: string
 }
 
+interface ChatMarkdownTableBlock {
+	type: 'table'
+	header: ChatMarkdownInlineToken[][]
+	alignments: MarkdownTableAlignment[]
+	rows: ChatMarkdownInlineToken[][][]
+}
+
 type ChatMarkdownBlock =
 	| ChatMarkdownParagraphBlock
 	| ChatMarkdownHeadingBlock
 	| ChatMarkdownQuoteBlock
 	| ChatMarkdownListBlock
 	| ChatMarkdownCodeBlock
+	| ChatMarkdownTableBlock
 
 const CHAT_MARKDOWN_TOKEN_PATTERN =
 	/(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"{}|\\^`[\]]+)|(`[^`]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)/gi
@@ -1821,7 +1868,8 @@ function parseChatMarkdown(text: string): ChatMarkdownBlock[] {
 		codeLines.length = 0
 	}
 
-	for (const rawLine of lines) {
+	for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+		const rawLine = lines[lineIndex] ?? ''
 		const line = rawLine.trimEnd()
 		const trimmedLine = line.trim()
 
@@ -1844,6 +1892,20 @@ function parseChatMarkdown(text: string): ChatMarkdownBlock[] {
 		if (!trimmedLine) {
 			pushChatMarkdownParagraph(paragraphLines, blocks)
 			flushList()
+			continue
+		}
+
+		const table = parseMarkdownTableAt(lines, lineIndex)
+		if (table) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			flushList()
+			blocks.push({
+				type: 'table',
+				header: table.header.map(parseChatMarkdownInlineTokens),
+				alignments: table.alignments,
+				rows: table.rows.map((row) => row.map(parseChatMarkdownInlineTokens)),
+			})
+			lineIndex = table.endIndex
 			continue
 		}
 
@@ -1921,6 +1983,16 @@ function getChatMarkdownBlockSignature(block: ChatMarkdownBlock): string {
 		return `list:${block.ordered}:${block.items
 			.map((item) => item.map((token) => getChatMarkdownInlineTokenSignature(token)).join('|'))
 			.join('||')}`
+	}
+	if (block.type === 'table') {
+		const cells = [block.header, ...block.rows]
+			.map((row) =>
+				row
+					.map((cell) => cell.map((token) => getChatMarkdownInlineTokenSignature(token)).join('|'))
+					.join('||'),
+			)
+			.join('|||')
+		return `table:${block.alignments.join(',')}:${cells}`
 	}
 	return `codeblock:${block.code}`
 }
@@ -2088,6 +2160,59 @@ function ChatMarkdownContent({
 								)
 							})}
 						</ListTag>
+					)
+				}
+
+				if (block.type === 'table') {
+					return (
+						<div
+							key={key}
+							className={cn(
+								'max-w-full overflow-x-auto rounded-md border',
+								variant === 'assistant'
+									? 'border-border/80 bg-background/60'
+									: 'border-primary-foreground/25 bg-primary-foreground/5',
+							)}
+						>
+							<table className="min-w-full border-collapse text-left text-xs">
+								<thead
+									className={cn(
+										variant === 'assistant' ? 'bg-muted/70' : 'bg-primary-foreground/10',
+									)}
+								>
+									<tr>
+										{block.header.map((cell, cellIndex) => (
+											<th
+												// biome-ignore lint/suspicious/noArrayIndexKey: Table columns are positional by definition.
+												key={`${key}:heading:${cellIndex}`}
+												scope="col"
+												className="border-b border-current/15 px-2.5 py-2 align-top font-semibold"
+												style={{ textAlign: block.alignments[cellIndex] ?? 'left' }}
+											>
+												{renderChatMarkdownInlineTokens(cell, variant)}
+											</th>
+										))}
+									</tr>
+								</thead>
+								<tbody className="divide-y divide-current/10">
+									{block.rows.map((row, rowIndex) => (
+										// biome-ignore lint/suspicious/noArrayIndexKey: Chat Markdown rows are positional in the source text.
+										<tr key={`${key}:row:${rowIndex}`}>
+											{row.map((cell, cellIndex) => (
+												<td
+													// biome-ignore lint/suspicious/noArrayIndexKey: Table columns are positional by definition.
+													key={`${key}:row:${rowIndex}:cell:${cellIndex}`}
+													className="min-w-24 break-words px-2.5 py-2 align-top"
+													style={{ textAlign: block.alignments[cellIndex] ?? 'left' }}
+												>
+													{renderChatMarkdownInlineTokens(cell, variant)}
+												</td>
+											))}
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</div>
 					)
 				}
 

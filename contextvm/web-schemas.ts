@@ -272,6 +272,13 @@ export const wikipediaSourceSchema = z.object({
 	retrievedAt: z.string().describe("ISO 8601 retrieval timestamp"),
 });
 
+export const wikipediaSectionSchema = z.object({
+	index: z.string(),
+	level: z.number().int(),
+	title: z.string(),
+	anchor: z.string(),
+});
+
 export const wikipediaTableSchema = z.object({
 	index: z.number().int().min(0),
 	sectionIndex: z.string().nullable(),
@@ -305,6 +312,26 @@ export const wikipediaTablePaginationSchema = z.object({
 	message: z.string().describe("Explicit model-facing statement of table coverage and next action"),
 });
 
+export const wikipediaTextPaginationSchema = z.object({
+	status: z
+		.enum(["complete", "more", "final_page"])
+		.describe(
+			'"complete" is the only status where this response contains all requested prose; "more" has a next page; "final_page" still omits earlier text.',
+		),
+	offset: z.number().int().min(0),
+	returnedCharacters: z.number().int().min(0),
+	totalCharacters: z.number().int().min(0),
+	hasPrevious: z.boolean(),
+	hasNext: z.boolean(),
+	nextOffset: z.number().int().min(0).nullable(),
+	revisionId: z
+		.number()
+		.int()
+		.nullable()
+		.describe("Revision to pass back on every continuation so character offsets remain stable"),
+	message: z.string().describe("Explicit model-facing statement of prose coverage and next action"),
+});
+
 export const wikipediaExtractInputSchema = {
 	url: z
 		.string()
@@ -319,11 +346,42 @@ export const wikipediaExtractInputSchema = {
 		.optional()
 		.describe('Wikipedia language code when title is used (default: "en").'),
 	mode: z
-		.enum(["outline", "table"])
+		.enum(["outline", "article", "section", "table"])
 		.optional()
 		.describe(
-			'"outline" lists sections and table shapes with samples; "table" returns a page of rows from tableIndex. Default: "outline".',
+			'"article" reads bounded article prose; "section" reads one bounded section; "outline" lists sections and table shapes; "table" returns rows from tableIndex. Default: "outline".',
 		),
+	revisionId: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe(
+			"Revision ID returned by a previous prose page. Pass it on continuations so textOffset addresses the same article revision.",
+		),
+	sectionIndex: z
+		.string()
+		.min(1)
+		.optional()
+		.describe('MediaWiki section index from outline mode (for example "2" or "2.1").'),
+	sectionTitle: z
+		.string()
+		.min(1)
+		.optional()
+		.describe("Exact section title when sectionIndex is unavailable. Must identify one section."),
+	textOffset: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.describe("Zero-based character offset in article or section mode (default: 0)."),
+	textLimit: z
+		.number()
+		.int()
+		.min(100)
+		.max(30000)
+		.optional()
+		.describe("Maximum characters returned in article or section mode (default: 12000, max: 30000)."),
 	tableIndex: z
 		.number()
 		.int()
@@ -347,18 +405,19 @@ export const wikipediaExtractInputSchema = {
 
 export const wikipediaExtractOutputSchema = {
 	result: z.object({
-		mode: z.enum(["outline", "table"]),
+		mode: z.enum(["outline", "article", "section", "table"]),
 		source: wikipediaSourceSchema,
-		lead: z.string(),
-		sections: z.array(
-			z.object({
-				index: z.string(),
-				level: z.number().int(),
-				title: z.string(),
-				anchor: z.string(),
-			}),
-		),
+		lead: z.string().optional(),
+		sections: z.array(wikipediaSectionSchema),
 		tables: z.array(wikipediaTableSchema),
+		prose: z
+			.object({
+				scope: z.enum(["article", "section"]),
+				section: wikipediaSectionSchema.nullable(),
+				text: z.string(),
+			})
+			.optional(),
+		textPagination: wikipediaTextPaginationSchema.optional(),
 		table: wikipediaTableSchema.optional(),
 		offset: z.number().int().min(0).optional(),
 		returnedRows: z.number().int().min(0).optional(),
@@ -372,7 +431,12 @@ export type WikipediaExtractInput = {
 	url?: string;
 	title?: string;
 	language?: string;
-	mode?: "outline" | "table";
+	mode?: "outline" | "article" | "section" | "table";
+	revisionId?: number;
+	sectionIndex?: string;
+	sectionTitle?: string;
+	textOffset?: number;
+	textLimit?: number;
 	tableIndex?: number;
 	rowOffset?: number;
 	rowLimit?: number;
@@ -409,18 +473,38 @@ export type WikipediaTablePagination = {
 	message: string;
 };
 
+export type WikipediaSection = {
+	index: string;
+	level: number;
+	title: string;
+	anchor: string;
+};
+
+export type WikipediaTextPagination = {
+	status: "complete" | "more" | "final_page";
+	offset: number;
+	returnedCharacters: number;
+	totalCharacters: number;
+	hasPrevious: boolean;
+	hasNext: boolean;
+	nextOffset: number | null;
+	revisionId: number | null;
+	message: string;
+};
+
 export type WikipediaExtractOutput = {
 	result: {
-		mode: "outline" | "table";
+		mode: "outline" | "article" | "section" | "table";
 		source: WikipediaSource;
-		lead: string;
-		sections: Array<{
-			index: string;
-			level: number;
-			title: string;
-			anchor: string;
-		}>;
+		lead?: string;
+		sections: WikipediaSection[];
 		tables: WikipediaTable[];
+		prose?: {
+			scope: "article" | "section";
+			section: WikipediaSection | null;
+			text: string;
+		};
+		textPagination?: WikipediaTextPagination;
 		table?: WikipediaTable;
 		offset?: number;
 		returnedRows?: number;

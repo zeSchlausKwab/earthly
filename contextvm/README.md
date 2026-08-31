@@ -4,7 +4,8 @@ Earthly exposes map, geographic research, and web-research tools as an MCP serve
 
 ## Tool families
 
-- **Places and OpenStreetMap** — forward/reverse geocoding, nearby and bounding-box queries, relation geometry, and country boundaries.
+- **GeoCatalog** — fast, self-hosted semantic/spatial search and geometry retrieval from an immutable, release-pinned geography snapshot, including provenance-preserving corridors that stitch only non-repeating exact-endpoint chains and leave branches or gaps explicit.
+- **Places and OpenStreetMap** — forward/reverse geocoding plus last-resort remote queries for details absent from GeoCatalog.
 - **Routing** — Valhalla routes and isochrones.
 - **Offline map preparation** — PMTiles extraction and authenticated Blossom upload.
 - **Research** — federated web search, protected URL reading, Wikipedia discovery, and provenance-preserving structured Wikipedia extraction.
@@ -15,14 +16,15 @@ Earthly exposes map, geographic research, and web-research tools as an MCP serve
 
 Use `wikipedia_lookup` to find the canonical article, then use `wikipedia_extract` instead of scraping rendered HTML:
 
-1. call `wikipedia_extract` with `mode: "outline"` to inspect section names, table indexes, captions, headers, and sample rows;
-2. call it again with `mode: "table"`, the selected `tableIndex`, and bounded `rowOffset`/`rowLimit` values;
-3. follow the explicit pagination contract: only `pagination.status: "complete"` means the response contains the full table; `"more"` points to `nextOffset`, while `"final_page"` still omits earlier rows;
-4. carry the returned source fields onto every derived map feature: article URL/title, revision ID, section, table, source row, and retrieval time;
-5. prefer spatial values already present in structured source fields (coordinates, latitude/longitude, GeoJSON, WKT, or geohashes), and geocode only missing locations;
-6. label derived coordinates as `exact`, `approximate`, or `representative` rather than implying more precision than the source provides.
+1. use `mode: "article"` for a bounded page of the article's readable prose, or `mode: "section"` with a section index/title for focused prose;
+2. if `textPagination.status` is `"more"`, continue at `textPagination.nextOffset` and pass its `revisionId` so character offsets remain pinned to one revision; only `"complete"` contains all requested prose;
+3. use `mode: "outline"` to inspect section names, table indexes, captions, headers, and sample rows;
+4. use `mode: "table"`, the selected `tableIndex`, and bounded `rowOffset`/`rowLimit` values for structured rows. Only `pagination.status: "complete"` contains the full table; `"more"` points to `nextOffset`, while `"final_page"` still omits earlier rows;
+5. carry the returned source fields onto every derived map feature: article URL/title, revision ID, section, table, source row, and retrieval time;
+6. prefer spatial values already present in structured source fields (coordinates, latitude/longitude, GeoJSON, WKT, or geohashes), and geocode only missing locations;
+7. label derived coordinates as `exact`, `approximate`, or `representative` rather than implying more precision than the source provides.
 
-The extractor accepts only canonical Wikipedia article URLs or article titles. It uses MediaWiki's parse API and returns row-oriented data with stable source-row numbers. This gives the map authoring boundary enough information to reject incomplete researched datasets before they mutate the editor.
+The extractor accepts canonical, raw, and common MediaWiki API article URLs or exact article titles. It uses MediaWiki's parse API and returns revision-pinned prose pages or row-oriented tables with stable source-row numbers. This gives the map authoring boundary enough information to reject incomplete researched datasets before they mutate the editor.
 
 ## Local development
 
@@ -43,6 +45,15 @@ Development is deliberately restricted to `ws://localhost:3334`. Production anno
 - `RELAY_URL` — the primary relay.
 - `SEARXNG_URL` — `http://127.0.0.1:8888` in production.
 - `VALHALLA_URL` — routing backend.
+- `GEOCATALOG_PATH` — immutable SQLite snapshot; defaults to `./data/geocatalog/current.sqlite`.
+
+Development starts even when no GeoCatalog snapshot is installed, and
+`query_geography` returns a typed, non-retryable availability error rather than
+silently sending the same request to a remote OSM service. Production performs
+a real catalog query before connecting to relays and refuses to become healthy
+when the configured snapshot is missing, invalid, or empty. See
+[GeoCatalog operations](../docs/operations/geocatalog.md) for snapshot builds,
+promotion, and rollback.
 
 See [Private SearXNG operations](../docs/operations/searxng.md) for VPS setup and maintenance.
 
@@ -63,7 +74,11 @@ The generated type and method surface is authoritative. Earthly deliberately cus
 - awaiting transport connection before the first call;
 - MCP error unwrapping and live `listTools`/generic-call support.
 
-`ctxcn:verify` fails if regeneration removes these safeguards or if client and server versions diverge. Review generated diffs before committing; do not hand-author tool input/output interfaces.
+`ctxcn:verify` fails if regeneration removes these safeguards or either endpoint
+loses its identity/version. The MCP server and generated client have independent
+implementation versions; their contracts are checked by generated/static schema
+tests rather than by falsely requiring those two versions to be equal. Review
+generated diffs before committing; do not hand-author generated tool interfaces.
 
 ## Verification
 

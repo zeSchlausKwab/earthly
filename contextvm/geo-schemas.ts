@@ -87,6 +87,256 @@ export type ReverseLookupOutput = {
 };
 
 // ==========================================
+// Local GeoCatalog Schemas
+// ==========================================
+
+export const geoCatalogKindSchema = z.enum([
+	"admin",
+	"locality",
+	"place",
+	"road",
+	"rail",
+	"waterway",
+	"infrastructure",
+]);
+
+export const queryGeographyInputSchema = {
+	text: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			"Name or short geography search. Discovery can recover catalogued trailing qualifiers such as Nepal or Tibet and a small set of unambiguous spacing/spelling variants; stable-id and geometry lookups remain exact.",
+		),
+	ids: z
+		.array(z.string().min(1))
+		.min(1)
+		.optional()
+		.describe("Stable catalog ids to resolve exactly."),
+	kinds: z
+		.array(geoCatalogKindSchema)
+		.min(1)
+		.optional()
+		.describe("Optional normalized feature kinds to include."),
+	categories: z
+		.array(z.string().min(1))
+		.min(1)
+		.optional()
+		.describe(
+			"Exact normalized classifications such as hospital, village, river, motorway, or corridor.",
+		),
+	adminLevels: z
+		.array(z.number().int().nonnegative())
+		.min(1)
+		.optional()
+		.describe("Administrative hierarchy levels, where 0 is country and 1 is first subdivision."),
+	countryCode: z
+		.string()
+		.length(2)
+		.optional()
+		.describe("Optional ISO alpha-2 country code."),
+	bbox: z
+		.object({
+			west: z.number().min(-180).max(180),
+			south: z.number().min(-90).max(90),
+			east: z.number().min(-180).max(180),
+			north: z.number().min(-90).max(90),
+		})
+		.optional()
+		.describe("Optional WGS84 bounding box."),
+	near: z
+		.object({
+			longitude: z.number().min(-180).max(180),
+			latitude: z.number().min(-90).max(90),
+		})
+		.optional()
+		.describe("Optional point used for proximity filtering and ordering."),
+	radiusMeters: z
+		.number()
+		.positive()
+		.optional()
+		.describe("Optional radius around near, in meters."),
+	limit: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe("Maximum number of results to return."),
+	includeGeometry: z
+		.boolean()
+		.optional()
+		.describe("Include GeoJSON geometry. Leave false for lightweight discovery."),
+};
+
+const geoCatalogSourceSchema = z.object({
+	name: z.string(),
+	release: z.string(),
+	recordId: z.string().optional(),
+});
+
+const geoCatalogEntrySchema = z.object({
+	id: z.string(),
+	kind: geoCatalogKindSchema,
+	name: z.string(),
+	aliases: z.array(z.string()),
+	categories: z.array(z.string()),
+	countryCode: z.string().optional(),
+	adminLevel: z.number().int().nonnegative().optional(),
+	bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+	center: z
+		.object({ longitude: z.number(), latitude: z.number() }),
+	importance: z.number(),
+	source: geoCatalogSourceSchema,
+	properties: z.record(z.string(), z.unknown()),
+	geometry: z.unknown().optional(),
+});
+
+const geoCatalogBboxSchema = z.tuple([
+	z.number(),
+	z.number(),
+	z.number(),
+	z.number(),
+]);
+
+const geoCatalogCoverageSchema = z.object({
+	spatial: z.object({
+		status: z.enum([
+			"global",
+			"inside",
+			"partial",
+			"outside",
+			"unscoped",
+			"unknown",
+		]),
+		snapshotBbox: geoCatalogBboxSchema.optional(),
+		queryBbox: geoCatalogBboxSchema.optional(),
+	}),
+	kinds: z.object({
+		status: z.enum([
+			"available",
+			"partial",
+			"unavailable",
+			"unscoped",
+			"unknown",
+		]),
+		available: z.array(geoCatalogKindSchema),
+		missing: z.array(geoCatalogKindSchema),
+	}),
+	zeroResultReason: z
+		.enum([
+			"no_match_within_snapshot",
+			"outside_snapshot",
+			"kind_unavailable",
+			"outside_snapshot_and_kind_unavailable",
+			"query_location_unscoped",
+			"coverage_unknown",
+		])
+		.optional(),
+});
+
+export const queryGeographyOutputSchema = {
+	result: z.object({
+		items: z.array(geoCatalogEntrySchema),
+		metadata: z.object({
+			snapshot: z.object({
+				id: z.string(),
+				createdAt: z.string(),
+				schemaVersion: z.literal(1),
+				coverage: z
+					.object({
+						spatial: z.union([
+							z.object({ scope: z.literal("global") }),
+							z.object({
+								scope: z.literal("bbox"),
+								bbox: geoCatalogBboxSchema,
+							}),
+						]),
+						kinds: z.array(geoCatalogKindSchema),
+					})
+					.optional(),
+				sources: z.array(
+					z.object({
+						name: z.string(),
+						release: z.string(),
+						attribution: z.string().optional(),
+						attributionUrl: z.string().optional(),
+						license: z.string().optional(),
+						documents: z
+							.array(
+								z.object({
+									name: z.string(),
+									url: z.string(),
+									content: z.string().optional(),
+								}),
+							)
+							.optional(),
+					}),
+				),
+			}),
+			coverage: geoCatalogCoverageSchema,
+			query: z.object({
+				returned: z.number(),
+				limit: z.number(),
+				hasMore: z.boolean(),
+				diagnostics: z
+					.object({
+						textRelaxation: z
+							.object({
+								status: z.literal("applied"),
+								strategy: z.literal("generic_suffix"),
+								removedTokens: z.array(z.string()),
+								effectiveText: z.string(),
+							})
+							.optional(),
+						textRecovery: z
+							.object({
+								status: z.literal("applied"),
+								steps: z.array(
+									z.union([
+										z.object({
+											strategy: z.literal("trailing_geographic_qualifier"),
+											removedText: z.string(),
+											inferredCountryCode: z.string().length(2),
+										}),
+										z.object({
+											strategy: z.literal("generic_suffix"),
+											removedText: z.string(),
+										}),
+										z.object({
+											strategy: z.enum([
+												"spacing_variant",
+												"single_character_deletion",
+											]),
+											from: z.string(),
+											to: z.string(),
+										}),
+									]),
+								),
+								effectiveText: z.string(),
+								appliedCountryCode: z.string().length(2).optional(),
+								appliedBbox: geoCatalogBboxSchema.optional(),
+							})
+							.optional(),
+						categorySuggestions: z.array(z.string()).optional(),
+						nearMatches: z
+							.array(
+								z.object({
+									id: z.string(),
+									name: z.string(),
+									kind: geoCatalogKindSchema,
+									categories: z.array(z.string()),
+									geometry: z.unknown().optional(),
+								}),
+							)
+							.optional(),
+					})
+					.optional(),
+			}),
+		}),
+	}),
+};
+
+// ==========================================
 // Overpass API Schemas
 // ==========================================
 

@@ -154,10 +154,9 @@ export type MapStackEntrySource =
 	 * addedBeaconCacheRef, discovery untouched — T-13-06-01 privacy invariant) but
 	 * is non-toasting and non-isolating (the user didn't click anything). */
 	| 'own'
-	/** Phase 10: a dataset referenced by the currently-viewed Story's narrative,
-	 * auto-stacked (visible) on open so the article's geometry shows on the map.
-	 * The inline ref eye-toggles read membership of these entries as their single
-	 * source of truth; entries are removed when the viewed story changes. */
+	/** Phase 10: a dataset referenced by an opened Story, auto-stacked (visible)
+	 * so the article's geometry shows on the map. The inline ref eye-toggles read
+	 * membership of these entries as their single source of truth. */
 	| 'story'
 	/** Query-by-view: found by the viewport relay geo query (Map Stack header
 	 * toggle, useGeoQueryByView). These entries live in the panel's "Geo query"
@@ -237,10 +236,10 @@ export type MobilePanelTab =
  * The entity surface selected inside the mobile Edit/Inspect sheet.
  *
  * This is deliberately only a presentation pointer. Selecting one of these
- * values must not create an entity, activate a Dataset workspace, change a
- * Chat target, or alter Map Stack visibility. The concrete entity/editor state
- * remains owned by its existing store/hook; this discriminant makes the sheet
- * header and body choose the same one when several are retained.
+ * values must not create an entity, activate a Dataset workspace, or change a
+ * Chat target. Product-level Dataset activation additionally restores its
+ * mandatory visible draft row; that invariant is owned by the editor workflow,
+ * not this discriminant.
  *
  * Sightings and Beacons are transient entries in this union. They may own the
  * visible sheet while their create/control/inspect flow is active, but they are
@@ -516,9 +515,8 @@ export interface ViewModeSlice {
 	 * GeoEditorView fills them once the matching event has streamed in (so this
 	 * reducer stays free of event-data lookups).
 	 *
-	 * It never touches the active draft, workspace, or independent `draft:active`
-	 * visibility row. Authoring lifetime and Map Stack presentation are reconciled
-	 * by their respective owners, not by route changes.
+	 * It never directly mutates the active draft, workspace, or `draft:active`
+	 * row. The Dataset authoring invariant reconciles that row after route state.
 	 */
 	applyRouteState: (route: RouteSnapshot, options?: ApplyRouteStateOptions) => void
 }

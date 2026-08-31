@@ -37,6 +37,7 @@ data/events-lmdb/
 data/search/
 data/og-cache.sqlite*
 data/og-images/
+data/geocatalog/
 
 # mapnolia (config contains private key, data is blob storage, binary is downloaded)
 mapnolia.config.json

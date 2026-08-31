@@ -1,4 +1,13 @@
-import { CopyPlus, Eye, EyeOff, FileText, GitPullRequest, Maximize2, Pencil } from 'lucide-react'
+import {
+	CopyPlus,
+	ExternalLink,
+	Eye,
+	EyeOff,
+	FileText,
+	GitPullRequest,
+	Maximize2,
+	Pencil,
+} from 'lucide-react'
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useEditorStore } from '@/features/geo-editor/store'
@@ -17,6 +26,7 @@ import { DatasetFeaturesList } from './DatasetFeaturesList'
 import { ConfirmDeleteAction } from './ConfirmDeleteAction'
 import { EntityActionBar } from './EntityActionBar'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
+import { presentDatasetMetadata } from './datasetMetadataPresentation'
 import { UserProfile } from '../user-profile'
 
 export interface ViewModePanelProps {
@@ -134,15 +144,14 @@ export function ViewModePanel({
 		if (selectedFeatureIds.length === 0) return []
 		return features.filter((f) => selectedFeatureIds.includes(f.id))
 	}, [features, selectedFeatureIds])
-	const datasetProperties = useMemo(() => {
-		if (!viewDataset) return []
-		return Object.entries(
+	const datasetMetadata = useMemo(() => {
+		if (!viewDataset) return { properties: [], manifests: [] }
+		return presentDatasetMetadata(
 			extractCollectionMeta(viewDataset.featureCollection).customProperties,
-		).filter(
-			([, value]) =>
-				value !== undefined && value !== null && formatDatasetPropertyValue(value).trim(),
 		)
 	}, [viewDataset])
+	const datasetProperties = datasetMetadata.properties
+	const catalogManifests = datasetMetadata.manifests
 
 	const canAttachGeometry = selectedFeatures.length > 0 && !attachedGeojson
 
@@ -397,10 +406,102 @@ export function ViewModePanel({
 									)
 								})}
 							</div>
-						) : (
+						) : catalogManifests.length === 0 ? (
 							<p className="text-xs text-muted-foreground">
 								No dataset-level properties were published with this version yet.
 							</p>
+						) : null}
+						{catalogManifests.length > 0 && (
+							<div
+								className={
+									datasetProperties.length > 0
+										? 'space-y-2 border-t border-border pt-3'
+										: 'space-y-2'
+								}
+							>
+								<div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+									Catalog provenance ({catalogManifests.length})
+								</div>
+								{catalogManifests.map((manifest) => (
+									<div
+										key={manifest.snapshotId}
+										className="space-y-2 border-l border-border pl-2 text-xs"
+									>
+										<div className="min-w-0">
+											<div
+												className="truncate font-medium text-foreground"
+												title={manifest.snapshotId}
+											>
+												{manifest.snapshotId}
+											</div>
+											{manifest.createdAt && (
+												<div className="text-[11px] text-muted-foreground">
+													Snapshot created {manifest.createdAt.slice(0, 10)}
+												</div>
+											)}
+										</div>
+										{manifest.sources.length > 0 ? (
+											<div className="space-y-2">
+												{manifest.sources.map((source) => (
+													<div
+														key={`${source.name}:${source.release}`}
+														className="min-w-0 space-y-1"
+													>
+														<div className="flex flex-wrap items-baseline gap-x-1.5 text-foreground">
+															<span className="font-medium">{source.name}</span>
+															<span className="text-muted-foreground">{source.release}</span>
+														</div>
+														{source.license && (
+															<div className="break-words text-[11px] text-muted-foreground">
+																License: {source.license}
+															</div>
+														)}
+														{source.attribution && (
+															<p
+																className="line-clamp-2 break-words text-[11px] leading-4 text-muted-foreground"
+																title={source.attribution}
+															>
+																{source.attribution}
+															</p>
+														)}
+														{(source.attributionUrl || source.documents?.length) && (
+															<div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+																{source.attributionUrl && (
+																	<a
+																		href={source.attributionUrl}
+																		target="_blank"
+																		rel="noreferrer"
+																		className="inline-flex items-center gap-1 text-info underline decoration-info underline-offset-2"
+																	>
+																		Attribution
+																		<ExternalLink className="h-3 w-3" aria-hidden="true" />
+																	</a>
+																)}
+																{source.documents?.map((document) => (
+																	<a
+																		key={`${document.name}:${document.url}`}
+																		href={document.url}
+																		target="_blank"
+																		rel="noreferrer"
+																		className="inline-flex items-center gap-1 text-info underline decoration-info underline-offset-2"
+																	>
+																		{document.name}
+																		<ExternalLink className="h-3 w-3" aria-hidden="true" />
+																	</a>
+																))}
+															</div>
+														)}
+													</div>
+												))}
+											</div>
+										) : (
+											<div className="text-[11px] text-muted-foreground">
+												Source details unavailable.
+											</div>
+										)}
+									</div>
+								))}
+							</div>
 						)}
 					</EntityPanelSurface>
 

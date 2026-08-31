@@ -45,6 +45,7 @@ import { getWikipediaFetchRedirect } from './source-routing'
 import { geoStaticToolSchemas } from './schemas'
 import {
 	asFeatureObject,
+	asGeometryObject,
 	clampLimit,
 	clampPositiveInt,
 	clampRadiusMeters,
@@ -82,6 +83,314 @@ import {
 	ensureExecutionTargetForMutation,
 	getExecutionEditor,
 } from './executionTarget'
+import { attachEditorDatasetMetadata } from './editorDatasetMetadata'
+
+const GEO_CATALOG_SOURCE_MANIFEST_PREFIX = 'earthly:geoCatalogSourceManifest:'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function optionalNonEmptyText(value: unknown): string | undefined {
+	return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+}
+
+function isJsonValue(value: unknown): boolean {
+	if (
+		value === null ||
+		typeof value === 'string' ||
+		typeof value === 'boolean' ||
+		(typeof value === 'number' && Number.isFinite(value))
+	) {
+		return true
+	}
+	if (Array.isArray(value)) return value.every(isJsonValue)
+	return isRecord(value) && Object.values(value).every(isJsonValue)
+}
+
+interface CatalogSourceManifest {
+	schemaVersion: 1
+	snapshotId: string
+	createdAt: string
+	sources: Array<Record<string, unknown>>
+}
+
+function catalogSourceManifest(metadata: Record<string, unknown>): {
+	manifest: CatalogSourceManifest
+	propertyName: string
+} {
+	const snapshot = isRecord(metadata.snapshot) ? metadata.snapshot : undefined
+	const snapshotId = optionalNonEmptyText(snapshot?.id)
+	const createdAt = optionalNonEmptyText(snapshot?.createdAt)
+	if (!snapshotId || !createdAt || !Number.isFinite(Date.parse(createdAt))) {
+		throw new Error('query_geography returned invalid snapshot identity metadata')
+	}
+	if (snapshot?.schemaVersion !== 1) {
+		throw new Error('query_geography returned an unsupported snapshot schema version')
+	}
+	if (!Array.isArray(snapshot.sources) || snapshot.sources.length === 0) {
+		throw new Error('query_geography returned no snapshot source metadata')
+	}
+	const sources = snapshot.sources.map((candidate, sourceIndex) => {
+		if (!isRecord(candidate)) {
+			throw new Error(`query_geography returned an invalid source at index ${sourceIndex}`)
+		}
+		const name = optionalNonEmptyText(candidate.name)
+		const release = optionalNonEmptyText(candidate.release)
+		if (!name || !release) {
+			throw new Error(`query_geography returned incomplete source metadata at index ${sourceIndex}`)
+		}
+		const source: Record<string, unknown> = { name, release }
+		for (const field of ['attribution', 'attributionUrl', 'license'] as const) {
+			const text = optionalNonEmptyText(candidate[field])
+			if (text) source[field] = text
+		}
+		if (candidate.documents !== undefined) {
+			if (!Array.isArray(candidate.documents) || candidate.documents.length === 0) {
+				throw new Error(`query_geography returned invalid source documents at index ${sourceIndex}`)
+			}
+			source.documents = candidate.documents.map((document, documentIndex) => {
+				if (!isRecord(document)) {
+					throw new Error(
+						`query_geography returned an invalid source document at ${sourceIndex}:${documentIndex}`,
+					)
+				}
+				const documentName = optionalNonEmptyText(document.name)
+				const url = optionalNonEmptyText(document.url)
+				if (!documentName || !url) {
+					throw new Error(
+						`query_geography returned an incomplete source document at ${sourceIndex}:${documentIndex}`,
+					)
+				}
+				let parsedUrl: URL
+				try {
+					parsedUrl = new URL(url)
+				} catch {
+					throw new Error(
+						`query_geography returned an invalid source document URL at ${sourceIndex}:${documentIndex}`,
+					)
+				}
+				if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+					throw new Error(
+						`query_geography returned a non-web source document URL at ${sourceIndex}:${documentIndex}`,
+					)
+				}
+				const content = optionalNonEmptyText(document.content)
+				return { name: documentName, url, ...(content ? { content } : {}) }
+			})
+		}
+		return source
+	})
+	return {
+		manifest: { schemaVersion: 1, snapshotId, createdAt, sources },
+		propertyName: `${GEO_CATALOG_SOURCE_MANIFEST_PREFIX}${snapshotId}`,
+	}
+}
+
+function compactCatalogMetadata(
+	metadata: Record<string, unknown>,
+	manifest: CatalogSourceManifest,
+): Record<string, unknown> {
+	const sourceSnapshot = isRecord(metadata.snapshot) ? metadata.snapshot : null
+	const coverage =
+		sourceSnapshot && isRecord(sourceSnapshot.coverage)
+			? structuredClone(sourceSnapshot.coverage)
+			: undefined
+	return {
+		...metadata,
+		snapshot: {
+			id: manifest.snapshotId,
+			createdAt: manifest.createdAt,
+			schemaVersion: 1,
+			...(coverage ? { coverage } : {}),
+			sources: manifest.sources.map((source) => ({
+				...source,
+				...(Array.isArray(source.documents)
+					? {
+							documents: source.documents.map((document) => {
+								const { content: _content, ...summary } = document as Record<string, unknown>
+								return summary
+							}),
+						}
+					: {}),
+			})),
+		},
+	}
+}
+
+function compactCatalogProperties(
+	value: unknown,
+): Record<string, string | number | boolean | null> {
+	if (!isRecord(value)) return {}
+	const properties: Record<string, string | number | boolean | null> = {}
+	for (const [key, candidate] of Object.entries(value)) {
+		if (
+			candidate === null ||
+			typeof candidate === 'string' ||
+			typeof candidate === 'number' ||
+			typeof candidate === 'boolean'
+		) {
+			properties[key] = candidate
+		}
+	}
+	return properties
+}
+
+const CATALOG_EDITOR_PROPERTY_KEYS = [
+	'overtureTheme',
+	'overtureType',
+	'subtype',
+	'class',
+	'basicCategory',
+	'adminLevel',
+	'wikidata',
+	'isIntermittent',
+	'isSalt',
+	'corridorScope',
+	'geometrySemantics',
+	'memberCount',
+	'membershipDigest',
+] as const
+
+function catalogEditorProperties(
+	item: Record<string, unknown>,
+	metadata: Record<string, unknown>,
+	manifestProperty: string,
+): GeoJSON.GeoJsonProperties {
+	const itemProperties = isRecord(item.properties) ? item.properties : {}
+	const properties: GeoJSON.GeoJsonProperties = {
+		catalogId: item.id,
+		name: item.name,
+		kind: item.kind,
+	}
+	const countryCode = optionalNonEmptyText(item.countryCode)
+	if (countryCode) properties.countryCode = countryCode
+	if (Array.isArray(item.categories)) {
+		const categories = item.categories.filter(
+			(value): value is string => typeof value === 'string' && value.length > 0,
+		)
+		if (categories.length > 0) properties.categories = categories
+	}
+	if (typeof item.adminLevel === 'number' && Number.isFinite(item.adminLevel)) {
+		properties.adminLevel = item.adminLevel
+	}
+	for (const key of CATALOG_EDITOR_PROPERTY_KEYS) {
+		const value = itemProperties[key]
+		if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+			properties[key] = value
+		}
+	}
+	if (itemProperties.sources !== undefined) {
+		if (
+			!Array.isArray(itemProperties.sources) ||
+			!itemProperties.sources.every((record) => isRecord(record) && isJsonValue(record))
+		) {
+			throw new Error('query_geography returned invalid native source records')
+		}
+		if (itemProperties.sources.length > 0) {
+			properties.sourceRecords = structuredClone(itemProperties.sources)
+		}
+	}
+
+	const source = isRecord(item.source) ? item.source : undefined
+	const snapshot = metadata && isRecord(metadata.snapshot) ? metadata.snapshot : undefined
+	const sourceName = optionalNonEmptyText(source?.name)
+	const sourceRelease = optionalNonEmptyText(source?.release)
+	const sourceRecordId = optionalNonEmptyText(source?.recordId)
+	const snapshotId = optionalNonEmptyText(snapshot?.id)
+	if (!sourceName || !sourceRelease || !snapshotId) {
+		throw new Error('query_geography returned an item without snapshot provenance')
+	}
+	const declaredSource = Array.isArray(snapshot?.sources)
+		? snapshot.sources.find(
+				(candidate) =>
+					isRecord(candidate) &&
+					candidate.name === sourceName &&
+					candidate.release === sourceRelease,
+			)
+		: undefined
+	const sourceMetadata = isRecord(declaredSource) ? declaredSource : undefined
+	if (!sourceMetadata) {
+		throw new Error('query_geography returned an item with undeclared source provenance')
+	}
+	const attribution = optionalNonEmptyText(sourceMetadata?.attribution)
+	const license = optionalNonEmptyText(sourceMetadata?.license)
+	properties.source = {
+		name: sourceName,
+		release: sourceRelease,
+		...(sourceRecordId ? { recordId: sourceRecordId } : {}),
+		snapshotId,
+		manifestProperty,
+		...(attribution ? { attribution } : {}),
+		...(license ? { license } : {}),
+	}
+	return properties
+}
+
+function normalizeCatalogSearchText(value: string): string {
+	return value
+		.normalize('NFKD')
+		.replace(/\p{M}+/gu, '')
+		.toLocaleLowerCase('en-US')
+		.replace(/[^\p{L}\p{N}]+/gu, ' ')
+		.trim()
+		.replace(/\s+/gu, ' ')
+}
+
+function catalogImportCandidateIds(rawItems: unknown[]): string[] {
+	return Array.from(
+		new Set(
+			rawItems.flatMap((item) => {
+				if (!isRecord(item) || typeof item.id !== 'string' || item.id.length === 0) return []
+				const categories = Array.isArray(item.categories) ? item.categories : []
+				return categories.includes('administrative-label') ? [] : [item.id]
+			}),
+		),
+	)
+}
+
+function catalogEffectiveDiscoveryTexts(
+	text: string | undefined,
+	metadata: Record<string, unknown>,
+): Set<string> {
+	const values = new Set<string>()
+	const add = (value: unknown): void => {
+		if (typeof value !== 'string') return
+		const normalized = normalizeCatalogSearchText(value)
+		if (normalized) values.add(normalized)
+	}
+	add(text)
+	const query = isRecord(metadata.query) ? metadata.query : undefined
+	const diagnostics = isRecord(query?.diagnostics) ? query.diagnostics : undefined
+	for (const key of ['textRelaxation', 'textRecovery'] as const) {
+		const recovery = isRecord(diagnostics?.[key]) ? diagnostics[key] : undefined
+		add(recovery?.effectiveText)
+	}
+	return values
+}
+
+function catalogExactImportCandidateIds(
+	rawItems: unknown[],
+	text: string | undefined,
+	metadata: Record<string, unknown>,
+): string[] {
+	const effectiveTexts = catalogEffectiveDiscoveryTexts(text, metadata)
+	if (effectiveTexts.size === 0) return []
+	const safeIds = new Set(catalogImportCandidateIds(rawItems))
+	return Array.from(
+		new Set(
+			rawItems.flatMap((item) => {
+				if (!isRecord(item) || typeof item.id !== 'string' || !safeIds.has(item.id)) return []
+				const names = [item.name, ...(Array.isArray(item.aliases) ? item.aliases : [])]
+				const exact = names.some(
+					(value) =>
+						typeof value === 'string' && effectiveTexts.has(normalizeCatalogSearchText(value)),
+				)
+				return exact ? [item.id] : []
+			}),
+		),
+	)
+}
 
 /** The nature/origin of a tool — required on every entry (D-03, Pitfall 5). */
 export type ToolKind =
@@ -478,6 +787,365 @@ function registerEditorWriters(): void {
 }
 
 function registerRemoteMcpTools(): void {
+	register({
+		name: 'query_geography',
+		kind: 'remote-mcp',
+		origin: REMOTE_MCP_ORIGIN,
+		schema: schemaFor('query_geography'),
+		handler: async (args) => {
+			const client = getGeoClient()
+			const has = (name: string) => Object.hasOwn(args, name)
+			const optionalBoolean = (name: string): boolean | undefined => {
+				if (!has(name)) return undefined
+				if (typeof args[name] !== 'boolean') throw new Error(`${name} must be a boolean`)
+				return args[name]
+			}
+			let text: string | undefined
+			if (has('text')) {
+				if (typeof args.text !== 'string' || args.text.trim().length === 0) {
+					throw new Error('text must be a non-empty string')
+				}
+				text = args.text.trim()
+			}
+			let ids: string[] | undefined
+			if (has('ids')) {
+				if (
+					!Array.isArray(args.ids) ||
+					args.ids.length === 0 ||
+					!args.ids.every(
+						(value): value is string => typeof value === 'string' && value.trim().length > 0,
+					)
+				) {
+					throw new Error('ids must be a non-empty array of non-empty strings')
+				}
+				ids = Array.from(new Set(args.ids.map((value) => value.trim())))
+			}
+			const allowedKinds = new Set([
+				'admin',
+				'locality',
+				'place',
+				'road',
+				'rail',
+				'waterway',
+				'infrastructure',
+			])
+			let kinds: string[] | undefined
+			if (has('kinds')) {
+				if (
+					!Array.isArray(args.kinds) ||
+					args.kinds.length === 0 ||
+					!args.kinds.every(
+						(value): value is string => typeof value === 'string' && allowedKinds.has(value),
+					)
+				) {
+					throw new Error('kinds must be a non-empty array of supported geography kinds')
+				}
+				kinds = Array.from(new Set(args.kinds))
+			}
+			let categories: string[] | undefined
+			if (has('categories')) {
+				if (
+					!Array.isArray(args.categories) ||
+					args.categories.length === 0 ||
+					!args.categories.every(
+						(value): value is string => typeof value === 'string' && value.trim().length > 0,
+					)
+				) {
+					throw new Error('categories must be a non-empty array of non-empty strings')
+				}
+				categories = Array.from(new Set(args.categories.map((value) => value.trim())))
+			}
+			let adminLevels: number[] | undefined
+			if (has('adminLevels')) {
+				if (
+					!Array.isArray(args.adminLevels) ||
+					args.adminLevels.length === 0 ||
+					!args.adminLevels.every(
+						(value): value is number =>
+							typeof value === 'number' && Number.isSafeInteger(value) && value >= 0,
+					)
+				) {
+					throw new Error('adminLevels must be a non-empty array of nonnegative integers')
+				}
+				adminLevels = Array.from(new Set(args.adminLevels))
+			}
+			let countryCode: string | undefined
+			if (has('countryCode')) {
+				if (typeof args.countryCode !== 'string' || !/^[a-z]{2}$/iu.test(args.countryCode.trim())) {
+					throw new Error('countryCode must be an ISO alpha-2 code')
+				}
+				countryCode = args.countryCode.trim().toUpperCase()
+			}
+			let bbox: { west: number; south: number; east: number; north: number } | undefined
+			if (has('bbox')) {
+				if (!args.bbox || typeof args.bbox !== 'object' || Array.isArray(args.bbox)) {
+					throw new Error('bbox must contain west, south, east, and north numbers')
+				}
+				const raw = args.bbox as Record<string, unknown>
+				const west = toFiniteNumber(raw.west)
+				const south = toFiniteNumber(raw.south)
+				const east = toFiniteNumber(raw.east)
+				const north = toFiniteNumber(raw.north)
+				if (
+					west === undefined ||
+					south === undefined ||
+					east === undefined ||
+					north === undefined ||
+					west < -180 ||
+					west > 180 ||
+					east < -180 ||
+					east > 180 ||
+					south < -90 ||
+					south > 90 ||
+					north < -90 ||
+					north > 90 ||
+					south > north
+				) {
+					throw new Error('bbox contains invalid WGS84 coordinates')
+				}
+				bbox = { west, south, east, north }
+			}
+			let near: { longitude: number; latitude: number } | undefined
+			if (has('near')) {
+				if (!args.near || typeof args.near !== 'object' || Array.isArray(args.near)) {
+					throw new Error('near must contain longitude and latitude numbers')
+				}
+				const raw = args.near as Record<string, unknown>
+				const longitude = toFiniteNumber(raw.longitude)
+				const latitude = toFiniteNumber(raw.latitude)
+				if (
+					longitude === undefined ||
+					latitude === undefined ||
+					longitude < -180 ||
+					longitude > 180 ||
+					latitude < -90 ||
+					latitude > 90
+				) {
+					throw new Error('near contains invalid WGS84 coordinates')
+				}
+				near = { longitude, latitude }
+			}
+			let radiusMeters: number | undefined
+			if (has('radiusMeters')) {
+				radiusMeters = toFiniteNumber(args.radiusMeters)
+				if (radiusMeters === undefined || radiusMeters <= 0) {
+					throw new Error('radiusMeters must be a positive number')
+				}
+			}
+			if ((near === undefined) !== (radiusMeters === undefined)) {
+				throw new Error('near and radiusMeters must be supplied together')
+			}
+			let limit: number | undefined
+			if (has('limit')) {
+				limit = toFiniteNumber(args.limit)
+				if (limit === undefined || !Number.isSafeInteger(limit) || limit <= 0) {
+					throw new Error('limit must be a positive integer')
+				}
+			}
+			const toEditor = optionalBoolean('toEditor') ?? false
+			optionalBoolean('replaceExisting')
+			if (has('includeGeometry')) {
+				throw new Error(
+					'includeGeometry is not an Earthly chat option; set toEditor=true to fetch and import catalog geometry with its source manifest',
+				)
+			}
+
+			const transportArguments: Record<string, unknown> = {
+				...(text ? { text } : {}),
+				...(ids?.length ? { ids } : {}),
+				...(kinds?.length ? { kinds } : {}),
+				...(categories?.length ? { categories } : {}),
+				...(adminLevels?.length ? { adminLevels } : {}),
+				...(countryCode ? { countryCode } : {}),
+				...(bbox
+					? {
+							bbox: {
+								west: bbox.west as number,
+								south: bbox.south as number,
+								east: bbox.east as number,
+								north: bbox.north as number,
+							},
+						}
+					: {}),
+				...(near
+					? {
+							near: {
+								longitude: near.longitude as number,
+								latitude: near.latitude as number,
+							},
+						}
+					: {}),
+				...(radiusMeters !== undefined ? { radiusMeters } : {}),
+				...(limit !== undefined ? { limit } : {}),
+			}
+			const discoveryBeforeImport = toEditor && !ids?.length
+			let response = await client.callRemoteTool<Record<string, unknown>>('query_geography', {
+				...transportArguments,
+				includeGeometry: toEditor && !discoveryBeforeImport,
+			})
+			let result = extractMcpToolResult('query_geography', response)
+			if (!Array.isArray(result.items)) {
+				throw new Error('query_geography returned an invalid items collection')
+			}
+			if (!isRecord(result.metadata) || !isRecord(result.metadata.snapshot)) {
+				throw new Error('query_geography returned invalid snapshot metadata')
+			}
+
+			let deferredEditorImport: Record<string, unknown> | undefined
+			let autoSelectedCatalogId: string | undefined
+			if (discoveryBeforeImport) {
+				const discoveryItems = result.items
+				const discoveryMetadata = result.metadata
+				const candidateIds = catalogImportCandidateIds(discoveryItems)
+				const exactCandidateIds = catalogExactImportCandidateIds(
+					discoveryItems,
+					text,
+					discoveryMetadata,
+				)
+				const discoveryQuery = isRecord(discoveryMetadata.query)
+					? discoveryMetadata.query
+					: undefined
+				const discoveryDiagnostics = isRecord(discoveryQuery?.diagnostics)
+					? discoveryQuery.diagnostics
+					: undefined
+				const usedCountrylessSpatialFallback = isRecord(
+					discoveryDiagnostics?.countrylessSpatialFallback,
+				)
+				const discoveryIsTruncated = discoveryQuery?.hasMore === true
+
+				if (
+					exactCandidateIds.length === 1 &&
+					!discoveryIsTruncated &&
+					!usedCountrylessSpatialFallback
+				) {
+					autoSelectedCatalogId = exactCandidateIds[0]
+					response = await client.callRemoteTool<Record<string, unknown>>('query_geography', {
+						ids: [autoSelectedCatalogId],
+						includeGeometry: true,
+					})
+					result = extractMcpToolResult('query_geography', response)
+					if (!Array.isArray(result.items)) {
+						throw new Error('query_geography returned an invalid stable-id items collection')
+					}
+					if (!isRecord(result.metadata) || !isRecord(result.metadata.snapshot)) {
+						throw new Error('query_geography returned invalid stable-id snapshot metadata')
+					}
+					if (
+						result.items.length !== 1 ||
+						!isRecord(result.items[0]) ||
+						result.items[0].id !== autoSelectedCatalogId
+					) {
+						throw new Error(
+							'query_geography stable-id resolution did not return the one selected discovery candidate',
+						)
+					}
+				} else if (candidateIds.length === 0) {
+					deferredEditorImport = {
+						available: false,
+						selectionRequired: false,
+						noMatch: discoveryItems.length === 0,
+						reason:
+							discoveryItems.length === 0
+								? 'No catalog match was found; the Dataset was not changed.'
+								: 'The matches are discovery-only and cannot be imported; the Dataset was not changed.',
+					}
+				} else {
+					deferredEditorImport = {
+						available: true,
+						candidateIds: exactCandidateIds.length > 0 ? exactCandidateIds : candidateIds,
+						selectionRequired: true,
+						reason: usedCountrylessSpatialFallback
+							? 'The match was recovered spatially because its source record has no country code; choose its stable catalog id before importing.'
+							: discoveryIsTruncated
+								? 'The discovery result is truncated; choose a stable catalog id before importing.'
+								: exactCandidateIds.length > 1
+									? 'More than one exact catalog match exists; choose a stable catalog id before importing.'
+									: 'No unique exact catalog match exists; choose a stable catalog id before importing.',
+					}
+				}
+			}
+
+			const rawItems = result.items
+			const metadata = result.metadata
+			const { manifest, propertyName: manifestProperty } = catalogSourceManifest(metadata)
+			const features: GeoJSON.Feature[] = []
+			const items = rawItems.map((rawItem, index) => {
+				if (!isRecord(rawItem)) {
+					throw new Error(`query_geography returned an invalid item at index ${index}`)
+				}
+				const item = rawItem
+				const { geometry, properties: rawProperties, ...summary } = item
+				const parsedGeometry = asGeometryObject(geometry)
+				if (parsedGeometry && typeof item.id === 'string') {
+					features.push({
+						type: 'Feature',
+						id: item.id,
+						geometry: parsedGeometry,
+						properties: catalogEditorProperties(item, metadata, manifestProperty),
+					})
+				}
+				return {
+					...summary,
+					properties: compactCatalogProperties(rawProperties),
+				}
+			})
+			if (toEditor && !deferredEditorImport && features.length !== rawItems.length) {
+				throw new Error(
+					`query_geography returned ${rawItems.length} item(s), but only ${features.length} had valid geometry; no editor changes were applied`,
+				)
+			}
+
+			const output = {
+				...result,
+				metadata: compactCatalogMetadata(metadata, manifest),
+				items,
+				...(features.length > 0 ? { features } : {}),
+				...(autoSelectedCatalogId
+					? {
+							catalogResolution: {
+								strategy: 'unique-exact-discovery-match',
+								stableId: autoSelectedCatalogId,
+							},
+						}
+					: {}),
+				...(deferredEditorImport
+					? { editorImport: deferredEditorImport }
+					: !toEditor
+						? (() => {
+								const candidateIds = catalogImportCandidateIds(rawItems)
+								if (candidateIds.length === 0) return {}
+								const discoveryIsTruncated =
+									isRecord(metadata.query) && metadata.query.hasMore === true
+								if (candidateIds.length > 1 || discoveryIsTruncated) {
+									return {
+										editorImport: {
+											available: true,
+											candidateIds,
+											selectionRequired: true,
+										},
+									}
+								}
+								return {
+									editorImport: {
+										available: true,
+										candidateIds,
+										nextCall: {
+											name: 'query_geography',
+											arguments: { ids: candidateIds, toEditor: true },
+										},
+									},
+								}
+							})()
+						: {}),
+			}
+			return toEditor && !deferredEditorImport && features.length > 0
+				? attachEditorDatasetMetadata(output, {
+						properties: { [manifestProperty]: JSON.stringify(manifest) },
+					})
+				: output
+		},
+	})
+
 	register({
 		name: 'search_location',
 		kind: 'remote-mcp',
@@ -1014,10 +1682,12 @@ function registerRemoteMcpTools(): void {
 			const matchedByName = name
 				? validFeatures.filter((feature) => featureMatchesName(feature, name))
 				: validFeatures
-			const selected = prepareMapToolFeaturesForEditor(
-				'import_osm_to_editor',
-				matchedByName.length > 0 ? matchedByName : validFeatures,
-			)
+			if (name && matchedByName.length === 0) {
+				throw new Error(
+					`No OSM features named "${name}" matched among ${validFeatures.length} query results. Nothing was imported; refine the name or omit it intentionally to import all query results.`,
+				)
+			}
+			const selected = prepareMapToolFeaturesForEditor('import_osm_to_editor', matchedByName)
 
 			if (context?.run) await ensureExecutionTargetForMutation(context.run)
 			const importResult = importFeaturesToEditor(selected, replaceExisting)
@@ -1037,10 +1707,7 @@ function registerRemoteMcpTools(): void {
 				replaceExisting,
 				usedSearchFallback,
 				includeRelations,
-				warning:
-					name && matchedByName.length === 0
-						? 'No name-matching features found; imported unfiltered query results.'
-						: null,
+				warning: null,
 			}
 		},
 	})
@@ -1118,18 +1785,43 @@ function registerRemoteMcpTools(): void {
 				typeof args.title === 'string' && args.title.trim() ? args.title.trim() : undefined
 			if (!url && !title) throw new Error("Either 'url' or 'title' is required")
 			const language = typeof args.language === 'string' ? args.language : undefined
-			const mode = args.mode === 'table' ? 'table' : args.mode === 'outline' ? 'outline' : undefined
+			const mode =
+				args.mode === 'table' ||
+				args.mode === 'outline' ||
+				args.mode === 'article' ||
+				args.mode === 'section'
+					? args.mode
+					: undefined
+			const revisionId = toFiniteNumber(args.revisionId)
+			const sectionIndex =
+				typeof args.sectionIndex === 'string' && args.sectionIndex.trim()
+					? args.sectionIndex.trim()
+					: undefined
+			const sectionTitle =
+				typeof args.sectionTitle === 'string' && args.sectionTitle.trim()
+					? args.sectionTitle.trim()
+					: undefined
+			const textOffset = toFiniteNumber(args.textOffset)
+			const textLimit = toFiniteNumber(args.textLimit)
 			const tableIndex = toFiniteNumber(args.tableIndex)
 			const rowOffset = toFiniteNumber(args.rowOffset)
 			const rowLimit = toFiniteNumber(args.rowLimit)
 			if (mode === 'table' && tableIndex === undefined) {
 				throw new Error('tableIndex is required in table mode')
 			}
+			if (mode === 'section' && !sectionIndex && !sectionTitle) {
+				throw new Error('sectionIndex or sectionTitle is required in section mode')
+			}
 			const response = await client.WikipediaExtract(
 				url,
 				title,
 				language,
 				mode,
+				revisionId,
+				sectionIndex,
+				sectionTitle,
+				textOffset,
+				textLimit,
 				tableIndex,
 				rowOffset,
 				rowLimit,

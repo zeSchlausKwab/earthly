@@ -17,6 +17,7 @@ import {
 	getPromptBudgetTokens,
 	getAdvertisedGeoTools,
 	resolveProvider,
+	resolveChatErrorRecovery,
 	sanitizeMessageForPrompt,
 	terminalDatasetTargetError,
 	useChatStore,
@@ -36,6 +37,7 @@ import type { DatasetDiff } from '@/features/geo-editor/api/diff'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { eventStore } from '@/lib/nostr'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { clearStoryTargetRequests, requestStoryTarget } from '@/features/chat/storyTargeting'
 
 function makeModel(overrides: Partial<RoutstrModel> = {}): RoutstrModel {
 	return {
@@ -126,6 +128,7 @@ describe('single global run remains owned across conversation navigation', () =>
 	beforeEach(() => {
 		useChatStore.getState().reset()
 		clearPendingDiffs()
+		clearStoryTargetRequests()
 	})
 
 	test('switching and creating conversations never aborts the existing run', () => {
@@ -254,6 +257,28 @@ describe('single global run remains owned across conversation navigation', () =>
 		expect(stopped.isStreaming).toBe(false)
 		expect(stopped.runningChatId).toBeNull()
 		expect(stopped.chatRunStates[ownerId]?.status).toBe('stopped')
+	})
+
+	test('a Story-target dialog marks its exact run awaiting approval and Stop releases it', async () => {
+		const ownerId = useChatStore.getState().activeChatId as string
+		const identity = runIdentity(ownerId)
+		useChatStore.setState((state) => ({
+			...buildChatRunStateUpdate(state, ownerId, { identity, status: 'working' }),
+			isStreaming: true,
+			runningChatId: ownerId,
+			activeRun: identity,
+		}))
+
+		const decision = requestStoryTarget(
+			{ chatId: ownerId, toolCallId: 'write-story', storyTitle: 'Awaited Story' },
+			() => undefined,
+		)
+		expect(useChatStore.getState().chatRunStates[ownerId]?.status).toBe('awaiting_approval')
+
+		useChatStore.getState().cancelStream()
+
+		await expect(decision).resolves.toEqual({ decision: 'cancelled' })
+		expect(useChatStore.getState().chatRunStates[ownerId]?.status).toBe('stopped')
 	})
 
 	test('an awaited reference completion adds only to its initiating conversation', () => {
@@ -665,6 +690,7 @@ describe('tool-loop terminal target errors', () => {
 			expect(JSON.parse(String(toolMessages[0]?.content)).code).toBe('dataset_target_conflict')
 			expect(JSON.parse(String(toolMessages[1]?.content))).toMatchObject({ cancelled: true })
 			expect(state.error).toBe('The bound Dataset changed.')
+			expect(state.errorRecovery).toBe('retry_turn')
 		} finally {
 			globalThis.fetch = originalFetch
 			unregister(terminalToolName)
@@ -674,16 +700,213 @@ describe('tool-loop terminal target errors', () => {
 	})
 })
 
+describe('partial-success recovery', () => {
+	test('never replays a turn once any earlier tool result changed the map', () => {
+		expect(resolveChatErrorRecovery(0)).toBe('retry_turn')
+		expect(resolveChatErrorRecovery(1)).toBe('finish_response')
+		expect(resolveChatErrorRecovery(0, true)).toBe('finish_response')
+	})
+
+	test('keeps retry and finish recovery available when the replacement run fails preflight', async () => {
+		for (const recovery of ['retry_turn', 'finish_response'] as const) {
+			useChatStore.getState().reset()
+			bindActiveChatToEmptyDatasetTarget(`Preflight ${recovery}`)
+			const chatId = useChatStore.getState().activeChatId as string
+			useChatStore.setState((state) => ({
+				...buildChatRunStateUpdate(state, chatId, {
+					status: 'error',
+					error: 'Original provider failure',
+					errorRecovery: recovery,
+					lastTurnRequest: { content: 'Original prompt' },
+				}),
+				models: [],
+				selectedModel: null,
+			}))
+
+			if (recovery === 'finish_response') {
+				await useChatStore.getState().finishLastResponse()
+			} else {
+				await useChatStore.getState().retryLastMessage()
+			}
+
+			const state = useChatStore.getState()
+			expect(state.isStreaming).toBe(false)
+			expect(state.error).toBe('Original provider failure')
+			expect(state.errorRecovery).toBe(recovery)
+			expect(state.lastTurnRequest?.content).toBe('Original prompt')
+			expect(state.chatRunStates[chatId]?.error).toBe('Original provider failure')
+			expect(state.chatRunStates[chatId]?.errorRecovery).toBe(recovery)
+		}
+	})
+
+	test('finishes only the missing summary after an applied tool result and provider failure', async () => {
+		const toolName = '__test_applied_map_mutation'
+		const toolCallId = 'call_applied_mutation'
+		const modelId = 'partial-success-regression'
+		const providerBaseUrl = 'http://partial-success.test/v1'
+		const originalFetch = globalThis.fetch
+		const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+		const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
+		let toolInvocations = 0
+		let completionRequests = 0
+		const completionBodies: Array<Record<string, unknown>> = []
+		const encoder = new TextEncoder()
+
+		const streamResponse = (delta: Record<string, unknown>, finishReason: string) =>
+			new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.enqueue(
+							encoder.encode(
+								`data: ${JSON.stringify({
+									id: 'chunk',
+									object: 'chat.completion.chunk',
+									created: 1,
+									model: modelId,
+									choices: [{ index: 0, delta, finish_reason: finishReason }],
+								})}\n`,
+							),
+						)
+						controller.enqueue(encoder.encode('data: [DONE]\n'))
+						controller.close()
+					},
+				}),
+				{ status: 200, headers: { 'content-type': 'text/event-stream' } },
+			)
+
+		register({
+			name: toolName,
+			kind: 'host-builtin',
+			schema: {
+				type: 'function',
+				function: {
+					name: toolName,
+					description: 'Partial-success regression fixture.',
+					parameters: { type: 'object', properties: {} },
+				},
+			},
+			handler: () => {
+				toolInvocations += 1
+				return { ok: true, counts: { created: 1, updated: 0, deleted: 0 } }
+			},
+		})
+
+		try {
+			useChatStore.getState().reset()
+			bindActiveChatToEmptyDatasetTarget('Partial-success target')
+			const providerOverrides = emptyOverrides()
+			providerOverrides.custom = { baseUrl: providerBaseUrl, apiKey: '' }
+			useChatStore.setState({
+				provider: 'custom',
+				providerOverrides,
+				models: [makeModel({ id: modelId })],
+				selectedModel: modelId,
+				toolsEnabled: true,
+			})
+			globalThis.requestAnimationFrame = () => 1
+			globalThis.cancelAnimationFrame = () => undefined
+			globalThis.fetch = (async (input, init) => {
+				const url = String(input)
+				if (url === `${providerBaseUrl}/models`) {
+					return new Response(JSON.stringify({ data: [{ id: modelId, capabilities: ['text'] }] }), {
+						status: 200,
+						headers: { 'content-type': 'application/json' },
+					})
+				}
+				if (url === `${providerBaseUrl}/chat/completions`) {
+					completionRequests += 1
+					completionBodies.push(JSON.parse(String(init?.body ?? '{}')))
+					if (completionRequests === 1) {
+						return streamResponse(
+							{
+								tool_calls: [
+									{
+										index: 0,
+										id: toolCallId,
+										type: 'function',
+										function: { name: toolName, arguments: '{}' },
+									},
+								],
+							},
+							'tool_calls',
+						)
+					}
+					if (completionRequests === 2) {
+						return new Response(
+							JSON.stringify({ error: { message: 'final narration unavailable' } }),
+							{
+								status: 400,
+								headers: { 'content-type': 'application/json' },
+							},
+						)
+					}
+					return streamResponse({ content: 'Done — the map changes are already applied.' }, 'stop')
+				}
+				throw new Error(`Unexpected request: ${url}`)
+			}) as typeof fetch
+
+			await useChatStore.getState().sendMessage('Apply one map change, then summarize it.')
+
+			let state = useChatStore.getState()
+			expect(toolInvocations).toBe(1)
+			expect(completionRequests).toBe(2)
+			expect(state.error).toContain('final narration unavailable')
+			expect(state.errorRecovery).toBe('finish_response')
+			expect(state.diagnostics.mapChangingToolResultCount).toBe(1)
+			expect(state.messages.filter((message) => message.role === 'user')).toHaveLength(1)
+
+			await useChatStore.getState().finishLastResponse()
+
+			state = useChatStore.getState()
+			expect(toolInvocations).toBe(1)
+			expect(completionRequests).toBe(3)
+			expect(state.error).toBeNull()
+			expect(state.errorRecovery).toBeNull()
+			expect(state.messages.filter((message) => message.role === 'user')).toHaveLength(1)
+			expect(state.messages.at(-1)?.content).toBe('Done — the map changes are already applied.')
+			expect(completionBodies[2]?.tools).toBeUndefined()
+			const finishMessages = completionBodies[2]?.messages as Array<{
+				role?: string
+				content?: string
+			}>
+			expect(finishMessages[0]?.role).toBe('system')
+			expect(finishMessages[0]?.content).toContain('already applied successfully')
+			expect(finishMessages[0]?.content).toContain('Do not call tools')
+		} finally {
+			globalThis.fetch = originalFetch
+			if (originalRequestAnimationFrame) {
+				globalThis.requestAnimationFrame = originalRequestAnimationFrame
+			} else {
+				Reflect.deleteProperty(globalThis, 'requestAnimationFrame')
+			}
+			if (originalCancelAnimationFrame) {
+				globalThis.cancelAnimationFrame = originalCancelAnimationFrame
+			} else {
+				Reflect.deleteProperty(globalThis, 'cancelAnimationFrame')
+			}
+			unregister(toolName)
+			useChatStore.getState().reset()
+		}
+	})
+})
+
 describe('model tool advertisement', () => {
-	test('exposes the complete registered tool surface to vision-capable models', () => {
-		expect(getAdvertisedGeoTools(true)).toEqual(getGeoTools())
+	test('does not advertise interactive editor commands to background chat runs', () => {
+		const advertisedNames = getAdvertisedGeoTools(true).map((tool) => tool.function.name)
+		const expectedNames = getGeoTools()
+			.map((tool) => tool.function.name)
+			.filter((name) => !name.startsWith('editor_'))
+
+		expect(advertisedNames).toEqual(expectedNames)
+		expect(advertisedNames.some((name) => name.startsWith('editor_'))).toBe(false)
+		expect(advertisedNames).toContain('get_editor_state')
 	})
 
 	test('only removes genuinely incompatible vision tools for text-only models', () => {
 		const advertisedNames = getAdvertisedGeoTools(false).map((tool) => tool.function.name)
 		const expectedNames = getGeoTools()
 			.map((tool) => tool.function.name)
-			.filter((name) => name !== 'capture_map_snapshot')
+			.filter((name) => name !== 'capture_map_snapshot' && !name.startsWith('editor_'))
 
 		expect(advertisedNames).toEqual(expectedNames)
 	})

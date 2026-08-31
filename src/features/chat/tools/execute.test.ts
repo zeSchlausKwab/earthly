@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, setSystemTime } from 'bun:test'
 import { registerDatasetDraftEnsurer } from '@/features/geo-editor/authoringTaskBridge'
 import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
 import {
 	resetRunCodeFailureCounterForTests,
 	setSandboxTransportForTests,
 } from '@/features/chat/sandbox/runCode'
 import type { SandboxTransport } from '@/features/chat/sandbox/sandboxHost'
 import { executeToolCall } from './execute'
+import { attachEditorDatasetMetadata } from './editorDatasetMetadata'
 import { prepareMapToolFeaturesForEditor } from './helpers'
 import { type ToolEntry, register, registry, unregister } from './registry'
 import { setSafetyLevelProvider } from '@/features/chat/safeEditing/safetyAccess'
@@ -105,6 +107,7 @@ function pointFeature(id: string, name: string, coordinates: [number, number]) {
 describe('tool-result geometry authoring lifecycle', () => {
 	const productionRouteEntry = registry.get('valhalla_route')
 	const productionIsochroneEntry = registry.get('valhalla_isochrone')
+	const productionCatalogEntry = registry.get('query_geography')
 	const productionWriteEntry = registry.get('write_geojson_to_editor')
 	let unregisterEnsurer: (() => void) | null = null
 
@@ -122,6 +125,7 @@ describe('tool-result geometry authoring lifecycle', () => {
 		useEditorStore.getState().setEditor(null)
 		if (productionRouteEntry) register(productionRouteEntry)
 		if (productionIsochroneEntry) register(productionIsochroneEntry)
+		if (productionCatalogEntry) register(productionCatalogEntry)
 		unregister('delete_bound_target_fixture')
 		unregister('partial_write_then_fail_fixture')
 		unregister('selection_after_feature_delete_fixture')
@@ -1051,6 +1055,200 @@ describe('tool-result geometry authoring lifecycle', () => {
 		expect(authoringTargetReady).toBe(true)
 		expect(editor.getAllFeatures()).toHaveLength(1)
 		expect(JSON.parse(result.content).editorImport.importedCount).toBe(1)
+	})
+
+	it('imports the exact GeoCatalog result once and preserves its stable id and provenance', async () => {
+		const editor = createHeadlessEditor()
+		useEditorStore.getState().setEditor(editor)
+		unregisterEnsurer = registerDatasetDraftEnsurer(() => 'draft:active')
+		let queryCount = 0
+		register({
+			name: 'query_geography',
+			kind: 'remote-mcp',
+			schema: productionCatalogEntry?.schema ?? {
+				type: 'function',
+				function: {
+					name: 'query_geography',
+					description: 'Return fixture catalog geometry.',
+					parameters: { type: 'object', properties: {} },
+				},
+			},
+			handler: () => {
+				queryCount += 1
+				return attachEditorDatasetMetadata(
+					{
+						items: [{ id: 'overture:place:gers-123', name: 'Rasuwa' }],
+						features: [
+							{
+								type: 'Feature',
+								id: 'overture:place:gers-123',
+								properties: {
+									name: 'Rasuwa',
+									catalogId: 'overture:place:gers-123',
+									source: { name: 'Overture Maps', release: '2026-08-19.0' },
+								},
+								geometry: { type: 'Point', coordinates: [85.15, 28.15] },
+							},
+						],
+					},
+					{
+						properties: {
+							'earthly:geoCatalogSourceManifest:fixture': JSON.stringify({
+								schemaVersion: 1,
+								snapshotId: 'fixture',
+								sources: [{ name: 'Overture Maps', release: '2026-08-19.0' }],
+							}),
+						},
+					},
+				)
+			},
+		})
+
+		const result = await executeToolCall({
+			id: 'catalog-call',
+			type: 'function',
+			function: {
+				name: 'query_geography',
+				arguments: JSON.stringify({ text: 'Rasuwa', toEditor: true }),
+			},
+		})
+		const parsed = JSON.parse(result.content)
+		const [imported] = editor.getAllFeatures()
+
+		expect(queryCount).toBe(1)
+		expect(imported?.id).toBe('overture:place:gers-123')
+		expect(imported?.properties?.source).toEqual({
+			name: 'Overture Maps',
+			release: '2026-08-19.0',
+		})
+		expect(parsed.features).toBeUndefined()
+		expect(parsed.items).toEqual([{ id: 'overture:place:gers-123', name: 'Rasuwa' }])
+		expect(parsed.editorImport.importedCount).toBe(1)
+		const persistedManifest = JSON.parse(
+			String(
+				useEditorStore.getState().collectionMeta.customProperties[
+					'earthly:geoCatalogSourceManifest:fixture'
+				],
+			),
+		) as { snapshotId?: string }
+		expect(persistedManifest.snapshotId).toBe('fixture')
+	})
+
+	it('treats a deferred GeoCatalog selection or no-match as a successful non-mutation', async () => {
+		const existing = pointFeature('keep-me', 'Existing', [1, 2])
+		const editor = createHeadlessEditor()
+		editor.setFeatures([existing])
+		useEditorStore.getState().setEditor(editor)
+		let authoringTargetEnsured = false
+		unregisterEnsurer = registerDatasetDraftEnsurer(() => {
+			authoringTargetEnsured = true
+			return 'draft:active'
+		})
+		register({
+			name: 'query_geography',
+			kind: 'remote-mcp',
+			schema: productionCatalogEntry?.schema ?? {
+				type: 'function',
+				function: {
+					name: 'query_geography',
+					description: 'Return a fixture no-match.',
+					parameters: { type: 'object', properties: {} },
+				},
+			},
+			handler: () => ({
+				items: [],
+				metadata: {
+					coverage: { zeroResultReason: 'no_match_within_snapshot' },
+				},
+				editorImport: {
+					available: false,
+					selectionRequired: false,
+					noMatch: true,
+				},
+			}),
+		})
+
+		const result = await executeToolCall({
+			id: 'catalog-no-match',
+			type: 'function',
+			function: {
+				name: 'query_geography',
+				arguments: JSON.stringify({
+					text: 'Missing River',
+					toEditor: true,
+					replaceExisting: true,
+				}),
+			},
+		})
+		const parsed = JSON.parse(result.content)
+
+		expect(parsed.code).toBeUndefined()
+		expect(parsed.toEditor).toBe(true)
+		expect(parsed.editorImport).toMatchObject({ available: false, noMatch: true })
+		expect(authoringTargetEnsured).toBe(false)
+		expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(['keep-me'])
+	})
+
+	it('does not replace editor contents when a catalog response has missing geometry', async () => {
+		if (!productionCatalogEntry) throw new Error('Expected the production catalog tool')
+		const existing = pointFeature('keep-me', 'Existing', [1, 2])
+		const editor = createHeadlessEditor()
+		editor.setFeatures([existing])
+		useEditorStore.getState().setEditor(editor)
+		unregisterEnsurer = registerDatasetDraftEnsurer(() => 'draft:active')
+		register(productionCatalogEntry)
+		const originalCall = EarthlyGeoServerClient.prototype.callRemoteTool
+		EarthlyGeoServerClient.prototype.callRemoteTool = async <T = unknown>() =>
+			({
+				result: {
+					items: [
+						{
+							id: 'overture:place:complete',
+							kind: 'place',
+							name: 'Complete',
+							properties: {},
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+							geometry: { type: 'Point', coordinates: [85, 28] },
+						},
+						{
+							id: 'overture:place:missing',
+							kind: 'place',
+							name: 'Missing',
+							properties: {},
+							source: { name: 'Overture Maps', release: '2026-08-19.0' },
+						},
+					],
+					metadata: {
+						snapshot: {
+							id: 'fixture',
+							createdAt: '2026-08-28T00:00:00Z',
+							schemaVersion: 1,
+							sources: [{ name: 'Overture Maps', release: '2026-08-19.0', license: 'ODbL-1.0' }],
+						},
+						query: { returned: 2, limit: 20, hasMore: false },
+					},
+				},
+			}) as T
+
+		try {
+			const result = await executeToolCall({
+				id: 'catalog-partial-call',
+				type: 'function',
+				function: {
+					name: 'query_geography',
+					arguments: JSON.stringify({
+						ids: ['overture:place:complete', 'overture:place:missing'],
+						toEditor: true,
+						replaceExisting: true,
+					}),
+				},
+			})
+
+			expect(JSON.parse(result.content).code).toBe('tool_handler_error')
+			expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(['keep-me'])
+		} finally {
+			EarthlyGeoServerClient.prototype.callRemoteTool = originalCall
+		}
 	})
 
 	it('imports isochrones as quiet cool-blue background overlays', async () => {

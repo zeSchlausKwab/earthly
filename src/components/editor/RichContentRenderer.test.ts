@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import type { GeoFeatureItem } from './GeoRichTextEditor'
-import { parseInlineTokens } from './RichContentRenderer'
+import { parseInlineTokens, RichContentRenderer } from './RichContentRenderer'
 
 const NADDR = 'naddr1qqxnzd3exgmrsvfkxymnyd3jqgsxyz9'
 const OTHER_NADDR = 'naddr1zzz8kwvfexgmrsvfkxymnyd3jqgsabc2'
@@ -189,5 +191,26 @@ describe('parseInlineTokens nostr:naddr references', () => {
 		expect(spatialMentions).toHaveLength(2)
 		expect(spatialMentions[0]?.address).toBe('geo:52.516275,13.377704')
 		expect(spatialMentions[1]?.displayName).toBe('OSM relation 62422')
+	})
+})
+
+describe('RichContentRenderer tables', () => {
+	test('renders a GFM table with inline formatting and geo references', () => {
+		const html = renderToStaticMarkup(
+			createElement(RichContentRenderer, {
+				content: [
+					'| Time | Event | Mapped location |',
+					'| :--- | :--- | ---: |',
+					`| 08:37 | **Collapse** | nostr:${NADDR}#feat-12 |`,
+				].join('\n'),
+				availableFeatures,
+			}),
+		)
+
+		expect(html).toContain('<table')
+		expect(html).toContain('<th scope="col"')
+		expect(html).toContain('<strong')
+		expect(html).toContain('Lane Three')
+		expect(html).not.toContain(':---')
 	})
 })

@@ -190,7 +190,7 @@ export function ChatSettingsSection() {
 	}, [hasToolCallingMetadata, toolCallingOnly])
 
 	return (
-		<div className="space-y-4">
+		<div className="w-full min-w-0 max-w-full space-y-4">
 			<div className="space-y-1">
 				<div className="flex items-center gap-2">
 					<Bot className="h-4 w-4 text-muted-foreground" />
@@ -208,9 +208,10 @@ export function ChatSettingsSection() {
 				    user out of their own settings with no visual cue (Radix disabled
 				    selects look normal but swallow clicks). Switching provider cancels
 				    any in-flight response instead — same recovery contract as New conversation. */}
-				<div className="flex items-center gap-2">
+				<div className="flex min-w-0 flex-wrap items-center gap-2">
 					<NativeSelect
 						id="chat-provider-select"
+						className="min-w-0 max-w-full flex-1"
 						value={provider}
 						onChange={(event) => {
 							const value = event.target.value
@@ -226,13 +227,15 @@ export function ChatSettingsSection() {
 					</NativeSelect>
 					{provider === 'routstr' ? <DangerIndicator /> : null}
 					{selectedProviderOption ? null : (
-						<span className="text-xs text-muted-foreground">Select provider</span>
+						<span className="min-w-0 break-words text-xs text-muted-foreground">
+							Select provider
+						</span>
 					)}
 				</div>
 			</div>
 
 			{provider === 'lmstudio' && (
-				<div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+				<div className="min-w-0 max-w-full space-y-3 rounded-lg border bg-muted/20 p-3">
 					<div className="space-y-2">
 						<Label>LM Studio endpoint</Label>
 						<Input
@@ -258,7 +261,7 @@ export function ChatSettingsSection() {
 			)}
 
 			{provider === 'ollama' && (
-				<div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+				<div className="min-w-0 max-w-full space-y-3 rounded-lg border bg-muted/20 p-3">
 					<div className="space-y-2">
 						<Label>Ollama endpoint</Label>
 						<Input
@@ -284,7 +287,7 @@ export function ChatSettingsSection() {
 			)}
 
 			{provider === 'custom' && (
-				<div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+				<div className="min-w-0 max-w-full space-y-3 rounded-lg border bg-muted/20 p-3">
 					<div className="space-y-2">
 						<Label>Endpoint</Label>
 						<Input
@@ -308,7 +311,7 @@ export function ChatSettingsSection() {
 						variant="outline"
 						onClick={() => void loadModels()}
 						disabled={!providerOverrides.custom.baseUrl || modelsLoading}
-						className="w-full"
+						className="w-full min-w-0 max-w-full whitespace-normal"
 					>
 						{modelsLoading ? 'Connecting...' : 'Connect custom endpoint'}
 					</Button>
@@ -325,7 +328,7 @@ export function ChatSettingsSection() {
 							role="combobox"
 							aria-expanded={modelPickerOpen}
 							disabled={modelsLoading || isStreaming}
-							className="h-auto w-full items-center justify-between px-3 py-2 text-left font-normal"
+							className="h-auto w-full min-w-0 max-w-full items-center justify-between overflow-hidden px-3 py-2 text-left font-normal"
 						>
 							<span className="min-w-0 flex-1">
 								{selectedModelData ? (
@@ -348,7 +351,10 @@ export function ChatSettingsSection() {
 							<ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
 						</Button>
 					</PopoverTrigger>
-					<PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+					<PopoverContent
+						className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+						align="start"
+					>
 						<div className="border-b p-2">
 							<div className="space-y-2">
 								<div className="relative">
@@ -360,7 +366,7 @@ export function ChatSettingsSection() {
 										className="pl-8"
 									/>
 								</div>
-								<div className="flex flex-wrap items-center gap-2">
+								<div className="flex min-w-0 flex-wrap items-center gap-2">
 									<div className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground">
 										<SlidersHorizontal className="h-3.5 w-3.5" />
 										<span>Sort</span>
@@ -369,7 +375,7 @@ export function ChatSettingsSection() {
 										value={modelSortMode}
 										onValueChange={(value) => setModelSortMode(value as ModelSortMode)}
 									>
-										<SelectTrigger size="sm" className="h-8 min-w-[11rem]">
+										<SelectTrigger size="sm" className="h-8 min-w-0 flex-1">
 											<span className="truncate text-xs">
 												{modelSortMode === 'relevance'
 													? 'Default order'
@@ -401,7 +407,7 @@ export function ChatSettingsSection() {
 								</div>
 							</div>
 						</div>
-						<div className="max-h-80 overflow-y-auto p-1">
+						<div className="max-h-80 overflow-x-hidden overflow-y-auto p-1 [scrollbar-gutter:stable]">
 							{filteredModels.length > 0 ? (
 								filteredModels.map((model) => {
 									const isSelected = model.id === selectedModel
@@ -415,7 +421,7 @@ export function ChatSettingsSection() {
 												setModelQuery('')
 											}}
 											className={cn(
-												'flex w-full items-start justify-between gap-3 rounded-sm px-2 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+												'flex w-full min-w-0 max-w-full items-start justify-between gap-3 rounded-sm px-2 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
 												isSelected && 'bg-accent/60',
 											)}
 										>
@@ -443,13 +449,13 @@ export function ChatSettingsSection() {
 				{modelsError ? <p className="text-xs text-destructive">{modelsError}</p> : null}
 			</div>
 
-			<div className="rounded-lg border bg-card p-3">
+			<div className="min-w-0 max-w-full rounded-lg border bg-card p-3">
 				<Button
 					type="button"
 					variant="ghost"
 					onClick={() => setToolsEnabled(!toolsEnabled)}
 					className={cn(
-						'flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors h-auto',
+						'flex h-auto w-full min-w-0 max-w-full items-center justify-between gap-3 overflow-hidden whitespace-normal rounded-md border px-3 py-2 text-left transition-colors',
 						toolsEnabled
 							? 'border-orange-300 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200'
 							: 'border-border bg-muted/40 text-muted-foreground',
@@ -463,7 +469,7 @@ export function ChatSettingsSection() {
 							<Server className="h-4 w-4 shrink-0" />
 							<span>Geo and web tools</span>
 						</div>
-						<p className="text-xs opacity-80 break-words">
+						<p className="break-words whitespace-normal text-left text-xs opacity-80">
 							Allow the model to call map, editor, and search tools during a chat.
 						</p>
 					</div>
@@ -475,16 +481,17 @@ export function ChatSettingsSection() {
 				</Button>
 			</div>
 
-			<div className="space-y-2 rounded-lg border bg-card p-3">
+			<div className="min-w-0 max-w-full space-y-2 rounded-lg border bg-card p-3">
 				<div>
 					<Label htmlFor="chat-prompt-profile">System prompt profile</Label>
-					<p className="mt-1 text-xs text-muted-foreground">
+					<p className="mt-1 break-words text-xs text-muted-foreground">
 						Guided keeps the full quality-oriented spatial playbook. Compact is an experimental
 						profile for comparing how much the model can infer from tool descriptions alone.
 					</p>
 				</div>
 				<NativeSelect
 					id="chat-prompt-profile"
+					className="w-full min-w-0 max-w-full"
 					value={promptProfile}
 					onChange={(event) =>
 						setPromptProfile(event.target.value === 'legacy' ? 'legacy' : 'compact')
@@ -497,14 +504,14 @@ export function ChatSettingsSection() {
 			</div>
 
 			{settingsStatus === 'loading' ? (
-				<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+				<div className="min-w-0 max-w-full rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
 					<div className="flex items-start gap-2">
 						<Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
 						<p>Loading your saved settings…</p>
 					</div>
 				</div>
 			) : settingsStatus === 'failed' ? (
-				<div className="rounded-lg border border-destructive/50 bg-destructive/5 p-3 text-xs">
+				<div className="min-w-0 max-w-full rounded-lg border border-destructive/50 bg-destructive/5 p-3 text-xs">
 					<div className="flex items-start gap-2">
 						<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
 						<div className="min-w-0 flex-1">
@@ -525,14 +532,14 @@ export function ChatSettingsSection() {
 					</div>
 				</div>
 			) : settingsStatus === 'no-signer' || !currentUser ? (
-				<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+				<div className="min-w-0 max-w-full rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
 					<div className="flex items-start gap-2">
 						<KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 						<p>Sign in with a Nostr account to persist chat settings in encrypted local storage.</p>
 					</div>
 				</div>
 			) : (
-				<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+				<div className="min-w-0 max-w-full rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
 					<div className="flex items-start gap-2">
 						<Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 						<p>
@@ -543,13 +550,13 @@ export function ChatSettingsSection() {
 				</div>
 			)}
 
-			<div className="space-y-3 rounded-lg border bg-card p-3">
+			<div className="min-w-0 max-w-full space-y-3 rounded-lg border bg-card p-3">
 				<div className="space-y-1">
 					<div className="flex items-center gap-2">
 						<Download className="h-4 w-4 text-muted-foreground" />
 						<Label className="text-sm font-medium">Backup &amp; restore</Label>
 					</div>
-					<p className="text-xs text-muted-foreground">
+					<p className="break-words text-xs text-muted-foreground">
 						Export your settings as plaintext JSON to recover them if your signer changes and the
 						encrypted copy can no longer be decrypted. Import re-encrypts to the current account.
 					</p>
@@ -585,7 +592,7 @@ export function ChatSettingsSection() {
 						onChange={(event) => setImportText(event.target.value)}
 						placeholder='{ "provider": "lmstudio", ... }'
 						rows={4}
-						className="font-mono text-xs"
+						className="min-w-0 max-w-full font-mono text-xs"
 					/>
 					<Button
 						type="button"

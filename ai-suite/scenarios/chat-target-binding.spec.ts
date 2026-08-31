@@ -13,9 +13,93 @@ import {
 	waitForAiChatCompletion,
 } from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
+import { clickEditorMap, expectGeometryFeatureCount } from '../tasks/create/geometry'
 import { editorLifecycleSnapshot } from '../tasks/editor/lifecycle'
 import { installDeterministicChatProvider } from '../tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyle } from '../tasks/setup/deterministic-map-style'
+
+function materializedDraftFeatureCount(earthly: Parameters<typeof editorLifecycleSnapshot>[0]) {
+	return earthly.page.evaluate(() => {
+		const map = (
+			window as unknown as {
+				__earthlyUiMap?: { querySourceFeatures(id: string): unknown[] }
+			}
+		).__earthlyUiMap
+		if (!map) return -1
+		try {
+			return map.querySourceFeatures('geo-editor').length
+		} catch {
+			return -1
+		}
+	})
+}
+
+test('editing target always restores a visible Map Stack draft @regression', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'The target pill is exercised on desktop')
+
+	const provider = await installDeterministicChatProvider(earthly, 'target-binding')
+	await authorizeJourneyIdentity(earthly, 'owner')
+	await configureChatProvider(earthly, provider.settings)
+	await earthly.open({ tour: 'preserve' })
+	await installDeterministicMapStyle(earthly)
+
+	const datasetName = 'Dataset edit that must stay on the map'
+	const dataset = await startDataset(earthly)
+	await dataset.nameInput.fill(datasetName)
+	await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().click()
+	await clickEditorMap(earthly, 0.62, 0.43)
+	await expectGeometryFeatureCount(earthly, 1)
+	await expect.poll(() => materializedDraftFeatureCount(earthly)).toBeGreaterThan(0)
+
+	await openAiChat(earthly)
+	await selectAiChatTarget(earthly, 'current-dataset')
+	const bound = await editorLifecycleSnapshot(earthly)
+	expect(bound.activeWorkspaceId).not.toBeNull()
+	expect(bound.activeDraftId).not.toBeNull()
+
+	// Leave the retained target dormant, then reproduce a missing presentation.
+	// The same-target Open action must reactivate it and restore map visibility.
+	await earthly.page.evaluate(() => {
+		const store = (
+			window as typeof window & {
+				__earthlyEditorStore?: {
+					getState(): { removeMapStackEntry(id: string): void }
+					setState(state: { viewMode: 'view'; stance: 'focus' }): void
+				}
+			}
+		).__earthlyEditorStore
+		if (!store) throw new Error('Earthly editor debug store is unavailable')
+		store.setState({ viewMode: 'view', stance: 'focus' })
+		store.getState().removeMapStackEntry('draft:active')
+	})
+	await expect
+		.poll(async () =>
+			(await editorLifecycleSnapshot(earthly)).mapStack.some(
+				(entry) => entry.id === 'draft:active',
+			),
+		)
+		.toBe(false)
+	await expect.poll(() => materializedDraftFeatureCount(earthly)).toBe(0)
+	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(bound.activeWorkspaceId)
+
+	await earthly.page
+		.getByRole('region', { name: 'AI chat', exact: true })
+		.getByRole('button', { name: `Open ${datasetName} in geometry editor` })
+		.click()
+
+	await expect
+		.poll(
+			async () =>
+				(await editorLifecycleSnapshot(earthly)).mapStack.find(
+					(entry) => entry.id === 'draft:active',
+				)?.visible ?? false,
+		)
+		.toBe(true)
+	await expect.poll(() => materializedDraftFeatureCount(earthly)).toBeGreaterThan(0)
+	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(bound.activeWorkspaceId)
+})
 
 test('each Chat requires and retains its own explicit Dataset target @regression', async ({
 	earthly,

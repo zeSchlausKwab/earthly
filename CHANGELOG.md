@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.7] - 2026-08-31
+
+- Added GeoCatalog, Earthly's fast self-hosted geography service built from immutable, pinned
+  Overture snapshots, with administrative boundaries, settlements, selected places, water,
+  infrastructure, assembled corridors, and complete source and license provenance.
+- Made AI map research prefer stable local GeoCatalog data before remote OpenStreetMap queries,
+  with lighter discovery responses, explicit resolution of ambiguous places, and clear fallbacks
+  for details genuinely absent from the installed catalog.
+- Improved AI authoring reliability by preserving already-applied edits when later steps fail,
+  keeping Dataset identity and metadata stable through publication, and making callout creation
+  observable and idempotent instead of duplicating existing annotations.
+- Made active Dataset edits authoritative in the Map Stack and always visible on the map, exposed
+  Dataset deletion while browsing and editing, and contained scrolling, controls, and Chat settings
+  cleanly within narrower sidebars.
+- Fixed Story navigation so shared Story links and browse actions reveal referenced maps in the Map
+  Stack, make them visible, and fit the map to their geography; AI article requests now pause for an
+  explicit Story target and resume the same response after confirmation.
+- Improved map-backed articles and inspection with responsive Markdown tables, compact GeoCatalog
+  provenance summaries, and metadata-preserving exports instead of rendering large raw manifests.
+- Made GeoCatalog deployment resilient with filtered and compressed planet builds, resumable
+  verified checkpoints, disk-reserve protection, remote progress reporting, production query
+  preflight, atomic activation and rollback, and independent recovery without rebuilding completed
+  snapshots or interrupting the rest of Earthly.
+
 ## [0.1.6] - 2026-08-26
 
 - Reworked Chat around explicit, persistent Dataset edit targets: conversations, edit surfaces, and
