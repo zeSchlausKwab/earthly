@@ -154,10 +154,9 @@ export type MapStackEntrySource =
 	 * addedBeaconCacheRef, discovery untouched — T-13-06-01 privacy invariant) but
 	 * is non-toasting and non-isolating (the user didn't click anything). */
 	| 'own'
-	/** Phase 10: a dataset referenced by a Story opened from a shared route,
-	 * auto-stacked (visible) on landing so the article's geometry shows on the map.
-	 * The inline ref eye-toggles read membership of these entries as their single
-	 * source of truth. Ordinary in-app Story inspection stays Map-Stack neutral. */
+	/** Phase 10: a dataset referenced by an opened Story, auto-stacked (visible)
+	 * so the article's geometry shows on the map. The inline ref eye-toggles read
+	 * membership of these entries as their single source of truth. */
 	| 'story'
 	/** Query-by-view: found by the viewport relay geo query (Map Stack header
 	 * toggle, useGeoQueryByView). These entries live in the panel's "Geo query"

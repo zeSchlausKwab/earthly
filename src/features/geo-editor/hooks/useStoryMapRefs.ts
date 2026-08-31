@@ -12,7 +12,7 @@ import { useEditorStore, type MapStackEntryVia } from '../store'
 import { datasetReferenceEntryId } from '../referenceMapStack'
 
 /**
- * Resolve a Story's inline geo-references without changing the user's map.
+ * Resolve a Story's inline geo-references for map presentation and inline actions.
  * When a Story is open this hook:
  *
  *  1. **Fetches on demand** — pulls the referenced kind-37515 datasets into the
@@ -112,8 +112,8 @@ export function useStoryMapRefs(story: Article | null) {
 	}, [refs])
 	useTimelineWithEose(fetchFilters)
 
-	// Inspection is read-only: referenced geometry enters/leaves the Map Stack only
-	// through the Story panel's explicit eye / "Show on map" actions.
+	// Fetching alone never changes membership. Story activation and the inline
+	// eye / "Show on map" actions are the explicit Map Stack entry points.
 
 	// (2) Single source of truth for an inline ref's eye state: is the resolved
 	// dataset present and visible in the map stack?

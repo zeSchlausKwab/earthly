@@ -63,9 +63,9 @@ Selecting an edit-state button changes which retained authoring surface is visib
 
 ## Inspector
 
-The **Inspector** is the single read-only sidebar surface for the most recently inspected published Dataset, Story, Context, Sighting, or Beacon. Inspecting a subject may replace the Inspector's subject, but has no other side effects. Local drafts remain in their retained edit state; viewing one must not masquerade as inspection of a published revision.
+The **Inspector** is the single read-only sidebar surface for the most recently inspected published Dataset, Story, Context, Sighting, or Beacon. Inspecting a subject may replace the Inspector's subject, but has no authoring side effects. Local drafts remain in their retained edit state; viewing one must not masquerade as inspection of a published revision.
 
-In particular, inspection does not add or remove Map Stack entries, change browse scope, create or retarget a local draft, activate an edit state, alter Chat references, or influence an AI run. Showing something on the map, adding it to Chat, and editing or forking it are separate explicit actions.
+In particular, inspection does not change browse scope, create or retarget a local draft, activate an edit state, alter Chat references, or influence an AI run. Opening a Story—from its Browse row or a shared URL—is also an explicit presentation action: Earthly reveals its referenced Datasets on the Map Stack and frames their geometry while showing the read-only Story in the Inspector. Adding something to Chat and editing or forking it remain separate explicit actions.
 
 ## AI run
 

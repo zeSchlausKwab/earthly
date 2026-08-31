@@ -2153,13 +2153,8 @@ export function GeoEditorView() {
 	// A Dataset inspect writes a shareable focus URL, but that in-app URL update
 	// must not be mistaken for a fresh shared-link landing by the route hydrator.
 	const inAppDatasetInspectRouteRef = useRef<string | null>(null)
-	// A Story click also writes its canonical URL. Remember that navigation so the
-	// route hydrator can keep ordinary inspection Map-Stack/camera neutral while a
-	// genuine shared-link landing reveals and frames the Story's referenced maps.
-	const inAppStoryInspectRouteRef = useRef<string | null>(null)
 	const storyRoutePresentationRef = useRef<{
 		routeKey: string
-		origin: 'in-app' | 'shared'
 		storyId: string
 		refSignature: string
 		admittedEntryIds: string[]
@@ -2185,7 +2180,6 @@ export function GeoEditorView() {
 					route.focusType !== 'none' && route.naddr ? `${route.focusType}:${route.naddr}` : null
 				inAppDatasetInspectRouteRef.current = currentRouteKey === nextRouteKey ? null : nextRouteKey
 			} else if (focusType === 'story') {
-				const nextRouteKey = `${focusType}:${naddr}`
 				if (
 					route.focusType === 'story' &&
 					route.naddr &&
@@ -2193,13 +2187,9 @@ export function GeoEditorView() {
 				) {
 					// Shared addresses may carry relay hints that disappear when Earthly
 					// re-encodes them. They are still the same route; do not rewrite the URL
-					// or misclassify hydration as a second in-app Story navigation.
-					inAppStoryInspectRouteRef.current = null
+					// while the routed Story is refreshed in the Inspector.
 					return
 				}
-				const currentRouteKey =
-					route.focusType !== 'none' && route.naddr ? `${route.focusType}:${route.naddr}` : null
-				markInAppInspectRoute(inAppStoryInspectRouteRef, currentRouteKey, nextRouteKey)
 			}
 			navigateTo(focusType, naddr, sidebarView)
 		},
@@ -3938,7 +3928,6 @@ export function GeoEditorView() {
 		if (!routeKey) {
 			focusHandledRef.current = null
 			inAppDatasetInspectRouteRef.current = null
-			inAppStoryInspectRouteRef.current = null
 			storyRoutePresentationRef.current = null
 			inAppEphemeralInspectRouteRef.current = null
 			return
@@ -3948,9 +3937,6 @@ export function GeoEditorView() {
 			storyRoutePresentationRef.current.routeKey !== routeKey
 		) {
 			storyRoutePresentationRef.current = null
-		}
-		if (inAppStoryInspectRouteRef.current && inAppStoryInspectRouteRef.current !== routeKey) {
-			inAppStoryInspectRouteRef.current = null
 		}
 		if (
 			inAppEphemeralInspectRouteRef.current &&
@@ -4057,9 +4043,6 @@ export function GeoEditorView() {
 				if (!presentation || presentation.routeKey !== routeKey) {
 					presentation = {
 						routeKey,
-						origin: consumeInAppInspectRoute(inAppStoryInspectRouteRef, routeKey)
-							? 'in-app'
-							: 'shared',
 						storyId: story.id,
 						refSignature,
 						admittedEntryIds: [],
@@ -4069,21 +4052,9 @@ export function GeoEditorView() {
 					storyRoutePresentationRef.current = presentation
 				}
 
-				if (presentation.origin === 'in-app') {
-					// The click handler already selected this Story. Preserve the URL
-					// without turning inspection into an implicit map mutation. A newer
-					// replaceable event may still refresh the Inspector in place.
-					if (presentation.storyId !== story.id) handleInspectStory(story)
-					focusHandledRef.current = handledKey
-					presentation.storyId = story.id
-					presentation.refSignature = refSignature
-					presentation.admitted = true
-					presentation.fitted = true
-					return
-				}
-
-				// Shared landing: open the Story once, but keep revisiting this branch
-				// until its targeted Dataset subscription has supplied fit geometry.
+				// Reconcile the Inspector from the routed event, then keep revisiting this
+				// branch until its targeted Dataset subscription has supplied fit geometry.
+				// This intentionally uses the same path for shared URLs and in-app opens.
 				if (focusHandledRef.current !== handledKey) {
 					handleInspectStory(story)
 					focusHandledRef.current = handledKey
