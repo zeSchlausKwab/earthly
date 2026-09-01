@@ -72,6 +72,30 @@ describe('fetchModels', () => {
 		expect(model?.inputModalities).toEqual(['text', 'image'])
 		expect(model?.outputModalities).toEqual(['text'])
 	})
+
+	test.each([
+		{ capabilities: ['completion', 'tools'] },
+		{ capabilities: ['text', 'completion', 'tools'] },
+	])('does not mistake generic capabilities for text-only modality metadata', async ({
+		capabilities,
+	}) => {
+		globalThis.fetch = (async () =>
+			new Response(
+				JSON.stringify({
+					data: [{ id: 'kimi-k3', capabilities }],
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } },
+			)) as unknown as typeof fetch
+
+		const [model] = await fetchModels({
+			type: 'custom',
+			baseUrl: 'https://api.moonshot.ai/v1',
+			name: 'Moonshot',
+			requiresPayment: false,
+		})
+
+		expect(model?.inputModalities).toBeUndefined()
+	})
 })
 
 const provider = {

@@ -199,9 +199,11 @@ function getApiModelInputModalities(model: ApiModel): string[] | undefined {
 	const declared = model.input_modalities ?? model.architecture?.input_modalities
 	if (Array.isArray(declared)) return declared
 	if (!Array.isArray(model.capabilities)) return undefined
-	return model.capabilities.some((value) => /image|vision/i.test(value))
-		? ['text', 'image']
-		: ['text']
+	if (model.capabilities.some((value) => /image|vision/i.test(value))) return ['text', 'image']
+	// `capabilities` is not standardized. Values such as `text`, `completion`,
+	// and `tools` can enumerate supported features without excluding images; only
+	// an explicit text-only declaration is authoritative here.
+	return model.capabilities.some((value) => /^text-only$/i.test(value)) ? ['text'] : undefined
 }
 
 function getApiModelOutputModalities(model: ApiModel): string[] | undefined {
