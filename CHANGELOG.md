@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.8] - 2026-09-01
+
+- Added image uploads and clipboard pasting for vision-capable models, including official Kimi K3
+  recognition, with a more compact attachment rail in the Chat composer.
+- Added intentional AI map review: the model can fit the map to the current Dataset or selection,
+  capture a stable visual preview, and evaluate its work without disturbing the author's camera.
+- Added an encrypted per-account “AI map screenshots” preference in expanded model settings, so
+  authors can disable token-hungry autonomous captures without disabling their own image uploads.
+- Made visual feedback safer across account changes and live edits, with immediate revocation,
+  bounded review guidance, map-readiness checks, antimeridian-aware framing, and rejection of stale
+  or transient editor previews.
+- Included Earthly and client identity in NIP-46 connection names so remote signers can distinguish
+  concurrent connections from different platforms and clients.
+
 ## [0.1.7] - 2026-08-31
 
 - Added GeoCatalog, Earthly's fast self-hosted geography service built from immutable, pinned
