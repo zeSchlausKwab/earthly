@@ -22,7 +22,7 @@
  * `(type, baseUrl, modelId)` so detection costs at most one network call per
  * model per session (T-03-12).
  */
-import type { ProviderConfig } from '../routstr'
+import type { ProviderConfig, RoutstrModel } from '../routstr'
 
 export type VisionSupport = 'vision' | 'no-vision' | 'uncertain'
 
@@ -64,8 +64,8 @@ function hintMatchesTokenBoundary(id: string, hint: string): boolean {
 		const after = afterIdx >= id.length ? '' : id[afterIdx]
 		const isTokenChar = (c: string) => c !== '' && /[a-z0-9.]/.test(c)
 		// The hint's own leading/trailing `-` already enforces that side's boundary.
-		const leftOk = hint.startsWith('-') || !isTokenChar(before)
-		const rightOk = hint.endsWith('-') || !isTokenChar(after)
+		const leftOk = hint.startsWith('-') || !isTokenChar(before ?? '')
+		const rightOk = hint.endsWith('-') || !isTokenChar(after ?? '')
 		if (leftOk && rightOk) return true
 		from = idx + 1
 	}
@@ -88,6 +88,20 @@ export function clearVisionCache(): void {
 
 function cacheKey(provider: ProviderConfig, modelId: string): string {
 	return `${provider.type}|${provider.baseUrl}|${modelId}`
+}
+
+/** Resolve the modality metadata already returned by the authenticated model list. */
+function modelMetadataVerdict(
+	model: Pick<RoutstrModel, 'inputModalities'> | undefined,
+): VisionSupport | undefined {
+	if (!Array.isArray(model?.inputModalities)) return undefined
+	return model.inputModalities.some(
+		(modality) =>
+			typeof modality === 'string' &&
+			(modality.toLowerCase().includes('image') || modality.toLowerCase().includes('vision')),
+	)
+		? 'vision'
+		: 'no-vision'
 }
 
 /** Does any of the capability-bearing fields list an image input modality? */
@@ -175,8 +189,17 @@ async function detectOpenAiCompatible(
 export async function detectVisionSupport(
 	provider: ProviderConfig,
 	modelId: string,
+	model?: Pick<RoutstrModel, 'inputModalities'>,
 ): Promise<VisionSupport> {
 	const key = cacheKey(provider, modelId)
+	// Prefer the result of the model-list request Earthly already made. Besides
+	// avoiding a duplicate probe, this preserves capability metadata from custom
+	// endpoints whose authenticated `/models` cannot be queried anonymously.
+	const metadataVerdict = modelMetadataVerdict(model)
+	if (metadataVerdict !== undefined) {
+		visionCache.set(key, metadataVerdict)
+		return metadataVerdict
+	}
 	const cached = visionCache.get(key)
 	if (cached !== undefined) return cached
 

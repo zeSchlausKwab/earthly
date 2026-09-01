@@ -99,6 +99,20 @@ describe('detectVisionSupport — Ollama /api/show (tier 1)', () => {
 })
 
 describe('detectVisionSupport — other providers /v1/models (tier 2)', () => {
+	test('reuses already-loaded model modalities without another network request', async () => {
+		const fetchMock = mock(async () => {
+			throw new Error('should not fetch')
+		})
+		globalThis.fetch = fetchMock as unknown as typeof fetch
+
+		const result = await detectVisionSupport(routstr(), 'private-vlm', {
+			inputModalities: ['text', 'image'],
+		})
+
+		expect(result).toBe<VisionSupport>('vision')
+		expect(fetchMock).not.toHaveBeenCalled()
+	})
+
 	test('capabilities array lists image → vision', async () => {
 		const { fn, calls } = jsonFetch({
 			data: [{ id: 'gpt-4o', capabilities: ['text', 'image'] }],

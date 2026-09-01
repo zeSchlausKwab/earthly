@@ -101,6 +101,21 @@ export interface ConversationDumpTargetIdentity {
 	workspaceId: string | null
 }
 
+/** Keep diagnostic exports useful without embedding megabytes of private pixels. */
+function sanitizeContentForConversationDump(
+	content: ChatMessage['content'],
+): ChatMessage['content'] {
+	if (!Array.isArray(content)) return content
+	return content.map((part) => {
+		if (part.type !== 'image_url' || !part.image_url.url.startsWith('data:')) return part
+		const mimeType = /^data:([^;,]+)/.exec(part.image_url.url)?.[1] ?? 'image'
+		return {
+			type: 'text' as const,
+			text: `[inline ${mimeType} omitted from conversation export]`,
+		}
+	})
+}
+
 export type ConversationDumpCurrentTargetStatus =
 	| 'no_active_chat'
 	| 'unbound'
@@ -292,7 +307,7 @@ export function buildConversationDump(input: ConversationDumpInput): Conversatio
 		messages: input.messages.map((message, index) => ({
 			index,
 			role: message.role,
-			content: message.content,
+			content: sanitizeContentForConversationDump(message.content),
 			reasoning_content:
 				typeof message.reasoning_content === 'string' ? message.reasoning_content : null,
 			tool_calls: message.tool_calls ?? null,

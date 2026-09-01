@@ -250,6 +250,27 @@ describe('buildConversationDump', () => {
 		expect(JSON.stringify(dump)).not.toContain(SECRET)
 	})
 
+	test('omits inline image bytes while retaining an attachment breadcrumb', () => {
+		const dataUrl = 'data:image/png;base64,PRIVATE-PIXELS'
+		const dump = buildConversationDump(
+			baseInput({
+				messages: [
+					{
+						role: 'user',
+						content: [
+							{ type: 'text', text: 'Review this map' },
+							{ type: 'image_url', image_url: { url: dataUrl } },
+						],
+					},
+				],
+			}),
+		)
+		const json = serializeConversationDump(dump)
+
+		expect(json).not.toContain('PRIVATE-PIXELS')
+		expect(json).toContain('[inline image/png omitted from conversation export]')
+	})
+
 	test('falls back to modelId when the model is not in the list', () => {
 		const dump = buildConversationDump(baseInput({ models: [] }))
 		expect(dump.endpoint.modelLabel).toBe('local-model-1')

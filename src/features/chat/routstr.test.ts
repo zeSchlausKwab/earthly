@@ -33,7 +33,7 @@ describe('fetchModels', () => {
 					],
 				}),
 				{ status: 200, headers: { 'content-type': 'application/json' } },
-			)) as typeof fetch
+			)) as unknown as typeof fetch
 
 		const [model] = await fetchModels({
 			type: 'routstr',
@@ -43,6 +43,32 @@ describe('fetchModels', () => {
 		})
 
 		expect(model?.maxCompletionTokens).toBe(65_536)
+		expect(model?.inputModalities).toEqual(['text', 'image'])
+		expect(model?.outputModalities).toEqual(['text'])
+	})
+
+	test('retains top-level modality metadata used by custom endpoints', async () => {
+		globalThis.fetch = (async () =>
+			new Response(
+				JSON.stringify({
+					data: [
+						{
+							id: 'private-vlm',
+							input_modalities: ['text', 'image'],
+							output_modalities: ['text'],
+						},
+					],
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } },
+			)) as unknown as typeof fetch
+
+		const [model] = await fetchModels({
+			type: 'custom',
+			baseUrl: 'https://models.example/v1',
+			name: 'Custom',
+			requiresPayment: false,
+		})
+
 		expect(model?.inputModalities).toEqual(['text', 'image'])
 		expect(model?.outputModalities).toEqual(['text'])
 	})

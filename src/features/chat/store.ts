@@ -112,6 +112,10 @@ const MAX_SYSTEM_MESSAGE_CHARS = 64_000
 const MAX_REASONING_CONTENT_CHARS = 4000
 const BUDGET_ESTIMATE_CHARS_PER_TOKEN = 2
 const MESSAGE_TOKEN_OVERHEAD = 24
+// Provider image tokenization varies by model and detail level. This is a
+// deliberately conservative accounting unit for one normalized screenshot or
+// attachment; the base64 character count is transport encoding, not text.
+const IMAGE_INPUT_TOKEN_ESTIMATE = 2048
 const MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE = 16000
 const STREAM_STALL_WARNING_MS = 30000
 // Reasoning-heavy providers can legitimately remain silent for several minutes
@@ -676,7 +680,7 @@ function messageContentToText(content: ChatMessage['content']): string {
 	return content
 		.map((part) => {
 			if (part.type === 'text') return part.text
-			if (part.type === 'image_url') return part.image_url?.url ?? '[image]'
+			if (part.type === 'image_url') return '[image]'
 			return ''
 		})
 		.join(' ')
@@ -888,10 +892,21 @@ export function sanitizeMessageForPrompt(message: ChatMessage): ChatMessage {
 
 function estimateMessageTokensForBudget(message: ChatMessage): number {
 	const contentText = messageContentToText(message.content)
+	const imageCount = Array.isArray(message.content)
+		? message.content.filter((part) => part.type === 'image_url').length
+		: 0
 	const reasoningText = messageReasoningToText(message.reasoning_content)
 	const toolCallsText = message.tool_calls ? JSON.stringify(message.tool_calls) : ''
 	const combined = `${contentText}${reasoningText}${toolCallsText}`
-	return Math.ceil(combined.length / BUDGET_ESTIMATE_CHARS_PER_TOKEN) + MESSAGE_TOKEN_OVERHEAD
+	return (
+		Math.ceil(combined.length / BUDGET_ESTIMATE_CHARS_PER_TOKEN) +
+		imageCount * IMAGE_INPUT_TOKEN_ESTIMATE +
+		MESSAGE_TOKEN_OVERHEAD
+	)
+}
+
+function estimateMessagesTokensForBudget(messages: ChatMessage[]): number {
+	return messages.reduce((total, message) => total + estimateMessageTokensForBudget(message), 0)
 }
 
 function truncateMessageToTokenBudget(message: ChatMessage, budgetTokens: number): ChatMessage {
@@ -920,20 +935,29 @@ function truncateMessageToTokenBudget(message: ChatMessage, budgetTokens: number
 		}
 	}
 
-	let remainingChars = maxChars
+	const imageCount = content.filter((part) => part.type === 'image_url').length
+	const maxImages = Math.max(
+		0,
+		Math.floor((budgetTokens - MESSAGE_TOKEN_OVERHEAD) / IMAGE_INPUT_TOKEN_ESTIMATE),
+	)
+	const keptImageCount = Math.min(imageCount, maxImages)
+	let remainingImages = keptImageCount
+	let remainingChars = Math.max(
+		128,
+		(budgetTokens - keptImageCount * IMAGE_INPUT_TOKEN_ESTIMATE - MESSAGE_TOKEN_OVERHEAD) *
+			BUDGET_ESTIMATE_CHARS_PER_TOKEN,
+	)
 	const truncatedParts = content
 		.map((part) => {
-			if (remainingChars <= 0) return null
-
 			if (part.type === 'text') {
+				if (remainingChars <= 0) return null
 				const truncated = truncateTextForPrompt(part.text, remainingChars)
 				remainingChars -= truncated.length
 				return { ...part, text: truncated }
 			}
 
-			const imageUrl = part.image_url?.url ?? ''
-			if (imageUrl.length <= remainingChars) {
-				remainingChars -= imageUrl.length
+			if (remainingImages > 0) {
+				remainingImages -= 1
 				return part
 			}
 
@@ -1994,13 +2018,7 @@ export const useChatStore = create<ChatStore>()(
 
 					// Payment flow only for paid providers
 					if (providerConfig.requiresPayment) {
-						const totalText = requestMessages
-							.map(
-								(message) =>
-									`${messageContentToText(message.content)} ${messageReasoningToText(message.reasoning_content)}`,
-							)
-							.join(' ')
-						const inputTokens = estimateTokens(totalText)
+						const inputTokens = estimateMessagesTokensForBudget(requestMessages)
 						// Use the SAME budget number we send as max_tokens so the server's
 						// reservation and our prepayment agree (refund returns the rest).
 						const estimatedCost = estimateMaxCost(model, inputTokens, outputBudget.costTokens)
@@ -2312,7 +2330,7 @@ export const useChatStore = create<ChatStore>()(
 					// BOTH image paths (user-attached images AND the autonomous
 					// capture_map_snapshot one-shot below). Resolved once per request; the
 					// per-(type,baseUrl,modelId) cache makes the reuse free.
-					const visionSupport = await detectVisionSupport(providerConfig, selectedModelId)
+					const visionSupport = await detectVisionSupport(providerConfig, selectedModelId, model)
 					// The autonomous snapshot path may only send on CONFIRMED 'vision'
 					// (acceptance criterion #4 fail-safe). 'uncertain' is opt-in via the
 					// Plan 06 UI, never the silent snapshot loop; 'no-vision' is hard-off.
@@ -2458,14 +2476,7 @@ export const useChatStore = create<ChatStore>()(
 							requestMessages,
 							requiresReasoningContent,
 						)
-						const estimatedPromptTokens = estimateTokens(
-							requestMessages
-								.map(
-									(message) =>
-										`${messageContentToText(message.content)} ${messageReasoningToText(message.reasoning_content)}`,
-								)
-								.join('\n'),
-						)
+						const estimatedPromptTokens = estimateMessagesTokensForBudget(requestMessages)
 						// Output budget is sized per-round from the room left after this
 						// round's prompt — no fixed cap. Free/local omit max_tokens; paid
 						// send the derived budget (cost estimate uses the same number).
@@ -2556,14 +2567,7 @@ export const useChatStore = create<ChatStore>()(
 							// Re-derive the budget for the reduced prompt so a paid retry's
 							// cost estimate matches the smaller request (more room => budget
 							// floored, never starved).
-							const emergencyPromptTokens = estimateTokens(
-								emergencyMessages
-									.map(
-										(message) =>
-											`${messageContentToText(message.content)} ${messageReasoningToText(message.reasoning_content)}`,
-									)
-									.join('\n'),
-							)
+							const emergencyPromptTokens = estimateMessagesTokensForBudget(emergencyMessages)
 							const emergencyOutputBudget = deriveOutputBudget(
 								model,
 								providerConfig,

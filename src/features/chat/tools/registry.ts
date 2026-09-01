@@ -690,7 +690,7 @@ function registerHostBuiltins(): void {
 		name: 'capture_map_snapshot',
 		kind: 'host-builtin',
 		schema: schemaFor('capture_map_snapshot'),
-		handler: (args) => {
+		handler: async (args) => {
 			const store = useEditorStore.getState()
 			if (!store.editor) {
 				throw new Error('Map editor is not ready. Open the map editor first, then try again.')
@@ -700,7 +700,12 @@ function registerHostBuiltins(): void {
 				typeof args.quality === 'number' ? Math.max(0, Math.min(1, args.quality)) : 0.9
 			const maxWidth = clampPositiveInt(args.maxWidth, DEFAULT_SNAPSHOT_MAX_WIDTH, 4096)
 			const maxHeight = clampPositiveInt(args.maxHeight, DEFAULT_SNAPSHOT_MAX_HEIGHT, 4096)
-			const capture = store.editor.captureMapSnapshot({ mimeType, quality, maxWidth, maxHeight })
+			const capture = await store.editor.captureMapSnapshotStable({
+				mimeType,
+				quality,
+				maxWidth,
+				maxHeight,
+			})
 			const snapshot = getMapContextSnapshot()
 			const snapshotId = crypto.randomUUID()
 			mapSnapshotCache.set(snapshotId, {
