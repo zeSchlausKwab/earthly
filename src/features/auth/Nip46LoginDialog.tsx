@@ -28,8 +28,10 @@ import {
 	EarthlyNostrConnectAccount,
 	EarthlyNostrConnectSigner,
 } from '@/lib/nostr/largeEventNip46'
+import { getPlatform } from '@/config/platform'
 import { openExternalProtocol } from '@/platform/externalProtocol'
 import { earthlyPublicOrigin } from '@/platform/publicUrl'
+import { getNip46ClientName } from './nip46ClientIdentity'
 
 interface Nip46LoginDialogProps {
 	trigger: React.ReactNode
@@ -48,7 +50,6 @@ const DEFAULT_RELAYS = [
 ]
 
 const APP_METADATA = {
-	name: 'Earthly City',
 	url: earthlyPublicOrigin(),
 	permissions: EARTHLY_NIP46_PERMISSIONS,
 }
@@ -128,6 +129,9 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 			setError(null)
 
 			try {
+				const platform = await getPlatform()
+				if (cancelled) return
+
 				// NIP-46 relays are signer transport, not content — vouch for them
 				// with the dev pool guard so bunker login works under relay isolation.
 				allowRelays([selectedRelay])
@@ -137,7 +141,10 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 				ownedSigner = ncSigner
 				signerRef.current = ncSigner
 
-				const uri = ncSigner.getNostrConnectURI(APP_METADATA)
+				const uri = ncSigner.getNostrConnectURI({
+					...APP_METADATA,
+					name: getNip46ClientName(platform),
+				})
 				if (cancelled) return
 				setConnectionUri(uri)
 				setState('waiting')

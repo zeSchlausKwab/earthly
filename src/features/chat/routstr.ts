@@ -175,6 +175,9 @@ interface ApiModel {
 		input_modalities?: string[]
 		output_modalities?: string[]
 	}
+	input_modalities?: string[]
+	output_modalities?: string[]
+	capabilities?: string[]
 	top_provider?: {
 		max_completion_tokens?: number | null
 	}
@@ -190,6 +193,21 @@ interface ApiModel {
 		completion?: number
 		request?: number
 	}
+}
+
+function getApiModelInputModalities(model: ApiModel): string[] | undefined {
+	const declared = model.input_modalities ?? model.architecture?.input_modalities
+	if (Array.isArray(declared)) return declared
+	if (!Array.isArray(model.capabilities)) return undefined
+	if (model.capabilities.some((value) => /image|vision/i.test(value))) return ['text', 'image']
+	// `capabilities` is not standardized. Values such as `text`, `completion`,
+	// and `tools` can enumerate supported features without excluding images; only
+	// an explicit text-only declaration is authoritative here.
+	return model.capabilities.some((value) => /^text-only$/i.test(value)) ? ['text'] : undefined
+}
+
+function getApiModelOutputModalities(model: ApiModel): string[] | undefined {
+	return model.output_modalities ?? model.architecture?.output_modalities
 }
 
 function normalizePositiveInteger(value: unknown): number | undefined {
@@ -230,8 +248,8 @@ export async function fetchModels(provider: ProviderConfig): Promise<RoutstrMode
 		description: model.description,
 		contextLength: model.context_length,
 		maxCompletionTokens: getApiModelMaxCompletionTokens(model),
-		inputModalities: model.architecture?.input_modalities,
-		outputModalities: model.architecture?.output_modalities,
+		inputModalities: getApiModelInputModalities(model),
+		outputModalities: getApiModelOutputModalities(model),
 		supportsTools:
 			typeof model.supports_tools === 'boolean'
 				? model.supports_tools

@@ -43,6 +43,8 @@ export interface ToolResult {
 
 export interface ToolExecutionContext {
 	attachedGeometry?: GeoJSON.FeatureCollection | null
+	/** Whether this run is allowed to capture and forward autonomous map screenshots. */
+	allowMapSnapshotCapture?: boolean
 	/** The user-authored text that initiated this tool loop. */
 	userMessage?: string
 	/** Exact model tool call currently executing inside the owning run. */

@@ -16,6 +16,7 @@ function makeV2(): ChatSettingsSnapshot {
 		},
 		selectedModel: 'some-model',
 		toolsEnabled: false,
+		mapSnapshotsEnabled: false,
 		safetyLevel: 3,
 		promptProfile: 'compact',
 		version: 2,
@@ -70,6 +71,7 @@ describe('validateImportedSnapshot — acceptance', () => {
 		expect(result.providerOverrides.ollama).toEqual({ baseUrl: '', apiKey: '' })
 		expect(result.selectedModel).toBe('some-model')
 		expect(result.toolsEnabled).toBe(false)
+		expect(result.mapSnapshotsEnabled).toBe(false)
 		expect(result.version).toBe(2)
 	})
 
@@ -110,6 +112,17 @@ describe('validateImportedSnapshot — acceptance', () => {
 		})
 		expect(result.selectedModel).toBeNull()
 		expect(result.toolsEnabled).toBe(true)
+		expect(result.mapSnapshotsEnabled).toBe(true)
+	})
+
+	test('preserves the autonomous map screenshot preference', () => {
+		expect(
+			validateImportedSnapshot({
+				provider: 'routstr',
+				providerOverrides: {},
+				mapSnapshotsEnabled: false,
+			}).mapSnapshotsEnabled,
+		).toBe(false)
 	})
 
 	test('preserves a valid imported safetyLevel and normalizes an invalid one to 2 (SAFE-04 / T-05-11)', () => {

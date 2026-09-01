@@ -99,6 +99,20 @@ describe('detectVisionSupport — Ollama /api/show (tier 1)', () => {
 })
 
 describe('detectVisionSupport — other providers /v1/models (tier 2)', () => {
+	test('reuses already-loaded model modalities without another network request', async () => {
+		const fetchMock = mock(async () => {
+			throw new Error('should not fetch')
+		})
+		globalThis.fetch = fetchMock as unknown as typeof fetch
+
+		const result = await detectVisionSupport(routstr(), 'private-vlm', {
+			inputModalities: ['text', 'image'],
+		})
+
+		expect(result).toBe<VisionSupport>('vision')
+		expect(fetchMock).not.toHaveBeenCalled()
+	})
+
 	test('capabilities array lists image → vision', async () => {
 		const { fn, calls } = jsonFetch({
 			data: [{ id: 'gpt-4o', capabilities: ['text', 'image'] }],
@@ -228,6 +242,56 @@ describe('detectVisionSupport — fail-safe (tier 4) → no-vision', () => {
 		const result = await detectVisionSupport(routstr(), 'mystery-model-7b')
 		expect(result).toBe<VisionSupport>('no-vision')
 		expect(result).not.toBe('vision')
+	})
+})
+
+describe('detectVisionSupport — documented provider capabilities', () => {
+	test.each([
+		'kimi-k3',
+		'kimi-k2.6',
+		'kimi-k2.7-code',
+		'kimi-k2.7-code-highspeed',
+	])('recognizes %s on the official Moonshot endpoint when /models omits modalities', async (modelId) => {
+		const { fn } = jsonFetch({ data: [{ id: modelId }] })
+		globalThis.fetch = fn as unknown as typeof fetch
+
+		expect(
+			await detectVisionSupport(custom({ baseUrl: 'https://api.moonshot.ai/v1/' }), modelId),
+		).toBe<VisionSupport>('vision')
+	})
+
+	test('keeps a Kimi-named model on another endpoint uncertain, not confirmed', async () => {
+		const { fn } = jsonFetch({
+			data: [{ id: 'kimi-k3', capabilities: ['text', 'completion', 'tools'] }],
+		})
+		globalThis.fetch = fn as unknown as typeof fetch
+
+		expect(await detectVisionSupport(custom(), 'kimi-k3')).toBe<VisionSupport>('uncertain')
+	})
+
+	test('explicit text-only model metadata outranks the documented fallback', async () => {
+		globalThis.fetch = mock(async () => {
+			throw new Error('explicit metadata should avoid another probe')
+		}) as unknown as typeof fetch
+
+		expect(
+			await detectVisionSupport(custom({ baseUrl: 'https://api.moonshot.ai/v1' }), 'kimi-k3', {
+				inputModalities: ['text'],
+			}),
+		).toBe<VisionSupport>('no-vision')
+	})
+
+	test.each([
+		'http://api.moonshot.ai/v1',
+		'https://api.moonshot.ai:444/v1',
+		'https://api.moonshot.ai.attacker.example/v1',
+	])('does not trust a non-official Moonshot origin: %s', async (baseUrl) => {
+		const { fn } = jsonFetch({ data: [{ id: 'kimi-k3' }] })
+		globalThis.fetch = fn as unknown as typeof fetch
+
+		expect(await detectVisionSupport(custom({ baseUrl }), 'kimi-k3')).toBe<VisionSupport>(
+			'uncertain',
+		)
 	})
 })
 

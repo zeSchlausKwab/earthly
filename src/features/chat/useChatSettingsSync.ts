@@ -15,6 +15,7 @@ function buildSnapshot(
 	providerOverrides: ChatSettingsSnapshot['providerOverrides'],
 	selectedModel: string | null,
 	toolsEnabled: boolean,
+	mapSnapshotsEnabled: boolean,
 	safetyLevel: ChatSettingsSnapshot['safetyLevel'],
 	promptProfile: ChatSettingsSnapshot['promptProfile'],
 ): ChatSettingsSnapshot {
@@ -23,6 +24,7 @@ function buildSnapshot(
 		providerOverrides,
 		selectedModel,
 		toolsEnabled,
+		mapSnapshotsEnabled,
 		safetyLevel,
 		promptProfile,
 		version: 2,
@@ -37,12 +39,15 @@ export function useChatSettingsSync(): void {
 	const providerOverrides = useChatStore((state) => state.providerOverrides)
 	const selectedModel = useChatStore((state) => state.selectedModel)
 	const toolsEnabled = useChatStore((state) => state.toolsEnabled)
+	const mapSnapshotsEnabled = useChatStore((state) => state.mapSnapshotsEnabled)
 	const safetyLevel = useChatStore((state) => state.safetyLevel)
 	const promptProfile = useChatStore((state) => state.promptProfile)
 	const settingsLoadNonce = useChatStore((state) => state.settingsLoadNonce)
 	const settingsImportNonce = useChatStore((state) => state.settingsImportNonce)
 
 	const hydrateGenerationRef = useRef(0)
+	const handledSettingsImportNonceRef = useRef(0)
+	const activeSettingsPubkeyRef = useRef<string | null>(null)
 	const loadedPubkeyRef = useRef<string | null>(null)
 	const lastSavedSnapshotRef = useRef<string>(JSON.stringify(DEFAULT_CHAT_SETTINGS))
 	const saveTimeoutRef = useRef<number | null>(null)
@@ -59,6 +64,7 @@ export function useChatSettingsSync(): void {
 		providerOverrides,
 		selectedModel,
 		toolsEnabled,
+		mapSnapshotsEnabled,
 		safetyLevel,
 		promptProfile,
 	)
@@ -88,6 +94,7 @@ export function useChatSettingsSync(): void {
 				'providerOverrides',
 				'selectedModel',
 				'toolsEnabled',
+				'mapSnapshotsEnabled',
 				'promptProfile',
 				'safetyLevel',
 			] as const) {
@@ -111,11 +118,22 @@ export function useChatSettingsSync(): void {
 			window.clearTimeout(saveTimeoutRef.current)
 			saveTimeoutRef.current = null
 		}
+		const accountChanged = activeSettingsPubkeyRef.current !== userPubkey
+		activeSettingsPubkeyRef.current = userPubkey
+		if (accountChanged) {
+			// Quarantine the previous account's provider credentials and preferences
+			// immediately, and stop work authorized with that account's configuration.
+			chatActions.cancelStream()
+			loadedPubkeyRef.current = null
+			lastSavedSnapshotRef.current = JSON.stringify(DEFAULT_CHAT_SETTINGS)
+			chatActions.hydrateSettings(DEFAULT_CHAT_SETTINGS)
+		}
 
 		if (!signer || !currentUser) {
 			// No signer/account: settings stay in-memory only (D-12). Reset to defaults but
 			// surface a distinct 'no-signer' state so the UI shows a sign-in hint, not a failure.
 			loadedPubkeyRef.current = null
+			chatActions.setSettingsOwnerPubkey(null)
 			loadFailedRef.current = false
 			lastSavedSnapshotRef.current = JSON.stringify(DEFAULT_CHAT_SETTINGS)
 			chatActions.hydrateSettings(DEFAULT_CHAT_SETTINGS)
@@ -126,6 +144,9 @@ export function useChatSettingsSync(): void {
 		const generation = hydrateGenerationRef.current + 1
 		hydrateGenerationRef.current = generation
 
+		// Fail closed immediately on account changes: until this exact pubkey's
+		// encrypted settings load, autonomous screenshots are not authorized.
+		chatActions.setSettingsOwnerPubkey(null)
 		chatActions.setSettingsStatus('loading')
 
 		void (async () => {
@@ -144,6 +165,7 @@ export function useChatSettingsSync(): void {
 				// Distinguish it from a decrypt failure by reporting 'loaded' with no error (D-11).
 				chatActions.hydrateSettings(settings ?? DEFAULT_CHAT_SETTINGS)
 				loadedPubkeyRef.current = currentUser.pubkey
+				chatActions.setSettingsOwnerPubkey(currentUser.pubkey)
 				lastSavedSnapshotRef.current = JSON.stringify(settings ?? DEFAULT_CHAT_SETTINGS)
 				loadErrorRef.current = false
 				loadFailedRef.current = false
@@ -163,6 +185,7 @@ export function useChatSettingsSync(): void {
 				// Cleared only on a successful (re)load or an explicit user import.
 				loadFailedRef.current = true
 				loadedPubkeyRef.current = currentUser.pubkey
+				chatActions.setSettingsOwnerPubkey(null)
 				chatActions.setSettingsStatus(
 					'failed',
 					error instanceof Error ? error.message : 'Failed to decrypt saved chat settings',
@@ -190,11 +213,29 @@ export function useChatSettingsSync(): void {
 	// undecryptable ciphertext (D-09). Clear the load-failed guard so the save effect below is
 	// allowed to re-encrypt the imported snapshot — the recovery write CR-01 must still permit.
 	useEffect(() => {
-		if (settingsImportNonce === 0) return
+		if (
+			settingsImportNonce === 0 ||
+			settingsImportNonce === handledSettingsImportNonceRef.current
+		) {
+			return
+		}
+		handledSettingsImportNonceRef.current = settingsImportNonce
+		// Supersede any decrypt that began before this explicit import, and force
+		// persistence even when the imported snapshot happens to equal defaults.
+		hydrateGenerationRef.current += 1
+		lastSavedSnapshotRef.current = ''
 		loadFailedRef.current = false
-	}, [settingsImportNonce])
+		if (userPubkey) {
+			loadedPubkeyRef.current = userPubkey
+			chatActions.setSettingsOwnerPubkey(userPubkey)
+			chatActions.setSettingsStatus('loaded')
+		}
+	}, [settingsImportNonce, userPubkey])
 
 	useEffect(() => {
+		// The import nonce intentionally retriggers this effect even when the
+		// imported snapshot serializes identically to the current in-memory value.
+		void settingsImportNonce
 		if (!signer || !currentUser) return
 		if (loadedPubkeyRef.current !== currentUser.pubkey) return
 		// Block saves while a decrypt failure is unresolved (CR-01): overwriting here would destroy
@@ -232,5 +273,5 @@ export function useChatSettingsSync(): void {
 				saveTimeoutRef.current = null
 			}
 		}
-	}, [currentUser, serializedSnapshot, signer, userPubkey])
+	}, [currentUser, serializedSnapshot, settingsImportNonce, signer, userPubkey])
 }

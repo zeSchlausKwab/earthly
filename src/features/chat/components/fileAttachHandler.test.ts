@@ -3,6 +3,7 @@ import type { ParsedDataset } from '../ingest/datasetTypes'
 import {
 	type AttachDeps,
 	detectIngestKind,
+	extractPastedImageFiles,
 	handleAttachedFile,
 	inferSchema,
 	isImageFile,
@@ -72,6 +73,30 @@ describe('isImageFile', () => {
 		expect(isImageFile(fakeFile('a.png', 'image/png', 1))).toBe(true)
 		expect(isImageFile(fakeFile('a.jpg', '', 1))).toBe(true)
 		expect(isImageFile(fakeFile('a.csv', 'text/csv', 1))).toBe(false)
+	})
+})
+
+describe('extractPastedImageFiles', () => {
+	it('prefers clipboard items and does not duplicate their files fallback', () => {
+		const screenshot = fakeFile('image.png', 'image/png', 100)
+		const result = extractPastedImageFiles({
+			items: [
+				{
+					kind: 'file',
+					type: 'image/png',
+					getAsFile: () => screenshot,
+				},
+			],
+			files: [screenshot],
+		})
+
+		expect(result).toEqual([screenshot])
+	})
+
+	it('falls back to clipboard files and ignores non-images', () => {
+		const screenshot = fakeFile('image.png', 'image/png', 100)
+		const text = fakeFile('notes.txt', 'text/plain', 20)
+		expect(extractPastedImageFiles({ files: [text, screenshot] })).toEqual([screenshot])
 	})
 })
 

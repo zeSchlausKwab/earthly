@@ -16,6 +16,7 @@ import {
 	describeEmptyCompletion,
 	getPromptBudgetTokens,
 	getAdvertisedGeoTools,
+	isMapSnapshotCaptureAuthorized,
 	resolveProvider,
 	resolveChatErrorRecovery,
 	sanitizeMessageForPrompt,
@@ -909,6 +910,41 @@ describe('model tool advertisement', () => {
 			.filter((name) => name !== 'capture_map_snapshot' && !name.startsWith('editor_'))
 
 		expect(advertisedNames).toEqual(expectedNames)
+	})
+
+	test('persists a separate user preference for autonomous map screenshots', () => {
+		useChatStore.getState().reset()
+		expect(useChatStore.getState().mapSnapshotsEnabled).toBe(true)
+
+		useChatStore.getState().setMapSnapshotsEnabled(false)
+		expect(useChatStore.getState().mapSnapshotsEnabled).toBe(false)
+
+		useChatStore.getState().hydrateSettings({ mapSnapshotsEnabled: true })
+		expect(useChatStore.getState().mapSnapshotsEnabled).toBe(true)
+
+		useChatStore.getState().setSettingsOwnerPubkey('account-a')
+		expect(useChatStore.getState().settingsOwnerPubkey).toBe('account-a')
+		useChatStore.getState().setSettingsOwnerPubkey(null)
+		expect(useChatStore.getState().settingsOwnerPubkey).toBeNull()
+	})
+
+	test('revokes screenshot permission immediately when the account or preference changes', () => {
+		const authorized = {
+			canUseVision: true,
+			runAccountPubkey: 'account-a',
+			activeAccountPubkey: 'account-a',
+			mapSnapshotsEnabled: true,
+			settingsStatus: 'loaded' as const,
+			settingsOwnerPubkey: 'account-a',
+		}
+		expect(isMapSnapshotCaptureAuthorized(authorized)).toBe(true)
+		expect(
+			isMapSnapshotCaptureAuthorized({ ...authorized, activeAccountPubkey: 'account-b' }),
+		).toBe(false)
+		expect(isMapSnapshotCaptureAuthorized({ ...authorized, mapSnapshotsEnabled: false })).toBe(
+			false,
+		)
+		expect(isMapSnapshotCaptureAuthorized({ ...authorized, settingsStatus: 'loading' })).toBe(false)
 	})
 })
 

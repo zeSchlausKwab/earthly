@@ -104,10 +104,16 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'capture_map_snapshot',
 			description:
-				'Capture the current map viewport as a PNG/JPEG snapshot. Returns a snapshotId that can be forwarded to vision-capable models.',
+				"Capture the visible MapLibre canvas as a PNG/JPEG snapshot, temporarily fitting the bound Dataset's authored geometry by default and restoring the user's camera afterward. Dataset/selection scope controls framing only: every currently visible map layer remains in the image. Use this only when visual review materially helps, especially when comparing against a reference image; prefer dataset scope. Normally capture once after the complete render and once after a consolidated correction, not after every edit. Returns a snapshotId that can be forwarded to vision-capable models. Chat, panels, controls, DOM callouts, and other HTML overlays are excluded.",
 			parameters: {
 				type: 'object',
 				properties: {
+					scope: {
+						type: 'string',
+						description:
+							"Framing scope. 'dataset' (default) fits all authored geometry in the exact bound Dataset; 'selection' fits its selected authored geometry; 'viewport' preserves the current camera. All visible map layers remain in the image.",
+						enum: ['dataset', 'selection', 'viewport'],
+					},
 					mimeType: {
 						type: 'string',
 						description: 'Output image type',
@@ -124,6 +130,16 @@ export const geoStaticToolSchemas: Tool[] = [
 					maxHeight: {
 						type: 'number',
 						description: 'Optional max output height in pixels (default 768).',
+					},
+					fitPadding: {
+						type: 'number',
+						description:
+							"Uniform canvas-edge padding in pixels for dataset/selection fitting (default 48, clamped to 0-256 and reduced when needed to fit a small canvas; ignored for 'viewport').",
+					},
+					fitMaxZoom: {
+						type: 'number',
+						description:
+							"Maximum zoom for dataset/selection fitting (default 15, clamped to 0-20; ignored for 'viewport').",
 					},
 				},
 			},

@@ -49,6 +49,12 @@ export interface AttachDeps {
 	readImageDataUrl: (file: File) => Promise<string>
 }
 
+/** Minimal clipboard shape kept DOM-light so paste extraction is unit-testable. */
+export interface ClipboardImageSource {
+	items?: ArrayLike<Pick<DataTransferItem, 'kind' | 'type' | 'getAsFile'>>
+	files?: ArrayLike<File>
+}
+
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif'])
 
 const EXTENSION_KIND: Record<string, IngestKind> = {
@@ -74,6 +80,22 @@ export function isImageFile(file: File): boolean {
 	return IMAGE_EXTENSIONS.has(extensionOf(file.name))
 }
 
+/**
+ * Extract image files from a paste event without duplicating the same clipboard
+ * payload through both `items` and `files` (Chromium exposes screenshots in
+ * both collections). Item-backed files are preferred because their MIME type is
+ * authoritative; `files` is the compatibility fallback.
+ */
+export function extractPastedImageFiles(source: ClipboardImageSource): File[] {
+	const itemImages = Array.from(source.items ?? [])
+		.filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+		.map((item) => item.getAsFile())
+		.filter((file): file is File => file !== null && isImageFile(file))
+
+	if (itemImages.length > 0) return itemImages
+	return Array.from(source.files ?? []).filter(isImageFile)
+}
+
 /** Map a (non-image) file to the off-thread parse kind. Defaults to `text`. */
 export function detectIngestKind(file: File): IngestKind {
 	const ext = extensionOf(file.name)
@@ -83,14 +105,92 @@ export function detectIngestKind(file: File): IngestKind {
 	return 'text'
 }
 
-/** Default browser FileReader → data URL (used by production callers). */
-export function readImageDataUrl(file: File): Promise<string> {
+/** Maximum encoded payload retained inline for one model image request. */
+export const MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024
+/** Bound image dimensions before base64 encoding to keep requests predictable. */
+export const MAX_INLINE_IMAGE_EDGE = 2048
+
+const PROVIDER_SAFE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+
+function readBlobDataUrl(blob: Blob): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
 		const reader = new FileReader()
 		reader.onload = () => resolve(String(reader.result))
 		reader.onerror = () => reject(reader.error ?? new Error('Failed to read image'))
-		reader.readAsDataURL(file)
+		reader.readAsDataURL(blob)
 	})
+}
+
+function loadImageElement(file: File): Promise<{ image: HTMLImageElement; dispose: () => void }> {
+	return new Promise((resolve, reject) => {
+		const objectUrl = URL.createObjectURL(file)
+		const image = new Image()
+		const dispose = () => URL.revokeObjectURL(objectUrl)
+		image.onload = () => resolve({ image, dispose })
+		image.onerror = () => {
+			dispose()
+			reject(new Error('This image could not be decoded.'))
+		}
+		image.src = objectUrl
+	})
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
+	return new Promise((resolve, reject) => {
+		canvas.toBlob(
+			(blob) => (blob ? resolve(blob) : reject(new Error('This image could not be encoded.'))),
+			type,
+			quality,
+		)
+	})
+}
+
+/**
+ * Convert an upload to the inline data-URL transport used by OpenAI-compatible
+ * vision endpoints. Provider-safe images already inside the envelope stay
+ * byte-for-byte intact; large or unusual formats are bounded and encoded as
+ * WebP so a raw 25 MiB image cannot turn into a 33 MiB JSON request.
+ */
+export async function readImageDataUrl(file: File): Promise<string> {
+	const { image, dispose } = await loadImageElement(file)
+	try {
+		const width = image.naturalWidth
+		const height = image.naturalHeight
+		if (width <= 0 || height <= 0) throw new Error('This image has invalid dimensions.')
+
+		const canKeepOriginal =
+			PROVIDER_SAFE_IMAGE_TYPES.has(file.type.toLowerCase()) &&
+			file.size <= MAX_INLINE_IMAGE_BYTES &&
+			width <= MAX_INLINE_IMAGE_EDGE &&
+			height <= MAX_INLINE_IMAGE_EDGE
+		if (canKeepOriginal) return await readBlobDataUrl(file)
+
+		const scale = Math.min(1, MAX_INLINE_IMAGE_EDGE / Math.max(width, height))
+		let targetWidth = Math.max(1, Math.round(width * scale))
+		let targetHeight = Math.max(1, Math.round(height * scale))
+		const canvas = document.createElement('canvas')
+		const context = canvas.getContext('2d')
+		if (!context) throw new Error('Image conversion is unavailable in this browser.')
+
+		let encoded: Blob | null = null
+		for (let attempt = 0; attempt < 4; attempt += 1) {
+			canvas.width = targetWidth
+			canvas.height = targetHeight
+			context.clearRect(0, 0, targetWidth, targetHeight)
+			context.drawImage(image, 0, 0, targetWidth, targetHeight)
+			encoded = await canvasToBlob(canvas, 'image/webp', Math.max(0.68, 0.88 - attempt * 0.06))
+			if (encoded.size <= MAX_INLINE_IMAGE_BYTES) break
+			targetWidth = Math.max(1, Math.round(targetWidth * 0.75))
+			targetHeight = Math.max(1, Math.round(targetHeight * 0.75))
+		}
+
+		if (!encoded || encoded.size > MAX_INLINE_IMAGE_BYTES) {
+			throw new Error('This image is still too large after optimization.')
+		}
+		return await readBlobDataUrl(encoded)
+	} finally {
+		dispose()
+	}
 }
 
 /** The production dependency bundle. Tests pass their own mocks. */
@@ -138,8 +238,9 @@ export function inferSchema(
 			if (t) seen.add(t)
 			if (seen.size > 1) break
 		}
+		const singleType = seen.values().next().value
 		const type: SchemaField['type'] =
-			seen.size === 0 ? 'string' : seen.size === 1 ? [...seen][0] : 'mixed'
+			seen.size === 0 ? 'string' : seen.size === 1 ? (singleType ?? 'string') : 'mixed'
 		return { name, type }
 	})
 }

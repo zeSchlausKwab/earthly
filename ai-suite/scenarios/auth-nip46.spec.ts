@@ -43,7 +43,9 @@ test('an approved nostrconnect QR completes remote-signer login', async ({ earth
 						clientPubkey = nip46Filter['#p'][0]
 						const uriInput = earthly.page.locator('input[value^="nostrconnect://"]')
 						await expect(uriInput).toBeVisible()
-						const secret = new URL(await uriInput.inputValue()).searchParams.get('secret')
+						const connectionUri = new URL(await uriInput.inputValue())
+						expect(connectionUri.searchParams.get('name')).toBe('Earthly City (Web)')
+						const secret = connectionUri.searchParams.get('secret')
 						if (!secret) throw new Error('Connection URI omitted its secret')
 						await sendResponse({ id: 'approved', result: secret })
 						approvalSent = true

@@ -65,11 +65,13 @@ export function ChatSettingsSection() {
 		modelsLoading,
 		modelsError,
 		toolsEnabled,
+		mapSnapshotsEnabled,
 		promptProfile,
 		safetyLevel,
 		isStreaming,
 		settingsStatus,
 		settingsError,
+		settingsOwnerPubkey,
 		setProvider,
 		setProviderOverride,
 		loadModels,
@@ -87,11 +89,17 @@ export function ChatSettingsSection() {
 	// SET-03 export/import escape hatch (D-08/D-09/D-10).
 	const [exported, setExported] = useState(false)
 	const [importText, setImportText] = useState('')
+	const settingsReadyForCurrentAccount =
+		!currentUser || (settingsStatus === 'loaded' && settingsOwnerPubkey === currentUser.pubkey)
 
 	// Export reads the LIVE store snapshot (not the encrypted envelope), so it works even when
 	// load/save is failing — the whole point of the recovery hatch (D-08). It deliberately emits
 	// plaintext secrets to the clipboard, so it sets a persistent warning (D-10 / T-01-11).
 	const handleExport = () => {
+		if (!settingsReadyForCurrentAccount) {
+			toast.info('Wait for this account’s chat settings to finish loading')
+			return
+		}
 		void (async () => {
 			try {
 				const json = serializeSnapshot({
@@ -99,6 +107,7 @@ export function ChatSettingsSection() {
 					providerOverrides,
 					selectedModel,
 					toolsEnabled,
+					mapSnapshotsEnabled,
 					safetyLevel,
 					promptProfile,
 					version: 2,
@@ -567,6 +576,7 @@ export function ChatSettingsSection() {
 						type="button"
 						variant="outline"
 						onClick={handleExport}
+						disabled={!settingsReadyForCurrentAccount}
 						className="w-full justify-center gap-2"
 					>
 						<ClipboardCopy className="h-4 w-4" />

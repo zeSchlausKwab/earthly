@@ -102,7 +102,7 @@ function compactStatLine(file: AttachedFileView): string {
 	}
 	if (file.status === 'image') {
 		const dims = file.imageDimensions
-		return dims ? `${file.fileName} · ${dims.width}×${dims.height}` : file.fileName
+		return dims ? `${dims.width}×${dims.height}` : ''
 	}
 	const s = file.summary
 	if (!s) return ''
@@ -171,7 +171,7 @@ export function FileChip({ file, onRemove }: FileChipProps) {
 	)
 
 	return (
-		<div className="flex max-w-full flex-col gap-1">
+		<div className="flex max-w-[13rem] shrink-0 flex-col gap-1">
 			{expandable ? (
 				<Collapsible open={open} onOpenChange={setOpen}>
 					<div className={chipClassName}>
@@ -192,13 +192,18 @@ export function FileChip({ file, onRemove }: FileChipProps) {
 					{removeButton}
 				</div>
 			)}
-			{/* Compact caption stat line under the chip (status-colored). */}
-			<div
-				className={cn('px-1 text-[11px]', isFailed ? 'text-destructive' : 'text-muted-foreground')}
-			>
-				{isParsing && <Progress value={66} className="mb-1 h-1 w-24" />}
-				{compactStatLine(file)}
-			</div>
+			{/* Images already show their name in the chip; don't repeat it underneath. */}
+			{(file.status !== 'image' || compactStatLine(file)) && (
+				<div
+					className={cn(
+						'truncate px-1 text-[11px]',
+						isFailed ? 'text-destructive' : 'text-muted-foreground',
+					)}
+				>
+					{isParsing && <Progress value={66} className="mb-1 h-1 w-24" />}
+					{compactStatLine(file)}
+				</div>
+			)}
 		</div>
 	)
 }

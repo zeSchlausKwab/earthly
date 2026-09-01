@@ -10,8 +10,9 @@ import {
 	type ChatErrorRecovery,
 	type ChatRunStatus,
 } from './store'
-import { composeOutboundContent } from './composeOutboundContent'
-import { FileChipStrip } from './components/FileChipStrip'
+import { canSendImage, composeOutboundContent } from './composeOutboundContent'
+import { FileChipStrip, type FileChipStripHandle } from './components/FileChipStrip'
+import { extractPastedImageFiles } from './components/fileAttachHandler'
 import type { AttachedFileView, ImageVisionTier } from './components/FileChip'
 import type { IngestSummary } from './ingest/datasetTypes'
 import { VisionGateControl } from './components/VisionGateControl'
@@ -38,6 +39,7 @@ import {
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Switch } from '@/components/ui/switch'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -65,6 +67,7 @@ import {
 	Gauge,
 	MessageSquarePlus,
 	RefreshCw,
+	Camera,
 } from 'lucide-react'
 import { preloadWorldData } from '@/lib/geo/worldData'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
@@ -154,15 +157,22 @@ export function resolveChatSendState(input: {
 	hasValidEditingTarget: boolean
 	targetCreationPending: boolean
 	anotherChatIsRunning: boolean
+	imageSendBlocked?: boolean
 }): { canSend: boolean; title: string } {
-	const canSend = input.canCompose && input.hasValidEditingTarget && !input.targetCreationPending
-	const title = input.targetCreationPending
-		? 'Wait for the editing target to finish'
-		: !input.hasValidEditingTarget
-			? 'Choose New map or Use current edit before sending.'
-			: input.anotherChatIsRunning
-				? 'Wait for or stop the active AI run'
-				: 'Send'
+	const canSend =
+		input.canCompose &&
+		input.hasValidEditingTarget &&
+		!input.targetCreationPending &&
+		!input.imageSendBlocked
+	const title = input.imageSendBlocked
+		? 'Resolve the image support warning before sending.'
+		: input.targetCreationPending
+			? 'Wait for the editing target to finish'
+			: !input.hasValidEditingTarget
+				? 'Choose New map or Use current edit before sending.'
+				: input.anotherChatIsRunning
+					? 'Wait for or stop the active AI run'
+					: 'Send'
 	return { canSend, title }
 }
 
@@ -244,6 +254,8 @@ export function ChatPanel({
 		streamWarning,
 		lastProgressAt,
 		toolsEnabled,
+		mapSnapshotsEnabled,
+		settingsStatus,
 		promptProfile,
 		error,
 		errorRecovery,
@@ -254,6 +266,7 @@ export function ChatPanel({
 		providerOverrides,
 		loadModels,
 		setSelectedModel,
+		setMapSnapshotsEnabled,
 		sendMessage,
 		retryLastMessage,
 		finishLastResponse,
@@ -315,6 +328,10 @@ export function ChatPanel({
 	const selectionContextEnabled = attachedSelection.length > 0
 	const attachedGeometry = activeComposerDraft?.geometry ?? null
 	const attachedFiles = activeComposerDraft?.files ?? []
+	const selectedModelData = useMemo(
+		() => models.find((model) => model.id === selectedModel),
+		[models, selectedModel],
+	)
 	const sendAnyway = activeComposerDraft?.sendAnyway ?? false
 	const setAttachedGeometry = (next: React.SetStateAction<FeatureCollection | null>) => {
 		if (!activeChatId) return
@@ -344,6 +361,7 @@ export function ChatPanel({
 	const [targetPendingChatIds, setTargetPendingChatIds] = useState<Set<string>>(() => new Set())
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
+	const fileChipStripRef = useRef<FileChipStripHandle>(null)
 
 	// Eagerly load the world reference layers (anchors, land/water validation,
 	// sandbox `world`) as soon as the chat opens, so the synchronous consumers
@@ -429,6 +447,16 @@ export function ChatPanel({
 		}))
 	}
 
+	const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+		const images = extractPastedImageFiles(event.clipboardData)
+		if (images.length === 0) return
+
+		// A screenshot-only clipboard has no useful text insertion. A clipboard
+		// carrying both text and images keeps the normal text paste as well.
+		if (!event.clipboardData.getData('text/plain')) event.preventDefault()
+		void fileChipStripRef.current?.attachFiles(images)
+	}
+
 	// D-09: resolve the single vision verdict for the selected model. The same
 	// ladder result gates user-attached images here AND the autonomous
 	// capture_map_snapshot one-shot in the store (cached per model, so free).
@@ -439,13 +467,13 @@ export function ChatPanel({
 		}
 		let cancelled = false
 		const providerConfig = resolveProvider(provider, providerOverrides)
-		void detectVisionSupport(providerConfig, selectedModel).then((support) => {
+		void detectVisionSupport(providerConfig, selectedModel, selectedModelData).then((support) => {
 			if (!cancelled) setVisionSupport(support)
 		})
 		return () => {
 			cancelled = true
 		}
-	}, [provider, providerOverrides, selectedModel])
+	}, [provider, providerOverrides, selectedModel, selectedModelData])
 
 	const visionTier: ImageVisionTier = visionSupport
 	const hasAttachedImage = useMemo(
@@ -543,6 +571,7 @@ export function ChatPanel({
 			selectedModel,
 			models,
 			toolsEnabled,
+			mapSnapshotsEnabled,
 			promptProfile,
 			diagnostics: diagnostics as unknown as Record<string, unknown>,
 		})
@@ -661,7 +690,6 @@ export function ChatPanel({
 		setReferences([])
 	}
 
-	const selectedModelData = models.find((m) => m.id === selectedModel)
 	const sortedChatSessions = useMemo(
 		() => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
 		[chatSessions],
@@ -689,11 +717,13 @@ export function ChatPanel({
 	const isWalletRequired = provider === 'routstr'
 	const targetCreationPending = Boolean(activeChatId && targetPendingChatIds.has(activeChatId))
 	const canCompose = !!selectedModel && (!isWalletRequired || walletStatus === 'ready')
+	const imageSendBlocked = hasAttachedImage && !canSendImage(visionSupport, sendAnyway)
 	const sendState = resolveChatSendState({
 		canCompose,
 		hasValidEditingTarget,
 		targetCreationPending,
 		anotherChatIsRunning,
+		imageSendBlocked,
 	})
 	const canSend = sendState.canSend
 	const errorPresentation = error ? resolveChatErrorPresentation(error, errorRecovery) : null
@@ -948,6 +978,34 @@ export function ChatPanel({
 										{providerEndpointLabel}
 									</p>
 								</div>
+							</div>
+
+							<div className="mt-2.5 flex min-w-0 items-center justify-between gap-3 border-t pt-2.5">
+								<div className="flex min-w-0 items-start gap-2">
+									<Camera className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+									<div className="min-w-0">
+										<label
+											htmlFor="chat-map-snapshots-toggle"
+											className="block text-xs font-medium text-foreground"
+										>
+											AI map screenshots
+										</label>
+										<p className="text-[10px] leading-snug text-muted-foreground">
+											Let the model capture the map for visual review. Uploaded images are
+											unaffected.
+										</p>
+									</div>
+								</div>
+								<Switch
+									id="chat-map-snapshots-toggle"
+									checked={mapSnapshotsEnabled}
+									onCheckedChange={setMapSnapshotsEnabled}
+									disabled={
+										isStreaming || settingsStatus === 'loading' || settingsStatus === 'failed'
+									}
+									aria-label="Allow AI map screenshots"
+									className="shrink-0"
+								/>
 							</div>
 
 							<div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2.5 text-[10px] text-muted-foreground">
@@ -1366,19 +1424,23 @@ export function ChatPanel({
 							layout="detached"
 							panelClassName="w-full"
 						/>
-						<FileChipStrip
-							key={`chat-files-${activeChatId ?? 'default'}`}
-							files={displayedFiles}
-							onChange={setAttachedFiles}
-							visionTier={visionTier}
-						/>
-						<VisionGateControl
-							support={visionSupport}
-							modelLabel={selectedModelLabel}
-							hasImage={hasAttachedImage}
-							sendAnyway={sendAnyway}
-							onSendAnywayChange={setSendAnyway}
-						/>
+						<div className="flex min-w-0 basis-full items-center gap-1.5 overflow-x-auto pb-0.5">
+							<FileChipStrip
+								ref={fileChipStripRef}
+								key={`chat-files-${activeChatId ?? 'default'}`}
+								files={displayedFiles}
+								onChange={setAttachedFiles}
+								visionTier={visionTier}
+								className="shrink"
+							/>
+							<VisionGateControl
+								support={visionSupport}
+								modelLabel={selectedModelLabel}
+								hasImage={hasAttachedImage}
+								sendAnyway={sendAnyway}
+								onSendAnywayChange={setSendAnyway}
+							/>
+						</div>
 						{(attachedSelection.length > 0 || attachedGeometry) && (
 							<div className="basis-full text-[11px] text-muted-foreground">
 								{attachedSelection.length > 0 && (
@@ -1402,6 +1464,7 @@ export function ChatPanel({
 							value={input}
 							onChange={(e) => setInput(e.target.value)}
 							onKeyDown={handleKeyDown}
+							onPaste={handlePaste}
 							placeholder={
 								!selectedModel
 									? 'Select a model...'
@@ -1731,12 +1794,14 @@ function contentToDisplayText(content: ChatMessage['content']): string {
 function splitUserMessageContent(content: ChatMessage['content']): {
 	text: string
 	datasets: IngestSummary[]
+	images: string[]
 } {
-	if (typeof content === 'string') return { text: content, datasets: [] }
-	if (!content) return { text: '', datasets: [] }
+	if (typeof content === 'string') return { text: content, datasets: [], images: [] }
+	if (!content) return { text: '', datasets: [], images: [] }
 
 	const textParts: string[] = []
 	const datasets: IngestSummary[] = []
+	const images: string[] = []
 	for (const part of content) {
 		if (part.type === 'text') {
 			const dataset = parseIngestHandlePart(part.text)
@@ -1748,10 +1813,10 @@ function splitUserMessageContent(content: ChatMessage['content']): {
 			continue
 		}
 		if (part.type === 'image_url') {
-			textParts.push('[Image]')
+			if (part.image_url.url) images.push(part.image_url.url)
 		}
 	}
-	return { text: textParts.join('\n'), datasets }
+	return { text: textParts.join('\n'), datasets, images }
 }
 
 /**
@@ -2462,7 +2527,7 @@ const MessageBubble = memo(function MessageBubble({
 		// `{ ingestHandle, ingestSummary }` JSON blob. The model payload is unchanged
 		// (composeOutboundContent still sends the JSON part); this only decouples the
 		// transcript's display from that payload.
-		const { text: userText, datasets } = splitUserMessageContent(message.content)
+		const { text: userText, datasets, images } = splitUserMessageContent(message.content)
 		return (
 			<div className="flex min-w-0 flex-row-reverse gap-2">
 				<div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-primary text-primary-foreground">
@@ -2493,6 +2558,18 @@ const MessageBubble = memo(function MessageBubble({
 						>
 							{datasets.map((summary) => (
 								<AttachmentCard key={summary.handleId} summary={summary} />
+							))}
+						</div>
+					)}
+					{images.length > 0 && (
+						<div className={cn('grid gap-1.5', userText.length > 0 && 'mt-2')}>
+							{images.map((src, index) => (
+								<img
+									key={src}
+									src={src}
+									alt={`Attachment ${index + 1}`}
+									className="max-h-56 w-auto max-w-full rounded border border-primary-foreground/20 object-contain"
+								/>
 							))}
 						</div>
 					)}

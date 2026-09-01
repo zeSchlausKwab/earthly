@@ -1,4 +1,5 @@
 export { GeoEditor } from './GeoEditor'
+export type { FittedMapSnapshotOptions, FittedMapSnapshotResult } from './GeoEditor'
 
 export { HistoryManager } from './managers/HistoryManager'
 export { LayerManager } from './managers/LayerManager'

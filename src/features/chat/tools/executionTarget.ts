@@ -571,6 +571,43 @@ export function isToolExecutionTargetVisible(run: ToolExecutionRunIdentity | und
 	)
 }
 
+/**
+ * Whether the visible map still materializes the exact run-bound Dataset state.
+ * This is stricter than identity visibility: it also rejects a concurrent
+ * geometry or selection change that would make a canvas snapshot misleading.
+ */
+export function isToolExecutionTargetRendered(
+	run: ToolExecutionRunIdentity | undefined,
+	expectedVisibleEditor?: GeoEditor,
+): boolean {
+	if (!isToolExecutionTargetVisible(run)) return false
+	if (run?.target.entityType !== 'dataset') return true
+	if (!runtime || runtime.runId !== run.runId || runtime.chatId !== run.chatId) return false
+
+	const state = useEditorStore.getState()
+	const visibleEditor = state.editor
+	if (!visibleEditor) return false
+	if (expectedVisibleEditor && visibleEditor !== expectedVisibleEditor) return false
+	if (visibleEditor.hasTransientRenderedGeometry()) return false
+	const runtimeFeatures = runtime.editor.getAllFeatures()
+	const visibleEditorFeatures = visibleEditor.getAllFeatures()
+	const visibleSelection = normalizeSelectedFeatureIds(state.selectedFeatureIds, state.features)
+	const visibleEditorSelection = normalizeSelectedFeatureIds(
+		visibleEditor.getSelectedFeatures().map((feature) => feature.id),
+		visibleEditorFeatures,
+	)
+	const runtimeSelection = normalizeSelectedFeatureIds(
+		runtime.editor.getSelectedFeatures().map((feature) => feature.id),
+		runtimeFeatures,
+	)
+	return (
+		serializeFeatures(state.features) === serializeFeatures(runtimeFeatures) &&
+		serializeFeatures(visibleEditorFeatures) === serializeFeatures(runtimeFeatures) &&
+		serializeSelection(visibleSelection) === serializeSelection(runtimeSelection) &&
+		serializeSelection(visibleEditorSelection) === serializeSelection(runtimeSelection)
+	)
+}
+
 export function releaseToolExecutionRun(runId?: number): void {
 	if (runId !== undefined && activeExecutionRun?.runId !== runId) return
 	destroyDetachedRuntime()

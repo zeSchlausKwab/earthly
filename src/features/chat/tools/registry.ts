@@ -82,6 +82,9 @@ import {
 	createExecutionAuthoring,
 	ensureExecutionTargetForMutation,
 	getExecutionEditor,
+	getExecutionFeatures,
+	getExecutionSelectedFeatureIds,
+	isToolExecutionTargetRendered,
 } from './executionTarget'
 import { attachEditorDatasetMetadata } from './editorDatasetMetadata'
 
@@ -89,6 +92,62 @@ const GEO_CATALOG_SOURCE_MANIFEST_PREFIX = 'earthly:geoCatalogSourceManifest:'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function collectGeometryLongitudes(geometry: GeoJSON.Geometry, target: number[]): void {
+	if (geometry.type === 'GeometryCollection') {
+		for (const child of geometry.geometries) collectGeometryLongitudes(child, target)
+		return
+	}
+	const visit = (value: unknown): void => {
+		if (!Array.isArray(value)) return
+		if (
+			value.length >= 2 &&
+			typeof value[0] === 'number' &&
+			Number.isFinite(value[0]) &&
+			typeof value[1] === 'number'
+		) {
+			target.push(((value[0] % 360) + 360) % 360)
+			return
+		}
+		for (const child of value) visit(child)
+	}
+	visit(geometry.coordinates)
+}
+
+/** Return west > east when the shortest authored extent crosses the antimeridian. */
+function getFittedFeatureCollectionBbox(
+	features: GeoJSON.Feature[],
+): [number, number, number, number] | null {
+	const standard = getFeatureCollectionBbox(features)
+	if (!standard || standard[2] - standard[0] <= 180) return standard
+
+	const longitudes: number[] = []
+	for (const feature of features) {
+		if (feature.geometry) collectGeometryLongitudes(feature.geometry, longitudes)
+	}
+	if (longitudes.length < 2) return standard
+	longitudes.sort((left, right) => left - right)
+
+	let largestGap = -1
+	let gapEndIndex = 0
+	for (let index = 0; index < longitudes.length; index++) {
+		const current = longitudes[index] ?? 0
+		const next =
+			index === longitudes.length - 1 ? (longitudes[0] ?? 0) + 360 : (longitudes[index + 1] ?? 0)
+		const gap = next - current
+		if (gap > largestGap) {
+			largestGap = gap
+			gapEndIndex = index
+		}
+	}
+	const coveredSpan = 360 - largestGap
+	if (coveredSpan > 180 || coveredSpan >= standard[2] - standard[0]) return standard
+
+	const west360 = longitudes[(gapEndIndex + 1) % longitudes.length] ?? 0
+	const east360 = longitudes[gapEndIndex] ?? west360
+	const toSigned = (longitude: number) => (longitude > 180 ? longitude - 360 : longitude)
+	return [toSigned(west360), standard[1], toSigned(east360), standard[3]]
 }
 
 function optionalNonEmptyText(value: unknown): string | undefined {
@@ -690,38 +749,148 @@ function registerHostBuiltins(): void {
 		name: 'capture_map_snapshot',
 		kind: 'host-builtin',
 		schema: schemaFor('capture_map_snapshot'),
-		handler: (args) => {
+		handler: async (args, context) => {
 			const store = useEditorStore.getState()
 			if (!store.editor) {
 				throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 			}
-			const mimeType = args.mimeType === 'image/jpeg' ? 'image/jpeg' : 'image/png'
-			const quality =
-				typeof args.quality === 'number' ? Math.max(0, Math.min(1, args.quality)) : 0.9
-			const maxWidth = clampPositiveInt(args.maxWidth, DEFAULT_SNAPSHOT_MAX_WIDTH, 4096)
-			const maxHeight = clampPositiveInt(args.maxHeight, DEFAULT_SNAPSHOT_MAX_HEIGHT, 4096)
-			const capture = store.editor.captureMapSnapshot({ mimeType, quality, maxWidth, maxHeight })
-			const snapshot = getMapContextSnapshot()
-			const snapshotId = crypto.randomUUID()
-			mapSnapshotCache.set(snapshotId, {
-				snapshotId,
-				dataUrl: capture.dataUrl,
-				mimeType,
-				width: capture.width,
-				height: capture.height,
-				createdAt: Date.now(),
-				mapCenter: snapshot.mapCenter,
-				mapZoom: snapshot.mapZoom,
-				mapBbox: snapshot.viewportBbox,
-			})
-			pruneSnapshotCache()
-			return {
-				snapshotId,
-				mimeType,
-				width: capture.width,
-				height: capture.height,
-				dataUrlLength: capture.dataUrl.length,
-				mapView: snapshot.mapView,
+			if (context?.run && !isToolExecutionTargetRendered(context.run, store.editor)) {
+				const error = new Error(
+					'The Dataset bound to this run is no longer the exact Dataset rendered on the map. Open it without concurrent geometry or selection changes, then capture again.',
+				) as Error & { code: string; retryable: boolean }
+				error.code = 'capture_target_not_rendered'
+				error.retryable = true
+				throw error
+			}
+			let targetInvalidated = false
+			const unsubscribeTargetGuard = context?.run
+				? useEditorStore.subscribe(() => {
+						if (!isToolExecutionTargetRendered(context.run, store.editor)) targetInvalidated = true
+					})
+				: null
+			const assertTargetStillRendered = (): void => {
+				if (!context?.run) return
+				if (!targetInvalidated && isToolExecutionTargetRendered(context.run, store.editor)) return
+				const error = new Error(
+					'The bound Dataset changed or left the visible map while its snapshot was rendering. The image was discarded; capture the current Dataset again.',
+				) as Error & { code: string; retryable: boolean }
+				error.code = 'capture_target_changed_during_render'
+				error.retryable = true
+				throw error
+			}
+
+			try {
+				const mimeType: 'image/png' | 'image/jpeg' =
+					args.mimeType === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+				const quality =
+					typeof args.quality === 'number' ? Math.max(0, Math.min(1, args.quality)) : 0.9
+				const maxWidth = clampPositiveInt(args.maxWidth, DEFAULT_SNAPSHOT_MAX_WIDTH, 4096)
+				const maxHeight = clampPositiveInt(args.maxHeight, DEFAULT_SNAPSHOT_MAX_HEIGHT, 4096)
+				const scope =
+					args.scope === 'selection' || args.scope === 'viewport' ? args.scope : 'dataset'
+				const fitPadding =
+					typeof args.fitPadding === 'number' && Number.isFinite(args.fitPadding)
+						? Math.max(0, Math.min(256, Math.round(args.fitPadding)))
+						: 48
+				const fitMaxZoom =
+					typeof args.fitMaxZoom === 'number' && Number.isFinite(args.fitMaxZoom)
+						? Math.max(0, Math.min(20, args.fitMaxZoom))
+						: 15
+				const snapshotOptions = { mimeType, quality, maxWidth, maxHeight }
+				let capture: {
+					dataUrl: string
+					width: number
+					height: number
+					mapCenter: { lat: number; lon: number } | null
+					mapZoom: number | null
+					mapBbox: [number, number, number, number] | null
+					mapContentReady: boolean | null
+				}
+				let fittedFeatureCount = 0
+				let authoredBbox: [number, number, number, number] | null = null
+
+				if (scope === 'viewport') {
+					const image = await store.editor.captureMapSnapshotStable(snapshotOptions)
+					const snapshot = getMapContextSnapshot()
+					capture = {
+						...image,
+						mapCenter: snapshot.mapCenter,
+						mapZoom: snapshot.mapZoom,
+						mapBbox: snapshot.viewportBbox,
+						mapContentReady: true,
+					}
+				} else {
+					const executionFeatures = getExecutionFeatures()
+					const scopedFeatures =
+						scope === 'selection'
+							? (() => {
+									const selectedIds = new Set(getExecutionSelectedFeatureIds())
+									return executionFeatures.filter((feature) => selectedIds.has(feature.id))
+								})()
+							: executionFeatures
+					const geometricFeatures = scopedFeatures.filter((feature) => feature.geometry !== null)
+					fittedFeatureCount = geometricFeatures.length
+					authoredBbox = getFittedFeatureCollectionBbox(geometricFeatures)
+					if (!authoredBbox) {
+						const error = new Error(
+							scope === 'selection'
+								? "The bound Dataset has no selected authored geometry to fit. Select one or more features, use scope='dataset', or use scope='viewport'."
+								: "The bound Dataset has no authored geometry to fit. Use scope='viewport' to capture the current map instead.",
+						) as Error & { code: string; retryable: boolean }
+						error.code = scope === 'selection' ? 'capture_selection_empty' : 'capture_dataset_empty'
+						error.retryable = false
+						throw error
+					}
+					capture = await store.editor.captureMapSnapshotForFittedBoundsStable(authoredBbox, {
+						...snapshotOptions,
+						paddingPx: fitPadding,
+						maxZoom: fitMaxZoom,
+					})
+				}
+				assertTargetStillRendered()
+
+				const snapshotId = crypto.randomUUID()
+				mapSnapshotCache.set(snapshotId, {
+					snapshotId,
+					dataUrl: capture.dataUrl,
+					mimeType,
+					width: capture.width,
+					height: capture.height,
+					createdAt: Date.now(),
+					mapCenter: capture.mapCenter,
+					mapZoom: capture.mapZoom,
+					mapBbox: capture.mapBbox,
+				})
+				pruneSnapshotCache()
+				return {
+					snapshotId,
+					mimeType,
+					width: capture.width,
+					height: capture.height,
+					dataUrlLength: capture.dataUrl.length,
+					scope,
+					fittedFeatureCount,
+					authoredBbox,
+					cameraTemporarilyFitted: scope !== 'viewport',
+					cameraRestored: true,
+					mapContentReady: capture.mapContentReady,
+					mapView: {
+						center: capture.mapCenter,
+						zoom: capture.mapZoom,
+						bbox: capture.mapBbox,
+					},
+					captureSurface: 'map_canvas',
+					includedInImage: ['all currently visible MapLibre map layers'],
+					excludedFromImage: [
+						'chat',
+						'sidebars',
+						'map controls',
+						'DOM callouts',
+						'other HTML overlays',
+					],
+				}
+			} finally {
+				unsubscribeTargetGuard?.()
 			}
 		},
 	})

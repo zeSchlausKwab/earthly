@@ -57,6 +57,7 @@ describe('migrateV1ToV2', () => {
 			expect(result.provider).toBe('routstr')
 			expect(result.selectedModel).toBeNull()
 			expect(result.toolsEnabled).toBe(true)
+			expect(result.mapSnapshotsEnabled).toBe(true)
 			expect(result.version).toBe(2)
 		}
 	})
@@ -168,6 +169,15 @@ describe('migrateV1ToV2 — prompt profile', () => {
 	})
 })
 
+describe('migrateV1ToV2 — autonomous map screenshots', () => {
+	test('defaults old snapshots to enabled and preserves an explicit opt-out', () => {
+		expect(migrateV1ToV2({}).mapSnapshotsEnabled).toBe(true)
+		expect(
+			migrateV1ToV2({ providerOverrides: {}, mapSnapshotsEnabled: false }).mapSnapshotsEnabled,
+		).toBe(false)
+	})
+})
+
 describe('saveEncryptedChatSettings → loadEncryptedChatSettings round-trip (SAFE-04)', () => {
 	// (d) a save→load encrypt→decrypt round-trip preserves the set safetyLevel.
 	// A minimal in-memory localStorage + identity-cipher signer keeps this headless.
@@ -215,12 +225,14 @@ describe('saveEncryptedChatSettings → loadEncryptedChatSettings round-trip (SA
 					},
 					selectedModel: null,
 					toolsEnabled: true,
+					mapSnapshotsEnabled: false,
 					safetyLevel: level,
 					promptProfile: 'compact',
 				})
 
 				const loaded = await loadEncryptedChatSettings(signer as never, pubkey)
 				expect(loaded?.safetyLevel).toBe(level)
+				expect(loaded?.mapSnapshotsEnabled).toBe(false)
 			}
 		} finally {
 			clearFakeWindow()

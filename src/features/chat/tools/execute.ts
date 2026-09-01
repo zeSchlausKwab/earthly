@@ -30,6 +30,7 @@ import {
 	ensureExecutionTargetForMutation,
 	getExecutionEditor,
 	hasPreparedDatasetExecutionTarget,
+	isToolExecutionTargetRendered,
 	isToolExecutionTargetVisible,
 	persistToolExecutionRun,
 	prepareToolExecutionRun,
@@ -67,6 +68,33 @@ function getStructuredToolError(result: ToolResult): ToolError | null {
 		return isToolError(parsed) ? parsed : null
 	} catch {
 		return null
+	}
+}
+
+function mapSnapshotPermissionError(
+	toolName: string,
+	toolCallId: string,
+	context: ToolExecutionContext | undefined,
+	argumentsPreview: string,
+): ToolResult | null {
+	if (toolName !== 'capture_map_snapshot' || context?.allowMapSnapshotCapture !== false) {
+		return null
+	}
+	const toolError: ToolError = {
+		ok: false,
+		kind: 'handler_error',
+		toolName,
+		message:
+			'Autonomous map screenshots are disabled for this conversation. Continue without visual capture.',
+		code: 'map_snapshot_capture_disabled',
+		retryable: false,
+		sideEffectsApplied: false,
+		argumentsPreview,
+	}
+	return {
+		tool_call_id: toolCallId,
+		role: 'tool',
+		content: JSON.stringify(toolError),
 	}
 }
 
@@ -161,9 +189,16 @@ async function executeToolCallBound(
 				content: JSON.stringify(toolError),
 			}
 		}
+		const snapshotPermissionError = mapSnapshotPermissionError(
+			toolCall.function.name,
+			toolCall.id,
+			context,
+			argumentsPreview,
+		)
+		if (snapshotPermissionError) return snapshotPermissionError
 		if (toolCall.function.name === 'capture_map_snapshot' && context?.run) {
 			const hasDatasetTarget = context.run.target.entityType === 'dataset'
-			const targetVisible = hasDatasetTarget && isToolExecutionTargetVisible(context.run)
+			const targetVisible = hasDatasetTarget && isToolExecutionTargetRendered(context.run)
 			if (targetVisible) {
 				// The host capture below is now proven to be the exact send-bound surface.
 			} else {
@@ -217,6 +252,13 @@ async function executeToolCallBound(
 		// model should spend another round interpreting. Follow exactly once; a
 		// second redirect is returned as data to avoid redirect cycles.
 		if (isToolRedirect(dispatched)) {
+			const redirectPermissionError = mapSnapshotPermissionError(
+				dispatched.redirectTool,
+				toolCall.id,
+				context,
+				argumentsPreview,
+			)
+			if (redirectPermissionError) return redirectPermissionError
 			dispatched = await dispatch(dispatched.redirectTool, dispatched.redirectArguments, context)
 		}
 
@@ -280,14 +322,17 @@ async function executeToolCallBound(
 		// Last-resort guard: arg-parse failure or post-dispatch baking error.
 		// Surfaced in the same typed shape so the UI/model treat it uniformly.
 		const targetError = error instanceof ToolExecutionTargetPersistenceError ? error : null
+		const structuredError = error as { code?: unknown; retryable?: unknown }
 		const toolError: ToolError = {
 			ok: false,
 			kind: 'handler_error',
 			toolName: toolCall.function.name,
 			message: error instanceof Error ? error.message : 'Tool execution failed',
 			argumentsPreview,
-			code: targetError?.code ?? 'tool_execution_error',
-			retryable: Boolean(targetError),
+			code:
+				targetError?.code ??
+				(typeof structuredError.code === 'string' ? structuredError.code : 'tool_execution_error'),
+			retryable: Boolean(targetError) || structuredError.retryable === true,
 			sideEffectsApplied: false,
 		}
 		return {

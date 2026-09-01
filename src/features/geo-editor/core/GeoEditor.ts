@@ -56,6 +56,34 @@ import { performGeometryOperation } from '../api/geometryOperations'
 type ScreenPoint = { x: number; y: number }
 type PointerOffset = { x: number; y: number }
 
+export interface FittedMapSnapshotOptions {
+	mimeType?: 'image/png' | 'image/jpeg'
+	quality?: number
+	maxWidth?: number
+	maxHeight?: number
+	/** Uniform canvas-edge padding used while calculating the fitted camera. */
+	paddingPx?: number
+	/** Upper zoom bound for small or point-like authored extents. */
+	maxZoom?: number
+}
+
+export interface FittedMapSnapshotResult {
+	dataUrl: string
+	width: number
+	height: number
+	mapCenter: { lat: number; lon: number } | null
+	mapZoom: number | null
+	mapBbox: [number, number, number, number] | null
+	/** Whether MapLibre reported its style and visible tiles fully loaded before capture. */
+	mapContentReady: boolean
+}
+
+const EMPTY_MAP_PADDING = { top: 0, right: 0, bottom: 0, left: 0 }
+const DEFAULT_FITTED_SNAPSHOT_PADDING_PX = 48
+const MAX_FITTED_SNAPSHOT_PADDING_PX = 256
+const DEFAULT_FITTED_SNAPSHOT_MAX_ZOOM = 15
+const MAX_FITTED_SNAPSHOT_MAX_ZOOM = 20
+
 function lineStringFeature(coordinates: Position[]): Feature<LineString> {
 	return {
 		type: 'Feature',
@@ -1591,6 +1619,16 @@ export class GeoEditor {
 		return this.geometryOperation ? { ...this.geometryOperation } : undefined
 	}
 
+	/** Whether the canvas contains human-authored preview geometry not yet committed to the Dataset. */
+	hasTransientRenderedGeometry(): boolean {
+		return (
+			this.isDrawMode(this.mode) ||
+			this.geometryOperation !== undefined ||
+			this.geometryOperationDragState !== undefined ||
+			this.transformDragState !== undefined
+		)
+	}
+
 	/**
 	 * Programmatic insertion for AI/editor commands. Human toolbar actions use
 	 * `startPrimitiveDrawing` and its two-point interaction instead.
@@ -2064,10 +2102,164 @@ export class GeoEditor {
 		maxWidth?: number
 		maxHeight?: number
 	}): Promise<{ dataUrl: string; width: number; height: number }> {
+		if (!(await this.waitForMapContentReady())) {
+			const error = new Error(
+				'Map content did not finish loading before the screenshot deadline. Try again once the map is settled.',
+			) as Error & { code: string; retryable: boolean }
+			error.code = 'map_snapshot_content_not_ready'
+			error.retryable = true
+			throw error
+		}
 		return this.captureOnRenderedFrame(() => this.captureMapSnapshot(options), {
 			retries: 3,
 			timeoutMs: 900,
 		})
+	}
+
+	private async waitForMapContentReady(timeoutMs = 1_200): Promise<boolean> {
+		const isReady = () => this.map.loaded() && this.map.areTilesLoaded()
+		if (isReady()) return true
+
+		return new Promise((resolve) => {
+			let settled = false
+			const finish = (ready: boolean) => {
+				if (settled) return
+				settled = true
+				clearTimeout(timeoutId)
+				this.map.off('idle', onIdle)
+				resolve(ready)
+			}
+			const onIdle = () => finish(isReady())
+			const timeoutId = setTimeout(() => finish(isReady()), timeoutMs)
+			this.map.on('idle', onIdle)
+			this.map.triggerRepaint()
+		})
+	}
+
+	/**
+	 * Temporarily fit authored geographic bounds, capture a stable map-canvas
+	 * frame, and restore the complete user camera even if capture fails.
+	 *
+	 * This intentionally captures only MapLibre's canvas. HTML controls,
+	 * callouts, sidebars, and other DOM overlays are not part of the image.
+	 */
+	async captureMapSnapshotForFittedBoundsStable(
+		bbox: [number, number, number, number],
+		options?: FittedMapSnapshotOptions,
+	): Promise<FittedMapSnapshotResult> {
+		const [west, south, east, north] = bbox
+		if (![west, south, east, north].every((value) => Number.isFinite(value))) {
+			throw new Error('Cannot fit map snapshot: bounding box contains invalid coordinates')
+		}
+
+		const readCamera = () => {
+			const center = this.map.getCenter()
+			const padding = this.map.getPadding()
+			return {
+				center: [center.lng, center.lat] as [number, number],
+				zoom: this.map.getZoom(),
+				bearing: this.map.getBearing(),
+				pitch: this.map.getPitch(),
+				padding: {
+					top: padding.top ?? 0,
+					right: padding.right ?? 0,
+					bottom: padding.bottom ?? 0,
+					left: padding.left ?? 0,
+				},
+			}
+		}
+		const cameraMatches = (
+			left: ReturnType<typeof readCamera>,
+			right: ReturnType<typeof readCamera>,
+		): boolean => {
+			const close = (a: number, b: number) => Math.abs(a - b) <= 1e-7
+			return (
+				close(left.center[0], right.center[0]) &&
+				close(left.center[1], right.center[1]) &&
+				close(left.zoom, right.zoom) &&
+				close(left.bearing, right.bearing) &&
+				close(left.pitch, right.pitch) &&
+				close(left.padding.top, right.padding.top) &&
+				close(left.padding.right, right.padding.right) &&
+				close(left.padding.bottom, right.padding.bottom) &&
+				close(left.padding.left, right.padding.left)
+			)
+		}
+		const originalCamera = readCamera()
+		let fittedCameraState: ReturnType<typeof readCamera> | null = null
+		const mapCanvas = this.map.getCanvas()
+		const canvasWidth = Math.max(1, mapCanvas.clientWidth || mapCanvas.width || 1)
+		const canvasHeight = Math.max(1, mapCanvas.clientHeight || mapCanvas.height || 1)
+		const canvasPaddingLimit = Math.max(0, Math.floor(Math.min(canvasWidth, canvasHeight) / 2) - 1)
+		const paddingPx = Math.max(
+			0,
+			Math.min(
+				MAX_FITTED_SNAPSHOT_PADDING_PX,
+				canvasPaddingLimit,
+				Number.isFinite(options?.paddingPx)
+					? Math.round(options?.paddingPx ?? DEFAULT_FITTED_SNAPSHOT_PADDING_PX)
+					: DEFAULT_FITTED_SNAPSHOT_PADDING_PX,
+			),
+		)
+		const maxZoom = Math.max(
+			0,
+			Math.min(
+				MAX_FITTED_SNAPSHOT_MAX_ZOOM,
+				Number.isFinite(options?.maxZoom)
+					? (options?.maxZoom ?? DEFAULT_FITTED_SNAPSHOT_MAX_ZOOM)
+					: DEFAULT_FITTED_SNAPSHOT_MAX_ZOOM,
+			),
+		)
+
+		try {
+			// MapLibre includes the current camera padding in cameraForBounds. Clear
+			// it first so the requested padding is measured against the full canvas.
+			this.map.jumpTo({ padding: EMPTY_MAP_PADDING })
+			const fittedCamera = this.map.cameraForBounds(
+				[
+					[west, south],
+					[east, north],
+				],
+				{ padding: paddingPx, maxZoom, bearing: 0, pitch: 0 },
+			)
+			if (
+				!fittedCamera?.center ||
+				typeof fittedCamera.zoom !== 'number' ||
+				!Number.isFinite(fittedCamera.zoom)
+			) {
+				throw new Error('Cannot fit map snapshot: map could not resolve the authored bounds')
+			}
+
+			this.map.jumpTo({
+				center: fittedCamera.center,
+				zoom: fittedCamera.zoom,
+				bearing: fittedCamera.bearing ?? 0,
+				pitch: 0,
+				padding: EMPTY_MAP_PADDING,
+			})
+			fittedCameraState = readCamera()
+			const capture = await this.captureMapSnapshotStable(options)
+			if (!cameraMatches(readCamera(), fittedCameraState)) {
+				throw new Error(
+					'Map camera changed while the fitted snapshot was rendering; the image was discarded',
+				)
+			}
+			return {
+				...capture,
+				mapCenter: this.getMapCenter(),
+				mapZoom: this.getMapZoom(),
+				mapBbox: this.getMapBounds(),
+				mapContentReady: true,
+			}
+		} finally {
+			// jumpTo is a zero-duration camera change. Restoring in finally keeps
+			// both successful and failed autonomous captures non-destructive. If the
+			// camera no longer matches our fitted state, preserve the newer user move.
+			if (!fittedCameraState || cameraMatches(readCamera(), fittedCameraState)) {
+				this.map.jumpTo(originalCamera)
+				this.map.triggerRepaint()
+			}
+		}
 	}
 
 	/**

@@ -29,6 +29,7 @@ interface V1ChatSettingsSnapshot {
 	customApiKey?: string
 	selectedModel?: string | null
 	toolsEnabled?: boolean
+	mapSnapshotsEnabled?: boolean
 }
 
 function getChatSettingsStorageKey(pubkey: string): string {
@@ -83,6 +84,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 			},
 			selectedModel: defaults.selectedModel,
 			toolsEnabled: defaults.toolsEnabled,
+			mapSnapshotsEnabled: defaults.mapSnapshotsEnabled,
 			safetyLevel: defaults.safetyLevel,
 			promptProfile: defaults.promptProfile,
 			version: 2,
@@ -97,6 +99,10 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 		typeof parsed.selectedModel === 'string' ? parsed.selectedModel : defaults.selectedModel
 	const toolsEnabled =
 		typeof parsed.toolsEnabled === 'boolean' ? parsed.toolsEnabled : defaults.toolsEnabled
+	const mapSnapshotsEnabled =
+		typeof parsed.mapSnapshotsEnabled === 'boolean'
+			? parsed.mapSnapshotsEnabled
+			: defaults.mapSnapshotsEnabled
 	const safetyLevel = normalizeSafetyLevel(parsed.safetyLevel)
 	const promptProfile = normalizePromptProfile(parsed.promptProfile)
 
@@ -112,6 +118,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 			},
 			selectedModel,
 			toolsEnabled,
+			mapSnapshotsEnabled,
 			safetyLevel,
 			promptProfile,
 			version: 2,
@@ -132,6 +139,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 		},
 		selectedModel,
 		toolsEnabled,
+		mapSnapshotsEnabled,
 		safetyLevel,
 		promptProfile,
 		version: 2,

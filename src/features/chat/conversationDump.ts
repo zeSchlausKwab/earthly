@@ -47,6 +47,7 @@ export interface ConversationDumpInput {
 	selectedModel: string | null
 	models: RoutstrModel[]
 	toolsEnabled: boolean
+	mapSnapshotsEnabled: boolean
 	promptProfile?: PromptProfile
 	/** Live `ChatDiagnostics` snapshot (loosely typed to avoid a store-internal export). */
 	diagnostics?: Record<string, unknown> | null
@@ -80,6 +81,7 @@ export interface ConversationDump {
 		modelId: string | null
 		modelLabel: string | null
 		toolsEnabled: boolean
+		mapSnapshotsEnabled: boolean
 		promptProfile: PromptProfile
 	}
 	analysis: ConversationDumpAnalysis
@@ -99,6 +101,21 @@ export interface ConversationDumpTargetIdentity {
 	draftUpdatedAt: number | null
 	wasDirty: boolean | null
 	workspaceId: string | null
+}
+
+/** Keep diagnostic exports useful without embedding megabytes of private pixels. */
+function sanitizeContentForConversationDump(
+	content: ChatMessage['content'],
+): ChatMessage['content'] {
+	if (!Array.isArray(content)) return content
+	return content.map((part) => {
+		if (part.type !== 'image_url' || !part.image_url.url.startsWith('data:')) return part
+		const mimeType = /^data:([^;,]+)/.exec(part.image_url.url)?.[1] ?? 'image'
+		return {
+			type: 'text' as const,
+			text: `[inline ${mimeType} omitted from conversation export]`,
+		}
+	})
 }
 
 export type ConversationDumpCurrentTargetStatus =
@@ -282,6 +299,7 @@ export function buildConversationDump(input: ConversationDumpInput): Conversatio
 			modelId: input.selectedModel,
 			modelLabel,
 			toolsEnabled: input.toolsEnabled,
+			mapSnapshotsEnabled: input.mapSnapshotsEnabled,
 			promptProfile: input.promptProfile ?? 'legacy',
 		},
 		analysis: analyzeConversationDumpMessages(input.messages, input.diagnostics),
@@ -292,7 +310,7 @@ export function buildConversationDump(input: ConversationDumpInput): Conversatio
 		messages: input.messages.map((message, index) => ({
 			index,
 			role: message.role,
-			content: message.content,
+			content: sanitizeContentForConversationDump(message.content),
 			reasoning_content:
 				typeof message.reasoning_content === 'string' ? message.reasoning_content : null,
 			tool_calls: message.tool_calls ?? null,

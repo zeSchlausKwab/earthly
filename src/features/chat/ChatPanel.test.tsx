@@ -54,6 +54,21 @@ describe('ChatPanel editing-target send contract', () => {
 			}),
 		).toEqual({ canSend: true, title: 'Send' })
 	})
+
+	test('does not silently send text while an attached image is blocked', () => {
+		expect(
+			resolveChatSendState({
+				canCompose: true,
+				hasValidEditingTarget: true,
+				targetCreationPending: false,
+				anotherChatIsRunning: false,
+				imageSendBlocked: true,
+			}),
+		).toEqual({
+			canSend: false,
+			title: 'Resolve the image support warning before sending.',
+		})
+	})
 })
 
 describe('ChatPanel mobile control sizing', () => {

@@ -114,6 +114,7 @@ function baseInput(overrides?: Partial<ConversationDumpInput>): ConversationDump
 		selectedModel: 'local-model-1',
 		models: MODELS,
 		toolsEnabled: true,
+		mapSnapshotsEnabled: true,
 		diagnostics: { finishReason: 'tool_calls', toolCallCount: 2 },
 		...overrides,
 	}
@@ -131,6 +132,7 @@ describe('buildConversationDump', () => {
 		expect(dump.endpoint.modelId).toBe('local-model-1')
 		expect(dump.endpoint.modelLabel).toBe('Local Model One')
 		expect(dump.endpoint.toolsEnabled).toBe(true)
+		expect(dump.endpoint.mapSnapshotsEnabled).toBe(true)
 		expect(dump.endpoint.promptProfile).toBe('legacy')
 		expect(dump.chat?.targetWorkspaceId).toBe('workspace-now')
 		expect(dump.messageCount).toBe(MESSAGES.length)
@@ -248,6 +250,27 @@ describe('buildConversationDump', () => {
 		// The endpoint object surfaces baseUrl but never apiKey.
 		expect(dump.endpoint).not.toHaveProperty('apiKey')
 		expect(JSON.stringify(dump)).not.toContain(SECRET)
+	})
+
+	test('omits inline image bytes while retaining an attachment breadcrumb', () => {
+		const dataUrl = 'data:image/png;base64,PRIVATE-PIXELS'
+		const dump = buildConversationDump(
+			baseInput({
+				messages: [
+					{
+						role: 'user',
+						content: [
+							{ type: 'text', text: 'Review this map' },
+							{ type: 'image_url', image_url: { url: dataUrl } },
+						],
+					},
+				],
+			}),
+		)
+		const json = serializeConversationDump(dump)
+
+		expect(json).not.toContain('PRIVATE-PIXELS')
+		expect(json).toContain('[inline image/png omitted from conversation export]')
 	})
 
 	test('falls back to modelId when the model is not in the list', () => {

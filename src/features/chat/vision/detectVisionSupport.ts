@@ -7,13 +7,15 @@
  * images and the autonomous `capture_map_snapshot` one-shot — consult this.
  *
  * Ladder (first authoritative answer wins):
- *   1. Ollama native `POST {baseUrl-without-/v1}/api/show` → `capabilities[]`
+ *   1. Modalities returned by the authenticated model-list request already made
+ *      by Earthly, then a narrowly scoped manifest for documented official APIs.
+ *   2. Ollama native `POST {baseUrl-without-/v1}/api/show` → `capabilities[]`
  *      (Ollama's OpenAI `/v1/models` surface OMITS capabilities — Pitfall 1).
- *   2. Other providers: `GET {baseUrl}/models` → the model entry's
+ *   3. Other providers: `GET {baseUrl}/models` → the model entry's
  *      `capabilities` / `input_modalities` / `architecture.input_modalities`.
- *   3. Name heuristic (the old `visionHints`) → `'uncertain'` (NOT confirmed;
+ *   4. Name heuristic (the old `visionHints`) → `'uncertain'` (NOT confirmed;
  *      drives the Plan 06 opt-in UI, never the autonomous send).
- *   4. Fail-safe → `'no-vision'` (never silently send to a blind model).
+ *   5. Fail-safe → `'no-vision'` (never silently send to a blind model).
  *
  * Security: the fetch target is ALWAYS `provider.baseUrl` + a fixed path
  * (`/api/show` or `/models`) — never a value derived from file content or model
@@ -22,7 +24,7 @@
  * `(type, baseUrl, modelId)` so detection costs at most one network call per
  * model per session (T-03-12).
  */
-import type { ProviderConfig } from '../routstr'
+import type { ProviderConfig, RoutstrModel } from '../routstr'
 
 export type VisionSupport = 'vision' | 'no-vision' | 'uncertain'
 
@@ -44,7 +46,21 @@ const VISION_NAME_HINTS = [
 	'pixtral',
 	'gpt-4o',
 	'claude-3',
+	'kimi-k3',
+	'kimi-k2.6',
+	'kimi-k2.7-code',
 ] as const
+
+// Kimi's official API currently omits portable input-modality metadata from
+// some `/models` responses. Keep this exact and origin-scoped: these model ids
+// are documented by Moonshot as visual, while the same id on an arbitrary
+// OpenAI-compatible endpoint remains only `uncertain` via the name heuristic.
+const MOONSHOT_VISION_MODELS = new Set([
+	'kimi-k3',
+	'kimi-k2.6',
+	'kimi-k2.7-code',
+	'kimi-k2.7-code-highspeed',
+])
 
 /**
  * WR-06: does `hint` occur in `id` on TOKEN boundaries? A match requires the hint
@@ -64,8 +80,8 @@ function hintMatchesTokenBoundary(id: string, hint: string): boolean {
 		const after = afterIdx >= id.length ? '' : id[afterIdx]
 		const isTokenChar = (c: string) => c !== '' && /[a-z0-9.]/.test(c)
 		// The hint's own leading/trailing `-` already enforces that side's boundary.
-		const leftOk = hint.startsWith('-') || !isTokenChar(before)
-		const rightOk = hint.endsWith('-') || !isTokenChar(after)
+		const leftOk = hint.startsWith('-') || !isTokenChar(before ?? '')
+		const rightOk = hint.endsWith('-') || !isTokenChar(after ?? '')
 		if (leftOk && rightOk) return true
 		from = idx + 1
 	}
@@ -90,31 +106,62 @@ function cacheKey(provider: ProviderConfig, modelId: string): string {
 	return `${provider.type}|${provider.baseUrl}|${modelId}`
 }
 
+function documentedProviderVerdict(
+	provider: ProviderConfig,
+	modelId: string,
+): VisionSupport | undefined {
+	try {
+		const origin = new URL(provider.baseUrl).origin.toLowerCase()
+		if (origin !== 'https://api.moonshot.ai') return undefined
+		return MOONSHOT_VISION_MODELS.has(modelId.toLowerCase()) ? 'vision' : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/** Resolve the modality metadata already returned by the authenticated model list. */
+function modelMetadataVerdict(
+	model: Pick<RoutstrModel, 'inputModalities'> | undefined,
+): VisionSupport | undefined {
+	if (!Array.isArray(model?.inputModalities)) return undefined
+	return model.inputModalities.some(
+		(modality) =>
+			typeof modality === 'string' &&
+			(modality.toLowerCase().includes('image') || modality.toLowerCase().includes('vision')),
+	)
+		? 'vision'
+		: 'no-vision'
+}
+
 /** Does any of the capability-bearing fields list an image input modality? */
 function entryAdvertisesImage(entry: Record<string, unknown>): boolean | undefined {
-	const candidates: unknown[] = [
-		entry.capabilities,
+	const declaredModalities: unknown[] = [
 		entry.input_modalities,
 		(entry.architecture as Record<string, unknown> | undefined)?.input_modalities,
 	]
-
-	let sawCapabilityField = false
-	for (const candidate of candidates) {
-		if (Array.isArray(candidate)) {
-			sawCapabilityField = true
-			if (candidate.some((m) => typeof m === 'string' && m.toLowerCase().includes('image'))) {
-				return true
-			}
-			// Some providers list 'vision' rather than 'image' in a capabilities array.
-			if (candidate.some((m) => typeof m === 'string' && m.toLowerCase().includes('vision'))) {
-				return true
-			}
-		}
+	for (const candidate of declaredModalities) {
+		if (!Array.isArray(candidate)) continue
+		return candidate.some(
+			(modality) => typeof modality === 'string' && /image|vision/i.test(modality),
+		)
 	}
 
-	// Capability data was present but did not advertise image → authoritative no.
-	// No capability data at all → undefined (fall through to the name heuristic).
-	return sawCapabilityField ? false : undefined
+	const capabilities = entry.capabilities
+	if (!Array.isArray(capabilities)) return undefined
+	if (
+		capabilities.some(
+			(capability) => typeof capability === 'string' && /image|vision/i.test(capability),
+		)
+	) {
+		return true
+	}
+	// Generic capabilities such as `text`/`completion`/`tools` are not modality
+	// data and do not prove the absence of image input.
+	return capabilities.some(
+		(capability) => typeof capability === 'string' && /^text-only$/i.test(capability),
+	)
+		? false
+		: undefined
 }
 
 /** Tier 1: Ollama native `/api/show`. Returns a verdict, or `undefined` to fall through. */
@@ -175,8 +222,25 @@ async function detectOpenAiCompatible(
 export async function detectVisionSupport(
 	provider: ProviderConfig,
 	modelId: string,
+	model?: Pick<RoutstrModel, 'inputModalities'>,
 ): Promise<VisionSupport> {
 	const key = cacheKey(provider, modelId)
+	// Prefer the result of the model-list request Earthly already made. Besides
+	// avoiding a duplicate probe, this preserves capability metadata from custom
+	// endpoints whose authenticated `/models` cannot be queried anonymously. An
+	// explicit modality declaration must outrank a documentation fallback.
+	const metadataVerdict = modelMetadataVerdict(model)
+	if (metadataVerdict !== undefined) {
+		visionCache.set(key, metadataVerdict)
+		return metadataVerdict
+	}
+	// Fill gaps left by incomplete/non-standard `/models` metadata only for a
+	// documented model on the provider's exact official HTTPS origin.
+	const providerVerdict = documentedProviderVerdict(provider, modelId)
+	if (providerVerdict !== undefined) {
+		visionCache.set(key, providerVerdict)
+		return providerVerdict
+	}
 	const cached = visionCache.get(key)
 	if (cached !== undefined) return cached
 

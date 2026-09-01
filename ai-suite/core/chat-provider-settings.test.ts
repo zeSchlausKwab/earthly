@@ -10,11 +10,13 @@ describe('AI-suite chat provider settings', () => {
 			},
 			selectedModel: 'example-model',
 			toolsEnabled: true,
+			mapSnapshotsEnabled: false,
 			version: 2,
 		})
 		expect(settings.safetyLevel).toBe(2)
 		expect(settings.promptProfile).toBe('compact')
 		expect(settings.providerOverrides.lmstudio).toEqual({ baseUrl: '', apiKey: '' })
+		expect(settings.mapSnapshotsEnabled).toBe(false)
 	})
 
 	test('builds a no-secret confirm-all deterministic provider snapshot', () => {
@@ -26,6 +28,7 @@ describe('AI-suite chat provider settings', () => {
 		expect(settings.providerOverrides.custom.apiKey).toBe('')
 		expect(settings.safetyLevel).toBe(1)
 		expect(settings.promptProfile).toBe('compact')
+		expect(settings.mapSnapshotsEnabled).toBe(true)
 	})
 
 	test('rejects a plaintext remote endpoint', () => {
