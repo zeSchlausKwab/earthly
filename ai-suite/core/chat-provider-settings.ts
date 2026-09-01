@@ -20,6 +20,7 @@ export interface AiSuiteChatSettings {
 	}
 	selectedModel: string
 	toolsEnabled: boolean
+	mapSnapshotsEnabled: boolean
 	safetyLevel: 1 | 2 | 3
 	promptProfile: 'compact' | 'legacy'
 	version: 2
@@ -58,6 +59,8 @@ export function validateAiSuiteChatSettings(value: unknown): AiSuiteChatSettings
 		},
 		selectedModel,
 		toolsEnabled: typeof value.toolsEnabled === 'boolean' ? value.toolsEnabled : true,
+		mapSnapshotsEnabled:
+			typeof value.mapSnapshotsEnabled === 'boolean' ? value.mapSnapshotsEnabled : true,
 		safetyLevel: value.safetyLevel === 1 || value.safetyLevel === 3 ? value.safetyLevel : 2,
 		promptProfile: value.promptProfile === 'legacy' ? 'legacy' : 'compact',
 		version: 2,
@@ -131,6 +134,7 @@ export function deterministicChatSettings(baseUrl: string, modelId: string): AiS
 		},
 		selectedModel: modelId,
 		toolsEnabled: true,
+		mapSnapshotsEnabled: true,
 		safetyLevel: 1,
 		promptProfile: 'compact',
 		version: 2,

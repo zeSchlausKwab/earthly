@@ -47,6 +47,7 @@ export interface ConversationDumpInput {
 	selectedModel: string | null
 	models: RoutstrModel[]
 	toolsEnabled: boolean
+	mapSnapshotsEnabled: boolean
 	promptProfile?: PromptProfile
 	/** Live `ChatDiagnostics` snapshot (loosely typed to avoid a store-internal export). */
 	diagnostics?: Record<string, unknown> | null
@@ -80,6 +81,7 @@ export interface ConversationDump {
 		modelId: string | null
 		modelLabel: string | null
 		toolsEnabled: boolean
+		mapSnapshotsEnabled: boolean
 		promptProfile: PromptProfile
 	}
 	analysis: ConversationDumpAnalysis
@@ -297,6 +299,7 @@ export function buildConversationDump(input: ConversationDumpInput): Conversatio
 			modelId: input.selectedModel,
 			modelLabel,
 			toolsEnabled: input.toolsEnabled,
+			mapSnapshotsEnabled: input.mapSnapshotsEnabled,
 			promptProfile: input.promptProfile ?? 'legacy',
 		},
 		analysis: analyzeConversationDumpMessages(input.messages, input.diagnostics),

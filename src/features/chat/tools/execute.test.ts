@@ -105,6 +105,25 @@ function pointFeature(id: string, name: string, coordinates: [number, number]) {
 }
 
 describe('tool-result geometry authoring lifecycle', () => {
+	it('does not execute capture_map_snapshot when the user preference is disabled', async () => {
+		const result = await executeToolCall(
+			{
+				id: 'capture-disabled',
+				type: 'function',
+				function: { name: 'capture_map_snapshot', arguments: '{}' },
+			},
+			{ allowMapSnapshotCapture: false },
+		)
+		const payload = JSON.parse(result.content)
+
+		expect(payload).toMatchObject({
+			ok: false,
+			code: 'map_snapshot_capture_disabled',
+			retryable: false,
+			sideEffectsApplied: false,
+		})
+	})
+
 	const productionRouteEntry = registry.get('valhalla_route')
 	const productionIsochroneEntry = registry.get('valhalla_isochrone')
 	const productionCatalogEntry = registry.get('query_geography')
@@ -133,6 +152,240 @@ describe('tool-result geometry authoring lifecycle', () => {
 		unregister('selected_feature_persistence_fixture')
 		unregister('write_story_draft_conflict_fixture')
 		unregister('read_story_draft_conflict_fixture')
+	})
+
+	it('rejects capture_map_snapshot when the bound Dataset has no live visible editor', async () => {
+		const { run } = createActiveDatasetRun(112)
+		useEditorStore.setState({ editor: null })
+
+		const result = await executeToolCall(
+			{
+				id: 'capture-without-live-editor',
+				type: 'function',
+				function: { name: 'capture_map_snapshot', arguments: '{}' },
+			},
+			{ run, allowMapSnapshotCapture: true },
+		)
+
+		expect(JSON.parse(result.content)).toMatchObject({
+			ok: false,
+			code: 'capture_target_not_visible',
+			sideEffectsApplied: false,
+		})
+	})
+
+	it('rejects capture_map_snapshot while the live editor renders transient geometry', async () => {
+		const { run } = createActiveDatasetRun(1121)
+		const visibleEditor = useEditorStore.getState().editor
+		if (!visibleEditor) throw new Error('Expected visible editor')
+		visibleEditor.hasTransientRenderedGeometry = () => true
+
+		const result = await executeToolCall(
+			{
+				id: 'capture-with-transient-geometry',
+				type: 'function',
+				function: { name: 'capture_map_snapshot', arguments: '{}' },
+			},
+			{ run, allowMapSnapshotCapture: true },
+		)
+
+		expect(JSON.parse(result.content)).toMatchObject({
+			ok: false,
+			code: 'capture_target_not_visible',
+			sideEffectsApplied: false,
+		})
+	})
+
+	it('returns a retryable error when visible map content is not ready for capture', async () => {
+		const { run } = createActiveDatasetRun(1122)
+		const visibleEditor = useEditorStore.getState().editor
+		if (!visibleEditor) throw new Error('Expected visible editor')
+		visibleEditor.captureMapSnapshotStable = async () => {
+			const error = new Error('Map content did not finish loading') as Error & {
+				code: string
+				retryable: boolean
+			}
+			error.code = 'map_snapshot_content_not_ready'
+			error.retryable = true
+			throw error
+		}
+
+		const result = await executeToolCall(
+			{
+				id: 'capture-before-map-ready',
+				type: 'function',
+				function: {
+					name: 'capture_map_snapshot',
+					arguments: JSON.stringify({ scope: 'viewport' }),
+				},
+			},
+			{ run, allowMapSnapshotCapture: true },
+		)
+
+		expect(JSON.parse(result.content)).toMatchObject({
+			ok: false,
+			code: 'map_snapshot_content_not_ready',
+			retryable: true,
+			sideEffectsApplied: false,
+		})
+	})
+
+	it('fits capture_map_snapshot to the exact bound Dataset geometry by default', async () => {
+		const { draftId, run } = createActiveDatasetRun(113)
+		const features = [
+			pointFeature('west-point', 'West', [2, 3]),
+			pointFeature('east-point', 'East', [8, 11]),
+		]
+		useEditorStore.getState().saveGeoEditDraft(draftId, {
+			features,
+			selectedFeatureIds: ['east-point'],
+		})
+		const visibleEditor = useEditorStore.getState().editor
+		if (!visibleEditor) throw new Error('Expected visible editor')
+		visibleEditor.setFeatures(features)
+		visibleEditor.selectFeatures(['east-point'])
+		useEditorStore.setState({ features, selectedFeatureIds: ['east-point'] })
+
+		const captures: Array<{
+			bbox: [number, number, number, number]
+			options: { paddingPx?: number; maxZoom?: number }
+		}> = []
+		visibleEditor.captureMapSnapshotForFittedBoundsStable = async (bbox, options) => {
+			captures.push({ bbox, options: options ?? {} })
+			return {
+				dataUrl: 'data:image/png;base64,fixture',
+				width: 800,
+				height: 600,
+				mapCenter: { lat: 7, lon: 5 },
+				mapZoom: 9,
+				mapBbox: [1, 2, 9, 12],
+				mapContentReady: true,
+			}
+		}
+
+		const result = await executeToolCall(
+			{
+				id: 'capture-bound-dataset',
+				type: 'function',
+				function: {
+					name: 'capture_map_snapshot',
+					arguments: JSON.stringify({ fitPadding: 999, fitMaxZoom: 99 }),
+				},
+			},
+			{ run },
+		)
+		const payload = JSON.parse(result.content)
+
+		expect(captures).toEqual([
+			{
+				bbox: [2, 3, 8, 11],
+				options: expect.objectContaining({ paddingPx: 256, maxZoom: 20 }),
+			},
+		])
+		expect(payload).toMatchObject({
+			scope: 'dataset',
+			fittedFeatureCount: 2,
+			authoredBbox: [2, 3, 8, 11],
+			cameraTemporarilyFitted: true,
+			cameraRestored: true,
+			captureSurface: 'map_canvas',
+			mapView: {
+				center: { lat: 7, lon: 5 },
+				zoom: 9,
+				bbox: [1, 2, 9, 12],
+			},
+		})
+		expect(payload.excludedFromImage).toContain('DOM callouts')
+		expect(payload.includedInImage).toContain('all currently visible MapLibre map layers')
+	})
+
+	it('fits capture_map_snapshot selection scope to selected bound geometry only', async () => {
+		const { draftId, run } = createActiveDatasetRun(114)
+		const features = [
+			pointFeature('west-point', 'West', [2, 3]),
+			pointFeature('east-point', 'East', [8, 11]),
+		]
+		useEditorStore.getState().saveGeoEditDraft(draftId, {
+			features,
+			selectedFeatureIds: ['east-point'],
+		})
+		const visibleEditor = useEditorStore.getState().editor
+		if (!visibleEditor) throw new Error('Expected visible editor')
+		visibleEditor.setFeatures(features)
+		visibleEditor.selectFeatures(['east-point'])
+		useEditorStore.setState({ features, selectedFeatureIds: ['east-point'] })
+		const capturedBboxes: Array<[number, number, number, number]> = []
+		visibleEditor.captureMapSnapshotForFittedBoundsStable = async (bbox) => {
+			capturedBboxes.push(bbox)
+			return {
+				dataUrl: 'data:image/png;base64,fixture',
+				width: 800,
+				height: 600,
+				mapCenter: { lat: 11, lon: 8 },
+				mapZoom: 15,
+				mapBbox: [7, 10, 9, 12],
+				mapContentReady: true,
+			}
+		}
+
+		const result = await executeToolCall(
+			{
+				id: 'capture-bound-selection',
+				type: 'function',
+				function: {
+					name: 'capture_map_snapshot',
+					arguments: JSON.stringify({ scope: 'selection' }),
+				},
+			},
+			{ run },
+		)
+
+		expect(capturedBboxes).toEqual([[8, 11, 8, 11]])
+		expect(JSON.parse(result.content)).toMatchObject({
+			scope: 'selection',
+			fittedFeatureCount: 1,
+			authoredBbox: [8, 11, 8, 11],
+		})
+	})
+
+	it('fits antimeridian geometry across the short wrapped longitude interval', async () => {
+		const { draftId, run } = createActiveDatasetRun(115)
+		const features = [
+			pointFeature('east-dateline', 'East dateline', [179, 10]),
+			pointFeature('west-dateline', 'West dateline', [-179, 12]),
+		]
+		useEditorStore.getState().saveGeoEditDraft(draftId, {
+			features,
+			selectedFeatureIds: [],
+		})
+		const visibleEditor = useEditorStore.getState().editor
+		if (!visibleEditor) throw new Error('Expected visible editor')
+		visibleEditor.setFeatures(features)
+		useEditorStore.setState({ features, selectedFeatureIds: [] })
+		const capturedBboxes: Array<[number, number, number, number]> = []
+		visibleEditor.captureMapSnapshotForFittedBoundsStable = async (bbox) => {
+			capturedBboxes.push(bbox)
+			return {
+				dataUrl: 'data:image/png;base64,fixture',
+				width: 800,
+				height: 600,
+				mapCenter: { lat: 11, lon: 180 },
+				mapZoom: 8,
+				mapBbox: bbox,
+				mapContentReady: true,
+			}
+		}
+
+		await executeToolCall(
+			{
+				id: 'capture-antimeridian',
+				type: 'function',
+				function: { name: 'capture_map_snapshot', arguments: '{}' },
+			},
+			{ run, allowMapSnapshotCapture: true },
+		)
+
+		expect(capturedBboxes).toEqual([[179, 10, -179, 12]])
 	})
 
 	it('keeps a Dataset write bound to its captured draft after visible navigation', async () => {
@@ -1356,6 +1609,45 @@ describe('OSM point import styling', () => {
 })
 
 describe('tool redirect execution', () => {
+	it('does not let a redirect bypass the disabled map-snapshot preference', async () => {
+		register({
+			name: 'test_redirect_to_snapshot',
+			kind: 'host-builtin',
+			schema: {
+				type: 'function',
+				function: {
+					name: 'test_redirect_to_snapshot',
+					description: 'fixture',
+					parameters: { type: 'object', properties: {} },
+				},
+			},
+			handler: () => ({
+				ok: false,
+				kind: 'tool_redirect',
+				toolName: 'test_redirect_to_snapshot',
+				message: 'Capture the map',
+				redirectTool: 'capture_map_snapshot',
+				redirectArguments: {},
+			}),
+		})
+		try {
+			const result = await executeToolCall(
+				{
+					id: 'redirect-to-disabled-snapshot',
+					type: 'function',
+					function: { name: 'test_redirect_to_snapshot', arguments: '{}' },
+				},
+				{ allowMapSnapshotCapture: false },
+			)
+			expect(JSON.parse(result.content)).toMatchObject({
+				ok: false,
+				code: 'map_snapshot_capture_disabled',
+			})
+		} finally {
+			unregister('test_redirect_to_snapshot')
+		}
+	})
+
 	it('follows one structured redirect without spending another model round', async () => {
 		register({
 			name: 'test_redirect_source',

@@ -39,6 +39,7 @@ import {
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Switch } from '@/components/ui/switch'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -66,6 +67,7 @@ import {
 	Gauge,
 	MessageSquarePlus,
 	RefreshCw,
+	Camera,
 } from 'lucide-react'
 import { preloadWorldData } from '@/lib/geo/worldData'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
@@ -252,6 +254,8 @@ export function ChatPanel({
 		streamWarning,
 		lastProgressAt,
 		toolsEnabled,
+		mapSnapshotsEnabled,
+		settingsStatus,
 		promptProfile,
 		error,
 		errorRecovery,
@@ -262,6 +266,7 @@ export function ChatPanel({
 		providerOverrides,
 		loadModels,
 		setSelectedModel,
+		setMapSnapshotsEnabled,
 		sendMessage,
 		retryLastMessage,
 		finishLastResponse,
@@ -566,6 +571,7 @@ export function ChatPanel({
 			selectedModel,
 			models,
 			toolsEnabled,
+			mapSnapshotsEnabled,
 			promptProfile,
 			diagnostics: diagnostics as unknown as Record<string, unknown>,
 		})
@@ -972,6 +978,34 @@ export function ChatPanel({
 										{providerEndpointLabel}
 									</p>
 								</div>
+							</div>
+
+							<div className="mt-2.5 flex min-w-0 items-center justify-between gap-3 border-t pt-2.5">
+								<div className="flex min-w-0 items-start gap-2">
+									<Camera className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+									<div className="min-w-0">
+										<label
+											htmlFor="chat-map-snapshots-toggle"
+											className="block text-xs font-medium text-foreground"
+										>
+											AI map screenshots
+										</label>
+										<p className="text-[10px] leading-snug text-muted-foreground">
+											Let the model capture the map for visual review. Uploaded images are
+											unaffected.
+										</p>
+									</div>
+								</div>
+								<Switch
+									id="chat-map-snapshots-toggle"
+									checked={mapSnapshotsEnabled}
+									onCheckedChange={setMapSnapshotsEnabled}
+									disabled={
+										isStreaming || settingsStatus === 'loading' || settingsStatus === 'failed'
+									}
+									aria-label="Allow AI map screenshots"
+									className="shrink-0"
+								/>
 							</div>
 
 							<div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2.5 text-[10px] text-muted-foreground">
@@ -1390,20 +1424,23 @@ export function ChatPanel({
 							layout="detached"
 							panelClassName="w-full"
 						/>
-						<FileChipStrip
-							ref={fileChipStripRef}
-							key={`chat-files-${activeChatId ?? 'default'}`}
-							files={displayedFiles}
-							onChange={setAttachedFiles}
-							visionTier={visionTier}
-						/>
-						<VisionGateControl
-							support={visionSupport}
-							modelLabel={selectedModelLabel}
-							hasImage={hasAttachedImage}
-							sendAnyway={sendAnyway}
-							onSendAnywayChange={setSendAnyway}
-						/>
+						<div className="flex min-w-0 basis-full items-center gap-1.5 overflow-x-auto pb-0.5">
+							<FileChipStrip
+								ref={fileChipStripRef}
+								key={`chat-files-${activeChatId ?? 'default'}`}
+								files={displayedFiles}
+								onChange={setAttachedFiles}
+								visionTier={visionTier}
+								className="shrink"
+							/>
+							<VisionGateControl
+								support={visionSupport}
+								modelLabel={selectedModelLabel}
+								hasImage={hasAttachedImage}
+								sendAnyway={sendAnyway}
+								onSendAnywayChange={setSendAnyway}
+							/>
+						</div>
 						{(attachedSelection.length > 0 || attachedGeometry) && (
 							<div className="basis-full text-[11px] text-muted-foreground">
 								{attachedSelection.length > 0 && (

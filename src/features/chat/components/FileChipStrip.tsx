@@ -141,7 +141,10 @@ export const FileChipStrip = forwardRef<FileChipStripHandle, FileChipStripProps>
 			// is only a drop target, not a focusable control.
 			// biome-ignore lint/a11y/noStaticElementInteractions: drop-target wrapper; the Attach-file button is the accessible path
 			<div
-				className={cn('min-w-0', className)}
+				className={cn(
+					'flex min-w-0 max-w-full items-center gap-1.5 overflow-x-auto pb-0.5',
+					className,
+				)}
 				onDragOver={(event) => {
 					event.preventDefault()
 					setDragActive(true)
@@ -149,45 +152,40 @@ export const FileChipStrip = forwardRef<FileChipStripHandle, FileChipStripProps>
 				onDragLeave={() => setDragActive(false)}
 				onDrop={handleDrop}
 			>
-				<div className="flex flex-wrap items-center gap-1.5">
-					<Button
-						type="button"
-						variant={dragActive ? 'default' : 'outline'}
-						size="sm"
-						className="h-8 gap-1.5 text-xs"
-						onClick={() => inputRef.current?.click()}
-						title="Attach file"
-					>
-						<Paperclip className="h-3.5 w-3.5" />
-						Attach file
-					</Button>
-					<input
-						ref={inputRef}
-						type="file"
-						multiple
-						className="hidden"
-						onChange={(event) => {
-							if (event.target.files?.length) {
-								void processFiles(event.target.files)
-							}
-							event.target.value = ''
-						}}
-					/>
-				</div>
+				<Button
+					type="button"
+					variant={dragActive ? 'default' : 'outline'}
+					size="sm"
+					className="h-8 gap-1.5 text-xs"
+					onClick={() => inputRef.current?.click()}
+					title="Attach files"
+					aria-label="Attach files"
+				>
+					<Paperclip className="h-3.5 w-3.5" />
+					Attach
+				</Button>
+				<input
+					ref={inputRef}
+					type="file"
+					multiple
+					className="hidden"
+					onChange={(event) => {
+						if (event.target.files?.length) {
+							void processFiles(event.target.files)
+						}
+						event.target.value = ''
+					}}
+				/>
 
 				{dragActive && (
-					<div className="mt-2 rounded-lg border border-dashed bg-muted p-2.5 text-center text-xs text-muted-foreground">
+					<div className="shrink-0 rounded border border-dashed bg-muted px-2 py-1 text-xs text-muted-foreground">
 						Drop files to attach
 					</div>
 				)}
 
-				{files.length > 0 && (
-					<div className="mt-2 flex flex-wrap items-start gap-2">
-						{files.map((file) => (
-							<FileChip key={file.id} file={file} onRemove={handleRemove} />
-						))}
-					</div>
-				)}
+				{files.map((file) => (
+					<FileChip key={file.id} file={file} onRemove={handleRemove} />
+				))}
 			</div>
 		)
 	},

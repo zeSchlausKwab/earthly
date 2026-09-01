@@ -121,3 +121,22 @@ describe('feature predicate descriptions', () => {
 		}
 	})
 })
+
+describe('map snapshot tool description', () => {
+	it('defaults visual review to authored Dataset geometry and discloses canvas-only capture', () => {
+		const tool = schemaFor('capture_map_snapshot')
+		const description = tool.function.description.toLowerCase()
+		const scope = tool.function.parameters.properties.scope
+
+		expect(scope?.enum).toEqual(['dataset', 'selection', 'viewport'])
+		expect(scope?.description?.toLowerCase()).toContain("'dataset' (default)")
+		expect(description).toContain("restoring the user's camera")
+		expect(description).toContain('visible maplibre canvas')
+		expect(description).toContain('every currently visible map layer remains in the image')
+		expect(description).toContain('scope controls framing only')
+		expect(description).toContain('dom callouts')
+		expect(description).toMatch(
+			/once after the complete render.+once after a consolidated correction/,
+		)
+	})
+})

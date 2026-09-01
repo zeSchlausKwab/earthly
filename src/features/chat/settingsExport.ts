@@ -62,6 +62,7 @@ export function validateImportedSnapshot(parsed: unknown): ChatSettingsSnapshot 
 					},
 					selectedModel: defaults.selectedModel,
 					toolsEnabled: defaults.toolsEnabled,
+					mapSnapshotsEnabled: defaults.mapSnapshotsEnabled,
 					safetyLevel: defaults.safetyLevel,
 					promptProfile: defaults.promptProfile,
 					version: 2,
@@ -88,6 +89,10 @@ export function validateImportedSnapshot(parsed: unknown): ChatSettingsSnapshot 
 		},
 		selectedModel: typeof parsed.selectedModel === 'string' ? parsed.selectedModel : null,
 		toolsEnabled: typeof parsed.toolsEnabled === 'boolean' ? parsed.toolsEnabled : true,
+		mapSnapshotsEnabled:
+			typeof parsed.mapSnapshotsEnabled === 'boolean'
+				? parsed.mapSnapshotsEnabled
+				: defaults.mapSnapshotsEnabled,
 		// SAFE-04 / T-05-11: membership-check the imported safety level; an out-of-range or
 		// wrong-type value falls back to the safe default 2 rather than weakening gating.
 		safetyLevel: parsed.safetyLevel === 1 || parsed.safetyLevel === 3 ? parsed.safetyLevel : 2,

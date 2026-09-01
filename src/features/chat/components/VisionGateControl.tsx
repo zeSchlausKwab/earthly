@@ -18,9 +18,9 @@ interface VisionGateControlProps {
 }
 
 /**
- * The D-08 three-tier image-send affordance, driven by the Plan 04
- * `detectVisionSupport` ladder. The SAME gate governs user-attached images AND
- * the autonomous `capture_map_snapshot` one-shot (D-09).
+ * The D-08 three-tier image-send affordance for user attachments, driven by the
+ * Plan 04 `detectVisionSupport` ladder. Autonomous map screenshots additionally
+ * require the separate user preference exposed with the selected model.
  *
  *  - `'vision'`         → image-send enabled normally (informational badge).
  *  - `'no-vision'`      → hard-disabled, with a Tooltip explaining the reason
@@ -29,7 +29,7 @@ interface VisionGateControlProps {
  *                         confirm; the image is NOT sent unless opted in.
  *
  * Renders nothing when no image is attached (the gate is image-specific; the
- * snapshot path consults the same ladder result directly in the store).
+ * snapshot path consults the vision ladder and its own preference in the store).
  */
 export function VisionGateControl({
 	support,
@@ -42,10 +42,21 @@ export function VisionGateControl({
 
 	if (support === 'vision') {
 		return (
-			<span className="inline-flex h-8 items-center gap-1.5 rounded border bg-background px-2 text-xs text-muted-foreground">
-				<Eye className="h-3.5 w-3.5" />
-				Images enabled
-			</span>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<button
+						type="button"
+						className="inline-flex h-8 shrink-0 cursor-help items-center gap-1.5 rounded border bg-background px-2 text-xs text-muted-foreground"
+						aria-label={`${modelLabel} supports image input`}
+					>
+						<Eye className="h-3.5 w-3.5" aria-hidden="true" />
+						Vision
+					</button>
+				</TooltipTrigger>
+				<TooltipContent side="top" sideOffset={6}>
+					{modelLabel} supports image input.
+				</TooltipContent>
+			</Tooltip>
 		)
 	}
 
@@ -53,13 +64,15 @@ export function VisionGateControl({
 		return (
 			<Tooltip>
 				<TooltipTrigger asChild>
-					<span
-						className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded border bg-background px-2 text-xs text-muted-foreground opacity-60"
+					<button
+						type="button"
+						className="inline-flex h-8 shrink-0 cursor-help items-center gap-1.5 rounded border bg-background px-2 text-xs text-muted-foreground opacity-60"
 						aria-disabled="true"
+						aria-label={`${modelLabel} does not support image input`}
 					>
-						<ImageOff className="h-3.5 w-3.5 text-destructive" />
-						Images unsupported
-					</span>
+						<ImageOff className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+						No vision
+					</button>
 				</TooltipTrigger>
 				<TooltipContent side="top" sideOffset={6}>
 					{modelLabel} doesn't support images, so they can't be sent.
@@ -78,9 +91,15 @@ export function VisionGateControl({
 					size="sm"
 					className={cn('h-8 gap-1.5 text-xs', !sendAnyway && 'border-primary/40 text-primary')}
 					onClick={() => onSendAnywayChange(!sendAnyway)}
+					aria-pressed={sendAnyway}
+					aria-label={
+						sendAnyway
+							? `Stop allowing image input for ${modelLabel}`
+							: `Allow image input for ${modelLabel} despite uncertain support`
+					}
 				>
-					<EyeOff className="h-3.5 w-3.5" />
-					{sendAnyway ? 'Sending image anyway' : 'Send anyway'}
+					<EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+					{sendAnyway ? 'Image allowed' : 'Allow image'}
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent side="top" sideOffset={6}>

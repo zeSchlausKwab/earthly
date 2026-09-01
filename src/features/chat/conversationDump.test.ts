@@ -114,6 +114,7 @@ function baseInput(overrides?: Partial<ConversationDumpInput>): ConversationDump
 		selectedModel: 'local-model-1',
 		models: MODELS,
 		toolsEnabled: true,
+		mapSnapshotsEnabled: true,
 		diagnostics: { finishReason: 'tool_calls', toolCallCount: 2 },
 		...overrides,
 	}
@@ -131,6 +132,7 @@ describe('buildConversationDump', () => {
 		expect(dump.endpoint.modelId).toBe('local-model-1')
 		expect(dump.endpoint.modelLabel).toBe('Local Model One')
 		expect(dump.endpoint.toolsEnabled).toBe(true)
+		expect(dump.endpoint.mapSnapshotsEnabled).toBe(true)
 		expect(dump.endpoint.promptProfile).toBe('legacy')
 		expect(dump.chat?.targetWorkspaceId).toBe('workspace-now')
 		expect(dump.messageCount).toBe(MESSAGES.length)

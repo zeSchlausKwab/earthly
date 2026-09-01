@@ -60,7 +60,7 @@ import {
 	type GeoCollectionEditDraft,
 	type GeoEditorWorkspace,
 } from '@/features/geo-editor/store'
-import { eventStore } from '@/lib/nostr'
+import { accounts, eventStore } from '@/lib/nostr'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import {
 	cancelPendingReferencePublishes,
@@ -138,10 +138,10 @@ const FINISH_APPLIED_CHANGES_INSTRUCTION = [
  * creates guaranteed-failure rounds. Vision-only tools retain their capability
  * gate as well.
  */
-export function getAdvertisedGeoTools(canUseVision: boolean) {
+export function getAdvertisedGeoTools(canCaptureMapSnapshots: boolean) {
 	return gateToolsForVision(
 		getGeoTools().filter((tool) => !tool.function.name.startsWith('editor_')),
-		canUseVision,
+		canCaptureMapSnapshots,
 	)
 }
 
@@ -391,6 +391,8 @@ export interface ChatSettingsSnapshot {
 	providerOverrides: ProviderOverrideMap
 	selectedModel: string | null
 	toolsEnabled: boolean
+	/** Allow the model to capture the rendered map for autonomous visual review. */
+	mapSnapshotsEnabled: boolean
 	// Edit-safety level (SAFE-04 / D-09 / D-12): 1 = preview + confirm all, 2 = confirm
 	// destructive only (default), 3 = trust + undo (the D-12 "just accept" toggle sets 3).
 	// Rides the same encrypt-to-self envelope as the rest of the snapshot; never a bespoke key.
@@ -406,6 +408,23 @@ export interface ChatSettingsSnapshot {
  */
 export type SettingsStatus = 'idle' | 'loading' | 'loaded' | 'failed' | 'no-signer'
 
+export function isMapSnapshotCaptureAuthorized(options: {
+	canUseVision: boolean
+	runAccountPubkey: string | null
+	activeAccountPubkey: string | null
+	mapSnapshotsEnabled: boolean
+	settingsStatus: SettingsStatus
+	settingsOwnerPubkey: string | null
+}): boolean {
+	if (!options.canUseVision || !options.mapSnapshotsEnabled) return false
+	if (options.activeAccountPubkey !== options.runAccountPubkey) return false
+	return (
+		options.activeAccountPubkey === null ||
+		(options.settingsStatus === 'loaded' &&
+			options.settingsOwnerPubkey === options.activeAccountPubkey)
+	)
+}
+
 export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
 	provider: 'routstr',
 	providerOverrides: {
@@ -415,6 +434,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
 	},
 	selectedModel: null,
 	toolsEnabled: true,
+	mapSnapshotsEnabled: true,
 	safetyLevel: 2,
 	promptProfile: 'legacy',
 	version: 2,
@@ -1282,12 +1302,15 @@ interface ChatState {
 	// Encrypted-settings load lifecycle (observable surface for the settings UI; D-11/D-12)
 	settingsStatus: SettingsStatus
 	settingsError: string | null
+	/** Pubkey whose encrypted settings are currently hydrated into this global store. */
+	settingsOwnerPubkey: string | null
 	settingsLoadNonce: number
 	// Bumped by an explicit user-initiated import (D-09); clears the sync hook's
 	// "load failed / not safe to save" guard so the recovery write is allowed (CR-01).
 	settingsImportNonce: number
 	// Settings
 	toolsEnabled: boolean // Whether to send tools with requests
+	mapSnapshotsEnabled: boolean // Whether a vision model may autonomously capture the map
 	safetyLevel: 1 | 2 | 3 // Edit-safety level (SAFE-04): 1 preview-all / 2 confirm-destructive (default) / 3 trust+undo
 	promptProfile: PromptProfile
 	// Chat state. `isStreaming` is a global execution lock, not an active-chat flag.
@@ -1319,9 +1342,11 @@ interface ChatActions {
 	setSelectedModel: (modelId: string) => void
 	// Settings
 	setToolsEnabled: (enabled: boolean) => void
+	setMapSnapshotsEnabled: (enabled: boolean) => void
 	setSafetyLevel: (level: 1 | 2 | 3) => void
 	setPromptProfile: (profile: PromptProfile) => void
 	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => void
+	setSettingsOwnerPubkey: (pubkey: string | null) => void
 	setSettingsStatus: (status: SettingsStatus, error?: string | null) => void
 	requestSettingsReload: () => void
 	notifySettingsImported: () => void
@@ -1416,6 +1441,7 @@ function createInitialState(): ChatState {
 		modelsError: null,
 		settingsStatus: 'idle',
 		settingsError: null,
+		settingsOwnerPubkey: null,
 		settingsLoadNonce: 0,
 		settingsImportNonce: 0,
 		toolsEnabled: true,
@@ -1618,6 +1644,10 @@ export const useChatStore = create<ChatStore>()(
 				set({ toolsEnabled: enabled })
 			},
 
+			setMapSnapshotsEnabled: (enabled: boolean) => {
+				set({ mapSnapshotsEnabled: enabled })
+			},
+
 			// SAFE-04 / D-09 / D-12: set the level and let useChatSettingsSync's debounced
 			// encrypted save persist it. Never writes localStorage directly.
 			setSafetyLevel: (level: 1 | 2 | 3) => {
@@ -1643,6 +1673,8 @@ export const useChatStore = create<ChatStore>()(
 					},
 					selectedModel: settings.selectedModel ?? DEFAULT_CHAT_SETTINGS.selectedModel,
 					toolsEnabled: settings.toolsEnabled ?? DEFAULT_CHAT_SETTINGS.toolsEnabled,
+					mapSnapshotsEnabled:
+						settings.mapSnapshotsEnabled ?? DEFAULT_CHAT_SETTINGS.mapSnapshotsEnabled,
 					safetyLevel: settings.safetyLevel ?? DEFAULT_CHAT_SETTINGS.safetyLevel,
 					promptProfile: settings.promptProfile ?? DEFAULT_CHAT_SETTINGS.promptProfile,
 					models: [],
@@ -1653,6 +1685,10 @@ export const useChatStore = create<ChatStore>()(
 
 			setSettingsStatus: (status: SettingsStatus, error?: string | null) => {
 				set({ settingsStatus: status, settingsError: error ?? null })
+			},
+
+			setSettingsOwnerPubkey: (pubkey: string | null) => {
+				set({ settingsOwnerPubkey: pubkey })
 			},
 
 			// Retry trigger (D-11). Only bumps the nonce the load effect depends on; it must
@@ -1852,8 +1888,24 @@ export const useChatStore = create<ChatStore>()(
 					toast.error('The selected map edit is no longer available. Choose an editing target.')
 					return
 				}
-				const { selectedModel, models, toolsEnabled, provider, providerOverrides, promptProfile } =
-					get()
+				const {
+					selectedModel,
+					models,
+					toolsEnabled,
+					provider,
+					providerOverrides,
+					promptProfile,
+					settingsOwnerPubkey,
+					settingsStatus,
+				} = get()
+				const activeAccountPubkey = accounts.active?.pubkey ?? null
+				if (
+					activeAccountPubkey !== null &&
+					(settingsStatus !== 'loaded' || settingsOwnerPubkey !== activeAccountPubkey)
+				) {
+					toast.info('Chat settings are still loading for this account')
+					return
+				}
 				const continuingAfterAppliedChanges = options?.continueAfterAppliedChanges === true
 				const toolsEnabledForRun = toolsEnabled && !continuingAfterAppliedChanges
 				const providerConfig = resolveProvider(provider, providerOverrides)
@@ -1861,6 +1913,17 @@ export const useChatStore = create<ChatStore>()(
 				// it; assigned once vision support resolves below. Default false fails
 				// closed (gates the vision-only tool OFF if ever read before assignment).
 				let canUseVision = false
+				const canCaptureMapSnapshotsNow = (): boolean => {
+					const current = get()
+					return isMapSnapshotCaptureAuthorized({
+						canUseVision,
+						runAccountPubkey: activeAccountPubkey,
+						activeAccountPubkey: accounts.active?.pubkey ?? null,
+						mapSnapshotsEnabled: current.mapSnapshotsEnabled,
+						settingsStatus: current.settingsStatus,
+						settingsOwnerPubkey: current.settingsOwnerPubkey,
+					})
+				}
 				const referenceContextMessage = options?.referenceContextMessage?.trim()
 				const selectionContextMessage = options?.selectionContextMessage?.trim()
 				const geometryContextMessage = options?.geometryContextMessage?.trim()
@@ -2083,11 +2146,12 @@ export const useChatStore = create<ChatStore>()(
 						//
 						// D-08/D-09: do NOT advertise `capture_map_snapshot` to a model that
 						// cannot consume the resulting image. Mirror the autonomous-snapshot
-						// vision gate (canUseVision) on the ADVERTISED surface so a no-vision
-						// (or merely 'uncertain') model never sees the tool, calls it, and
-						// then wastes a round reasoning that it cannot view the snapshot.
+						// vision + user-preference gate on the ADVERTISED surface so a no-vision
+						// model—or a user who opted out—never incurs a snapshot round.
 						const requestTools =
-							toolsEnabledForRun && allowTools ? getAdvertisedGeoTools(canUseVision) : undefined
+							toolsEnabledForRun && allowTools
+								? getAdvertisedGeoTools(canCaptureMapSnapshotsNow())
+								: undefined
 						console.log('[Chat] Request config:', {
 							provider: providerConfig.type,
 							model: selectedModelId,
@@ -2338,7 +2402,9 @@ export const useChatStore = create<ChatStore>()(
 						visionSupport === 'vision' &&
 						effectiveContextTokens >= MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE
 					const promptBudgetTokens = getPromptBudgetTokens(model, providerConfig)
-					const advertisedTools = toolsEnabledForRun ? getAdvertisedGeoTools(canUseVision) : []
+					const advertisedTools = toolsEnabledForRun
+						? getAdvertisedGeoTools(canCaptureMapSnapshotsNow())
+						: []
 					const streamStartAt = Date.now()
 
 					setOwnedRunState({
@@ -2421,7 +2487,7 @@ export const useChatStore = create<ChatStore>()(
 						}
 
 						const advertisedToolNames = toolsEnabledForRun
-							? getAdvertisedGeoTools(canUseVision).map((tool) => tool.function.name)
+							? getAdvertisedGeoTools(canCaptureMapSnapshotsNow()).map((tool) => tool.function.name)
 							: []
 						const systemSections = continuingAfterAppliedChanges
 							? [FINISH_APPLIED_CHANGES_INSTRUCTION]
@@ -2688,6 +2754,7 @@ export const useChatStore = create<ChatStore>()(
 								try {
 									toolResult = await executeToolCall(toolCall, {
 										attachedGeometry: geometryAttachment,
+										allowMapSnapshotCapture: canCaptureMapSnapshotsNow(),
 										userMessage: content,
 										toolCallId: toolCall.id,
 										run: runIdentity,
@@ -2803,7 +2870,10 @@ export const useChatStore = create<ChatStore>()(
 									},
 								}))
 
-								if (canUseVision && toolCall.function.name === 'capture_map_snapshot') {
+								if (
+									canCaptureMapSnapshotsNow() &&
+									toolCall.function.name === 'capture_map_snapshot'
+								) {
 									const snapshotId = tryExtractSnapshotId(toolResult.content)
 									if (!snapshotId) continue
 
@@ -3183,6 +3253,10 @@ export const chatActions = {
 	loadModels: () => useChatStore.getState().loadModels(),
 	setSelectedModel: (modelId: string) => useChatStore.getState().setSelectedModel(modelId),
 	setToolsEnabled: (enabled: boolean) => useChatStore.getState().setToolsEnabled(enabled),
+	setMapSnapshotsEnabled: (enabled: boolean) =>
+		useChatStore.getState().setMapSnapshotsEnabled(enabled),
+	setSettingsOwnerPubkey: (pubkey: string | null) =>
+		useChatStore.getState().setSettingsOwnerPubkey(pubkey),
 	setSafetyLevel: (level: 1 | 2 | 3) => useChatStore.getState().setSafetyLevel(level),
 	setPromptProfile: (profile: PromptProfile) => useChatStore.getState().setPromptProfile(profile),
 	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) =>
