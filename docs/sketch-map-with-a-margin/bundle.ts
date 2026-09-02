@@ -13,8 +13,10 @@ let bundled = html
 	.replace('<script src="data.js"></script>', `<script>\n${data}\n</script>`)
 	.replace('<script src="app.js"></script>', `<script>\n${app}\n</script>`)
 if (process.argv.includes('--artifact')) {
-	// Artifacts supply their own document skeleton; strip ours.
+	// Artifacts supply their own document skeleton and block tile fetches; strip ours and fall back to the SVG canvas.
 	bundled = bundled
+		.replace(/<link rel="stylesheet" href="https:\/\/unpkg.com\/maplibre-gl[^>]*>\s*/i, '')
+		.replace(/<script src="https:\/\/unpkg.com\/maplibre-gl[^>]*><\/script>\s*/i, '<script>window.SKETCH_NO_BASEMAP = true</script>\n')
 		.replace(/^<!doctype html>\s*<html[^>]*>\s*<head>\s*/i, '')
 		.replace(/<meta charset="utf-8">\s*/i, '')
 		.replace(/<meta name="viewport"[^>]*>\s*/i, '')

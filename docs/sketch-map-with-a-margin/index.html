@@ -6,19 +6,22 @@
 <title>Earthly · A Map with a Margin (sketch)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="app">
+<div id="app" class="has-lensbar-slot">
   <header class="topbar">
     <a class="brand" href="#/"><span class="dot"></span>Earthly</a>
     <div class="search" id="search"></div>
     <div class="right" id="topright"></div>
   </header>
 
+  <div class="lensbar" id="lensbar" hidden></div>
   <div class="stage" id="stage">
     <aside class="margin" id="margin" aria-label="Margin"></aside>
     <div class="canvas" id="canvas">
+      <div id="map"></div>
       <svg id="svg" xmlns="http://www.w3.org/2000/svg">
         <g id="world">
           <g id="grat"></g>
@@ -42,6 +45,7 @@
 <div id="menus"></div>
 <div id="dialogs"></div>
 <div class="toasts" id="toasts"></div>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

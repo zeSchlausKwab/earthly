@@ -157,6 +157,22 @@ The lane stays exactly as specified (`SPEC.md §3.3`). What changes is that it h
 - **Accepting is pinning.** In a closed or schema atlas, the owner accepts a foreign map by pinning it. The `a` lane already expresses approval; no new status kind is needed. The owner sees a **Waiting** list of maps that carry the `c` tag but are not yet pinned.
 - **The owner's AI works on the Atlas.** Open the Atlas, open its Thread. Because an Atlas has no geometry, this Thread is a concierge over the collection: "which maps lack descriptions", "translate the Arabic names across the pinned maps". It opens the owner's own maps in Edit one at a time, and for other people's maps it drafts **proposals** (kind 37519) that appear as ghosts to the original author. This is the "curator cleans up a convoluted context" story from `PROJECT.md`, with visible scope at every step.
 
+### 3.3b The Atlas lens: one atlas as the whole app
+
+Niche communities do not want "a mapping app that also has skate spots." They want *the skate-spot app*. The Atlas is how Earthly gives them one without forking the product.
+
+**Enter** an Atlas and it becomes a lens over everything:
+
+- **Lists show only this atlas.** Browse tabs become *Spots · Stories · People* (the atlas supplies the noun). Search is scoped the same way; its placeholder says so.
+- **New maps belong here.** The + button reads "New spot map in Global skate spots." The working copy opens with Belongs to pre-filled and visible, still removable. Existing drafts are never retargeted, which keeps the rule that made the old destination pill safe.
+- **The schema becomes a form.** An atlas with a schema gives every map inside it a Properties section: *Surface: marble · Type: plaza*. Fit-state chips and the Waiting list follow from the same fields, so "doesn't fit" always names the missing field.
+- **The Shelf loads the atlas.** Entering frames all of its maps; the Live chip and the rest of the canvas are unchanged.
+- **The Thread knows where it is.** Prompt suggestions and the model's context carry the atlas and its schema: "add a spot at the next plaza east of here."
+- **It is visibly a mode, and one tap to leave.** A lens bar under the top bar names the atlas, states the rule ("Lists show only this atlas. New spots belong here."), and offers *About*, *Share app link*, and *Leave*. On a phone the bar sits under the search field. The atlas may set an accent colour and an emblem, so the app is lightly skinned while you are inside. Nothing else changes.
+- **The lens is a URL.** `/in/global-skate-spots` enters it. A community can hand that link around as *their app*; it opens on the atlas's own list with the atlas's own + button.
+
+What the lens deliberately does *not* do: it never changes the audience (who can read a map), never hides what you already have on the Shelf, and never silently edits belonging on anything you did not create inside it.
+
 ### 3.4 The editing model: every Map has one working copy
 
 - Open a published Map → you read it.

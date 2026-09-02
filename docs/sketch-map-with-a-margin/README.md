@@ -4,9 +4,10 @@ A throwaway, dependency-free prototype of the UI proposed in
 [`../FROM-SCRATCH-UX-AUDIT-2026-09.md`](../FROM-SCRATCH-UX-AUDIT-2026-09.md)
 (designed version: [`../a-map-with-a-margin.html`](../a-map-with-a-margin.html)).
 
-It is not wired to Nostr, MapLibre, or the app. The "world" is an abstract SVG
-you can pan and zoom; the objects are modelled on what is actually published on
-earthly.city. Its job is to let you click through the modes and menus and feel
+It is not wired to Nostr or the app. The basemap is OpenFreeMap (Liberty style)
+via MapLibre GL loaded from unpkg; when the script or tiles are unavailable (the
+artifact sandbox blocks tile fetches) it falls back to an SVG graticule. Objects
+are modelled on what is actually published on earthly.city, at real coordinates. Its job is to let you click through the modes and menus and feel
 the transitions before anything is built for real.
 
 ## Run
@@ -53,6 +54,13 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
   or open something else.
 - **Shelf**: chips for what is drawn, eye toggle, remove, pencil for the map in
   Edit, one **Live** chip for sightings and live positions, *Save this view*.
+- **Atlas lens**: on an Atlas page press *Enter atlas* (or open `#/in/skate-spots`).
+  A lens bar names the atlas; Browse tabs become *Spots · Stories · People*, search
+  is scoped, the Shelf loads the atlas, the + button and *New spot map* pre-fill
+  Belongs to, maps get a Properties form from the atlas schema, and the accent
+  colour follows the atlas. *Leave ×* undoes all of it; drafts keep their belonging.
+- **Glass panels**: the ◐ button in any margin header, or Me → Panels. Default on
+  for phones. Menus, the sheet, the margin and the top bar let the map through.
 - **Drafts** and **Me** menus (theme toggle lives under Me).
 - **Phone** (≤ 760px): four-item bar Map · Search · + · Me, bottom sheet with
   peek / half / full detents (drag or tap the handle), the **+** chooser.

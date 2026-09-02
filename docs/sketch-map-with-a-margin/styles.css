@@ -51,8 +51,34 @@ a{color:var(--accent)}
 @media (prefers-reduced-motion: reduce){*{transition-duration:0ms!important;animation-duration:0ms!important}}
 
 /* ---------- App frame ---------- */
-#app{position:fixed;inset:0;display:grid;grid-template-rows:var(--top-h) 1fr;grid-template-columns:1fr}
-.topbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.6rem;padding:0 .6rem;background:var(--surface);border-bottom:1px solid var(--rule);z-index:30;position:relative}
+#app{position:fixed;inset:0;display:grid;grid-template-rows:var(--top-h) var(--lens-h,0px) minmax(0,1fr);grid-template-columns:1fr}
+#map{position:absolute;inset:0}
+#map[hidden]{display:none}
+.maplibregl-ctrl-attrib{font-family:var(--mono);font-size:10px;background:color-mix(in srgb,var(--surface) 80%,transparent)!important;color:var(--muted)}
+.maplibregl-ctrl-attrib a{color:var(--muted)}
+.maplibregl-ctrl-bottom-right{bottom:var(--shelf-h)!important}
+.livedot{width:14px;height:14px;background:var(--live);border:2px solid var(--surface);box-shadow:0 0 0 0 color-mix(in srgb,var(--live) 55%,transparent);animation:livepulse 1.6s ease-out infinite}
+@keyframes livepulse{to{box-shadow:0 0 0 14px transparent}}
+
+/* Lens bar: the one place that says 'you are inside an atlas' */
+.lensbar{grid-row:2;display:flex;align-items:center;gap:.6rem;padding:0 .6rem;height:var(--lens-h,38px);background:var(--accent-soft);border-bottom:1px solid var(--accent);z-index:29;position:relative;overflow:hidden;white-space:nowrap}
+.lensbar[hidden]{display:none}
+.lensbar .emblem{font-size:1.05rem;color:var(--accent);width:22px;text-align:center}
+.lensbar .lt{display:flex;flex-direction:column;line-height:1.1;min-width:0}
+.lensbar .lt b{font-family:var(--display);font-weight:700;letter-spacing:-.01em}
+.lensbar .ls{font-family:var(--mono);font-size:.66rem;color:var(--muted)}
+.lensbar .lrule{flex:1;color:var(--ink-2);font-size:.82rem;overflow:hidden;text-overflow:ellipsis}
+.in-lens .brand .dot{background:var(--accent)}
+
+/* Glass panels: see the map through the margin, sheet and menus */
+body.glass .margin,body.glass .thread-col{background:color-mix(in srgb,var(--surface) 58%,transparent);backdrop-filter:blur(14px) saturate(1.1);-webkit-backdrop-filter:blur(14px) saturate(1.1)}
+body.glass .composer,body.glass .margin-head,body.glass .tabs,body.glass .ktabs,body.glass .ltools,body.glass .lhead{background:transparent}
+body.glass .menu{background:color-mix(in srgb,var(--surface) 72%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+body.glass .topbar,body.glass .mnav{background:color-mix(in srgb,var(--surface) 78%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+body.glass .msg.ai{background:color-mix(in srgb,var(--surface-2) 70%,transparent)}
+.glassbtn{color:var(--muted)}
+body.glass .glassbtn{color:var(--accent)}
+.topbar{grid-row:1;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.6rem;padding:0 .6rem;background:var(--surface);border-bottom:1px solid var(--rule);z-index:30;position:relative}
 .brand{font-family:var(--display);font-weight:800;font-size:1.05rem;letter-spacing:-.02em;display:flex;align-items:center;gap:.5rem;color:var(--ink);text-decoration:none}
 .brand .dot{width:10px;height:10px;border-radius:0;background:var(--accent)}
 .search{position:relative;max-width:720px;width:100%;justify-self:center}
@@ -107,7 +133,7 @@ a{color:var(--accent)}
 .backdrop{position:fixed;inset:0;z-index:55}
 
 /* ---------- Stage: margin + canvas ---------- */
-.stage{position:relative;display:grid;grid-template-columns:0 1fr;grid-template-rows:minmax(0,1fr);transition:grid-template-columns var(--slow) var(--ease);min-height:0}
+.stage{grid-row:3;position:relative;display:grid;grid-template-columns:0 1fr;grid-template-rows:minmax(0,1fr);transition:grid-template-columns var(--slow) var(--ease);min-height:0}
 .stage.margin-open{grid-template-columns:var(--margin-w) 1fr}
 .stage.thread-side{grid-template-columns:var(--margin-w) 1fr var(--margin-w)}
 .margin[hidden]{display:none!important}
@@ -239,10 +265,13 @@ a{color:var(--accent)}
 .askcta .grow{flex:1}
 
 /* Canvas */
-.canvas{position:relative;overflow:hidden;min-height:0;background:var(--water);cursor:grab;touch-action:none;user-select:none}
+.canvas{position:relative;overflow:hidden;min-height:0;background:var(--water);isolation:isolate;cursor:grab;touch-action:none;user-select:none}
 .canvas.panning{cursor:grabbing}
 .canvas.tool{cursor:crosshair}
 .canvas svg{position:absolute;inset:0;width:100%;height:100%}
+.canvas #map~.overlay,.canvas #popup,.canvas .shelf,.canvas .mtop{z-index:5}
+.canvas #popup{position:absolute;inset:0;pointer-events:none}
+.canvas #popup .popup{pointer-events:auto}
 #world{transform-origin:0 0;--inv:1}
 #world.fly{transition:transform var(--slow) var(--ease)}
 .land{fill:var(--land);stroke:var(--land-edge);stroke-width:1.2;vector-effect:non-scaling-stroke}
@@ -343,7 +372,13 @@ a{color:var(--accent)}
 @media (max-width:760px){
   :root{--top-h:0px;--shelf-h:0px}
   .topbar{display:none}
-  #app{grid-template-rows:1fr}
+  #app{grid-template-rows:0 0 1fr}
+  .lensbar{position:absolute;left:.6rem;right:.6rem;top:calc(.6rem + 44px + .4rem);height:34px;z-index:21;border:1px solid var(--accent);box-shadow:var(--shadow);gap:.4rem;padding:0 .4rem}
+  .lensbar .lrule,.lensbar .ls{display:none}
+  .lensbar .btn:not([data-act="leave-lens"]){display:none}
+  body.in-lens .mtop .mshelf{margin-top:38px}
+  .maplibregl-ctrl-bottom-right{bottom:calc(var(--sheet-peek,96px) + 60px)!important;transition:bottom var(--slow) var(--ease)}
+  .maplibregl-ctrl-bottom-left{display:none}
   .stage,.stage.margin-open,.stage.thread-side{grid-template-columns:1fr}
   .mtop{display:flex;flex-direction:column;gap:.4rem;position:absolute;left:.6rem;right:.6rem;top:.6rem;z-index:20}
   .mtop .search{max-width:none}
