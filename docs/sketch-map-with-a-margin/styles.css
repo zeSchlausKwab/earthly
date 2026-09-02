@@ -11,7 +11,7 @@
   --sans:"IBM Plex Sans",ui-sans-serif,system-ui,"Helvetica Neue",Arial,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   --ease:cubic-bezier(.2,.7,.2,1); --fast:160ms; --med:280ms; --slow:460ms;
-  --margin-w:380px; --top-h:46px; --shelf-h:42px;
+  --margin-w:30vw; --margin-w-side:28vw; --top-h:46px; --shelf-h:42px;
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
@@ -135,7 +135,7 @@ body.glass .glassbtn{color:var(--accent)}
 /* ---------- Stage: margin + canvas ---------- */
 .stage{grid-row:3;position:relative;display:grid;grid-template-columns:0 1fr;grid-template-rows:minmax(0,1fr);transition:grid-template-columns var(--slow) var(--ease);min-height:0}
 .stage.margin-open{grid-template-columns:var(--margin-w) 1fr}
-.stage.thread-side{grid-template-columns:var(--margin-w) 1fr var(--margin-w)}
+.stage.thread-side{grid-template-columns:var(--margin-w-side) 1fr var(--margin-w-side)}
 .margin[hidden]{display:none!important}
 .margin{position:relative;background:var(--surface);border-right:1px solid var(--rule);display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;opacity:0;transform:translateX(-12px);transition:opacity var(--med) var(--ease),transform var(--slow) var(--ease)}
 .stage.margin-open .margin{opacity:1;transform:none}
@@ -413,7 +413,6 @@ body.glass .glassbtn{color:var(--accent)}
   .msg{max-width:100%}
   .schip .name{max-width:120px}
 }
-@media (min-width:761px) and (max-width:1100px){
-  :root{--margin-w:340px}
+@media (min-width:761px) and (max-width:1099px){
   .stage.thread-side{grid-template-columns:var(--margin-w) 1fr}
 }

@@ -91,7 +91,7 @@
 		return [x0, y0, x1, y1]
 	}
 	function sideThreadActive() {
-		return S.threadSide && !isMobile() && innerWidth >= 1280 && ['map', 'story', 'atlas'].includes(S.route.kind)
+		return S.threadSide && !isMobile() && innerWidth >= 1100 && ['map', 'story', 'atlas'].includes(S.route.kind)
 	}
 	const lensAtlas = () => (S.lens ? D.atlases[S.lens] : null)
 	const noun = (a, n) => { const w = a && a.noun ? a.noun : 'map'; return n === 1 ? w : `${w}s` }
@@ -557,7 +557,7 @@
 			<button role="tab" class="${S.tab === 'details' ? 'on' : ''}" data-act="tab" data-tab="details">Details</button>
 			<button role="tab" class="${S.tab === 'thread' ? 'on' : ''}" data-act="tab" data-tab="thread">Thread${running ? '<span class="run"></span>' : ''}</button>
 			<span class="spacer"></span>
-			${S.tab === 'thread' && !isMobile() && innerWidth >= 1280 ? '<button class="btn sm quiet" data-act="thread-side" title="Pull the thread out to the right">⇥ Pull out</button>' : ''}
+			${S.tab === 'thread' && !isMobile() && innerWidth >= 1100 ? '<button class="btn sm quiet" data-act="thread-side" title="Pull the thread out to the right">⇥ Pull out</button>' : ''}
 		</div>`
 	}
 	const BROWSE_KINDS = [['maps', 'Maps'], ['stories', 'Stories'], ['atlases', 'Atlases'], ['sightings', 'Sightings'], ['people', 'People']]
@@ -902,8 +902,10 @@
 	}
 	function canvasRect() { return $('#canvas').getBoundingClientRect() }
 	function fitPadding() {
-		const mw = isMobile() ? 0 : parseFloat(cssVar('--margin-w')) || 380
-		return { top: 70, bottom: isMobile() ? innerHeight * 0.5 + 60 : 90, left: (isMobile() ? 0 : mw) + 40, right: (sideThreadActive() ? mw : 0) + 40 }
+		// Margins are viewport fractions: 30vw alone, 28vw each when the Thread is pulled out.
+		const side = sideThreadActive()
+		const mw = isMobile() ? 0 : innerWidth * (side ? 0.28 : 0.3)
+		return { top: 70, bottom: isMobile() ? innerHeight * 0.5 + 60 : 90, left: mw + 40, right: (side ? mw : 0) + 40 }
 	}
 	// b = [w, s, e, n] in lon/lat. close = zoom in on a single feature.
 	function flyTo(b, close) {

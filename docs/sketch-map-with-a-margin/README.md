@@ -40,9 +40,9 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
 - **Belongs to** on a Map: fit-state chips per Atlas, *Add to atlas…* picker.
 - **Atlas page**: door policy as a sentence, Pinned / Added by others /
   Waiting (owner), *Add a map ▾*, *Show all on map*, accept-by-pin.
-- **Thread** on a Map, Story or Atlas. On screens 1280px and wider it sits as a
-  right-hand column beside the canvas (Details stay in the left Margin); below
-  that it is a tab of the Margin; on a phone it is a tab of the sheet. Canned prompts, selection scope chip,
+- **Thread** on a Map, Story or Atlas. On screens 1100px and wider it sits as a
+  right-hand column beside the canvas (Details stay in the left Margin), 28vw
+  each side with the map between; alone, the Margin is 30vw. Below that it is a tab of the Margin; on a phone it is a tab of the sheet. Canned prompts, selection scope chip,
   reference chips, *Edit & send* / *Fork & send*, safety level, Details drawer.
   Proposals appear as amber ghosts on the canvas (maps) or amber paragraphs /
   pins in the margin (stories, atlases) with Apply · Discard · Review.
