@@ -37,8 +37,10 @@
 		view: { x: 0, y: 0, k: 1 },
 		popup: null,
 		detent: 'half',
-		threadSide: false,
+		threadSide: true,
 		aboutOpen: false,
+		browse: { kind: 'maps', q: '', sort: 'new' },
+		ask: { msgs: [] },
 		counter: 1,
 	}
 
@@ -84,6 +86,9 @@
 		if (x0 > x1) return [900, 400, 1100, 500]
 		return [x0, y0, x1, y1]
 	}
+	function sideThreadActive() {
+		return S.threadSide && !isMobile() && innerWidth >= 1280 && ['map', 'story', 'atlas'].includes(S.route.kind)
+	}
 	function policyText(p) {
 		return p === 'open' ? 'Anyone can add maps' : p === 'schema' ? 'Anyone, if the map fits the schema' : 'Only the owner adds maps'
 	}
@@ -121,7 +126,8 @@
 			S.liveOn = r.live
 		}
 		onRoute.done = true
-		if (r.kind && r.kind !== 'shelf' && !obj(r.kind, r.id)) {
+		if (r.kind === 'browse') S.browse.kind = r.id && BROWSE_KINDS.some((k) => k[0] === r.id) ? r.id : 'maps'
+		if (r.kind && !['shelf', 'browse', 'ask'].includes(r.kind) && !obj(r.kind, r.id)) {
 			toast('That link points at nothing here.')
 			location.hash = '#/'
 			return
@@ -154,7 +160,8 @@
 		}
 		if (r.kind !== 'map' && r.kind !== 'story' && r.kind !== 'atlas') S.tab = 'details'
 		if (!r.edit) { S.selection.clear() }
-		if (isMobile() && r.kind) S.detent = 'half'
+		if (isMobile() && r.kind && r.kind !== 'browse') S.detent = 'half'
+		if (isMobile() && r.kind === 'browse' && S.detent === 'peek') S.detent = 'half'
 		render()
 	}
 
@@ -355,7 +362,9 @@
 		const nid = `map-${++S.counter}`
 		const cx = (innerWidth / 2 - S.view.x) / S.view.k, cy = (innerHeight / 2 - S.view.y) / S.view.k
 		D.maps[nid] = { id: nid, kind: 'map', title: q.replace(/\?$/, '').slice(0, 48), author: 'me', published: null, version: 0, summary: '', topics: [], belongsTo: [], size: '1 KB', props: {}, features: [0, 1, 2].map((i) => ({ id: `s${i}`, name: `Result ${i + 1}`, type: 'point', coords: [cx - 60 + i * 60, cy + (i % 2) * 30], props: {} })) }
-		thread(key('map', nid)).push({ role: 'user', text: q }, { role: 'ai', text: `Here is what I found. I put three candidate points on a new map so you can edit them.`, op: 'Started a map from the question', details: [['web_search', 640], ['geocode × 3', 280]] })
+		const moved = S.ask.msgs.length ? S.ask.msgs.slice() : [{ role: 'user', text: q }, { role: 'ai', text: conciergeAnswer(q.toLowerCase()) }]
+		thread(key('map', nid)).push(...moved, { role: 'ai', text: `I moved our conversation into this map and put three candidate points down so you can edit them.`, op: 'Started a map from the question', details: [['web_search', 640], ['geocode × 3', 280], ['commit_dataset (+3)', 30]] })
+		S.ask.msgs = []
 		S.query = ''; S.resultsOpen = false; S.tab = 'thread'
 		location.hash = hashFor({ kind: 'map', id: nid, edit: true })
 	}
@@ -390,7 +399,7 @@
 		renderTopbar(); renderMargin(); renderCanvas(); renderShelf(); renderToolpill(); renderDiffbar(); renderMenus(); renderDialog(); renderMobile(); renderStatus()
 		const stage = $('#stage')
 		stage.classList.toggle('margin-open', !!S.route.kind || S.route.kind === null && !!landingOpen())
-		stage.classList.toggle('thread-side', S.threadSide && !isMobile() && !!S.route.kind && ['map', 'story', 'atlas'].includes(S.route.kind))
+		stage.classList.toggle('thread-side', sideThreadActive())
 		$('#margin').dataset.detent = S.detent
 		if (isMobile()) {
 			const h = S.detent === 'peek' ? '96px' : S.detent === 'half' ? '50%' : 'calc(100% - 64px)'
@@ -405,8 +414,10 @@
 		$('#search').innerHTML = searchHtml()
 		const drafts = Object.keys(S.drafts).length
 		$('#topright').innerHTML = `
+			<button class="btn quiet ${S.route.kind === 'browse' || !S.route.kind ? 'on' : ''}" data-act="open" data-kind="browse" data-id="${S.browse.kind}">Browse</button>
 			<button class="btn quiet" data-act="menu" data-menu="drafts">Drafts ${drafts ? `<span class="badge">${drafts}</span>` : ''}</button>
-			<button class="btn quiet" data-act="menu" data-menu="me" aria-label="Me"><span class="avatar sm">YO</span> Me</button>`
+			<button class="btn quiet" data-act="menu" data-menu="me" aria-label="Me"><span class="avatar sm">YO</span> Me</button>
+			<button class="btn quiet sm" data-act="about" title="About this sketch" aria-label="About this sketch">?</button>`
 	}
 	function searchHtml() {
 		const f = S.filter
@@ -430,7 +441,7 @@
 			['Places', ['Vienna', 'Istanbul', 'Kabul', 'Bilbao', 'Klagenfurt'].filter(hit).map((p) => ({ kind: 'place', id: p, t: p, s: 'Fly there' }))],
 		]
 		const any = groups.some((g) => g[1].length)
-		return `${ask ? `<div class="ask"><span class="eyebrow">Ask · read-only</span><div class="a">${esc(conciergeAnswer(t))}</div><div style="display:flex;gap:.4rem;flex-wrap:wrap"><button class="btn sm primary" data-act="start-map" data-q="${esc(q)}">Start a map from this</button><button class="btn sm quiet" data-act="close-results">Just reading, thanks</button></div></div>` : ''}
+		return `${ask ? `<button class="row" data-act="ask-go" data-q="${esc(q)}" style="background:var(--accent-soft)"><span class="kicon">ask</span><span><div class="t">Ask Earthly: “${esc(q)}”</div><div class="s">Read-only answer in the margin. Nothing is drawn until you start a map from it. ↵</div></span><span class="muted">↵</span></button>` : ''}
 		${groups.filter((g) => g[1].length).map(([name, rows]) => `<div class="grp eyebrow">${name}</div>${rows.slice(0, 5).map((r) => `<button class="row" data-act="open" data-kind="${r.kind}" data-id="${esc(r.id)}"><span class="kicon ${r.kind}">${r.kind.slice(0, 3)}</span><span><div class="t">${esc(r.t)}</div><div class="s">${esc(r.s)}</div></span><span class="muted">↵</span></button>`).join('')}`).join('')}
 		${!any && !ask ? `<div class="empty" style="padding:.6rem">Nothing matches “${esc(q)}”. End with “?” to ask instead.</div>` : ''}`
 	}
@@ -444,9 +455,10 @@
 	function renderMargin() {
 		const m = $('#margin')
 		const { kind, id, edit } = S.route
-		const sideThread = S.threadSide && !isMobile() && ['map', 'story', 'atlas'].includes(kind)
+		const sideThread = sideThreadActive()
 		let html = ''
-		if (!kind) html = landingHtml()
+		if (!kind || kind === 'browse') html = browseHtml()
+		else if (kind === 'ask') html = askHtml()
 		else if (kind === 'map') html = mapHtml(id, edit, sideThread)
 		else if (kind === 'story') html = storyHtml(id, edit, sideThread)
 		else if (kind === 'atlas') html = atlasHtml(id, edit, sideThread)
@@ -454,11 +466,15 @@
 		else if (kind === 'person') html = personHtml(id)
 		else if (kind === 'shelf') html = shelfPageHtml()
 		const prevScroll = $('.margin-body', m) ? $('.margin-body', m).scrollTop : 0
+		const mk = `${kind}:${id}:${edit}:${S.tab}:${S.browse.kind}`
+		const changed = renderMargin.last !== mk
+		renderMargin.last = mk
 		m.innerHTML = `<div class="handle" data-act="detent" aria-hidden="true" style="height:14px;flex:none;cursor:grab"></div>${html}`
-		if ($('.margin-body', m) && !m.dataset.swap) $('.margin-body', m).scrollTop = prevScroll
+		m.classList.toggle('enter', changed)
+		if ($('.margin-body', m) && !changed) $('.margin-body', m).scrollTop = prevScroll
 		const tc = $('#threadcol')
 		tc.hidden = !sideThread
-		if (sideThread) tc.innerHTML = `<div class="margin-head"><div class="nav"><span class="eyebrow">Thread</span><span style="flex:1"></span><button class="btn sm quiet" data-act="thread-dock">Dock into margin</button></div></div>${threadHtml(kind, id)}`
+		if (sideThread) tc.innerHTML = `<div class="margin-head" style="padding-bottom:.35rem"><div class="nav"><span class="eyebrow">Thread · ${esc(kind)}</span><span style="flex:1"></span><button class="btn sm quiet" data-act="thread-dock" title="Show the Thread as a tab of the margin instead">⇤ Dock</button></div></div>${threadHtml(kind, id)}`
 		const ta = $('#composer-text'); if (ta) autoGrow(ta)
 	}
 	function head(o, kind, opts = {}) {
@@ -480,8 +496,57 @@
 			<button role="tab" class="${S.tab === 'details' ? 'on' : ''}" data-act="tab" data-tab="details">Details</button>
 			<button role="tab" class="${S.tab === 'thread' ? 'on' : ''}" data-act="tab" data-tab="thread">Thread${running ? '<span class="run"></span>' : ''}</button>
 			<span class="spacer"></span>
-			${S.tab === 'thread' && !isMobile() ? '<button class="btn sm quiet" data-act="thread-side" title="Pull the thread out to the right">⇥</button>' : ''}
+			${S.tab === 'thread' && !isMobile() && innerWidth >= 1280 ? '<button class="btn sm quiet" data-act="thread-side" title="Pull the thread out to the right">⇥ Pull out</button>' : ''}
 		</div>`
+	}
+	const BROWSE_KINDS = [['maps', 'Maps'], ['stories', 'Stories'], ['atlases', 'Atlases'], ['sightings', 'Sightings'], ['people', 'People']]
+	function browseItems(kind) {
+		const q = S.browse.q.trim().toLowerCase()
+		const hit = (...xs) => !q || xs.some((x) => String(x || '').toLowerCase().includes(q))
+		const inFilter = (m) => !S.filter || (S.filter.type === 'atlas' ? m.belongsTo.includes(S.filter.id) || D.atlases[S.filter.id].pinned.includes(m.id) : S.filter.type === 'tag' ? m.topics.includes(S.filter.id) : true)
+		let items = []
+		if (kind === 'maps') items = Object.values(D.maps).filter((m) => (m.published || mine(m)) && inFilter(m) && hit(m.title, person(m.author).name, m.topics.join(' '))).map((m) => ({ kind: 'map', id: m.id, title: m.title, author: m.author, date: m.published || 'draft', meta: `${m.features.length} features · ${m.size}${m.topics.length ? ' · #' + m.topics.slice(0, 2).join(' #') : ''}`, feats: m.features, onShelf: S.shelf.some((e) => e.id === m.id) }))
+		if (kind === 'stories') items = Object.values(D.stories).filter((st) => (!st.draft || mine(st)) && hit(st.title, st.summary)).map((st) => ({ kind: 'story', id: st.id, title: st.title, author: st.author, date: st.published || 'draft', meta: `${st.maps.length} map${st.maps.length === 1 ? '' : 's'} · ${st.body.filter((b) => b.type === 'p').length} ¶`, feats: st.maps.flatMap((m) => (D.maps[m] || { features: [] }).features) }))
+		if (kind === 'atlases') items = Object.values(D.atlases).filter((a) => hit(a.title, a.description)).map((a) => { const mem = atlasMembers(a); return { kind: 'atlas', id: a.id, title: a.title, author: a.author, date: a.published || today, meta: `${mem.pinned.length + mem.added.length} maps · ${policyText(a.policy)}`, feats: mem.pinned.flatMap((m) => m.features) } })
+		if (kind === 'sightings') items = D.sightings.filter((x) => hit(x.title, x.note)).map((x) => ({ kind: 'sighting', id: x.id, title: x.title, author: x.author, date: x.when.slice(0, 10), meta: `expires ${x.expires}`, feats: [{ type: 'point', coords: x.coords }] }))
+		if (kind === 'people') items = Object.values(D.people).filter((p) => p.id !== 'me' && hit(p.name, p.handle)).map((p) => ({ kind: 'person', id: p.id, title: p.name, author: p.id, date: '', meta: `${Object.values(D.maps).filter((m) => m.author === p.id).length} maps · ${Object.values(D.stories).filter((st) => st.author === p.id).length} stories`, feats: Object.values(D.maps).filter((m) => m.author === p.id).flatMap((m) => m.features) }))
+		const sort = S.browse.sort
+		items.sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : sort === 'author' ? person(a.author).name.localeCompare(person(b.author).name) || b.date.localeCompare(a.date) : b.date.localeCompare(a.date))
+		return items
+	}
+	function browseRows() {
+		const items = browseItems(S.browse.kind)
+		if (!items.length) return `<div class="empty" style="padding:.6rem .7rem">Nothing here${S.browse.q ? ` for “${esc(S.browse.q)}”` : ''}${S.filter ? ` in ${esc(S.filter.label)}` : ''}.</div>`
+		return items.map((it) => {
+			const on = S.route.kind === it.kind && S.route.id === it.id
+			const acts = it.kind === 'map'
+				? `<button data-act="${it.onShelf ? 'remove-shelf' : 'add-shelf'}" data-id="${it.id}" class="${it.onShelf ? 'on' : ''}" title="${it.onShelf ? 'Remove from map' : 'Show on map'}">${it.onShelf ? '◉' : '○'}</button>${mine(D.maps[it.id]) ? `<button data-act="edit-id" data-kind="map" data-id="${it.id}" title="Edit">✎</button>` : ''}`
+				: it.kind === 'story' ? `<button data-act="fly-story" data-id="${it.id}" title="Show its maps">⌖</button>` : it.kind === 'atlas' ? `<button data-act="show-all" data-id="${it.id}" title="Show all on map">⌖</button>` : ''
+			return `<div class="lrow ${on ? 'on' : ''}" data-hover-map="${it.kind === 'map' ? it.id : ''}"><div class="thumb">${it.feats.length ? thumb(it.feats, 40, 28) : ''}</div><button class="lmain" data-act="open" data-kind="${it.kind}" data-id="${esc(it.id)}"><div class="t">${esc(it.title)}</div><div class="s">${it.kind === 'person' ? esc(it.meta) : `${esc(person(it.author).name)} · ${esc(it.date)} · ${esc(it.meta)}`}</div></button><div class="act">${acts}</div></div>`
+		}).join('')
+	}
+	function browseHtml() {
+		const k = S.browse.kind
+		const label = BROWSE_KINDS.find((x) => x[0] === k)[1]
+		return `<div class="margin-head" style="padding-bottom:.3rem"><div class="nav"><span class="eyebrow">Browse</span><span style="flex:1"></span>${S.filter ? `<span class="chip">in ${esc(S.filter.label)} <button class="x" data-act="clear-filter">×</button></span>` : ''}<button class="btn sm quiet" data-act="open" data-kind="shelf" data-id="now">On the map · ${S.shelf.length}</button></div><div class="title">${esc(label)}</div></div>
+		<div class="ktabs" role="tablist">${BROWSE_KINDS.map(([id, name]) => `<button role="tab" class="${k === id ? 'on' : ''}" data-act="browse-kind" data-k="${id}">${name}<span class="n">${browseItems(id).length}</span></button>`).join('')}</div>
+		<div class="ltools"><input id="bq" type="search" placeholder="Filter ${label.toLowerCase()}…" value="${esc(S.browse.q)}"><select id="bsort" aria-label="Sort"><option value="new" ${S.browse.sort === 'new' ? 'selected' : ''}>Newest</option><option value="title" ${S.browse.sort === 'title' ? 'selected' : ''}>Title</option><option value="author" ${S.browse.sort === 'author' ? 'selected' : ''}>Author</option></select></div>
+		<div class="lhead"><span>${browseItems(k).length} ${label.toLowerCase()}</span><span class="sp"></span><span>${k === 'maps' ? '○ show on map · ✎ edit' : k === 'stories' || k === 'atlases' ? '⌖ frame on map' : ''}</span></div>
+		<div class="margin-body" style="padding:0"><div class="lrows" id="lrows">${browseRows()}</div></div>`
+	}
+	function askFrom(q) {
+		const t = q.trim(); if (!t) return
+		S.ask.msgs.push({ role: 'user', text: t }, { role: 'ai', text: conciergeAnswer(t.toLowerCase()), op: 'Looked it up, read-only', details: [['web_search (searxng, wikipedia)', 520], ['geocode', 140]] })
+		S.query = ''; S.resultsOpen = false
+		if (S.route.kind === 'ask') render(); else location.hash = '#/ask/now'
+		const ta = $('#askq'); if (ta) ta.value = ''
+	}
+	function askHtml() {
+		const msgs = S.ask.msgs
+		return `<div class="askhead"><div class="nav" style="display:flex;align-items:center;gap:.4rem"><button class="btn sm quiet" data-act="back">◂ Back</button><span style="flex:1"></span><span class="state-pill">read-only · concierge</span></div><div class="title">Ask Earthly</div><div class="muted" style="font-size:.82rem">Find, measure, geocode, explain. Nothing is drawn or changed from here.</div></div>
+		<div class="thread"><div class="msgs" id="msgs">${msgs.length ? msgs.map(msgHtml).join('') : '<div class="empty">Ask anything about places or about what is on Earthly.</div>'}</div>
+		${msgs.length ? `<div class="askcta"><span class="grow">Want this on a map? A new Map opens in Edit and this conversation moves into its Thread.</span><button class="btn sm primary" data-act="start-map" data-q="${esc(msgs[0].text)}">Start a map from this</button></div>` : ''}
+		<div class="composer"><div class="box"><textarea id="askq" rows="1" placeholder="Ask a question…"></textarea><button class="btn sm primary" data-act="ask-send">Ask</button></div><div class="hint">${['Where did the Hippie Trail cross into Afghanistan?', 'How many submarine cables land in Bilbao?', 'What is near Klagenfurt from Roman times?'].map((h) => `<button data-act="ask-hint" data-text="${esc(h)}">${esc(h)}</button>`).join('')}${msgs.length ? '<button data-act="ask-clear">Clear</button>' : ''}</div></div></div>`
 	}
 	function landingHtml() {
 		const cards = (list, kind) => list.map((o) => `<button class="card" data-act="open" data-kind="${kind}" data-id="${o.id}"><div class="thumb">${thumb(kind === 'map' ? o.features : kind === 'story' ? o.maps.flatMap((m) => D.maps[m].features) : o.pinned.flatMap((m) => (D.maps[m] || { features: [] }).features))}</div><div class="cb"><div class="t">${esc(o.title)}</div><div class="s">${esc(person(o.author).name)}${kind === 'atlas' ? ' · ' + esc(policyText(o.policy)) : ''}</div></div></button>`).join('')
@@ -669,7 +734,7 @@
 		const st = $('#stage').getBoundingClientRect()
 		const mw = isMobile() ? 0 : parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--margin-w')) || 400
 		const marginOpen = !isMobile()
-		const sideOpen = marginOpen && S.threadSide && ['map', 'story', 'atlas'].includes(S.route.kind)
+		const sideOpen = sideThreadActive()
 		const pad = 60
 		const w = st.width - (marginOpen ? mw : 0) - (sideOpen ? mw : 0), h = st.height - (isMobile() ? innerHeight * 0.5 + 60 : 80)
 		let k = Math.min((w - pad * 2) / Math.max(b[2] - b[0], 60), (h - pad * 2) / Math.max(b[3] - b[1], 40))
@@ -720,8 +785,8 @@
 		const on = S.editing && S.editing.kind === 'map' && S.route.kind === 'map' && S.route.id === S.editing.id
 		tp.classList.toggle('on', !!on)
 		if (!on) { tp.innerHTML = ''; return }
-		const t = (k, lbl, title) => `<button class="${S.tool === k ? 'on' : ''}" data-act="tool" data-tool="${k}" title="${title}" aria-label="${title}">${lbl}</button>`
-		tp.innerHTML = `${t('point', '●', 'Draw point')}${t('line', '╱', 'Draw line')}${t('polygon', '⬠', 'Draw polygon')}${t('label', 'T', 'Place label')}<span class="sep"></span><button data-act="undo" title="Undo" ${S.undo.length ? '' : 'disabled style="opacity:.4"'}>↶</button><button data-act="redo" title="Redo" ${S.redo.length ? '' : 'disabled style="opacity:.4"'}>↷</button><span class="sep"></span><button data-act="menu" data-menu="more-tools" title="More">⋯</button>`
+		const t = (k, lbl, title) => `<button class="${S.tool === k ? 'on' : ''}" data-act="tool" data-tool="${k}" title="${title}" aria-label="${title}">${lbl}<span class="tl">${title.replace('Draw ', '').replace('Place ', '')}</span></button>`
+		tp.innerHTML = `<span class="tg">✎ ${esc(S.drafts[S.editing.id].title).slice(0, 22)}</span>${t('point', '●', 'Draw point')}${t('line', '╱', 'Draw line')}${t('polygon', '⬠', 'Draw polygon')}${t('label', 'T', 'Place label')}<span class="sep"></span><button data-act="undo" title="Undo" ${S.undo.length ? '' : 'disabled style="opacity:.4"'}>↶</button><button data-act="redo" title="Redo" ${S.redo.length ? '' : 'disabled style="opacity:.4"'}>↷</button><span class="sep"></span><button data-act="menu" data-menu="more-tools" title="More">⋯</button>`
 		$('#zoom').innerHTML = ''
 	}
 	function renderDiffbar() {
@@ -771,7 +836,7 @@
 		if (d.type === 'discard') body = `<h3>Discard this draft?</h3><p>The published version stays as it is. Unpublished changes on this device are lost.</p><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn danger" data-act="discard-go">Discard</button></div>`
 		if (d.type === 'delete') body = `<h3>Delete this map?</h3><p>Earthly publishes a deletion request and hides it here. Relays and other people may keep copies.</p><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn danger" data-act="delete-go">Delete</button></div>`
 		if (d.type === 'new-sighting') body = `<h3>Sighting here</h3><p>What did you see? It will show as a diamond at your position and fade after a day.</p><input type="text" id="dlg-name" placeholder="A few words"><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn primary" data-act="sighting-go">Post sighting</button></div>`
-		host.innerHTML = `<div class="dialog-wrap" data-act="dialog-cancel"><div class="dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">${body}</div></div>`
+		host.innerHTML = `<div class="dialog-wrap" data-act="dialog-backdrop"><div class="dialog" role="dialog" aria-modal="true">${body}</div></div>`
 		const inp = $('#dlg-name'); if (inp) setTimeout(() => { inp.focus(); inp.select() }, 30)
 	}
 
@@ -859,9 +924,16 @@
 		'delete-go'() { const id = S.route.id; delete D.maps[id]; S.shelf = S.shelf.filter((e) => e.id !== id); S.dialog = null; toast('Deletion requested. Relays may keep copies.'); location.hash = '#/' },
 		'label-go'() { const t = $('#dlg-name').value.trim(); const at = S.dialog.at; S.dialog = null; if (t && at) { pushUndo(); S.drafts[S.editing.id].features.push({ id: `lbl-${Date.now()}`, name: t, type: 'point', coords: at, props: { label: t, kind: 'annotation' } }) } render() },
 		'm-map'() { S.resultsOpen = false; S.menu = null; if (S.route.kind) S.detent = S.detent === 'peek' ? 'half' : 'peek'; render() },
-		'm-search'() { S.menu = null; S.resultsOpen = true; render(); const q = $('#mtop #q'); if (q) q.focus() },
+		'm-search'() { S.menu = null; S.detent = 'full'; location.hash = `#/browse/${S.browse.kind}`; setTimeout(() => { const q = $('#bq'); if (q) q.focus() }, 80) },
 		detent() { S.detent = S.detent === 'peek' ? 'half' : S.detent === 'half' ? 'full' : 'peek'; render() },
 		react() { toast('♥ Reacted. Kind 7, like everywhere else on Nostr.') },
+		'edit-id'(d) { if (S.editing && S.editing.id !== d.id) { S.dialog = { type: 'finish-first', next: { kind: d.kind, id: d.id } }; render(); return } beginEdit(d.kind, d.id); location.hash = hashFor({ kind: d.kind, id: d.id, edit: true }) },
+		'fly-story'(d) { const st = D.stories[d.id]; st.maps.forEach((m) => addToShelf(m, { silent: true })); flyToMaps(st.maps); syncHash(); render() },
+		'browse-kind'(d) { S.browse.kind = d.k; location.hash = `#/browse/${d.k}`; if (S.route.kind === 'browse') render() },
+		'ask-go'(d) { askFrom(d.q) },
+		'ask-send'() { const ta = $('#askq'); const t = ta && ta.value.trim(); if (!t) return; askFrom(t) },
+		'ask-hint'(d) { askFrom(d.text) },
+		'ask-clear'() { S.ask.msgs = []; render() },
 	}
 	function finishFirst(keep) {
 		const d = S.dialog; S.dialog = null; pendingEditPrompt = false
@@ -892,6 +964,7 @@
 		const t = e.target.closest('[data-act]')
 		if (!t) return
 		const act = t.dataset.act
+		if (act === 'dialog-backdrop') { if (e.target === t) A['dialog-cancel'](); return }
 		if (A[act]) { e.preventDefault(); A[act](t.dataset, t) }
 	})
 	document.addEventListener('input', (e) => {
@@ -904,11 +977,14 @@
 		}
 		if (e.target.id === 'q') { S.query = e.target.value; S.resultsOpen = !!S.query; const res = e.target.closest('.search').querySelector('.results'); res.innerHTML = S.query ? resultsHtml(S.query) : ''; res.classList.toggle('open', !!S.query) }
 		if (e.target.id === 'composer-text') autoGrow(e.target)
+		if (e.target.id === 'bq') { S.browse.q = e.target.value; const host = $('#lrows'); if (host) host.innerHTML = browseRows() }
+		if (e.target.id === 'bsort') { S.browse.sort = e.target.value; render() }
 	})
 	document.addEventListener('keydown', (e) => {
 		if (e.key === 'Escape') { if (S.menu || S.dialog || S.resultsOpen || S.popup || S.tool) { S.menu = null; S.dialog = null; S.resultsOpen = false; S.popup = null; closeTool(); pendingEditPrompt = false; render() } return }
 		if (e.target.id === 'composer-text' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); A.send(); return }
-		if (e.target.id === 'q' && e.key === 'Enter') { const first = $('#results .row'); if (/\?$/.test(S.query.trim())) startMapFrom(S.query); else if (first) first.click(); return }
+		if (e.target.id === 'q' && e.key === 'Enter') { const first = $('#results .row'); const t = S.query.trim().toLowerCase(); if (/\?$/.test(t) || /^(how|what|where|which|why|who|when)\b/.test(t)) askFrom(S.query); else if (first) first.click(); return }
+		if (e.target.id === 'askq' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); A['ask-send'](); return }
 		if (e.target.id === 'dlg-name' && e.key === 'Enter') { const go = $('.dialog .btn.primary'); if (go) go.click(); return }
 		if (e.target.matches('input,textarea,[contenteditable]')) return
 		if (e.key === '/') { e.preventDefault(); const q = $('#q'); if (q) q.focus() }
@@ -943,6 +1019,7 @@
 		$$('.f.hov').forEach((x) => x.classList.remove('hov'))
 		if (f) { const sib = $$(`[data-fid="${CSS.escape(f.dataset.fid)}"][data-map="${mapId}"]`); sib.forEach((x) => x.classList.add('hov')) }
 	})
+	document.addEventListener('pointerover', (e) => { const r = e.target.closest('[data-hover-map]'); const id = r ? r.dataset.hoverMap : ''; $$('.schip').forEach((c) => c.classList.toggle('hover', !!id && c.dataset.map === id)); $$('.lyr').forEach((l) => l.classList.toggle('hover', !!id && l.dataset.map === id)) })
 	cv.addEventListener('pointerleave', () => { $$('.schip.hover,.lyr.hover').forEach((c) => c.classList.remove('hover')) })
 	cv.addEventListener('pointerup', (e) => {
 		if (!drag) return
@@ -1019,7 +1096,7 @@
 	})
 
 	// About panel
-	$('#aboutbtn').addEventListener('click', () => { S.aboutOpen = !S.aboutOpen; renderAbout() })
+	A.about = () => { S.aboutOpen = !S.aboutOpen; renderAbout() }
 	function renderAbout() {
 		let p = $('#aboutpanel')
 		if (!S.aboutOpen) { if (p) p.remove(); return }
