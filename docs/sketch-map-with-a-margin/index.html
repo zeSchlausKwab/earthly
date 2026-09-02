@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Earthly · A Map with a Margin (sketch)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <a class="brand" href="#/"><span class="dot"></span>Earthly</a>
+    <div class="search" id="search"></div>
+    <div class="right" id="topright"></div>
+  </header>
+
+  <div class="stage" id="stage">
+    <aside class="margin" id="margin" aria-label="Margin"></aside>
+    <div class="canvas" id="canvas">
+      <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+        <g id="world">
+          <g id="grat"></g>
+          <g id="land"></g>
+          <g id="layers"></g>
+          <g id="livelayer"></g>
+        </g>
+      </svg>
+      <div class="mtop" id="mtop"></div>
+      <div class="overlay toolpill" id="toolpill"></div>
+      <div class="overlay zoom" id="zoom"></div>
+      <div class="overlay diffbar" id="diffbar"></div>
+      <div class="overlay hint-status" id="status"></div>
+      <div class="shelf" id="shelf"></div>
+      <div id="popup"></div>
+    </div>
+    <aside class="margin thread-col" id="threadcol" hidden></aside>
+    <nav class="mnav" id="mnav"></nav>
+  </div>
+</div>
+<div id="menus"></div>
+<div id="dialogs"></div>
+<div class="toasts" id="toasts"></div>
+<div class="about"><button class="btn sm" id="aboutbtn">About this sketch</button></div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
