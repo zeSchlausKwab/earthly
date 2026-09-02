@@ -39,7 +39,8 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
   starting a second asks *Finish with X first?*
 - **Social row** under every object title: react, zap, comments, favourite,
   share, more. List rows show counts and reveal ♡ 💬 ☆ on hover, with a ⋯ menu.
-- **New map / story / atlas / sighting** buttons sit above the Browse tabs.
+- A single **+** at the end of the Browse tabs creates whatever the active tab
+  shows (map, story, atlas, sighting); inside a lens it reads *New spot map*.
 - **Comments tab** on Maps, Stories, Atlases and Sightings: NIP-22 threads,
   replies, likes, sort; *Attach a place ▾* drops a pin or draws a line that
   travels with the comment and shows in green on the canvas.
