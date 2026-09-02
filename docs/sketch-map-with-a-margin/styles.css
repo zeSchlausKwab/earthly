@@ -258,6 +258,59 @@ body.glass .glassbtn{color:var(--accent)}
 .lhead{display:flex;align-items:center;gap:.5rem;padding:.3rem .7rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--rule)}
 .lhead .sp{flex:1}
 
+/* Social row under the object header */
+.social{display:flex;align-items:center;gap:.1rem;margin-top:.1rem;border-top:1px solid var(--rule);padding-top:.3rem}
+.social .sp{flex:1}
+.sb{display:inline-flex;align-items:center;gap:.3rem;height:24px;padding:0 .45rem;color:var(--muted);font-size:.86rem;font-variant-numeric:tabular-nums}
+.sb span{font-family:var(--mono);font-size:.72rem}
+.sb:hover{background:var(--surface-2);color:var(--ink)}
+.sb.on{color:var(--accent)}
+.sb.warn{color:var(--amber)}
+.tabs .n{font-family:var(--mono);font-size:.68rem;color:var(--muted)}
+.state-pill.warn{background:var(--amber-soft);color:var(--ink)}
+.state-pill.ok{background:var(--green-soft)}
+
+/* Browse: new-entity row and row actions */
+.newrow{display:flex;gap:.3rem;flex-wrap:wrap;padding:.35rem .7rem .45rem;border-bottom:1px solid var(--rule)}
+.lrow .cnt{display:block;font-family:var(--mono);font-size:.68rem;color:var(--muted);margin-top:.1rem}
+.lrow .cnt .pend{color:var(--amber)}
+.lrow .act .hov{display:inline-flex;opacity:0;width:0;overflow:hidden;transition:opacity var(--fast),width var(--fast)}
+.lrow:hover .act .hov,.lrow:focus-within .act .hov{opacity:1;width:auto}
+.lrow .act{opacity:.8}
+
+/* Comments */
+.comments{display:flex;flex-direction:column;flex:1;min-height:0}
+.comments .lhead select{height:22px;border:1px solid var(--rule-2);background:var(--surface);font-size:.75rem;letter-spacing:0;text-transform:none}
+.cmt{display:grid;grid-template-columns:22px 1fr;gap:.5rem;padding:.5rem 0;border-bottom:1px solid var(--rule)}
+.cmt.reply{margin-left:1.6rem;border-bottom:0;padding:.35rem 0 .2rem;border-left:2px solid var(--rule);padding-left:.6rem}
+.cmt .ch{display:flex;gap:.45rem;align-items:center;font-size:.8rem;flex-wrap:wrap}
+.cmt .ch b{font-weight:600;font-size:.86rem}
+.cmt .ct{margin:.15rem 0 .25rem;font-size:.92rem;line-height:1.4}
+.cmt .ca{display:flex;gap:.2rem}
+.cmt .ca button{font-family:var(--mono);font-size:.7rem;color:var(--muted);padding:.1rem .4rem}
+.cmt .ca button:hover{background:var(--surface-2);color:var(--ink)}
+.cmt .ca button.on{color:var(--accent)}
+.cmt:hover{background:color-mix(in srgb,var(--surface-2) 50%,transparent)}
+.ccomp{border-top:1px solid var(--rule);padding:.5rem .7rem .6rem;display:flex;flex-direction:column;gap:.35rem;background:var(--surface)}
+.ccomp.inline{border:1px solid var(--rule);margin-top:.4rem;padding:.4rem .5rem}
+.ccomp .box{border:1px solid var(--rule-2);background:var(--ground);padding:.35rem .5rem}
+.ccomp .box:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.ccomp textarea{width:100%;border:0;background:transparent;outline:0;resize:none;min-height:22px;max-height:120px;line-height:1.4}
+.ccomp .crow{display:flex;align-items:center;gap:.4rem}
+.ccomp .crow .sp{flex:1}
+body.glass .ccomp{background:transparent}
+
+/* Proposals */
+.prop{border:1px solid var(--rule);padding:.5rem .6rem;display:flex;flex-direction:column;gap:.3rem;border-left:3px solid var(--amber)}
+.prop.accepted{border-left-color:var(--green)}
+.prop.declined{border-left-color:var(--rule-2);opacity:.75}
+.prop .ph{display:flex;align-items:center;gap:.4rem;font-size:.82rem;flex-wrap:wrap}
+.prop .ph b{font-weight:600}
+.prop .pm{font-size:.9rem}
+.prop .pc{font-size:.75rem}
+.prop .pc .add{color:var(--green)}.prop .pc .mod{color:var(--amber)}.prop .pc .del{color:var(--red)}
+.prop .pa{display:flex;gap:.3rem;flex-wrap:wrap}
+
 /* Ask surface */
 .askhead{padding:.5rem .7rem;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:.2rem}
 .askhead .title{font-family:var(--display);font-weight:800;font-size:1.2rem;letter-spacing:-.02em}
@@ -404,6 +457,9 @@ body.glass .glassbtn{color:var(--accent)}
   .margin-head{padding-top:.4rem}
   .margin-head .title{font-size:1.15rem}
   .margin-head .actions .btn:not(.primary):not(.keep){display:none}
+  .lrow .act .hov{display:none}
+  .social .sb span{display:none}
+  .social .sb{padding:0 .35rem}
   .margin[data-detent="peek"] .tabs,.margin[data-detent="peek"] .margin-body,.margin[data-detent="peek"] .margin-head .sub{display:none}
   .mnav{display:grid;grid-template-columns:repeat(4,1fr);position:absolute;left:0;right:0;bottom:0;height:56px;background:var(--surface);border-top:1px solid var(--rule);z-index:26;align-items:center}
   .mnav button{display:flex;flex-direction:column;align-items:center;gap:.15rem;color:var(--muted);font-size:.68rem;font-family:var(--mono);letter-spacing:.04em;height:100%;justify-content:center}

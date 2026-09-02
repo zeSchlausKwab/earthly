@@ -181,6 +181,23 @@ What the lens deliberately does *not* do: it never changes the audience (who can
 - **Publish** on a working copy of your own Map defaults to **Publish update** (same `d`, new version). **Publish as new map** is a secondary item in the menu. This fixes the double-publish pattern seen in the relay sample.
 - Only one Map is in Edit at a time. Pressing Edit on a second Map asks: "Finish with *Hippie Trail* first? Keep draft / Discard / Cancel." Its draft is kept by default.
 
+### 3.4a Reactions, comments, favourites, sharing: where they live
+
+- **On the object, in one row.** Under the title of any Map, Story, Atlas or Sighting sits one social row: ♥ react · ⚡ zap · 💬 comments · ★ favourite · ↗ share · ⋯ more. It is the same row everywhere. Counts are mono digits next to the icons.
+- **In lists, as counts first and actions on hover.** A list row shows `♥ 4 · 💬 3 · ⚡ 2` under its meta line. Hovering (or focusing) the row reveals ♥ 💬 ☆; a ⋯ menu holds Share, Zap, Show on map, Edit or Propose or Fork, Delete or Report. On a phone there is no hover, so rows keep only the primary action and ⋯.
+- **Comments are a tab, not a section.** Details · Comments · Thread. Comments are NIP-22 replies, threaded one level, sortable by newest or most liked, with a composer at the bottom that stays put.
+- **A comment can point at a place.** *Attach a place ▾* → drop a pin, draw a line, or use the selected feature. The geometry renders in the comment colour (green) on the canvas while the Comments tab is open; hovering a comment highlights its geometry and ⌖ flies to it. This is today's comment-with-annotation flow, kept, and it needs no Edit state because a comment never changes the map.
+
+### 3.4b Proposing instead of forking
+
+When you want the original author to adopt your changes:
+
+- On a Map or Story you don't own, the primary button is **Propose changes** (Fork sits behind its ▾). Propose opens a working copy in a distinct *proposing to Aria Voss* state: their map stays grey, your additions and edits are dashed amber ghosts, and the toolbar and Thread work as usual ("Propose & send").
+- **Send proposal** replaces Publish. A short message goes with it. The result is a kind 37519 event: a diff plus the message, addressed to the author.
+- **The author sees it under Proposals** on their Map's Details, with the proposer's name, message, and `+a ~m −r` counts. *Preview on map* shows the ghosts on their own map. **Accept & publish** merges the changes into their next version and credits the proposer; **Decline** leaves the proposer's copy untouched; **Discuss** jumps to Comments.
+- **The proposer sees status** on the same Map: pending, accepted (with the version it landed in), or declined. They can withdraw while pending. A kept proposal draft appears in Drafts labelled as a proposal.
+- Rows in Browse show `✎ 1 proposal` in amber on your own maps that have something waiting.
+
 ### 3.5 The AI model: the Thread lives in the Map's margin
 
 This is the answer to "how does the user assign what the AI edits" and "how do they know what is being edited."

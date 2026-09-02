@@ -205,8 +205,31 @@
 	]
 	const live = [{ id: 'saturday', title: 'Aria · Saturday survey', coords: [14.36, 46.71], since: '12 min' }]
 
+	// Comments are NIP-22 replies. A comment may carry a small geometry: the "comment with annotation" flow.
+	const comments = [
+		{ id: 'c1', on: 'map:hippie-trail', author: 'mafrend', when: '2026-09-01 18:12', text: 'Erzurum is missing. Every Magic Bus stopped there for the night before the Iranian border.', likes: 3, geom: { type: 'point', coords: [41.27, 39.9] } },
+		{ id: 'c2', on: 'map:hippie-trail', author: 'me', when: '2026-09-01 19:40', parent: 'c1', text: 'Good call. Adding it in the next version.', likes: 1 },
+		{ id: 'c3', on: 'map:hippie-trail', author: 'aria', when: '2026-09-02 07:05', text: 'The stretch between Herat and Kandahar was usually done by shared taxi, not bus. Worth a note on the line.', likes: 2, geom: { type: 'line', coords: [[62.2, 34.35], [63.9, 33.0], [65.71, 31.62]] } },
+		{ id: 'c4', on: 'map:hippie-trail', author: 'schlaus', when: '2026-09-02 08:30', text: 'Lovely map. Would love a Story to go with it.', likes: 0 },
+		{ id: 'c5', on: 'story:bri-story', author: 'aria', when: '2026-07-13 10:02', text: 'The Duisburg terminal number is from 2019; it is closer to sixty trains a week now.', likes: 4 },
+		{ id: 'c6', on: 'story:bri-story', author: 'me', when: '2026-07-13 11:20', parent: 'c5', text: 'Thanks, will update with a source.', likes: 0 },
+		{ id: 'c7', on: 'atlas:skate-spots', author: 'aria', when: '2026-08-21 16:44', text: 'Can we add a “security” field? Half the value of a spot is knowing when the guards leave.', likes: 5 },
+		{ id: 'c8', on: 'atlas:skate-spots', author: 'schlaus', when: '2026-08-21 17:10', parent: 'c7', text: 'Yes. Next schema version. Keep it optional so old maps still fit.', likes: 2 },
+		{ id: 'c9', on: 'map:bcn-spots', author: 'me', when: '2026-08-10 21:00', text: 'Sants ledges got knobbed in July.', likes: 1, geom: { type: 'point', coords: [2.14, 41.379] } },
+		{ id: 'c10', on: 'sighting:palmer', author: 'mafrend', when: '2026-08-30 21:00', text: 'On my way.', likes: 0 },
+	]
+	// A proposal (kind 37519) is a set of changes someone offers to the author instead of forking.
+	const proposals = [
+		{ id: 'prop-1', target: 'map:hippie-trail', author: 'mafrend', created: '2026-09-01', status: 'pending', message: 'Added Erzurum as a stop and renamed Tabriz to mention the bazaar, which is where the buses actually stopped.',
+			add: [pt('erzurum', 'Erzurum', 41.27, 39.9, { kind: 'stop' })], modify: [{ id: 'stop-2', name: 'Tabriz (bazaar)', props: { kind: 'stop', note: 'buses stopped at the bazaar gate' } }], remove: [] },
+	]
+	const social = {
+		'map:hippie-trail': { likes: 4, zaps: 2, favs: 3 }, 'map:bri': { likes: 9, zaps: 5, favs: 6 }, 'map:cables-atlantic': { likes: 3, zaps: 0, favs: 2 }, 'map:bcn-spots': { likes: 12, zaps: 3, favs: 8 },
+		'story:bri-story': { likes: 7, zaps: 4, favs: 5 }, 'story:macba-story': { likes: 6, zaps: 1, favs: 2 }, 'atlas:skate-spots': { likes: 15, zaps: 6, favs: 11 }, 'sighting:palmer': { likes: 2, zaps: 0, favs: 0 },
+	}
+
 	window.SKETCH_DATA = {
-		people, maps, stories, atlases, sightings, live,
+		people, maps, stories, atlases, sightings, live, comments, proposals, social,
 		circles: [{ id: 'alpine', name: 'Alpine rescue', members: 6 }],
 		nearby: [{ id: 'saturday', name: 'Saturday survey', host: 'aria', peers: 3 }],
 		places: { Vienna: [16.37, 48.21], Istanbul: [28.98, 41.01], Kabul: [69.17, 34.53], Bilbao: [-2.93, 43.26], Klagenfurt: [14.31, 46.62], Barcelona: [2.17, 41.39], Berlin: [13.4, 52.52] },

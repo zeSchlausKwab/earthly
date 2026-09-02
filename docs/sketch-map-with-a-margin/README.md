@@ -37,6 +37,16 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
 - **Edit / Fork**, **Publish update ▾** (audience: Everyone · Circle · Nearby;
   *Publish as new map*), **Done**. Exactly one object is in Edit at a time;
   starting a second asks *Finish with X first?*
+- **Social row** under every object title: react, zap, comments, favourite,
+  share, more. List rows show counts and reveal ♡ 💬 ☆ on hover, with a ⋯ menu.
+- **New map / story / atlas / sighting** buttons sit above the Browse tabs.
+- **Comments tab** on Maps, Stories, Atlases and Sightings: NIP-22 threads,
+  replies, likes, sort; *Attach a place ▾* drops a pin or draws a line that
+  travels with the comment and shows in green on the canvas.
+- **Propose changes** on anything you don't own: edit in a *proposing* state
+  (their map grey, your changes as ghosts), *Send proposal* with a message; the
+  author gets a Proposals section with Preview, Accept & publish, Decline.
+  The Hippie Trail ships with one incoming proposal so you can play the author.
 - **Belongs to** on a Map: fit-state chips per Atlas, *Add to atlas…* picker.
 - **Atlas page**: door policy as a sentence, Pinned / Added by others /
   Waiting (owner), *Add a map ▾*, *Show all on map*, accept-by-pin.
