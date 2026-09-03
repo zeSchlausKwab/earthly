@@ -95,6 +95,10 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
   captions and credits, tables with aligned columns, blockquotes, lists, code,
   callouts and dividers. See the Belt and Road and Western Front stories.
   Placeholder imagery is generated inline as SVG, so the sketch needs no network.
+- **Reading route** `#/read/:id`: half article, half live map, with only the
+  Earthly mark and a pencil as chrome. The map follows as you read; comments sit
+  under the article. This is what a shared story link opens. Try
+  `#/read/western-front`.
 - **Inline references** in the prose (feature, dataset, coordinate, OSM), with a
   struck warning when one no longer resolves. Hover emphasises, click flies.
 - **View blocks**: a camera plus a layer set, sitting in the text. `cue` drives

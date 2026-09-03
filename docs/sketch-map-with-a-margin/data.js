@@ -336,6 +336,9 @@
 		{ id: 'c7', on: 'atlas:skate-spots', author: 'aria', when: '2026-08-21 16:44', text: 'Can we add a “security” field? Half the value of a spot is knowing when the guards leave.', likes: 5 },
 		{ id: 'c8', on: 'atlas:skate-spots', author: 'schlaus', when: '2026-08-21 17:10', parent: 'c7', text: 'Yes. Next schema version. Keep it optional so old maps still fit.', likes: 2 },
 		{ id: 'c9', on: 'map:bcn-spots', author: 'me', when: '2026-08-10 21:00', text: 'Sants ledges got knobbed in July.', likes: 1, geom: { type: 'point', coords: [2.14, 41.379] } },
+		{ id: 'c11', on: 'story:western-front', author: 'aria', when: '2026-09-01 09:12', text: 'The April 1918 line is drawn a little too far west around Villers-Bretonneux. The Australians held that ridge.', likes: 6, geom: { type: 'point', coords: [2.51, 49.87] } },
+		{ id: 'c12', on: 'story:western-front', author: 'mafrend', when: '2026-09-01 10:30', parent: 'c11', text: 'You are right. I will move it and republish the April snapshot rather than patching the story.', likes: 2 },
+		{ id: 'c13', on: 'story:western-front', author: 'schlaus', when: '2026-09-02 14:05', text: 'Reading this with the map following along is the first time the scale of 1916 has landed for me. Four kilometres.', likes: 9 },
 		{ id: 'c10', on: 'sighting:palmer', author: 'mafrend', when: '2026-08-30 21:00', text: 'On my way.', likes: 0 },
 	]
 	// A proposal (kind 37519) is a set of changes someone offers to the author instead of forking.
@@ -345,7 +348,7 @@
 	]
 	const social = {
 		'map:hippie-trail': { likes: 4, zaps: 2, favs: 3 }, 'map:bri': { likes: 9, zaps: 5, favs: 6 }, 'map:cables-atlantic': { likes: 3, zaps: 0, favs: 2 }, 'map:bcn-spots': { likes: 12, zaps: 3, favs: 8 },
-		'story:bri-story': { likes: 7, zaps: 4, favs: 5 }, 'story:macba-story': { likes: 6, zaps: 1, favs: 2 }, 'atlas:skate-spots': { likes: 15, zaps: 6, favs: 11 }, 'sighting:palmer': { likes: 2, zaps: 0, favs: 0 },
+		'story:bri-story': { likes: 7, zaps: 4, favs: 5 }, 'story:western-front': { likes: 24, zaps: 11, favs: 18 }, 'story:macba-story': { likes: 6, zaps: 1, favs: 2 }, 'atlas:skate-spots': { likes: 15, zaps: 6, favs: 11 }, 'sighting:palmer': { likes: 2, zaps: 0, favs: 0 },
 	}
 
 	window.SKETCH_DATA = {

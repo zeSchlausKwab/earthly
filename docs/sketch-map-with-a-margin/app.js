@@ -306,7 +306,8 @@
 		onRoute.done = true
 		if (r.kind === 'in') { if (D.atlases[r.id]) enterLens(r.id); else location.hash = '#/'; return }
 		if (r.kind === 'browse') S.browse.kind = r.id && BROWSE_KINDS.some((k) => k[0] === r.id) ? r.id : 'maps'
-		if (r.kind && !['shelf', 'browse', 'ask', 'in', 'inbox', 'me'].includes(r.kind) && !obj(r.kind, r.id)) {
+		if (r.kind === 'read' && !D.stories[r.id]) { location.hash = '#/'; return }
+		if (r.kind && !['shelf', 'browse', 'ask', 'in', 'inbox', 'me', 'read'].includes(r.kind) && !obj(r.kind, r.id)) {
 			toast('That link points at nothing here.')
 			location.hash = '#/'
 			return
@@ -320,7 +321,7 @@
 		// Open = margin + canvas. Maps join the Shelf; Stories bring their maps.
 		if (r.kind === 'map') {
 			addToShelf(r.id, { fly: prev.id !== r.id })
-		} else if (r.kind === 'story') {
+		} else if (r.kind === 'story' || r.kind === 'read') {
 			const st = D.stories[r.id]
 			st.maps.forEach((m) => addToShelf(m, { silent: true }))
 			if (prev.id !== r.id) { if (st.presentation) applyPresentation(st.presentation, st.maps); else flyToMaps(st.maps); if (viewBlocks(st).length) { applyBlockState(st, 0, { render: false }) } S.viewIndex = -1 } 
@@ -347,9 +348,10 @@
 				if (mine(obj(r.kind, r.id))) beginEdit(r.kind, r.id); else beginPropose(r.kind, r.id)
 			}
 		}
+		if (r.kind === 'read') { S.tab = 'details'; S.sheetHidden = false; S.followText = true }
 		if (!['map', 'story', 'atlas', 'sighting', 'circle', 'nearby'].includes(r.kind)) S.tab = 'details'
 		if ((r.kind === 'circle' || r.kind === 'nearby') && S.tab === 'thread') S.tab = 'details'
-		if (r.kind !== 'story') { S.presentScene = null; S.refPick = null; S.activeBlock = -1; S.emphasis = new Set() }
+		if (r.kind !== 'story' && r.kind !== 'read') { S.presentScene = null; S.refPick = null; S.activeBlock = -1; S.emphasis = new Set() }
 		if (r.kind === 'story' && prev.id !== r.id) { S.activeBlock = -1; S.emphasis = new Set() }
 		if (r.kind === 'sighting' && S.tab === 'thread') S.tab = 'details'
 		if (prev.id !== r.id) { S.annot = null; S.replyTo = null; S.previewProposal = null }
@@ -593,13 +595,14 @@
 	// ------------------------------------------------------------- rendering
 	function render() {
 		renderTopbar(); renderTicker(); renderMargin(); renderCanvas(); renderShelf(); renderToolpill(); renderDiffbar(); renderMenus(); renderDialog(); renderMobile(); renderStatus()
-		document.body.classList.toggle('glass', !!S.glass)
+		document.body.classList.toggle('reading', reading())
+		document.body.classList.toggle('glass', !!S.glass && !reading())
 		renderLensBar()
 		renderLiveBar()
 		renderOfflineBar()
 		const stage = $('#stage')
 		stage.classList.toggle('margin-open', isMobile() ? !S.sheetHidden : !!S.route.kind || !!landingOpen())
-		stage.classList.toggle('thread-side', sideThreadActive())
+		stage.classList.toggle('thread-side', sideThreadActive() && !reading())
 		$('#margin').dataset.detent = S.detent
 		if (isMobile()) {
 			const peekPx = mobileEditing() ? 62 : 96
@@ -610,6 +613,8 @@
 		} else $('#margin').style.removeProperty('--sheet-h')
 	}
 	function landingOpen() { return true }
+	const reading = () => S.route.kind === 'read'
+	const readingStory = () => (S.route.kind === 'story' || S.route.kind === 'read' ? view('story', S.route.id) : null)
 	function lensBarHtml() {
 		const a = lensAtlas()
 		if (!a) return ''
@@ -691,7 +696,8 @@
 		const { kind, id, edit } = S.route
 		const sideThread = sideThreadActive()
 		let html = ''
-		if (!kind || kind === 'browse') html = browseHtml()
+		if (kind === 'read') html = readHtml(id)
+		else if (!kind || kind === 'browse') html = browseHtml()
 		else if (kind === 'ask') html = askHtml()
 		else if (kind === 'inbox') html = inboxHtml()
 		else if (kind === 'me') html = meListHtml(id)
@@ -704,14 +710,16 @@
 		else if (kind === 'sighting') html = sightingHtml(id)
 		else if (kind === 'person') html = personHtml(id)
 		else if (kind === 'shelf') html = shelfPageHtml()
-		const prevScroll = $('.margin-body', m) ? $('.margin-body', m).scrollTop : 0
+		const scroller = $('.read', m) || $('.margin-body', m)
+		const prevScroll = scroller ? scroller.scrollTop : 0
 		const mk = `${kind}:${id}:${edit}:${S.tab}:${S.browse.kind}`
 		const changed = renderMargin.last !== mk
 		renderMargin.last = mk
 		const peek = mobileEditing() ? `<div class="mpeek" data-act="detent"><span class="state-pill edit">✎</span><b>${esc(S.drafts[S.editing.id].title)}</b><span class="muted">${S.drafts[S.editing.id].features.length} features</span><span style="flex:1"></span><span class="split" onclick="event.stopPropagation()"><button class="btn sm primary" data-act="publish" data-mode="${D.maps[S.editing.id].published ? 'update' : 'new'}">${D.maps[S.editing.id].published ? 'Publish update' : 'Publish'}</button><button class="btn sm primary" data-act="menu" data-menu="publish">▾</button></span></div>` : ''
 		m.innerHTML = `<div class="handle" data-act="detent" aria-hidden="true" style="height:14px;flex:none;cursor:grab"></div>${peek}${html}`
 		m.classList.toggle('enter', changed)
-		if ($('.margin-body', m) && !changed) $('.margin-body', m).scrollTop = prevScroll
+		const nextScroller = $('.read', m) || $('.margin-body', m)
+		if (nextScroller && !changed) nextScroller.scrollTop = prevScroll
 		const tc = $('#threadcol')
 		tc.hidden = !sideThread
 		if (sideThread) tc.innerHTML = `<div class="margin-head" style="padding-bottom:.35rem"><div class="nav"><span class="eyebrow">Thread · ${esc(kind)}</span><span style="flex:1"></span><button class="btn sm quiet" data-act="thread-dock" title="Show the Thread as a tab of the margin instead">⇤ Dock</button></div></div>${threadHtml(kind, id)}`
@@ -794,7 +802,7 @@
 			const counts = sc ? `<span class="cnt">${[likes ? `♥ ${likes}` : '', nc ? `💬 ${nc}` : '', sc.zaps ? `⚡ ${sc.zaps}` : '', pend ? `<span class="pend">✎ ${pend} proposal${pend === 1 ? '' : 's'}</span>` : ''].filter(Boolean).join(' · ')}</span>` : ''
 			const primary = it.kind === 'map'
 				? `<button data-act="${it.onShelf ? 'remove-shelf' : 'add-shelf'}" data-id="${it.id}" class="${it.onShelf ? 'on' : ''}" title="${it.onShelf ? 'Remove from map' : 'Show on map'}">${it.onShelf ? '◉' : '○'}</button>`
-				: it.kind === 'story' ? `<button data-act="fly-story" data-id="${it.id}" title="Show its maps">⌖</button>` : it.kind === 'atlas' ? `<button data-act="show-all" data-id="${it.id}" title="Show all on map">⌖</button>` : ''
+				: it.kind === 'story' ? `<button data-act="read" data-id="${it.id}" title="Open the reading view">▤</button><button data-act="fly-story" data-id="${it.id}" title="Show its maps">⌖</button>` : it.kind === 'atlas' ? `<button data-act="show-all" data-id="${it.id}" title="Show all on map">⌖</button>` : ''
 			const socialActs = it.kind === 'person' ? '' : `<span class="hov"><button data-act="like" data-k="${k}" class="${S.liked.has(k) ? 'on' : ''}" title="React">${S.liked.has(k) ? '♥' : '♡'}</button><button data-act="open-comments" data-kind="${it.kind}" data-id="${esc(it.id)}" title="Comments">💬</button><button data-act="fav" data-k="${k}" class="${S.faved.has(k) ? 'on' : ''}" title="Favourite">${S.faved.has(k) ? '★' : '☆'}</button></span><button data-act="menu" data-menu="row-more" data-kind="${it.kind}" data-id="${esc(it.id)}" title="More">⋯</button>`
 			return `<div class="lrow ${on ? 'on' : ''}" data-hover-map="${it.kind === 'map' ? it.id : ''}"><div class="thumb">${it.feats.length ? thumb(it.feats, 40, 28) : ''}</div><button class="lmain" data-act="open" data-kind="${it.kind}" data-id="${esc(it.id)}"><div class="t">${esc(it.title)}</div><div class="s">${it.kind === 'person' ? esc(it.meta) : `${esc(person(it.author).name)} · ${esc(it.date)} · ${esc(it.meta)}`}</div>${counts}</button><div class="act">${primary}${socialActs}</div></div>`
 		}).join('')
@@ -970,7 +978,7 @@
 			? `<button class="btn sm primary keep" data-act="dialog" data-dialog="send-proposal">Send proposal to ${esc(person(pub.author).name)}</button><button class="btn sm keep" data-act="done">Keep for later</button>`
 			: inEdit
 			? `<span class="split"><button class="btn sm primary keep" data-act="publish" data-mode="update">${pub.published ? 'Publish update' : 'Publish'}</button><button class="btn sm primary keep" data-act="menu" data-menu="publish">▾</button></span><button class="btn sm keep" data-act="done">Done</button>`
-			: `${mine(pub) ? `<button class="btn sm primary keep" data-act="edit">Edit</button>` : `<button class="btn sm primary keep" data-act="propose" title="Offer text changes to ${esc(person(pub.author).name)}">Propose an edit</button>`}${views.length ? `<button class="btn sm keep ${S.viewIndex >= 0 ? 'primary' : ''}" data-act="present" title="Step through this story's views">▶ Present${S.viewIndex >= 0 ? ` ${S.viewIndex + 1}/${views.length}` : ''}</button><button class="btn sm ${S.followText ? 'primary' : ''}" data-act="follow-text" title="The map follows what you are reading">${S.followText ? '◎ Following text' : '◎ Follow text'}</button>` : ''}`
+			: `${mine(pub) ? `<button class="btn sm primary keep" data-act="edit">Edit</button>` : `<button class="btn sm primary keep" data-act="propose" title="Offer text changes to ${esc(person(pub.author).name)}">Propose an edit</button>`}<button class="btn sm keep" data-act="read" data-id="${id}" title="Open the reading view">▤ Read</button>${views.length ? `<button class="btn sm keep ${S.viewIndex >= 0 ? 'primary' : ''}" data-act="present" title="Step through this story's views">▶ Present${S.viewIndex >= 0 ? ` ${S.viewIndex + 1}/${views.length}` : ''}</button><button class="btn sm ${S.followText ? 'primary' : ''}" data-act="follow-text" title="The map follows what you are reading">${S.followText ? '◎ Following text' : '◎ Follow text'}</button>` : ''}`
 		const p = S.proposal && S.proposal.kind === 'story' && S.proposal.storyId === id ? S.proposal : null
 		const viewEditor = (b, i) => `<div class="vedit">
 			<div class="vrow"><input type="text" value="${esc(b.title || '')}" data-bind-view="${i}" data-k="title" placeholder="Title"><select data-bind-view="${i}" data-k="display"><option value="cue" ${b.display === 'cue' ? 'selected' : ''}>on the big map</option><option value="figure" ${b.display === 'figure' ? 'selected' : ''}>in the text</option><option value="both" ${b.display === 'both' ? 'selected' : ''}>both</option></select></div>
@@ -1004,6 +1012,50 @@
 			${viewsSection}
 		</div>`
 		return head(s, 'story', { actions, sub: `<span class="muted">· ${s.maps.length} map${s.maps.length === 1 ? '' : 's'}${views.length ? ` · ${views.length} views` : ''}</span>` }) + tabsHtml('story', id, sideThread) + (S.tab === 'thread' && !sideThread ? threadHtml('story', id) : S.tab === 'comments' ? commentsHtml('story', id) : details)
+	}
+	// The reading route: half article, half live map, and two controls.
+	// A shared story link lands here; the app chrome stays out of the way.
+	function readHtml(id) {
+		const s = D.stories[id]
+		const words = s.body.reduce((n, b) => n + (b.text ? b.text.split(/\s+/).length : 0) + (b.items ? b.items.join(' ').split(/\s+/).length : 0), 0)
+		const mins = Math.max(1, Math.round(words / 220))
+		const views = viewBlocks(s)
+		const k = key('story', id)
+		const all = commentsOn(k)
+		const roots = all.filter((c) => !c.parent)
+		const replies = (cid) => all.filter((c) => c.parent === cid)
+		const cmt = (c, depth) => `<div class="rcmt ${depth ? 'reply' : ''}"><span class="avatar sm">${person(c.author).initials}</span><div><div class="rch"><b>${esc(person(c.author).name)}</b><span>${esc(c.when)}</span>${c.geom ? `<button class="chip ok" style="height:20px" data-act="fly-comment" data-id="${c.id}">⌖ ${c.geom.type === 'point' ? 'a place' : 'a line'}</button>` : ''}</div><p>${esc(c.text)}</p><div class="rca"><button data-act="like-comment" data-id="${c.id}" class="${S.liked.has('c:' + c.id) ? 'on' : ''}">${S.liked.has('c:' + c.id) ? '♥' : '♡'} ${(c.likes || 0) + (S.liked.has('c:' + c.id) ? 1 : 0)}</button><button data-act="reply-to" data-id="${c.id}">Reply</button></div>${S.replyTo === c.id ? composer(k, c) : ''}</div></div>${replies(c.id).map((r) => cmt(r, 1)).join('')}`
+		const block = (b, i) => {
+			const active = S.activeBlock === i
+			const nth = b.type === 'view' && VIEW_DRIVES(b) ? views.findIndex((v) => v.i === i) : -1
+			const body = b.type === 'view' ? viewHtml(s, b, i, nth, active, false) : blockBody(b, i, false)
+			return `<div class="blk ${active ? 'active' : ''} ${b.type === 'view' ? 'is-view' : ''}" data-blk="${i}"${b.type === 'view' ? '' : ` data-act="go-block" data-i="${i}"`}>${body}</div>`
+		}
+		return `<div class="read">
+			<div class="rchrome">
+				<a class="rlogo" href="#/" title="Back to Earthly" aria-label="Back to Earthly"><span class="dot"></span></a>
+				<button class="rpen" data-act="read-edit" title="${mine(s) ? 'Edit this story' : `Propose an edit to ${esc(person(s.author).name)}`}" aria-label="${mine(s) ? 'Edit' : 'Propose an edit'}">✎</button>
+			</div>
+			<article class="rart">
+				<header class="rhead">
+					<div class="rkicker">${views.length ? `${views.length}-part map story` : 'Story'} · ${esc(s.maps.length)} map${s.maps.length === 1 ? '' : 's'}</div>
+					<h1>${esc(s.title)}</h1>
+					${s.summary ? `<p class="rdek">${esc(s.summary)}</p>` : ''}
+					<div class="rby"><span class="avatar sm">${person(s.author).initials}</span><b>${esc(person(s.author).name)}</b><span>${esc(s.published || 'draft')}</span><span>${mins} min read</span>${views.length ? '<span class="rhint">the map follows as you read</span>' : ''}</div>
+				</header>
+				<div class="rbody prose">${s.body.map(block).join('')}</div>
+				<footer class="rfoot">
+					<div class="rmaps"><span class="rlabel">Maps in this story</span>${s.maps.map((mid) => { const m = D.maps[mid]; return m ? `<button class="rmap" data-act="open" data-kind="map" data-id="${mid}"><span class="thumb">${thumb(m.features, 40, 28)}</span><span><b>${esc(m.title)}</b><i>${esc(person(m.author).name)} · ${m.features.length} features</i></span></button>` : '' }).join('')}</div>
+					<div class="rsocial"><button class="sb ${S.liked.has(k) ? 'on' : ''}" data-act="like" data-k="${k}">${S.liked.has(k) ? '♥' : '♡'}<span>${social(k).likes + (S.liked.has(k) ? 1 : 0)}</span></button><button class="sb" data-act="zap" data-k="${k}">⚡<span>${social(k).zaps}</span></button><button class="sb" data-act="fav" data-k="${k}">${S.faved.has(k) ? '★' : '☆'}<span>${social(k).favs}</span></button><button class="sb" data-act="menu" data-menu="share">↗<span>Share</span></button></div>
+				</footer>
+				<section class="rcomments">
+					<h2>${all.length} comment${all.length === 1 ? '' : 's'}</h2>
+					<p class="rnote">Anyone with a Nostr account can reply, and a reply can point at a place on the map.</p>
+					${S.replyTo ? '' : composer(k, null)}
+					<div class="rcmts">${roots.length ? roots.map((c) => cmt(c, 0)).join('') : emptyState('◌', 'No comments yet', 'Be the first. Replies are NIP-22 events, so they are visible in other Nostr clients too.', '')}</div>
+				</section>
+			</article>
+		</div>`
 	}
 	function viewHtml(st, b, i, nth, active, inEdit) {
 		const summary = viewSummary(st, b)
@@ -1752,7 +1804,7 @@
 		if (m.type === 'me') body = `<div class="mh"><b>You</b><br><span class="mono muted">you@earthly.city</span></div><hr>${mi('Profile', 'open-me')}${mi('Drafts', 'menu-drafts')}${mi(`Inbox${unread() ? ' <small>' + unread() + ' unread</small>' : ''}`, 'open-inbox')}${mi(`Circles <small>${D.circles.map((c) => c.title).join(', ')}</small>`, 'open-me-circles')}${mi(`Nearby sessions <small>${D.nearby.map((n) => n.title + ' · ' + n.peers.length + ' peers').join(', ')}</small>`, 'open-me-nearby')}${mi(S.liveMine ? 'You are live <small>tap to stop</small>' : 'Share live location', S.liveMine ? 'stop-live' : 'start-live')}${mi('Outbox <small>2 delivered · 0 waiting</small>', 'toast')}${mi('Wallet', 'toast')}<hr>${mi('Settings', 'toast')}${mi('Help & tour', 'toast')}<div class="mrow"><span class="muted" style="align-self:center;font-size:.8rem;padding:0 .3rem">Theme</span>${['system', 'light', 'dark'].map((t) => `<button class="btn sm ${theme() === t ? 'primary' : ''}" data-act="theme" data-theme="${t}">${t}</button>`).join('')}</div>${mi('Simulate a problem…<small>empty account, offline, failures</small>', 'menu-sim')}<div class="mrow"><span class="muted" style="align-self:center;font-size:.8rem;padding:0 .3rem">Panels</span><button class="btn sm ${S.glass ? '' : 'primary'}" data-act="glass" data-v="0">Solid</button><button class="btn sm ${S.glass ? 'primary' : ''}" data-act="glass" data-v="1">Glass</button></div><hr>${mi('Sign out', 'toast', 'danger')}`
 		if (m.type === 'drafts') { const ds = Object.values(S.drafts); body = `<div class="mh"><b>Drafts</b> <span class="muted">· saved on this device</span></div>${ds.length ? ds.map((d) => `<div class="mi" style="grid-template-columns:1fr auto auto"><span><span class="kicon ${d.kind}" style="display:inline-grid;width:20px;height:20px;font-size:.55rem;vertical-align:middle">${d.kind.slice(0, 3)}</span> ${esc(d.title)}<small>${esc(d.kind)}${d.mode === 'propose' ? ' · proposal to ' + esc(person(obj(d.kind, d.id).author).name) : ''} · ${S.editing && S.editing.id === d.id ? 'editing now' : 'kept'}</small></span><button class="btn sm" data-act="resume" data-kind="${d.kind}" data-id="${d.id}">Resume</button><button class="btn sm quiet danger" data-act="discard-draft" data-id="${d.id}">Discard</button></div>`).join('') : '<div class="empty" style="padding:.5rem .7rem">No unfinished work. Press Edit on something.</div>'}` }
 		if (m.type === 'publish') { const d = S.drafts[S.editing.id]; const isMap = S.editing.kind === 'map'; const pub = obj(S.editing.kind, S.editing.id); body = `${pub.published ? mi(`Publish update<small>same address, becomes v${(pub.version || 0) + 1}</small>`, 'publish-update') : mi('Publish<small>first version</small>', 'publish-update')}${isMap ? mi('Publish as new map<small>new address, keeps this one as it is</small>', 'publish-new') : ''}<hr><div class="mh eyebrow">Who can see it</div>${[['everyone', 'Everyone', 'public relays'], ['circle', 'Circle: Alpine rescue', 'encrypted, 6 members'], ['nearby', 'Nearby: Saturday survey', 'this session only']].map(([v, t, s]) => `<button class="mi ${d.audience === v ? 'on' : ''}" data-act="audience" data-a="${v}"><span>${t}<small>${s}</small></span></button>`).join('')}` }
-		if (m.type === 'share') body = `${mi('Copy link', 'toast-copied')}${mi('Copy link with what’s on the map', 'toast-copied')}${mi('Show QR code', 'toast')}${mi('Share to…', 'toast')}`
+		if (m.type === 'share') body = `${S.route.kind === 'story' || S.route.kind === 'read' ? mi('Copy reading link<small>opens the article view, not the app</small>', 'toast-copied') : ''}${mi('Copy link', 'toast-copied')}${mi('Copy link with what’s on the map', 'toast-copied')}${mi('Show QR code', 'toast')}${mi('Share to…', 'toast')}`
 		if (m.type === 'safety') body = `<div class="mh eyebrow">When the AI changes something</div>${[['auto', 'Apply automatically', 'changes land, undo is one click'], ['ask', 'Ask before changing', 'show the proposal, then Apply'], ['every', 'Ask before every change', 'review each item']].map(([v, t, s]) => `<button class="mi ${S.safety === v ? 'on' : ''}" data-act="safety" data-v="${v}"><span>${t}<small>${s}</small></span></button>`).join('')}`
 		if (m.type === 'more-tools') body = `<div class="mh eyebrow">Select</div>${mi('Select all', 'select-all')}${mi('Clear selection', 'clear-selection')}<hr><div class="mh eyebrow">Geometry</div>${toolbarMenuHtml(GEOMETRY_MENU.filter((x) => !x.h))}<hr><div class="mh eyebrow">File</div>${toolbarMenuHtml(FILE_MENU.filter((x) => !x.h))}<hr>${toolbarMenuHtml(MORE_MENU)}`
 		if (m.type === 'add-map') body = `<div class="mh eyebrow">Add a map to this atlas</div>${mi('One of my maps…<small>republishes it with Belongs to</small>', 'dialog-pick-my-map')}${mi('New map in this atlas<small>opens a working copy with Belongs to set</small>', 'new-in-atlas')}`
@@ -1903,6 +1955,8 @@
 		'feat-up'(d) { const dr = S.drafts[S.editing.id]; const i = dr.features.findIndex((x) => x.id === d.id); if (i > 0) { pushUndo(); const [f] = dr.features.splice(i, 1); dr.features.splice(i - 1, 0, f); render() } },
 		'feat-down'(d) { const dr = S.drafts[S.editing.id]; const i = dr.features.findIndex((x) => x.id === d.id); if (i >= 0 && i < dr.features.length - 1) { pushUndo(); const [f] = dr.features.splice(i, 1); dr.features.splice(i + 1, 0, f); render() } },
 		'feat-prop-add'(d) { const dr = S.drafts[S.editing.id]; const f = dr.features.find((x) => x.id === d.id); if (!f) return; const k = prompt('Property name'); if (!k || !k.trim()) return; pushUndo(); f.props = f.props || {}; f.props[k.trim()] = ''; S.featExpanded.add(d.id); render() },
+		read(d) { location.hash = `#/read/${d.id || S.route.id}` },
+		'read-edit'() { const s = D.stories[S.route.id]; const kind = 'story', id = S.route.id; if (S.editing && S.editing.id !== id) { S.dialog = { type: 'finish-first', next: { kind, id, propose: !mine(s) } }; render(); return } if (mine(s)) beginEdit(kind, id); else beginPropose(kind, id); location.hash = hashFor({ kind, id, edit: true }) },
 		'go-block'(d) { const st = view('story', S.route.id); const i = +d.i; S.viewIndex = viewBlocks(st).findIndex((v) => v.i === i); applyBlockState(st, i) },
 		'follow-text'() { S.followText = !S.followText; render(); toast(S.followText ? 'The map now follows the paragraph you read.' : 'The map stays where you put it.') },
 		'pres-set-view'() { const dr = S.drafts[S.editing.id]; const cap = capturePresentation(dr.maps); dr.presentation = Object.assign({ version: 1, layers: {}, scenes: [] }, dr.presentation || {}, { initialView: cap.initialView, layerOrder: dr.presentation && dr.presentation.layerOrder ? dr.presentation.layerOrder : cap.layerOrder }); render(); toast('Opening view set.') },
@@ -2259,17 +2313,17 @@
 	let blockObserver = null, followTimer = null
 	function observeBlocks() {
 		if (blockObserver) { blockObserver.disconnect(); blockObserver = null }
-		if (S.route.kind !== 'story' || !S.followText || (S.editing && S.editing.id === S.route.id)) return
-		const st = view('story', S.route.id)
+		if (!readingStory() || !S.followText || (S.editing && S.editing.id === S.route.id)) return
+		const st = readingStory()
 		if (!viewBlocks(st).length) return
-		const root = $('.margin-body') || null
+		// Root on the actual scroller for this mode; the hidden thread column can still hold a stale .margin-body.
+		const root = reading() ? $('.read') : $('#margin .margin-body')
+		if (!root) return
 		const visible = new Map()
-		let lastScrollAt = 0
-		if (root) root.addEventListener('scroll', () => { lastScrollAt = Date.now() }, { passive: true })
 		blockObserver = new IntersectionObserver((entries) => {
 			entries.forEach((en) => { const i = +en.target.dataset.blk; if (en.isIntersecting) visible.set(i, en.boundingClientRect.top); else visible.delete(i) })
 			if (!visible.size) return
-			if (Date.now() < S.followMuteUntil || lastScrollAt < S.followMuteUntil) return
+			if (Date.now() < S.followMuteUntil) return
 			const top = [...visible.entries()].sort((a, b) => a[1] - b[1])[0][0]
 			// The map state of a paragraph without its own scene is whatever the last scene left; apply only when the effective state changes.
 			clearTimeout(followTimer)

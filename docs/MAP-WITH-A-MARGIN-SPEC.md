@@ -43,6 +43,7 @@ Hash routes in the sketch; path routes in the app. Both carry the same grammar.
 | `/map/:id` `/story/:id` `/atlas/:id` `/sighting/:id` `/person/:id` | The object, read-only | `:id` is the naddr / npub the app already uses |
 | `/map/:id/edit` `/story/:id/edit` `/atlas/:id/edit` | The object in Edit (owner) or Propose (non-owner) | Entering `/edit` on a non-owned thing means Propose, never Fork |
 | `/ask` | Ask Earthly (read-only concierge) | |
+| `/read/:id` | The reading route for a Story (§11f) | What a shared story link opens |
 | `/shelf` | What is on the map | |
 | `/in/:atlas` | Enters the Atlas lens, then redirects to `/browse/maps?in=:atlas` | The shareable "mini-app" link |
 | `/circle/:id` `/nearby/:id` | The audience's page (§11a); its shared maps join the Shelf | Reachable from Me, Publish ▾ pills, and lock badges |
@@ -279,6 +280,18 @@ A plain Markdown client shows the picture and a link; Earthly reads the camera a
 
 ### Atlas
 An Atlas keeps a plain `MapPresentationV1` as its default view, restricted to its pinned lane. It has no body, so it has no views.
+
+## 11f. The reading route
+
+A shared story link opens here, not in the app. Half article, half live map, and two controls.
+
+- **Layout.** The article occupies the left half at a 38rem measure, the map the right half, and the map is the same live canvas the app uses, so views, references and comment pins all work. On a phone the map takes the top 42% and the article scrolls beneath it.
+- **Chrome is two buttons in the top left**, floating over the article on a soft gradient: the **Earthly mark**, which returns to the app, and a **pencil**, which is Edit for your own story and Propose an edit for anyone else's. There is no top bar, no Shelf, no Thread, no tabs, no lens bar. Everything else on screen is the article.
+- **Typography is editorial.** A kicker naming the piece ("4-part map story · 5 maps"), the title in the display face, a serif dek, then a byline rule with author, date, reading time, and a quiet note that the map follows as you read. The body is serif at a comfortable measure; figures, tables, quotes and callouts get more room than in the Margin.
+- **The map follows the reading position** by default here, since that is the whole point of the route. View figures still render in the flow and remain clickable, and reference pills still fly the map.
+- **Comments sit under the article**, not in a tab: a heading with the count, one line saying anyone with a Nostr account can reply and that a reply can point at a place, the composer, then the threads with their geometry chips. It is the same data and the same actions as the Margin's Comments tab, laid out for reading.
+- **The footer** lists the maps used, with authors and feature counts, and the react, zap, favourite and share row. Share offers a **reading link** first.
+- Entry points: the **▤ Read** button on a Story in the Margin, the **▤** action on a Story row in Browse, and any shared story URL.
 
 ## 11d. Inbox
 

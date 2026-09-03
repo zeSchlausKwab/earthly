@@ -130,6 +130,81 @@ a{color:var(--accent)}
 .btype{position:absolute;left:-.15rem;top:-.55rem;font-family:var(--mono);font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);background:var(--surface);padding:0 .25rem;border:1px solid var(--rule)}
 .prose.editing .blk{position:relative}
 
+/* ---------- The reading route: half article, half live map ---------- */
+body.reading .topbar,body.reading .bars,body.reading .shelf,body.reading .mnav,body.reading #threadcol,
+body.reading .toolpill,body.reading .diffbar,body.reading .hint-status,body.reading .about{display:none!important}
+body.reading #app{grid-template-rows:0 0 minmax(0,1fr)}
+body.reading .stage,body.reading .stage.margin-open{grid-template-columns:50vw 1fr}
+body.reading .margin{border-right:1px solid var(--rule);background:var(--surface);opacity:1;transform:none}
+body.reading .zoom{top:.7rem;right:.7rem}
+body.reading .maplibregl-ctrl-bottom-right{bottom:0!important}
+.read{display:flex;flex-direction:column;height:100%;overflow-y:auto;overscroll-behavior:contain;scroll-behavior:smooth}
+.rchrome{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:.5rem;padding:.7rem .9rem .5rem;
+	background:linear-gradient(var(--surface) 62%,transparent)}
+.rlogo{width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--rule-2);background:var(--surface);text-decoration:none}
+.rlogo .dot{width:10px;height:10px;background:var(--accent)}
+.rlogo:hover{border-color:var(--ink)}
+.rpen{width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--rule-2);background:var(--surface);color:var(--ink-2);font-size:.82rem}
+.rpen:hover{border-color:var(--accent);color:var(--accent)}
+.rart{width:100%;max-width:38rem;margin:0 auto;padding:1.2rem 2.2rem 5rem;box-sizing:border-box}
+.rhead{margin-bottom:1.6rem}
+.rkicker{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem}
+.rart h1{font-family:var(--display);font-weight:800;font-size:clamp(1.9rem,3.2vw,2.7rem);line-height:1.05;letter-spacing:-.025em;margin:0;text-wrap:balance}
+.rdek{font-family:"Source Serif 4",Georgia,serif;font-size:1.12rem;line-height:1.5;color:var(--ink-2);margin:.7rem 0 0;text-wrap:pretty}
+.rby{display:flex;align-items:center;gap:.5rem;margin-top:1.1rem;padding-top:.7rem;border-top:1px solid var(--rule);
+	font-family:var(--mono);font-size:.7rem;color:var(--muted);flex-wrap:wrap}
+.rby b{font-family:var(--sans);font-size:.84rem;font-weight:600;color:var(--ink)}
+.rby .rhint{margin-left:auto;color:var(--accent)}
+.rbody{font-family:"Source Serif 4",Georgia,serif;font-size:1.07rem;line-height:1.68}
+.rbody .blk{margin:0 0 1.1rem;padding:0;border:0}
+.rbody .blk.active{background:transparent}
+.rbody p{margin:0}
+.rbody .plead{font-size:1.16rem;line-height:1.55;color:var(--ink-2)}
+.rbody h5{font-family:var(--display);font-size:1.35rem;margin:2rem 0 .1rem;letter-spacing:-.015em}
+.rbody h6{font-family:var(--display);font-size:1.05rem;margin:1.5rem 0 .1rem}
+.rbody .fig,.rbody .tbl-wrap,.rbody .vfig{margin:1.5rem 0}
+.rbody .vmap svg{height:210px}
+.rbody blockquote{margin:1.5rem 0;padding:0 0 0 1.1rem;font-size:1.2rem;line-height:1.45;border-left-width:3px}
+.rbody .pcode{font-size:.76rem}
+.rbody .ptbl{font-size:.86rem}
+.rbody .plist li{font-size:1.02rem;margin:.35rem 0}
+.rbody .pnote{font-family:var(--sans);font-size:.92rem}
+.rbody .vcue{font-family:var(--sans);margin:1.2rem 0;padding:.45rem .6rem}
+.rbody .xref{font-size:.82em}
+.rfoot{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:1rem}
+.rlabel{display:block;font-family:var(--mono);font-size:.64rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem}
+.rmaps{display:flex;flex-direction:column;gap:.3rem}
+.rmap{display:flex;align-items:center;gap:.6rem;text-align:left;padding:.3rem;border:1px solid var(--rule)}
+.rmap:hover{background:var(--surface-2)}
+.rmap b{display:block;font-size:.86rem;font-weight:600}
+.rmap i{display:block;font-style:normal;font-family:var(--mono);font-size:.66rem;color:var(--muted)}
+.rsocial{display:flex;gap:.2rem;align-items:center}
+.rcomments{margin-top:2.5rem;padding-top:1.2rem;border-top:2px solid var(--ink)}
+.rcomments h2{font-family:var(--display);font-size:1.15rem;margin:0 0 .2rem;letter-spacing:-.01em}
+.rnote{font-size:.82rem;color:var(--muted);margin:0 0 .9rem}
+.rcomments .ccomp{border:1px solid var(--rule-2);padding:.5rem;background:var(--ground);margin-bottom:1.2rem}
+.rcmts{display:flex;flex-direction:column}
+.rcmt{display:grid;grid-template-columns:22px 1fr;gap:.6rem;padding:.8rem 0;border-bottom:1px solid var(--rule)}
+.rcmt.reply{margin-left:1.6rem;border-bottom:0;padding-top:.4rem}
+.rch{display:flex;gap:.5rem;align-items:center;font-family:var(--mono);font-size:.68rem;color:var(--muted);flex-wrap:wrap}
+.rch b{font-family:var(--sans);font-size:.86rem;font-weight:600;color:var(--ink)}
+.rcmt p{margin:.2rem 0 .3rem;font-family:"Source Serif 4",Georgia,serif;font-size:.98rem;line-height:1.5}
+.rca{display:flex;gap:.2rem}
+.rca button{font-family:var(--mono);font-size:.7rem;color:var(--muted);padding:.1rem .4rem}
+.rca button:hover{background:var(--surface-2);color:var(--ink)}
+.rca button.on{color:var(--accent)}
+@media (max-width:900px){.rart{padding:1rem 1.2rem 4rem}}
+@media (max-width:760px){
+	body.reading #app{grid-template-rows:0 0 minmax(0,1fr)}
+	body.reading .stage,body.reading .stage.margin-open{grid-template-columns:1fr;grid-template-rows:42vh minmax(0,1fr)}
+	body.reading .canvas{grid-row:1;grid-column:1}
+	body.reading .margin{position:static;grid-row:2;grid-column:1;height:auto;border-right:0;border-top:1px solid var(--rule-2);box-shadow:none;transform:none}
+	body.reading .margin::before{display:none}
+	body.reading .mtop{display:none}
+	.rart{max-width:none}
+	.rbody{font-size:1.02rem}
+}
+
 /* Inline references are pills, deliberately unlike links (SPEC 2.4).
    A link is underlined running text; a reference is a small chip that points at the map. */
 .xref{display:inline-flex;align-items:baseline;gap:.22em;font-family:var(--sans);font-size:.86em;line-height:1.1;
