@@ -48,6 +48,7 @@
 		replyTo: null,
 		previewProposal: null,
 		commentSort: 'new',
+		moveMode: false,
 		basemap: 'svg',
 		ask: { msgs: [] },
 		counter: 1,
@@ -257,7 +258,7 @@
 		if (r.kind === 'sighting' && S.tab === 'thread') S.tab = 'details'
 		if (prev.id !== r.id) { S.annot = null; S.replyTo = null; S.previewProposal = null }
 		if (!r.edit) { S.selection.clear() }
-		if (isMobile() && r.kind && r.kind !== 'browse') S.detent = 'half'
+		if (isMobile() && r.kind && r.kind !== 'browse') S.detent = r.edit && r.kind === 'map' ? 'peek' : 'half'
 		if (isMobile() && r.kind === 'browse' && S.detent === 'peek') S.detent = 'half'
 		render()
 	}
@@ -502,9 +503,10 @@
 		stage.classList.toggle('thread-side', sideThreadActive())
 		$('#margin').dataset.detent = S.detent
 		if (isMobile()) {
-			const h = S.detent === 'peek' ? '96px' : S.detent === 'half' ? '50%' : 'calc(100% - 64px)'
+			const peekPx = mobileEditing() ? 62 : 96
+			const h = S.detent === 'peek' ? peekPx + 'px' : S.detent === 'half' ? '50%' : 'calc(100% - 64px)'
 			$('#margin').style.setProperty('--sheet-h', h)
-			const px = S.detent === 'peek' ? 96 : S.detent === 'half' ? innerHeight * 0.5 : innerHeight - 64
+			const px = S.detent === 'peek' ? peekPx : S.detent === 'half' ? innerHeight * 0.5 : innerHeight - 64
 			document.documentElement.style.setProperty('--sheet-peek', (S.route.kind ? px : 0) + 'px')
 		} else $('#margin').style.removeProperty('--sheet-h')
 	}
@@ -582,7 +584,8 @@
 		const mk = `${kind}:${id}:${edit}:${S.tab}:${S.browse.kind}`
 		const changed = renderMargin.last !== mk
 		renderMargin.last = mk
-		m.innerHTML = `<div class="handle" data-act="detent" aria-hidden="true" style="height:14px;flex:none;cursor:grab"></div>${html}`
+		const peek = mobileEditing() ? `<div class="mpeek" data-act="detent"><span class="state-pill edit">✎</span><b>${esc(S.drafts[S.editing.id].title)}</b><span class="muted">${S.drafts[S.editing.id].features.length} features</span><span style="flex:1"></span><span class="split" onclick="event.stopPropagation()"><button class="btn sm primary" data-act="publish" data-mode="${D.maps[S.editing.id].published ? 'update' : 'new'}">${D.maps[S.editing.id].published ? 'Publish update' : 'Publish'}</button><button class="btn sm primary" data-act="menu" data-menu="publish">▾</button></span></div>` : ''
+		m.innerHTML = `<div class="handle" data-act="detent" aria-hidden="true" style="height:14px;flex:none;cursor:grab"></div>${peek}${html}`
 		m.classList.toggle('enter', changed)
 		if ($('.margin-body', m) && !changed) $('.margin-body', m).scrollTop = prevScroll
 		const tc = $('#threadcol')
@@ -991,6 +994,7 @@
 		ml.getCanvas().style.cursor = S.tool || (S.annot && S.annot.mode) ? 'crosshair' : hit || ml.queryRenderedFeatures(e.point, { layers: ['sight'] }).length ? 'pointer' : ''
 	}
 	function onMlClick(e) {
+		if (S.moveMode) { moveSelectionTo([r3(e.lngLat.lng), r3(e.lngLat.lat)]); return }
 		if (S.annot && S.annot.mode) { annotAt([r3(e.lngLat.lng), r3(e.lngLat.lat)]); return }
 		if (S.tool && S.editing && S.editing.kind === 'map') { placeAt([r3(e.lngLat.lng), r3(e.lngLat.lat)]); return }
 		const sight = ml.queryRenderedFeatures(e.point, { layers: ['sight'] })[0]
@@ -998,6 +1002,16 @@
 		const hit = ml.queryRenderedFeatures(e.point, { layers: ML_HIT })[0]
 		if (hit) { featureClicked(hit.properties.map, hit.properties.fid, e.originalEvent); return }
 		if (S.popup) { S.popup = null; render() }
+	}
+	function moveSelectionTo(p) {
+		const d = S.drafts[S.editing.id]
+		const sel = d.features.filter((f) => S.selection.has(f.id))
+		if (!sel.length) { S.moveMode = false; render(); return }
+		pushUndo()
+		const b = bbox(sel); const c = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; const dx = p[0] - c[0], dy = p[1] - c[1]
+		sel.forEach((f) => { if (f.type === 'point') f.coords = [r3(f.coords[0] + dx), r3(f.coords[1] + dy)]; else f.coords = f.coords.map((q) => [r3(q[0] + dx), r3(q[1] + dy)]) })
+		S.moveMode = false
+		render(); toast(`Moved ${sel.length} feature${sel.length === 1 ? '' : 's'}.`, { label: 'Undo', fn: undo })
 	}
 	function annotAt(p) {
 		if (S.annot.mode === 'point') { S.annot.geom = { type: 'point', coords: p }; S.annot.mode = null; render(); toast('Pin attached to your comment.'); return }
@@ -1011,7 +1025,7 @@
 	function placeAt(p) {
 		if (S.tool === 'point') { pushUndo(); S.drafts[S.editing.id].features.push({ id: `p-${Date.now()}`, name: `Point ${S.drafts[S.editing.id].features.length + 1}`, type: 'point', coords: p, props: {} }); render(); return }
 		if (S.tool === 'label') { S.dialog = { type: 'label', at: p }; render(); return }
-		S.drawing.push(p); renderCanvas()
+		S.drawing.push(p); renderCanvas(); renderMobileEdit()
 	}
 	function featureClicked(mapId, fid, ev) {
 		if (S.editing && S.editing.id === mapId && S.route.id === mapId) {
@@ -1195,8 +1209,29 @@
 		const inp = $('#dlg-name'); if (inp) setTimeout(() => { inp.focus(); inp.select() }, 30)
 	}
 
+	// ---- Mobile edit composition: dock at the thumb, status at the top, contextual strip for selection
+	const mobileEditing = () => isMobile() && !!S.editing && S.editing.kind === 'map' && S.route.kind === 'map' && S.route.id === S.editing.id
+	function renderMobileEdit() {
+		const on = mobileEditing()
+		document.body.classList.toggle('m-edit', on)
+		const dock = $('#editdock'), strip = $('#ctxstrip'), status = $('#mstatus')
+		dock.hidden = !on; strip.hidden = !on; status.hidden = !on
+		if (!on) { S.moveMode = false; return }
+		const d = S.drafts[S.editing.id]
+		const drawing = S.drawing.length > 0
+		const t = (k, glyph, label) => `<button class="dk ${S.tool === k ? 'on' : ''}" data-act="tool" data-tool="${k}" aria-label="${label}">${glyph}<span>${label}</span></button>`
+		dock.innerHTML = drawing
+			? `<button class="dk primary" data-act="finish-draw">✓<span>Finish · ${S.drawing.length}</span></button><button class="dk" data-act="undo-vertex">↶<span>Undo point</span></button><span class="sp"></span><button class="dk" data-act="cancel-draw">×<span>Cancel</span></button>`
+			: `${t('point', '●', 'Point')}${t('line', '╱', 'Line')}${t('polygon', '⬠', 'Area')}${t('label', 'T', 'Label')}<span class="sep"></span><button class="dk" data-act="undo" ${S.undo.length ? '' : 'disabled'}>↶<span>Undo</span></button><button class="dk" data-act="menu" data-menu="more-tools">⋯<span>More</span></button><button class="dk" data-act="m-ask">✦<span>Ask</span></button><button class="dk done" data-act="done">Done<span>keeps draft</span></button>`
+		const n = S.selection.size
+		strip.hidden = !n || drawing
+		if (n && !drawing) strip.innerHTML = `<span class="cnt">${n} selected</span><button class="btn sm ${S.moveMode ? 'primary' : ''}" data-act="move-mode">${S.moveMode ? 'Tap the new place' : 'Move'}</button>${n === 1 ? '<button class="btn sm" data-act="rename-sel">Rename</button>' : ''}<button class="btn sm danger" data-act="delete-sel">Delete</button><span class="sp"></span><button class="btn sm quiet" data-act="clear-selection">×</button>`
+		const hint = S.moveMode ? 'Tap where the selection should go' : drawing ? (S.tool === 'polygon' ? 'Tap corners, then Finish' : 'Tap points along the line, then Finish') : S.tool === 'point' ? 'Tap the map to add a point' : S.tool === 'label' ? 'Tap the map to place a label' : S.tool ? 'Tap the map to start' : n ? 'Drag to pan · tap another feature to switch' : 'Tap a feature to select it, or pick a tool'
+		status.innerHTML = `<span class="pen">✎</span><b>${esc(d.title)}</b><span class="hint">${hint}</span><button class="btn sm quiet" data-act="done" aria-label="Exit editing">Exit</button>`
+	}
 	// ---- Mobile nav
 	function renderMobile() {
+		renderMobileEdit()
 		const nav = $('#mnav')
 		const tab = S.menu && S.menu.type === 'me' ? 'me' : S.resultsOpen ? 'search' : 'map'
 		nav.innerHTML = `<button class="${tab === 'map' ? 'on' : ''}" data-act="m-map">🗺<span>Map</span></button><button class="${tab === 'search' ? 'on' : ''}" data-act="m-search">⌕<span>Search</span></button><button data-act="menu" data-menu="plus" aria-label="Add"><span class="plus">+</span></button><button class="${tab === 'me' ? 'on' : ''}" data-act="menu" data-menu="me"><span class="avatar sm">YO</span><span>Me</span></button>`
@@ -1316,6 +1351,13 @@
 		'withdraw-proposal'(d) { D.proposals = D.proposals.filter((x) => x.id !== d.id); S.previewProposal = null; render(); toast('Proposal withdrawn.') },
 		'new-story'() { S.menu = null; const id = `story-${++S.counter}`; D.stories[id] = { id, kind: 'story', title: 'Untitled story', author: 'me', published: null, draft: true, summary: '', maps: S.shelf.slice(0, 2).map((e) => e.id), body: [{ type: 'p', text: 'Start writing. Reference maps and features from the Shelf.', refs: [] }] }; if (S.editing) { S.dialog = { type: 'finish-first', next: { kind: 'story', id } }; render(); return } beginEdit('story', id); location.hash = hashFor({ kind: 'story', id, edit: true }) },
 		'new-atlas'() { S.menu = null; const id = `atlas-${++S.counter}`; D.atlases[id] = { id, kind: 'atlas', title: 'Untitled atlas', author: 'me', policy: 'open', published: null, version: 0, noun: 'map', emblem: '◈', description: 'What belongs here?', pinned: [] }; if (S.editing) { S.dialog = { type: 'finish-first', next: { kind: 'atlas', id } }; render(); return } beginEdit('atlas', id); location.hash = hashFor({ kind: 'atlas', id, edit: true }) },
+		'move-mode'() { S.moveMode = !S.moveMode; render() },
+		'rename-sel'() { const d = S.drafts[S.editing.id]; const f = d.features.find((x) => S.selection.has(x.id)); if (!f) return; const t = prompt('Name', f.name); if (t !== null && t.trim()) { pushUndo(); f.name = t.trim(); render() } },
+		'delete-sel'() { pushUndo(); const d = S.drafts[S.editing.id]; const n = S.selection.size; d.features = d.features.filter((f) => !S.selection.has(f.id)); S.selection.clear(); render(); toast(`Deleted ${n}.`, { label: 'Undo', fn: undo }) },
+		'finish-draw'() { finishDrawing() },
+		'undo-vertex'() { S.drawing.pop(); renderCanvas(); renderMobileEdit() },
+		'cancel-draw'() { S.drawing = []; render() },
+		'm-ask'() { S.tab = 'thread'; S.detent = 'half'; S.tool = null; render() },
 		'browse-kind'(d) { S.browse.kind = d.k; location.hash = `#/browse/${d.k}`; if (S.route.kind === 'browse') render() },
 		'ask-go'(d) { askFrom(d.q) },
 		'ask-send'() { const ta = $('#askq'); const t = ta && ta.value.trim(); if (!t) return; askFrom(t) },
@@ -1420,6 +1462,7 @@
 		const hit = target.closest('[data-fid]')
 		const sight = target.closest('[data-act="open"]')
 		if (sight && !hit) { A.open(sight.dataset); return }
+		if (S.moveMode) { moveSelectionTo(screenToWorld(e.clientX, e.clientY)); return }
 		if (S.annot && S.annot.mode) { annotAt(screenToWorld(e.clientX, e.clientY)); return }
 		if (S.tool && S.editing && S.editing.kind === 'map') { placeAt(screenToWorld(e.clientX, e.clientY)); return }
 		if (hit) { featureClicked(hit.dataset.map, hit.dataset.fid, e); return }

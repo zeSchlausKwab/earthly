@@ -75,5 +75,12 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
 - **Drafts** and **Me** menus (theme toggle lives under Me).
 - **Phone** (≤ 760px): four-item bar Map · Search · + · Me, bottom sheet with
   peek / half / full detents (drag or tap the handle), the **+** chooser.
+- **Phone editing** is its own composition, not the desktop squeezed: the nav
+  bar swaps for an **edit dock** at the thumb (Point · Line · Area · Label |
+  Undo · More · Ask · Done), the sheet collapses to a one-line peek with
+  Publish, search and Shelf give way to a status line with the current hint and
+  an Exit button, and selecting a feature raises a strip with Move · Rename ·
+  Delete. While drawing, the dock becomes Finish · Undo point · Cancel. Done and
+  Exit both keep the draft, so you can never be locked in.
 
 Everything is local state; reload to reset.

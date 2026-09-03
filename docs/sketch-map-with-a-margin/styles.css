@@ -427,6 +427,45 @@ body.glass .ccomp{background:transparent}
 .about-panel ul{padding-left:1rem;margin:.3rem 0 .6rem}
 .about-panel kbd{font-family:var(--mono);font-size:.75rem;background:var(--surface-2);padding:0 .3rem;border-radius:0}
 
+/* ---------- Mobile edit composition ---------- */
+.editdock,.ctxstrip,.mstatus{display:none}
+@media (max-width:760px){
+  body.m-edit .mnav{display:none}
+  body.m-edit .toolpill{display:none}
+  body.m-edit .mtop .search,body.m-edit .mtop .mshelf,body.m-edit .lensbar{display:none}
+  body.m-edit .zoom{bottom:calc(var(--sheet-peek,96px) + 5.2rem)}
+  body.m-edit .diffbar{bottom:calc(var(--sheet-peek,96px) + 9rem)}
+  body.m-edit .toasts{bottom:calc(var(--sheet-peek,96px) + 5.2rem)}
+  body.m-edit .margin{bottom:64px}
+  body.m-edit .maplibregl-ctrl-bottom-right{bottom:calc(var(--sheet-peek,96px) + 70px)!important}
+  .mstatus{position:absolute;left:.6rem;right:.6rem;top:.6rem;z-index:21;display:flex;align-items:center;gap:.5rem;height:40px;padding:0 .3rem 0 .6rem;background:var(--surface);border:1px solid var(--accent);box-shadow:var(--shadow)}
+  .mstatus[hidden]{display:none}
+  .mstatus .pen{color:var(--accent);font-weight:700}
+  .mstatus b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%}
+  .mstatus .hint{flex:1;min-width:0;font-size:.76rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .editdock{position:absolute;left:0;right:0;bottom:0;height:64px;z-index:27;display:flex;align-items:stretch;gap:0;background:var(--surface);border-top:1px solid var(--rule-2);box-shadow:0 -4px 16px rgba(0,0,0,.08);padding:0 .2rem}
+  .editdock[hidden]{display:none}
+  .editdock .dk{flex:1;min-width:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.1rem;color:var(--ink-2);font-size:1.15rem;line-height:1}
+  .editdock .dk span{font-family:var(--mono);font-size:.58rem;letter-spacing:.04em;color:var(--muted)}
+  .editdock .dk.on{color:var(--accent);box-shadow:inset 0 3px 0 var(--accent)}
+  .editdock .dk.on span{color:var(--accent)}
+  .editdock .dk:disabled{opacity:.35}
+  .editdock .dk.primary{color:var(--accent);flex:1.6}
+  .editdock .dk.done{flex:1.4;background:var(--accent);color:var(--accent-ink);font-size:.95rem;font-weight:600;margin:.4rem .2rem .4rem .3rem}
+  .editdock .dk.done span{color:var(--accent-ink);opacity:.8}
+  .editdock .sep{width:1px;background:var(--rule);margin:.8rem .15rem}
+  .editdock .sp{flex:1}
+  .ctxstrip{position:absolute;left:.6rem;right:.6rem;bottom:calc(var(--sheet-peek,96px) + 64px + .5rem);z-index:26;display:flex;align-items:center;gap:.3rem;padding:.3rem .4rem .3rem .6rem;background:var(--amber-soft);border:1px solid var(--amber);box-shadow:var(--shadow);transition:bottom var(--slow) var(--ease)}
+  .ctxstrip[hidden]{display:none}
+  .ctxstrip .cnt{font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink)}
+  .ctxstrip .sp{flex:1}
+  .mpeek{display:none}
+  body.m-edit .margin[data-detent="peek"] .margin-head,body.m-edit .margin[data-detent="peek"] .tabs{display:none}
+  body.m-edit .margin[data-detent="peek"] .mpeek{display:flex;align-items:center;gap:.45rem;padding:.2rem .7rem .4rem;cursor:pointer}
+  .mpeek b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+  .mpeek .muted{font-size:.78rem;white-space:nowrap}
+}
+
 /* ---------- Mobile ---------- */
 .mnav,.mtop{display:none}
 @media (max-width:760px){

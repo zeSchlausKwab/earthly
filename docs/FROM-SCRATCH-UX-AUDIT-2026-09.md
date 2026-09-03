@@ -254,6 +254,14 @@ Everything that used to be a rail icon (settings, wallet, delivery/outbox, help,
 
 Four destinations. **+** opens a chooser: *Sighting here*, *Share live location*, *New map* (pin-only editing), *Import file*. Editing on mobile is deliberately shallow: add and move points, edit properties, and the Thread. Lines and polygons can be drawn but not vertex-edited. That is a product statement, not a limitation to apologise for; see Part 5.
 
+**Editing on a phone is its own composition.** When a Map enters Edit on a phone, the shell changes rather than shrinking:
+
+- The bottom nav is replaced by an **edit dock** at the thumb: Point · Line · Area · Label, then Undo, More, Ask, and a prominent **Done**. While drawing, the dock becomes *Finish · Undo point · Cancel*.
+- The sheet collapses to a one-line **peek**: pencil, title, feature count, and Publish. Pull it up for Details, Comments, or the Thread.
+- The search field and Shelf chips give way to a **status line**: the map's name, a hint for the current tool ("Tap the map to add a point", "Tap corners, then Finish"), and an **Exit** button.
+- Tapping a feature raises a **contextual strip** above the dock: *N selected · Move · Rename · Delete*. Move means "tap where it should go".
+- Nothing locks you in. Done and Exit both keep the draft and restore the nav; Escape-equivalents (× on the strip, Cancel on the dock) leave the tool without leaving Edit.
+
 ### 3.8 First run and discovery
 
 The culture is "someone shared a story with me." The landing for an anonymous visitor should therefore be a **gallery of Story and Map thumbnails**, not a dialog over an empty map. That needs an `image` tag on Maps and Stories (Part 4). Opening a Story puts its prose in the Margin and its Maps on the Shelf, exactly as today.
