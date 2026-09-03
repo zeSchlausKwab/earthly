@@ -84,6 +84,10 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
   there, join approval, invites, a circle Chat. Private records carry 🔒 / ⇄.
 - **Live**: Me → Share live location (or the phone +) shows a red live bar with
   discovery, share link and Stop; `/live/:id` pages with Follow; stale beacons.
+- **Story content**: headings, paragraphs with bold/italic/code/links, images with
+  captions and credits, tables with aligned columns, blockquotes, lists, code,
+  callouts and dividers. See the Belt and Road and Western Front stories.
+  Placeholder imagery is generated inline as SVG, so the sketch needs no network.
 - **Story editing**: paragraphs and headings edited in place; ⌖ reference picks
   a feature from the map; a layer strip under each paragraph shows/hides each
   map from that paragraph on (◉ ○ ◌ inherit) and captures a camera; changes

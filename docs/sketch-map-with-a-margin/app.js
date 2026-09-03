@@ -925,8 +925,8 @@
 			const summary = !inEdit && sceneAt(i) >= 0 ? `<div class="bsum">${esc(blockSummary(s, i))}</div>` : ''
 			const editTools = inEdit ? `${stripFor(i)}<div class="btools"><button data-act="ref-pick" data-i="${i}" class="${S.refPick === i ? 'on' : ''}" title="Click a feature on the map to reference it here">${S.refPick === i ? '⌖ click a feature…' : '⌖ reference'}</button>${sceneAt(i) >= 0 ? `<button data-act="scene-rename" data-i="${sceneAt(i)}">✎ ${esc(scenes[sceneAt(i)].title)}</button><button data-act="scene-remove" data-i="${sceneAt(i)}" title="Remove this paragraph's map changes">× clear</button>` : ''}<button data-act="block-add" data-i="${i}">+ ¶</button><button data-act="block-del" data-i="${i}">− ¶</button></div>` : ''
 			const attrs = `class="blk ${active ? 'active' : ''} ${sceneAt(i) >= 0 ? 'has-scene' : ''}" data-blk="${i}"${inEdit ? '' : ` data-act="go-block" data-i="${i}"`}`
-			if (b.type === 'h') return `<div ${attrs}><h5${inEdit ? ` contenteditable="true" data-bind-block="${i}"` : ''}>${esc(b.text)}</h5>${sceneChip(i)}${summary}${editTools}</div>`
-			return `<div ${attrs}><p${inEdit ? ` contenteditable="true" data-bind-block="${i}"` : ''}>${esc(b.text)}</p>${refs || sceneChip(i) ? `<div class="refline">${refs} ${sceneChip(i)}</div>` : ''}${summary}${editTools}</div>`
+			const kindTag = inEdit && !['p', 'h'].includes(b.type) ? `<span class="btype">${esc(b.type)}</span>` : ''
+			return `<div ${attrs}>${kindTag}${blockBody(b, i, inEdit)}${refs || sceneChip(i) ? `<div class="refline">${refs} ${sceneChip(i)}</div>` : ''}${summary}${editTools}</div>`
 		}
 		const body = s.body.map((b, i) => block(b, i) + (p && p.insertAfter === i ? `<p class="ins">${esc(p.para.text)} ${p.para.refs.map((r) => refChip(r)).join(' ')}</p>` : '')).join('')
 		const presSection = `<div class="section"><h4>Map presentation <span class="sp"></span><span class="hint">${pres ? 'v1 · embedded in the story' : 'none · readers see the maps as they are'}</span></h4>
@@ -940,12 +940,34 @@
 			${S.presentScene !== null && S.sceneIndex >= 0 ? `<div class="diffbar-margin" style="border-style:solid;border-color:var(--accent);background:var(--accent-soft)"><span class="grow">Scene ${S.sceneIndex + 1} of ${scenes.length}: ${esc(scenes[S.sceneIndex].title)}</span><button class="btn sm" data-act="scene-prev" ${S.sceneIndex === 0 ? 'disabled' : ''}>‹</button><button class="btn sm primary" data-act="scene-next">${S.sceneIndex === scenes.length - 1 ? 'Finish' : 'Next ›'}</button></div>` : ''}
 			${p ? `<div class="diffbar-margin"><span class="grow">+1 paragraph · ${p.para.refs.length} references</span><button class="btn sm primary" data-act="apply">Apply</button><button class="btn sm" data-act="discard">Discard</button></div>` : ''}
 			<div class="lead prose ${inEdit ? 'editing' : ''}">${body}${inEdit && !s.body.length ? '<button class="chip add" data-act="block-add" data-i="-1">+ paragraph</button>' : ''}</div>
-			${inEdit ? `<div class="btools top"><button data-act="block-add" data-i="${s.body.length - 1}">+ paragraph</button><button data-act="heading-add" data-i="${s.body.length - 1}">+ heading</button><span class="muted" style="font-size:.74rem;align-self:center">Type in the text. Under each paragraph: reference a feature, capture a scene.</span></div>` : ''}
+			${inEdit ? `<div class="btools top"><button data-act="block-add" data-i="${s.body.length - 1}">+ paragraph</button><button data-act="heading-add" data-i="${s.body.length - 1}">+ heading</button><button data-act="menu" data-menu="block-insert">+ block ▾</button><span class="muted" style="font-size:.74rem;align-self:center">Type in the text. Under each paragraph: reference a feature, capture a scene.</span></div>` : ''}
 			${proposalsHtml('story', id)}
 			${presSection}
 			${scenesSection}
 		</div>`
 		return head(s, 'story', { actions, sub: `<span class="muted">· ${s.maps.length} map${s.maps.length === 1 ? '' : 's'}${scenes.length ? ` · ${scenes.length} scenes` : ''}</span>` }) + tabsHtml('story', id, sideThread) + (S.tab === 'thread' && !sideThread ? threadHtml('story', id) : S.tab === 'comments' ? commentsHtml('story', id) : details)
+	}
+	// A small inline subset: **bold**, *italic*, `code`, [text](href). Escaped first, so content stays inert.
+	function mdInline(t) {
+		return esc(t)
+			.replace(/`([^`]+)`/g, '<code>$1</code>')
+			.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+			.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+			.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+	}
+	function blockBody(b, i, inEdit) {
+		const ed = inEdit ? ` contenteditable="true" data-bind-block="${i}"` : ''
+		switch (b.type) {
+			case 'h': return `<h${b.level === 3 ? 6 : 5}${ed}>${esc(b.text)}</h${b.level === 3 ? 6 : 5}>`
+			case 'img': return `<figure class="fig"><img src="${D.photo(b.src, b.palette)}" alt="${esc(b.alt || '')}" loading="lazy"><figcaption>${mdInline(b.caption || '')}${b.credit ? `<span class="cr">${esc(b.credit)}</span>` : ''}</figcaption></figure>`
+			case 'table': return `<figure class="tbl-wrap"><div class="tbl-scroll"><table class="ptbl"><thead><tr>${b.head.map((h, n) => `<th class="a-${(b.align || [])[n] || 'left'}">${esc(h)}</th>`).join('')}</tr></thead><tbody>${b.rows.map((r) => `<tr>${r.map((c, n) => `<td class="a-${(b.align || [])[n] || 'left'}">${mdInline(String(c))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${b.caption ? `<figcaption>${esc(b.caption)}</figcaption>` : ''}</figure>`
+			case 'quote': return `<blockquote>${mdInline(b.text)}${b.by ? `<cite>${esc(b.by)}</cite>` : ''}</blockquote>`
+			case 'list': return `<${b.ordered ? 'ol' : 'ul'} class="plist">${b.items.map((it) => `<li>${mdInline(it)}</li>`).join('')}</${b.ordered ? 'ol' : 'ul'}>`
+			case 'code': return `<pre class="pcode"${b.lang ? ` data-lang="${esc(b.lang)}"` : ''}><code>${esc(b.text)}</code></pre>`
+			case 'note': return `<div class="pnote ${esc(b.tone || 'info')}">${mdInline(b.text)}</div>`
+			case 'hr': return '<hr class="prule">'
+			default: return `<p class="${b.lead ? 'plead' : ''}"${ed}>${mdInline(b.text)}</p>`
+		}
 	}
 	function refChip(r) {
 		const m = D.maps[r.map]; const f = m && m.features.find((x) => x.id === r.feature)
@@ -1601,6 +1623,7 @@
 		if (m.type === 'edit-other') { const o = obj(S.route.kind, S.route.id); body = `<div class="mh eyebrow">This ${esc(S.route.kind)} is by ${esc(person(o.author).name)}</div>${mi(`Propose changes<small>you edit a copy, they accept, it becomes their next version. Nothing forks.</small>`, 'propose')}${mi('Fork<small>your own copy at a new address, linked to the original</small>', 'fork-now')}` }
 		if (m.type === 'annot') body = `<div class="mh eyebrow">Attach a place to your comment</div>${mi('Drop a pin<small>click once on the map</small>', 'annot-point')}${mi('Draw a line<small>click points, double-click to finish</small>', 'annot-line')}${S.selection.size === 1 ? mi('Use the selected feature', 'annot-selection') : ''}`
 		if (m.type === 'row-more' || m.type === 'more-object') { const kind = m.data.kind || S.route.kind, id = m.data.id || S.route.id; const o = obj(kind, id); const k = key(kind, id); body = `${mi('Share…', 'menu-share-from')}${mi('Zap ⚡<small>21 sats</small>', 'zap-k')}${kind === 'map' ? mi(S.shelf.some((e) => e.id === id) ? 'Remove from map' : 'Show on map', 'row-shelf') : ''}${o && mine(o) ? mi(kind === 'map' || kind === 'story' || kind === 'atlas' ? 'Edit' : 'Open', 'row-edit') : kind === 'map' || kind === 'story' ? mi('Propose changes', 'row-propose') + (kind === 'map' ? mi('Fork', 'row-fork') : '') : ''}<hr>${o && mine(o) ? mi('Delete…', 'row-delete', 'danger') : mi('Report', 'toast', 'danger')}`; m.data.kind = kind; m.data.id = id; m.data.k = k }
+		if (m.type === 'block-insert') body = `<div class="mh eyebrow">Add to the story</div>${[['p', 'Paragraph'], ['h', 'Heading'], ['img', 'Image'], ['table', 'Table'], ['quote', 'Quote'], ['list', 'List'], ['code', 'Code'], ['note', 'Callout'], ['hr', 'Divider']].map(([k, l]) => `<button class="mi" data-act="block-insert" data-t="${k}"><span>${l}</span></button>`).join('')}`
 		if (MENU_DEFS[m.type]) body = toolbarMenuHtml(MENU_DEFS[m.type])
 		if (m.type === 'tp-overflow') {
 			const c = toolContext()
@@ -1748,6 +1771,14 @@
 		'atlas-pres-set'() { const dr = S.drafts[S.editing.id]; dr.presentation = capturePresentation(dr.pinned); render(); toast('Default view set from the pinned maps and the current camera.') },
 		'atlas-pres-clear'() { const dr = S.drafts[S.editing.id]; delete dr.presentation; render() },
 		'atlas-pres-go'() { const a = view('atlas', S.route.id); a.pinned.forEach((id) => addToShelf(id, { silent: true })); applyPresentation(a.presentation, a.pinned); render() },
+		'block-insert'(d) {
+			S.menu = null
+			const dr = S.drafts[S.editing.id]
+			const proto = { p: { type: 'p', text: 'New paragraph.', refs: [] }, h: { type: 'h', level: 2, text: 'New section' }, img: { type: 'img', src: `img-${Date.now()}`, palette: 'cold', alt: 'Image', caption: 'Caption for the image.', credit: 'Illustration' }, table: { type: 'table', align: ['left', 'right'], head: ['Column', 'Value'], rows: [['First', '1'], ['Second', '2']] }, quote: { type: 'quote', text: 'A line worth pulling out.', by: 'Attribution' }, list: { type: 'list', ordered: false, items: ['First item', 'Second item'] }, code: { type: 'code', lang: 'json', text: '{ "type": "Feature" }' }, note: { type: 'note', tone: 'info', text: 'Something the reader should know.' }, hr: { type: 'hr' } }[d.t]
+			dr.body.push(clone(proto))
+			render()
+			toast(`${d.t === 'hr' ? 'Divider' : d.t[0].toUpperCase() + d.t.slice(1)} added at the end.`)
+		},
 		'block-add'(d) { const dr = S.drafts[S.editing.id]; const i = +d.i; dr.body.splice(i + 1, 0, { type: 'p', text: 'New paragraph.', refs: [] }); if (dr.presentation && dr.presentation.scenes) dr.presentation.scenes.forEach((sc) => { if (sc.anchor > i) sc.anchor++ }); render() },
 		'heading-add'(d) { const dr = S.drafts[S.editing.id]; const i = +d.i; dr.body.splice(i + 1, 0, { type: 'h', text: 'New section' }); if (dr.presentation && dr.presentation.scenes) dr.presentation.scenes.forEach((sc) => { if (sc.anchor > i) sc.anchor++ }); render() },
 		'block-del'(d) { const dr = S.drafts[S.editing.id]; const i = +d.i; dr.body.splice(i, 1); if (dr.presentation && dr.presentation.scenes) { dr.presentation.scenes = dr.presentation.scenes.filter((sc) => sc.anchor !== i); dr.presentation.scenes.forEach((sc) => { if (sc.anchor > i) sc.anchor-- }) } render() },

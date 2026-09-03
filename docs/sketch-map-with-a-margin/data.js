@@ -22,6 +22,21 @@
 		}
 		return pts
 	}
+	// Placeholder imagery, generated inline so the sketch needs no network and no binaries.
+	function photo(seed, palette) {
+		const P = { sepia: ['#e8dcc8', '#c9b28c', '#8d7454', '#4a3b2a'], cold: ['#dfe6ea', '#a9bcc6', '#6d8794', '#33454f'], warm: ['#f0e2d4', '#d9b79a', '#a97b5b', '#5b3d2b'] }[palette || 'sepia']
+		let n = 0
+		for (let i = 0; i < seed.length; i++) n = (n * 31 + seed.charCodeAt(i)) % 9973
+		const r = () => ((n = (n * 1103515245 + 12345) % 2147483648) / 2147483648)
+		const hills = [0, 1, 2].map((i) => {
+			const y = 150 + i * 55 + r() * 40
+			const pts = [0, 1, 2, 3, 4, 5, 6].map((k) => `${k * 133},${Math.round(y + Math.sin(k * (1 + r())) * (28 - i * 7))}`).join(' L')
+			return `<path d="M${pts} L800,450 L0,450 Z" fill="${P[i + 1]}" opacity="${0.9 - i * 0.12}"/>`
+		}).join('')
+		const marks = [0, 1, 2, 3, 4].map(() => `<circle cx="${Math.round(r() * 800)}" cy="${Math.round(120 + r() * 260)}" r="${Math.round(2 + r() * 5)}" fill="${P[3]}" opacity=".45"/>`).join('')
+		const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450"><rect width="800" height="450" fill="${P[0]}"/><circle cx="${Math.round(120 + r() * 560)}" cy="${Math.round(60 + r() * 50)}" r="${Math.round(26 + r() * 22)}" fill="${P[1]}"/>${hills}${marks}<rect width="800" height="450" fill="none" stroke="${P[3]}" stroke-opacity=".25" stroke-width="6"/></svg>`
+		return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+	}
 	const pt = (id, name, lon, lat, props) => ({ id, name, type: 'point', coords: [lon, lat], props: props || {} })
 	const ln = (id, name, pts, props) => ({ id, name, type: 'line', coords: pts, props: props || {} })
 	const pg = (id, name, pts, props) => ({ id, name, type: 'polygon', coords: pts, props: props || {} })
@@ -170,56 +185,95 @@
 			summary: 'What the BRI is, how it is organised, where the money goes, and why it matters.', maps: ['bri', 'ice-free'],
 			presentation: { version: 1, initialView: { center: [70, 35], zoom: 2.6 }, layerOrder: ['bri', 'ice-free'], layers: { bri: { visible: true }, 'ice-free': { visible: false } },
 				scenes: [
-					{ id: 'sc1', title: 'Almaty, 2013', anchor: 1, view: { center: [76.89, 43.24], zoom: 5 }, layers: { 'ice-free': { visible: false } } },
-					{ id: 'sc2', title: 'Six corridors', anchor: 3, view: { center: [75, 35], zoom: 3 }, layers: { 'ice-free': { visible: false } } },
-					{ id: 'sc3', title: 'The northern wildcard', anchor: 5, view: { center: [90, 68], zoom: 2.4 }, layers: { 'ice-free': { visible: true } } },
+					{ id: 'sc1', title: 'Almaty, 2013', anchor: 2, view: { center: [76.89, 43.24], zoom: 5 }, layers: { 'ice-free': { visible: false } } },
+					{ id: 'sc2', title: 'Six corridors', anchor: 7, view: { center: [75, 35], zoom: 3 }, layers: { 'ice-free': { visible: false } } },
+					{ id: 'sc3', title: 'The northern wildcard', anchor: 14, view: { center: [90, 68], zoom: 2.4 }, layers: { 'ice-free': { visible: true } } },
 				] },
 			body: [
-				{ type: 'h', text: 'Introduction' },
-				{ type: 'p', text: 'In September 2013, standing in a lecture hall in Kazakhstan, Xi Jinping proposed an “economic belt along the Silk Road.” A month later in Indonesia he called for a “21st Century Maritime Silk Road.” Together those two speeches launched the largest infrastructure programme of the century.', refs: [{ map: 'bri', feature: 'node-3', label: 'Almaty' }, { map: 'bri', feature: 'corr-4', label: 'Maritime Silk Road' }] },
-				{ type: 'h', text: 'Six corridors' },
+				{ type: 'note', tone: 'info', text: 'Made with help from this map’s Thread. Figures are illustrative; every corridor below is a feature you can click.' },
+				{ type: 'h', level: 2, text: 'Introduction' },
+				{ type: 'p', text: 'In September 2013, standing in a lecture hall in Kazakhstan, Xi Jinping proposed an *economic belt along the Silk Road*. A month later in Indonesia he called for a **21st Century Maritime Silk Road**. Together those two speeches launched the largest infrastructure programme of the century.', refs: [{ map: 'bri', feature: 'node-3', label: 'Almaty' }, { map: 'bri', feature: 'corr-4', label: 'Maritime Silk Road' }] },
+				{ type: 'img', src: 'bri-hall', palette: 'warm', alt: 'A lecture hall in Astana', caption: 'Nazarbayev University, September 2013. The speech that named the belt.', credit: 'Illustration' },
+				{ type: 'quote', text: 'We should take an innovative approach and jointly build an economic belt along the Silk Road.', by: 'Xi Jinping, Astana, 7 September 2013' },
+				{ type: 'p', text: 'Thirteen years later the programme covers more than 150 countries. What began as two speeches is now a balance sheet, a construction schedule, and a map that this story tries to hold still for a moment.' },
+				{ type: 'hr' },
+				{ type: 'h', level: 2, text: 'Six corridors' },
 				{ type: 'p', text: 'The land bridge runs from Xi’an through Almaty and Moscow to Duisburg, where a rail terminal now handles thirty trains a week. The China–Pakistan corridor ends at Gwadar, a deep-water port financed almost entirely by Chinese lenders.', refs: [{ map: 'bri', feature: 'corr-0', label: 'New Eurasian Land Bridge' }, { map: 'bri', feature: 'node-8', label: 'Duisburg' }, { map: 'bri', feature: 'node-10', label: 'Gwadar' }] },
-				{ type: 'h', text: 'A northern wildcard' },
-				{ type: 'p', text: 'If the Northern Sea Route becomes reliably ice-free, the maritime leg shortens by a third and the whole geometry of the programme tilts north.', refs: [{ map: 'ice-free', feature: 'nsr', label: 'Northern Sea Route' }] },
+				{ type: 'table', caption: 'The six overland and maritime corridors, as drawn on the map', align: ['left', 'left', 'right', 'left'], head: ['Corridor', 'From → to', 'Length', 'Status'],
+					rows: [['New Eurasian Land Bridge', 'Xi’an → Duisburg', '11,000 km', 'operating'], ['China–Central Asia–West Asia', 'Xi’an → Tehran', '6,400 km', 'partial'], ['China–Pakistan (CPEC)', 'Urumqi → Gwadar', '3,000 km', 'operating'], ['China–Indochina Peninsula', 'Xi’an → Kuala Lumpur', '5,500 km', 'under way'], ['Bangladesh–China–India–Myanmar', 'Lanzhou → Colombo', '4,200 km', 'stalled'], ['Maritime Silk Road', 'Yiwu → Piraeus', '19,000 km', 'operating']] },
+				{ type: 'list', ordered: false, items: ['**Rail** carries the value: electronics, machinery, vehicles.', '**Sea** still carries the volume, at roughly a twentieth of the cost per tonne.', '**Ports** are the pinch points, and the reason Gwadar and Piraeus appear on every version of this map.'] },
+				{ type: 'img', src: 'bri-terminal', palette: 'cold', alt: 'A container terminal at dusk', caption: 'Duisburg. Thirty trains a week, and a customs shed that had to be doubled twice.', credit: 'Illustration' },
+				{ type: 'h', level: 3, text: 'Where the money goes' },
+				{ type: 'p', text: 'Roughly two thirds of committed capital is lent, not granted, and most of it flows through two policy banks. The line between investment and leverage is exactly where the argument about the programme sits.' },
+				{ type: 'table', align: ['left', 'right', 'right'], head: ['Sector', 'Share', 'Trend'], rows: [['Transport', '43%', '↑'], ['Energy', '38%', '→'], ['Digital', '11%', '↑↑'], ['Other', '8%', '↓']] },
+				{ type: 'hr' },
+				{ type: 'h', level: 2, text: 'A northern wildcard' },
+				{ type: 'p', text: 'If the Northern Sea Route becomes reliably ice-free, the maritime leg shortens by a third and the whole geometry of the programme tilts north. Toggle the Arctic layer on this paragraph to see how much of the Indian Ocean simply stops mattering.', refs: [{ map: 'ice-free', feature: 'nsr', label: 'Northern Sea Route' }] },
+				{ type: 'note', tone: 'warn', text: 'The 2050 transpolar line is a projection, not an observation. It is drawn dashed on the map for that reason.' },
+				{ type: 'p', text: 'You can query the same corridors yourself. The dataset is plain GeoJSON and every corridor carries a `kind` property:' },
+				{ type: 'code', lang: 'json', text: '{\n  "type": "Feature",\n  "properties": { "kind": "corridor", "name": "New Eurasian Land Bridge" },\n  "geometry": { "type": "LineString", "coordinates": [[108.94, 34.34], …] }\n}' },
+				{ type: 'h', level: 2, text: 'Sources' },
+				{ type: 'list', ordered: true, items: ['Speech transcript, Astana, September 2013.', 'Duisburger Hafen AG, annual report, 2025.', 'Corridor geometry: [China’s Belt and Road Initiative](#/map/bri) on Earthly, v2.', 'Arctic projections: [Ice-Free Northern Passages](#/map/ice-free), Mafrend, 2026.'] },
 			],
 		},
 		'trail-story': {
 			id: 'trail-story', kind: 'story', title: 'Twelve Towns on the Hippie Trail', author: 'me', published: null, draft: true,
 			summary: 'Draft. Why the route ran where it did, one stop at a time.', maps: ['hippie-trail'],
-			body: [{ type: 'p', text: 'The trail was never one road. It was a habit: leave Istanbul on a Magic Bus, cross Anatolia, wait a week in Tehran for a visa, and arrive in Kabul with a rucksack lighter than when you left.', refs: [{ map: 'hippie-trail', feature: 'stop-0', label: 'Istanbul' }, { map: 'hippie-trail', feature: 'stop-7', label: 'Kabul' }] }],
+			body: [
+				{ type: 'p', text: 'The trail was never one road. It was a habit: leave Istanbul on a *Magic Bus*, cross Anatolia, wait a week in Tehran for a visa, and arrive in Kabul with a rucksack lighter than when you left.', refs: [{ map: 'hippie-trail', feature: 'stop-0', label: 'Istanbul' }, { map: 'hippie-trail', feature: 'stop-7', label: 'Kabul' }] },
+				{ type: 'note', tone: 'draft', text: 'Draft. Twelve sections planned, one written. The table below is a placeholder for the stop-by-stop breakdown.' },
+				{ type: 'table', align: ['left', 'right', 'left'], head: ['Stop', 'Days', 'Why people stopped'], rows: [['Istanbul', '2–5', 'the bus left from Sultanahmet'], ['Tehran', '5–10', 'Afghan visa'], ['Herat', '2', 'the first cheap room in weeks'], ['Kabul', '10+', 'Chicken Street']] },
+			],
 		},
 		'cables-story': {
 			id: 'cables-story', kind: 'story', title: 'Where the Internet Touches the Sea', author: 'earthly', published: '2026-07-17',
 			summary: 'Landing stations, the quiet buildings where continents plug in.', maps: ['cables-atlantic'],
 			body: [{ type: 'p', text: 'Every transatlantic cable ends in a beach manhole and a windowless building. Bilbao’s is behind a car park.', refs: [{ map: 'cables-atlantic', feature: 'ls1', label: 'Bilbao landing' }] }],
 		},
-		'western-front': {
-			id: 'western-front', kind: 'story', title: 'Four Years on the Western Front', author: 'mafrend', published: '2026-08-31',
-			summary: 'The front line as four snapshots, paragraph by paragraph.', maps: ['front-1914', 'front-1916', 'front-1918-spring', 'front-1918-armistice', 'ww1-battles'],
-			// Presentation: the opening view and base layers; each scene is a delta anchored to a paragraph and accumulates in reading order.
-			presentation: { version: 1, initialView: { center: [4.2, 49.6], zoom: 6.2 }, layerOrder: ['ww1-battles', 'front-1914', 'front-1916', 'front-1918-spring', 'front-1918-armistice'],
-				layers: { 'front-1914': { visible: false }, 'front-1916': { visible: false }, 'front-1918-spring': { visible: false }, 'front-1918-armistice': { visible: false }, 'ww1-battles': { visible: true } },
-				scenes: [
-					{ id: 'w1', title: 'The line freezes', anchor: 0, view: { center: [4.4, 49.6], zoom: 6.2 }, layers: { 'front-1914': { visible: true } } },
-					{ id: 'w2', title: 'Verdun and the Somme', anchor: 2, view: { center: [3.9, 49.7], zoom: 6.6 }, layers: { 'front-1916': { visible: true }, 'front-1914': { visible: false } } },
-					{ id: 'w3', title: 'The Spring Offensive', anchor: 4, view: { center: [3.0, 49.7], zoom: 6.8 }, layers: { 'front-1918-spring': { visible: true }, 'front-1916': { visible: false } } },
-					{ id: 'w4', title: 'Armistice', anchor: 6, view: { center: [5.0, 49.6], zoom: 6.2 }, layers: { 'front-1918-armistice': { visible: true }, 'front-1918-spring': { visible: false } } },
-				] },
-			body: [
-				{ type: 'h', text: 'November 1914' },
+		'western-front': (() => {
+			const body = [
+				{ type: 'p', lead: true, text: 'The front line as four snapshots. Each section switches the map to the line as it stood, so the story does the work a slider usually does badly.' },
+				{ type: 'h', level: 2, text: 'November 1914' },
 				{ type: 'p', text: 'After the Marne and the Race to the Sea the line stopped moving. From Nieuwpoort on the coast to the Swiss border it would barely shift for three years.', refs: [{ map: 'ww1-battles', feature: 'marne', label: 'First Marne' }, { map: 'ww1-battles', feature: 'ypres', label: 'Ypres' }] },
-				{ type: 'h', text: '1916' },
+				{ type: 'img', src: 'wf-trench', palette: 'sepia', alt: 'A communication trench in winter', caption: 'A communication trench near Ypres, winter 1914–15.', credit: 'Illustration' },
+				{ type: 'h', level: 2, text: '1916' },
 				{ type: 'p', text: 'Verdun from February, the Somme from July. Ten months of the largest battles in history moved the front by a handful of kilometres.', refs: [{ map: 'ww1-battles', feature: 'verdun', label: 'Verdun' }, { map: 'ww1-battles', feature: 'somme', label: 'Somme' }] },
-				{ type: 'h', text: 'Spring 1918' },
+				{ type: 'table', caption: 'What the map is showing you, snapshot by snapshot', align: ['left', 'left', 'right', 'right'], head: ['Snapshot', 'Date', 'Front length', 'Net change'],
+					rows: [['Nieuwpoort → Switzerland', 'Nov 1914', '765 km', '—'], ['After Verdun and the Somme', 'Dec 1916', '761 km', '≈ 4 km'], ['Spring Offensive', 'Apr 1918', '790 km', '+ 29 km'], ['Armistice line', '11 Nov 1918', '520 km', '− 270 km']] },
+				{ type: 'quote', text: 'We were not fighting for a village. We were fighting for the ridge behind it, and then for the ridge behind that.', by: 'A sapper’s letter, Somme, October 1916' },
+				{ type: 'h', level: 2, text: 'Spring 1918' },
 				{ type: 'p', text: 'With Russia out of the war, Germany attacked in March. The bulge toward Amiens and Château-Thierry was the deepest advance since 1914, and the last.', refs: [{ map: 'ww1-battles', feature: 'amiens', label: 'Amiens' }] },
-				{ type: 'h', text: '11 November 1918' },
+				{ type: 'list', ordered: true, items: ['**Michael**, 21 March: 60 km in eight days, then supply ran out.', '**Georgette**, April: the Lys, and the loss of the Messines ridge.', '**Blücher-Yorck**, May: the Marne again, within artillery range of Paris.'] },
+				{ type: 'h', level: 2, text: '11 November 1918' },
 				{ type: 'p', text: 'The Hundred Days pushed the line back through Cambrai to Ghent and Mons. When the guns stopped, the front lay well inside Belgium.', refs: [{ map: 'ww1-battles', feature: 'cambrai', label: 'Cambrai' }, { map: 'ww1-battles', feature: 'argonne', label: 'Meuse–Argonne' }] },
-			],
-		},
+				{ type: 'note', tone: 'info', text: 'Each snapshot is its own dataset, published separately, so anyone can reuse a single year without taking the whole story with them.' },
+				{ type: 'h', level: 2, text: 'Sources' },
+				{ type: 'list', ordered: false, items: ['Front-line geometry digitised from staff maps, 1914–1918.', 'Snapshots on Earthly: [Nov 1914](#/map/front-1914), [Dec 1916](#/map/front-1916), [Apr 1918](#/map/front-1918-spring), [Armistice](#/map/front-1918-armistice).'] },
+			]
+			const at = (t) => body.findIndex((b) => b.type === 'h' && b.text.startsWith(t))
+			return {
+				id: 'western-front', kind: 'story', title: 'Four Years on the Western Front', author: 'mafrend', published: '2026-08-31',
+				summary: 'The front line as four snapshots, paragraph by paragraph.', maps: ['front-1914', 'front-1916', 'front-1918-spring', 'front-1918-armistice', 'ww1-battles'],
+				presentation: { version: 1, initialView: { center: [4.2, 49.6], zoom: 6.2 }, layerOrder: ['ww1-battles', 'front-1914', 'front-1916', 'front-1918-spring', 'front-1918-armistice'],
+					layers: { 'front-1914': { visible: false }, 'front-1916': { visible: false }, 'front-1918-spring': { visible: false }, 'front-1918-armistice': { visible: false }, 'ww1-battles': { visible: true } },
+					scenes: [
+						{ id: 'w1', title: 'The line freezes', anchor: at('November 1914'), view: { center: [4.4, 49.6], zoom: 6.2 }, layers: { 'front-1914': { visible: true } } },
+						{ id: 'w2', title: 'Verdun and the Somme', anchor: at('1916'), view: { center: [3.9, 49.7], zoom: 6.6 }, layers: { 'front-1916': { visible: true }, 'front-1914': { visible: false } } },
+						{ id: 'w3', title: 'The Spring Offensive', anchor: at('Spring 1918'), view: { center: [3.0, 49.7], zoom: 6.8 }, layers: { 'front-1918-spring': { visible: true }, 'front-1916': { visible: false } } },
+						{ id: 'w4', title: 'Armistice', anchor: at('11 November 1918'), view: { center: [5.0, 49.6], zoom: 6.2 }, layers: { 'front-1918-armistice': { visible: true }, 'front-1918-spring': { visible: false } } },
+					] },
+				body,
+			}
+		})(),
 		'macba-story': {
 			id: 'macba-story', kind: 'story', title: 'Why MACBA Never Dies', author: 'mafrend', published: '2026-08-05',
 			summary: 'Thirty years of a museum forecourt as the world’s plaza.', maps: ['bcn-spots'],
-			body: [{ type: 'p', text: 'The ledges were rebuilt in 2009 and skaters were back the same week. The museum gave up. The marble did not.', refs: [{ map: 'bcn-spots', feature: 's1', label: 'MACBA' }] }],
+			body: [
+				{ type: 'p', text: 'The ledges were rebuilt in 2009 and skaters were back the same week. The museum gave up. The marble did not.', refs: [{ map: 'bcn-spots', feature: 's1', label: 'MACBA' }] },
+				{ type: 'img', src: 'macba', palette: 'warm', alt: 'A wide marble forecourt', caption: 'The forecourt at nine in the morning, before the queue for the museum.', credit: 'Illustration' },
+				{ type: 'table', align: ['left', 'left', 'left'], head: ['Spot', 'Surface', 'Best hours'], rows: [['MACBA', 'marble', '07:00–10:00'], ['Sants', 'marble', 'evenings'], ['Fòrum', 'concrete', 'all day'], ['Paral·lel', 'concrete', 'after 21:00']] },
+				{ type: 'quote', text: 'Thirty years and it is still the first place anyone lands.', by: 'Mafrend' },
+			],
 		},
 	}
 
@@ -301,6 +355,7 @@
 	}
 
 	window.SKETCH_DATA = {
+		photo,
 		people, maps, stories, atlases, sightings, live, comments, proposals, social, circles, nearby, notifications,
 		places: { Vienna: [16.37, 48.21], Istanbul: [28.98, 41.01], Kabul: [69.17, 34.53], Bilbao: [-2.93, 43.26], Klagenfurt: [14.31, 46.62], Barcelona: [2.17, 41.39], Berlin: [13.4, 52.52] },
 	}
