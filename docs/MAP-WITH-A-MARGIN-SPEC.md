@@ -172,6 +172,15 @@ The contents of a Map, in both modes, directly under *At a glance*.
 - **Bulk bar** appears while a selection exists: `2 selected · Zoom to · Duplicate · Delete · ×`. *Select all* sits in the section header.
 - Clicking a feature on the canvas scrolls its row into view; hovering a row highlights the geometry.
 
+### 6.5 Versions
+
+Publishing an update and accepting a proposal both mint a version, so both need somewhere to be seen. A *Versions* section sits under Proposals on Maps and Stories.
+
+- **A row per version**, newest first: `v3 · 2026-09-01 · You · +5 ~1 −0` with the note the author wrote, and for a version that came from a proposal, whose proposal it was. The current one is marked and cannot be previewed against itself.
+- **Honest gaps.** Relays keep only the newest replaceable event, so history is best effort. A version we hold shows its content; one we only know existed from the lineage pointer says so in its own row: "content not on any relay you use". The UI never pretends a gap is not there.
+- **Compare** by picking any two rows. The header shows `v1 → v3` with `+a ~m −r` and the changed features by name. **Show on map** renders the comparison on the canvas: what is unchanged stays published grey, what was added or altered is amber, and what was removed comes back faded. This reuses the proposal ghost language, because it is the same question asked of a different pair.
+- **⌖** previews one version against the current. **↺ restore** publishes the old content again as a new version. It never rewrites history, and the toast says so.
+
 ## 7. Editing model
 
 - **Working copy.** Edit creates or resumes one per object, persisted on device, with `publishChannel`/audience stored on it. Exactly one object is in Edit or Propose at a time. Starting a second asks *Finish with "X" first? Cancel · Discard draft · Keep draft & continue.*
@@ -276,6 +285,23 @@ An Atlas keeps a plain `MapPresentationV1` as its default view, restricted to it
 - **Inbox** in the top bar (badge = unread) and under Me. Rows: glyph for kind (✎ proposal, 💬 reply, @ mention, ◈ atlas arrival, 👤 join request, ✓ accepted, + follow), avatar, "*Name* did what to *thing*", time, unread dot. Tapping opens the target with the right tab (comments, chat) and marks it read. *Mark all read*.
 - Sources: proposals received / accepted / declined, replies to your comments, mentions, maps arriving in atlases you own (Waiting), circle join requests, follows. Derived client-side from the same events; no notification kind is published.
 
+## 11e. Empty and error states
+
+Every one of these uses the same shape: a mark, a headline that says what is true, one sentence that explains it, and one or two ways out. None of them blames the reader, and none is a spinner with no exit.
+
+| State | What it says |
+| --- | --- |
+| **A brand new account** | The first screen a real person sees. "Nothing here yet, and that is the point." Earthly starts empty; draw a map, import a file, or look at what other people made. Not an error, an invitation. |
+| **No results for a filter** | Names the query, says whether a scope filter may be hiding matches, and offers to clear the filter or leave the atlas. |
+| **An empty atlas** | "Nobody has put anything here. You could be the first," with Add the first one. |
+| **Loading** | Skeleton rows in the shape of the real ones, so the layout does not jump when they arrive. |
+| **Offline** | A bar under the top bar: "Offline. Showing what is on this device · 1 waiting to publish", with What is waiting and Try again. Lists still work from cache; nothing is hidden. |
+| **A relay rejected a write** | A bar and a dialog listing every relay and its answer, e.g. `relay.damus.io — blocked: pubkey not allowed`. It states the important fact first: the event is signed, stored on this device, and published as long as one relay took it. Retry the third, Leave it queued, Manage relays. |
+| **External geometry will not load** | A map whose features live in a blob: the Features list explains that the map keeps 2.4 MB outside the event at a named address, that the server did not answer, and that the map itself is fine. Its Shelf chip turns amber with a ⚠, and it draws nothing rather than drawing wrong. |
+| **An unresolved reference** | The pill turns dashed amber with a struck label and says why (§11c). |
+
+These are hard to reach on purpose, so the sketch makes them reachable: **Me → Simulate a problem** toggles each one.
+
 ## 12. Canvas
 
 Basemap: MapLibre GL with OpenFreeMap Liberty. Features as one GeoJSON source with `promoteId`; layers fill / line / proposed line (dashed) / point / proposed point / labels (focused or working map, zoom ≥ 3.5) / sightings; live positions as pulsing markers. Camera fit uses the canvas column only, padding 40px, bottom padding half the viewport on phones; refit after the grid transition. Container resize → `map.resize()`.
@@ -367,9 +393,7 @@ the Features list, the top-bar ticker.
 
 *Blocks a build step:*
 1. **Sign-in and identity.** No account, signer choice (extension, remote, ephemeral), profile editing, or signed-out state anywhere. Every write in the sketch assumes "You". Needed before step 2.
-2. **Version history.** Accepted proposals and Publish update both mint versions, but there is no way to see them, diff two, or restore one. Needed by step 5, since proposals produce versions.
-3. **Publish reality.** No relay list, no per-relay success or failure, no outbox for a phone that is offline, no size warning before a large map is published. Step 2 ships publishing without them today.
-4. **Empty and error states.** Nothing is drawn for: no results, no network, a relay that rejects, a blob that will not resolve, a map that fails to load, a first-run account with nothing at all. The sketch always has data.
+2. **Publish reality, beyond the failure case.** The relay list, the outbox queue and the size warning before a large map goes out are described but not drawn; only the rejection dialog and the offline bar exist.
 
 *Design gaps in what is already sketched:*
 5. **Per-feature styling.** Properties are editable, but colour, width, icon and the data-driven "style by attribute" from the toolbar have no UI, and the GeoLibre legend idea has nowhere to live.

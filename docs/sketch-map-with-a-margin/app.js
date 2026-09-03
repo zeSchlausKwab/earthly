@@ -65,6 +65,9 @@
 		featAll: false,
 		tick: 0,
 		tickPaused: false,
+		compare: null,
+		sim: { empty: false, offline: false, publishFail: false, blobFail: false, loading: false },
+		queued: [],
 		basemap: 'svg',
 		ask: { msgs: [] },
 		counter: 1,
@@ -124,6 +127,24 @@
 	const isPrivate = (m) => audienceOf(m) !== 'everyone'
 	const canSee = (m) => { const a = audienceOf(m); if (a === 'everyone') return true; if (a.startsWith('circle:')) { const c = D.circles.find((x) => x.id === a.slice(7)); return !!c && c.members.some((mm) => mm.id === 'me') } const n = D.nearby.find((x) => x.id === a.slice(7)); return !!n && n.peers.some((p) => p.id === 'me') }
 	const unread = () => D.notifications.filter((n) => !n.read).length
+	// Lineage. Relays keep only the newest replaceable event, so history is best-effort:
+	// some versions we still hold, some we only know existed.
+	const historyOf = (o) => (o && o.history ? o.history.slice().sort((a, b) => b.v - a.v) : [])
+	function featuresAt(map, v) {
+		let feats = clone(map.features)
+		for (const h of historyOf(map)) {
+			if (h.v <= v) break
+			;(h.add || []).forEach((id) => { feats = feats.filter((f) => f.id !== id) })
+			;(h.remove || []).forEach((f) => feats.push(clone(f)))
+		}
+		return feats
+	}
+	function diffVersions(map, va, vb) {
+		const A = featuresAt(map, va), B = featuresAt(map, vb)
+		const byA = new Map(A.map((f) => [f.id, f])), byB = new Map(B.map((f) => [f.id, f]))
+		return { add: B.filter((f) => !byA.has(f.id)), remove: A.filter((f) => !byB.has(f.id)), modify: B.filter((f) => byA.has(f.id) && JSON.stringify(byA.get(f.id)) !== JSON.stringify(f)), A, B }
+	}
+	const versionUnavailable = (o, v) => { const h = historyOf(o).find((x) => x.v === v); return !!(h && h.unavailable) }
 	const social = (k) => D.social[k] || (D.social[k] = { likes: 0, zaps: 0, favs: 0 })
 	const commentsOn = (k) => D.comments.filter((c) => c.on === k)
 	const proposalsOn = (k) => D.proposals.filter((p) => p.target === k)
@@ -393,6 +414,7 @@
 		if (keep) toast('Draft kept. Resume it from Drafts.')
 	}
 	function publish(mode) {
+		if (S.sim.publishFail) { S.dialog = { type: 'publish-failed' }; render(); return }
 		if (proposing()) { S.dialog = { type: 'send-proposal' }; render(); return }
 		const { kind, id } = S.editing
 		const d = S.drafts[id]
@@ -574,6 +596,7 @@
 		document.body.classList.toggle('glass', !!S.glass)
 		renderLensBar()
 		renderLiveBar()
+		renderOfflineBar()
 		const stage = $('#stage')
 		stage.classList.toggle('margin-open', isMobile() ? !S.sheetHidden : !!S.route.kind || !!landingOpen())
 		stage.classList.toggle('thread-side', sideThreadActive())
@@ -597,9 +620,18 @@
 		const bar = $('#lensbar'); const a = lensAtlas()
 		bar.hidden = !a
 		bar.innerHTML = a ? lensBarHtml() : ''
-		const bars = (a ? 1 : 0) + (S.liveMine ? 1 : 0)
+		const bars = (a ? 1 : 0) + (S.liveMine ? 1 : 0) + (S.sim.offline || S.sim.publishFail ? 1 : 0)
 		document.documentElement.style.setProperty('--bars-h', (isMobile() ? bars * 38 : bars * 38) + 'px')
 		document.documentElement.style.setProperty('--lens-h', bars ? bars * 38 + 'px' : '0px')
+	}
+	function renderOfflineBar() {
+		const bar = $('#offlinebar')
+		const on = S.sim.offline || S.sim.publishFail
+		bar.hidden = !on
+		if (!on) return
+		bar.innerHTML = S.sim.publishFail && !S.sim.offline
+			? `<span class="dot warn"></span><b>One relay rejected the last publish</b><span class="ls">relay.earthly.city accepted · nos.lol accepted · relay.damus.io: “blocked: pubkey not allowed”</span><span class="sp"></span><button class="btn sm quiet" data-act="toast">See details</button><button class="btn sm" data-act="retry-publish">Retry</button><button class="btn sm quiet" data-act="sim" data-k="publishFail">Dismiss</button>`
+			: `<span class="dot"></span><b>Offline</b><span class="ls">Showing what is on this device${S.queued.length ? ` · ${S.queued.length} waiting to publish` : ''}</span><span class="sp"></span>${S.queued.length ? `<button class="btn sm quiet" data-act="toast">What is waiting</button>` : ''}<button class="btn sm" data-act="retry-publish">Try again</button>`
 	}
 	function renderLiveBar() {
 		const bar = $('#livebar'); const l = S.liveMine ? obj('live', S.liveMine) : null
@@ -736,6 +768,7 @@
 		const inFilter = (m) => !S.filter || (S.filter.type === 'atlas' ? m.belongsTo.includes(S.filter.id) || D.atlases[S.filter.id].pinned.includes(m.id) : S.filter.type === 'tag' ? m.topics.includes(S.filter.id) : true)
 		let items = []
 		const L = lensAtlas()
+		if (S.sim.empty) return []
 		if (kind === 'maps') items = Object.values(D.maps).filter((m) => (m.published || mine(m)) && canSee(m) && (!L || inAtlas(m, L)) && inFilter(m) && hit(m.title, person(m.author).name, m.topics.join(' '))).map((m) => ({ kind: 'map', id: m.id, title: m.title, author: m.author, date: m.published || 'draft', meta: `${isPrivate(m) ? '🔒 ' + audienceLabelOf(m.audience) + ' · ' : ''}${m.features.length} features · ${m.size}${m.topics.length ? ' · #' + m.topics.slice(0, 2).join(' #') : ''}`, feats: m.features, onShelf: S.shelf.some((e) => e.id === m.id) }))
 		if (kind === 'stories') items = Object.values(D.stories).filter((st) => (!st.draft || mine(st)) && (!L || st.maps.some((m) => D.maps[m] && inAtlas(D.maps[m], L))) && hit(st.title, st.summary)).map((st) => ({ kind: 'story', id: st.id, title: st.title, author: st.author, date: st.published || 'draft', meta: `${st.maps.length} map${st.maps.length === 1 ? '' : 's'} · ${st.body.filter((b) => b.type === 'p').length} ¶`, feats: st.maps.flatMap((m) => (D.maps[m] || { features: [] }).features) }))
 		if (kind === 'atlases') items = Object.values(D.atlases).filter((a) => hit(a.title, a.description)).map((a) => { const mem = atlasMembers(a); return { kind: 'atlas', id: a.id, title: a.title, author: a.author, date: a.published || today, meta: `${mem.pinned.length + mem.added.length} maps · ${policyText(a.policy)}`, feats: mem.pinned.flatMap((m) => m.features) } })
@@ -747,7 +780,13 @@
 	}
 	function browseRows() {
 		const items = browseItems(S.browse.kind)
-		if (!items.length) return `<div class="empty" style="padding:.6rem .7rem">Nothing here${S.browse.q ? ` for “${esc(S.browse.q)}”` : ''}${S.filter ? ` in ${esc(S.filter.label)}` : ''}.</div>`
+		if (!items.length) {
+			if (S.sim.empty) return emptyState('◍', 'Nothing here yet, and that is the point', 'Earthly starts empty. Draw a map of something you know, bring a file you already have, or look at what other people made.', `<button class="btn sm primary" data-act="new-map">Draw a map</button><button class="btn sm" data-act="tool-action" data-k="import">Import a file</button><button class="btn sm quiet" data-act="sim" data-k="empty">Show me other people’s</button>`)
+			if (S.browse.q) return emptyState('⌕', `No ${esc(S.browse.kind)} match “${esc(S.browse.q)}”`, S.filter ? `You are also filtered to <b>${esc(S.filter.label)}</b>, which may be hiding matches.` : 'Try fewer words, or search everything from the bar at the top.', `<button class="btn sm" data-act="clear-feat-filter">Clear the filter</button>${S.filter ? `<button class="btn sm quiet" data-act="clear-filter">Leave ${esc(S.filter.label)}</button>` : ''}`)
+			if (S.filter) return emptyState('◈', `Nothing in ${esc(S.filter.label)} yet`, 'Nobody has put anything here. You could be the first.', `<button class="btn sm primary" data-act="new-map">Add the first one</button><button class="btn sm quiet" data-act="clear-filter">Leave</button>`)
+			return emptyState('◍', 'Nothing here', 'Nothing of this kind has been published to the relays you read.', '')
+		}
+		if (S.sim.loading) return Array.from({ length: 6 }).map(() => '<div class="lrow skel"><div class="thumb"></div><span class="sk sk1"></span><span></span></div>').join('')
 		return items.map((it) => {
 			const on = S.route.kind === it.kind && S.route.id === it.id
 			const k = key(it.kind, it.id); const sc = it.kind === 'person' ? null : social(k); const nc = it.kind === 'person' ? 0 : commentsOn(k).length; const pend = it.kind === 'person' ? 0 : pendingOn(k).length
@@ -789,6 +828,7 @@
 		<div class="composer"><div class="box"><textarea id="askq" rows="1" placeholder="Ask a question…"></textarea><button class="btn sm primary" data-act="ask-send">Ask</button></div><div class="hint">${['Where did the Hippie Trail cross into Afghanistan?', 'How many submarine cables land in Bilbao?', 'What is near Klagenfurt from Roman times?'].map((h) => `<button data-act="ask-hint" data-text="${esc(h)}">${esc(h)}</button>`).join('')}${msgs.length ? '<button data-act="ask-clear">Clear</button>' : ''}</div></div></div>`
 	}
 	function landingHtml() {
+		if (S.sim.empty) return `<div class="margin-head"><div class="nav"><span class="eyebrow">welcome</span><span style="flex:1"></span><button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}">◐</button></div><div class="title">Earthly</div><div class="metarow"><span class="meta muted">A map is a thing you make, not a thing you look at.</span></div></div><div class="margin-body">${emptyState('◍', 'You have not made anything yet', 'Everything here is yours to publish, and nothing is published until you say so. Start with a place you know better than the map does.', `<button class="btn sm primary" data-act="new-map">Draw a map</button><button class="btn sm" data-act="tool-action" data-k="import">Import a file</button>`)}<div class="section"><h4>Or look around</h4><p style="font-size:.88rem">Fourteen people have published maps and stories on the relays you read. Turn the simulation off under Me to see them.</p><button class="btn sm" data-act="sim" data-k="empty">Show what others made</button></div></div>`
 		const cards = (list, kind) => list.map((o) => `<button class="card" data-act="open" data-kind="${kind}" data-id="${o.id}"><div class="thumb">${thumb(kind === 'map' ? o.features : kind === 'story' ? o.maps.flatMap((m) => D.maps[m].features) : o.pinned.flatMap((m) => (D.maps[m] || { features: [] }).features))}</div><div class="cb"><div class="t">${esc(o.title)}</div><div class="s">${esc(person(o.author).name)}${kind === 'atlas' ? ' · ' + esc(policyText(o.policy)) : ''}</div></div></button>`).join('')
 		return `<div class="margin-head"><div class="nav"><span class="eyebrow">Discover</span><span style="flex:1"></span><button class="btn sm quiet" data-act="open" data-kind="shelf" data-id="now">On the map ▸</button></div><div class="title">Maps people made</div><div class="sub">Open one to read it. Press Edit to make it yours.</div></div>
 		<div class="margin-body">
@@ -815,7 +855,7 @@
 		const glance = `<div class="section"><h4>At a glance</h4><dl class="kv two"><dt>Features</dt><dd>${m.features.length}</dd><dt>Size</dt><dd>${esc(m.size)}</dd><dt>Version</dt><dd>${pub.version || 0}${inEdit ? ' → ' + ((pub.version || 0) + 1) : ''}</dd><dt>Audience</dt><dd>${inEdit ? esc(audienceLabel(S.drafts[id].audience)) : 'Everyone'}</dd><dt>Published</dt><dd>${pub.published ? esc(pub.published) : 'not yet'}</dd><dt>Author</dt><dd>${esc(person(pub.author).name)}</dd>${pub.forkOf ? `<dt>Forked from</dt><dd><button class="btn sm quiet" data-act="open" data-kind="map" data-id="${pub.forkOf}">${esc(D.maps[pub.forkOf].title)}</button></dd>` : ''}</dl></div>`
 		const GLYPH = { point: '●', line: '╱', polygon: '⬠' }
 		const featuresSection = (() => {
-			const all = m.features
+			const all = S.sim.blobFail && pub.blob ? [] : m.features
 			const q = S.featFilter.trim().toLowerCase()
 			const list = all.filter((f) => (!S.featType || f.type === S.featType) && (!q || f.name.toLowerCase().includes(q) || Object.values(f.props || {}).some((v) => String(v).toLowerCase().includes(q))))
 			const counts = { point: 0, line: 0, polygon: 0 }
@@ -844,7 +884,7 @@
 				<h4>Features <span class="n">${all.length}</span><span class="sp"></span>${inEdit ? `<button class="hint" data-act="select-all">Select all</button>` : ''}</h4>
 				<div class="ftools"><input type="text" id="featq" placeholder="Filter features…" value="${esc(S.featFilter)}"><span class="fchips">${chip(null, `All ${all.length}`)}${counts.point ? chip('point', `● ${counts.point}`) : ''}${counts.line ? chip('line', `╱ ${counts.line}`) : ''}${counts.polygon ? chip('polygon', `⬠ ${counts.polygon}`) : ''}</span></div>
 				${selCount ? `<div class="fbulk"><span class="cnt">${selCount} selected</span><button class="btn sm" data-act="feat-zoom-sel">Zoom to</button><button class="btn sm" data-act="tool-action" data-k="duplicate">Duplicate</button><button class="btn sm danger" data-act="delete-sel">Delete</button><span class="sp"></span><button class="btn sm quiet" data-act="clear-selection">×</button></div>` : ''}
-				<div class="frows">${shown.map(row).join('') || `<div class="empty">${all.length ? 'No feature matches.' : 'Nothing drawn yet.'}</div>`}</div>
+				<div class="frows">${shown.map(row).join('') || (S.sim.blobFail && pub.blob ? emptyState('⚠', 'The geometry did not load', `This map keeps its ${esc(pub.blob.size)} of geometry outside the event, at <span class="mono">${esc(pub.blob.url)}</span>. That server did not answer, so there is nothing to draw. The map itself is fine.`, `<button class="btn sm primary" data-act="toast">Try again</button><button class="btn sm quiet" data-act="toast">Copy the address</button>`, 'warn') : `<div class="empty">${all.length ? 'No feature matches.' : 'Nothing drawn yet.'}</div>`)}</div>
 				${list.length > cap ? `<button class="chip add" data-act="feat-all">${S.featAll ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}
 			</div>`
 		})()
@@ -863,6 +903,7 @@
 			${props}
 			${appears}
 			${proposalsHtml('map', id)}
+			${versionsHtml('map', id)}
 			${inEdit ? `<div class="section quiet"><button class="btn sm danger" data-act="dialog" data-dialog="discard">Discard this draft</button></div>` : mine(pub) ? `<div class="section quiet"><button class="btn sm danger" data-act="dialog" data-dialog="delete">Delete map…</button></div>` : ''}
 		</div>`
 		return head(m, 'map', { actions, sub: `<span class="muted">· ${m.features.length} features${stories.length ? ` · in ${stories.length} stor${stories.length === 1 ? 'y' : 'ies'}` : ''}</span>` }) + tabsHtml('map', id, sideThread) + (S.tab === 'thread' && !sideThread ? threadHtml('map', id) : S.tab === 'comments' ? commentsHtml('map', id) : details)
@@ -958,6 +999,7 @@
 			<div class="lead prose ${inEdit ? 'editing' : ''}">${bodyHtml}</div>
 			${inEdit ? `<div class="btools top"><button data-act="block-add" data-i="${s.body.length - 1}">+ paragraph</button><button data-act="heading-add" data-i="${s.body.length - 1}">+ heading</button><button data-act="menu" data-menu="block-insert">+ block ▾</button><span class="muted" style="font-size:.74rem;align-self:center">Type in the text. Select a word, then ⌖ reference, to point at a feature.</span></div>` : ''}
 			${proposalsHtml('story', id)}
+			${versionsHtml('story', id)}
 			${presSection}
 			${viewsSection}
 		</div>`
@@ -1150,6 +1192,38 @@
 			</div>
 		</div>`
 	}
+	// One shape for every empty and error state: mark, headline, one sentence, one or two ways out.
+	function emptyState(mark, title, line, actions, tone) {
+		return `<div class="estate ${tone || ''}"><span class="em">${mark}</span><div class="et">${esc(title)}</div><div class="el">${line}</div>${actions ? `<div class="ea">${actions}</div>` : ''}</div>`
+	}
+	function versionsHtml(kind, id) {
+		const o = obj(kind, id)
+		const hist = historyOf(o)
+		if (!hist.length) return ''
+		const cmp = S.compare && S.compare.id === id ? S.compare : null
+		const row = (h) => {
+			const isCur = h.v === (o.version || 1)
+			const sel = cmp && (cmp.a === h.v || cmp.b === h.v)
+			const counts = kind === 'map' ? `${h.add ? `<span class="add">+${h.add.length}</span> ` : ''}${h.modify ? `<span class="mod">~${h.modify.length}</span> ` : ''}${h.remove ? `<span class="del">−${h.remove.length}</span>` : ''}` : ''
+			return `<div class="vrow2 ${isCur ? 'cur' : ''} ${sel ? 'sel' : ''} ${h.unavailable ? 'gone' : ''}">
+				<span class="vv">v${h.v}</span>
+				<button class="vmain" data-act="compare-pick" data-kind="${kind}" data-id="${id}" data-v="${h.v}" title="Pick two versions to compare">
+					<span class="vt2">${esc(h.note || '')}</span>
+					<span class="vm">${esc(h.at)} · ${esc(person(h.by).name)}${h.kind === 'proposal' ? ` · from ${esc(person(h.from).name)}’s proposal` : h.kind === 'create' ? ' · first version' : ''} ${counts}</span>
+					${h.unavailable ? '<span class="vg">content not on any relay you use · only the lineage pointer survives</span>' : ''}
+				</button>
+				<span class="va">${isCur ? '<span class="vcur">current</span>' : h.unavailable ? '' : `<button data-act="version-preview" data-kind="${kind}" data-id="${id}" data-v="${h.v}" title="Show this version against the current one">⌖</button>${mine(o) ? `<button data-act="version-restore" data-kind="${kind}" data-id="${id}" data-v="${h.v}" title="Publish this content again as a new version">↺</button>` : ''}`}</span>
+			</div>`
+		}
+		const both = cmp && cmp.a != null && cmp.b != null
+		const d = both && kind === 'map' ? diffVersions(o, Math.min(cmp.a, cmp.b), Math.max(cmp.a, cmp.b)) : null
+		return `<div class="section"><h4>Versions <span class="n">${hist.length}</span><span class="sp"></span>${cmp ? `<button class="hint" data-act="compare-clear">clear</button>` : `<span class="hint">pick two to compare</span>`}</h4>
+			<div class="vrows">${hist.map(row).join('')}</div>
+			${both ? `<div class="vdiff"><div class="vdh"><b>v${Math.min(cmp.a, cmp.b)} → v${Math.max(cmp.a, cmp.b)}</b>${d ? `<span class="mono"><span class="add">+${d.add.length}</span> <span class="mod">~${d.modify.length}</span> <span class="del">−${d.remove.length}</span></span>` : '<span class="muted">text changes</span>'}<span class="sp"></span>${d ? `<button class="btn sm ${cmp.show ? 'primary' : ''}" data-act="compare-show">${cmp.show ? 'Hide on map' : 'Show on map'}</button>` : ''}</div>
+				${d ? `<div class="vdl">${[...d.add.map((f) => ['add', '+', f.name]), ...d.modify.map((f) => ['mod', '~', f.name]), ...d.remove.map((f) => ['del', '−', f.name])].slice(0, 12).map(([c, g, n]) => `<span class="vdi ${c}">${g} ${esc(n)}</span>`).join('')}${d.add.length + d.modify.length + d.remove.length > 12 ? `<span class="vdi">…${d.add.length + d.modify.length + d.remove.length - 12} more</span>` : ''}</div>` : ''}
+				${versionUnavailable(o, cmp.a) || versionUnavailable(o, cmp.b) ? emptyState('⚠', 'One of these versions is gone', 'Only its lineage pointer survives, so this comparison skips it. A relay that keeps history would fill it in.', '', 'warn') : ''}</div>` : ''}
+			<p class="muted" style="font-size:.76rem;margin:.4rem 0 0">Relays keep the newest version. Earlier ones appear when this device or a relay still holds them. Restoring publishes the old content again as a new version; nothing is erased.</p></div>`
+	}
 	function proposalsHtml(kind, id) {
 		const k = key(kind, id); const list = proposalsOn(k); if (!list.length) return ''
 		const o = obj(kind, id); const owner = mine(o)
@@ -1264,6 +1338,7 @@
 			const isPropose = isEdit && S.editing.mode === 'propose'
 			const m = isEdit && !isPropose ? S.drafts[e.id] : D.maps[e.id]
 			if (!m) return
+			if (S.sim.blobFail && m.blob) return
 			if (isPropose) {
 				// My proposal on someone else's map: their map stays grey, my changes are ghosts.
 				const diff = diffDraft(D.maps[e.id], S.drafts[e.id])
@@ -1273,6 +1348,13 @@
 			}
 			const p = isEdit && S.proposal && S.proposal.kind === 'map' && S.proposal.mapId === e.id ? S.proposal : null
 			const incoming = S.previewProposal ? D.proposals.find((x) => x.id === S.previewProposal && x.target === 'map:' + e.id) : null
+			const cmp = S.compare && S.compare.show && S.compare.id === e.id && S.compare.a != null && S.compare.b != null ? diffVersions(D.maps[e.id], Math.min(S.compare.a, S.compare.b), Math.max(S.compare.a, S.compare.b)) : null
+			if (cmp) {
+				const changed = new Set([...cmp.add, ...cmp.modify].map((f) => f.id))
+				cmp.B.forEach((f) => out.push({ f, map: e.id, state: changed.has(f.id) ? 'proposed' : 'published', lbl: changed.has(f.id) }))
+				cmp.remove.forEach((f) => out.push({ f, map: e.id, state: 'published', removed: true, lbl: true }))
+				return
+			}
 			m.features.forEach((f) => out.push({ f, map: e.id, state: isEdit ? 'working' : 'published', removed: !!(p && p.remove.includes(f.id)) || !!(incoming && incoming.remove.includes(f.id)), modified: !!(p && p.modify.some((x) => x.id === f.id)), dim: !!(S.onlyChanges && S.proposal) || !!(incoming && incoming.modify.some((x) => x.id === f.id)), sel: S.selection.has(f.id) || S.emphasis.has(`${e.id}:${f.id}`), lbl: focus === e.id || isEdit || S.emphasis.has(`${e.id}:${f.id}`) }))
 			if (incoming) { incoming.add.forEach((f) => out.push({ f, map: e.id, state: 'proposed', lbl: true })); incoming.modify.forEach((mm) => { const base = m.features.find((x) => x.id === mm.id); if (base) out.push({ f: Object.assign({}, base, { id: 'prop:' + mm.id, name: mm.name || base.name, coords: mm.coords || base.coords }), map: e.id, state: 'proposed', lbl: true }) }) }
 		})
@@ -1476,7 +1558,7 @@
 			const pen = S.editing && S.editing.id === e.id
 			const running = S.run && S.run.id === e.id
 			const on = S.route.kind === 'map' && S.route.id === e.id
-			return `<span class="schip ${pen ? 'pen' : ''} ${running ? 'running' : ''} ${on ? 'on' : ''} ${e.visible ? '' : 'off'}" data-map="${e.id}"><span class="sw"></span>${isPrivate(m) ? '<span title="' + esc(audienceLabelOf(m.audience)) + '">🔒</span>' : ''}${pen ? '<span class="pencil">✎</span>' : ''}<button class="name" style="width:auto;height:auto;border-radius:0;padding:0" data-act="open" data-kind="map" data-id="${e.id}">${esc(pen ? S.drafts[e.id].title : m.title)}</button><button data-act="toggle-vis" data-id="${e.id}" aria-label="${e.visible ? 'Hide' : 'Show'}" title="${e.visible ? 'Hide' : 'Show'}">${e.visible ? '◉' : '○'}</button><button data-act="remove-shelf" data-id="${e.id}" aria-label="Remove from map">×</button></span>`
+			return `<span class="schip ${pen ? 'pen' : ''} ${running ? 'running' : ''} ${on ? 'on' : ''} ${e.visible ? '' : 'off'} ${S.sim.blobFail && m.blob ? 'broken' : ''}" data-map="${e.id}"><span class="sw"></span>${S.sim.blobFail && m.blob ? '<span title="Geometry did not load">⚠</span>' : ''}${isPrivate(m) ? '<span title="' + esc(audienceLabelOf(m.audience)) + '">🔒</span>' : ''}${pen ? '<span class="pencil">✎</span>' : ''}<button class="name" style="width:auto;height:auto;border-radius:0;padding:0" data-act="open" data-kind="map" data-id="${e.id}">${esc(pen ? S.drafts[e.id].title : m.title)}</button><button data-act="toggle-vis" data-id="${e.id}" aria-label="${e.visible ? 'Hide' : 'Show'}" title="${e.visible ? 'Hide' : 'Show'}">${e.visible ? '◉' : '○'}</button><button data-act="remove-shelf" data-id="${e.id}" aria-label="Remove from map">×</button></span>`
 		}).join('')
 		const liveCount = D.sightings.length + D.live.filter((l) => l.discovery === 'public' || l.author === 'me' || l.audience === 'everyone' || canSee({ audience: l.audience })).length
 		return chips + `<span class="schip live ${S.liveOn ? 'on' : 'off'}"><span class="sw"></span><button class="name" style="width:auto;height:auto;border-radius:0;padding:0" data-act="toggle-live">Live · ${liveCount}</button></span>`
@@ -1667,7 +1749,7 @@
 		const m = S.menu
 		const mi = (label, act, extra = '') => `<button class="mi ${extra}" data-act="${act}"><span>${label}</span></button>`
 		let body = ''
-		if (m.type === 'me') body = `<div class="mh"><b>You</b><br><span class="mono muted">you@earthly.city</span></div><hr>${mi('Profile', 'open-me')}${mi('Drafts', 'menu-drafts')}${mi(`Inbox${unread() ? ' <small>' + unread() + ' unread</small>' : ''}`, 'open-inbox')}${mi(`Circles <small>${D.circles.map((c) => c.title).join(', ')}</small>`, 'open-me-circles')}${mi(`Nearby sessions <small>${D.nearby.map((n) => n.title + ' · ' + n.peers.length + ' peers').join(', ')}</small>`, 'open-me-nearby')}${mi(S.liveMine ? 'You are live <small>tap to stop</small>' : 'Share live location', S.liveMine ? 'stop-live' : 'start-live')}${mi('Outbox <small>2 delivered · 0 waiting</small>', 'toast')}${mi('Wallet', 'toast')}<hr>${mi('Settings', 'toast')}${mi('Help & tour', 'toast')}<div class="mrow"><span class="muted" style="align-self:center;font-size:.8rem;padding:0 .3rem">Theme</span>${['system', 'light', 'dark'].map((t) => `<button class="btn sm ${theme() === t ? 'primary' : ''}" data-act="theme" data-theme="${t}">${t}</button>`).join('')}</div><div class="mrow"><span class="muted" style="align-self:center;font-size:.8rem;padding:0 .3rem">Panels</span><button class="btn sm ${S.glass ? '' : 'primary'}" data-act="glass" data-v="0">Solid</button><button class="btn sm ${S.glass ? 'primary' : ''}" data-act="glass" data-v="1">Glass</button></div><hr>${mi('Sign out', 'toast', 'danger')}`
+		if (m.type === 'me') body = `<div class="mh"><b>You</b><br><span class="mono muted">you@earthly.city</span></div><hr>${mi('Profile', 'open-me')}${mi('Drafts', 'menu-drafts')}${mi(`Inbox${unread() ? ' <small>' + unread() + ' unread</small>' : ''}`, 'open-inbox')}${mi(`Circles <small>${D.circles.map((c) => c.title).join(', ')}</small>`, 'open-me-circles')}${mi(`Nearby sessions <small>${D.nearby.map((n) => n.title + ' · ' + n.peers.length + ' peers').join(', ')}</small>`, 'open-me-nearby')}${mi(S.liveMine ? 'You are live <small>tap to stop</small>' : 'Share live location', S.liveMine ? 'stop-live' : 'start-live')}${mi('Outbox <small>2 delivered · 0 waiting</small>', 'toast')}${mi('Wallet', 'toast')}<hr>${mi('Settings', 'toast')}${mi('Help & tour', 'toast')}<div class="mrow"><span class="muted" style="align-self:center;font-size:.8rem;padding:0 .3rem">Theme</span>${['system', 'light', 'dark'].map((t) => `<button class="btn sm ${theme() === t ? 'primary' : ''}" data-act="theme" data-theme="${t}">${t}</button>`).join('')}</div>${mi('Simulate a problem…<small>empty account, offline, failures</small>', 'menu-sim')}<div class="mrow"><span class="muted" style="align-self:center;font-size:.8rem;padding:0 .3rem">Panels</span><button class="btn sm ${S.glass ? '' : 'primary'}" data-act="glass" data-v="0">Solid</button><button class="btn sm ${S.glass ? 'primary' : ''}" data-act="glass" data-v="1">Glass</button></div><hr>${mi('Sign out', 'toast', 'danger')}`
 		if (m.type === 'drafts') { const ds = Object.values(S.drafts); body = `<div class="mh"><b>Drafts</b> <span class="muted">· saved on this device</span></div>${ds.length ? ds.map((d) => `<div class="mi" style="grid-template-columns:1fr auto auto"><span><span class="kicon ${d.kind}" style="display:inline-grid;width:20px;height:20px;font-size:.55rem;vertical-align:middle">${d.kind.slice(0, 3)}</span> ${esc(d.title)}<small>${esc(d.kind)}${d.mode === 'propose' ? ' · proposal to ' + esc(person(obj(d.kind, d.id).author).name) : ''} · ${S.editing && S.editing.id === d.id ? 'editing now' : 'kept'}</small></span><button class="btn sm" data-act="resume" data-kind="${d.kind}" data-id="${d.id}">Resume</button><button class="btn sm quiet danger" data-act="discard-draft" data-id="${d.id}">Discard</button></div>`).join('') : '<div class="empty" style="padding:.5rem .7rem">No unfinished work. Press Edit on something.</div>'}` }
 		if (m.type === 'publish') { const d = S.drafts[S.editing.id]; const isMap = S.editing.kind === 'map'; const pub = obj(S.editing.kind, S.editing.id); body = `${pub.published ? mi(`Publish update<small>same address, becomes v${(pub.version || 0) + 1}</small>`, 'publish-update') : mi('Publish<small>first version</small>', 'publish-update')}${isMap ? mi('Publish as new map<small>new address, keeps this one as it is</small>', 'publish-new') : ''}<hr><div class="mh eyebrow">Who can see it</div>${[['everyone', 'Everyone', 'public relays'], ['circle', 'Circle: Alpine rescue', 'encrypted, 6 members'], ['nearby', 'Nearby: Saturday survey', 'this session only']].map(([v, t, s]) => `<button class="mi ${d.audience === v ? 'on' : ''}" data-act="audience" data-a="${v}"><span>${t}<small>${s}</small></span></button>`).join('')}` }
 		if (m.type === 'share') body = `${mi('Copy link', 'toast-copied')}${mi('Copy link with what’s on the map', 'toast-copied')}${mi('Show QR code', 'toast')}${mi('Share to…', 'toast')}`
@@ -1690,6 +1772,7 @@
 				return `<button class="mi ${ok ? '' : 'off'} ${active ? 'on' : ''} ${it.danger ? 'danger' : ''}" ${ok ? (it.menu ? `data-act="menu" data-menu="${it.menu}"` : it.tool ? `data-act="tool" data-tool="${it.k}"` : `data-act="tool-action" data-k="${it.k}"`) : 'disabled'}><span>${it.g} ${esc(it.l)}${!ok && it.why ? `<small>${esc(it.why)}</small>` : ''}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</button>`
 			}).join('')).join('<hr>')
 		}
+		if (m.type === 'sim') body = `<div class="mh eyebrow">Show a state that is hard to reach</div>${[['empty', 'A brand new account', 'nothing published, nothing followed'], ['loading', 'Still loading', 'skeleton rows'], ['offline', 'Offline', 'cached content, queued publishes'], ['publishFail', 'A relay rejects the next publish', ''], ['blobFail', 'External geometry will not load', 'the Atlantic cables map']].map(([k, t, sm]) => `<button class="mi ${S.sim[k] ? 'on' : ''}" data-act="sim" data-k="${k}"><span>${t}${sm ? `<small>${sm}</small>` : ''}</span></button>`).join('')}<hr>${mi('Clear all', 'sim-clear')}`
 		if (m.type === 'live-discovery') { const l = S.liveMine ? obj('live', S.liveMine) : null; body = `<div class="mh eyebrow">Who can find you</div>${[['link', 'Link only', 'only people you send the link to'], ['public', 'Public', 'shows on the Live layer for everyone']].map(([v, t, sm]) => `<button class="mi ${l && l.discovery === v ? 'on' : ''}" data-act="live-discovery" data-v="${v}"><span>${t}<small>${sm}</small></span></button>`).join('')}` }
 		if (m.type === 'shelf') body = `${mi('Frame on the map', 'fly-map')}${mi('Hide', 'toggle-vis')}${mi('Remove from map', 'remove-shelf')}`
 		const style = m.right < 260 ? `right:${m.right}px;top:${m.y}px` : `left:${m.x}px;top:${m.y}px`
@@ -1710,6 +1793,10 @@
 		if (d.type === 'pick-ref') body = `<h3>Add a reference</h3><p>Read-only context for the Thread. A reference never grants the AI permission to edit.</p><div class="list">${[...Object.values(D.maps).filter((m) => m.published).map((m) => ({ kind: 'map', id: m.id, label: m.title, s: 'map' })), ...Object.values(D.stories).filter((s) => !s.draft).map((s) => ({ kind: 'story', id: s.id, label: s.title, s: 'story' }))].map((r) => `<button class="item" data-act="ref-add" data-kind="${r.kind}" data-id="${r.id}" data-label="${esc(r.label)}"><span class="kicon ${r.kind}">${r.s.slice(0, 3)}</span><span style="text-align:left"><div class="t">${esc(r.label)}</div><div class="s">${r.s}</div></span><span></span></button>`).join('')}</div><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button></div>`
 		if (d.type === 'save-view') body = `<h3>Save this view as an atlas</h3><p>Pins the ${S.shelf.length} map${S.shelf.length === 1 ? '' : 's'} on the Shelf. Only you can add to it unless you change the door policy.</p><input type="text" id="dlg-name" placeholder="Name the atlas" value="${esc(d.value || 'My view · ' + today)}"><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn primary" data-act="save-view-go">Save atlas</button></div>`
 		if (d.type === 'send-proposal') { const o = obj(S.editing.kind, S.editing.id); const diff = S.editing.kind === 'map' ? diffDraft(o, S.drafts[S.editing.id]) : null; body = `<h3>Send proposal to ${esc(person(o.author).name)}</h3><p>${diff ? `<span class="mono"><span style="color:var(--green)">+${diff.add.length}</span> <span style="color:var(--amber)">~${diff.modify.length}</span> <span style="color:var(--red)">−${diff.remove.length}</span></span> · ` : 'Text changes · '}They see your changes as ghosts on their ${esc(S.editing.kind)} and can accept, decline, or discuss. Accepting publishes their next version with your name on the proposal.</p><textarea id="dlg-msg" rows="3" placeholder="Why these changes? (optional)" style="width:100%;border:1px solid var(--rule-2);background:var(--ground);padding:.5rem .6rem;margin-bottom:.8rem"></textarea><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn primary" data-act="send-proposal-go">Send proposal</button></div>` }
+		if (d.type === 'publish-failed') body = `<h3>Two of three relays took it</h3><p>The event is signed and stored on this device. It will not be lost.</p>
+			<div class="relaylist"><div class="rrow ok"><span class="mono">relay.earthly.city</span><span>accepted</span></div><div class="rrow ok"><span class="mono">nos.lol</span><span>accepted</span></div><div class="rrow bad"><span class="mono">relay.damus.io</span><span>blocked: pubkey not allowed</span></div></div>
+			<p class="muted" style="font-size:.8rem">A relay may refuse for its own reasons. Your map is published as long as one relay took it; the others can be retried at any time.</p>
+			<div class="acts"><button class="btn quiet left" data-act="toast">Manage relays</button><button class="btn" data-act="dialog-cancel">Leave it queued</button><button class="btn primary" data-act="retry-publish">Retry the third</button></div>`
 		if (d.type === 'geometry-op') {
 			const c = toolContext()
 			const titles = { simplify: 'Simplify selection', offset: 'Offset area by distance', parallel: 'Parallel line', corridor: 'Line corridor' }
@@ -1843,6 +1930,7 @@
 		resume(d) { S.menu = null; const pr = S.drafts[d.id] && S.drafts[d.id].mode === 'propose'; if (S.editing && S.editing.id !== d.id) { S.dialog = { type: 'finish-first', next: { kind: d.kind, id: d.id, propose: pr } }; render(); return } if (pr) beginPropose(d.kind, d.id); location.hash = hashFor({ kind: d.kind, id: d.id, edit: true }) },
 		'discard-draft'(d) { if (S.editing && S.editing.id === d.id) S.editing = null; delete S.drafts[d.id]; S.menu = null; if (S.route.edit && S.route.id === d.id) location.hash = hashFor({ kind: S.route.kind, id: d.id, edit: false }); else render(); toast('Draft discarded.') },
 		'clear-filter'() { S.filter = null; render() },
+		'clear-feat-filter'() { S.browse.q = ''; S.featFilter = ''; render() },
 		'filter-tag'(d) { S.filter = { type: 'tag', id: d.tag, label: '#' + d.tag }; S.query = ''; render(); toast(`Lists now show #${d.tag}. The map is unchanged.`) },
 		'filter-atlas'(d) { const a = D.atlases[d.id]; S.filter = { type: 'atlas', id: d.id, label: a.title }; render(); toast(`Browsing in “${a.title}”. This only filters lists.`) },
 		'start-map'(d) { startMapFrom(d.q) },
@@ -1932,6 +2020,10 @@
 		zap() { S.menu = null; toast('⚡ 21 sats zapped. Kind 9735, like everywhere on Nostr.'); render() },
 		'zap-k'() { A.zap() },
 		'menu-share-from'() { S.menu = null; render(); toast('Link copied.') },
+		'menu-sim'(d, el) { openMenu('sim', el) },
+		sim(d) { S.sim[d.k] = !S.sim[d.k]; if (d.k === 'offline') S.queued = S.sim.offline ? [{ what: 'The Hippie Trail v4', when: 'just now' }] : []; S.menu = null; render(); toast(S.sim[d.k] ? 'Simulating. Turn it off under Me.' : 'Back to normal.') },
+		'sim-clear'() { Object.keys(S.sim).forEach((k) => { S.sim[k] = false }); S.queued = []; S.menu = null; render() },
+		'retry-publish'() { S.queued = []; S.sim.offline = false; S.sim.publishFail = false; render(); toast('Sent. 3 of 3 relays accepted it.') },
 		'row-shelf'() { const id = S.menu.data.id; S.menu = null; if (S.shelf.some((e) => e.id === id)) removeFromShelf(id); else { addToShelf(id, { fly: true }); render() } },
 		'row-edit'() { const { kind, id } = S.menu.data; S.menu = null; if (['map', 'story', 'atlas'].includes(kind)) A['edit-id']({ kind, id }); else go(kind, id) },
 		'row-propose'() { const { kind, id } = S.menu.data; S.menu = null; if (S.editing && S.editing.id !== id) { S.dialog = { type: 'finish-first', next: { kind, id, propose: true } }; render(); return } beginPropose(kind, id); location.hash = hashFor({ kind, id, edit: true }) },
@@ -1953,6 +2045,21 @@
 		'send-proposal-go'() { const msg = $('#dlg-msg') ? $('#dlg-msg').value.trim() : ''; S.dialog = null; sendProposal(msg) },
 		'preview-proposal'(d) { S.previewProposal = S.previewProposal === d.id ? null : d.id; const p = D.proposals.find((x) => x.id === d.id); if (S.previewProposal && p) { const m = obj('map', p.target.split(':')[1]); const feats = [...p.add, ...p.modify.map((mm) => m.features.find((f) => f.id === mm.id)).filter(Boolean)]; if (feats.length) flyTo(bbox(feats)) } render() },
 		'accept-proposal'(d) { acceptProposal(d.id) },
+		'compare-pick'(d) {
+			const v = +d.v
+			const c = S.compare && S.compare.id === d.id ? S.compare : { kind: d.kind, id: d.id, a: null, b: null, show: false }
+			if (c.a === v) c.a = null
+			else if (c.b === v) c.b = null
+			else if (c.a == null) c.a = v
+			else if (c.b == null) c.b = v
+			else { c.a = v; c.b = null }
+			S.compare = c.a == null && c.b == null ? null : c
+			render()
+		},
+		'compare-clear'() { S.compare = null; render() },
+		'compare-show'() { if (S.compare) S.compare.show = !S.compare.show; render() },
+		'version-preview'(d) { const o = obj(d.kind, d.id); if (d.kind !== 'map') { toast(`v${d.v} of a story would open read-only.`); return } S.compare = { kind: d.kind, id: d.id, a: +d.v, b: o.version || 1, show: true }; addToShelf(d.id, { silent: true }); flyToMaps([d.id]); render(); toast(`Showing v${d.v} against v${o.version}. Amber is what changed since.`) },
+		'version-restore'(d) { const o = obj(d.kind, d.id); if (d.kind === 'map') o.features = featuresAt(o, +d.v); o.version = (o.version || 1) + 1; o.published = today; o.history = (o.history || []).concat({ v: o.version, at: today, by: 'me', kind: 'publish', note: `Restored the content of v${d.v}.` }); S.compare = null; render(); toast(`Published v${o.version} with the content of v${d.v}. Nothing was erased.`) },
 		'decline-proposal'(d) { const p = D.proposals.find((x) => x.id === d.id); if (p) p.status = 'declined'; S.previewProposal = null; render(); toast('Declined. The proposer keeps their copy of the changes.') },
 		'withdraw-proposal'(d) { D.proposals = D.proposals.filter((x) => x.id !== d.id); S.previewProposal = null; render(); toast('Proposal withdrawn.') },
 		'new-story'() { S.menu = null; const id = `story-${++S.counter}`; D.stories[id] = { id, kind: 'story', title: 'Untitled story', author: 'me', published: null, draft: true, summary: '', maps: S.shelf.slice(0, 2).map((e) => e.id), body: [{ type: 'p', text: 'Start writing. Reference maps and features from the Shelf.', refs: [] }] }; if (S.editing) { S.dialog = { type: 'finish-first', next: { kind: 'story', id } }; render(); return } beginEdit('story', id); location.hash = hashFor({ kind: 'story', id, edit: true }) },

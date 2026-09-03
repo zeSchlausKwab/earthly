@@ -55,6 +55,13 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
 - **Features list** on a Map, reading and editing: filter and type chips, per-row
   zoom / copy / comment, or rename / duplicate / delete / reorder, expandable
   properties and coordinates, a bulk bar synced to the canvas selection.
+- **Versions** on Maps and Stories: a row per version with its note and counts,
+  pick any two to compare, Show on map draws the difference, ⌖ previews one
+  against the current, ↺ restores by publishing again. Versions whose content no
+  relay still holds say so instead of pretending.
+- **Empty and error states**: Me → Simulate a problem toggles a brand new
+  account, loading skeletons, offline with a queued publish, a relay rejecting a
+  write, and external geometry that will not load.
 - **Belongs to** on a Map: fit-state chips per Atlas, *Add to atlas…* picker.
 - **Atlas page**: door policy as a sentence, Pinned / Added by others /
   Waiting (owner), *Add a map ▾*, *Show all on map*, accept-by-pin.

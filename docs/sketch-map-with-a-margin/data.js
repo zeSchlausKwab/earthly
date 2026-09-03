@@ -67,6 +67,11 @@
 
 	addMap({
 		id: 'hippie-trail', kind: 'map', title: 'The Hippie Trail', author: 'me', published: '2026-09-01', version: 3,
+		history: [
+			{ v: 1, at: '2026-08-14', by: 'me', kind: 'create', note: 'First version: the twelve towns.', add: ['trail', 'stop-0', 'stop-1', 'stop-2', 'stop-3', 'stop-4', 'stop-5', 'stop-6', 'stop-7', 'stop-8', 'stop-9', 'stop-10', 'stop-11'] },
+			{ v: 2, at: '2026-08-22', by: 'me', kind: 'publish', note: 'Straightened the Anatolian leg; dropped two duplicate stops.', modify: ['trail'], remove: [{ id: 'stop-dup-a', name: 'Erzincan (duplicate)', type: 'point', coords: [39.49, 39.75], props: {} }, { id: 'stop-dup-b', name: 'Zahedan (duplicate)', type: 'point', coords: [60.86, 29.5], props: {} }], unavailable: true },
+			{ v: 3, at: '2026-09-01', by: 'me', kind: 'publish', note: 'Added the period property and a summary.', modify: ['trail'] },
+		],
 		summary: 'The overland route from Istanbul to Kathmandu as travelled 1957–1978, with the towns that became stops.',
 		topics: ['overland', 'history', 'travel'], belongsTo: ['cool-historical'], size: '27 KB', props: { period: '1957–1978' },
 		features: [ln('trail', 'Overland route', trail, { period: '1957–1978' }), ...trailStops.map((s, i) => pt('stop-' + i, s, C[s][0], C[s][1], { kind: 'stop' }))],
@@ -82,13 +87,17 @@
 	const nodes = ['Xi’an', 'Lanzhou', 'Urumqi', 'Almaty', 'Tashkent', 'Tehran', 'Istanbul', 'Moscow', 'Duisburg', 'Rotterdam', 'Gwadar', 'Colombo', 'Djibouti', 'Piraeus', 'Venice', 'Kuala Lumpur', 'Jakarta', 'Mombasa', 'Hanoi', 'Yiwu']
 	addMap({
 		id: 'bri', kind: 'map', title: 'China’s Belt and Road Initiative', author: 'me', published: '2026-07-13', version: 2,
+		history: [
+			{ v: 1, at: '2026-07-12', by: 'me', kind: 'create', note: 'Drawn from the Thread in one run.', add: ['corr-0', 'corr-1', 'corr-2', 'corr-3', 'corr-4'] },
+			{ v: 2, at: '2026-07-13', by: 'me', kind: 'publish', note: 'Added the sixth corridor and twenty nodes.', add: ['corr-5', 'node-0', 'node-1', 'node-2', 'node-3', 'node-4', 'node-5', 'node-6', 'node-7', 'node-8', 'node-9', 'node-10', 'node-11', 'node-12', 'node-13', 'node-14', 'node-15', 'node-16', 'node-17', 'node-18', 'node-19'] },
+		],
 		summary: 'Six overland and maritime corridors with the ports, rail hubs and financing nodes that connect them.',
 		topics: ['infrastructure', 'geopolitics'], belongsTo: [], size: '25 KB', props: {},
 		features: [...corridors.map((c, i) => ln('corr-' + i, c[0], curve(C[c[1]], C[c[2]], c[3], c[4], 1.2), { kind: 'corridor' })), ...nodes.map((n, i) => pt('node-' + i, n, C[n][0], C[n][1], { kind: 'node' }))],
 	})
 	const VB = [-75.98, 36.85], BIL = [-2.93, 43.26], BUDE = [-4.54, 50.83], FOR = [-38.54, -3.72], SIN = [-8.87, 37.96], NJ = [-74.0, 40.4], LIS = [-9.4, 38.7]
 	addMap({
-		id: 'cables-atlantic', kind: 'map', title: 'Submarine Cables — Atlantic Ocean', author: 'earthly', published: '2026-07-17', version: 1,
+		id: 'cables-atlantic', kind: 'map', title: 'Submarine Cables — Atlantic Ocean', author: 'earthly', published: '2026-07-17', version: 1, blob: { url: 'https://blossom.earthly.city/9f2c…c1.geojson', size: '2.4 MB', sha: '9f2c…c1' },
 		summary: 'Transatlantic cable systems with landing stations on both shores.',
 		topics: ['submarine-cables', 'internet-infrastructure', 'atlantic'], belongsTo: ['sea-cables'], size: '50 KB', props: { operator: 'various' },
 		features: [
@@ -183,6 +192,11 @@
 		'bri-story': {
 			id: 'bri-story', kind: 'story', title: 'China’s Belt and Road Initiative: Remapping Global Trade', author: 'me', published: '2026-07-12',
 			summary: 'What the BRI is, how it is organised, where the money goes, and why it matters.', maps: ['bri', 'ice-free'],
+			history: [
+				{ v: 1, at: '2026-07-12', by: 'me', kind: 'create', note: 'First draft, four sections.' },
+				{ v: 2, at: '2026-07-14', by: 'me', kind: 'publish', note: 'Added the corridor table and the Arctic view.' },
+				{ v: 3, at: '2026-08-02', by: 'me', kind: 'proposal', from: 'aria', note: 'Accepted Aria Voss’s correction to the Duisburg figure.', unavailable: true },
+			],
 			// Only the opening state lives here. Everything that happens as you read is a view block in the body.
 			presentation: { version: 1, initialView: { center: [70, 35], zoom: 2.6 }, layerOrder: ['bri', 'ice-free'], layers: { bri: { visible: true }, 'ice-free': { visible: false } } },
 			body: [

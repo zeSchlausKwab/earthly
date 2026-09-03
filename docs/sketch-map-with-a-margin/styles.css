@@ -525,6 +525,59 @@ body.glass .ccomp{background:transparent}
 .section>h4 button.hint:hover{color:var(--ink);text-decoration:underline}
 @media (max-width:760px){.frow .fa{opacity:1}.frows{max-height:none}}
 
+/* Versions */
+.vrows{display:flex;flex-direction:column;border:1px solid var(--rule)}
+.vrow2{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:.4rem;align-items:start;padding:.3rem .4rem;border-bottom:1px solid var(--rule)}
+.vrow2:last-child{border-bottom:0}
+.vrow2:hover{background:var(--surface-2)}
+.vrow2.sel{background:var(--accent-soft)}
+.vrow2.cur{border-left:2px solid var(--accent)}
+.vrow2.gone{opacity:.72}
+.vrow2 .vv{font-family:var(--mono);font-size:.72rem;color:var(--ink-2);background:var(--surface-2);text-align:center;padding:.1rem 0}
+.vrow2.sel .vv{background:var(--accent);color:var(--accent-ink)}
+.vrow2 .vmain{text-align:left;min-width:0;display:block}
+.vrow2 .vt2{display:block;font-size:.84rem;line-height:1.25}
+.vrow2 .vm{display:block;font-family:var(--mono);font-size:.64rem;color:var(--muted);margin-top:.05rem}
+.vrow2 .vg{display:block;font-family:var(--mono);font-size:.62rem;color:var(--amber);margin-top:.1rem}
+.vrow2 .va{display:flex;gap:.1rem;align-items:center}
+.vrow2 .va button{width:22px;height:22px;display:grid;place-items:center;color:var(--ink-2);font-family:var(--mono);font-size:.72rem}
+.vrow2 .va button:hover{background:var(--surface-3)}
+.vrow2 .vcur{font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.vm .add,.vdi.add{color:var(--green)}.vm .mod,.vdi.mod{color:var(--amber)}.vm .del,.vdi.del{color:var(--red)}
+.vdiff{margin-top:.4rem;border:1px solid var(--rule-2);background:var(--surface-2)}
+.vdh{display:flex;align-items:center;gap:.5rem;padding:.3rem .4rem;border-bottom:1px solid var(--rule)}
+.vdh .sp{flex:1}
+.vdl{display:flex;flex-wrap:wrap;gap:.2rem;padding:.35rem .4rem}
+.vdi{font-family:var(--mono);font-size:.66rem;padding:.05rem .3rem;border:1px solid var(--rule);background:var(--surface)}
+
+/* Empty and error states: one shape everywhere */
+.estate{display:grid;grid-template-columns:auto 1fr;gap:.1rem .6rem;padding:.9rem .8rem;text-align:left}
+.estate .em{grid-row:span 3;font-size:1.4rem;color:var(--muted);line-height:1}
+.estate .et{font-family:var(--display);font-weight:700;font-size:.98rem;letter-spacing:-.01em}
+.estate .el{font-size:.86rem;color:var(--muted);line-height:1.4;margin-top:.1rem}
+.estate .ea{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.5rem}
+.estate.warn .em{color:var(--amber)}
+.estate.warn{background:var(--amber-soft);border:1px solid var(--amber)}
+.lrow.skel{pointer-events:none}
+.lrow.skel .thumb{background:var(--surface-2);border-color:var(--rule)}
+.lrow.skel .sk{display:block;height:9px;background:var(--surface-2);animation:skel 1.4s ease-in-out infinite}
+.lrow.skel .sk1{width:70%}
+.lrow.skel .sk1::after{content:'';display:block;height:7px;width:55%;background:var(--surface-2);margin-top:5px}
+@keyframes skel{0%,100%{opacity:1}50%{opacity:.45}}
+.offlinebar{display:flex;align-items:center;gap:.6rem;padding:0 .6rem;height:38px;background:var(--surface-2);border-bottom:1px solid var(--rule-2);white-space:nowrap;overflow:hidden}
+.offlinebar[hidden]{display:none}
+.offlinebar .dot{width:8px;height:8px;background:var(--muted);flex:none}
+.offlinebar .dot.warn{background:var(--amber)}
+.offlinebar b{font-family:var(--display);font-weight:700}
+.offlinebar .ls{font-family:var(--mono);font-size:.7rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.offlinebar .sp{flex:1}
+.schip.broken{border-color:var(--amber);background:var(--amber-soft)}
+.relaylist{border:1px solid var(--rule);margin-bottom:.8rem}
+.rrow{display:flex;justify-content:space-between;gap:.6rem;padding:.3rem .5rem;border-bottom:1px solid var(--rule);font-size:.82rem}
+.rrow:last-child{border-bottom:0}
+.rrow.ok span:last-child{color:var(--green)}
+.rrow.bad span:last-child{color:var(--red)}
+
 /* Proposals */
 .prop{border:1px solid var(--rule);padding:.5rem .6rem;display:flex;flex-direction:column;gap:.3rem;border-left:3px solid var(--amber)}
 .prop.accepted{border-left-color:var(--green)}
