@@ -593,16 +593,20 @@
 		if (sideThread) tc.innerHTML = `<div class="margin-head" style="padding-bottom:.35rem"><div class="nav"><span class="eyebrow">Thread · ${esc(kind)}</span><span style="flex:1"></span><button class="btn sm quiet" data-act="thread-dock" title="Show the Thread as a tab of the margin instead">⇤ Dock</button></div></div>${threadHtml(kind, id)}`
 		const ta = $('#composer-text'); if (ta) autoGrow(ta)
 	}
+	// One header grammar for every object panel:
+	//   nav:   ◂ Back · KIND · state                       ◐
+	//   title
+	//   meta:  avatar author · counts            [primary actions]
+	//   social row
 	function head(o, kind, opts = {}) {
 		const p = person(o.author)
 		const inEdit = S.editing && S.editing.id === o.id
 		const editable = inEdit ? ' contenteditable="true" data-bind="title" spellcheck="false"' : ''
+		const state = inEdit && proposing() ? `<span class="state-pill warn">✎ proposing to ${esc(person(o.author).name)}</span>` : inEdit ? `<span class="state-pill edit">✎ editing${o.forkOf ? ' · fork' : ''}</span>` : o.draft || o.published === null ? '<span class="state-pill draft">draft · unpublished</span>' : `<span class="state-pill">v${o.version || 1} · ${esc(o.published)}</span>`
 		return `<div class="margin-head">
-			<div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button><span style="flex:1"></span>${opts.nav || ''}<button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}" title="${S.glass ? 'Solid panels' : 'See the map through the panels'}">◐</button></div>
-			<div class="sub"><span class="eyebrow">${esc(kind)}</span>${inEdit && proposing() ? `<span class="state-pill warn">✎ proposing to ${esc(person(o.author).name)}</span>` : inEdit ? `<span class="state-pill edit">✎ editing${o.forkOf ? ' · fork' : ''}</span>` : o.draft || o.published === null ? '<span class="state-pill draft">draft · unpublished</span>' : `<span class="state-pill">v${o.version || 1} · ${esc(o.published)}</span>`}</div>
+			<div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button><span class="kindline"><span class="eyebrow">${esc(kind)}</span>${state}</span><span style="flex:1"></span>${opts.nav || ''}<button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}" title="${S.glass ? 'Solid panels' : 'See the map through the panels'}">◐</button></div>
 			<div class="title"${editable}>${esc(o.title)}</div>
-			<div class="sub"><span class="avatar sm">${p.initials}</span><button class="btn sm quiet" style="padding:0 .3rem" data-act="open" data-kind="person" data-id="${p.id}">${esc(p.name)}</button>${opts.sub || ''}</div>
-			<div class="actions">${opts.actions || ''}</div>
+			<div class="metarow"><span class="meta"><span class="avatar sm">${p.initials}</span><button class="who" data-act="open" data-kind="person" data-id="${p.id}">${esc(p.name)}</button>${opts.sub || ''}</span><span class="acts">${opts.actions || ''}</span></div>
 			${opts.social === false ? '' : socialRow(kind, o.id)}
 		</div>`
 	}
@@ -685,7 +689,7 @@
 	}
 	function askHtml() {
 		const msgs = S.ask.msgs
-		return `<div class="askhead"><div class="nav" style="display:flex;align-items:center;gap:.4rem"><button class="btn sm quiet" data-act="back">◂ Back</button><span style="flex:1"></span><span class="state-pill">read-only · concierge</span></div><div class="title">Ask Earthly</div><div class="muted" style="font-size:.82rem">Find, measure, geocode, explain. Nothing is drawn or changed from here.</div></div>
+		return `<div class="margin-head"><div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button><span class="kindline"><span class="eyebrow">ask</span><span class="state-pill">read-only · concierge</span></span><span style="flex:1"></span><button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}">◐</button></div><div class="title">Ask Earthly</div><div class="metarow"><span class="meta muted">Find, measure, geocode, explain. Nothing is drawn or changed from here.</span></div></div>
 		<div class="thread"><div class="msgs" id="msgs">${msgs.length ? msgs.map(msgHtml).join('') : '<div class="empty">Ask anything about places or about what is on Earthly.</div>'}</div>
 		${msgs.length ? `<div class="askcta"><span class="grow">Want this on a map? A new Map opens in Edit and this conversation moves into its Thread.</span><button class="btn sm primary" data-act="start-map" data-q="${esc(msgs[0].text)}">Start a map from this</button></div>` : ''}
 		<div class="composer"><div class="box"><textarea id="askq" rows="1" placeholder="Ask a question…"></textarea><button class="btn sm primary" data-act="ask-send">Ask</button></div><div class="hint">${['Where did the Hippie Trail cross into Afghanistan?', 'How many submarine cables land in Bilbao?', 'What is near Klagenfurt from Roman times?'].map((h) => `<button data-act="ask-hint" data-text="${esc(h)}">${esc(h)}</button>`).join('')}${msgs.length ? '<button data-act="ask-clear">Clear</button>' : ''}</div></div></div>`
@@ -700,7 +704,7 @@
 		</div>`
 	}
 	function shelfPageHtml() {
-		return `<div class="margin-head"><div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button></div><div class="title">On the map</div><div class="sub">${S.shelf.length} map${S.shelf.length === 1 ? '' : 's'} on the Shelf</div><div class="actions"><button class="btn sm" data-act="save-view">Save this view as an Atlas</button></div></div>
+		return `<div class="margin-head"><div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button><span class="kindline"><span class="eyebrow">shelf</span></span><span style="flex:1"></span><button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}">◐</button></div><div class="title">On the map</div><div class="metarow"><span class="meta muted">${S.shelf.length} map${S.shelf.length === 1 ? '' : 's'} drawn right now</span><span class="acts"><button class="btn sm keep" data-act="save-view">Save as atlas</button></span></div></div>
 		<div class="margin-body"><div class="list">${S.shelf.map((e) => { const m = D.maps[e.id]; return `<div class="item"><div class="thumb">${thumb(m.features)}</div><button style="text-align:left" data-act="open" data-kind="map" data-id="${m.id}"><div class="t">${esc(m.title)}</div><div class="s">${esc(person(m.author).name)} · ${m.features.length} features</div></button><div class="act"><button class="btn sm quiet" data-act="toggle-vis" data-id="${m.id}">${e.visible ? '◉' : '○'}</button><button class="btn sm quiet" data-act="remove-shelf" data-id="${m.id}">×</button></div></div>` }).join('') || '<div class="empty">Nothing on the map. Open a Map or Story.</div>'}</div></div>`
 	}
 	function mapHtml(id, edit, sideThread) {
@@ -709,10 +713,10 @@
 		const inEdit = S.editing && S.editing.id === id
 		const onShelf = S.shelf.some((e) => e.id === id)
 		const actions = inEdit && proposing()
-			? `<button class="btn primary keep" data-act="dialog" data-dialog="send-proposal">Send proposal to ${esc(person(pub.author).name)}</button><button class="btn keep" data-act="done">Keep for later</button><button class="btn quiet danger" data-act="dialog" data-dialog="discard">Discard</button>`
+			? `<button class="btn sm primary keep" data-act="dialog" data-dialog="send-proposal">Send proposal to ${esc(person(pub.author).name)}</button><button class="btn sm keep" data-act="done">Keep for later</button><button class="btn sm quiet danger" data-act="dialog" data-dialog="discard">Discard</button>`
 			: inEdit
-			? `<span class="split"><button class="btn primary keep" data-act="publish" data-mode="${pub.published ? 'update' : 'new'}">${pub.published ? 'Publish update' : 'Publish'}</button><button class="btn primary keep" data-act="menu" data-menu="publish" aria-label="Publish options">▾</button></span><button class="btn keep" data-act="done">Done</button>`
-			: `${mine(pub) ? `<button class="btn primary keep" data-act="edit">Edit</button>` : `<span class="split"><button class="btn primary keep" data-act="propose" title="Offer changes to ${esc(person(pub.author).name)}; they decide, nothing forks">Propose changes</button><button class="btn primary keep" data-act="menu" data-menu="edit-other" aria-label="Other ways to edit">▾</button></span>`}<button class="btn" data-act="${onShelf ? 'remove-shelf' : 'add-shelf'}" data-id="${id}">${onShelf ? 'Remove from map' : 'Show on map'}</button>`
+			? `<span class="split"><button class="btn sm primary keep" data-act="publish" data-mode="${pub.published ? 'update' : 'new'}">${pub.published ? 'Publish update' : 'Publish'}</button><button class="btn sm primary keep" data-act="menu" data-menu="publish" aria-label="Publish options">▾</button></span><button class="btn sm keep" data-act="done">Done</button>`
+			: `${mine(pub) ? `<button class="btn sm primary keep" data-act="edit">Edit</button>` : `<span class="split"><button class="btn sm primary keep" data-act="propose" title="Offer changes to ${esc(person(pub.author).name)}; they decide, nothing forks">Propose changes</button><button class="btn sm primary keep" data-act="menu" data-menu="edit-other" aria-label="Other ways to edit">▾</button></span>`}<button class="btn" data-act="${onShelf ? 'remove-shelf' : 'add-shelf'}" data-id="${id}">${onShelf ? 'Remove from map' : 'Show on map'}</button>`
 		const stories = storiesReferencing(id)
 		const glance = `<div class="section"><h4>At a glance</h4><dl class="kv two"><dt>Features</dt><dd>${m.features.length}</dd><dt>Size</dt><dd>${esc(m.size)}</dd><dt>Version</dt><dd>${pub.version || 0}${inEdit ? ' → ' + ((pub.version || 0) + 1) : ''}</dd><dt>Audience</dt><dd>${inEdit ? esc(audienceLabel(S.drafts[id].audience)) : 'Everyone'}</dd><dt>Published</dt><dd>${pub.published ? esc(pub.published) : 'not yet'}</dd><dt>Author</dt><dd>${esc(person(pub.author).name)}</dd>${pub.forkOf ? `<dt>Forked from</dt><dd><button class="btn sm quiet" data-act="open" data-kind="map" data-id="${pub.forkOf}">${esc(D.maps[pub.forkOf].title)}</button></dd>` : ''}</dl></div>`
 		const belonging = `<div class="section"><h4>Belonging <span class="sp"></span>${inEdit ? '' : `<span class="hint">edit the map to change</span>`}</h4>
@@ -739,10 +743,10 @@
 		const pub = D.stories[id]
 		const inEdit = S.editing && S.editing.id === id
 		const actions = inEdit && proposing()
-			? `<button class="btn primary keep" data-act="dialog" data-dialog="send-proposal">Send proposal to ${esc(person(pub.author).name)}</button><button class="btn keep" data-act="done">Keep for later</button>`
+			? `<button class="btn sm primary keep" data-act="dialog" data-dialog="send-proposal">Send proposal to ${esc(person(pub.author).name)}</button><button class="btn sm keep" data-act="done">Keep for later</button>`
 			: inEdit
-			? `<span class="split"><button class="btn primary keep" data-act="publish" data-mode="update">${pub.published ? 'Publish update' : 'Publish'}</button><button class="btn primary keep" data-act="menu" data-menu="publish">▾</button></span><button class="btn keep" data-act="done">Done</button>`
-			: `${mine(pub) ? `<button class="btn primary keep" data-act="edit">Edit</button>` : `<button class="btn primary keep" data-act="propose" title="Offer text changes to ${esc(person(pub.author).name)}">Propose an edit</button>`}`
+			? `<span class="split"><button class="btn sm primary keep" data-act="publish" data-mode="update">${pub.published ? 'Publish update' : 'Publish'}</button><button class="btn sm primary keep" data-act="menu" data-menu="publish">▾</button></span><button class="btn sm keep" data-act="done">Done</button>`
+			: `${mine(pub) ? `<button class="btn sm primary keep" data-act="edit">Edit</button>` : `<button class="btn sm primary keep" data-act="propose" title="Offer text changes to ${esc(person(pub.author).name)}">Propose an edit</button>`}`
 		const p = S.proposal && S.proposal.kind === 'story' && S.proposal.storyId === id ? S.proposal : null
 		const body = s.body.map((b, i) => (b.type === 'h' ? `<h5${inEdit ? ' contenteditable="true"' : ''}>${esc(b.text)}</h5>` : `<p${inEdit ? ' contenteditable="true"' : ''}>${esc(b.text)} ${(b.refs || []).map((r) => refChip(r)).join(' ')}</p>`) + (p && p.insertAfter === i ? `<p class="ins">${esc(p.para.text)} ${p.para.refs.map((r) => refChip(r)).join(' ')}</p>` : '')).join('')
 		const details = `<div class="margin-body">
@@ -764,8 +768,8 @@
 		const mem = atlasMembers(a)
 		const p = S.proposal && S.proposal.kind === 'atlas' && S.proposal.atlasId === id ? S.proposal : null
 		const actions = inEdit
-			? `<span class="split"><button class="btn primary keep" data-act="publish" data-mode="update">Publish update</button><button class="btn primary keep" data-act="menu" data-menu="publish">▾</button></span><button class="btn keep" data-act="done">Done</button>`
-			: `${mine(pub) ? `<button class="btn primary keep" data-act="edit">Edit</button>` : ''}<span class="split"><button class="btn keep" data-act="menu" data-menu="add-map">Add a map</button><button class="btn keep" data-act="menu" data-menu="add-map">▾</button></span><button class="btn" data-act="show-all" data-id="${id}">Show all on map</button>${S.lens === id ? `<button class="btn keep" data-act="leave-lens">Leave atlas</button>` : `<button class="btn keep" data-act="enter-lens" data-id="${id}" title="Only this atlas in lists and search; new maps belong here">Enter atlas ▸</button>`}`
+			? `<span class="split"><button class="btn sm primary keep" data-act="publish" data-mode="update">Publish update</button><button class="btn sm primary keep" data-act="menu" data-menu="publish">▾</button></span><button class="btn sm keep" data-act="done">Done</button>`
+			: `${mine(pub) ? `<button class="btn sm primary keep" data-act="edit">Edit</button>` : ''}<span class="split"><button class="btn sm keep" data-act="menu" data-menu="add-map">Add a map</button><button class="btn sm keep" data-act="menu" data-menu="add-map">▾</button></span><button class="btn" data-act="show-all" data-id="${id}">Show all on map</button>${S.lens === id ? `<button class="btn sm keep" data-act="leave-lens">Leave atlas</button>` : `<button class="btn sm keep" data-act="enter-lens" data-id="${id}" title="Only this atlas in lists and search; new maps belong here">Enter atlas ▸</button>`}`
 		const row = (m, acts) => `<div class="item"><div class="thumb">${thumb(m.features)}</div><button style="text-align:left" data-act="open" data-kind="map" data-id="${m.id}"><div class="t">${esc(m.title)}</div><div class="s">${esc(person(m.author).name)} · ${m.features.length} features${p && p.pins && p.pins.includes(m.id) ? ' · <span style="color:var(--amber)">will be pinned</span>' : ''}</div></button><div class="act">${acts}</div></div>`
 		const details = `<div class="margin-body">
 			${p ? `<div class="diffbar-margin"><span class="grow">${p.pins ? `pin ${p.pins.length}` : 'new description'}</span><button class="btn sm primary" data-act="apply">Apply</button><button class="btn sm" data-act="discard">Discard</button></div>` : ''}
@@ -784,7 +788,7 @@
 	function personHtml(id) {
 		const p = person(id)
 		const list = (arr, kind) => arr.length ? `<div class="list">${arr.map((o) => `<button class="item" data-act="open" data-kind="${kind}" data-id="${o.id}"><span class="kicon ${kind}">${kind.slice(0, 3)}</span><span style="text-align:left"><div class="t">${esc(o.title)}</div><div class="s">${kind === 'map' ? o.features.length + ' features' : kind === 'atlas' ? esc(policyText(o.policy)) : esc(o.summary || '')}</div></span><span></span></button>`).join('')}</div>` : '<div class="empty">None yet.</div>'
-		return `<div class="margin-head"><div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button></div><div class="sub"><span class="eyebrow">person</span></div><div class="title">${esc(p.name)}</div><div class="sub"><span class="mono">${esc(p.handle)}</span></div><div class="actions"><button class="btn">Follow</button><button class="btn" data-act="menu" data-menu="share">Share</button></div></div>
+		return `<div class="margin-head"><div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button><span class="kindline"><span class="eyebrow">person</span></span><span style="flex:1"></span><button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}">◐</button></div><div class="title">${esc(p.name)}</div><div class="metarow"><span class="meta"><span class="avatar sm">${p.initials}</span><span class="mono muted">${esc(p.handle)}</span></span><span class="acts"><button class="btn sm primary keep">Follow</button><button class="btn sm" data-act="menu" data-menu="share">Share</button></span></div></div>
 		<div class="margin-body"><div class="section"><h4>Maps</h4>${list(Object.values(D.maps).filter((m) => m.author === id && m.published), 'map')}</div><div class="section"><h4>Stories</h4>${list(Object.values(D.stories).filter((s) => s.author === id && !s.draft), 'story')}</div><div class="section"><h4>Atlases</h4>${list(Object.values(D.atlases).filter((a) => a.author === id), 'atlas')}</div></div>`
 	}
 

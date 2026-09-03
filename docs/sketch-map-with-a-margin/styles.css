@@ -139,9 +139,15 @@ body.glass .glassbtn{color:var(--accent)}
 .margin[hidden]{display:none!important}
 .margin{position:relative;background:var(--surface);border-right:1px solid var(--rule);display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;opacity:0;transform:translateX(-12px);transition:opacity var(--med) var(--ease),transform var(--slow) var(--ease)}
 .stage.margin-open .margin{opacity:1;transform:none}
-.margin-head{padding:.45rem .7rem .45rem;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:.3rem;flex:none}
-.margin-head .nav{display:flex;align-items:center;gap:.4rem;min-height:28px}
-.margin-head .title{font-family:var(--display);font-weight:800;font-size:1.2rem;letter-spacing:-.02em;line-height:1.1;text-wrap:balance}
+.margin-head{padding:.3rem .7rem .25rem;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:.2rem;flex:none}
+.margin-head .nav{display:flex;align-items:center;gap:.4rem;min-height:26px}
+.margin-head .kindline{display:inline-flex;align-items:center;gap:.35rem;margin-left:.2rem;white-space:nowrap}
+.margin-head .metarow{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;min-height:26px}
+.margin-head .meta{display:inline-flex;align-items:center;gap:.35rem;min-width:0;color:var(--muted);font-size:.84rem;flex:1 1 auto}
+.margin-head .meta .who{color:var(--ink);font-weight:600;padding:0 .1rem}
+.margin-head .meta .who:hover{text-decoration:underline}
+.margin-head .acts{display:flex;gap:.3rem;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+.margin-head .title{font-family:var(--display);font-weight:800;font-size:1.12rem;letter-spacing:-.02em;line-height:1.15;text-wrap:balance;margin:.05rem 0 .05rem}
 .margin-head .title[contenteditable]{outline:1px dashed var(--rule-2);outline-offset:3px;border-radius:0}
 .margin-head .sub{display:flex;align-items:center;gap:.5rem;color:var(--muted);font-size:.85rem;flex-wrap:wrap}
 .margin-head .actions{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center}
@@ -275,9 +281,9 @@ body.glass .section>h4{background:color-mix(in srgb,var(--surface-2) 70%,transpa
 .lhead .sp{flex:1}
 
 /* Social row under the object header */
-.social{display:flex;align-items:center;gap:.1rem;margin-top:.1rem;border-top:1px solid var(--rule);padding-top:.3rem}
+.social{display:flex;align-items:center;gap:.1rem;margin-top:.15rem;border-top:1px solid var(--rule);padding-top:.15rem}
 .social .sp{flex:1}
-.sb{display:inline-flex;align-items:center;gap:.3rem;height:24px;padding:0 .45rem;color:var(--muted);font-size:.86rem;font-variant-numeric:tabular-nums}
+.sb{display:inline-flex;align-items:center;gap:.25rem;height:22px;padding:0 .4rem;color:var(--muted);font-size:.86rem;font-variant-numeric:tabular-nums}
 .sb span{font-family:var(--mono);font-size:.72rem}
 .sb:hover{background:var(--surface-2);color:var(--ink)}
 .sb.on{color:var(--accent)}
@@ -517,8 +523,8 @@ body.glass .ccomp{background:transparent}
   .margin.dragging{transition:none}
   .margin::before{content:"";display:block;width:40px;height:4px;border-radius:0;background:var(--rule-2);margin:.45rem auto 0;flex:none}
   .margin-head{padding-top:.4rem}
-  .margin-head .title{font-size:1.15rem}
-  .margin-head .actions .btn:not(.primary):not(.keep){display:none}
+  .margin-head .acts .btn:not(.primary):not(.keep){display:none}
+  .margin-head .title{font-size:1.1rem}
   .lrow .act .hov{display:none}
   .social .sb span{display:none}
   .social .sb{padding:0 .35rem}
