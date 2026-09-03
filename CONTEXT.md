@@ -2,6 +2,8 @@
 
 This document defines the product terms used when Earthly authors map data. It is intentionally narrower than the implementation vocabulary.
 
+The [Map with a Margin spec](docs/MAP-WITH-A-MARGIN-SPEC.md) is the authority for the rewrite's product nouns, routes, and panel layout. Legacy implementation terms below do not override it: Dataset → Map, Context → Atlas, Map Stack → Shelf, Inspector → Margin, conversation → Thread, and destination controls → the working copy's Publish menu.
+
 ## Local draft
 
 A **local draft** is recoverable, unpublished work saved on the current device for the active account. A geometry draft owns its features, metadata, external file references, context attachments, and publish channel.
@@ -45,15 +47,15 @@ The Local drafts panel is the recovery surface for that classification. It lets 
 
 The indicator's close action leaves the current destination or scope while preserving saved work. Leaving Private or Nearby never converts that draft to Public. A separate, explicit destination-change action is required for conversion.
 
-## Conversation
+## Thread
 
-A **conversation** is a durable Chat transcript with its own read-only references and AI-run history. Its place on the left or right of the map is presentation only.
+A **Thread** is the durable transcript belonging to the route's object, with its own read-only references and AI-run history. Its place in the Margin or beside the map is presentation only. Published objects use a stable object key; unpublished Maps use their retained local working-copy id. Ask Earthly has a separate read-only concierge Thread.
 
-Selecting, creating, moving, or closing the visible Chat surface must not create, switch, close, or retarget authoring work. Likewise, selecting an Inspector or edit surface must not change or cancel a conversation.
+Opening, docking, or closing the Thread must not create authoring work. Opening another object selects that object's Thread without cancelling an existing AI run or moving its captured target. Returning to a Thread restores its transcript and unsent composer.
 
-Before a conversation can send a prompt, the user must explicitly bind it to a valid retained Dataset edit state with **New map** or **Use current edit**. A visible edit state does not imply consent to bind it, and Earthly never creates, repairs, or changes this target automatically. An unbound or stale conversation remains readable and composable, but starting an AI request is unavailable until the user chooses a target; the unsent prompt is preserved.
+Binding is part of the send gesture, not a separate **New map / Use current edit** control. **Edit & send** or **Propose & send** prepares the route's Map working copy; **Send** from an existing local Map uses that exact retained copy. Merely opening the Thread does not bind it. If preparation fails or the exact target is unavailable, the prompt remains composable and no model request starts. Read-only Threads never acquire a writable target or advertise editing tools.
 
-A conversation may refer to any number of published entities. A reference supplies read-only context; it never grants permission to edit, update, fork, attach, or show the entity on the map.
+A Thread may refer to any number of published entities. A reference supplies read-only context; it never grants permission to edit, update, fork, attach, or show the entity on the map.
 
 ## Edit state
 

@@ -4,9 +4,12 @@ Status: **build contract**, 2026-09-03. Supersedes the discussion in
 [`FROM-SCRATCH-UX-AUDIT-2026-09.md`](FROM-SCRATCH-UX-AUDIT-2026-09.md) wherever the two differ.
 The reference behaviour is the clickable sketch in
 [`sketch-map-with-a-margin/`](sketch-map-with-a-margin/README.md); when this document is silent,
-the sketch decides. Protocol changes are in §16; everything else is UI and application state.
+the sketch decides. This milestone does not migrate the Nostr protocol, event kinds, tags, or
+comments. The one serialized-data change is the embedded `MapPresentationV1` application value
+defined in §16, including its parser and writer.
 
-Everything here is on branch `sketch/map-with-a-margin`. Nothing in `src/` has been changed yet.
+The sketch's emoji, Unicode glyphs, and ASCII strings are compact labels for behaviours, not an
+icon set. Production keeps and reuses Earthly's existing icon components and toolbar icons.
 
 ---
 
@@ -28,13 +31,16 @@ Surfaces: **Canvas**, **Margin** (one object at a time), **Thread** (the convers
 
 Verbs: **Open** (read), **Edit** (your working copy; only for things you own), **Propose** (a working copy of something you don't own, sent to its author), **Fork** (your own copy at a new address).
 
-States of a thing you are authoring: **draft** (unpublished, never published), **editing**, **proposing to X**, **published vN · date**.
+States of a thing you are authoring: **draft** (unpublished, never published), **editing**, **proposing to X**, **published · date**.
 
 Words that must not appear in UI: workspace, context, stance, destination, unattached, inspector, map stack, edit state, conversation (use Thread).
 
 ## 2. Routes
 
-Hash routes in the sketch; path routes in the app. Both carry the same grammar.
+Hash routes in the sketch are illustrative; the application uses path routes with the same entity
+and query grammar. A client-only, code-based TanStack Router owns application navigation, route
+matching, search parsing, and browser history. Bun continues to own HTTP/API/static delivery and
+server-generated OG metadata; TanStack Start, SSR, and file-route code generation are out of scope.
 
 | Route | Margin shows | Notes |
 | --- | --- | --- |
@@ -43,7 +49,7 @@ Hash routes in the sketch; path routes in the app. Both carry the same grammar.
 | `/map/:id` `/story/:id` `/atlas/:id` `/sighting/:id` `/person/:id` | The object, read-only | `:id` is the naddr / npub the app already uses |
 | `/map/:id/edit` `/story/:id/edit` `/atlas/:id/edit` | The object in Edit (owner) or Propose (non-owner) | Entering `/edit` on a non-owned thing means Propose, never Fork |
 | `/ask` | Ask Earthly (read-only concierge) | |
-| `/read/:id` | The reading route for a Story (§11f) | What a shared story link opens |
+| `/read/:id` | The canonical editorial reader for a Story (§11f) | Primary shared/OG URL; the browser stays on this path |
 | `/shelf` | What is on the map | |
 | `/in/:atlas` | Enters the Atlas lens, then redirects to `/browse/maps?in=:atlas` | The shareable "mini-app" link |
 | `/circle/:id` `/nearby/:id` | The audience's page (§11a); its shared maps join the Shelf | Reachable from Me, Publish ▾ pills, and lock badges |
@@ -53,6 +59,14 @@ Hash routes in the sketch; path routes in the app. Both carry the same grammar.
 
 Query: `on=a,b,c` visible Shelf maps · `live=1` Live chip on · `in=:atlas` active lens. All three survive navigation; `replaceState` when they change without a route change.
 
+`/story/:id` remains the Story object in the app Margin; `/read/:id` is not an alias for it. Existing
+legacy aliases and comment/deep-link routes continue to resolve during the rewrite. Compatibility
+helpers may bridge old callers while the work is being developed, but the migration ships as one
+cutover: there is no partial rollout, feature flag, or supported mixed old/new shell. There must be
+only one browser-history owner at every point. Direct requests to `/read/:id` receive the built app shell with Story-specific
+title, canonical, and OG metadata from Bun; Bun does not redirect that page to a hash or `/story`
+clone. The route-local `on=` value is excluded from the canonical URL and OG cache identity.
+
 Opening a Map adds it to the Shelf and frames it. Opening a Story adds its maps and frames them. Opening an Atlas does not touch the Shelf (Show all on map does). Opening a Sighting turns the Live chip on and frames it. Back is browser back.
 
 ## 3. Layout tokens
@@ -61,7 +75,7 @@ Opening a Map adds it to the Shelf and frames it. Opening a Story adds its maps 
 | --- | --- |
 | Margin width, Thread docked | `30vw` |
 | Margin and Thread column, Thread pulled out | `28vw` each, map between; only at `≥ 1100px` |
-| Phone breakpoint | `≤ 760px` |
+| Phone breakpoint | `≤ 767px` (aligned with the existing `useIsMobile()` / `md` boundary) |
 | Top bar / Lens bar / Shelf strip | 46 / 38 / 42 px |
 | Top bar first column | `var(--margin-w)`, so the search field's left edge meets the Margin's right edge |
 | Corners | none (0) everywhere |
@@ -142,7 +156,7 @@ Title                                  (contenteditable while editing)
 avatar Author · meta counts                 [primary actions, small]
 ♡ n  ⚡ n  💬 n  ☆ n  ↗ Share  [✎ n proposals]              ⋯
 ```
-Four rows, then tabs. State pill: `v3 · 2026-09-01` / `draft · unpublished` / `✎ editing` / `✎ editing · fork` / `✎ proposing to Aria Voss`.
+Four rows, then tabs. State pill: `published · 2026-09-01` / `draft · unpublished` / `✎ editing` / `✎ editing · fork` / `✎ proposing to Aria Voss`.
 
 ### 6.2 Primary actions matrix
 
@@ -156,7 +170,7 @@ Four rows, then tabs. State pill: `v3 · 2026-09-01` / `draft · unpublished` / 
 ### 6.3 Details sections, in order
 Every section is a box with a header band (mono uppercase title, optional count or hint on the right). The description is an unboxed lead above them.
 
-- **Map**: lead summary · *At a glance* (Features, Size, Version, Audience, Published, Author, Forked from) · *Features* (§6.4) · *Belonging* (Atlases with fit chips; Topics) · *Properties* (only when an atlas schema applies; from which atlas) · *Appears in N* · *Proposals N waiting* (amber band) · quiet trailing row: Discard draft / Delete map.
+- **Map**: lead summary · *At a glance* (Features, Size, Audience, Published, Author, Forked from) · *Features* (§6.4) · *Belonging* (Atlases with fit chips; Topics) · *Properties* (only when an atlas schema applies; from which atlas) · *Appears in N* · *Proposals N waiting* (amber band) · quiet trailing row: Discard draft / Delete map.
 - **Story**: prose lead with reference chips (⌖ label; hover highlights, click flies) · *Proposals* · *Maps in this story N* (+ Reference a map while editing).
 - **Atlas**: lead description · *Who can add maps here* (radio sentences while editing) · *Pinned by me/author N* · *Added by others N* · *Waiting for me N* (owner only, amber, Pin · accept).
 - **Sighting**: photo + note lead · *When & where* (Seen, Expires, Position, By).
@@ -173,19 +187,10 @@ The contents of a Map, in both modes, directly under *At a glance*.
 - **Bulk bar** appears while a selection exists: `2 selected · Zoom to · Duplicate · Delete · ×`. *Select all* sits in the section header.
 - Clicking a feature on the canvas scrolls its row into view; hovering a row highlights the geometry.
 
-### 6.5 Versions
-
-Publishing an update and accepting a proposal both mint a version, so both need somewhere to be seen. A *Versions* section sits under Proposals on Maps and Stories.
-
-- **A row per version**, newest first: `v3 · 2026-09-01 · You · +5 ~1 −0` with the note the author wrote, and for a version that came from a proposal, whose proposal it was. The current one is marked and cannot be previewed against itself.
-- **Honest gaps.** Relays keep only the newest replaceable event, so history is best effort. A version we hold shows its content; one we only know existed from the lineage pointer says so in its own row: "content not on any relay you use". The UI never pretends a gap is not there.
-- **Compare** by picking any two rows. The header shows `v1 → v3` with `+a ~m −r` and the changed features by name. **Show on map** renders the comparison on the canvas: what is unchanged stays published grey, what was added or altered is amber, and what was removed comes back faded. This reuses the proposal ghost language, because it is the same question asked of a different pair.
-- **⌖** previews one version against the current. **↺ restore** publishes the old content again as a new version. It never rewrites history, and the toast says so.
-
 ## 7. Editing model
 
 - **Working copy.** Edit creates or resumes one per object, persisted on device, with `publishChannel`/audience stored on it. Exactly one object is in Edit or Propose at a time. Starting a second asks *Finish with "X" first? Cancel · Discard draft · Keep draft & continue.*
-- **Publish ▾**: Publish update (same address, v+1) is the default for anything already published; *Publish as new map* is the secondary item (maps only). Audience radio: Everyone · Circle: … · Nearby: …. Audience is per working copy and never global.
+- **Publish ▾**: Publish update (same replaceable address) is the default for anything already published; *Publish as new map* is the secondary item (maps only). Audience radio: Everyone · Circle: … · Nearby: …. Audience is per working copy and never global. There is no Versions/history surface for parameterized replaceable events above kind 30000 in this milestone.
 - **Done** keeps the draft and leaves Edit. **Discard** deletes the working copy. **Drafts** (top bar / Me) lists working copies with Resume and Discard; proposal drafts are labelled "proposal to X".
 - **Fork** copies to a new address owned by you with `forkOf`; the original's Shelf chip is replaced by the fork.
 - Title is edited in place in the header; summary/description in the lead textarea; Belongs to, Topics, Properties in their boxes.
@@ -194,20 +199,21 @@ Publishing an update and accepting a proposal both mint a version, so both need 
 
 - **Propose** opens a working copy in *proposing* mode. On the canvas the original stays published-grey; additions and modified features render as proposed ghosts; removed originals fade. Toolbar and Thread work; the Thread's send label is *Propose & send*.
 - **Send proposal** replaces Publish: a dialog with the `+a ~m −r` summary and an optional message. Result: a proposal `{target, author, message, add[], modify[{id,name,props,coords}], remove[], body?}` with status `pending`.
-- **Author's view**: *Proposals* box on Details with author, date, status pill, message, counts, **Preview on map** (ghosts on their own map), **Accept & publish**, **Decline**, **Discuss** (jumps to Comments). Accept merges by feature id, bumps the version, sets `acceptedAs`, and credits the proposer. Decline leaves the proposer's copy untouched.
+- **Author's view**: *Proposals* box on Details with author, date, status pill, message, counts, **Preview on map** (ghosts on their own map), **Accept & publish**, **Decline**, **Discuss** (jumps to Comments). Accept merges by feature id into the current replaceable object, sets `acceptedAs`, and credits the proposer. Decline leaves the proposer's copy untouched.
 - **Proposer's view**: same box with status and **Withdraw** while pending. Browse rows show `✎ n proposals` on owned objects with pending items; the social row shows the same.
 - Stories: same flow with `body` instead of features; summary reads "text changes".
 - Open: what happens when the target has moved on since the proposal was made (rebase rule). Decide in §18.
 
-## 9. Comments (NIP-22)
+## 9. Comments (existing kind 37517)
 
-- Comments tab on Map, Story, Atlas, Sighting. Header: count, "visible to any Nostr client", sort Newest / Most liked. One level of replies. Each comment: avatar, name, time, optional ⌖ pin/line chip, text, ♡ n · Reply · Delete (own) / Report.
+- Comments tab on Map, Story, Atlas, Sighting. Header: count and sort Newest / Most liked. One level of replies. Each comment: avatar, name, time, optional ⌖ pin/line chip, text, ♡ n · Reply · Delete (own) / Report. Reading, writing, replies, and geometry continue through Earthly's current kind-37517 model; this rewrite does not migrate comments to kind 1111 or another protocol.
 - **Composer** at the bottom (stays put): textarea, **Attach a place ▾** (Drop a pin · Draw a line · Use the selected feature), Post (⌘/Ctrl+Enter). While placing, an amber instruction chip; once attached, a green removable chip.
 - Geometry renders green on the canvas while the Comments tab is open; hovering a comment highlights it; ⌖ flies to it. No Edit state is involved; a comment never changes the object.
 
 ## 10. Thread contract
 
 - The Thread belongs to the object in the Margin. There is no unbound chat. Header: object title · state (`editing`, `proposing to X`, `read-only`, `read-only · concierge` on atlases you don't own) · safety level ▾ · Details toggle.
+- A new, unpublished Map has no public address yet. Its Thread uses `/edit?tab=thread` and a stable local working-copy id (`map-draft:<id>`); closing it returns to `/edit`. Different local Maps never share a Thread or unsent composer. Opening or switching tabs does not bind an AI target; the first **Send** binds that retained Map without creating a second working copy. Desktop and phone restore the same route and transcript after reload.
 - **Send labels**: Send (in Edit/Propose) · Edit & send (owner, read-only) · Propose & send (non-owner) · Ask (atlas you don't own). Binding happens in the send gesture and in no other place.
 - **Scope**: writes go to the object in Edit. Selected features show as `N features selected ×`; clearing widens to the whole map. `+ reference` adds read-only Maps/Stories; references never grant edit rights.
 - **Proposals from the AI**: maps → ghosts + diff bar (`+a ~m −r · Apply · Discard · Review ▾ · Only changes`); stories → amber paragraph with reference chips and an Apply/Discard bar (visible from both Details and Thread); atlases → pins or description with the same bar.
@@ -243,10 +249,10 @@ An audience is where a record can be *read*. It is never a lens, a filter, or a 
 A Story body is a list of **blocks**. A paragraph is prose and nothing else; it never owns a camera.
 
 ### References are inline
-Per `SPEC.md` §2.4 a reference is written in the sentence, not listed beside it, and has four forms: a dataset (`nostr:naddr…`), a feature inside one (`nostr:naddr…#featureId`), a coordinate (`geo:lat,lon`), and an OpenStreetMap element. Inline mentions mirror to `a` tags (§4.1); the body stays authoritative for the fine-grained selector.
+Per `SPEC.md` §2.4 a reference is written in the sentence, not listed beside it, and has four forms: a Map (`nostr:naddr…`), a feature inside one (`nostr:naddr…#featureId`), a coordinate (`geo:lat,lon`), and an OpenStreetMap element. Inline mentions mirror to `a` tags (§4.1); the body stays authoritative for the fine-grained selector.
 
-- **A reference is a pill, never a link.** It sits inline in the sentence as a small bordered chip in the UI face, with its type glyph leading: ⌖ a feature, ▤ a dataset (dashed border), ◎ a coordinate and ◈ an OpenStreetMap element (both neutral). Ordinary Markdown links keep underlined running text, so the two can never be mistaken for each other: one navigates away, the other points at the map.
-- Hovering emphasises the feature on the canvas without moving the camera; clicking flies to it and opens its popup. A dataset reference puts the map on the Shelf. A coordinate drops one temporary pin.
+- **A reference is a pill, never a link.** It sits inline in the sentence as a small bordered chip in the UI face, with its type glyph leading: ⌖ a feature, ▤ a Map (dashed border), ◎ a coordinate and ◈ an OpenStreetMap element (both neutral). Ordinary Markdown links keep underlined running text, so the two can never be mistaken for each other: one navigates away, the other points at the map.
+- Hovering emphasises the feature on the canvas without moving the camera; clicking flies to it and opens its popup. A Map reference puts the map on the Shelf. A coordinate drops one temporary pin.
 - References are live pointers. When a feature id no longer resolves, the pill turns dashed and amber with a ⚠ and a struck label, explaining why on hover, and nothing is silently substituted.
 - Authoring: select the words, press **⌖ reference**, then click the feature on the canvas. That is the spec's crosshair pick, applied to a text selection.
 
@@ -254,14 +260,26 @@ Per `SPEC.md` §2.4 a reference is written in the sentence, not listed beside it
 Map state lives in its own block, positioned in the body. Where it sits is when it happens.
 
 ```ts
-{ type: 'view', id, title, caption?, display: 'cue' | 'figure' | 'both',
-  camera?: { center: [lon, lat]; zoom }, layers?: Record<coordinate, { visible: boolean }> }
+interface StoryViewBlockV1 {
+  version: 1
+  type: 'view'
+  id: string
+  title: string
+  caption?: string
+  display: 'cue' | 'figure' | 'both'
+  camera?: MapCameraV1
+  layers?: Record<PresentationLayerId, {
+    visible?: boolean
+    opacityMultiplier?: number
+    style?: PresentationStyleOverrideV1
+  }>
+}
 ```
 
 - **`cue`** renders as a quiet stage direction with its number, title and a summary ("shows December 1916 · hides November 1914 · ⌖ moves the camera"), and drives the big canvas.
-- **`figure`** renders as a static map in the flow, drawn from the visible layers clipped to its camera, with a caption. It does not move the canvas. This is the embedded-static-map case.
+- **`figure`** renders an Earthly-generated live map figure in the flow, drawn from the visible layers clipped to its camera, with a caption. It does not move the main canvas and does not require an uploaded snapshot.
 - **`both`** does both: the figure in the text is a thumbnail of what the canvas is showing.
-- Views accumulate in reading order. The effective state at block *i* is the opening state with every driving view at or before *i* applied, and the camera is the last one set.
+- Views are sparse deltas and accumulate in reading order. The effective state at block *i* is the opening state with every driving view at or before *i* applied, and the camera is the last one set. A view may override visibility, opacity, or style of a base presentation layer by its stable layer id, but cannot retarget that layer's source or feature selector.
 - There are **no anchors and no scene array**. A view moves with the text because it is in the text, so inserting or deleting blocks needs no index arithmetic and nothing can be orphaned.
 
 ### Reading
@@ -270,13 +288,12 @@ Map state lives in its own block, positioned in the body. Where it sits is when 
 - Clicking any block applies its effective state explicitly.
 
 ### Serialization
-A view is a Markdown link, optionally wrapping a pre-rendered image, so other clients degrade gracefully:
-
-```markdown
-[![The line freezes](https://blossom.earthly.city/ab12.png)](nostr:naddr1…?view=4.4,49.6,6.2&on=front-1914)
-```
-
-A plain Markdown client shows the picture and a link; Earthly reads the camera and layers from the query. A `cue` is the same link without the image. `presentation` in the content JSON therefore shrinks to the opening state only: `initialView`, `layerOrder`, `layers`. The sequence lives in the body, which is the same body-is-authoritative rule the spec already applies to references.
+Views use Earthly's deterministic Markdown view-block codec. They are physical blocks in the Story
+body, not ordinary links with camera/layer query parameters, and publishing a view does not upload a
+Blossom image. The parser and writer preserve block order and the `StoryViewBlockV1` value; clients
+that do not implement the extension may ignore the block without losing the surrounding prose. The
+Story content's `presentation` value contains only the opening state. The sequence stays in the body,
+which is the same body-is-authoritative rule the spec already applies to references.
 
 ### Atlas
 An Atlas keeps a plain `MapPresentationV1` as its default view, restricted to its pinned lane. It has no body, so it has no views.
@@ -339,12 +356,12 @@ What each sketch surface replaces in `src/`. Keep list is unchanged from the aud
 
 | Sketch | Replaces | Home |
 | --- | --- | --- |
-| Router (§2) | `stance` + `viewMode` + `sidebarView` + `mobileTab`, `SIDEBAR_VIEW_MODES` (19), `MobilePanelTab` (18) | `useRouting.ts`; one `RouteState {kind,id,edit,on,live,in}` |
+| Router (§2) | `stance` + `viewMode` + `sidebarView` + `mobileTab`, `SIDEBAR_VIEW_MODES` (19), `MobilePanelTab` (18) | client-only TanStack route tree plus a temporary `useRouting.ts` compatibility facade; one `RouteState {kind,id,edit,on,live,in}` |
 | Margin + header grammar | `AppSidebar.tsx`, Inspector, entity panels, `WorkspaceDraftNavigator`, `CurrentDestinationPill` | new `Margin.tsx` with one `ObjectHeader` and per-kind `Details` |
 | Working copy (§7) | draft + workspace + edit state slices; `GeoEditorWorkspace`, `kind: 'scratch'` | one `workingCopies` slice keyed by object id, `mode: 'edit' \| 'propose'` |
 | Publish ▾ | destination pill, `authoringDestination.ts` presentation | `PublishMenu.tsx`; `publishChannel` stays on the working copy |
 | Thread (§10) | `ChatPanel` as a peer, `BindingChip`, "New map / Use current edit", `targetWorkspaceId` | Thread bound by route: `key(kind,id)`; store keeps sessions per object |
-| Shelf | `MapStackPanel`, aggregate sightings/beacons layers | `ShelfStrip.tsx`; `on=` in the URL as today's stack param |
+| Shelf | `MapStackPanel`, aggregate sightings/beacons layers | `ShelfStrip.tsx` for always-visible chrome; retained `MapStackPanel` inside `/shelf` for detailed controls; `on=` in the URL |
 | Atlas + lens (§11) | `MapContextEditorPanel`, contexts list, browse scope, `TAXONOMY NONE OPEN` chips | `AtlasPanel.tsx`, `LensBar.tsx`, `lens` in route state |
 | Browse (§5) | dataset/story/context/sighting/beacon panels and `GeoDatasetsPanel` | `Browse.tsx` + `EntityRow` |
 | Comments (§9) | `CommentsPanel`, `CommentAnnotationPopup`, `useCommentGeometry` | `CommentsTab.tsx`; keep the annotation geometry model |
@@ -354,42 +371,126 @@ What each sketch surface replaces in `src/`. Keep list is unchanged from the aud
 
 `GeoEditorView.tsx` stays the desktop composition root but loses routing reconciliation, sidebar orchestration, destination logic, and chat binding.
 
-## 16. Protocol additions (spec v2.1)
+## 16. Embedded presentation contract (no protocol migration)
 
-Adds, never reshapes. No `modelVersion` bump.
+This milestone does not add or migrate event kinds, tags, relay policy, audiences, proposals, or
+comments. In particular, comments remain kind 37517 and there is no event-history/version scheme for
+the parameterized replaceable kinds above 30000. Existing readers and writers keep their current
+wire behaviour.
 
-1. `title`, `summary`, `image`, `published_at` tags on 37515, 37520, 37518; `features`, `size` on 37515. Client renders a PNG thumbnail on publish to Blossom.
-2. Atlas: `noun`, `color`, `emblem`, `schemaFields` in content. Accepted = `c` on the map **and** `a` on the atlas; Waiting = `c` without `a`. Fit is computed client-side and never published.
-3. Comments: kind 1111 with `K` = the target kind; optional geometry in a `geo` tag (`point` or `line` with WGS84 coords) for annotations.
-4. Proposals: 37519 content = `{message, add, modify, remove}` for maps or `{message, body}` for stories, `a` tag → target, `e` → target version. Rebase rule pending (§18).
-5. `["l","ai-assisted","earthly"]` under `["L","earthly"]` when a Thread contributed geometry.
-6. Relay write policy: profiles, Earthly kinds, kind 1111/7/9735 that reference an Earthly event, relay lists. Reject the rest.
-7. **MapPresentationV1**, an embedded value in the content of 37520 (Story) and 37518 (Atlas), never an event kind:
-   ```ts
-   interface MapPresentationV1 { version: 1; initialView?: { center: [lon, lat]; zoom: number; bearing?: number; pitch?: number }; layerOrder?: NostrCoordinate[]; layers?: Record<NostrCoordinate, { visible?: boolean; pinnedEvent?: string }> }
-   // Stories carry no scene array: views are blocks in the Markdown body (§11c).
-   ```
-   Invariants: Story `layerOrder`/`layers`/scene layers ⊆ the story's `a` references; Atlas presentation ⊆ its pinned `a` lane (foreign `c` never enters it); missing presentation means today's behaviour; camera is published intent, never transient state; `anchor` indexes the body blocks and clients clamp it. **Scene semantics:** `layers` in a scene is a delta; the effective state at block *i* is `presentation.layers` with every scene whose `anchor ≤ i` applied in anchor order, and the view is the last scene `view` at or before *i* (else `initialView`). A scene with neither `layers` nor `view` is dropped on publish. Snapshot datasets (one map per date) are ordinary Maps; the story, not the map, carries time. Legend, `opacityMultiplier`, style overrides and filters are deferred until a concrete need; if style overrides arrive they live on the containing Story/Atlas, keep the source event immutable, and are attributed "data by A · presentation by B".
-8. **Audience** is not a tag: Circle records are MLS application messages, Nearby records travel over the local node. The `🔒`/`⇄` pills are derived from where a record came from. A public copy of a private record is a new publish with a new address, never a flag flip.
-9. **Live** stays 37521 with NIP-40 expiry per position; discovery `public` publishes to relays under the user's key, `link only` publishes under a throwaway key whose npub is in the link; circle/session audiences use those transports.
-10. **Notifications** are derived client-side; nothing new on the wire.
+The sole serialized-data addition is `MapPresentationV1`, an optional embedded JSON value in the
+existing content of kind 37520 (Story) and kind 37518 (Atlas). Its `version: 1` discriminates this
+value's parser/writer schema; it is not an event version, a protocol version, or a Versions UI.
+
+```ts
+type NostrCoordinate = `${number}:${string}:${string}`
+type PresentationLayerId = string
+
+interface MapCameraV1 {
+  center: [longitude: number, latitude: number]
+  zoom: number
+  bearing?: number
+  pitch?: number
+}
+
+interface PresentationStyleOverrideV1 {
+  color?: string
+  fillColor?: string
+  strokeColor?: string
+  fillOpacity?: number
+  strokeOpacity?: number
+  strokeWidth?: number
+  radius?: number
+  lineDash?: 'solid' | 'dashed' | 'dotted'
+  arrowStart?: boolean
+  arrowEnd?: boolean
+  displayIcon?: string
+}
+
+interface PresentationLayerV1 {
+  id: PresentationLayerId
+  source: NostrCoordinate
+  featureIds?: string[]
+  visible?: boolean
+  opacityMultiplier?: number
+  style?: PresentationStyleOverrideV1
+}
+
+interface MapPresentationV1 {
+  version: 1
+  initialView?: MapCameraV1
+  layers?: PresentationLayerV1[]
+}
+```
+
+`layers` is ordered bottom-to-top. It contains layer *instances*, rather than a record keyed by
+coordinate, so one foreign Map can be used more than once with different feature selectors or
+presentation. `id` is stable and unique inside the containing Story or Atlas. `source` must be an
+exact kind-37515 coordinate and always resolves the latest replaceable event; there is no
+`pinnedEvent`. Missing `featureIds` means the whole Map. Missing `visible` and
+`opacityMultiplier` mean `true` and `1`; opacity is clamped to `[0, 1]` and multiplies the source
+feature's own fill/stroke opacity.
+
+Style overrides use the bounded declarative fields above, reuse Earthly's current style vocabulary,
+and never mutate the referenced Map. Unsafe executable styles, arbitrary CSS/network assets, and
+content fields such as feature names or descriptions are not presentation overrides. The UI labels
+the roles when they differ: “data by A · presentation by B”. A legend, if added later, is derived
+from effective styles rather than serialized independently.
+
+Reference boundaries are strict:
+
+- A Story layer source must be authorized by a reference in its body. A whole-Map mention permits a
+  selective `featureIds` subset; feature-only mentions permit only those cited ids. A missing id is
+  shown as unresolved and never widens silently to the whole Map.
+- An Atlas presentation may use only Maps in its owner's accepted/curated `a` lane. Foreign `c`
+  contributions remain discoverable but never enter the canonical presentation automatically.
+- Missing or unrecognized presentation metadata falls back to today's rendering. Parsing and
+  writing are pure and preserve unknown presentation versions during unrelated edits.
+- `initialView` is explicit published intent, never an incidental pan or zoom.
+
+Story view blocks are defined in §11c. They are cumulative sparse overrides of base layer instances
+and may set a camera, but cannot change a layer's source or feature selector. There is no scene
+array, anchor, static Blossom snapshot, or independently serialized legend.
+
+The URL query `on=` is a route-local ambient overlay, never Story/Atlas presentation state and never
+silently persisted. If it names a source already in the Story, it is a temporary visibility override;
+otherwise Earthly synthesizes a temporary whole-Map layer using the Map author's style. Inline view
+blocks cannot mutate ambient layers. Persisting one requires an explicit “Add to Story” action that
+first adds an authoritative body reference and then a presentation layer.
 
 ## 17. Build order and acceptance
 
-0. **No UI**: relay policy; tags of §16.1 written and read; Android benchmark on the reference device. *Accepted when Browse rows render titles without fetching content.*
-1. **Router + Margin + header + Browse.** Old routes still resolve. *Accepted when every entity kind opens from a list into the Margin with the four-row header and boxed sections, and the old rail, stance tab, and pill are gone.*
+The numbered items below are implementation order inside one migration, not separately releasable
+slices. The rewrite is accepted and shipped only after every item passes and the temporary
+compatibility layout/routing paths have been removed.
+
+0. **Foundation:** pure `MapPresentationV1` parser/writer/reducer, code-based TanStack route tree with a compatibility facade, and Bun's metadata-enriched app shell for `/read/:id`. *Accepted when malformed presentation data falls back safely, valid data round-trips, old routes still resolve, and a direct production `/read/:id` response contains both Story OG metadata and the application module script without redirecting.*
+1. **Margin + header + Browse + editorial reader.** *Accepted when every entity kind opens from a list into the Margin with the four-row header and boxed sections, `/story/:id` stays in that shell, `/read/:id` renders the full reader, and the old rail, stance tab, and pill are gone.*
 2. **Working copy + Publish ▾ + Drafts.** *Accepted when only one thing can be in Edit, Publish update is the default, and audience is per working copy.*
 3. **Thread in the Margin/column.** BindingChip and the binding modal deleted. *Accepted when a read-only map's Thread sends with "Edit & send", ghosts render, Apply lands in the working copy.*
-4. **Shelf strip + Live chip + Save this view.** MapStackPanel deleted.
+4. **Shelf strip + Live chip + Save this view.** Reuse `MapStackPanel` as the detailed `/shelf`
+   Margin surface; delete only its old floating desktop mounting path and rename visible Map Stack
+   copy to Shelf / On the map.
 5. **Comments tab + annotations; Proposals both sides.**
 6. **Atlas page, lens, Properties form.** Contexts panel deleted.
 7. **Phone shell**: sheet, dismissal, + chooser, edit dock.
-8. **Spec v2.1** wire changes as they become needed by 1–6 (most are needed by 1).
+
+Performance benchmarks are deliberately deferred until the rewritten shell and rendering path exist;
+they are not an acceptance gate for these implementation slices.
 
 ## 18. Decisions log and open questions
 
 Decided (in chat, 2026-09-02/03):
 - Atlases stay; the open-attach lane stays; no NIP-51 shelf kind; Story and Atlas are separate nouns.
+- No protocol/event-kind/tag migration in this milestone; comments remain kind 37517.
+- No Versions/history surface or event-version scheme for parameterized replaceable kinds above 30000.
+- `MapPresentationV1.version` is only an embedded JSON schema discriminator. Its ordered layer instances support foreign Map coordinates, feature subsets, immutable style/opacity overrides, and an initial camera; references always follow the latest replaceable Map event.
+- Story views are inline body blocks with cameras and cumulative sparse overrides. There are no scenes, anchors, or uploaded static snapshots, and `on=` remains ambient route state.
+- Client-only code-based TanStack Router owns in-app routing; Bun keeps HTTP/API/static/OG ownership. `/read/:id` is the canonical shared reader and `/story/:id` stays in the Margin.
+- Existing icons and toolbar components are preserved; the sketch's symbols are illustrative.
+- The migration ships as one complete cutover; temporary adapters are development scaffolding only,
+  not a partial rollout strategy.
+- Benchmarks are deferred.
 - Margins are `30vw`, or `28vw + map + 28vw` with the Thread out; Thread column from 1100px.
 - No corner rounding; compact spacing; lists not tiles; one + per Browse tab; New/Browse header is one row.
 - Propose is the primary verb on things you don't own; Fork is behind ▾.
@@ -398,8 +499,8 @@ Decided (in chat, 2026-09-02/03):
 - Glass panels default on for phones.
 - Real basemap is OpenFreeMap; the artifact falls back to a graticule.
 
-Sketched since (2026-09-03): Circles and Nearby pages, Live bar and page, story block editing with
-per-paragraph layers/camera/references, the Inbox, MapPresentationV1, the full toolbar catalogue,
+Sketched since (2026-09-03): Circles and Nearby pages, Live bar and page, Story block editing with
+inline views/layers/camera/references, the Inbox, MapPresentationV1, the full toolbar catalogue,
 the Features list, the top-bar ticker.
 
 **Still missing, in the order the build needs them.**
@@ -421,6 +522,30 @@ the Features list, the top-bar ticker.
 12. Is a Thread ever publishable, or is "How this was made" a human-edited Story section?
 13. Is one thing in Edit at a time too strict for compare-and-merge?
 14. Thumbnails: client on publish or relay-side job?
-15. Reference Android device and frame budget; the benchmark is still unrun.
-16. Proposal rebase when the target moved on: re-apply by feature id and flag conflicts, or ask the proposer to update?
-17. Story scroll choreography: click and step only for now, per the GeoLibre notes.
+15. Proposal rebase when the target moved on: re-apply by feature id and flag conflicts, or ask the proposer to update?
+16. Story scroll choreography beyond explicit click/step and the reader's opt-in follow mode.
+
+## 19. Implementation verification checkpoint — 2026-09-03
+
+This is an in-progress verification record, not approval for a partial rollout.
+
+The latest integration pass covers:
+
+- Persistent identity onboarding when signing in changes the active account, and separate Inbox versus Sync & delivery surfaces.
+- Local Map Threads at `/edit?tab=thread`, one stable session per working copy, binding only on Send, retained unsent prompts, reload persistence, and phone Thread → Edit navigation before the first send.
+- The Thread header's three safety levels, provider/model controls, and expandable diagnostics on both layouts. The desktop Thread no longer mounts invisibly beneath the phone composition.
+- A React external-store snapshot regression during new-Map creation: the route composition now selects the primitive working-copy id, not a freshly allocated target object.
+- Atlas presentation feature-picker wiring and route-tab types used by phone restoration.
+
+Verified together with the repository AI suite: `smoke`, `thread-draft-routing`, `chat-surface`, `chat-run-guard`, `chat-sequential-edit-regression`, and `chat-story-target-gate`: **38 passed, 6 intentional platform skips, 0 failures**. The deterministic provider runs through the real Thread, tool dispatch, safety gate, editor, and local persistence paths.
+
+Production build, AI-suite typecheck, and `git diff --check` pass. Focused Atlas authoring, route ownership, retained inspection, mobile interaction, ChatPanel, and chat-store unit suites pass when run in isolated groups.
+
+Remaining release gates:
+
+- Migrate the older E2E scenarios/tasks that still exercise retired standalone-chat binding and sidebar controls, then run the complete suite. The focused green run does not replace those scenarios.
+- Finish the full §17 feature-preservation/acceptance audit, including published-object Thread transitions, both sides of proposals, reader/presentation interactions, and the remaining compatibility cleanup.
+- The repository-wide strict TypeScript check is still red (434 diagnostics in the latest run); do not treat the build or focused typechecks as a green full typecheck. Separate existing typing debt from migration regressions before acceptance.
+- The monolithic Bun test run also needs test-isolation cleanup; shared module mocks contaminate later suites, while the focused migration groups pass independently.
+
+Protocol migrations, comment migration, event versioning, partial release flags, and benchmarks remain outside this milestone's agreed scope.
