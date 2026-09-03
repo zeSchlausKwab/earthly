@@ -20,12 +20,19 @@ export function SignedOutCta({
 	title,
 	description,
 	className,
+	onCreateOrSignIn,
 }: {
 	/** Semantic title for the protected surface, e.g. "Profile" or "Wallet". */
 	title: string
 	/** One sentence naming what signing in unlocks here, e.g. "Sign in to view your profile." */
 	description: string
 	className?: string
+	/**
+	 * Lets a persistent parent own the signup dialog. This is important on
+	 * account surfaces: creating a key immediately changes the signed-in branch,
+	 * but the remaining profile/setup steps must stay mounted.
+	 */
+	onCreateOrSignIn?: () => void
 }) {
 	const [loading, setLoading] = useState(false)
 	const [showSignupDialog, setShowSignupDialog] = useState(false)
@@ -48,7 +55,7 @@ export function SignedOutCta({
 		<div className={cn('flex flex-col items-center gap-3 p-4 text-center', className)}>
 			<h2 className="sr-only">{title}</h2>
 			<p className="text-sm text-muted-foreground">{description}</p>
-			<Button onClick={() => setShowSignupDialog(true)}>
+			<Button onClick={() => (onCreateOrSignIn ? onCreateOrSignIn() : setShowSignupDialog(true))}>
 				<KeyRoundIcon className="h-4 w-4" />
 				Sign in or create identity
 			</Button>
@@ -72,7 +79,9 @@ export function SignedOutCta({
 				Earthly uses a Nostr key instead of an email account — you control it, and it signs
 				everything you publish.
 			</p>
-			<SignupDialog open={showSignupDialog} onOpenChange={setShowSignupDialog} />
+			{onCreateOrSignIn ? null : (
+				<SignupDialog open={showSignupDialog} onOpenChange={setShowSignupDialog} />
+			)}
 		</div>
 	)
 }

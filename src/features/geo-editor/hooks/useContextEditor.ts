@@ -11,12 +11,18 @@ import {
 	shouldOpenMobileEditSheet,
 	type MobileWorkspaceOpenOptions,
 } from '../components/mobileEditPanelPresentation'
+import type { GroupCreationSeed } from '@/features/groups/creationSeed'
 
 interface UseContextEditorParams {
 	isMobile: boolean
 	ensureInfoPanelVisible: () => void
 	encodeContextNaddr: (context: MapContext) => string | null
-	navigateTo: (focusType: 'mapcontext', naddr: string, sidebarView?: SidebarViewMode) => void
+	navigateTo: (
+		focusType: 'mapcontext',
+		naddr: string,
+		sidebarView?: SidebarViewMode,
+		edit?: boolean,
+	) => void
 	navigateToView: (view: SidebarViewMode) => void
 	clearFocus: () => void
 	handleInspectDataset: (event: GeoDataset) => void
@@ -52,18 +58,23 @@ export function useContextEditor({
 
 	const [contextEditorMode, setContextEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingContext, setEditingContext] = useState<MapContext | null>(null)
+	const [contextCreationSeed, setContextCreationSeed] = useState<GroupCreationSeed | null>(null)
 
-	const prepareNonGeometryEditorWorkspace = useCallback(() => {
-		setViewModeState('view')
-		setViewDatasetState(null)
-		setViewContext(null)
-		setViewContextDatasets([])
-		clearFocus()
-	}, [setViewModeState, setViewDatasetState, setViewContext, setViewContextDatasets, clearFocus])
+	const prepareNonGeometryEditorWorkspace = useCallback(
+		({ clearRoute = true }: { clearRoute?: boolean } = {}) => {
+			setViewModeState('view')
+			setViewDatasetState(null)
+			setViewContext(null)
+			setViewContextDatasets([])
+			if (clearRoute) clearFocus()
+		},
+		[setViewModeState, setViewDatasetState, setViewContext, setViewContextDatasets, clearFocus],
+	)
 
 	const clearEditorModes = useCallback(() => {
 		setContextEditorMode('none')
 		setEditingContext(null)
+		setContextCreationSeed(null)
 	}, [])
 
 	const handleLoadDatasetForEditing = useCallback(
@@ -110,9 +121,10 @@ export function useContextEditor({
 		],
 	)
 
-	const handleCreateContext = useCallback(() => {
+	const handleCreateContext = useCallback((creationSeed?: GroupCreationSeed) => {
 		selectMobileEntitySurface('context')
 		clearEditorModes()
+		setContextCreationSeed(creationSeed ?? null)
 		setContextEditorMode('create')
 		prepareNonGeometryEditorWorkspace()
 		navigateToView('context-editor')
@@ -134,14 +146,21 @@ export function useContextEditor({
 			clearEditorModes()
 			setContextEditorMode('edit')
 			setEditingContext(context)
-			prepareNonGeometryEditorWorkspace()
-			navigateToView('context-editor')
+			// Opening the Atlas editor is an object route, not a legacy panel route.
+			// Preserve an incoming /atlas/:naddr/edit location and write the same
+			// canonical route when editing starts from an inspect surface.
+			prepareNonGeometryEditorWorkspace({ clearRoute: false })
+			const naddr = encodeContextNaddr(context)
+			if (naddr) navigateTo('mapcontext', naddr, 'contexts', true)
+			else navigateToView('contexts')
 			if (isMobile) ensureInfoPanelVisible()
 			else setShowInfoPanel(true)
 		},
 		[
 			clearEditorModes,
 			prepareNonGeometryEditorWorkspace,
+			encodeContextNaddr,
+			navigateTo,
 			navigateToView,
 			isMobile,
 			ensureInfoPanelVisible,
@@ -152,9 +171,10 @@ export function useContextEditor({
 
 	const handleSaveContext = useCallback(
 		(_context: MapContext) => {
-			setContextEditorMode('none')
-			setEditingContext(null)
-			navigateToView('contexts')
+		setContextEditorMode('none')
+		setEditingContext(null)
+		setContextCreationSeed(null)
+		navigateToView('contexts')
 		},
 		[navigateToView],
 	)
@@ -165,6 +185,7 @@ export function useContextEditor({
 		const wasOpen = contextEditorMode !== 'none'
 		setContextEditorMode('none')
 		setEditingContext(null)
+		setContextCreationSeed(null)
 		if (wasOpen) navigateToView('contexts')
 	}, [contextEditorMode, navigateToView])
 
@@ -243,6 +264,7 @@ export function useContextEditor({
 	return {
 		contextEditorMode,
 		editingContext,
+		contextCreationSeed,
 		clearEditorModes,
 		handleLoadDatasetForEditing,
 		handleInspectContext,

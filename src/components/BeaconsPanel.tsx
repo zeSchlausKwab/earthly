@@ -94,7 +94,7 @@ export function BeaconsPanelContent({
 		addMapStackEntry({
 			entityType: 'beacon-layer',
 			entityKey: 'all',
-			title: 'Live beacons',
+			title: 'Live positions',
 			source: 'manual',
 			visible: true,
 			pinned: false,
@@ -158,14 +158,14 @@ export function BeaconsPanelContent({
 		<ListPanel
 			icon={Radio}
 			accent="text-ok"
-			title="Beacons"
+			title="Live positions"
 			count={liveCount > 0 ? `${liveCount} live` : rows.length}
 			onNew={onShareLocation}
 			newLabel="Share live location"
 			headerExtra={
 				<AggregateMapLayerControl
-					title="Live beacons layer"
-					description="Show all discoverable live beacons on the map, independent of these filters."
+					title="Live positions layer"
+					description="Show all discoverable live positions on the map, independent of these filters."
 					count={beacons.length}
 					visible={allBeaconsVisible}
 					onToggle={toggleAllBeaconsLayer}
@@ -176,7 +176,7 @@ export function BeaconsPanelContent({
 				<BulkMapStackButton
 					count={stackableFilteredBeacons.length}
 					onClick={onAddToMapStack ? addFilteredToMapStack : undefined}
-					label="Add filtered beacons to map stack"
+					label="Show filtered live locations on the map"
 				/>
 			}
 			toolbar={
@@ -186,7 +186,7 @@ export function BeaconsPanelContent({
 					filteredCount={result.filteredCount}
 					displayedCount={result.displayedCount}
 					hasMore={result.hasMore}
-					placeholder="Search beacons…"
+					placeholder="Search live positions…"
 				/>
 			}
 			footerLeft={`${rows.length} shown`}
@@ -201,7 +201,7 @@ export function BeaconsPanelContent({
 			) : rows.length === 0 ? (
 				<Empty className="rounded-[3px]">
 					<EmptyHeader>
-						<EmptyTitle>{hasSearch ? 'No beacons match' : 'No live beacons'}</EmptyTitle>
+						<EmptyTitle>{hasSearch ? 'No live positions match' : 'No live positions'}</EmptyTitle>
 						<EmptyDescription>
 							{hasSearch
 								? 'Try a different search, or clear the filter.'

@@ -11,7 +11,13 @@ import {
 	getMissingAssetHeaders,
 	isBrowserAssetPath,
 } from './lib/http/staticAssetHeaders'
-import { GEO_EVENT_KIND } from './lib/nostr/kinds'
+import {
+	ARTICLE_KIND,
+	GEO_EVENT_KIND,
+	LIVE_BEACON_KIND,
+	MAP_CONTEXT_KIND,
+	TEMPORAL_SIGHTING_KIND,
+} from './lib/nostr/kinds'
 import { buildWorkerSource } from './lib/workers/buildWorker'
 import { WORKER_ASSETS, type WorkerId } from './lib/workers/workerAssets'
 import {
@@ -20,8 +26,13 @@ import {
 	generateGeoEventOGHtml,
 	generateContextOGHtml,
 	generateBeaconOGHtml,
-	generateSightingOGHtml,
-	generateStoryOGHtml,
+	generateEntityAppShell,
+	generateStoryReadAppShell,
+	createBeaconOGMeta,
+	createContextOGMeta,
+	createGeoEventOGMeta,
+	createSightingOGMeta,
+	createStoryOGMeta,
 	fetchCachedGeoEventOGData,
 	fetchCachedContextEventOGData,
 	fetchCachedBeaconEventOGData,
@@ -36,7 +47,10 @@ import {
 	OG_IMAGE_RENDER_VERSION,
 	parseOGImageVersion,
 	resolveOGGeoBlobReferences,
+	isStoryReadAddress,
+	isNaddrForKind,
 	type GeoEventOGData,
+	type OGMeta,
 	type OGCacheStatus,
 	type OGCacheType,
 	type OGImageOptions,
@@ -44,6 +58,7 @@ import {
 
 const isProduction = process.env.NODE_ENV === 'production'
 const NIP05_DOCUMENT_PATH = join(process.cwd(), 'src', '.well-known', 'nostr.json')
+const PRODUCTION_INDEX_PATH = join(process.cwd(), 'dist', 'index.html')
 const NIP05_HEADERS = {
 	'Access-Control-Allow-Origin': '*',
 	'Cache-Control': 'public, max-age=300',
@@ -176,9 +191,105 @@ function serveBuiltFile(builtFile: ReturnType<typeof file>, pathname: string): R
 	return new Response(builtFile, { headers: getBuiltFileHeaders(pathname) })
 }
 
+/** Serve the same executable document as every other client route, replacing
+ * only the bounded metadata region generated at build time. */
+async function serveEntityAppShell(meta: OGMeta, cacheStatus: OGCacheStatus): Promise<Response> {
+	const appShellFile = file(PRODUCTION_INDEX_PATH)
+	const html = generateEntityAppShell(await appShellFile.text(), meta)
+	if (!html) {
+		console.error('[Entity route] App shell metadata markers are missing or malformed')
+		return serveBuiltFile(file(PRODUCTION_INDEX_PATH), '/index.html')
+	}
+
+	return new Response(html, {
+		headers: {
+			...getBuiltFileHeaders('/index.html'),
+			'X-Earthly-OG-Cache': cacheStatus,
+		},
+	})
+}
+
+function servePlainAppShell(): Response {
+	return serveBuiltFile(file(PRODUCTION_INDEX_PATH), '/index.html')
+}
+
+/** Canonical Map object route. Legacy `/geoevent` links remain metadata pages
+ * that hand browsers to this clean path. */
+async function handleMapAppRoute(req: BunRouteRequest): Promise<Response> {
+	const naddr = req.params.naddr ?? ''
+	if (!isNaddrForKind(naddr, GEO_EVENT_KIND)) return servePlainAppShell()
+
+	const baseUrl = getBaseUrl(req)
+	const { data, cacheStatus } = await fetchCachedGeoEventOGData(naddr, serverConfig.relayUrl, {
+		waitForFreshMs: 3000,
+	})
+	return serveEntityAppShell(
+		createGeoEventOGMeta(
+			baseUrl,
+			naddr,
+			data?.title ?? 'Map',
+			data?.description ?? 'View this map on Earthly',
+			undefined,
+			data?.eventId,
+			'map',
+		),
+		cacheStatus,
+	)
+}
+
+/** Canonical Atlas object route, including metadata derived from its accepted
+ * Maps without writing that presentation into route state. */
+async function handleAtlasAppRoute(req: BunRouteRequest): Promise<Response> {
+	const naddr = req.params.naddr ?? ''
+	if (!isNaddrForKind(naddr, MAP_CONTEXT_KIND)) return servePlainAppShell()
+
+	const baseUrl = getBaseUrl(req)
+	const { data, cacheStatus } = await fetchCachedContextEventOGData(naddr, serverConfig.relayUrl, {
+		waitForFreshMs: 3000,
+	})
+	const referencedMap = data?.image
+		? { eventIds: [] }
+		: await resolveReferencedMap(data?.referencedAddresses ?? [])
+	const imageIdentity = createPreviewIdentity(data?.eventId, referencedMap.eventIds)
+	return serveEntityAppShell(
+		createContextOGMeta(
+			baseUrl,
+			naddr,
+			data?.title ?? 'Atlas',
+			data?.description ?? 'Explore this Atlas on Earthly',
+			undefined,
+			imageIdentity,
+			'atlas',
+		),
+		cacheStatus,
+	)
+}
+
+/** Canonical Live object route. */
+async function handleLiveAppRoute(req: BunRouteRequest): Promise<Response> {
+	const naddr = req.params.naddr ?? ''
+	if (!isNaddrForKind(naddr, LIVE_BEACON_KIND)) return servePlainAppShell()
+
+	const baseUrl = getBaseUrl(req)
+	const { data, cacheStatus } = await fetchCachedBeaconEventOGData(naddr, serverConfig.relayUrl, {
+		waitForFreshMs: 3000,
+	})
+	return serveEntityAppShell(
+		createBeaconOGMeta(
+			baseUrl,
+			naddr,
+			data?.title ?? 'Live location',
+			data?.description ?? 'Live location — may have ended. Watch it on Earthly.',
+			data?.eventId,
+			'live',
+		),
+		cacheStatus,
+	)
+}
+
 /**
- * Serve a stable metadata document for every clean dataset URL. The document
- * redirects browsers into the hash-based SPA, but does not rely on a brittle
+ * Serve a stable metadata document for every legacy dataset share URL. The document
+ * redirects browsers into the canonical Map route, but does not rely on a brittle
  * crawler user-agent allow-list to decide whether metadata is present.
  */
 async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
@@ -194,13 +305,13 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 		waitForFreshMs: 3000,
 	})
 	const redirectUrl = commentId
-		? `${baseUrl}/#/datasets/geoevent/${naddr}/comment/${commentId}`
-		: undefined
+		? `${baseUrl}/map/${naddr}/comment/${commentId}`
+		: `${baseUrl}/map/${naddr}`
 	const html = generateGeoEventOGHtml(
 		baseUrl,
 		naddr,
-		data?.title ?? 'Geographic Dataset',
-		data?.description ?? 'View this geographic dataset on Earthly',
+		data?.title ?? 'Map',
+		data?.description ?? 'View this map on Earthly',
 		undefined,
 		data?.eventId,
 		redirectUrl,
@@ -211,7 +322,7 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 }
 
 /**
- * Handle /context/:naddr with stable metadata plus an SPA redirect.
+ * Handle the legacy /context/:naddr share alias with stable metadata and a clean redirect.
  */
 async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
@@ -226,8 +337,8 @@ async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 		waitForFreshMs: 3000,
 	})
 	const redirectUrl = commentId
-		? `${baseUrl}/#/contexts/mapcontext/${naddr}/comment/${commentId}`
-		: undefined
+		? `${baseUrl}/atlas/${naddr}/comment/${commentId}`
+		: `${baseUrl}/atlas/${naddr}`
 	const referencedMap = data?.image
 		? { eventIds: [] }
 		: await resolveReferencedMap(data?.referencedAddresses ?? [])
@@ -235,8 +346,8 @@ async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 	const html = generateContextOGHtml(
 		baseUrl,
 		naddr,
-		data?.title ?? 'Map Context',
-		data?.description ?? 'Explore this geographic context on Earthly',
+		data?.title ?? 'Atlas',
+		data?.description ?? 'Explore this Atlas on Earthly',
 		undefined,
 		imageIdentity,
 		redirectUrl,
@@ -246,44 +357,81 @@ async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 	})
 }
 
-/**
- * Handle /story/:naddr with stable metadata plus an SPA redirect (D-04).
- */
+/** Handle the Story object in the Margin while enriching its executable shell. */
 async function handleStoryRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
-	const commentId = req.params.commentId ?? ''
+	if (!isNaddrForKind(naddr, ARTICLE_KIND)) return servePlainAppShell()
+
 	const baseUrl = getBaseUrl(req)
-
-	if (!naddr) {
-		return Response.redirect(baseUrl, 302)
-	}
-
 	const { data, cacheStatus } = await fetchCachedStoryEventOGData(naddr, serverConfig.relayUrl, {
 		waitForFreshMs: 3000,
 	})
-	const redirectUrl = commentId
-		? `${baseUrl}/#/stories/story/${naddr}/comment/${commentId}`
-		: undefined
 	const referencedMap = data?.image
 		? { eventIds: [] }
 		: await resolveReferencedMap(data?.referencedAddresses ?? [])
 	const imageIdentity = createPreviewIdentity(data?.eventId, referencedMap.eventIds)
-	const html = generateStoryOGHtml(
+	return serveEntityAppShell(
+		createStoryOGMeta(
+			baseUrl,
+			naddr,
+			data?.title ?? 'Story',
+			data?.description ?? 'Read this story on Earthly',
+			undefined,
+			imageIdentity,
+			'story',
+		),
+		cacheStatus,
+	)
+}
+
+/**
+ * Handle the canonical Story reader. Unlike the legacy share route, this sends
+ * the executable SPA document at the requested URL and enriches only its
+ * metadata region. Crawlers and browsers therefore receive the same document;
+ * no user-agent sniffing or redirect is involved.
+ */
+async function handleStoryReadRoute(req: BunRouteRequest): Promise<Response> {
+	const naddr = req.params.naddr ?? ''
+	const appShellFile = file(PRODUCTION_INDEX_PATH)
+
+	// Keep malformed/wrong-kind input out of the OG cache and relay. The ordinary
+	// app shell still boots, so the client router owns the visible not-found state.
+	if (!isStoryReadAddress(naddr)) {
+		return serveBuiltFile(appShellFile, '/index.html')
+	}
+
+	const baseUrl = getBaseUrl(req)
+	const { data, cacheStatus } = await fetchCachedStoryEventOGData(naddr, serverConfig.relayUrl, {
+		waitForFreshMs: 3000,
+	})
+	const referencedMap = data?.image
+		? { eventIds: [] }
+		: await resolveReferencedMap(data?.referencedAddresses ?? [])
+	const imageIdentity = createPreviewIdentity(data?.eventId, referencedMap.eventIds)
+	const appShell = await appShellFile.text()
+	const html = generateStoryReadAppShell(appShell, {
 		baseUrl,
 		naddr,
-		data?.title ?? 'Story',
-		data?.description ?? 'Read this story on Earthly',
-		undefined,
+		title: data?.title ?? 'Story',
+		description: data?.description ?? 'Read this story on Earthly',
 		imageIdentity,
-		redirectUrl,
-	)
+	})
+
+	if (!html) {
+		console.error('[Story read route] App shell metadata markers are missing or malformed')
+		return serveBuiltFile(file(PRODUCTION_INDEX_PATH), '/index.html')
+	}
+
 	return new Response(html, {
-		headers: getOGRouteHeaders(cacheStatus),
+		headers: {
+			...getBuiltFileHeaders('/index.html'),
+			'X-Earthly-OG-Cache': cacheStatus,
+		},
 	})
 }
 
 /**
- * Handle /sighting/:naddr — OG HTML for crawlers (D-08), redirect for users.
+ * Handle /sighting/:naddr as an executable app shell with stable metadata.
  *
  * SIGHT-03 (Pitfall P-1): the underlying `fetchSightingOGData` independently
  * checks the NIP-40 `expiration` tag and returns null for an expired sighting, so
@@ -292,34 +440,26 @@ async function handleStoryRoute(req: BunRouteRequest): Promise<Response> {
  */
 async function handleSightingRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
-	const commentId = req.params.commentId ?? ''
+	if (!isNaddrForKind(naddr, TEMPORAL_SIGHTING_KIND)) return servePlainAppShell()
+
 	const baseUrl = getBaseUrl(req)
-
-	if (!naddr) {
-		return Response.redirect(baseUrl, 302)
-	}
-
 	const { data, cacheStatus } = await fetchCachedSightingEventOGData(naddr, serverConfig.relayUrl, {
 		waitForFreshMs: 3000,
 	})
-	const redirectUrl = commentId
-		? `${baseUrl}/#/sightings/sighting/${naddr}/comment/${commentId}`
-		: undefined
-	const html = generateSightingOGHtml(
-		baseUrl,
-		naddr,
-		data?.title ?? 'Sighting',
-		data?.description ?? 'See this sighting on Earthly',
-		data?.eventId,
-		redirectUrl,
+	return serveEntityAppShell(
+		createSightingOGMeta(
+			baseUrl,
+			naddr,
+			data?.title ?? 'Sighting',
+			data?.description ?? 'See this sighting on Earthly',
+			data?.eventId,
+		),
+		cacheStatus,
 	)
-	return new Response(html, {
-		headers: getOGRouteHeaders(cacheStatus),
-	})
 }
 
 /**
- * Handle /beacon/:naddr — OG HTML for crawlers (D-11), redirect for users. A thin
+ * Handle the legacy /beacon/:naddr share alias with OG metadata and a clean redirect. A thin
  * per-kind clone of handleSightingRoute (Phase 13 / XCUT-02 owns generalization).
  *
  * T-12-05-OGLEAK (Pitfall P-1): the underlying `fetchBeaconOGData` independently
@@ -342,8 +482,8 @@ async function handleBeaconRoute(req: BunRouteRequest): Promise<Response> {
 		waitForFreshMs: 3000,
 	})
 	const redirectUrl = commentId
-		? `${baseUrl}/#/beacons/beacon/${naddr}/comment/${commentId}`
-		: undefined
+		? `${baseUrl}/live/${naddr}/comment/${commentId}`
+		: `${baseUrl}/live/${naddr}`
 	const html = generateBeaconOGHtml(
 		baseUrl,
 		naddr,
@@ -388,8 +528,8 @@ async function resolveOGImageModel(type: OGCacheType, naddr: string): Promise<OG
 			imageIdentity: createPreviewIdentity(data?.eventId, referencedMap.eventIds),
 			cacheStatus,
 			options: {
-				title: data?.title ?? 'Map Context',
-				description: data?.description ?? 'Explore this geographic context on Earthly',
+				title: data?.title ?? 'Atlas',
+				description: data?.description ?? 'Explore this Atlas on Earthly',
 				backgroundImageUrl: data?.image,
 				featureCollection: referencedMap.featureCollection,
 				bbox: referencedMap.bbox ?? data?.bbox,
@@ -406,8 +546,8 @@ async function resolveOGImageModel(type: OGCacheType, naddr: string): Promise<OG
 			imageIdentity: data?.eventId,
 			cacheStatus,
 			options: {
-				title: data?.title ?? 'Geographic Dataset',
-				description: data?.description ?? 'View this geographic dataset on Earthly',
+				title: data?.title ?? 'Map',
+				description: data?.description ?? 'View this map on Earthly',
 				featureCollection: data ? await resolveDatasetPreviewGeometry(data) : undefined,
 				bbox: data?.bbox,
 			},
@@ -589,12 +729,19 @@ if (!isProduction) {
 	if (isProduction) {
 		// Stable public entity/OG routes (production only).
 		const ogRoutes: Record<string, BunRoute> = {
+			'/map/:naddr': handleMapAppRoute,
+			'/map/:naddr/comment/:commentId': handleMapAppRoute,
+			'/atlas/:naddr': handleAtlasAppRoute,
+			'/atlas/:naddr/comment/:commentId': handleAtlasAppRoute,
+			'/live/:naddr': handleLiveAppRoute,
+			'/live/:naddr/comment/:commentId': handleLiveAppRoute,
 			'/geoevent/:naddr': handleGeoEventRoute,
 			'/geoevent/:naddr/comment/:commentId': handleGeoEventRoute,
 			'/context/:naddr': handleContextRoute,
 			'/context/:naddr/comment/:commentId': handleContextRoute,
 			'/story/:naddr': handleStoryRoute,
 			'/story/:naddr/comment/:commentId': handleStoryRoute,
+			'/read/:naddr': handleStoryReadRoute,
 			'/sighting/:naddr': handleSightingRoute,
 			'/sighting/:naddr/comment/:commentId': handleSightingRoute,
 			'/beacon/:naddr': handleBeaconRoute,

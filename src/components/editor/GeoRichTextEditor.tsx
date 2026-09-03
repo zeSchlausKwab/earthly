@@ -34,10 +34,21 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { GeoMentionNode, serializeToText, parseFromText } from './GeoMentionExtension'
+import {
+	GeoMentionNode,
+	StoryViewNode,
+	parseFromText,
+	serializeToText,
+	type StoryViewCapture,
+} from './GeoMentionExtension'
 import { mergeMentionItems, searchMentionEntities } from './mentionSearch'
 import { stringifyGeoReference } from '@/lib/geo/reference'
 import { requestCoordinateReferencePick } from '@/features/geo-editor/coordinateReferencePickerBridge'
+import {
+	parseStoryViewBlock,
+	stringifyStoryViewBlock,
+	type StoryViewBlockV1,
+} from '@/lib/map-presentation'
 
 export interface GeoFeatureItem {
 	/** Unique identifier */
@@ -96,6 +107,12 @@ export interface GeoRichTextEditorProps {
 	showToolbar?: boolean
 	/** Initial toolbar state */
 	defaultToolbarExpanded?: boolean
+	/** Reveal the physical Story-view block insertion affordance. */
+	enableStoryViews?: boolean
+	/** Explicit map snapshot used only after the author presses Capture/Add view. */
+	captureStoryView?: () => StoryViewCapture | null | undefined
+	/** Apply a view to the shared canvas without changing the body. */
+	onStoryViewActivate?: (view: StoryViewBlockV1) => void
 }
 
 export interface GeoRichTextEditorRef {
@@ -109,6 +126,8 @@ export interface GeoRichTextEditorRef {
 	focus: () => void
 	/** Insert a geo mention at cursor */
 	insertMention: (item: GeoFeatureItem) => void
+	/** Insert a physical fenced earthly-view block at the selection. */
+	insertStoryView: (view?: StoryViewBlockV1) => void
 }
 
 interface SuggestionState {
@@ -142,13 +161,13 @@ export function getGeoReferenceTypeLabel(item: GeoFeatureItem): string {
 		case 'coordinate':
 			return 'Coordinate'
 		case 'dataset':
-			return 'Dataset'
+			return 'Map'
 		case 'feature':
 			return 'Feature'
 		case 'osm':
 			return 'OSM'
 		case 'context':
-			return 'Context'
+			return 'Atlas'
 		case 'story':
 			return 'Story'
 		default:
@@ -159,13 +178,11 @@ export function getGeoReferenceTypeLabel(item: GeoFeatureItem): string {
 function getSuggestionDescription(item: GeoFeatureItem): string {
 	if (item.entityType === 'coordinate-picker') return 'Click once on the map'
 	if (item.entityType === 'feature') {
-		return [item.geometryType, item.datasetName].filter(Boolean).join(' · ') || 'Dataset geometry'
+		return [item.geometryType, item.datasetName].filter(Boolean).join(' · ') || 'Map geometry'
 	}
 	if (item.entityType === 'osm') return item.geometryType || 'OpenStreetMap object'
 	if (item.entityType === 'dataset') {
-		return item.datasetName && item.datasetName !== item.name
-			? item.datasetName
-			: 'Complete dataset'
+		return item.datasetName && item.datasetName !== item.name ? item.datasetName : 'Complete Map'
 	}
 	return item.datasetName || item.geometryType || 'Spatial reference'
 }
@@ -193,6 +210,9 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			readOnly = false,
 			showToolbar = true,
 			defaultToolbarExpanded,
+			enableStoryViews = false,
+			captureStoryView,
+			onStoryViewActivate,
 		},
 		ref,
 	) => {
@@ -215,6 +235,13 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 		const relayMentionQueryRef = useRef<string>('')
 		const coordinatePickerCancelRef = useRef<(() => void) | null>(null)
 		const beginCoordinatePickRef = useRef<(() => void) | null>(null)
+		const captureStoryViewRef = useRef(captureStoryView)
+		const activateStoryViewRef = useRef(onStoryViewActivate)
+
+		useEffect(() => {
+			captureStoryViewRef.current = captureStoryView
+			activateStoryViewRef.current = onStoryViewActivate
+		}, [captureStoryView, onStoryViewActivate])
 
 		useEffect(() => {
 			suggestionStateRef.current = suggestion
@@ -445,6 +472,17 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			})
 		}, [filterFeatures, queueRelayMentionSearch])
 
+		const storyViewExtension = useMemo(
+			() =>
+				StoryViewNode.configure({
+					callbacks: {
+						onCapture: () => captureStoryViewRef.current?.(),
+						onActivate: (view) => activateStoryViewRef.current?.(view),
+					},
+				}),
+			[],
+		)
+
 		const editor = useEditor({
 			extensions: [
 				StarterKit.configure({
@@ -465,6 +503,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 						onZoomTo: onMentionZoomTo,
 					},
 				}),
+				storyViewExtension,
 				mentionExtension,
 			],
 			content: initialValue ? parseFromText(initialValue, createNameResolver()) : '',
@@ -580,6 +619,36 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			[disabled, editor, readOnly],
 		)
 
+		const insertStoryView = useCallback(
+			(view?: StoryViewBlockV1) => {
+				if (!editor || disabled || readOnly) return
+				const captured = view ? undefined : captureStoryViewRef.current?.()
+				const defaultView: StoryViewBlockV1 = {
+					version: 1,
+					type: 'view',
+					id:
+						typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+							? `view-${crypto.randomUUID()}`
+							: `view-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+					title: 'New view',
+					display: 'cue',
+					...(captured?.camera ? { camera: captured.camera } : {}),
+					...(captured?.layers ? { layers: captured.layers } : {}),
+				}
+				const parsed = parseStoryViewBlock(view ?? defaultView)
+				if (parsed.status !== 'valid') return
+				editor
+					.chain()
+					.focus()
+					.insertContent([
+						{ type: 'storyView', attrs: { value: stringifyStoryViewBlock(parsed.value) } },
+						{ type: 'paragraph' },
+					])
+					.run()
+			},
+			[disabled, editor, readOnly],
+		)
+
 		// Expose methods via ref
 		useImperativeHandle(
 			ref,
@@ -616,8 +685,9 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 						.insertContent(' ')
 						.run()
 				},
+				insertStoryView,
 			}),
-			[editor, createNameResolver],
+			[editor, createNameResolver, insertStoryView],
 		)
 
 		// Re-parse content when availableFeatures changes from empty to populated
@@ -844,6 +914,19 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 									>
 										<Crosshair className="h-3.5 w-3.5" />
 									</Button>
+									{enableStoryViews && (
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-sm"
+											className="h-7 w-7 rounded-none"
+											onClick={() => insertStoryView()}
+											disabled={disabled}
+											title="Insert Story view from the current map"
+										>
+											<MapIcon className="h-3.5 w-3.5" />
+										</Button>
+									)}
 								</div>
 							)}
 						</>

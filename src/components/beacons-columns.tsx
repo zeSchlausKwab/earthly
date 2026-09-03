@@ -74,7 +74,7 @@ function BeaconListRow({ row, context }: { row: BeaconRowData; context: BeaconCo
 			selectedClassName={isLive ? 'border-l-ok bg-ok/[0.08]' : undefined}
 			onTitleClick={() => context.onOpen(beacon)}
 			titleAriaLabel={`Open beacon ${label}`}
-			titleTitle="Open beacon"
+			titleTitle="Open live position"
 			badges={<RowBadge label={chip.label} className={chip.className} />}
 			meta={
 				<>
@@ -101,21 +101,21 @@ function BeaconListRow({ row, context }: { row: BeaconRowData; context: BeaconCo
 					{context.onAddToMapStack ? (
 						<RowActionButton
 							icon={MapPlus}
-							label="Add to map stack"
+							label="Show on map"
 							hover="hover:text-ok"
 							onClick={() => context.onAddToMapStack?.(beacon)}
 						/>
 					) : null}
 					<RowActionButton
 						icon={InspectActionIcon}
-						label="Open beacon"
+						label="Open live position"
 						hover="hover:text-ok"
 						onClick={() => context.onOpen(beacon)}
 					/>
 					{isOwner && context.onAdjust ? (
 						<RowActionButton
 							icon={LoadEditorActionIcon}
-							label="Adjust beacon"
+							label="Adjust live position"
 							onClick={() => context.onAdjust?.(beacon)}
 						/>
 					) : null}

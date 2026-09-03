@@ -8,6 +8,12 @@ import { useEditorStore } from '../store'
 import type { FeaturePopupData } from '../components/FeaturePopup'
 import type { SightingPopupData } from '../components/SightingPopup'
 import {
+	isPresentationMapLayerId,
+	presentationGeometryChoiceId,
+	readPresentationFeatureProvenance,
+	type PresentationFeatureProvenance,
+} from '../map-presentation/ids'
+import {
 	CLUSTER_CIRCLE_LAYER,
 	REMOTE_ANNOTATION_ANCHOR_LAYER,
 	REMOTE_ANNOTATION_LAYER,
@@ -15,6 +21,7 @@ import {
 	REMOTE_LINE_LAYER,
 	REMOTE_LINE_DASHED_LAYER,
 	REMOTE_LINE_DOTTED_LAYER,
+	REMOTE_POLYGON_STROKE_LAYER,
 	REMOTE_POLYGON_PROXY_LAYER,
 	REMOTE_POINT_LAYER,
 	SIGHTING_HIT_LAYER,
@@ -38,6 +45,9 @@ interface UseMapInteractionsParams {
 	onInspectSighting?: (sighting: TemporalSighting) => void
 	/** Show/clear the Sighting marker hover preview. */
 	setSightingPopupData?: (data: SightingPopupData | null) => void
+	/** Dynamic hit layers returned by `usePresentationMapLayers`. */
+	presentationLayerIds?: readonly string[]
+	presentationLayersReady?: boolean
 }
 
 export interface RemoteGeometryChoice {
@@ -49,6 +59,7 @@ export interface RemoteGeometryChoice {
 	datasetId?: string
 	sourceEventId?: string
 	bbox: [number, number, number, number]
+	presentation?: PresentationFeatureProvenance
 }
 
 export interface RemoteGeometryChoiceRequest {
@@ -69,6 +80,8 @@ export function useMapInteractions({
 	sightingsRef,
 	onInspectSighting,
 	setSightingPopupData,
+	presentationLayerIds = [],
+	presentationLayersReady = false,
 }: UseMapInteractionsParams) {
 	const viewMode = useEditorStore((state) => state.viewMode)
 	const currentMode = useEditorStore((state) => state.mode)
@@ -92,19 +105,26 @@ export function useMapInteractions({
 	)
 
 	useEffect(() => {
-		if (!mapInstance || !remoteLayersReady) return
+		if (!mapInstance || (!remoteLayersReady && !presentationLayersReady)) return
 
 		const remoteLayers = [
-			REMOTE_FILL_LAYER,
-			REMOTE_LINE_LAYER,
-			REMOTE_LINE_DASHED_LAYER,
-			REMOTE_LINE_DOTTED_LAYER,
-			REMOTE_POINT_LAYER,
-			REMOTE_POLYGON_PROXY_LAYER,
-			REMOTE_ANNOTATION_ANCHOR_LAYER,
-			REMOTE_ANNOTATION_LAYER,
-			UNCLUSTERED_POINT_LAYER,
-		]
+			...(remoteLayersReady
+				? [
+						REMOTE_FILL_LAYER,
+						REMOTE_POLYGON_STROKE_LAYER,
+						REMOTE_LINE_LAYER,
+						REMOTE_LINE_DASHED_LAYER,
+						REMOTE_LINE_DOTTED_LAYER,
+						REMOTE_POINT_LAYER,
+						REMOTE_POLYGON_PROXY_LAYER,
+						REMOTE_ANNOTATION_ANCHOR_LAYER,
+						REMOTE_ANNOTATION_LAYER,
+						UNCLUSTERED_POINT_LAYER,
+					]
+				: []),
+			...(presentationLayersReady ? presentationLayerIds : []),
+		].filter((layer, index, all) => all.indexOf(layer) === index)
+		if (remoteLayers.length === 0) return
 
 		const handleClusterClick = async (event: maplibregl.MapLayerMouseEvent) => {
 			const features = mapInstance.queryRenderedFeatures(event.point, {
@@ -153,12 +173,23 @@ export function useMapInteractions({
 			for (const renderedFeature of renderedFeatures) {
 				if (!renderedFeature.properties) continue
 				const props = renderedFeature.properties as Record<string, unknown>
+				const presentation = isPresentationMapLayerId(renderedFeature.layer.id)
+					? readPresentationFeatureProvenance(props)
+					: null
 				const sourceEventId = props.sourceEventId != null ? String(props.sourceEventId) : undefined
 				const datasetId = props.datasetId != null ? String(props.datasetId) : undefined
-				const featureIdValue = props.featureId ?? props.id ?? renderedFeature.id
+				const featureIdValue =
+					presentation?.sourceFeatureId ?? props.featureId ?? props.id ?? renderedFeature.id
 				const featureId = featureIdValue != null ? String(featureIdValue) : undefined
 				const dataset =
 					geoEventsRef.current.find((item) => item.id === sourceEventId) ??
+					(presentation
+						? geoEventsRef.current.find(
+								(item) =>
+									item.pubkey === presentation.dataAuthor &&
+									(item.datasetId ?? item.id) === datasetId,
+							)
+						: undefined) ??
 					geoEventsRef.current.find((item) => (item.datasetId ?? item.id) === datasetId)
 				const proxySourceBbox = Array.isArray(props.proxySourceBbox) ? props.proxySourceBbox : null
 				const bbox =
@@ -174,7 +205,9 @@ export function useMapInteractions({
 					sourceEventId ??
 					datasetId ??
 					(typeof props.reference === 'string' ? props.reference : 'map')
-				const id = `${subjectId}:${featureId ?? JSON.stringify(bbox)}`
+				const id = presentation
+					? presentationGeometryChoiceId(presentation)
+					: `${subjectId}:${featureId ?? JSON.stringify(bbox)}`
 				if (seen.has(id)) continue
 				seen.add(id)
 				choices.push({
@@ -186,6 +219,7 @@ export function useMapInteractions({
 					datasetId,
 					sourceEventId,
 					bbox,
+					...(presentation ? { presentation } : {}),
 				})
 			}
 
@@ -210,18 +244,30 @@ export function useMapInteractions({
 				return
 			}
 
+			const presentation = isPresentationMapLayerId(feature.layer.id)
+				? readPresentationFeatureProvenance(feature.properties)
+				: null
 			const sourceEventId = feature.properties.sourceEventId as string | undefined
 			const datasetId = feature.properties.datasetId as string | undefined
 			const featureId =
+				presentation?.sourceFeatureId ??
 				(feature.properties.featureId as string | undefined) ??
 				(feature.properties.id as string | undefined) ??
 				(feature.id != null ? String(feature.id) : undefined)
-			const hoverKey = `${sourceEventId ?? datasetId ?? 'unknown'}:${featureId ?? 'feature'}`
+			const hoverKey = presentation
+				? presentationGeometryChoiceId(presentation)
+				: `${sourceEventId ?? datasetId ?? 'unknown'}:${featureId ?? 'feature'}`
 
 			if (hoverKey === hoveredFeatureKeyRef.current) return
 
 			const dataset =
 				geoEventsRef.current.find((ev) => ev.id === sourceEventId) ??
+				(presentation
+					? geoEventsRef.current.find(
+							(ev) =>
+								ev.pubkey === presentation.dataAuthor && (ev.datasetId ?? ev.id) === datasetId,
+						)
+					: undefined) ??
 				geoEventsRef.current.find((ev) => (ev.datasetId ?? ev.id) === datasetId)
 
 			if (!dataset) {
@@ -237,6 +283,7 @@ export function useMapInteractions({
 				clickPosition: { x: event.point.x, y: event.point.y },
 				isOwner: currentUserPubkey === dataset.pubkey,
 				datasetName: getDatasetName(dataset),
+				...(presentation ? { presentation } : {}),
 			})
 		}
 
@@ -322,9 +369,9 @@ export function useMapInteractions({
 			setSightingPopupData?.(null)
 		}
 
+		mapInstance.on('click', handleMapDatasetClick)
 		for (const layer of remoteLayers) {
 			if (mapInstance.getLayer(layer)) {
-				mapInstance.on('click', layer, handleMapDatasetClick)
 				mapInstance.on('mousemove', layer, handleMapDatasetHover)
 				mapInstance.on('mouseenter', layer, handleMouseEnter)
 				mapInstance.on('mouseleave', layer, handleMouseLeave)
@@ -347,9 +394,9 @@ export function useMapInteractions({
 		}
 
 		return () => {
+			mapInstance.off('click', handleMapDatasetClick)
 			for (const layer of remoteLayers) {
 				try {
-					mapInstance.off('click', layer, handleMapDatasetClick)
 					mapInstance.off('mousemove', layer, handleMapDatasetHover)
 					mapInstance.off('mouseenter', layer, handleMouseEnter)
 					mapInstance.off('mouseleave', layer, handleMouseLeave)
@@ -387,6 +434,8 @@ export function useMapInteractions({
 		sightingsRef,
 		onInspectSighting,
 		setSightingPopupData,
+		presentationLayerIds,
+		presentationLayersReady,
 	])
 
 	return { chooseRemoteGeometry }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import type { MapStackEntry } from './store'
-import { datasetReferenceEntryId, deriveReferenceMapRenderState } from './referenceMapStack'
+import {
+	datasetReferenceEntryId,
+	deriveReferenceMapRenderState,
+	featureMatchesReferenceSelector,
+} from './referenceMapStack'
 
 function entry(overrides: Partial<MapStackEntry>): MapStackEntry {
 	return {
@@ -42,6 +46,19 @@ describe('fine-grained reference map stack', () => {
 			entry({ id: 'whole', featureIds: undefined }),
 		])
 		expect(state.datasetFeatureSelectors['owner:data']).toBeNull()
+	})
+
+	it('delegates feature matching to the canonical source-feature identity rule', () => {
+		expect(
+			featureMatchesReferenceSelector(
+				{
+					type: 'Feature',
+					properties: { featureId: 'editor-id', id: 'fallback-id' },
+					geometry: { type: 'Point', coordinates: [0, 0] },
+				},
+				['editor-id'],
+			),
+		).toBe(true)
 	})
 
 	it('derives a single coordinate pin and honors isolation', () => {

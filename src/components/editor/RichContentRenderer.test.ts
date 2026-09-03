@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { GeoFeatureItem } from './GeoRichTextEditor'
 import { parseInlineTokens, RichContentRenderer } from './RichContentRenderer'
+import { stringifyStoryViewMarkdownBlock } from '@/lib/map-presentation'
 
 const NADDR = 'naddr1qqxnzd3exgmrsvfkxymnyd3jqgsxyz9'
 const OTHER_NADDR = 'naddr1zzz8kwvfexgmrsvfkxymnyd3jqgsabc2'
@@ -23,8 +24,11 @@ const availableFeatures: GeoFeatureItem[] = [
 	},
 ]
 
-function mentions(tokens: ReturnType<typeof parseInlineTokens>) {
-	return tokens.filter((token) => token.type === 'mention')
+type ParsedInlineToken = ReturnType<typeof parseInlineTokens>[number]
+type MentionToken = Extract<ParsedInlineToken, { type: 'mention' }>
+
+function mentions(tokens: ReturnType<typeof parseInlineTokens>): MentionToken[] {
+	return tokens.filter((token): token is MentionToken => token.type === 'mention')
 }
 
 function textOf(tokens: ReturnType<typeof parseInlineTokens>) {
@@ -38,7 +42,7 @@ describe('parseInlineTokens nostr:naddr references', () => {
 	test('bare reference in prose becomes a mention token', () => {
 		const tokens = parseInlineTokens(`See nostr:${NADDR} for details`, availableFeatures)
 		const [mention] = mentions(tokens)
-		expect(mention).toBeDefined()
+		if (!mention) throw new Error('expected mention')
 		expect(mention.address).toBe(NADDR)
 		expect(mention.featureId).toBeUndefined()
 		expect(mention.displayName).toBe('Anchorage Lanes')
@@ -74,7 +78,7 @@ describe('parseInlineTokens nostr:naddr references', () => {
 			availableFeatures,
 		)
 		const [mention] = mentions(tokens)
-		expect(mention).toBeDefined()
+		if (!mention) throw new Error('expected mention')
 		expect(mention.address).toBe(NADDR)
 		expect(mention.displayName).toBe('Anchorage lanes')
 		// No leftover markdown syntax around the pill
@@ -103,8 +107,8 @@ describe('parseInlineTokens nostr:naddr references', () => {
 		expect(emphasis).toBeDefined()
 		const nested = mentions(emphasis?.children ?? [])
 		expect(nested).toHaveLength(1)
-		expect(nested[0].address).toBe(NADDR)
-		expect(nested[0].displayName).toBe('Anchorage Lanes')
+		expect(nested[0]?.address).toBe(NADDR)
+		expect(nested[0]?.displayName).toBe('Anchorage Lanes')
 	})
 
 	test('reference inside strong renders a mention nested in the strong token', () => {
@@ -113,7 +117,7 @@ describe('parseInlineTokens nostr:naddr references', () => {
 		expect(strong).toBeDefined()
 		const nested = mentions(strong?.children ?? [])
 		expect(nested).toHaveLength(1)
-		expect(nested[0].featureId).toBe('feat-12')
+		expect(nested[0]?.featureId).toBe('feat-12')
 	})
 
 	test('markdown link with nostr target inside emphasis', () => {
@@ -121,7 +125,7 @@ describe('parseInlineTokens nostr:naddr references', () => {
 		const emphasis = tokens.find((token) => token.type === 'emphasis')
 		const nested = mentions(emphasis?.children ?? [])
 		expect(nested).toHaveLength(1)
-		expect(nested[0].displayName).toBe('Anchorage lanes')
+		expect(nested[0]?.displayName).toBe('Anchorage lanes')
 	})
 
 	test('unresolved reference still becomes a mention with a generic label', () => {
@@ -212,5 +216,60 @@ describe('RichContentRenderer tables', () => {
 		expect(html).toContain('<strong')
 		expect(html).toContain('Lane Three')
 		expect(html).not.toContain(':---')
+	})
+})
+
+describe('RichContentRenderer Story views', () => {
+	test('renders cue and figure blocks physically while leaving malformed blocks inert', () => {
+		const cue = stringifyStoryViewMarkdownBlock({
+			version: 1,
+			type: 'view',
+			id: 'verdun',
+			title: 'Verdun and the Somme',
+			display: 'cue',
+			camera: { center: [3.9, 49.7], zoom: 6.6 },
+		})
+		const figure = stringifyStoryViewMarkdownBlock({
+			version: 1,
+			type: 'view',
+			id: 'armistice',
+			title: 'Armistice',
+			display: 'figure',
+			caption: 'The line on 11 November 1918.',
+		})
+		const html = renderToStaticMarkup(
+			createElement(RichContentRenderer, {
+				content: ['Before', cue, figure, '```earthly-view', 'not-json', '```'].join('\n\n'),
+				renderStoryViewFigure: (view) => createElement('div', null, `figure:${view.id}`),
+			}),
+		)
+
+		expect(html).toContain('data-story-view-id="verdun"')
+		expect(html).toContain('Moves the camera')
+		expect(html).toContain('data-story-view-id="armistice"')
+		expect(html).toContain('figure:armistice')
+		expect(html).toContain('The line on 11 November 1918.')
+		expect(html).toContain('not-json')
+	})
+
+	test('never activates an unclosed view fence or a nested example', () => {
+		const viewJson = JSON.stringify({
+			version: 1,
+			type: 'view',
+			id: 'example-only',
+			title: 'Example only',
+			display: 'cue',
+		})
+		const html = renderToStaticMarkup(
+			createElement(RichContentRenderer, {
+				content: [
+					`\`\`\`\`markdown\n\`\`\`earthly-view\n${viewJson}\n\`\`\`\n\`\`\`\``,
+					`\`\`\`earthly-view\n${viewJson}`,
+				].join('\n\n'),
+			}),
+		)
+
+		expect(html).not.toContain('data-story-view-id="example-only"')
+		expect(html).toContain('Example only')
 	})
 })

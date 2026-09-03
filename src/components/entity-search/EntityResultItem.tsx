@@ -1,4 +1,4 @@
-import { BookOpen, Database, Eye, Globe, MapPin, RadioTower } from 'lucide-react'
+import { BookOpen, Database, Eye, Globe, MapPin, RadioTower, UserRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { EntitySearchResult, EntityType } from './types'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,8 @@ const TYPE_ICONS: Record<EntityType, typeof Database> = {
 	story: BookOpen,
 	beacon: RadioTower,
 	sighting: Eye,
+	person: UserRound,
+	place: MapPin,
 }
 
 const TYPE_COLORS: Record<EntityType, string> = {
@@ -19,6 +21,8 @@ const TYPE_COLORS: Record<EntityType, string> = {
 	story: 'text-info',
 	beacon: 'text-ok',
 	sighting: 'text-edit',
+	person: 'text-primary',
+	place: 'text-info',
 }
 
 interface EntityResultItemProps {

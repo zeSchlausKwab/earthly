@@ -139,12 +139,18 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 			// (audit P1 #6). In-app navigations skip this (syncMobileTab unset):
 			// their handlers own the tab (e.g. the `edit` overlay during inspect).
 			const mobileTab = options?.syncMobileTab ? viewToMobileTab(route.sidebarView) : null
+			const mobileThreadOpen = route.tab === 'thread' && (hasFocus || editingGeometry)
 			const mobileSurface = mobileTab
 				? hasFocus || inContextEditor || isMobileMapSurfaceTab(mobileTab)
 					? {
-							mobilePanelTab: hasFocus ? ('edit' as const) : mobileTab,
+							mobilePanelTab: mobileThreadOpen
+								? ('chat' as const)
+								: hasFocus
+									? ('edit' as const)
+									: mobileTab,
 							mobilePanelOpen: true,
-							mobilePanelSnap: mobileTab === 'chat' ? ('full' as const) : ('half' as const),
+							mobilePanelSnap:
+								mobileThreadOpen || mobileTab === 'chat' ? ('full' as const) : ('half' as const),
 							mobileSidebarOpen: false,
 							mobilePanelResumeOnSidebarClose: null,
 						}

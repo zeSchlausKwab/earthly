@@ -10,6 +10,7 @@ import {
 	InspectActionIcon,
 	LoadEditorActionIcon,
 	MapStackActionIcon,
+	ProposalActionIcon,
 	ZoomActionIcon,
 } from './entity-action-icons'
 import { GlyphTile, ListRow, RowActionButton } from './entity-list'
@@ -18,6 +19,7 @@ import { UserProfile } from './user-profile'
 import { useEditorStore } from '../features/geo-editor/store'
 import { GeoSocialActions } from '../features/social/comments/GeoSocialActions'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
+import { getMapEditPresentation } from './info-panel/mapProposalPresentation'
 
 export interface DatasetRowData {
 	event: GeoDataset
@@ -33,6 +35,7 @@ export interface DatasetRowData {
 }
 
 export interface DatasetColumnsContext {
+	currentUserPubkey?: string
 	onLoadDataset: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onToggleVisibility: (event: GeoDataset) => void
@@ -130,6 +133,10 @@ export const createDatasetColumns = (
 				isCatalogPinned,
 				isVisible,
 			} = row.original
+			const isOwner = context.currentUserPubkey
+				? event.pubkey === context.currentUserPubkey
+				: isOwned
+			const editPresentation = getMapEditPresentation(isOwner)
 
 			const handleDragStart = (e: React.DragEvent<HTMLButtonElement>) => {
 				const datasetId = event.datasetId ?? event.dTag
@@ -151,7 +158,7 @@ export const createDatasetColumns = (
 					name: datasetName,
 					address: naddr,
 					datasetName,
-					geometryType: 'Dataset',
+					geometryType: 'Map',
 				}
 
 				e.dataTransfer.setData('application/geo-feature', JSON.stringify(item))
@@ -174,11 +181,9 @@ export const createDatasetColumns = (
 						context.onZoomToDataset(event)
 					}}
 					titleAriaLabel={
-						isInMapStack
-							? `Zoom to dataset ${datasetName}`
-							: `Show and zoom to dataset ${datasetName}`
+						isInMapStack ? `Zoom to map ${datasetName}` : `Show and zoom to map ${datasetName}`
 					}
-					titleTitle={isInMapStack ? 'Zoom to dataset' : 'Show on map and zoom'}
+					titleTitle={isInMapStack ? 'Zoom to map' : 'Show on map and zoom'}
 					meta={
 						<UserProfile
 							pubkey={event.pubkey}
@@ -206,7 +211,7 @@ export const createDatasetColumns = (
 							{context.onAddDatasetToMap ? (
 								<RowActionButton
 									icon={MapStackActionIcon}
-									label={isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
+									label={isInMapStack ? 'Remove from Shelf' : 'Add to Shelf'}
 									hover="hover:text-ok"
 									active={isInMapStack}
 									activeClassName="text-ok hover:text-ok"
@@ -221,20 +226,20 @@ export const createDatasetColumns = (
 							) : null}
 							<RowActionButton
 								icon={ZoomActionIcon}
-								label="Zoom to dataset"
+								label="Zoom to map"
 								onClick={() => context.onZoomToDataset(event)}
 							/>
 							{context.onInspectDataset ? (
 								<RowActionButton
 									icon={InspectActionIcon}
-									label="Inspect dataset"
+									label="Open Map details"
 									hover="hover:text-ok"
 									onClick={() => context.onInspectDataset?.(event)}
 								/>
 							) : null}
 							<RowActionButton
-								icon={LoadEditorActionIcon}
-								label={isActive ? 'Loaded in editor' : 'Load into editor'}
+								icon={isOwner ? LoadEditorActionIcon : ProposalActionIcon}
+								label={editPresentation.actionLabel}
 								hover="hover:text-ok"
 								disabled={context.isPublishing}
 								onClick={() => context.onLoadDataset(event)}
@@ -265,9 +270,9 @@ export const createDatasetColumns = (
 									onClick={() => context.onOpenDebug?.(event)}
 								/>
 							) : null}
-							{isOwned ? (
+							{isOwner ? (
 								<ConfirmDeleteAction
-									label="Dataset"
+									label="Map"
 									isDeleting={context.deletingKey === datasetKey}
 									onConfirm={() => context.onDeleteDataset(event)}
 								/>

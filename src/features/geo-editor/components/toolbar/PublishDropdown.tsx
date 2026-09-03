@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { ChevronDown, CopyPlus, GitPullRequest, Info, RefreshCw, UploadCloud } from 'lucide-react'
+import {
+	ChevronDown,
+	CopyPlus,
+	GitPullRequest,
+	Info,
+	MapPinned,
+	RefreshCw,
+	TriangleAlert,
+	UploadCloud,
+} from 'lucide-react'
 import { GeoRichTextEditor } from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import {
@@ -7,10 +16,20 @@ import {
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import type { PublishChannel } from '../../store/types'
+import type { ResolvedAuthoringDestination } from '../authoringDestination'
+
+export interface PublishAudienceOption {
+	id: string
+	label: string
+	publishChannel: PublishChannel
+}
 
 export interface PublishDropdownProps {
 	canPublishNew?: boolean
@@ -23,6 +42,12 @@ export interface PublishDropdownProps {
 	onPublishCopy?: () => void
 	onProposeEdit?: (description: string) => void
 	publishMode?: 'public' | 'private' | 'field'
+	publishingScope?: ResolvedAuthoringDestination
+	audienceOptions?: readonly PublishAudienceOption[]
+	selectedAudienceId?: string
+	onAudienceChange?: (publishChannel: PublishChannel) => void
+	onOpenPublishingScope?: () => void
+	onLeavePublishingScope?: () => void
 	small?: boolean
 }
 
@@ -37,6 +62,12 @@ export function PublishDropdown({
 	onPublishCopy,
 	onProposeEdit,
 	publishMode = 'public',
+	publishingScope,
+	audienceOptions = [],
+	selectedAudienceId,
+	onAudienceChange,
+	onOpenPublishingScope,
+	onLeavePublishingScope,
 	small,
 }: PublishDropdownProps) {
 	const [open, setOpen] = useState(false)
@@ -56,12 +87,32 @@ export function PublishDropdown({
 	// Determine primary action based on state
 	const hasPrimaryAction = canPublishUpdate || canPublishNew
 	const primaryIcon = canPublishUpdate ? RefreshCw : UploadCloud
-	const primaryLabel = canPublishUpdate ? 'Update' : workspaceMode ? 'Save' : 'Publish'
+	const primaryLabel = canPublishUpdate
+		? 'Update'
+		: canPublishNew
+			? workspaceMode
+				? 'Save'
+				: 'Publish'
+			: 'Audience'
 	const primaryAction = canPublishUpdate ? onPublishUpdate : onPublishNew
 	const PrimaryIcon = primaryIcon
+	const hasAudienceMenu = audienceOptions.length > 0 && Boolean(onAudienceChange)
+	const hasScopeMenu = Boolean(publishingScope)
+	const canOpenScope =
+		Boolean(onOpenPublishingScope) && publishingScope?.kind !== 'public-unattached'
+	const canRemoveAtlas =
+		publishingScope?.kind === 'public-context' &&
+		publishingScope.canLeave &&
+		Boolean(onLeavePublishingScope)
 
 	// If no actions available, show disabled button
-	if (!hasPrimaryAction && !canPublishCopy && !canProposeEdit) {
+	if (
+		!hasPrimaryAction &&
+		!canPublishCopy &&
+		!canProposeEdit &&
+		!hasAudienceMenu &&
+		!hasScopeMenu
+	) {
 		return (
 			<TooltipProvider delayDuration={500}>
 				<Tooltip>
@@ -83,11 +134,16 @@ export function PublishDropdown({
 		)
 	}
 
-	// User can only fork/propose — they're editing someone else's dataset
+	// User can only fork/propose — they're editing someone else's Map.
 	const viewingOnly = !hasPrimaryAction && (canPublishCopy || canProposeEdit)
 
 	// Show dropdown if fork is also available
-	const showDropdown = canPublishCopy || canProposeEdit || (canPublishUpdate && canPublishNew)
+	const showDropdown =
+		canPublishCopy ||
+		canProposeEdit ||
+		(canPublishUpdate && canPublishNew) ||
+		hasAudienceMenu ||
+		hasScopeMenu
 
 	if (!showDropdown) {
 		return (
@@ -106,11 +162,7 @@ export function PublishDropdown({
 						</Button>
 					</TooltipTrigger>
 					<TooltipContent side="bottom" sideOffset={8}>
-						<p>
-							{workspaceMode
-								? `${primaryLabel} ${workspaceLabel} dataset`
-								: `${primaryLabel} dataset`}
-						</p>
+						<p>{workspaceMode ? `${primaryLabel} ${workspaceLabel} Map` : `${primaryLabel} Map`}</p>
 					</TooltipContent>
 				</Tooltip>
 			</TooltipProvider>
@@ -152,7 +204,7 @@ export function PublishDropdown({
 					<TooltipContent side="bottom" sideOffset={8}>
 						<p>
 							{viewingOnly
-								? "You're editing someone else's dataset"
+								? "You're editing someone else's Map"
 								: workspaceMode
 									? publishMode === 'private'
 										? 'Private save options'
@@ -161,14 +213,14 @@ export function PublishDropdown({
 						</p>
 					</TooltipContent>
 				</Tooltip>
-				<DropdownMenuContent align="end" className="max-w-[280px]">
+				<DropdownMenuContent align="end" className="max-w-[280px] rounded-none">
 					{viewingOnly && (
 						<>
 							<div className="flex items-start gap-2 px-3 py-2 text-xs text-muted-foreground">
 								<Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 								<span>
-									You're editing someone else's dataset. You can fork it as your own or propose
-									changes to the owner.
+									You're editing someone else's Map. You can fork it as your own or propose changes
+									to the owner.
 								</span>
 							</div>
 							<DropdownMenuSeparator />
@@ -178,19 +230,19 @@ export function PublishDropdown({
 						<DropdownMenuItem onClick={onPublishNew}>
 							<UploadCloud className="h-4 w-4" />
 							{publishMode === 'private'
-								? 'Save new private dataset'
+								? 'Save new private Map'
 								: publishMode === 'field'
-									? 'Save new nearby dataset'
-									: 'Publish new dataset'}
+									? 'Save new nearby Map'
+									: 'Publish new Map'}
 						</DropdownMenuItem>
 					)}
 					{canPublishUpdate && (
 						<DropdownMenuItem onClick={onPublishUpdate}>
 							<RefreshCw className="h-4 w-4" />
 							{publishMode === 'private'
-								? 'Update private dataset'
+								? 'Update private Map'
 								: publishMode === 'field'
-									? 'Update nearby dataset'
+									? 'Update nearby Map'
 									: 'Update existing'}
 						</DropdownMenuItem>
 					)}
@@ -200,10 +252,10 @@ export function PublishDropdown({
 							<DropdownMenuItem onClick={onPublishCopy}>
 								<CopyPlus className="h-4 w-4" />
 								{publishMode === 'private'
-									? 'Save as new private dataset'
+									? 'Save as new private Map'
 									: publishMode === 'field'
-										? 'Save as new nearby dataset'
-										: 'Fork as new dataset'}
+										? 'Save as new nearby Map'
+										: 'Fork as new Map'}
 							</DropdownMenuItem>
 						</>
 					)}
@@ -261,6 +313,55 @@ export function PublishDropdown({
 							)}
 						</>
 					)}
+					{hasAudienceMenu ? (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuLabel>Audience</DropdownMenuLabel>
+							<DropdownMenuRadioGroup
+								value={selectedAudienceId}
+								onValueChange={(nextId) => {
+									const option = audienceOptions.find((candidate) => candidate.id === nextId)
+									if (option) onAudienceChange?.(option.publishChannel)
+								}}
+							>
+								{audienceOptions.map((option) => (
+									<DropdownMenuRadioItem key={option.id} value={option.id}>
+										{option.label}
+									</DropdownMenuRadioItem>
+								))}
+							</DropdownMenuRadioGroup>
+						</>
+					) : null}
+					{publishingScope?.availability === 'unavailable' ? (
+						<div className="flex items-start gap-2 px-2 py-2 text-xs text-amber-700 dark:text-amber-300">
+							<TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+							<span>{publishingScope.accessibleLabel}</span>
+						</div>
+					) : null}
+					{publishingScope?.kind === 'public-context' ? (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuLabel>Belonging</DropdownMenuLabel>
+							{canOpenScope ? (
+								<DropdownMenuItem onClick={onOpenPublishingScope}>
+									<MapPinned className="size-4" aria-hidden="true" />
+									Open Atlas: {publishingScope.detailLabel}
+								</DropdownMenuItem>
+							) : null}
+							{canRemoveAtlas ? (
+								<DropdownMenuItem onClick={onLeavePublishingScope}>
+									Remove from Atlas
+								</DropdownMenuItem>
+							) : null}
+						</>
+					) : canOpenScope && publishingScope ? (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem onClick={onOpenPublishingScope}>
+								Open {publishingScope.channelLabel}: {publishingScope.detailLabel}
+							</DropdownMenuItem>
+						</>
+					) : null}
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</TooltipProvider>

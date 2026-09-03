@@ -29,14 +29,7 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import {
-	ARTICLE_KIND,
-	GEO_COMMENT_KIND,
-	GEO_EVENT_KIND,
-	LIVE_BEACON_KIND,
-	MAP_CONTEXT_KIND,
-	TEMPORAL_SIGHTING_KIND,
-} from '@/lib/nostr/kinds'
+import { GEO_COMMENT_KIND } from '@/lib/nostr/kinds'
 import { accounts, eventStore } from '@/lib/nostr'
 import { useTimeline } from '@/lib/nostr/hooks'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
@@ -48,6 +41,7 @@ import { sendNutzap, useWallet } from '@/lib/wallet'
 import { useNwcConnection } from '@/features/wallet/hooks/useNwcConnection'
 import { zapReceiptDeliveryRelays, zapReceiptWatchRelays } from '../zap/receiptRelays'
 import { useZapDialogStore } from '../zap/store'
+import { getEntityShareRouteSegment } from '@/router/entityShareRoute'
 
 interface GeoSocialActionsProps {
 	/** Any Nostr event that can receive reactions */
@@ -63,25 +57,6 @@ interface GeoSocialActionsProps {
 	className?: string
 	compact?: boolean
 	loadCounts?: boolean
-}
-
-function getEntitySharePath(
-	kind: number,
-): 'geoevent' | 'context' | 'story' | 'sighting' | 'beacon' | null {
-	switch (kind) {
-		case GEO_EVENT_KIND:
-			return 'geoevent'
-		case MAP_CONTEXT_KIND:
-			return 'context'
-		case ARTICLE_KIND:
-			return 'story'
-		case TEMPORAL_SIGHTING_KIND:
-			return 'sighting'
-		case LIVE_BEACON_KIND:
-			return 'beacon'
-		default:
-			return null
-	}
 }
 
 const COMMON_ZAP_AMOUNTS = [10, 21, 100, 210, 500, 1000] as const
@@ -689,7 +664,7 @@ function buildSharePath(target: ReactableEvent): string | null {
 		const identifier = identifierParts.join(':')
 		if (!Number.isFinite(rootKind) || !pubkey || !identifier) return null
 
-		const sharePath = getEntitySharePath(rootKind)
+		const sharePath = getEntityShareRouteSegment(rootKind)
 		if (!sharePath) return null
 
 		const naddr = nip19.naddrEncode({
@@ -709,7 +684,7 @@ function buildSharePath(target: ReactableEvent): string | null {
 	const identifier = targetWithDTag.dTag ?? targetWithDTag.datasetId ?? targetWithDTag.contextId
 	if (!identifier) return null
 
-	const sharePath = getEntitySharePath(target.kind)
+	const sharePath = getEntityShareRouteSegment(target.kind)
 	if (!sharePath) return null
 
 	const naddr = nip19.naddrEncode({

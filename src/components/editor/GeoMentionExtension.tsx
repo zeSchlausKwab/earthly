@@ -1,6 +1,7 @@
 import { mergeAttributes, Node } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from '@tiptap/react'
 import {
+	Camera,
 	ExternalLink,
 	Eye,
 	EyeOff,
@@ -11,7 +12,9 @@ import {
 	Map as MapIcon,
 	MapPin,
 	Maximize2,
+	Play,
 	Shapes,
+	Trash2,
 } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { useState } from 'react'
@@ -23,6 +26,14 @@ import {
 } from '@/lib/geo/reference'
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
 import { ARTICLE_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
+import {
+	parseStoryMarkdown,
+	parseStoryViewBlock,
+	stringifyStoryViewBlock,
+	stringifyStoryViewMarkdownBlock,
+	type StoryViewBlockV1,
+	type StoryViewLayerPatchV1,
+} from '@/lib/map-presentation'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
@@ -289,8 +300,202 @@ export const GeoMentionNode = Node.create<GeoMentionNodeOptions>({
 	},
 })
 
+export interface StoryViewCapture {
+	camera?: StoryViewBlockV1['camera']
+	layers?: Readonly<Record<string, StoryViewLayerPatchV1>>
+}
+
+export interface StoryViewNodeCallbacks {
+	onCapture?: () => StoryViewCapture | null | undefined
+	onActivate?: (view: StoryViewBlockV1) => void
+}
+
+export interface StoryViewNodeOptions {
+	callbacks?: StoryViewNodeCallbacks
+}
+
+function readStoryViewAttr(value: unknown): StoryViewBlockV1 | null {
+	if (typeof value !== 'string') return null
+	try {
+		const parsed = parseStoryViewBlock(JSON.parse(value))
+		return parsed.status === 'valid' ? parsed.value : null
+	} catch {
+		return null
+	}
+}
+
+function StoryViewNodeView({ node, deleteNode, editor, updateAttributes }: NodeViewProps) {
+	const view = readStoryViewAttr(node.attrs.value)
+	if (!view) return null
+	const extension = editor.extensionManager.extensions.find((entry) => entry.name === 'storyView')
+	const callbacks = (extension?.storage?.callbacks ?? extension?.options?.callbacks) as
+		| StoryViewNodeCallbacks
+		| undefined
+	const updateView = (patch: Partial<StoryViewBlockV1>) => {
+		const candidate = { ...view, ...patch }
+		const parsed = parseStoryViewBlock(candidate)
+		if (parsed.status !== 'valid') return
+		updateAttributes({ value: stringifyStoryViewBlock(parsed.value) })
+	}
+	const updateCaption = (caption: string) => {
+		const { caption: _caption, ...withoutCaption } = view
+		const candidate = caption.trim() ? { ...withoutCaption, caption } : withoutCaption
+		const parsed = parseStoryViewBlock(candidate)
+		if (parsed.status !== 'valid') return
+		updateAttributes({ value: stringifyStoryViewBlock(parsed.value) })
+	}
+	const layerPatchCount = Object.keys(view.layers ?? {}).length
+
+	return (
+		<NodeViewWrapper
+			as="section"
+			className="my-2 border border-primary/40 bg-primary/5 p-3"
+			data-story-view=""
+			contentEditable={false}
+		>
+			<div className="flex items-start gap-2">
+				<div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center border border-primary/30 bg-background text-primary">
+					<MapIcon className="h-4 w-4" />
+				</div>
+				<div className="min-w-0 flex-1 space-y-2">
+					<div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem]">
+						<label className="space-y-1">
+							<span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+								View title
+							</span>
+							<input
+								value={view.title}
+								disabled={!editor.isEditable}
+								onChange={(event) => updateView({ title: event.target.value || 'Untitled view' })}
+								className="h-8 w-full border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-70"
+							/>
+						</label>
+						<label className="space-y-1">
+							<span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+								Display
+							</span>
+							<select
+								value={view.display}
+								disabled={!editor.isEditable}
+								onChange={(event) =>
+									updateView({ display: event.target.value as StoryViewBlockV1['display'] })
+								}
+								className="h-8 w-full border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-70"
+							>
+								<option value="cue">Main map</option>
+								<option value="figure">Figure</option>
+								<option value="both">Both</option>
+							</select>
+						</label>
+					</div>
+					<label className="space-y-1">
+						<span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+							Caption
+						</span>
+						<input
+							value={view.caption ?? ''}
+							disabled={!editor.isEditable}
+							onChange={(event) => updateCaption(event.target.value)}
+							placeholder="Optional figure caption"
+							className="h-8 w-full border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-70"
+						/>
+					</label>
+					<div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+						<span className="inline-flex items-center gap-1">
+							<Camera className="h-3 w-3" />
+							{view.camera ? `Zoom ${view.camera.zoom.toFixed(1)}` : 'Camera inherited'}
+						</span>
+						<span className="inline-flex items-center gap-1">
+							<Layers3 className="h-3 w-3" />
+							{layerPatchCount} layer change{layerPatchCount === 1 ? '' : 's'}
+						</span>
+					</div>
+					<div className="flex flex-wrap items-center gap-2">
+						{callbacks?.onCapture && editor.isEditable && (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-7 gap-1 rounded-none px-2 text-[10px]"
+								onClick={() => {
+									const captured = callbacks.onCapture?.()
+									if (!captured) return
+									updateView({
+										...(captured.camera ? { camera: captured.camera } : {}),
+										...(captured.layers ? { layers: captured.layers } : {}),
+									})
+								}}
+							>
+								<Camera className="h-3 w-3" />
+								Capture current map
+							</Button>
+						)}
+						{callbacks?.onActivate && (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-7 gap-1 rounded-none px-2 text-[10px]"
+								onClick={() => callbacks.onActivate?.(view)}
+							>
+								<Play className="h-3 w-3" />
+								Apply view
+							</Button>
+						)}
+					</div>
+				</div>
+				{editor.isEditable && (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						className="h-7 w-7 flex-shrink-0 rounded-none text-muted-foreground hover:text-destructive"
+						onClick={deleteNode}
+						aria-label="Remove Story view"
+					>
+						<Trash2 className="h-3.5 w-3.5" />
+					</Button>
+				)}
+			</div>
+		</NodeViewWrapper>
+	)
+}
+
+/** Physical block node for canonical fenced `earthly-view` JSON. */
+export const StoryViewNode = Node.create<StoryViewNodeOptions>({
+	name: 'storyView',
+	group: 'block',
+	atom: true,
+	selectable: true,
+	draggable: true,
+
+	addOptions() {
+		return { callbacks: undefined }
+	},
+
+	addStorage() {
+		return { callbacks: this.options.callbacks }
+	},
+
+	addAttributes() {
+		return { value: { default: null } }
+	},
+
+	parseHTML() {
+		return [{ tag: 'section[data-story-view]' }]
+	},
+
+	renderHTML({ HTMLAttributes }) {
+		return ['section', mergeAttributes(HTMLAttributes, { 'data-story-view': '' })]
+	},
+
+	addNodeView() {
+		return ReactNodeViewRenderer(StoryViewNodeView)
+	},
+})
+
 /** TipTap JSON node structure */
-interface TipTapNode {
+export interface TipTapNode {
 	type: string
 	content?: TipTapNode[]
 	text?: string
@@ -306,9 +511,9 @@ function resolveMentionDisplayName(
 		return `Feature: ${featureId}`
 	}
 	if (nameResolver) {
-		return nameResolver(address) ?? 'Dataset'
+		return nameResolver(address) ?? 'Map'
 	}
-	return 'Dataset'
+	return 'Map'
 }
 
 function parseInlineContent(
@@ -385,6 +590,11 @@ export function serializeToText(json: TipTapNode | null): string {
 			return reference ? stringifyGeoReference(reference) : address
 		}
 
+		if (node.type === 'storyView') {
+			const view = readStoryViewAttr(node.attrs?.value)
+			return view ? stringifyStoryViewMarkdownBlock(view) : ''
+		}
+
 		if (node.type === 'paragraph') {
 			const content = node.content?.map(processNode).join('') || ''
 			return content
@@ -414,13 +624,49 @@ export function parseFromText(
 	text: string,
 	nameResolver?: (address: string) => string | undefined,
 ): TipTapNode {
-	const paragraphs = text.length > 0 ? text.split('\n') : ['']
+	const lines = text.length > 0 ? text.split('\n') : ['']
+	const validViewsByLine = new Map<
+		number,
+		{ readonly endLine: number; readonly view: StoryViewBlockV1 }
+	>()
+	const opaqueViewLineRanges: Array<{ readonly startLine: number; readonly endLine: number }> = []
+	for (const occurrence of parseStoryMarkdown(text).views) {
+		const startLine = text.slice(0, occurrence.start).split('\n').length - 1
+		const endLine = text.slice(0, occurrence.end).split('\n').length - 1
+		if (occurrence.result.status === 'valid') {
+			validViewsByLine.set(startLine, { endLine, view: occurrence.result.value })
+		} else {
+			opaqueViewLineRanges.push({ startLine, endLine })
+		}
+	}
+
+	const content: TipTapNode[] = []
+	for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+		const physicalView = validViewsByLine.get(lineIndex)
+		if (physicalView) {
+			content.push({
+				type: 'storyView',
+				attrs: { value: stringifyStoryViewBlock(physicalView.view) },
+			})
+			lineIndex = physicalView.endLine
+			continue
+		}
+		const paragraph = lines[lineIndex] ?? ''
+		const isOpaqueViewSource = opaqueViewLineRanges.some(
+			(range) => lineIndex >= range.startLine && lineIndex <= range.endLine,
+		)
+		content.push({
+			type: 'paragraph',
+			content: isOpaqueViewSource
+				? paragraph
+					? [{ type: 'text', text: paragraph }]
+					: undefined
+				: parseInlineContent(paragraph, nameResolver),
+		})
+	}
 
 	return {
 		type: 'doc',
-		content: paragraphs.map((paragraph) => ({
-			type: 'paragraph',
-			content: parseInlineContent(paragraph, nameResolver),
-		})),
+		content,
 	}
 }

@@ -56,6 +56,7 @@ export type InspectionSubject =
 export interface RouteSnapshot {
 	sidebarView: SidebarViewMode
 	focusType: 'none' | 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon'
+	tab?: 'details' | 'comments' | 'thread'
 	naddr?: string
 	contextNaddr?: string
 	contextCoordinate?: string

@@ -76,7 +76,7 @@ function GovernanceBadge({ governance }: { governance: GroupGovernance }) {
 export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<GroupRowData>[] => [
 	{
 		accessorKey: 'groupName',
-		header: 'Context',
+		header: 'Atlas',
 		cell: ({ row }) => {
 			const {
 				group,
@@ -157,12 +157,8 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 													row.original.isInMapStack ? 'text-ok hover:text-ok' : 'hover:text-ok',
 												)}
 												onClick={() => context.onToggleGroupOnMap?.(group)}
-												aria-label={
-													row.original.isInMapStack ? 'Remove from map stack' : 'Add to map stack'
-												}
-												title={
-													row.original.isInMapStack ? 'Remove from map stack' : 'Add to map stack'
-												}
+												aria-label={row.original.isInMapStack ? 'Remove from Shelf' : 'Show on map'}
+												title={row.original.isInMapStack ? 'Remove from Shelf' : 'Show on map'}
 											>
 												<MapStackActionIcon className="h-4 w-4" />
 											</Button>
@@ -172,8 +168,8 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 											variant="ghost"
 											className={cn(actionButtonClass, 'hover:text-ok')}
 											onClick={() => context.onInspectGroup?.(group)}
-											aria-label="Inspect Context"
-											title="Inspect Context"
+											aria-label="Open Atlas details"
+											title="Open Atlas details"
 										>
 											<InspectActionIcon className="h-4 w-4" />
 										</Button>

@@ -562,8 +562,8 @@ export function SavedRegionsSection() {
 					<span>
 						<span className="block text-xs font-semibold">Include Earthly content</span>
 						<span className="block text-[10px] leading-relaxed text-muted-foreground">
-							Keep the datasets, groups, stories, sightings, comments, and contributor names
-							currently loaded for this area.
+							Keep the Maps, Atlases, Stories, Sightings, comments, and contributor names currently
+							loaded for this area.
 						</span>
 					</span>
 				</label>

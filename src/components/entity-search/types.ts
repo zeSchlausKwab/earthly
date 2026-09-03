@@ -3,22 +3,51 @@ import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import type { MapContext } from '@/lib/nostr/map-context'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
+import type { SearchLocationOutput } from '@/ctxcn'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import type { FilterConfig } from '@/components/data-filter/types'
 import { getEffectiveContextUse, getEffectiveContextValidationMode } from '@/lib/context/validation'
+import type { NostrEvent } from 'nostr-tools'
 
 // ── Entity types ──────────────────────────────────────────────────────
 
-export type EntityType = 'dataset' | 'context' | 'feature' | 'story' | 'beacon' | 'sighting'
+export type EntityType =
+	| 'dataset'
+	| 'context'
+	| 'feature'
+	| 'story'
+	| 'beacon'
+	| 'sighting'
+	| 'person'
+	| 'place'
 
 export const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
-	dataset: 'Datasets',
-	context: 'Contexts',
+	dataset: 'Maps',
+	context: 'Atlases',
 	feature: 'Features',
 	story: 'Stories',
 	beacon: 'Beacons',
 	sighting: 'Sightings',
+	person: 'People',
+	place: 'Places',
 }
+
+export interface PersonProfileMetadata {
+	name?: string
+	display_name?: string
+	displayName?: string
+	about?: string
+	nip05?: string
+	picture?: string
+	image?: string
+}
+
+export interface PersonSearchEntity {
+	event: NostrEvent
+	profile: PersonProfileMetadata
+}
+
+export type PlaceSearchEntity = SearchLocationOutput['result']['results'][number]
 
 // ── Unified result shape ──────────────────────────────────────────────
 
@@ -31,7 +60,15 @@ export interface EntitySearchResult {
 	pubkey?: string
 	createdAt?: number
 	/** Original entity reference for callbacks */
-	entity: GeoDataset | MapContext | GeoFeatureItem | Article | LiveBeacon | TemporalSighting
+	entity:
+		| GeoDataset
+		| MapContext
+		| GeoFeatureItem
+		| Article
+		| LiveBeacon
+		| TemporalSighting
+		| PersonSearchEntity
+		| PlaceSearchEntity
 }
 
 export interface EntitySearchResultGroup {
@@ -48,6 +85,11 @@ export interface EntitySearchSources {
 	datasets?: GeoDataset[]
 	contexts?: MapContext[]
 	features?: GeoFeatureItem[]
+	stories?: Article[]
+	beacons?: LiveBeacon[]
+	sightings?: TemporalSighting[]
+	people?: NostrEvent[]
+	places?: PlaceSearchEntity[]
 }
 
 export interface EntitySearchOutput {
@@ -150,6 +192,54 @@ export function sightingToSearchResult(sighting: TemporalSighting): EntitySearch
 	}
 }
 
+export function parsePersonProfile(content: string): PersonProfileMetadata {
+	try {
+		const parsed: unknown = JSON.parse(content)
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+		const record = parsed as Record<string, unknown>
+		const stringValue = (key: string): string | undefined => {
+			const value = record[key]
+			return typeof value === 'string' && value.trim() ? value.trim() : undefined
+		}
+		return {
+			name: stringValue('name'),
+			display_name: stringValue('display_name'),
+			displayName: stringValue('displayName'),
+			about: stringValue('about'),
+			nip05: stringValue('nip05'),
+			picture: stringValue('picture'),
+			image: stringValue('image'),
+		}
+	} catch {
+		return {}
+	}
+}
+
+export function personToSearchResult(event: NostrEvent): EntitySearchResult {
+	const profile = parsePersonProfile(event.content)
+	const fallback = `${event.pubkey.slice(0, 8)}…${event.pubkey.slice(-4)}`
+	return {
+		id: event.pubkey,
+		name: profile.display_name ?? profile.displayName ?? profile.name ?? profile.nip05 ?? fallback,
+		type: 'person',
+		subtitle: profile.nip05 ?? profile.about,
+		pubkey: event.pubkey,
+		createdAt: event.created_at,
+		entity: { event, profile },
+	}
+}
+
+export function placeToSearchResult(place: PlaceSearchEntity): EntitySearchResult {
+	const placeKind = [place.type, place.class].filter(Boolean).join(' · ')
+	return {
+		id: String(place.placeId),
+		name: place.displayName,
+		type: 'place',
+		subtitle: placeKind || 'Fly there',
+		entity: place,
+	}
+}
+
 export function featureToSearchResult(feature: GeoFeatureItem): EntitySearchResult {
 	return {
 		id: feature.id,
@@ -186,4 +276,39 @@ export const contextFilterConfig: FilterConfig<MapContext> = {
 		]
 	},
 	getName: (context) => context.context.name || context.contextId || context.id || 'Untitled',
+}
+
+export const storyFilterConfig: FilterConfig<Article> = {
+	getSearchableText: (story) => [story.article.title, story.article.summary, story.dTag, story.id],
+	getName: (story) => story.article.title || story.dTag || story.id || 'Untitled story',
+}
+
+export const beaconFilterConfig: FilterConfig<LiveBeacon> = {
+	getSearchableText: (beacon) => [beacon.beacon.label, beacon.status, beacon.dTag, beacon.id],
+	getName: (beacon) => beacon.beacon.label || 'Live beacon',
+}
+
+export const sightingFilterConfig: FilterConfig<TemporalSighting> = {
+	getSearchableText: (sighting) => [
+		sighting.sighting.title,
+		sighting.sighting.description,
+		sighting.dTag,
+		sighting.id,
+	],
+	getName: (sighting) => sighting.sighting.title || 'Sighting',
+}
+
+export const personFilterConfig: FilterConfig<NostrEvent> = {
+	getSearchableText: (event) => {
+		const profile = parsePersonProfile(event.content)
+		return [
+			profile.display_name,
+			profile.displayName,
+			profile.name,
+			profile.nip05,
+			profile.about,
+			event.pubkey,
+		]
+	},
+	getName: (event) => personToSearchResult(event).name,
 }

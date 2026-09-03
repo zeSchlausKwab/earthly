@@ -145,7 +145,7 @@ export function CommentsPanel({
 	if (!target) {
 		return (
 			<div className={`p-4 text-center text-sm text-muted-foreground ${className}`}>
-				Select a dataset or context to view comments.
+				Select a Map or Atlas to view comments.
 			</div>
 		)
 	}

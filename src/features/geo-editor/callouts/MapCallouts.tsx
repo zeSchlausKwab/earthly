@@ -219,7 +219,7 @@ function QuickAddCallout({
 			</div>
 			<GeoRichTextEditor
 				initialValue={text}
-				placeholder="Put context directly on the map… Type $ to reference geometry."
+				placeholder="Put a note directly on the map… Type $ to reference geometry."
 				availableFeatures={availableFeatures}
 				onChange={setText}
 				rows={3}

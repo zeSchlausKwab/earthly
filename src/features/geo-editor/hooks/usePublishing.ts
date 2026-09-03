@@ -164,7 +164,7 @@ export function usePublishing({
 	fieldSessionId,
 	publishFieldDataset,
 	publishBoundaryResolved = true,
-	publishBoundaryMessage = 'Choose a verified destination before publishing this draft.',
+	publishBoundaryMessage = 'Choose a verified audience before publishing this draft.',
 }: UsePublishingOptions) {
 	void resolvedCollectionResolver
 	const workspaceMode = privateWorkspaceId ? 'private' : fieldSessionId ? 'field' : 'public'
@@ -602,14 +602,14 @@ export function usePublishing({
 			return
 		}
 		setIsPublishing(true)
-		setPublishMessage('Preparing dataset...')
+		setPublishMessage('Preparing Map...')
 		setPublishError(null)
 
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
 			if (hasWorkspaceScope) {
-				if (!workspacePublisher) throw new Error('The active workspace is not available')
+				if (!workspacePublisher) throw new Error('The selected audience is not available')
 				const dataset = await workspacePublisher(collection)
 				finishWorkspaceDatasetSave(dataset, collection, 'saved')
 				return
@@ -830,7 +830,7 @@ export function usePublishing({
 		}
 		if (hasWorkspaceScope) {
 			try {
-				if (!workspacePublisher) throw new Error('The active workspace is not available')
+				if (!workspacePublisher) throw new Error('The selected audience is not available')
 				const dataset = await workspacePublisher(collection, {
 					datasetId: activeDataset.dTag,
 					previous: activeDataset,
@@ -838,7 +838,7 @@ export function usePublishing({
 				finishWorkspaceDatasetSave(dataset, collection, 'updated')
 			} catch (error) {
 				console.error('Failed to update workspace dataset', error)
-				setPublishError('Failed to update dataset. Check the workspace connection.')
+				setPublishError('Failed to update the Map. Check the Circle or Nearby connection.')
 			} finally {
 				setIsPublishing(false)
 			}
@@ -949,7 +949,7 @@ export function usePublishing({
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
 			if (hasWorkspaceScope) {
-				if (!workspacePublisher) throw new Error('The active workspace is not available')
+				if (!workspacePublisher) throw new Error('The selected audience is not available')
 				const dataset = await workspacePublisher(collection)
 				finishWorkspaceDatasetSave(dataset, collection, 'copied')
 				return
@@ -1108,7 +1108,7 @@ export function usePublishing({
 	const handleDeleteDataset = useCallback(
 		async (event: GeoDataset, onClear: () => void) => {
 			if (hasWorkspaceScope) {
-				toast.error('Workspace dataset deletion is not available yet.')
+				toast.error('Maps shared with a Circle or Nearby cannot be deleted here yet.')
 				return
 			}
 			const signer = accounts.signer

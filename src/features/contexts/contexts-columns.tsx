@@ -85,8 +85,8 @@ export const createContextColumns = (
 					onTitleClick={
 						context.onInspectContext ? () => context.onInspectContext?.(contextEvent) : undefined
 					}
-					titleAriaLabel={`Inspect context ${contextName}`}
-					titleTitle="Inspect context"
+					titleAriaLabel={`Open Atlas ${contextName}`}
+					titleTitle="Open Atlas"
 					badges={
 						<>
 							<RowBadge label={contextUse} className="bg-info/15 text-info" />
@@ -124,7 +124,7 @@ export const createContextColumns = (
 					note={
 						isCuratedChild
 							? `curated child${displayParentName ? ` in ${displayParentName}` : ''}${
-									attachmentCount > 1 ? ` · ${attachmentCount} contexts` : ''
+									attachmentCount > 1 ? ` · ${attachmentCount} atlases` : ''
 								}`
 							: undefined
 					}
@@ -144,7 +144,7 @@ export const createContextColumns = (
 							{context.onToggleContextOnMap ? (
 								<RowActionButton
 									icon={MapStackActionIcon}
-									label={isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
+									label={isInMapStack ? 'Remove from Shelf' : 'Add to Shelf'}
 									hover="hover:text-ok"
 									active={isInMapStack}
 									activeClassName="text-ok hover:text-ok"
@@ -153,14 +153,14 @@ export const createContextColumns = (
 							) : null}
 							<RowActionButton
 								icon={InspectActionIcon}
-								label="Inspect context"
+								label="Open Atlas"
 								hover="hover:text-ok"
 								onClick={() => context.onInspectContext?.(contextEvent)}
 							/>
 							{isOwner && context.onEditContext ? (
 								<RowActionButton
 									icon={LoadEditorActionIcon}
-									label="Edit context"
+									label="Edit atlas"
 									disabled={context.deletingKey === `context:${contextKey}`}
 									onClick={() => context.onEditContext?.(contextEvent)}
 								/>
@@ -195,7 +195,7 @@ export const createContextColumns = (
 							) : null}
 							{isOwner && context.onDeleteContext ? (
 								<ConfirmDeleteAction
-									label="Context"
+									label="Atlas"
 									isDeleting={context.deletingKey === `context:${contextKey}`}
 									onConfirm={() => context.onDeleteContext?.(contextEvent)}
 								/>

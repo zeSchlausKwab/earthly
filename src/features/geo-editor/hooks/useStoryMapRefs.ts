@@ -1,13 +1,14 @@
-import { nip19 } from 'nostr-tools'
+import { nip19, type Filter } from 'nostr-tools'
 import { useCallback, useMemo } from 'react'
+import {
+	deriveStoryPresentationAuthorization,
+	extractSemanticStoryMapReferences,
+	parseMapPresentationSource,
+} from '@/lib/map-presentation'
 import type { Article } from '@/lib/nostr/article'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
-import {
-	dedupeNostrAddressReferences,
-	extractNostrAddressReferences,
-	naddrToCoordinate,
-} from '@/lib/nostr/references'
+import { dedupeNostrAddressReferences, naddrToCoordinate } from '@/lib/nostr/references'
 import { useEditorStore, type MapStackEntryVia } from '../store'
 import { datasetReferenceEntryId } from '../referenceMapStack'
 
@@ -27,8 +28,8 @@ import { datasetReferenceEntryId } from '../referenceMapStack'
  * and the Map Stack always operate on the same entry.
  */
 
-interface ParsedStoryRef {
-	/** Raw `kind:pubkey:d` coordinate from the Story's `a` tags. */
+export interface ParsedStoryRef {
+	/** Canonical `kind:pubkey:d` coordinate derived from semantic body prose. */
 	coord: string
 	pubkey: string
 	identifier: string
@@ -55,50 +56,49 @@ export function parseStoryRefs(story: Article | null): ParsedStoryRef[] {
 	}
 	const out: ParsedStoryRef[] = []
 	const seenEntryIds = new Set<string>()
-	const inlineByCoordinate = new Map<string, Array<{ featureId?: string }>>()
 	for (const reference of dedupeNostrAddressReferences(
-		extractNostrAddressReferences(story.article.content),
+		extractSemanticStoryMapReferences(story.article.content),
 	)) {
 		const coordinate = naddrToCoordinate(reference.address)
-		if (!coordinate) continue
-		const current = inlineByCoordinate.get(coordinate) ?? []
-		current.push({ featureId: reference.featureId })
-		inlineByCoordinate.set(coordinate, current)
-	}
-
-	const coordinates = new Set([...story.referencedAddresses, ...inlineByCoordinate.keys()])
-	for (const coord of coordinates) {
-		const parts = coord.split(':')
-		if (parts.length < 3) continue
-		const kind = Number(parts[0])
-		const pubkey = parts[1]
-		const identifier = parts.slice(2).join(':')
-		if (kind !== GEO_EVENT_KIND || !pubkey || !identifier) continue
+		const parsed = parseMapPresentationSource(coordinate)
+		if (!parsed) continue
+		const { pubkey, identifier } = parsed
+		const coord = parsed.coordinate
 		const datasetKey = `${pubkey}:${identifier}`
-		const inlineSelectors = inlineByCoordinate.get(coord)
-		const selectors = inlineSelectors && inlineSelectors.length > 0 ? inlineSelectors : [{}]
-		for (const selector of selectors) {
-			const entryId = datasetReferenceEntryId(datasetKey, selector.featureId)
-			if (seenEntryIds.has(entryId)) continue
-			seenEntryIds.add(entryId)
-			out.push({
-				coord,
-				pubkey,
-				identifier,
-				datasetKey,
-				entryId,
-				featureId: selector.featureId,
-				via,
-			})
-		}
+		const entryId = datasetReferenceEntryId(datasetKey, reference.featureId)
+		if (seenEntryIds.has(entryId)) continue
+		seenEntryIds.add(entryId)
+		out.push({
+			coord,
+			pubkey,
+			identifier,
+			datasetKey,
+			entryId,
+			featureId: reference.featureId,
+			via,
+		})
 	}
 	return out
+}
+
+/** One exact relay filter per referenced coordinate; never an author×d-tag product. */
+export function buildStoryRefFilters(refs: readonly ParsedStoryRef[]): Filter[] {
+	const seen = new Set<string>()
+	return refs.flatMap((ref) => {
+		if (seen.has(ref.coord)) return []
+		seen.add(ref.coord)
+		return [{ kinds: [GEO_EVENT_KIND], authors: [ref.pubkey], '#d': [ref.identifier] }]
+	})
 }
 
 export function useStoryMapRefs(story: Article | null) {
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 
 	const refs = useMemo(() => parseStoryRefs(story), [story])
+	const presentationAuthorization = useMemo(
+		() => deriveStoryPresentationAuthorization(story?.article.content),
+		[story],
+	)
 
 	// (1) Fetch-on-demand: subscribe to the referenced datasets so they enter the
 	// event store and `geoEvents`. `null` when there are no refs → no subscription.
@@ -106,9 +106,7 @@ export function useStoryMapRefs(story: Article | null) {
 	// identity with identical coordinates does not re-subscribe.
 	const fetchFilters = useMemo(() => {
 		if (refs.length === 0) return null
-		const authors = [...new Set(refs.map((r) => r.pubkey))]
-		const dTags = [...new Set(refs.map((r) => r.identifier))]
-		return [{ kinds: [GEO_EVENT_KIND], authors, '#d': dTags }]
+		return buildStoryRefFilters(refs)
 	}, [refs])
 	useTimelineWithEose(fetchFilters)
 
@@ -141,5 +139,5 @@ export function useStoryMapRefs(story: Article | null) {
 		[mapStackEntries],
 	)
 
-	return { isMentionVisible }
+	return { isMentionVisible, refs, presentationAuthorization }
 }

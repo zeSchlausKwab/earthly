@@ -18,6 +18,7 @@ import type { NostrEvent } from 'applesauce-core/helpers/event'
 import {
 	GroupFactory,
 	type GroupContent,
+	getGroupContent,
 	getGroupReferencedAddresses,
 	isGroup,
 } from '@/lib/nostr/group'
@@ -127,5 +128,24 @@ describe('GroupEditorPanel — CR-03 curated `a` refs survive an edit', () => {
 	test('encodes through nip19.naddr exactly as the seed path expects', () => {
 		const naddr = nip19.naddrEncode({ kind: 37515, pubkey: PUBKEY, identifier: 'dataset-alpha' })
 		expect(coordinateToNaddrReference(CURATED_A)).toBe(`nostr:${naddr}`)
+	})
+
+	test('CuratedLane-style appends preserve opaque presentation content', async () => {
+		const futurePresentation = { version: 7, futureCamera: { mode: 'globe' } }
+		const original = await GroupFactory.create({
+			name: 'Presentation-safe Atlas',
+			governance: 'open',
+			presentation: futurePresentation,
+		})
+			.referencedAddresses([CURATED_A])
+			.sign(bareSign)
+		if (!isGroup(original)) throw new Error('fixture is not a Group')
+
+		const appended = await GroupFactory.modify(original)
+			.referencedAddresses([CURATED_A, CURATED_B])
+			.sign(bareSign)
+
+		expect(getGroupReferencedAddresses(appended)).toEqual([CURATED_A, CURATED_B])
+		expect(getGroupContent(appended).presentation).toEqual(futurePresentation)
 	})
 })

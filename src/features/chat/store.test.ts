@@ -4,6 +4,7 @@ import { BUILTIN_PROVIDERS, estimateMaxCost } from './routstr'
 import type { ProviderConfig, RoutstrModel } from './routstr'
 import {
 	DEFAULT_CHAT_SETTINGS,
+	READ_ONLY_THREAD_INSTRUCTION,
 	STREAM_STALL_TIMEOUT_MS,
 	TRUNCATION_CONTENT_SUFFIX,
 	chatStorePartialize,
@@ -27,7 +28,6 @@ import type { ProviderOverrideMap } from './store'
 import { getGeoTools, getMapContextSnapshotForTarget } from './tools'
 import { register, unregister } from './tools/registry'
 import type { ToolExecutionRunIdentity } from './tools/types'
-import { resolveWorkspaceBindingIdentity } from './safeEditing/BindingChip'
 import {
 	clearPendingDiffs,
 	emitDiffBlock,
@@ -211,7 +211,7 @@ describe('single global run remains owned across conversation navigation', () =>
 		globalThis.fetch = (async () => {
 			providerRequests += 1
 			throw new Error('An unbound conversation must not reach the provider')
-		}) as typeof fetch
+		}) as unknown as typeof fetch
 
 		const editorBefore = useEditorStore.getState()
 		const workspaceIdsBefore = Object.keys(editorBefore.workspaces).sort()
@@ -359,7 +359,7 @@ describe('single global run remains owned across conversation navigation', () =>
 		})
 	})
 
-	test('a Dataset shown as a concrete Chat binding is also capturable by the tool run', () => {
+	test('a Dataset bound to a Thread is capturable by the tool run', () => {
 		const chatId = useChatStore.getState().activeChatId as string
 		const draft = {
 			persistenceVersion: 2 as const,
@@ -383,7 +383,7 @@ describe('single global run remains owned across conversation navigation', () =>
 		}
 		const workspace = {
 			id: 'workspace-ui',
-			sourceId: 'scratch:workspace',
+			sourceId: draft.sourceId,
 			label: 'Untitled workspace',
 			kind: 'scratch' as const,
 			datasetKey: null,
@@ -401,10 +401,13 @@ describe('single global run remains owned across conversation navigation', () =>
 		})
 		useChatStore.getState().setChatTargetWorkspace(chatId, workspace.id)
 
-		const binding = resolveWorkspaceBindingIdentity(workspace, draft)
 		const captured = captureActiveToolExecutionTarget(chatId)
 
-		expect(binding.targetRequired).toBe(captured.entityType !== 'dataset')
+		expect(captured).toMatchObject({
+			entityType: 'dataset',
+			workspaceId: workspace.id,
+			draftId: draft.id,
+		})
 	})
 
 	test('an inactive retained workspace remains the Chat target and may be shared by two Chats', () => {
@@ -523,6 +526,239 @@ describe('single global run remains owned across conversation navigation', () =>
 		expect(captureActiveToolExecutionTarget(secondChatId).draftId).toBe('draft-a')
 
 		eventStore.remove(base.id)
+	})
+})
+
+describe('object-bound Thread sessions', () => {
+	beforeEach(() => {
+		useChatStore.getState().reset()
+	})
+
+	test('selects or creates exactly one persisted session per stable Thread key', () => {
+		const legacyChatId = useChatStore.getState().activeChatId as string
+		const threadId = useChatStore.getState().openThread({
+			threadKey: 'map:naddr1western-front',
+			title: 'Western Front',
+			readOnly: true,
+		})
+		expect(threadId).not.toBeNull()
+		expect(threadId).not.toBe(legacyChatId)
+
+		useChatStore.getState().addMessage({ role: 'user', content: 'What happened here?' })
+		useChatStore.getState().createChat()
+		const reopenedId = useChatStore.getState().openThread({
+			threadKey: 'map:naddr1western-front',
+			title: 'The Western Front',
+			readOnly: true,
+		})
+
+		const state = useChatStore.getState()
+		const boundSessions = state.chatSessions.filter(
+			(session) => session.threadKey === 'map:naddr1western-front',
+		)
+		expect(reopenedId).toBe(threadId)
+		expect(state.activeChatId).toBe(threadId)
+		expect(boundSessions).toHaveLength(1)
+		expect(boundSessions[0]).toMatchObject({
+			title: 'The Western Front',
+			readOnly: true,
+		})
+		expect(boundSessions[0]?.messages).toEqual([{ role: 'user', content: 'What happened here?' }])
+		expect(state.chatSessions.some((session) => session.id === legacyChatId)).toBe(true)
+
+		const persisted = chatStorePartialize(state)
+		expect(persisted.chatSessions.find((session) => session.id === threadId)).toMatchObject({
+			threadKey: 'map:naddr1western-front',
+			title: 'The Western Front',
+			readOnly: true,
+		})
+	})
+
+	test('keeps object titles stable when turns are added or cleared', () => {
+		const threadId = useChatStore.getState().openThread({
+			threadKey: 'story:naddr1stable-title',
+			title: 'A Map Story',
+		}) as string
+		useChatStore.getState().addMessage({ role: 'user', content: 'This must not become the title' })
+		expect(useChatStore.getState().chatSessions.find((chat) => chat.id === threadId)?.title).toBe(
+			'A Map Story',
+		)
+		useChatStore.getState().clearMessages()
+		expect(useChatStore.getState().chatSessions.find((chat) => chat.id === threadId)?.title).toBe(
+			'A Map Story',
+		)
+	})
+})
+
+describe('read-only Thread inference', () => {
+	const modelId = 'read-only-thread-model'
+	const providerBaseUrl = 'http://read-only-thread.test/v1'
+	const encoder = new TextEncoder()
+
+	function streamResponse(delta: Record<string, unknown>, finishReason: string): Response {
+		return new Response(
+			new ReadableStream({
+				start(controller) {
+					controller.enqueue(
+						encoder.encode(
+							`data: ${JSON.stringify({
+								id: 'read-only-chunk',
+								object: 'chat.completion.chunk',
+								created: 1,
+								model: modelId,
+								choices: [{ index: 0, delta, finish_reason: finishReason }],
+							})}\n`,
+						),
+					)
+					controller.enqueue(encoder.encode('data: [DONE]\n'))
+					controller.close()
+				},
+			}),
+			{ status: 200, headers: { 'content-type': 'text/event-stream' } },
+		)
+	}
+
+	function configureReadOnlyProvider(): void {
+		const providerOverrides = emptyOverrides()
+		providerOverrides.custom = { baseUrl: providerBaseUrl, apiKey: '' }
+		useChatStore.setState({
+			provider: 'custom',
+			providerOverrides,
+			models: [makeModel({ id: modelId, inputModalities: ['text'] })],
+			selectedModel: modelId,
+			toolsEnabled: true,
+		})
+	}
+
+	beforeEach(() => {
+		useChatStore.getState().reset()
+	})
+
+	test('answers with text on an empty target and advertises no tools', async () => {
+		const originalFetch = globalThis.fetch
+		const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+		const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
+		const requestBodies: Array<Record<string, unknown>> = []
+		const threadId = useChatStore.getState().openThread({
+			threadKey: 'concierge',
+			title: 'Ask Earthly',
+			readOnly: true,
+		}) as string
+		configureReadOnlyProvider()
+		globalThis.requestAnimationFrame = (callback) => {
+			callback(0)
+			return 1
+		}
+		globalThis.cancelAnimationFrame = () => undefined
+		globalThis.fetch = (async (input, init) => {
+			const url = String(input)
+			if (url !== `${providerBaseUrl}/chat/completions`) {
+				throw new Error(`Unexpected request: ${url}`)
+			}
+			requestBodies.push(JSON.parse(String(init?.body ?? '{}')))
+			return streamResponse(
+				{ content: 'The front stretched from the North Sea to Switzerland.' },
+				'stop',
+			)
+		}) as typeof fetch
+
+		try {
+			await useChatStore.getState().sendMessage('Where did the front run?')
+
+			const state = useChatStore.getState()
+			const requestBody = requestBodies[0] ?? {}
+			const sentMessages = (requestBody?.messages ?? []) as Array<{
+				role?: string
+				content?: string
+			}>
+			expect(requestBody?.tools).toBeUndefined()
+			expect(sentMessages[0]?.role).toBe('system')
+			expect(sentMessages[0]?.content).toContain(READ_ONLY_THREAD_INSTRUCTION)
+			expect(state.chatRunStates[threadId]?.identity?.target).toMatchObject({
+				entityType: null,
+				draftId: null,
+				workspaceId: null,
+			})
+			expect(state.chatRunStates[threadId]?.diagnostics.advertisedToolCount).toBe(0)
+			expect(state.messages.at(-1)?.content).toBe(
+				'The front stretched from the North Sea to Switzerland.',
+			)
+			expect(state.error).toBeNull()
+		} finally {
+			globalThis.fetch = originalFetch
+			if (originalRequestAnimationFrame) {
+				globalThis.requestAnimationFrame = originalRequestAnimationFrame
+			} else {
+				Reflect.deleteProperty(globalThis, 'requestAnimationFrame')
+			}
+			if (originalCancelAnimationFrame) {
+				globalThis.cancelAnimationFrame = originalCancelAnimationFrame
+			} else {
+				Reflect.deleteProperty(globalThis, 'cancelAnimationFrame')
+			}
+		}
+	})
+
+	test('rejects an unsolicited provider tool call before any handler executes', async () => {
+		const toolName = '__read_only_must_not_execute'
+		const originalFetch = globalThis.fetch
+		let toolInvocations = 0
+		const requestBodies: Array<Record<string, unknown>> = []
+		register({
+			name: toolName,
+			kind: 'host-builtin',
+			schema: {
+				type: 'function',
+				function: {
+					name: toolName,
+					description: 'Read-only boundary fixture.',
+					parameters: { type: 'object', properties: {} },
+				},
+			},
+			handler: () => {
+				toolInvocations += 1
+				return { ok: true }
+			},
+		})
+		configureReadOnlyProvider()
+		globalThis.fetch = (async (input, init) => {
+			const url = String(input)
+			if (url !== `${providerBaseUrl}/chat/completions`) {
+				throw new Error(`Unexpected request: ${url}`)
+			}
+			requestBodies.push(JSON.parse(String(init?.body ?? '{}')))
+			return streamResponse(
+				{
+					tool_calls: [
+						{
+							index: 0,
+							id: 'read-only-call',
+							type: 'function',
+							function: { name: toolName, arguments: '{}' },
+						},
+					],
+				},
+				'tool_calls',
+			)
+		}) as typeof fetch
+
+		try {
+			// The explicit option is supported independently of a bound Thread. This
+			// is the /ask/concierge seam; ordinary unbound sends remain fail-closed.
+			await useChatStore.getState().sendMessage('Do not mutate anything.', { readOnly: true })
+
+			const state = useChatStore.getState()
+			const requestBody = requestBodies[0] ?? {}
+			expect(requestBody?.tools).toBeUndefined()
+			expect(toolInvocations).toBe(0)
+			expect(state.error).toContain('No tools were executed')
+			expect(state.messages.some((message) => message.tool_calls?.length)).toBe(false)
+			expect(state.messages.some((message) => message.role === 'tool')).toBe(false)
+		} finally {
+			globalThis.fetch = originalFetch
+			unregister(toolName)
+			useChatStore.getState().reset()
+		}
 	})
 })
 

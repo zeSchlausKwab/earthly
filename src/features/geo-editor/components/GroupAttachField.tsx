@@ -224,7 +224,7 @@ export function GroupAttachField({
 
 	const visibleWarnings = warnings.filter((warning) => !dismissed.has(warning.id))
 	const hasAttachedGroups = attachedGroups.length > 0
-	const schemaGroupName = attachedSchemaGroup?.group.name || 'the Context'
+	const schemaGroupName = attachedSchemaGroup?.group.name || 'the Atlas'
 	// "Publish anyway" copy only when there are live advisory warnings to override
 	// — a plain valid attach reads as the normal publish label (no bare "anyway").
 	const resolvedPublishLabel =
@@ -258,7 +258,7 @@ export function GroupAttachField({
 									aria-expanded={open}
 									className="h-8 w-full justify-between rounded-none text-[13px] font-normal"
 								>
-									<span className="truncate text-muted-foreground">Attach to a Context</span>
+									<span className="truncate text-muted-foreground">Add to an Atlas</span>
 									<ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
 								</Button>
 							</PopoverTrigger>
@@ -267,10 +267,10 @@ export function GroupAttachField({
 								align="start"
 							>
 								<Command>
-									<CommandInput placeholder="Search Contexts…" className="text-[13px]" />
+									<CommandInput placeholder="Search Atlases…" className="text-[13px]" />
 									<CommandList>
 										<CommandEmpty className="py-4 text-center text-[13px] text-muted-foreground">
-											No Contexts found.
+											No Atlases found.
 										</CommandEmpty>
 										<CommandGroup>
 											{groups.map((group) => {
@@ -289,9 +289,7 @@ export function GroupAttachField({
 																isAttached ? 'opacity-100' : 'opacity-0',
 															)}
 														/>
-														<span className="truncate">
-															{group.group.name || 'Untitled Context'}
-														</span>
+														<span className="truncate">{group.group.name || 'Untitled Atlas'}</span>
 														<span className="ml-auto text-[11px] uppercase tracking-wide text-muted-foreground">
 															{group.group.governance}
 														</span>
@@ -315,11 +313,11 @@ export function GroupAttachField({
 											key={coordinate}
 											className="inline-flex items-center gap-1 border border-border px-2 py-0.5 text-[11px] text-foreground"
 										>
-											{group.group.name || 'Untitled Context'}
+											{group.group.name || 'Untitled Atlas'}
 											<button
 												type="button"
 												onClick={() => handleDetach(coordinate)}
-												aria-label={`Detach from ${group.group.name || 'Context'}`}
+												aria-label={`Remove from ${group.group.name || 'Atlas'}`}
 												className="text-muted-foreground hover:text-foreground"
 											>
 												<X className="size-3" />
@@ -350,7 +348,7 @@ export function GroupAttachField({
 					{!checking && visibleWarnings.length > 0 && (
 						<Alert variant="default" className="border-l-2 border-l-amber-500 text-primary">
 							<AlertTitle className="text-primary">
-								This dataset doesn't match {schemaGroupName}'s rules
+								This Map doesn't match {schemaGroupName}'s rules
 							</AlertTitle>
 							<AlertDescription className="text-primary">
 								<ul className="mt-1 space-y-1">

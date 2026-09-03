@@ -31,6 +31,8 @@ export interface StoriesPanelProps {
 	currentUserPubkey?: string
 	onOpenStory: (story: Article) => void
 	onCreateStory: () => void
+	/** Browse owns the single tab-level create action in the Margin shell. */
+	showCreateAction?: boolean
 	onEditStory: (story: Article) => void
 	onDeleteStory: (story: Article) => void
 	/** `story:<d-tag>` for the Story whose delete is in flight. */
@@ -49,6 +51,7 @@ export function StoriesPanelContent({
 	currentUserPubkey,
 	onOpenStory,
 	onCreateStory,
+	showCreateAction = true,
 	onEditStory,
 	onDeleteStory,
 	deletingKey,
@@ -119,14 +122,14 @@ export function StoriesPanelContent({
 			icon={BookOpen}
 			title="Stories"
 			count={result.totalCount}
-			onNew={onCreateStory}
+			onNew={showCreateAction ? onCreateStory : undefined}
 			newLabel="New Story"
 			titleAccessory={
 				<BulkMapStackButton
 					count={storyRefsToStack.length}
 					onClick={addFilteredStoryRefsToMapStack}
-					label="Add filtered story references to map stack"
-					emptyLabel="No referenced datasets in filtered stories"
+					label="Show filtered Story Maps on the map"
+					emptyLabel="No referenced Maps in filtered Stories"
 				/>
 			}
 			toolbar={
@@ -155,7 +158,7 @@ export function StoriesPanelContent({
 						<EmptyDescription>
 							{hasSearch
 								? 'Try a different search, or clear the filter.'
-								: 'Start a story — write a narrative and weave in your datasets, places, and media.'}
+								: 'Start a Story — write a narrative and weave in your Maps, places, and media.'}
 						</EmptyDescription>
 					</EmptyHeader>
 				</Empty>

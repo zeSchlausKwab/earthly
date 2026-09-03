@@ -92,16 +92,16 @@ const sourceLabel: Record<MapStackEntry['source'], string> = {
 	'context-curated': 'curated',
 	'context-foreign': 'referenced',
 	'child-context': 'child',
-	chat: 'chat',
+	chat: 'thread',
 	comment: 'comment',
 	proposal: 'proposal',
-	workspace: 'workspace',
+	workspace: 'working copy',
 	'browse-default': 'suggested',
 	own: 'you',
 	story: 'story',
 	'geo-query': 'in view',
-	'private-group': 'private group',
-	'field-session': 'field session',
+	'private-group': 'circle',
+	'field-session': 'nearby',
 }
 
 /**
@@ -134,6 +134,12 @@ export function entityTypeLabel(entry: Pick<MapStackEntry, 'entityType' | 'title
  */
 export function entryTypeMetaLabel(entityType: MapStackEntry['entityType']): string {
 	switch (entityType) {
+		case 'dataset':
+			return 'Map'
+		case 'context':
+			return 'Atlas'
+		case 'draft':
+			return 'working Map'
 		case 'sighting':
 			return 'sighting'
 		case 'beacon':
@@ -546,11 +552,11 @@ function EntryRow({
 							}
 							className={cn(actionButtonClassName, 'hover:text-foreground')}
 							onClick={() => setExpanded((open) => !open)}
-							label={expanded ? 'Collapse curated datasets' : 'Expand curated datasets'}
+							label={expanded ? 'Collapse curated Maps' : 'Expand curated Maps'}
 							tooltip={
 								expanded
-									? 'Hide the curated dataset checklist'
-									: 'Show the curated dataset checklist — uncheck to exclude per-context'
+									? 'Hide the curated Map checklist'
+									: 'Show the curated Map checklist — uncheck to exclude it from this Atlas view'
 							}
 							pressed={expanded}
 						/>
@@ -568,10 +574,10 @@ function EntryRow({
 								isolated
 									? 'Show all (stop isolating)'
 									: entry.entityType === 'context'
-										? 'Show only this context on the map'
+										? 'Show only this Atlas on the map'
 										: entry.entityType === 'draft'
 											? 'Isolate the edit — hide other layers while drawing'
-											: 'Show only this dataset on the map'
+											: 'Show only this Map'
 							}
 							pressed={isolated}
 							active={isolated}
@@ -586,22 +592,22 @@ function EntryRow({
 								icon={<ZoomActionIcon className={actionIconClassName} />}
 								className={cn(actionButtonClassName, 'hover:text-info')}
 								onClick={() => onZoomToDataset(dataset)}
-								label="Zoom to dataset"
-								tooltip="Zoom the map to this dataset's bounds"
+								label="Frame Map"
+								tooltip="Frame this Map's bounds"
 							/>
 							<RowAction
 								icon={<InspectActionIcon className={actionIconClassName} />}
 								className={cn(actionButtonClassName, 'hover:text-ok')}
 								onClick={() => onInspectDataset(dataset)}
-								label="Inspect dataset"
-								tooltip="Open the dataset details panel"
+								label="Open Map details"
+								tooltip="Open this Map in the Margin"
 							/>
 							<RowAction
 								icon={<LoadEditorActionIcon className={actionIconClassName} />}
 								className={cn(actionButtonClassName, 'hover:text-ok')}
 								onClick={() => onLoadDataset(dataset)}
-								label="Load dataset into editor"
-								tooltip="Load this dataset into the editor for changes"
+								label="Edit Map"
+								tooltip="Open a working copy of this Map"
 							/>
 						</>
 					) : null}
@@ -610,8 +616,8 @@ function EntryRow({
 							icon={<InspectActionIcon className={actionIconClassName} />}
 							className={cn(actionButtonClassName, 'hover:text-ok')}
 							onClick={() => onInspectContext(context)}
-							label="Inspect context"
-							tooltip="Open the context details panel"
+							label="Open Atlas details"
+							tooltip="Open this Atlas in the Margin"
 						/>
 					) : null}
 					{entry.entityType === 'draft' ? (
@@ -631,7 +637,7 @@ function EntryRow({
 									className={cn(actionButtonClassName, 'hover:text-ok')}
 									onClick={onOpenDraftEditor}
 									label="Open editor panel"
-									tooltip="Show the edit state in the side panel"
+									tooltip="Show the working Map in the Margin"
 								/>
 							) : null}
 						</>
@@ -666,19 +672,11 @@ function EntryRow({
 							}
 							className={cn(actionButtonClassName, 'hover:text-destructive')}
 							onClick={() => onRemoveEntry(entry)}
-							label={
-								entry.entityType === 'draft'
-									? 'Remove edit from map stack'
-									: entry.pinned
-										? 'Remove pinned entry'
-										: 'Remove from map stack'
-							}
+							label={entry.pinned ? 'Remove pinned entry' : 'Remove from Shelf'}
 							tooltip={
-								entry.entityType === 'draft'
-									? 'Remove this parked edit from the map stack'
-									: entry.pinned
-										? 'Remove this pinned entry from the map stack'
-										: 'Remove this entry from the map stack'
+								entry.pinned
+									? 'Remove this pinned entry from the Shelf'
+									: 'Remove this entry from the Shelf'
 							}
 						/>
 					) : null}
@@ -698,11 +696,11 @@ function EntryRow({
 								compact ? 'text-[11px]' : 'text-xs',
 							)}
 						>
-							No curated datasets resolved for this context yet.
+							No curated Maps resolved for this Atlas yet.
 							{context?.context?.allowForeignAttachments ? (
 								<>
 									{' '}
-									Datasets with an{' '}
+									Maps with an{' '}
 									<code className="rounded bg-muted px-1 font-mono text-[10px]">a</code> tag
 									pointing here will appear automatically.
 								</>
@@ -728,8 +726,8 @@ function EntryRow({
 									onChange={() => onToggleEntryExclusion(entry.id, datasetKey)}
 									aria-label={
 										isExcluded
-											? `Include ${name} in this context`
-											: `Exclude ${name} from this context`
+											? `Include ${name} in this Atlas view`
+											: `Exclude ${name} from this Atlas view`
 									}
 								/>
 								<span
@@ -748,7 +746,7 @@ function EntryRow({
 										onZoomToDataset(curated)
 									}}
 									aria-label={`Zoom to ${name}`}
-									title="Zoom to dataset"
+									title="Frame Map"
 								>
 									<ZoomActionIcon className="h-3 w-3" />
 								</button>
@@ -776,7 +774,7 @@ interface CarriedGroupCardProps {
 /** Row title + meta descriptor for a synthetic carrier row, per carrier kind. */
 const carrierTypeMeta: Record<MapStackEntryVia['entityType'], string> = {
 	story: 'story',
-	context: 'context',
+	context: 'atlas',
 }
 
 /**
@@ -834,7 +832,7 @@ function CarriedGroupCard({
 						<span>{carrierKind}</span>
 						<span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
 						<span>
-							{group.entries.length} {group.entries.length === 1 ? 'dataset' : 'datasets'}
+							{group.entries.length} {group.entries.length === 1 ? 'Map' : 'Maps'}
 						</span>
 					</div>
 				</div>
@@ -849,11 +847,11 @@ function CarriedGroupCard({
 						}
 						className={cn(actionButtonClassName, 'hover:text-foreground')}
 						onClick={() => setExpanded((open) => !open)}
-						label={expanded ? 'Collapse referenced datasets' : 'Expand referenced datasets'}
+						label={expanded ? 'Collapse referenced Maps' : 'Expand referenced Maps'}
 						tooltip={
 							expanded
-								? `Hide the datasets this ${carrierKind} put on the map`
-								: `Show the datasets this ${carrierKind} put on the map`
+								? `Hide the Maps this ${carrierKind} put on the map`
+								: `Show the Maps this ${carrierKind} put on the map`
 						}
 						pressed={expanded}
 					/>
@@ -863,8 +861,8 @@ function CarriedGroupCard({
 						onClick={() => {
 							for (const entry of group.entries) onRemoveEntry(entry)
 						}}
-						label={`Remove ${carrierKind} datasets from map stack`}
-						tooltip={`Remove this ${carrierKind}'s datasets from the map stack`}
+						label={`Remove ${carrierKind} Maps from Shelf`}
+						tooltip={`Remove this ${carrierKind}'s Maps from the Shelf`}
 					/>
 				</div>
 			</div>
@@ -905,7 +903,7 @@ function CarriedGroupCard({
 											className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-info"
 											onClick={() => onZoomToDataset(dataset)}
 											aria-label={`Zoom to ${name}`}
-											title="Zoom to dataset"
+											title="Frame Map"
 										>
 											<ZoomActionIcon className="h-3 w-3" />
 										</button>
@@ -914,7 +912,7 @@ function CarriedGroupCard({
 											className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-ok"
 											onClick={() => onInspectDataset(dataset)}
 											aria-label={`Inspect ${name}`}
-											title="Open the dataset details panel"
+											title="Open Map details"
 										>
 											<InspectActionIcon className="h-3 w-3" />
 										</button>
@@ -924,8 +922,8 @@ function CarriedGroupCard({
 									type="button"
 									className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
 									onClick={() => onRemoveEntry(entry)}
-									aria-label={`Remove ${name} from map stack`}
-									title="Remove from map stack"
+									aria-label={`Remove ${name} from Shelf`}
+									title="Remove from Shelf"
 								>
 									<RemoveActionIcon className="h-3 w-3" />
 								</button>
@@ -1148,7 +1146,7 @@ function EntryGroupList({
 				<div className={cn(groupGap)}>
 					<div className={groupLabelClass}>
 						<Layers className="h-3 w-3" />
-						<span>Contexts</span>
+						<span>Atlases</span>
 						<span className="font-normal text-muted-foreground/70">({contextEntries.length})</span>
 					</div>
 					{contextEntries.map(renderEntry)}
@@ -1185,7 +1183,7 @@ function EntryGroupList({
 				<div className={cn(groupGap)}>
 					<div className={groupLabelClass}>
 						<Database className="h-3 w-3" />
-						<span>Datasets</span>
+						<span>Maps</span>
 						<span className="font-normal text-muted-foreground/70">({datasetEntries.length})</span>
 					</div>
 					{datasetEntries.map(renderEntry)}
@@ -1315,7 +1313,7 @@ export function MapStackPanel({
 
 	return (
 		<section
-			aria-label="Map stack"
+			aria-label="Shelf"
 			data-translucent={translucent ? 'true' : 'false'}
 			className={mapStackPanelSurfaceClassName({ compact, translucent, isDragOver })}
 			onDragEnter={(event) => {
@@ -1352,7 +1350,7 @@ export function MapStackPanel({
 								compact ? 'text-xs' : 'text-sm',
 							)}
 						>
-							Map Stack
+							On the map
 						</div>
 						<div className={cn('text-muted-foreground', compact ? 'text-[11px]' : 'text-xs')}>
 							{visibleCount}/{entries.length} visible
@@ -1427,8 +1425,8 @@ export function MapStackPanel({
 							className={actionButtonClassName}
 							onClick={() => setIsCollapsed((collapsed) => !collapsed)}
 							aria-expanded={!isPanelCollapsed}
-							aria-label={isPanelCollapsed ? 'Expand map stack' : 'Collapse map stack'}
-							title={isPanelCollapsed ? 'Expand map stack' : 'Collapse map stack'}
+							aria-label={isPanelCollapsed ? 'Expand Shelf' : 'Collapse Shelf'}
+							title={isPanelCollapsed ? 'Expand Shelf' : 'Collapse Shelf'}
 						>
 							{isPanelCollapsed ? (
 								<ChevronDown className={actionIconClassName} />
@@ -1444,8 +1442,8 @@ export function MapStackPanel({
 							size="icon-sm"
 							className={actionButtonClassName}
 							onClick={onClose}
-							aria-label="Close map stack"
-							title="Close map stack"
+							aria-label="Close Shelf"
+							title="Close Shelf"
 						>
 							<X className={actionIconClassName} />
 						</Button>
@@ -1461,7 +1459,7 @@ export function MapStackPanel({
 							compact ? 'min-h-24 px-4 text-xs' : 'px-5 text-sm',
 						)}
 					>
-						No map stack entries.
+						Nothing is on the map yet.
 					</div>
 				) : (
 					<div

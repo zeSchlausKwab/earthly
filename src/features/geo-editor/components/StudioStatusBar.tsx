@@ -90,7 +90,7 @@ export function StudioStatusBar({
 				<span className="hidden capitalize md:inline">{styleLabel}</span>
 				<span>
 					{sightingsCount} {sightingsCount === 1 ? 'sighting' : 'sightings'} · {beaconsCount}{' '}
-					{beaconsCount === 1 ? 'beacon' : 'beacons'}
+					{beaconsCount === 1 ? 'live position' : 'live positions'}
 				</span>
 			</span>
 		</footer>

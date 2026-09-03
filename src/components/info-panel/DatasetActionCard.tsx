@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { Button } from '../ui/button'
 import { UserProfile } from '../user-profile'
+import { getMapEditPresentation } from './mapProposalPresentation'
 
 export interface DatasetActionCardProps {
 	event: GeoDataset
@@ -36,7 +37,7 @@ export function DatasetActionCard({
 	onZoomToDataset,
 	onDeleteDataset,
 }: DatasetActionCardProps) {
-	const primaryLabel = isOwned ? 'Edit dataset' : 'Load copy'
+	const primaryLabel = getMapEditPresentation(isOwned).actionLabel
 	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const isDeleting = deletingKey === datasetKey
 
@@ -89,7 +90,7 @@ export function DatasetActionCard({
 					(confirmingDelete || isDeleting ? (
 						<div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2">
 							<p className="text-[11px] font-medium text-destructive">
-								Delete this dataset from Nostr?
+								Delete this map from Nostr?
 							</p>
 							<div className="mt-2 flex items-center justify-end gap-2">
 								<Button

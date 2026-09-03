@@ -10,6 +10,8 @@ export {
 	serializeToText,
 	parseFromText,
 	type GeoMentionAttrs,
+	type StoryViewCapture,
+	type StoryViewNodeCallbacks,
 } from './GeoMentionExtension'
 
-export { RichContentRenderer } from './RichContentRenderer'
+export { RichContentRenderer, type RichContentRendererProps } from './RichContentRenderer'

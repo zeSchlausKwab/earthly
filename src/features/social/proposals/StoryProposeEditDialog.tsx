@@ -115,7 +115,7 @@ export function StoryProposeEditDialog({
 					onChange={setBody}
 					availableFeatures={availableFeatures}
 					placeholder={`Edit the narrative…
-Type @ to reference a dataset, feature, image, or video.`}
+Type @ to reference a Map, feature, image, or video.`}
 					rows={12}
 					className="min-h-[280px] w-full"
 				/>

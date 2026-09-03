@@ -10,11 +10,7 @@ interface UseBeaconControllerParams {
 	navigateToView: (view: SidebarViewMode) => void
 	/** Focus-preserving inspect nav. GeoEditorView marks in-app writes so the route
 	 * hydrator does not mistake them for fresh shared-link landings. */
-	navigateTo: (
-		focusType: 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon',
-		naddr: string,
-		sidebarView?: SidebarViewMode,
-	) => void
+	navigateTo: (focusType: 'beacon', naddr: string, sidebarView?: SidebarViewMode) => void
 	/** Encode a beacon to its share naddr (throwaway pubkey). */
 	encodeBeaconNaddr: (beacon: LiveBeacon) => string | null
 	clearFocus: () => void

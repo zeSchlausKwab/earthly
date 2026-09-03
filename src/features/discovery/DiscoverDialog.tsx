@@ -273,7 +273,7 @@ export function DiscoverDialog({
 							<IndexSection
 								kind="dataset"
 								index="01"
-								title="Datasets"
+								title="Maps"
 								description="Reusable maps and geographic layers."
 								icon={Database}
 								items={datasets}
@@ -293,7 +293,7 @@ export function DiscoverDialog({
 							<IndexSection
 								kind="context"
 								index="03"
-								title="Contexts"
+								title="Atlases"
 								description="Shared places, questions, and discussions."
 								icon={Layers3}
 								items={contexts}
@@ -317,7 +317,7 @@ export function DiscoverDialog({
 									onClick={() => runAndClose(onBrowseSightings)}
 								/>
 								<AtlasAction
-									title="Create a private group"
+									title="Create a Circle"
 									description="Map and coordinate with invited collaborators."
 									icon={Users}
 									onClick={() => runAndClose(onCreatePrivateGroup)}

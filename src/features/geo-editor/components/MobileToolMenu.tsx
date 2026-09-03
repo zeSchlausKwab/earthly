@@ -557,9 +557,9 @@ export function MobileToolMenu({
 								<DropdownMenuItem disabled={!canPublishUpdate} onSelect={onPublishUpdate}>
 									<RefreshCw className="h-4 w-4" />
 									{publishMode === 'private'
-										? 'Update private dataset'
+										? 'Update Circle Map'
 										: publishMode === 'field'
-											? 'Update nearby dataset'
+											? 'Update Nearby Map'
 											: 'Update existing'}
 								</DropdownMenuItem>
 							) : null}
@@ -567,10 +567,10 @@ export function MobileToolMenu({
 								<DropdownMenuItem disabled={!canPublishCopy} onSelect={onPublishCopy}>
 									<CopyPlus className="h-4 w-4" />
 									{publishMode === 'private'
-										? 'Save as new private dataset'
+										? 'Save as new Circle Map'
 										: publishMode === 'field'
-											? 'Save as new nearby dataset'
-											: 'Fork as new dataset'}
+											? 'Save as new Nearby Map'
+											: 'Fork as new Map'}
 								</DropdownMenuItem>
 							) : null}
 							{onProposeEdit && canProposeEdit ? (

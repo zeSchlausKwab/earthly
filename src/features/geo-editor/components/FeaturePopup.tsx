@@ -3,6 +3,7 @@ import type { Feature, Geometry } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { RichContentRenderer } from '@/components/editor'
 import { UserProfile } from '@/components/user-profile'
+import type { PresentationFeatureProvenance } from '../map-presentation/ids'
 import { resolveMapPopupPosition, type MapPopupPlacement } from './map-popup-positioning'
 
 export interface FeaturePopupData {
@@ -16,6 +17,8 @@ export interface FeaturePopupData {
 	isOwner: boolean
 	/** Name of the dataset */
 	datasetName: string
+	/** Present when this is a Story/Atlas render instance rather than author view. */
+	presentation?: PresentationFeatureProvenance
 }
 
 interface FeaturePopupProps {
@@ -32,7 +35,9 @@ const POPUP_WIDTH = 320
 const POPUP_HEIGHT_ESTIMATE = 240
 
 function getDatasetDescription(dataset: GeoDataset): string | null {
-	const featureCollection = dataset.featureCollection as Record<string, unknown> | undefined
+	const featureCollection = dataset.featureCollection as unknown as
+		| Record<string, unknown>
+		| undefined
 	if (!featureCollection) return null
 
 	const candidates = [
@@ -82,6 +87,9 @@ function countGeometryVertices(geometry: Geometry): number {
 		let count = 0
 		for (const child of coords) count += walk(child)
 		return count
+	}
+	if (geometry.type === 'GeometryCollection') {
+		return geometry.geometries.reduce((count, child) => count + countGeometryVertices(child), 0)
 	}
 	return walk(geometry.coordinates)
 }
@@ -144,7 +152,7 @@ export function FeaturePopup({
 
 	if (!data) return null
 
-	const { dataset, datasetName, feature } = data
+	const { dataset, datasetName, feature, presentation } = data
 	const description = getDatasetDescription(dataset)
 	const featureLabel = getFeatureLabel(feature)
 	const vertexCount = countGeometryVertices(feature.geometry)
@@ -169,7 +177,7 @@ export function FeaturePopup({
 			<div className="border-b border-border bg-muted/80 px-3 py-2">
 				<div className="font-semibold text-sm text-foreground truncate">{datasetName}</div>
 				<div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-					<span className="text-muted-foreground">Author:</span>
+					<span className="text-muted-foreground">{presentation ? 'Data:' : 'Author:'}</span>
 					<UserProfile
 						pubkey={dataset.pubkey}
 						mode="avatar-name"
@@ -178,6 +186,23 @@ export function FeaturePopup({
 						interactive={false}
 					/>
 				</div>
+				{presentation ? (
+					<div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+						<span>Presentation:</span>
+						{presentation.presentationAuthor ? (
+							<UserProfile
+								pubkey={presentation.presentationAuthor}
+								mode="avatar-name"
+								size="xs"
+								showNip05Badge={false}
+								interactive={false}
+							/>
+						) : (
+							<span className="truncate">{presentation.carrierId}</span>
+						)}
+						<span className="truncate">· layer {presentation.layerId}</span>
+					</div>
+				) : null}
 			</div>
 
 			<div className="space-y-2 overflow-y-auto px-3 py-2">

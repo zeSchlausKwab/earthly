@@ -5,6 +5,7 @@ import {
 	useState,
 	type PointerEvent as ReactPointerEvent,
 	type KeyboardEvent as ReactKeyboardEvent,
+	type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { FeatureCollection } from 'geojson'
@@ -44,6 +45,7 @@ import { StoriesPanelContent, type StoriesPanelProps } from '@/components/Storie
 import { UserProfilePanel } from '@/components/UserProfilePanel'
 import { ShoutboxPanel } from '@/features/social/shoutbox'
 import { PrivateGroupsPanel } from '@/features/private-maps/PrivateMapsDialog'
+import type { GroupCreationSeed } from '@/features/groups/creationSeed'
 import {
 	FieldSessionsPanel,
 	type FieldDatasetActions,
@@ -54,7 +56,13 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { cn } from '@/lib/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
-import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import type { GeoFeatureItem, StoryViewCapture } from '@/components/editor'
+import type {
+	MapPresentationAuthorization,
+	MapPresentationSource,
+	MapPresentationV1,
+	StoryViewSnapshotV1,
+} from '@/lib/map-presentation'
 import { EntitySearchPopover, type EntitySearchResult } from '@/components/entity-search'
 import type { EditorFeature } from '../core'
 import type { BlossomUploadResult } from '@/lib/blossom/blossomUpload'
@@ -80,19 +88,16 @@ import { MapSettingsPanel } from './MapSettingsPanel'
 import { ChatPanel } from '@/features/chat/ChatPanel'
 import { useChatStore } from '@/features/chat/store'
 import { Nip60Wallet } from '@/features/wallet/components/Nip60Wallet'
-import { useRouting } from '../hooks/useRouting'
+import { navigateToRoute, useRouting } from '../hooks/useRouting'
+import type { PlacedSightingGeometry } from '../hooks/useSightingEditor'
 import { DEFAULT_WORK_VIEW } from '../defaults'
 import { PublishOutboxPanel } from '@/features/delivery'
+import { buildInboxTargetHref, InboxPanel, useInboxFeed } from '@/features/inbox'
 import { NEW_STORY_DRAFT_KEY, readStoryDraft } from '@/lib/nostr/story'
 import { MobilePanelHeaderActionProvider } from './MobilePanelHeaderAction'
 import { resolveMobileViewportLayout } from './mobileViewport'
 import {
-	attemptConversationEditTargetRestore,
-	CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE,
-	createMobileWorkspaceIntentClock,
-	mobileChatEditIntentIsCurrent,
 	mobileWorkspacePanelUsesKeyboardViewport,
-	resolveActiveConversationEditTarget,
 	resolveMobileDatasetSurfaceTitle,
 	resolveMobileEditPanelPresentation,
 	resolveMobileStorySurfaceTitle,
@@ -145,7 +150,7 @@ export interface MobilePanelProps {
 	deletingKey: string | null
 	isFocused: boolean
 	multiSelectModifier?: string
-	onLoadDataset: (event: GeoDataset) => void
+	onLoadDataset: (event: GeoDataset) => boolean | undefined | Promise<boolean | undefined>
 	onStartNewDataset?: () => void
 	privateDatasetActions?: PrivateDatasetActions
 	fieldDatasetActions?: FieldDatasetActions
@@ -200,6 +205,7 @@ export interface MobilePanelProps {
 	isMentionVisible?: (address: string, featureId: string | undefined) => boolean
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	editingContext?: MapContext | null
+	contextCreationSeed?: GroupCreationSeed | null
 	onSaveContext?: (context: MapContext) => void
 	onCloseContextEditor?: () => void
 	/** Story view/edit props (Phase 10, D-03) — a Story create/edit/view renders in the edit tab. */
@@ -210,10 +216,21 @@ export interface MobilePanelProps {
 	onEditStory?: (story: import('@/lib/nostr/article').Article) => void
 	onStoryUpdated?: (story: import('@/lib/nostr/article').Article) => void
 	onDeleteStory?: (story: import('@/lib/nostr/article').Article) => void
+	captureMapPresentation?: (
+		acceptedSources?: readonly MapPresentationSource[] | MapPresentationAuthorization,
+	) => MapPresentationV1 | null | undefined
+	captureStoryView?: () => StoryViewCapture | null | undefined
+	onStoryViewActivate?: (snapshot: StoryViewSnapshotV1, index: number) => void
+	renderStoryViewFigure?: (snapshot: StoryViewSnapshotV1, index: number) => ReactNode
+	activeStoryViewId?: string | null
+	proposeEditOpen?: boolean
+	onProposeEditOpenChange?: (open: boolean) => void
 	/** Beacon control/view props (Phase 12, D-12) — a beacon create/adjust/view renders in the edit tab. */
 	beaconControlMode?: 'none' | 'create' | 'adjust'
 	adjustingBeacon?: import('@/lib/nostr/live-beacon').LiveBeacon | null
 	viewBeacon?: import('@/lib/nostr/live-beacon').LiveBeacon | null
+	isFollowingBeacon?: boolean
+	onToggleFollowBeacon?: () => void
 	beaconIsStarting?: boolean
 	beaconFocusCommentId?: string
 	onStartBeacon?: (
@@ -228,12 +245,16 @@ export interface MobilePanelProps {
 	sightingEditorMode?: 'none' | 'create' | 'edit'
 	editingSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
 	viewSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
-	placedSightingGeometry?: import('geojson').Geometry | null
+	placedSightingGeometry?: PlacedSightingGeometry | null
+	onZoomToSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	onDrawSightingArea?: () => void
 	onSaveSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	onCloseSightingEditor?: () => void
 	onEditSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	onDeleteSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	onAddSightingToMapStack?: (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+	) => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	featureCollectionForUpload?: FeatureCollection | null
 	onBlossomUploadComplete?: (result: BlossomUploadResult) => void
@@ -257,19 +278,19 @@ export interface MobilePanelProps {
 const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[] = [
 	{ id: 'drafts', label: 'Local drafts', icon: FilePenLine },
 	{ id: 'sightings', label: 'Sightings', icon: Eye },
-	{ id: 'beacons', label: 'Live beacons', icon: Radio },
+	{ id: 'beacons', label: 'Live positions', icon: Radio },
 	{ id: 'stories', label: 'Stories', icon: BookOpen },
-	{ id: 'datasets', label: 'Datasets', icon: Database },
-	{ id: 'map-stack', label: 'Stack', icon: Layers },
-	{ id: 'contexts', label: 'Contexts', icon: Globe },
-	{ id: 'field-sessions', label: 'Field sessions', icon: RadioTower },
-	{ id: 'private-groups', label: 'Private groups', icon: UsersRound },
-	{ id: 'context-editor', label: 'Ctx Editor', icon: FilePenLine },
-	{ id: 'edit', label: 'Editor', icon: Pencil },
-	{ id: 'chat', label: 'AI chat', icon: MessageCircle },
-	{ id: 'profile', label: 'My entities', icon: User },
-	{ id: 'posts', label: 'Local posts', icon: MessageSquare },
-	{ id: 'delivery', label: 'Sync & delivery', icon: CloudUpload },
+	{ id: 'datasets', label: 'Maps', icon: Database },
+	{ id: 'map-stack', label: 'Shelf', icon: Layers },
+	{ id: 'contexts', label: 'Atlases', icon: Globe },
+	{ id: 'field-sessions', label: 'Nearby', icon: RadioTower },
+	{ id: 'private-groups', label: 'Circles', icon: UsersRound },
+	{ id: 'context-editor', label: 'Atlas editor', icon: FilePenLine },
+	{ id: 'edit', label: 'Edit', icon: Pencil },
+	{ id: 'chat', label: 'Thread', icon: MessageCircle },
+	{ id: 'profile', label: 'Me', icon: User },
+	{ id: 'posts', label: 'Posts', icon: MessageSquare },
+	{ id: 'delivery', label: 'Inbox & delivery', icon: CloudUpload },
 	{ id: 'wallet', label: 'Wallet', icon: Wallet },
 	{ id: 'settings', label: 'Settings', icon: Settings2 },
 	{ id: 'help', label: 'Help', icon: HelpCircle },
@@ -290,6 +311,7 @@ const SIDEBAR_GROUPS: { label: string; tabs: MobilePanelTab[] }[] = [
 		label: 'Explore',
 		tabs: [
 			'datasets',
+			'map-stack',
 			'contexts',
 			'field-sessions',
 			'private-groups',
@@ -395,6 +417,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		isMentionVisible,
 		contextEditorMode,
 		editingContext,
+		contextCreationSeed,
 		onSaveContext,
 		onCloseContextEditor,
 		storyEditorMode,
@@ -404,9 +427,18 @@ export function MobilePanel(props: MobilePanelProps) {
 		onEditStory,
 		onStoryUpdated,
 		onDeleteStory,
+		captureMapPresentation,
+		captureStoryView,
+		onStoryViewActivate,
+		renderStoryViewFigure,
+		activeStoryViewId,
+		proposeEditOpen,
+		onProposeEditOpenChange,
 		beaconControlMode,
 		adjustingBeacon,
 		viewBeacon,
+		isFollowingBeacon,
+		onToggleFollowBeacon,
 		beaconIsStarting,
 		beaconFocusCommentId,
 		onStartBeacon,
@@ -419,11 +451,13 @@ export function MobilePanel(props: MobilePanelProps) {
 		editingSighting,
 		viewSighting,
 		placedSightingGeometry,
+		onZoomToSighting,
 		onDrawSightingArea,
 		onSaveSighting,
 		onCloseSightingEditor,
 		onEditSighting,
 		onDeleteSighting,
+		onAddSightingToMapStack,
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
@@ -437,8 +471,28 @@ export function MobilePanel(props: MobilePanelProps) {
 		beaconsPanelProps,
 		storiesPanelProps,
 	} = props
-	const { contextNaddr, encodeContextNaddr, navigateToContext, clearContextScope, navigateToView } =
-		useRouting()
+	const {
+		publicRoute,
+		route,
+		contextNaddr,
+		encodeContextNaddr,
+		navigateToContext,
+		clearContextScope,
+		navigateToView,
+		navigateToTab,
+	} = useRouting()
+	const inbox = useInboxFeed({
+		currentUserPubkey,
+		geoEvents,
+		mapContextEvents,
+		getDatasetName,
+	})
+	const handleOpenInboxItem = useCallback((item: (typeof inbox.items)[number]) => {
+		const href = buildInboxTargetHref(item.target)
+		if (href) navigateToRoute(href)
+	}, [])
+	const routedAskOpen = route.sidebarView === 'chat'
+	const routedObjectThreadOpen = route.tab === 'thread' && route.focusType !== 'none'
 
 	const activeContextScope = mapContextEvents.find((context) => {
 		if (!contextNaddr) return false
@@ -481,8 +535,12 @@ export function MobilePanel(props: MobilePanelProps) {
 	const retainedDatasetSurfaceTitle = useEditorStore((state) =>
 		resolveMobileDatasetSurfaceTitle(getRetainedDatasetSurfaceTarget(state)),
 	)
-	const activeChatId = useChatStore((state) => state.activeChatId)
-	const chatSessions = useChatStore((state) => state.chatSessions)
+	const routedDraftThreadOpen =
+		route.tab === 'thread' &&
+		route.focusType === 'none' &&
+		route.sidebarView === 'edit' &&
+		datasetEditorRetained
+	const routedThreadOpen = routedObjectThreadOpen || routedDraftThreadOpen
 	const runningChatId = useChatStore((state) => state.runningChatId)
 	const activeChatRun = useChatStore((state) => state.activeRun)
 	const localDraftCount = useEditorStore((state) =>
@@ -499,13 +557,6 @@ export function MobilePanel(props: MobilePanelProps) {
 	const workspaceTabRefs = useRef<
 		Partial<Record<MobileWorkspacePanelTab, HTMLButtonElement | null>>
 	>({})
-	const workspaceIntentClockRef = useRef<ReturnType<
-		typeof createMobileWorkspaceIntentClock
-	> | null>(null)
-	if (workspaceIntentClockRef.current === null) {
-		workspaceIntentClockRef.current = createMobileWorkspaceIntentClock()
-	}
-	const workspaceIntentClock = workspaceIntentClockRef.current
 	const [keyboardViewport, setKeyboardViewport] = useState(() => ({
 		keyboardOpen: false,
 		fixedBottomInsetPx: 0,
@@ -515,7 +566,6 @@ export function MobilePanel(props: MobilePanelProps) {
 	}))
 
 	const handleClose = () => {
-		workspaceIntentClock.advance()
 		setMobilePanelOpen(false)
 	}
 	const sidebarIsMenu = mobileSidebarMode === 'menu'
@@ -542,30 +592,23 @@ export function MobilePanel(props: MobilePanelProps) {
 		leaveSidebar()
 		onZoomToBounds?.(bounds)
 	}
-
-	useEffect(() => {
-		let panelOpen = useEditorStore.getState().mobilePanelOpen
-		let panelTab = useEditorStore.getState().mobilePanelTab
-		let chatId = useChatStore.getState().activeChatId
-		const unsubscribeEditor = useEditorStore.subscribe((state) => {
-			if (state.mobilePanelOpen !== panelOpen || state.mobilePanelTab !== panelTab) {
-				panelOpen = state.mobilePanelOpen
-				panelTab = state.mobilePanelTab
-				workspaceIntentClock.advance()
-			}
-		})
-		const unsubscribeChat = useChatStore.subscribe((state) => {
-			if (state.activeChatId !== chatId) {
-				chatId = state.activeChatId
-				workspaceIntentClock.advance()
-			}
-		})
-		return () => {
-			workspaceIntentClock.advance()
-			unsubscribeEditor()
-			unsubscribeChat()
+	const ensureRouteThreadMapTarget = useCallback(async (): Promise<string | null> => {
+		if (routedDraftThreadOpen) {
+			const state = useEditorStore.getState()
+			const workspaceId = state.activeWorkspaceId
+			if (!workspaceId || !getRetainedDatasetSurfaceTarget(state, workspaceId)) return null
+			return workspaceId
 		}
-	}, [workspaceIntentClock])
+		if (!routedObjectThreadOpen || route.focusType !== 'geoevent' || !viewDataset) return null
+		const loaded = await onLoadDataset(viewDataset)
+		if (loaded === false) return null
+		const state = useEditorStore.getState()
+		const workspaceId = state.activeWorkspaceId
+		if (!workspaceId) return null
+		const workspace = state.workspaces[workspaceId]
+		if (!workspace?.activeDraftId || !state.geoEditDrafts[workspace.activeDraftId]) return null
+		return workspaceId
+	}, [onLoadDataset, route.focusType, routedDraftThreadOpen, routedObjectThreadOpen, viewDataset])
 
 	useEffect(() => {
 		if (!mobileSidebarOpen && !mobilePanelOpen) return
@@ -691,8 +734,8 @@ export function MobilePanel(props: MobilePanelProps) {
 		const currentIndex = SNAP_ORDER.indexOf(mobilePanelSnap)
 		let nextSnap: MobilePanelSnap | null = null
 		if (event.key === 'ArrowUp')
-			nextSnap = SNAP_ORDER[Math.min(currentIndex + 1, SNAP_ORDER.length - 1)]
-		if (event.key === 'ArrowDown') nextSnap = SNAP_ORDER[Math.max(currentIndex - 1, 0)]
+			nextSnap = SNAP_ORDER[Math.min(currentIndex + 1, SNAP_ORDER.length - 1)] ?? null
+		if (event.key === 'ArrowDown') nextSnap = SNAP_ORDER[Math.max(currentIndex - 1, 0)] ?? null
 		if (event.key === 'Home') nextSnap = 'peek'
 		if (event.key === 'End') nextSnap = 'full'
 		if (!nextSnap) return
@@ -740,48 +783,22 @@ export function MobilePanel(props: MobilePanelProps) {
 				: id === 'contexts'
 					? mapContextEvents.length
 					: undefined
-	const activeConversationEditTarget = resolveActiveConversationEditTarget(
-		activeChatId,
-		activeChatRun,
-		chatSessions,
-	)
 	const selectPanel = async (id: MobilePanelTab): Promise<boolean> => {
 		if (id === 'map-stack' || id === 'edit' || id === 'chat') {
-			const workspaceIntentGeneration = workspaceIntentClock.advance()
-			// The workspace triad is presentation-only: it must not write a route or
-			// derive viewMode/stance from one. Chat → Edit has one explicit exception:
-			// the user's tap may restore that conversation's exact retained Dataset.
-			if (id === 'edit' && mobilePanelTab === 'chat') {
-				const initiatingChatId = activeChatId
-				let targetUnavailable = false
-				const restored = await attemptConversationEditTargetRestore(
-					activeConversationEditTarget,
-					onOpenGeometryEditor
-						? (workspaceId) => onOpenGeometryEditor(workspaceId, { preserveMobileSnap: true })
-						: undefined,
-					() => {
-						targetUnavailable = true
-					},
-				)
-				const latestEditorState = useEditorStore.getState()
-				if (
-					!workspaceIntentClock.isCurrent(workspaceIntentGeneration) ||
-					!mobileChatEditIntentIsCurrent(initiatingChatId, {
-						mobilePanelOpen: latestEditorState.mobilePanelOpen,
-						mobilePanelTab: latestEditorState.mobilePanelTab,
-						activeChatId: useChatStore.getState().activeChatId,
-					})
-				) {
-					// A close, workspace-tab switch, or conversation switch supersedes
-					// this async completion. Do not reopen, select, focus, or notify.
-					return false
-				}
-				if (!restored) {
-					// A stale or unsupported target must leave the user in Chat. Revealing a
-					// different retained surface here would make the conversation ambiguous.
-					if (targetUnavailable) toast.error(CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE)
-					return false
-				}
+			// Shelf and Thread are route-owned even though their controls live in
+			// the map-bound sheet. Reload, Back, and desktop/phone composition must
+			// therefore observe the same state.
+			if (id === 'map-stack') navigateToView('map-stack')
+			if (id === 'chat') {
+				if (route.focusType !== 'none') navigateToTab('thread')
+				else if (datasetEditorRetained && activeWorkspaceId) navigateToRoute('/edit?tab=thread')
+				else navigateToView('chat')
+			}
+			// The route owns both the object and its Thread. Switching back to
+			// Details/Edit must also work before the first send has bound a target.
+			if (id === 'edit') {
+				if (route.focusType !== 'none') navigateToTab('details')
+				else if (datasetEditorRetained) navigateToRoute('/edit')
 			}
 			// Switching adjacent workspace tabs must not move the rail under the
 			// user's finger or keyboard focus. Only a first launch chooses the
@@ -794,7 +811,8 @@ export function MobilePanel(props: MobilePanelProps) {
 			// canonical router so history/reload/share agree with the sheet
 			// (audit P1 #6). The tab is also set directly — in-app pushState
 			// deliberately skips route→tab derivation.
-			navigateToView(mobileTabToView(id))
+			if (id === 'delivery') navigateToRoute('/delivery')
+			else navigateToView(mobileTabToView(id))
 			selectMobileSidebarDestination(id, {
 				preserveSuspendedPanel: editorStance === 'author',
 			})
@@ -813,7 +831,13 @@ export function MobilePanel(props: MobilePanelProps) {
 			if (selected) workspaceTabRefs.current[next]?.focus()
 		})
 	}
-	const activeMeta = tabMeta(mobilePanelTab)
+	const activeMeta =
+		mobilePanelTab === 'delivery'
+			? {
+					...tabMeta(mobilePanelTab),
+					label: publicRoute.kind === 'inbox' ? 'Inbox' : 'Sync & delivery',
+				}
+			: tabMeta(mobilePanelTab)
 	const entitySurfaceAvailability: Record<MobileEntitySurface, boolean> = {
 		inspector: inspectionSubject != null,
 		dataset: datasetEditorRetained,
@@ -859,7 +883,7 @@ export function MobilePanel(props: MobilePanelProps) {
 	const selectedEntitySurfaceWorking = workingEntitySurface === resolvedEntitySurface
 	const surfaceLabel = (surface: MobileEntitySurface): string => {
 		if (surface === 'dataset') {
-			return `Dataset · ${retainedDatasetSurfaceTitle}${workingEntitySurface === surface ? ' · AI working' : ''}`
+			return `Map · ${retainedDatasetSurfaceTitle}${workingEntitySurface === surface ? ' · AI working' : ''}`
 		}
 		if (surface === 'story') {
 			return `Story · ${resolveMobileStorySurfaceTitle(
@@ -868,7 +892,7 @@ export function MobilePanel(props: MobilePanelProps) {
 			)}`
 		}
 		if (surface === 'context') {
-			return `Context · ${editingContext?.context.name?.trim() || 'Untitled context'}`
+			return `Atlas · ${editingContext?.context.name?.trim() || 'Untitled atlas'}`
 		}
 		if (surface === 'sighting') {
 			return `Sighting · ${editingSighting?.sighting.title?.trim() || viewSighting?.sighting.title?.trim() || 'Untitled sighting'}`
@@ -881,7 +905,7 @@ export function MobilePanel(props: MobilePanelProps) {
 			return `Inspect · ${getDatasetName(inspectionSubject.entity)}`
 		}
 		if (inspectionSubject.kind === 'context') {
-			return `Inspect · ${inspectionSubject.entity.context.name || 'Context'}`
+			return `Inspect · ${inspectionSubject.entity.context.name || 'Atlas'}`
 		}
 		if (inspectionSubject.kind === 'story') {
 			return `Inspect · ${inspectionSubject.entity.article.title || 'Story'}`
@@ -922,7 +946,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		working: boolean
 		retained: boolean
 	}> = [
-		{ id: 'map-stack', label: 'Stack', icon: Layers, working: false, retained: false },
+		{ id: 'map-stack', label: 'Shelf', icon: Layers, working: false, retained: false },
 		{
 			id: 'edit',
 			label: editPresentation.intent === 'author' ? 'Edit' : 'Inspect',
@@ -930,8 +954,44 @@ export function MobilePanel(props: MobilePanelProps) {
 			working: selectedEntitySurfaceWorking,
 			retained: retainedEntitySurface,
 		},
-		{ id: 'chat', label: 'Chat', icon: MessageCircle, working: chatWorking, retained: false },
+		{ id: 'chat', label: 'Thread', icon: MessageCircle, working: chatWorking, retained: false },
 	]
+	const objectThreadKind =
+		route.focusType === 'geoevent'
+			? 'map'
+			: route.focusType === 'mapcontext'
+				? 'atlas'
+				: route.focusType === 'beacon'
+					? 'live'
+					: route.focusType
+	const routeThreadKey = routedAskOpen
+		? 'ask'
+		: routedDraftThreadOpen && activeWorkspaceId
+			? `map-draft:${activeWorkspaceId}`
+			: routedThreadOpen && route.naddr
+				? `${objectThreadKind}:${route.naddr}`
+				: undefined
+	const routeThreadTitle = routedAskOpen
+		? 'Ask Earthly'
+		: routedDraftThreadOpen
+			? retainedDatasetSurfaceTitle
+			: route.focusType === 'geoevent'
+				? viewDataset
+					? getDatasetName(viewDataset)
+					: 'Map'
+				: route.focusType === 'story'
+					? viewStory?.article.title || 'Story'
+					: route.focusType === 'mapcontext'
+						? viewContext?.context.name || 'Atlas'
+						: route.focusType === 'sighting'
+							? viewSighting?.sighting.title || 'Sighting'
+							: route.focusType === 'beacon'
+								? viewBeacon?.beacon.label || 'Live location'
+								: 'Thread'
+	const askInitialPrompt =
+		routedAskOpen && typeof window !== 'undefined'
+			? (new URLSearchParams(window.location.search).get('q') ?? undefined)
+			: undefined
 	const resolvedSheetHeight = keyboardViewport.keyboardOpen
 		? Math.max(MOBILE_SHEET_PEEK_PX, keyboardViewport.usableHeightPx)
 		: (dragPx ?? mobilePanelHeightPx(mobilePanelSnap, keyboardViewport.layoutHeightPx))
@@ -950,9 +1010,9 @@ export function MobilePanel(props: MobilePanelProps) {
 		mobilePanelTab === 'drafts' && onStartNewDataset
 			? { label: 'New draft', onClick: onStartNewDataset }
 			: mobilePanelTab === 'datasets' && onStartNewDataset
-				? { label: 'New dataset', onClick: onStartNewDataset }
+				? { label: 'New map', onClick: onStartNewDataset }
 				: mobilePanelTab === 'contexts' && onCreateContext
-					? { label: 'New context', onClick: onCreateContext }
+					? { label: 'New atlas', onClick: onCreateContext }
 					: mobilePanelTab === 'sightings' && sightingsPanelProps
 						? { label: 'New sighting', onClick: sightingsPanelProps.onCreateSighting }
 						: mobilePanelTab === 'beacons' && beaconsPanelProps
@@ -997,6 +1057,7 @@ export function MobilePanel(props: MobilePanelProps) {
 				visibleProposalIds={visibleProposalIds}
 				contextEditorMode={contextEditorMode}
 				editingContext={editingContext}
+				contextCreationSeed={contextCreationSeed}
 				onSaveContext={onSaveContext}
 				onCloseContextEditor={onCloseContextEditor}
 				storyEditorMode={storyEditorMode}
@@ -1006,9 +1067,18 @@ export function MobilePanel(props: MobilePanelProps) {
 				onEditStory={onEditStory}
 				onStoryUpdated={onStoryUpdated}
 				onDeleteStory={onDeleteStory}
+				captureMapPresentation={captureMapPresentation}
+				captureStoryView={captureStoryView}
+				onStoryViewActivate={onStoryViewActivate}
+				renderStoryViewFigure={renderStoryViewFigure}
+				activeStoryViewId={activeStoryViewId}
+				proposeEditOpen={proposeEditOpen}
+				onProposeEditOpenChange={onProposeEditOpenChange}
 				beaconControlMode={beaconControlMode}
 				adjustingBeacon={adjustingBeacon}
 				viewBeacon={viewBeacon}
+				isFollowingBeacon={isFollowingBeacon}
+				onToggleFollowBeacon={onToggleFollowBeacon}
 				beaconIsStarting={beaconIsStarting}
 				beaconFocusCommentId={beaconFocusCommentId}
 				onStartBeacon={onStartBeacon}
@@ -1022,11 +1092,13 @@ export function MobilePanel(props: MobilePanelProps) {
 				viewSighting={viewSighting}
 				sightingFocusCommentId={sightingFocusCommentId}
 				placedSightingGeometry={placedSightingGeometry}
+				onZoomToSighting={onZoomToSighting}
 				onDrawSightingArea={onDrawSightingArea}
 				onSaveSighting={onSaveSighting}
 				onCloseSightingEditor={onCloseSightingEditor}
 				onEditSighting={onEditSighting}
 				onDeleteSighting={onDeleteSighting}
+				onAddSightingToMapStack={onAddSightingToMapStack}
 				mapContextEvents={mapContextEvents}
 				onZoomToFeature={onZoomToFeature}
 				featureCollectionForUpload={featureCollectionForUpload}
@@ -1038,7 +1110,7 @@ export function MobilePanel(props: MobilePanelProps) {
 	const workspaceTabList = (
 		<div
 			role="tablist"
-			aria-label="Map workspace panels"
+			aria-label="Map panels"
 			className={mobileWorkspaceTabListClassName(panelTranslucent)}
 		>
 			{workspacePanelTabs.map(({ id, label, icon: Icon, working, retained }) => {
@@ -1118,7 +1190,7 @@ export function MobilePanel(props: MobilePanelProps) {
 								<button
 									type="button"
 									aria-label="Close navigation"
-									className="fixed inset-0 z-40 bg-black/35 md:hidden"
+									className="fixed inset-x-0 top-0 bottom-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] z-40 bg-black/35 md:hidden"
 									onClick={closeNavigationSurface}
 								/>
 							) : null}
@@ -1424,7 +1496,7 @@ export function MobilePanel(props: MobilePanelProps) {
 															sources={{ contexts: mapContextEvents }}
 															entityTypes={['context']}
 															onSelect={handleContextScopeSelect}
-															placeholder={activeContextScopeLabel ?? 'Browse all contexts'}
+															placeholder={activeContextScopeLabel ?? 'Browse all atlases'}
 															searchMode="local"
 															compact
 														/>
@@ -1435,7 +1507,7 @@ export function MobilePanel(props: MobilePanelProps) {
 															variant="outline"
 															size="icon-sm"
 															onClick={clearContextScope}
-															aria-label="Clear context browse scope"
+															aria-label="Clear atlas browse scope"
 														>
 															<X className="h-3.5 w-3.5" />
 														</Button>
@@ -1624,8 +1696,10 @@ export function MobilePanel(props: MobilePanelProps) {
 															contextEditorMode !== 'none' ? contextEditorMode : 'create'
 														}
 														editingContext={editingContext}
+														contextCreationSeed={contextCreationSeed}
 														onSaveContext={onSaveContext}
 														onCloseContextEditor={onCloseContextEditor}
+														captureMapPresentation={captureMapPresentation}
 														mapContextEvents={mapContextEvents}
 														onZoomToFeature={onZoomToFeature}
 														featureCollectionForUpload={featureCollectionForUpload}
@@ -1694,8 +1768,34 @@ export function MobilePanel(props: MobilePanelProps) {
 															mapContextEvents={mapContextEvents}
 															availableFeatures={availableFeatures}
 															getDatasetName={getDatasetName}
-															onOpenAuthoringTarget={onOpenDraftEditor}
 															onOpenSettings={() => void selectPanel('settings')}
+															threadKey={routeThreadKey}
+															threadTitle={routeThreadTitle}
+															readOnly={
+																routedAskOpen ||
+																(routedObjectThreadOpen && route.focusType !== 'geoevent')
+															}
+															initialPrompt={askInitialPrompt}
+															onEnsureAuthoringTarget={
+																routedDraftThreadOpen ||
+																(routedObjectThreadOpen &&
+																	route.focusType === 'geoevent' &&
+																	viewDataset)
+																	? ensureRouteThreadMapTarget
+																	: undefined
+															}
+															authoringActionLabel={
+																routedDraftThreadOpen
+																	? 'Send'
+																	: currentUserPubkey && viewDataset?.pubkey === currentUserPubkey
+																		? 'Edit & send'
+																		: 'Propose & send'
+															}
+															onClose={() => {
+																if (routedDraftThreadOpen) navigateToRoute('/edit')
+																else if (routedObjectThreadOpen) navigateToTab('details')
+																else if (routedAskOpen) navigateToView('datasets')
+															}}
 														/>
 													</div>
 												) : null}
@@ -1732,7 +1832,21 @@ export function MobilePanel(props: MobilePanelProps) {
 													</div>
 												) : null}
 
-												{mobilePanelTab === 'delivery' ? <PublishOutboxPanel /> : null}
+												{mobilePanelTab === 'delivery' ? (
+													publicRoute.kind === 'inbox' ? (
+														<InboxPanel
+															currentUserPubkey={currentUserPubkey}
+															items={inbox.items}
+															unreadCount={inbox.unreadCount}
+															isLoading={inbox.isLoading}
+															onMarkRead={inbox.markRead}
+															onMarkAllRead={inbox.markAllRead}
+															onOpenItem={handleOpenInboxItem}
+														/>
+													) : (
+														<PublishOutboxPanel />
+													)
+												) : null}
 
 												{mobilePanelTab === 'wallet' ? (
 													<div className="-mx-3 -mb-4 -mt-2 h-full p-4">
@@ -1772,7 +1886,7 @@ interface MobileProfileContentProps {
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: GeoDataset) => void
+	onLoadDataset: (event: GeoDataset) => boolean | undefined | Promise<boolean | undefined>
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
 	onToggleVisibility: (event: GeoDataset) => void

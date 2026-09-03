@@ -1,4 +1,5 @@
 import { parseGeoReference } from '@/lib/geo/reference'
+import { presentationFeatureMatches } from '@/lib/map-presentation/featureIdentity'
 import { encodeNostrFeatureId } from '@/lib/nostr/references'
 import type { MapStackEntry } from './store'
 
@@ -26,15 +27,7 @@ export function featureMatchesReferenceSelector(
 	feature: GeoJSON.Feature,
 	featureIds: readonly string[],
 ): boolean {
-	const id = feature.id
-	const propertyId = feature.properties?.id
-	return featureIds.some(
-		(featureId) =>
-			(typeof id === 'string' || typeof id === 'number' ? String(id) === featureId : false) ||
-			(typeof propertyId === 'string' || typeof propertyId === 'number'
-				? String(propertyId) === featureId
-				: false),
-	)
+	return presentationFeatureMatches(feature, featureIds)
 }
 
 /** Pure derivation used by GeoEditorView and unit tests. */

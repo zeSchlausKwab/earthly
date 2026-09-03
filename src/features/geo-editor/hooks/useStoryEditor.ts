@@ -16,6 +16,7 @@ interface UseStoryEditorParams {
 		focusType: 'geoevent' | 'mapcontext' | 'story',
 		naddr: string,
 		sidebarView?: SidebarViewMode,
+		edit?: boolean,
 	) => void
 	navigateToView: (view: SidebarViewMode) => void
 	clearFocus: () => void
@@ -26,8 +27,9 @@ interface UseStoryEditorParams {
  * Story create/edit/inspect lifecycle (Phase 10, D-01/D-02/D-03). The structural
  * twin of `useContextEditor`: it owns the `storyEditorMode`/`editingStory` local
  * state and the handlers the rail (AppSidebar) + info panel (GeoEditorInfoPanel)
- * thread through. Opening a Story sets `viewStory` and navigates to the
- * `/stories/story/:naddr` focus route; creating/editing opens the StoryEditorPanel.
+ * thread through. Opening a Story sets `viewStory` and navigates to
+ * `/story/:naddr`; editing retains `/story/:naddr/edit` while opening the
+ * StoryEditorPanel.
  */
 export function useStoryEditor({
 	isMobile,
@@ -57,24 +59,27 @@ export function useStoryEditor({
 		clearStoryEditorTarget()
 	}, [])
 
-	const prepareNonGeometryWorkspace = useCallback(() => {
-		setViewModeState('view')
-		setViewDatasetState(null)
-		setViewContext(null)
-		setViewContextDatasets([])
-		setViewStory(null)
-		clearFocus()
-	}, [
-		setViewModeState,
-		setViewDatasetState,
-		setViewContext,
-		setViewContextDatasets,
-		setViewStory,
-		clearFocus,
-	])
+	const prepareNonGeometryWorkspace = useCallback(
+		({ clearRoute = true }: { clearRoute?: boolean } = {}) => {
+			setViewModeState('view')
+			setViewDatasetState(null)
+			setViewContext(null)
+			setViewContextDatasets([])
+			setViewStory(null)
+			if (clearRoute) clearFocus()
+		},
+		[
+			setViewModeState,
+			setViewDatasetState,
+			setViewContext,
+			setViewContextDatasets,
+			setViewStory,
+			clearFocus,
+		],
+	)
 
 	const handleInspectStory = useCallback(
-		(story: Article) => {
+		(story: Article, { preserveRoute = false }: { preserveRoute?: boolean } = {}) => {
 			selectMobileEntitySurface('inspector')
 			setViewModeState('view')
 			setViewDatasetState(null)
@@ -89,7 +94,7 @@ export function useStoryEditor({
 			}
 
 			const naddr = encodeStoryNaddr(story)
-			if (naddr) {
+			if (naddr && !preserveRoute) {
 				navigateTo('story', naddr, 'stories')
 			}
 		},
@@ -136,14 +141,21 @@ export function useStoryEditor({
 			setStoryEditorMode('edit')
 			setEditingStory(story)
 			retainStoryEditorTarget(story)
-			prepareNonGeometryWorkspace()
-			navigateToView('stories')
+			// Keep a direct /story/:naddr/edit request intact while the route
+			// controller opens the editor. Clearing focus first would briefly replace
+			// it with the Stories catalog and lose the edit intent on re-entry.
+			prepareNonGeometryWorkspace({ clearRoute: false })
+			const naddr = encodeStoryNaddr(story)
+			if (naddr) navigateTo('story', naddr, 'stories', true)
+			else navigateToView('stories')
 			if (isMobile) ensureInfoPanelVisible()
 			else setShowInfoPanel(true)
 		},
 		[
 			clearStoryEditorModes,
 			prepareNonGeometryWorkspace,
+			encodeStoryNaddr,
+			navigateTo,
 			navigateToView,
 			isMobile,
 			setShowInfoPanel,

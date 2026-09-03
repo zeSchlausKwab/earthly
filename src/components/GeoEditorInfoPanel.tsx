@@ -1,7 +1,7 @@
 import { Eye, MapPin, Pencil } from 'lucide-react'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { cn } from '@/lib/utils'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
 	getEffectiveContextUse,
 	getEffectiveContextValidationMode,
@@ -40,23 +40,33 @@ import type { BeaconStartOptions } from './info-panel/BeaconControlPanel'
 import { BeaconViewPanel } from './info-panel/BeaconViewPanel'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
+import type { PlacedSightingGeometry } from '@/features/geo-editor/hooks/useSightingEditor'
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
 import { GroupEditorPanel } from '../features/groups/GroupEditorPanel'
+import type { GroupCreationSeed } from '../features/groups/creationSeed'
 import type { Article } from '@/lib/nostr/article'
 import { GroupAttachField } from '../features/geo-editor/components/GroupAttachField'
 import { CommentsPanel } from '../features/social/comments'
 import { Button } from './ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
-import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
+import type { GeoFeatureItem, StoryViewCapture } from './editor'
+import type {
+	MapPresentationAuthorization,
+	MapPresentationSource,
+	MapPresentationV1,
+	StoryViewSnapshotV1,
+} from '@/lib/map-presentation'
 import type { EntitySearchResult } from './entity-search'
 import type { EditorFeature } from '../features/geo-editor/core'
 import type { BlossomUploadResult } from '../lib/blossom/blossomUpload'
+import type { EarthlyObjectTab } from '@/router/routeContract'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace'
 import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
 import { LocalDraftPersistenceWarning } from '@/features/geo-editor/components/LocalDraftPersistenceWarning'
 import { resolveInfoPanelViewState } from '@/features/geo-editor/components/mobileEditPanelPresentation'
 import { ConfirmDeleteAction } from './info-panel/ConfirmDeleteAction'
 import { resolveDatasetEditorDeleteMode } from './info-panel/datasetEditorDeletion'
+import { getMapEditPresentation } from './info-panel/mapProposalPresentation'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -109,6 +119,8 @@ export interface GeoEditorInfoPanelProps {
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	/** Context being edited */
 	editingContext?: MapContext | null
+	/** One-shot initial values for a newly created Atlas. */
+	contextCreationSeed?: GroupCreationSeed | null
 	/** Callback when context is saved */
 	onSaveContext?: (context: MapContext) => void
 	/** Callback to close context editor */
@@ -140,6 +152,9 @@ export interface GeoEditorInfoPanelProps {
 	isPublishing?: boolean
 	/** Optional comment d-tag from the route to reveal in the thread */
 	focusCommentId?: string
+	/** Route-backed Details / Comments / Thread selection for inspected social objects. */
+	objectTab?: EarthlyObjectTab
+	onObjectTabChange?: (tab: EarthlyObjectTab) => void
 	entityWorkspace?: 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
 	entityIntent?: 'inspect' | 'edit'
 	/** Retained Inspector subject used without restoring route-owned view state. */
@@ -160,6 +175,21 @@ export interface GeoEditorInfoPanelProps {
 	onDeleteStory?: (story: Article) => void
 	/** Callback with the republished Story after an accepted proposed edit (refresh view in place). */
 	onStoryUpdated?: (updated: Article) => void
+	/** Capture the shared canvas for a Story opening view or Atlas default view. */
+	captureMapPresentation?: (
+		acceptedSources?: readonly MapPresentationSource[] | MapPresentationAuthorization,
+	) => MapPresentationV1 | null | undefined
+	/** Capture the current camera and effective Story layer state for an inline view. */
+	captureStoryView?: () => StoryViewCapture | null | undefined
+	/** Apply a cumulative inline Story view to the shared canvas. */
+	onStoryViewActivate?: (snapshot: StoryViewSnapshotV1, index: number) => void
+	/** Render a compact live map for figure/both Story view blocks. */
+	renderStoryViewFigure?: (snapshot: StoryViewSnapshotV1, index: number) => ReactNode
+	/** Active view marker shared by the panel and canvas presenter. */
+	activeStoryViewId?: string | null
+	/** Canonical non-owner `/story/:naddr/edit` proposal intent. */
+	proposeEditOpen?: boolean
+	onProposeEditOpenChange?: (open: boolean) => void
 	/** Sighting editor mode (Phase 11, D-01/D-07). */
 	sightingEditorMode?: 'none' | 'create' | 'edit'
 	/** Sighting being edited (create ⇒ null). */
@@ -183,7 +213,7 @@ export interface GeoEditorInfoPanelProps {
 	 */
 	beaconFocusCommentId?: string
 	/** The geometry placed by the map-first pin-drop, fed to the create form. */
-	placedSightingGeometry?: Geometry | null
+	placedSightingGeometry?: PlacedSightingGeometry | null
 	/** Switch the Sighting create flow to line/polygon draw (D-02). */
 	onDrawSightingArea?: () => void
 	/** Callback when a Sighting is saved (publish/edit). */
@@ -247,6 +277,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		isMentionVisible,
 		contextEditorMode = 'none',
 		editingContext,
+		contextCreationSeed,
 		onSaveContext,
 		onCloseContextEditor,
 		onCreateContext,
@@ -261,6 +292,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		canPublishNew = false,
 		isPublishing = false,
 		focusCommentId,
+		objectTab,
+		onObjectTabChange,
 		entityWorkspace,
 		entityIntent,
 		inspectionSubjectOverride,
@@ -272,6 +305,13 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onEditStory,
 		onDeleteStory,
 		onStoryUpdated,
+		captureMapPresentation,
+		captureStoryView,
+		onStoryViewActivate,
+		renderStoryViewFigure,
+		activeStoryViewId,
+		proposeEditOpen,
+		onProposeEditOpenChange,
 		sightingEditorMode = 'none',
 		editingSighting,
 		viewSighting: suppliedViewSighting,
@@ -352,6 +392,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				isOwner: currentUserPubkey === activeDataset.pubkey,
 			}
 		: null
+	const activeDatasetEditPresentation = getMapEditPresentation(Boolean(activeDatasetInfo?.isOwner))
 	const datasetEditorDeleteMode = resolveDatasetEditorDeleteMode({
 		hasActiveDataset: Boolean(activeDataset),
 		isDatasetOwner: Boolean(activeDatasetInfo?.isOwner),
@@ -425,7 +466,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					}
 					return {
 						coordinate,
-						name: context.context.name || context.contextId || context.id || 'Untitled context',
+						name: context.context.name || context.contextId || context.id || 'Untitled Atlas',
 						validationMode: getEffectiveContextValidationMode(context),
 						contextUse: getEffectiveContextUse(context),
 						contextEvent: context,
@@ -570,7 +611,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const _getPrimaryContextError = useCallback(
 		(coordinate: string) => {
 			const result = contextValidationByCoordinate.get(coordinate)
-			if (!result || result.status !== 'invalid' || result.errors.length === 0) return null
+			if (result?.status !== 'invalid' || result.errors.length === 0) return null
 			return (
 				result.errors.find((error) => error.path === '/geometry/type') ?? result.errors[0] ?? null
 			)
@@ -720,13 +761,13 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		)
 
 		if (entityWorkspace === 'geometry' && !datasetEditorRetained) {
-			return emptyEditor('Dataset', onOpenGeometryEditor ?? onStartNewDataset)
+			return emptyEditor('Map', onOpenGeometryEditor ?? onStartNewDataset)
 		}
 		if (entityWorkspace === 'story' && storyEditorMode === 'none') {
 			return emptyEditor('Story', onCreateStory)
 		}
 		if (entityWorkspace === 'context' && contextEditorMode === 'none') {
-			return emptyEditor('Context', onCreateContext)
+			return emptyEditor('Atlas', onCreateContext)
 		}
 	}
 
@@ -786,6 +827,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				onClose={onCloseStoryEditor}
 				onSave={onSaveStory}
 				availableFeatures={availableFeatures}
+				captureMapPresentation={captureMapPresentation}
+				captureStoryView={captureStoryView}
+				onStoryViewActivate={onStoryViewActivate}
+				renderStoryViewFigure={renderStoryViewFigure}
 			/>
 		)
 	}
@@ -801,9 +846,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		return (
 			<GroupEditorPanel
 				initialContext={editingContext}
+				creationSeed={contextCreationSeed}
 				onClose={onCloseContextEditor}
 				onSave={onSaveContext}
 				availableFeatures={availableFeatures}
+				captureMapPresentation={captureMapPresentation}
 			/>
 		)
 	}
@@ -835,6 +882,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onMentionZoomTo={onMentionZoomTo}
 					onZoomToBounds={onZoomToBounds}
 					focusCommentId={beaconFocusCommentId ?? focusCommentId}
+					objectTab={objectTab}
+					onObjectTabChange={onObjectTabChange}
 				/>
 			)
 		}
@@ -859,6 +908,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onMentionZoomTo={onMentionZoomTo}
 					onZoomToBounds={onZoomToBounds}
 					focusCommentId={sightingFocusCommentId ?? focusCommentId}
+					objectTab={objectTab}
+					onObjectTabChange={onObjectTabChange}
 				/>
 			)
 		}
@@ -886,6 +937,13 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					isMentionVisible={isMentionVisible}
 					onZoomToBounds={onZoomToBounds}
 					focusCommentId={focusCommentId}
+					onStoryViewActivate={onStoryViewActivate}
+					renderStoryViewFigure={renderStoryViewFigure}
+					activeStoryViewId={activeStoryViewId}
+					proposeEditOpen={proposeEditOpen}
+					onProposeEditOpenChange={onProposeEditOpenChange}
+					objectTab={objectTab}
+					onObjectTabChange={onObjectTabChange}
 				/>
 			)
 		}
@@ -912,6 +970,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onMentionVisibilityToggle={onMentionVisibilityToggle}
 					onMentionZoomTo={onMentionZoomTo}
 					focusCommentId={focusCommentId}
+					objectTab={objectTab}
+					onObjectTabChange={onObjectTabChange}
 				/>
 			)
 		}
@@ -938,8 +998,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						</p>
 						<p className="text-xs text-muted-foreground">
 							{isEmptyGeometryInspect
-								? 'Click on the map to inspect a geometry.'
-								: 'Choose a geometry or context to inspect.'}
+								? 'Click on the map to view a geometry.'
+								: 'Choose a geometry or Atlas to view.'}
 						</p>
 						{isEmptyGeometryInspect && onOpenGeometryEditor ? (
 							<div className="flex justify-center">
@@ -980,6 +1040,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				onProposalAccepted={onProposalAccepted}
 				visibleProposalIds={visibleProposalIds}
 				focusCommentId={focusCommentId}
+				objectTab={objectTab}
+				onObjectTabChange={onObjectTabChange}
 			/>
 		)
 	}
@@ -1009,13 +1071,16 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					<div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1.5">
 						{activeDatasetInfo && (
 							<span className="max-w-[160px] truncate text-[10px] text-muted-foreground">
-								{activeDatasetInfo.name} {activeDatasetInfo.isOwner ? '' : '(copy)'}
+								{activeDatasetInfo.name}{' '}
+								{activeDatasetEditPresentation.workspaceStatus
+									? `(${activeDatasetEditPresentation.workspaceStatus})`
+									: ''}
 							</span>
 						)}
 						{datasetEditorDeleteMode === 'published-dataset' && activeDataset ? (
 							<ConfirmDeleteAction
-								label="Dataset"
-								message="Delete this Dataset from Nostr?"
+								label="Map"
+				message="Delete this Map from Nostr?"
 								isDeleting={deletingKey === getDatasetKey(activeDataset)}
 								onConfirm={() => onDeleteDataset(activeDataset)}
 							/>
@@ -1064,7 +1129,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			{/* Dataset Metadata - collapsible */}
 			<Collapsible defaultOpen>
 				<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
-					Dataset info
+					Map info
 				</CollapsibleTrigger>
 				<CollapsibleContent>
 					<DatasetMetadataSection
@@ -1080,7 +1145,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			{onPublishNew && (
 				<Collapsible defaultOpen={activeDatasetContextRefs.length > 0}>
 					<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
-						Attach to a Group
+						Attach to an Atlas
 					</CollapsibleTrigger>
 					<CollapsibleContent>
 						<GroupAttachField

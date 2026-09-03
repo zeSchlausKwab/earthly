@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
-import { buildRoutePath, parsePathSegments } from './useRouting'
+import { buildRoutePath, parsePathSegments, routeStateFromEarthlyRoute } from './useRouting'
 
 // XCUT-02 (D-08/D-09): the five per-kind share-form parsers collapsed into one
 // SHARE_ROUTES lookup + one generic dispatch body. These assertions pin the
@@ -19,6 +19,7 @@ describe('parsePathSegments — share forms (D-09 byte-for-byte)', () => {
 			naddr: NADDR,
 			commentId: undefined,
 			sidebarView: 'datasets',
+			tab: 'details',
 		})
 	})
 
@@ -28,6 +29,7 @@ describe('parsePathSegments — share forms (D-09 byte-for-byte)', () => {
 			naddr: NADDR,
 			commentId: undefined,
 			sidebarView: 'contexts',
+			tab: 'details',
 		})
 	})
 
@@ -37,6 +39,17 @@ describe('parsePathSegments — share forms (D-09 byte-for-byte)', () => {
 			naddr: NADDR,
 			commentId: undefined,
 			sidebarView: 'stories',
+			tab: 'details',
+		})
+	})
+
+	test('read → the same Story focus used by the feature-complete compatibility app', () => {
+		expect(parsePathSegments(['read', NADDR])).toEqual({
+			focusType: 'story',
+			naddr: NADDR,
+			commentId: undefined,
+			sidebarView: 'stories',
+			tab: 'details',
 		})
 	})
 
@@ -46,6 +59,7 @@ describe('parsePathSegments — share forms (D-09 byte-for-byte)', () => {
 			naddr: NADDR,
 			commentId: undefined,
 			sidebarView: 'sightings',
+			tab: 'details',
 		})
 	})
 
@@ -55,13 +69,97 @@ describe('parsePathSegments — share forms (D-09 byte-for-byte)', () => {
 			naddr: NADDR,
 			commentId: undefined,
 			sidebarView: 'beacons',
+			tab: 'details',
 		})
+	})
+})
+
+describe('parsePathSegments — canonical margin routes', () => {
+	test('maps and atlases reuse the complete entity controllers', () => {
+		expect(parsePathSegments(['map', NADDR])).toMatchObject({
+			focusType: 'geoevent',
+			naddr: NADDR,
+			sidebarView: 'datasets',
+		})
+		expect(parsePathSegments(['atlas', NADDR])).toMatchObject({
+			focusType: 'mapcontext',
+			naddr: NADDR,
+			sidebarView: 'contexts',
+		})
+	})
+
+	test('Browse, Shelf, Ask, Inbox, Circles, and Nearby retain existing behavior', () => {
+		expect(parsePathSegments(['browse', 'stories']).sidebarView).toBe('stories')
+		expect(parsePathSegments(['shelf']).sidebarView).toBe('map-stack')
+		expect(parsePathSegments(['ask']).sidebarView).toBe('chat')
+		expect(parsePathSegments(['inbox']).sidebarView).toBe('delivery')
+		expect(parsePathSegments(['circle', 'circle-id']).privateGroupId).toBe('circle-id')
+		expect(parsePathSegments(['nearby', 'survey-id']).fieldSessionId).toBe('survey-id')
+	})
+})
+
+describe('TanStack route → retained controller adapter', () => {
+	test('carries edit intent, Shelf overlays, Live, and the Atlas lens', () => {
+		const result = routeStateFromEarthlyRoute({
+			kind: 'story',
+			id: NADDR,
+			edit: true,
+			tab: 'thread',
+			on: ['37515:abc:one'],
+			live: true,
+			in: CTX_NADDR,
+		})
+		expect(result).toMatchObject({
+			focusType: 'story',
+			sidebarView: 'stories',
+			naddr: NADDR,
+			edit: true,
+			on: ['37515:abc:one'],
+			live: true,
+			contextNaddr: CTX_NADDR,
+			tab: 'thread',
+		})
+	})
+
+	test('builds canonical object and lens URLs instead of scoped legacy paths', () => {
+		expect(
+			buildRoutePath({
+				sidebarView: 'stories',
+				focusType: 'story',
+				naddr: NADDR,
+				contextNaddr: CTX_NADDR,
+				edit: true,
+			}),
+		).toBe(`/story/${NADDR}/edit?in=${CTX_NADDR}`)
+	})
+
+	test('serializes non-default object tabs while leaving Details canonical', () => {
+		expect(
+			buildRoutePath({
+				sidebarView: 'stories',
+				focusType: 'story',
+				naddr: NADDR,
+				contextNaddr: CTX_NADDR,
+				tab: 'thread',
+			}),
+		).toBe(`/story/${NADDR}?in=${CTX_NADDR}&tab=thread`)
+		expect(
+			buildRoutePath({
+				sidebarView: 'stories',
+				focusType: 'story',
+				naddr: NADDR,
+				tab: 'details',
+			}),
+		).toBe(`/story/${NADDR}`)
 	})
 })
 
 describe('parsePathSegments — /comment/:id suffix', () => {
 	test('a complete /comment/:id suffix parses the comment d-tag', () => {
-		expect(parsePathSegments(['beacon', NADDR, 'comment', CID]).commentId).toBe(CID)
+		expect(parsePathSegments(['beacon', NADDR, 'comment', CID])).toMatchObject({
+			commentId: CID,
+			tab: 'comments',
+		})
 	})
 
 	test('a /comment segment with no id leaves commentId undefined', () => {
@@ -69,7 +167,7 @@ describe('parsePathSegments — /comment/:id suffix', () => {
 	})
 
 	test('the comment suffix works identically for every share prefix', () => {
-		for (const prefix of ['geoevent', 'mapcontext', 'story', 'sighting', 'beacon']) {
+		for (const prefix of ['geoevent', 'mapcontext', 'read', 'story', 'sighting', 'beacon']) {
 			expect(parsePathSegments([prefix, NADDR, 'comment', CID]).commentId).toBe(CID)
 		}
 	})
@@ -80,6 +178,7 @@ describe('parsePathSegments — private groups', () => {
 		expect(parsePathSegments(['private-groups'])).toEqual({
 			focusType: 'none',
 			sidebarView: 'private-groups',
+			tab: 'details',
 		})
 	})
 
@@ -88,6 +187,7 @@ describe('parsePathSegments — private groups', () => {
 			focusType: 'none',
 			sidebarView: 'private-groups',
 			privateGroupId: 'workspace-123',
+			tab: 'details',
 		})
 	})
 
@@ -96,15 +196,16 @@ describe('parsePathSegments — private groups', () => {
 			focusType: 'none',
 			sidebarView: 'edit',
 			privateGroupId: 'workspace-123',
+			tab: 'details',
 		})
 		expect(buildRoutePath({ sidebarView: 'edit', privateGroupId: 'workspace-123' })).toBe(
-			'/privategroup/workspace-123/edit',
+			'/circle/workspace-123/edit',
 		)
 	})
 
 	test('private-group detail navigation builds the canonical route', () => {
 		expect(buildRoutePath({ sidebarView: 'private-groups', privateGroupId: 'workspace 123' })).toBe(
-			'/privategroup/workspace%20123',
+			'/circle/workspace%20123',
 		)
 	})
 
@@ -120,6 +221,7 @@ describe('parsePathSegments — Field sessions', () => {
 		expect(parsePathSegments(['field-sessions'])).toEqual({
 			focusType: 'none',
 			sidebarView: 'field-sessions',
+			tab: 'details',
 		})
 	})
 
@@ -128,15 +230,16 @@ describe('parsePathSegments — Field sessions', () => {
 			focusType: 'none',
 			sidebarView: 'field-sessions',
 			fieldSessionId: 'survey-123',
+			tab: 'details',
 		})
 		expect(buildRoutePath({ sidebarView: 'field-sessions', fieldSessionId: 'survey 123' })).toBe(
-			'/fieldsession/survey%20123',
+			'/nearby/survey%20123',
 		)
 	})
 
 	test('a nested route keeps the Field-session scope', () => {
 		expect(buildRoutePath({ sidebarView: 'edit', fieldSessionId: 'survey-123' })).toBe(
-			'/fieldsession/survey-123/edit',
+			'/nearby/survey-123/edit',
 		)
 	})
 })
@@ -182,6 +285,7 @@ describe('parsePathSegments — landing default', () => {
 		expect(parsePathSegments(['drafts'])).toEqual({
 			focusType: 'none',
 			sidebarView: 'drafts',
+			tab: 'details',
 		})
 		expect(buildRoutePath({ sidebarView: 'drafts' })).toBe('/drafts')
 	})
@@ -190,6 +294,7 @@ describe('parsePathSegments — landing default', () => {
 		expect(parsePathSegments(['delivery'])).toEqual({
 			focusType: 'none',
 			sidebarView: 'delivery',
+			tab: 'details',
 		})
 	})
 
@@ -197,6 +302,7 @@ describe('parsePathSegments — landing default', () => {
 		expect(parsePathSegments([])).toEqual({
 			focusType: 'none',
 			sidebarView: DEFAULT_SIDEBAR_VIEW,
+			tab: 'details',
 		})
 	})
 })

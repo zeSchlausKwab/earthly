@@ -342,7 +342,7 @@ export function WorkspaceDraftNavigator({
 							Proposal drafts
 						</div>
 						<div className="px-1 text-[11px] text-muted-foreground">
-							Unpublished edits to someone else&apos;s dataset stay grouped here.
+							Unpublished edits to someone else&apos;s Map stay grouped here.
 						</div>
 						{proposalWorkspaces.map((workspace) => {
 							const drafts = workspaceDrafts.get(workspace.sourceId) ?? []
@@ -527,7 +527,7 @@ export function WorkspaceDraftNavigator({
 											? 'proposal'
 											: workspace.kind === 'scratch'
 												? 'draft'
-												: 'dataset'}
+												: 'Map'}
 									</span>
 									{isActiveWorkspace ? (
 										<span className={cn('rounded-full', activeClassName)}>Current</span>
@@ -661,7 +661,7 @@ export function WorkspaceDraftNavigator({
 											<label className="block border-t border-border/70 px-2 py-2 text-[10px] font-medium text-muted-foreground">
 												Choose where this legacy draft belongs
 												<select
-													aria-label={`Destination for ${draftLabel}`}
+													aria-label={`Publishing choice for ${draftLabel}`}
 													value=""
 													onChange={(event) => {
 														const option = destinationOptions.find(
@@ -676,7 +676,7 @@ export function WorkspaceDraftNavigator({
 													}}
 													className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-[11px] text-foreground"
 												>
-													<option value="">Select destination…</option>
+													<option value="">Select where to publish…</option>
 													{destinationOptions.map((option) => (
 														<option key={option.id} value={option.id}>
 															{option.label}
@@ -730,23 +730,23 @@ function getDraftLabel(
 function getDraftDestinationLabel(draft: GeoCollectionEditDraft): string {
 	if (draft.publishChannel.kind === 'private-group') return 'Private'
 	if (draft.publishChannel.kind === 'field-session') return 'Nearby'
-	if (draft.publishChannel.kind === 'unresolved') return 'Destination needed'
-	return draft.contextRefs.length > 0 ? 'Public · context' : 'Public'
+	if (draft.publishChannel.kind === 'unresolved') return 'Publishing choice needed'
+	return draft.contextRefs.length > 0 ? 'Public · Atlas' : 'Public'
 }
 
 function getDraftDestinationTitle(draft: GeoCollectionEditDraft): string {
 	if (draft.publishChannel.kind === 'private-group') {
-		return `Private group destination: ${draft.publishChannel.id}`
+		return `Circle: ${draft.publishChannel.id}`
 	}
 	if (draft.publishChannel.kind === 'field-session') {
-		return `Field session destination: ${draft.publishChannel.id}`
+		return `Nearby session: ${draft.publishChannel.id}`
 	}
 	if (draft.publishChannel.kind === 'unresolved') {
-		return 'Destination needed before this draft can be published'
+		return 'Choose where to publish this draft'
 	}
 	return draft.contextRefs.length > 0
-		? `${draft.contextRefs.length} public context attachment${draft.contextRefs.length === 1 ? '' : 's'}`
-		: 'Public, unattached'
+		? `Belongs to ${draft.contextRefs.length} public Atlas${draft.contextRefs.length === 1 ? '' : 'es'}`
+		: 'Public · no Atlas'
 }
 
 function isProposalWorkspace(

@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { nip19 } from 'nostr-tools'
+import { navigateEarthly } from '@/router/navigation'
+import type { EarthlyObjectTab, EarthlyRouteState } from '@/router/routeContract'
+import { useEarthlyRouteState } from '@/router/routeState'
 import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
 import { useEditorStore, type SidebarViewMode } from '../store'
 
@@ -33,6 +36,38 @@ const VIEW_ALIASES: Record<string, SidebarViewMode> = {
 	shoutbox: 'posts',
 }
 
+const BROWSE_VIEW_ALIASES: Record<string, SidebarViewMode> = {
+	maps: 'datasets',
+	stories: 'stories',
+	atlases: 'contexts',
+	sightings: 'sightings',
+	people: 'user',
+}
+
+const CANONICAL_VIEW_PATHS: Partial<Record<SidebarViewMode, string>> = {
+	datasets: '/browse/maps',
+	stories: '/browse/stories',
+	contexts: '/browse/atlases',
+	sightings: '/browse/sightings',
+	user: '/me',
+	'map-stack': '/shelf',
+	'private-groups': '/me/circles',
+	'field-sessions': '/me/nearby',
+	delivery: '/inbox',
+	chat: '/ask',
+}
+
+const CANONICAL_FOCUS_PATHS: Record<
+	'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon',
+	string
+> = {
+	geoevent: 'map',
+	mapcontext: 'atlas',
+	story: 'story',
+	sighting: 'sighting',
+	beacon: 'live',
+}
+
 export interface RouteState {
 	/** Active context scope (when present, all views are scoped) */
 	contextNaddr?: string
@@ -44,6 +79,8 @@ export interface RouteState {
 	naddr?: string
 	/** Optional comment d-tag deep-linked beneath the focused entity */
 	commentId?: string
+	/** Route-backed object panel selected for the current entity. */
+	tab: EarthlyObjectTab
 	/** Current sidebar view mode */
 	sidebarView: SidebarViewMode
 	/** Local MLS workspace identifier for a `/privategroup/:id` detail route. */
@@ -52,6 +89,117 @@ export interface RouteState {
 	fieldSessionId?: string
 	/** User pubkey for user profile routes (hex format) */
 	userPubkey?: string
+	/** Canonical object edit/proposal intent from the route. */
+	edit?: boolean
+	/** Ordered, route-local Shelf overlays. */
+	on?: readonly string[]
+	/** Whether the aggregate Live layer is route-enabled. */
+	live?: boolean
+}
+
+/** Translate the public route grammar into the retained domain-controller shape. */
+export function routeStateFromEarthlyRoute(route: EarthlyRouteState): RouteState {
+	const lens = route.in
+	const lensFields = lens
+		? { contextNaddr: lens, contextCoordinate: decodeContextCoordinateFromNaddr(lens) }
+		: {}
+	const common = {
+		...lensFields,
+		...(route.edit ? { edit: true } : {}),
+		tab: route.tab,
+		on: route.on,
+		live: route.live,
+	}
+
+	if (route.kind === 'legacy') {
+		const legacy = parsePathSegments((route.legacyPath ?? '/').split('/').filter(Boolean))
+		return {
+			...legacy,
+			...lensFields,
+			tab: legacy.commentId ? 'comments' : route.tab,
+			on: route.on,
+			live: route.live,
+		}
+	}
+	if (route.kind === 'browse') {
+		return {
+			focusType: 'none',
+			sidebarView: BROWSE_VIEW_ALIASES[route.browseKind ?? 'maps'] ?? DEFAULT_SIDEBAR_VIEW,
+			...common,
+		}
+	}
+	if (route.kind === 'ask') return { focusType: 'none', sidebarView: 'chat', ...common }
+	if (route.kind === 'shelf') return { focusType: 'none', sidebarView: 'map-stack', ...common }
+	if (route.kind === 'inbox') return { focusType: 'none', sidebarView: 'delivery', ...common }
+	if (route.kind === 'me') {
+		return {
+			focusType: 'none',
+			sidebarView:
+				route.meSection === 'circles'
+					? 'private-groups'
+					: route.meSection === 'nearby'
+						? 'field-sessions'
+						: 'user',
+			...common,
+		}
+	}
+	if (route.kind === 'circle') {
+		return {
+			focusType: 'none',
+			sidebarView: route.edit ? 'edit' : 'private-groups',
+			privateGroupId: route.id,
+			tab: route.tab,
+			...(route.edit ? { edit: true } : {}),
+			on: route.on,
+			live: route.live,
+		}
+	}
+	if (route.kind === 'nearby') {
+		return {
+			focusType: 'none',
+			sidebarView: route.edit ? 'edit' : 'field-sessions',
+			fieldSessionId: route.id,
+			tab: route.tab,
+			...(route.edit ? { edit: true } : {}),
+			on: route.on,
+			live: route.live,
+		}
+	}
+	if (route.kind === 'person') {
+		let userPubkey = route.id
+		if (userPubkey?.startsWith('npub')) {
+			try {
+				const decoded = nip19.decode(userPubkey)
+				if (decoded.type === 'npub') userPubkey = decoded.data
+			} catch {
+				// Preserve an invalid opaque id so the existing panel can show its error.
+			}
+		}
+		return { focusType: 'none', sidebarView: 'user', userPubkey, ...common }
+	}
+
+	const focus =
+		route.kind === 'map'
+			? ({ focusType: 'geoevent', sidebarView: 'datasets' } as const)
+			: route.kind === 'atlas'
+				? ({ focusType: 'mapcontext', sidebarView: 'contexts' } as const)
+				: route.kind === 'story'
+					? ({ focusType: 'story', sidebarView: 'stories' } as const)
+					: route.kind === 'sighting'
+						? ({ focusType: 'sighting', sidebarView: 'sightings' } as const)
+						: route.kind === 'live'
+							? ({ focusType: 'beacon', sidebarView: 'beacons' } as const)
+							: null
+	if (focus) {
+		return {
+			...focus,
+			naddr: route.id,
+			commentId: route.commentId,
+			...common,
+		}
+	}
+
+	return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW, ...common }
 }
 
 /**
@@ -101,10 +249,14 @@ const SHARE_ROUTES: Record<
 	{ focusType: RouteState['focusType']; sidebarView: SidebarViewMode }
 > = {
 	geoevent: { focusType: 'geoevent', sidebarView: 'datasets' },
+	map: { focusType: 'geoevent', sidebarView: 'datasets' },
 	mapcontext: { focusType: 'mapcontext', sidebarView: 'contexts' },
+	atlas: { focusType: 'mapcontext', sidebarView: 'contexts' },
+	read: { focusType: 'story', sidebarView: 'stories' },
 	story: { focusType: 'story', sidebarView: 'stories' },
 	sighting: { focusType: 'sighting', sidebarView: 'sightings' },
 	beacon: { focusType: 'beacon', sidebarView: 'beacons' },
+	live: { focusType: 'beacon', sidebarView: 'beacons' },
 }
 
 /**
@@ -116,16 +268,33 @@ const SHARE_ROUTES: Record<
  */
 export function parsePathSegments(segments: string[]): RouteState {
 	if (segments.length === 0) {
-		return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW }
+		return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW, tab: 'details' }
 	}
 
 	const first = segments[0]
 	if (!first) {
-		return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW }
+		return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW, tab: 'details' }
 	}
 
-	// User profile route: /user/{npub_or_pubkey}
-	if (first === 'user' && segments[1]) {
+	if (first === 'browse') {
+		return {
+			focusType: 'none',
+			sidebarView: BROWSE_VIEW_ALIASES[segments[1] ?? 'maps'] ?? DEFAULT_SIDEBAR_VIEW,
+			tab: 'details',
+		}
+	}
+	if (first === 'shelf') return { focusType: 'none', sidebarView: 'map-stack', tab: 'details' }
+	if (first === 'ask') return { focusType: 'none', sidebarView: 'chat', tab: 'details' }
+	if (first === 'inbox') return { focusType: 'none', sidebarView: 'delivery', tab: 'details' }
+	if (first === 'me' && segments[1] === 'circles') {
+		return { focusType: 'none', sidebarView: 'private-groups', tab: 'details' }
+	}
+	if (first === 'me' && segments[1] === 'nearby') {
+		return { focusType: 'none', sidebarView: 'field-sessions', tab: 'details' }
+	}
+
+	// User profile route: /user/{npub_or_pubkey} or canonical /person/:id.
+	if ((first === 'user' || first === 'person') && segments[1]) {
 		let userPubkey = segments[1]
 		if (userPubkey.startsWith('npub')) {
 			try {
@@ -141,6 +310,7 @@ export function parsePathSegments(segments: string[]): RouteState {
 			focusType: 'none',
 			sidebarView: 'user',
 			userPubkey,
+			tab: 'details',
 		}
 	}
 
@@ -148,30 +318,39 @@ export function parsePathSegments(segments: string[]): RouteState {
 	// public entities, but the opaque id addresses local MLS state rather than a
 	// public Nostr event: /private-groups and /privategroup/:id. Accept the
 	// earlier hyphenated preview route so copied development invites still open.
-	if ((first === 'privategroup' || first === 'private-group') && segments[1]) {
+	if (
+		(first === 'privategroup' || first === 'private-group' || first === 'circle') &&
+		segments[1]
+	) {
 		const nestedView = segments[2]
 		return {
 			focusType: 'none',
 			sidebarView: nestedView && isSidebarViewMode(nestedView) ? nestedView : 'private-groups',
 			privateGroupId: segments[1],
+			tab: 'details',
 		}
 	}
 
-	if ((first === 'fieldsession' || first === 'field-session') && segments[1]) {
+	if (
+		(first === 'fieldsession' || first === 'field-session' || first === 'nearby') &&
+		segments[1]
+	) {
 		const nestedView = segments[2]
 		return {
 			focusType: 'none',
 			sidebarView: nestedView && isSidebarViewMode(nestedView) ? nestedView : 'field-sessions',
 			fieldSessionId: segments[1],
+			tab: 'details',
 		}
 	}
 
 	// Share forms (also what the OG crawler matches): /geoevent/:naddr,
-	// /mapcontext/:naddr, /story/:naddr, /sighting/:naddr, /beacon/:naddr, each
+	// /mapcontext/:naddr, /read/:naddr, /story/:naddr, /sighting/:naddr,
+	// /beacon/:naddr, each
 	// with an optional /comment/:id suffix. XCUT-02 (D-08): one table-driven
-	// dispatch body replaces the five byte-identical per-kind blocks (Pitfall
+	// dispatch body replaces the original five byte-identical per-kind blocks (Pitfall
 	// P-5). URL shapes are byte-for-byte identical (D-09): `first` still matches
-	// only these five prefixes, `segments[1]` is still the opaque naddr (the
+	// only these known prefixes, `segments[1]` is still the opaque naddr (the
 	// throwaway-pubkey beacon naddr resolves because the parse is pubkey-agnostic
 	// and never decodes it), and the /comment/:id suffix parses the same. An
 	// unknown `first` is not in SHARE_ROUTES, so it falls through to the /context
@@ -183,6 +362,7 @@ export function parsePathSegments(segments: string[]): RouteState {
 			naddr: segments[1],
 			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
 			sidebarView: share.sidebarView,
+			tab: segments[2] === 'comment' && segments[3] ? 'comments' : 'details',
 		}
 	}
 
@@ -202,6 +382,7 @@ export function parsePathSegments(segments: string[]): RouteState {
 				naddr: contextNaddr,
 				commentId: second === 'comment' && segments[3] ? segments[3] : undefined,
 				sidebarView: 'contexts',
+				tab: second === 'comment' && segments[3] ? 'comments' : 'details',
 			}
 		}
 
@@ -221,6 +402,7 @@ export function parsePathSegments(segments: string[]): RouteState {
 				naddr: focusNaddr,
 				commentId: commentSegment === 'comment' && commentId ? commentId : undefined,
 				sidebarView,
+				tab: commentSegment === 'comment' && commentId ? 'comments' : 'details',
 			}
 		}
 
@@ -229,6 +411,7 @@ export function parsePathSegments(segments: string[]): RouteState {
 			contextCoordinate,
 			focusType: 'none',
 			sidebarView,
+			tab: 'details',
 		}
 	}
 
@@ -240,13 +423,14 @@ export function parsePathSegments(segments: string[]): RouteState {
 				naddr: segments[2],
 				commentId: segments[3] === 'comment' && segments[4] ? segments[4] : undefined,
 				sidebarView: resolvedFirst,
+				tab: segments[3] === 'comment' && segments[4] ? 'comments' : 'details',
 			}
 		}
 
-		return { focusType: 'none', sidebarView: resolvedFirst }
+		return { focusType: 'none', sidebarView: resolvedFirst, tab: 'details' }
 	}
 
-	return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW }
+	return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW, tab: 'details' }
 }
 
 /**
@@ -268,7 +452,7 @@ function parseLocation(): RouteState {
 		return parsePathSegments(hash.split('/').filter(Boolean))
 	}
 
-	return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW }
+	return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW, tab: 'details' }
 }
 
 /**
@@ -286,8 +470,8 @@ function parseLocation(): RouteState {
 export function isDeepLinkLanding(): boolean {
 	if (typeof window === 'undefined') return false
 
-	// (b) shared Map Stack link — a `?ms=` query param (GeoEditorView pattern).
-	if (new URLSearchParams(window.location.search).has('ms')) return true
+	// (b) shared Shelf overlays use the canonical `on=` query.
+	if (new URLSearchParams(window.location.search).has('on')) return true
 
 	// (a) entity/context deep-link — reuse parseLocation's pathname-then-hash
 	// fallback so a legacy `#/…` hash deep-link is detected too.
@@ -316,9 +500,6 @@ export function upgradeLegacyHashRoute(): void {
 	}
 }
 
-/** Custom event so in-app `pushState` navigations sync the route (popstate only fires on back/forward). */
-const LOCATION_CHANGE_EVENT = 'earthly:locationchange'
-
 export interface UseRoutingOptions {
 	/**
 	 * Own reconciliation from the browser URL into the global editor store.
@@ -339,6 +520,8 @@ export function buildRoutePath({
 	commentId,
 	privateGroupId,
 	fieldSessionId,
+	edit,
+	tab = 'details',
 }: {
 	sidebarView: SidebarViewMode
 	contextNaddr?: string
@@ -347,45 +530,51 @@ export function buildRoutePath({
 	commentId?: string
 	privateGroupId?: string
 	fieldSessionId?: string
+	edit?: boolean
+	tab?: EarthlyObjectTab
 }): string {
 	if (fieldSessionId) {
-		const root = `/fieldsession/${encodeURIComponent(fieldSessionId)}`
+		const root = `/nearby/${encodeURIComponent(fieldSessionId)}`
 		return sidebarView === 'field-sessions' ? root : `${root}/${sidebarView}`
 	}
 	if (privateGroupId) {
-		const root = `/privategroup/${encodeURIComponent(privateGroupId)}`
+		const root = `/circle/${encodeURIComponent(privateGroupId)}`
 		return sidebarView === 'private-groups' ? root : `${root}/${sidebarView}`
 	}
-	const root = contextNaddr ? `/context/${contextNaddr}/${sidebarView}` : `/${sidebarView}`
 	if (focusType && naddr) {
-		if (commentId) {
-			return `${root}/${focusType}/${naddr}/comment/${commentId}`
-		}
-		return `${root}/${focusType}/${naddr}`
+		const root = `/${CANONICAL_FOCUS_PATHS[focusType]}/${naddr}`
+		const objectPath = edit ? `${root}/edit` : commentId ? `${root}/comment/${commentId}` : root
+		const search: string[] = []
+		if (contextNaddr) search.push(`in=${encodeURIComponent(contextNaddr)}`)
+		// A comment suffix already selects Comments canonically; avoid a redundant
+		// query key while still serializing standalone Comments and Thread tabs.
+		if (!commentId && tab !== 'details') search.push(`tab=${tab}`)
+		return search.length > 0 ? `${objectPath}?${search.join('&')}` : objectPath
 	}
-	return root
+	const root = CANONICAL_VIEW_PATHS[sidebarView] ?? `/${sidebarView}`
+	return contextNaddr ? `${root}?in=${encodeURIComponent(contextNaddr)}` : root
 }
 
 /** @deprecated Round I renamed this to {@link buildRoutePath}; kept as an alias for callers. */
 export const buildRouteHash = buildRoutePath
 
 /**
- * Navigate to a clean route path. Preserves `location.search` (the map-stack
- * `?ms=`/`?ex=`/`?iso=` params owned by C.5/D.2) and notifies listeners via a
- * synthetic event, since `pushState` doesn't fire `popstate`.
+ * Navigate through TanStack Router. The public route-local composition keys
+ * survive navigation unless the destination explicitly sets (or empties) one.
  */
 export function navigateToRoute(routePath: string, options?: { replace?: boolean }): void {
 	if (typeof window === 'undefined') return
-	const search = window.location.search
-	const url = `${routePath}${search}`
+	const destination = new URL(routePath, window.location.origin)
+	const currentSearch = new URLSearchParams(window.location.search)
+	for (const key of ['on', 'live', 'in'] as const) {
+		if (!destination.searchParams.has(key) && currentSearch.has(key)) {
+			destination.searchParams.set(key, currentSearch.get(key) ?? '')
+		}
+	}
+	const url = `${destination.pathname}${destination.search}${destination.hash}`
 	const current = `${window.location.pathname}${window.location.search}`
 	if (url === current) return
-	if (options?.replace) {
-		window.history.replaceState(null, '', url)
-	} else {
-		window.history.pushState(null, '', url)
-	}
-	window.dispatchEvent(new Event(LOCATION_CHANGE_EVENT))
+	navigateEarthly(url, options)
 }
 
 /**
@@ -398,50 +587,19 @@ export function navigateToRoute(routePath: string, options?: { replace?: boolean
  * - #/context/{contextNaddr}/{sidebarView?}/{focusType}/{naddr} → context scope + sidebar + focus
  */
 export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
-	const [route, setRoute] = useState<RouteState>(parseLocation)
+	const earthlyRoute = useEarthlyRouteState()
+	const route = useMemo(() => routeStateFromEarthlyRoute(earthlyRoute), [earthlyRoute])
 
 	// Phase 1.3: the single atomic reducer that reconciles every piece of
 	// navigation-derived store state from a parsed route.
 	const applyRouteState = useEditorStore((state) => state.applyRouteState)
 
-	// Sync route state on navigation.
+	// TanStack is the only navigation observer; reconcile its state into the
+	// retained editor controller once per committed route.
 	useEffect(() => {
-		const syncRoute = (event?: Event) => {
-			const newRoute = parseLocation()
-			setRoute(newRoute)
-			if (!reconcileStore) return
-			// Phase 1.3: in-app pushState, Back/Forward (popstate), and hashchange
-			// all funnel through one reducer so they share a single reconstruction
-			// path. This is what stops Back/Forward from leaving a stale inspector
-			// open (report 7.4) — applyRouteState clears the subject when the route
-			// it lands on carries no focus.
-			//
-			// syncMobileTab: only browser-driven navigation (initial mount, Back/
-			// Forward, hashchange) derives the mobile sheet tab from the URL. In-app
-			// pushState (LOCATION_CHANGE_EVENT) skips it — those handlers set the
-			// tab themselves, and deriving here would clobber overlay tabs like
-			// `edit` mid-inspect.
-			applyRouteState(newRoute, { syncMobileTab: event?.type !== LOCATION_CHANGE_EVENT })
-		}
-
-		// Phase 1.2: the legacy `#/…`→clean-path redirect now runs synchronously in
-		// `frontend.tsx` via upgradeLegacyHashRoute() before render, so by the time
-		// this effect mounts the URL is already canonical.
-		window.addEventListener('hashchange', syncRoute)
-		window.addEventListener('popstate', syncRoute)
-		window.addEventListener(LOCATION_CHANGE_EVENT, syncRoute)
-
-		// Every consumer initializes its local route. Only the explicit owner also
-		// reconciles navigation-derived global state; mounting a nested route user
-		// must remain presentational.
-		syncRoute()
-
-		return () => {
-			window.removeEventListener('hashchange', syncRoute)
-			window.removeEventListener('popstate', syncRoute)
-			window.removeEventListener(LOCATION_CHANGE_EVENT, syncRoute)
-		}
-	}, [applyRouteState, reconcileStore])
+		if (!reconcileStore) return
+		applyRouteState(route, { syncMobileTab: true })
+	}, [applyRouteState, reconcileStore, route])
 
 	/**
 	 * Phase 1.3: the single navigation primitive. Every navigate* wrapper builds
@@ -458,7 +616,7 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 	 */
 	const navigateToView = useCallback(
 		(view: SidebarViewMode) => {
-			const currentRoute = parseLocation()
+			const currentRoute = route
 			commit({
 				sidebarView: view,
 				// Private groups are their own encrypted scope; a public Context filter
@@ -473,16 +631,14 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 					view === 'drafts' || view === 'field-sessions' ? undefined : currentRoute.fieldSessionId,
 			})
 		},
-		[commit],
+		[commit, route],
 	)
 
 	/** Leave every private/nearby/context route boundary and open a root catalog. */
-	const navigateToUnscopedView = useCallback(
-		(view: SidebarViewMode) => {
-			commit({ sidebarView: view })
-		},
-		[commit],
-	)
+	const navigateToUnscopedView = useCallback((view: SidebarViewMode) => {
+		const path = buildRoutePath({ sidebarView: view })
+		navigateToRoute(`${path}${path.includes('?') ? '&' : '?'}in=`)
+	}, [])
 
 	const navigateToPrivateGroup = useCallback(
 		(privateGroupId: string) => {
@@ -506,62 +662,68 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 			focusType: 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon',
 			naddr: string,
 			sidebarView?: SidebarViewMode,
+			edit = false,
 		) => {
-			const currentRoute = parseLocation()
+			const currentRoute = route
 			commit({
 				sidebarView: sidebarView ?? currentRoute.sidebarView,
 				contextNaddr: currentRoute.contextNaddr,
 				focusType,
 				naddr,
+				edit,
+				tab: 'details',
 			})
 		},
-		[commit],
+		[commit, route],
 	)
 
 	/**
-	 * Set or change active context scope while preserving current sidebar/focus.
+	 * Set or change the Atlas lens while preserving current sidebar/focus.
 	 */
 	const navigateToContext = useCallback(
 		(contextNaddr: string, sidebarView?: SidebarViewMode) => {
-			const currentRoute = parseLocation()
+			const currentRoute = route
 			commit({
 				sidebarView: sidebarView ?? currentRoute.sidebarView,
 				contextNaddr,
 				focusType: currentRoute.focusType !== 'none' ? currentRoute.focusType : undefined,
 				naddr: currentRoute.naddr,
 				commentId: currentRoute.commentId,
+				tab: currentRoute.tab,
 			})
 		},
-		[commit],
+		[commit, route],
 	)
 
 	/**
 	 * Clear focus but stay on current sidebar view
 	 */
 	const clearFocus = useCallback(() => {
-		const currentRoute = parseLocation()
-		commit({ sidebarView: currentRoute.sidebarView, contextNaddr: currentRoute.contextNaddr })
-	}, [commit])
+		commit({ sidebarView: route.sidebarView, contextNaddr: route.contextNaddr })
+	}, [commit, route])
 
 	/**
 	 * Leave context scope while preserving sidebar view and focus.
 	 */
 	const clearContextScope = useCallback(() => {
-		const currentRoute = parseLocation()
-		commit({
-			sidebarView: currentRoute.sidebarView,
-			focusType: currentRoute.focusType !== 'none' ? currentRoute.focusType : undefined,
-			naddr: currentRoute.naddr,
-			commentId: currentRoute.commentId,
+		const path = buildRoutePath({
+			sidebarView: route.sidebarView,
+			focusType: route.focusType !== 'none' ? route.focusType : undefined,
+			naddr: route.naddr,
+			commentId: route.commentId,
+			tab: route.tab,
 		})
-	}, [commit])
+		// An explicit empty value tells navigateToRoute not to inherit the lens;
+		// TanStack's search validator removes it from the committed URL.
+		navigateToRoute(`${path}${path.includes('?') ? '&' : '?'}in=`)
+	}, [route])
 
 	/**
 	 * Navigate to the default landing view with no focus (home)
 	 */
 	const navigateHome = useCallback(() => {
-		commit({ sidebarView: DEFAULT_SIDEBAR_VIEW })
-	}, [commit])
+		navigateToRoute('/')
+	}, [])
 
 	const navigateToComment = useCallback(
 		(
@@ -570,16 +732,34 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 			commentId: string,
 			sidebarView?: SidebarViewMode,
 		) => {
-			const currentRoute = parseLocation()
+			const currentRoute = route
 			commit({
 				sidebarView: sidebarView ?? currentRoute.sidebarView,
 				contextNaddr: currentRoute.contextNaddr,
 				focusType,
 				naddr,
 				commentId,
+				tab: 'comments',
 			})
 		},
-		[commit],
+		[commit, route],
+	)
+
+	/** Select a panel on the current object without changing its composition. */
+	const navigateToTab = useCallback(
+		(tab: EarthlyObjectTab) => {
+			if (route.focusType === 'none' || !route.naddr) return
+			commit({
+				sidebarView: route.sidebarView,
+				contextNaddr: route.contextNaddr,
+				focusType: route.focusType,
+				naddr: route.naddr,
+				commentId: tab === 'comments' ? route.commentId : undefined,
+				edit: route.edit,
+				tab,
+			})
+		},
+		[commit, route],
 	)
 
 	/**
@@ -587,7 +767,7 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 	 */
 	const navigateToUser = useCallback((pubkey: string) => {
 		const npub = nip19.npubEncode(pubkey)
-		navigateToRoute(`/user/${npub}`)
+		navigateToRoute(`/person/${npub}`)
 	}, [])
 
 	/**
@@ -643,6 +823,8 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 	)
 
 	return {
+		/** Canonical TanStack route, retained when legacy controller fields collapse distinctions. */
+		publicRoute: earthlyRoute,
 		route,
 		navigateToView,
 		navigateToUnscopedView,
@@ -650,6 +832,7 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 		navigateToFieldSession,
 		navigateTo,
 		navigateToComment,
+		navigateToTab,
 		navigateToContext,
 		navigateToUser,
 		clearFocus,
@@ -673,5 +856,7 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 		fieldSessionId: route.fieldSessionId,
 		/** Comment d-tag deep-linked beneath the focused entity route */
 		commentId: route.commentId,
+		/** Active route-backed object panel. */
+		tab: route.tab,
 	}
 }

@@ -68,6 +68,8 @@ import {
 	MessageSquarePlus,
 	RefreshCw,
 	Camera,
+	LockKeyhole,
+	X,
 } from 'lucide-react'
 import { preloadWorldData } from '@/lib/geo/worldData'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
@@ -75,7 +77,6 @@ import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from 
 import { isToolError, type ToolError } from './tools/errors'
 import { ChatGeometryAttachment } from './ChatGeometryAttachment'
 import { CodeRunDisclosure, parseRunCodeResult } from './CodeRunDisclosure'
-import { BindingChipContainer } from './safeEditing/BindingChip'
 import { InlineDiffCards, PendingDiffList } from './safeEditing/PendingDiffList'
 import { AttachmentCard, parseIngestHandlePart } from './components/AttachmentCard'
 import {
@@ -155,25 +156,38 @@ function formatChatSessionOption(
 export function resolveChatSendState(input: {
 	canCompose: boolean
 	hasValidEditingTarget: boolean
+	canCreateEditingTarget?: boolean
+	authoringActionLabel?: string
 	targetCreationPending: boolean
 	anotherChatIsRunning: boolean
 	imageSendBlocked?: boolean
 }): { canSend: boolean; title: string } {
 	const canSend =
 		input.canCompose &&
-		input.hasValidEditingTarget &&
+		(input.hasValidEditingTarget || Boolean(input.canCreateEditingTarget)) &&
 		!input.targetCreationPending &&
+		!input.anotherChatIsRunning &&
 		!input.imageSendBlocked
 	const title = input.imageSendBlocked
 		? 'Resolve the image support warning before sending.'
 		: input.targetCreationPending
-			? 'Wait for the editing target to finish'
-			: !input.hasValidEditingTarget
-				? 'Choose New map or Use current edit before sending.'
-				: input.anotherChatIsRunning
-					? 'Wait for or stop the active AI run'
-					: 'Send'
+			? 'Wait for the Map working copy to finish'
+			: !input.hasValidEditingTarget && input.canCreateEditingTarget
+				? input.authoringActionLabel || 'Edit & send'
+				: !input.hasValidEditingTarget
+					? 'Open this Thread from a Map before sending.'
+					: input.anotherChatIsRunning
+						? 'Wait for or stop the active AI run'
+						: 'Send'
 	return { canSend, title }
+}
+
+export function resolveInitialThreadPrompt(
+	initialPrompt: string | undefined,
+	currentInput: string | undefined,
+): string | null {
+	if (currentInput?.trim()) return null
+	return initialPrompt?.trim() || null
 }
 
 export function resolveChatErrorPresentation(
@@ -201,13 +215,25 @@ export function resolveChatHeaderControlSizing(
 	return isMobile ? 'h-11 min-h-11 w-11 min-w-11' : 'h-8 w-8'
 }
 
-interface ChatPanelProps {
+export interface ChatPanelProps {
 	geoEvents?: GeoDataset[]
 	mapContextEvents?: MapContext[]
 	availableFeatures?: GeoFeatureItem[]
 	getDatasetName?: (event: GeoDataset) => string
-	onOpenAuthoringTarget?: (workspaceId: string) => void
 	onOpenSettings?: () => void
+	onClose?: () => void
+	/** Creates or restores the route object's Map working copy immediately before its first send. */
+	onEnsureAuthoringTarget?: () => Promise<string | null>
+	/** Visible send verb while the route object still needs its working copy. */
+	authoringActionLabel?: 'Send' | 'Edit & send' | 'Propose & send'
+	/** Stable object/route identity. Supplying it binds this panel to one persisted Thread. */
+	threadKey?: string
+	/** Object-facing title used by a bound Thread. */
+	threadTitle?: string
+	/** Allows text answers without an editing target and disables all tools for the Thread. */
+	readOnly?: boolean
+	/** Seeds an empty selected Thread composer once; it is never sent automatically. */
+	initialPrompt?: string
 }
 
 const defaultGetDatasetName = (event: GeoDataset): string =>
@@ -233,8 +259,14 @@ export function ChatPanel({
 	mapContextEvents = [],
 	availableFeatures = [],
 	getDatasetName = defaultGetDatasetName,
-	onOpenAuthoringTarget,
 	onOpenSettings,
+	onClose,
+	onEnsureAuthoringTarget,
+	authoringActionLabel = 'Edit & send',
+	threadKey,
+	threadTitle,
+	readOnly,
+	initialPrompt,
 }: ChatPanelProps) {
 	const {
 		messages,
@@ -255,6 +287,7 @@ export function ChatPanel({
 		lastProgressAt,
 		toolsEnabled,
 		mapSnapshotsEnabled,
+		safetyLevel,
 		settingsStatus,
 		promptProfile,
 		error,
@@ -267,12 +300,15 @@ export function ChatPanel({
 		loadModels,
 		setSelectedModel,
 		setMapSnapshotsEnabled,
+		setSafetyLevel,
 		sendMessage,
 		retryLastMessage,
 		finishLastResponse,
 		createChat,
+		openThread,
 		switchChat,
 		deleteChat,
+		setChatTargetWorkspace,
 		references,
 		setReferences,
 		addReferenceToChat,
@@ -362,6 +398,30 @@ export function ChatPanel({
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
 	const fileChipStripRef = useRef<FileChipStripHandle>(null)
+	const initialPromptAttemptsRef = useRef<Set<string>>(new Set())
+
+	// Route/object bindings select one stable persisted session. Seeded prompts
+	// stay drafts: they are applied only to an empty composer and never auto-send.
+	useEffect(() => {
+		const normalizedThreadKey = threadKey?.trim()
+		const selectedChatId = normalizedThreadKey
+			? openThread({ threadKey: normalizedThreadKey, title: threadTitle, readOnly })
+			: useChatStore.getState().activeChatId
+		const normalizedPromptValue = initialPrompt?.trim()
+		if (!selectedChatId || !normalizedPromptValue) return
+
+		const attemptKey = `${selectedChatId}\u0000${normalizedPromptValue}`
+		if (initialPromptAttemptsRef.current.has(attemptKey)) return
+		initialPromptAttemptsRef.current.add(attemptKey)
+		const currentDraft = selectedChatId
+			? useChatComposerStore.getState().drafts[selectedChatId]
+			: undefined
+		const normalizedPrompt = resolveInitialThreadPrompt(initialPrompt, currentDraft?.input)
+		if (!normalizedPrompt) return
+		setChatComposerDraft(selectedChatId, (current) =>
+			current.input.trim() ? current : { ...current, input: normalizedPrompt },
+		)
+	}, [initialPrompt, openThread, readOnly, setChatComposerDraft, threadKey, threadTitle])
 
 	// Eagerly load the world reference layers (anchors, land/water validation,
 	// sandbox `world`) as soon as the chat opens, so the synchronous consumers
@@ -490,6 +550,27 @@ export function ChatPanel({
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault()
 		if (!input.trim() || isStreaming || !canSend) return
+		const initiatingChatId = activeChatId
+		if (!initiatingChatId) return
+
+		if (!isReadOnlyThread && !hasValidEditingTarget) {
+			if (!onEnsureAuthoringTarget) return
+			handleTargetPendingChange(initiatingChatId, true)
+			try {
+				const workspaceId = await onEnsureAuthoringTarget()
+				if (!workspaceId) {
+					toast.error('The Map could not be prepared for editing.')
+					return
+				}
+				setChatTargetWorkspace(initiatingChatId, workspaceId)
+			} catch (error) {
+				console.error('Failed to prepare the Thread Map target', error)
+				toast.error('The Map could not be prepared for editing.')
+				return
+			} finally {
+				handleTargetPendingChange(initiatingChatId, false)
+			}
+		}
 
 		const message = input.trim()
 		const geometryContextMessage = attachedGeometry
@@ -508,6 +589,7 @@ export function ChatPanel({
 				: undefined
 		setInput('')
 		await sendMessage(message, {
+			readOnly: isReadOnlyThread,
 			referenceContextMessage: buildReferenceContextMessage(references),
 			selectionContextMessage: selectionContextEnabled
 				? buildSelectedGeometryContextMessage(attachedSelection)
@@ -542,7 +624,7 @@ export function ChatPanel({
 
 	const handleExportConversation = async () => {
 		if (messages.length === 0) {
-			toast.error('Nothing to export yet')
+			toast.error('Nothing to export from this Thread yet')
 			return
 		}
 		const currentTarget = activeChatId ? captureActiveToolExecutionTarget(activeChatId) : null
@@ -570,7 +652,7 @@ export function ChatPanel({
 			providerOverrides,
 			selectedModel,
 			models,
-			toolsEnabled,
+			toolsEnabled: toolsEnabled && !isReadOnlyThread,
 			mapSnapshotsEnabled,
 			promptProfile,
 			diagnostics: diagnostics as unknown as Record<string, unknown>,
@@ -600,12 +682,13 @@ export function ChatPanel({
 		} catch (downloadError) {
 			console.error('Failed to download conversation dump', downloadError)
 			if (!copied) {
-				toast.error('Failed to export conversation')
+				toast.error('Failed to export Thread')
 				return
 			}
 		}
 
-		toast.success(copied ? 'Conversation copied & downloaded' : 'Conversation downloaded')
+		const exportLabel = 'Thread'
+		toast.success(copied ? `${exportLabel} copied & downloaded` : `${exportLabel} downloaded`)
 	}
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -698,6 +781,8 @@ export function ChatPanel({
 		() => sortedChatSessions.find((chat) => chat.id === activeChatId) ?? null,
 		[activeChatId, sortedChatSessions],
 	)
+	const isBoundThread = Boolean(threadKey?.trim())
+	const isReadOnlyThread = readOnly === true || activeChatSession?.readOnly === true
 	const boundWorkspace = useMemo(
 		() => resolveChatTargetWorkspace(activeChatId, chatSessions, editorWorkspaces),
 		[activeChatId, chatSessions, editorWorkspaces],
@@ -720,8 +805,10 @@ export function ChatPanel({
 	const imageSendBlocked = hasAttachedImage && !canSendImage(visionSupport, sendAnyway)
 	const sendState = resolveChatSendState({
 		canCompose,
-		hasValidEditingTarget,
-		targetCreationPending,
+		hasValidEditingTarget: isReadOnlyThread || hasValidEditingTarget,
+		canCreateEditingTarget: !isReadOnlyThread && Boolean(onEnsureAuthoringTarget),
+		authoringActionLabel,
+		targetCreationPending: !isReadOnlyThread && targetCreationPending,
 		anotherChatIsRunning,
 		imageSendBlocked,
 	})
@@ -761,7 +848,7 @@ export function ChatPanel({
 			case 'executing_tools':
 				return 'Executing tools'
 			case 'recovering_context':
-				return 'Recovering context'
+				return 'Recovering Thread'
 			case 'finalizing':
 				return 'Finalizing'
 			default:
@@ -812,7 +899,10 @@ export function ChatPanel({
 	const timelineItems = useMemo(() => buildChatTimeline(messages), [messages])
 
 	return (
-		<section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden" aria-label="AI chat">
+		<section
+			className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+			aria-label="AI Thread"
+		>
 			<div
 				className={cn(
 					'border-b bg-background/95',
@@ -820,45 +910,66 @@ export function ChatPanel({
 				)}
 			>
 				<div className="flex items-center gap-1.5">
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						className={cn(
-							'shrink-0 gap-1.5 text-xs',
-							resolveChatHeaderControlSizing(isMobile, 'new-conversation'),
-						)}
-						aria-label="New conversation"
-						onClick={handleCreateChat}
-					>
-						<MessageSquarePlus className="h-3.5 w-3.5" />
-						<span className="hidden sm:inline">New conversation</span>
-						<span className="sm:hidden">New</span>
-					</Button>
-					{/* Navigation remains enabled while another conversation works. */}
-					<NativeSelect
-						value={activeChatSession ? (activeChatId ?? '') : ''}
-						onChange={(event) => {
-							const chatId = event.target.value
-							if (chatId) handleSwitchChat(chatId)
-						}}
-						aria-label="Select conversation"
-						className={cn(
-							'min-w-0 flex-1',
-							resolveChatHeaderControlSizing(isMobile, 'conversation-select'),
-						)}
-					>
-						{activeChatSession ? null : (
-							<NativeSelectOption value="" disabled>
-								Select conversation
-							</NativeSelectOption>
-						)}
-						{sortedChatSessions.map((chat) => (
-							<NativeSelectOption key={chat.id} value={chat.id}>
-								{formatChatSessionOption(chat, chatRunStates[chat.id]?.status)}
-							</NativeSelectOption>
-						))}
-					</NativeSelect>
+					{isBoundThread ? (
+						<div className="min-w-0 flex-1">
+							<div className="flex min-w-0 items-center gap-1.5">
+								<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+									Thread
+								</span>
+								{isReadOnlyThread ? (
+									<span className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+										<LockKeyhole className="h-2.5 w-2.5" />
+										Read-only
+									</span>
+								) : null}
+							</div>
+							<p className="truncate text-sm font-semibold" title={activeChatSession?.title}>
+								{activeChatSession?.title ?? threadTitle ?? 'Thread'}
+							</p>
+						</div>
+					) : (
+						<>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className={cn(
+									'shrink-0 gap-1.5 text-xs',
+									resolveChatHeaderControlSizing(isMobile, 'new-conversation'),
+								)}
+								aria-label="New Thread"
+								onClick={handleCreateChat}
+							>
+								<MessageSquarePlus className="h-3.5 w-3.5" />
+								<span className="hidden sm:inline">New Thread</span>
+								<span className="sm:hidden">New</span>
+							</Button>
+							{/* Navigation remains enabled while another conversation works. */}
+							<NativeSelect
+								value={activeChatSession ? (activeChatId ?? '') : ''}
+								onChange={(event) => {
+									const chatId = event.target.value
+									if (chatId) handleSwitchChat(chatId)
+								}}
+								aria-label="Select Thread"
+								className={cn(
+									'min-w-0 flex-1',
+									resolveChatHeaderControlSizing(isMobile, 'conversation-select'),
+								)}
+							>
+								{activeChatSession ? null : (
+									<NativeSelectOption value="" disabled>
+										Select Thread
+									</NativeSelectOption>
+								)}
+								{sortedChatSessions.map((chat) => (
+									<NativeSelectOption key={chat.id} value={chat.id}>
+										{formatChatSessionOption(chat, chatRunStates[chat.id]?.status)}
+									</NativeSelectOption>
+								))}
+							</NativeSelect>
+						</>
+					)}
 					<Button
 						type="button"
 						variant="ghost"
@@ -866,24 +977,65 @@ export function ChatPanel({
 						className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
 						onClick={handleExportConversation}
 						disabled={messages.length === 0}
-						title="Export conversation (copy JSON + download .json)"
-						aria-label="Export conversation"
+						title="Export Thread (copy JSON + download .json)"
+						aria-label="Export Thread"
 					>
 						<Download className="h-4 w-4" />
 					</Button>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon"
-						className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
-						onClick={handleDeleteChat}
-						disabled={!activeChatId}
-						title="Delete conversation"
-						aria-label="Delete conversation"
-					>
-						<Trash2 className="h-4 w-4" />
-					</Button>
+					{!isBoundThread ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
+							onClick={handleDeleteChat}
+							disabled={!activeChatId}
+							title="Delete Thread"
+							aria-label="Delete Thread"
+						>
+							<Trash2 className="h-4 w-4" />
+						</Button>
+					) : null}
+					{onClose ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
+							onClick={onClose}
+							title="Close Thread"
+							aria-label="Close Thread"
+						>
+							<X className="h-4 w-4" />
+						</Button>
+					) : null}
 				</div>
+
+				{!isReadOnlyThread ? (
+					<div className="flex min-w-0 items-center gap-2">
+						<span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+							Safety
+						</span>
+						<NativeSelect
+							aria-label="AI edit safety"
+							value={safetyLevel}
+							onChange={(event) => {
+								const level = Number(event.target.value)
+								if (level === 1 || level === 2 || level === 3) setSafetyLevel(level)
+							}}
+							disabled={
+								Boolean(runningChatId) ||
+								settingsStatus === 'loading' ||
+								settingsStatus === 'failed'
+							}
+							className={cn('min-w-0 flex-1', isMobile && '[&>select]:min-h-11')}
+						>
+							<NativeSelectOption value="2">Ask before changing</NativeSelectOption>
+							<NativeSelectOption value="1">Ask before every change</NativeSelectOption>
+							<NativeSelectOption value="3">Apply automatically</NativeSelectOption>
+						</NativeSelect>
+					</div>
+				) : null}
 
 				<Collapsible open={connectionDetailsOpen} onOpenChange={setConnectionDetailsOpen}>
 					<div className="overflow-hidden rounded-lg border bg-muted/15">
@@ -980,33 +1132,40 @@ export function ChatPanel({
 								</div>
 							</div>
 
-							<div className="mt-2.5 flex min-w-0 items-center justify-between gap-3 border-t pt-2.5">
-								<div className="flex min-w-0 items-start gap-2">
-									<Camera className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-									<div className="min-w-0">
-										<label
-											htmlFor="chat-map-snapshots-toggle"
-											className="block text-xs font-medium text-foreground"
-										>
-											AI map screenshots
-										</label>
-										<p className="text-[10px] leading-snug text-muted-foreground">
-											Let the model capture the map for visual review. Uploaded images are
-											unaffected.
-										</p>
+							{!isReadOnlyThread ? (
+								<div className="mt-2.5 flex min-w-0 items-center justify-between gap-3 border-t pt-2.5">
+									<div className="flex min-w-0 items-start gap-2">
+										<Camera className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+										<div className="min-w-0">
+											<label
+												htmlFor="chat-map-snapshots-toggle"
+												className="block text-xs font-medium text-foreground"
+											>
+												AI map screenshots
+											</label>
+											<p className="text-[10px] leading-snug text-muted-foreground">
+												Let the model capture the map for visual review. Uploaded images are
+												unaffected.
+											</p>
+										</div>
 									</div>
+									<Switch
+										id="chat-map-snapshots-toggle"
+										checked={mapSnapshotsEnabled}
+										onCheckedChange={setMapSnapshotsEnabled}
+										disabled={
+											isStreaming || settingsStatus === 'loading' || settingsStatus === 'failed'
+										}
+										aria-label="Allow AI map screenshots"
+										className="shrink-0"
+									/>
 								</div>
-								<Switch
-									id="chat-map-snapshots-toggle"
-									checked={mapSnapshotsEnabled}
-									onCheckedChange={setMapSnapshotsEnabled}
-									disabled={
-										isStreaming || settingsStatus === 'loading' || settingsStatus === 'failed'
-									}
-									aria-label="Allow AI map screenshots"
-									className="shrink-0"
-								/>
-							</div>
+							) : (
+								<p className="mt-2.5 flex items-center gap-1.5 border-t pt-2.5 text-xs text-muted-foreground">
+									<LockKeyhole className="h-3.5 w-3.5" />
+									This Thread returns text only and cannot change the map.
+								</p>
+							)}
 
 							<div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2.5 text-[10px] text-muted-foreground">
 								{isWalletRequired ? (
@@ -1037,8 +1196,14 @@ export function ChatPanel({
 									</span>
 								)}
 								<span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-1">
-									<MapPin className="h-3 w-3" />
-									Tools {toolsEnabled ? 'enabled' : 'disabled'}
+									{isReadOnlyThread ? (
+										<LockKeyhole className="h-3 w-3" />
+									) : (
+										<MapPin className="h-3 w-3" />
+									)}
+									{isReadOnlyThread
+										? 'Read-only · no tools'
+										: `Tools ${toolsEnabled ? 'enabled' : 'disabled'}`}
 								</span>
 								<span className="ml-auto text-[10px]">
 									Provider and credentials stay in Settings
@@ -1048,18 +1213,7 @@ export function ChatPanel({
 					</div>
 				</Collapsible>
 
-				{/* Bound-target chip + "Just accept" toggle — always visible (SAFE-01 / SAFE-04 / D-12) */}
-				<BindingChipContainer
-					compact={isMobile}
-					onOpenTarget={onOpenAuthoringTarget}
-					onTargetPendingChange={handleTargetPendingChange}
-				/>
-
-				<Collapsible
-					open={diagnosticsOpen}
-					onOpenChange={setDiagnosticsOpen}
-					className={isMobile ? 'hidden' : undefined}
-				>
+				<Collapsible open={diagnosticsOpen} onOpenChange={setDiagnosticsOpen}>
 					<div className="overflow-hidden rounded-md border">
 						<CollapsibleTrigger asChild>
 							<button
@@ -1072,7 +1226,7 @@ export function ChatPanel({
 							>
 								<Gauge className="h-3.5 w-3.5 shrink-0" />
 								<span className="shrink-0 font-medium text-foreground">
-									Context {contextUsageSummary}
+									Usage {contextUsageSummary}
 								</span>
 								<span aria-hidden="true" className="text-border">
 									/
@@ -1093,7 +1247,7 @@ export function ChatPanel({
 						<CollapsibleContent className="border-t bg-muted/10 p-2">
 							<dl className="grid grid-cols-2 gap-1.5">
 								<ChatMetric
-									label="Context window"
+									label="Prompt capacity"
 									value={contextTokenDisplay ? contextTokenDisplay.toLocaleString() : 'Unknown'}
 								/>
 								<ChatMetric
@@ -1192,36 +1346,40 @@ export function ChatPanel({
 				{messages.length === 0 && !activeChatIsRunning ? (
 					<div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-4">
 						<Bot className="h-12 w-12 mb-4 opacity-50" />
-						<p className="text-sm font-medium">AI Chat</p>
+						<p className="text-sm font-medium">{isBoundThread ? 'Thread' : 'AI Chat'}</p>
 						<p className="text-xs mt-1">
-							{isWalletRequired
-								? 'Pay per message with eCash. Unused funds are refunded automatically.'
-								: 'Running locally \u2014 no payment required.'}
+							{isReadOnlyThread
+								? 'Ask a question here. Earthly will answer without tools or map changes.'
+								: isWalletRequired
+									? 'Pay per message with eCash. Unused funds are refunded automatically.'
+									: 'Running locally \u2014 no payment required.'}
 						</p>
 						{selectedModelData && <p className="text-xs mt-2">Using {selectedModelData.name}</p>}
-						{toolsEnabled && (
+						{toolsEnabled && !isReadOnlyThread && (
 							<p className="text-xs mt-2 text-orange-600 dark:text-orange-400">
 								<MapPin className="inline h-3 w-3 mr-1" />
 								Tools enabled (geo search, OSM queries, web search, and Wikipedia)
 							</p>
 						)}
-						<div className="mt-4 w-full max-w-xl rounded-lg border bg-muted/30 p-3 text-left">
-							<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-								Try an example prompt
-							</p>
-							<div className="grid gap-2 sm:grid-cols-2">
-								{EMPTY_STATE_PROMPTS.map((prompt) => (
-									<button
-										key={prompt}
-										type="button"
-										onClick={() => handleExamplePromptClick(prompt)}
-										className="rounded-md border bg-background px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-muted"
-									>
-										{prompt}
-									</button>
-								))}
+						{!isReadOnlyThread ? (
+							<div className="mt-4 w-full max-w-xl rounded-lg border bg-muted/30 p-3 text-left">
+								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+									Try an example prompt
+								</p>
+								<div className="grid gap-2 sm:grid-cols-2">
+									{EMPTY_STATE_PROMPTS.map((prompt) => (
+										<button
+											key={prompt}
+											type="button"
+											onClick={() => handleExamplePromptClick(prompt)}
+											className="rounded-md border bg-background px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-muted"
+										>
+											{prompt}
+										</button>
+									))}
+								</div>
 							</div>
-						</div>
+						) : null}
 					</div>
 				) : (
 					<>
@@ -1323,13 +1481,15 @@ export function ChatPanel({
 							size="sm"
 							variant="outline"
 							className="h-7 shrink-0 gap-1.5"
-							disabled={targetCreationPending || !hasValidEditingTarget}
+							disabled={!isReadOnlyThread && (targetCreationPending || !hasValidEditingTarget)}
 							title={
-								targetCreationPending
-									? 'Wait for the editing target to finish'
-									: !hasValidEditingTarget
-										? 'Choose New map or Use current edit before continuing.'
-										: errorPresentation.actionLabel
+								isReadOnlyThread
+									? errorPresentation.actionLabel
+									: targetCreationPending
+										? 'Wait for the Map working copy to finish'
+										: !hasValidEditingTarget
+											? 'Open this Thread from a Map before continuing.'
+											: errorPresentation.actionLabel
 							}
 							onClick={() =>
 								void (errorPresentation.changesApplied ? finishLastResponse() : retryLastMessage())
@@ -1352,18 +1512,20 @@ export function ChatPanel({
 				>
 					<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
 					<span className="min-w-0 flex-1 truncate">
-						Working in {runningChatSession?.title ?? 'another conversation'}. You can compose here,
-						but only one AI run can work at a time.
+						Working in {runningChatSession?.title ?? 'another Thread'}. You can compose here, but
+						only one AI run can work at a time.
 					</span>
-					<Button
-						type="button"
-						size="sm"
-						variant="outline"
-						className="h-7 shrink-0 px-2 text-xs"
-						onClick={() => switchChat(runningChatId)}
-					>
-						Jump
-					</Button>
+					{!isBoundThread ? (
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							className="h-7 shrink-0 px-2 text-xs"
+							onClick={() => switchChat(runningChatId)}
+						>
+							Jump
+						</Button>
+					) : null}
 					<Button
 						type="button"
 						size="sm"
@@ -1392,7 +1554,7 @@ export function ChatPanel({
 							searchMode="both"
 							entityTypes={CHAT_REFERENCE_ENTITY_TYPES}
 							getDatasetName={getDatasetName}
-							placeholder="Add dataset, context, story, or feature references..."
+							placeholder="Add Map, Atlas, Story, or feature references..."
 							className="min-w-0 flex-1"
 						/>
 						<Button
@@ -1407,7 +1569,7 @@ export function ChatPanel({
 									? 'Select one or more map features first'
 									: selectionContextEnabled
 										? 'Remove the attached spatial selection'
-										: 'Attach current selection as spatial chat context'
+										: 'Attach current selection as a spatial reference'
 							}
 						>
 							{selectionContextEnabled ? (
@@ -1470,11 +1632,13 @@ export function ChatPanel({
 									? 'Select a model...'
 									: isWalletRequired && walletStatus !== 'ready'
 										? 'Connect wallet to chat...'
-										: targetCreationPending
+										: !isReadOnlyThread && targetCreationPending
 											? 'Creating editing target...'
 											: anotherChatIsRunning
-												? 'Compose while the other conversation works...'
-												: 'Type a message...'
+												? 'Compose while the other Thread works...'
+												: isReadOnlyThread
+													? 'Ask Earthly...'
+													: 'Type a message...'
 							}
 							disabled={!canCompose}
 							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-[150px]"
@@ -1493,11 +1657,23 @@ export function ChatPanel({
 						) : (
 							<Button
 								type="submit"
-								size="icon"
+								size={
+									!isReadOnlyThread && !hasValidEditingTarget && onEnsureAuthoringTarget
+										? 'sm'
+										: 'icon'
+								}
+								className={
+									!isReadOnlyThread && !hasValidEditingTarget && onEnsureAuthoringTarget
+										? 'shrink-0 gap-1.5'
+										: undefined
+								}
 								disabled={isStreaming || !input.trim() || !canSend}
 								title={sendState.title}
 							>
 								<Send className="h-4 w-4" />
+								{!isReadOnlyThread && !hasValidEditingTarget && onEnsureAuthoringTarget ? (
+									<span>{authoringActionLabel}</span>
+								) : null}
 							</Button>
 						)}
 					</div>

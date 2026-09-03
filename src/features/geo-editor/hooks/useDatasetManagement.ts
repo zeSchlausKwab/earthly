@@ -3,7 +3,7 @@ import type { FeatureCollection } from 'geojson'
 import maplibregl from 'maplibre-gl'
 import { useCallback, useRef } from 'react'
 import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
-import { resolveGeoEventFeatureCollection } from '@/lib/geo/resolveBlobReferences'
+import { resolveGeoEventFeatureCollectionOrThrow } from '@/lib/geo/resolveBlobReferences'
 import type { GeoDataset, GeoBlobReference } from '@/lib/nostr/geo-event'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace/projection'
 import { getLocalBlobRevision } from '@/platform/registry'
@@ -153,7 +153,7 @@ export function useDatasetManagement(
 		(event: GeoDataset) => {
 			const datasetKey = getDatasetKey(event)
 			const cached = resolvedCollectionsRef.current.get(datasetKey)
-			return cached?.localBlobRevision === getLocalBlobRevision()
+			return cached?.eventId === event.id && cached.localBlobRevision === getLocalBlobRevision()
 				? cached.featureCollection
 				: undefined
 		},
@@ -179,7 +179,7 @@ export function useDatasetManagement(
 			const THROTTLE_MS = 100
 
 			try {
-				const resolved = await resolveGeoEventFeatureCollection(event, {
+				const resolved = await resolveGeoEventFeatureCollectionOrThrow(event, {
 					onProgress: (loaded, total) => {
 						const now = Date.now()
 						const isComplete = loaded >= total
@@ -413,7 +413,7 @@ export function useDatasetManagement(
 			// caller with an explicit channel may create its first draft.
 			const publishChannel = options?.publishChannel
 			if (!publishChannel) {
-				setPublishError('Choose a destination before adding a draft to this saved work.')
+				setPublishError('Choose an audience before adding a draft to Saved work.')
 				return
 			}
 
@@ -436,7 +436,7 @@ export function useDatasetManagement(
 					await ensureResolvedFeatureCollection(event)
 				} catch (error) {
 					console.error('Failed to resolve external blobs for workspace dataset', error)
-					setPublishError('Failed to restore dataset blobs for this workspace.')
+					setPublishError('Failed to restore the Map data for this working copy.')
 					return
 				}
 			}
@@ -611,7 +611,10 @@ export function useDatasetManagement(
 
 	const loadDatasetForEditing = useCallback(
 		async (event: GeoDataset, options?: DraftAuthoringOptions) => {
-			if (!editor) return
+			// A direct canonical `/map/:id/edit` route can resolve its event before
+			// the MapLibre editor child has mounted. Report readiness to the route
+			// controller so it can retry instead of permanently consuming the URL.
+			if (!editor) return false
 			const datasetKey = getDatasetKey(event)
 			// Round G.2: loading for edit counts as a recent interaction too.
 			recordRecentEntity(`dataset:${datasetKey}`)
@@ -621,14 +624,14 @@ export function useDatasetManagement(
 			)
 			if (existingWorkspace?.activeDraftId) {
 				await switchToWorkspace(existingWorkspace.id, options)
-				return
+				return true
 			}
 			try {
 				await ensureResolvedFeatureCollection(event)
 			} catch (error) {
 				console.error('Failed to resolve external blobs for dataset', error)
 				setPublishError('Failed to load dataset blobs. Check console for details.')
-				return
+				return false
 			}
 			const datasetFeatures = convertGeoEventsToEditorFeatures([event], resolvedCollectionResolver)
 			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
@@ -672,6 +675,7 @@ export function useDatasetManagement(
 				datasetKey,
 				baseRevisionId: event.event.id,
 			})
+			return true
 		},
 		[
 			editor,
@@ -834,7 +838,7 @@ export function useDatasetManagement(
 			// empty workspace; it must never retarget an existing private/nearby draft.
 			const publishChannel = inheritedDraft?.publishChannel ?? options?.publishChannel
 			if (!publishChannel) {
-				setPublishError('Choose a destination before adding a draft to this saved work.')
+				setPublishError('Choose an audience before adding a draft to Saved work.')
 				return
 			}
 
@@ -847,7 +851,7 @@ export function useDatasetManagement(
 					) ?? null
 				if (!event) {
 					setPublishError(
-						'Wait for Earthly to restore the original dataset before adding another draft.',
+						'Wait for Earthly to restore the original Map before adding another draft.',
 					)
 					return
 				}
@@ -856,7 +860,7 @@ export function useDatasetManagement(
 						await ensureResolvedFeatureCollection(event)
 					} catch (error) {
 						console.error('Failed to resolve external blobs for fresh workspace draft', error)
-						setPublishError('Failed to load dataset blobs. Check console for details.')
+						setPublishError('Failed to load the Map data. Check console for details.')
 						return
 					}
 

@@ -11,7 +11,7 @@ interface BulkMapStackButtonProps {
 export function BulkMapStackButton({
 	count,
 	onClick,
-	label = 'Add filtered list to map stack',
+	label = 'Show filtered list on the map',
 	emptyLabel = 'No filtered items to add',
 }: BulkMapStackButtonProps) {
 	const disabled = !onClick || count === 0

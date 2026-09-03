@@ -33,6 +33,7 @@ import { accounts, publish } from '@/lib/nostr'
 import { MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
+import type { EarthlyObjectTab } from '@/router/routeContract'
 import { CommentsPanel } from '@/features/social/comments'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { RichContentRenderer } from '../editor'
@@ -53,6 +54,7 @@ import { ConfirmDeleteAction } from './ConfirmDeleteAction'
 import { CuratedLane } from './group-lane/CuratedLane'
 import { ForeignLane } from './group-lane/ForeignLane'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
+import { ObjectTabs, ThreadTabNotice } from './ObjectTabs'
 
 interface GroupViewPanelProps {
 	currentUserPubkey?: string
@@ -75,6 +77,9 @@ interface GroupViewPanelProps {
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 	focusCommentId?: string
+	/** Route-backed social-object tab. Omit to let the panel manage it locally. */
+	objectTab?: EarthlyObjectTab
+	onObjectTabChange?: (tab: EarthlyObjectTab) => void
 }
 
 export function GroupViewPanel({
@@ -91,10 +96,21 @@ export function GroupViewPanel({
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
 	focusCommentId,
+	objectTab,
+	onObjectTabChange,
 }: GroupViewPanelProps) {
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const activeAccount = useActiveAccount()
 	const [lockingDown, setLockingDown] = useState(false)
+	const [uncontrolledObjectTab, setUncontrolledObjectTab] = useState<EarthlyObjectTab>('details')
+	const activeObjectTab = objectTab ?? uncontrolledObjectTab
+	const setActiveObjectTab = useCallback(
+		(tab: EarthlyObjectTab) => {
+			if (objectTab === undefined) setUncontrolledObjectTab(tab)
+			onObjectTabChange?.(tab)
+		},
+		[objectTab, onObjectTabChange],
+	)
 
 	// Bridge: the store's MapContext cast wraps the same kind-MAP_CONTEXT_KIND (37518) event the
 	// Group helpers read. CommentsPanel roots GROUP-07 comments at `target.kind === MAP_CONTEXT_KIND`.
@@ -136,7 +152,7 @@ export function GroupViewPanel({
 				.group({ governance: 'closed' })
 				.sign(signer)
 			await publish(signed, { routing: 'outbox' })
-			toast.success('Context locked down. Only your curated references show now.')
+			toast.success('Atlas locked down. Only your curated references show now.')
 		} catch {
 			toast.error("Couldn't publish — check your connection and try again.")
 		} finally {
@@ -164,115 +180,118 @@ export function GroupViewPanel({
 	)
 
 	if (!viewContext || !groupEvent || !group) {
-		return <div className="text-sm text-muted-foreground">No Context selected.</div>
+		return <div className="text-sm text-muted-foreground">No Atlas selected.</div>
 	}
 
 	const groupKey = viewContext.contextId ?? viewContext.dTag ?? viewContext.id ?? null
 	const isDeleting = groupKey ? deletingKey === `context:${groupKey}` : false
 
 	return (
-		<EntityPanelShell title={group.name || viewContext.contextId || 'Untitled Context'}>
-			<div className="space-y-3 text-[13px]">
-				<EntityPanelSurface tone="context" className="space-y-3">
-					<EntityPanelSectionHeader
-						eyebrow="Context"
-						title={group.name || viewContext.contextId || 'Untitled Context'}
-						description={`Governance: ${group.governance}`}
-						action={
-							onZoomTo || isOwner ? (
-								<div className="flex items-center gap-2">
-									{onZoomTo && (
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											onClick={onZoomTo}
-											className="gap-1 rounded-none px-2 text-[11px]"
-											title="Zoom to on map"
-										>
-											<LocateFixed className="h-3 w-3" />
-											Zoom
-										</Button>
-									)}
-									{isOwner && group.governance !== 'closed' && (
-										<AlertDialog>
-											<AlertDialogTrigger asChild>
-												<Button
-													type="button"
-													variant="destructive"
-													size="sm"
-													disabled={lockingDown}
-													className="rounded-none px-2 text-[11px]"
-												>
-													Lock down → Closed
-												</Button>
-											</AlertDialogTrigger>
-											<AlertDialogContent>
-												<AlertDialogHeader>
-													<AlertDialogTitle>Lock this Context down?</AlertDialogTitle>
-													<AlertDialogDescription>
-														Switching to Closed hides all community contributions immediately and
-														only your curated references will show. You can reopen it later by
-														editing the Context.
-													</AlertDialogDescription>
-												</AlertDialogHeader>
-												<AlertDialogFooter>
-													<AlertDialogCancel>Keep open</AlertDialogCancel>
-													<AlertDialogAction onClick={handleLockDown}>Lock down</AlertDialogAction>
-												</AlertDialogFooter>
-											</AlertDialogContent>
-										</AlertDialog>
-									)}
-									{isOwner && onDeleteContext && (
-										<ConfirmDeleteAction
-											label="Context"
-											isDeleting={isDeleting}
-											onConfirm={() => onDeleteContext(viewContext)}
-										/>
-									)}
-								</div>
-							) : null
-						}
-					/>
-					{group.description && (
-						<RichContentRenderer
-							content={group.description}
-							availableFeatures={availableFeatures}
-							onMentionVisibilityToggle={onMentionVisibilityToggle}
-							onMentionZoomTo={onMentionZoomTo}
-							className="text-sm text-muted-foreground"
+		<EntityPanelShell
+			title={group.name || viewContext.contextId || 'Untitled Atlas'}
+			tabs={<ObjectTabs value={activeObjectTab} onValueChange={setActiveObjectTab} />}
+		>
+			{activeObjectTab === 'details' ? (
+				<div className="space-y-3 text-[13px]">
+					<EntityPanelSurface tone="context" className="space-y-3">
+						<EntityPanelSectionHeader
+							eyebrow="Atlas"
+							title={group.name || viewContext.contextId || 'Untitled Atlas'}
+							description={`Governance: ${group.governance}`}
+							action={
+								onZoomTo || isOwner ? (
+									<div className="flex items-center gap-2">
+										{onZoomTo && (
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												onClick={onZoomTo}
+												className="gap-1 rounded-none px-2 text-[11px]"
+												title="Zoom to on map"
+											>
+												<LocateFixed className="h-3 w-3" />
+												Zoom
+											</Button>
+										)}
+										{isOwner && group.governance !== 'closed' && (
+											<AlertDialog>
+												<AlertDialogTrigger asChild>
+													<Button
+														type="button"
+														variant="destructive"
+														size="sm"
+														disabled={lockingDown}
+														className="rounded-none px-2 text-[11px]"
+													>
+														Lock down → Closed
+													</Button>
+												</AlertDialogTrigger>
+												<AlertDialogContent>
+													<AlertDialogHeader>
+														<AlertDialogTitle>Close this Atlas?</AlertDialogTitle>
+														<AlertDialogDescription>
+															Switching to Closed hides all community contributions immediately and
+															only your curated references will show. You can reopen it later by
+															editing the Atlas.
+														</AlertDialogDescription>
+													</AlertDialogHeader>
+													<AlertDialogFooter>
+														<AlertDialogCancel>Keep open</AlertDialogCancel>
+														<AlertDialogAction onClick={handleLockDown}>
+															Lock down
+														</AlertDialogAction>
+													</AlertDialogFooter>
+												</AlertDialogContent>
+											</AlertDialog>
+										)}
+										{isOwner && onDeleteContext && (
+											<ConfirmDeleteAction
+												label="Atlas"
+												isDeleting={isDeleting}
+												onConfirm={() => onDeleteContext(viewContext)}
+											/>
+										)}
+									</div>
+								) : null
+							}
 						/>
-					)}
-				</EntityPanelSurface>
+						{group.description && (
+							<RichContentRenderer
+								content={group.description}
+								availableFeatures={availableFeatures}
+								onMentionVisibilityToggle={onMentionVisibilityToggle}
+								onMentionZoomTo={onMentionZoomTo}
+								className="text-sm text-muted-foreground"
+							/>
+						)}
+					</EntityPanelSurface>
 
-				{/* Curated lane FIRST — privileged, expanded, amber (D-08). */}
-				<CuratedLane
-					groupEvent={groupEvent}
-					referencedAddresses={referencedAddresses}
-					isOwner={isOwner}
-					signer={activeAccount ? accounts.signer : null}
-					onInspectCoordinate={(coord) => onMentionZoomTo?.(coord, undefined)}
-					onZoomToCoordinate={(coord) => onMentionZoomTo?.(coord, undefined)}
-				/>
+					{/* Curated lane FIRST — privileged, expanded, amber (D-08). */}
+					<CuratedLane
+						groupEvent={groupEvent}
+						referencedAddresses={referencedAddresses}
+						isOwner={isOwner}
+						signer={activeAccount ? accounts.signer : null}
+						onInspectCoordinate={(coord) => onMentionZoomTo?.(coord, undefined)}
+						onZoomToCoordinate={(coord) => onMentionZoomTo?.(coord, undefined)}
+					/>
 
-				{/* Foreign lane SECOND — subordinate, collapsed, grey; gated before render. */}
-				<ForeignLane
-					group={group}
-					governance={group.governance}
-					publishedHash={publishedHash}
-					attachments={attachments}
-					isOwner={isOwner}
-					getDatasetName={getDatasetName}
-					onInspectDataset={onInspectDataset}
-					onZoomToDataset={onZoomToDataset}
-					onBlessForeign={handleBlessForeign}
-					curatedCoordinates={referencedAddresses}
-				/>
-
-				{/* Comment + react on the Group coordinate (GROUP-07). The `viewContext` cast is a
-				    kind-MAP_CONTEXT_KIND (37518) event, so CommentsPanel/GeoSocialActions root the
-				    comment at `target.kind === MAP_CONTEXT_KIND` directly — no K/k widening needed
-				    here (full widening across all kinds stays Phase 13). */}
+					{/* Foreign lane SECOND — subordinate, collapsed, grey; gated before render. */}
+					<ForeignLane
+						group={group}
+						governance={group.governance}
+						publishedHash={publishedHash}
+						attachments={attachments}
+						isOwner={isOwner}
+						getDatasetName={getDatasetName}
+						onInspectDataset={onInspectDataset}
+						onZoomToDataset={onZoomToDataset}
+						onBlessForeign={handleBlessForeign}
+						curatedCoordinates={referencedAddresses}
+					/>
+				</div>
+			) : activeObjectTab === 'comments' ? (
 				<EntityPanelSurface tone="discussion" className="space-y-4">
 					<EntityPanelSectionHeader eyebrow="Discussion" title="Comments" />
 					<CommentsPanel
@@ -290,7 +309,9 @@ export function GroupViewPanel({
 						focusCommentId={focusCommentId}
 					/>
 				</EntityPanelSurface>
-			</div>
+			) : (
+				<ThreadTabNotice />
+			)}
 		</EntityPanelShell>
 	)
 }

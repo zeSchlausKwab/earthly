@@ -1,0 +1,381 @@
+.earthly-reader {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	background: var(--surface-app);
+	color: var(--text-primary);
+}
+
+.earthly-reader__article {
+	position: relative;
+	z-index: 2;
+	min-width: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	scroll-behavior: smooth;
+	border-right: 1px solid var(--border-hairline);
+	background: var(--surface-panel);
+}
+
+.earthly-reader__chrome {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	height: 46px;
+	padding: 8px 10px;
+	pointer-events: none;
+	background: linear-gradient(to bottom, var(--surface-panel) 58%, transparent);
+}
+
+.earthly-reader__mark,
+.earthly-reader-state__brand {
+	display: grid;
+	width: 28px;
+	height: 28px;
+	place-items: center;
+	border: 1px solid var(--border-strong);
+	background: var(--surface-panel);
+	pointer-events: auto;
+}
+
+.earthly-reader__mark:hover,
+.earthly-reader-state__brand:hover {
+	border-color: var(--accent-active);
+}
+
+.earthly-reader__mark img,
+.earthly-reader-state__brand img {
+	display: block;
+	width: 21px;
+	height: 21px;
+}
+
+.earthly-reader__edit {
+	width: 28px;
+	height: 28px;
+	border-radius: 0;
+	background: var(--surface-panel);
+	pointer-events: auto;
+}
+
+.earthly-reader__prose {
+	width: min(100%, 42rem);
+	margin: 0 auto;
+	padding: 18px 40px 72px;
+}
+
+.earthly-reader__header {
+	margin-bottom: 26px;
+}
+
+.earthly-reader__kicker {
+	margin: 0 0 10px;
+	color: var(--text-muted);
+	font: 500 10px/1.4 var(--font-mono);
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+}
+
+.earthly-reader__header h1 {
+	margin: 0;
+	font: 800 clamp(2rem, 3.2vw, 3rem) / 1.03 var(--font-display);
+	letter-spacing: -0.025em;
+	text-wrap: balance;
+}
+
+.earthly-reader__dek {
+	margin: 12px 0 0;
+	color: var(--text-muted);
+	font: 600 1.08rem/1.5 var(--font-serif);
+	text-wrap: pretty;
+}
+
+.earthly-reader__byline {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	margin-top: 17px;
+	padding-top: 10px;
+	border-top: 1px solid var(--border-hairline);
+	color: var(--text-muted);
+	font: 500 10px/1.4 var(--font-mono);
+	flex-wrap: wrap;
+}
+
+.earthly-reader__map-hint {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	margin-left: auto;
+	color: var(--accent-info-text);
+}
+
+.earthly-reader__cover {
+	display: block;
+	width: 100%;
+	max-height: 420px;
+	margin: 0 0 26px;
+	border: 1px solid var(--border-hairline);
+	object-fit: cover;
+}
+
+.earthly-reader__presenter {
+	display: flex;
+	align-items: center;
+	min-height: 34px;
+	margin: 0 0 22px;
+	border-block: 1px solid var(--border-hairline);
+	font-family: var(--font-ui);
+}
+
+.earthly-reader__presenter-rule {
+	width: 1px;
+	height: 18px;
+	margin-inline: auto 4px;
+	background: var(--border-hairline);
+}
+
+.earthly-reader__presenter-count {
+	min-width: 58px;
+	text-align: center;
+	color: var(--text-muted);
+	font: 500 9px/1 var(--font-mono);
+	text-transform: uppercase;
+}
+
+.earthly-reader__body {
+	font-family: var(--font-serif);
+	font-size: 1.045rem;
+	line-height: 1.7;
+}
+
+.earthly-reader__body > * + * {
+	margin-top: 1.15rem;
+}
+
+.earthly-reader__body h1,
+.earthly-reader__body h2,
+.earthly-reader__body h3,
+.earthly-reader__body h4 {
+	font-family: var(--font-display);
+	letter-spacing: -0.015em;
+}
+
+.earthly-reader__body h1,
+.earthly-reader__body h2 {
+	margin-top: 2.2rem;
+	font-size: 1.55rem;
+}
+
+.earthly-reader__body blockquote {
+	margin-block: 1.5rem;
+	padding-left: 1rem;
+	border-left: 3px solid var(--accent-info);
+	color: var(--text-muted);
+	font-size: 1.12rem;
+	font-style: italic;
+}
+
+.earthly-reader__body section[data-story-view-id] {
+	margin-block: 1.45rem;
+	font-family: var(--font-ui);
+}
+
+.earthly-reader__figure-map {
+	height: 220px;
+	pointer-events: none;
+}
+
+.earthly-reader__canvas {
+	position: sticky;
+	top: 0;
+	height: 100vh;
+}
+
+.earthly-reader__sources,
+.earthly-reader__comments {
+	margin-top: 42px;
+	padding-top: 18px;
+	border-top: 2px solid var(--text-primary);
+}
+
+.earthly-reader__sources h2,
+.earthly-reader__comments > h2 {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin: 0 0 8px;
+	font: 700 1.2rem/1.2 var(--font-display);
+}
+
+.earthly-reader__sources > div {
+	display: grid;
+	gap: 4px;
+	margin-top: 12px;
+}
+
+.earthly-reader__source {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 8px 9px;
+	border: 1px solid var(--border-hairline);
+	color: var(--text-primary);
+	text-decoration: none;
+}
+
+.earthly-reader__source:hover {
+	border-color: var(--accent-info);
+	background: color-mix(in srgb, var(--accent-info) 8%, transparent);
+}
+
+.earthly-reader__source strong {
+	font: 600 12px/1.35 var(--font-ui);
+}
+
+.earthly-reader__source span {
+	color: var(--text-muted);
+	font: 500 9px/1.35 var(--font-mono);
+}
+
+.earthly-reader__diagnostics {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 9px;
+	margin-top: 24px;
+	padding: 10px;
+	border-left: 3px solid var(--accent-active);
+	background: color-mix(in srgb, var(--accent-active) 10%, transparent);
+	font: 12px/1.45 var(--font-ui);
+}
+
+.earthly-reader__diagnostics p {
+	margin: 3px 0 0;
+	color: var(--text-muted);
+}
+
+.earthly-reader__comments > p {
+	margin: 0 0 16px;
+	color: var(--text-muted);
+	font: 12px/1.45 var(--font-ui);
+}
+
+/* Comments are a document flow here; their shared panel is independently
+   scrollable inside the app Margin, so neutralize that constraint in Reader. */
+.earthly-reader__comments > div {
+	height: auto;
+}
+
+.earthly-reader__comments > div > :last-child {
+	overflow: visible;
+}
+
+.earthly-reader-state {
+	display: grid;
+	width: 100%;
+	height: 100%;
+	place-items: center;
+	background:
+		linear-gradient(90deg, transparent 49.9%, var(--border-hairline) 50%, transparent 50.1%),
+		var(--surface-app);
+}
+
+.earthly-reader-state__brand {
+	position: fixed;
+	top: 10px;
+	left: 10px;
+}
+
+.earthly-reader-state__card {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 12px;
+	width: min(calc(100% - 32px), 430px);
+	padding: 18px;
+	border: 1px solid var(--border-strong);
+	background: var(--surface-panel);
+}
+
+.earthly-reader-state__card h1 {
+	margin: 0;
+	font: 700 1.3rem/1.15 var(--font-display);
+}
+
+.earthly-reader-state__card p {
+	margin: 6px 0 0;
+	color: var(--text-muted);
+	font: 12px/1.55 var(--font-ui);
+}
+
+.earthly-reader .maplibregl-ctrl-bottom-left,
+.earthly-reader .maplibregl-ctrl-bottom-right {
+	bottom: 4px !important;
+}
+
+@media (max-width: 900px) {
+	.earthly-reader__prose {
+		padding-inline: 24px;
+	}
+}
+
+@media (max-width: 760px) {
+	.earthly-reader {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: 42vh minmax(0, 1fr);
+		height: 100%;
+		overflow: hidden;
+	}
+
+	.earthly-reader__canvas {
+		position: relative;
+		grid-row: 1;
+		height: 42vh;
+		border-bottom: 1px solid var(--border-strong);
+	}
+
+	.earthly-reader__article {
+		grid-row: 2;
+		border-right: 0;
+	}
+
+	.earthly-reader__prose {
+		width: 100%;
+		padding: 12px 18px 56px;
+	}
+
+	.earthly-reader__header h1 {
+		font-size: clamp(1.85rem, 9vw, 2.45rem);
+	}
+
+	.earthly-reader__map-hint {
+		width: 100%;
+		margin-left: 0;
+	}
+
+	.earthly-reader__presenter {
+		position: sticky;
+		top: 46px;
+		z-index: 8;
+		background: var(--surface-panel);
+	}
+
+	.earthly-reader__presenter-count {
+		display: none;
+	}
+
+	.earthly-reader-state {
+		background: var(--surface-app);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.earthly-reader__article {
+		scroll-behavior: auto;
+	}
+}

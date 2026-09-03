@@ -196,7 +196,7 @@ async function buildShareImage(options: {
 	canvas.height = Math.max(1, Math.floor(logicalHeight * scale))
 
 	const ctx = canvas.getContext('2d')
-	if (!ctx) throw new Error('2D canvas context is unavailable')
+	if (!ctx) throw new Error('2D canvas is unavailable')
 	ctx.setTransform(scale, 0, 0, scale, 0, 0)
 
 	ctx.fillStyle = '#ffffff'
@@ -319,21 +319,21 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 		if (focusedType === 'geoevent') {
 			const meta = resolveFeatureCollectionMeta(viewDataset?.featureCollection)
 			return {
-				title: meta.name ?? focusedIdentifier ?? 'Dataset',
+				title: meta.name ?? focusedIdentifier ?? 'Map',
 				description: meta.description,
-				subjectLabel: 'dataset',
+				subjectLabel: 'Map',
 			}
 		}
 		if (focusedType === 'mapcontext') {
 			return {
-				title: viewContext?.context.name || focusedIdentifier || 'Context',
+				title: viewContext?.context.name || focusedIdentifier || 'Atlas',
 				description: viewContext?.context.description,
-				subjectLabel: 'context',
+				subjectLabel: 'atlas',
 			}
 		}
 		if (route.contextNaddr) {
 			return {
-				title: viewContext?.context.name || focusedIdentifier || 'Context view',
+				title: viewContext?.context.name || focusedIdentifier || 'Atlas view',
 				description: viewContext?.context.description,
 				subjectLabel: 'map view',
 			}

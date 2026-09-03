@@ -3,6 +3,7 @@ import { finalizeEvent, generateSecretKey, nip19 } from 'nostr-tools'
 import { eventStore } from '@/lib/nostr'
 import { ARTICLE_KIND } from '@/lib/nostr/kinds'
 import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
+import { NEW_STORY_DRAFT_KEY, writeStoryDraft } from '@/lib/nostr/story'
 import {
 	clearStoryEditorTarget,
 	getStoryEditorTarget,
@@ -372,6 +373,25 @@ describe('story draft tools', () => {
 		expect(second.ok).toBe(true)
 		const read = await call('read_story_draft')
 		expect((read.draft as Record<string, unknown>).title).toBe('v2')
+	})
+
+	it('preserves opaque presentation data when replacing prose', async () => {
+		const futurePresentation = { version: 12, camera: { projection: 'future-globe' } }
+		writeStoryDraft(NEW_STORY_DRAFT_KEY, {
+			title: 'User-authored draft',
+			content: 'old prose',
+			presentation: futurePresentation,
+		})
+		await call('read_story_draft')
+
+		await call(
+			'write_story_draft',
+			{ title: 'Rewritten prose', markdown: 'new prose', overwrite: true },
+			{ userMessage: 'Please overwrite the prose in this draft.' } as ToolExecutionContext,
+		)
+
+		const read = await call('read_story_draft')
+		expect((read.draft as Record<string, unknown>).presentation).toEqual(futurePresentation)
 	})
 
 	it('does not treat an explicit refusal as overwrite confirmation', async () => {

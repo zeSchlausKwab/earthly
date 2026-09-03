@@ -1,14 +1,15 @@
 import { ExternalLink, Eye, EyeOff, LocateFixed, MapPin, Maximize2, Play, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { geoReferenceLabel, parseGeoReference, stringifyGeoReference } from '@/lib/geo/reference'
 import { parseMarkdownTableAt, type MarkdownTableAlignment } from '@/lib/markdown/table'
 import { decodeNostrFeatureId, stringifyNostrAddressReference } from '@/lib/nostr/references'
+import { parseStoryViewBlock, type StoryViewBlockV1 } from '@/lib/map-presentation'
 import type { GeoFeatureItem } from './GeoRichTextEditor'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
-interface RichContentRendererProps {
+export interface RichContentRendererProps {
 	content: string
 	availableFeatures?: GeoFeatureItem[]
 	onMentionVisibilityToggle?: (
@@ -20,6 +21,11 @@ interface RichContentRendererProps {
 	isMentionVisible?: (address: string, featureId: string | undefined) => boolean
 	className?: string
 	emptyState?: string | null
+	/** Apply a driving cue/both view to the shared main canvas. */
+	onStoryViewActivate?: (view: StoryViewBlockV1, index: number) => void
+	/** Render the live in-flow map for figure/both views using the caller's map runtime. */
+	renderStoryViewFigure?: (view: StoryViewBlockV1, index: number) => ReactNode
+	activeStoryViewId?: string | null
 }
 
 interface InlineTokenBase {
@@ -73,6 +79,12 @@ interface CodeBlock {
 	code: string
 }
 
+interface StoryViewContentBlock {
+	type: 'story-view'
+	view: StoryViewBlockV1
+	viewIndex: number
+}
+
 interface MediaBlock {
 	type: 'image' | 'video' | 'youtube'
 	url: string
@@ -92,6 +104,7 @@ type ContentBlock =
 	| QuoteBlock
 	| ListBlock
 	| CodeBlock
+	| StoryViewContentBlock
 	| MediaBlock
 	| TableBlock
 
@@ -328,8 +341,9 @@ function parseContent(text: string, availableFeatures: GeoFeatureItem[]): Conten
 	const paragraphLines: string[] = []
 	let activeList: ListBlock | null = null
 	let inCodeBlock = false
-	let codeFence: string | null = null
+	let codeFence: { marker: '`' | '~'; length: number; language: string } | null = null
 	const codeLines: string[] = []
+	let storyViewIndex = 0
 
 	const flushList = () => {
 		if (activeList) {
@@ -338,12 +352,27 @@ function parseContent(text: string, availableFeatures: GeoFeatureItem[]): Conten
 		}
 	}
 
-	const flushCodeBlock = () => {
+	const flushCodeBlock = (closed: boolean) => {
 		if (!inCodeBlock) return
-		blocks.push({
-			type: 'codeblock',
-			code: codeLines.join('\n'),
-		})
+		let parsedAsView = false
+		if (closed && codeFence?.language === 'earthly-view') {
+			try {
+				const parsed = parseStoryViewBlock(JSON.parse(codeLines.join('\n').trim()))
+				if (parsed.status === 'valid') {
+					blocks.push({ type: 'story-view', view: parsed.value, viewIndex: storyViewIndex })
+					storyViewIndex += 1
+					parsedAsView = true
+				}
+			} catch {
+				// Malformed/future view blocks remain visible as inert code, never as map commands.
+			}
+		}
+		if (!parsedAsView) {
+			blocks.push({
+				type: 'codeblock',
+				code: codeLines.join('\n'),
+			})
+		}
 		inCodeBlock = false
 		codeFence = null
 		codeLines.length = 0
@@ -354,21 +383,38 @@ function parseContent(text: string, availableFeatures: GeoFeatureItem[]): Conten
 		const line = rawLine.trimEnd()
 		const trimmedLine = line.trim()
 
-		if (trimmedLine.startsWith('```')) {
-			pushParagraph(paragraphLines, blocks, availableFeatures)
-			flushList()
-			if (inCodeBlock) {
-				flushCodeBlock()
-			} else {
-				inCodeBlock = true
-				codeFence = trimmedLine
+		if (inCodeBlock) {
+			const closingRun = trimmedLine.match(/^(`+|~+)$/u)?.[1]
+			if (
+				closingRun &&
+				codeFence &&
+				closingRun[0] === codeFence.marker &&
+				closingRun.length >= codeFence.length
+			) {
+				flushCodeBlock(true)
+				continue
 			}
-			void codeFence
+			codeLines.push(line)
 			continue
 		}
 
-		if (inCodeBlock) {
-			codeLines.push(line)
+		const opening = trimmedLine.match(/^(`{3,}|~{3,})(.*)$/u)
+		const openingRun = opening?.[1]
+		const openingMarker = openingRun?.[0]
+		const openingInfo = (opening?.[2] ?? '').trim()
+		if (
+			openingRun &&
+			(openingMarker === '`' || openingMarker === '~') &&
+			!(openingMarker === '`' && openingInfo.includes('`'))
+		) {
+			pushParagraph(paragraphLines, blocks, availableFeatures)
+			flushList()
+			inCodeBlock = true
+			codeFence = {
+				marker: openingMarker,
+				length: openingRun.length,
+				language: openingInfo.split(/\s+/u)[0]?.toLowerCase() ?? '',
+			}
 			continue
 		}
 
@@ -488,7 +534,7 @@ function parseContent(text: string, availableFeatures: GeoFeatureItem[]): Conten
 
 	pushParagraph(paragraphLines, blocks, availableFeatures)
 	flushList()
-	flushCodeBlock()
+	flushCodeBlock(false)
 
 	return blocks
 }
@@ -741,6 +787,96 @@ function renderInlineTokens(tokens: InlineToken[], callbacks: MentionCallbacks) 
 	return tokens.map((token) => renderInlineToken(token, callbacks))
 }
 
+function storyViewSummary(view: StoryViewBlockV1): string {
+	const shown: string[] = []
+	const hidden: string[] = []
+	let styled = 0
+	for (const [layerId, patch] of Object.entries(view.layers ?? {})) {
+		if (patch.visible === true) shown.push(layerId)
+		if (patch.visible === false) hidden.push(layerId)
+		if (patch.opacityMultiplier !== undefined || patch.style) styled += 1
+	}
+	return [
+		shown.length > 0 ? `Shows ${shown.join(', ')}` : '',
+		hidden.length > 0 ? `Hides ${hidden.join(', ')}` : '',
+		styled > 0 ? `Restyles ${styled} layer${styled === 1 ? '' : 's'}` : '',
+		view.camera ? 'Moves the camera' : '',
+	]
+		.filter(Boolean)
+		.join(' · ')
+}
+
+function renderStoryView(
+	block: StoryViewContentBlock,
+	options: Pick<
+		RichContentRendererProps,
+		'onStoryViewActivate' | 'renderStoryViewFigure' | 'activeStoryViewId'
+	>,
+) {
+	const { view, viewIndex } = block
+	const drivesCanvas = view.display === 'cue' || view.display === 'both'
+	const showsFigure = view.display === 'figure' || view.display === 'both'
+	const isActive = options.activeStoryViewId === view.id
+	const summary = storyViewSummary(view) || 'Continues the current map state'
+	return (
+		<section
+			key={`story-view-${view.id}-${viewIndex}`}
+			data-story-view-id={view.id}
+			data-story-view-index={viewIndex}
+			className={`overflow-hidden border ${isActive ? 'border-primary bg-primary/10' : 'border-border bg-muted/30'}`}
+		>
+			{drivesCanvas ? (
+				<button
+					type="button"
+					onClick={() => options.onStoryViewActivate?.(view, viewIndex)}
+					disabled={!options.onStoryViewActivate}
+					className="flex w-full items-start gap-3 px-3 py-2.5 text-left enabled:hover:bg-primary/5 disabled:cursor-default"
+				>
+					<span className="flex h-7 w-7 flex-shrink-0 items-center justify-center border border-primary/30 bg-background font-mono text-[10px] font-semibold text-primary">
+						{viewIndex + 1}
+					</span>
+					<span className="min-w-0 flex-1">
+						<span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+							Map view
+						</span>
+						<span className="block font-medium text-foreground">{view.title}</span>
+						<span className="mt-0.5 block text-[11px] text-muted-foreground">{summary}</span>
+					</span>
+					<LocateFixed className="mt-1 h-4 w-4 flex-shrink-0 text-primary" />
+				</button>
+			) : (
+				<div className="flex items-start gap-3 px-3 py-2.5">
+					<MapPin className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
+					<div className="min-w-0 flex-1">
+						<div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+							Map figure
+						</div>
+						<div className="font-medium text-foreground">{view.title}</div>
+						<div className="text-[11px] text-muted-foreground">{summary}</div>
+					</div>
+				</div>
+			)}
+			{showsFigure && (
+				<figure className="border-t border-border bg-background">
+					{options.renderStoryViewFigure ? (
+						options.renderStoryViewFigure(view, viewIndex)
+					) : (
+						<div className="flex aspect-[16/9] items-center justify-center gap-2 bg-muted/40 text-xs text-muted-foreground">
+							<LocateFixed className="h-4 w-4" />
+							Live map figure
+						</div>
+					)}
+					{view.caption && (
+						<figcaption className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+							{view.caption}
+						</figcaption>
+					)}
+				</figure>
+			)}
+		</section>
+	)
+}
+
 export function RichContentRenderer({
 	content,
 	availableFeatures = [],
@@ -749,6 +885,9 @@ export function RichContentRenderer({
 	isMentionVisible,
 	className = '',
 	emptyState = null,
+	onStoryViewActivate,
+	renderStoryViewFigure,
+	activeStoryViewId,
 }: RichContentRendererProps) {
 	const blocks = useMemo(
 		() => parseContent(content, availableFeatures),
@@ -763,6 +902,13 @@ export function RichContentRenderer({
 	return (
 		<div className={`space-y-3 text-sm leading-relaxed text-foreground ${className}`}>
 			{blocks.map((block, index) => {
+				if (block.type === 'story-view') {
+					return renderStoryView(block, {
+						onStoryViewActivate,
+						renderStoryViewFigure,
+						activeStoryViewId,
+					})
+				}
 				if (block.type === 'paragraph') {
 					return (
 						<p key={`paragraph-${index}`} className="break-words">
@@ -911,8 +1057,17 @@ export function RichContentRenderer({
 				typeof document !== 'undefined' &&
 				createPortal(
 					<div
+						role="dialog"
+						aria-modal="true"
+						aria-label="Image preview"
+						tabIndex={-1}
 						className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
-						onClick={() => setLightboxUrl(null)}
+						onClick={(event) => {
+							if (event.target === event.currentTarget) setLightboxUrl(null)
+						}}
+						onKeyDown={(event) => {
+							if (event.key === 'Escape') setLightboxUrl(null)
+						}}
 					>
 						<Button
 							type="button"
@@ -928,7 +1083,6 @@ export function RichContentRenderer({
 							src={lightboxUrl}
 							alt=""
 							className="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl"
-							onClick={(event) => event.stopPropagation()}
 						/>
 					</div>,
 					document.body,

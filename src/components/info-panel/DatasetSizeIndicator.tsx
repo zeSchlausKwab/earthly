@@ -177,7 +177,7 @@ export function DatasetSizeIndicator({
 							? isStoredExternally
 								? 'Stored externally'
 								: 'Upload required'
-							: 'Dataset size OK'}
+							: 'Map size OK'}
 					</span>
 				</div>
 				<span className="text-[10px] text-muted-foreground">

@@ -23,6 +23,8 @@ interface MapFeatureHoverOverlayProps {
 	placementMode?: MapPopupPlacement
 	toolbarOffset?: number
 	suppressed?: boolean
+	presentationLayerIds?: readonly string[]
+	presentationLayersReady?: boolean
 }
 
 export function MapFeatureHoverOverlay({
@@ -40,6 +42,8 @@ export function MapFeatureHoverOverlay({
 	placementMode = 'geometry',
 	toolbarOffset = 72,
 	suppressed = false,
+	presentationLayerIds = [],
+	presentationLayersReady = false,
 }: MapFeatureHoverOverlayProps) {
 	const [featurePopupData, setFeaturePopupData] = useState<FeaturePopupData | null>(null)
 	const [sightingPopupData, setSightingPopupData] = useState<SightingPopupData | null>(null)
@@ -128,6 +132,8 @@ export function MapFeatureHoverOverlay({
 		sightingsRef,
 		onInspectSighting,
 		setSightingPopupData,
+		presentationLayerIds,
+		presentationLayersReady,
 	})
 
 	useEffect(() => {
@@ -159,6 +165,7 @@ export function MapFeatureHoverOverlay({
 								(typeof properties?.label === 'string' && properties.label) ||
 								`${choice.feature.geometry.type} · ${choice.featureId?.slice(0, 8) ?? 'feature'}`,
 							context: choice.datasetName,
+							presentationLayer: choice.presentation?.layerId,
 						}
 					})}
 					point={geometryChoiceData.point}

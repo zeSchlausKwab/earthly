@@ -74,7 +74,7 @@ const CONSENT_MY_ACCOUNT =
 
 /** The permission copy shown when geolocation is not granted (Start disabled). */
 const PERMISSION_COPY =
-	'Earthly needs location access to share a beacon. Turn it on in your browser settings, then try again.'
+	'Earthly needs location access to share a live position. Turn it on in your browser settings, then try again.'
 
 export interface BeaconStartOptions {
 	content: { label?: string }
@@ -163,20 +163,20 @@ export function BeaconControlPanel({
 	}
 
 	return (
-		<EntityPanelShell title={isAdjusting ? 'Adjust your beacon' : 'Share your live location'}>
+		<EntityPanelShell title={isAdjusting ? 'Adjust your live position' : 'Share your live location'}>
 			<MobilePanelHeaderActions>
 				<div className="flex items-center gap-1">
 					<Button type="button" variant="ghost" size="sm" onClick={onClose}>
 						Cancel
 					</Button>
 					<Button type="button" size="sm" onClick={handleStart} disabled={!canStart}>
-						{isStarting ? 'Starting…' : isAdjusting ? 'Update' : 'Start beacon'}
+						{isStarting ? 'Starting…' : isAdjusting ? 'Update' : 'Start sharing'}
 					</Button>
 				</div>
 			</MobilePanelHeaderActions>
 			<EntityPanelSurface tone="context" className="space-y-6">
 				<EntityPanelSectionHeader
-					eyebrow="Beacon"
+					eyebrow="Live position"
 					title="Share your live location"
 					description="A live dot on the map that follows you and disappears on its own when your time runs out."
 				/>
@@ -238,7 +238,7 @@ export function BeaconControlPanel({
 						/>
 					) : null}
 					<p className="text-xs text-muted-foreground">
-						Your beacon automatically stops and disappears after this.
+						Your live position automatically stops and disappears after this.
 					</p>
 				</div>
 
@@ -262,7 +262,7 @@ export function BeaconControlPanel({
 								<span className="font-semibold">Public</span>
 							</div>
 							<span className="pl-6 text-xs text-muted-foreground">
-								Shows up for people browsing nearby beacons.
+								Shows up for people browsing nearby live positions.
 							</span>
 						</label>
 						<label
@@ -311,7 +311,7 @@ export function BeaconControlPanel({
 							</div>
 							<span className="pl-6 text-xs text-muted-foreground">
 								A fresh throwaway identity for this session. Can't be linked to your account or to
-								other beacons you share.
+								other live positions you share.
 							</span>
 						</label>
 						<label
@@ -346,7 +346,7 @@ export function BeaconControlPanel({
 								disabled={!canStart}
 								className="h-12 w-full rounded-none bg-primary text-primary-foreground"
 							>
-								{isStarting ? 'Starting…' : 'Start beacon'}
+								{isStarting ? 'Starting…' : 'Start sharing'}
 							</Button>
 							<Button
 								type="button"

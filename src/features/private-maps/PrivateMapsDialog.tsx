@@ -33,7 +33,7 @@ import {
 	RowBadge,
 } from '@/components/entity-list'
 import { SignedOutCta } from '@/features/auth/SignedOutCta'
-import { useRouting } from '@/features/geo-editor/hooks/useRouting'
+import { navigateToRoute, useRouting } from '@/features/geo-editor/hooks/useRouting'
 import { UserProfile } from '@/components/user-profile/UserProfile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -242,9 +242,8 @@ export function PrivateGroupsPanel({
 	}
 
 	const handleCreate = () =>
-		run('create private group', async () => {
-			if (!runtime || !service)
-				throw new Error('Sign in and configure a private-group coordinator first')
+		run('create Circle', async () => {
+			if (!runtime || !service) throw new Error('Sign in and configure a Circle coordinator first')
 			const created = await runtime.perform((workspaceService) =>
 				workspaceService.createWorkspace({
 					name,
@@ -256,18 +255,18 @@ export function PrivateGroupsPanel({
 			setDescription('')
 			setShowCreate(false)
 			navigateToPrivateGroup(created.workspaceId)
-			toast.success('Private group created locally')
+			toast.success('Circle created locally')
 		})
 
 	const createInviteLink = async () => {
 		if (!runtime || !service || !selected)
-			throw new Error('Open a private group as an administrator first')
+			throw new Error('Open a Circle as an administrator first')
 		const token = await runtime.createInvitation(selected.workspaceId)
 		// Native WebViews have an internal origin that is meaningless on another
 		// phone. Share the public HTTPS route so the link works in a browser today
 		// and becomes an Android App Link once release signing is configured.
 		const url = new URL(earthlyPublicUrl())
-		url.pathname = `/privategroup/${encodeURIComponent(selected.workspaceId)}`
+		url.pathname = `/circle/${encodeURIComponent(selected.workspaceId)}`
 		url.search = ''
 		url.hash = ''
 		url.searchParams.set('private-invite', token)
@@ -280,7 +279,7 @@ export function PrivateGroupsPanel({
 		run('copy invitation', async () => {
 			const value = await createInviteLink()
 			await copyPrivateInviteText(value)
-			toast.success('Signed 24-hour private-group invitation copied')
+			toast.success('Signed 24-hour Circle invitation copied')
 		})
 
 	const handleShowInviteQr = () =>
@@ -292,7 +291,7 @@ export function PrivateGroupsPanel({
 		run('copy invitation', async () => {
 			if (!inviteLink) throw new Error('Create an invitation QR first')
 			await copyPrivateInviteText(inviteLink)
-			toast.success('Private-group invitation copied')
+			toast.success('Circle invitation copied')
 		})
 
 	const handleRequestJoin = () =>
@@ -302,11 +301,10 @@ export function PrivateGroupsPanel({
 			const pending = await runtime.perform((workspaceService) =>
 				workspaceService.requestToJoin(invitation),
 			)
-			navigateToPrivateGroup(pending.workspaceId)
 			const url = new URL(location.href)
-			url.pathname = `/privategroup/${encodeURIComponent(pending.workspaceId)}`
+			url.pathname = `/circle/${encodeURIComponent(pending.workspaceId)}`
 			url.searchParams.delete('private-invite')
-			history.replaceState(history.state, '', url)
+			navigateToRoute(`${url.pathname}${url.search}`, { replace: true })
 			toast.success('Join request sent. An administrator must approve this device.')
 		})
 
@@ -319,7 +317,7 @@ export function PrivateGroupsPanel({
 			if (accepted[0]) navigateToPrivateGroup(accepted[0].workspaceId)
 			toast.success(
 				accepted.length > 0
-					? `Joined ${accepted.length} private group${accepted.length === 1 ? '' : 's'}`
+					? `Joined ${accepted.length} Circle${accepted.length === 1 ? '' : 's'}`
 					: 'No approved invitations yet',
 			)
 		})
@@ -327,17 +325,16 @@ export function PrivateGroupsPanel({
 	const openInvite = ({ workspaceId, invitation: scannedInvitation }: ParsedPrivateInviteLink) => {
 		setInvitation(scannedInvitation)
 		setInviteScannerOpen(false)
-		navigateToPrivateGroup(workspaceId)
 		const url = new URL(location.href)
-		url.pathname = `/privategroup/${encodeURIComponent(workspaceId)}`
+		url.pathname = `/circle/${encodeURIComponent(workspaceId)}`
 		url.search = ''
 		url.searchParams.set('private-invite', scannedInvitation)
-		history.replaceState(history.state, '', url)
+		navigateToRoute(`${url.pathname}${url.search}`, { replace: true })
 	}
 
 	const handleScannedInvite = (invite: ParsedPrivateInviteLink) => {
 		openInvite(invite)
-		toast.success('Private-group invitation scanned')
+		toast.success('Circle invitation scanned')
 	}
 
 	const handleOpenInviteLink = (event: React.FormEvent<HTMLFormElement>) => {
@@ -346,7 +343,7 @@ export function PrivateGroupsPanel({
 			const parsed = parsePrivateInviteLink(inviteLinkInput)
 			openInvite(parsed)
 			setInviteLinkInput('')
-			toast.success('Private-group invitation opened')
+			toast.success('Circle invitation opened')
 		})
 	}
 
@@ -382,10 +379,10 @@ export function PrivateGroupsPanel({
 		})
 
 	const handleSync = () =>
-		run('sync private group', async () => {
+		run('sync Circle', async () => {
 			if (!runtime || !service || !selected) return
 			await runtime.syncWorkspace(selected.workspaceId)
-			toast.success('Private group is current')
+			toast.success('Circle is current')
 		})
 
 	const handleSendComment = (text: string, geojson?: FeatureCollection) =>
@@ -448,11 +445,11 @@ export function PrivateGroupsPanel({
 		) {
 			return
 		}
-		void run('delete private group', async () => {
+		void run('delete Circle', async () => {
 			if (!runtime) return
 			await runtime.perform((workspaceService) => workspaceService.deleteWorkspace(workspaceId))
 			if (privateGroupId === workspaceId) navigateToView('private-groups')
-			toast.success('Private group deleted from this device')
+			toast.success('Circle deleted from this device')
 		})
 	}
 
@@ -460,8 +457,8 @@ export function PrivateGroupsPanel({
 		return (
 			<div className="p-2">
 				<SignedOutCta
-					title="Private groups"
-					description="Sign in to create or join an MLS-protected mapping group."
+					title="Circles"
+					description="Sign in to create or join an MLS-protected Circle."
 				/>
 			</div>
 		)
@@ -472,7 +469,7 @@ export function PrivateGroupsPanel({
 			<div className="grid h-full place-items-center p-5 text-center">
 				<div>
 					<KeyRound className="mx-auto mb-3 h-7 w-7 text-muted-foreground" />
-					<p className="text-sm font-medium text-foreground">Private groups are unavailable</p>
+					<p className="text-sm font-medium text-foreground">Circles are unavailable</p>
 					<p className="mt-1 text-xs text-muted-foreground">
 						Configure CORDN_SERVER_PUBKEY for this deployment.
 					</p>
@@ -490,7 +487,7 @@ export function PrivateGroupsPanel({
 					className="flex w-full shrink-0 items-center gap-1.5 border-b border-border px-2 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 				>
 					<ArrowLeft className="h-3.5 w-3.5" />
-					Back to Private groups
+					Back to Circles
 				</button>
 
 				<div className="min-h-0 flex-1">
@@ -506,7 +503,7 @@ export function PrivateGroupsPanel({
 									<div className="min-w-0 flex-1">
 										<div className="flex items-center gap-1.5">
 											<h2 className="truncate text-sm font-semibold text-foreground">
-												{selected.metadata?.name ?? 'Private group'}
+												{selected.metadata?.name ?? 'Circle'}
 											</h2>
 											<RowBadge
 												label={selected.status}
@@ -604,13 +601,13 @@ export function PrivateGroupsPanel({
 										)}
 										{discussionItems.length === 0 ? (
 											<p className="py-8 text-center text-xs text-muted-foreground">
-												No private comments yet.
+												No Circle messages yet.
 											</p>
 										) : null}
 									</div>
 									<GeoCommentForm
 										onSubmit={handleSendComment}
-										placeholder="Comment in this private group…"
+										placeholder="Message this Circle…"
 										availableFeatures={availableFeatures}
 										searchRelayMentions={false}
 										className="mt-3"
@@ -623,8 +620,8 @@ export function PrivateGroupsPanel({
 								>
 									<div className="px-3 py-3">
 										<p className="text-[11px] leading-relaxed text-muted-foreground">
-											Encrypted datasets and optional comment attachments. Removing a dataset from
-											the Map Stack does not delete it from the group.
+											Encrypted Maps and optional comment attachments. Removing a Map from the Shelf
+											does not delete it from the Circle.
 										</p>
 									</div>
 									<PrivateGeometryReferences
@@ -644,7 +641,7 @@ export function PrivateGroupsPanel({
 											onClick={handleStartDataset}
 											disabled={!onStartNewDataset || Boolean(busy)}
 										>
-											<Plus /> New private dataset
+											<Plus /> New private Map
 										</Button>
 									</div>
 								</TabsContent>
@@ -842,7 +839,7 @@ export function PrivateGroupsPanel({
 													className="mt-1"
 												/>
 												<p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-													Approval shares the current datasets. Earlier discussion and its
+											Approval shares the current Maps. Earlier discussion and its
 													attachments remain private to members who already received them.
 												</p>
 												<Button
@@ -873,7 +870,7 @@ export function PrivateGroupsPanel({
 											onClick={() =>
 												handleDeleteWorkspace(
 													selected.workspaceId,
-													selected.metadata?.name ?? 'Private group',
+													selected.metadata?.name ?? 'Circle',
 												)
 											}
 										>
@@ -889,14 +886,14 @@ export function PrivateGroupsPanel({
 							<div className="rounded-[2px] border border-border bg-card p-3 text-center">
 								<LockKeyhole className="mx-auto mb-2 h-7 w-7 text-primary" />
 								<h2 className="text-sm font-semibold text-foreground">
-									{pendingForRoute ? 'Approval pending' : 'Private group invitation'}
+									{pendingForRoute ? 'Approval pending' : 'Circle invitation'}
 								</h2>
 								<p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
 									{pendingForRoute
 										? 'An administrator must approve this account before its MLS Welcome is available.'
 										: invitation
 											? 'This invitation can publish your MLS KeyPackage for administrator approval.'
-											: 'This group is not available in the current browser profile.'}
+											: 'This Circle is not available in the current browser profile.'}
 								</p>
 								{invitation && !pendingForRoute ? (
 									<Button
@@ -934,10 +931,10 @@ export function PrivateGroupsPanel({
 	return (
 		<ListPanel
 			icon={UsersRound}
-			title="Private groups"
+			title="Circles"
 			count={workspaces.length}
 			onNew={() => setShowCreate((open) => !open)}
-			newLabel="New private group"
+			newLabel="New Circle"
 			headerExtra={
 				<div className="space-y-2">
 					{embedded ? (
@@ -947,12 +944,12 @@ export function PrivateGroupsPanel({
 							className="w-full"
 							onClick={() => setShowCreate((open) => !open)}
 						>
-							<Plus /> New private group
+							<Plus /> New Circle
 						</Button>
 					) : null}
 					<form className="flex gap-1.5" onSubmit={handleOpenInviteLink}>
 						<Input
-							aria-label="Private group invitation link"
+							aria-label="Circle invitation link"
 							className="h-8 min-w-0 text-xs"
 							placeholder="Paste invitation link"
 							value={inviteLinkInput}
@@ -983,7 +980,7 @@ export function PrivateGroupsPanel({
 					<PrivateGroupsSecurityNotice />
 					{invitation ? (
 						<div className="rounded-[2px] border border-primary/30 bg-primary/5 p-2 text-[11px]">
-							A private-group invitation is ready. Open its detail route to request access.
+							A Circle invitation is ready. Open its detail route to request access.
 						</div>
 					) : null}
 					{pendingWorkspaceIds.size > 0 ? (
@@ -1001,14 +998,14 @@ export function PrivateGroupsPanel({
 					{showCreate ? (
 						<div className="space-y-1.5 rounded-[2px] border border-border bg-card p-2">
 							<Input
-								aria-label="Private group name"
+								aria-label="Circle name"
 								className="h-8 text-xs"
-								placeholder="Group name"
+								placeholder="Circle name"
 								value={name}
 								onChange={(event) => setName(event.target.value)}
 							/>
 							<Input
-								aria-label="Private group description"
+								aria-label="Circle description"
 								className="h-8 text-xs"
 								placeholder="Description (encrypted)"
 								value={description}
@@ -1027,7 +1024,7 @@ export function PrivateGroupsPanel({
 								onClick={handleCreate}
 								disabled={!name.trim() || Boolean(busy)}
 							>
-								<Plus /> Create private group
+								<Plus /> Create Circle
 							</Button>
 						</div>
 					) : null}
@@ -1039,11 +1036,11 @@ export function PrivateGroupsPanel({
 			}
 		>
 			{!loaded ? (
-				<p className="px-1 py-4 text-xs text-muted-foreground">Loading private groups…</p>
+				<p className="px-1 py-4 text-xs text-muted-foreground">Loading Circles…</p>
 			) : workspaces.length === 0 ? (
 				<div className="px-1 py-5 text-center">
 					<UsersRound className="mx-auto mb-2 h-7 w-7 text-muted-foreground" />
-					<p className="text-xs font-medium text-foreground">No private groups yet</p>
+					<p className="text-xs font-medium text-foreground">No Circles yet</p>
 					<p className="mt-1 text-[11px] text-muted-foreground">
 						Create one here or open an invitation link.
 					</p>
@@ -1054,9 +1051,9 @@ export function PrivateGroupsPanel({
 						<ListRow
 							key={workspace.workspaceId}
 							leading={<GlyphTile icon={LockKeyhole} className="bg-primary/15 text-primary" />}
-							title={workspace.metadata?.name ?? 'Decrypting group metadata…'}
+							title={workspace.metadata?.name ?? 'Decrypting Circle details…'}
 							onTitleClick={() => navigateToPrivateGroup(workspace.workspaceId)}
-							titleAriaLabel={`Open ${workspace.metadata?.name ?? 'private group'}`}
+							titleAriaLabel={`Open ${workspace.metadata?.name ?? 'Circle'}`}
 							badges={
 								<RowBadge
 									label={workspace.role === 'administrator' ? 'admin' : 'member'}
@@ -1070,17 +1067,17 @@ export function PrivateGroupsPanel({
 									<code>{shortKey(workspace.coordinatorPubkey)}</code>
 								</>
 							}
-							note={workspace.metadata?.description || 'MLS-protected map workspace'}
+							note={workspace.metadata?.description || 'MLS-protected Circle'}
 							actions={
 								<RowActionButton
 									icon={Trash2}
-									label={`Delete ${workspace.metadata?.name ?? 'private group'} from this device`}
+									label={`Delete ${workspace.metadata?.name ?? 'Circle'} from this device`}
 									hover="hover:text-destructive"
 									disabled={Boolean(busy)}
 									onClick={() =>
 										handleDeleteWorkspace(
 											workspace.workspaceId,
-											workspace.metadata?.name ?? 'Private group',
+											workspace.metadata?.name ?? 'Circle',
 										)
 									}
 								/>

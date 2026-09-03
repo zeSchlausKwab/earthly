@@ -161,6 +161,36 @@ afterEach(async () => {
 })
 
 describe('local draft transitions', () => {
+	test('reports a routed edit as not ready until the editor mounts', async () => {
+		const dataset = {
+			id: 'event-before-editor',
+			pubkey: 'owner',
+			datasetId: 'dataset-before-editor',
+			dTag: 'dataset-before-editor',
+			hashtags: [],
+			contextReferences: [],
+			blobReferences: [],
+			featureCollection: { type: 'FeatureCollection', features: [] },
+			event: {
+				id: 'event-before-editor',
+				pubkey: 'owner',
+				kind: 37515,
+				created_at: 1,
+				tags: [],
+				content: '',
+			},
+		} as unknown as GeoDataset
+		const current = await mountHook([dataset])
+
+		let loaded: boolean | undefined
+		await flush(async () => {
+			loaded = await current().loadDatasetForEditing(dataset)
+		})
+
+		expect(loaded).toBe(false)
+		expect(useEditorStore.getState().activeWorkspaceId).toBeNull()
+	})
+
 	test('creates an AI New map as retained work without changing the visible Dataset or Inspector', async () => {
 		const visibleFeature = point('visible-feature', 16.37)
 		const visibleDraft = draft('visible-draft', visibleFeature, 1)
@@ -246,7 +276,9 @@ describe('local draft transitions', () => {
 		})
 		const current = await mountHook([dataset])
 
-		await flush(() => current().loadDatasetForEditing(dataset))
+		await flush(async () => {
+			await current().loadDatasetForEditing(dataset)
+		})
 
 		const state = useEditorStore.getState()
 		expect(state.mapStackEntries['dataset:owner:dataset-1']).toBeUndefined()

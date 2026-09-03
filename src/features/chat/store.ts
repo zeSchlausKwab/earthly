@@ -130,6 +130,14 @@ const FINISH_APPLIED_CHANGES_INSTRUCTION = [
 	'Do not call tools or repeat any map work.',
 	'Give the user a concise final response summarizing what completed and anything that did not complete according to the transcript.',
 ].join(' ')
+export const READ_ONLY_THREAD_INSTRUCTION = [
+	'This is a read-only Earthly Thread.',
+	'Answer with model-generated text using only the Thread and supplied context.',
+	'Do not request tools, perform map edits, or claim that you changed application state.',
+].join(' ')
+
+const READ_ONLY_TOOL_CALL_ERROR =
+	'The model requested a tool in a read-only Thread. No tools were executed.'
 
 /**
  * Models receive every currently registered background-safe tool. Interactive
@@ -306,12 +314,26 @@ function serializedToolResultChangedMap(content: string, toolName?: string): boo
 	}
 }
 
-const DEFAULT_CHAT_TITLE = 'New conversation'
+const DEFAULT_CHAT_TITLE = 'New Thread'
+const DEFAULT_THREAD_TITLE = 'Thread'
 const MAX_CHAT_TITLE_CHARS = 60
+
+export interface OpenChatThreadOptions {
+	/** Stable caller-owned identity, for example `map:<naddr>` or `concierge`. */
+	threadKey: string
+	/** Object-facing title. Bound Threads keep this title instead of deriving one from the first turn. */
+	title?: string
+	/** Read-only Threads may ask the model questions but can never advertise or execute tools. */
+	readOnly?: boolean
+}
 
 export interface ChatSession {
 	id: string
 	title: string
+	/** Stable object/route binding. Null keeps this a legacy free conversation. */
+	threadKey: string | null
+	/** Allows text inference without an authoring target while keeping tools fail-closed. */
+	readOnly: boolean
 	messages: ChatMessage[]
 	references: ChatReference[]
 	/** Explicit authoring target. Multiple conversations may point at one workspace. */
@@ -334,6 +356,8 @@ export interface ChatReference {
 }
 
 export interface SendMessageOptions {
+	/** Explicit text-only inference mode. It permits an empty target and hard-disables tools. */
+	readOnly?: boolean
 	referenceContextMessage?: string
 	selectionContextMessage?: string
 	geometryContextMessage?: string
@@ -461,11 +485,19 @@ function buildChatTitle(messages: ChatMessage[]): string {
 	return trimChatTitle(normalized)
 }
 
-function createEmptyChatSession(): ChatSession {
+function normalizeThreadTitle(title: string | undefined): string {
+	const normalized = title?.replace(/\s+/g, ' ').trim()
+	return normalized ? trimChatTitle(normalized) : DEFAULT_THREAD_TITLE
+}
+
+function createEmptyChatSession(options?: OpenChatThreadOptions): ChatSession {
 	const now = Date.now()
+	const threadKey = options?.threadKey.trim() || null
 	return {
 		id: createChatId(),
-		title: DEFAULT_CHAT_TITLE,
+		title: threadKey ? normalizeThreadTitle(options?.title) : DEFAULT_CHAT_TITLE,
+		threadKey,
+		readOnly: threadKey ? options?.readOnly === true : false,
 		messages: [],
 		references: [],
 		targetWorkspaceId: null,
@@ -637,7 +669,9 @@ export function applyMessagesToChat(
 			...chat,
 			messages,
 			references: chat.references ?? [],
-			title: buildChatTitle(messages),
+			// Object-bound Threads have an object-facing title. A first user turn
+			// must not quietly rename the Thread away from that object.
+			title: chat.threadKey ? chat.title : buildChatTitle(messages),
 			updatedAt: Date.now(),
 		}
 	})
@@ -1354,6 +1388,7 @@ interface ChatActions {
 	addMessage: (message: ChatMessage) => void
 	clearMessages: () => void
 	createChat: () => void
+	openThread: (options: OpenChatThreadOptions) => string | null
 	switchChat: (chatId: string) => void
 	deleteChat: (chatId: string) => void
 	setChatTargetWorkspace: (chatId: string, workspaceId: string | null) => void
@@ -1718,7 +1753,7 @@ export const useChatStore = create<ChatStore>()(
 			clearMessages: () => {
 				const activeChatId = get().activeChatId
 				if (activeChatId && get().runningChatId === activeChatId) {
-					toast.info('Stop this conversation before clearing it')
+					toast.info('Stop this Thread before clearing it')
 					return
 				}
 				set((state) => {
@@ -1743,6 +1778,50 @@ export const useChatStore = create<ChatStore>()(
 					chatRunStates: { ...state.chatRunStates, [chat.id]: runState },
 					...chatRunStateToActiveView(runState),
 				}))
+			},
+
+			openThread: (options: OpenChatThreadOptions) => {
+				const threadKey = options.threadKey.trim()
+				if (!threadKey) return null
+
+				let selectedChatId: string | null = null
+				set((state) => {
+					const existing = state.chatSessions.find((chat) => chat.threadKey === threadKey)
+					const now = Date.now()
+					const title = options.title?.trim()
+					const target = existing
+						? {
+								...existing,
+								title: title ? normalizeThreadTitle(title) : existing.title,
+								readOnly:
+									typeof options.readOnly === 'boolean'
+										? options.readOnly
+										: existing.readOnly === true,
+								updatedAt: now,
+							}
+						: createEmptyChatSession({
+								threadKey,
+								title: options.title,
+								readOnly: options.readOnly,
+							})
+					selectedChatId = target.id
+					const runState = getChatRunState(state, target.id)
+					const chatSessions = existing
+						? state.chatSessions.map((chat) => (chat.id === target.id ? target : chat))
+						: [...state.chatSessions, target]
+
+					return {
+						chatSessions: sortChatSessionsByRecent(chatSessions),
+						activeChatId: target.id,
+						messages: target.messages,
+						references: target.references ?? [],
+						chatRunStates: state.chatRunStates[target.id]
+							? state.chatRunStates
+							: { ...state.chatRunStates, [target.id]: runState },
+						...chatRunStateToActiveView(runState),
+					}
+				})
+				return selectedChatId
 			},
 
 			switchChat: (chatId: string) => {
@@ -1875,17 +1954,23 @@ export const useChatStore = create<ChatStore>()(
 				}
 				const targetChatId = get().activeChatId
 				if (!targetChatId || !hasChatSession(get().chatSessions, targetChatId)) {
-					toast.error('Select a conversation first')
+					toast.error('Select a Thread first')
 					return
 				}
 				const targetChat = get().chatSessions.find((chat) => chat.id === targetChatId)
-				if (!targetChat?.targetWorkspaceId) {
-					toast.error('Choose New map or Use current edit before sending.')
+				const readOnlyRun = targetChat?.readOnly === true || options?.readOnly === true
+				if (!readOnlyRun && !targetChat?.targetWorkspaceId) {
+					toast.error('Open this Thread from a Map before sending.')
 					return
 				}
-				const sendTarget = captureActiveToolExecutionTarget(targetChatId)
-				if (sendTarget.entityType !== 'dataset' || !sendTarget.workspaceId || !sendTarget.draftId) {
-					toast.error('The selected map edit is no longer available. Choose an editing target.')
+				const sendTarget = readOnlyRun
+					? emptyToolExecutionTarget()
+					: captureActiveToolExecutionTarget(targetChatId)
+				if (
+					!readOnlyRun &&
+					(sendTarget.entityType !== 'dataset' || !sendTarget.workspaceId || !sendTarget.draftId)
+				) {
+					toast.error('The Map working copy for this Thread is no longer available.')
 					return
 				}
 				const {
@@ -1907,7 +1992,7 @@ export const useChatStore = create<ChatStore>()(
 					return
 				}
 				const continuingAfterAppliedChanges = options?.continueAfterAppliedChanges === true
-				const toolsEnabledForRun = toolsEnabled && !continuingAfterAppliedChanges
+				const toolsEnabledForRun = !readOnlyRun && toolsEnabled && !continuingAfterAppliedChanges
 				const providerConfig = resolveProvider(provider, providerOverrides)
 				// Hoisted so the request-builder closure can gate capture_map_snapshot on
 				// it; assigned once vision support resolves below. Default false fails
@@ -1966,8 +2051,12 @@ export const useChatStore = create<ChatStore>()(
 					startedAt: runStartedAt,
 				})
 				prepareToolExecutionRun(runIdentity)
-				const capturedMapSnapshot = getMapContextSnapshotForTarget(runIdentity.target)
-				const capturedSessionPublishContext = buildSessionPublishContextMessage() ?? null
+				const capturedMapSnapshot = readOnlyRun
+					? undefined
+					: getMapContextSnapshotForTarget(runIdentity.target)
+				const capturedSessionPublishContext = readOnlyRun
+					? null
+					: (buildSessionPublishContextMessage() ?? null)
 				const setOwnedRunState = (
 					updater: Partial<ChatRunState> | ((current: ChatRunState) => ChatRunState),
 				) => {
@@ -2492,12 +2581,14 @@ export const useChatStore = create<ChatStore>()(
 						const systemSections = continuingAfterAppliedChanges
 							? [FINISH_APPLIED_CHANGES_INSTRUCTION]
 							: [
-									toolsEnabledForRun
-										? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
-												mapSnapshot: capturedMapSnapshot,
-												sessionPublishContextMessage: capturedSessionPublishContext,
-											})?.content
-										: null,
+									readOnlyRun
+										? READ_ONLY_THREAD_INSTRUCTION
+										: toolsEnabledForRun
+											? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
+													mapSnapshot: capturedMapSnapshot,
+													sessionPublishContextMessage: capturedSessionPublishContext,
+												})?.content
+											: null,
 									referenceContextMessage || null,
 									selectionContextMessage || null,
 									oneShotGeometryContextMessage || null,
@@ -2650,6 +2741,13 @@ export const useChatStore = create<ChatStore>()(
 							throw new Error('Chat request finished without a result.')
 						}
 						recordModelCompletion(result.estimatedCompletionTokens)
+
+						// Providers occasionally emit tool calls even when none were advertised.
+						// Treat that as a hard boundary violation before persisting or executing
+						// any call; a read-only Thread must remain side-effect free.
+						if (readOnlyRun && result.toolCalls.length > 0) {
+							throw new Error(READ_ONLY_TOOL_CALL_ERROR)
+						}
 
 						// If we got tool calls, execute them and continue
 						if (result.toolCalls.length > 0) {
@@ -3180,6 +3278,11 @@ export const useChatStore = create<ChatStore>()(
 						: (currentState.chatSessions ?? [createEmptyChatSession()])
 				const chatSessions = rawChatSessions.map((session) => ({
 					...session,
+					threadKey:
+						typeof session.threadKey === 'string' && session.threadKey.trim()
+							? session.threadKey.trim()
+							: null,
+					readOnly: session.readOnly === true,
 					targetWorkspaceId:
 						typeof session.targetWorkspaceId === 'string' ? session.targetWorkspaceId : null,
 				}))
@@ -3271,6 +3374,7 @@ export const chatActions = {
 	finishLastResponse: () => useChatStore.getState().finishLastResponse(),
 	clearMessages: () => useChatStore.getState().clearMessages(),
 	createChat: () => useChatStore.getState().createChat(),
+	openThread: (options: OpenChatThreadOptions) => useChatStore.getState().openThread(options),
 	switchChat: (chatId: string) => useChatStore.getState().switchChat(chatId),
 	deleteChat: (chatId: string) => useChatStore.getState().deleteChat(chatId),
 	setChatTargetWorkspace: (chatId: string, workspaceId: string | null) =>

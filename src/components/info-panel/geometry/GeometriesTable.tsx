@@ -450,7 +450,7 @@ function FeatureRow({
 						<div className="rounded border border-primary/40 bg-primary/10 px-2 py-1">
 							<div className="mb-1 flex items-center gap-1 text-[10px] font-medium text-primary uppercase tracking-wide">
 								<AlertTriangle className="h-3 w-3" />
-								Context warnings
+								Atlas warnings
 							</div>
 							<div className="space-y-0.5 text-[10px] text-primary">
 								{validationIssues?.slice(0, 3).map((issue) => (

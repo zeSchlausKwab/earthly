@@ -92,7 +92,7 @@ export function mobileSheetInnerSurfaceClassName(translucent: boolean): string {
 
 /** Preserve a stable global label for the triad while naming every other sheet. */
 export function mobileSheetCloseLabel(mapWorkspaceVisible: boolean, activeLabel: string): string {
-	return mapWorkspaceVisible ? 'Close map workspace' : `Close ${activeLabel}`
+	return mapWorkspaceVisible ? 'Close Map tools' : `Close ${activeLabel}`
 }
 
 /**

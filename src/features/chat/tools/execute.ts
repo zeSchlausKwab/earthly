@@ -85,7 +85,7 @@ function mapSnapshotPermissionError(
 		kind: 'handler_error',
 		toolName,
 		message:
-			'Autonomous map screenshots are disabled for this conversation. Continue without visual capture.',
+			'Autonomous map screenshots are disabled for this Thread. Continue without visual capture.',
 		code: 'map_snapshot_capture_disabled',
 		retryable: false,
 		sideEffectsApplied: false,
@@ -138,7 +138,7 @@ async function executeToolCallBound(
 				kind: 'handler_error',
 				toolName: toolCall.function.name,
 				message:
-					'This conversation has no editing target. Choose New map or Use current edit, then send the request again.',
+					'This Thread has no Map working copy. Open it from a Map, then send the request again.',
 				code: 'dataset_target_required',
 				retryable: true,
 				sideEffectsApplied: false,
@@ -288,7 +288,7 @@ async function executeToolCallBound(
 			} else {
 				// `toEditor` is an authoring operation even though the originating tool is
 				// read-only MCP. Establish the local draft before baking its result so the
-				// geometry appears in Saved work, the Map Stack, and the editor list.
+				// geometry appears in Saved work, the Shelf, and the editor list.
 				await ensureExecutionTargetForMutation(context?.run)
 				const editorMetadata = getEditorDatasetMetadata(result)
 				if (editorMetadata) {

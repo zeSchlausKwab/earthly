@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import {
 	resolveChatErrorPresentation,
 	resolveChatHeaderControlSizing,
+	resolveInitialThreadPrompt,
 	resolveChatSendState,
 } from './ChatPanel'
 import { useChatComposerStore } from './composerState'
@@ -12,7 +13,7 @@ describe('ChatPanel editing-target send contract', () => {
 		useChatStore.getState().reset()
 	})
 
-	test('keeps an unbound prompt editable but makes Send target-required', () => {
+	test('fails closed when a writable Thread has no route-owned Map', () => {
 		const chatId = useChatStore.getState().activeChatId as string
 		useChatStore.setState({
 			provider: 'custom',
@@ -43,7 +44,7 @@ describe('ChatPanel editing-target send contract', () => {
 			}),
 		).toEqual({
 			canSend: false,
-			title: 'Choose New map or Use current edit before sending.',
+			title: 'Open this Thread from a Map before sending.',
 		})
 		expect(
 			resolveChatSendState({
@@ -68,6 +69,40 @@ describe('ChatPanel editing-target send contract', () => {
 			canSend: false,
 			title: 'Resolve the image support warning before sending.',
 		})
+	})
+
+	test('allows an explicit read-only Thread to use the same send state without an editor target', () => {
+		// ChatPanel supplies the read-only capability as a valid no-edit target to
+		// this presentation helper; the store independently enforces tool gating.
+		expect(
+			resolveChatSendState({
+				canCompose: true,
+				hasValidEditingTarget: true,
+				targetCreationPending: false,
+				anotherChatIsRunning: false,
+			}),
+		).toEqual({ canSend: true, title: 'Send' })
+	})
+
+	test('offers the route-owned authoring verb when a Map Thread can prepare its target', () => {
+		expect(
+			resolveChatSendState({
+				canCompose: true,
+				hasValidEditingTarget: false,
+				canCreateEditingTarget: true,
+				authoringActionLabel: 'Propose & send',
+				targetCreationPending: false,
+				anotherChatIsRunning: false,
+			}),
+		).toEqual({ canSend: true, title: 'Propose & send' })
+	})
+})
+
+describe('ChatPanel initial Thread prompt', () => {
+	test('seeds only an empty composer and never overwrites an existing draft', () => {
+		expect(resolveInitialThreadPrompt('  Where was this made?  ', '')).toBe('Where was this made?')
+		expect(resolveInitialThreadPrompt('Where was this made?', 'Keep my draft')).toBeNull()
+		expect(resolveInitialThreadPrompt('   ', '')).toBeNull()
 	})
 })
 

@@ -1,13 +1,4 @@
-import {
-	CopyPlus,
-	ExternalLink,
-	Eye,
-	EyeOff,
-	FileText,
-	GitPullRequest,
-	Maximize2,
-	Pencil,
-} from 'lucide-react'
+import { ExternalLink, Eye, EyeOff, GitPullRequest, Maximize2, Pencil } from 'lucide-react'
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useEditorStore } from '@/features/geo-editor/store'
@@ -15,8 +6,8 @@ import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { validateDatasetForContext } from '@/lib/context/validation'
 import { extractCollectionMeta } from '@/features/geo-editor/utils'
+import type { EarthlyObjectTab } from '@/router/routeContract'
 import { Button } from '../ui/button'
-import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { CommentsPanel } from '@/features/social/comments'
 import { ProposalsPanel } from '@/features/social/proposals'
 import type { GeoProposal } from '@/lib/nostr/geo-proposal'
@@ -28,6 +19,8 @@ import { EntityActionBar } from './EntityActionBar'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
 import { presentDatasetMetadata } from './datasetMetadataPresentation'
 import { UserProfile } from '../user-profile'
+import { ObjectTabs, ThreadTabNotice } from './ObjectTabs'
+import { getMapEditPresentation } from './mapProposalPresentation'
 
 export interface ViewModePanelProps {
 	currentUserPubkey?: string
@@ -51,14 +44,15 @@ export interface ViewModePanelProps {
 	onProposalAccepted?: (dataset: GeoDataset) => void
 	visibleProposalIds?: Set<string>
 	focusCommentId?: string
+	/** Route-backed social-object tab. Omit to let the panel manage it locally. */
+	objectTab?: EarthlyObjectTab
+	onObjectTabChange?: (tab: EarthlyObjectTab) => void
 	/** Callback to exit view mode (panel close). Optional — not all hosts support this. */
 	onExitViewMode?: () => void
 }
 
-type ViewTab = 'details' | 'proposals'
-
 function getDatasetDescription(dataset: GeoDataset): string | null {
-	const collection = dataset.featureCollection as Record<string, unknown>
+	const collection = dataset.featureCollection as unknown as Record<string, unknown>
 	const properties =
 		typeof collection?.properties === 'object' && collection.properties
 			? (collection.properties as Record<string, unknown>)
@@ -108,8 +102,18 @@ export function ViewModePanel({
 	onProposalAccepted,
 	visibleProposalIds = new Set(),
 	focusCommentId,
+	objectTab,
+	onObjectTabChange,
 }: ViewModePanelProps) {
-	const [activeTab, setActiveTab] = useState<ViewTab>('details')
+	const [uncontrolledObjectTab, setUncontrolledObjectTab] = useState<EarthlyObjectTab>('details')
+	const activeObjectTab = objectTab ?? uncontrolledObjectTab
+	const setActiveObjectTab = useCallback(
+		(tab: EarthlyObjectTab) => {
+			if (objectTab === undefined) setUncontrolledObjectTab(tab)
+			onObjectTabChange?.(tab)
+		},
+		[objectTab, onObjectTabChange],
+	)
 	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
 	const [attachedGeojson, setAttachedGeojson] = useState<FeatureCollection | null>(null)
 	const lastViewedDatasetKeyRef = useRef<string | null>(null)
@@ -126,19 +130,15 @@ export function ViewModePanel({
 
 	const viewedDatasetKey = viewDataset ? getDatasetKey(viewDataset) : null
 	const isDeletingDataset = viewedDatasetKey ? deletingKey === viewedDatasetKey : false
+	const editPresentation = getMapEditPresentation(currentUserPubkey === viewDataset?.pubkey)
 
 	useEffect(() => {
 		if (lastViewedDatasetKeyRef.current === viewedDatasetKey) return
 		lastViewedDatasetKeyRef.current = viewedDatasetKey
 		setVisibleGeojsonCommentIds(new Set())
 		setAttachedGeojson(null)
-	}, [viewedDatasetKey])
-
-	useEffect(() => {
-		if (!viewDataset && activeTab === 'proposals') {
-			setActiveTab('details')
-		}
-	}, [activeTab, viewDataset])
+		if (objectTab === undefined) setUncontrolledObjectTab('details')
+	}, [viewedDatasetKey, objectTab])
 
 	const selectedFeatures = useMemo(() => {
 		if (selectedFeatureIds.length === 0) return []
@@ -207,12 +207,13 @@ export function ViewModePanel({
 
 	const handleZoomToCommentGeojson = useCallback(
 		(comment: GeoComment) => {
+			const geojson = comment.geojson
 			if (comment.boundingBox && onZoomToBounds) {
 				onZoomToBounds(comment.boundingBox)
-			} else if (comment.geojson && onZoomToBounds) {
+			} else if (geojson && onZoomToBounds) {
 				import('@turf/turf')
 					.then((turf) => {
-						const bbox = turf.bbox(comment.geojson) as [number, number, number, number]
+						const bbox = turf.bbox(geojson) as [number, number, number, number]
 						if (bbox.every((v) => Number.isFinite(v))) {
 							onZoomToBounds(bbox)
 						}
@@ -252,8 +253,8 @@ export function ViewModePanel({
 
 	if (!viewDataset) {
 		return (
-			<EntityPanelShell title="Dataset overview">
-				<div className="text-sm text-muted-foreground">No dataset selected.</div>
+			<EntityPanelShell title="Map overview">
+				<div className="text-sm text-muted-foreground">No Map selected.</div>
 			</EntityPanelShell>
 		)
 	}
@@ -299,32 +300,13 @@ export function ViewModePanel({
 
 	return (
 		<EntityPanelShell
-			title="Dataset overview"
-			tabs={
-				<Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ViewTab)}>
-					<TabsList className="h-8 rounded-none border-b border-border bg-transparent p-0">
-						<TabsTrigger
-							value="details"
-							className="h-8 rounded-none border-b-2 border-transparent px-3 text-xs data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-						>
-							<FileText className="h-3.5 w-3.5" />
-							Details
-						</TabsTrigger>
-						<TabsTrigger
-							value="proposals"
-							className="h-8 rounded-none border-b-2 border-transparent px-3 text-xs data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-						>
-							<GitPullRequest className="h-3.5 w-3.5" />
-							Proposals
-						</TabsTrigger>
-					</TabsList>
-				</Tabs>
-			}
+			title="Map overview"
+			tabs={<ObjectTabs value={activeObjectTab} onValueChange={setActiveObjectTab} />}
 		>
-			{activeTab === 'details' ? (
+			{activeObjectTab === 'details' ? (
 				<div className="space-y-4">
 					<EntityPanelSurface tone="dataset" className="space-y-3">
-						<EntityPanelSectionHeader eyebrow="Dataset" title={getDatasetName(viewDataset)} />
+						<EntityPanelSectionHeader eyebrow="Map" title={getDatasetName(viewDataset)} />
 						{getDatasetDescription(viewDataset) && (
 							<RichContentRenderer
 								content={getDatasetDescription(viewDataset) ?? ''}
@@ -514,9 +496,11 @@ export function ViewModePanel({
 											currentUserPubkey === viewDataset.pubkey ? (
 												<Pencil className="h-3.5 w-3.5" />
 											) : (
-												<CopyPlus className="h-3.5 w-3.5" />
+												<GitPullRequest className="h-3.5 w-3.5" />
 											),
-										label: currentUserPubkey === viewDataset.pubkey ? 'Edit dataset' : 'Load copy',
+										label: editPresentation.actionLabel,
+										// Non-owners still enter the existing source-backed working copy;
+										// PublishDropdown turns that source relationship into a proposal.
 										onClick: () => onLoadDataset(viewDataset),
 										variant: 'outline',
 										disabled: isPublishing,
@@ -531,7 +515,7 @@ export function ViewModePanel({
 											) : (
 												<Eye className="h-3.5 w-3.5" />
 											),
-											label: isOnStack ? 'Remove from map stack' : 'Add to map stack',
+											label: isOnStack ? 'Remove from Shelf' : 'Show on map',
 											// `onToggleVisibility` is now a stack-aware toggle wired in
 											// GeoEditorView — adds when not on stack, removes when on.
 											onClick: () => onToggleVisibility(viewDataset),
@@ -539,14 +523,14 @@ export function ViewModePanel({
 									})(),
 									{
 										icon: <Maximize2 className="h-3.5 w-3.5" />,
-										label: 'Zoom to dataset',
+										label: 'Frame Map',
 										onClick: () => onZoomToDataset(viewDataset),
 									},
 								]}
 							/>
 							{currentUserPubkey === viewDataset.pubkey ? (
 								<ConfirmDeleteAction
-									label="Dataset"
+									label="Map"
 									isDeleting={isDeletingDataset}
 									onConfirm={() => onDeleteDataset(viewDataset)}
 								/>
@@ -568,19 +552,21 @@ export function ViewModePanel({
 						/>
 					</EntityPanelSurface>
 
-					{commentsSection}
+					<EntityPanelSurface tone="neutral">
+						<ProposalsPanel
+							key={viewDataset.id ?? viewDataset.dTag ?? 'no-target'}
+							target={viewDataset}
+							currentUserPubkey={currentUserPubkey}
+							onToggleProposalOverlay={onToggleProposalOverlay}
+							onProposalAccepted={onProposalAccepted}
+							visibleProposalIds={visibleProposalIds}
+						/>
+					</EntityPanelSurface>
 				</div>
+			) : activeObjectTab === 'comments' ? (
+				commentsSection
 			) : (
-				<EntityPanelSurface tone="neutral">
-					<ProposalsPanel
-						key={viewDataset.id ?? viewDataset.dTag ?? 'no-target'}
-						target={viewDataset}
-						currentUserPubkey={currentUserPubkey}
-						onToggleProposalOverlay={onToggleProposalOverlay}
-						onProposalAccepted={onProposalAccepted}
-						visibleProposalIds={visibleProposalIds}
-					/>
-				</EntityPanelSurface>
+				<ThreadTabNotice />
 			)}
 		</EntityPanelShell>
 	)

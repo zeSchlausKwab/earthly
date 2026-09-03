@@ -32,6 +32,7 @@ import { accounts } from '@/lib/nostr'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
 import { config } from '@/config'
+import { replaceEarthlySearch } from '@/router/navigation'
 
 // Area calculation helpers
 function calculateBBoxAreaSqKm(bbox: {
@@ -401,10 +402,8 @@ export function CreateMapPopover({ small = false }: CreateMapPopoverProps) {
 			url: resultUrl,
 		})
 
-		// Update browser URL with shareable param
-		const url = new URL(window.location.href)
-		url.searchParams.set('pmtiles', resultUrl)
-		window.history.replaceState({}, '', url.toString())
+		// Update the shareable map-source query through the single router owner.
+		replaceEarthlySearch((search) => search.set('pmtiles', resultUrl))
 
 		// Close the popover
 		setOpen(false)
@@ -569,7 +568,7 @@ export function CreateMapPopover({ small = false }: CreateMapPopoverProps) {
 								{!bbox && (
 									<p className="text-xs text-muted-foreground">
 										{sourceType === 'dataset'
-											? 'No features in current dataset'
+											? 'No features in the current Map'
 											: 'Draw a selection on the map'}
 									</p>
 								)}

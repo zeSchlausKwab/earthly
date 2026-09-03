@@ -2,16 +2,18 @@ import { useActiveAccount } from 'applesauce-react/hooks'
 import { castEvent } from 'applesauce-core/casts'
 import {
 	BookOpen,
+	CircleHelp,
 	CircleDot,
 	Crosshair,
 	Database,
 	Download,
 	Eye,
+	FilePenLine,
 	Globe,
 	Hexagon,
+	Inbox,
 	Lock,
 	LockOpen,
-	Layers,
 	Map as MapIcon,
 	MapPin,
 	MapPinned,
@@ -31,10 +33,11 @@ import {
 	Spline,
 	Trash2,
 	Undo2,
+	UserRound,
 	Waypoints,
 	X,
 } from 'lucide-react'
-import type { FeatureCollection, Geometry } from 'geojson'
+import type { FeatureCollection } from 'geojson'
 import type maplibregl from 'maplibre-gl'
 import {
 	useCallback,
@@ -46,6 +49,11 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
+import {
+	EntitySearchPopover,
+	type EntitySearchResult,
+	type PlaceSearchEntity,
+} from '@/components/entity-search'
 import { ReferencePublishDialog } from '@/features/chat/referencePublishing'
 import { StoryTargetDialog } from '@/features/chat/storyTargeting'
 import { config } from '@/config/env.client'
@@ -65,6 +73,8 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { replaceEarthlySearch } from '@/router/navigation'
+import { navigateToRoute } from './hooks/useRouting'
 import { executeEditorCommand } from './commands'
 import {
 	DiscoverDialog,
@@ -82,6 +92,15 @@ import {
 } from '@/features/discovery'
 import { useTourStore } from '@/features/tour'
 import { StudioShell } from './components/StudioShell'
+import {
+	LensBar,
+	ShelfStrip,
+	TopBar,
+	type ActivityTickerItem,
+	type ShelfReorderPlacement,
+	type ShelfStripItem,
+	type TopBarAction,
+} from './components/margin-shell'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useGeoDatasets, useMapContexts } from '@/lib/hooks/useGeoDatasets'
@@ -93,12 +112,14 @@ import { RunningBeaconBanner } from '@/components/RunningBeaconBanner'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import { formatExpiryCountdown } from '@/lib/nostr/temporal-sighting'
 import { nip19, type NostrEvent } from 'nostr-tools'
-import type { Article } from '@/lib/nostr/article'
+import { getArticleMapPresentation, type Article } from '@/lib/nostr/article'
 import { ARTICLE_KIND, LIVE_BEACON_KIND } from '@/lib/nostr/kinds'
 import { isExpired } from '@/lib/nostr/expiry'
 import { unixNow } from 'applesauce-core/helpers/time'
 import { deleteStory } from '@/lib/nostr/story'
 import { deleteSighting, type TemporalSighting } from '@/lib/nostr/temporal-sighting'
+import { getGroupMapPresentation } from '@/lib/nostr/group'
+import { buildSavedViewAtlasSeed } from '@/features/groups/creationSeed'
 import { bboxFromGeometry } from '@/lib/geo/bbox'
 import { GeoDataset } from '@/lib/nostr/geo-event'
 import { type MapContext, deleteMapContext } from '@/lib/nostr/map-context'
@@ -113,6 +134,7 @@ import { useSavedRegionDeletionSync } from '@/features/offline/saved-regions/use
 import { useSavedRegionHydration } from '@/features/offline/saved-regions/useSavedRegionHydration'
 import type { DeletionTarget } from '@/lib/nostr/deletionCache'
 import { navigateToEarthlyAppLinkInPlace } from '@/platform/nativeAppLink'
+import { earthlyPublicUrl } from '@/platform/publicUrl'
 import { useFieldSessions } from '@/features/field-sessions/model'
 import {
 	fieldSessionDatasetFactory,
@@ -157,11 +179,10 @@ import {
 } from './inspectRouteOrigin'
 import { isDraftGeometryVisible } from './draftMapVisibility'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
-import { parseStoryRefs } from './hooks/useStoryMapRefs'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
-import { mobilePanelHeightPx, MobilePanel } from './components/MobilePanel'
+import { mobilePanelHeightPx, MobilePanel, type MobilePanelProps } from './components/MobilePanel'
 import { MobileToolMenu } from './components/MobileToolMenu'
 import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
 import type { CommentAnnotationPopupData } from './components/CommentAnnotationPopup'
@@ -181,7 +202,7 @@ import { GeoEditorMap as MapComponent } from './components/map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
 import { StudioStatusBar } from './components/StudioStatusBar'
 import { Toolbar } from './components/Toolbar'
-import { CurrentDestinationPill } from './components/CurrentDestinationPill'
+import { PublishDropdown, type PublishAudienceOption } from './components/toolbar/PublishDropdown'
 import {
 	canUploadToPublicBlossom,
 	publishChannelMatchesDatasetScope,
@@ -208,8 +229,34 @@ import {
 	useOsmQuery,
 	usePublishing,
 	useRouting,
+	usePresentationSources,
 	useViewMode,
 } from './hooks'
+import { usePresentationMapLayers } from './hooks/usePresentationMapLayers'
+import { usePresentationCamera } from './hooks/usePresentationCamera'
+import type { PresentationLayerMaterializationInput } from './map-presentation/materialize'
+import { PresentationCanvas, presentationFitCollection } from '@/pages/read/PresentationCanvas'
+import {
+	applyAmbientSourcesToLayers,
+	authorizePresentationLayer,
+	buildFallbackAtlasPresentation,
+	buildFallbackStoryPresentation,
+	deriveAtlasPresentationAuthorization,
+	getPresentationDatasetSource,
+	getUsableMapPresentation,
+	MAP_PRESENTATION_VERSION,
+	parseAmbientOn,
+	resolveAmbientOn,
+	type EffectiveStoryViewStateV1,
+	type MapPresentationAuthorization,
+	type MapPresentationLayerV1,
+	type MapPresentationParseResult,
+	type MapPresentationSource,
+	type MapPresentationV1,
+	type PresentationLayerResolution,
+	type PresentationSourceAuthorization,
+	type StoryViewSnapshotV1,
+} from '@/lib/map-presentation'
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import {
@@ -222,6 +269,13 @@ import {
 	type PublishChannel,
 	type SidebarViewMode,
 } from './store'
+
+function publishChannelOptionId(channel: PublishChannel): string | undefined {
+	if (channel.kind === 'public') return 'public'
+	if (channel.kind === 'private-group') return `private-group:${channel.id}`
+	if (channel.kind === 'field-session') return `field-session:${channel.id}`
+	return undefined
+}
 import { registerDatasetDraftEnsurer, type DatasetDraftRequest } from './authoringTaskBridge'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
@@ -230,6 +284,16 @@ import { getMobileDrawingGuidance, isDrawingEditorMode } from './mobileDrawingGu
 import { isDatasetMapInteractionEnabled } from './mobileDatasetInteraction'
 import { switchWorkspaceFromView } from './workspaceSwitchPresentation'
 import { deriveReferenceMapRenderState, featureMatchesReferenceSelector } from './referenceMapStack'
+import {
+	applyShelfRouteIntentToSearch,
+	convertLegacyShelfSearch,
+	createPublicShelfMap,
+	deriveShelfRouteIntent,
+	planShelfRouteReconciliation,
+	resolveShelfRouteIntent,
+	SHELF_ROUTE_ENTRY_PREFIX,
+	type ShelfRouteIntent,
+} from './shelfRouteState'
 import {
 	cancelCoordinateReferencePick,
 	completeCoordinateReferencePick,
@@ -354,8 +418,6 @@ function discoveryDate(createdAt: number): string | undefined {
 	}
 }
 
-type GeoBounds = [number, number, number, number]
-
 function naddrTargetsSameEntity(left: string, right: string): boolean {
 	if (left === right) return true
 	try {
@@ -372,30 +434,98 @@ function naddrTargetsSameEntity(left: string, right: string): boolean {
 	}
 }
 
-function mergeGeoBounds(
-	current: GeoBounds | null,
-	next: GeoBounds | null | undefined,
-): GeoBounds | null {
-	if (!next?.every(Number.isFinite)) return current
-	if (!current) return [...next] as GeoBounds
-	return [
-		Math.min(current[0], next[0]),
-		Math.min(current[1], next[1]),
-		Math.max(current[2], next[2]),
-		Math.max(current[3], next[3]),
-	]
+const ABSENT_MAP_PRESENTATION: MapPresentationParseResult = Object.freeze({
+	status: 'absent',
+	issues: [] as const,
+})
+
+function storyPresentationCarrier(story: Article): string {
+	return `${story.kind}:${story.pubkey}:${story.dTag ?? story.id}`
 }
 
-function collectionGeoBounds(collection: FeatureCollection, featureId?: string): GeoBounds | null {
-	let bounds: GeoBounds | null = null
-	if (!featureId && Array.isArray(collection.bbox) && collection.bbox.length === 4) {
-		bounds = mergeGeoBounds(bounds, collection.bbox as GeoBounds)
+function presentationMaterializationInputs(
+	carrierId: string,
+	presentationAuthor: string | undefined,
+	layers: readonly PresentationLayerResolution[],
+	attributedLayerIds?: ReadonlySet<string>,
+): readonly PresentationLayerMaterializationInput[] {
+	return Object.freeze(
+		layers.map((resolution) => {
+			const ownsPresentation =
+				presentationAuthor &&
+				(attributedLayerIds === undefined || attributedLayerIds.has(resolution.layer.id))
+			return {
+				carrierId,
+				layer: resolution.layer,
+				featureCollection: resolution.featureCollection,
+				...(resolution.sourceEvent ? { sourceEvent: resolution.sourceEvent } : {}),
+				...(ownsPresentation ? { presentationAuthor } : {}),
+			}
+		}),
+	)
+}
+
+function presentationInputsForStorySnapshot(
+	carrierId: string,
+	presentationAuthor: string,
+	state: EffectiveStoryViewStateV1,
+	resolved: readonly PresentationLayerResolution[],
+): readonly PresentationLayerMaterializationInput[] {
+	const resolvedBySource = new Map<MapPresentationSource, PresentationLayerResolution>()
+	for (const entry of resolved) {
+		if (!resolvedBySource.has(entry.layer.source)) resolvedBySource.set(entry.layer.source, entry)
 	}
-	for (const feature of collection.features) {
-		if (featureId && !featureMatchesReferenceSelector(feature, [featureId])) continue
-		bounds = mergeGeoBounds(bounds, feature.geometry ? bboxFromGeometry(feature.geometry) : null)
-	}
-	return bounds
+	return Object.freeze(
+		state.layers.map((layer) => {
+			const source = resolvedBySource.get(layer.source)
+			return {
+				carrierId,
+				layer,
+				featureCollection: source?.featureCollection ?? {
+					type: 'FeatureCollection',
+					features: [],
+				},
+				...(source?.sourceEvent ? { sourceEvent: source.sourceEvent } : {}),
+				presentationAuthor,
+			}
+		}),
+	)
+}
+
+function StoryPresentationFigure({
+	carrierId,
+	story,
+	snapshot,
+	resolved,
+}: {
+	carrierId: string
+	story: Article
+	snapshot: StoryViewSnapshotV1
+	resolved: readonly PresentationLayerResolution[]
+}) {
+	const figureMapRef = useRef<maplibregl.Map | null>(null)
+	const layers = useMemo(
+		() =>
+			presentationInputsForStorySnapshot(
+				`${carrierId}:figure:${snapshot.view.id}`,
+				story.pubkey,
+				snapshot.state,
+				resolved,
+			),
+		[carrierId, resolved, snapshot.state, snapshot.view.id, story.pubkey],
+	)
+	return (
+		<PresentationCanvas
+			carrierId={`${carrierId}:figure:${snapshot.view.id}`}
+			mapRef={figureMapRef}
+			layers={layers}
+			camera={snapshot.state.camera}
+			cameraIntentId="figure"
+			compact
+			interactive={false}
+			className="h-64 min-h-64 w-full border border-border"
+		/>
+	)
 }
 
 function SavedRegionDeletionMonitor({
@@ -443,6 +573,7 @@ export function GeoEditorView() {
 	const [mounted, setMounted] = useState(false)
 	const [loadedMap, setLoadedMap] = useState<maplibregl.Map | null>(null)
 	const [discoverOpen, setDiscoverOpen] = useState(false)
+	const [inboxUnreadCount, setInboxUnreadCount] = useState(0)
 	const discoverAutoOpenedRef = useRef(false)
 	const discoverOpenedAutomaticallyRef = useRef(false)
 	const landingDatasetSeededRef = useRef(false)
@@ -453,7 +584,9 @@ export function GeoEditorView() {
 		navigateTo,
 		navigateToContext,
 		navigateToView,
+		navigateToTab,
 		navigateToUnscopedView,
+		navigateHome,
 		navigateToPrivateGroup,
 		navigateToFieldSession,
 		clearFocus,
@@ -468,6 +601,20 @@ export function GeoEditorView() {
 		fieldSessionId,
 		commentId: focusCommentId,
 	} = useRouting({ reconcileStore: true })
+	const routedAskOpen = route.sidebarView === 'chat'
+	const routedObjectThreadOpen = route.tab === 'thread' && route.focusType !== 'none'
+	// Select a primitive here. getRetainedDatasetSurfaceTarget intentionally
+	// assembles a fresh { workspace, draft } pair, which is useful for imperative
+	// reads but is not a stable useSyncExternalStore snapshot.
+	const draftThreadWorkspaceId = useEditorStore(
+		(state) => getRetainedDatasetSurfaceTarget(state)?.workspace.id ?? null,
+	)
+	const routedDraftThreadOpen =
+		route.tab === 'thread' &&
+		route.focusType === 'none' &&
+		route.sidebarView === 'edit' &&
+		draftThreadWorkspaceId !== null
+	const routedThreadOpen = routedObjectThreadOpen || routedDraftThreadOpen
 	const {
 		account: privateWorkspaceAccount,
 		runtime: privateWorkspaceRuntime,
@@ -540,13 +687,36 @@ export function GeoEditorView() {
 		window.addEventListener('resize', onResize)
 		return () => window.removeEventListener('resize', onResize)
 	}, [])
-	// Desktop panel toggles live in the store (single layout source of truth).
-	const desktopMapStackOpen = useEditorStore((state) => state.mapStackOpen)
-	const setMapStackOpen = useEditorStore((state) => state.setMapStackOpen)
-	const toggleMapStack = useEditorStore((state) => state.toggleMapStack)
-	const desktopChatOpen = useEditorStore((state) => state.chatOpen)
+	// The route is the sole owner of Ask and object Thread visibility. Clear a
+	// persisted pre-cutover flag once so an old profile cannot resurrect the
+	// retired unbound chat panel.
 	const setChatOpen = useEditorStore((state) => state.setChatOpen)
-	const toggleChat = useEditorStore((state) => state.toggleChat)
+	useEffect(() => {
+		setChatOpen(false)
+	}, [setChatOpen])
+	const handleToggleThread = useCallback(() => {
+		// The public route owns the semantic distinction between an object's Thread
+		// and the read-only Ask concierge. Retire any legacy unbound-panel state as
+		// soon as the retained toolbar is used.
+		setChatOpen(false)
+		if (route.focusType !== 'none') {
+			navigateToTab(route.tab === 'thread' ? 'details' : 'thread')
+			return
+		}
+		if (draftThreadWorkspaceId) {
+			navigateToRoute(route.tab === 'thread' ? '/edit' : '/edit?tab=thread')
+			return
+		}
+		navigateToView(routedAskOpen ? 'datasets' : 'chat')
+	}, [
+		draftThreadWorkspaceId,
+		navigateToTab,
+		navigateToView,
+		route.focusType,
+		route.tab,
+		routedAskOpen,
+		setChatOpen,
+	])
 
 	const [, setShowToolbar] = useState(true)
 	const mapContainerRef = useRef<HTMLDivElement>(null)
@@ -558,14 +728,7 @@ export function GeoEditorView() {
 		magnifierPosition,
 		magnifierCenter,
 		magnifierZoomOffset,
-		setMagnifierZoomOffset,
-		magnifierMenuOpen,
-		magnifierButtonRef,
-		magnifierMenuRef,
 		toggleMagnifier,
-		handleMagnifierPointerDown,
-		handleMagnifierPointerUp,
-		clearMagnifierLongPress,
 	} = useMagnifier(map)
 
 	const {
@@ -625,6 +788,7 @@ export function GeoEditorView() {
 	// Store state
 	const editor = useEditorStore((state) => state.editor)
 	const features = useEditorStore((state) => state.features)
+	const collectionMeta = useEditorStore((state) => state.collectionMeta)
 	const featuresRef = useRef<EditorFeature[]>([])
 	const stats = useEditorStore((state) => state.stats)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
@@ -659,6 +823,7 @@ export function GeoEditorView() {
 	const stance = useEditorStore((state) => state.stance)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
+	const retainedDraftCount = useEditorStore((state) => Object.keys(state.geoEditDrafts).length)
 	const activeDraftAuthoring = useEditorStore(
 		(state) => resolveActiveDraftMapPresentation(state) !== null,
 	)
@@ -672,8 +837,8 @@ export function GeoEditorView() {
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
 	const setMapStackEntryIsolated = useEditorStore((state) => state.setMapStackEntryIsolated)
-	const setMapStackEntryExclusions = useEditorStore((state) => state.setMapStackEntryExclusions)
 	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
+	const setMapStackOrder = useEditorStore((state) => state.setMapStackOrder)
 	const clearMapStack = useEditorStore((state) => state.clearMapStack)
 	const dismissedPrivateDatasetIdsByAccountRef = useRef(new Map<string, Set<string>>())
 	const dismissedPrivateDatasetIds = useCallback(() => {
@@ -738,14 +903,14 @@ export function GeoEditorView() {
 		() => [
 			{
 				id: 'public',
-				label: 'Public',
+				label: 'Everyone',
 				publishChannel: { kind: 'public' },
 			},
 			...privateWorkspaceSnapshot.workspaces
 				.filter((workspace) => workspace.status === 'active')
 				.map((workspace) => ({
 					id: `private-group:${workspace.workspaceId}`,
-					label: `Private · ${workspace.metadata?.name || workspace.workspaceId.slice(0, 8)}`,
+					label: `Circle: ${workspace.metadata?.name || workspace.workspaceId.slice(0, 8)}`,
 					publishChannel: {
 						kind: 'private-group' as const,
 						id: workspace.workspaceId,
@@ -755,7 +920,7 @@ export function GeoEditorView() {
 				.filter((session) => session.state === 'active')
 				.map((session) => ({
 					id: `field-session:${session.id}`,
-					label: `Nearby · ${session.name}`,
+					label: `Nearby: ${session.name}`,
 					publishChannel: { kind: 'field-session' as const, id: session.id },
 				})),
 		],
@@ -1223,7 +1388,7 @@ export function GeoEditorView() {
 				title:
 					normalizeDiscoveryText(context.context.name, 120) ??
 					normalizeDiscoveryText(context.contextId, 120) ??
-					'Untitled context',
+					'Untitled Atlas',
 				summary: discoverySummary(context.context.description),
 				meta: discoveryDate(context.created_at),
 			})),
@@ -1388,13 +1553,13 @@ export function GeoEditorView() {
 			) {
 				syncRouteToDraftChannel(publishChannel)
 			}
-			toast.success('Draft destination set', {
+			toast.success('Draft audience set', {
 				description:
 					publishChannel.kind === 'public'
 						? 'This draft can now be published publicly.'
 						: publishChannel.kind === 'private-group'
-							? 'This draft will be saved to the selected private group.'
-							: 'This draft will be shared with the selected field session.',
+							? 'This draft will be saved to the selected Circle.'
+							: 'This draft will be shared with the selected Nearby session.',
 			})
 		},
 		[syncRouteToDraftChannel],
@@ -1670,7 +1835,7 @@ export function GeoEditorView() {
 			// forcing it into discovery.
 			const entityKey = getBeaconMapStackKey(beacon)
 			if (!entityKey) {
-				if (source === 'manual') toast.error("Couldn't add this beacon to the map.")
+				if (source === 'manual') toast.error("Couldn't add this live position to the map.")
 				return
 			}
 			addedBeaconCacheRef.current.set(entityKey, beacon)
@@ -1685,7 +1850,7 @@ export function GeoEditorView() {
 				isolated: source === 'route',
 			})
 			if (source === 'manual') {
-				toast.success('Added beacon to the map.')
+				toast.success('Added live position to the map.')
 			}
 		},
 		[addMapStackEntry],
@@ -1773,161 +1938,157 @@ export function GeoEditorView() {
 		clearMapStack()
 	}, [clearMapStack, dismissedPrivateDatasetIds])
 
-	// Round C.5: stack ⇄ URL serialization. Read URL params on mount once data
-	// is loaded; afterwards push stack mutations back to the URL (debounced via
-	// rAF). The URL is the canonical shareable representation of a map view.
-	// The state mirror exists so the landing prompt's show-condition can wait
-	// for hydration without flashing before URL entries land.
-	//
-	// Phase 1.2 (fixes 7.2/7.3): a cold load with no `?ms=` has nothing to
-	// reconstruct, so it is "hydrated" immediately. This matters because the
-	// write-back effect below bails while unhydrated — if we waited for the
-	// events-gated hydration effect to flip the flag, the landing seed could
-	// mutate the stack first and its `?ms=` would never be written. Only an
-	// `?ms=`-bearing URL starts unhydrated and waits for events to resolve.
-	const stackUrlHydratedRef = useRef(!new URLSearchParams(window.location.search).has('ms'))
+	// The public Shelf is route-local state: exact public Maps live in `on=` and
+	// the aggregate sightings/beacons surface lives in `live=1`. The retained Map
+	// Stack is only a compatibility render model; adapter-owned rows use a private
+	// id prefix so Back/Forward never deletes manual, Story, draft, private, or
+	// object-route rows.
+	const publicShelfMaps = useMemo(
+		() =>
+			geoEvents.flatMap((event) => {
+				const map = createPublicShelfMap({
+					kind: event.kind,
+					pubkey: event.pubkey,
+					identifier: event.datasetId,
+					datasetKey: getDatasetKey(event),
+					title: getDatasetName(event),
+				})
+				return map ? [map] : []
+			}),
+		[geoEvents, getDatasetKey, getDatasetName],
+	)
+	const canonicalShelfIntent = useMemo(
+		() => resolveShelfRouteIntent(route.on ?? [], publicShelfMaps, route.live === true),
+		[publicShelfMaps, route.live, route.on],
+	)
+	const currentShelfSearch = window.location.search
+	const legacyShelfIntent = useMemo(() => {
+		const publicMapByDatasetKey = new Map(
+			publicShelfMaps.map((publicMap) => [publicMap.datasetKey, publicMap]),
+		)
+		const contextByKey = new Map<string, MapContext>()
+		for (const context of mapContextEvents) {
+			const key = context.contextCoordinate ?? context.id ?? context.contextId ?? context.dTag
+			if (key) contextByKey.set(key, context)
+		}
+		return convertLegacyShelfSearch(
+			currentShelfSearch,
+			publicShelfMaps,
+			(contextKey, exclusions) => {
+				const context = contextByKey.get(contextKey)
+				if (!context) return []
+				const excluded = new Set(exclusions)
+				return resolveContextMapScope(
+					context,
+					geoEvents,
+					mapContextEvents,
+					getDefaultContextMapScopeMode(context),
+				).datasets.flatMap(({ dataset }) => {
+					const datasetKey = getDatasetKey(dataset)
+					if (excluded.has(datasetKey)) return []
+					const source = publicMapByDatasetKey.get(datasetKey)?.source
+					return source ? [source] : []
+				})
+			},
+		)
+	}, [currentShelfSearch, geoEvents, getDatasetKey, mapContextEvents, publicShelfMaps])
+	const useLegacyShelfIntent =
+		(route.on?.length ?? 0) === 0 && route.live !== true && legacyShelfIntent.hasLegacySearch
+	const effectiveShelfIntent = useMemo<ShelfRouteIntent>(
+		() =>
+			useLegacyShelfIntent
+				? { sources: legacyShelfIntent.sources, live: legacyShelfIntent.live }
+				: { sources: canonicalShelfIntent.sources, live: canonicalShelfIntent.live },
+		[canonicalShelfIntent, legacyShelfIntent, useLegacyShelfIntent],
+	)
+	const legacyShelfCatalogPending = Boolean(
+		useLegacyShelfIntent &&
+			(!geoEventsSettled || (legacyShelfIntent.needsContextCatalog && !mapContextsSettled)),
+	)
+	const canonicalLegacyAliasPending = Boolean(
+		!useLegacyShelfIntent && canonicalShelfIntent.hasLegacyTokens && !geoEventsSettled,
+	)
+	const shelfCatalogPending = legacyShelfCatalogPending || canonicalLegacyAliasPending
 	const [stackUrlHydrated, setStackUrlHydrated] = useState(
 		() => !new URLSearchParams(window.location.search).has('ms'),
 	)
 	useEffect(() => {
-		if (stackUrlHydratedRef.current) return
-		if (geoEvents.length === 0 && mapContextEvents.length === 0) return
-		const params = new URLSearchParams(window.location.search)
-		const msParam = params.get('ms')
-		const isoParam = params.get('iso')
-		if (!msParam) {
-			stackUrlHydratedRef.current = true
-			setStackUrlHydrated(true)
+		if (!shelfCatalogPending) setStackUrlHydrated(true)
+	}, [shelfCatalogPending])
+
+	const appliedShelfRouteSignatureRef = useRef<string | null>(null)
+	const shelfRouteIntentSourcesRef = useRef(effectiveShelfIntent.sources)
+	const skipNextShelfWriteRef = useRef(false)
+	const resolvedShelfMapSignature = effectiveShelfIntent.sources
+		.map((source) => {
+			const map = publicShelfMaps.find((candidate) => candidate.source === source)
+			return map ? `${source}:${map.datasetKey}:${map.title}` : `${source}:unresolved`
+		})
+		.join('\u0000')
+	const shelfRouteApplySignature = `${effectiveShelfIntent.live ? 1 : 0}\u0001${resolvedShelfMapSignature}`
+	useEffect(() => {
+		shelfRouteIntentSourcesRef.current = effectiveShelfIntent.sources
+		if (shelfCatalogPending) return
+		if (appliedShelfRouteSignatureRef.current === shelfRouteApplySignature) return
+		appliedShelfRouteSignatureRef.current = shelfRouteApplySignature
+		const state = useEditorStore.getState()
+		const plan = planShelfRouteReconciliation(
+			effectiveShelfIntent,
+			publicShelfMaps,
+			state.mapStackEntries,
+		)
+		let mutated = plan.removeEntryIds.length > 0 || plan.upsertEntries.length > 0
+		for (const id of plan.removeEntryIds) removeMapStackEntry(id)
+		for (const entry of plan.upsertEntries) addMapStackEntry(entry)
+		const reconciled = useEditorStore.getState()
+		const nextOrder = [
+			...reconciled.mapStackOrder.filter((id) => !id.startsWith(SHELF_ROUTE_ENTRY_PREFIX)),
+			...plan.orderedOwnedEntryIds.filter((id) => reconciled.mapStackEntries[id]),
+		]
+		if (nextOrder.some((id, index) => reconciled.mapStackOrder[index] !== id)) {
+			mutated = true
+			setMapStackOrder(nextOrder)
+		}
+		if (mutated) skipNextShelfWriteRef.current = true
+	}, [
+		addMapStackEntry,
+		effectiveShelfIntent,
+		publicShelfMaps,
+		removeMapStackEntry,
+		setMapStackOrder,
+		shelfCatalogPending,
+		shelfRouteApplySignature,
+	])
+
+	// Store-originated Shelf changes replace only `on`/`live`, while also
+	// erasing the old public `ms`/`iso`/`ex` surface. A route-originated apply
+	// skips this render so its stale pre-reconciliation snapshot cannot win.
+	useEffect(() => {
+		if (shelfCatalogPending) return
+		if (skipNextShelfWriteRef.current) {
+			skipNextShelfWriteRef.current = false
 			return
 		}
-		const tokens = msParam
-			.split(',')
-			.map((token) => token.trim())
-			.filter(Boolean)
-		const datasetByKey = new Map<string, GeoDataset>()
-		for (const event of geoEvents) datasetByKey.set(getDatasetKey(event), event)
-		const contextByKey = new Map<string, MapContext>()
-		for (const ctx of mapContextEvents) {
-			const key = ctx.contextCoordinate ?? ctx.id ?? ctx.contextId ?? ctx.dTag
-			if (key) contextByKey.set(key, ctx)
-		}
-		for (const token of tokens) {
-			const sep = token.indexOf(':')
-			if (sep <= 0) continue
-			const entityType = token.slice(0, sep)
-			const entityKey = token.slice(sep + 1)
-			if (!entityKey) continue
-			if (entityType === 'dataset') {
-				const event = datasetByKey.get(entityKey)
-				if (!event) continue
-				addDatasetToMapStack(event, 'route')
-			} else if (entityType === 'context') {
-				const ctx = contextByKey.get(entityKey)
-				if (!ctx) continue
-				const title = ctx.context?.name || `Context ${entityKey.slice(0, 12)}`
-				addMapStackEntry({
-					entityType: 'context',
-					entityKey,
-					title,
-					source: 'route',
-					visible: true,
-					pinned: false,
-				})
-			}
-		}
-		if (isoParam) {
-			const sep = isoParam.indexOf(':')
-			if (sep > 0) {
-				const isoType = isoParam.slice(0, sep)
-				const isoKey = isoParam.slice(sep + 1)
-				const isoId = `${isoType}:${isoKey}`
-				setMapStackEntryIsolated(isoId, true)
-			}
-		}
-		// D.2: hydrate per-context exclusions. Format per `ex` param:
-		// `<contextCoord>|<datasetKey1>;<datasetKey2>;…`. Multiple `ex`
-		// params allowed (one per context with exclusions).
-		const exParams = params.getAll('ex')
-		for (const exParam of exParams) {
-			const pipeIdx = exParam.indexOf('|')
-			if (pipeIdx <= 0) continue
-			const contextCoord = exParam.slice(0, pipeIdx)
-			const exclusionKeys = exParam
-				.slice(pipeIdx + 1)
-				.split(';')
-				.map((k) => k.trim())
-				.filter(Boolean)
-			if (exclusionKeys.length === 0) continue
-			setMapStackEntryExclusions(`context:${contextCoord}`, exclusionKeys)
-		}
-		stackUrlHydratedRef.current = true
-		setStackUrlHydrated(true)
-	}, [
-		geoEvents,
-		mapContextEvents,
-		getDatasetKey,
-		addDatasetToMapStack,
-		addMapStackEntry,
-		setMapStackEntryIsolated,
-		setMapStackEntryExclusions,
-	])
-	// Push stack mutations back to the URL (debounced via rAF) once we've
-	// finished initial hydration. Drafts are stripped — they're session state,
-	// not shareable.
-	useEffect(() => {
-		if (!stackUrlHydratedRef.current) return
-		// The route object is also our pathname-change signal; stack membership
-		// itself often stays stable while the user moves between catalogs.
-		void route
 		let cancelled = false
 		const handle = window.requestAnimationFrame(() => {
 			if (cancelled) return
-			const params = new URLSearchParams(window.location.search)
-			const candidates = mapStackOrder
-				.map((id) => mapStackEntries[id])
-				.filter((entry): entry is MapStackEntry => Boolean(entry))
-				.filter((entry) => entry.entityType !== 'draft' && entry.source !== 'private-group')
-			// An untouched landing default is ambient page state, not a share intent.
-			// Keep `/` stable so the next visit can choose the newest featured map.
-			const hasExplicitEntry = candidates.some((entry) => entry.source !== 'browse-default')
-			const isPlainRoot = window.location.pathname === '/'
-			const shareableEntries =
-				!hasExplicitEntry && isPlainRoot
-					? candidates.filter((entry) => entry.source !== 'browse-default')
-					: candidates
-			const tokens = shareableEntries.map((entry) => `${entry.entityType}:${entry.entityKey}`)
-			if (tokens.length > 0) {
-				params.set('ms', tokens.join(','))
-			} else {
-				params.delete('ms')
-			}
-			const isolated = shareableEntries.find((entry) => entry.isolated)
-			if (isolated) {
-				params.set('iso', `${isolated.entityType}:${isolated.entityKey}`)
-			} else {
-				params.delete('iso')
-			}
-			// D.2: serialize per-context exclusions. One `ex` param per context
-			// that has at least one excluded curated dataset.
-			params.delete('ex')
-			for (const entry of shareableEntries) {
-				if (entry.entityType !== 'context') continue
-				const exclusions = entry.exclusions ?? []
-				if (exclusions.length === 0) continue
-				params.append('ex', `${entry.entityKey}|${exclusions.join(';')}`)
-			}
-			const next = params.toString()
-			const nextSearch = next ? `?${next}` : ''
-			if (nextSearch === window.location.search) return
-			// Round I: routing now lives in the pathname (no hash). Preserve the
-			// pathname while updating the map-stack query params.
-			window.history.replaceState(null, '', `${window.location.pathname}${nextSearch}`)
+			const nextIntent = deriveShelfRouteIntent(
+				mapStackEntries,
+				mapStackOrder,
+				publicShelfMaps,
+				shelfRouteIntentSourcesRef.current,
+			)
+			const current = new URLSearchParams(window.location.search)
+			const next = new URLSearchParams(current)
+			applyShelfRouteIntentToSearch(next, nextIntent)
+			if (next.toString() === current.toString()) return
+			replaceEarthlySearch((params) => applyShelfRouteIntentToSearch(params, nextIntent))
 		})
 		return () => {
 			cancelled = true
 			window.cancelAnimationFrame(handle)
 		}
-	}, [mapStackEntries, mapStackOrder, route])
+	}, [mapStackEntries, mapStackOrder, publicShelfMaps, shelfCatalogPending])
 	// A plain, unscoped `/` starts with the newest eligible featured map. The
 	// selection waits for relay EOSE so streaming order cannot pin an older map.
 	// Restored drafts, shared stacks, scoped routes and explicit catalog routes
@@ -2083,12 +2244,11 @@ export function GeoEditorView() {
 		}
 	}, [calloutAnchorDrawing, currentMode])
 
-	// Consolidate a viewed Story's inline geo-refs with the map stack: fetch the
-	// referenced datasets on demand, auto-stack them visible so the article's
-	// geometry shows on open, and expose the map-stack-derived eye state for the
-	// inline ref toggles (single source of truth).
+	// The viewed Story is also the carrier for the shared presentation runtime.
+	// Semantic references are fetched later, once the retained Story editor state
+	// is available too, so browse and authoring use the exact same pipeline.
 	const viewStory = useEditorStore((state) => state.viewStory)
-	const { isMentionVisible } = useStoryMapRefs(viewStory)
+	const viewContext = useEditorStore((state) => state.viewContext)
 
 	// Blossom upload dialog state
 	const blossomUploadDialogOpen = useEditorStore((state) => state.blossomUploadDialogOpen)
@@ -2101,7 +2261,7 @@ export function GeoEditorView() {
 			options?: { datasetId?: string; name?: string },
 		) => {
 			if (!privateWorkspaceRuntime || !authoringPrivateGroupId) {
-				throw new Error('The private group is not available in this browser profile')
+				throw new Error('The Circle is not available in this browser profile')
 			}
 			const envelope = await privateWorkspaceRuntime.perform((service) =>
 				service.sendDataset(authoringPrivateGroupId, collection, options),
@@ -2112,7 +2272,7 @@ export function GeoEditorView() {
 			const dataset = workspace
 				? projectPrivateWorkspaceDatasets(workspace).find((item) => item.event.id === envelope.id)
 				: undefined
-			if (!dataset) throw new Error('The encrypted dataset could not be opened after saving')
+			if (!dataset) throw new Error('The encrypted Map could not be opened after saving')
 			return dataset
 		},
 		[privateWorkspaceRuntime, authoringPrivateGroupId],
@@ -2123,10 +2283,10 @@ export function GeoEditorView() {
 			options?: { datasetId?: string; name?: string; previous?: GeoDataset },
 		) => {
 			if (!authoringFieldSession || !authoringFieldSessionId) {
-				throw new Error('The Field session is not available on this device')
+				throw new Error('Nearby is not available on this device')
 			}
 			if (authoringFieldSession.role === 'participant' && !authoringFieldSession.allowPeerWrites) {
-				throw new Error('This Field session is read-only on participant phones')
+				throw new Error('This Nearby session is read-only on participant phones')
 			}
 			const signer = accounts.signer
 			if (!signer) throw new Error('Sign in before saving nearby geometry')
@@ -2144,7 +2304,7 @@ export function GeoEditorView() {
 			}
 			const signed = (await factory.sign(signer)) as NostrEvent
 			if (fieldSessionIdForEvent(signed) !== authoringFieldSessionId) {
-				throw new Error('The nearby dataset lost its Field-session scope before signing')
+				throw new Error('The Nearby Map lost its session scope before signing')
 			}
 			await fieldTransport.publishEvent(signed)
 			return castEvent(signed, GeoDataset, eventStore)
@@ -2154,14 +2314,6 @@ export function GeoEditorView() {
 	// A Dataset inspect writes a shareable focus URL, but that in-app URL update
 	// must not be mistaken for a fresh shared-link landing by the route hydrator.
 	const inAppDatasetInspectRouteRef = useRef<string | null>(null)
-	const storyRoutePresentationRef = useRef<{
-		routeKey: string
-		storyId: string
-		refSignature: string
-		admittedEntryIds: string[]
-		admitted: boolean
-		fitted: boolean
-	} | null>(null)
 	// Sightings and Beacons share the same distinction: an in-app Inspect action
 	// writes a canonical URL but must not route-add/isolate the entity. Only a fresh
 	// shared-link landing gets that Map Stack behavior.
@@ -2171,6 +2323,7 @@ export function GeoEditorView() {
 			focusType: 'geoevent' | 'mapcontext' | 'story',
 			naddr: string,
 			sidebarView?: SidebarViewMode,
+			edit = false,
 		) => {
 			// Projected private datasets have no public naddr route. Keep inspection
 			// inside /privategroup/:id so opening a map row cannot drop the MLS scope.
@@ -2182,6 +2335,8 @@ export function GeoEditorView() {
 				inAppDatasetInspectRouteRef.current = currentRouteKey === nextRouteKey ? null : nextRouteKey
 			} else if (focusType === 'story') {
 				if (
+					!edit &&
+					!route.edit &&
 					route.focusType === 'story' &&
 					route.naddr &&
 					naddrTargetsSameEntity(route.naddr, naddr)
@@ -2192,9 +2347,16 @@ export function GeoEditorView() {
 					return
 				}
 			}
-			navigateTo(focusType, naddr, sidebarView)
+			navigateTo(focusType, naddr, sidebarView, edit)
 		},
-		[privateWorkspaceScopeId, fieldSessionScopeId, navigateTo, route.focusType, route.naddr],
+		[
+			privateWorkspaceScopeId,
+			fieldSessionScopeId,
+			navigateTo,
+			route.edit,
+			route.focusType,
+			route.naddr,
+		],
 	)
 	const navigateToEphemeralInspectFocus = useCallback(
 		(focusType: 'sighting' | 'beacon', naddr: string, sidebarView?: SidebarViewMode) => {
@@ -2243,9 +2405,9 @@ export function GeoEditorView() {
 			authoringPublishChannel.kind !== 'unresolved' && !draftSourceIdentityPending,
 		publishBoundaryMessage:
 			authoringPublishChannel.kind === 'unresolved'
-				? 'Choose a destination before publishing this legacy draft.'
+				? 'Choose where to publish this legacy draft.'
 				: draftSourceIdentityPending
-					? 'Wait for Earthly to restore the original dataset before publishing this draft.'
+					? 'Wait for Earthly to restore the original Map before publishing this draft.'
 					: undefined,
 	})
 
@@ -2292,15 +2454,15 @@ export function GeoEditorView() {
 			if (!plan) {
 				toast.error(
 					workspaceId
-						? 'The bound Dataset workspace has no retained draft to open.'
-						: 'No retained Dataset work is available to open.',
+						? 'This Thread has no retained Map draft to open.'
+						: 'No retained Map draft is available to open.',
 				)
 				return false
 			}
 
 			try {
 				if (plan.switchWorkspace) {
-					// Exact Chat/BindingChip activation may switch only to the validated ID.
+					// Thread activation may switch only to the validated retained draft.
 					await switchToWorkspace(plan.workspaceId)
 				}
 
@@ -2309,7 +2471,7 @@ export function GeoEditorView() {
 					state.activeWorkspaceId !== plan.workspaceId ||
 					!getRetainedDatasetSurfaceTarget(state, plan.workspaceId)
 				) {
-					toast.error('The bound Dataset workspace could not be opened.')
+					toast.error('The Thread\u2019s Map draft could not be opened.')
 					return false
 				}
 
@@ -2333,7 +2495,7 @@ export function GeoEditorView() {
 				}
 				return true
 			} catch {
-				toast.error('The bound Dataset workspace could not be opened.')
+				toast.error('The Thread\u2019s Map draft could not be opened.')
 				return false
 			}
 		},
@@ -2401,14 +2563,12 @@ export function GeoEditorView() {
 	}, [isMobile])
 
 	const activeContextScope = useMemo(() => {
-		if (!contextNaddr) return null
+		if (!contextCoordinate) return null
 		return (
-			mapContextEvents.find((context) => {
-				const contextRouteNaddr = encodeContextNaddr(context)
-				return contextRouteNaddr === contextNaddr
-			}) ?? null
+			mapContextEvents.find((context) => getContextCoordinate(context) === contextCoordinate) ??
+			null
 		)
-	}, [contextNaddr, mapContextEvents, encodeContextNaddr])
+	}, [contextCoordinate, mapContextEvents])
 
 	// Round C: activeContextScopeLabel and toolbarFocusLabel were used by the
 	// removed toolbar chips. The MapStackPanel surface now carries the same
@@ -2485,7 +2645,7 @@ export function GeoEditorView() {
 							destinationContext?.context.name ||
 							destinationContext?.contextId ||
 							destinationContext?.dTag ||
-							'Unnamed context'
+							'Unnamed Atlas'
 						}${activeDatasetContextRefs.length > 1 ? ` +${activeDatasetContextRefs.length - 1}` : ''}`,
 						availability: destinationContext ? 'available' : 'unavailable',
 					}
@@ -2501,6 +2661,44 @@ export function GeoEditorView() {
 		destinationContext,
 		activeDatasetContextRefs.length,
 	])
+	const selectedAudienceId = publishChannelOptionId(authoringPublishChannel)
+	const publishAudienceOptions = useMemo<PublishAudienceOption[]>(() => {
+		if (!activeDraftPublishChannel) return []
+		const options = localDraftDestinationOptions.map((option) => ({ ...option }))
+		if (
+			selectedAudienceId &&
+			!options.some((option) => option.id === selectedAudienceId) &&
+			authoringPublishChannel.kind !== 'unresolved'
+		) {
+			options.push({
+				id: selectedAudienceId,
+				label: currentDestination.label,
+				publishChannel: authoringPublishChannel,
+			})
+		}
+		return options
+	}, [
+		activeDraftPublishChannel,
+		authoringPublishChannel,
+		currentDestination.label,
+		localDraftDestinationOptions,
+		selectedAudienceId,
+	])
+	const handleAudienceChange = useCallback(
+		(publishChannel: PublishChannel) => {
+			const state = useEditorStore.getState()
+			const draftId = state.activeGeoEditDraftId
+			if (!draftId || !state.geoEditDrafts[draftId]) return
+			state.saveGeoEditDraft(draftId, { publishChannel })
+			syncRouteToDraftChannel(publishChannel)
+			const optionId = publishChannelOptionId(publishChannel)
+			const option = localDraftDestinationOptions.find((candidate) => candidate.id === optionId)
+			toast.success('Audience updated', {
+				description: option ? `This working copy is now for ${option.label}.` : undefined,
+			})
+		},
+		[localDraftDestinationOptions, syncRouteToDraftChannel],
+	)
 
 	const openCurrentDestination = useCallback(() => {
 		if (currentDestination.kind === 'unresolved') {
@@ -2959,27 +3157,10 @@ export function GeoEditorView() {
 		})
 	}, [mapStackEntries, mapStackOrder, visibleGeoEvents, getDatasetKey, pruneCommentGeometry])
 
-	const toolbarMapStackOpen = isMobile
-		? mobilePanelOpen && mobilePanelTab === 'map-stack'
-		: desktopMapStackOpen
+	const toolbarMapStackOpen = route.sidebarView === 'map-stack'
 	const toggleToolbarMapStack = useCallback(() => {
-		if (isMobile) {
-			if (mobilePanelOpen && mobilePanelTab === 'map-stack') {
-				setMobilePanelOpen(false)
-				return
-			}
-			openMobilePanel('map-stack')
-			return
-		}
-		toggleMapStack()
-	}, [
-		isMobile,
-		mobilePanelOpen,
-		mobilePanelTab,
-		openMobilePanel,
-		setMobilePanelOpen,
-		toggleMapStack,
-	])
+		navigateToView(toolbarMapStackOpen ? 'datasets' : 'map-stack')
+	}, [navigateToView, toolbarMapStackOpen])
 
 	const lastContextCoordinateRef = useRef<string | null>(null)
 	useEffect(() => {
@@ -3065,26 +3246,6 @@ export function GeoEditorView() {
 		resolvedCollectionResolver,
 		mapContextEvents,
 	)
-
-	// Map layers hook
-	// Phase 13 (SPEC §3.2): sightings/beacons now render from STACK MEMBERSHIP, not
-	// unconditionally. `visibleSightingsFromStack`/`visibleBeaconsFromStack` (above)
-	// gate the subscription set through the Map Stack the same way `visibleGeoEvents`
-	// gates datasets — an aggregate `*-layer` entry shows the full set, an individual
-	// entry pins one, an isolated entry (deep-link-solo) renders alone. This REPLACES
-	// the `66a155e` beacon side-channel merge: a viewed/routed/own beacon renders
-	// because it is on the stack (isolated for a deep link), not via a merge hack.
-	const { remoteLayersReady, CLUSTERED_SOURCE_ID } = useMapLayers({
-		mapRef: map,
-		mounted,
-		visibleGeoEvents,
-		visibleSightings: visibleSightingsFromStack,
-		visibleBeacons: visibleBeaconsFromStack,
-		resolvedCollectionResolver,
-		resolvedCollectionsVersion,
-		datasetFeatureSelectors: referenceMapRenderState.datasetFeatureSelectors,
-		coordinateReferences: referenceMapRenderState.coordinates,
-	})
 
 	// Keep the viewport focused on the most recently loaded geometry after map source swaps.
 	// We wait for the style to load because setStyle clears sources/layers and they are re-added on events.
@@ -3318,7 +3479,7 @@ export function GeoEditorView() {
 
 			const contextId = getContextKey(context)
 			if (!contextId) {
-				toast.error('Context is missing a d tag and cannot be deleted.')
+				toast.error('Atlas is missing a d tag and cannot be deleted.')
 				return
 			}
 
@@ -3339,10 +3500,10 @@ export function GeoEditorView() {
 					clearContextScope()
 				}
 
-				toast.success(`Deleted "${context.context.name || context.contextId || 'context'}".`)
+				toast.success(`Deleted "${context.context.name || context.contextId || 'Atlas'}".`)
 			} catch (error) {
 				console.error('Failed to delete context', error)
-				toast.error('Failed to delete context. Check console for details.')
+				toast.error('Failed to delete Atlas. Check console for details.')
 			} finally {
 				setDeletingKey(null)
 			}
@@ -3440,6 +3601,7 @@ export function GeoEditorView() {
 	const {
 		contextEditorMode,
 		editingContext,
+		contextCreationSeed,
 		handleLoadDatasetForEditing,
 		handleInspectContext,
 		handleCreateContext,
@@ -3507,6 +3669,560 @@ export function GeoEditorView() {
 		navigateToView,
 		clearFocus,
 	})
+
+	// Creating a Story also moves to the Stories route. Route reconciliation owns
+	// mobile catalog restoration, so reassert the retained authoring surface after
+	// that route settles instead of allowing the catalog drawer to cover the editor.
+	useEffect(() => {
+		if (!isMobile || storyEditorMode === 'none' || route.sidebarView !== 'stories') return
+		const state = useEditorStore.getState()
+		state.selectMobileEntitySurface('story')
+		state.openMobilePanel('edit')
+	}, [isMobile, route.sidebarView, storyEditorMode])
+
+	// A Story's authored presentation, inline views, and route-local `on=` Maps
+	// share one exact-source runtime on the main canvas. The ordinary map renderer
+	// remains active for every source not claimed by this composition.
+	const presentationStory = storyEditorMode !== 'none' ? editingStory : viewStory
+	const routedLensAtlas = useMemo(
+		() =>
+			contextCoordinate
+				? (groups.find((group) => group.groupCoordinate === contextCoordinate) ?? null)
+				: null,
+		[contextCoordinate, groups],
+	)
+	// Story presentation is the foreground narrative whenever one is open. The
+	// Atlas lens remains visible as route context, but its canonical layers do not
+	// compete with the Story's authored composition.
+	const presentationAtlas = presentationStory ? null : routedLensAtlas
+	const presentationCarrierId = useMemo(
+		() => (presentationStory ? storyPresentationCarrier(presentationStory) : null),
+		[presentationStory],
+	)
+	const atlasPresentationCarrierId = presentationAtlas?.groupCoordinate ?? null
+	const { isMentionVisible, presentationAuthorization: storyPresentationAuthorization } =
+		useStoryMapRefs(presentationStory)
+	const storedStoryPresentation = useMemo(
+		() =>
+			presentationStory
+				? getArticleMapPresentation(presentationStory.event)
+				: ABSENT_MAP_PRESENTATION,
+		[presentationStory],
+	)
+	const baseStoryPresentation = useMemo(
+		() =>
+			getUsableMapPresentation(storedStoryPresentation) ??
+			buildFallbackStoryPresentation(presentationStory?.article.content),
+		[presentationStory?.article.content, storedStoryPresentation],
+	)
+	const storedAtlasPresentation = useMemo(
+		() =>
+			presentationAtlas
+				? getGroupMapPresentation(presentationAtlas.rawEvent())
+				: ABSENT_MAP_PRESENTATION,
+		[presentationAtlas],
+	)
+	const atlasPresentationAuthorization = useMemo(
+		() => deriveAtlasPresentationAuthorization(presentationAtlas?.referencedAddresses ?? []),
+		[presentationAtlas],
+	)
+	const [activeStoryView, setActiveStoryView] = useState<{
+		carrierId: string
+		storyEventId: string
+		snapshot: StoryViewSnapshotV1
+		index: number
+		revision: number
+	} | null>(null)
+	const [presentationVisibilityOverrides, setPresentationVisibilityOverrides] = useState<
+		Readonly<Record<string, boolean>>
+	>({})
+	const presentationResetKey = `${presentationCarrierId ?? ''}:${presentationStory?.id ?? ''}:${atlasPresentationCarrierId ?? ''}:${presentationAtlas?.id ?? ''}`
+	useEffect(() => {
+		void presentationResetKey
+		setActiveStoryView(null)
+		setPresentationVisibilityOverrides({})
+	}, [presentationResetKey])
+
+	const effectiveStoryState = useMemo<EffectiveStoryViewStateV1>(() => {
+		if (
+			activeStoryView &&
+			presentationCarrierId &&
+			activeStoryView.carrierId === presentationCarrierId &&
+			activeStoryView.storyEventId === presentationStory?.id
+		) {
+			return activeStoryView.snapshot.state
+		}
+		return Object.freeze({
+			...(baseStoryPresentation.initialView ? { camera: baseStoryPresentation.initialView } : {}),
+			layers: baseStoryPresentation.layers,
+		})
+	}, [activeStoryView, baseStoryPresentation, presentationCarrierId, presentationStory?.id])
+
+	const parsedAmbientOn = useMemo(() => parseAmbientOn((route.on ?? []).join(',')), [route.on])
+	const resolvedAmbientOn = useMemo(
+		() =>
+			resolveAmbientOn(
+				parsedAmbientOn,
+				geoEvents
+					.map(getPresentationDatasetSource)
+					.filter((source): source is MapPresentationSource => Boolean(source)),
+			),
+		[geoEvents, parsedAmbientOn],
+	)
+	const visibleWholeMapSources = useMemo(() => {
+		const sources: MapPresentationSource[] = []
+		const seen = new Set<MapPresentationSource>()
+		for (const event of visibleGeoEvents) {
+			const selector = referenceMapRenderState.datasetFeatureSelectors[getDatasetKey(event)]
+			if (Array.isArray(selector)) continue
+			const source = getPresentationDatasetSource(event)
+			if (!source || seen.has(source)) continue
+			seen.add(source)
+			sources.push(source)
+		}
+		return Object.freeze(sources)
+	}, [getDatasetKey, referenceMapRenderState.datasetFeatureSelectors, visibleGeoEvents])
+	const effectiveAmbientSources = useMemo(() => {
+		const sources: MapPresentationSource[] = []
+		const seen = new Set<MapPresentationSource>()
+		for (const source of [...resolvedAmbientOn.sources, ...visibleWholeMapSources]) {
+			if (seen.has(source)) continue
+			seen.add(source)
+			sources.push(source)
+		}
+		return Object.freeze(sources)
+	}, [resolvedAmbientOn.sources, visibleWholeMapSources])
+	const selectiveShelfLayers = useMemo<readonly MapPresentationLayerV1[]>(() => {
+		const layers: MapPresentationLayerV1[] = []
+		for (const event of visibleGeoEvents) {
+			const featureIds = referenceMapRenderState.datasetFeatureSelectors[getDatasetKey(event)]
+			if (!Array.isArray(featureIds)) continue
+			const source = getPresentationDatasetSource(event)
+			if (!source) continue
+			layers.push(
+				Object.freeze({
+					id: `shelf-feature-${layers.length + 1}`,
+					source,
+					featureIds: Object.freeze([...featureIds]),
+					visible: true,
+					opacityMultiplier: 1,
+				}),
+			)
+		}
+		return Object.freeze(layers)
+	}, [getDatasetKey, referenceMapRenderState.datasetFeatureSelectors, visibleGeoEvents])
+	const authorizedStoryLayerIds = useMemo(
+		() =>
+			new Set(
+				effectiveStoryState.layers
+					.filter(
+						(layer) =>
+							authorizePresentationLayer(layer, storyPresentationAuthorization).status ===
+							'authorized',
+					)
+					.map((layer) => layer.id),
+			),
+		[effectiveStoryState.layers, storyPresentationAuthorization],
+	)
+	const composedStoryLayers = useMemo<readonly MapPresentationLayerV1[]>(() => {
+		if (!presentationStory) return Object.freeze([])
+		// Authorization is evaluated before ambient Shelf grants are added. Otherwise
+		// a route-local whole-map overlay could accidentally bless an unauthorized
+		// authored selector that happens to target the same source.
+		const authorizedBaseLayers = effectiveStoryState.layers.filter((layer) =>
+			authorizedStoryLayerIds.has(layer.id),
+		)
+		const ambient = applyAmbientSourcesToLayers(authorizedBaseLayers, effectiveAmbientSources)
+		const usedIds = new Set(ambient.layers.map((layer) => layer.id))
+		const appended = selectiveShelfLayers.map((layer, index) => {
+			let id = layer.id
+			let suffix = index + 1
+			while (usedIds.has(id)) {
+				suffix += 1
+				id = `shelf-feature-${suffix}`
+			}
+			usedIds.add(id)
+			return id === layer.id ? layer : Object.freeze({ ...layer, id })
+		})
+		return Object.freeze(
+			[...ambient.layers, ...appended].map((layer) => {
+				const visible = presentationVisibilityOverrides[layer.id]
+				return visible === undefined ? layer : Object.freeze({ ...layer, visible })
+			}),
+		)
+	}, [
+		effectiveAmbientSources,
+		effectiveStoryState.layers,
+		presentationStory,
+		presentationVisibilityOverrides,
+		selectiveShelfLayers,
+		authorizedStoryLayerIds,
+	])
+	const runtimeStoryPresentation = useMemo<MapPresentationParseResult>(
+		() =>
+			presentationStory
+				? Object.freeze({
+						status: 'valid' as const,
+						value: Object.freeze({
+							version: MAP_PRESENTATION_VERSION,
+							...(effectiveStoryState.camera ? { initialView: effectiveStoryState.camera } : {}),
+							layers: composedStoryLayers,
+						}),
+						issues: storedStoryPresentation.issues,
+					})
+				: ABSENT_MAP_PRESENTATION,
+		[composedStoryLayers, effectiveStoryState.camera, presentationStory, storedStoryPresentation],
+	)
+	const runtimeStoryAuthorization = useMemo<MapPresentationAuthorization>(() => {
+		const authorization = new Map<MapPresentationSource, PresentationSourceAuthorization>(
+			storyPresentationAuthorization,
+		)
+		for (const source of effectiveAmbientSources) {
+			authorization.set(source, Object.freeze({ source, scope: 'whole' as const }))
+		}
+		for (const layer of selectiveShelfLayers) {
+			const previous = authorization.get(layer.source)
+			if (previous?.scope === 'whole') continue
+			const featureIds = [
+				...(previous?.scope === 'features' ? previous.featureIds : []),
+				...(layer.featureIds ?? []),
+			]
+			authorization.set(
+				layer.source,
+				Object.freeze({
+					source: layer.source,
+					scope: 'features' as const,
+					featureIds: Object.freeze([...new Set(featureIds)]),
+				}),
+			)
+		}
+		return authorization
+	}, [effectiveAmbientSources, selectiveShelfLayers, storyPresentationAuthorization])
+	const storyPresentationRuntime = usePresentationSources({
+		presentation: runtimeStoryPresentation,
+		authorization: runtimeStoryAuthorization,
+	})
+	const usableStoredAtlasPresentation = useMemo(
+		() => getUsableMapPresentation(storedAtlasPresentation),
+		[storedAtlasPresentation],
+	)
+	const canonicalAtlasLayerIds = useMemo(() => {
+		if (!usableStoredAtlasPresentation) return new Set<string>()
+		return new Set(
+			usableStoredAtlasPresentation.layers
+				.filter(
+					(layer) =>
+						authorizePresentationLayer(layer, atlasPresentationAuthorization).status ===
+						'authorized',
+				)
+				.map((layer) => layer.id),
+		)
+	}, [atlasPresentationAuthorization, usableStoredAtlasPresentation])
+	const runtimeAtlasPresentation = useMemo<MapPresentationParseResult>(() => {
+		if (!presentationAtlas) return ABSENT_MAP_PRESENTATION
+		// A missing, malformed, or future default view falls back to the Atlas's
+		// owner-curated lane. This is route-local rendering only: it neither rewrites
+		// the stored value nor attributes the fallback styling to the Atlas author.
+		const baseLayers = usableStoredAtlasPresentation
+			? usableStoredAtlasPresentation.layers
+			: buildFallbackAtlasPresentation(presentationAtlas.referencedAddresses).layers
+		return Object.freeze({
+			status: 'valid' as const,
+			value: Object.freeze({
+				version: MAP_PRESENTATION_VERSION,
+				...(usableStoredAtlasPresentation?.initialView
+					? { initialView: usableStoredAtlasPresentation.initialView }
+					: {}),
+				layers: Object.freeze(
+					baseLayers.map((layer) => {
+						const visible = presentationVisibilityOverrides[layer.id]
+						return visible === undefined ? layer : Object.freeze({ ...layer, visible })
+					}),
+				),
+			}),
+			issues: storedAtlasPresentation.issues,
+		})
+	}, [
+		presentationAtlas,
+		presentationVisibilityOverrides,
+		storedAtlasPresentation.issues,
+		usableStoredAtlasPresentation,
+	])
+	const authorizedAtlasLayerIds = useMemo(() => {
+		const presentation = getUsableMapPresentation(runtimeAtlasPresentation)
+		if (!presentation) return new Set<string>()
+		return new Set(
+			presentation.layers
+				.filter(
+					(layer) =>
+						authorizePresentationLayer(layer, atlasPresentationAuthorization).status ===
+						'authorized',
+				)
+				.map((layer) => layer.id),
+		)
+	}, [atlasPresentationAuthorization, runtimeAtlasPresentation])
+	const atlasPresentationRuntime = usePresentationSources({
+		presentation: runtimeAtlasPresentation,
+		authorization: atlasPresentationAuthorization,
+	})
+	const usableRuntimeAtlasPresentation = useMemo(
+		() => getUsableMapPresentation(runtimeAtlasPresentation),
+		[runtimeAtlasPresentation],
+	)
+	const mapInteractionGeoEventsRef = useRef<GeoDataset[]>([])
+	mapInteractionGeoEventsRef.current = [
+		...geoEventsRef.current,
+		...[...storyPresentationRuntime.sourceEvents, ...atlasPresentationRuntime.sourceEvents].filter(
+			(event, index, sourceEvents) =>
+				!geoEventsRef.current.some((existing) => existing.id === event.id) &&
+				sourceEvents.findIndex((candidate) => candidate.id === event.id) === index,
+		),
+	]
+	const storyPresentationLayers = useMemo(
+		() =>
+			presentationCarrierId
+				? presentationMaterializationInputs(
+						presentationCarrierId,
+						presentationStory?.pubkey,
+						storyPresentationRuntime.layers,
+						authorizedStoryLayerIds,
+					)
+				: Object.freeze([]),
+		[
+			authorizedStoryLayerIds,
+			presentationCarrierId,
+			presentationStory?.pubkey,
+			storyPresentationRuntime.layers,
+		],
+	)
+	const atlasPresentationLayers = useMemo(
+		() =>
+			atlasPresentationCarrierId
+				? presentationMaterializationInputs(
+						atlasPresentationCarrierId,
+						presentationAtlas?.pubkey,
+						atlasPresentationRuntime.layers.filter((resolution) =>
+							authorizedAtlasLayerIds.has(resolution.layer.id),
+						),
+						canonicalAtlasLayerIds,
+					)
+				: Object.freeze([]),
+		[
+			atlasPresentationCarrierId,
+			atlasPresentationRuntime.layers,
+			authorizedAtlasLayerIds,
+			canonicalAtlasLayerIds,
+			presentationAtlas?.pubkey,
+		],
+	)
+	const activePresentationLayers = useMemo(
+		() => Object.freeze([...storyPresentationLayers, ...atlasPresentationLayers]),
+		[atlasPresentationLayers, storyPresentationLayers],
+	)
+	const presentationClaimedSources = useMemo(
+		() =>
+			new Set([
+				...composedStoryLayers.map((layer) => layer.source),
+				...(usableRuntimeAtlasPresentation?.layers ?? [])
+					.filter((layer) => authorizedAtlasLayerIds.has(layer.id))
+					.map((layer) => layer.source),
+			]),
+		[authorizedAtlasLayerIds, composedStoryLayers, usableRuntimeAtlasPresentation?.layers],
+	)
+	const ordinaryVisibleGeoEvents = useMemo(
+		() =>
+			presentationClaimedSources.size > 0
+				? visibleGeoEvents.filter((event) => {
+						const source = getPresentationDatasetSource(event)
+						return !source || !presentationClaimedSources.has(source)
+					})
+				: visibleGeoEvents,
+		[presentationClaimedSources, visibleGeoEvents],
+	)
+
+	// Existing authored/remote layers stay intact; only sources rendered by the
+	// Story runtime are withheld to prevent duplicate whole-Map rendering.
+	const { remoteLayersReady, CLUSTERED_SOURCE_ID } = useMapLayers({
+		mapRef: map,
+		mounted,
+		visibleGeoEvents: ordinaryVisibleGeoEvents,
+		visibleSightings: visibleSightingsFromStack,
+		visibleBeacons: visibleBeaconsFromStack,
+		resolvedCollectionResolver,
+		resolvedCollectionsVersion,
+		datasetFeatureSelectors: referenceMapRenderState.datasetFeatureSelectors,
+		coordinateReferences: referenceMapRenderState.coordinates,
+	})
+	const { ready: presentationLayersReady, interactiveLayerIds: presentationLayerIds } =
+		usePresentationMapLayers({
+			mapRef: map,
+			mounted,
+			layers: activePresentationLayers,
+		})
+	const presentationFitFeatureCollection = useMemo(
+		() => presentationFitCollection(activePresentationLayers),
+		[activePresentationLayers],
+	)
+	usePresentationCamera({
+		mapRef: map,
+		mounted,
+		intent:
+			presentationStory && presentationCarrierId
+				? {
+						carrierId: presentationCarrierId,
+						intentId: activeStoryView
+							? `view:${activeStoryView.snapshot.view.id}:${activeStoryView.revision}`
+							: `opening:${presentationStory.id}`,
+						...(effectiveStoryState.camera
+							? { camera: effectiveStoryState.camera }
+							: { fitFeatureCollection: presentationFitFeatureCollection }),
+					}
+				: presentationAtlas && atlasPresentationCarrierId
+					? {
+							carrierId: atlasPresentationCarrierId,
+							intentId: `opening:${presentationAtlas.id}`,
+							...(usableRuntimeAtlasPresentation?.initialView
+								? {
+										camera: usableRuntimeAtlasPresentation.initialView,
+									}
+								: { fitFeatureCollection: presentationFitFeatureCollection }),
+						}
+					: null,
+	})
+
+	const handleStoryViewActivate = useCallback(
+		(snapshot: StoryViewSnapshotV1, index: number) => {
+			if (!presentationStory || !presentationCarrierId) return
+			setPresentationVisibilityOverrides({})
+			setActiveStoryView((current) => ({
+				carrierId: presentationCarrierId,
+				storyEventId: presentationStory.id,
+				snapshot,
+				index,
+				revision: (current?.revision ?? 0) + 1,
+			}))
+		},
+		[presentationCarrierId, presentationStory],
+	)
+	const captureMapPresentation = useCallback(
+		(
+			accepted?: readonly MapPresentationSource[] | MapPresentationAuthorization,
+		): MapPresentationV1 | null => {
+			const mapInstance = map.current
+			if (!mapInstance) return null
+			const center = mapInstance.getCenter()
+			const initialView = {
+				center: [center.lng, center.lat] as const,
+				zoom: mapInstance.getZoom(),
+				bearing: mapInstance.getBearing(),
+				pitch: mapInstance.getPitch(),
+			}
+			const authorization: MapPresentationAuthorization | null =
+				accepted && !Array.isArray(accepted) ? (accepted as MapPresentationAuthorization) : null
+			const acceptedSources = Array.isArray(accepted)
+				? new Set<MapPresentationSource>(accepted)
+				: null
+			const captureOrdinaryLayers = (events: readonly GeoDataset[]) =>
+				events.flatMap((event, index): readonly MapPresentationLayerV1[] => {
+					const source = getPresentationDatasetSource(event)
+					if (!source) return []
+					const selector = referenceMapRenderState.datasetFeatureSelectors[getDatasetKey(event)]
+					return [
+						Object.freeze({
+							id: `captured-${index + 1}`,
+							source,
+							...(Array.isArray(selector) ? { featureIds: Object.freeze([...selector]) } : {}),
+							visible: true,
+							opacityMultiplier: 1,
+						}),
+					]
+				})
+			const sourceLayers: readonly MapPresentationLayerV1[] = presentationStory
+				? composedStoryLayers
+				: presentationAtlas && usableRuntimeAtlasPresentation
+					? [
+							...usableRuntimeAtlasPresentation.layers.filter((layer) =>
+								authorizedAtlasLayerIds.has(layer.id),
+							),
+							...captureOrdinaryLayers(ordinaryVisibleGeoEvents),
+						]
+					: captureOrdinaryLayers(visibleGeoEvents)
+			const layers = sourceLayers.flatMap((layer, index) => {
+				if (!layer.visible) return []
+				if (acceptedSources && !acceptedSources.has(layer.source)) return []
+				const grant = authorization?.get(layer.source)
+				if (authorization && !grant) return []
+				let featureIds = layer.featureIds
+				if (grant?.scope === 'features') {
+					const allowed = new Set(grant.featureIds)
+					const authorizedFeatureIds = featureIds
+						? featureIds.filter((featureId) => allowed.has(featureId))
+						: grant.featureIds
+					if (authorizedFeatureIds.length === 0) return []
+					featureIds = authorizedFeatureIds
+				}
+				return [
+					Object.freeze({
+						...layer,
+						id: `captured-${index + 1}`,
+						...(featureIds !== undefined ? { featureIds: Object.freeze([...featureIds]) } : {}),
+					}),
+				]
+			})
+			return Object.freeze({
+				version: MAP_PRESENTATION_VERSION,
+				initialView: Object.freeze(initialView),
+				layers: Object.freeze(layers),
+			})
+		},
+		[
+			authorizedAtlasLayerIds,
+			composedStoryLayers,
+			getDatasetKey,
+			ordinaryVisibleGeoEvents,
+			presentationAtlas,
+			presentationStory,
+			referenceMapRenderState.datasetFeatureSelectors,
+			usableRuntimeAtlasPresentation,
+			visibleGeoEvents,
+		],
+	)
+	const captureStoryView = useCallback(() => {
+		const mapInstance = map.current
+		if (!mapInstance) return null
+		const center = mapInstance.getCenter()
+		const layers = Object.fromEntries(
+			effectiveStoryState.layers.map((layer) => [
+				layer.id,
+				{
+					visible: presentationVisibilityOverrides[layer.id] ?? layer.visible,
+					opacityMultiplier: layer.opacityMultiplier,
+					...(layer.style ? { style: layer.style } : {}),
+				},
+			]),
+		)
+		return {
+			camera: {
+				center: [center.lng, center.lat] as const,
+				zoom: mapInstance.getZoom(),
+				bearing: mapInstance.getBearing(),
+				pitch: mapInstance.getPitch(),
+			},
+			...(Object.keys(layers).length > 0 ? { layers } : {}),
+		}
+	}, [effectiveStoryState.layers, presentationVisibilityOverrides])
+	const renderStoryViewFigure = useCallback(
+		(snapshot: StoryViewSnapshotV1) =>
+			presentationStory && presentationCarrierId ? (
+				<StoryPresentationFigure
+					carrierId={presentationCarrierId}
+					story={presentationStory}
+					snapshot={snapshot}
+					resolved={storyPresentationRuntime.layers}
+				/>
+			) : null,
+		[presentationCarrierId, presentationStory, storyPresentationRuntime.layers],
+	)
 
 	const handleDiscoverOpenChange = useCallback((open: boolean) => {
 		discoverOpenedAutomaticallyRef.current = false
@@ -3701,8 +4417,15 @@ export function GeoEditorView() {
 			if (!sightingPlacementArmedRef.current) return
 			const feature = event.features?.[0]
 			if (!feature?.geometry) return
+			if (
+				feature.geometry.type !== 'Point' &&
+				feature.geometry.type !== 'LineString' &&
+				feature.geometry.type !== 'Polygon'
+			) {
+				return
+			}
 			sightingPlacementArmedRef.current = false
-			handleGeometryPlaced(feature.geometry as Geometry)
+			handleGeometryPlaced(feature.geometry)
 			// Drop the transient draw feature so it doesn't pollute the dataset draft.
 			try {
 				if (feature.id) editor.deleteFeature(feature.id)
@@ -3816,7 +4539,7 @@ export function GeoEditorView() {
 			(b) => (b.dTag ?? b.id) === followingBeaconKey,
 		)
 		const geometry = match?.geometry
-		if (!geometry || geometry.type !== 'Point') return null
+		if (geometry?.type !== 'Point') return null
 		return geometry.coordinates as [number, number]
 	}, [followingBeaconKey, beacons, routedBeacons])
 	// Recenter on each new position. easeTo does NOT emit 'dragstart', so it never
@@ -3929,15 +4652,8 @@ export function GeoEditorView() {
 		if (!routeKey) {
 			focusHandledRef.current = null
 			inAppDatasetInspectRouteRef.current = null
-			storyRoutePresentationRef.current = null
 			inAppEphemeralInspectRouteRef.current = null
 			return
-		}
-		if (
-			storyRoutePresentationRef.current &&
-			storyRoutePresentationRef.current.routeKey !== routeKey
-		) {
-			storyRoutePresentationRef.current = null
 		}
 		if (
 			inAppEphemeralInspectRouteRef.current &&
@@ -3996,8 +4712,16 @@ export function GeoEditorView() {
 					}) || encodeGeoEventNaddr(event) === route.naddr,
 			)
 			if (dataset) {
-				const handledKey = `${routeKey}:${dataset.id}`
+				const handledKey = `${routeKey}:${route.edit ? 'edit' : 'view'}:${dataset.id}`
 				if (focusHandledRef.current === handledKey) return
+				if (route.edit) {
+					void loadDatasetForCurrentChannel(dataset).then((loaded) => {
+						if (!loaded) return
+						ensureInfoPanelVisible()
+						focusHandledRef.current = handledKey
+					})
+					return
+				}
 				if (inAppDatasetInspectRouteRef.current === routeKey) {
 					// `handleInspectDataset` already selected the Inspector. Mark this URL
 					// handled without changing Map Stack membership or camera position.
@@ -4022,9 +4746,10 @@ export function GeoEditorView() {
 					}) || encodeContextNaddr(ctx) === route.naddr,
 			)
 			if (context) {
-				const handledKey = `${routeKey}:${context.id}`
+				const handledKey = `${routeKey}:${route.edit ? 'edit' : 'view'}:${context.id}`
 				if (focusHandledRef.current === handledKey) return
-				handleInspectContext(context)
+				if (route.edit && currentUserPubkey === context.pubkey) handleEditContext(context)
+				else handleInspectContext(context)
 				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'story') {
@@ -4034,219 +4759,14 @@ export function GeoEditorView() {
 					encodeStoryNaddr(s) === route.naddr,
 			)
 			if (story) {
-				const handledKey = `${routeKey}:${story.id}`
-				const refs = parseStoryRefs(story)
-				const refSignature = refs
-					.map((ref) => ref.entryId)
-					.sort()
-					.join('\u0000')
-				let presentation = storyRoutePresentationRef.current
-				if (!presentation || presentation.routeKey !== routeKey) {
-					presentation = {
-						routeKey,
-						storyId: story.id,
-						refSignature,
-						admittedEntryIds: [],
-						admitted: false,
-						fitted: false,
-					}
-					storyRoutePresentationRef.current = presentation
-				}
-
-				// Reconcile the Inspector from the routed event, then keep revisiting this
-				// branch until its targeted Dataset subscription has supplied fit geometry.
-				// This intentionally uses the same path for shared URLs and in-app opens.
-				if (focusHandledRef.current !== handledKey) {
-					handleInspectStory(story)
-					focusHandledRef.current = handledKey
-				}
-
-				if (presentation.storyId !== story.id) {
-					const previousEntryIds = new Set(presentation.admittedEntryIds)
-					const nextEntryIds = new Set(refs.map((ref) => ref.entryId))
-					const refsChanged = presentation.refSignature !== refSignature
-
-					if (refsChanged) {
-						// A replaceable Story can arrive in more than one version while the
-						// shared route hydrates. Frame the latest reference set, not the one
-						// that happened to resolve first.
-						presentation.fitted = false
-						const stack = useEditorStore.getState().mapStackEntries
-						const carrierKey = `${story.pubkey}:${story.dTag ?? ''}`
-						for (const entryId of previousEntryIds) {
-							if (nextEntryIds.has(entryId)) continue
-							const entry = stack[entryId]
-							if (
-								entry?.source === 'story' &&
-								entry.via?.entityType === 'story' &&
-								entry.via.entityKey === carrierKey &&
-								!entry.pinned
-							) {
-								removeMapStackEntry(entryId)
-							}
-						}
-
-						// Preserve visibility for refs that survived the replacement, but
-						// reveal genuinely new refs and update the carrier title/provenance.
-						for (const ref of refs) {
-							const existing = useEditorStore.getState().mapStackEntries[ref.entryId]
-							if (previousEntryIds.has(ref.entryId)) {
-								if (existing) {
-									addMapStackEntry({
-										id: existing.id,
-										entityType: existing.entityType,
-										entityKey: existing.entityKey,
-										title: existing.title,
-										featureIds: existing.featureIds,
-										source: existing.source,
-										via: ref.via,
-										visible: existing.visible,
-										pinned: existing.pinned,
-										isolated: existing.isolated,
-										exclusions: existing.exclusions,
-									})
-								}
-								continue
-							}
-
-							if (existing) {
-								addMapStackEntry({
-									id: existing.id,
-									entityType: existing.entityType,
-									entityKey: existing.entityKey,
-									title: existing.title,
-									featureIds: existing.featureIds,
-									source: existing.source,
-									via: ref.via,
-									visible: true,
-									pinned: existing.pinned,
-									isolated: existing.isolated,
-									exclusions: existing.exclusions,
-								})
-							} else {
-								addMapStackEntry({
-									id: ref.entryId,
-									entityType: 'dataset',
-									entityKey: ref.datasetKey,
-									title: ref.identifier,
-									featureIds: ref.featureId ? [ref.featureId] : undefined,
-									source: 'story',
-									via: ref.via,
-									visible: true,
-									pinned: false,
-								})
-							}
-						}
-						presentation.admitted = true
-						presentation.admittedEntryIds = [...nextEntryIds]
-					} else {
-						// The Story text/title may have changed without changing its refs.
-						// Refresh only carrier presentation; never revive a hidden entry.
-						for (const ref of refs) {
-							const existing = useEditorStore.getState().mapStackEntries[ref.entryId]
-							if (!existing) continue
-							addMapStackEntry({
-								id: existing.id,
-								entityType: existing.entityType,
-								entityKey: existing.entityKey,
-								title: existing.title,
-								featureIds: existing.featureIds,
-								source: existing.source,
-								via: ref.via,
-								visible: existing.visible,
-								pinned: existing.pinned,
-								isolated: existing.isolated,
-								exclusions: existing.exclusions,
-							})
-						}
-					}
-
-					presentation.storyId = story.id
-					presentation.refSignature = refSignature
-				}
-
-				if (!presentation.admitted) {
-					for (const ref of refs) {
-						const existing = useEditorStore.getState().mapStackEntries[ref.entryId]
-						if (existing) {
-							addMapStackEntry({
-								id: existing.id,
-								entityType: existing.entityType,
-								entityKey: existing.entityKey,
-								title: existing.title,
-								featureIds: existing.featureIds,
-								source: existing.source,
-								via: ref.via,
-								visible: true,
-								pinned: existing.pinned,
-								isolated: existing.isolated,
-								exclusions: existing.exclusions,
-							})
-							continue
-						}
-						addMapStackEntry({
-							id: ref.entryId,
-							entityType: 'dataset',
-							entityKey: ref.datasetKey,
-							title: ref.identifier,
-							featureIds: ref.featureId ? [ref.featureId] : undefined,
-							source: 'story',
-							via: ref.via,
-							visible: true,
-							pinned: false,
-						})
-					}
-					presentation.admitted = true
-					presentation.admittedEntryIds = refs.map((ref) => ref.entryId)
-				}
-				if (presentation.fitted) return
-				// Blob-backed collections are cached outside React; this explicit read
-				// makes their resolution counter a retry signal for the pending fit.
-				void resolvedCollectionsVersion
-
-				const stack = useEditorStore.getState()
-				const visibleRefs = refs.filter((ref) => {
-					const entry = stack.mapStackEntries[ref.entryId]
-					return Boolean(entry && entry.visible !== false)
-				})
-				// A user removal/hide while reference data was resolving wins over the
-				// original landing intent; never resurrect or refit that removed content.
-				if (refs.length > 0 && visibleRefs.length === 0) {
-					presentation.fitted = true
-					return
-				}
-
-				const datasetByKey = new Map(mapGeoEvents.map((event) => [getDatasetKey(event), event]))
-				if (visibleRefs.some((ref) => !datasetByKey.has(ref.datasetKey))) return
-
-				let bounds: GeoBounds | null = null
-				for (const ref of visibleRefs) {
-					const dataset = datasetByKey.get(ref.datasetKey)
-					if (!dataset) return
-					const resolvedCollection = resolvedCollectionResolver(dataset)
-					const collection = resolvedCollection ?? dataset.featureCollection
-					const inlineBounds = collectionGeoBounds(collection, ref.featureId)
-					if (
-						dataset.blobReferences.length > 0 &&
-						!resolvedCollection &&
-						(ref.featureId || (!dataset.boundingBox && !inlineBounds))
-					) {
-						// Feature-level bounds need the external collection. The blob resolver's
-						// version tick also retries whole-Dataset refs that have no usable
-						// event/inline bounds yet.
-						return
-					}
-					const referenceBounds = ref.featureId
-						? (inlineBounds ?? dataset.boundingBox)
-						: (dataset.boundingBox ?? inlineBounds)
-					bounds = mergeGeoBounds(bounds, referenceBounds)
-				}
-				bounds = bounds ?? story.boundingBox ?? null
-				if (bounds) {
-					if (!mounted || !map.current) return
-					handleZoomToBounds(bounds)
-				}
-				presentation.fitted = true
+				const handledKey = `${routeKey}:${route.edit ? 'edit' : 'view'}:${story.id}`
+				if (focusHandledRef.current === handledKey) return
+				// Inspection selects the Margin surface. Exact source resolution, feature
+				// selection, authored styling, and camera framing are owned by the shared
+				// presentation hooks above—this route effect never widens or auto-stacks.
+				if (route.edit && currentUserPubkey === story.pubkey) handleEditStory(story)
+				else handleInspectStory(story, { preserveRoute: route.edit })
+				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'sighting') {
 			// D-08: resolve the /sighting/:naddr deep link via useSightings (already
@@ -4313,6 +4833,8 @@ export function GeoEditorView() {
 		route.focusType,
 		route.naddr,
 		route.commentId,
+		route.edit,
+		currentUserPubkey,
 		geoEvents,
 		mapContextEvents,
 		stories,
@@ -4325,23 +4847,35 @@ export function GeoEditorView() {
 		encodeSightingNaddr,
 		encodeBeaconNaddr,
 		addDatasetToMapStack,
-		addMapStackEntry,
-		removeMapStackEntry,
 		addSightingToMapStack,
 		addBeaconToMapStack,
 		handleInspectDataset,
+		loadDatasetForCurrentChannel,
+		ensureInfoPanelVisible,
 		handleInspectContext,
+		handleEditContext,
 		handleInspectStory,
+		handleEditStory,
 		handleInspectSighting,
 		handleInspectBeacon,
-		getDatasetKey,
-		handleZoomToBounds,
-		mapGeoEvents,
-		mounted,
-		resolvedCollectionResolver,
-		resolvedCollectionsVersion,
 		zoomToDataset,
 	])
+
+	const routedStoryProposalOpen =
+		route.edit &&
+		route.focusType === 'story' &&
+		route.naddr &&
+		viewStory &&
+		currentUserPubkey !== viewStory.pubkey
+			? true
+			: undefined
+	const handleRoutedStoryProposalOpenChange = useCallback(
+		(open: boolean) => {
+			if (open || !route.naddr || route.focusType !== 'story' || !route.edit) return
+			navigateTo('story', route.naddr, 'stories', false)
+		},
+		[navigateTo, route.edit, route.focusType, route.naddr],
+	)
 
 	// Pan lock and magnifier
 	const togglePanLock = useCallback(() => {
@@ -4481,7 +5015,6 @@ export function GeoEditorView() {
 		}
 		if (selectedFeatureIds.length === 0) {
 			setCalloutsEnabled(true)
-			setMapStackOpen(false)
 			setCalloutAuthoringFeatureId(null)
 			calloutAnchorExistingFeatureIdsRef.current = new Set(features.map((feature) => feature.id))
 			setCalloutAnchorDrawing(true)
@@ -4505,7 +5038,6 @@ export function GeoEditorView() {
 			return
 		}
 		setCalloutsEnabled(true)
-		setMapStackOpen(false)
 		executeEditorCommand('set_mode', { mode: 'select' })
 		setCalloutAuthoringFeatureId(selectedFeatureId)
 		handleZoomToFeature(feature)
@@ -4517,7 +5049,6 @@ export function GeoEditorView() {
 		handleZoomToFeature,
 		selectedFeatureIds,
 		setCalloutsEnabled,
-		setMapStackOpen,
 	])
 	const handleCalloutsChange = useCallback(
 		(featureId: string, callouts: MapCallout[]) => {
@@ -4527,6 +5058,710 @@ export function GeoEditorView() {
 		},
 		[editor],
 	)
+
+	const orderedShelfEntries = useMemo(
+		() =>
+			mapStackOrder
+				.map((id) => mapStackEntries[id])
+				.filter((entry): entry is MapStackEntry => Boolean(entry)),
+		[mapStackEntries, mapStackOrder],
+	)
+	const aggregateLiveEntries = useMemo(
+		() =>
+			orderedShelfEntries.filter(
+				(entry) => entry.entityType === 'sighting-layer' || entry.entityType === 'beacon-layer',
+			),
+		[orderedShelfEntries],
+	)
+	const shelfEntryById = useMemo(
+		() => new Map(orderedShelfEntries.map((entry) => [entry.id, entry] as const)),
+		[orderedShelfEntries],
+	)
+	const isolatedShelfEntry = orderedShelfEntries.find((entry) => entry.isolated) ?? null
+	const stackShelfItems = useMemo<readonly ShelfStripItem[]>(() => {
+		const resolveTitle = (entry: MapStackEntry): string => {
+			if (entry.entityType === 'dataset') {
+				const dataset = mapGeoEvents.find((event) => getDatasetKey(event) === entry.entityKey)
+				if (dataset) {
+					const datasetName = getDatasetName(dataset)
+					return entry.featureIds?.length
+						? `${entry.title || `${entry.featureIds.length} selected features`} · ${datasetName}`
+						: datasetName
+				}
+			}
+			if (entry.entityType === 'context') {
+				const context = mapContextEvents.find(
+					(candidate) =>
+						getContextCoordinate(candidate) === entry.entityKey ||
+						candidate.id === entry.entityKey ||
+						candidate.contextId === entry.entityKey ||
+						candidate.dTag === entry.entityKey,
+				)
+				if (context) {
+					return context.context.name || context.contextId || context.dTag || entry.title
+				}
+			}
+			if (entry.entityType === 'draft') {
+				return collectionMeta.name?.trim() || entry.title || 'Working map'
+			}
+			return entry.title?.trim() || entry.entityKey
+		}
+
+		return Object.freeze(
+			orderedShelfEntries
+				.filter(
+					(entry) => entry.entityType !== 'sighting-layer' && entry.entityType !== 'beacon-layer',
+				)
+				.map((entry) => {
+					const isRequiredDraft = entry.entityType === 'draft'
+					const isPrivate = entry.source === 'private-group' || entry.source === 'field-session'
+					return Object.freeze({
+						id: entry.id,
+						title: resolveTitle(entry),
+						visible: isolatedShelfEntry ? isolatedShelfEntry.id === entry.id : entry.visible,
+						active: entry.isolated,
+						editing: isRequiredDraft,
+						locked: isPrivate,
+						...(isPrivate
+							? {
+									lockLabel:
+										entry.source === 'private-group' ? 'Private Circle map' : 'Nearby session map',
+								}
+							: {}),
+						toggleable: !isRequiredDraft,
+						removable: !isRequiredDraft,
+						...(isRequiredDraft
+							? {
+									toggleDisabledLabel: 'The active working map stays visible while editing',
+									removeDisabledLabel: 'Finish editing before removing this working map',
+								}
+							: {}),
+					}) satisfies ShelfStripItem
+				}),
+		)
+	}, [
+		collectionMeta.name,
+		getDatasetKey,
+		getDatasetName,
+		isolatedShelfEntry,
+		mapContextEvents,
+		mapGeoEvents,
+		orderedShelfEntries,
+	])
+	const storyPresentationShelfItems = useMemo<readonly ShelfStripItem[]>(() => {
+		if (!presentationStory || !presentationCarrierId) return Object.freeze([])
+		const eventBySource = new Map(
+			storyPresentationRuntime.sourceEvents.flatMap((event) => {
+				const source = getPresentationDatasetSource(event)
+				return source ? [[source, event] as const] : []
+			}),
+		)
+		return Object.freeze(
+			effectiveStoryState.layers
+				.filter((layer) => authorizedStoryLayerIds.has(layer.id))
+				.map((layer) => {
+					const sourceEvent = eventBySource.get(layer.source)
+					const sourceName = sourceEvent
+						? getDatasetName(sourceEvent)
+						: (layer.source.split(':').at(-1) ?? 'Referenced map')
+					const title = layer.featureIds?.length
+						? `${sourceName} · ${layer.featureIds.length} selected`
+						: sourceName
+					return Object.freeze({
+						id: `presentation:story:${presentationCarrierId}:${layer.id}`,
+						title,
+						visible: presentationVisibilityOverrides[layer.id] ?? layer.visible,
+						active: activeStoryView?.snapshot.state.layers.some(
+							(activeLayer) => activeLayer.id === layer.id,
+						),
+						reorderable: false,
+					}) satisfies ShelfStripItem
+				}),
+		)
+	}, [
+		activeStoryView,
+		authorizedStoryLayerIds,
+		effectiveStoryState.layers,
+		getDatasetName,
+		presentationCarrierId,
+		presentationStory,
+		presentationVisibilityOverrides,
+		storyPresentationRuntime.sourceEvents,
+	])
+	const atlasPresentationShelfItems = useMemo<readonly ShelfStripItem[]>(() => {
+		if (!presentationAtlas || !atlasPresentationCarrierId || !usableRuntimeAtlasPresentation) {
+			return Object.freeze([])
+		}
+		const eventBySource = new Map(
+			atlasPresentationRuntime.sourceEvents.flatMap((event) => {
+				const source = getPresentationDatasetSource(event)
+				return source ? [[source, event] as const] : []
+			}),
+		)
+		return Object.freeze(
+			usableRuntimeAtlasPresentation.layers
+				.filter((layer) => authorizedAtlasLayerIds.has(layer.id))
+				.map((layer) => {
+					const sourceEvent = eventBySource.get(layer.source)
+					const sourceName = sourceEvent
+						? getDatasetName(sourceEvent)
+						: (layer.source.split(':').at(-1) ?? 'Referenced map')
+					return Object.freeze({
+						id: `presentation:atlas:${atlasPresentationCarrierId}:${layer.id}`,
+						title: layer.featureIds?.length
+							? `${sourceName} · ${layer.featureIds.length} selected`
+							: sourceName,
+						visible: layer.visible,
+						reorderable: false,
+					}) satisfies ShelfStripItem
+				}),
+		)
+	}, [
+		atlasPresentationCarrierId,
+		atlasPresentationRuntime.sourceEvents,
+		authorizedAtlasLayerIds,
+		getDatasetName,
+		presentationAtlas,
+		usableRuntimeAtlasPresentation,
+	])
+	const presentationShelfItems = useMemo(
+		() => Object.freeze([...storyPresentationShelfItems, ...atlasPresentationShelfItems]),
+		[atlasPresentationShelfItems, storyPresentationShelfItems],
+	)
+	const shelfItems = useMemo(
+		() => Object.freeze([...presentationShelfItems, ...stackShelfItems]),
+		[presentationShelfItems, stackShelfItems],
+	)
+	const presentationShelfTargets = useMemo(() => {
+		const targets = new Map<
+			string,
+			{ layer: MapPresentationLayerV1; event: GeoDataset | undefined }
+		>()
+		if (presentationCarrierId) {
+			for (const layer of effectiveStoryState.layers) {
+				if (!authorizedStoryLayerIds.has(layer.id)) continue
+				targets.set(`presentation:story:${presentationCarrierId}:${layer.id}`, {
+					layer,
+					event: storyPresentationRuntime.sourceEvents.find(
+						(candidate) => getPresentationDatasetSource(candidate) === layer.source,
+					),
+				})
+			}
+		}
+		if (atlasPresentationCarrierId && usableRuntimeAtlasPresentation) {
+			for (const layer of usableRuntimeAtlasPresentation.layers) {
+				if (!authorizedAtlasLayerIds.has(layer.id)) continue
+				targets.set(`presentation:atlas:${atlasPresentationCarrierId}:${layer.id}`, {
+					layer,
+					event: atlasPresentationRuntime.sourceEvents.find(
+						(candidate) => getPresentationDatasetSource(candidate) === layer.source,
+					),
+				})
+			}
+		}
+		return targets
+	}, [
+		atlasPresentationCarrierId,
+		atlasPresentationRuntime.sourceEvents,
+		authorizedAtlasLayerIds,
+		authorizedStoryLayerIds,
+		effectiveStoryState.layers,
+		presentationCarrierId,
+		storyPresentationRuntime.sourceEvents,
+		usableRuntimeAtlasPresentation,
+	])
+	const handleShelfOpenItem = useCallback(
+		(item: ShelfStripItem) => {
+			if (item.id.startsWith('presentation:')) {
+				const event = presentationShelfTargets.get(item.id)?.event
+				if (event) {
+					handleInspectDatasetWithModeSwitch(event)
+					zoomToDataset(event)
+				}
+				return
+			}
+			const entry = shelfEntryById.get(item.id)
+			if (!entry) return
+			switch (entry.entityType) {
+				case 'dataset': {
+					const dataset = mapGeoEvents.find(
+						(candidate) => getDatasetKey(candidate) === entry.entityKey,
+					)
+					if (dataset) handleInspectDatasetWithModeSwitch(dataset)
+					break
+				}
+				case 'context': {
+					const context = mapContextEvents.find(
+						(candidate) =>
+							getContextCoordinate(candidate) === entry.entityKey ||
+							candidate.id === entry.entityKey ||
+							candidate.contextId === entry.entityKey ||
+							candidate.dTag === entry.entityKey,
+					)
+					if (context) handleInspectContext(context)
+					break
+				}
+				case 'draft':
+					void openDraftEditor()
+					break
+				case 'sighting': {
+					const sighting = sightingLookupSuperset.find(
+						(candidate) => getSightingMapStackKey(candidate) === entry.entityKey,
+					)
+					if (sighting) handleInspectSighting(sighting)
+					break
+				}
+				case 'beacon': {
+					const beacon = addedBeaconLookupSuperset.find(
+						(candidate) => getBeaconMapStackKey(candidate) === entry.entityKey,
+					)
+					if (beacon) handleInspectBeacon(beacon)
+					break
+				}
+				case 'coordinate':
+					handleMentionZoomTo(entry.entityKey, undefined)
+					break
+				default:
+					navigateToView('map-stack')
+			}
+		},
+		[
+			addedBeaconLookupSuperset,
+			getDatasetKey,
+			handleInspectBeacon,
+			handleInspectContext,
+			handleInspectDatasetWithModeSwitch,
+			handleInspectSighting,
+			handleMentionZoomTo,
+			mapContextEvents,
+			mapGeoEvents,
+			navigateToView,
+			openDraftEditor,
+			presentationShelfTargets,
+			shelfEntryById,
+			sightingLookupSuperset,
+			zoomToDataset,
+		],
+	)
+	const handleShelfToggleItem = useCallback(
+		(item: ShelfStripItem, visible: boolean) => {
+			if (item.id.startsWith('presentation:')) {
+				const layer = presentationShelfTargets.get(item.id)?.layer
+				if (!layer) return
+				setPresentationVisibilityOverrides((current) => ({
+					...current,
+					[layer.id]: visible,
+				}))
+				return
+			}
+			const entry = shelfEntryById.get(item.id)
+			if (!entry || entry.entityType === 'draft') return
+			for (const candidate of orderedShelfEntries) {
+				if (candidate.isolated) setMapStackEntryIsolated(candidate.id, false)
+			}
+			setMapStackEntryVisible(entry.id, visible)
+		},
+		[
+			orderedShelfEntries,
+			presentationShelfTargets,
+			setMapStackEntryIsolated,
+			setMapStackEntryVisible,
+			shelfEntryById,
+		],
+	)
+	const handleShelfRemoveItem = useCallback(
+		(item: ShelfStripItem) => {
+			if (item.id.startsWith('presentation:')) {
+				handleShelfToggleItem(item, false)
+				return
+			}
+			const entry = shelfEntryById.get(item.id)
+			if (entry && entry.entityType !== 'draft') removeFromMapStack(entry)
+		},
+		[handleShelfToggleItem, removeFromMapStack, shelfEntryById],
+	)
+	const handleShelfReorderItem = useCallback(
+		(draggedId: string, targetId: string, placement: ShelfReorderPlacement) => {
+			if (!shelfEntryById.has(draggedId) || !shelfEntryById.has(targetId)) return
+			const nextOrder = mapStackOrder.filter((id) => id !== draggedId)
+			const targetIndex = nextOrder.indexOf(targetId)
+			if (targetIndex < 0) return
+			nextOrder.splice(targetIndex + (placement === 'after' ? 1 : 0), 0, draggedId)
+			setMapStackOrder(nextOrder)
+		},
+		[mapStackOrder, setMapStackOrder, shelfEntryById],
+	)
+	const liveShelfItem = useMemo(
+		() => ({
+			count: sightings.length + beacons.length,
+			visible: isolatedShelfEntry
+				? aggregateLiveEntries.some((entry) => entry.id === isolatedShelfEntry.id)
+				: aggregateLiveEntries.some((entry) => entry.visible),
+			onToggle: () => {
+				const currentlyVisible = isolatedShelfEntry
+					? aggregateLiveEntries.some((entry) => entry.id === isolatedShelfEntry.id)
+					: aggregateLiveEntries.some((entry) => entry.visible)
+				for (const entry of orderedShelfEntries) {
+					if (entry.isolated) setMapStackEntryIsolated(entry.id, false)
+				}
+				if (currentlyVisible) {
+					for (const entry of aggregateLiveEntries) {
+						setMapStackEntryVisible(entry.id, false)
+					}
+					return
+				}
+				const existingTypes = new Set(aggregateLiveEntries.map((entry) => entry.entityType))
+				for (const entry of aggregateLiveEntries) setMapStackEntryVisible(entry.id, true)
+				if (!existingTypes.has('sighting-layer')) {
+					addMapStackEntry({
+						entityType: 'sighting-layer',
+						entityKey: 'all',
+						title: 'All sightings',
+						source: 'manual',
+						visible: true,
+						pinned: false,
+					})
+				}
+				if (!existingTypes.has('beacon-layer')) {
+					addMapStackEntry({
+						entityType: 'beacon-layer',
+						entityKey: 'all',
+						title: 'All live locations',
+						source: 'manual',
+						visible: true,
+						pinned: false,
+					})
+				}
+			},
+		}),
+		[
+			addMapStackEntry,
+			aggregateLiveEntries,
+			beacons.length,
+			isolatedShelfEntry,
+			orderedShelfEntries,
+			setMapStackEntryIsolated,
+			setMapStackEntryVisible,
+			sightings.length,
+		],
+	)
+
+	const handleGlobalEntitySearchSelect = useCallback(
+		(result: EntitySearchResult) => {
+			switch (result.type) {
+				case 'dataset': {
+					const dataset = result.entity as GeoDataset
+					addDatasetToMapStack(dataset, 'manual')
+					handleInspectDatasetWithModeSwitch(dataset)
+					zoomToDataset(dataset)
+					break
+				}
+				case 'context':
+					handleInspectContext(result.entity as MapContext)
+					break
+				case 'story':
+					handleInspectStory(result.entity as Article)
+					break
+				case 'sighting':
+					handleInspectSighting(result.entity as TemporalSighting)
+					break
+				case 'beacon':
+					handleInspectBeacon(result.entity as LiveBeacon)
+					break
+				case 'feature': {
+					const feature = result.entity as import('@/components/editor').GeoFeatureItem
+					handleMentionZoomTo(feature.address, feature.featureId)
+					break
+				}
+				case 'person':
+					if (result.pubkey) navigateToRoute(`/person/${nip19.npubEncode(result.pubkey)}`)
+					break
+				case 'place': {
+					const place = result.entity as PlaceSearchEntity
+					zoomToSearchResult({
+						...place,
+						boundingbox:
+							place.boundingbox?.length === 4
+								? (place.boundingbox as [number, number, number, number])
+								: null,
+					})
+					break
+				}
+			}
+		},
+		[
+			addDatasetToMapStack,
+			handleInspectBeacon,
+			handleInspectContext,
+			handleInspectDatasetWithModeSwitch,
+			handleInspectSighting,
+			handleInspectStory,
+			handleMentionZoomTo,
+			zoomToSearchResult,
+			zoomToDataset,
+		],
+	)
+	const topBarActivityItems = useMemo<readonly ActivityTickerItem[]>(() => {
+		const items: ActivityTickerItem[] = []
+		if (ownLiveBeacon) {
+			items.push({
+				id: `live:${ownLiveBeacon.id}`,
+				actor: 'You',
+				verb: 'are sharing',
+				title: ownLiveBeacon.beacon.label?.trim() || 'live location',
+				ageLabel: 'now',
+				icon: <Radio />,
+				live: true,
+				onActivate: () => handleInspectBeacon(ownLiveBeacon),
+			})
+		}
+		const latestStory = recentDiscoveryStories[0]
+		if (latestStory) {
+			items.push({
+				id: `story:${latestStory.id}`,
+				actor: 'Public',
+				verb: 'published',
+				title: latestStory.article.title || latestStory.dTag || 'a story',
+				ageLabel: discoveryDate(latestStory.created_at) || 'recently',
+				icon: <BookOpen />,
+				onActivate: () => handleInspectStory(latestStory),
+			})
+		}
+		const latestMap = recentDiscoveryDatasets[0]
+		if (latestMap) {
+			items.push({
+				id: `map:${latestMap.id}`,
+				actor: 'Public',
+				verb: 'mapped',
+				title: getDatasetName(latestMap),
+				ageLabel: discoveryDate(latestMap.created_at) || 'recently',
+				icon: <Database />,
+				onActivate: () => {
+					addDatasetToMapStack(latestMap, 'manual')
+					handleInspectDatasetWithModeSwitch(latestMap)
+					zoomToDataset(latestMap)
+				},
+			})
+		}
+		return Object.freeze(items)
+	}, [
+		addDatasetToMapStack,
+		getDatasetName,
+		handleInspectBeacon,
+		handleInspectDatasetWithModeSwitch,
+		handleInspectStory,
+		ownLiveBeacon,
+		recentDiscoveryDatasets,
+		recentDiscoveryStories,
+		zoomToDataset,
+	])
+	const topBarActions: readonly TopBarAction[] = [
+		{
+			id: 'browse',
+			label: 'Browse',
+			icon: <Globe />,
+			active: ['datasets', 'stories', 'contexts', 'sightings', 'beacons'].includes(
+				route.sidebarView,
+			),
+			onActivate: () => navigateToView('datasets'),
+		},
+		{
+			id: 'drafts',
+			label: 'Drafts',
+			icon: <FilePenLine />,
+			badge: retainedDraftCount,
+			active: route.sidebarView === 'drafts',
+			onActivate: () => navigateToView('drafts'),
+		},
+		{
+			id: 'inbox',
+			label: 'Inbox',
+			icon: <Inbox />,
+			badge: inboxUnreadCount,
+			badgeTone: inboxUnreadCount > 0 ? 'warning' : 'default',
+			active: route.sidebarView === 'delivery',
+			onActivate: () => navigateToView('delivery'),
+		},
+		{
+			id: 'ask',
+			label: 'Ask',
+			icon: <MessageSquare />,
+			active: route.sidebarView === 'chat',
+			onActivate: () => navigateToView('chat'),
+		},
+		{
+			id: 'me',
+			label: 'Me',
+			icon: <UserRound />,
+			active: route.sidebarView === 'user',
+			onActivate: () => navigateToView('user'),
+		},
+		{
+			id: 'help',
+			label: '?',
+			ariaLabel: 'Help',
+			icon: <CircleHelp />,
+			active: route.sidebarView === 'help',
+			onActivate: () => navigateToView('help'),
+		},
+	]
+	const topBarSlot = (
+		<TopBar
+			search={
+				<EntitySearchPopover
+					sources={{
+						datasets: scopedGeoEvents,
+						contexts: mapContextEvents,
+						features: availableFeatures,
+						stories,
+						sightings,
+						beacons,
+					}}
+					entityTypes={[
+						'dataset',
+						'story',
+						'context',
+						'sighting',
+						'person',
+						'place',
+						'beacon',
+						'feature',
+					]}
+					onSelect={handleGlobalEntitySearchSelect}
+					onAsk={(query) => navigateToRoute(`/ask?q=${encodeURIComponent(query)}`)}
+					placeholder={
+						routedLensAtlas
+							? `Search in ${routedLensAtlas.group.name || 'this atlas'}…`
+							: 'Search maps, stories, atlases, places…'
+					}
+					searchMode="both"
+					compact
+					getDatasetName={getDatasetName}
+				/>
+			}
+			activityItems={topBarActivityItems}
+			actions={topBarActions}
+			onBrandActivate={() => navigateToUnscopedView('datasets')}
+		/>
+	)
+	const lensBarSlot = routedLensAtlas ? (
+		<LensBar
+			emblem={<Hexagon />}
+			title={routedLensAtlas.group.name || routedLensAtlas.groupId || 'Atlas'}
+			itemCount={routedLensAtlas.referencedAddresses.length}
+			itemNoun="map"
+			policyLabel={
+				routedLensAtlas.group.governance === 'closed'
+					? 'Only the author adds maps'
+					: routedLensAtlas.group.governance === 'schema'
+						? 'Maps must fit the schema'
+						: 'Anyone can add maps'
+			}
+			authorLabel={`${routedLensAtlas.pubkey.slice(0, 8)}…`}
+			onOpenAbout={activeContextScope ? () => handleInspectContext(activeContextScope) : undefined}
+			onShare={() => {
+				void (async () => {
+					try {
+						if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
+						const atlasAppLink = contextNaddr
+							? earthlyPublicUrl(`/in/${encodeURIComponent(contextNaddr)}`)
+							: window.location.href
+						await navigator.clipboard.writeText(atlasAppLink)
+						toast.success('Atlas app link copied.')
+					} catch {
+						toast.error("Couldn't copy the Atlas link.")
+					}
+				})()
+			}}
+			onLeave={clearContextScope}
+		/>
+	) : null
+	const shelfSlot = (
+		<ShelfStrip
+			items={shelfItems}
+			live={liveShelfItem}
+			onOpenItem={handleShelfOpenItem}
+			onToggleItem={handleShelfToggleItem}
+			onRemoveItem={handleShelfRemoveItem}
+			onReorderItem={handleShelfReorderItem}
+			onOpenShelf={() => navigateToView('map-stack')}
+			onSaveView={() => {
+				const captured = captureMapPresentation()
+				if (!captured) {
+					toast.error("Couldn't capture this canvas yet. Wait for the map to finish loading.")
+					return
+				}
+				handleCreateContext(buildSavedViewAtlasSeed(captured))
+				toast.success('Canvas captured in a new personal Atlas draft.')
+			}}
+		/>
+	)
+	const shelfPanelSlot = (
+		<MapStackPanel
+			geoEvents={mapGeoEvents}
+			mapContextEvents={mapContextEvents}
+			getDatasetKey={getDatasetKey}
+			getDatasetName={getDatasetName}
+			onAddDatasetToMap={addDatasetToMapStack}
+			onInspectDataset={handleInspectDatasetWithModeSwitch}
+			onZoomToDataset={zoomToDataset}
+			onLoadDataset={handleDatasetSelect}
+			onInspectContext={handleInspectContext}
+			onSetEntryVisible={setMapStackVisibility}
+			onSetEntryIsolated={setMapStackIsolation}
+			onRemoveEntry={removeFromMapStack}
+			onOpenDraftEditor={() => void openDraftEditor()}
+			onZoomToDraft={zoomToDraft}
+			onClear={clearMapStackAndVisibility}
+			onClose={() => navigateToView('datasets')}
+		/>
+	)
+	const canvasToolbarSlot = !isMobile ? (
+		<Toolbar
+			datasetActions={{
+				onExportGeoJSON: exportGeoJSON,
+				onExportSHP: exportSHP,
+				canExport: stats.total > 0,
+				onImport: handleImport,
+				onClear: handleClear,
+				onPublishNew: handlePublishNew,
+				canPublishNew,
+				onPublishUpdate: handlePublishUpdate,
+				canPublishUpdate,
+				onPublishCopy: handlePublishCopy,
+				canPublishCopy,
+				onProposeEdit: handleProposeEdit,
+				canProposeEdit,
+				publishMode: datasetPublishMode,
+				isPublishing,
+			}}
+			showSidebarTrigger={false}
+			onSearchResultSelect={handleSearchResultSelect}
+			onInspectorDeactivate={disableInspector}
+			onStartNewDataset={startNewDataset}
+			onCancelEditing={tearDownEditSession}
+			onOsmQueryClick={handleOsmQueryClick}
+			onOsmQueryView={handleOsmQueryView}
+			onOsmAdvanced={() => setImportOsmDialogOpen(true)}
+			mapStackOpen={toolbarMapStackOpen}
+			mapStackEntryCount={mapStackStats.total}
+			mapStackVisibleCount={mapStackStats.visible}
+			chatOpen={routedAskOpen || routedThreadOpen}
+			onToggleMapStack={toggleToolbarMapStack}
+			onToggleChat={handleToggleThread}
+			onOpenSelectedCallout={handleOpenSelectedCallout}
+			selectedFeatureCount={selectedFeatureIds.length}
+			selectedFeatureHasCallout={selectedFeatureHasCallout}
+			calloutComposerActive={calloutComposerActive}
+			calloutAnchorDrawing={calloutAnchorDrawing}
+			destination={activeDraftPublishChannel ? currentDestination : undefined}
+			audienceOptions={publishAudienceOptions}
+			selectedAudienceId={selectedAudienceId}
+			onAudienceChange={handleAudienceChange}
+			onActivateDestination={openCurrentDestination}
+			onLeaveDestination={leaveCurrentDestination}
+		/>
+	) : null
 
 	// Desktop status bar + chat are passed to StudioShell as slots; the shell
 	// owns the responsive frame (widths/insets from the --shell-* CSS vars).
@@ -4543,18 +5778,99 @@ export function GeoEditorView() {
 		/>
 	)
 
-	const chatSlot = (
+	const ensureRouteThreadMapTarget = useCallback(async (): Promise<string | null> => {
+		if (routedDraftThreadOpen) {
+			const state = useEditorStore.getState()
+			const workspaceId = state.activeWorkspaceId
+			if (!workspaceId || !getRetainedDatasetSurfaceTarget(state, workspaceId)) return null
+			return workspaceId
+		}
+		if (!routedObjectThreadOpen || route.focusType !== 'geoevent' || !viewingDataset) return null
+		const loaded = await loadDatasetForCurrentChannel(viewingDataset)
+		if (!loaded) return null
+		const state = useEditorStore.getState()
+		const workspaceId = state.activeWorkspaceId
+		if (!workspaceId) return null
+		const workspace = state.workspaces[workspaceId]
+		if (!workspace?.activeDraftId || !state.geoEditDrafts[workspace.activeDraftId]) return null
+		return workspaceId
+	}, [
+		loadDatasetForCurrentChannel,
+		route.focusType,
+		routedDraftThreadOpen,
+		routedObjectThreadOpen,
+		viewingDataset,
+	])
+
+	const objectThreadKind =
+		route.focusType === 'geoevent'
+			? 'map'
+			: route.focusType === 'mapcontext'
+				? 'atlas'
+				: route.focusType === 'beacon'
+					? 'live'
+					: route.focusType
+	const routeThreadKey = routedAskOpen
+		? 'ask'
+		: routedDraftThreadOpen && draftThreadWorkspaceId
+			? `map-draft:${draftThreadWorkspaceId}`
+			: routedThreadOpen && route.naddr
+				? `${objectThreadKind}:${route.naddr}`
+				: undefined
+	const routeThreadTitle = routedAskOpen
+		? 'Ask Earthly'
+		: routedDraftThreadOpen
+			? collectionMeta.name?.trim() || 'Untitled Map'
+			: route.focusType === 'geoevent'
+				? viewingDataset
+					? getDatasetName(viewingDataset)
+					: 'Map'
+				: route.focusType === 'story'
+					? viewStory?.article.title || 'Story'
+					: route.focusType === 'mapcontext'
+						? viewContext?.context.name || 'Atlas'
+						: route.focusType === 'sighting'
+							? viewSighting?.sighting.title || 'Sighting'
+							: route.focusType === 'beacon'
+								? viewBeacon?.beacon.label || 'Live location'
+								: 'Thread'
+	const askInitialPrompt =
+		routedAskOpen && typeof window !== 'undefined'
+			? (new URLSearchParams(window.location.search).get('q') ?? undefined)
+			: undefined
+
+	const chatSlot = !isMobile ? (
 		<AssistantSidebar
-			open={desktopChatOpen}
+			open={routedAskOpen || routedThreadOpen}
+			placement={routedAskOpen ? 'margin' : 'thread'}
 			geoEvents={geoEvents}
 			mapContextEvents={mapContextEvents}
 			availableFeatures={availableFeatures}
 			getDatasetName={getDatasetName}
-			onOpenAuthoringTarget={openDraftEditor}
 			onOpenSettings={() => navigateToView('settings')}
-			onClose={() => setChatOpen(false)}
+			threadKey={routeThreadKey}
+			threadTitle={routeThreadTitle}
+			readOnly={routedAskOpen || (routedObjectThreadOpen && route.focusType !== 'geoevent')}
+			initialPrompt={askInitialPrompt}
+			onEnsureAuthoringTarget={
+				routedDraftThreadOpen || (routedObjectThreadOpen && route.focusType === 'geoevent')
+					? ensureRouteThreadMapTarget
+					: undefined
+			}
+			authoringActionLabel={
+				routedDraftThreadOpen
+					? 'Send'
+					: currentUserPubkey && viewingDataset?.pubkey === currentUserPubkey
+						? 'Edit & send'
+						: 'Propose & send'
+			}
+			onClose={() => {
+				if (routedAskOpen) navigateToView('datasets')
+				else if (routedDraftThreadOpen) navigateToRoute('/edit')
+				else if (routedObjectThreadOpen) navigateToTab('details')
+			}}
 		/>
-	)
+	) : null
 
 	// Mobile tool-strip overflow actions in PRIORITY order (extract to the strip
 	// first as the screen grows; collapse into ••• as it shrinks). How many fit is
@@ -4619,8 +5935,8 @@ export function GeoEditorView() {
 	// the raw GeoEditorView handlers (which surface the editor via the mobile 'edit'
 	// tab through ensureInfoPanelVisible).
 	const mobileSightingsPanelProps = {
-		currentUserPubkey,
-		onOpenSighting: handleInspectSighting,
+		currentUserPubkey: currentUserPubkey ?? undefined,
+		onOpenSighting: (sighting) => handleInspectSighting(sighting),
 		onCreateSighting: handleCreateSighting,
 		onEditSighting: handleEditSighting,
 		onDeleteSighting: handleDeleteSighting,
@@ -4628,25 +5944,25 @@ export function GeoEditorView() {
 		onAddToMapStack: addSightingToMapStack,
 		deletingKey,
 		selectedKey: lastInspectedSightingKey ?? null,
-	}
+	} satisfies NonNullable<MobilePanelProps['sightingsPanelProps']>
 	const mobileBeaconsPanelProps = {
-		currentUserPubkey,
+		currentUserPubkey: currentUserPubkey ?? undefined,
 		onShareLocation: handleShareLocation,
-		onOpenBeacon: handleInspectBeacon,
+		onOpenBeacon: (beacon) => handleInspectBeacon(beacon),
 		onWatchOnMap: handleZoomToBeacon,
 		onAddToMapStack: addBeaconToMapStack,
-		onStopBeacon: () => handleStopBeacon(),
+		onStopBeacon: () => void handleStopBeacon(),
 		onAdjustBeacon: handleAdjustBeacon,
 		selectedKey: lastInspectedBeaconKey ?? null,
-	}
+	} satisfies NonNullable<MobilePanelProps['beaconsPanelProps']>
 	const mobileStoriesPanelProps = {
-		currentUserPubkey,
-		onOpenStory: handleInspectStory,
+		currentUserPubkey: currentUserPubkey ?? undefined,
+		onOpenStory: (story) => handleInspectStory(story),
 		onCreateStory: handleCreateStory,
 		onEditStory: handleEditStory,
 		onDeleteStory: handleDeleteStory,
 		deletingKey,
-	}
+	} satisfies NonNullable<MobilePanelProps['storiesPanelProps']>
 	const privateDatasetActions = {
 		getDatasetKey,
 		getDatasetName,
@@ -4674,128 +5990,169 @@ export function GeoEditorView() {
 		}
 		create()
 	}
+	const mobileMapIsCovered = mobileSidebarOpen || mobilePanelOpen || mobileSearchOpen
+	const showBareMobileMap = () => {
+		// closeMobileSidebar may restore a suspended map sheet, so close it first
+		// and then explicitly dismiss the sheet. The working copy and Shelf remain.
+		closeMobileSidebar()
+		setMobilePanelOpen(false)
+		setMobileSearchOpen(false)
+		navigateHome()
+	}
+	const showMobileSearch = () => {
+		closeMobileSidebar()
+		setMobilePanelOpen(false)
+		setMobileSearchOpen(true)
+	}
+	const showMobileMe = () => {
+		setMobileSearchOpen(false)
+		navigateToView('user')
+		// Open the route's profile content first. Its Back control reveals the
+		// complete retained navigation menu, so no former Menu capability is lost.
+		selectMobileSidebarDestination('profile')
+	}
 	return (
 		<StudioShell
 			mapContainerRef={mapContainerRef}
+			topBar={topBarSlot}
+			banners={lensBarSlot}
+			canvasToolbar={canvasToolbarSlot}
+			shelf={shelfSlot}
 			statusBar={statusBarSlot}
-			chat={chatSlot}
+			chat={routedAskOpen ? undefined : chatSlot}
+			threadOpen={routedThreadOpen}
 			sidebar={
-				<AppSidebar
-					onOpenDiscover={handleOpenDiscover}
-					discoverOpen={discoverOpen}
-					geoEvents={scopedGeoEvents}
-					mapContextEvents={mapContextEvents}
-					activeDataset={activeDataset}
-					currentUserPubkey={currentUserPubkey ?? undefined}
-					datasetVisibility={effectiveVisibility}
-					isPublishing={isPublishing}
-					deletingKey={deletingKey}
-					onLoadDataset={handleDatasetSelect}
-					onStartNewDataset={startNewDataset}
-					privateDatasetActions={privateDatasetActions}
-					fieldDatasetActions={fieldDatasetActions}
-					fieldSessionEvents={fieldTransport.events}
-					onPublishFieldSessionEvent={fieldTransport.publishEvent}
-					onRefreshFieldSessionEvents={fieldTransport.refresh}
-					onSwitchWorkspace={handleSwitchWorkspace}
-					onDeleteWorkspace={handleDeleteWorkspace}
-					onAddDraftToWorkspace={handleAddDraftToWorkspace}
-					onLoadDraft={handleLoadDraft}
-					onDeleteDraft={handleDeleteDraft}
-					draftDestinationOptions={localDraftDestinationOptions}
-					onResolveDraftDestination={handleResolveDraftDestination}
-					onToggleVisibility={handleToggleVisibilityWithExitFocus}
-					onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
-					onZoomToDataset={zoomToDataset}
-					onAddDatasetToMap={addDatasetToMapStack}
-					onRemoveDatasetFromMap={removeDatasetFromMapStack}
-					onDeleteDataset={onDeleteDataset}
-					onDeleteContext={onDeleteContext}
-					getDatasetKey={getDatasetKey}
-					getDatasetName={getDatasetName}
-					onOpenGeometryEditor={() => void handleOpenGeometryEditor()}
-					onInspectDataset={handleInspectDatasetWithModeSwitch}
-					onInspectContext={handleInspectContext}
-					onOpenDebug={handleOpenDebug}
-					onCreateContext={handleCreateContext}
-					onEditContext={handleEditContext}
-					isFocused={isFocused}
-					onExitFocus={clearFocus}
-					multiSelectModifier={multiSelectModifierLabel}
-					// Editor panel props
-					onCommentGeometryVisibility={handleCommentGeometryVisibility}
-					onZoomToBounds={handleZoomToBounds}
-					onZoomToSighting={handleZoomToSighting}
-					availableFeatures={availableFeatures}
-					onMentionVisibilityToggle={handleMentionVisibilityToggle}
-					onMentionZoomTo={handleMentionZoomTo}
-					isMentionVisible={isMentionVisible}
-					contextEditorMode={contextEditorMode}
-					editingContext={editingContext}
-					onSaveContext={handleSaveContext}
-					onCloseContextEditor={handleCloseContextEditor}
-					storyEditorMode={storyEditorMode}
-					editingStory={editingStory}
-					onCreateStory={handleCreateStory}
-					onInspectStory={handleInspectStory}
-					onEditStory={handleEditStory}
-					onSaveStory={handleSaveStory}
-					onCloseStoryEditor={handleCloseStoryEditor}
-					onDeleteStory={handleDeleteStory}
-					onStoryUpdated={handleInspectStory}
-					sightingEditorMode={sightingEditorMode}
-					editingSighting={editingSighting}
-					viewSighting={viewSighting}
-					selectedSightingKey={lastInspectedSightingKey}
-					sightingFocusCommentId={sightingFocusCommentId}
-					beaconFocusCommentId={beaconFocusCommentId}
-					placedSightingGeometry={placedSightingGeometry}
-					onCreateSighting={handleCreateSighting}
-					onInspectSighting={handleInspectSighting}
-					onEditSighting={handleEditSighting}
-					onSaveSighting={handleSaveSighting}
-					onCloseSightingEditor={handleCloseSightingEditor}
-					onDeleteSighting={handleDeleteSighting}
-					onDrawSightingArea={handleDrawSightingArea}
-					onClearSightingView={clearSightingView}
-					beaconControlMode={beaconControlMode}
-					adjustingBeacon={adjustingBeacon}
-					viewBeacon={viewBeacon}
-					isFollowingBeacon={isFollowingBeacon}
-					onToggleFollowBeacon={toggleFollowBeacon}
-					selectedBeaconKey={lastInspectedBeaconKey}
-					beaconIsStarting={beaconSubState === 'searching' && !beaconIsLive}
-					onShareLocation={handleShareLocation}
-					onStartBeacon={handleStartBeacon}
-					onCloseBeaconControl={handleCloseBeaconControl}
-					onInspectBeacon={handleInspectBeacon}
-					onWatchOnMapBeacon={handleZoomToBeacon}
-					onAddBeaconToMapStack={addBeaconToMapStack}
-					onAddSightingToMapStack={addSightingToMapStack}
-					onStopBeacon={() => handleStopBeacon()}
-					onAdjustBeacon={handleAdjustBeacon}
-					onClearBeaconView={clearBeaconView}
-					onZoomToFeature={handleZoomToFeature}
-					onExitViewMode={exitViewMode}
-					// Blossom upload props - callback adds blob ref to store, does NOT publish
-					featureCollectionForUpload={
-						canUploadToPublicBlossom(authoringPublishChannel)
-							? memoizedFeatureCollection
-							: undefined
-					}
-					onBlossomUploadComplete={handleBlobUploadComplete}
-					// Contributor Group-attach publish wiring (GROUP-02/04)
-					onPublishNew={handlePublishNew}
-					canPublishNew={canPublishNew}
-					// User profile props
-					userPubkey={userPubkey}
-					focusCommentId={focusCommentId}
-					// Filter visibility sync
-					onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
-					onToggleProposalOverlay={handleToggleProposalOverlay}
-					onProposalAccepted={handleProposalAccepted}
-					visibleProposalIds={visibleProposalIds}
-				/>
+				routedAskOpen ? (
+					chatSlot
+				) : (
+					<AppSidebar
+						layout="margin"
+						onInboxUnreadCountChange={setInboxUnreadCount}
+						shelfPanel={shelfPanelSlot}
+						onOpenDiscover={handleOpenDiscover}
+						discoverOpen={discoverOpen}
+						geoEvents={scopedGeoEvents}
+						mapContextEvents={mapContextEvents}
+						activeDataset={activeDataset}
+						currentUserPubkey={currentUserPubkey ?? undefined}
+						datasetVisibility={effectiveVisibility}
+						isPublishing={isPublishing}
+						deletingKey={deletingKey}
+						onLoadDataset={handleDatasetSelect}
+						onStartNewDataset={startNewDataset}
+						privateDatasetActions={privateDatasetActions}
+						fieldDatasetActions={fieldDatasetActions}
+						fieldSessionEvents={fieldTransport.events}
+						onPublishFieldSessionEvent={fieldTransport.publishEvent}
+						onRefreshFieldSessionEvents={fieldTransport.refresh}
+						onSwitchWorkspace={handleSwitchWorkspace}
+						onDeleteWorkspace={handleDeleteWorkspace}
+						onAddDraftToWorkspace={handleAddDraftToWorkspace}
+						onLoadDraft={handleLoadDraft}
+						onDeleteDraft={handleDeleteDraft}
+						draftDestinationOptions={localDraftDestinationOptions}
+						onResolveDraftDestination={handleResolveDraftDestination}
+						onToggleVisibility={handleToggleVisibilityWithExitFocus}
+						onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
+						onZoomToDataset={zoomToDataset}
+						onAddDatasetToMap={addDatasetToMapStack}
+						onRemoveDatasetFromMap={removeDatasetFromMapStack}
+						onDeleteDataset={onDeleteDataset}
+						onDeleteContext={onDeleteContext}
+						getDatasetKey={getDatasetKey}
+						getDatasetName={getDatasetName}
+						onOpenGeometryEditor={() => void handleOpenGeometryEditor()}
+						onInspectDataset={handleInspectDatasetWithModeSwitch}
+						onInspectContext={handleInspectContext}
+						onOpenDebug={handleOpenDebug}
+						onCreateContext={handleCreateContext}
+						onEditContext={handleEditContext}
+						isFocused={isFocused}
+						onExitFocus={clearFocus}
+						multiSelectModifier={multiSelectModifierLabel}
+						// Editor panel props
+						onCommentGeometryVisibility={handleCommentGeometryVisibility}
+						onZoomToBounds={handleZoomToBounds}
+						onZoomToSighting={handleZoomToSighting}
+						availableFeatures={availableFeatures}
+						onMentionVisibilityToggle={handleMentionVisibilityToggle}
+						onMentionZoomTo={handleMentionZoomTo}
+						isMentionVisible={isMentionVisible}
+						captureMapPresentation={captureMapPresentation}
+						captureStoryView={captureStoryView}
+						onStoryViewActivate={handleStoryViewActivate}
+						renderStoryViewFigure={renderStoryViewFigure}
+						activeStoryViewId={activeStoryView?.snapshot.view.id ?? null}
+						proposeEditOpen={routedStoryProposalOpen}
+						onProposeEditOpenChange={handleRoutedStoryProposalOpenChange}
+						contextEditorMode={contextEditorMode}
+						editingContext={editingContext}
+						contextCreationSeed={contextCreationSeed}
+						onSaveContext={handleSaveContext}
+						onCloseContextEditor={handleCloseContextEditor}
+						storyEditorMode={storyEditorMode}
+						editingStory={editingStory}
+						onCreateStory={handleCreateStory}
+						onInspectStory={handleInspectStory}
+						onEditStory={handleEditStory}
+						onSaveStory={handleSaveStory}
+						onCloseStoryEditor={handleCloseStoryEditor}
+						onDeleteStory={handleDeleteStory}
+						onStoryUpdated={handleInspectStory}
+						sightingEditorMode={sightingEditorMode}
+						editingSighting={editingSighting}
+						viewSighting={viewSighting}
+						sightingFocusCommentId={sightingFocusCommentId}
+						beaconFocusCommentId={beaconFocusCommentId}
+						placedSightingGeometry={placedSightingGeometry}
+						onCreateSighting={handleCreateSighting}
+						selectedSightingKey={lastInspectedSightingKey}
+						onInspectSighting={handleInspectSighting}
+						onEditSighting={handleEditSighting}
+						onSaveSighting={handleSaveSighting}
+						onCloseSightingEditor={handleCloseSightingEditor}
+						onDeleteSighting={handleDeleteSighting}
+						onDrawSightingArea={handleDrawSightingArea}
+						onClearSightingView={clearSightingView}
+						beaconControlMode={beaconControlMode}
+						adjustingBeacon={adjustingBeacon}
+						viewBeacon={viewBeacon}
+						isFollowingBeacon={isFollowingBeacon}
+						onToggleFollowBeacon={toggleFollowBeacon}
+						selectedBeaconKey={lastInspectedBeaconKey}
+						beaconIsStarting={beaconSubState === 'searching' && !beaconIsLive}
+						onShareLocation={handleShareLocation}
+						onStartBeacon={handleStartBeacon}
+						onCloseBeaconControl={handleCloseBeaconControl}
+						onInspectBeacon={handleInspectBeacon}
+						onWatchOnMapBeacon={handleZoomToBeacon}
+						onAddBeaconToMapStack={addBeaconToMapStack}
+						onAddSightingToMapStack={addSightingToMapStack}
+						onStopBeacon={() => handleStopBeacon()}
+						onAdjustBeacon={handleAdjustBeacon}
+						onClearBeaconView={clearBeaconView}
+						onZoomToFeature={handleZoomToFeature}
+						onExitViewMode={exitViewMode}
+						// Blossom upload props - callback adds blob ref to store, does NOT publish
+						featureCollectionForUpload={
+							canUploadToPublicBlossom(authoringPublishChannel)
+								? memoizedFeatureCollection
+								: undefined
+						}
+						onBlossomUploadComplete={handleBlobUploadComplete}
+						// Contributor Group-attach publish wiring (GROUP-02/04)
+						onPublishNew={handlePublishNew}
+						canPublishNew={canPublishNew}
+						// User profile props
+						userPubkey={userPubkey}
+						focusCommentId={focusCommentId}
+						// Filter visibility sync
+						onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
+						onToggleProposalOverlay={handleToggleProposalOverlay}
+						onProposalAccepted={handleProposalAccepted}
+						visibleProposalIds={visibleProposalIds}
+					/>
+				)
 			}
 		>
 			<DiscoverDialog
@@ -5055,7 +6412,7 @@ export function GeoEditorView() {
 				containerRef={mapContainerRef}
 				remoteLayersReady={remoteLayersReady}
 				clusteredSourceId={CLUSTERED_SOURCE_ID}
-				geoEventsRef={geoEventsRef}
+				geoEventsRef={mapInteractionGeoEventsRef}
 				currentUserPubkey={currentUser?.pubkey}
 				getDatasetName={getDatasetName}
 				handleInspectDatasetWithoutFocus={handleInspectDatasetWithoutFocus}
@@ -5065,6 +6422,8 @@ export function GeoEditorView() {
 				placementMode={mapPopupPlacement}
 				toolbarOffset={mapPopupToolbarOffset}
 				suppressed={mapPopupPlacement === 'dock' && Boolean(displayedAnnotationPopupData)}
+				presentationLayerIds={presentationLayerIds}
+				presentationLayersReady={presentationLayersReady}
 			/>
 			{mapPopupsEnabled && (
 				<CommentAnnotationPopup
@@ -5079,13 +6438,16 @@ export function GeoEditorView() {
 					onClose={handleCloseAnnotationPopup}
 				/>
 			)}
-			{isMobile ? (
+			{isMobile && activeDraftPublishChannel ? (
 				<div className="pointer-events-auto absolute left-1/2 top-[max(0.5rem,env(safe-area-inset-top))] z-30 -translate-x-1/2 md:hidden">
-					<CurrentDestinationPill
-						destination={currentDestination}
-						variant="mobile"
-						onActivate={openCurrentDestination}
-						onLeave={leaveCurrentDestination}
+					<PublishDropdown
+						publishingScope={currentDestination}
+						audienceOptions={publishAudienceOptions}
+						selectedAudienceId={selectedAudienceId}
+						onAudienceChange={handleAudienceChange}
+						onOpenPublishingScope={openCurrentDestination}
+						onLeavePublishingScope={leaveCurrentDestination}
+						small
 					/>
 				</div>
 			) : null}
@@ -5135,76 +6497,6 @@ export function GeoEditorView() {
 						Hold <strong>{multiSelectModifierLabel}</strong> to multi-select
 						{selectionCount > 0 ? ` • ${selectionCount} selected` : ''}
 					</div>
-				</div>
-			)}
-			<div className="pointer-events-none absolute top-2 left-2 right-2 z-10 hidden md:pointer-events-auto md:fixed md:inset-x-0 md:top-0 md:z-30 md:flex md:h-[var(--shell-toolbar-h)] md:items-center md:border-b md:border-border md:bg-[var(--surface-chrome)] md:p-0">
-				<div className="w-full">
-					<Toolbar
-						datasetActions={{
-							onExportGeoJSON: exportGeoJSON,
-							onExportSHP: exportSHP,
-							canExport: stats.total > 0,
-							onImport: handleImport,
-							onClear: handleClear,
-							onPublishNew: handlePublishNew,
-							canPublishNew,
-							onPublishUpdate: handlePublishUpdate,
-							canPublishUpdate,
-							onPublishCopy: handlePublishCopy,
-							canPublishCopy,
-							onProposeEdit: handleProposeEdit,
-							canProposeEdit,
-							publishMode: datasetPublishMode,
-							isPublishing,
-						}}
-						isMobile={isMobile}
-						showLogin={true}
-						onSearchResultSelect={handleSearchResultSelect}
-						onInspectorDeactivate={disableInspector}
-						onStartNewDataset={startNewDataset}
-						onCancelEditing={tearDownEditSession}
-						onOsmQueryClick={handleOsmQueryClick}
-						onOsmQueryView={handleOsmQueryView}
-						onOsmAdvanced={() => setImportOsmDialogOpen(true)}
-						mapStackOpen={toolbarMapStackOpen}
-						mapStackEntryCount={mapStackStats.total}
-						mapStackVisibleCount={mapStackStats.visible}
-						chatOpen={desktopChatOpen}
-						onToggleMapStack={toggleToolbarMapStack}
-						onToggleChat={toggleChat}
-						onOpenSelectedCallout={handleOpenSelectedCallout}
-						selectedFeatureCount={selectedFeatureIds.length}
-						selectedFeatureHasCallout={selectedFeatureHasCallout}
-						calloutComposerActive={calloutComposerActive}
-						calloutAnchorDrawing={calloutAnchorDrawing}
-						onExitFocus={exitViewMode}
-						destination={currentDestination}
-						onActivateDestination={openCurrentDestination}
-						onLeaveDestination={leaveCurrentDestination}
-					/>
-				</div>
-			</div>
-			{!isMobile && desktopMapStackOpen && (
-				<div className="pointer-events-auto absolute top-[var(--shell-mapstack-top)] left-2 z-20 flex max-h-[calc(100vh-5rem)] w-[var(--shell-mapstack-w)] max-w-[calc(100vw-1rem)] flex-col shadow-lg">
-					<MapStackPanel
-						geoEvents={scopedGeoEvents}
-						mapContextEvents={mapContextEvents}
-						getDatasetKey={getDatasetKey}
-						getDatasetName={getDatasetName}
-						onAddDatasetToMap={addDatasetToMapStack}
-						onInspectDataset={handleInspectDatasetWithModeSwitch}
-						onZoomToDataset={zoomToDataset}
-						onLoadDataset={handleDatasetSelect}
-						onInspectContext={handleInspectContext}
-						onSetEntryVisible={setMapStackVisibility}
-						onSetEntryIsolated={setMapStackIsolation}
-						onRemoveEntry={removeFromMapStack}
-						onOpenDraftEditor={() => void openDraftEditor()}
-						onZoomToDraft={zoomToDraft}
-						onClear={clearMapStackAndVisibility}
-						onClose={() => setMapStackOpen(false)}
-						compact
-					/>
 				</div>
 			)}
 			{/* Mobile Panel - unified tabbed drawer */}
@@ -5265,8 +6557,16 @@ export function GeoEditorView() {
 					onMentionVisibilityToggle={handleMentionVisibilityToggle}
 					onMentionZoomTo={handleMentionZoomTo}
 					isMentionVisible={isMentionVisible}
+					captureMapPresentation={captureMapPresentation}
+					captureStoryView={captureStoryView}
+					onStoryViewActivate={handleStoryViewActivate}
+					renderStoryViewFigure={renderStoryViewFigure}
+					activeStoryViewId={activeStoryView?.snapshot.view.id ?? null}
+					proposeEditOpen={routedStoryProposalOpen}
+					onProposeEditOpenChange={handleRoutedStoryProposalOpenChange}
 					contextEditorMode={contextEditorMode}
 					editingContext={editingContext}
+					contextCreationSeed={contextCreationSeed}
 					onSaveContext={handleSaveContext}
 					onCloseContextEditor={handleCloseContextEditor}
 					storyEditorMode={storyEditorMode}
@@ -5279,7 +6579,6 @@ export function GeoEditorView() {
 					sightingEditorMode={sightingEditorMode}
 					editingSighting={editingSighting}
 					viewSighting={viewSighting}
-					selectedSightingKey={lastInspectedSightingKey}
 					sightingFocusCommentId={sightingFocusCommentId}
 					beaconFocusCommentId={beaconFocusCommentId}
 					placedSightingGeometry={placedSightingGeometry}
@@ -5293,19 +6592,14 @@ export function GeoEditorView() {
 					viewBeacon={viewBeacon}
 					isFollowingBeacon={isFollowingBeacon}
 					onToggleFollowBeacon={toggleFollowBeacon}
-					selectedBeaconKey={lastInspectedBeaconKey}
 					beaconIsStarting={beaconSubState === 'searching' && !beaconIsLive}
-					onShareLocation={handleShareLocation}
 					onStartBeacon={handleStartBeacon}
 					onCloseBeaconControl={handleCloseBeaconControl}
-					onInspectBeacon={handleInspectBeacon}
-					onOpenBeacon={handleInspectBeacon}
 					onWatchOnMapBeacon={handleZoomToBeacon}
 					onAddBeaconToMapStack={addBeaconToMapStack}
 					onAddSightingToMapStack={addSightingToMapStack}
 					onStopBeacon={() => handleStopBeacon()}
 					onAdjustBeacon={handleAdjustBeacon}
-					onClearBeaconView={clearBeaconView}
 					onZoomToFeature={handleZoomToFeature}
 					featureCollectionForUpload={
 						canUploadToPublicBlossom(authoringPublishChannel)
@@ -5473,8 +6767,9 @@ export function GeoEditorView() {
 					</Button>
 				</div>
 			)}
-			{/* Map-first mobile dock. Navigation opens horizontally; map-bound work
-			    opens vertically. Create remains the additive center action. */}
+			{/* Map-first phone dock (§13): four durable destinations. Me opens the
+			    route-backed profile first and keeps the complete navigation menu one
+			    Back action away; Shelf remains available there and at /shelf. */}
 			{isMobile && stance !== 'author' && (
 				<nav
 					aria-label="Primary"
@@ -5483,22 +6778,23 @@ export function GeoEditorView() {
 				>
 					<button
 						type="button"
-						onClick={() => (mobileSidebarOpen ? closeMobileNavigation() : openMobileSidebar())}
-						aria-pressed={mobileSidebarOpen}
-						data-tour="mobile-dock-menu"
-						className={cn(
-							'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
-							mobileSidebarOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
-						)}
+						onClick={showBareMobileMap}
+						aria-label={mobileMapIsCovered ? 'Just map' : 'Map'}
+						data-tour="mobile-dock-map"
+						className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] text-muted-foreground transition-colors hover:text-foreground"
 					>
-						<Menu className="h-5 w-5" />
-						Menu
+						<MapIcon className="h-5 w-5" />
+						{mobileMapIsCovered ? 'Just map' : 'Map'}
 					</button>
 					<button
 						type="button"
-						onClick={() => setMobileSearchOpen(true)}
+						onClick={showMobileSearch}
+						aria-pressed={mobileSearchOpen}
 						data-tour="mobile-dock-search"
-						className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] text-muted-foreground transition-colors hover:text-foreground"
+						className={cn(
+							'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
+							mobileSearchOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+						)}
 					>
 						<Search className="h-5 w-5" />
 						Search
@@ -5521,11 +6817,11 @@ export function GeoEditorView() {
 							<DropdownMenuSeparator />
 							<DropdownMenuItem onSelect={() => startCreate(startNewDataset)}>
 								<Database className="h-4 w-4" />
-								Dataset
+								Map
 							</DropdownMenuItem>
 							<DropdownMenuItem onSelect={() => startCreate(handleCreateContext)}>
 								<Globe className="h-4 w-4" />
-								Context
+								Atlas
 							</DropdownMenuItem>
 							<DropdownMenuItem onSelect={() => startCreate(handleCreateStory)}>
 								<BookOpen className="h-4 w-4" />
@@ -5543,29 +6839,18 @@ export function GeoEditorView() {
 					</DropdownMenu>
 					<button
 						type="button"
-						onClick={toggleToolbarMapStack}
-						aria-pressed={toolbarMapStackOpen}
-						data-tour="mobile-dock-map-stack"
+						onClick={showMobileMe}
+						aria-current={route.sidebarView === 'user' ? 'page' : undefined}
+						data-tour="mobile-dock-me"
 						className={cn(
 							'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
-							toolbarMapStackOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+							route.sidebarView === 'user'
+								? 'text-primary'
+								: 'text-muted-foreground hover:text-foreground',
 						)}
 					>
-						<Layers className="h-5 w-5" />
-						Map stack
-					</button>
-					<button
-						type="button"
-						onClick={() => {
-							if (mobileSidebarOpen) closeMobileNavigation()
-							setMobilePanelOpen(false)
-							setMobileSearchOpen(false)
-						}}
-						data-tour="mobile-dock-map"
-						className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] text-muted-foreground transition-colors hover:text-foreground"
-					>
-						<MapIcon className="h-5 w-5" />
-						Map
+						<UserRound className="h-5 w-5" />
+						Me
 					</button>
 				</nav>
 			)}
@@ -5575,7 +6860,6 @@ export function GeoEditorView() {
 			<ReferencePublishDialog />
 			<StoryTargetDialog />
 			{/* Blossom Upload Dialog */}
-			;
 			<BlossomUploadDialog
 				open={blossomUploadDialogOpen}
 				onOpenChange={setBlossomUploadDialogOpen}
@@ -5584,10 +6868,9 @@ export function GeoEditorView() {
 				onPublishWithUpload={handlePublishWithBlossomUpload}
 				onSkip={handlePublishNew}
 				allowSkip={false}
-				title="Dataset Size Warning"
+				title="Map Size Warning"
 			/>
 			{/* Import OSM Dialog */}
-			;
 			<ImportOsmDialog
 				open={importOsmDialogOpen}
 				onOpenChange={setImportOsmDialogOpen}

@@ -7,6 +7,7 @@ let act: typeof import('react').act
 let createElement: typeof import('react').createElement
 let createRoot: typeof import('react-dom/client').createRoot
 let useRouting: typeof import('./useRouting').useRouting
+let EarthlyRouteStateProvider: typeof import('@/router/routeState').EarthlyRouteStateProvider
 let useEditorStore: typeof import('../store').useEditorStore
 let initialEditorState: ReturnType<typeof import('../store').useEditorStore.getState>
 
@@ -29,7 +30,21 @@ async function mountProbe(reconcileStore: boolean): Promise<void> {
 	document.body.append(container)
 	const root = createRoot(container)
 	mountedRoots.push(root)
-	await flush(() => root.render(createElement(Probe)))
+	await flush(() =>
+		root.render(
+			createElement(EarthlyRouteStateProvider, {
+				state: {
+					kind: 'legacy',
+					legacyPath: '/drafts',
+					edit: false,
+					tab: 'details',
+					on: [],
+					live: false,
+				},
+				children: createElement(Probe),
+			}),
+		),
+	)
 }
 
 beforeAll(async () => {
@@ -66,6 +81,7 @@ beforeAll(async () => {
 	createElement = react.createElement
 	;({ createRoot } = await import('react-dom/client'))
 	;({ useRouting } = await import('./useRouting'))
+	;({ EarthlyRouteStateProvider } = await import('@/router/routeState'))
 	;({ useEditorStore } = await import('../store'))
 	initialEditorState = useEditorStore.getState()
 })

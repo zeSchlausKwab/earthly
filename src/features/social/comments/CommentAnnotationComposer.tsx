@@ -173,7 +173,7 @@ export function CommentAnnotationComposer({
 						Comment Annotation
 					</div>
 					<div className="text-sm font-medium text-primary">
-						Draw geometry on the map, add context, then publish as a comment
+						Draw geometry on the map, add a note, then publish as a comment
 					</div>
 				</div>
 				<Button type="button" variant="ghost" size="icon-sm" onClick={onCancel}>

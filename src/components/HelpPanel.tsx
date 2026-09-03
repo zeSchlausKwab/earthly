@@ -74,9 +74,9 @@ export function HelpPanel({ multiSelectModifier = 'Shift' }: HelpPanelProps) {
 				{/* Description */}
 				<p className="text-sm text-muted-foreground leading-relaxed">
 					Earthly is a Nostr-native collaborative mapping application for creating, publishing, and
-					exploring GeoJSON datasets over a decentralized relay network. It combines a
-					mobile-friendly map editor, blossom-hosted PMTiles basemaps, and social features like
-					comments and reactions on top of geographic data.
+					exploring GeoJSON Maps over a decentralized relay network. It combines a mobile-friendly
+					map editor, blossom-hosted PMTiles basemaps, and social features like comments and
+					reactions on top of geographic data.
 				</p>
 
 				{/* Selection */}

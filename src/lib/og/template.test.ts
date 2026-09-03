@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { OG_IMAGE_RENDER_VERSION } from './imageVersion'
 import { generateGeoEventOGHtml, generateOGHtml, generateStoryOGHtml } from './template'
 
 // Regression coverage for T-10-09 (OG-HTML XSS). The Story title/summary are
@@ -92,7 +93,7 @@ describe('entity OG metadata contract', () => {
 			'<meta property="og:url" content="https://earthly.city/geoevent/naddr1dataset">',
 		)
 		expect(html).toContain(
-			'content="https://earthly.city/og/image/geoevent/naddr1dataset/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-v2"',
+			`content="https://earthly.city/og/image/geoevent/naddr1dataset/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-${OG_IMAGE_RENDER_VERSION}"`,
 		)
 		expect(html).toContain('<meta property="og:image:secure_url"')
 		expect(html).toContain('<meta property="og:image:type" content="image/png">')

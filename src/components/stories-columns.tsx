@@ -7,6 +7,8 @@ import { GeoSocialActions } from '@/features/social/comments/GeoSocialActions'
 import { UserProfile } from '@/components/user-profile'
 import type { Article } from '@/lib/nostr/article'
 import { formatRelativeDate } from '@/lib/nostr/temporal-sighting'
+import { getStoryReaderPath } from '@/lib/nostr/story/routes'
+import { navigateEarthly } from '@/router/navigation'
 
 export interface StoryRowData {
 	story: Article
@@ -30,6 +32,7 @@ export const createStoryColumns = (context: StoryColumnsContext): ColumnDef<Stor
 			const content = story.article
 			const title = content.title?.trim() || 'Untitled'
 			const image = content.image?.trim()
+			const readerPath = getStoryReaderPath(story)
 
 			return (
 				<ListRow
@@ -77,6 +80,14 @@ export const createStoryColumns = (context: StoryColumnsContext): ColumnDef<Stor
 					}
 					actions={
 						<>
+							{readerPath ? (
+								<RowActionButton
+									icon={BookOpen}
+									label="Read story"
+									hover="hover:text-ok"
+									onClick={() => navigateEarthly(readerPath)}
+								/>
+							) : null}
 							<RowActionButton
 								icon={InspectActionIcon}
 								label="Open story"

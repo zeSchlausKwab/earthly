@@ -264,7 +264,7 @@ export function ForeignLane({
 						<p className="text-[13px] text-muted-foreground">
 							{isSchema && mode === 'strict'
 								? 'Nothing matches the rules. Switch the filter to Warn to see what was hidden and why.'
-								: 'No community contributions yet. Be the first — attach a dataset to this Group from its publish screen.'}
+								: 'No community contributions yet. Be the first — add a Map to this Atlas from its Publish menu.'}
 						</p>
 					) : (
 						<div className="space-y-2">
@@ -301,12 +301,12 @@ export function ForeignLane({
 												actions={[
 													{
 														icon: <Eye className="h-3.5 w-3.5" />,
-														label: 'Inspect dataset',
+												label: 'Open Map',
 														onClick: () => onInspectDataset(dataset),
 													},
 													{
 														icon: <Maximize2 className="h-3.5 w-3.5" />,
-														label: 'Zoom to dataset',
+												label: 'Zoom to Map',
 														onClick: () => onZoomToDataset(dataset),
 													},
 												]}

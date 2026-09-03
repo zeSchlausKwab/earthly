@@ -96,14 +96,14 @@ const MENTION_SYNTAX_HINT =
 	'Cite datasets inline as bare nostr:naddr1… references. For one dataset feature, append the percent-encoded feature id fragment returned by read_entity (for example #relation%2F62504). When the working Dataset is new and has no naddr yet, set referencesActiveDataset=true: Earthly will ask the user to publish it, return its fresh mention, and require this Story write to be retried with that mention. Coordinates use bare RFC 5870 geo:latitude,longitude URIs; OSM elements use canonical https://www.openstreetmap.org/{node|way|relation}/{id} URLs. Never wrap references in code spans. On publish, Nostr mentions are mirrored into queryable references and all supported forms render as interactive pills.'
 
 const REVIEW_HINT =
-	'Draft saved locally. The Story edit state is ready behind the Story icon. Tell the user to review it there and publish when ready — publishing is always their action.'
+	'Draft saved locally. The Story working copy is ready behind the Story icon. Tell the user to review it there and publish when ready — publishing is always their action.'
 
 const STORY_TARGET_CANCELLED_RESULT = {
 	ok: false,
 	status: 'blocked',
 	code: 'story_target_cancelled',
 	message:
-		'Story creation was cancelled. No Story draft was written; ask again when a Story edit state is ready.',
+		'Story creation was cancelled. No Story draft was written; ask again when a Story working copy is ready.',
 } as const
 
 async function ensureNewStoryTarget(
@@ -147,7 +147,7 @@ const writeStoryDraftSchema: Tool = {
 	type: 'function',
 	function: {
 		name: 'write_story_draft',
-		description: `Write a local Story draft the user reviews and publishes in the Story editor — this never publishes anything. Omit storyReference to create a new Story; when no new Story edit state exists, Earthly pauses this exact call and asks the user to create one before writing. Pass an existing Story naddr to update that Story in its edit screen. ${MENTION_SYNTAX_HINT} If a local draft this session didn't author already exists, the call fails unless overwrite is true — read it first and confirm with the user before overwriting.`,
+		description: `Write a local Story draft the user reviews and publishes in the Story editor — this never publishes anything. Omit storyReference to create a new Story; when no new Story working copy exists, Earthly pauses this exact call and asks the user to create one before writing. Pass an existing Story naddr to update that Story in its edit screen. ${MENTION_SYNTAX_HINT} If a local draft this session didn't author already exists, the call fails unless overwrite is true — read it first and confirm with the user before overwriting.`,
 		parameters: {
 			type: 'object',
 			properties: {
@@ -231,6 +231,7 @@ export function registerStoryTools(
 								summary: target.story.article.summary ?? null,
 								image: target.story.article.image ?? null,
 								markdown: target.story.article.content ?? null,
+								presentation: target.story.article.presentation ?? null,
 								updatedAt: target.story.created_at * 1000,
 							}
 						: null,
@@ -246,6 +247,7 @@ export function registerStoryTools(
 					summary: draft.summary ?? null,
 					image: draft.image ?? null,
 					markdown: draft.content ?? null,
+					presentation: draft.presentation ?? null,
 					updatedAt: draft.updatedAt,
 				},
 			}
@@ -314,6 +316,9 @@ export function registerStoryTools(
 				summary,
 				image,
 				content: normalizedBody.markdown,
+				// This tool edits prose only. Carry the local/published embedded value
+				// forward byte-for-byte so future presentation schemas are not erased.
+				presentation: existing?.presentation ?? target?.story.article.presentation,
 			})
 			sessionOwnedDraftKeys.add(draftKey)
 

@@ -3,7 +3,7 @@ import type { Feature, FeatureCollection, Point } from 'geojson'
 import type { GeoJSONSource } from 'maplibre-gl'
 import type maplibregl from 'maplibre-gl'
 import { useEffect, useRef, useState } from 'react'
-import { bbox as turfBbox, pointOnFeature } from '@turf/turf'
+import { pointOnFeature } from '@turf/turf'
 import { isGeoJsonGeometry } from '@/lib/geo/normalizeGeoJSON'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { dropExpired } from '@/lib/nostr/expiry'
@@ -19,12 +19,15 @@ import {
 	displayIconImageExpression,
 	displayIconSizeExpression,
 	hasDisplayIconFilter,
-	pointLabelAnchorExpression,
-	pointLabelRadialOffsetExpression,
 } from '../icons/displayIcon'
-import { LINE_ARROW_IMAGE_ID } from '../icons/registerDisplayIconImages'
+import { buildEarthlyFeatureLayerBundle, getMapStyleTextFont } from '../map-presentation/layerSpecs'
+import {
+	buildGeometryProxyFeature,
+	isAnnotationFeature,
+	isPointGeometryType,
+	shouldCollapseGeometryToPointProxy,
+} from '../map-presentation/materialize'
 import { collectLineArrowFeatures } from '../utils/lineArrows'
-import { SOLID_LINE_DASH_FILTER } from '../utils/lineDashFilters'
 import { useEditorStore } from '../store'
 import { convertGeoEventsToFeatureCollection } from '../utils'
 import {
@@ -35,43 +38,6 @@ import {
 function isExternalPlaceholder(properties: unknown): boolean {
 	if (!properties || typeof properties !== 'object') return false
 	return (properties as Record<string, unknown>).externalPlaceholder === true
-}
-
-function getDefaultTextFontStack(
-	style: maplibregl.StyleSpecification | undefined,
-): string[] | null {
-	const isStringArray = (value: unknown): value is string[] =>
-		Array.isArray(value) && value.every((v) => typeof v === 'string')
-
-	const extract = (value: unknown): string[] | null => {
-		if (typeof value === 'string') return [value]
-		if (isStringArray(value)) return value
-		if (!Array.isArray(value) || value.length === 0) return null
-
-		const [op, ...rest] = value
-		if (op === 'literal' && rest.length > 0 && isStringArray(rest[0])) return rest[0]
-		if (op === 'case') {
-			for (const part of rest) {
-				const extracted = extract(part)
-				if (extracted) return extracted
-			}
-		}
-		return null
-	}
-
-	try {
-		const layers = style?.layers ?? []
-		for (const layer of layers) {
-			const layout = (layer as unknown as { layout?: Record<string, unknown> }).layout
-			const textFont = layout?.['text-font']
-			const extracted = extract(textFont)
-			if (extracted) return extracted
-		}
-	} catch {
-		// ignore
-	}
-
-	return null
 }
 
 // Layer/Source IDs
@@ -92,6 +58,22 @@ const BLOB_PREVIEW_FILL_LAYER = 'geo-editor-blob-preview-fill'
 const BLOB_PREVIEW_LINE_LAYER = 'geo-editor-blob-preview-line'
 const REMOTE_POLYGON_PROXY_SOURCE_ID = 'geo-editor-remote-polygon-proxies'
 const REMOTE_POLYGON_PROXY_LAYER = 'geo-editor-remote-polygon-proxy'
+const REMOTE_POLYGON_STROKE_LAYER = 'geo-editor-remote-polygon-stroke'
+
+const REMOTE_FEATURE_LAYER_IDS = Object.freeze({
+	fill: REMOTE_FILL_LAYER,
+	'polygon-stroke': REMOTE_POLYGON_STROKE_LAYER,
+	line: REMOTE_LINE_LAYER,
+	'line-dashed': REMOTE_LINE_DASHED_LAYER,
+	'line-dotted': REMOTE_LINE_DOTTED_LAYER,
+	'line-arrow': REMOTE_LINE_ARROW_LAYER,
+	point: REMOTE_POINT_LAYER,
+	'point-icon': REMOTE_POINT_ICON_LAYER,
+	'annotation-anchor': REMOTE_ANNOTATION_ANCHOR_LAYER,
+	'annotation-text': REMOTE_ANNOTATION_LAYER,
+	label: REMOTE_LABEL_LAYER,
+	'line-label': REMOTE_LINE_LABEL_LAYER,
+})
 
 // Clustering source/layer IDs
 const CLUSTERED_SOURCE_ID = 'geo-editor-clustered-points'
@@ -133,153 +115,21 @@ const BEACON_GLYPH_LAYER = 'geo-editor-beacon-glyph'
 // neutral --muted-foreground grey.
 const BEACON_COLOR_LIVE = '#fdc700' // --primary — the live focal point
 const BEACON_COLOR_GREY = '#737373' // --muted-foreground — stale/ended
-// Tuned down from 48/1600/36: only geometry that is genuinely illegible on
-// screen (a couple dozen pixels) collapses — a 40px polygon was still very
-// much readable and collapsing it read as "my polygons turn into points".
-// The whole behavior is additionally OFF by default behind the
-// `geometryPointProxyEnabled` setting (Map settings → tiny-shape simplification).
-const GEOMETRY_PROXY_MAX_DIMENSION_PX = 24
-const GEOMETRY_PROXY_MAX_AREA_PX = 400
-const LINE_PROXY_MAX_LENGTH_PX = 18
-
 export {
 	REMOTE_FILL_LAYER,
 	REMOTE_LINE_LAYER,
 	REMOTE_LINE_DASHED_LAYER,
 	REMOTE_LINE_DOTTED_LAYER,
+	REMOTE_LINE_ARROW_LAYER,
 	REMOTE_POINT_LAYER,
 	REMOTE_LABEL_LAYER,
 	REMOTE_LINE_LABEL_LAYER,
 	REMOTE_ANNOTATION_ANCHOR_LAYER,
 	REMOTE_ANNOTATION_LAYER,
 	REMOTE_POLYGON_PROXY_LAYER,
+	REMOTE_POLYGON_STROKE_LAYER,
 	CLUSTER_CIRCLE_LAYER,
 	UNCLUSTERED_POINT_LAYER,
-}
-
-function isPointGeometryType(type: string | undefined): boolean {
-	return type === 'Point' || type === 'MultiPoint'
-}
-
-function isAnnotationFeature(feature: GeoJSON.Feature): boolean {
-	return (feature.properties as Record<string, unknown> | undefined)?.featureType === 'annotation'
-}
-
-function shouldRenderGeometryAsPointProxy(feature: GeoJSON.Feature): boolean {
-	return !isPointGeometryType(feature.geometry?.type) && !isAnnotationFeature(feature)
-}
-
-function getProjectedLineLengthPx(map: maplibregl.Map, coordinates: GeoJSON.Position[]): number {
-	let total = 0
-	for (let index = 1; index < coordinates.length; index += 1) {
-		const previous = coordinates[index - 1]
-		const current = coordinates[index]
-		if (!previous || !current) continue
-
-		const previousPoint = map.project([previous[0], previous[1]])
-		const currentPoint = map.project([current[0], current[1]])
-		total += Math.hypot(currentPoint.x - previousPoint.x, currentPoint.y - previousPoint.y)
-	}
-	return total
-}
-
-function getGeometryProjectedLengthPx(
-	map: maplibregl.Map,
-	geometry: GeoJSON.Geometry,
-): number | null {
-	if (geometry.type === 'LineString') {
-		return getProjectedLineLengthPx(map, geometry.coordinates)
-	}
-	if (geometry.type === 'MultiLineString') {
-		return geometry.coordinates.reduce(
-			(total, line) => total + getProjectedLineLengthPx(map, line),
-			0,
-		)
-	}
-	return null
-}
-
-function shouldCollapseGeometryToPointProxy(
-	map: maplibregl.Map,
-	feature: GeoJSON.Feature,
-): boolean {
-	if (!shouldRenderGeometryAsPointProxy(feature)) return false
-
-	try {
-		const [west, south, east, north] = turfBbox(feature)
-		if (
-			![west, south, east, north].every((value) => Number.isFinite(value)) ||
-			east < west ||
-			north < south
-		) {
-			return false
-		}
-
-		const northWest = map.project([west, north])
-		const southEast = map.project([east, south])
-		const width = Math.abs(southEast.x - northWest.x)
-		const height = Math.abs(southEast.y - northWest.y)
-		const area = width * height
-		const maxDimension = Math.max(width, height)
-		const projectedLength = feature.geometry
-			? getGeometryProjectedLengthPx(map, feature.geometry)
-			: null
-
-		if (projectedLength !== null) {
-			return (
-				Number.isFinite(projectedLength) &&
-				projectedLength <= LINE_PROXY_MAX_LENGTH_PX &&
-				maxDimension <= GEOMETRY_PROXY_MAX_DIMENSION_PX
-			)
-		}
-
-		return (
-			Number.isFinite(maxDimension) &&
-			Number.isFinite(area) &&
-			maxDimension <= GEOMETRY_PROXY_MAX_DIMENSION_PX &&
-			area <= GEOMETRY_PROXY_MAX_AREA_PX
-		)
-	} catch {
-		return false
-	}
-}
-
-function buildGeometryProxyFeature(
-	feature: GeoJSON.Feature,
-): GeoJSON.Feature<GeoJSON.Point> | null {
-	if (!shouldRenderGeometryAsPointProxy(feature)) return null
-
-	try {
-		const representative = pointOnFeature(feature)
-		const sourceBbox = turfBbox(feature)
-		const properties = (feature.properties ?? {}) as Record<string, unknown>
-		const color =
-			typeof properties.color === 'string'
-				? properties.color
-				: typeof properties.fillColor === 'string'
-					? properties.fillColor
-					: typeof properties.strokeColor === 'string'
-						? properties.strokeColor
-						: undefined
-		const strokeColor =
-			typeof properties.strokeColor === 'string' ? properties.strokeColor : '#ffffff'
-		return {
-			type: 'Feature',
-			id: `${feature.id ?? properties.featureId ?? 'feature'}:geometry-proxy`,
-			geometry: representative.geometry,
-			properties: {
-				...properties,
-				...(color ? { color } : {}),
-				proxyFeature: true,
-				sourceGeometryType: feature.geometry?.type ?? 'Unknown',
-				proxySourceBbox: sourceBbox,
-				strokeColor,
-				radius: typeof properties.radius === 'number' ? properties.radius : 5,
-			},
-		}
-	} catch {
-		return null
-	}
 }
 
 /**
@@ -553,7 +403,7 @@ export function useMapLayers({
 				// Check if we can safely access the style
 				const style = mapInstance.getStyle()
 				if (!style) return
-				textFont = getDefaultTextFontStack(style)
+				textFont = getMapStyleTextFont(style)
 			} catch {
 				return
 			}
@@ -566,325 +416,19 @@ export function useMapLayers({
 						data: { type: 'FeatureCollection', features: [] },
 					})
 				}
-				// Add layers only if they don't exist
-				if (!mapInstance.getLayer(REMOTE_FILL_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_FILL_LAYER,
-						type: 'fill',
-						source: REMOTE_SOURCE_ID,
-						filter: [
-							'any',
-							['==', ['geometry-type'], 'Polygon'],
-							['==', ['geometry-type'], 'MultiPolygon'],
-						],
-						paint: {
-							'fill-color': ['coalesce', ['get', 'fillColor'], ['get', 'color'], '#1d4ed8'],
-							'fill-opacity': [
-								'case',
-								['boolean', ['get', 'collapseToPointProxy'], false],
-								0,
-								['coalesce', ['get', 'fillOpacity'], 0.15],
-							],
-						},
-					})
-				}
-				// Polygon outline layer
-				const REMOTE_POLYGON_STROKE_LAYER = 'geo-editor-remote-polygon-stroke'
-				if (!mapInstance.getLayer(REMOTE_POLYGON_STROKE_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_POLYGON_STROKE_LAYER,
-						type: 'line',
-						source: REMOTE_SOURCE_ID,
-						filter: [
-							'any',
-							['==', ['geometry-type'], 'Polygon'],
-							['==', ['geometry-type'], 'MultiPolygon'],
-						],
-						paint: {
-							'line-color': [
-								'coalesce',
-								['get', 'strokeColor'],
-								['get', 'fillColor'],
-								['get', 'color'],
-								'#1d4ed8',
-							],
-							'line-width': ['coalesce', ['get', 'strokeWidth'], 2],
-							'line-opacity': ['case', ['boolean', ['get', 'collapseToPointProxy'], false], 0, 1],
-						},
-					})
-				}
-				if (!mapInstance.getLayer(REMOTE_LINE_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_LINE_LAYER,
-						type: 'line',
-						source: REMOTE_SOURCE_ID,
-						filter: [
-							'all',
-							[
-								'any',
-								['==', ['geometry-type'], 'LineString'],
-								['==', ['geometry-type'], 'MultiLineString'],
-							],
-							SOLID_LINE_DASH_FILTER,
-						],
-						paint: {
-							'line-color': ['coalesce', ['get', 'strokeColor'], ['get', 'color'], '#1d4ed8'],
-							'line-width': ['coalesce', ['get', 'strokeWidth'], 2],
-							'line-opacity': [
-								'case',
-								['boolean', ['get', 'collapseToPointProxy'], false],
-								0,
-								['coalesce', ['get', 'strokeOpacity'], 1],
-							],
-						},
-					})
-				}
-				const remotePatternedLinePaint: NonNullable<maplibregl.LineLayerSpecification['paint']> = {
-					'line-color': ['coalesce', ['get', 'strokeColor'], ['get', 'color'], '#1d4ed8'],
-					'line-width': ['coalesce', ['get', 'strokeWidth'], 2],
-					'line-opacity': [
-						'case',
-						['boolean', ['get', 'collapseToPointProxy'], false],
-						0,
-						['coalesce', ['get', 'strokeOpacity'], 1],
-					],
-				}
-				const remoteLineGeometryFilter: maplibregl.FilterSpecification = [
-					'any',
-					['==', ['geometry-type'], 'LineString'],
-					['==', ['geometry-type'], 'MultiLineString'],
-				]
-				if (!mapInstance.getLayer(REMOTE_LINE_DASHED_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_LINE_DASHED_LAYER,
-						type: 'line',
-						source: REMOTE_SOURCE_ID,
-						filter: ['all', remoteLineGeometryFilter, ['==', ['get', 'lineDash'], 'dashed']],
-						paint: {
-							...remotePatternedLinePaint,
-							'line-dasharray': [4, 2],
-						},
-					})
-				}
-				if (!mapInstance.getLayer(REMOTE_LINE_DOTTED_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_LINE_DOTTED_LAYER,
-						type: 'line',
-						source: REMOTE_SOURCE_ID,
-						filter: ['all', remoteLineGeometryFilter, ['==', ['get', 'lineDash'], 'dotted']],
-						paint: {
-							...remotePatternedLinePaint,
-							'line-dasharray': [1, 2],
-						},
-					})
-				}
-				if (!mapInstance.getLayer(REMOTE_LINE_ARROW_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_LINE_ARROW_LAYER,
-						type: 'symbol',
-						source: REMOTE_SOURCE_ID,
-						filter: ['==', ['get', 'meta'], 'arrowhead'],
-						layout: {
-							'icon-image': LINE_ARROW_IMAGE_ID,
-							'icon-size': [
-								'interpolate',
-								['linear'],
-								['coalesce', ['get', 'strokeWidth'], 2],
-								1,
-								0.48,
-								4,
-								0.62,
-								10,
-								0.82,
-							],
-							'icon-rotate': ['get', 'arrowBearing'],
-							'icon-rotation-alignment': 'map',
-							'icon-pitch-alignment': 'map',
-							'icon-allow-overlap': true,
-							'icon-ignore-placement': true,
-						},
-						paint: {
-							'icon-color': ['coalesce', ['get', 'strokeColor'], '#1d4ed8'],
-							'icon-opacity': ['coalesce', ['get', 'strokeOpacity'], 1],
-						},
-					})
-				}
-				// Point layer (excludes annotations)
-				if (!mapInstance.getLayer(REMOTE_POINT_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_POINT_LAYER,
-						type: 'circle',
-						source: REMOTE_SOURCE_ID,
-						filter: [
-							'all',
-							['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'MultiPoint']],
-							['!=', ['get', 'featureType'], 'annotation'],
-							['!=', ['get', 'meta'], 'arrowhead'],
-						],
-						paint: {
-							// Iconed points reuse this circle as the glyph's backing disc
-							// (color fill + strokeColor ring), sized up to fit the glyph.
-							'circle-radius': [
-								'case',
-								hasDisplayIconFilter(),
-								displayIconDiscRadiusExpression(),
-								['coalesce', ['get', 'radius'], 6],
-							],
-							'circle-color': ['coalesce', ['get', 'color'], ['get', 'fillColor'], '#1d4ed8'],
-							'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
-							'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], '#fff'],
-						},
-					})
-				}
-
-				// Point icon layer — remote dataset points with a `displayIcon` style
-				// property render an SDF glyph automatically contrasted against `color`
-				// on top of the circle layer's disc + ring.
-				// Unknown icon ids resolve to the always-registered fallback marker
-				// (coalesce/image pattern), so points never silently vanish.
-				if (!mapInstance.getLayer(REMOTE_POINT_ICON_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_POINT_ICON_LAYER,
-						type: 'symbol',
-						source: REMOTE_SOURCE_ID,
-						filter: [
-							'all',
-							['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'MultiPoint']],
-							['!=', ['get', 'featureType'], 'annotation'],
-							hasDisplayIconFilter(),
-						],
-						layout: {
-							'icon-image': displayIconImageExpression(),
-							'icon-size': displayIconSizeExpression(),
-							'icon-allow-overlap': true,
-							'icon-ignore-placement': true,
-						},
-						paint: {
-							'icon-color': displayIconColorExpression(),
-						},
-					})
-				}
-
-				// Annotation anchor layer (small circle marker)
-				if (!mapInstance.getLayer(REMOTE_ANNOTATION_ANCHOR_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_ANNOTATION_ANCHOR_LAYER,
-						type: 'circle',
-						source: REMOTE_SOURCE_ID,
-						filter: [
-							'all',
-							['==', ['geometry-type'], 'Point'],
-							['==', ['get', 'featureType'], 'annotation'],
-						],
-						paint: {
-							'circle-radius': 4,
-							'circle-color': '#f59e0b', // Amber
-							'circle-stroke-width': 2,
-							'circle-stroke-color': '#fff',
-						},
-					})
-				}
-
-				// Annotation text layer.
-				// NOTE: no `isStyleLoaded()` gate on the text layers — that is the
-				// STRICT loaded check (style + all sources/sprites settled) and is
-				// routinely false during init while geojson sources stream, which
-				// silently skipped these layers with no retry until the next full
-				// style reload (labels missing in view mode). `addLayer` only needs
-				// the style itself; the too-early case throws, is caught below, and
-				// the `style.load` listener re-runs init — same path the non-text
-				// layers already rely on.
-				if (textFont && !mapInstance.getLayer(REMOTE_ANNOTATION_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_ANNOTATION_LAYER,
-						type: 'symbol',
-						source: REMOTE_SOURCE_ID,
-						filter: [
-							'all',
-							['==', ['geometry-type'], 'Point'],
-							['==', ['get', 'featureType'], 'annotation'],
-						],
-						layout: {
-							'text-field': ['coalesce', ['get', 'text'], 'Annotation'],
-							'text-font': textFont,
-							'text-size': ['coalesce', ['get', 'textFontSize'], 14],
-							'text-anchor': 'top',
-							'text-offset': [0, 0.8],
-							'text-allow-overlap': true,
-							'text-ignore-placement': true,
-						},
-						paint: {
-							'text-color': ['coalesce', ['get', 'textColor'], '#1f2937'],
-							'text-halo-color': ['coalesce', ['get', 'textHaloColor'], '#ffffff'],
-							'text-halo-width': ['coalesce', ['get', 'textHaloWidth'], 1.5],
-						},
-					})
-				}
-
-				// Feature label layer (for non-annotation features with labels)
-				if (textFont && !mapInstance.getLayer(REMOTE_LABEL_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_LABEL_LAYER,
-						type: 'symbol',
-						source: REMOTE_SOURCE_ID,
-						filter: [
-							'all',
-							['has', 'label'],
-							['!=', ['get', 'featureType'], 'annotation'],
-							['!=', ['geometry-type'], 'LineString'],
-							['!=', ['geometry-type'], 'MultiLineString'],
-						],
-						layout: {
-							'text-field': ['get', 'label'],
-							'text-font': textFont,
-							'text-size': 12,
-							// Point labels hang below the marker (clearing the icon disc)
-							// so the glyph stays readable; line/polygon labels stay centered.
-							'text-anchor': pointLabelAnchorExpression(),
-							'text-radial-offset': pointLabelRadialOffsetExpression(12),
-							'text-allow-overlap': false,
-							'text-ignore-placement': false,
-						},
-						paint: {
-							'text-color': '#374151',
-							'text-halo-color': '#ffffff',
-							'text-halo-width': 1.5,
-							'text-opacity': ['case', ['boolean', ['get', 'collapseToPointProxy'], false], 0, 1],
-						},
-					})
-				}
-
-				if (textFont && !mapInstance.getLayer(REMOTE_LINE_LABEL_LAYER)) {
-					mapInstance.addLayer({
-						id: REMOTE_LINE_LABEL_LAYER,
-						type: 'symbol',
-						source: REMOTE_SOURCE_ID,
-						filter: [
-							'all',
-							['has', 'label'],
-							[
-								'any',
-								['==', ['geometry-type'], 'LineString'],
-								['==', ['geometry-type'], 'MultiLineString'],
-							],
-						],
-						layout: {
-							'symbol-placement': 'line-center',
-							'text-field': ['get', 'label'],
-							'text-font': textFont,
-							'text-size': 12,
-							'text-rotation-alignment': 'map',
-							'text-keep-upright': true,
-							'text-allow-overlap': true,
-							'text-ignore-placement': true,
-						},
-						paint: {
-							'text-color': '#374151',
-							'text-halo-color': '#ffffff',
-							'text-halo-width': 1.5,
-							'text-opacity': ['case', ['boolean', ['get', 'collapseToPointProxy'], false], 0, 1],
-						},
-					})
+				// Keep author-view and presentation rendering on the same style
+				// vocabulary. Presentation adds only instance provenance, visibility,
+				// and its opacity multiplier on top of this shared bundle.
+				const remoteFeatureLayers = buildEarthlyFeatureLayerBundle({
+					sourceId: REMOTE_SOURCE_ID,
+					ids: REMOTE_FEATURE_LAYER_IDS,
+					textFont,
+					collapseToPointProperty: 'collapseToPointProxy',
+				})
+				for (const specification of remoteFeatureLayers) {
+					if (!mapInstance.getLayer(specification.id)) {
+						mapInstance.addLayer(specification)
+					}
 				}
 
 				// Blob preview source/layers
@@ -1027,7 +571,7 @@ export function useMapLayers({
 							'circle-radius': [
 								'case',
 								hasDisplayIconFilter(),
-								displayIconDiscRadiusExpression(),
+								displayIconDiscRadiusExpression() as unknown as maplibregl.ExpressionSpecification,
 								['coalesce', ['get', 'radius'], 6],
 							],
 							'circle-color': ['coalesce', ['get', 'color'], ['get', 'fillColor'], '#1d4ed8'],

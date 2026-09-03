@@ -95,4 +95,35 @@ describe('retained inspection subject', () => {
 		expect(harness.getState().viewMode).toBe('view')
 		expect(harness.getState().stance).toBe('browse')
 	})
+
+	test('opens a routed object Thread in the full-height mobile Thread sheet', () => {
+		const harness = createViewModeHarness()
+		harness.getState().applyRouteState(
+			{
+				sidebarView: 'datasets',
+				focusType: 'geoevent',
+				naddr: 'naddr1map',
+				tab: 'thread',
+			},
+			{ syncMobileTab: true },
+		)
+
+		expect(harness.getState().mobilePanelOpen).toBe(true)
+		expect(harness.getState().mobilePanelTab).toBe('chat')
+		expect(harness.getState().mobilePanelSnap).toBe('full')
+	})
+
+	test('restores a local draft Thread from its edit route without changing the working copy', () => {
+		const harness = createViewModeHarness({ retainedDataset: true })
+		harness
+			.getState()
+			.applyRouteState(
+				{ sidebarView: 'edit', focusType: 'none', tab: 'thread' },
+				{ syncMobileTab: true },
+			)
+		expect(harness.getState().viewMode).toBe('edit')
+		expect(harness.getState().mobilePanelOpen).toBe(true)
+		expect(harness.getState().mobilePanelTab).toBe('chat')
+		expect(harness.getState().mobilePanelSnap).toBe('full')
+	})
 })

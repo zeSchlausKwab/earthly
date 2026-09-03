@@ -303,7 +303,7 @@ export function captureTargetDatasetPublication(
 			result: {
 				status: 'blocked',
 				code: 'reference_publish_source_unavailable',
-				message: 'The captured Dataset draft no longer belongs to its original edit state.',
+				message: 'The captured Map draft no longer belongs to its original working copy.',
 				retryable: true,
 			},
 		}
@@ -362,7 +362,7 @@ export function captureTargetDatasetPublication(
 			result: {
 				status: 'blocked',
 				code: 'reference_publish_source_unavailable',
-				message: 'The captured new Dataset no longer matches its original edit state.',
+				message: 'The captured new Map no longer matches its original working copy.',
 				retryable: true,
 			},
 		}
@@ -394,7 +394,7 @@ export function captureTargetDatasetPublication(
 				status: 'blocked',
 				code: 'reference_publish_context_missing',
 				message:
-					'This action is not bound to a conversation and operation, so publishing was refused.',
+					'This action is not bound to a Thread and operation, so publishing was refused.',
 				retryable: true,
 			},
 		}

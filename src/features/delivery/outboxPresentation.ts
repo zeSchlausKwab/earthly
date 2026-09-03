@@ -50,11 +50,11 @@ export function partitionOutbox(items: OutboxItemSummary[]): OutboxPartitions {
 export function outboxKindLabel(kind: number): string {
 	switch (kind) {
 		case GEO_EVENT_KIND:
-			return 'Dataset'
+			return 'Map'
 		case GEO_COMMENT_KIND:
 			return 'Comment'
 		case MAP_CONTEXT_KIND:
-			return 'Context'
+			return 'Atlas'
 		case GEO_EDIT_PROPOSAL_KIND:
 			return 'Edit proposal'
 		case ARTICLE_KIND:

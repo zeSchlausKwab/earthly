@@ -40,6 +40,8 @@ export interface SightingsPanelProps {
 	currentUserPubkey?: string
 	onOpenSighting: (sighting: TemporalSighting) => void
 	onCreateSighting: () => void
+	/** Browse owns the single tab-level create action in the Margin shell. */
+	showCreateAction?: boolean
 	onEditSighting: (sighting: TemporalSighting) => void
 	onDeleteSighting: (sighting: TemporalSighting) => void
 	/** Fly the map to the Sighting's location and focus it. */
@@ -67,6 +69,7 @@ export function SightingsPanelContent({
 	currentUserPubkey,
 	onOpenSighting,
 	onCreateSighting,
+	showCreateAction = true,
 	onEditSighting,
 	onDeleteSighting,
 	onZoomToSighting,
@@ -162,7 +165,7 @@ export function SightingsPanelContent({
 			icon={Eye}
 			title="Sightings"
 			count={result.totalCount}
-			onNew={onCreateSighting}
+			onNew={showCreateAction ? onCreateSighting : undefined}
 			newLabel="New Sighting"
 			headerExtra={
 				<AggregateMapLayerControl
@@ -177,7 +180,7 @@ export function SightingsPanelContent({
 				<BulkMapStackButton
 					count={stackableFilteredSightings.length}
 					onClick={onAddToMapStack ? addFilteredToMapStack : undefined}
-					label="Add filtered sightings to map stack"
+					label="Show filtered Sightings on the map"
 				/>
 			}
 			toolbar={

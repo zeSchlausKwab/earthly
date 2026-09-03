@@ -9,6 +9,7 @@ export interface GeometryChoiceItem {
 	geometry: Geometry
 	isAnnotation?: boolean
 	context?: string
+	presentationLayer?: string
 }
 
 interface GeometryChoiceMenuProps {
@@ -73,11 +74,13 @@ export function GeometryChoiceMenu({
 						<span className="min-w-0 flex-1">
 							<span className="block truncate font-medium text-foreground">{item.name}</span>
 							<span className="block truncate text-[10px] text-muted-foreground">
-								{item.context
-									? `${item.isAnnotation ? 'Annotation' : item.geometry.type} · ${item.context}`
-									: item.isAnnotation
-										? 'Annotation'
-										: item.geometry.type}
+								{[
+									item.isAnnotation ? 'Annotation' : item.geometry.type,
+									item.context,
+									item.presentationLayer ? `layer ${item.presentationLayer}` : undefined,
+								]
+									.filter(Boolean)
+									.join(' · ')}
 							</span>
 						</span>
 					</button>

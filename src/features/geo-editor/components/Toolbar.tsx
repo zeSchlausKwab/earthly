@@ -53,8 +53,6 @@ import {
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { HelpPopover } from '@/components/HelpPopover'
-import { LoginSessionButtons } from '@/features/auth/LoginSessionButtons'
 import { useChatStore } from '@/features/chat/store'
 import { Button } from '@/components/ui/button'
 import {
@@ -75,7 +73,6 @@ import {
 } from '@/components/ui/menubar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SidebarTrigger } from '@/components/ui/sidebar'
-import { SearchBar } from '@/components/ui/search-bar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
@@ -96,22 +93,21 @@ import { ShareExportPopover } from './share/ShareExportPopover'
 import {
 	Divider,
 	DrawButtonGroup,
-	FileDropdown,
 	GeometryOpsDropdown,
 	GeometryOperationDialog,
 	IconButtonRow,
 	OsmImportPopover,
 	ProposalDialog,
 	PublishDropdown,
-	SessionButton,
 	SimplifyDialog,
+	type PublishAudienceOption,
+	type PublishDropdownProps,
 	type ToolbarButton,
 	type NumericGeometryOperation,
 } from './toolbar/index'
 import { OSM_FILTER_PRESETS } from './toolbar/OsmImportPopover'
 import { useResponsiveToolbar } from './toolbar/useResponsiveToolbar'
 import { Input } from '@/components/ui/input'
-import { CurrentDestinationPill } from './CurrentDestinationPill'
 import type { ResolvedAuthoringDestination } from './authoringDestination'
 
 const geometryOperationIcons: Record<GeometryOperationIcon, typeof Scissors> = {
@@ -143,8 +139,8 @@ interface DatasetActionsProps {
 
 interface ToolbarProps {
 	datasetActions?: DatasetActionsProps
-	isMobile?: boolean
-	showLogin?: boolean
+	/** The Margin shell has no collapsible legacy sidebar to toggle. */
+	showSidebarTrigger?: boolean
 	onSearchResultSelect?: (result: GeoSearchResult) => void
 	onInspectorDeactivate?: () => void
 	onStartNewDataset?: () => void
@@ -164,75 +160,31 @@ interface ToolbarProps {
 	selectedFeatureHasCallout?: boolean
 	calloutComposerActive?: boolean
 	calloutAnchorDrawing?: boolean
-	/** E.3: exits the Focus stance — wired to the interactive stance pill. */
-	onExitFocus?: () => void
 	destination?: ResolvedAuthoringDestination
+	audienceOptions?: readonly PublishAudienceOption[]
+	selectedAudienceId?: string
+	onAudienceChange?: PublishDropdownProps['onAudienceChange']
 	onActivateDestination?: () => void
 	onLeaveDestination?: () => void
 }
 
 interface MapStateClusterProps {
-	viewMode: 'edit' | 'view'
 	mapStackOpen: boolean
 	mapStackEntryCount: number
 	mapStackVisibleCount: number
 	onToggleMapStack?: () => void
-	/**
-	 * Round E.3: when provided and the stance is `focus`, the stance pill
-	 * becomes a button that exits back to Browse (or Author when a draft is
-	 * active — `exitViewMode` decides).
-	 */
-	onExitFocus?: () => void
 	compact?: boolean
 	flat?: boolean
-	/**
-	 * Which part(s) of the cluster to render. The desktop toolbar uses this to
-	 * place the map-stack toggle and the stance pill in different positions:
-	 *   - 'toggle'  → just the map-stack Layers button + count
-	 *   - 'stance'  → just the stance pill
-	 *   - 'all'     → full cluster (default, used by mobile)
-	 *
-	 * Round C: the focused-entity and context-scope chips that used to live
-	 * here are removed — the MapStackPanel's per-row "Isolated" indicator and
-	 * its "Isolating: <name>" header subtitle now play that role, and they
-	 * stay coherent with the stack/visibility model. The toolbar surface is
-	 * lighter as a result.
-	 */
-	parts?: 'all' | 'toggle' | 'stance'
 }
 
 function MapStateCluster({
-	viewMode: _viewMode,
 	mapStackOpen,
 	mapStackEntryCount,
 	mapStackVisibleCount,
 	onToggleMapStack,
-	onExitFocus,
 	compact = false,
 	flat = false,
-	parts = 'all',
 }: MapStateClusterProps) {
-	const renderToggle = parts === 'all' || parts === 'toggle'
-	const renderStance = parts === 'all' || parts === 'stance'
-	// Stance is the source of truth (replaces the previously-derived label
-	// that combined viewMode + focusLabel). Transitions live at the explicit
-	// trigger sites — see stanceSlice for the model.
-	const stance = useEditorStore((state) => state.stance)
-	// Stance labels kept as-is (vocabulary change deferred). Colors follow the
-	// DS palette — amber = active/selection (focus), violet = edit/draft
-	// (author), muted neutral = browse.
-	const stanceLabel = stance === 'author' ? 'Edit' : stance === 'focus' ? 'Inspect' : 'Browse'
-	const stanceClass = flat
-		? stance === 'author'
-			? 'text-edit'
-			: stance === 'focus'
-				? 'text-primary'
-				: 'text-muted-foreground'
-		: stance === 'author'
-			? 'border-edit/40 bg-edit/10 text-edit'
-			: stance === 'focus'
-				? 'border-primary/40 bg-primary/10 text-primary'
-				: 'border-border bg-muted/40 text-muted-foreground'
 	const mapCountLabel =
 		mapStackEntryCount > 0 ? `${mapStackVisibleCount}/${mapStackEntryCount}` : '0'
 	const clusterClass = flat
@@ -251,69 +203,35 @@ function MapStateCluster({
 
 	return (
 		<div className={clusterClass}>
-			{renderToggle ? (
-				<Button
-					type="button"
-					variant={flat ? 'ghost' : mapStackOpen ? 'default' : 'ghost'}
-					size={compact ? 'sm' : 'default'}
-					className={
-						flat
-							? cn(flatToggleClass, mapStackOpen && flatActiveClass)
-							: `h-7 shrink-0 gap-1.5 rounded-md px-2 text-xs ${
-									mapStackOpen ? '' : 'text-muted-foreground hover:text-foreground'
-								}`
-					}
-					onClick={onToggleMapStack}
-					aria-label={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
-					title={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
-				>
-					<Layers className="h-3.5 w-3.5" />
-					<span className="sr-only">Map stack</span>
-					{mapStackEntryCount > 0 ? (
-						<span
-							className={
-								flat
-									? 'font-mono text-[10px] tabular-nums'
-									: 'rounded bg-black/5 px-1.5 py-0.5 font-mono text-[10px] tabular-nums'
-							}
-						>
-							{mapCountLabel}
-						</span>
-					) : null}
-				</Button>
-			) : null}
-			{/* Stance pill — compact in flat mode: tight padding + extra-small text.
-			    In the Focus stance the pill is interactive (E.3): clicking it exits
-			    inspection back to Browse/Author. */}
-			{renderStance ? (
-				stance === 'focus' && onExitFocus ? (
-					<button
-						type="button"
-						onClick={onExitFocus}
-						className={
-							flat
-								? `inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-transparent px-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:bg-primary/15 ${stanceClass}`
-								: `inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-2 text-[11px] font-semibold uppercase transition-colors hover:bg-primary/15 ${stanceClass}`
-						}
-						title="Exit inspection"
-						aria-label="Exit inspection"
-					>
-						{stanceLabel}
-						<X className="h-3 w-3" />
-					</button>
-				) : (
+			<Button
+				type="button"
+				variant={flat ? 'ghost' : mapStackOpen ? 'default' : 'ghost'}
+				size={compact ? 'sm' : 'default'}
+				className={
+					flat
+						? cn(flatToggleClass, mapStackOpen && flatActiveClass)
+						: `h-7 shrink-0 gap-1.5 rounded-md px-2 text-xs ${
+								mapStackOpen ? '' : 'text-muted-foreground hover:text-foreground'
+							}`
+				}
+				onClick={onToggleMapStack}
+				aria-label={mapStackOpen ? 'Hide Shelf' : 'Show Shelf'}
+				title={mapStackOpen ? 'Hide Shelf' : 'Show Shelf'}
+			>
+				<Layers className="h-3.5 w-3.5" />
+				<span className="sr-only">Shelf</span>
+				{mapStackEntryCount > 0 ? (
 					<span
 						className={
 							flat
-								? `inline-flex h-8 shrink-0 items-center rounded-md border border-transparent px-1.5 text-[11px] font-semibold uppercase tracking-wide ${stanceClass}`
-								: `inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-[11px] font-semibold uppercase ${stanceClass}`
+								? 'font-mono text-[10px] tabular-nums'
+								: 'rounded bg-black/5 px-1.5 py-0.5 font-mono text-[10px] tabular-nums'
 						}
-						title={`Current stance: ${stanceLabel}`}
 					>
-						{stanceLabel}
+						{mapCountLabel}
 					</span>
-				)
-			) : null}
+				) : null}
+			</Button>
 		</div>
 	)
 }
@@ -423,8 +341,7 @@ function ToolbarMenuCheckbox({
 
 export function Toolbar({
 	datasetActions,
-	isMobile = false,
-	showLogin = true,
+	showSidebarTrigger = true,
 	onSearchResultSelect,
 	onInspectorDeactivate,
 	onStartNewDataset,
@@ -437,13 +354,16 @@ export function Toolbar({
 	mapStackVisibleCount = 0,
 	chatOpen = false,
 	onToggleMapStack,
+	onToggleChat,
 	onOpenSelectedCallout,
 	selectedFeatureCount = 0,
 	selectedFeatureHasCallout = false,
 	calloutComposerActive = false,
 	calloutAnchorDrawing = false,
-	onExitFocus,
 	destination,
+	audienceOptions,
+	selectedAudienceId,
+	onAudienceChange,
 	onActivateDestination,
 	onLeaveDestination,
 }: ToolbarProps) {
@@ -454,8 +374,7 @@ export function Toolbar({
 	// Round E.1: stance gates which toolbar clusters render at all. Browse and
 	// Focus show the lean discovery surface (File / search / view toggles);
 	// the Draw + Edit clusters and import tools only exist while authoring.
-	// File's "New dataset" and the mobile SessionButton remain the entry
-	// points into the Author stance.
+	// File's "New Map" action remains the entry point into authoring.
 	const stance = useEditorStore((state) => state.stance)
 	const isAuthoring = stance === 'author'
 	// Round D.4: edit-isolation is no longer a separate slice — it's the draft
@@ -472,9 +391,6 @@ export function Toolbar({
 	const history = useEditorStore((state) => state.history)
 
 	// UI State
-	const mobileToolsOpen = useEditorStore((state) => state.mobileToolsOpen)
-	const mobileSearchOpen = useEditorStore((state) => state.mobileSearchOpen)
-	const mobileActionsOpen = useEditorStore((state) => state.mobileActionsOpen)
 	const inspectorActive = useEditorStore((state) => state.inspectorActive)
 	const setInspectorActive = useEditorStore((state) => state.setInspectorActive)
 	const chatDock = useEditorStore((state) => state.chatDock)
@@ -729,7 +645,7 @@ export function Toolbar({
 			variant: editIsolationEnabled ? 'default' : 'outline',
 			disabled: isEditingDisabled,
 			ariaLabel: 'Toggle edit isolation',
-			description: 'Show only geometry in the current edit state',
+			description: 'Show only geometry in the working Map',
 		},
 		{
 			key: 'delete',
@@ -746,17 +662,6 @@ export function Toolbar({
 			disabled: isEditingDisabled || !canDuplicateSelected,
 			ariaLabel: 'Duplicate',
 			description: 'Duplicate selected features',
-		},
-	]
-
-	const lookupButtons: ToolbarButton[] = [
-		{
-			key: 'reverse-lookup',
-			icon: Crosshair,
-			onClick: handleToggleInspector,
-			variant: inspectorActive ? 'default' : 'outline',
-			ariaLabel: 'Location lookup',
-			description: 'Click map to get location info',
 		},
 	]
 
@@ -871,7 +776,7 @@ export function Toolbar({
 					<MenubarGroup>
 						<ToolbarMenuItem
 							icon={isEditing ? XCircle : PlusCircle}
-							label={isEditing ? 'Cancel editing' : 'New dataset'}
+							label={isEditing ? 'Cancel editing' : 'New Map'}
 							onSelect={isEditing ? onCancelEditing : onStartNewDataset}
 							variant={isEditing ? 'destructive' : 'default'}
 						/>
@@ -905,7 +810,7 @@ export function Toolbar({
 							</MenubarLabel>
 							<ToolbarMenuItem
 								icon={UploadCloud}
-								label="Publish new dataset"
+								label="Publish new Map"
 								onSelect={datasetActions?.onPublishNew}
 								disabled={publishMenuDisabled || !datasetActions?.canPublishNew}
 							/>
@@ -917,7 +822,7 @@ export function Toolbar({
 							/>
 							<ToolbarMenuItem
 								icon={CopyPlus}
-								label="Fork as new dataset"
+								label="Fork as new Map"
 								onSelect={datasetActions?.onPublishCopy}
 								disabled={publishMenuDisabled || !datasetActions?.canPublishCopy}
 							/>
@@ -1282,196 +1187,7 @@ export function Toolbar({
 		/>
 	)
 
-	// ============================================
-	// MOBILE TOOLBAR (legacy — kept until we're sure the responsive unified
-	// toolbar handles every viewport. To re-enable, change `MOBILE_TOOLBAR_ENABLED`
-	// to use `isMobile`.)
-	// ============================================
-	const MOBILE_TOOLBAR_ENABLED = false
-	if (isMobile && MOBILE_TOOLBAR_ENABLED) {
-		return (
-			<>
-				<div className="pointer-events-auto w-full max-w-md px-2 mx-auto">
-					<div className="mb-2 flex justify-center">
-						<MapStateCluster
-							viewMode={viewMode}
-							mapStackOpen={mapStackOpen}
-							mapStackEntryCount={mapStackEntryCount}
-							mapStackVisibleCount={mapStackVisibleCount}
-							onToggleMapStack={onToggleMapStack}
-							onExitFocus={onExitFocus}
-							compact
-						/>
-					</div>
-
-					{mobileToolsOpen && (
-						<div className="glass-panel rounded-lg p-1.5">
-							{/* Row 1: Session + (when authoring) Select + Draw.
-							    E.1: SessionButton is the stance entry point and always
-							    renders; the draw/edit tools only exist in Author. */}
-							<div className="flex items-center justify-center gap-1 flex-wrap mb-1">
-								<SessionButton
-									viewMode={viewMode}
-									onStartNew={onStartNewDataset}
-									onCancel={onCancelEditing}
-									small
-								/>
-								{isAuthoring ? (
-									<>
-										<Divider />
-										<IconButtonRow buttons={selectButtons} small />
-										<Divider />
-										<DrawButtonGroup
-											mode={mode}
-											onModeChange={handleModeChange}
-											onArrowDraw={handleArrowDrawing}
-											disabled={isEditingDisabled}
-											small
-										/>
-									</>
-								) : null}
-							</div>
-							{/* Row 2: History + Edit tools + Geometry ops — Author only. */}
-							{isAuthoring ? (
-								<div className="flex items-center justify-center gap-1 flex-wrap">
-									<IconButtonRow buttons={historyButtons} small />
-									<Divider />
-									<IconButtonRow buttons={editButtons} small />
-									<GeometryOpsDropdown {...geometryOpsProps} small />
-								</div>
-							) : null}
-						</div>
-					)}
-
-					{mobileSearchOpen && (
-						<div className="glass-panel flex flex-col gap-2 rounded-lg p-1.5">
-							<div className="flex items-center gap-2">
-								<SearchBar
-									query={searchQuery}
-									loading={searchLoading}
-									placeholder="Search..."
-									onSubmit={(e) => {
-										e.preventDefault()
-										handleSearchSubmit(e)
-									}}
-									onQueryChange={setSearchQuery}
-									onClear={clearSearch}
-								/>
-								<IconButtonRow buttons={lookupButtons} small />
-							</div>
-							{searchResults && searchResults.length > 0 && (
-								<div className="max-h-48 overflow-y-auto space-y-1 bg-popover rounded-lg border border-border">
-									{searchResults.map((result, index) => (
-										<Button
-											type="button"
-											key={result.placeId ?? `result-${index}`}
-											variant="ghost"
-											className="w-full text-left text-sm p-2 hover:bg-muted/50 border-b border-border last:border-0 truncate"
-											onClick={() => onSearchResultSelect?.(result)}
-										>
-											{result.displayName}
-										</Button>
-									))}
-								</div>
-							)}
-							{/* P2.1: explicit non-result states so a slow/empty/failed
-							    geocode gives feedback on mobile too (report 8.1). */}
-							{searchLoading && (
-								<div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-									<RefreshCw className="h-3 w-3 animate-spin" />
-									<span>Searching…</span>
-								</div>
-							)}
-							{searchHasNoResults && (
-								<div className="px-1 text-xs text-muted-foreground">
-									No places match “{searchQuery.trim()}”.
-								</div>
-							)}
-							{searchError && <div className="text-xs text-destructive px-1">{searchError}</div>}
-						</div>
-					)}
-
-					{mobileActionsOpen && datasetActions && (
-						<div className="glass-panel rounded-lg p-1.5">
-							<div className="flex items-center justify-center gap-1 flex-wrap">
-								<FileDropdown
-									onImportClick={() => fileInputRef.current?.click()}
-									onExportGeoJSON={datasetActions.onExportGeoJSON ?? (() => {})}
-									onExportSHP={datasetActions.onExportSHP ?? (() => {})}
-									canExport={datasetActions.canExport}
-									disabled={isEditingDisabled}
-									small
-								/>
-								{isAuthoring ? (
-									<OsmImportPopover
-										open={magicPopoverOpen}
-										onOpenChange={setMagicPopoverOpen}
-										osmQueryFilter={osmQueryFilter}
-										onOsmFilterChange={setOsmQueryFilter}
-										onOsmClickMode={handleOsmClickMode}
-										onOsmQueryView={handleOsmQueryView}
-										onOsmAdvanced={onOsmAdvanced}
-										isClickMode={osmQueryMode === 'click'}
-										small
-									/>
-								) : null}
-								<CreateMapPopover />
-								<Divider />
-								<PublishDropdown
-									canPublishNew={datasetActions.canPublishNew}
-									canPublishUpdate={datasetActions.canPublishUpdate}
-									canPublishCopy={datasetActions.canPublishCopy}
-									canProposeEdit={datasetActions.canProposeEdit}
-									isPublishing={datasetActions.isPublishing}
-									onPublishNew={datasetActions.onPublishNew}
-									onPublishUpdate={datasetActions.onPublishUpdate}
-									onPublishCopy={datasetActions.onPublishCopy}
-									onProposeEdit={datasetActions.onProposeEdit}
-									publishMode={datasetActions.publishMode}
-									small
-								/>
-								<Divider />
-								<HelpPopover
-									multiSelectModifier={editor?.getMultiSelectModifierLabel() ?? 'Shift'}
-								/>
-								<TooltipProvider delayDuration={500}>
-									<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
-										<Tooltip>
-											<TooltipTrigger asChild>
-												<PopoverTrigger asChild>
-													<Button
-														variant={showMapSettings ? 'default' : 'outline'}
-														size="icon"
-														className="h-8 w-8"
-														aria-label="Map settings"
-													>
-														<Settings2 className="h-3.5 w-3.5" />
-													</Button>
-												</PopoverTrigger>
-											</TooltipTrigger>
-											<TooltipContent side="bottom" sideOffset={8}>
-												<p>Map settings</p>
-											</TooltipContent>
-										</Tooltip>
-										<PopoverContent className="w-[28rem]" side="bottom" align="center">
-											<MapSettingsPanel mode="map-only" />
-										</PopoverContent>
-									</Popover>
-								</TooltipProvider>
-								{showLogin && <LoginSessionButtons />}
-							</div>
-							{fileInput}
-						</div>
-					)}
-				</div>
-				<SimplifyDialog open={simplifyDialogOpen} onOpenChange={setSimplifyDialogOpen} />
-			</>
-		)
-	}
-
-	// ============================================
-	// DESKTOP TOOLBAR
-	// ============================================
+	// The desktop toolbar is reused unchanged inside the new Canvas shell.
 	return (
 		<>
 			<div
@@ -1482,53 +1198,26 @@ export function Toolbar({
 					ref={toolbarContainerRef}
 					className="flex w-full items-center gap-1 overflow-x-auto p-0"
 				>
-					{/* Topic 1: sidebar trigger (left-most chrome). */}
-					<SidebarTrigger className="h-8 w-8" />
-					<Divider />
+					{showSidebarTrigger ? (
+						<>
+							{/* Topic 1: optional legacy sidebar trigger. */}
+							<SidebarTrigger className="h-8 w-8" />
+							<Divider />
+						</>
+					) : null}
 
 					{/* Topic 2: map-stack toggle (the chat/right-sidebar toggle now lives
 					    at the far right of the bar — see Topic 7 — mirroring the left
 					    sidebar trigger on the far left). */}
 					<MapStateCluster
-						viewMode={viewMode}
 						mapStackOpen={mapStackOpen}
 						mapStackEntryCount={mapStackEntryCount}
 						mapStackVisibleCount={mapStackVisibleCount}
 						onToggleMapStack={onToggleMapStack}
 						compact
 						flat
-						parts="toggle"
 					/>
 					<Divider />
-
-					{/* Topic 3: stance indicator. The previously-shown context-scope and
-					    focus chips were removed in Round C: the MapStackPanel's per-row
-					    "Isolated" pill + header "Isolating: <name>" subtitle now play
-					    that role and stay coherent with the stack/visibility model. */}
-					<MapStateCluster
-						viewMode={viewMode}
-						mapStackOpen={mapStackOpen}
-						mapStackEntryCount={mapStackEntryCount}
-						mapStackVisibleCount={mapStackVisibleCount}
-						onExitFocus={onExitFocus}
-						compact
-						flat
-						parts="stance"
-					/>
-					<Divider />
-
-					{/* Topic 4: one truthful authoring destination. This is distinct
-					    from Browse / Inspect / Edit stance and from Map Stack isolation. */}
-					{destination ? (
-						<>
-							<CurrentDestinationPill
-								destination={destination}
-								onActivate={onActivateDestination}
-								onLeave={onLeaveDestination}
-							/>
-							<Divider />
-						</>
-					) : null}
 
 					{/* Topic 5: file / draw / edit menus (priority-expanding) */}
 					{desktopCommandMenubar}
@@ -1756,7 +1445,7 @@ export function Toolbar({
 					    visible beside the editing controls whenever a publish verb is
 					    available — the File menu keeps the full verb list alongside
 					    import/export. */}
-					{datasetActions && canPublishFromMenu ? (
+					{datasetActions && (canPublishFromMenu || destination) ? (
 						<PublishDropdown
 							canPublishNew={datasetActions.canPublishNew}
 							canPublishUpdate={datasetActions.canPublishUpdate}
@@ -1768,9 +1457,15 @@ export function Toolbar({
 							onPublishCopy={datasetActions.onPublishCopy}
 							onProposeEdit={datasetActions.onProposeEdit}
 							publishMode={datasetActions.publishMode}
+							publishingScope={destination}
+							audienceOptions={audienceOptions}
+							selectedAudienceId={selectedAudienceId}
+							onAudienceChange={onAudienceChange}
+							onOpenPublishingScope={onActivateDestination}
+							onLeavePublishingScope={onLeaveDestination}
 						/>
 					) : null}
-					{/* Topic 7: chat / right-sidebar toggle — pinned to the FAR RIGHT,
+					{/* Thread / right-column toggle — pinned to the far right,
 				    mirroring the far-left sidebar trigger, with a separator to its
 				    left signalling that it opens the right sidebar. */}
 					<Divider />
@@ -1778,25 +1473,25 @@ export function Toolbar({
 						type="button"
 						variant="ghost"
 						size="icon-sm"
-						onClick={() => toggleChatAtDock('right')}
+						onClick={() => (onToggleChat ? onToggleChat() : toggleChatAtDock('right'))}
 						data-tour="sidebar-chat"
 						aria-label={
 							chatOpen && chatDock === 'right'
-								? 'Hide AI chat'
+								? 'Hide Thread'
 								: chatWorking
-									? 'AI chat is working; show it on the right'
+									? 'Thread is working; show it on the right'
 									: chatOpen
-										? 'Move AI chat to the right'
-										: 'Show AI chat on the right'
+										? 'Move Thread to the right'
+										: 'Show Thread on the right'
 						}
 						title={
 							chatOpen && chatDock === 'right'
-								? 'Hide AI chat'
+								? 'Hide Thread'
 								: chatWorking
-									? 'AI chat is working; show it on the right'
+									? 'Thread is working; show it on the right'
 									: chatOpen
-										? 'Move AI chat to the right'
-										: 'Show AI chat on the right'
+										? 'Move Thread to the right'
+										: 'Show Thread on the right'
 						}
 						className={cn(
 							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',

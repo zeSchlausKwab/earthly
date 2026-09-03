@@ -8,6 +8,7 @@ import {
 	Globe,
 	MapPin,
 	RadioTower,
+	UserRound,
 	X,
 } from 'lucide-react'
 import {
@@ -132,6 +133,8 @@ const ENTITY_TYPE_ICONS: Record<EntityType, typeof Database> = {
 	story: BookOpen,
 	beacon: RadioTower,
 	sighting: Eye,
+	person: UserRound,
+	place: MapPin,
 }
 
 export function getEntityReferenceKey(result: EntitySearchResult): string {
@@ -146,7 +149,7 @@ export function EntityReferenceToolbar({
 	onRemoveReference,
 	onClearReferences,
 	entityTypes,
-	placeholder = 'Add geometry/context/collection references…',
+	placeholder = 'Add Map, Atlas, or collection references…',
 	searchMode = 'both',
 	getDatasetName,
 	className,

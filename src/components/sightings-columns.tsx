@@ -153,7 +153,7 @@ function SightingListRow({
 					{context.onAddToMapStack ? (
 						<RowActionButton
 							icon={MapPlus}
-							label="Add to map stack"
+							label="Show on map"
 							hover="hover:text-ok"
 							onClick={() => context.onAddToMapStack?.(sighting)}
 						/>

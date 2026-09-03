@@ -24,6 +24,7 @@ import {
 	type DatasetColumnsContext,
 	type DatasetRowData,
 } from './datasets-columns'
+import { getMapEditPresentation } from './info-panel/mapProposalPresentation'
 import { Button } from './ui/button'
 
 export interface GeoDatasetsPanelProps {
@@ -48,9 +49,11 @@ export interface GeoDatasetsPanelProps {
 	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onInspectContext?: (context: MapContext) => void
 	onOpenDebug?: (event: GeoDataset | MapContext) => void
-	/** Start a fresh dataset draft (the datasets rail "+ new"). */
+	/** Start a fresh Map draft (the Maps Browse tab "+ new"). */
 	onStartNewDataset?: () => void
 	onCreateContext?: () => void
+	/** Browse owns the single tab-level create action in the Margin shell. */
+	showCreateAction?: boolean
 	onEditContext?: (context: MapContext) => void
 	isFocused?: boolean
 	onExitFocus?: () => void
@@ -123,6 +126,7 @@ export function GeoDatasetsPanelContent({
 	onOpenDebug,
 	onStartNewDataset,
 	onCreateContext,
+	showCreateAction = true,
 	onEditContext,
 	isFocused = false,
 	onExitFocus,
@@ -170,7 +174,7 @@ export function GeoDatasetsPanelContent({
 				isVisible: datasetVisibility[datasetKey] !== false,
 				isInMapStack: Boolean(mapStackEntries[`dataset:${datasetKey}`]),
 				isCatalogPinned: pinnedEntitySet.has(`dataset:${datasetKey}`),
-				primaryLabel: isActive ? 'Loaded in editor' : isOwned ? 'Edit dataset' : 'Load copy',
+				primaryLabel: isActive ? 'Open in editor' : getMapEditPresentation(isOwned).actionLabel,
 			}
 		},
 		[
@@ -362,6 +366,7 @@ export function GeoDatasetsPanelContent({
 
 	const datasetColumnsContext: DatasetColumnsContext = useMemo(
 		() => ({
+			currentUserPubkey,
 			onLoadDataset,
 			onDeleteDataset,
 			onToggleVisibility,
@@ -495,9 +500,7 @@ export function GeoDatasetsPanelContent({
 							: undefined
 						: addFilteredContextsToMapStack
 				}
-				label={
-					isDatasets ? 'Add filtered datasets to map stack' : 'Add filtered contexts to map stack'
-				}
+				label={isDatasets ? 'Add filtered maps to Shelf' : 'Add filtered atlases to Shelf'}
 			/>
 			<div className="inline-flex items-center gap-0.5 rounded-[3px] border border-border bg-muted p-0.5">
 				{(
@@ -532,8 +535,8 @@ export function GeoDatasetsPanelContent({
 						allVisibleState !== 'none' ? 'text-info hover:text-info' : 'text-muted-foreground',
 					)}
 					onClick={() => onToggleAllVisibility(allVisibleState !== 'all')}
-					aria-label={allVisibleState === 'all' ? 'Hide all datasets' : 'Show all datasets'}
-					title={allVisibleState === 'all' ? 'Hide all datasets' : 'Show all datasets'}
+					aria-label={allVisibleState === 'all' ? 'Hide all maps' : 'Show all maps'}
+					title={allVisibleState === 'all' ? 'Hide all maps' : 'Show all maps'}
 				>
 					{allVisibleState !== 'none' ? (
 						<Eye className="h-4 w-4" />
@@ -545,7 +548,7 @@ export function GeoDatasetsPanelContent({
 		</>
 	)
 
-	// The focus "Show all" restore control keeps its own row (datasets, focused only).
+	// The focus "Show all" restore control keeps its own row (Maps, focused only).
 	const headerExtra =
 		isFocused && onExitFocus ? (
 			<Button
@@ -553,7 +556,7 @@ export function GeoDatasetsPanelContent({
 				variant="outline"
 				onClick={onExitFocus}
 				className="h-6 w-fit text-[11px]"
-				title="Restore normal map visibility for all datasets"
+				title="Restore normal visibility for all maps"
 			>
 				<Eye className="mr-1 h-3.5 w-3.5" />
 				Show all
@@ -563,15 +566,16 @@ export function GeoDatasetsPanelContent({
 	return (
 		<ListPanel
 			icon={isDatasets ? DatasetGlyphIcon : Globe}
-			title={isDatasets ? 'Datasets' : 'Contexts'}
+			title={isDatasets ? 'Maps' : 'Atlases'}
 			count={activeResult.totalCount}
-			onNew={isDatasets ? onStartNewDataset : onCreateContext}
-			newLabel={isDatasets ? 'New dataset' : 'New context'}
+			onNew={showCreateAction ? (isDatasets ? onStartNewDataset : onCreateContext) : undefined}
+			newLabel={isDatasets ? 'New map' : 'New atlas'}
 			titleAccessory={titleAccessory}
 			headerExtra={headerExtra}
 			toolbar={
 				<EntitySearchToolbar
 					{...filterState}
+					placeholder={isDatasets ? 'Filter maps…' : 'Filter atlases…'}
 					totalCount={activeResult.totalCount}
 					filteredCount={activeResult.filteredCount}
 					displayedCount={activeResult.displayedCount}
@@ -583,14 +587,14 @@ export function GeoDatasetsPanelContent({
 		>
 			{isDatasets ? (
 				geoEvents.length === 0 ? (
-					<p className="px-1 text-xs text-muted-foreground">Listening for GeoJSON datasets…</p>
+					<p className="px-1 text-xs text-muted-foreground">Listening for maps…</p>
 				) : displayedDatasetRows.length === 0 ? (
 					<p className="px-1 text-xs text-muted-foreground">
 						{catalogTab === 'favorites'
-							? 'No favorite datasets yet — tap the star on a row.'
+							? 'No favorite maps yet — tap the star on a row.'
 							: catalogTab === 'recent'
-								? 'No recently viewed datasets yet.'
-								: 'No datasets match your filters.'}
+								? 'No recently viewed maps yet.'
+								: 'No maps match your filters.'}
 					</p>
 				) : (
 					<EntityListTable
@@ -600,14 +604,14 @@ export function GeoDatasetsPanelContent({
 					/>
 				)
 			) : mapContextEvents.length === 0 ? (
-				<p className="px-1 text-xs text-muted-foreground">Listening for map contexts…</p>
+				<p className="px-1 text-xs text-muted-foreground">Listening for atlases…</p>
 			) : displayedContextRows.length === 0 ? (
 				<p className="px-1 text-xs text-muted-foreground">
 					{catalogTab === 'favorites'
-						? 'No favorite contexts yet — star one on a row.'
+						? 'No favorite atlases yet — star one on a row.'
 						: catalogTab === 'recent'
-							? 'No recently viewed contexts yet.'
-							: 'No contexts match your filters.'}
+							? 'No recently viewed atlases yet.'
+							: 'No atlases match your filters.'}
 				</p>
 			) : (
 				<EntityListTable
