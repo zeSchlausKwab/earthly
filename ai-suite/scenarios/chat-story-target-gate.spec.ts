@@ -4,7 +4,6 @@ import {
 	completeAiChatTurn,
 	configureChatProvider,
 	openAiChat,
-	selectAiChatTarget,
 	sendAiChatMessage,
 } from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
@@ -47,9 +46,8 @@ test('AI Story writing pauses for an explicit Story edit target and then resumes
 	const dataset = await startDataset(earthly)
 	await dataset.nameInput.fill('Dataset target for an article request')
 	await openAiChat(earthly)
-	await selectAiChatTarget(earthly, 'current-dataset')
 
-	const panel = earthly.page.getByRole('region', { name: 'AI chat', exact: true })
+	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 	const assistantMessageCountBefore = await panel.getByTitle('Copy assistant message').count()
 	await sendAiChatMessage(earthly, 'Write an article explaining this map.')
 
@@ -58,9 +56,6 @@ test('AI Story writing pauses for an explicit Story edit target and then resumes
 	await expect(
 		dialog.getByRole('button', { name: 'New Story and continue', exact: true }),
 	).toBeVisible()
-	await expect(
-		earthly.page.locator('select[aria-label="Select conversation"] option:checked'),
-	).toContainText('Awaiting approval')
 	await expect.poll(() => readNewStoryDraft(earthly)).toBeNull()
 	await expect(earthly.page.getByLabel('Title', { exact: true })).toHaveCount(0)
 
@@ -81,7 +76,7 @@ test('AI Story writing pauses for an explicit Story edit target and then resumes
 
 	// The explicit approval retained a populated Story edit state. Reveal it via
 	// the ordinary sidebar control and verify the same local draft is author-visible.
-	await earthly.page.getByRole('button', { name: 'Story', exact: true }).click()
+	await earthly.page.getByRole('button', { name: 'Story edit', exact: true }).click()
 	await expect(earthly.page.getByLabel('Title', { exact: true })).toHaveValue(
 		DETERMINISTIC_STORY_TARGET_TITLE,
 	)

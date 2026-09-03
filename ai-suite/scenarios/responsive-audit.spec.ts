@@ -60,7 +60,6 @@ test('mobile attribution remains compact and above transient chrome @audit', asy
 	await installDeterministicMapStyle(earthly)
 
 	const attribution = earthly.page.locator('.maplibregl-ctrl-attrib')
-	const dock = earthly.page.locator('[data-tour="mobile-dock"]')
 	await expect(attribution).toBeVisible()
 	await expect(attribution).toHaveClass(/maplibregl-compact/)
 
@@ -82,7 +81,7 @@ test('mobile attribution remains compact and above transient chrome @audit', asy
 		contentType: 'image/png',
 	})
 
-	await dock.getByRole('button', { name: 'Map stack', exact: true }).click()
+	await openPanel(earthly, 'Shelf')
 	const sheet = earthly.page.getByTestId('mobile-sheet')
 	await expect(sheet).toBeVisible()
 	const sheetLayout = await earthly.page.evaluate(() => {
@@ -118,19 +117,44 @@ test('mobile attribution remains compact and above transient chrome @audit', asy
 	})
 })
 
-test('mobile navigation expands from menu to list and returns to the map @audit', async ({
+test('mobile Me opens the profile, exposes every section, and returns to the map @audit', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'Mobile navigation contract')
 	await earthly.open({ tour: 'seen' })
-	await earthly.page.getByRole('button', { name: 'Menu', exact: true }).click()
+	const dock = earthly.page.locator('[data-tour="mobile-dock"]')
+	await expect(dock.getByRole('button')).toHaveCount(4)
+	await expect(dock.getByRole('button').nth(0)).toHaveAccessibleName('Map')
+	await expect(dock.getByRole('button').nth(1)).toHaveAccessibleName('Search')
+	await expect(dock.getByRole('button').nth(2)).toHaveAccessibleName('Create')
+	await expect(dock.getByRole('button').nth(3)).toHaveAccessibleName('Me')
+
+	await dock.getByRole('button', { name: 'Search', exact: true }).click()
+	const mobileSearch = earthly.page.locator('search[aria-label="Search places"]')
+	await expect(mobileSearch).toBeVisible()
+	await dock.getByRole('button', { name: 'Just map', exact: true }).click()
+	await expect(mobileSearch).toBeHidden()
+
+	await dock.getByRole('button', { name: 'Create', exact: true }).click()
+	await expect(earthly.page.getByRole('menuitem', { name: 'Map', exact: true })).toBeVisible()
+	await expect(earthly.page.getByRole('menuitem', { name: 'Atlas', exact: true })).toBeVisible()
+	await earthly.page.keyboard.press('Escape')
+
+	await dock.getByRole('button', { name: 'Me', exact: true }).click()
 
 	const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
 	await expect(drawer).toBeVisible()
+	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe('/me')
+	await drawer.getByRole('button', { name: 'Back to menu', exact: true }).click()
+	await expect
+		.poll(async () => {
+			const width = await drawer.evaluate((element) => element.getBoundingClientRect().width)
+			return width / (earthly.page.viewportSize()?.width ?? 1)
+		})
+		.toBeLessThanOrEqual(0.9)
 	const menuWidth = await drawer.evaluate((element) => element.getBoundingClientRect().width)
 	const viewportWidth = earthly.page.viewportSize()?.width ?? 1
 	expect(menuWidth / viewportWidth).toBeGreaterThanOrEqual(0.65)
-	expect(menuWidth / viewportWidth).toBeLessThanOrEqual(0.9)
 	const dockRemainsInteractive = await earthly.page
 		.locator('[data-tour="mobile-dock"] button')
 		.evaluateAll((buttons) =>
@@ -149,22 +173,25 @@ test('mobile navigation expands from menu to list and returns to the map @audit'
 		contentType: 'image/png',
 	})
 
-	await drawer.getByRole('button', { name: /^Contexts(?:\s|$)/ }).click()
+	await drawer.getByRole('button', { name: /^Atlases(?:\s|$)/ }).click()
 	await expect(
 		drawer
 			.locator('h2:visible')
-			.filter({ hasText: /^Contexts$/ })
+			.filter({ hasText: /^Atlases$/ })
 			.first(),
 	).toBeVisible()
+	await expect
+		.poll(async () => drawer.evaluate((element) => element.getBoundingClientRect().width))
+		.toBeGreaterThan(menuWidth)
 	const contentWidth = await drawer.evaluate((element) => element.getBoundingClientRect().width)
-	expect(contentWidth).toBeGreaterThan(menuWidth)
 	expect(contentWidth / viewportWidth).toBeLessThanOrEqual(0.93)
 	await testInfo.attach('mobile-navigation-contexts.png', {
 		body: await earthly.page.screenshot({ animations: 'disabled' }),
 		contentType: 'image/png',
 	})
 
-	await earthly.page.getByRole('button', { name: 'Map', exact: true }).click()
+	await earthly.page.getByRole('button', { name: 'Just map', exact: true }).click()
 	await expect(drawer).toBeHidden()
+	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe('/')
 	await expect(earthly.page.locator('.maplibregl-ctrl-attrib')).toBeVisible()
 })

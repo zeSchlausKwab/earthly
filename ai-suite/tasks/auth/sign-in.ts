@@ -20,6 +20,7 @@ export async function signIn(
 	if (earthly.isMobile) throw new Error('NIP-07 sign-in control is currently desktop-only')
 	await installNip07Adapter(earthly.page, testIdentities[identityId])
 	await earthly.open({ tour: 'seen' })
-	await earthly.page.getByRole('button', { name: 'Sign in with browser extension' }).click()
+	await earthly.page.getByRole('button', { name: 'Me', exact: true }).click()
+	await earthly.page.getByRole('button', { name: 'Extension', exact: true }).click()
 	await expect(earthly.page.getByRole('button', { name: 'Account menu' })).toBeVisible()
 }

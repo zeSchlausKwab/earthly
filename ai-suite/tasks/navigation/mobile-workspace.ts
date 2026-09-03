@@ -2,12 +2,12 @@ import { expect } from '@playwright/test'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
 
-export type MobileWorkspacePanel = 'Stack' | 'Edit' | 'Inspect' | 'Chat'
-export type MobileEntitySurface = 'Dataset' | 'Story' | 'Context' | 'Inspect'
+export type MobileWorkspacePanel = 'Shelf' | 'Edit' | 'Inspect' | 'Chat'
+export type MobileEntitySurface = 'Map' | 'Story' | 'Atlas' | 'Inspect'
 
 export const switchMobileWorkspacePanelTask: AiTaskMetadata = {
 	id: 'navigation.switch-mobile-workspace-panel',
-	summary: 'Switch between the map-bound Stack, Edit or Inspect, and Chat panels.',
+	summary: 'Switch between the map-bound Shelf, Edit or Inspect, and Chat panels.',
 	preconditions: ['Mobile Earthly session', 'The map workspace sheet is open'],
 	sideEffects: ['Changes only the visible map workspace panel'],
 	viewports: 'mobile',
@@ -23,7 +23,7 @@ export const setMobileWorkspaceTransparencyTask: AiTaskMetadata = {
 
 export const selectMobileEntitySurfaceTask: AiTaskMetadata = {
 	id: 'navigation.select-mobile-entity-surface',
-	summary: 'Choose one retained Dataset, Story, Context, or inspection surface in mobile Edit.',
+	summary: 'Choose one retained Map, Story, Atlas, or inspection surface in mobile Edit.',
 	preconditions: ['Mobile Earthly session', 'At least two retained entity surfaces exist'],
 	sideEffects: ['Changes only the entity surface shown in the Edit panel'],
 	viewports: 'mobile',
@@ -43,13 +43,18 @@ export function mobileWorkspaceSheetControls(earthly: EarthlySession) {
 
 export function mobileWorkspaceTabs(earthly: EarthlySession) {
 	return mobileWorkspaceSheetControls(earthly).getByRole('tablist', {
-		name: 'Map workspace panels',
+		name: 'Map panels',
 		exact: true,
 	})
 }
 
 export function mobileWorkspaceTab(earthly: EarthlySession, panel: MobileWorkspacePanel) {
-	const panelName = panel === 'Edit' || panel === 'Inspect' ? '(?:Edit|Inspect)' : panel
+	const panelName =
+		panel === 'Edit' || panel === 'Inspect'
+			? '(?:Edit|Inspect)'
+			: panel === 'Chat'
+				? 'Thread'
+				: panel
 	return mobileWorkspaceTabs(earthly).getByRole('tab', {
 		name: new RegExp(`^${panelName}(?:,|$)`),
 	})
@@ -57,7 +62,7 @@ export function mobileWorkspaceTab(earthly: EarthlySession, panel: MobileWorkspa
 
 /**
  * Reveal a retained map-work surface. This task deliberately clicks only the
- * visible switcher: it never invokes create, load, bind, or Map Stack actions.
+ * visible switcher: it never invokes create, load, bind, or Shelf actions.
  */
 export async function switchMobileWorkspacePanel(
 	earthly: EarthlySession,
@@ -157,12 +162,12 @@ export async function mobileWorkspaceChromeSnapshot(
 	const transparency = controls.getByRole('button', {
 		name: /^(?:See map through panel|Use opaque panel)$/,
 	})
-	const close = controls.getByRole('button', { name: 'Close map workspace', exact: true })
+	const close = controls.getByRole('button', { name: 'Close Map tools', exact: true })
 	const actionGroup = transparency.locator('xpath=parent::*')
 	const tablist = mobileWorkspaceTabs(earthly)
 	const tabs = tablist.getByRole('tab')
 	const sheetTablists = sheet.getByRole('tablist', {
-		name: 'Map workspace panels',
+		name: 'Map panels',
 		exact: true,
 	})
 
@@ -199,7 +204,7 @@ export async function mobileWorkspaceChromeSnapshot(
 					return (
 						candidate.childElementCount === 0 &&
 						text !== undefined &&
-						['Stack', 'Edit', 'Inspect', 'Chat'].includes(text)
+						['Shelf', 'Edit', 'Inspect', 'Chat'].includes(text)
 					)
 				},
 			)

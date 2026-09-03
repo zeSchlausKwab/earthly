@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
+import { openPanel } from '../navigation/open-panel'
 
 export interface StoryDraftInput {
 	title: string
@@ -26,12 +27,8 @@ export const publishStoryTask: AiTaskMetadata = {
 
 export const insertStoryReferenceTask: AiTaskMetadata = {
 	id: 'create.insert-story-reference',
-	summary:
-		'Insert a Dataset, feature, OSM element, or map-picked coordinate through the Story editor.',
-	preconditions: [
-		'Open Story editor',
-		'Referenced entity is loaded or published to the local relay',
-	],
+	summary: 'Insert a Map, feature, OSM element, or map-picked coordinate through the Story editor.',
+	preconditions: ['Open Story editor', 'Referenced Map is loaded or published to the local relay'],
 	sideEffects: ['Adds an inline spatial reference to the current Story draft'],
 	viewports: 'desktop',
 }
@@ -88,8 +85,8 @@ export async function createStoryDraft(
 		await earthly.page.getByRole('button', { name: 'Create', exact: true }).click()
 		await earthly.page.getByRole('menuitem', { name: 'Story', exact: true }).click()
 	} else {
-		await earthly.page.getByRole('button', { name: 'Stories', exact: true }).click()
-		await earthly.page.getByRole('button', { name: 'New Story' }).click()
+		await openPanel(earthly, 'Stories')
+		await earthly.page.getByRole('button', { name: 'New Story', exact: true }).click()
 	}
 
 	await expect(earthly.page.getByText('New Story').first()).toBeVisible()
@@ -132,11 +129,11 @@ export async function createAndPublishStory(
 ): Promise<{ url: string }> {
 	await createStoryDraft(earthly, input)
 	await publishOpenStory(earthly)
-	// Publish now lands directly on the published Story's canonical reader
-	// route (workflow audit P1) — no catalog round-trip needed.
+	// Publish lands on the canonical in-app Story object; /read/:naddr remains
+	// the separate editorial sharing surface.
 	await expect
 		.poll(() => new URL(earthly.page.url()).pathname, { timeout: 15_000 })
-		.toMatch(/^\/stories\/story\//)
+		.toMatch(/^\/story\/naddr1/)
 	await expect(earthly.page.getByText(input.title, { exact: true }).first()).toBeVisible()
 	await expect(earthly.page.getByText(input.body, { exact: true }).first()).toBeVisible()
 	return { url: earthly.page.url() }

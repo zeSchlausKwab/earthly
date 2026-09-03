@@ -185,7 +185,7 @@ test('publishing an active Dataset replaces its protected draft presentation @ed
 		true,
 	)
 
-	await earthly.page.getByRole('button', { name: 'Datasets', exact: true }).click()
+	await openPanel(earthly, 'Maps')
 	await earthly.page.getByPlaceholder('Search...').first().fill(datasetName)
 	const catalogTitle = earthly.page.getByRole('button', {
 		name: `Zoom to dataset ${datasetName}`,
@@ -319,10 +319,10 @@ test('mobile non-geometry editors keep their primary actions in the sheet header
 	await earthly.page.getByRole('button', { name: 'Cancel', exact: true }).click()
 
 	await earthly.page.getByRole('button', { name: 'Create', exact: true }).click()
-	await earthly.page.getByRole('menuitem', { name: 'Context', exact: true }).click()
-	await expect(earthly.page.getByText('Create Context').first()).toBeVisible()
+	await earthly.page.getByRole('menuitem', { name: 'Atlas', exact: true }).click()
+	await expect(earthly.page.getByText('Create Atlas').first()).toBeVisible()
 	await expect(
-		earthly.page.getByRole('button', { name: 'Create Context', exact: true }),
+		earthly.page.getByRole('button', { name: 'Create Atlas', exact: true }),
 	).toBeVisible()
 	await expect(earthly.page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(1)
 	await earthly.page.getByRole('button', { name: 'Cancel', exact: true }).click()
@@ -425,8 +425,8 @@ test('mobile workspace keeps a running Chat and its exact edit target visible @e
 
 		// Dataset A is active authoring work, so its Map Stack representation is
 		// mandatory: it has no hide/remove action and survives Clear.
-		await switchMobileWorkspacePanel(earthly, 'Stack')
-		const stack = earthly.page.getByRole('region', { name: 'Map stack', exact: true })
+		await switchMobileWorkspacePanel(earthly, 'Shelf')
+		const stack = earthly.page.getByRole('region', { name: 'Shelf', exact: true })
 		await expect(stack).toBeVisible()
 		await expect
 			.poll(async () =>
@@ -632,7 +632,7 @@ test('mobile workspace keeps a running Chat and its exact edit target visible @e
 				expect(tab.height).toBeGreaterThanOrEqual(44)
 				expect(tab.labelFits).toBe(true)
 			}
-			expect(chrome.tabs.map((tab) => tab.label)).toEqual(['Stack', 'Edit', 'Chat'])
+			expect(chrome.tabs.map((tab) => tab.label)).toEqual(['Shelf', 'Edit', 'Chat'])
 			if (expectedViewportWidth !== undefined) {
 				expect(chrome.sheet.x + chrome.sheet.width).toBeLessThanOrEqual(expectedViewportWidth + 1)
 				expect(chrome.controls.x + chrome.controls.width).toBeLessThanOrEqual(
@@ -692,9 +692,9 @@ test('mobile workspace keeps a running Chat and its exact edit target visible @e
 				Math.abs(currentRail.sheet.height - railBeforePanelSwitch.sheet.height),
 			).toBeLessThanOrEqual(1)
 		}
-		await switchMobileWorkspacePanel(earthly, 'Stack')
+		await switchMobileWorkspacePanel(earthly, 'Shelf')
 		await expectUnchangedSheetDetent()
-		const stackRailTab = mobileWorkspaceTab(earthly, 'Stack')
+		const stackRailTab = mobileWorkspaceTab(earthly, 'Shelf')
 		await stackRailTab.focus()
 		await expect(stackRailTab).toBeFocused()
 		await stackRailTab.press('ArrowRight')
@@ -706,7 +706,7 @@ test('mobile workspace keeps a running Chat and its exact edit target visible @e
 		// Transparency must affect the root and every workspace body, not just
 		// paint a blue border around an otherwise opaque child panel. The eye and
 		// close controls stay global and measurable while each panel is selected.
-		const workspacePanels = ['Stack', 'Edit', 'Chat'] as const
+		const workspacePanels = ['Shelf', 'Edit', 'Chat'] as const
 		const opaqueAlphas: Partial<Record<(typeof workspacePanels)[number], number>> = {}
 		const opaqueRootAlpha = await mobileWorkspaceRootBackgroundAlpha(earthly)
 		expect(opaqueRootAlpha).toBeGreaterThan(0.98)
@@ -746,7 +746,7 @@ test('mobile workspace keeps a running Chat and its exact edit target visible @e
 		// there, Inspector and the retained Dataset editor are presentation choices:
 		// neither may rewrite that route, move Chat's target, change the active
 		// workspace, nor make hidden edit geometry visible again.
-		await openPanel(earthly, 'Contexts')
+		await openPanel(earthly, 'Atlases')
 		const inspectContext = earthly.page
 			.getByRole('button', {
 				name: `Inspect context ${inspectorContextName}`,
@@ -776,7 +776,7 @@ test('mobile workspace keeps a running Chat and its exact edit target visible @e
 		expect(taskInInspector.featureCount).toBe(1)
 		expect(taskInInspector.mapStack).toEqual(taskInEdit.mapStack)
 
-		await selectMobileEntitySurface(earthly, 'Dataset', datasetName)
+		await selectMobileEntitySurface(earthly, 'Map', datasetName)
 		await expect.poll(currentRouteIdentity).toBe(inspectorRoute)
 		await expect(mobileWorkspaceTab(earthly, 'Edit')).toHaveAttribute('aria-selected', 'true')
 		await expect(earthly.page.getByPlaceholder('Name').first()).toHaveValue(datasetName)
@@ -845,13 +845,13 @@ test('mobile workspace keeps a running Chat and its exact edit target visible @e
 		await expect(earthly.page.getByLabel('Title', { exact: true })).toHaveValue(
 			'Background mobile Story',
 		)
-		await selectMobileEntitySurface(earthly, 'Dataset', datasetName)
+		await selectMobileEntitySurface(earthly, 'Map', datasetName)
 		await expect(earthly.page.getByPlaceholder('Name').first()).toHaveValue(datasetName)
 		const followUpDraft = 'Keep this unsent follow-up while I compare the work surfaces.'
 		await switchMobileWorkspacePanel(earthly, 'Chat')
 		await composeAiChatMessage(earthly, followUpDraft)
 		await switchMobileWorkspacePanel(earthly, 'Edit')
-		await switchMobileWorkspacePanel(earthly, 'Stack')
+		await switchMobileWorkspacePanel(earthly, 'Shelf')
 		await switchMobileWorkspacePanel(earthly, 'Chat')
 		expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
 			chatId: chatBeforeRun.chatId,
@@ -878,7 +878,7 @@ test('mobile global create closes navigation before arming map placement @editor
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'The mobile drawer owns this transition')
 	await earthly.open({ tour: 'seen' })
-	await earthly.page.getByRole('button', { name: 'Menu', exact: true }).click()
+	await earthly.page.getByRole('button', { name: 'Me', exact: true }).click()
 	const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
 	await expect(drawer).toBeVisible()
 

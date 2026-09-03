@@ -22,8 +22,8 @@ export async function copyCurrentShareLink(earthly: EarthlySession): Promise<str
 	await expect(earthly.page.getByRole('button', { name: 'Copied!', exact: true })).toBeVisible()
 	const shareUrl = await earthly.page.evaluate(() => navigator.clipboard.readText())
 	const parsed = new URL(shareUrl)
-	if (!parsed.pathname.startsWith('/geoevent/')) {
-		throw new Error(`Share UI returned a non-Dataset route: ${parsed.pathname}`)
+	if (!parsed.pathname.startsWith('/map/')) {
+		throw new Error(`Share UI returned a non-Map route: ${parsed.pathname}`)
 	}
 	return shareUrl
 }

@@ -2,8 +2,8 @@ import { expect } from '@playwright/test'
 import type { AiSuiteChatSettings } from '../../core/chat-provider-settings'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
-import { mobileWorkspaceSheetControls } from '../navigation/mobile-workspace'
 import { openPanel } from '../navigation/open-panel'
+import { switchMobileWorkspacePanel } from '../navigation/mobile-workspace'
 
 export const configureChatProviderTask: AiTaskMetadata = {
 	id: 'chat.configure-provider',
@@ -18,9 +18,9 @@ export const configureChatProviderTask: AiTaskMetadata = {
 
 export const openAiChatTask: AiTaskMetadata = {
 	id: 'chat.open',
-	summary: 'Open AI chat and wait until the configured model and composer are ready.',
-	preconditions: ['Earthly is open', 'A provider and model are configured'],
-	sideEffects: ['Opens the assistant surface'],
+	summary: 'Open the current Map Thread and wait until its model and composer are ready.',
+	preconditions: ['Earthly is open', 'A provider and model are configured', 'A Map is open'],
+	sideEffects: ['Opens the route-bound Thread surface'],
 	viewports: 'both',
 }
 
@@ -103,7 +103,7 @@ export const approveAiEditTask: AiTaskMetadata = {
 }
 
 function chatRegion(earthly: EarthlySession) {
-	return earthly.page.getByRole('region', { name: 'AI chat', exact: true })
+	return earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 }
 
 function chatComposer(earthly: EarthlySession) {
@@ -112,7 +112,7 @@ function chatComposer(earthly: EarthlySession) {
 
 function chatSelector(earthly: EarthlySession) {
 	return chatRegion(earthly).getByRole('combobox', {
-		name: 'Select conversation',
+		name: 'Select Thread',
 		exact: true,
 	})
 }
@@ -182,14 +182,17 @@ export async function configureChatProvider(
 	settings: AiSuiteChatSettings,
 ): Promise<void> {
 	await openPanel(earthly, 'Settings')
-	await earthly.page.getByRole('tab', { name: 'Chat', exact: true }).click()
-	const importField = earthly.page.getByPlaceholder('{ "provider": "lmstudio", ... }')
+	const settingsSurface = earthly.isMobile
+		? earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
+		: earthly.page.getByRole('complementary', { name: 'Margin' })
+	await settingsSurface.getByRole('tab', { name: 'Chat', exact: true }).click()
+	const importField = settingsSurface.getByPlaceholder('{ "provider": "lmstudio", ... }')
 	await expect(importField).toBeVisible()
 	await importField.fill(JSON.stringify(settings))
-	await earthly.page.getByRole('button', { name: 'Import settings', exact: true }).click()
+	await settingsSurface.getByRole('button', { name: 'Import settings', exact: true }).click()
 	await expect(earthly.page.getByText('Settings imported', { exact: true })).toBeVisible()
 	await expect(importField).toHaveValue('')
-	await expect(earthly.page.locator('#chat-provider-select')).toHaveValue(settings.provider)
+	await expect(settingsSurface.locator('#chat-provider-select')).toHaveValue(settings.provider)
 	await expect
 		.poll(() =>
 			earthly.page.evaluate(() =>
@@ -203,16 +206,9 @@ export async function openAiChat(earthly: EarthlySession): Promise<void> {
 	const panel = chatRegion(earthly)
 	const composer = chatComposer(earthly)
 	if (earthly.isMobile) {
-		const navigation = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
 		if (!(await panel.isVisible())) {
-			if (!(await navigation.isVisible())) {
-				await earthly.page.getByRole('button', { name: 'Menu', exact: true }).click()
-			}
-			await navigation.getByRole('button', { name: /^AI chat(?:\s|$)/ }).click()
+			await switchMobileWorkspacePanel(earthly, 'Chat')
 		}
-		await expect(
-			earthly.page.getByRole('dialog', { name: 'AI chat panel', exact: true }),
-		).toBeVisible()
 	} else {
 		if (!(await panel.isVisible())) {
 			const assistant = earthly.page.locator('[data-tour="assistant-sidebar"]')
@@ -220,13 +216,13 @@ export async function openAiChat(earthly: EarthlySession): Promise<void> {
 			if (side === 'left') {
 				await earthly.page
 					.getByRole('button', {
-						name: /^(?:Show AI chat on the left|AI chat is working; show it on the left)$/,
+						name: /^(?:Show Thread on the left|Thread is working; show it on the left)$/,
 					})
 					.click()
 			} else {
 				await earthly.page
 					.getByRole('button', {
-						name: /^(?:Show AI chat on the right|AI chat is working; show it on the right)$/,
+						name: /^(?:Show Thread on the right|Thread is working; show it on the right)$/,
 					})
 					.click()
 			}
@@ -269,7 +265,7 @@ export async function startNewAiChat(earthly: EarthlySession): Promise<NewAiChat
 	const composer = chatComposer(earthly)
 	await expect(selector).toBeEnabled()
 	const previousChatId = await selector.inputValue()
-	await panel.getByRole('button', { name: 'New conversation', exact: true }).click()
+	await panel.getByRole('button', { name: 'New Thread', exact: true }).click()
 	await expect.poll(() => selector.inputValue()).not.toBe(previousChatId)
 	await expect(composer).toHaveValue('')
 	await expect(targetRequiredLabel(earthly)).toBeVisible()
@@ -332,7 +328,9 @@ export async function dispatchComposedAiChatMessage(
 	await composer.press('Enter')
 	await expect.poll(() => userMessages.count()).toBeGreaterThan(userMessageCountBefore)
 	await expect(userMessages.last()).toBeVisible()
-	await expect(earthly.page.locator('section[aria-label="AI chat"] textarea')).toHaveValue('')
+	await expect(
+		earthly.page.locator('section[aria-label="AI Thread"] textarea:visible'),
+	).toHaveValue('')
 	return 'chat-visible'
 }
 
@@ -518,19 +516,6 @@ export async function completeAiChatTurn(
 export async function hideAiChat(earthly: EarthlySession): Promise<void> {
 	const panel = chatRegion(earthly)
 	if (!(await panel.isVisible())) return
-	if (earthly.isMobile) {
-		const chatPanel = earthly.page.getByRole('dialog', { name: 'AI chat panel', exact: true })
-		const sheetControls = mobileWorkspaceSheetControls(earthly)
-		await expect(sheetControls).toBeVisible()
-		await sheetControls.getByRole('button', { name: 'Close map workspace', exact: true }).click()
-		await expect(chatPanel).toBeHidden()
-		return
-	}
-	const assistant = earthly.page.locator('[data-tour="assistant-sidebar"]')
-	if ((await assistant.getAttribute('data-side')) === 'left') {
-		await earthly.page.getByRole('button', { name: 'Hide AI chat', exact: true }).click()
-	} else {
-		await earthly.page.getByRole('button', { name: 'Hide AI chat', exact: true }).click()
-	}
+	await panel.getByRole('button', { name: 'Close Thread', exact: true }).click()
 	await expect(panel).toBeHidden()
 }

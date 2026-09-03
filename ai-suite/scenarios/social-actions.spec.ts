@@ -32,11 +32,11 @@ test('a Context like survives the entity panel remount @social-actions', async (
 	await expect(contextRow.getByRole('button', { name: 'Unlike', exact: true })).toBeVisible()
 
 	if (earthly.isMobile) {
-		await earthly.page.getByRole('button', { name: 'Close Contexts', exact: true }).click()
-		await openPanel(earthly, 'Contexts')
+		await earthly.page.getByRole('button', { name: 'Close Atlases', exact: true }).click()
+		await openPanel(earthly, 'Atlases')
 	} else {
-		await openPanel(earthly, 'Datasets')
-		await openPanel(earthly, 'Contexts')
+		await openPanel(earthly, 'Maps')
+		await openPanel(earthly, 'Atlases')
 	}
 
 	const remountedContextRow = getContextRow()
@@ -153,17 +153,9 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 		expect(identifier).toBeTruthy()
 
 		if (earthly.isMobile) {
-			await earthly.page
-				.locator('button')
-				.filter({ hasText: /^Map$/ })
-				.last()
-				.evaluate((button: HTMLButtonElement) => button.click())
+			await earthly.page.getByRole('button', { name: 'Just map', exact: true }).click()
 		} else {
-			await earthly.page
-				.locator('button')
-				.filter({ hasText: /^Datasets/ })
-				.first()
-				.evaluate((button: HTMLButtonElement) => button.click())
+			await openPanel(earthly, 'Maps')
 		}
 		await expect(earthly.page.getByRole('heading', { name: 'Send a zap' })).toBeVisible()
 

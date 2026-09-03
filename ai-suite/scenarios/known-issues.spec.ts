@@ -82,11 +82,11 @@ test('mobile panel choices update the canonical route @regression', async ({
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'The mobile panel switcher had separate state')
 	await earthly.open({ tour: 'seen' })
-	await openPanel(earthly, 'Contexts')
-	expect.soft(new URL(earthly.page.url()).pathname).toBe('/contexts')
+	await openPanel(earthly, 'Atlases')
+	expect.soft(new URL(earthly.page.url()).pathname).toBe('/browse/atlases')
 	await earthly.page.reload()
 	await expect(
-		earthly.page.getByRole('heading', { name: 'Contexts', exact: true }).first(),
+		earthly.page.getByRole('heading', { name: 'Atlases', exact: true }).first(),
 	).toBeVisible()
 })
 
@@ -97,7 +97,7 @@ test('anonymous mobile account panels offer a sign-in recovery action @regressio
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'Desktop retains separate global identity controls')
 	await earthly.open({ tour: 'seen' })
-	await openPanel(earthly, 'Profile')
+	await openPanel(earthly, 'Me')
 	await expect(
 		earthly.page.getByRole('button', { name: /sign in|create.*identity|get.*identity/i }).first(),
 	).toBeVisible()
@@ -107,7 +107,7 @@ test('anonymous mobile account panels offer a sign-in recovery action @regressio
 // names even when disabled or rendered without visible text.
 test('visible icon actions have accessible names @regression', async ({ earthly }) => {
 	await earthly.open({ tour: 'seen' })
-	await openPanel(earthly, 'Datasets')
+	await openPanel(earthly, 'Maps')
 	const surface = await inspectSurface(earthly)
 	expect(surface.unnamedControls).toEqual([])
 })
@@ -117,12 +117,12 @@ test('visible icon actions have accessible names @regression', async ({ earthly 
 test('primary browse panels expose a semantic heading @regression', async ({ earthly }) => {
 	await earthly.open({ tour: 'seen' })
 	for (const [panel, heading] of [
-		['Datasets', 'Datasets'],
-		['Contexts', 'Contexts'],
+		['Maps', 'Maps'],
+		['Atlases', 'Atlases'],
 		['Stories', 'Stories'],
 		['Sightings', 'Sightings'],
 		['Beacons', 'Beacons'],
-		['Profile', 'Profile'],
+		['Me', 'Profile'],
 		['Posts', 'Local posts'],
 		['Wallet', 'Wallet'],
 		['Settings', 'Settings'],

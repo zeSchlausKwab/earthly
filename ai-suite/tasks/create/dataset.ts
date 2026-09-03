@@ -48,7 +48,7 @@ export async function startDataset(earthly: EarthlySession): Promise<DatasetDraf
 		const globalCreate = earthly.page.getByRole('button', { name: 'Create', exact: true })
 		if (await globalCreate.isVisible()) {
 			await globalCreate.click()
-			await earthly.page.getByRole('menuitem', { name: 'Dataset', exact: true }).click()
+			await earthly.page.getByRole('menuitem', { name: 'Map', exact: true }).click()
 		} else {
 			// The authoring dock deliberately replaces global Create with drawing
 			// tools. Starting another Dataset remains explicit through Local drafts.
@@ -57,8 +57,8 @@ export async function startDataset(earthly: EarthlySession): Promise<DatasetDraf
 			await drafts.getByRole('button', { name: 'New draft', exact: true }).click()
 		}
 	} else {
-		await earthly.page.getByRole('button', { name: 'Datasets', exact: true }).click()
-		await earthly.page.getByRole('button', { name: 'New dataset' }).click()
+		await openPanel(earthly, 'Maps')
+		await earthly.page.getByRole('button', { name: 'New Map', exact: true }).click()
 	}
 
 	const nameInput = earthly.page.getByPlaceholder('Name').first()

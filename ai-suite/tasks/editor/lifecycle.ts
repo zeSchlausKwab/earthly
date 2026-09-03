@@ -155,7 +155,7 @@ async function clickHistoryAction(earthly: EarthlySession, action: 'Undo' | 'Red
 
 export async function openDatasetEditor(earthly: EarthlySession): Promise<Locator> {
 	if (earthly.isMobile) throw new Error('The persistent Dataset editor rail is desktop-only')
-	const datasetSurface = earthly.page.getByRole('button', { name: 'Dataset', exact: true })
+	const datasetSurface = earthly.page.getByRole('button', { name: 'Map edit', exact: true })
 	await expect(datasetSurface).toBeVisible()
 	await datasetSurface.click()
 	const nameInput = earthly.page.getByPlaceholder('Name').first()
@@ -221,7 +221,7 @@ export async function exerciseMapStackDraftLifecycle(
 		await expectGeometryFeatureCount(earthly, 1)
 	}
 
-	const mapStack = earthly.page.getByRole('region', { name: 'Map stack' })
+	const mapStack = earthly.page.getByRole('region', { name: 'Shelf' })
 	if (!(await mapStack.isVisible())) {
 		await earthly.page.getByRole('button', { name: 'Show map stack' }).click()
 		await expect(mapStack).toBeVisible()

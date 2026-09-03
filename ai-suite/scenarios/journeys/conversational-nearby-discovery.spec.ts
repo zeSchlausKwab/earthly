@@ -12,6 +12,7 @@ import {
 import { startDataset } from '../../tasks/create/dataset'
 import { expectGeometryFeatureCount } from '../../tasks/create/geometry'
 import { cancelSightingPlacement, startSightingPlacement } from '../../tasks/create/sighting'
+import { openPanel } from '../../tasks/navigation/open-panel'
 import { installDeterministicChatProvider } from '../../tasks/setup/deterministic-chat-provider'
 import {
 	attemptDeniedDeviceLocation,
@@ -113,8 +114,8 @@ test('a nearby explorer explicitly chooses an empty Dataset task before asking C
 		await hideAiChat(earthly)
 		await expect(earthly.page.getByText('Garden Court Park', { exact: false })).toBeHidden()
 		await expectGeometryFeatureCount(earthly, 0)
-		await earthly.page.getByRole('button', { name: 'Map stack', exact: true }).click()
-		await expect(earthly.page.getByText('Map Stack', { exact: true })).toBeVisible()
+		await openPanel(earthly, 'Shelf')
+		await expect(earthly.page.getByText('On the map', { exact: true })).toBeVisible()
 		await recorder.observe(
 			'chat-closed',
 			'Closing Chat retains the located viewport and leaves no recommendation geometry beyond the explicit empty edit task.',

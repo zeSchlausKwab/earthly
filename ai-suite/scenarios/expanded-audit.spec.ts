@@ -5,14 +5,15 @@ import { walkKeyboardOrder } from '../tasks/diagnostics/keyboard-walk'
 import { openPanel, type EarthlyPanel } from '../tasks/navigation/open-panel'
 
 const panels: EarthlyPanel[] = [
-	'Datasets',
-	'Contexts',
-	'Field sessions',
-	'Private groups',
+	'Maps',
+	'Shelf',
+	'Atlases',
+	'Nearby',
+	'Circles',
 	'Stories',
 	'Sightings',
 	'Beacons',
-	'Profile',
+	'Me',
 	'Posts',
 	'Wallet',
 	'Settings',
@@ -57,7 +58,7 @@ test('all primary panels expose auditable layout and browser-health evidence @au
 			observations.map(({ panel, pathname, bodyText, surface }) => ({
 				panel,
 				pathname,
-				copy: ['Profile', 'Posts', 'Wallet', 'Help'].includes(panel)
+				copy: ['Me', 'Posts', 'Wallet', 'Help'].includes(panel)
 					? bodyText.slice(0, 300)
 					: undefined,
 				headings: surface.headings,

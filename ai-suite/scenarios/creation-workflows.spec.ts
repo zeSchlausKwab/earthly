@@ -278,7 +278,7 @@ test('a Story reference carries its Dataset into a mobile reader @workflow-audit
 	await publishOpenStory(earthly)
 	await expect
 		.poll(() => new URL(earthly.page.url()).pathname, { timeout: 15_000 })
-		.toMatch(/^\/stories\/story\//)
+		.toMatch(/^\/story\//)
 	const storyUrl = earthly.page.url()
 
 	const mobileContext = await browser.newContext({

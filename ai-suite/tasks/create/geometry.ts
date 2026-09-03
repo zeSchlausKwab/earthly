@@ -129,7 +129,7 @@ export async function publishCurrentGeometryDataset(earthly: EarthlySession): Pr
 	if (!(await publishButton.isVisible())) {
 		await earthly.page.getByText('File', { exact: true }).first().click()
 		publishButton = earthly.page.getByRole('menuitem', {
-			name: 'Publish new dataset',
+			name: 'Publish new Map',
 			exact: true,
 		})
 	}
@@ -137,7 +137,7 @@ export async function publishCurrentGeometryDataset(earthly: EarthlySession): Pr
 	await publishButton.click()
 	await expect
 		.poll(() => new URL(earthly.page.url()).pathname, { timeout: 15_000 })
-		.toMatch(/^\/datasets\/geoevent\//)
+		.toMatch(/^\/map\//)
 	return earthly.page.url()
 }
 

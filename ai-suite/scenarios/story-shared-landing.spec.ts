@@ -24,13 +24,13 @@ async function publishSharedStoryWithoutBounds(): Promise<{ naddr: string; title
 		if (!referenceStory) throw new Error(`Seeded Story not found: ${REFERENCE_STORY_TITLE}`)
 		const datasetCoordinate = referenceStory.tags.find((tag) => tag[0] === 'a')?.[1]
 		if (!datasetCoordinate) {
-			throw new Error(`Seeded Story has no Dataset reference: ${REFERENCE_STORY_TITLE}`)
+			throw new Error(`Seeded Story has no Map reference: ${REFERENCE_STORY_TITLE}`)
 		}
 		const [kindText, pubkey, ...identifierParts] = datasetCoordinate.split(':')
 		const kind = Number(kindText)
 		const datasetIdentifier = identifierParts.join(':')
 		if (kind !== 37515 || !pubkey || !datasetIdentifier) {
-			throw new Error(`Seeded Story has an invalid Dataset reference: ${datasetCoordinate}`)
+			throw new Error(`Seeded Story has an invalid Map reference: ${datasetCoordinate}`)
 		}
 		const datasetAddress = nip19.naddrEncode({ kind, pubkey, identifier: datasetIdentifier })
 		const identifier = `shared-story-${Date.now().toString(36)}`
@@ -67,32 +67,42 @@ async function publishSharedStoryWithoutBounds(): Promise<{ naddr: string; title
 	}
 }
 
-test('a shared Story landing reveals and fits its referenced Dataset', async ({ earthly }) => {
+test('the canonical shared Story stays on the dedicated reader route', async ({ earthly }) => {
 	const { naddr, title } = await publishSharedStoryWithoutBounds()
-	await earthly.open({ path: `/stories/story/${naddr}` })
+	await earthly.open({ path: `/read/${naddr}` })
+
+	await expect(
+		earthly.page.getByRole('heading', { name: title, exact: true, level: 1 }),
+	).toBeVisible({
+		timeout: 15_000,
+	})
+	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe(`/read/${naddr}`)
+	await expect(earthly.page.locator('[data-earthly-route-surface="reader"]')).toBeVisible()
+	await expect(earthly.page.getByRole('link', { name: 'Open Earthly', exact: true })).toBeVisible()
+	await expect(
+		earthly.page.getByRole('button', { name: /^(Edit Story|Propose a Story edit)$/ }),
+	).toBeVisible()
+	await expect(earthly.page.getByRole('navigation', { name: 'Global navigation' })).toHaveCount(0)
+	await expect(earthly.page.getByRole('region', { name: 'Shelf' })).toHaveCount(0)
+	await expect(earthly.page.getByRole('region', { name: 'AI Thread' })).toHaveCount(0)
+})
+
+test('a Story object reveals and fits its referenced Map', async ({ earthly }) => {
+	const { naddr, title } = await publishSharedStoryWithoutBounds()
+	await earthly.open({ path: `/story/${naddr}` })
 	await expect(
 		earthly.page.getByRole('heading', { name: title, exact: true, level: 2 }),
 	).toBeVisible({ timeout: 15_000 })
-	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe(`/stories/story/${naddr}`)
+	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe(`/story/${naddr}`)
 
-	await expect
-		.poll(
-			async () =>
-				(await editorLifecycleSnapshot(earthly)).mapStack.filter(
-					(entry) => entry.entityType === 'dataset' && entry.visible,
-				).length,
-			{ timeout: 10_000 },
-		)
-		.toBe(1)
-
-	const [referencedDataset] = (await editorLifecycleSnapshot(earthly)).mapStack.filter(
-		(entry) => entry.entityType === 'dataset' && entry.visible,
+	const presentationMap = earthly.page
+		.getByRole('list', { name: 'Maps on the canvas' })
+		.locator('[data-shelf-item^="presentation:story:"]')
+	await expect(presentationMap).toHaveCount(1, { timeout: 10_000 })
+	await expect(presentationMap.getByRole('button', { name: /^Hide / })).toHaveAttribute(
+		'aria-pressed',
+		'true',
 	)
-	if (!referencedDataset) throw new Error('Story reference was not admitted to the Map Stack')
-	const mapStack = earthly.page.getByRole('region', { name: 'Map stack' })
-	await expect(mapStack).toBeVisible()
-	await expect(mapStack.getByText(title, { exact: true })).toBeVisible()
-	await expect(mapStack.getByText(referencedDataset.title, { exact: true })).toBeVisible()
 
 	await expect
 		.poll(
@@ -176,8 +186,8 @@ test('a shared Story landing reveals and fits its referenced Dataset', async ({ 
 		return { lat: center.lat, lng: center.lng, zoom: map.getZoom() }
 	})
 
-	// A single-point Dataset deliberately lands at a readable zoom (15) while the
-	// older manual Dataset helper may hit MapLibre's max zoom. The spatial target,
+	// A single-point Map deliberately lands at a readable zoom (15) while the
+	// older manual Map helper may hit MapLibre's max zoom. The spatial target,
 	// not that point-zoom policy difference, is the shared-route contract.
 	expect(automaticView.zoom).toBeGreaterThan(5)
 	expect(automaticView.lng).toBeCloseTo(manualView.lng, 4)
@@ -185,11 +195,11 @@ test('a shared Story landing reveals and fits its referenced Dataset', async ({ 
 })
 
 for (const openVia of ['title', 'looking-glass icon'] as const) {
-	test(`opening a Story via its ${openVia} reveals and fits its referenced Dataset`, async ({
+	test(`opening a Story via its ${openVia} reveals and fits its referenced Map`, async ({
 		earthly,
 	}) => {
 		const { title } = await publishSharedStoryWithoutBounds()
-		await earthly.open({ path: '/stories' })
+		await earthly.open({ path: '/browse/stories' })
 		const search = earthly.page.getByPlaceholder('Search stories…')
 		await expect(search).toBeVisible({ timeout: 15_000 })
 		await search.fill(title)
@@ -279,39 +289,11 @@ for (const openVia of ['title', 'looking-glass icon'] as const) {
 		await expect(
 			earthly.page.getByRole('heading', { name: title, exact: true, level: 2 }),
 		).toBeVisible()
-		await expect.poll(() => new URL(earthly.page.url()).pathname).toMatch(/^\/stories\/story\//)
-		await expect
-			.poll(
-				() =>
-					earthly.page.evaluate((storyTitle) => {
-						const store = (
-							window as typeof window & {
-								__earthlyEditorStore?: {
-									getState(): {
-										mapStackEntries: Record<
-											string,
-											{
-												entityType: string
-												visible: boolean
-												via?: { entityType: string; title: string }
-											}
-										>
-									}
-								}
-							}
-						).__earthlyEditorStore
-						if (!store) return 0
-						return Object.values(store.getState().mapStackEntries).filter(
-							(entry) =>
-								entry.entityType === 'dataset' &&
-								entry.visible &&
-								entry.via?.entityType === 'story' &&
-								entry.via.title === storyTitle,
-						).length
-					}, title),
-				{ timeout: 10_000 },
-			)
-			.toBeGreaterThan(0)
+		await expect.poll(() => new URL(earthly.page.url()).pathname).toMatch(/^\/story\//)
+		const presentationMap = earthly.page
+			.getByRole('list', { name: 'Maps on the canvas' })
+			.locator('[data-shelf-item^="presentation:story:"]')
+		await expect(presentationMap).toHaveCount(1, { timeout: 10_000 })
 
 		const afterStack = (await editorLifecycleSnapshot(earthly)).mapStack
 		expect(afterStack.find((entry) => entry.id === 'test:story-activation-visible')).toMatchObject({
@@ -320,8 +302,9 @@ for (const openVia of ['title', 'looking-glass icon'] as const) {
 		expect(afterStack.find((entry) => entry.id === 'test:story-activation-hidden')).toMatchObject({
 			visible: false,
 		})
-		const mapStack = earthly.page.getByRole('region', { name: 'Map stack' })
-		await expect(mapStack.getByText(title, { exact: true })).toBeVisible()
+		// Story presentation is route-local. Opening it must preserve the user's
+		// existing Shelf state rather than writing derived rows into the store.
+		expect(afterStack.filter((entry) => entry.entityType === 'dataset')).toHaveLength(0)
 		await expect
 			.poll(() =>
 				earthly.page.evaluate(() => {
