@@ -88,13 +88,12 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
   captions and credits, tables with aligned columns, blockquotes, lists, code,
   callouts and dividers. See the Belt and Road and Western Front stories.
   Placeholder imagery is generated inline as SVG, so the sketch needs no network.
-- **Story editing**: paragraphs and headings edited in place; ⌖ reference picks
-  a feature from the map; a layer strip under each paragraph shows/hides each
-  map from that paragraph on (◉ ○ ◌ inherit) and captures a camera; changes
-  accumulate down the page. Reading, the map follows the paragraph in view
-  (◎ Follow text) or a click; ▶ Present steps scenes. See “Four Years on the
-  Western Front” for snapshot datasets per phase. A Map presentation box sets
-  the opening view and layer order.
+- **Inline references** in the prose (feature, dataset, coordinate, OSM), with a
+  struck warning when one no longer resolves. Hover emphasises, click flies.
+- **View blocks**: a camera plus a layer set, sitting in the text. `cue` drives
+  the big map, `figure` draws a static map in the flow, `both` does each. They
+  accumulate in reading order, so there are no anchors. ▶ Present steps them;
+  ◎ Follow text is an optional toggle. See “Four Years on the Western Front”.
   Atlases get a Default view. Save this view stores one too (MapPresentationV1).
 - **Inbox** in the top bar and under Me: proposals, replies, mentions, atlas
   arrivals, join requests, follows; tapping opens the right tab.

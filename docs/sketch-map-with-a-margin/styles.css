@@ -131,6 +131,36 @@ a{color:var(--accent)}
 .btype{position:absolute;left:-.15rem;top:-.55rem;font-family:var(--mono);font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);background:var(--surface);padding:0 .25rem;border:1px solid var(--rule)}
 .prose.editing .blk{position:relative}
 
+/* Inline references: the word in the sentence is the pointer (SPEC 2.4) */
+.xref{display:inline;font:inherit;color:var(--accent);border-bottom:1px solid color-mix(in srgb,var(--accent) 45%,transparent);padding:0;cursor:pointer;line-height:inherit}
+.xref i{font-style:normal;font-size:.7em;margin-left:.15em;opacity:.75;vertical-align:.15em}
+.xref:hover{background:var(--accent-soft);border-bottom-color:var(--accent)}
+.xref.coord,.xref.osm{color:var(--ink-2);border-bottom-color:var(--rule-2)}
+.xref.coord:hover,.xref.osm:hover{background:var(--surface-2)}
+.xref.gone{color:var(--muted);border-bottom:1px dashed var(--amber);cursor:help}
+
+/* View blocks: a cue drives the big map, a figure is a static map in the flow */
+.blk.is-view{margin:.7rem 0}
+.vcue{display:grid;grid-template-columns:auto 1fr;gap:.15rem .5rem;width:100%;text-align:left;padding:.3rem .5rem;border-left:2px solid var(--rule-2);background:color-mix(in srgb,var(--surface-2) 45%,transparent);cursor:pointer}
+.vcue:hover{border-left-color:var(--accent);background:var(--surface-2)}
+.vcue.on{border-left-color:var(--accent);background:var(--accent-soft)}
+.vcue .vn{grid-row:span 2;align-self:center;width:20px;height:20px;display:grid;place-items:center;font-family:var(--mono);font-size:.68rem;background:var(--surface);border:1px solid var(--rule-2);color:var(--ink-2)}
+.vcue.on .vn{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.vcue .vt{font-family:var(--sans);font-size:.84rem;font-weight:600;color:var(--ink)}
+.vcue .vs{font-family:var(--mono);font-size:.66rem;color:var(--muted)}
+.vfig{margin:.7rem 0;padding:0}
+.vfig.on .vmap{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.vmap{position:relative;display:block;width:100%;padding:0;border:1px solid var(--rule);background:var(--water);cursor:pointer;overflow:hidden}
+.vmap svg{display:block;width:100%;height:150px}
+.vmap:hover{border-color:var(--ink-2)}
+.vbadge{position:absolute;left:0;bottom:0;font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;background:var(--surface);color:var(--muted);padding:.05rem .3rem;border-top:1px solid var(--rule);border-right:1px solid var(--rule)}
+.vfig figcaption{font-family:var(--sans);font-size:.74rem;color:var(--muted);margin-top:.25rem;display:flex;gap:.5rem;align-items:baseline}
+.vfig figcaption .cr{margin-left:auto;font-family:var(--mono);font-size:.62rem;white-space:nowrap;opacity:.8}
+.vedit{display:flex;flex-direction:column;gap:.25rem;margin:.3rem 0 0;padding:.35rem;border:1px dashed var(--rule-2);background:var(--surface)}
+.vedit .vrow{display:flex;gap:.3rem}
+.vedit input,.vedit select{height:24px;border:1px solid var(--rule-2);background:var(--ground);padding:0 .35rem;font-size:.8rem;min-width:0}
+.vedit .vrow input{flex:1}
+
 /* Story reading: the active paragraph drives the map */
 .prose .blk[data-act]{cursor:pointer}
 .prose .blk.has-scene{border-left:2px solid var(--rule-2);padding-left:.55rem;margin-left:-.6rem}

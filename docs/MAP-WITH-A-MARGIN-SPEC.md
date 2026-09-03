@@ -228,17 +228,47 @@ An audience is where a record can be *read*. It is never a lens, a filter, or a 
 - **Discovery** is per beacon: *Link only* (default) or *Public* (appears on the Live layer for everyone). Audience can also be a circle or a session, in which case only its members see it.
 - The **Live chip** on the Shelf counts sightings plus the beacons the user is allowed to see; tapping a live dot opens its page. Your own dot is accent-coloured; stale ones grey.
 
-## 11c. Story editing, scenes, and MapPresentationV1
+## 11c. Stories: blocks, inline references, and views
 
-- **Block types.** A Story body is a list of blocks: heading (two levels), paragraph, image with caption and credit, table with per-column alignment and an optional caption, blockquote with attribution, ordered or unordered list, code with a language tag, callout (info / warning / draft), and divider. Paragraphs and headings are edited in place; other blocks show a small type tag while editing and are inserted from **+ block ▾**. Wide content scrolls inside its own box so the Margin never scrolls sideways.
-- **Inline** formatting is a deliberately small subset: `**bold**`, `*italic*`, `` `code` ``, and `[links](href)`, escaped first so story content can never inject markup. Feature references stay their own ⌖ chips rather than inline syntax.
-- **Blocks.** Every block, whatever its type, can carry the map state below. Under each block while editing: **⌖ reference** (then click a feature on the canvas; the chip lands in that paragraph and the map joins the story's references), **+ scene from view** / **⟳ recapture scene**, **+ ¶**, **− ¶**. *+ paragraph* and *+ heading* at the end.
-- **Every paragraph can change the map.** While editing, a **layer strip** under each block lists the story's maps with three states per paragraph: ◉ *shown from here*, ○ *hidden from here*, ◌ *inherits* (greyed, struck through when the inherited state is hidden). Click cycles. A **⌖ set camera** button captures the current camera for that paragraph (⇧click clears). A paragraph with any change is a *scene*; scenes are sparse deltas that accumulate in reading order, so a layer stays as the last paragraph left it. This is how a historical story shows one snapshot dataset per phase: paragraph 2 shows the 1914 line, paragraph 4 shows 1916 and hides 1914, and so on.
-- **References per paragraph** are the ⌖ chips already there; while a paragraph is active its referenced features are emphasised on the canvas (selected ring, label shown).
-- **Reading** applies the *effective state* of the paragraph in view. **◎ Follow text** (default on) uses the topmost visible block and only touches the map when the effective state changes; clicking a paragraph applies it explicitly and marks it active (accent left rule). Each scene paragraph shows a one-line summary: "shows 1916 · hides 1914 · ⌖ moves the camera". **▶ Present** steps scene by scene with a bar (‹ Next ›) and scrolls the paragraph into view; Finish or Present again leaves it. Panning never leaves Present.
-- **Map presentation** box on the Story: *Opening view* (Set from current view / Clear) and *Layers, in order* with ◉/○ shown-at-open and ↑↓ order; only maps the story references may appear. Opening a Story applies its presentation: Shelf order and visibility, then the camera; without one, readers are framed on all referenced maps.
-- **Atlas default view** box: Set from current view / Clear, restricted to pinned maps. *Show all on map* applies it when present. **Save this view** writes a presentation into the new personal Atlas.
-- The Shelf plus the camera is the *live* form of a presentation; `on=` in the URL is its ephemeral form; the embedded value on a Story or Atlas is its published form. There is no Map-composition entity, per the GeoLibre notes.
+A Story body is a list of **blocks**. A paragraph is prose and nothing else; it never owns a camera.
+
+### References are inline
+Per `SPEC.md` §2.4 a reference is written in the sentence, not listed beside it, and has four forms: a dataset (`nostr:naddr…`), a feature inside one (`nostr:naddr…#featureId`), a coordinate (`geo:lat,lon`), and an OpenStreetMap element. Inline mentions mirror to `a` tags (§4.1); the body stays authoritative for the fine-grained selector.
+
+- The referenced words are the link. Hovering emphasises the feature on the canvas without moving the camera; clicking flies to it and opens its popup. A dataset reference puts the map on the Shelf. A coordinate drops one temporary pin.
+- References are live pointers. When a feature id no longer resolves, the words render struck with a warning and the reason, and nothing is silently substituted.
+- Authoring: select the words, press **⌖ reference**, then click the feature on the canvas. That is the spec's crosshair pick, applied to a text selection.
+
+### A view is a block
+Map state lives in its own block, positioned in the body. Where it sits is when it happens.
+
+```ts
+{ type: 'view', id, title, caption?, display: 'cue' | 'figure' | 'both',
+  camera?: { center: [lon, lat]; zoom }, layers?: Record<coordinate, { visible: boolean }> }
+```
+
+- **`cue`** renders as a quiet stage direction with its number, title and a summary ("shows December 1916 · hides November 1914 · ⌖ moves the camera"), and drives the big canvas.
+- **`figure`** renders as a static map in the flow, drawn from the visible layers clipped to its camera, with a caption. It does not move the canvas. This is the embedded-static-map case.
+- **`both`** does both: the figure in the text is a thumbnail of what the canvas is showing.
+- Views accumulate in reading order. The effective state at block *i* is the opening state with every driving view at or before *i* applied, and the camera is the last one set.
+- There are **no anchors and no scene array**. A view moves with the text because it is in the text, so inserting or deleting blocks needs no index arithmetic and nothing can be orphaned.
+
+### Reading
+- **▶ Present** steps the driving views in document order with a bar (‹ Next ›), scrolling each into view. This is the primary way to read a story map.
+- **◎ Follow text** is a toggle, not a requirement. When on, the map takes the state of the topmost block in view and only acts when that state actually changes. Off, the map stays where the reader left it and only Present, a view click, or a reference moves it.
+- Clicking any block applies its effective state explicitly.
+
+### Serialization
+A view is a Markdown link, optionally wrapping a pre-rendered image, so other clients degrade gracefully:
+
+```markdown
+[![The line freezes](https://blossom.earthly.city/ab12.png)](nostr:naddr1…?view=4.4,49.6,6.2&on=front-1914)
+```
+
+A plain Markdown client shows the picture and a link; Earthly reads the camera and layers from the query. A `cue` is the same link without the image. `presentation` in the content JSON therefore shrinks to the opening state only: `initialView`, `layerOrder`, `layers`. The sequence lives in the body, which is the same body-is-authoritative rule the spec already applies to references.
+
+### Atlas
+An Atlas keeps a plain `MapPresentationV1` as its default view, restricted to its pinned lane. It has no body, so it has no views.
 
 ## 11d. Inbox
 
@@ -297,7 +327,7 @@ Adds, never reshapes. No `modelVersion` bump.
 7. **MapPresentationV1**, an embedded value in the content of 37520 (Story) and 37518 (Atlas), never an event kind:
    ```ts
    interface MapPresentationV1 { version: 1; initialView?: { center: [lon, lat]; zoom: number; bearing?: number; pitch?: number }; layerOrder?: NostrCoordinate[]; layers?: Record<NostrCoordinate, { visible?: boolean; pinnedEvent?: string }> }
-   interface StoryPresentationV1 extends MapPresentationV1 { scenes?: { id: string; title: string; anchor: number; view: MapPresentationV1['initialView']; layers?: MapPresentationV1['layers'] }[] }
+   // Stories carry no scene array: views are blocks in the Markdown body (§11c).
    ```
    Invariants: Story `layerOrder`/`layers`/scene layers ⊆ the story's `a` references; Atlas presentation ⊆ its pinned `a` lane (foreign `c` never enters it); missing presentation means today's behaviour; camera is published intent, never transient state; `anchor` indexes the body blocks and clients clamp it. **Scene semantics:** `layers` in a scene is a delta; the effective state at block *i* is `presentation.layers` with every scene whose `anchor ≤ i` applied in anchor order, and the view is the last scene `view` at or before *i* (else `initialView`). A scene with neither `layers` nor `view` is dropped on publish. Snapshot datasets (one map per date) are ordinary Maps; the story, not the map, carries time. Legend, `opacityMultiplier`, style overrides and filters are deferred until a concrete need; if style overrides arrive they live on the containing Story/Atlas, keep the source event immutable, and are attributed "data by A · presentation by B".
 8. **Audience** is not a tag: Circle records are MLS application messages, Nearby records travel over the local node. The `🔒`/`⇄` pills are derived from where a record came from. A public copy of a private record is a new publish with a new address, never a flag flip.
