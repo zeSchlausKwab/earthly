@@ -1004,9 +1004,9 @@
 				const r = parseRef(href)
 				const res = resolveRef(r)
 				const glyph = { feature: '⌖', dataset: '▤', coord: '◎', osm: '◈' }[r.type]
-				if (!res.ok) return `<span class="xref gone" title="Unresolved: ${esc(res.why)}">⚠ ${label}</span>`
+				if (!res.ok) return `<span class="xref gone" title="Unresolved: ${esc(res.why)}"><i>⚠</i>${label}</span>`
 				const data = r.type === 'feature' ? `data-act="xref-feature" data-map="${r.map}" data-fid="${esc(r.feature)}"` : r.type === 'dataset' ? `data-act="xref-map" data-map="${r.map}"` : r.type === 'coord' ? `data-act="xref-coord" data-c="${r.coords.join(',')}"` : `data-act="toast"`
-				return `<button class="xref ${r.type}" ${data} title="${r.type === 'osm' ? 'OpenStreetMap element' : r.type === 'coord' ? 'A coordinate' : esc((res.map || {}).title || '')}">${label}<i>${glyph}</i></button>`
+				return `<button class="xref ${r.type}" ${data} title="${r.type === 'osm' ? 'OpenStreetMap element' : r.type === 'coord' ? 'A coordinate' : esc((res.map || {}).title || '')}"><i>${glyph}</i>${label}</button>`
 			})
 			.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
 	}

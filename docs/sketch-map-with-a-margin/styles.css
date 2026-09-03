@@ -103,7 +103,6 @@ a{color:var(--accent)}
 .prose strong{font-weight:600}
 .prose em{font-style:italic}
 .prose code{font-family:var(--mono);font-size:.82em;background:var(--surface-2);padding:.05em .3em}
-.prose a{color:var(--accent);text-underline-offset:2px}
 .fig{margin:.6rem 0;padding:0}
 .fig img{display:block;width:100%;height:auto;border:1px solid var(--rule);background:var(--surface-2)}
 .fig figcaption,.tbl-wrap figcaption{font-family:var(--sans);font-size:.74rem;color:var(--muted);line-height:1.35;margin-top:.25rem;display:flex;gap:.5rem;align-items:baseline}
@@ -131,13 +130,23 @@ a{color:var(--accent)}
 .btype{position:absolute;left:-.15rem;top:-.55rem;font-family:var(--mono);font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);background:var(--surface);padding:0 .25rem;border:1px solid var(--rule)}
 .prose.editing .blk{position:relative}
 
-/* Inline references: the word in the sentence is the pointer (SPEC 2.4) */
-.xref{display:inline;font:inherit;color:var(--accent);border-bottom:1px solid color-mix(in srgb,var(--accent) 45%,transparent);padding:0;cursor:pointer;line-height:inherit}
-.xref i{font-style:normal;font-size:.7em;margin-left:.15em;opacity:.75;vertical-align:.15em}
-.xref:hover{background:var(--accent-soft);border-bottom-color:var(--accent)}
-.xref.coord,.xref.osm{color:var(--ink-2);border-bottom-color:var(--rule-2)}
-.xref.coord:hover,.xref.osm:hover{background:var(--surface-2)}
-.xref.gone{color:var(--muted);border-bottom:1px dashed var(--amber);cursor:help}
+/* Inline references are pills, deliberately unlike links (SPEC 2.4).
+   A link is underlined running text; a reference is a small chip that points at the map. */
+.xref{display:inline-flex;align-items:baseline;gap:.22em;font-family:var(--sans);font-size:.86em;line-height:1.1;
+	padding:.06em .38em .1em;margin:0 .04em;border:1px solid var(--accent);background:var(--accent-soft);color:var(--ink);
+	white-space:nowrap;cursor:pointer;vertical-align:baseline;text-decoration:none}
+.xref i{font-style:normal;font-size:.92em;color:var(--accent);opacity:.9}
+.xref:hover{background:var(--accent);color:var(--accent-ink)}
+.xref:hover i{color:var(--accent-ink);opacity:1}
+.xref.dataset{border-style:dashed}
+.xref.coord,.xref.osm{border-color:var(--rule-2);background:var(--surface-2)}
+.xref.coord i,.xref.osm i{color:var(--muted)}
+.xref.coord:hover,.xref.osm:hover{background:var(--surface-3);color:var(--ink)}
+.xref.coord:hover i,.xref.osm:hover i{color:var(--ink)}
+.xref.gone{border-style:dashed;border-color:var(--amber);background:var(--amber-soft);color:var(--muted);text-decoration:line-through;cursor:help}
+.xref.gone i{color:var(--amber);text-decoration:none}
+/* Ordinary links keep the underlined running-text treatment, so the two never read alike. */
+.prose a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}
 
 /* View blocks: a cue drives the big map, a figure is a static map in the flow */
 .blk.is-view{margin:.7rem 0}

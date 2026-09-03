@@ -235,8 +235,9 @@ A Story body is a list of **blocks**. A paragraph is prose and nothing else; it 
 ### References are inline
 Per `SPEC.md` §2.4 a reference is written in the sentence, not listed beside it, and has four forms: a dataset (`nostr:naddr…`), a feature inside one (`nostr:naddr…#featureId`), a coordinate (`geo:lat,lon`), and an OpenStreetMap element. Inline mentions mirror to `a` tags (§4.1); the body stays authoritative for the fine-grained selector.
 
-- The referenced words are the link. Hovering emphasises the feature on the canvas without moving the camera; clicking flies to it and opens its popup. A dataset reference puts the map on the Shelf. A coordinate drops one temporary pin.
-- References are live pointers. When a feature id no longer resolves, the words render struck with a warning and the reason, and nothing is silently substituted.
+- **A reference is a pill, never a link.** It sits inline in the sentence as a small bordered chip in the UI face, with its type glyph leading: ⌖ a feature, ▤ a dataset (dashed border), ◎ a coordinate and ◈ an OpenStreetMap element (both neutral). Ordinary Markdown links keep underlined running text, so the two can never be mistaken for each other: one navigates away, the other points at the map.
+- Hovering emphasises the feature on the canvas without moving the camera; clicking flies to it and opens its popup. A dataset reference puts the map on the Shelf. A coordinate drops one temporary pin.
+- References are live pointers. When a feature id no longer resolves, the pill turns dashed and amber with a ⚠ and a struck label, explaining why on hover, and nothing is silently substituted.
 - Authoring: select the words, press **⌖ reference**, then click the feature on the canvas. That is the spec's crosshair pick, applied to a text selection.
 
 ### A view is a block
