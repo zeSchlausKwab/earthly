@@ -1,8 +1,9 @@
 # A Map with a Margin — clickable sketch
 
-A throwaway, dependency-free prototype of the UI proposed in
-[`../FROM-SCRATCH-UX-AUDIT-2026-09.md`](../FROM-SCRATCH-UX-AUDIT-2026-09.md)
+The reference prototype for [`../MAP-WITH-A-MARGIN-SPEC.md`](../MAP-WITH-A-MARGIN-SPEC.md),
+the build contract. Background: [`../FROM-SCRATCH-UX-AUDIT-2026-09.md`](../FROM-SCRATCH-UX-AUDIT-2026-09.md)
 (designed version: [`../a-map-with-a-margin.html`](../a-map-with-a-margin.html)).
+Where the spec is silent, this sketch decides.
 
 It is not wired to Nostr or the app. The basemap is OpenFreeMap (Liberty style)
 via MapLibre GL loaded from unpkg; when the script or tiles are unavailable (the

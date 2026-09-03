@@ -1,7 +1,7 @@
 # Earthly from scratch: a UI/UX and protocol audit
 
 Date: 2026-09-02
-Status: discussion document, not an implementation plan
+Status: discussion document. The build contract derived from it is [`MAP-WITH-A-MARGIN-SPEC.md`](MAP-WITH-A-MARGIN-SPEC.md); where they differ, the spec wins.
 Method: code reading (`CONTEXT.md`, `SPEC.md`, `docs/architecture/*`, the editor/chat/routing stores, the three reference screenshots in `docs/`) plus a live sample of `wss://relay.earthly.city` taken today.
 
 The question posed: if a bold UI/UX person and a Nostr protocol developer sat down for an afternoon and were allowed to start over, what would they come out with? Below is that conversation, condensed. Part 1 is what they saw. Part 2 is the diagnosis. Part 3 is the redesign. Part 4 is the protocol half. Part 5 is the mobile decision. Part 6 is what to keep, what to kill, and in what order.
