@@ -63,6 +63,8 @@
 		featType: null,
 		featExpanded: new Set(),
 		featAll: false,
+		tick: 0,
+		tickPaused: false,
 		basemap: 'svg',
 		ask: { msgs: [] },
 		counter: 1,
@@ -604,7 +606,7 @@
 
 	// ------------------------------------------------------------- rendering
 	function render() {
-		renderTopbar(); renderMargin(); renderCanvas(); renderShelf(); renderToolpill(); renderDiffbar(); renderMenus(); renderDialog(); renderMobile(); renderStatus()
+		renderTopbar(); renderTicker(); renderMargin(); renderCanvas(); renderShelf(); renderToolpill(); renderDiffbar(); renderMenus(); renderDialog(); renderMobile(); renderStatus()
 		document.body.classList.toggle('glass', !!S.glass)
 		renderLensBar()
 		renderLiveBar()
@@ -646,6 +648,7 @@
 	function renderTopbar() {
 		$('#search').innerHTML = searchHtml()
 		const drafts = Object.keys(S.drafts).length
+		document.body.classList.toggle('thread-side', sideThreadActive())
 		$('#topright').innerHTML = `
 			<button class="btn quiet ${S.route.kind === 'browse' || !S.route.kind ? 'on' : ''}" data-act="open" data-kind="browse" data-id="${S.browse.kind}">Browse</button>
 			<button class="btn quiet" data-act="menu" data-menu="drafts">Drafts ${drafts ? `<span class="badge">${drafts}</span>` : ''}</button>
@@ -1404,6 +1407,51 @@
 
 	// ---- The toolbar catalogue. One definition drives the desktop pill, its menus,
 	// the overflow menu and the phone dock, so every surface shows the same inventory.
+	// "Live mood": the newest things across every kind, newest first.
+	const NOW = new Date('2026-09-03T12:00:00Z').getTime()
+	function ago(when) {
+		if (!when) return ''
+		const t = new Date(when.length <= 10 ? `${when}T12:00:00Z` : when.replace(' ', 'T') + 'Z').getTime()
+		const m = Math.max(1, Math.round((NOW - t) / 60000))
+		if (m < 60) return `${m}m`
+		const h = Math.round(m / 60)
+		if (h < 24) return `${h}h`
+		const d = Math.round(h / 24)
+		return d < 7 ? `${d}d` : `${Math.round(d / 7)}w`
+	}
+	function activityFeed() {
+		const out = []
+		Object.values(D.maps).forEach((m) => { if (m.published && canSee(m)) out.push({ when: m.published, who: m.author, verb: m.version > 1 ? 'updated' : 'published', kind: 'map', id: m.id, title: m.title, g: '◉' }) })
+		Object.values(D.stories).forEach((st) => { if (st.published) out.push({ when: st.published, who: st.author, verb: 'wrote', kind: 'story', id: st.id, title: st.title, g: '¶' }) })
+		Object.values(D.atlases).forEach((a) => { if (a.published) out.push({ when: a.published, who: a.author, verb: 'opened the atlas', kind: 'atlas', id: a.id, title: a.title, g: a.emblem || '◈' }) })
+		D.sightings.forEach((x) => out.push({ when: x.when, who: x.author, verb: 'spotted', kind: 'sighting', id: x.id, title: x.title, g: '◆' }))
+		D.comments.forEach((c) => { const [k, i] = c.on.split(':'); const o = obj(k, i); if (o) out.push({ when: c.when, who: c.author, verb: 'commented on', kind: k, id: i, title: o.title, g: '💬', tab: 'comments' }) })
+		D.proposals.forEach((p) => { const [k, i] = p.target.split(':'); const o = obj(k, i); if (o) out.push({ when: p.created, who: p.author, verb: p.status === 'accepted' ? 'had a proposal accepted on' : 'proposed changes to', kind: k, id: i, title: o.title, g: '✎' }) })
+		D.live.filter((l) => l.discovery === 'public' || l.author === 'me').forEach((l) => out.push({ when: null, live: true, who: l.author, verb: 'is live', kind: 'live', id: l.id, title: l.title, g: '●' }))
+		return out.sort((a, b) => (a.live ? 1 : 0) - (b.live ? 1 : 0) === 0 ? String(b.when || '').localeCompare(String(a.when || '')) : (b.live ? 1 : 0) - (a.live ? 1 : 0)).slice(0, 8)
+	}
+	function renderTicker() {
+		const host = $('#ticker'); if (!host) return
+		const items = activityFeed()
+		if (!items.length) { host.innerHTML = ''; return }
+		const i = ((S.tick % items.length) + items.length) % items.length
+		const it = items[i]
+		// Only touch the DOM when the item changes, so an ordinary re-render never restarts the slide.
+		const key = `${i}/${items.length}/${it.kind}:${it.id}/${it.verb}`
+		if (renderTicker.key === key && host.firstChild) return
+		renderTicker.key = key
+		host.innerHTML = `<span class="pulse" aria-hidden="true"></span><button class="titem" data-act="open-activity" data-kind="${it.kind}" data-id="${esc(it.id)}" data-tab="${it.tab || ''}" title="${esc(person(it.who).name)} ${esc(it.verb)} ${esc(it.title)}"><span class="tg">${it.g}</span><span class="tw">${esc(person(it.who).name)}</span><span class="tv">${esc(it.verb)}</span><span class="tt">${esc(it.title)}</span><span class="ta">${it.live ? 'now' : ago(it.when)}</span></button><span class="tdots">${items.map((_, n) => `<i class="${n === i ? 'on' : ''}"></i>`).join('')}</span>`
+		host.setAttribute('aria-label', `Latest: ${person(it.who).name} ${it.verb} ${it.title}`)
+	}
+	let tickTimer = null
+	function startTicker() {
+		if (tickTimer) clearInterval(tickTimer)
+		tickTimer = setInterval(() => {
+			if (S.tickPaused || document.hidden || isMobile()) return
+			S.tick++
+			renderTicker()
+		}, 4200)
+	}
 	function toolbarWidth() {
 		if (isMobile()) return innerWidth
 		return innerWidth - innerWidth * (sideThreadActive() ? 0.56 : 0.3)
@@ -1654,6 +1702,8 @@
 		'live-discovery'(d) { const l = S.liveMine ? obj('live', S.liveMine) : null; if (l) l.discovery = d.v; S.menu = null; render(); toast(d.v === 'public' ? 'Anyone can find you on the Live layer now.' : 'Only people with the link can see you.') },
 		'follow-live'(d) { S.followLive = S.followLive === d.id ? null : d.id; if (S.followLive) flyTo(bbox([{ type: 'point', coords: obj('live', d.id).coords }]), true); render() },
 		'open-inbox'() { S.menu = null; go('inbox', 'now') },
+		'open-activity'(d) { if (d.tab) S.tab = d.tab; go(d.kind, d.id) },
+		'tick-nudge'(d) { S.tick += +d.d; renderTicker() },
 		'open-me-circles'() { S.menu = null; go('me', 'circles') },
 		'open-me-nearby'() { S.menu = null; go('me', 'nearby') },
 		'open-notification'(d) { const n = D.notifications.find((x) => x.id === d.id); if (!n) return; n.read = true; if (n.target.tab) S.tab = n.target.tab; go(n.target.kind, n.target.id) },
@@ -2032,6 +2082,8 @@
 		}, { root, threshold: 0.4 })
 		$$('.blk[data-blk]').forEach((b) => blockObserver.observe(b))
 	}
+	document.addEventListener('pointerenter', (e) => { if (e.target.closest && e.target.closest('#ticker')) S.tickPaused = true }, true)
+	document.addEventListener('pointerleave', (e) => { if (e.target.closest && e.target.closest('#ticker')) S.tickPaused = false }, true)
 	window.addEventListener('hashchange', onRoute)
 	window.addEventListener('resize', () => render())
 
@@ -2043,5 +2095,6 @@
 	S.sheetHidden = isMobile() && !parseHash().kind
 	initBasemap()
 	onRoute()
+	startTicker()
 	setTimeout(() => { if (!S.route.kind && !ml) A.fit() }, 30)
 })()

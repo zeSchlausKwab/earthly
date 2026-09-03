@@ -137,10 +137,10 @@ body.glass .msg.ai{background:color-mix(in srgb,var(--surface-2) 70%,transparent
 .mclose{display:none;font-size:1.1rem;width:28px;padding:0;justify-content:center}
 @media (max-width:760px){.mclose{display:inline-flex}}
 body.glass .glassbtn{color:var(--accent)}
-.topbar{grid-row:1;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.6rem;padding:0 .6rem;background:var(--surface);border-bottom:1px solid var(--rule);z-index:30;position:relative}
+.topbar{grid-row:1;display:grid;grid-template-columns:var(--margin-w) minmax(0,1fr) auto;align-items:center;gap:0;padding:0 .6rem 0 0;background:var(--surface);border-bottom:1px solid var(--rule);z-index:30;position:relative}
 .brand{font-family:var(--display);font-weight:800;font-size:1.05rem;letter-spacing:-.02em;display:flex;align-items:center;gap:.5rem;color:var(--ink);text-decoration:none}
 .brand .dot{width:10px;height:10px;border-radius:0;background:var(--accent)}
-.search{position:relative;max-width:720px;width:100%;justify-self:center}
+.search{position:relative;max-width:720px;width:100%;justify-self:start;padding-left:.6rem}
 .search .field{display:flex;align-items:center;gap:.4rem;height:32px;padding:0 .6rem;border:1px solid var(--rule-2);border-radius:0;background:var(--ground);transition:box-shadow var(--fast) var(--ease),border-color var(--fast)}
 .search .field:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .search input{flex:1;min-width:0;border:0;background:transparent;outline:0;font-size:.95rem}
@@ -156,7 +156,28 @@ body.glass .glassbtn{color:var(--accent)}
 .results .row .s{color:var(--muted);font-size:.82rem}
 .results .ask{background:var(--accent-soft);border-radius:0;padding:.7rem .8rem;margin:.3rem}
 .results .ask .a{margin:.4rem 0 .6rem;font-size:.9rem}
-.topbar .right{display:flex;align-items:center;gap:.5rem}
+.topbar .right{display:flex;align-items:center;gap:.5rem;padding-left:.6rem}
+body.thread-side .topbar{grid-template-columns:var(--margin-w-side) minmax(0,1fr) auto}
+.lead-col{display:flex;align-items:center;gap:.7rem;min-width:0;padding-left:.6rem;border-right:1px solid var(--rule);height:100%}
+.lead-col .brand{flex:none}
+
+/* Activity ticker: the newest thing anyone did, cycling */
+.ticker{flex:1;min-width:0;display:flex;align-items:center;gap:.45rem;overflow:hidden}
+.ticker .pulse{width:6px;height:6px;background:var(--live);flex:none;animation:tpulse 2.4s ease-in-out infinite}
+@keyframes tpulse{0%,100%{opacity:1}50%{opacity:.25}}
+.ticker .titem{display:flex;align-items:baseline;gap:.35rem;min-width:0;flex:1;text-align:left;animation:tin .5s var(--ease)}
+@keyframes tin{from{opacity:0;transform:translateY(60%)}to{opacity:1;transform:none}}
+.ticker .tg{font-family:var(--mono);font-size:.72rem;color:var(--muted);flex:none}
+.ticker .tw{font-weight:600;font-size:.8rem;white-space:nowrap;flex:none}
+.ticker .tv{font-size:.78rem;color:var(--muted);white-space:nowrap;flex:none}
+.ticker .tt{font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ticker .ta{font-family:var(--mono);font-size:.66rem;color:var(--muted);flex:none;margin-left:auto}
+.ticker .titem:hover .tt{text-decoration:underline}
+.ticker .tdots{display:flex;gap:2px;flex:none}
+.ticker .tdots i{width:3px;height:3px;background:var(--rule-2)}
+.ticker .tdots i.on{background:var(--accent)}
+@media (max-width:1100px){.ticker .tv,.ticker .tdots{display:none}}
+@media (max-width:900px){.ticker .tw{display:none}}
 
 /* Generic controls */
 .btn{display:inline-flex;align-items:center;gap:.35rem;height:30px;padding:0 .65rem;border-radius:0;border:1px solid var(--rule-2);background:var(--surface);color:var(--ink);font-weight:500;white-space:nowrap;transition:background var(--fast),border-color var(--fast),transform var(--fast) var(--ease)}

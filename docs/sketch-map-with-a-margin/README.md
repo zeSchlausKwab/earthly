@@ -28,6 +28,9 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
 - **Browse** (landing, the Browse button, or the Search tab on a phone): list
   views for Maps, Stories, Atlases, Sightings and People with a filter box,
   sort, show-on-map and edit affordances per row. Lists, not tiles.
+- **Activity ticker** left of the search field: the newest eight things anyone
+  did, cycling with a slide; hover pauses, click opens. The search field starts
+  exactly where the left panel ends.
 - **Search** (top bar): maps, stories, atlases, people, places. A question
   (ends with `?` or starts with how/what/where…) offers **Ask Earthly**, which
   opens as its own read-only surface in the Margin with one write affordance:

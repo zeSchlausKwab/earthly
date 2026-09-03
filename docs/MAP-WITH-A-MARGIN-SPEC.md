@@ -62,6 +62,7 @@ Opening a Map adds it to the Shelf and frames it. Opening a Story adds its maps 
 | Margin and Thread column, Thread pulled out | `28vw` each, map between; only at `≥ 1100px` |
 | Phone breakpoint | `≤ 760px` |
 | Top bar / Lens bar / Shelf strip | 46 / 38 / 42 px |
+| Top bar first column | `var(--margin-w)`, so the search field's left edge meets the Margin's right edge |
 | Corners | none (0) everywhere |
 | Type | Display: Bricolage Grotesque 800. UI: IBM Plex Sans. Mono: IBM Plex Mono for kinds, counts, dates, coordinates. Prose (Story body): Source Serif 4. |
 | Palette | Light ground `#EDF0EA`, surface `#F7F8F5`, ink `#172019`, accent `#1F5F8B`; dark ground `#0E1412`, surface `#161D1A`, ink `#E5ECE6`, accent `#74B3E0`. A lens overrides `--accent` with the atlas colour. |
@@ -81,7 +82,9 @@ Geometry states on the canvas (the one rule the audit set):
 ## 4. Surfaces
 
 ### 4.1 Top bar (desktop)
-Brand · Search field (centre, max 720px) · Browse · Drafts (badge = count of working copies) · Me · ?.
+Three columns. The first is exactly the width of the Margin (`30vw`, or `28vw` when the Thread is pulled out) and holds the brand and the **activity ticker**; a hairline closes it. The search field begins at that seam, so its left edge always meets the Margin's right edge. The third column holds Browse · Drafts (badge = working copies) · Inbox (badge = unread) · Me · ?.
+
+**Activity ticker.** One line of the newest eight things anyone did, cycling every 4.2 seconds with a short slide: a pulse dot, a kind glyph, `Aria Voss · commented on · The Hippie Trail · 1d`, and position dots. Live beacons sort first and read "now". Hovering pauses it, a hidden tab pauses it, and clicking opens the thing (comments open on the Comments tab). It only rebuilds when its item changes, so ordinary re-renders never restart the animation. Below 1100px the verb and dots drop; below 900px the name drops. It is desktop only; the phone shows the map instead.
 Search results group Maps / Stories / Atlases / People / Places; a question (ends with `?` or starts how/what/where/which/why/who/when) shows one row "Ask Earthly: …" that opens `/ask`. Enter on a question does the same. In a lens the placeholder reads "Search spots in Global skate spots… or ask" and results are scoped to the atlas.
 
 ### 4.2 Lens bar
