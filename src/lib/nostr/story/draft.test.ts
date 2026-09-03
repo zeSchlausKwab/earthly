@@ -61,4 +61,11 @@ describe('Story editor local drafts', () => {
 
 		expect(readStoryDraft('story-id', PUBKEY)).toBeNull()
 	})
+
+	test('round-trips an unsupported future presentation verbatim', () => {
+		const future = { version: 7, layers: [{ future: true }], extension: { mode: 'new' } }
+		writeStoryDraft('future-story', { title: 'Future', presentation: future }, PUBKEY)
+
+		expect(readStoryDraft('future-story', PUBKEY)?.presentation).toEqual(future)
+	})
 })

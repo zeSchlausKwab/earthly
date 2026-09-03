@@ -21,11 +21,13 @@ mock.module('@/lib/nostr', () => ({ publish: publishSpy }))
 // Import AFTER the module mock so lifecycle.ts binds the stubbed `publish`.
 let publishStory: typeof import('./lifecycle').publishStory
 let editStory: typeof import('./lifecycle').editStory
+let StoryPresentationValidationError: typeof import('./lifecycle').StoryPresentationValidationError
 
 beforeAll(async () => {
 	const mod = await import('./lifecycle')
 	publishStory = mod.publishStory
 	editStory = mod.editStory
+	StoryPresentationValidationError = mod.StoryPresentationValidationError
 })
 
 /** Bare sign-function (EntityFactory contract) — stamps a deterministic id/pubkey/sig. */
@@ -51,6 +53,15 @@ function validRef(identifier: string): { coordinate: string; ref: string } {
 	const coordinate = `${ARTICLE_KIND}:${PUBKEY}:${identifier}`
 	const address = nip19.naddrEncode({ kind: ARTICLE_KIND, pubkey: PUBKEY, identifier })
 	return { coordinate, ref: `nostr:${address}` }
+}
+
+function mapRef(identifier: string, featureId?: string): { coordinate: string; ref: string } {
+	const coordinate = `37515:${PUBKEY}:${identifier}`
+	const address = nip19.naddrEncode({ kind: 37515, pubkey: PUBKEY, identifier })
+	return {
+		coordinate,
+		ref: `nostr:${address}${featureId ? `#${encodeURIComponent(featureId)}` : ''}`,
+	}
 }
 
 function aTags(event: NostrEvent): string[] {
@@ -112,5 +123,118 @@ describe('editStory — lineage + destructive re-derive (STORY-04/03)', () => {
 		// New body has NO refs → the pre-existing stale `a` tag must be gone.
 		const signed = await editStory(existing, { content: 'No references anymore.' }, bareSign)
 		expect(aTags(signed)).toEqual([])
+	})
+
+	test('a title-only edit preserves the authoritative body, a tags, and future presentation raw', async () => {
+		const { coordinate, ref } = mapRef('future-map')
+		const futurePresentation = { version: 12, layers: [{ future: true }] }
+		const existing = makeExistingArticle('story-partial-edit')
+		existing.content = JSON.stringify({
+			modelVersion: MODEL_VERSION,
+			title: 'Old',
+			content: `Keep ${ref}`,
+			presentation: futurePresentation,
+		})
+
+		const signed = await editStory(existing, { title: 'New' }, bareSign)
+		const parsed = JSON.parse(signed.content)
+		expect(parsed.title).toBe('New')
+		expect(parsed.content).toBe(`Keep ${ref}`)
+		expect(parsed.presentation).toEqual(futurePresentation)
+		expect(aTags(signed)).toEqual([coordinate])
+	})
+})
+
+describe('Story presentation publication authorization', () => {
+	test('a whole-Map body mention authorizes a selective presentation layer', async () => {
+		const { coordinate, ref } = mapRef('western-front')
+		const signed = await publishStory(
+			{
+				content: `Follow ${ref}.`,
+				presentation: {
+					version: 1,
+					layers: [{ id: 'verdun', source: coordinate, featureIds: ['verdun'] }],
+				},
+			},
+			bareSign,
+		)
+		const parsed = JSON.parse(signed.content)
+		expect(parsed.presentation.layers[0]).toMatchObject({
+			id: 'verdun',
+			visible: true,
+			opacityMultiplier: 1,
+		})
+	})
+
+	test('feature-only mentions reject whole-map or uncited feature requests', async () => {
+		const { coordinate, ref } = mapRef('battles', 'verdun')
+		const whole = publishStory(
+			{
+				content: `Only ${ref}.`,
+				presentation: { version: 1, layers: [{ id: 'all', source: coordinate }] },
+			},
+			bareSign,
+		)
+		await expect(whole).rejects.toBeInstanceOf(StoryPresentationValidationError)
+		await expect(
+			publishStory(
+				{
+					content: `Only ${ref}.`,
+					presentation: {
+						version: 1,
+						layers: [{ id: 'somme', source: coordinate, featureIds: ['somme'] }],
+					},
+				},
+				bareSign,
+			),
+		).rejects.toMatchObject({ code: 'unauthorized-features', featureIds: ['somme'] })
+	})
+
+	test('a reference shown only inside a code fence cannot authorize a layer', async () => {
+		const { coordinate, ref } = mapRef('code-example')
+		await expect(
+			publishStory(
+				{
+					content: `\`\`\`text\n${ref}\n\`\`\``,
+					presentation: { version: 1, layers: [{ id: 'code', source: coordinate }] },
+				},
+				bareSign,
+			),
+		).rejects.toMatchObject({ code: 'unauthorized-source', layerId: 'code' })
+	})
+
+	test('view patches cannot target a layer outside the opening presentation', async () => {
+		const { coordinate, ref } = mapRef('views')
+		const view = {
+			version: 1,
+			type: 'view',
+			id: 'bad-view',
+			title: 'Bad view',
+			display: 'cue',
+			layers: { missing: { visible: false } },
+		}
+		await expect(
+			publishStory(
+				{
+					content: `${ref}\n\n\`\`\`earthly-view\n${JSON.stringify(view)}\n\`\`\``,
+					presentation: { version: 1, layers: [{ id: 'base', source: coordinate }] },
+				},
+				bareSign,
+			),
+		).rejects.toMatchObject({ code: 'unknown-view-layer' })
+	})
+
+	test('a layer-changing view also requires an opening presentation', async () => {
+		const view = {
+			version: 1,
+			type: 'view',
+			id: 'orphan-view',
+			title: 'Orphan view',
+			display: 'cue',
+			layers: { missing: { visible: true } },
+		}
+		await expect(
+			publishStory({ content: `\`\`\`earthly-view\n${JSON.stringify(view)}\n\`\`\`` }, bareSign),
+		).rejects.toMatchObject({ code: 'unknown-view-layer' })
 	})
 })

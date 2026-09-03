@@ -26,9 +26,18 @@ import type { NostrEvent } from 'applesauce-core/helpers/event'
 import type { SignerLike } from '@/lib/nostr/entityFactory'
 import { assertCanDeleteOwnedEntity } from '@/lib/nostr/deletion'
 import { publish } from '@/lib/nostr'
-import { ArticleFactory, getArticleId } from '@/lib/nostr/article'
+import { ArticleFactory, getArticleContent, getArticleId, isArticle } from '@/lib/nostr/article'
 import type { ArticleContent } from '@/lib/nostr/article'
-import { extractReferencedCoordinates, setAddressReferenceTags } from '@/lib/nostr/references'
+import {
+	authorizePresentationLayer,
+	deriveStoryPresentationAuthorization,
+	extractSemanticStoryReferencedCoordinates,
+	getUsableMapPresentation,
+	parseMapPresentation,
+	reduceStoryMarkdownViews,
+	type MapPresentationIssue,
+} from '@/lib/map-presentation'
+import { setAddressReferenceTags } from '@/lib/nostr/references'
 import { noteSessionPublish } from '@/lib/nostr/sessionPublishes'
 
 /** AI-chat session breadcrumb (one line per publish) — see sessionPublishes.ts. */
@@ -42,6 +51,109 @@ function noteStorySessionPublish(signed: NostrEvent, content: Partial<ArticleCon
 	})
 }
 
+export type StoryPresentationValidationCode =
+	| 'invalid-presentation'
+	| 'unauthorized-source'
+	| 'unauthorized-features'
+	| 'unknown-view-layer'
+
+export class StoryPresentationValidationError extends Error {
+	readonly code: StoryPresentationValidationCode
+	readonly layerId?: string
+	readonly featureIds: readonly string[]
+	readonly issues: readonly MapPresentationIssue[]
+
+	constructor(options: {
+		code: StoryPresentationValidationCode
+		message: string
+		layerId?: string
+		featureIds?: readonly string[]
+		issues?: readonly MapPresentationIssue[]
+	}) {
+		super(options.message)
+		this.name = 'StoryPresentationValidationError'
+		this.code = options.code
+		this.layerId = options.layerId
+		this.featureIds = Object.freeze([...(options.featureIds ?? [])])
+		this.issues = Object.freeze([...(options.issues ?? [])])
+	}
+}
+
+function assertStoryViewTargets(
+	presentation: Parameters<typeof reduceStoryMarkdownViews>[0],
+	markdown: string,
+) {
+	const viewReduction = reduceStoryMarkdownViews(presentation, markdown)
+	const unknownLayerIssues = viewReduction.issues.filter(
+		(issue) => issue.code === 'unknown-layer-id',
+	)
+	if (unknownLayerIssues.length === 0) return
+	throw new StoryPresentationValidationError({
+		code: 'unknown-view-layer',
+		message: `A Story view changes a layer that is not in the opening view: ${unknownLayerIssues
+			.map((issue) => issue.path)
+			.join(', ')}.`,
+		issues: unknownLayerIssues,
+	})
+}
+
+/**
+ * Validate V1 presentation intent against the authoritative Markdown body.
+ * Absent, malformed, and future versions keep legacy fallback/preservation;
+ * only a usable V1 is interpreted and therefore subject to strict grants.
+ */
+export function validateStoryPresentation(content: Partial<ArticleContent>): ArticleContent {
+	const markdown = content.content ?? ''
+	const parsed = parseMapPresentation(content.presentation)
+	if (parsed.status !== 'valid') {
+		if (parsed.status === 'absent') {
+			assertStoryViewTargets({ version: 1, layers: [] }, markdown)
+		}
+		return { ...content }
+	}
+	if (parsed.issues.length > 0) {
+		throw new StoryPresentationValidationError({
+			code: 'invalid-presentation',
+			message:
+				'The Story opening view contains invalid presentation fields. Fix or remove it before publishing.',
+			issues: parsed.issues,
+		})
+	}
+	const presentation = getUsableMapPresentation(parsed)
+	if (!presentation) {
+		throw new StoryPresentationValidationError({
+			code: 'invalid-presentation',
+			message: 'The Story opening view has an invalid layers value. Recreate it before publishing.',
+			issues: parsed.issues,
+		})
+	}
+
+	const authorization = deriveStoryPresentationAuthorization(markdown)
+	for (const layer of presentation.layers) {
+		const result = authorizePresentationLayer(layer, authorization)
+		if (result.status === 'authorized') continue
+		if (result.status === 'unauthorized-source') {
+			throw new StoryPresentationValidationError({
+				code: 'unauthorized-source',
+				layerId: layer.id,
+				message: `Opening-view layer '${layer.id}' must reference a Map mentioned in the Story body.`,
+			})
+		}
+		throw new StoryPresentationValidationError({
+			code: 'unauthorized-features',
+			layerId: layer.id,
+			featureIds: result.featureIds,
+			message: result.requestedWholeMap
+				? `Opening-view layer '${layer.id}' requests the whole Map, but the Story body mentions only individual features.`
+				: `Opening-view layer '${layer.id}' uses features not mentioned in the Story body: ${result.featureIds.join(', ')}.`,
+		})
+	}
+
+	assertStoryViewTargets(presentation, markdown)
+
+	return { ...content, presentation }
+}
+
 /**
  * Publish a NEW Story (new `d`-tag). The `a` tags are derived from the body's
  * `nostr:naddr…` refs (STORY-03). Returns the signed event; the caller casts it.
@@ -50,9 +162,10 @@ export async function publishStory(
 	content: Partial<ArticleContent>,
 	signer: SignerLike,
 ): Promise<NostrEvent> {
-	const referencedCoords = extractReferencedCoordinates(content.content ?? '')
+	const effectiveContent = validateStoryPresentation(content)
+	const referencedCoords = extractSemanticStoryReferencedCoordinates(effectiveContent.content)
 
-	const signed = await ArticleFactory.create(content)
+	const signed = await ArticleFactory.create(effectiveContent)
 		// Destructively re-derive `a` from the body — body is the single source of
 		// truth (STORY-03). No prior `a` tags exist on a fresh create, but the same
 		// call keeps create/edit on one path.
@@ -60,7 +173,7 @@ export async function publishStory(
 		.sign(signer)
 
 	await publish(signed, { routing: 'outbox' })
-	noteStorySessionPublish(signed, content)
+	noteStorySessionPublish(signed, effectiveContent)
 	return signed
 }
 
@@ -74,15 +187,20 @@ export async function editStory(
 	content: Partial<ArticleContent>,
 	signer: SignerLike,
 ): Promise<NostrEvent> {
-	const referencedCoords = extractReferencedCoordinates(content.content ?? '')
+	if (!isArticle(existingEvent)) {
+		throw new Error('The event is not a Story and cannot be edited.')
+	}
+	const existingContent = getArticleContent(existingEvent)
+	const effectiveContent = validateStoryPresentation({ ...existingContent, ...content })
+	const referencedCoords = extractSemanticStoryReferencedCoordinates(effectiveContent.content)
 
 	const signed = await ArticleFactory.modify(existingEvent)
-		.article(content)
+		.article(effectiveContent)
 		.modifyPublicTags(setAddressReferenceTags(referencedCoords))
 		.sign(signer)
 
 	await publish(signed, { routing: 'outbox' })
-	noteStorySessionPublish(signed, content)
+	noteStorySessionPublish(signed, effectiveContent)
 	return signed
 }
 
