@@ -133,6 +133,20 @@
 		summary: 'Collected on the hill this morning. Nearby session only until we are back online.', topics: ['survey'], belongsTo: [], size: '2 KB', props: {},
 		features: [pt('sp1', 'Wall corner', 14.364, 46.703), pt('sp2', 'Hypocaust', 14.366, 46.7045), pt('sp3', 'Well', 14.362, 46.7052)],
 	})
+	// Historical snapshots: one dataset per front line, one for battles. A story shows them paragraph by paragraph.
+	const front = (id, title, date, pts, extra) => addMap(Object.assign({
+		id, kind: 'map', title, author: 'mafrend', published: '2026-08-30', version: 1, topics: ['ww1', 'western-front', 'history'], belongsTo: ['cool-historical'], size: '11 KB', props: { period: date },
+		summary: `The Western Front as it stood in ${date}.`, features: [ln('line', `Front line, ${date}`, pts, { date })],
+	}, extra || {}))
+	front('front-1914', 'Western Front · November 1914', 'November 1914', [[2.75, 51.13], [2.89, 50.85], [2.78, 50.4], [2.78, 50.29], [2.85, 49.9], [3.0, 49.58], [3.32, 49.38], [4.03, 49.25], [4.9, 49.3], [5.38, 49.16], [5.55, 48.9], [6.2, 48.75], [6.5, 48.7], [7.0, 48.3], [6.86, 47.64]])
+	front('front-1916', 'Western Front · December 1916', 'December 1916', [[2.75, 51.13], [2.89, 50.85], [2.78, 50.4], [2.78, 50.29], [2.95, 50.05], [2.92, 49.95], [3.0, 49.58], [3.32, 49.38], [4.03, 49.25], [4.9, 49.3], [5.4, 49.2], [5.55, 48.9], [6.2, 48.75], [6.5, 48.7], [7.0, 48.3], [6.86, 47.64]])
+	front('front-1918-spring', 'Western Front · April 1918', 'April 1918', [[2.75, 51.13], [2.89, 50.85], [2.65, 50.6], [2.78, 50.29], [2.45, 49.95], [2.55, 49.7], [3.1, 49.45], [3.4, 49.04], [4.03, 49.25], [4.9, 49.3], [5.38, 49.16], [5.55, 48.9], [6.2, 48.75], [6.5, 48.7], [7.0, 48.3], [6.86, 47.64]])
+	front('front-1918-armistice', 'Western Front · 11 November 1918', '11 November 1918', [[3.72, 51.05], [3.95, 50.45], [4.4, 50.2], [4.94, 49.7], [5.2, 49.45], [5.6, 49.3], [6.18, 49.12], [6.5, 48.7], [7.0, 48.3], [6.86, 47.64]])
+	addMap({
+		id: 'ww1-battles', kind: 'map', title: 'Major battles of the Western Front', author: 'mafrend', published: '2026-08-30', version: 2,
+		summary: 'The named battles, with dates.', topics: ['ww1', 'western-front'], belongsTo: ['cool-historical'], size: '3 KB', props: { period: '1914–1918' },
+		features: [pt('marne', 'First Marne · Sep 1914', 3.5, 48.95, { date: '1914-09' }), pt('ypres', 'Ypres · 1914, 1915, 1917', 2.89, 50.85, { date: '1914-10' }), pt('verdun', 'Verdun · Feb–Dec 1916', 5.38, 49.16, { date: '1916-02' }), pt('somme', 'Somme · Jul–Nov 1916', 2.7, 50.0, { date: '1916-07' }), pt('cambrai', 'Cambrai · Nov 1917', 3.23, 50.17, { date: '1917-11' }), pt('amiens', 'Amiens · Aug 1918', 2.3, 49.9, { date: '1918-08' }), pt('argonne', 'Meuse–Argonne · Sep–Nov 1918', 5.0, 49.3, { date: '1918-09' })],
+	})
 	// Niche-community atlas: skate spots. Each map is one city's spots.
 	addMap({
 		id: 'bcn-spots', kind: 'map', title: 'Barcelona skate spots', author: 'mafrend', published: '2026-08-02', version: 4,
@@ -178,6 +192,29 @@
 			id: 'cables-story', kind: 'story', title: 'Where the Internet Touches the Sea', author: 'earthly', published: '2026-07-17',
 			summary: 'Landing stations, the quiet buildings where continents plug in.', maps: ['cables-atlantic'],
 			body: [{ type: 'p', text: 'Every transatlantic cable ends in a beach manhole and a windowless building. Bilbao’s is behind a car park.', refs: [{ map: 'cables-atlantic', feature: 'ls1', label: 'Bilbao landing' }] }],
+		},
+		'western-front': {
+			id: 'western-front', kind: 'story', title: 'Four Years on the Western Front', author: 'mafrend', published: '2026-08-31',
+			summary: 'The front line as four snapshots, paragraph by paragraph.', maps: ['front-1914', 'front-1916', 'front-1918-spring', 'front-1918-armistice', 'ww1-battles'],
+			// Presentation: the opening view and base layers; each scene is a delta anchored to a paragraph and accumulates in reading order.
+			presentation: { version: 1, initialView: { center: [4.2, 49.6], zoom: 6.2 }, layerOrder: ['ww1-battles', 'front-1914', 'front-1916', 'front-1918-spring', 'front-1918-armistice'],
+				layers: { 'front-1914': { visible: false }, 'front-1916': { visible: false }, 'front-1918-spring': { visible: false }, 'front-1918-armistice': { visible: false }, 'ww1-battles': { visible: true } },
+				scenes: [
+					{ id: 'w1', title: 'The line freezes', anchor: 0, view: { center: [4.4, 49.6], zoom: 6.2 }, layers: { 'front-1914': { visible: true } } },
+					{ id: 'w2', title: 'Verdun and the Somme', anchor: 2, view: { center: [3.9, 49.7], zoom: 6.6 }, layers: { 'front-1916': { visible: true }, 'front-1914': { visible: false } } },
+					{ id: 'w3', title: 'The Spring Offensive', anchor: 4, view: { center: [3.0, 49.7], zoom: 6.8 }, layers: { 'front-1918-spring': { visible: true }, 'front-1916': { visible: false } } },
+					{ id: 'w4', title: 'Armistice', anchor: 6, view: { center: [5.0, 49.6], zoom: 6.2 }, layers: { 'front-1918-armistice': { visible: true }, 'front-1918-spring': { visible: false } } },
+				] },
+			body: [
+				{ type: 'h', text: 'November 1914' },
+				{ type: 'p', text: 'After the Marne and the Race to the Sea the line stopped moving. From Nieuwpoort on the coast to the Swiss border it would barely shift for three years.', refs: [{ map: 'ww1-battles', feature: 'marne', label: 'First Marne' }, { map: 'ww1-battles', feature: 'ypres', label: 'Ypres' }] },
+				{ type: 'h', text: '1916' },
+				{ type: 'p', text: 'Verdun from February, the Somme from July. Ten months of the largest battles in history moved the front by a handful of kilometres.', refs: [{ map: 'ww1-battles', feature: 'verdun', label: 'Verdun' }, { map: 'ww1-battles', feature: 'somme', label: 'Somme' }] },
+				{ type: 'h', text: 'Spring 1918' },
+				{ type: 'p', text: 'With Russia out of the war, Germany attacked in March. The bulge toward Amiens and Château-Thierry was the deepest advance since 1914, and the last.', refs: [{ map: 'ww1-battles', feature: 'amiens', label: 'Amiens' }] },
+				{ type: 'h', text: '11 November 1918' },
+				{ type: 'p', text: 'The Hundred Days pushed the line back through Cambrai to Ghent and Mons. When the guns stopped, the front lay well inside Belgium.', refs: [{ map: 'ww1-battles', feature: 'cambrai', label: 'Cambrai' }, { map: 'ww1-battles', feature: 'argonne', label: 'Meuse–Argonne' }] },
+			],
 		},
 		'macba-story': {
 			id: 'macba-story', kind: 'story', title: 'Why MACBA Never Dies', author: 'mafrend', published: '2026-08-05',

@@ -55,6 +55,10 @@
 		refPick: null,
 		presentScene: null,
 		sceneIndex: -1,
+		activeBlock: -1,
+		followText: true,
+		followMuteUntil: 0,
+		emphasis: new Set(),
 		basemap: 'svg',
 		ask: { msgs: [] },
 		counter: 1,
@@ -213,13 +217,41 @@
 		if (ml) { ml.flyTo({ center: v.center, zoom: v.zoom || 4, duration: 800 }); return }
 		flyTo([v.center[0] - 4, v.center[1] - 2, v.center[0] + 4, v.center[1] + 2])
 	}
+	// Per-paragraph map state: base presentation, then every scene delta up to and including this block.
+	const sceneFor = (story, i) => (story.presentation && story.presentation.scenes ? story.presentation.scenes.find((sc) => sc.anchor === i) : null)
+	function effectiveState(story, i) {
+		const p = story.presentation || {}
+		const layers = {}
+		story.maps.forEach((id) => { layers[id] = !(p.layers && p.layers[id] && p.layers[id].visible === false) })
+		let view = p.initialView || null
+		const scenes = (p.scenes || []).filter((sc) => sc.anchor <= i).sort((a, b) => a.anchor - b.anchor)
+		scenes.forEach((sc) => { Object.entries(sc.layers || {}).forEach(([id, l]) => { if (typeof l.visible === 'boolean' && id in layers) layers[id] = l.visible }); if (sc.view) view = sc.view })
+		const b = story.body[i]
+		const refs = new Set((b && b.refs ? b.refs : []).map((r) => `${r.map}:${r.feature}`))
+		return { layers, view, refs, scene: sceneFor(story, i) }
+	}
+	function applyBlockState(story, i, opts = {}) {
+		const st = effectiveState(story, i)
+		Object.entries(st.layers).forEach(([id, vis]) => { const e = S.shelf.find((x) => x.id === id); if (e) e.visible = vis })
+		S.activeBlock = i
+		S.emphasis = st.refs
+		S.followMuteUntil = Date.now() + 1200
+		if (st.view && opts.fly !== false) flyToView(st.view)
+		syncHash()
+		if (opts.render !== false) render()
+	}
+	function blockSummary(story, i) {
+		const sc = sceneFor(story, i); if (!sc) return ''
+		const shows = Object.entries(sc.layers || {}).filter(([, l]) => l.visible === true).map(([id]) => (D.maps[id] || { title: id }).title)
+		const hides = Object.entries(sc.layers || {}).filter(([, l]) => l.visible === false).map(([id]) => (D.maps[id] || { title: id }).title)
+		return [shows.length ? 'shows ' + shows.join(', ') : '', hides.length ? 'hides ' + hides.join(', ') : '', sc.view ? '⌖ moves the camera' : ''].filter(Boolean).join(' · ')
+	}
 	function goScene(story, i) {
 		const sc = story.presentation && story.presentation.scenes ? story.presentation.scenes[i] : null
 		if (!sc) return
 		S.sceneIndex = i
-		Object.entries(sc.layers || {}).forEach(([id, l]) => { const e = S.shelf.find((x) => x.id === id); if (e && typeof l.visible === 'boolean') e.visible = l.visible })
-		flyToView(sc.view)
-		render()
+		applyBlockState(story, sc.anchor)
+		setTimeout(() => { const el = $(`.blk[data-blk="${sc.anchor}"]`); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, 30)
 	}
 	// Live sharing: the banner is the only place that owns the state.
 	function startLive() {
@@ -300,8 +332,7 @@
 		} else if (r.kind === 'story') {
 			const st = D.stories[r.id]
 			st.maps.forEach((m) => addToShelf(m, { silent: true }))
-			if (prev.id !== r.id) { if (st.presentation) applyPresentation(st.presentation, st.maps); else flyToMaps(st.maps) }
-			S.sceneIndex = -1
+			if (prev.id !== r.id) { if (st.presentation) applyPresentation(st.presentation, st.maps); else flyToMaps(st.maps); if (st.presentation && (st.presentation.scenes || []).length) { applyBlockState(st, 0, { render: false }); S.sceneIndex = st.presentation.scenes.findIndex((sc) => sc.anchor === 0) } else S.sceneIndex = -1 } 
 		} else if (r.kind === 'sighting') {
 			S.liveOn = true
 			flyTo(bbox([{ type: 'point', coords: obj('sighting', r.id).coords }]), true)
@@ -327,7 +358,8 @@
 		}
 		if (!['map', 'story', 'atlas', 'sighting', 'circle', 'nearby'].includes(r.kind)) S.tab = 'details'
 		if ((r.kind === 'circle' || r.kind === 'nearby') && S.tab === 'thread') S.tab = 'details'
-		if (r.kind !== 'story') { S.presentScene = null; S.refPick = null }
+		if (r.kind !== 'story') { S.presentScene = null; S.refPick = null; S.activeBlock = -1; S.emphasis = new Set() }
+		if (r.kind === 'story' && prev.id !== r.id) { S.activeBlock = -1; S.emphasis = new Set() }
 		if (r.kind === 'sighting' && S.tab === 'thread') S.tab = 'details'
 		if (prev.id !== r.id) { S.annot = null; S.replyTo = null; S.previewProposal = null }
 		if (!r.edit) { S.selection.clear() }
@@ -681,6 +713,7 @@
 		tc.hidden = !sideThread
 		if (sideThread) tc.innerHTML = `<div class="margin-head" style="padding-bottom:.35rem"><div class="nav"><span class="eyebrow">Thread · ${esc(kind)}</span><span style="flex:1"></span><button class="btn sm quiet" data-act="thread-dock" title="Show the Thread as a tab of the margin instead">⇤ Dock</button></div></div>${threadHtml(kind, id)}`
 		const ta = $('#composer-text'); if (ta) autoGrow(ta)
+		observeBlocks()
 	}
 	// One header grammar for every object panel:
 	//   nav:   ◂ Back · KIND · state                       ◐
@@ -838,15 +871,19 @@
 			? `<button class="btn sm primary keep" data-act="dialog" data-dialog="send-proposal">Send proposal to ${esc(person(pub.author).name)}</button><button class="btn sm keep" data-act="done">Keep for later</button>`
 			: inEdit
 			? `<span class="split"><button class="btn sm primary keep" data-act="publish" data-mode="update">${pub.published ? 'Publish update' : 'Publish'}</button><button class="btn sm primary keep" data-act="menu" data-menu="publish">▾</button></span><button class="btn sm keep" data-act="done">Done</button>`
-			: `${mine(pub) ? `<button class="btn sm primary keep" data-act="edit">Edit</button>` : `<button class="btn sm primary keep" data-act="propose" title="Offer text changes to ${esc(person(pub.author).name)}">Propose an edit</button>`}${scenes.length ? `<button class="btn sm keep ${S.sceneIndex >= 0 ? 'primary' : ''}" data-act="present" title="Step through the story's scenes">▶ Present${S.sceneIndex >= 0 ? ` ${S.sceneIndex + 1}/${scenes.length}` : ''}</button>` : ''}`
+			: `${mine(pub) ? `<button class="btn sm primary keep" data-act="edit">Edit</button>` : `<button class="btn sm primary keep" data-act="propose" title="Offer text changes to ${esc(person(pub.author).name)}">Propose an edit</button>`}${scenes.length ? `<button class="btn sm keep ${S.sceneIndex >= 0 ? 'primary' : ''}" data-act="present" title="Step through the story's scenes">▶ Present${S.sceneIndex >= 0 ? ` ${S.sceneIndex + 1}/${scenes.length}` : ''}</button><button class="btn sm ${S.followText ? 'primary' : ''}" data-act="follow-text" title="The map follows the paragraph you are reading">${S.followText ? '◎ Following text' : '◎ Follow text'}</button>` : ''}`
 		const p = S.proposal && S.proposal.kind === 'story' && S.proposal.storyId === id ? S.proposal : null
 		const sceneAt = (i) => scenes.findIndex((sc) => sc.anchor === i)
-		const sceneChip = (i) => { const si = sceneAt(i); return si >= 0 ? `<button class="scene ${S.sceneIndex === si ? 'on' : ''}" data-act="go-scene" data-i="${si}" title="Fly to this scene">⌖ ${esc(scenes[si].title)}</button>` : '' }
+		const sceneChip = (i) => { const si = sceneAt(i); return si >= 0 ? `<button class="scene ${S.activeBlock === i ? 'on' : ''}" data-act="go-block" data-i="${i}" title="${esc(blockSummary(s, i))}">⌖ ${esc(scenes[si].title)}</button>` : '' }
+		const stripFor = (i) => { const sc = sceneAt(i) >= 0 ? scenes[sceneAt(i)] : null; const eff = effectiveState(s, i); return `<div class="lstrip">${s.maps.map((mid) => { const m = D.maps[mid]; if (!m) return ''; const d = sc && sc.layers && sc.layers[mid]; const mode = d && typeof d.visible === 'boolean' ? (d.visible ? 'show' : 'hide') : 'inherit'; return `<button class="lc ${mode} ${eff.layers[mid] ? 'vis' : 'hid'}" data-act="blk-layer" data-i="${i}" data-id="${mid}" title="${esc(m.title)} · ${mode === 'inherit' ? 'inherits: ' + (eff.layers[mid] ? 'shown' : 'hidden') : mode === 'show' ? 'shown from here' : 'hidden from here'} · click to cycle">${mode === 'show' ? '◉' : mode === 'hide' ? '○' : '◌'} ${esc(m.title.replace(/^Western Front · /, ''))}</button>` }).join('')}<button class="lc cam ${sc && sc.view ? 'show' : 'inherit'}" data-act="blk-view" data-i="${i}" title="${sc && sc.view ? 'Camera set for this paragraph · click to recapture, ⇧click to clear' : 'Capture the current camera for this paragraph'}">⌖ ${sc && sc.view ? 'camera set' : 'set camera'}</button></div>` }
 		const block = (b, i) => {
 			const refs = (b.refs || []).map((r) => refChip(r)).join(' ')
-			const editTools = inEdit ? `<div class="btools"><button data-act="ref-pick" data-i="${i}" class="${S.refPick === i ? 'on' : ''}" title="Click a feature on the map to reference it here">${S.refPick === i ? '⌖ click a feature…' : '⌖ reference'}</button><button data-act="scene-set" data-i="${i}" title="Capture the current view and layers as this section's scene">${sceneAt(i) >= 0 ? '⟳ recapture scene' : '+ scene from view'}</button>${sceneAt(i) >= 0 ? `<button data-act="scene-remove" data-i="${sceneAt(i)}">× scene</button>` : ''}<button data-act="block-add" data-i="${i}">+ ¶</button><button data-act="block-del" data-i="${i}">− ¶</button></div>` : ''
-			if (b.type === 'h') return `<div class="blk"><h5${inEdit ? ` contenteditable="true" data-bind-block="${i}"` : ''}>${esc(b.text)}</h5>${sceneChip(i)}${editTools}</div>`
-			return `<div class="blk"><p${inEdit ? ` contenteditable="true" data-bind-block="${i}"` : ''}>${esc(b.text)}</p>${refs || sceneChip(i) ? `<div class="refline">${refs} ${sceneChip(i)}</div>` : ''}${editTools}</div>`
+			const active = S.activeBlock === i
+			const summary = !inEdit && sceneAt(i) >= 0 ? `<div class="bsum">${esc(blockSummary(s, i))}</div>` : ''
+			const editTools = inEdit ? `${stripFor(i)}<div class="btools"><button data-act="ref-pick" data-i="${i}" class="${S.refPick === i ? 'on' : ''}" title="Click a feature on the map to reference it here">${S.refPick === i ? '⌖ click a feature…' : '⌖ reference'}</button>${sceneAt(i) >= 0 ? `<button data-act="scene-rename" data-i="${sceneAt(i)}">✎ ${esc(scenes[sceneAt(i)].title)}</button><button data-act="scene-remove" data-i="${sceneAt(i)}" title="Remove this paragraph's map changes">× clear</button>` : ''}<button data-act="block-add" data-i="${i}">+ ¶</button><button data-act="block-del" data-i="${i}">− ¶</button></div>` : ''
+			const attrs = `class="blk ${active ? 'active' : ''} ${sceneAt(i) >= 0 ? 'has-scene' : ''}" data-blk="${i}"${inEdit ? '' : ` data-act="go-block" data-i="${i}"`}`
+			if (b.type === 'h') return `<div ${attrs}><h5${inEdit ? ` contenteditable="true" data-bind-block="${i}"` : ''}>${esc(b.text)}</h5>${sceneChip(i)}${summary}${editTools}</div>`
+			return `<div ${attrs}><p${inEdit ? ` contenteditable="true" data-bind-block="${i}"` : ''}>${esc(b.text)}</p>${refs || sceneChip(i) ? `<div class="refline">${refs} ${sceneChip(i)}</div>` : ''}${summary}${editTools}</div>`
 		}
 		const body = s.body.map((b, i) => block(b, i) + (p && p.insertAfter === i ? `<p class="ins">${esc(p.para.text)} ${p.para.refs.map((r) => refChip(r)).join(' ')}</p>` : '')).join('')
 		const presSection = `<div class="section"><h4>Map presentation <span class="sp"></span><span class="hint">${pres ? 'v1 · embedded in the story' : 'none · readers see the maps as they are'}</span></h4>
@@ -854,8 +891,8 @@
 			<p style="font-size:.86rem">${pres && pres.initialView ? `<span class="mono">${pres.initialView.center[1]}, ${pres.initialView.center[0]} · z${pres.initialView.zoom}</span>` : '<span class="muted">not set · readers start framed on all referenced maps</span>'}${inEdit ? ` <button class="btn sm" data-act="pres-set-view">Set from current view</button>${pres && pres.initialView ? '<button class="btn sm quiet" data-act="pres-clear-view">Clear</button>' : ''}` : pres && pres.initialView ? ' <button class="btn sm quiet" data-act="pres-fly">⌖ Go</button>' : ''}</p>
 			<div class="sub">Layers, in order</div>
 			<div class="list">${(pres && pres.layerOrder && pres.layerOrder.length ? pres.layerOrder : s.maps).map((mid, i, arr) => { const m = D.maps[mid]; if (!m) return ''; const vis = !(pres && pres.layers && pres.layers[mid] && pres.layers[mid].visible === false); return `<div class="item"><div class="thumb">${thumb(m.features, 40, 28)}</div><button style="text-align:left" data-act="open" data-kind="map" data-id="${mid}"><div class="t">${esc(m.title)}</div><div class="s">${esc(person(m.author).name)} · ${vis ? 'shown' : 'hidden at open'}</div></button><div class="act" style="opacity:1">${inEdit ? `<button data-act="pres-vis" data-id="${mid}" title="${vis ? 'Hide at open' : 'Show at open'}">${vis ? '◉' : '○'}</button><button data-act="pres-up" data-id="${mid}" ${i === 0 ? 'disabled' : ''}>↑</button><button data-act="pres-down" data-id="${mid}" ${i === arr.length - 1 ? 'disabled' : ''}>↓</button>` : `<button data-act="fly-map" data-id="${mid}">⌖</button>`}</div></div>` }).join('')}${inEdit ? `<button class="chip add" data-act="dialog" data-dialog="pick-map" data-for="story">+ Reference a map</button>` : ''}</div>
-			${inEdit ? '<p class="muted" style="font-size:.76rem;margin:.4rem 0 0">Only maps this story references can appear here. Readers with older clients simply see the maps.</p>' : ''}</div>`
-		const scenesSection = scenes.length || inEdit ? `<div class="section"><h4>Scenes <span class="n">${scenes.length}</span><span class="sp"></span>${scenes.length ? `<button class="btn sm ${S.sceneIndex >= 0 ? 'primary' : ''}" data-act="present">▶ Present</button>` : ''}</h4>${scenes.length ? `<div class="list">${scenes.map((sc, i) => `<div class="item ${S.sceneIndex === i ? 'on' : ''}"><span class="kicon">${i + 1}</span><button style="text-align:left" data-act="go-scene" data-i="${i}"><div class="t">${esc(sc.title)}</div><div class="s">z${sc.view.zoom} · ${Object.entries(sc.layers || {}).filter(([, l]) => l.visible === false).length ? 'hides ' + Object.entries(sc.layers).filter(([, l]) => l.visible === false).map(([k]) => (D.maps[k] || { title: k }).title).join(', ') : 'all layers'} · at ¶${sc.anchor + 1}</div></button><div class="act" style="opacity:1">${inEdit ? `<button data-act="scene-rename" data-i="${i}">✎</button><button data-act="scene-remove" data-i="${i}">×</button>` : `<button data-act="go-scene" data-i="${i}">⌖</button>`}</div></div>`).join('')}</div>` : '<div class="empty">No scenes. Use “+ scene from view” under a paragraph.</div>'}${inEdit ? '<p class="muted" style="font-size:.76rem;margin:.4rem 0 0">A scene is a camera and a set of layer visibilities attached to a paragraph. Present steps through them; readers can also tap the ⌖ chips.</p>' : ''}</div>` : ''
+			${inEdit ? '<p class="muted" style="font-size:.76rem;margin:.4rem 0 0">This is how the story opens. Paragraphs then change layers and camera as the reader goes. Only maps this story references can appear here; older clients simply see the maps.</p>' : ''}</div>`
+		const scenesSection = scenes.length || inEdit ? `<div class="section"><h4>Scenes <span class="n">${scenes.length}</span><span class="sp"></span>${scenes.length ? `<button class="btn sm ${S.sceneIndex >= 0 ? 'primary' : ''}" data-act="present">▶ Present</button>` : ''}</h4>${scenes.length ? `<div class="list">${scenes.map((sc, i) => `<div class="item ${S.sceneIndex === i ? 'on' : ''}"><span class="kicon">${i + 1}</span><button style="text-align:left" data-act="go-block" data-i="${sc.anchor}"><div class="t">${esc(sc.title)}</div><div class="s">¶${sc.anchor + 1} · ${esc(blockSummary(s, sc.anchor)) || 'no changes'}</div></button><div class="act" style="opacity:1">${inEdit ? `<button data-act="scene-rename" data-i="${i}">✎</button><button data-act="scene-remove" data-i="${i}">×</button>` : `<button data-act="go-scene" data-i="${i}">⌖</button>`}</div></div>`).join('')}</div>` : '<div class="empty">No scenes. Use “+ scene from view” under a paragraph.</div>'}${inEdit ? '<p class="muted" style="font-size:.76rem;margin:.4rem 0 0">Each paragraph can show or hide layers and move the camera. Changes accumulate down the page: a layer stays as the last paragraph left it. Under a paragraph, ◉ shows a layer from here on, ○ hides it, ◌ inherits.</p>' : ''}</div>` : ''
 		const details = `<div class="margin-body">
 			${S.presentScene !== null && S.sceneIndex >= 0 ? `<div class="diffbar-margin" style="border-style:solid;border-color:var(--accent);background:var(--accent-soft)"><span class="grow">Scene ${S.sceneIndex + 1} of ${scenes.length}: ${esc(scenes[S.sceneIndex].title)}</span><button class="btn sm" data-act="scene-prev" ${S.sceneIndex === 0 ? 'disabled' : ''}>‹</button><button class="btn sm primary" data-act="scene-next">${S.sceneIndex === scenes.length - 1 ? 'Finish' : 'Next ›'}</button></div>` : ''}
 			${p ? `<div class="diffbar-margin"><span class="grow">+1 paragraph · ${p.para.refs.length} references</span><button class="btn sm primary" data-act="apply">Apply</button><button class="btn sm" data-act="discard">Discard</button></div>` : ''}
@@ -1116,7 +1153,7 @@
 			}
 			const p = isEdit && S.proposal && S.proposal.kind === 'map' && S.proposal.mapId === e.id ? S.proposal : null
 			const incoming = S.previewProposal ? D.proposals.find((x) => x.id === S.previewProposal && x.target === 'map:' + e.id) : null
-			m.features.forEach((f) => out.push({ f, map: e.id, state: isEdit ? 'working' : 'published', removed: !!(p && p.remove.includes(f.id)) || !!(incoming && incoming.remove.includes(f.id)), modified: !!(p && p.modify.some((x) => x.id === f.id)), dim: !!(S.onlyChanges && S.proposal) || !!(incoming && incoming.modify.some((x) => x.id === f.id)), sel: S.selection.has(f.id), lbl: focus === e.id || isEdit }))
+			m.features.forEach((f) => out.push({ f, map: e.id, state: isEdit ? 'working' : 'published', removed: !!(p && p.remove.includes(f.id)) || !!(incoming && incoming.remove.includes(f.id)), modified: !!(p && p.modify.some((x) => x.id === f.id)), dim: !!(S.onlyChanges && S.proposal) || !!(incoming && incoming.modify.some((x) => x.id === f.id)), sel: S.selection.has(f.id) || S.emphasis.has(`${e.id}:${f.id}`), lbl: focus === e.id || isEdit || S.emphasis.has(`${e.id}:${f.id}`) }))
 			if (incoming) { incoming.add.forEach((f) => out.push({ f, map: e.id, state: 'proposed', lbl: true })); incoming.modify.forEach((mm) => { const base = m.features.find((x) => x.id === mm.id); if (base) out.push({ f: Object.assign({}, base, { id: 'prop:' + mm.id, name: mm.name || base.name, coords: mm.coords || base.coords }), map: e.id, state: 'proposed', lbl: true }) }) }
 		})
 		// Comment annotations for the open object, plus the one being drawn.
@@ -1454,6 +1491,10 @@
 		'scene-remove'(d) { const dr = S.drafts[S.editing.id]; if (dr.presentation && dr.presentation.scenes) dr.presentation.scenes.splice(+d.i, 1); render() },
 		'scene-rename'(d) { const dr = S.drafts[S.editing.id]; const sc = dr.presentation.scenes[+d.i]; const t = prompt('Scene title', sc.title); if (t !== null && t.trim()) { sc.title = t.trim(); render() } },
 		'go-scene'(d) { goScene(view('story', S.route.id), +d.i) },
+		'go-block'(d) { const st = view('story', S.route.id); const i = +d.i; const scenes = st.presentation && st.presentation.scenes ? st.presentation.scenes : []; S.sceneIndex = scenes.findIndex((sc) => sc.anchor === i); applyBlockState(st, i) },
+		'follow-text'() { S.followText = !S.followText; render(); toast(S.followText ? 'The map now follows the paragraph you read.' : 'The map stays where you put it.') },
+		'blk-layer'(d) { const dr = S.drafts[S.editing.id]; const i = +d.i; dr.presentation = dr.presentation || { version: 1, layerOrder: dr.maps.slice(), layers: {}, scenes: [] }; dr.presentation.scenes = dr.presentation.scenes || []; let sc = dr.presentation.scenes.find((x) => x.anchor === i); if (!sc) { const b = dr.body[i]; sc = { id: `sc-${Date.now()}`, title: b && b.type === 'h' ? b.text : `¶${i + 1}`, anchor: i, layers: {} }; dr.presentation.scenes.push(sc); dr.presentation.scenes.sort((x, y) => x.anchor - y.anchor) } sc.layers = sc.layers || {}; const cur = sc.layers[d.id]; if (!cur) sc.layers[d.id] = { visible: true }; else if (cur.visible) sc.layers[d.id] = { visible: false }; else delete sc.layers[d.id]; if (!Object.keys(sc.layers).length && !sc.view) dr.presentation.scenes = dr.presentation.scenes.filter((x) => x !== sc); applyBlockState(dr, i, { fly: false }) },
+		'blk-view'(d, el, ev) { const dr = S.drafts[S.editing.id]; const i = +d.i; dr.presentation = dr.presentation || { version: 1, layerOrder: dr.maps.slice(), layers: {}, scenes: [] }; dr.presentation.scenes = dr.presentation.scenes || []; let sc = dr.presentation.scenes.find((x) => x.anchor === i); const shift = window.event && window.event.shiftKey; if (shift && sc) { delete sc.view; if (!Object.keys(sc.layers || {}).length) dr.presentation.scenes = dr.presentation.scenes.filter((x) => x !== sc); render(); return } if (!sc) { const b = dr.body[i]; sc = { id: `sc-${Date.now()}`, title: b && b.type === 'h' ? b.text : `¶${i + 1}`, anchor: i, layers: {} }; dr.presentation.scenes.push(sc); dr.presentation.scenes.sort((x, y) => x.anchor - y.anchor) } sc.view = capturePresentation(dr.maps).initialView; S.activeBlock = i; render(); toast('Camera captured for this paragraph.') },
 		present() { const st = view('story', S.route.id); if (S.presentScene !== null) { S.presentScene = null; S.sceneIndex = -1; render(); return } S.presentScene = st.id; goScene(st, 0) },
 		'scene-next'() { const st = view('story', S.route.id); const n = st.presentation.scenes.length; if (S.sceneIndex >= n - 1) { S.presentScene = null; S.sceneIndex = -1; render(); toast('End of the story.'); return } goScene(st, S.sceneIndex + 1) },
 		'scene-prev'() { const st = view('story', S.route.id); if (S.sceneIndex > 0) goScene(st, S.sceneIndex - 1) },
@@ -1752,6 +1793,28 @@
 			<p class="muted" style="margin:0">Local state only. Reload to reset.</p>`
 	}
 
+	// Reading a story: the map follows the topmost paragraph in view.
+	let blockObserver = null, followTimer = null
+	function observeBlocks() {
+		if (blockObserver) { blockObserver.disconnect(); blockObserver = null }
+		if (S.route.kind !== 'story' || !S.followText || (S.editing && S.editing.id === S.route.id)) return
+		const st = view('story', S.route.id)
+		if (!st.presentation || !(st.presentation.scenes || []).length) return
+		const root = $('.margin-body') || null
+		const visible = new Map()
+		let lastScrollAt = 0
+		if (root) root.addEventListener('scroll', () => { lastScrollAt = Date.now() }, { passive: true })
+		blockObserver = new IntersectionObserver((entries) => {
+			entries.forEach((en) => { const i = +en.target.dataset.blk; if (en.isIntersecting) visible.set(i, en.boundingClientRect.top); else visible.delete(i) })
+			if (!visible.size) return
+			if (Date.now() < S.followMuteUntil || lastScrollAt < S.followMuteUntil) return
+			const top = [...visible.entries()].sort((a, b) => a[1] - b[1])[0][0]
+			// The map state of a paragraph without its own scene is whatever the last scene left; apply only when the effective state changes.
+			clearTimeout(followTimer)
+			followTimer = setTimeout(() => { if (S.activeBlock === top) return; const cur = effectiveState(st, top); const prev = S.activeBlock >= 0 ? effectiveState(st, S.activeBlock) : null; const same = prev && JSON.stringify(prev.layers) === JSON.stringify(cur.layers) && JSON.stringify(prev.view) === JSON.stringify(cur.view); S.activeBlock = top; S.emphasis = cur.refs; if (!same) applyBlockState(st, top, { render: false }); const scenes = st.presentation.scenes; S.sceneIndex = scenes.findIndex((sc) => sc.anchor === top); $$('.blk').forEach((b) => b.classList.toggle('active', +b.dataset.blk === top)); renderCanvas() }, 120)
+		}, { root, threshold: 0.4 })
+		$$('.blk[data-blk]').forEach((b) => blockObserver.observe(b))
+	}
 	window.addEventListener('hashchange', onRoute)
 	window.addEventListener('resize', () => render())
 

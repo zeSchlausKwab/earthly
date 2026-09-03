@@ -76,8 +76,12 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
 - **Live**: Me → Share live location (or the phone +) shows a red live bar with
   discovery, share link and Stop; `/live/:id` pages with Follow; stale beacons.
 - **Story editing**: paragraphs and headings edited in place; ⌖ reference picks
-  a feature from the map; + scene from view captures camera + layers; ▶ Present
-  steps scenes; a Map presentation box sets the opening view and layer order.
+  a feature from the map; a layer strip under each paragraph shows/hides each
+  map from that paragraph on (◉ ○ ◌ inherit) and captures a camera; changes
+  accumulate down the page. Reading, the map follows the paragraph in view
+  (◎ Follow text) or a click; ▶ Present steps scenes. See “Four Years on the
+  Western Front” for snapshot datasets per phase. A Map presentation box sets
+  the opening view and layer order.
   Atlases get a Default view. Save this view stores one too (MapPresentationV1).
 - **Inbox** in the top bar and under Me: proposals, replies, mentions, atlas
   arrivals, join requests, follows; tapping opens the right tab.

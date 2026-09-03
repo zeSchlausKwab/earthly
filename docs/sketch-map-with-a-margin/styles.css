@@ -96,6 +96,22 @@ a{color:var(--accent)}
 .nrow .nw{display:block;font-family:var(--mono);font-size:.68rem;color:var(--muted)}
 .nrow .ndot{width:8px;height:8px;background:var(--accent)}
 
+/* Story reading: the active paragraph drives the map */
+.prose .blk[data-act]{cursor:pointer}
+.prose .blk.has-scene{border-left:2px solid var(--rule-2);padding-left:.55rem;margin-left:-.6rem}
+.prose .blk.active{border-left-color:var(--accent);background:color-mix(in srgb,var(--accent-soft) 55%,transparent)}
+.prose .bsum{font-family:var(--mono);font-size:.68rem;color:var(--muted);margin:.1rem 0 .2rem}
+.prose .blk.active .bsum{color:var(--accent)}
+/* Per-paragraph layer strip while editing */
+.lstrip{display:flex;flex-wrap:wrap;gap:.2rem;margin:.25rem 0 .1rem}
+.lstrip .lc{font-family:var(--mono);font-size:.66rem;padding:.1rem .4rem;border:1px solid var(--rule);background:var(--surface);color:var(--muted)}
+.lstrip .lc.show{border-color:var(--green);color:var(--green);background:var(--green-soft)}
+.lstrip .lc.hide{border-color:var(--red);color:var(--red);background:var(--red-soft)}
+.lstrip .lc.inherit.vis{color:var(--ink-2)}
+.lstrip .lc.inherit.hid{opacity:.6;text-decoration:line-through}
+.lstrip .lc.cam.show{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.lstrip .lc:hover{border-color:var(--ink)}
+
 /* Story editing: blocks, reference picking, scenes */
 .prose .blk{position:relative;margin:0 0 .5rem}
 .prose.editing .blk{padding:.15rem .3rem;border:1px dashed transparent}
