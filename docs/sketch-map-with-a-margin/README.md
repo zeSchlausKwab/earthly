@@ -60,10 +60,13 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
   pins in the margin (stories, atlases) with Apply · Discard · Review.
 - **Canvas**: pan, zoom, hover a feature to light up its Shelf chip, click a
   feature for a popup, diff bar for pending proposals.
-- **Toolbar**: exists only while a Map is in Edit. Desktop: a pill at the top
-  centre of the canvas, icon + label from 1180px, icons only below. Phone: a
-  scrollable strip pinned above the sheet. It slides away when you press Done
-  or open something else.
+- **Toolbar**: exists only while a Map is in Edit. One catalogue drives the
+  desktop pill, its menus, the overflow and the phone dock: Draw (point, line,
+  area, label, arrow, shapes) · Select · Change · History · Geometry (combine,
+  reshape, derive) · Snap · File (import, OSM, table, export, save region) ·
+  More (measure, callouts, lookup, settings, styling, properties, shortcuts).
+  Actions that cannot run say why. Groups collapse into ⋯ as the canvas narrows;
+  only the four draw primitives are wired, the rest are there to show the shape.
 - **Shelf**: chips for what is drawn, eye toggle, remove, pencil for the map in
   Edit, one **Live** chip for sightings and live positions, *Save this view*.
 - **Atlas lens**: on an Atlas page press *Enter atlas* (or open `#/in/skate-spots`).

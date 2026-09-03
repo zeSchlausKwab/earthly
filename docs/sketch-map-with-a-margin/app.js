@@ -1361,14 +1361,127 @@
 		return chips + `<span class="schip live ${S.liveOn ? 'on' : 'off'}"><span class="sw"></span><button class="name" style="width:auto;height:auto;border-radius:0;padding:0" data-act="toggle-live">Live · ${liveCount}</button></span>`
 	}
 
+	// ---- The toolbar catalogue. One definition drives the desktop pill, its menus,
+	// the overflow menu and the phone dock, so every surface shows the same inventory.
+	function toolbarWidth() {
+		if (isMobile()) return innerWidth
+		return innerWidth - innerWidth * (sideThreadActive() ? 0.56 : 0.3)
+	}
+	function toolContext() {
+		const d = S.editing ? S.drafts[S.editing.id] : null
+		const sel = d ? d.features.filter((f) => S.selection.has(f.id)) : []
+		const t = (kind) => sel.filter((f) => f.type === kind).length
+		return { n: sel.length, poly: t('polygon'), line: t('line'), point: t('point'), any: !!d && d.features.length > 0, sel }
+	}
+	const TOOL_GROUPS = [
+		{ id: 'draw', label: 'Draw', items: [
+			{ k: 'point', g: '●', l: 'Point', key: '1', tool: true },
+			{ k: 'line', g: '╱', l: 'Line', key: '2', tool: true },
+			{ k: 'polygon', g: '⬠', l: 'Area', key: '3', tool: true },
+			{ k: 'label', g: 'T', l: 'Label', key: '4', tool: true },
+			{ k: 'arrow', g: '↗', l: 'Arrow', key: '5', tool: true },
+			{ k: 'shapes', g: '◆', l: 'Shape', menu: 'tp-shapes', caret: true },
+		] },
+		{ id: 'select', label: 'Select', items: [
+			{ k: 'select', g: '➤', l: 'Select', key: 'V', tool: true },
+			{ k: 'box', g: '⬚', l: 'Box select', key: 'B', tool: true },
+			{ k: 'vertices', g: '⬦', l: 'Edit vertices', key: 'E', tool: true, need: (c) => c.n > 0, why: 'Select a feature first' },
+			{ k: 'isolate', g: '⊙', l: 'Edit in isolation', need: (c) => c.n > 0, why: 'Select a feature first' },
+		] },
+		{ id: 'modify', label: 'Change', items: [
+			{ k: 'duplicate', g: '⧉', l: 'Duplicate', key: '⌘D', need: (c) => c.n > 0, why: 'Nothing selected' },
+			{ k: 'delete', g: '⌫', l: 'Delete', key: '⌫', danger: true, need: (c) => c.n > 0, why: 'Nothing selected' },
+		] },
+		{ id: 'history', label: 'History', items: [
+			{ k: 'undo', g: '↶', l: 'Undo', key: '⌘Z', need: () => S.undo.length > 0, why: 'Nothing to undo' },
+			{ k: 'redo', g: '↷', l: 'Redo', key: '⇧⌘Z', need: () => S.redo.length > 0, why: 'Nothing to redo' },
+		] },
+		{ id: 'geometry', label: 'Geometry', items: [{ k: 'geometry', g: '⬡', l: 'Geometry', menu: 'tp-geometry', caret: true }] },
+		{ id: 'snap', label: 'Snap', items: [{ k: 'snap', g: '⌗', l: 'Snapping', toggle: true }] },
+		{ id: 'file', label: 'File', items: [{ k: 'file', g: '⇅', l: 'File', menu: 'tp-file', caret: true }] },
+		{ id: 'more', label: 'More', items: [{ k: 'more', g: '⋯', l: 'More', menu: 'tp-more', caret: true }] },
+	]
+	const GEOMETRY_MENU = [
+		{ h: 'Combine' },
+		{ k: 'union', l: 'Boolean union', need: (c) => c.poly >= 2, why: 'Select two or more areas' },
+		{ k: 'difference', l: 'Boolean difference', need: (c) => c.poly >= 2, why: 'Select two areas' },
+		{ k: 'connect', l: 'Connect lines', need: (c) => c.line >= 2, why: 'Select two or more lines' },
+		{ k: 'dissolve', l: 'Dissolve lines', need: (c) => c.line >= 2, why: 'Select two or more lines' },
+		{ k: 'merge-multi', l: 'Merge to multi-part', need: (c) => c.n >= 2, why: 'Select two or more features of one type' },
+		{ k: 'explode', l: 'Explode multi-part', need: (c) => c.n === 1, why: 'Select one multi-part feature' },
+		{ h: 'Reshape' },
+		{ k: 'simplify', l: 'Simplify selection…', sub: 'tolerance, with a size estimate', need: (c) => c.n > 0, why: 'Nothing selected' },
+		{ k: 'split', l: 'Split by drawn line', need: (c) => c.n === 1, why: 'Select one feature' },
+		{ k: 'offset', l: 'Offset area by distance…', need: (c) => c.poly === 1, why: 'Select one area' },
+		{ k: 'parallel', l: 'Parallel line…', need: (c) => c.line === 1, why: 'Select one line' },
+		{ k: 'corridor', l: 'Line corridor…', need: (c) => c.line === 1, why: 'Select one line' },
+		{ h: 'Derive' },
+		{ k: 'poly-from-line', l: 'Area from drawn line' },
+		{ k: 'line-at-point', l: 'Line at placed point' },
+		{ k: 'line-from-line', l: 'Line by drawn line' },
+	]
+	const FILE_MENU = [
+		{ h: 'Bring in' },
+		{ k: 'import', l: 'Import GeoJSON / Shapefile…', sub: '.geojson · .zip · .gpx · .kml' },
+		{ k: 'osm', l: 'Import from OpenStreetMap…', sub: 'query the current view by feature type' },
+		{ k: 'paste', l: 'Paste GeoJSON' },
+		{ k: 'csv', l: 'Import a table…', sub: 'CSV or Excel, columns to coordinates' },
+		{ h: 'Take out' },
+		{ k: 'export-geojson', l: 'Export GeoJSON', need: (c) => c.any, why: 'The map is empty' },
+		{ k: 'export-shp', l: 'Export Shapefile', need: (c) => c.any, why: 'The map is empty' },
+		{ k: 'save-region', l: 'Save this region offline', sub: 'tiles and records for the current view' },
+	]
+	const MORE_MENU = [
+		{ h: 'On the map' },
+		{ k: 'measure', l: 'Measure distance and area', key: 'M' },
+		{ k: 'callouts', l: 'Map callouts', toggle: true, sub: 'author cards pinned to geometry' },
+		{ k: 'lookup', l: 'Look up a place by click', key: 'I' },
+		{ h: 'This map' },
+		{ k: 'map-settings', l: 'Map settings…', sub: 'basemap, projection, labels' },
+		{ k: 'styling', l: 'Style by attribute…', sub: 'classes, ramp, legend' },
+		{ k: 'properties', l: 'Feature properties…', need: (c) => c.n === 1, why: 'Select one feature' },
+		{ h: 'Help' },
+		{ k: 'shortcuts', l: 'Keyboard shortcuts' },
+	]
+	const SHAPES_MENU = [
+		{ k: 'circle', l: 'Circle', sub: 'drag from the centre' },
+		{ k: 'square', l: 'Square' },
+		{ k: 'rectangle', l: 'Rectangle' },
+		{ k: 'triangle', l: 'Triangle' },
+		{ k: 'diamond', l: 'Diamond' },
+	]
+	const MENU_DEFS = { 'tp-shapes': SHAPES_MENU, 'tp-geometry': GEOMETRY_MENU, 'tp-file': FILE_MENU, 'tp-more': MORE_MENU }
+	function toolbarMenuHtml(defs) {
+		const c = toolContext()
+		return defs.map((it) => {
+			if (it.h) return `<div class="mh eyebrow">${esc(it.h)}</div>`
+			const ok = !it.need || it.need(c)
+			const on = it.toggle && (it.k === 'callouts' ? S.calloutsOn !== false : false)
+			return `<button class="mi ${ok ? '' : 'off'} ${it.danger ? 'danger' : ''} ${on ? 'on' : ''}" ${ok ? `data-act="tool-action" data-k="${it.k}"` : 'disabled'}><span>${esc(it.l)}${it.sub || (!ok && it.why) ? `<small>${esc(ok ? it.sub : it.why)}</small>` : ''}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</button>`
+		}).join('')
+	}
 	// ---- Tool pill / diff bar
 	function renderToolpill() {
 		const tp = $('#toolpill')
 		const on = S.editing && S.editing.kind === 'map' && S.route.kind === 'map' && S.route.id === S.editing.id
 		tp.classList.toggle('on', !!on)
 		if (!on) { tp.innerHTML = ''; return }
-		const t = (k, lbl, title) => `<button class="${S.tool === k ? 'on' : ''}" data-act="tool" data-tool="${k}" title="${title}" aria-label="${title}">${lbl}<span class="tl">${title.replace('Draw ', '').replace('Place ', '')}</span></button>`
-		tp.innerHTML = `<span class="tg">${proposing() ? '✎ proposing · ' : '✎ '}${esc(S.drafts[S.editing.id].title).slice(0, 22)}</span>${t('point', '●', 'Draw point')}${t('line', '╱', 'Draw line')}${t('polygon', '⬠', 'Draw polygon')}${t('label', 'T', 'Place label')}<span class="sep"></span><button data-act="undo" title="Undo" ${S.undo.length ? '' : 'disabled style="opacity:.4"'}>↶</button><button data-act="redo" title="Redo" ${S.redo.length ? '' : 'disabled style="opacity:.4"'}>↷</button><span class="sep"></span><button data-act="menu" data-menu="more-tools" title="More">⋯</button>`
+		const c = toolContext()
+		// Derive the canvas width from the layout, not from a measurement mid-transition.
+		const w = toolbarWidth()
+		const size = w >= 940 ? 'xl' : w >= 660 ? 'lg' : 'md'
+		const shown = size === 'xl' ? TOOL_GROUPS : size === 'lg' ? TOOL_GROUPS.filter((g) => ['draw', 'history', 'geometry', 'more'].includes(g.id)) : TOOL_GROUPS.filter((g) => ['draw', 'history'].includes(g.id))
+		const hidden = TOOL_GROUPS.filter((g) => !shown.includes(g))
+		const btn = (it) => {
+			const ok = !it.need || it.need(c)
+			const active = (it.tool && S.tool === it.k) || (it.toggle && it.k === 'snap' && S.snap !== false)
+			const menuOpen = it.menu && S.menu && S.menu.type === it.menu
+			return `<button class="${active || menuOpen ? 'on' : ''} ${it.danger ? 'danger' : ''}" ${ok ? (it.menu ? `data-act="menu" data-menu="${it.menu}"` : it.tool ? `data-act="tool" data-tool="${it.k}"` : `data-act="tool-action" data-k="${it.k}"`) : 'disabled'} title="${esc(it.l)}${it.key ? ' · ' + it.key : ''}${ok ? '' : ' · ' + it.why}" aria-label="${esc(it.l)}">${it.g}${it.caret ? '<i>▾</i>' : ''}<span class="tl">${esc(it.l)}</span></button>`
+		}
+		tp.className = `overlay toolpill on tp-${size}`
+		tp.innerHTML = `<span class="tg" title="${esc(S.drafts[S.editing.id].title)}">${proposing() ? '✎ proposing' : '✎ ' + esc(S.drafts[S.editing.id].title).slice(0, 20)}</span>` +
+			shown.map((g) => `<span class="grp" data-g="${g.id}">${g.items.map(btn).join('')}</span>`).join('<span class="sep"></span>') +
+			(hidden.length ? `<span class="sep"></span><button class="${S.menu && S.menu.type === 'tp-overflow' ? 'on' : ''}" data-act="menu" data-menu="tp-overflow" title="More tools">⋯<i>▾</i><span class="tl">More</span></button>` : '')
 		$('#zoom').innerHTML = ''
 	}
 	function renderDiffbar() {
@@ -1393,12 +1506,23 @@
 		if (m.type === 'publish') { const d = S.drafts[S.editing.id]; const isMap = S.editing.kind === 'map'; const pub = obj(S.editing.kind, S.editing.id); body = `${pub.published ? mi(`Publish update<small>same address, becomes v${(pub.version || 0) + 1}</small>`, 'publish-update') : mi('Publish<small>first version</small>', 'publish-update')}${isMap ? mi('Publish as new map<small>new address, keeps this one as it is</small>', 'publish-new') : ''}<hr><div class="mh eyebrow">Who can see it</div>${[['everyone', 'Everyone', 'public relays'], ['circle', 'Circle: Alpine rescue', 'encrypted, 6 members'], ['nearby', 'Nearby: Saturday survey', 'this session only']].map(([v, t, s]) => `<button class="mi ${d.audience === v ? 'on' : ''}" data-act="audience" data-a="${v}"><span>${t}<small>${s}</small></span></button>`).join('')}` }
 		if (m.type === 'share') body = `${mi('Copy link', 'toast-copied')}${mi('Copy link with what’s on the map', 'toast-copied')}${mi('Show QR code', 'toast')}${mi('Share to…', 'toast')}`
 		if (m.type === 'safety') body = `<div class="mh eyebrow">When the AI changes something</div>${[['auto', 'Apply automatically', 'changes land, undo is one click'], ['ask', 'Ask before changing', 'show the proposal, then Apply'], ['every', 'Ask before every change', 'review each item']].map(([v, t, s]) => `<button class="mi ${S.safety === v ? 'on' : ''}" data-act="safety" data-v="${v}"><span>${t}<small>${s}</small></span></button>`).join('')}`
-		if (m.type === 'more-tools') body = `${mi('Import file…<small>GeoJSON, CSV, GPX, shapefile</small>', 'toast')}${mi('Import from OpenStreetMap…', 'toast')}${mi('Paste GeoJSON', 'toast')}<hr>${mi('Simplify geometry…', 'toast')}${mi('Measure', 'toast')}${mi('Snapping<small>on</small>', 'toast')}<hr>${mi('Select all', 'select-all')}${mi('Clear selection', 'clear-selection')}`
+		if (m.type === 'more-tools') body = `<div class="mh eyebrow">Select</div>${mi('Select all', 'select-all')}${mi('Clear selection', 'clear-selection')}<hr><div class="mh eyebrow">Geometry</div>${toolbarMenuHtml(GEOMETRY_MENU.filter((x) => !x.h))}<hr><div class="mh eyebrow">File</div>${toolbarMenuHtml(FILE_MENU.filter((x) => !x.h))}<hr>${toolbarMenuHtml(MORE_MENU)}`
 		if (m.type === 'add-map') body = `<div class="mh eyebrow">Add a map to this atlas</div>${mi('One of my maps…<small>republishes it with Belongs to</small>', 'dialog-pick-my-map')}${mi('New map in this atlas<small>opens a working copy with Belongs to set</small>', 'new-in-atlas')}`
 		if (m.type === 'plus') body = `<div class="mh eyebrow">Add</div>${mi('Sighting here<small>something seen, expires on its own</small>', 'new-sighting')}${mi(S.liveMine ? 'Stop sharing live location' : 'Share live location<small>until you stop</small>', S.liveMine ? 'stop-live' : 'start-live')}${mi(`New ${lensAtlas() ? esc(noun(lensAtlas(), 1)) + ' map in ' + esc(lensAtlas().title) : 'map'}${!lensAtlas() && S.filter && S.filter.type === 'atlas' ? ` in ${esc(S.filter.label)}` : ''}<small>points, lines, and the Thread</small>`, 'new-map')}${mi('Import file…', 'toast')}`
 		if (m.type === 'edit-other') { const o = obj(S.route.kind, S.route.id); body = `<div class="mh eyebrow">This ${esc(S.route.kind)} is by ${esc(person(o.author).name)}</div>${mi(`Propose changes<small>you edit a copy, they accept, it becomes their next version. Nothing forks.</small>`, 'propose')}${mi('Fork<small>your own copy at a new address, linked to the original</small>', 'fork-now')}` }
 		if (m.type === 'annot') body = `<div class="mh eyebrow">Attach a place to your comment</div>${mi('Drop a pin<small>click once on the map</small>', 'annot-point')}${mi('Draw a line<small>click points, double-click to finish</small>', 'annot-line')}${S.selection.size === 1 ? mi('Use the selected feature', 'annot-selection') : ''}`
 		if (m.type === 'row-more' || m.type === 'more-object') { const kind = m.data.kind || S.route.kind, id = m.data.id || S.route.id; const o = obj(kind, id); const k = key(kind, id); body = `${mi('Share…', 'menu-share-from')}${mi('Zap ⚡<small>21 sats</small>', 'zap-k')}${kind === 'map' ? mi(S.shelf.some((e) => e.id === id) ? 'Remove from map' : 'Show on map', 'row-shelf') : ''}${o && mine(o) ? mi(kind === 'map' || kind === 'story' || kind === 'atlas' ? 'Edit' : 'Open', 'row-edit') : kind === 'map' || kind === 'story' ? mi('Propose changes', 'row-propose') + (kind === 'map' ? mi('Fork', 'row-fork') : '') : ''}<hr>${o && mine(o) ? mi('Delete…', 'row-delete', 'danger') : mi('Report', 'toast', 'danger')}`; m.data.kind = kind; m.data.id = id; m.data.k = k }
+		if (MENU_DEFS[m.type]) body = toolbarMenuHtml(MENU_DEFS[m.type])
+		if (m.type === 'tp-overflow') {
+			const c = toolContext()
+			const w = toolbarWidth()
+			const hidden = TOOL_GROUPS.filter((g) => !(w >= 940 ? TOOL_GROUPS : w >= 660 ? TOOL_GROUPS.filter((x) => ['draw', 'history', 'geometry', 'more'].includes(x.id)) : TOOL_GROUPS.filter((x) => ['draw', 'history'].includes(x.id))).includes(g))
+			body = hidden.map((g) => `<div class="mh eyebrow">${esc(g.label)}</div>` + g.items.map((it) => {
+				const ok = !it.need || it.need(c)
+				const active = (it.tool && S.tool === it.k) || (it.toggle && it.k === 'snap' && S.snap !== false)
+				return `<button class="mi ${ok ? '' : 'off'} ${active ? 'on' : ''} ${it.danger ? 'danger' : ''}" ${ok ? (it.menu ? `data-act="menu" data-menu="${it.menu}"` : it.tool ? `data-act="tool" data-tool="${it.k}"` : `data-act="tool-action" data-k="${it.k}"`) : 'disabled'}><span>${it.g} ${esc(it.l)}${!ok && it.why ? `<small>${esc(it.why)}</small>` : ''}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</button>`
+			}).join('')).join('<hr>')
+		}
 		if (m.type === 'live-discovery') { const l = S.liveMine ? obj('live', S.liveMine) : null; body = `<div class="mh eyebrow">Who can find you</div>${[['link', 'Link only', 'only people you send the link to'], ['public', 'Public', 'shows on the Live layer for everyone']].map(([v, t, sm]) => `<button class="mi ${l && l.discovery === v ? 'on' : ''}" data-act="live-discovery" data-v="${v}"><span>${t}<small>${sm}</small></span></button>`).join('')}` }
 		if (m.type === 'shelf') body = `${mi('Frame on the map', 'fly-map')}${mi('Hide', 'toggle-vis')}${mi('Remove from map', 'remove-shelf')}`
 		const style = m.right < 260 ? `right:${m.right}px;top:${m.y}px` : `left:${m.x}px;top:${m.y}px`
@@ -1419,6 +1543,17 @@
 		if (d.type === 'pick-ref') body = `<h3>Add a reference</h3><p>Read-only context for the Thread. A reference never grants the AI permission to edit.</p><div class="list">${[...Object.values(D.maps).filter((m) => m.published).map((m) => ({ kind: 'map', id: m.id, label: m.title, s: 'map' })), ...Object.values(D.stories).filter((s) => !s.draft).map((s) => ({ kind: 'story', id: s.id, label: s.title, s: 'story' }))].map((r) => `<button class="item" data-act="ref-add" data-kind="${r.kind}" data-id="${r.id}" data-label="${esc(r.label)}"><span class="kicon ${r.kind}">${r.s.slice(0, 3)}</span><span style="text-align:left"><div class="t">${esc(r.label)}</div><div class="s">${r.s}</div></span><span></span></button>`).join('')}</div><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button></div>`
 		if (d.type === 'save-view') body = `<h3>Save this view as an atlas</h3><p>Pins the ${S.shelf.length} map${S.shelf.length === 1 ? '' : 's'} on the Shelf. Only you can add to it unless you change the door policy.</p><input type="text" id="dlg-name" placeholder="Name the atlas" value="${esc(d.value || 'My view · ' + today)}"><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn primary" data-act="save-view-go">Save atlas</button></div>`
 		if (d.type === 'send-proposal') { const o = obj(S.editing.kind, S.editing.id); const diff = S.editing.kind === 'map' ? diffDraft(o, S.drafts[S.editing.id]) : null; body = `<h3>Send proposal to ${esc(person(o.author).name)}</h3><p>${diff ? `<span class="mono"><span style="color:var(--green)">+${diff.add.length}</span> <span style="color:var(--amber)">~${diff.modify.length}</span> <span style="color:var(--red)">−${diff.remove.length}</span></span> · ` : 'Text changes · '}They see your changes as ghosts on their ${esc(S.editing.kind)} and can accept, decline, or discuss. Accepting publishes their next version with your name on the proposal.</p><textarea id="dlg-msg" rows="3" placeholder="Why these changes? (optional)" style="width:100%;border:1px solid var(--rule-2);background:var(--ground);padding:.5rem .6rem;margin-bottom:.8rem"></textarea><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn primary" data-act="send-proposal-go">Send proposal</button></div>` }
+		if (d.type === 'geometry-op') {
+			const c = toolContext()
+			const titles = { simplify: 'Simplify selection', offset: 'Offset area by distance', parallel: 'Parallel line', corridor: 'Line corridor' }
+			const isSimplify = d.op === 'simplify'
+			body = `<h3>${esc(titles[d.op])}</h3><p>${c.n} feature${c.n === 1 ? '' : 's'} selected · ${c.sel.reduce((n, f) => n + (f.type === 'point' ? 1 : f.coords.length), 0)} coordinate points</p>
+			<label class="fld"><span>${isSimplify ? 'Tolerance' : 'Distance'}</span><input type="range" min="0" max="100" value="${isSimplify ? 30 : 50}"><span class="mono">${isSimplify ? 'fine detail ←→ aggressive' : '250 m'}</span></label>
+			${isSimplify ? '' : `<label class="fld"><span>Units</span><select><option>Meters</option><option>Kilometers</option><option>Miles</option></select></label>${d.op === 'parallel' ? '<label class="fld"><span>Side</span><select><option>Left of line direction</option><option>Right of line direction</option></select></label>' : ''}`}
+			<label class="fld"><span>Result</span><select><option>Replace selected feature</option><option>Create derived copy</option></select></label>
+			<dl class="kv two" style="margin:.6rem 0"><dt>Dataset size now</dt><dd>27 KB</dd><dt>After</dt><dd>${isSimplify ? '19 KB' : '31 KB'}</dd></dl>
+			<div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn primary" data-act="dialog-cancel">Apply</button></div>`
+		}
 		if (d.type === 'label') body = `<h3>Label</h3><input type="text" id="dlg-name" placeholder="Text on the map" autofocus><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn primary" data-act="label-go">Place</button></div>`
 		if (d.type === 'discard') body = `<h3>Discard this draft?</h3><p>The published version stays as it is. Unpublished changes on this device are lost.</p><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn danger" data-act="discard-go">Discard</button></div>`
 		if (d.type === 'delete') body = `<h3>Delete this map?</h3><p>Earthly publishes a deletion request and hides it here. Relays and other people may keep copies.</p><div class="acts"><button class="btn quiet" data-act="dialog-cancel">Cancel</button><button class="btn danger" data-act="delete-go">Delete</button></div>`
@@ -1558,7 +1693,30 @@
 		discard() { discardProposal() },
 		review() { S.reviewOpen = !S.reviewOpen; render() },
 		'only-changes'() { S.onlyChanges = !S.onlyChanges; render() },
-		tool(d) { S.tool = S.tool === d.tool ? null : d.tool; S.drawing = []; S.popup = null; render() },
+		tool(d) {
+			S.menu = null
+			// Only the four primitives actually draw in the sketch; the rest show their state and say so.
+			if (['point', 'line', 'polygon', 'label'].includes(d.tool)) { S.tool = S.tool === d.tool ? null : d.tool; S.drawing = []; S.popup = null; render(); return }
+			const item = TOOL_GROUPS.flatMap((g) => g.items).find((i) => i.k === d.tool) || SHAPES_MENU.find((i) => i.k === d.tool)
+			S.tool = S.tool === d.tool ? null : d.tool
+			S.drawing = []
+			render()
+			toast(`${item ? item.l : d.tool}: shown for the layout, not wired in this sketch.`)
+		},
+		'tool-action'(d) {
+			S.menu = null
+			if (d.k === 'undo') { undo(); return }
+			if (d.k === 'redo') { redo(); return }
+			if (d.k === 'delete') { A['delete-sel'](); return }
+			if (d.k === 'snap') { S.snap = S.snap === false; render(); toast(`Snapping ${S.snap === false ? 'off' : 'on'}.`); return }
+			if (d.k === 'callouts') { S.calloutsOn = S.calloutsOn === false; render(); toast(`Map callouts ${S.calloutsOn === false ? 'hidden' : 'shown'}.`); return }
+			if (d.k === 'duplicate' && S.editing) { pushUndo(); const dr = S.drafts[S.editing.id]; const copies = dr.features.filter((f) => S.selection.has(f.id)).map((f) => Object.assign(clone(f), { id: `${f.id}-copy-${Date.now()}`, name: `${f.name} copy` })); dr.features.push(...copies); render(); toast(`Duplicated ${copies.length}.`, { label: 'Undo', fn: undo }); return }
+			if (d.k === 'simplify' || d.k === 'offset' || d.k === 'parallel' || d.k === 'corridor') { S.dialog = { type: 'geometry-op', op: d.k }; render(); return }
+			const all = [...GEOMETRY_MENU, ...FILE_MENU, ...MORE_MENU, ...TOOL_GROUPS.flatMap((g) => g.items)]
+			const item = all.find((i) => i.k === d.k)
+			render()
+			toast(`${item ? item.l.replace('…', '') : d.k}: shown for the layout, not wired in this sketch.`)
+		},
 		undo() { undo() }, redo() { redo() },
 		zoom(d) { zoomBy(+d.d > 0 ? 1.35 : 1 / 1.35) },
 		fit() { const ids = S.shelf.filter((e) => e.visible).map((e) => e.id); if (ids.length) flyToMaps(ids); else if (ml) ml.flyTo({ center: [20, 40], zoom: 2.2 }); else { S.view = { x: 0, y: 0, k: Math.min(innerWidth / 2000, innerHeight / 1200) }; applyView(true) } },
@@ -1672,6 +1830,7 @@
 		if (e.target.id === 'dlg-name' && e.key === 'Enter') { const go = $('.dialog .btn.primary'); if (go) go.click(); return }
 		if (e.target.matches('input,textarea,[contenteditable]')) return
 		if (e.key === '/') { e.preventDefault(); const q = $('#q'); if (q) q.focus() }
+		if (S.editing && S.editing.kind === 'map' && ['1', '2', '3', '4'].includes(e.key)) { A.tool({ tool: ['point', 'line', 'polygon', 'label'][+e.key - 1] }) }
 		if (S.editing && S.editing.kind === 'map') {
 			if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo() }
 			if (e.key === 'Enter' && S.drawing.length) finishDrawing()

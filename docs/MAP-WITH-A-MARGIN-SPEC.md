@@ -94,7 +94,27 @@ One object. Header grammar shared by every panel (§6). Tabs: **Details · Comme
 At `≥ 1100px` the Thread is a right-hand column by default (`threadSide=true`); **Dock** returns it to a tab; **Pull out** from the tab does the reverse. Below 1100px it is always a tab.
 
 ### 4.5 Canvas overlays
-Tool pill (top centre, only while a Map is in Edit or Propose; icon + label from 1180px, icons below), zoom column (top right), diff bar (bottom centre, only while a proposal is pending), feature popup, status line (zoom · lat, lon · n on the map · live · no basemap), Shelf strip (bottom).
+Tool pill (§4.5a), zoom column (top right), diff bar (bottom centre, only while a proposal is pending), feature popup, status line (zoom · lat, lon · n on the map · live · no basemap), Shelf strip (bottom).
+
+### 4.5a The tool pill
+Present only while a Map is in Edit or Propose. It opens with the map's name (`✎ Hippie Trail`, or `✎ proposing`) and then one group per job, separated by hairlines. One catalogue defines the groups; the pill, its menus, the overflow menu and the phone dock all render from it, so no surface can drift.
+
+| Group | Contents |
+| --- | --- |
+| Draw | Point · Line · Area · Label · Arrow · **Shape ▾** (circle, square, rectangle, triangle, diamond) |
+| Select | Select · Box select · Edit vertices · Edit in isolation |
+| Change | Duplicate · Delete |
+| History | Undo · Redo |
+| **Geometry ▾** | *Combine:* boolean union, boolean difference, connect lines, dissolve lines, merge to multi-part, explode multi-part. *Reshape:* simplify…, split by drawn line, offset area…, parallel line…, line corridor…. *Derive:* area from drawn line, line at placed point, line by drawn line |
+| Snap | Snapping toggle |
+| **File ▾** | *Bring in:* GeoJSON / Shapefile, OpenStreetMap query, paste GeoJSON, table (CSV / Excel). *Take out:* GeoJSON, Shapefile, save this region offline |
+| **More ▾** | *On the map:* measure, map callouts, look up a place by click. *This map:* map settings, style by attribute, feature properties. *Help:* keyboard shortcuts |
+
+**Availability explains itself.** An action that cannot run is dimmed and states why in its own row: "Select two or more areas", "Select one multi-part feature", "Nothing to undo". This replaces silent disabling and is the same rule the command registry will use when the toolbar becomes real.
+
+**Responsive.** The pill sizes itself from the canvas width, which is the viewport minus the open margins, not the window: at ≥ 940px all groups with labels on the draw tools; at ≥ 660px draw, history, Geometry and More, with the rest in an overflow **⋯** that lists them under their group names; below that draw and history only. The pill never grows past the canvas and scrolls horizontally as a last resort. On a phone the pill is replaced by the edit dock (§13), whose **More** menu carries the same catalogue.
+
+**Dialogs** for parameterised operations (simplify, offset, parallel, corridor) share one shape: the selection summary, the parameter with its units, `Result: replace selected feature / create derived copy`, and a before-and-after size estimate.
 
 ### 4.6 Shelf
 Chip per visible Map: swatch, ✎ when in Edit, title, ◉/○ visibility, ×. A pulsing chip means an AI run is working on that map. One **Live · N** chip for sightings and live positions. **Save this view** turns the Shelf into a personal Atlas (door policy Only me). Hovering a feature lights its chip; hovering a list row lights the chip and the layer.
