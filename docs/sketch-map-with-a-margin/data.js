@@ -123,6 +123,16 @@
 		summary: 'Roman roads through the Alps: Virunum to Iuvavum and Aguntum.', topics: ['roman', 'roads'], belongsTo: ['roman-ruins'], size: '14 KB', props: {},
 		features: [ln('r1', 'Virunum–Iuvavum', curve([14.364, 46.702], [13.05, 47.8], 6, 0.1, 0.03)), ln('r2', 'Virunum–Aguntum', curve([14.364, 46.702], [12.8, 46.83], 6, -0.1, 0.03)), pt('m1', 'Milestone at Tanzenberg', 14.37, 46.72)],
 	})
+	addMap({
+		id: 'crew-gate', kind: 'map', title: 'Crew gate and muster points', author: 'me', published: '2026-09-01', version: 2, audience: 'circle:alpine',
+		summary: 'Where the crew meets if the valley road closes. Circle only.', topics: ['rescue'], belongsTo: [], size: '4 KB', props: {},
+		features: [pt('g1', 'Crew gate', 14.342, 46.71), pt('g2', 'Muster A · car park', 14.35, 46.716), pt('g3', 'Muster B · chapel', 14.336, 46.704), ln('rt', 'Fallback route', curve([14.342, 46.71], [14.31, 46.69], 5, 0.004, 0.002))],
+	})
+	addMap({
+		id: 'survey-points', kind: 'map', title: 'Saturday survey points', author: 'aria', published: '2026-09-03', version: 3, audience: 'nearby:saturday',
+		summary: 'Collected on the hill this morning. Nearby session only until we are back online.', topics: ['survey'], belongsTo: [], size: '2 KB', props: {},
+		features: [pt('sp1', 'Wall corner', 14.364, 46.703), pt('sp2', 'Hypocaust', 14.366, 46.7045), pt('sp3', 'Well', 14.362, 46.7052)],
+	})
 	// Niche-community atlas: skate spots. Each map is one city's spots.
 	addMap({
 		id: 'bcn-spots', kind: 'map', title: 'Barcelona skate spots', author: 'mafrend', published: '2026-08-02', version: 4,
@@ -144,6 +154,12 @@
 		'bri-story': {
 			id: 'bri-story', kind: 'story', title: 'China’s Belt and Road Initiative: Remapping Global Trade', author: 'me', published: '2026-07-12',
 			summary: 'What the BRI is, how it is organised, where the money goes, and why it matters.', maps: ['bri', 'ice-free'],
+			presentation: { version: 1, initialView: { center: [70, 35], zoom: 2.6 }, layerOrder: ['bri', 'ice-free'], layers: { bri: { visible: true }, 'ice-free': { visible: false } },
+				scenes: [
+					{ id: 'sc1', title: 'Almaty, 2013', anchor: 1, view: { center: [76.89, 43.24], zoom: 5 }, layers: { 'ice-free': { visible: false } } },
+					{ id: 'sc2', title: 'Six corridors', anchor: 3, view: { center: [75, 35], zoom: 3 }, layers: { 'ice-free': { visible: false } } },
+					{ id: 'sc3', title: 'The northern wildcard', anchor: 5, view: { center: [90, 68], zoom: 2.4 }, layers: { 'ice-free': { visible: true } } },
+				] },
 			body: [
 				{ type: 'h', text: 'Introduction' },
 				{ type: 'p', text: 'In September 2013, standing in a lecture hall in Kazakhstan, Xi Jinping proposed an “economic belt along the Silk Road.” A month later in Indonesia he called for a “21st Century Maritime Silk Road.” Together those two speeches launched the largest infrastructure programme of the century.', refs: [{ map: 'bri', feature: 'node-3', label: 'Almaty' }, { map: 'bri', feature: 'corr-4', label: 'Maritime Silk Road' }] },
@@ -203,7 +219,26 @@
 		{ id: 'moment', kind: 'sighting', title: 'Cool Moment', author: 'mafrend', when: '2026-07-17 09:02', expires: 'in 1 day', coords: [14.13, 46.62], note: 'Fog lifting off the lake.' },
 		{ id: 'tavira', kind: 'sighting', title: 'Tavira', author: 'aria', when: '2026-07-26 18:40', expires: 'in 6 hours', coords: [-7.65, 37.13], note: 'Storks on every chimney.' },
 	]
-	const live = [{ id: 'saturday', title: 'Aria · Saturday survey', coords: [14.36, 46.71], since: '12 min' }]
+	const live = [
+		{ id: 'aria-live', author: 'aria', title: 'Aria on the survey', coords: [14.361, 46.708], since: '12 min', lastSeen: 3, discovery: 'link', watching: 2, audience: 'nearby:saturday' },
+		{ id: 'schlaus-live', author: 'schlaus', title: 'Schlaus · MACBA session', coords: [2.1668, 41.3834], since: '48 min', lastSeen: 640, discovery: 'public', watching: 5, audience: 'everyone' },
+	]
+	const circles = [
+		{ id: 'alpine', kind: 'circle', title: 'Alpine rescue', author: 'me', created: '2026-07-20', members: [{ id: 'me', role: 'admin' }, { id: 'aria', role: 'member' }, { id: 'mafrend', role: 'member' }, { id: 'schlaus', role: 'member' }], pending: [{ id: 'earthly', when: '2026-09-02 09:14' }], invite: 'earthly.city/join/alpine-7f3a', description: 'Coordination for the valley rescue crew. Everything here is encrypted end to end.',
+			chat: [{ author: 'aria', when: '2026-09-02 07:40', text: 'Road at the bridge is closed again. Crew gate at 08:30?' }, { author: 'me', when: '2026-09-02 07:42', text: 'Yes. I updated the muster points.', ref: { kind: 'map', id: 'crew-gate' } }, { author: 'mafrend', when: '2026-09-02 07:50', text: 'On my way.' }] },
+	]
+	const nearby = [
+		{ id: 'saturday', kind: 'nearby', title: 'Saturday survey', author: 'aria', created: '2026-09-03 08:10', sharing: true, interface: 'Wi-Fi · earthly-field', peers: [{ id: 'aria', role: 'host', status: 'connected' }, { id: 'me', role: 'peer', status: 'connected' }, { id: 'mafrend', role: 'peer', status: 'last seen 4 min' }], invite: 'earthly-field://join/saturday-2c9', description: 'Zollfeld dig, no signal in the trench. Records sync between phones and go online when someone gets back to the car.' },
+	]
+	const notifications = [
+		{ id: 'n1', kind: 'proposal', when: '2026-09-01 18:30', read: false, from: 'mafrend', text: 'proposed changes to The Hippie Trail', target: { kind: 'map', id: 'hippie-trail' } },
+		{ id: 'n2', kind: 'reply', when: '2026-09-02 07:05', read: false, from: 'aria', text: 'commented on The Hippie Trail', target: { kind: 'map', id: 'hippie-trail', tab: 'comments' } },
+		{ id: 'n3', kind: 'waiting', when: '2026-08-25 12:00', read: false, from: 'mafrend', text: 'Roads of Noricum is waiting in Roman ruins in Carinthia', target: { kind: 'atlas', id: 'roman-ruins' } },
+		{ id: 'n4', kind: 'join', when: '2026-09-02 09:14', read: false, from: 'earthly', text: 'asked to join Alpine rescue', target: { kind: 'circle', id: 'alpine' } },
+		{ id: 'n5', kind: 'mention', when: '2026-09-02 07:42', read: true, from: 'aria', text: 'mentioned you in Alpine rescue', target: { kind: 'circle', id: 'alpine', tab: 'chat' } },
+		{ id: 'n6', kind: 'accepted', when: '2026-08-21 17:10', read: true, from: 'schlaus', text: 'accepted your proposal on Global skate spots', target: { kind: 'atlas', id: 'skate-spots' } },
+		{ id: 'n7', kind: 'follow', when: '2026-08-20 10:00', read: true, from: 'aria', text: 'started following you', target: { kind: 'person', id: 'aria' } },
+	]
 
 	// Comments are NIP-22 replies. A comment may carry a small geometry: the "comment with annotation" flow.
 	const comments = [
@@ -229,9 +264,7 @@
 	}
 
 	window.SKETCH_DATA = {
-		people, maps, stories, atlases, sightings, live, comments, proposals, social,
-		circles: [{ id: 'alpine', name: 'Alpine rescue', members: 6 }],
-		nearby: [{ id: 'saturday', name: 'Saturday survey', host: 'aria', peers: 3 }],
+		people, maps, stories, atlases, sightings, live, comments, proposals, social, circles, nearby, notifications,
 		places: { Vienna: [16.37, 48.21], Istanbul: [28.98, 41.01], Kabul: [69.17, 34.53], Bilbao: [-2.93, 43.26], Klagenfurt: [14.31, 46.62], Barcelona: [2.17, 41.39], Berlin: [13.4, 52.52] },
 	}
 })()

@@ -50,6 +50,11 @@
 		commentSort: 'new',
 		moveMode: false,
 		sheetHidden: false,
+		liveMine: null,
+		followLive: null,
+		refPick: null,
+		presentScene: null,
+		sceneIndex: -1,
 		basemap: 'svg',
 		ask: { msgs: [] },
 		counter: 1,
@@ -59,6 +64,9 @@
 	const KINDS = { map: D.maps, story: D.stories, atlas: D.atlases }
 	function obj(kind, id) {
 		if (kind === 'sighting') return D.sightings.find((s) => s.id === id)
+		if (kind === 'circle') return D.circles.find((c) => c.id === id)
+		if (kind === 'nearby') return D.nearby.find((n) => n.id === id)
+		if (kind === 'live') return D.live.find((l) => l.id === id)
 		if (kind === 'person') return D.people[id]
 		return KINDS[kind] && KINDS[kind][id]
 	}
@@ -101,6 +109,11 @@
 	function sideThreadActive() {
 		return S.threadSide && !isMobile() && innerWidth >= 1100 && ['map', 'story', 'atlas'].includes(S.route.kind)
 	}
+	const audienceOf = (m) => m.audience || 'everyone'
+	const audienceLabelOf = (a) => a === 'everyone' ? 'Everyone' : a.startsWith('circle:') ? `Circle: ${(D.circles.find((c) => c.id === a.slice(7)) || { title: a }).title}` : `Nearby: ${(D.nearby.find((n) => n.id === a.slice(7)) || { title: a }).title}`
+	const isPrivate = (m) => audienceOf(m) !== 'everyone'
+	const canSee = (m) => { const a = audienceOf(m); if (a === 'everyone') return true; if (a.startsWith('circle:')) { const c = D.circles.find((x) => x.id === a.slice(7)); return !!c && c.members.some((mm) => mm.id === 'me') } const n = D.nearby.find((x) => x.id === a.slice(7)); return !!n && n.peers.some((p) => p.id === 'me') }
+	const unread = () => D.notifications.filter((n) => !n.read).length
 	const social = (k) => D.social[k] || (D.social[k] = { likes: 0, zaps: 0, favs: 0 })
 	const commentsOn = (k) => D.comments.filter((c) => c.on === k)
 	const proposalsOn = (k) => D.proposals.filter((p) => p.target === k)
@@ -176,6 +189,52 @@
 		else { syncHash(); render() }
 		if (a) toast(`Left “${a.title}”. Drafts keep what they belong to.`)
 	}
+	// MapPresentationV1: an embedded value, never an entity. The Shelf + camera is the live form of it.
+	function capturePresentation(mapIds) {
+		const ids = mapIds || S.shelf.map((e) => e.id)
+		const view = ml ? { center: [r3(ml.getCenter().lng), r3(ml.getCenter().lat)], zoom: Math.round(ml.getZoom() * 10) / 10 } : null
+		const layers = {}
+		ids.forEach((id) => { const e = S.shelf.find((x) => x.id === id); layers[id] = { visible: e ? e.visible : true } })
+		return { version: 1, initialView: view, layerOrder: S.shelf.filter((e) => ids.includes(e.id)).map((e) => e.id), layers }
+	}
+	function applyPresentation(p, allowed) {
+		if (!p) return
+		const order = (p.layerOrder || []).filter((id) => !allowed || allowed.includes(id))
+		if (order.length) {
+			const rest = S.shelf.filter((e) => !order.includes(e.id))
+			S.shelf = [...order.map((id) => S.shelf.find((e) => e.id === id) || { id, visible: true }), ...rest]
+		}
+		Object.entries(p.layers || {}).forEach(([id, l]) => { if (allowed && !allowed.includes(id)) return; const e = S.shelf.find((x) => x.id === id); if (e && typeof l.visible === 'boolean') e.visible = l.visible })
+		if (p.initialView && p.initialView.center) flyToView(p.initialView)
+		else if (order.length) flyToMaps(order)
+		syncHash()
+	}
+	function flyToView(v) {
+		if (ml) { ml.flyTo({ center: v.center, zoom: v.zoom || 4, duration: 800 }); return }
+		flyTo([v.center[0] - 4, v.center[1] - 2, v.center[0] + 4, v.center[1] + 2])
+	}
+	function goScene(story, i) {
+		const sc = story.presentation && story.presentation.scenes ? story.presentation.scenes[i] : null
+		if (!sc) return
+		S.sceneIndex = i
+		Object.entries(sc.layers || {}).forEach(([id, l]) => { const e = S.shelf.find((x) => x.id === id); if (e && typeof l.visible === 'boolean') e.visible = l.visible })
+		flyToView(sc.view)
+		render()
+	}
+	// Live sharing: the banner is the only place that owns the state.
+	function startLive() {
+		if (S.liveMine) return
+		const c = screenToWorld(innerWidth / 2, innerHeight / 2)
+		D.live.push({ id: 'me-live', author: 'me', title: 'You', coords: c, since: 'now', lastSeen: 0, discovery: 'link', watching: 0, audience: 'everyone', startedAt: Date.now() })
+		S.liveMine = 'me-live'; S.liveOn = true
+		render(); toast('You are live. Only people with the link can see you until you change that.')
+	}
+	function stopLive() {
+		D.live = D.live.filter((l) => l.id !== 'me-live')
+		S.liveMine = null; if (S.followLive === 'me-live') S.followLive = null
+		if (S.route.kind === 'live' && S.route.id === 'me-live') location.hash = '#/'
+		render(); toast('Stopped sharing. The last position is gone from the map.')
+	}
 	function applyLensTheme() {
 		const a = lensAtlas()
 		const root = document.documentElement
@@ -224,7 +283,7 @@
 		onRoute.done = true
 		if (r.kind === 'in') { if (D.atlases[r.id]) enterLens(r.id); else location.hash = '#/'; return }
 		if (r.kind === 'browse') S.browse.kind = r.id && BROWSE_KINDS.some((k) => k[0] === r.id) ? r.id : 'maps'
-		if (r.kind && !['shelf', 'browse', 'ask', 'in'].includes(r.kind) && !obj(r.kind, r.id)) {
+		if (r.kind && !['shelf', 'browse', 'ask', 'in', 'inbox', 'me'].includes(r.kind) && !obj(r.kind, r.id)) {
 			toast('That link points at nothing here.')
 			location.hash = '#/'
 			return
@@ -241,11 +300,21 @@
 		} else if (r.kind === 'story') {
 			const st = D.stories[r.id]
 			st.maps.forEach((m) => addToShelf(m, { silent: true }))
-			if (prev.id !== r.id) flyToMaps(st.maps)
+			if (prev.id !== r.id) { if (st.presentation) applyPresentation(st.presentation, st.maps); else flyToMaps(st.maps) }
+			S.sceneIndex = -1
 		} else if (r.kind === 'sighting') {
 			S.liveOn = true
 			flyTo(bbox([{ type: 'point', coords: obj('sighting', r.id).coords }]), true)
+		} else if (r.kind === 'live') {
+			S.liveOn = true
+			flyTo(bbox([{ type: 'point', coords: obj('live', r.id).coords }]), true)
+		} else if (r.kind === 'circle' || r.kind === 'nearby') {
+			const aud = `${r.kind}:${r.id}`
+			const ids = Object.values(D.maps).filter((m) => audienceOf(m) === aud).map((m) => m.id)
+			ids.forEach((id) => addToShelf(id, { silent: true }))
+			if (prev.id !== r.id && ids.length) flyToMaps(ids)
 		}
+		if (r.kind === 'inbox') D.notifications.forEach((n) => { n.seen = true })
 		// Edit is a state of exactly one object.
 		if (r.edit && (r.kind === 'map' || r.kind === 'story' || r.kind === 'atlas')) {
 			if (S.editing && S.editing.id !== r.id && !pendingEditPrompt) {
@@ -256,7 +325,9 @@
 				if (mine(obj(r.kind, r.id))) beginEdit(r.kind, r.id); else beginPropose(r.kind, r.id)
 			}
 		}
-		if (!['map', 'story', 'atlas', 'sighting'].includes(r.kind)) S.tab = 'details'
+		if (!['map', 'story', 'atlas', 'sighting', 'circle', 'nearby'].includes(r.kind)) S.tab = 'details'
+		if ((r.kind === 'circle' || r.kind === 'nearby') && S.tab === 'thread') S.tab = 'details'
+		if (r.kind !== 'story') { S.presentScene = null; S.refPick = null }
 		if (r.kind === 'sighting' && S.tab === 'thread') S.tab = 'details'
 		if (prev.id !== r.id) { S.annot = null; S.replyTo = null; S.previewProposal = null }
 		if (!r.edit) { S.selection.clear() }
@@ -290,7 +361,7 @@
 		const o = obj(kind, id)
 		if (!o) return
 		if (!mine(o) && kind === 'map') { fork(id); return }
-		if (!S.drafts[id]) S.drafts[id] = Object.assign(clone(o), { kind, base: o.version || 1, audience: 'everyone', isDraft: true })
+		if (!S.drafts[id]) S.drafts[id] = Object.assign(clone(o), { kind, base: o.version || 1, audience: o.audience && o.audience.startsWith('circle:') ? 'circle' : o.audience && o.audience.startsWith('nearby:') ? 'nearby' : 'everyone', isDraft: true })
 		S.editing = { kind, id }
 		S.undo = []; S.redo = []
 		S.selection.clear()
@@ -335,7 +406,7 @@
 			location.hash = hashFor({ kind: 'map', id: nid, edit: false })
 			return
 		}
-		const patch = clone(d); delete patch.kind; delete patch.base; delete patch.audience; delete patch.isDraft
+		const patch = clone(d); delete patch.kind; delete patch.base; delete patch.isDraft; patch.audience = d.audience === 'circle' ? 'circle:alpine' : d.audience === 'nearby' ? 'nearby:saturday' : 'everyone'
 		Object.assign(target, patch, { version: (target.version || 0) + 1, published: today, draft: false })
 		delete S.drafts[id]
 		S.editing = null; S.proposal = null; S.selection.clear(); closeTool()
@@ -500,6 +571,7 @@
 		renderTopbar(); renderMargin(); renderCanvas(); renderShelf(); renderToolpill(); renderDiffbar(); renderMenus(); renderDialog(); renderMobile(); renderStatus()
 		document.body.classList.toggle('glass', !!S.glass)
 		renderLensBar()
+		renderLiveBar()
 		const stage = $('#stage')
 		stage.classList.toggle('margin-open', isMobile() ? !S.sheetHidden : !!S.route.kind || !!landingOpen())
 		stage.classList.toggle('thread-side', sideThreadActive())
@@ -523,7 +595,16 @@
 		const bar = $('#lensbar'); const a = lensAtlas()
 		bar.hidden = !a
 		bar.innerHTML = a ? lensBarHtml() : ''
-		document.documentElement.style.setProperty('--lens-h', a && !isMobile() ? '38px' : '0px')
+		const bars = (a ? 1 : 0) + (S.liveMine ? 1 : 0)
+		document.documentElement.style.setProperty('--bars-h', (isMobile() ? bars * 38 : bars * 38) + 'px')
+		document.documentElement.style.setProperty('--lens-h', bars ? bars * 38 + 'px' : '0px')
+	}
+	function renderLiveBar() {
+		const bar = $('#livebar'); const l = S.liveMine ? obj('live', S.liveMine) : null
+		bar.hidden = !l
+		if (!l) return
+		const mins = Math.max(0, Math.round((Date.now() - (l.startedAt || Date.now())) / 60000))
+		bar.innerHTML = `<span class="dot"></span><b>You are live</b><span class="ls">${mins} min · ${l.watching} watching · ${l.discovery === 'public' ? 'anyone can find you' : 'link only'}</span><span class="sp"></span><button class="btn sm quiet" data-act="menu" data-menu="live-discovery">${l.discovery === 'public' ? 'Public' : 'Link only'} ▾</button><button class="btn sm quiet" data-act="toast-copied">Share link</button><button class="btn sm quiet" data-act="open" data-kind="live" data-id="me-live">Details</button><button class="btn sm stop" data-act="stop-live">Stop</button>`
 	}
 
 	function renderTopbar() {
@@ -532,6 +613,7 @@
 		$('#topright').innerHTML = `
 			<button class="btn quiet ${S.route.kind === 'browse' || !S.route.kind ? 'on' : ''}" data-act="open" data-kind="browse" data-id="${S.browse.kind}">Browse</button>
 			<button class="btn quiet" data-act="menu" data-menu="drafts">Drafts ${drafts ? `<span class="badge">${drafts}</span>` : ''}</button>
+			<button class="btn quiet ${S.route.kind === 'inbox' ? 'on' : ''}" data-act="open" data-kind="inbox" data-id="now" title="Inbox">Inbox ${unread() ? `<span class="badge warn">${unread()}</span>` : ''}</button>
 			<button class="btn quiet" data-act="menu" data-menu="me" aria-label="Me"><span class="avatar sm">YO</span> Me</button>
 			<button class="btn quiet sm" data-act="about" title="About this sketch" aria-label="About this sketch">?</button>`
 	}
@@ -576,6 +658,11 @@
 		let html = ''
 		if (!kind || kind === 'browse') html = browseHtml()
 		else if (kind === 'ask') html = askHtml()
+		else if (kind === 'inbox') html = inboxHtml()
+		else if (kind === 'me') html = meListHtml(id)
+		else if (kind === 'circle') html = circleHtml(id)
+		else if (kind === 'nearby') html = nearbyHtml(id)
+		else if (kind === 'live') html = liveHtml(id)
 		else if (kind === 'map') html = mapHtml(id, edit, sideThread)
 		else if (kind === 'story') html = storyHtml(id, edit, sideThread)
 		else if (kind === 'atlas') html = atlasHtml(id, edit, sideThread)
@@ -604,7 +691,8 @@
 		const p = person(o.author)
 		const inEdit = S.editing && S.editing.id === o.id
 		const editable = inEdit ? ' contenteditable="true" data-bind="title" spellcheck="false"' : ''
-		const state = inEdit && proposing() ? `<span class="state-pill warn">✎ proposing to ${esc(person(o.author).name)}</span>` : inEdit ? `<span class="state-pill edit">✎ editing${o.forkOf ? ' · fork' : ''}</span>` : o.draft || o.published === null ? '<span class="state-pill draft">draft · unpublished</span>' : `<span class="state-pill">v${o.version || 1} · ${esc(o.published)}</span>`
+		const priv = o.audience && o.audience !== 'everyone' ? `<span class="state-pill lock">🔒 ${esc(audienceLabelOf(o.audience))}</span>` : ''
+		const state = priv + (inEdit && proposing() ? `<span class="state-pill warn">✎ proposing to ${esc(person(o.author).name)}</span>` : inEdit ? `<span class="state-pill edit">✎ editing${o.forkOf ? ' · fork' : ''}</span>` : o.draft || o.published === null ? '<span class="state-pill draft">draft · unpublished</span>' : `<span class="state-pill">v${o.version || 1} · ${esc(o.published)}</span>`)
 		return `<div class="margin-head">
 			<div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button><span class="kindline"><span class="eyebrow">${esc(kind)}</span>${state}</span><span style="flex:1"></span>${opts.nav || ''}<button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}" title="${S.glass ? 'Solid panels' : 'See the map through the panels'}">◐</button><button class="btn sm quiet mclose" data-act="m-close" title="Close and show just the map" aria-label="Close">×</button></div>
 			<div class="title"${editable}>${esc(o.title)}</div>
@@ -644,7 +732,7 @@
 		const inFilter = (m) => !S.filter || (S.filter.type === 'atlas' ? m.belongsTo.includes(S.filter.id) || D.atlases[S.filter.id].pinned.includes(m.id) : S.filter.type === 'tag' ? m.topics.includes(S.filter.id) : true)
 		let items = []
 		const L = lensAtlas()
-		if (kind === 'maps') items = Object.values(D.maps).filter((m) => (m.published || mine(m)) && (!L || inAtlas(m, L)) && inFilter(m) && hit(m.title, person(m.author).name, m.topics.join(' '))).map((m) => ({ kind: 'map', id: m.id, title: m.title, author: m.author, date: m.published || 'draft', meta: `${m.features.length} features · ${m.size}${m.topics.length ? ' · #' + m.topics.slice(0, 2).join(' #') : ''}`, feats: m.features, onShelf: S.shelf.some((e) => e.id === m.id) }))
+		if (kind === 'maps') items = Object.values(D.maps).filter((m) => (m.published || mine(m)) && canSee(m) && (!L || inAtlas(m, L)) && inFilter(m) && hit(m.title, person(m.author).name, m.topics.join(' '))).map((m) => ({ kind: 'map', id: m.id, title: m.title, author: m.author, date: m.published || 'draft', meta: `${isPrivate(m) ? '🔒 ' + audienceLabelOf(m.audience) + ' · ' : ''}${m.features.length} features · ${m.size}${m.topics.length ? ' · #' + m.topics.slice(0, 2).join(' #') : ''}`, feats: m.features, onShelf: S.shelf.some((e) => e.id === m.id) }))
 		if (kind === 'stories') items = Object.values(D.stories).filter((st) => (!st.draft || mine(st)) && (!L || st.maps.some((m) => D.maps[m] && inAtlas(D.maps[m], L))) && hit(st.title, st.summary)).map((st) => ({ kind: 'story', id: st.id, title: st.title, author: st.author, date: st.published || 'draft', meta: `${st.maps.length} map${st.maps.length === 1 ? '' : 's'} · ${st.body.filter((b) => b.type === 'p').length} ¶`, feats: st.maps.flatMap((m) => (D.maps[m] || { features: [] }).features) }))
 		if (kind === 'atlases') items = Object.values(D.atlases).filter((a) => hit(a.title, a.description)).map((a) => { const mem = atlasMembers(a); return { kind: 'atlas', id: a.id, title: a.title, author: a.author, date: a.published || today, meta: `${mem.pinned.length + mem.added.length} maps · ${policyText(a.policy)}`, feats: mem.pinned.flatMap((m) => m.features) } })
 		if (kind === 'sightings') items = D.sightings.filter((x) => hit(x.title, x.note)).map((x) => ({ kind: 'sighting', id: x.id, title: x.title, author: x.author, date: x.when.slice(0, 10), meta: `expires ${x.expires}`, feats: [{ type: 'point', coords: x.coords }] }))
@@ -744,20 +832,40 @@
 		const s = view('story', id)
 		const pub = D.stories[id]
 		const inEdit = S.editing && S.editing.id === id
+		const pres = s.presentation
+		const scenes = pres && pres.scenes ? pres.scenes : []
 		const actions = inEdit && proposing()
 			? `<button class="btn sm primary keep" data-act="dialog" data-dialog="send-proposal">Send proposal to ${esc(person(pub.author).name)}</button><button class="btn sm keep" data-act="done">Keep for later</button>`
 			: inEdit
 			? `<span class="split"><button class="btn sm primary keep" data-act="publish" data-mode="update">${pub.published ? 'Publish update' : 'Publish'}</button><button class="btn sm primary keep" data-act="menu" data-menu="publish">▾</button></span><button class="btn sm keep" data-act="done">Done</button>`
-			: `${mine(pub) ? `<button class="btn sm primary keep" data-act="edit">Edit</button>` : `<button class="btn sm primary keep" data-act="propose" title="Offer text changes to ${esc(person(pub.author).name)}">Propose an edit</button>`}`
+			: `${mine(pub) ? `<button class="btn sm primary keep" data-act="edit">Edit</button>` : `<button class="btn sm primary keep" data-act="propose" title="Offer text changes to ${esc(person(pub.author).name)}">Propose an edit</button>`}${scenes.length ? `<button class="btn sm keep ${S.sceneIndex >= 0 ? 'primary' : ''}" data-act="present" title="Step through the story's scenes">▶ Present${S.sceneIndex >= 0 ? ` ${S.sceneIndex + 1}/${scenes.length}` : ''}</button>` : ''}`
 		const p = S.proposal && S.proposal.kind === 'story' && S.proposal.storyId === id ? S.proposal : null
-		const body = s.body.map((b, i) => (b.type === 'h' ? `<h5${inEdit ? ' contenteditable="true"' : ''}>${esc(b.text)}</h5>` : `<p${inEdit ? ' contenteditable="true"' : ''}>${esc(b.text)} ${(b.refs || []).map((r) => refChip(r)).join(' ')}</p>`) + (p && p.insertAfter === i ? `<p class="ins">${esc(p.para.text)} ${p.para.refs.map((r) => refChip(r)).join(' ')}</p>` : '')).join('')
+		const sceneAt = (i) => scenes.findIndex((sc) => sc.anchor === i)
+		const sceneChip = (i) => { const si = sceneAt(i); return si >= 0 ? `<button class="scene ${S.sceneIndex === si ? 'on' : ''}" data-act="go-scene" data-i="${si}" title="Fly to this scene">⌖ ${esc(scenes[si].title)}</button>` : '' }
+		const block = (b, i) => {
+			const refs = (b.refs || []).map((r) => refChip(r)).join(' ')
+			const editTools = inEdit ? `<div class="btools"><button data-act="ref-pick" data-i="${i}" class="${S.refPick === i ? 'on' : ''}" title="Click a feature on the map to reference it here">${S.refPick === i ? '⌖ click a feature…' : '⌖ reference'}</button><button data-act="scene-set" data-i="${i}" title="Capture the current view and layers as this section's scene">${sceneAt(i) >= 0 ? '⟳ recapture scene' : '+ scene from view'}</button>${sceneAt(i) >= 0 ? `<button data-act="scene-remove" data-i="${sceneAt(i)}">× scene</button>` : ''}<button data-act="block-add" data-i="${i}">+ ¶</button><button data-act="block-del" data-i="${i}">− ¶</button></div>` : ''
+			if (b.type === 'h') return `<div class="blk"><h5${inEdit ? ` contenteditable="true" data-bind-block="${i}"` : ''}>${esc(b.text)}</h5>${sceneChip(i)}${editTools}</div>`
+			return `<div class="blk"><p${inEdit ? ` contenteditable="true" data-bind-block="${i}"` : ''}>${esc(b.text)}</p>${refs || sceneChip(i) ? `<div class="refline">${refs} ${sceneChip(i)}</div>` : ''}${editTools}</div>`
+		}
+		const body = s.body.map((b, i) => block(b, i) + (p && p.insertAfter === i ? `<p class="ins">${esc(p.para.text)} ${p.para.refs.map((r) => refChip(r)).join(' ')}</p>` : '')).join('')
+		const presSection = `<div class="section"><h4>Map presentation <span class="sp"></span><span class="hint">${pres ? 'v1 · embedded in the story' : 'none · readers see the maps as they are'}</span></h4>
+			<div class="sub">Opening view</div>
+			<p style="font-size:.86rem">${pres && pres.initialView ? `<span class="mono">${pres.initialView.center[1]}, ${pres.initialView.center[0]} · z${pres.initialView.zoom}</span>` : '<span class="muted">not set · readers start framed on all referenced maps</span>'}${inEdit ? ` <button class="btn sm" data-act="pres-set-view">Set from current view</button>${pres && pres.initialView ? '<button class="btn sm quiet" data-act="pres-clear-view">Clear</button>' : ''}` : pres && pres.initialView ? ' <button class="btn sm quiet" data-act="pres-fly">⌖ Go</button>' : ''}</p>
+			<div class="sub">Layers, in order</div>
+			<div class="list">${(pres && pres.layerOrder && pres.layerOrder.length ? pres.layerOrder : s.maps).map((mid, i, arr) => { const m = D.maps[mid]; if (!m) return ''; const vis = !(pres && pres.layers && pres.layers[mid] && pres.layers[mid].visible === false); return `<div class="item"><div class="thumb">${thumb(m.features, 40, 28)}</div><button style="text-align:left" data-act="open" data-kind="map" data-id="${mid}"><div class="t">${esc(m.title)}</div><div class="s">${esc(person(m.author).name)} · ${vis ? 'shown' : 'hidden at open'}</div></button><div class="act" style="opacity:1">${inEdit ? `<button data-act="pres-vis" data-id="${mid}" title="${vis ? 'Hide at open' : 'Show at open'}">${vis ? '◉' : '○'}</button><button data-act="pres-up" data-id="${mid}" ${i === 0 ? 'disabled' : ''}>↑</button><button data-act="pres-down" data-id="${mid}" ${i === arr.length - 1 ? 'disabled' : ''}>↓</button>` : `<button data-act="fly-map" data-id="${mid}">⌖</button>`}</div></div>` }).join('')}${inEdit ? `<button class="chip add" data-act="dialog" data-dialog="pick-map" data-for="story">+ Reference a map</button>` : ''}</div>
+			${inEdit ? '<p class="muted" style="font-size:.76rem;margin:.4rem 0 0">Only maps this story references can appear here. Readers with older clients simply see the maps.</p>' : ''}</div>`
+		const scenesSection = scenes.length || inEdit ? `<div class="section"><h4>Scenes <span class="n">${scenes.length}</span><span class="sp"></span>${scenes.length ? `<button class="btn sm ${S.sceneIndex >= 0 ? 'primary' : ''}" data-act="present">▶ Present</button>` : ''}</h4>${scenes.length ? `<div class="list">${scenes.map((sc, i) => `<div class="item ${S.sceneIndex === i ? 'on' : ''}"><span class="kicon">${i + 1}</span><button style="text-align:left" data-act="go-scene" data-i="${i}"><div class="t">${esc(sc.title)}</div><div class="s">z${sc.view.zoom} · ${Object.entries(sc.layers || {}).filter(([, l]) => l.visible === false).length ? 'hides ' + Object.entries(sc.layers).filter(([, l]) => l.visible === false).map(([k]) => (D.maps[k] || { title: k }).title).join(', ') : 'all layers'} · at ¶${sc.anchor + 1}</div></button><div class="act" style="opacity:1">${inEdit ? `<button data-act="scene-rename" data-i="${i}">✎</button><button data-act="scene-remove" data-i="${i}">×</button>` : `<button data-act="go-scene" data-i="${i}">⌖</button>`}</div></div>`).join('')}</div>` : '<div class="empty">No scenes. Use “+ scene from view” under a paragraph.</div>'}${inEdit ? '<p class="muted" style="font-size:.76rem;margin:.4rem 0 0">A scene is a camera and a set of layer visibilities attached to a paragraph. Present steps through them; readers can also tap the ⌖ chips.</p>' : ''}</div>` : ''
 		const details = `<div class="margin-body">
+			${S.presentScene !== null && S.sceneIndex >= 0 ? `<div class="diffbar-margin" style="border-style:solid;border-color:var(--accent);background:var(--accent-soft)"><span class="grow">Scene ${S.sceneIndex + 1} of ${scenes.length}: ${esc(scenes[S.sceneIndex].title)}</span><button class="btn sm" data-act="scene-prev" ${S.sceneIndex === 0 ? 'disabled' : ''}>‹</button><button class="btn sm primary" data-act="scene-next">${S.sceneIndex === scenes.length - 1 ? 'Finish' : 'Next ›'}</button></div>` : ''}
 			${p ? `<div class="diffbar-margin"><span class="grow">+1 paragraph · ${p.para.refs.length} references</span><button class="btn sm primary" data-act="apply">Apply</button><button class="btn sm" data-act="discard">Discard</button></div>` : ''}
-			<div class="lead prose">${body}</div>
+			<div class="lead prose ${inEdit ? 'editing' : ''}">${body}${inEdit && !s.body.length ? '<button class="chip add" data-act="block-add" data-i="-1">+ paragraph</button>' : ''}</div>
+			${inEdit ? `<div class="btools top"><button data-act="block-add" data-i="${s.body.length - 1}">+ paragraph</button><button data-act="heading-add" data-i="${s.body.length - 1}">+ heading</button><span class="muted" style="font-size:.74rem;align-self:center">Type in the text. Under each paragraph: reference a feature, capture a scene.</span></div>` : ''}
 			${proposalsHtml('story', id)}
-			<div class="section"><h4>Maps in this story <span class="n">${s.maps.length}</span></h4><div class="list">${s.maps.map((mid) => { const m = D.maps[mid]; return `<div class="item"><div class="thumb">${thumb(m.features)}</div><button style="text-align:left" data-act="open" data-kind="map" data-id="${mid}"><div class="t">${esc(m.title)}</div><div class="s">${m.features.length} features</div></button><button class="btn sm quiet" data-act="fly-map" data-id="${mid}" title="Frame on the map">⌖</button></div>` }).join('')}${inEdit ? `<button class="chip add" data-act="dialog" data-dialog="pick-map" data-for="story">+ Reference a map</button>` : ''}</div></div>
+			${presSection}
+			${scenesSection}
 		</div>`
-		return head(s, 'story', { actions, sub: `<span class="muted">· ${s.maps.length} map${s.maps.length === 1 ? '' : 's'}</span>` }) + tabsHtml('story', id, sideThread) + (S.tab === 'thread' && !sideThread ? threadHtml('story', id) : S.tab === 'comments' ? commentsHtml('story', id) : details)
+		return head(s, 'story', { actions, sub: `<span class="muted">· ${s.maps.length} map${s.maps.length === 1 ? '' : 's'}${scenes.length ? ` · ${scenes.length} scenes` : ''}</span>` }) + tabsHtml('story', id, sideThread) + (S.tab === 'thread' && !sideThread ? threadHtml('story', id) : S.tab === 'comments' ? commentsHtml('story', id) : details)
 	}
 	function refChip(r) {
 		const m = D.maps[r.map]; const f = m && m.features.find((x) => x.id === r.feature)
@@ -776,6 +884,7 @@
 		const details = `<div class="margin-body">
 			${p ? `<div class="diffbar-margin"><span class="grow">${p.pins ? `pin ${p.pins.length}` : 'new description'}</span><button class="btn sm primary" data-act="apply">Apply</button><button class="btn sm" data-act="discard">Discard</button></div>` : ''}
 			<div class="lead">${inEdit ? `<textarea data-bind="description" rows="3">${esc(a.description)}</textarea>` : `<p>${esc(p && p.description ? p.description : a.description)}</p>`}${p && p.description ? '<p class="ins" style="font-size:.85rem">Proposed description shown above.</p>' : ''}</div>
+			<div class="section"><h4>Default view <span class="sp"></span><span class="hint">${a.presentation ? 'v1 · pinned maps only' : 'none'}</span></h4><p style="font-size:.86rem">${a.presentation && a.presentation.initialView ? `<span class="mono">${a.presentation.initialView.center[1]}, ${a.presentation.initialView.center[0]} · z${a.presentation.initialView.zoom}</span> · ${(a.presentation.layerOrder || []).length} layers in order` : '<span class="muted">Show all on map frames the pinned and added maps</span>'}${inEdit ? ` <button class="btn sm" data-act="atlas-pres-set">Set from current view</button>${a.presentation ? '<button class="btn sm quiet" data-act="atlas-pres-clear">Clear</button>' : ''}` : a.presentation ? ' <button class="btn sm quiet" data-act="atlas-pres-go">⌖ Go</button>' : ''}</p>${inEdit ? '<p class="muted" style="font-size:.76rem;margin:.3rem 0 0">Only maps you pinned can be part of the default view. Maps others added stay discoverable but never enter it automatically.</p>' : ''}</div>
 			<div class="section"><h4>Who can add maps here</h4>${inEdit ? `<div class="policy">${[['open', 'Anyone', 'Maps appear as soon as they say they belong.'], ['schema', 'Anyone, if the map fits the schema', `Requires ${(a.schemaFields || []).map((f) => '“' + esc(f.key) + '”').join(' and ') || 'the schema fields'}. Others wait until they fit.`], ['closed', 'Only me', 'Maps that ask to belong wait until I pin them.']].map(([v, t, s]) => `<label class="${a.policy === v ? 'on' : ''}"><input type="radio" name="policy" value="${v}" ${a.policy === v ? 'checked' : ''} data-bind="policy"><span>${t}<small>${s}</small></span></label>`).join('')}</div>` : `<p>${esc(policyText(a.policy))}${a.policy === 'schema' && a.schemaFields ? ` · needs ${a.schemaFields.map((f) => `<code class="mono">${esc(f.key)}</code>`).join(', ')}` : ''}.</p>`}</div>
 			<div class="section"><h4>Pinned by ${mine(pub) ? 'me' : esc(person(pub.author).name)} <span class="n">${mem.pinned.length}</span></h4><div class="list">${mem.pinned.map((m) => row(m, inEdit ? `<button class="btn sm quiet" data-act="unpin" data-id="${m.id}" title="Unpin">⊘</button>` : `<button class="btn sm quiet" data-act="fly-map" data-id="${m.id}">⌖</button>`)).join('') || '<div class="empty">Nothing pinned yet.</div>'}</div></div>
 			<div class="section"><h4>Added by others <span class="n">${mem.added.length}</span></h4><div class="list">${mem.added.map((m) => row(m, `${inEdit || mine(pub) ? `<button class="btn sm quiet" data-act="pin" data-id="${m.id}" title="Pin">⊕</button>` : ''}<button class="btn sm quiet" data-act="fly-map" data-id="${m.id}">⌖</button>`)).join('') || '<div class="empty">No one has added a map yet.</div>'}</div></div>
@@ -794,6 +903,65 @@
 		<div class="margin-body"><div class="section"><h4>Maps</h4>${list(Object.values(D.maps).filter((m) => m.author === id && m.published), 'map')}</div><div class="section"><h4>Stories</h4>${list(Object.values(D.stories).filter((s) => s.author === id && !s.draft), 'story')}</div><div class="section"><h4>Atlases</h4>${list(Object.values(D.atlases).filter((a) => a.author === id), 'atlas')}</div></div>`
 	}
 
+	// ---- Inbox
+	function inboxHtml() {
+		const items = D.notifications.slice().sort((a, b) => b.when.localeCompare(a.when))
+		const glyph = { proposal: '✎', reply: '💬', mention: '@', waiting: '◈', join: '👤', accepted: '✓', follow: '+' }
+		const row = (n) => `<button class="nrow ${n.read ? '' : 'unread'}" data-act="open-notification" data-id="${n.id}"><span class="ng">${glyph[n.kind] || '•'}</span><span class="avatar sm">${person(n.from).initials}</span><span class="nt"><b>${esc(person(n.from).name)}</b> ${esc(n.text)}<span class="nw">${esc(n.when)}</span></span>${n.read ? '' : '<span class="ndot"></span>'}</button>`
+		return `<div class="margin-head"><div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button><span class="kindline"><span class="eyebrow">inbox</span>${unread() ? `<span class="state-pill warn">${unread()} unread</span>` : ''}</span><span style="flex:1"></span><button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}">◐</button><button class="btn sm quiet mclose" data-act="m-close">×</button></div><div class="title">Inbox</div><div class="metarow"><span class="meta muted">Proposals, replies, mentions, atlas arrivals, circle requests.</span><span class="acts"><button class="btn sm" data-act="mark-all-read">Mark all read</button></span></div></div>
+		<div class="margin-body" style="padding:0"><div class="section quiet" style="margin:0"><div class="nrows">${items.map(row).join('') || '<div class="empty" style="padding:.6rem .7rem">Nothing yet.</div>'}</div></div></div>`
+	}
+	// ---- Me › Circles / Nearby lists
+	function meListHtml(which) {
+		const isC = which === 'circles'
+		const rows = isC ? D.circles.map((c) => `<button class="item" data-act="open" data-kind="circle" data-id="${c.id}"><span class="kicon circle">🔒</span><span style="text-align:left"><div class="t">${esc(c.title)}</div><div class="s">${c.members.length} members · ${Object.values(D.maps).filter((m) => audienceOf(m) === 'circle:' + c.id).length} maps${c.pending.length ? ` · <span style="color:var(--amber)">${c.pending.length} waiting to join</span>` : ''}</div></span><span></span></button>`).join('')
+			: D.nearby.map((n) => `<button class="item" data-act="open" data-kind="nearby" data-id="${n.id}"><span class="kicon nearby">⇄</span><span style="text-align:left"><div class="t">${esc(n.title)}</div><div class="s">${n.peers.filter((p) => p.status === 'connected').length}/${n.peers.length} connected · host ${esc(person(n.author).name)}</div></span><span></span></button>`).join('')
+		return `<div class="margin-head"><div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button><span class="kindline"><span class="eyebrow">me</span></span><span style="flex:1"></span><button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}">◐</button><button class="btn sm quiet mclose" data-act="m-close">×</button></div><div class="title">${isC ? 'Circles' : 'Nearby sessions'}</div><div class="metarow"><span class="meta muted">${isC ? 'Encrypted groups. A circle is an audience you can publish to.' : 'Phones on the same Wi-Fi share records without the internet.'}</span><span class="acts">${isC ? '<button class="btn sm primary keep" data-act="toast">New circle</button><button class="btn sm" data-act="toast">Join with invite</button>' : '<button class="btn sm primary keep" data-act="toast">Host a session</button><button class="btn sm" data-act="toast">Scan to join</button>'}</span></div></div>
+		<div class="margin-body"><div class="section"><h4>${isC ? 'Your circles' : 'Sessions'} <span class="n">${rows ? (isC ? D.circles.length : D.nearby.length) : 0}</span></h4><div class="list">${rows || '<div class="empty">None yet.</div>'}</div></div></div>`
+	}
+	// ---- Circle: an audience with members, a chat, and the things shared into it
+	function circleHtml(id) {
+		const c = obj('circle', id); const admin = c.members.some((m) => m.id === 'me' && m.role === 'admin')
+		const shared = [...Object.values(D.maps).filter((m) => audienceOf(m) === 'circle:' + id).map((m) => ({ kind: 'map', o: m })), ...Object.values(D.stories).filter((st) => st.audience === 'circle:' + id).map((st) => ({ kind: 'story', o: st }))]
+		const tabs = `<div class="tabs" role="tablist"><button role="tab" class="${S.tab !== 'chat' ? 'on' : ''}" data-act="tab" data-tab="details">Details</button><button role="tab" class="${S.tab === 'chat' ? 'on' : ''}" data-act="tab" data-tab="chat">Chat <span class="n">${c.chat.length}</span></button></div>`
+		const details = `<div class="margin-body">
+			<div class="lead"><p>${esc(c.description)}</p></div>
+			<div class="section"><h4>At a glance</h4><dl class="kv two"><dt>Members</dt><dd>${c.members.length}</dd><dt>Encryption</dt><dd>MLS, end to end</dd><dt>Since</dt><dd>${esc(c.created)}</dd><dt>Your role</dt><dd>${admin ? 'admin' : 'member'}</dd></dl></div>
+			<div class="section"><h4>Shared in this circle <span class="n">${shared.length}</span></h4><div class="list">${shared.map(({ kind, o }) => `<div class="item"><div class="thumb">${kind === 'map' ? thumb(o.features, 40, 28) : ''}</div><button style="text-align:left" data-act="open" data-kind="${kind}" data-id="${o.id}"><div class="t">🔒 ${esc(o.title)}</div><div class="s">${esc(person(o.author).name)} · ${kind === 'map' ? o.features.length + ' features' : 'story'}</div></button><button class="btn sm quiet" data-act="fly-map" data-id="${o.id}">⌖</button></div>`).join('') || '<div class="empty">Nothing shared yet. Publish a map with audience “Circle: ' + esc(c.title) + '”.</div>'}</div></div>
+			${admin && c.pending.length ? `<div class="section warn"><h4>Waiting to join <span class="n">${c.pending.length}</span></h4><div class="list">${c.pending.map((p) => `<div class="item"><span class="avatar sm">${person(p.id).initials}</span><span style="text-align:left"><div class="t">${esc(person(p.id).name)}</div><div class="s">asked ${esc(p.when)}</div></span><span class="act" style="opacity:1"><button class="btn sm primary" data-act="circle-approve" data-id="${p.id}">Approve</button><button class="btn sm" data-act="circle-deny" data-id="${p.id}">Deny</button></span></div>`).join('')}</div><p class="muted" style="font-size:.78rem">Approving adds them to the group and rotates the key; they see everything shared from now on.</p></div>` : ''}
+			<div class="section"><h4>Members <span class="n">${c.members.length}</span></h4><div class="list">${c.members.map((m) => `<div class="item"><span class="avatar sm">${person(m.id).initials}</span><span style="text-align:left"><div class="t">${esc(person(m.id).name)}</div><div class="s">${m.role}</div></span><span class="act">${admin && m.id !== 'me' ? `<button class="btn sm quiet danger" data-act="circle-remove" data-id="${m.id}">Remove</button>` : ''}</span></div>`).join('')}</div></div>
+			<div class="section"><h4>Invite</h4><p class="mono" style="font-size:.8rem">${esc(c.invite)}</p><div class="chips"><button class="btn sm" data-act="toast-copied">Copy invite link</button><button class="btn sm" data-act="toast">Show QR</button><button class="btn sm quiet" data-act="toast">Rotate link</button></div><p class="muted" style="font-size:.78rem;margin-top:.4rem">An invite lets someone ask. ${admin ? 'You' : 'An admin'} still approve${admin ? '' : 's'} each join.</p></div>
+			<div class="section quiet"><button class="btn sm danger" data-act="toast">Leave circle</button></div>
+		</div>`
+		const chat = `<div class="thread"><div class="msgs">${c.chat.map((m) => `<div class="msg ${m.author === 'me' ? 'user' : 'ai'}"><div class="muted" style="font-size:.72rem">${esc(person(m.author).name)} · ${esc(m.when)}</div>${esc(m.text)}${m.ref ? `<div class="refs"><button class="chip" style="height:22px" data-act="open" data-kind="${m.ref.kind}" data-id="${m.ref.id}">🔒 ${esc(obj(m.ref.kind, m.ref.id).title)}</button></div>` : ''}</div>`).join('')}</div><div class="composer"><div class="box"><textarea rows="1" placeholder="Message the circle… (encrypted)"></textarea><button class="btn sm primary" data-act="toast">Send</button></div><div class="hint"><button data-act="toast">Attach a map from the Shelf</button><button data-act="toast">Share my live location here</button></div></div></div>`
+		return head(Object.assign({}, c, { author: c.author }), 'circle', { social: false, sub: `<span class="muted">· ${c.members.length} members · encrypted</span>`, actions: `<button class="btn sm primary keep" data-act="menu" data-menu="share">Invite</button><button class="btn sm" data-act="new-map-audience" data-a="circle:${id}">New map here</button>` }) + tabs + (S.tab === 'chat' ? chat : details)
+	}
+	// ---- Nearby session: an audience made of phones on the same network
+	function nearbyHtml(id) {
+		const n = obj('nearby', id); const host = n.author === 'me'
+		const shared = Object.values(D.maps).filter((m) => audienceOf(m) === 'nearby:' + id)
+		const details = `<div class="margin-body">
+			<div class="lead"><p>${esc(n.description)}</p></div>
+			<div class="section"><h4>At a glance</h4><dl class="kv two"><dt>Host</dt><dd>${esc(person(n.author).name)}</dd><dt>Started</dt><dd>${esc(n.created)}</dd><dt>Transport</dt><dd>${esc(n.interface)}</dd><dt>Sharing</dt><dd>${n.sharing ? '<span style="color:var(--green)">on</span>' : 'off'}</dd></dl></div>
+			<div class="section"><h4>Peers <span class="n">${n.peers.length}</span></h4><div class="list">${n.peers.map((p) => `<div class="item"><span class="avatar sm">${person(p.id).initials}</span><span style="text-align:left"><div class="t">${esc(person(p.id).name)} ${p.role === 'host' ? '<span class="state-pill" style="height:18px">host</span>' : ''}</div><div class="s">${p.status === 'connected' ? '<span style="color:var(--green)">● connected</span>' : esc(p.status)}</div></span><span class="act">${host && p.id !== 'me' ? '<button class="btn sm quiet danger" data-act="toast">Revoke</button>' : ''}</span></div>`).join('')}</div></div>
+			<div class="section"><h4>Shared in this session <span class="n">${shared.length}</span></h4><div class="list">${shared.map((m) => `<div class="item"><div class="thumb">${thumb(m.features, 40, 28)}</div><button style="text-align:left" data-act="open" data-kind="map" data-id="${m.id}"><div class="t">⇄ ${esc(m.title)}</div><div class="s">${esc(person(m.author).name)} · ${m.features.length} features · v${m.version}</div></button><button class="btn sm quiet" data-act="fly-map" data-id="${m.id}">⌖</button></div>`).join('') || '<div class="empty">Nothing yet.</div>'}</div><p class="muted" style="font-size:.78rem;margin-top:.4rem">Records stay on the phones in this session. When one of them is back online, they go to the relays under each author's key.</p></div>
+			<div class="section"><h4>Invite a phone</h4><p class="mono" style="font-size:.8rem">${esc(n.invite)}</p><div class="chips"><button class="btn sm" data-act="toast">Show QR</button><button class="btn sm" data-act="toast-copied">Copy link</button></div></div>
+			<div class="section quiet">${host ? '<button class="btn sm danger" data-act="toast">End session</button>' : '<button class="btn sm danger" data-act="toast">Leave session</button>'}</div>
+		</div>`
+		return head(n, 'nearby', { social: false, sub: `<span class="muted">· ${n.peers.filter((p) => p.status === 'connected').length}/${n.peers.length} connected</span>`, actions: `<button class="btn sm primary keep" data-act="menu" data-menu="share">Invite</button><button class="btn sm" data-act="new-map-audience" data-a="nearby:${id}">New map here</button>` }) + `<div class="tabs"><button class="on">Details</button></div>` + details
+	}
+	// ---- Live: one beacon
+	function liveHtml(id) {
+		const l = obj('live', id); const own = l.author === 'me'
+		const stale = l.lastSeen > 120
+		const following = S.followLive === id
+		return head(Object.assign({}, l, { title: own ? 'You are live' : l.title, published: '2026-09-03', version: 1 }), 'live', { social: false, sub: `<span class="muted">· since ${esc(l.since)}</span>`, actions: `<button class="btn sm ${following ? 'primary' : ''} keep" data-act="follow-live" data-id="${id}">${following ? 'Following' : 'Follow'}</button>${own ? '<button class="btn sm keep danger" data-act="stop-live">Stop</button>' : ''}<button class="btn sm" data-act="menu" data-menu="share">Share</button>` }) + `<div class="tabs"><button class="on">Details</button></div>
+		<div class="margin-body">
+			<div class="lead"><p>${stale ? `<span class="state-pill">stale</span> Last position ${Math.round(l.lastSeen / 60)} min ago. Their phone has stopped sending; the dot stays where it was.` : `<span class="state-pill ok">● live</span> Updated ${l.lastSeen} s ago. The dot moves as they do.`}</p></div>
+			<div class="section"><h4>At a glance</h4><dl class="kv two"><dt>Who</dt><dd>${esc(person(l.author).name)}</dd><dt>Since</dt><dd>${esc(l.since)}</dd><dt>Position</dt><dd class="mono">${l.coords[1]}, ${l.coords[0]}</dd><dt>Watching</dt><dd>${l.watching}</dd><dt>Discovery</dt><dd>${l.discovery === 'public' ? 'anyone can find it' : 'link only'}</dd><dt>Audience</dt><dd>${esc(audienceLabelOf(l.audience || 'everyone'))}</dd></dl></div>
+			${own ? `<div class="section"><h4>While you are live</h4><p style="font-size:.88rem">The banner at the top stays until you press Stop. Positions are sent every few seconds and expire; nothing is kept after you stop.</p><div class="chips"><button class="btn sm" data-act="menu" data-menu="live-discovery">Discovery: ${l.discovery === 'public' ? 'Public' : 'Link only'} ▾</button><button class="btn sm" data-act="toast-copied">Copy share link</button></div></div>` : `<div class="section"><h4>Follow</h4><p style="font-size:.88rem">Follow keeps the map centred on them as they move. Pan the map to stop following.</p></div>`}
+		</div>`
+	}
 	// ---- Comments (NIP-22) with optional annotation geometry
 	function commentsHtml(kind, id) {
 		const k = key(kind, id)
@@ -894,7 +1062,7 @@
 		// Keep the WebGL canvas in step with the animating grid, then finish any pending fit.
 		if ('ResizeObserver' in window) new ResizeObserver(() => { if (ml) ml.resize() }).observe($('#canvas'))
 		$('#stage').addEventListener('transitionend', (e) => { if (e.propertyName !== 'grid-template-columns' || !ml) return; ml.resize(); if (pendingFit) { const f = pendingFit; pendingFit = null; ml.fitBounds([[f.b[0], f.b[1]], [f.b[2], f.b[3]]], Object.assign({}, f.opts, { duration: 350 })) } })
-		ml.on('dragstart', () => { pendingFit = null })
+		ml.on('dragstart', () => { pendingFit = null; if (S.followLive) { S.followLive = null; toast('Stopped following.'); render() } })
 	}
 	const ML_HIT = ['f-pt', 'f-pt-prop', 'f-line', 'f-line-prop', 'f-fill']
 	function mlColors() { return { published: cssVar('--published'), working: cssVar('--working'), proposed: cssVar('--proposed'), comment: cssVar('--green'), live: cssVar('--live'), surface: cssVar('--surface'), ink: cssVar('--ink-2'), amber: cssVar('--amber') } }
@@ -971,7 +1139,7 @@
 			ml.getSource('feats').setData({ type: 'FeatureCollection', features: feats })
 			ml.getSource('live').setData({ type: 'FeatureCollection', features: S.liveOn ? D.sightings.map((s) => ({ type: 'Feature', properties: { id: s.id, title: s.title }, geometry: { type: 'Point', coordinates: s.coords } })) : [] })
 			liveMarkers.forEach((mk) => mk.remove()); liveMarkers = []
-			if (S.liveOn) D.live.forEach((l) => { const d = document.createElement('div'); d.className = 'livedot'; d.title = l.title; liveMarkers.push(new maplibregl.Marker({ element: d }).setLngLat(l.coords).addTo(ml)) })
+			if (S.liveOn) D.live.filter((l) => l.discovery === 'public' || l.author === 'me' || canSee({ audience: l.audience }) || l.audience === 'everyone').forEach((l) => { const d = document.createElement('div'); d.className = 'livedot' + (l.lastSeen > 120 ? ' stale' : '') + (l.author === 'me' ? ' mine' : ''); d.title = l.title; d.addEventListener('click', (ev) => { ev.stopPropagation(); go('live', l.id) }); liveMarkers.push(new maplibregl.Marker({ element: d }).setLngLat(l.coords).addTo(ml)) })
 			ml.getCanvas().style.cursor = S.tool ? 'crosshair' : ''
 			renderPopup()
 			return
@@ -1039,6 +1207,7 @@
 		S.drawing.push(p); renderCanvas(); renderMobileEdit()
 	}
 	function featureClicked(mapId, fid, ev) {
+		if (S.refPick !== null && S.editing && S.editing.kind === 'story') { const d = S.drafts[S.editing.id]; const m = D.maps[mapId]; const f = m && m.features.find((x) => x.id === fid); if (f) { const b = d.body[S.refPick]; b.refs = b.refs || []; b.refs.push({ map: mapId, feature: fid, label: f.name }); if (!d.maps.includes(mapId)) d.maps.push(mapId); S.refPick = null; render(); toast(`Referenced “${f.name}” in paragraph ${S.refPick === null ? '' : ''}`.trim() + '.') } return }
 		if (S.editing && S.editing.id === mapId && S.route.id === mapId) {
 			if (!(ev && (ev.ctrlKey || ev.metaKey || ev.shiftKey)) && !isMobile()) S.selection.clear()
 			if (S.selection.has(fid)) S.selection.delete(fid); else S.selection.add(fid)
@@ -1149,9 +1318,9 @@
 			const pen = S.editing && S.editing.id === e.id
 			const running = S.run && S.run.id === e.id
 			const on = S.route.kind === 'map' && S.route.id === e.id
-			return `<span class="schip ${pen ? 'pen' : ''} ${running ? 'running' : ''} ${on ? 'on' : ''} ${e.visible ? '' : 'off'}" data-map="${e.id}"><span class="sw"></span>${pen ? '<span class="pencil">✎</span>' : ''}<button class="name" style="width:auto;height:auto;border-radius:0;padding:0" data-act="open" data-kind="map" data-id="${e.id}">${esc(pen ? S.drafts[e.id].title : m.title)}</button><button data-act="toggle-vis" data-id="${e.id}" aria-label="${e.visible ? 'Hide' : 'Show'}" title="${e.visible ? 'Hide' : 'Show'}">${e.visible ? '◉' : '○'}</button><button data-act="remove-shelf" data-id="${e.id}" aria-label="Remove from map">×</button></span>`
+			return `<span class="schip ${pen ? 'pen' : ''} ${running ? 'running' : ''} ${on ? 'on' : ''} ${e.visible ? '' : 'off'}" data-map="${e.id}"><span class="sw"></span>${isPrivate(m) ? '<span title="' + esc(audienceLabelOf(m.audience)) + '">🔒</span>' : ''}${pen ? '<span class="pencil">✎</span>' : ''}<button class="name" style="width:auto;height:auto;border-radius:0;padding:0" data-act="open" data-kind="map" data-id="${e.id}">${esc(pen ? S.drafts[e.id].title : m.title)}</button><button data-act="toggle-vis" data-id="${e.id}" aria-label="${e.visible ? 'Hide' : 'Show'}" title="${e.visible ? 'Hide' : 'Show'}">${e.visible ? '◉' : '○'}</button><button data-act="remove-shelf" data-id="${e.id}" aria-label="Remove from map">×</button></span>`
 		}).join('')
-		const liveCount = D.sightings.length + D.live.length
+		const liveCount = D.sightings.length + D.live.filter((l) => l.discovery === 'public' || l.author === 'me' || l.audience === 'everyone' || canSee({ audience: l.audience })).length
 		return chips + `<span class="schip live ${S.liveOn ? 'on' : 'off'}"><span class="sw"></span><button class="name" style="width:auto;height:auto;border-radius:0;padding:0" data-act="toggle-live">Live · ${liveCount}</button></span>`
 	}
 
@@ -1182,17 +1351,18 @@
 		const m = S.menu
 		const mi = (label, act, extra = '') => `<button class="mi ${extra}" data-act="${act}"><span>${label}</span></button>`
 		let body = ''
-		if (m.type === 'me') body = `<div class="mh"><b>You</b><br><span class="mono muted">you@earthly.city</span></div><hr>${mi('Profile', 'open-me')}${mi('Drafts', 'menu-drafts')}${mi('Circles <small>Alpine rescue · 6 members</small>', 'toast', '', '')}${mi('Nearby sessions <small>Saturday survey · 3 peers</small>', 'toast')}${mi('Outbox <small>2 delivered · 0 waiting</small>', 'toast')}${mi('Wallet', 'toast')}<hr>${mi('Settings', 'toast')}${mi('Help & tour', 'toast')}<div class="mrow"><span class="muted" style="align-self:center;font-size:.8rem;padding:0 .3rem">Theme</span>${['system', 'light', 'dark'].map((t) => `<button class="btn sm ${theme() === t ? 'primary' : ''}" data-act="theme" data-theme="${t}">${t}</button>`).join('')}</div><div class="mrow"><span class="muted" style="align-self:center;font-size:.8rem;padding:0 .3rem">Panels</span><button class="btn sm ${S.glass ? '' : 'primary'}" data-act="glass" data-v="0">Solid</button><button class="btn sm ${S.glass ? 'primary' : ''}" data-act="glass" data-v="1">Glass</button></div><hr>${mi('Sign out', 'toast', 'danger')}`
+		if (m.type === 'me') body = `<div class="mh"><b>You</b><br><span class="mono muted">you@earthly.city</span></div><hr>${mi('Profile', 'open-me')}${mi('Drafts', 'menu-drafts')}${mi(`Inbox${unread() ? ' <small>' + unread() + ' unread</small>' : ''}`, 'open-inbox')}${mi(`Circles <small>${D.circles.map((c) => c.title).join(', ')}</small>`, 'open-me-circles')}${mi(`Nearby sessions <small>${D.nearby.map((n) => n.title + ' · ' + n.peers.length + ' peers').join(', ')}</small>`, 'open-me-nearby')}${mi(S.liveMine ? 'You are live <small>tap to stop</small>' : 'Share live location', S.liveMine ? 'stop-live' : 'start-live')}${mi('Outbox <small>2 delivered · 0 waiting</small>', 'toast')}${mi('Wallet', 'toast')}<hr>${mi('Settings', 'toast')}${mi('Help & tour', 'toast')}<div class="mrow"><span class="muted" style="align-self:center;font-size:.8rem;padding:0 .3rem">Theme</span>${['system', 'light', 'dark'].map((t) => `<button class="btn sm ${theme() === t ? 'primary' : ''}" data-act="theme" data-theme="${t}">${t}</button>`).join('')}</div><div class="mrow"><span class="muted" style="align-self:center;font-size:.8rem;padding:0 .3rem">Panels</span><button class="btn sm ${S.glass ? '' : 'primary'}" data-act="glass" data-v="0">Solid</button><button class="btn sm ${S.glass ? 'primary' : ''}" data-act="glass" data-v="1">Glass</button></div><hr>${mi('Sign out', 'toast', 'danger')}`
 		if (m.type === 'drafts') { const ds = Object.values(S.drafts); body = `<div class="mh"><b>Drafts</b> <span class="muted">· saved on this device</span></div>${ds.length ? ds.map((d) => `<div class="mi" style="grid-template-columns:1fr auto auto"><span><span class="kicon ${d.kind}" style="display:inline-grid;width:20px;height:20px;font-size:.55rem;vertical-align:middle">${d.kind.slice(0, 3)}</span> ${esc(d.title)}<small>${esc(d.kind)}${d.mode === 'propose' ? ' · proposal to ' + esc(person(obj(d.kind, d.id).author).name) : ''} · ${S.editing && S.editing.id === d.id ? 'editing now' : 'kept'}</small></span><button class="btn sm" data-act="resume" data-kind="${d.kind}" data-id="${d.id}">Resume</button><button class="btn sm quiet danger" data-act="discard-draft" data-id="${d.id}">Discard</button></div>`).join('') : '<div class="empty" style="padding:.5rem .7rem">No unfinished work. Press Edit on something.</div>'}` }
 		if (m.type === 'publish') { const d = S.drafts[S.editing.id]; const isMap = S.editing.kind === 'map'; const pub = obj(S.editing.kind, S.editing.id); body = `${pub.published ? mi(`Publish update<small>same address, becomes v${(pub.version || 0) + 1}</small>`, 'publish-update') : mi('Publish<small>first version</small>', 'publish-update')}${isMap ? mi('Publish as new map<small>new address, keeps this one as it is</small>', 'publish-new') : ''}<hr><div class="mh eyebrow">Who can see it</div>${[['everyone', 'Everyone', 'public relays'], ['circle', 'Circle: Alpine rescue', 'encrypted, 6 members'], ['nearby', 'Nearby: Saturday survey', 'this session only']].map(([v, t, s]) => `<button class="mi ${d.audience === v ? 'on' : ''}" data-act="audience" data-a="${v}"><span>${t}<small>${s}</small></span></button>`).join('')}` }
 		if (m.type === 'share') body = `${mi('Copy link', 'toast-copied')}${mi('Copy link with what’s on the map', 'toast-copied')}${mi('Show QR code', 'toast')}${mi('Share to…', 'toast')}`
 		if (m.type === 'safety') body = `<div class="mh eyebrow">When the AI changes something</div>${[['auto', 'Apply automatically', 'changes land, undo is one click'], ['ask', 'Ask before changing', 'show the proposal, then Apply'], ['every', 'Ask before every change', 'review each item']].map(([v, t, s]) => `<button class="mi ${S.safety === v ? 'on' : ''}" data-act="safety" data-v="${v}"><span>${t}<small>${s}</small></span></button>`).join('')}`
 		if (m.type === 'more-tools') body = `${mi('Import file…<small>GeoJSON, CSV, GPX, shapefile</small>', 'toast')}${mi('Import from OpenStreetMap…', 'toast')}${mi('Paste GeoJSON', 'toast')}<hr>${mi('Simplify geometry…', 'toast')}${mi('Measure', 'toast')}${mi('Snapping<small>on</small>', 'toast')}<hr>${mi('Select all', 'select-all')}${mi('Clear selection', 'clear-selection')}`
 		if (m.type === 'add-map') body = `<div class="mh eyebrow">Add a map to this atlas</div>${mi('One of my maps…<small>republishes it with Belongs to</small>', 'dialog-pick-my-map')}${mi('New map in this atlas<small>opens a working copy with Belongs to set</small>', 'new-in-atlas')}`
-		if (m.type === 'plus') body = `<div class="mh eyebrow">Add</div>${mi('Sighting here<small>something seen, expires on its own</small>', 'new-sighting')}${mi('Share live location<small>until you stop</small>', 'toast-live')}${mi(`New ${lensAtlas() ? esc(noun(lensAtlas(), 1)) + ' map in ' + esc(lensAtlas().title) : 'map'}${!lensAtlas() && S.filter && S.filter.type === 'atlas' ? ` in ${esc(S.filter.label)}` : ''}<small>points, lines, and the Thread</small>`, 'new-map')}${mi('Import file…', 'toast')}`
+		if (m.type === 'plus') body = `<div class="mh eyebrow">Add</div>${mi('Sighting here<small>something seen, expires on its own</small>', 'new-sighting')}${mi(S.liveMine ? 'Stop sharing live location' : 'Share live location<small>until you stop</small>', S.liveMine ? 'stop-live' : 'start-live')}${mi(`New ${lensAtlas() ? esc(noun(lensAtlas(), 1)) + ' map in ' + esc(lensAtlas().title) : 'map'}${!lensAtlas() && S.filter && S.filter.type === 'atlas' ? ` in ${esc(S.filter.label)}` : ''}<small>points, lines, and the Thread</small>`, 'new-map')}${mi('Import file…', 'toast')}`
 		if (m.type === 'edit-other') { const o = obj(S.route.kind, S.route.id); body = `<div class="mh eyebrow">This ${esc(S.route.kind)} is by ${esc(person(o.author).name)}</div>${mi(`Propose changes<small>you edit a copy, they accept, it becomes their next version. Nothing forks.</small>`, 'propose')}${mi('Fork<small>your own copy at a new address, linked to the original</small>', 'fork-now')}` }
 		if (m.type === 'annot') body = `<div class="mh eyebrow">Attach a place to your comment</div>${mi('Drop a pin<small>click once on the map</small>', 'annot-point')}${mi('Draw a line<small>click points, double-click to finish</small>', 'annot-line')}${S.selection.size === 1 ? mi('Use the selected feature', 'annot-selection') : ''}`
 		if (m.type === 'row-more' || m.type === 'more-object') { const kind = m.data.kind || S.route.kind, id = m.data.id || S.route.id; const o = obj(kind, id); const k = key(kind, id); body = `${mi('Share…', 'menu-share-from')}${mi('Zap ⚡<small>21 sats</small>', 'zap-k')}${kind === 'map' ? mi(S.shelf.some((e) => e.id === id) ? 'Remove from map' : 'Show on map', 'row-shelf') : ''}${o && mine(o) ? mi(kind === 'map' || kind === 'story' || kind === 'atlas' ? 'Edit' : 'Open', 'row-edit') : kind === 'map' || kind === 'story' ? mi('Propose changes', 'row-propose') + (kind === 'map' ? mi('Fork', 'row-fork') : '') : ''}<hr>${o && mine(o) ? mi('Delete…', 'row-delete', 'danger') : mi('Report', 'toast', 'danger')}`; m.data.kind = kind; m.data.id = id; m.data.k = k }
+		if (m.type === 'live-discovery') { const l = S.liveMine ? obj('live', S.liveMine) : null; body = `<div class="mh eyebrow">Who can find you</div>${[['link', 'Link only', 'only people you send the link to'], ['public', 'Public', 'shows on the Live layer for everyone']].map(([v, t, sm]) => `<button class="mi ${l && l.discovery === v ? 'on' : ''}" data-act="live-discovery" data-v="${v}"><span>${t}<small>${sm}</small></span></button>`).join('')}` }
 		if (m.type === 'shelf') body = `${mi('Frame on the map', 'fly-map')}${mi('Hide', 'toggle-vis')}${mi('Remove from map', 'remove-shelf')}`
 		const style = m.right < 260 ? `right:${m.right}px;top:${m.y}px` : `left:${m.x}px;top:${m.y}px`
 		host.innerHTML = `<div class="backdrop" data-act="close-menus"></div><div class="menu" style="${style}" role="menu">${body}</div>`
@@ -1266,7 +1436,39 @@
 		'close-menus'() { closeMenus() },
 		toast() { S.menu = null; render(); toast('Not part of this sketch.') },
 		'toast-copied'() { S.menu = null; render(); toast('Link copied.') },
-		'toast-live'() { S.menu = null; S.liveOn = true; D.live.push({ id: 'me', title: 'You · live', coords: screenToWorld(innerWidth / 2, innerHeight / 2), since: 'now' }); render(); toast('You are live. Stop from the Live chip.') },
+		'start-live'() { S.menu = null; startLive() },
+		'stop-live'() { S.menu = null; stopLive() },
+		'live-discovery'(d) { const l = S.liveMine ? obj('live', S.liveMine) : null; if (l) l.discovery = d.v; S.menu = null; render(); toast(d.v === 'public' ? 'Anyone can find you on the Live layer now.' : 'Only people with the link can see you.') },
+		'follow-live'(d) { S.followLive = S.followLive === d.id ? null : d.id; if (S.followLive) flyTo(bbox([{ type: 'point', coords: obj('live', d.id).coords }]), true); render() },
+		'open-inbox'() { S.menu = null; go('inbox', 'now') },
+		'open-me-circles'() { S.menu = null; go('me', 'circles') },
+		'open-me-nearby'() { S.menu = null; go('me', 'nearby') },
+		'open-notification'(d) { const n = D.notifications.find((x) => x.id === d.id); if (!n) return; n.read = true; if (n.target.tab) S.tab = n.target.tab; go(n.target.kind, n.target.id) },
+		'mark-all-read'() { D.notifications.forEach((n) => { n.read = true }); render() },
+		'circle-approve'(d) { const c = obj('circle', S.route.id); c.pending = c.pending.filter((p) => p.id !== d.id); c.members.push({ id: d.id, role: 'member' }); render(); toast(`${person(d.id).name} joined. Group key rotated.`) },
+		'circle-deny'(d) { const c = obj('circle', S.route.id); c.pending = c.pending.filter((p) => p.id !== d.id); render() },
+		'circle-remove'(d) { const c = obj('circle', S.route.id); c.members = c.members.filter((m) => m.id !== d.id); render(); toast(`${person(d.id).name} removed. Group key rotated; they cannot read new records.`) },
+		'new-map-audience'(d) { const aud = d.a; if (S.editing) { S.dialog = { type: 'finish-first', next: { kind: 'map', id: '__new__', atlas: null, audience: aud } }; render(); return } newMap(null, aud) },
+		'ref-pick'(d) { S.refPick = S.refPick === +d.i ? null : +d.i; render(); if (S.refPick !== null) toast('Click a feature on the map to reference it.') },
+		'scene-set'(d) { const dr = S.drafts[S.editing.id]; dr.presentation = dr.presentation || { version: 1, layerOrder: dr.maps.slice(), layers: {} }; dr.presentation.scenes = dr.presentation.scenes || []; const cap = capturePresentation(dr.maps); const i = +d.i; const existing = dr.presentation.scenes.find((sc) => sc.anchor === i); const b = dr.body[i]; const title = b && b.type === 'h' ? b.text : `Scene at ¶${i + 1}`; if (existing) { existing.view = cap.initialView; existing.layers = cap.layers } else dr.presentation.scenes.push({ id: `sc-${Date.now()}`, title, anchor: i, view: cap.initialView, layers: cap.layers }); dr.presentation.scenes.sort((x, y) => x.anchor - y.anchor); render(); toast('Scene captured from the current view.') },
+		'scene-remove'(d) { const dr = S.drafts[S.editing.id]; if (dr.presentation && dr.presentation.scenes) dr.presentation.scenes.splice(+d.i, 1); render() },
+		'scene-rename'(d) { const dr = S.drafts[S.editing.id]; const sc = dr.presentation.scenes[+d.i]; const t = prompt('Scene title', sc.title); if (t !== null && t.trim()) { sc.title = t.trim(); render() } },
+		'go-scene'(d) { goScene(view('story', S.route.id), +d.i) },
+		present() { const st = view('story', S.route.id); if (S.presentScene !== null) { S.presentScene = null; S.sceneIndex = -1; render(); return } S.presentScene = st.id; goScene(st, 0) },
+		'scene-next'() { const st = view('story', S.route.id); const n = st.presentation.scenes.length; if (S.sceneIndex >= n - 1) { S.presentScene = null; S.sceneIndex = -1; render(); toast('End of the story.'); return } goScene(st, S.sceneIndex + 1) },
+		'scene-prev'() { const st = view('story', S.route.id); if (S.sceneIndex > 0) goScene(st, S.sceneIndex - 1) },
+		'pres-set-view'() { const dr = S.drafts[S.editing.id]; const cap = capturePresentation(dr.maps); dr.presentation = Object.assign({ version: 1, layers: {}, scenes: [] }, dr.presentation || {}, { initialView: cap.initialView, layerOrder: dr.presentation && dr.presentation.layerOrder ? dr.presentation.layerOrder : cap.layerOrder }); render(); toast('Opening view set.') },
+		'pres-clear-view'() { const dr = S.drafts[S.editing.id]; if (dr.presentation) delete dr.presentation.initialView; render() },
+		'pres-fly'() { const st = view('story', S.route.id); if (st.presentation) applyPresentation(st.presentation, st.maps) },
+		'pres-vis'(d) { const dr = S.drafts[S.editing.id]; dr.presentation = dr.presentation || { version: 1, layerOrder: dr.maps.slice(), layers: {} }; dr.presentation.layers = dr.presentation.layers || {}; const cur = dr.presentation.layers[d.id]; dr.presentation.layers[d.id] = { visible: !(cur && cur.visible !== false) }; const e = S.shelf.find((x) => x.id === d.id); if (e) e.visible = dr.presentation.layers[d.id].visible; render() },
+		'pres-up'(d) { const dr = S.drafts[S.editing.id]; dr.presentation = dr.presentation || { version: 1, layerOrder: dr.maps.slice(), layers: {} }; const o = dr.presentation.layerOrder = dr.presentation.layerOrder && dr.presentation.layerOrder.length ? dr.presentation.layerOrder : dr.maps.slice(); const i = o.indexOf(d.id); if (i > 0) { [o[i - 1], o[i]] = [o[i], o[i - 1]] } applyPresentation({ layerOrder: o }, dr.maps); render() },
+		'pres-down'(d) { const dr = S.drafts[S.editing.id]; dr.presentation = dr.presentation || { version: 1, layerOrder: dr.maps.slice(), layers: {} }; const o = dr.presentation.layerOrder = dr.presentation.layerOrder && dr.presentation.layerOrder.length ? dr.presentation.layerOrder : dr.maps.slice(); const i = o.indexOf(d.id); if (i >= 0 && i < o.length - 1) { [o[i + 1], o[i]] = [o[i], o[i + 1]] } applyPresentation({ layerOrder: o }, dr.maps); render() },
+		'atlas-pres-set'() { const dr = S.drafts[S.editing.id]; dr.presentation = capturePresentation(dr.pinned); render(); toast('Default view set from the pinned maps and the current camera.') },
+		'atlas-pres-clear'() { const dr = S.drafts[S.editing.id]; delete dr.presentation; render() },
+		'atlas-pres-go'() { const a = view('atlas', S.route.id); a.pinned.forEach((id) => addToShelf(id, { silent: true })); applyPresentation(a.presentation, a.pinned); render() },
+		'block-add'(d) { const dr = S.drafts[S.editing.id]; const i = +d.i; dr.body.splice(i + 1, 0, { type: 'p', text: 'New paragraph.', refs: [] }); if (dr.presentation && dr.presentation.scenes) dr.presentation.scenes.forEach((sc) => { if (sc.anchor > i) sc.anchor++ }); render() },
+		'heading-add'(d) { const dr = S.drafts[S.editing.id]; const i = +d.i; dr.body.splice(i + 1, 0, { type: 'h', text: 'New section' }); if (dr.presentation && dr.presentation.scenes) dr.presentation.scenes.forEach((sc) => { if (sc.anchor > i) sc.anchor++ }); render() },
+		'block-del'(d) { const dr = S.drafts[S.editing.id]; const i = +d.i; dr.body.splice(i, 1); if (dr.presentation && dr.presentation.scenes) { dr.presentation.scenes = dr.presentation.scenes.filter((sc) => sc.anchor !== i); dr.presentation.scenes.forEach((sc) => { if (sc.anchor > i) sc.anchor-- }) } render() },
 		theme(d) { if (d.theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = d.theme; try { localStorage.setItem('sketch-theme', d.theme) } catch {} render(); setTimeout(applyMlColors, 30) },
 		'open-me'() { S.menu = null; go('person', 'me') },
 		resume(d) { S.menu = null; const pr = S.drafts[d.id] && S.drafts[d.id].mode === 'propose'; if (S.editing && S.editing.id !== d.id) { S.dialog = { type: 'finish-first', next: { kind: d.kind, id: d.id, propose: pr } }; render(); return } if (pr) beginPropose(d.kind, d.id); location.hash = hashFor({ kind: d.kind, id: d.id, edit: true }) },
@@ -1281,8 +1483,8 @@
 		'toggle-vis'(d) { S.menu = null; toggleVisible(d.id) },
 		'toggle-live'() { S.liveOn = !S.liveOn; D.live = D.live.filter((l) => l.id !== 'me'); syncHash(); render() },
 		'save-view'() { S.dialog = { type: 'save-view' }; render() },
-		'save-view-go'() { const name = $('#dlg-name').value.trim() || 'My view'; const id = `atlas-${++S.counter}`; D.atlases[id] = { id, kind: 'atlas', title: name, author: 'me', policy: 'closed', description: `Saved from the map on ${today}.`, pinned: S.shelf.map((e) => e.id) }; S.dialog = null; toast('Atlas saved. Share it like anything else.'); go('atlas', id) },
-		'show-all'(d) { const a = D.atlases[d.id]; const mem = atlasMembers(a); const ids = [...mem.pinned, ...mem.added].map((m) => m.id); ids.forEach((id) => addToShelf(id, { silent: true })); flyToMaps(ids); syncHash(); render() },
+		'save-view-go'() { const name = $('#dlg-name').value.trim() || 'My view'; const id = `atlas-${++S.counter}`; D.atlases[id] = { id, kind: 'atlas', title: name, author: 'me', policy: 'closed', published: today, version: 1, noun: 'map', emblem: '◈', description: `Saved from the map on ${today}.`, pinned: S.shelf.map((e) => e.id), presentation: capturePresentation() }; S.dialog = null; toast('Atlas saved with this view as its default. Share it like anything else.'); go('atlas', id) },
+		'show-all'(d) { const a = D.atlases[d.id]; const mem = atlasMembers(a); const ids = [...mem.pinned, ...mem.added].map((m) => m.id); ids.forEach((id) => addToShelf(id, { silent: true })); if (a.presentation) applyPresentation(a.presentation, mem.pinned.map((m) => m.id)); else flyToMaps(ids); syncHash(); render() },
 		'fly-map'(d) { S.menu = null; addToShelf(d.id || S.menu.data.id, { silent: true }); flyToMaps([d.id || S.menu.data.id]); render() },
 		ref(d) { addToShelf(d.map, { silent: true }); const m = D.maps[d.map]; const f = m.features.find((x) => x.id === d.fid); if (f) { flyTo(bbox([f]), true); S.popup = { mapId: d.map, fid: f.id } } else flyToMaps([d.map]); render() },
 		'belong-add'(d) { S.drafts[S.editing.id].belongsTo.push(d.id); S.dialog = null; render(); toast(`Will say it belongs to “${D.atlases[d.id].title}” on publish.`) },
@@ -1380,16 +1582,16 @@
 		const d = S.dialog; S.dialog = null; pendingEditPrompt = false
 		const next = d.next
 		endEdit(keep)
-		if (next.id === '__new__') { newMap(next.atlas); return }
+		if (next.id === '__new__') { newMap(next.atlas, next.audience); return }
 		if (next.propose) beginPropose(next.kind, next.id); else beginEdit(next.kind, next.id)
 		location.hash = hashFor({ kind: next.kind, id: next.id, edit: true })
 		if (d.thenSend) setTimeout(() => send(d.thenSend), 50)
 	}
-	function newMap(atlasId) {
+	function newMap(atlasId, audience) {
 		const id = `map-${++S.counter}`
 		const c = screenToWorld(innerWidth / 2, innerHeight / 2)
 		const a = atlasId ? D.atlases[atlasId] : null
-		D.maps[id] = { id, kind: 'map', title: a ? `Untitled ${noun(a, 1)} map` : 'Untitled map', author: 'me', published: null, version: 0, summary: '', topics: a ? [a.noun || 'map'] : [], belongsTo: atlasId ? [atlasId] : [], size: '0 KB', props: {}, features: [] }
+		D.maps[id] = { id, kind: 'map', title: a ? `Untitled ${noun(a, 1)} map` : 'Untitled map', author: 'me', published: null, version: 0, summary: '', topics: a ? [a.noun || 'map'] : [], belongsTo: atlasId ? [atlasId] : [], size: '0 KB', props: {}, features: [], audience: audience || 'everyone' }
 		S.tab = 'details'
 		location.hash = hashFor({ kind: 'map', id, edit: true })
 		setTimeout(() => { S.tool = 'point'; render(); toast(atlasId ? `New map in “${D.atlases[atlasId].title}”. Click the map to add points.` : 'New map. Click the map to add points.') }, 60)
@@ -1405,6 +1607,7 @@
 	})
 	document.addEventListener('input', (e) => {
 		const b = e.target.dataset.bind
+		if (e.target.dataset.bindBlock !== undefined && S.editing) { const d = S.drafts[S.editing.id]; const i = +e.target.dataset.bindBlock; if (d.body[i]) d.body[i].text = e.target.textContent; return }
 		if (e.target.dataset.bindProp && S.editing) { const d = S.drafts[S.editing.id]; d.props = d.props || {}; if (e.target.value) d.props[e.target.dataset.bindProp] = e.target.value; else delete d.props[e.target.dataset.bindProp]; render(); return }
 		if (b && S.editing) {
 			const d = S.drafts[S.editing.id]

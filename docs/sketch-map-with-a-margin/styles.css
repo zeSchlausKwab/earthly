@@ -51,7 +51,8 @@ a{color:var(--accent)}
 @media (prefers-reduced-motion: reduce){*{transition-duration:0ms!important;animation-duration:0ms!important}}
 
 /* ---------- App frame ---------- */
-#app{position:fixed;inset:0;display:grid;grid-template-rows:var(--top-h) var(--lens-h,0px) minmax(0,1fr);grid-template-columns:1fr}
+#app{position:fixed;inset:0;display:grid;grid-template-rows:var(--top-h) auto minmax(0,1fr);grid-template-columns:1fr}
+.bars{grid-row:2;display:flex;flex-direction:column}
 #map{position:absolute;inset:0}
 #map[hidden]{display:none}
 .maplibregl-ctrl-attrib{font-family:var(--mono);font-size:10px;background:color-mix(in srgb,var(--surface) 80%,transparent)!important;color:var(--muted)}
@@ -61,7 +62,7 @@ a{color:var(--accent)}
 @keyframes livepulse{to{box-shadow:0 0 0 14px transparent}}
 
 /* Lens bar: the one place that says 'you are inside an atlas' */
-.lensbar{grid-row:2;display:flex;align-items:center;gap:.6rem;padding:0 .6rem;height:var(--lens-h,38px);background:var(--accent-soft);border-bottom:1px solid var(--accent);z-index:29;position:relative;overflow:hidden;white-space:nowrap}
+.lensbar{display:flex;align-items:center;gap:.6rem;padding:0 .6rem;height:var(--lens-h,38px);background:var(--accent-soft);border-bottom:1px solid var(--accent);z-index:29;position:relative;overflow:hidden;white-space:nowrap}
 .lensbar[hidden]{display:none}
 .lensbar .emblem{font-size:1.05rem;color:var(--accent);width:22px;text-align:center}
 .lensbar .lt{display:flex;flex-direction:column;line-height:1.1;min-width:0}
@@ -69,6 +70,46 @@ a{color:var(--accent)}
 .lensbar .ls{font-family:var(--mono);font-size:.66rem;color:var(--muted)}
 .lensbar .lrule{flex:1;color:var(--ink-2);font-size:.82rem;overflow:hidden;text-overflow:ellipsis}
 .in-lens .brand .dot{background:var(--accent)}
+
+/* Live bar: the only owner of "you are live" */
+.livebar{display:flex;align-items:center;gap:.6rem;padding:0 .6rem;height:38px;background:var(--red-soft);border-bottom:1px solid var(--live);white-space:nowrap;overflow:hidden}
+.livebar[hidden]{display:none}
+.livebar .dot{width:10px;height:10px;background:var(--live);box-shadow:0 0 0 0 color-mix(in srgb,var(--live) 55%,transparent);animation:livepulse 1.6s ease-out infinite;flex:none}
+.livebar b{font-family:var(--display);font-weight:700}
+.livebar .ls{font-family:var(--mono);font-size:.7rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.livebar .sp{flex:1}
+.livebar .stop{border-color:var(--live);color:var(--live);font-weight:600}
+.livedot.stale{background:var(--muted);animation:none;opacity:.7}
+.livedot.mine{background:var(--accent);box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent)}
+.badge.warn{background:var(--amber);color:#1a1200}
+.state-pill.lock{background:var(--surface-2);color:var(--ink)}
+.kicon.circle,.kicon.nearby{background:var(--surface-3)}
+
+/* Inbox */
+.nrows{display:flex;flex-direction:column}
+.nrow{display:grid;grid-template-columns:22px 22px 1fr 10px;gap:.5rem;align-items:center;width:100%;text-align:left;padding:.5rem .7rem;border-bottom:1px solid var(--rule)}
+.nrow:hover{background:var(--surface-2)}
+.nrow.unread{background:color-mix(in srgb,var(--accent-soft) 45%,transparent)}
+.nrow .ng{font-family:var(--mono);color:var(--muted);text-align:center}
+.nrow .nt{font-size:.88rem;line-height:1.3}
+.nrow .nt b{font-weight:600}
+.nrow .nw{display:block;font-family:var(--mono);font-size:.68rem;color:var(--muted)}
+.nrow .ndot{width:8px;height:8px;background:var(--accent)}
+
+/* Story editing: blocks, reference picking, scenes */
+.prose .blk{position:relative;margin:0 0 .5rem}
+.prose.editing .blk{padding:.15rem .3rem;border:1px dashed transparent}
+.prose.editing .blk:hover,.prose.editing .blk:focus-within{border-color:var(--rule-2);background:color-mix(in srgb,var(--surface-2) 40%,transparent)}
+.prose .refline{display:flex;flex-wrap:wrap;gap:.25rem;margin:.1rem 0 .2rem}
+.prose .scene{display:inline-flex;align-items:center;gap:.25rem;font-family:var(--sans);font-size:.76rem;padding:0 .45rem;height:20px;border:1px solid var(--accent);color:var(--accent);background:transparent;cursor:pointer}
+.prose .scene.on{background:var(--accent);color:var(--accent-ink)}
+.btools{display:flex;flex-wrap:wrap;gap:.2rem;margin:.15rem 0 0}
+.btools.top{margin:.4rem 0 .8rem}
+.btools button{font-family:var(--mono);font-size:.68rem;padding:.12rem .45rem;border:1px solid var(--rule);background:var(--surface);color:var(--muted)}
+.btools button:hover{color:var(--ink);border-color:var(--rule-2)}
+.btools button.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.prose.editing [contenteditable]{outline:0;min-height:1.2em}
+.item.on{background:var(--accent-soft)}
 
 /* Glass panels: see the map through the margin, sheet and menus */
 body.glass .margin,body.glass .thread-col{background:color-mix(in srgb,var(--surface) 58%,transparent);backdrop-filter:blur(14px) saturate(1.1);-webkit-backdrop-filter:blur(14px) saturate(1.1)}
@@ -496,10 +537,13 @@ body.glass .ccomp{background:transparent}
   :root{--top-h:0px;--shelf-h:0px}
   .topbar{display:none}
   #app{grid-template-rows:0 0 1fr}
-  .lensbar{position:absolute;left:.6rem;right:.6rem;top:calc(.6rem + 44px + .4rem);height:34px;z-index:21;border:1px solid var(--accent);box-shadow:var(--shadow);gap:.4rem;padding:0 .4rem}
+  .bars{position:absolute;left:.6rem;right:.6rem;top:calc(.6rem + 44px + .4rem);z-index:21;gap:.3rem}
+  .lensbar,.livebar{height:34px;border:1px solid var(--accent);box-shadow:var(--shadow);gap:.4rem;padding:0 .4rem}
+  .livebar{border-color:var(--live)}
+  .livebar .ls,.livebar .btn:not(.stop){display:none}
   .lensbar .lrule,.lensbar .ls{display:none}
   .lensbar .btn:not([data-act="leave-lens"]){display:none}
-  body.in-lens .mtop .mshelf{margin-top:38px}
+  .mtop .mshelf{margin-top:var(--bars-h,0px)}
   .maplibregl-ctrl-bottom-right{bottom:calc(var(--sheet-peek,96px) + 60px)!important;transition:bottom var(--slow) var(--ease)}
   .maplibregl-ctrl-bottom-left{display:none}
   .stage,.stage.margin-open,.stage.thread-side{grid-template-columns:1fr}

@@ -71,6 +71,16 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
   is scoped, the Shelf loads the atlas, the + button and *New spot map* pre-fill
   Belongs to, maps get a Properties form from the atlas schema, and the accent
   colour follows the atlas. *Leave ×* undoes all of it; drafts keep their belonging.
+- **Circles and Nearby** under Me: pages with members / peers, what is shared
+  there, join approval, invites, a circle Chat. Private records carry 🔒 / ⇄.
+- **Live**: Me → Share live location (or the phone +) shows a red live bar with
+  discovery, share link and Stop; `/live/:id` pages with Follow; stale beacons.
+- **Story editing**: paragraphs and headings edited in place; ⌖ reference picks
+  a feature from the map; + scene from view captures camera + layers; ▶ Present
+  steps scenes; a Map presentation box sets the opening view and layer order.
+  Atlases get a Default view. Save this view stores one too (MapPresentationV1).
+- **Inbox** in the top bar and under Me: proposals, replies, mentions, atlas
+  arrivals, join requests, follows; tapping opens the right tab.
 - **Glass panels**: the ◐ button in any margin header, or Me → Panels. Default on
   for phones. Menus, the sheet, the margin and the top bar let the map through.
 - **Drafts** and **Me** menus (theme toggle lives under Me).

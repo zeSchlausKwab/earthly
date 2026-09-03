@@ -21,7 +21,7 @@ User-facing nouns. Anything not listed is internal and must not appear in UI cop
 | **Atlas** | 37518 | A place maps belong to. Owner pins (`a` lane); others attach (`c` lane) behind a door policy. Has a noun, an emblem, a colour, and optionally schema fields. |
 | **Sighting** | 37522 | Something seen at a place and time; expires. |
 | **Live** | 37521 | An action, "share my live location", not a destination. |
-| **Circle** | MLS group | An audience. Appears only as an audience option, never as a place. |
+| **Circle** | MLS group | An audience. Offered on Publish ▾ and listed under Me; has a page (§11a) but never appears in Browse or the top-level navigation. |
 | **Nearby** | field session | An audience, same rule as Circle. |
 
 Surfaces: **Canvas**, **Margin** (one object at a time), **Thread** (the conversation of the object in the Margin), **Shelf** (what is drawn), **Lens bar** (you are inside an Atlas).
@@ -45,6 +45,10 @@ Hash routes in the sketch; path routes in the app. Both carry the same grammar.
 | `/ask` | Ask Earthly (read-only concierge) | |
 | `/shelf` | What is on the map | |
 | `/in/:atlas` | Enters the Atlas lens, then redirects to `/browse/maps?in=:atlas` | The shareable "mini-app" link |
+| `/circle/:id` `/nearby/:id` | The audience's page (§11a); its shared maps join the Shelf | Reachable from Me, Publish ▾ pills, and lock badges |
+| `/live/:id` | One beacon (§11b); Live chip on, camera on it | From the live bar, a live dot, or a share link |
+| `/inbox` | Notifications (§11d) | Badge in the top bar and under Me |
+| `/me/circles` `/me/nearby` | Lists under Me | |
 
 Query: `on=a,b,c` visible Shelf maps · `live=1` Live chip on · `in=:atlas` active lens. All three survive navigation; `replaceState` when they change without a route change.
 
@@ -173,6 +177,36 @@ Every section is a box with a header band (mono uppercase title, optional count 
 - Adding from either side: on a Map, Belonging → *Add to atlas…* (a Publish update if already published); on an Atlas, *Add a map ▾* → one of my maps / new map in this atlas (pre-fills Belongs to on a new working copy only). Accepting is pinning; Waiting = `c` present, `a` absent.
 - **Lens**: Enter atlas / `/in/:id` sets `in=`, loads the atlas's maps onto the Shelf and frames them, scopes Browse and Search, renames the tabs with the atlas noun, makes + and New create maps that belong there, and overrides the accent with the atlas colour. Leave undoes all of it. The lens never changes audience, never hides what was already on the Shelf, never edits belonging on anything you did not create inside it.
 
+## 11a. Circles and Nearby: audiences with a page
+
+An audience is where a record can be *read*. It is never a lens, a filter, or a destination in the top-level navigation; it lives under **Me** and on the Publish ▾ menu.
+
+- **Me › Circles** lists the user's circles (members, maps, join requests waiting). **Me › Nearby sessions** lists sessions (connected / total peers, host). Both have *New* / *Join with invite* (circles) and *Host a session* / *Scan to join* (nearby).
+- **Circle page** `/circle/:id`: header with `🔒` and member count, actions *Invite* and *New map here*. Tabs **Details · Chat**. Details: lead description · *At a glance* (members, encryption, since, your role) · *Shared in this circle* (maps and stories whose audience is this circle) · *Waiting to join* (admins; Approve rotates the key) · *Members* (admins can remove; removal rotates the key) · *Invite* (link, QR, rotate; an invite lets someone ask, an admin approves) · Leave. Chat is the MLS conversation with map references and "share my live location here".
+- **Nearby page** `/nearby/:id`: lead · *At a glance* (host, started, transport, sharing on/off) · *Peers* with connection state (host can revoke) · *Shared in this session* with the note that records go online under each author's key when a phone reconnects · *Invite a phone* (QR, link) · End / Leave.
+- **Everywhere else** a private record shows `🔒 Circle: Alpine rescue` or `⇄ Nearby: Saturday survey` as a state pill in its header, as a prefix in its list meta, and as a lock on its Shelf chip. Browse only lists private records the user can read. Opening a circle or session puts its shared maps on the Shelf.
+- **New map here** on a circle or session opens a working copy with that audience preselected. Audience remains a property of the working copy, changed only through Publish ▾.
+
+## 11b. Live
+
+- **Share live location** lives under **Me** and in the phone's **+**. Starting it shows the **live bar** under the top bar (phone: under the search field) for as long as it runs: `● You are live · 4 min · 2 watching · link only` with *Public / Link only ▾*, *Share link*, *Details*, **Stop**. The bar is the only owner of the state; Stop removes the beacon and its last position.
+- **Live page** `/live/:id` for any beacon: state pill `● live · 3 s ago` or `stale · 11 min`, actions *Follow* (camera follows; panning stops following), *Share*, and *Stop* for your own. Details: who, since, position, watching, discovery, audience. A stale beacon stays where it was and says so.
+- **Discovery** is per beacon: *Link only* (default) or *Public* (appears on the Live layer for everyone). Audience can also be a circle or a session, in which case only its members see it.
+- The **Live chip** on the Shelf counts sightings plus the beacons the user is allowed to see; tapping a live dot opens its page. Your own dot is accent-coloured; stale ones grey.
+
+## 11c. Story editing, scenes, and MapPresentationV1
+
+- **Blocks.** A Story body is a list of headings and paragraphs, edited in place. Under each block while editing: **⌖ reference** (then click a feature on the canvas; the chip lands in that paragraph and the map joins the story's references), **+ scene from view** / **⟳ recapture scene**, **+ ¶**, **− ¶**. *+ paragraph* and *+ heading* at the end.
+- **Scenes** are camera + layer visibility captured from the current Shelf and attached to a block (`anchor`). Readers see a ⌖ chip on that block; **▶ Present** in the header steps through them with a Scene bar (‹ Next ›). Panning does not leave Present; Finish or Present again does.
+- **Map presentation** box on the Story: *Opening view* (Set from current view / Clear) and *Layers, in order* with ◉/○ shown-at-open and ↑↓ order; only maps the story references may appear. Opening a Story applies its presentation: Shelf order and visibility, then the camera; without one, readers are framed on all referenced maps.
+- **Atlas default view** box: Set from current view / Clear, restricted to pinned maps. *Show all on map* applies it when present. **Save this view** writes a presentation into the new personal Atlas.
+- The Shelf plus the camera is the *live* form of a presentation; `on=` in the URL is its ephemeral form; the embedded value on a Story or Atlas is its published form. There is no Map-composition entity, per the GeoLibre notes.
+
+## 11d. Inbox
+
+- **Inbox** in the top bar (badge = unread) and under Me. Rows: glyph for kind (✎ proposal, 💬 reply, @ mention, ◈ atlas arrival, 👤 join request, ✓ accepted, + follow), avatar, "*Name* did what to *thing*", time, unread dot. Tapping opens the target with the right tab (comments, chat) and marks it read. *Mark all read*.
+- Sources: proposals received / accepted / declined, replies to your comments, mentions, maps arriving in atlases you own (Waiting), circle join requests, follows. Derived client-side from the same events; no notification kind is published.
+
 ## 12. Canvas
 
 Basemap: MapLibre GL with OpenFreeMap Liberty. Features as one GeoJSON source with `promoteId`; layers fill / line / proposed line (dashed) / point / proposed point / labels (focused or working map, zoom ≥ 3.5) / sightings; live positions as pulsing markers. Camera fit uses the canvas column only, padding 40px, bottom padding half the viewport on phones; refit after the grid transition. Container resize → `map.resize()`.
@@ -222,6 +256,15 @@ Adds, never reshapes. No `modelVersion` bump.
 4. Proposals: 37519 content = `{message, add, modify, remove}` for maps or `{message, body}` for stories, `a` tag → target, `e` → target version. Rebase rule pending (§18).
 5. `["l","ai-assisted","earthly"]` under `["L","earthly"]` when a Thread contributed geometry.
 6. Relay write policy: profiles, Earthly kinds, kind 1111/7/9735 that reference an Earthly event, relay lists. Reject the rest.
+7. **MapPresentationV1**, an embedded value in the content of 37520 (Story) and 37518 (Atlas), never an event kind:
+   ```ts
+   interface MapPresentationV1 { version: 1; initialView?: { center: [lon, lat]; zoom: number; bearing?: number; pitch?: number }; layerOrder?: NostrCoordinate[]; layers?: Record<NostrCoordinate, { visible?: boolean; pinnedEvent?: string }> }
+   interface StoryPresentationV1 extends MapPresentationV1 { scenes?: { id: string; title: string; anchor: number; view: MapPresentationV1['initialView']; layers?: MapPresentationV1['layers'] }[] }
+   ```
+   Invariants: Story `layerOrder`/`layers`/scene layers ⊆ the story's `a` references; Atlas presentation ⊆ its pinned `a` lane (foreign `c` never enters it); missing presentation means today's behaviour; camera is published intent, never transient state; `anchor` indexes the body blocks and clients clamp it. Legend, `opacityMultiplier`, style overrides and filters are deferred until a concrete need; if style overrides arrive they live on the containing Story/Atlas, keep the source event immutable, and are attributed "data by A · presentation by B".
+8. **Audience** is not a tag: Circle records are MLS application messages, Nearby records travel over the local node. The `🔒`/`⇄` pills are derived from where a record came from. A public copy of a private record is a new publish with a new address, never a flag flip.
+9. **Live** stays 37521 with NIP-40 expiry per position; discovery `public` publishes to relays under the user's key, `link only` publishes under a throwaway key whose npub is in the link; circle/session audiences use those transports.
+10. **Notifications** are derived client-side; nothing new on the wire.
 
 ## 17. Build order and acceptance
 
