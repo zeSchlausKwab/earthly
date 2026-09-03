@@ -326,12 +326,31 @@ Decided (in chat, 2026-09-02/03):
 - Glass panels default on for phones.
 - Real basemap is OpenFreeMap; the artifact falls back to a graticule.
 
-Open:
-1. Closed Atlas: are Waiting maps visible to visitors or only the owner?
-2. Is a Thread ever publishable, or is "How this was made" a human-edited Story section?
-3. Is one thing in Edit at a time too strict for compare-and-merge?
-4. Thumbnails: client on publish or relay-side job?
-5. Reference Android device and frame budget.
-6. Proposal rebase: when the target version changed after a proposal was made, do we re-apply by feature id and flag conflicts, or require the proposer to update?
-7. Notifications: proposals, replies, and follows need an inbox surface; not designed.
-8. Not yet sketched and needed before build steps 2–7: Story reference insertion from the map, per-feature properties, version history, Circles/Nearby pages, Live banner with Stop, sign-in.
+Sketched since (2026-09-03): Circles and Nearby pages, Live bar and page, story block editing with
+per-paragraph layers/camera/references, the Inbox, MapPresentationV1, the full toolbar catalogue,
+the Features list, the top-bar ticker.
+
+**Still missing, in the order the build needs them.**
+
+*Blocks a build step:*
+1. **Sign-in and identity.** No account, signer choice (extension, remote, ephemeral), profile editing, or signed-out state anywhere. Every write in the sketch assumes "You". Needed before step 2.
+2. **Version history.** Accepted proposals and Publish update both mint versions, but there is no way to see them, diff two, or restore one. Needed by step 5, since proposals produce versions.
+3. **Publish reality.** No relay list, no per-relay success or failure, no outbox for a phone that is offline, no size warning before a large map is published. Step 2 ships publishing without them today.
+4. **Empty and error states.** Nothing is drawn for: no results, no network, a relay that rejects, a blob that will not resolve, a map that fails to load, a first-run account with nothing at all. The sketch always has data.
+
+*Design gaps in what is already sketched:*
+5. **Per-feature styling.** Properties are editable, but colour, width, icon and the data-driven "style by attribute" from the toolbar have no UI, and the GeoLibre legend idea has nowhere to live.
+6. **Map settings.** Basemap choice, projection, labels, and the offline saved regions all sit behind one stub menu item.
+7. **Search depth.** One flat list, no geo filters (near me, in this view, bbox), no saved searches, and the relay's NIP-50 grammar is not exposed.
+8. **Import flows.** Import is a menu item; the CSV column-mapping step, the OSM query builder, and drag-and-drop onto the canvas are undrawn.
+9. **Moderation and safety.** Report exists as a menu item with no flow; there is no mute, no block, and no owner view of what was reported in an atlas.
+10. **Accessibility pass.** Keyboard traversal of the Shelf, canvas and features list, focus order after route changes, and a screen-reader account of map state are unexamined.
+
+*Open questions, unchanged:*
+11. Closed Atlas: are Waiting maps visible to visitors or only the owner?
+12. Is a Thread ever publishable, or is "How this was made" a human-edited Story section?
+13. Is one thing in Edit at a time too strict for compare-and-merge?
+14. Thumbnails: client on publish or relay-side job?
+15. Reference Android device and frame budget; the benchmark is still unrun.
+16. Proposal rebase when the target moved on: re-apply by feature id and flag conflicts, or ask the proposer to update?
+17. Story scroll choreography: click and step only for now, per the GeoLibre notes.
