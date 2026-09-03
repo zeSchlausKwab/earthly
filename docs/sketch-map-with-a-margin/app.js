@@ -49,6 +49,7 @@
 		previewProposal: null,
 		commentSort: 'new',
 		moveMode: false,
+		sheetHidden: false,
 		basemap: 'svg',
 		ask: { msgs: [] },
 		counter: 1,
@@ -229,6 +230,7 @@
 			return
 		}
 		S.route = { kind: r.kind, id: r.id, edit: r.edit }
+		if (r.kind) S.sheetHidden = false
 		S.menu = null
 		S.popup = null
 		S.resultsOpen = false
@@ -499,7 +501,7 @@
 		document.body.classList.toggle('glass', !!S.glass)
 		renderLensBar()
 		const stage = $('#stage')
-		stage.classList.toggle('margin-open', !!S.route.kind || S.route.kind === null && !!landingOpen())
+		stage.classList.toggle('margin-open', isMobile() ? !S.sheetHidden : !!S.route.kind || !!landingOpen())
 		stage.classList.toggle('thread-side', sideThreadActive())
 		$('#margin').dataset.detent = S.detent
 		if (isMobile()) {
@@ -507,7 +509,7 @@
 			const h = S.detent === 'peek' ? peekPx + 'px' : S.detent === 'half' ? '50%' : 'calc(100% - 64px)'
 			$('#margin').style.setProperty('--sheet-h', h)
 			const px = S.detent === 'peek' ? peekPx : S.detent === 'half' ? innerHeight * 0.5 : innerHeight - 64
-			document.documentElement.style.setProperty('--sheet-peek', (S.route.kind ? px : 0) + 'px')
+			document.documentElement.style.setProperty('--sheet-peek', (S.sheetHidden ? 0 : px) + 'px')
 		} else $('#margin').style.removeProperty('--sheet-h')
 	}
 	function landingOpen() { return true }
@@ -604,7 +606,7 @@
 		const editable = inEdit ? ' contenteditable="true" data-bind="title" spellcheck="false"' : ''
 		const state = inEdit && proposing() ? `<span class="state-pill warn">✎ proposing to ${esc(person(o.author).name)}</span>` : inEdit ? `<span class="state-pill edit">✎ editing${o.forkOf ? ' · fork' : ''}</span>` : o.draft || o.published === null ? '<span class="state-pill draft">draft · unpublished</span>' : `<span class="state-pill">v${o.version || 1} · ${esc(o.published)}</span>`
 		return `<div class="margin-head">
-			<div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button><span class="kindline"><span class="eyebrow">${esc(kind)}</span>${state}</span><span style="flex:1"></span>${opts.nav || ''}<button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}" title="${S.glass ? 'Solid panels' : 'See the map through the panels'}">◐</button></div>
+			<div class="nav"><button class="btn sm quiet" data-act="back">◂ Back</button><span class="kindline"><span class="eyebrow">${esc(kind)}</span>${state}</span><span style="flex:1"></span>${opts.nav || ''}<button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}" title="${S.glass ? 'Solid panels' : 'See the map through the panels'}">◐</button><button class="btn sm quiet mclose" data-act="m-close" title="Close and show just the map" aria-label="Close">×</button></div>
 			<div class="title"${editable}>${esc(o.title)}</div>
 			<div class="metarow"><span class="meta"><span class="avatar sm">${p.initials}</span><button class="who" data-act="open" data-kind="person" data-id="${p.id}">${esc(p.name)}</button>${opts.sub || ''}</span><span class="acts">${opts.actions || ''}</span></div>
 			${opts.social === false ? '' : socialRow(kind, o.id)}
@@ -673,7 +675,7 @@
 		const k = S.browse.kind
 		const label = browseKinds().find((x) => x[0] === k)[1]
 		const plus = { maps: ['new-map', L ? `New ${noun(L, 1)} map` : 'New map'], stories: ['new-story', 'New story'], atlases: ['new-atlas', 'New atlas'], sightings: ['new-sighting', 'New sighting'] }[k]
-		return `<div class="margin-head compact"><div class="nav"><span class="eyebrow">${L ? `<span class="emblem" style="color:var(--accent)">${esc(L.emblem || '◈')}</span> ${esc(L.title)}` : 'Browse'}</span>${S.filter ? `<span class="chip">in ${esc(S.filter.label)} <button class="x" data-act="clear-filter">×</button></span>` : ''}<span style="flex:1"></span><button class="btn sm quiet" data-act="open" data-kind="shelf" data-id="now" title="What is drawn right now">On the map · ${S.shelf.length}</button><button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}" title="Toggle glass panels">◐</button></div></div>
+		return `<div class="margin-head compact"><div class="nav"><span class="eyebrow">${L ? `<span class="emblem" style="color:var(--accent)">${esc(L.emblem || '◈')}</span> ${esc(L.title)}` : 'Browse'}</span>${S.filter ? `<span class="chip">in ${esc(S.filter.label)} <button class="x" data-act="clear-filter">×</button></span>` : ''}<span style="flex:1"></span><button class="btn sm quiet" data-act="open" data-kind="shelf" data-id="now" title="What is drawn right now">On the map · ${S.shelf.length}</button><button class="btn sm quiet glassbtn" data-act="glass" data-v="${S.glass ? '0' : '1'}" title="Toggle glass panels">◐</button><button class="btn sm quiet mclose" data-act="m-close" title="Close and show just the map" aria-label="Close">×</button></div></div>
 		<div class="ktabs" role="tablist">${browseKinds().map(([id, name]) => `<button role="tab" class="${k === id ? 'on' : ''}" data-act="browse-kind" data-k="${id}">${name}<span class="n">${browseItems(id).length}</span></button>`).join('')}${plus ? `<button class="btn sm primary plus" data-act="${plus[0]}" title="${esc(plus[1])}">+<span class="tl"> ${esc(plus[1])}</span></button>` : ''}</div>
 		${L && k === 'maps' ? `<div class="lhint">${L.schemaFields ? 'Each ' + esc(noun(L, 1)) + ' map carries ' + L.schemaFields.map((f) => '<b>' + esc(f.label.toLowerCase()) + '</b>').join(' and ') + '.' : 'Anything that says it belongs here.'}</div>` : ''}
 		<div class="ltools"><input id="bq" type="search" placeholder="Filter ${label.toLowerCase()}…" value="${esc(S.browse.q)}"><select id="bsort" aria-label="Sort"><option value="new" ${S.browse.sort === 'new' ? 'selected' : ''}>Newest</option><option value="title" ${S.browse.sort === 'title' ? 'selected' : ''}>Title</option><option value="author" ${S.browse.sort === 'author' ? 'selected' : ''}>Author</option></select></div>
@@ -1242,8 +1244,8 @@
 	function renderMobile() {
 		renderMobileEdit()
 		const nav = $('#mnav')
-		const tab = S.menu && S.menu.type === 'me' ? 'me' : S.resultsOpen ? 'search' : 'map'
-		nav.innerHTML = `<button class="${tab === 'map' ? 'on' : ''}" data-act="m-map">🗺<span>Map</span></button><button class="${tab === 'search' ? 'on' : ''}" data-act="m-search">⌕<span>Search</span></button><button data-act="menu" data-menu="plus" aria-label="Add"><span class="plus">+</span></button><button class="${tab === 'me' ? 'on' : ''}" data-act="menu" data-menu="me"><span class="avatar sm">YO</span><span>Me</span></button>`
+		const tab = S.menu && S.menu.type === 'me' ? 'me' : S.route.kind === 'browse' && !S.sheetHidden ? 'search' : S.sheetHidden ? 'map' : 'sheet'
+		nav.innerHTML = `<button class="${tab === 'map' ? 'on' : ''}" data-act="m-map" title="${S.sheetHidden ? 'Frame what is on the map' : 'Close the sheet, just the map'}">${S.sheetHidden ? '🗺' : '⌄'}<span>${S.sheetHidden ? 'Map' : 'Just map'}</span></button><button class="${tab === 'search' ? 'on' : ''}" data-act="m-search">⌕<span>Search</span></button><button data-act="menu" data-menu="plus" aria-label="Add"><span class="plus">+</span></button><button class="${tab === 'me' ? 'on' : ''}" data-act="menu" data-menu="me"><span class="avatar sm">YO</span><span>Me</span></button>`
 	}
 
 	// ---------------------------------------------------------------- actions
@@ -1324,8 +1326,9 @@
 		'discard-go'() { const { kind, id } = S.editing; S.dialog = null; endEdit(false); toast('Draft discarded.') },
 		'delete-go'() { const id = S.route.id; delete D.maps[id]; S.shelf = S.shelf.filter((e) => e.id !== id); S.dialog = null; toast('Deletion requested. Relays may keep copies.'); location.hash = '#/' },
 		'label-go'() { const t = $('#dlg-name').value.trim(); const at = S.dialog.at; S.dialog = null; if (t && at) { pushUndo(); S.drafts[S.editing.id].features.push({ id: `lbl-${Date.now()}`, name: t, type: 'point', coords: at, props: { label: t, kind: 'annotation' } }) } render() },
-		'm-map'() { S.resultsOpen = false; S.menu = null; if (S.route.kind) S.detent = S.detent === 'peek' ? 'half' : 'peek'; render() },
-		'm-search'() { S.menu = null; S.detent = 'full'; location.hash = `#/browse/${S.browse.kind}`; setTimeout(() => { const q = $('#bq'); if (q) q.focus() }, 80) },
+		'm-close'() { S.menu = null; S.resultsOpen = false; S.sheetHidden = true; S.tab = 'details'; if (S.editing && S.route.kind === 'map' && S.route.id === S.editing.id) endEdit(true); if (S.route.kind) location.hash = hashFor({ kind: null, id: null, edit: false }); else render() },
+		'm-map'() { S.resultsOpen = false; S.menu = null; if (!S.sheetHidden) { A['m-close'](); return } A.fit() },
+		'm-search'() { S.menu = null; S.sheetHidden = false; S.detent = 'full'; if (S.route.kind === 'browse') { render(); return } location.hash = `#/browse/${S.browse.kind}`; setTimeout(() => { const q = $('#bq'); if (q) q.focus() }, 80) },
 		detent() { S.detent = S.detent === 'peek' ? 'half' : S.detent === 'half' ? 'full' : 'peek'; render() },
 		react() { toast('♥ Reacted. Kind 7, like everywhere else on Nostr.') },
 		'edit-id'(d) { if (S.editing && S.editing.id !== d.id) { S.dialog = { type: 'finish-first', next: { kind: d.kind, id: d.id } }; render(); return } beginEdit(d.kind, d.id); location.hash = hashFor({ kind: d.kind, id: d.id, edit: true }) },
@@ -1507,19 +1510,20 @@
 	margin.addEventListener('pointerdown', (e) => {
 		if (!isMobile()) return
 		if (!e.target.closest('.handle,.margin-head .nav,.margin-head .title')) return
-		sheetDrag = { y: e.clientY, h: margin.getBoundingClientRect().height, moved: false }
+		sheetDrag = { y: e.clientY, h: margin.getBoundingClientRect().height, moved: false, startDetent: S.detent }
 		margin.setPointerCapture(e.pointerId)
 	})
 	margin.addEventListener('pointermove', (e) => {
 		if (!sheetDrag) return
 		const dy = sheetDrag.y - e.clientY
-		if (Math.abs(dy) > 6) { sheetDrag.moved = true; margin.classList.add('dragging'); margin.style.setProperty('--sheet-h', Math.max(80, Math.min(innerHeight - 64, sheetDrag.h + dy)) + 'px') }
+		if (Math.abs(dy) > 6) { sheetDrag.moved = true; margin.classList.add('dragging'); margin.style.setProperty('--sheet-h', Math.max(30, Math.min(innerHeight - 64, sheetDrag.h + dy)) + 'px') }
 	})
 	margin.addEventListener('pointerup', (e) => {
 		if (!sheetDrag) return
 		margin.classList.remove('dragging')
 		if (sheetDrag.moved) {
 			const h = margin.getBoundingClientRect().height
+			if (h < 58 || (sheetDrag.startDetent === 'peek' && h < sheetDrag.h - 24)) { sheetDrag = null; A['m-close'](); return }
 			S.detent = h < innerHeight * 0.3 ? 'peek' : h < innerHeight * 0.72 ? 'half' : 'full'
 			sheetDrag = null; render(); return
 		}
@@ -1553,6 +1557,7 @@
 	window.__sketch = { S, D, flyToMaps, bbox, render, canvasRect }
 	try { const g = localStorage.getItem('sketch-glass'); S.glass = g === null ? isMobile() : g === '1' } catch { S.glass = isMobile() }
 	S.view = { x: 0, y: 0, k: 1 }
+	S.sheetHidden = isMobile() && !parseHash().kind
 	initBasemap()
 	onRoute()
 	setTimeout(() => { if (!S.route.kind && !ml) A.fit() }, 30)

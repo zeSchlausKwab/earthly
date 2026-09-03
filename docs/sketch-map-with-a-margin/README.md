@@ -75,6 +75,10 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
 - **Drafts** and **Me** menus (theme toggle lives under Me).
 - **Phone** (≤ 760px): four-item bar Map · Search · + · Me, bottom sheet with
   peek / half / full detents (drag or tap the handle), the **+** chooser.
+- **Dismissing the sheet** on a phone: the × in any sheet header, the *Just map*
+  tab (the Map tab while a sheet is open), or dragging the sheet down past its
+  peek. All three close the sheet and clear the focus; the map's chip stays on
+  the Shelf. Search or any tap on a chip brings a sheet back.
 - **Phone editing** is its own composition, not the desktop squeezed: the nav
   bar swaps for an **edit dock** at the thumb (Point · Line · Area · Label |
   Undo · More · Ask · Done), the sheet collapses to a one-line peek with

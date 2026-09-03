@@ -77,6 +77,8 @@ body.glass .menu{background:color-mix(in srgb,var(--surface) 72%,transparent);ba
 body.glass .topbar,body.glass .mnav{background:color-mix(in srgb,var(--surface) 78%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
 body.glass .msg.ai{background:color-mix(in srgb,var(--surface-2) 70%,transparent)}
 .glassbtn{color:var(--muted)}
+.mclose{display:none;font-size:1.1rem;width:28px;padding:0;justify-content:center}
+@media (max-width:760px){.mclose{display:inline-flex}}
 body.glass .glassbtn{color:var(--accent)}
 .topbar{grid-row:1;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.6rem;padding:0 .6rem;background:var(--surface);border-bottom:1px solid var(--rule);z-index:30;position:relative}
 .brand{font-family:var(--display);font-weight:800;font-size:1.05rem;letter-spacing:-.02em;display:flex;align-items:center;gap:.5rem;color:var(--ink);text-decoration:none}
