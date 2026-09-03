@@ -158,23 +158,23 @@ body.glass .glassbtn{color:var(--accent)}
 .results .ask .a{margin:.4rem 0 .6rem;font-size:.9rem}
 .topbar .right{display:flex;align-items:center;gap:.5rem;padding-left:.6rem}
 body.thread-side .topbar{grid-template-columns:var(--margin-w-side) minmax(0,1fr) auto}
-.lead-col{display:flex;align-items:center;gap:.7rem;min-width:0;padding-left:.6rem;border-right:1px solid var(--rule);height:100%}
+.lead-col{display:flex;align-items:center;gap:.9rem;min-width:0;padding:0 .8rem 0 .7rem;border-right:1px solid var(--rule);height:100%}
 .lead-col .brand{flex:none}
 
 /* Activity ticker: the newest thing anyone did, cycling */
-.ticker{flex:1;min-width:0;display:flex;align-items:center;gap:.45rem;overflow:hidden}
-.ticker .pulse{width:6px;height:6px;background:var(--live);flex:none;animation:tpulse 2.4s ease-in-out infinite}
+.ticker{flex:1;min-width:0;display:flex;align-items:center;gap:.5rem;overflow:hidden;height:28px;padding:0 .5rem;background:var(--ground);border:1px solid var(--rule)}
+.ticker .pulse{width:5px;height:5px;background:var(--live);flex:none;animation:tpulse 2.4s ease-in-out infinite;box-shadow:0 0 0 2px color-mix(in srgb,var(--live) 18%,transparent)}
 @keyframes tpulse{0%,100%{opacity:1}50%{opacity:.25}}
-.ticker .titem{display:flex;align-items:baseline;gap:.35rem;min-width:0;flex:1;text-align:left;animation:tin .5s var(--ease)}
-@keyframes tin{from{opacity:0;transform:translateY(60%)}to{opacity:1;transform:none}}
+.ticker .titem{display:flex;align-items:baseline;gap:.4rem;min-width:0;flex:1;text-align:left;padding:0 .1rem;animation:tin .55s var(--ease)}
+@keyframes tin{0%{opacity:0;transform:translateY(70%);background:var(--accent-soft)}55%{background:var(--accent-soft)}100%{opacity:1;transform:none;background:transparent}}
 .ticker .tg{font-family:var(--mono);font-size:.72rem;color:var(--muted);flex:none}
-.ticker .tw{font-weight:600;font-size:.8rem;white-space:nowrap;flex:none}
-.ticker .tv{font-size:.78rem;color:var(--muted);white-space:nowrap;flex:none}
-.ticker .tt{font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ticker .tw{font-weight:600;font-size:.82rem;color:var(--ink);white-space:nowrap;flex:none}
+.ticker .tv{font-size:.76rem;color:var(--muted);white-space:nowrap;flex:none}
+.ticker .tt{font-size:.82rem;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .ticker .ta{font-family:var(--mono);font-size:.66rem;color:var(--muted);flex:none;margin-left:auto}
 .ticker .titem:hover .tt{text-decoration:underline}
-.ticker .tdots{display:flex;gap:2px;flex:none}
-.ticker .tdots i{width:3px;height:3px;background:var(--rule-2)}
+.ticker .tdots{display:flex;gap:3px;flex:none;margin-left:.15rem}
+.ticker .tdots i{width:3px;height:3px;background:var(--rule-2);transition:background var(--fast)}
 .ticker .tdots i.on{background:var(--accent)}
 @media (max-width:1100px){.ticker .tv,.ticker .tdots{display:none}}
 @media (max-width:900px){.ticker .tw{display:none}}
