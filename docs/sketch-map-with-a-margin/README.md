@@ -49,6 +49,9 @@ bun docs/sketch-map-with-a-margin/bundle.ts        # -> dist/sketch.html
   (their map grey, your changes as ghosts), *Send proposal* with a message; the
   author gets a Proposals section with Preview, Accept & publish, Decline.
   The Hippie Trail ships with one incoming proposal so you can play the author.
+- **Features list** on a Map, reading and editing: filter and type chips, per-row
+  zoom / copy / comment, or rename / duplicate / delete / reorder, expandable
+  properties and coordinates, a bulk bar synced to the canvas selection.
 - **Belongs to** on a Map: fit-state chips per Atlas, *Add to atlas…* picker.
 - **Atlas page**: door policy as a sentence, Pinned / Added by others /
   Waiting (owner), *Add a map ▾*, *Show all on map*, accept-by-pin.

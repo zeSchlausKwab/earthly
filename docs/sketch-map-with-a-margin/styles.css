@@ -396,6 +396,40 @@ body.glass .section>h4{background:color-mix(in srgb,var(--surface-2) 70%,transpa
 .ccomp .crow .sp{flex:1}
 body.glass .ccomp{background:transparent}
 
+/* Features list: the contents of a dataset, in inspect and in edit */
+.ftools{display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-bottom:.35rem}
+.ftools input{flex:1;min-width:7rem;height:24px;border:1px solid var(--rule-2);background:var(--ground);padding:0 .4rem;font-size:.82rem}
+.fchips{display:flex;gap:.15rem;flex-wrap:wrap}
+.fchip{font-family:var(--mono);font-size:.68rem;padding:.15rem .4rem;border:1px solid var(--rule);background:var(--surface);color:var(--muted)}
+.fchip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.fbulk{display:flex;align-items:center;gap:.3rem;padding:.25rem .35rem;background:var(--amber-soft);border:1px solid var(--amber);margin-bottom:.35rem}
+.fbulk .cnt{font-family:var(--mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em}
+.fbulk .sp{flex:1}
+.frows{display:flex;flex-direction:column;max-height:20rem;overflow-y:auto;border:1px solid var(--rule)}
+.frow{display:grid;grid-template-columns:16px 16px minmax(0,1fr) auto;gap:.3rem;align-items:center;padding:.2rem .3rem;border-bottom:1px solid var(--rule)}
+.frow:last-child{border-bottom:0}
+.frow:hover{background:var(--surface-2)}
+.frow.on{background:var(--accent-soft)}
+.frow .fx{color:var(--muted);font-size:.7rem;justify-self:center}
+.frow .fg{font-family:var(--mono);font-size:.78rem;color:var(--published);justify-self:center}
+.frow.on .fg{color:var(--accent)}
+.frow .fmain{text-align:left;min-width:0;display:block;padding:.1rem 0}
+.frow .fn{display:block;font-size:.86rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.frow .fs{display:block;font-family:var(--mono);font-size:.66rem;color:var(--muted)}
+.frow .fa{display:flex;gap:.05rem;opacity:.45;transition:opacity var(--fast)}
+.frow:hover .fa,.frow.on .fa{opacity:1}
+.frow .fa button{width:22px;height:22px;display:grid;place-items:center;color:var(--ink-2);font-family:var(--mono);font-size:.72rem}
+.frow .fa button:hover{background:var(--surface-3)}
+.frow .fa button.danger{color:var(--red)}
+.fprops{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:.25rem;padding:.2rem .3rem .35rem 2.2rem;border-top:1px dashed var(--rule)}
+.fp{display:inline-flex;align-items:center;gap:.25rem;font-size:.78rem;border:1px solid var(--rule);padding:.05rem .3rem;background:var(--surface)}
+.fp b{font-family:var(--mono);font-size:.66rem;color:var(--muted);font-weight:500}
+.fp input{width:7rem;border:0;border-bottom:1px solid var(--rule-2);background:transparent;font-size:.78rem;padding:0}
+.fcoords{width:100%;font-size:.66rem;color:var(--muted)}
+.section>h4 button.hint{border:0;background:transparent;cursor:pointer}
+.section>h4 button.hint:hover{color:var(--ink);text-decoration:underline}
+@media (max-width:760px){.frow .fa{opacity:1}.frows{max-height:none}}
+
 /* Proposals */
 .prop{border:1px solid var(--rule);padding:.5rem .6rem;display:flex;flex-direction:column;gap:.3rem;border-left:3px solid var(--amber)}
 .prop.accepted{border-left-color:var(--green)}

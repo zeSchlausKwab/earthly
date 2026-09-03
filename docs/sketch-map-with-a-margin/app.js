@@ -59,6 +59,10 @@
 		followText: true,
 		followMuteUntil: 0,
 		emphasis: new Set(),
+		featFilter: '',
+		featType: null,
+		featExpanded: new Set(),
+		featAll: false,
 		basemap: 'svg',
 		ask: { msgs: [] },
 		counter: 1,
@@ -842,6 +846,41 @@
 			: `${mine(pub) ? `<button class="btn sm primary keep" data-act="edit">Edit</button>` : `<span class="split"><button class="btn sm primary keep" data-act="propose" title="Offer changes to ${esc(person(pub.author).name)}; they decide, nothing forks">Propose changes</button><button class="btn sm primary keep" data-act="menu" data-menu="edit-other" aria-label="Other ways to edit">▾</button></span>`}<button class="btn" data-act="${onShelf ? 'remove-shelf' : 'add-shelf'}" data-id="${id}">${onShelf ? 'Remove from map' : 'Show on map'}</button>`
 		const stories = storiesReferencing(id)
 		const glance = `<div class="section"><h4>At a glance</h4><dl class="kv two"><dt>Features</dt><dd>${m.features.length}</dd><dt>Size</dt><dd>${esc(m.size)}</dd><dt>Version</dt><dd>${pub.version || 0}${inEdit ? ' → ' + ((pub.version || 0) + 1) : ''}</dd><dt>Audience</dt><dd>${inEdit ? esc(audienceLabel(S.drafts[id].audience)) : 'Everyone'}</dd><dt>Published</dt><dd>${pub.published ? esc(pub.published) : 'not yet'}</dd><dt>Author</dt><dd>${esc(person(pub.author).name)}</dd>${pub.forkOf ? `<dt>Forked from</dt><dd><button class="btn sm quiet" data-act="open" data-kind="map" data-id="${pub.forkOf}">${esc(D.maps[pub.forkOf].title)}</button></dd>` : ''}</dl></div>`
+		const GLYPH = { point: '●', line: '╱', polygon: '⬠' }
+		const featuresSection = (() => {
+			const all = m.features
+			const q = S.featFilter.trim().toLowerCase()
+			const list = all.filter((f) => (!S.featType || f.type === S.featType) && (!q || f.name.toLowerCase().includes(q) || Object.values(f.props || {}).some((v) => String(v).toLowerCase().includes(q))))
+			const counts = { point: 0, line: 0, polygon: 0 }
+			all.forEach((f) => { counts[f.type] = (counts[f.type] || 0) + 1 })
+			const cap = 12
+			const shown = S.featAll ? list : list.slice(0, cap)
+			const selCount = inEdit ? all.filter((f) => S.selection.has(f.id)).length : 0
+			const chip = (t, label) => `<button class="fchip ${S.featType === t ? 'on' : ''}" data-act="feat-type" data-t="${t || ''}">${label}</button>`
+			const row = (f) => {
+				const on = inEdit ? S.selection.has(f.id) : S.emphasis.has(`${id}:${f.id}`)
+				const open = S.featExpanded.has(f.id)
+				const props = Object.entries(f.props || {}).filter(([k]) => k !== 'label')
+				const size = f.type === 'point' ? '1 point' : `${f.coords.length} points`
+				return `<div class="frow ${on ? 'on' : ''}" data-hover-uid="${id}:${f.id}">
+					<button class="fx" data-act="feat-expand" data-id="${f.id}" aria-label="${open ? 'Collapse' : 'Properties'}">${open ? '▾' : '▸'}</button>
+					<span class="fg ${f.type}" title="${f.type}">${GLYPH[f.type] || '◆'}</span>
+					<button class="fmain" data-act="${inEdit ? 'feat-select' : 'feat-focus'}" data-id="${f.id}"><span class="fn">${esc(f.props && f.props.label ? f.props.label : f.name)}</span><span class="fs">${size}${props.length ? ` · ${props.length} propert${props.length === 1 ? 'y' : 'ies'}` : ''}</span></button>
+					<span class="fa">
+						<button data-act="feat-zoom" data-id="${f.id}" title="Zoom to">⌖</button>
+						${inEdit ? `<button data-act="feat-rename" data-id="${f.id}" title="Rename">✎</button><button data-act="feat-duplicate" data-id="${f.id}" title="Duplicate">⧉</button><button data-act="feat-delete" data-id="${f.id}" title="Delete" class="danger">⌫</button><button data-act="feat-up" data-id="${f.id}" title="Move up">↑</button><button data-act="feat-down" data-id="${f.id}" title="Move down">↓</button>` : `<button data-act="feat-copy" data-id="${f.id}" title="Copy GeoJSON">⧉</button><button data-act="feat-comment" data-id="${f.id}" title="Comment on this feature">💬</button>`}
+					</span>
+					${open ? `<div class="fprops">${props.length ? props.map(([k, v]) => `<span class="fp"><b>${esc(k)}</b>${inEdit ? `<input type="text" value="${esc(String(v))}" data-feat-prop="${f.id}" data-key="${esc(k)}">` : `<span>${esc(String(v))}</span>`}</span>`).join('') : '<span class="muted" style="font-size:.8rem">No properties.</span>'}${inEdit ? `<button class="chip add" data-act="feat-prop-add" data-id="${f.id}">+ property</button>` : ''}<div class="fcoords mono">${f.type === 'point' ? `${f.coords[1]}, ${f.coords[0]}` : `${f.coords.length} vertices · first ${f.coords[0][1]}, ${f.coords[0][0]}`}</div></div>` : ''}
+				</div>`
+			}
+			return `<div class="section" id="features">
+				<h4>Features <span class="n">${all.length}</span><span class="sp"></span>${inEdit ? `<button class="hint" data-act="select-all">Select all</button>` : ''}</h4>
+				<div class="ftools"><input type="text" id="featq" placeholder="Filter features…" value="${esc(S.featFilter)}"><span class="fchips">${chip(null, `All ${all.length}`)}${counts.point ? chip('point', `● ${counts.point}`) : ''}${counts.line ? chip('line', `╱ ${counts.line}`) : ''}${counts.polygon ? chip('polygon', `⬠ ${counts.polygon}`) : ''}</span></div>
+				${selCount ? `<div class="fbulk"><span class="cnt">${selCount} selected</span><button class="btn sm" data-act="feat-zoom-sel">Zoom to</button><button class="btn sm" data-act="tool-action" data-k="duplicate">Duplicate</button><button class="btn sm danger" data-act="delete-sel">Delete</button><span class="sp"></span><button class="btn sm quiet" data-act="clear-selection">×</button></div>` : ''}
+				<div class="frows">${shown.map(row).join('') || `<div class="empty">${all.length ? 'No feature matches.' : 'Nothing drawn yet.'}</div>`}</div>
+				${list.length > cap ? `<button class="chip add" data-act="feat-all">${S.featAll ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}
+			</div>`
+		})()
 		const belonging = `<div class="section"><h4>Belonging <span class="sp"></span>${inEdit ? '' : `<span class="hint">edit the map to change</span>`}</h4>
 			<div class="sub">Atlases</div>
 			<div class="chips">${m.belongsTo.map((aid) => { const a = D.atlases[aid]; if (!a) return ''; const f = fitState(m, a); return `<span class="chip ${f.cls}" title="${esc(policyText(a.policy))}"><button style="display:contents" data-act="open" data-kind="atlas" data-id="${aid}">${esc(f.text)}</button>${inEdit ? `<button class="x" data-act="belong-remove" data-id="${aid}" aria-label="Remove">×</button>` : ''}</span>` }).join('')}${inEdit ? `<button class="chip add" data-act="dialog" data-dialog="add-to-atlas">+ Add to atlas…</button>` : m.belongsTo.length ? '' : '<span class="empty">Not in any atlas.</span>'}</div>
@@ -852,6 +891,7 @@
 		const details = `<div class="margin-body">
 			<div class="lead">${inEdit ? `<textarea data-bind="summary" rows="3" placeholder="What is this map?">${esc(m.summary)}</textarea>` : `<p>${esc(m.summary) || '<span class="muted">No description.</span>'}</p>`}</div>
 			${glance}
+			${featuresSection}
 			${belonging}
 			${props}
 			${appears}
@@ -1251,6 +1291,7 @@
 			S.popup = null; render(); return
 		}
 		S.popup = { mapId, fid }; render()
+		if (S.route.kind === 'map' && S.route.id === mapId && S.tab === 'details') { const el = $(`.frow[data-hover-uid="${mapId}:${fid}"]`); if (el) el.scrollIntoView({ block: 'nearest' }) }
 	}
 	// SVG fallback: graticule only, features projected with P().
 	function buildWorld() {
@@ -1626,6 +1667,21 @@
 		'scene-remove'(d) { const dr = S.drafts[S.editing.id]; if (dr.presentation && dr.presentation.scenes) dr.presentation.scenes.splice(+d.i, 1); render() },
 		'scene-rename'(d) { const dr = S.drafts[S.editing.id]; const sc = dr.presentation.scenes[+d.i]; const t = prompt('Scene title', sc.title); if (t !== null && t.trim()) { sc.title = t.trim(); render() } },
 		'go-scene'(d) { goScene(view('story', S.route.id), +d.i) },
+		'feat-type'(d) { S.featType = d.t || null; S.featAll = false; render() },
+		'feat-all'() { S.featAll = !S.featAll; render() },
+		'feat-expand'(d) { if (S.featExpanded.has(d.id)) S.featExpanded.delete(d.id); else S.featExpanded.add(d.id); render() },
+		'feat-select'(d) { if (S.selection.has(d.id)) S.selection.delete(d.id); else S.selection.add(d.id); render() },
+		'feat-focus'(d) { const k = `${S.route.id}:${d.id}`; S.emphasis = S.emphasis.has(k) ? new Set() : new Set([k]); render(); if (S.emphasis.size) A['feat-zoom'](d) },
+		'feat-zoom'(d) { const f = view('map', S.route.id).features.find((x) => x.id === d.id); if (f) flyTo(bbox([f]), true) },
+		'feat-zoom-sel'() { const m = view('map', S.route.id); const sel = m.features.filter((f) => S.selection.has(f.id)); if (sel.length) flyTo(bbox(sel), sel.length === 1) },
+		'feat-copy'() { toast('Feature GeoJSON copied.') },
+		'feat-comment'(d) { const f = view('map', S.route.id).features.find((x) => x.id === d.id); if (!f) return; S.annot = { mode: null, geom: { type: f.type === 'polygon' ? 'line' : f.type, coords: f.coords }, drawing: [] }; S.tab = 'comments'; render(); toast(`“${f.name}” attached to your comment.`) },
+		'feat-rename'(d) { const dr = S.drafts[S.editing.id]; const f = dr.features.find((x) => x.id === d.id); if (!f) return; const t = prompt('Feature name', f.name); if (t !== null && t.trim()) { pushUndo(); f.name = t.trim(); render() } },
+		'feat-duplicate'(d) { const dr = S.drafts[S.editing.id]; const f = dr.features.find((x) => x.id === d.id); if (!f) return; pushUndo(); const i = dr.features.indexOf(f); dr.features.splice(i + 1, 0, Object.assign(clone(f), { id: `${f.id}-copy-${Date.now()}`, name: `${f.name} copy` })); render(); toast('Duplicated.', { label: 'Undo', fn: undo }) },
+		'feat-delete'(d) { const dr = S.drafts[S.editing.id]; const f = dr.features.find((x) => x.id === d.id); if (!f) return; pushUndo(); dr.features = dr.features.filter((x) => x.id !== d.id); S.selection.delete(d.id); render(); toast(`Deleted “${f.name}”.`, { label: 'Undo', fn: undo }) },
+		'feat-up'(d) { const dr = S.drafts[S.editing.id]; const i = dr.features.findIndex((x) => x.id === d.id); if (i > 0) { pushUndo(); const [f] = dr.features.splice(i, 1); dr.features.splice(i - 1, 0, f); render() } },
+		'feat-down'(d) { const dr = S.drafts[S.editing.id]; const i = dr.features.findIndex((x) => x.id === d.id); if (i >= 0 && i < dr.features.length - 1) { pushUndo(); const [f] = dr.features.splice(i, 1); dr.features.splice(i + 1, 0, f); render() } },
+		'feat-prop-add'(d) { const dr = S.drafts[S.editing.id]; const f = dr.features.find((x) => x.id === d.id); if (!f) return; const k = prompt('Property name'); if (!k || !k.trim()) return; pushUndo(); f.props = f.props || {}; f.props[k.trim()] = ''; S.featExpanded.add(d.id); render() },
 		'go-block'(d) { const st = view('story', S.route.id); const i = +d.i; const scenes = st.presentation && st.presentation.scenes ? st.presentation.scenes : []; S.sceneIndex = scenes.findIndex((sc) => sc.anchor === i); applyBlockState(st, i) },
 		'follow-text'() { S.followText = !S.followText; render(); toast(S.followText ? 'The map now follows the paragraph you read.' : 'The map stays where you put it.') },
 		'blk-layer'(d) { const dr = S.drafts[S.editing.id]; const i = +d.i; dr.presentation = dr.presentation || { version: 1, layerOrder: dr.maps.slice(), layers: {}, scenes: [] }; dr.presentation.scenes = dr.presentation.scenes || []; let sc = dr.presentation.scenes.find((x) => x.anchor === i); if (!sc) { const b = dr.body[i]; sc = { id: `sc-${Date.now()}`, title: b && b.type === 'h' ? b.text : `¶${i + 1}`, anchor: i, layers: {} }; dr.presentation.scenes.push(sc); dr.presentation.scenes.sort((x, y) => x.anchor - y.anchor) } sc.layers = sc.layers || {}; const cur = sc.layers[d.id]; if (!cur) sc.layers[d.id] = { visible: true }; else if (cur.visible) sc.layers[d.id] = { visible: false }; else delete sc.layers[d.id]; if (!Object.keys(sc.layers).length && !sc.view) dr.presentation.scenes = dr.presentation.scenes.filter((x) => x !== sc); applyBlockState(dr, i, { fly: false }) },
@@ -1819,6 +1875,8 @@
 		if (e.target.id === 'bq') { S.browse.q = e.target.value; const host = $('#lrows'); if (host) host.innerHTML = browseRows() }
 		if (e.target.id === 'bsort') { S.browse.sort = e.target.value; render() }
 		if (e.target.id === 'csort') { S.commentSort = e.target.value; render() }
+		if (e.target.id === 'featq') { S.featFilter = e.target.value; S.featAll = false; const host = $('#features'); const scroll = $('.margin-body') ? $('.margin-body').scrollTop : 0; render(); const q = $('#featq'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length) } if ($('.margin-body')) $('.margin-body').scrollTop = scroll }
+		if (e.target.dataset.featProp && S.editing) { const dr = S.drafts[S.editing.id]; const f = dr.features.find((x) => x.id === e.target.dataset.featProp); if (f) { f.props = f.props || {}; f.props[e.target.dataset.key] = e.target.value } return }
 		if (e.target.id === 'ctext') autoGrow(e.target)
 	})
 	document.addEventListener('keydown', (e) => {

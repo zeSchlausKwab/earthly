@@ -152,11 +152,22 @@ Four rows, then tabs. State pill: `v3 · 2026-09-01` / `draft · unpublished` / 
 ### 6.3 Details sections, in order
 Every section is a box with a header band (mono uppercase title, optional count or hint on the right). The description is an unboxed lead above them.
 
-- **Map**: lead summary · *At a glance* (Features, Size, Version, Audience, Published, Author, Forked from) · *Belonging* (Atlases with fit chips; Topics) · *Properties* (only when an atlas schema applies; from which atlas) · *Appears in N* · *Proposals N waiting* (amber band) · quiet trailing row: Discard draft / Delete map.
+- **Map**: lead summary · *At a glance* (Features, Size, Version, Audience, Published, Author, Forked from) · *Features* (§6.4) · *Belonging* (Atlases with fit chips; Topics) · *Properties* (only when an atlas schema applies; from which atlas) · *Appears in N* · *Proposals N waiting* (amber band) · quiet trailing row: Discard draft / Delete map.
 - **Story**: prose lead with reference chips (⌖ label; hover highlights, click flies) · *Proposals* · *Maps in this story N* (+ Reference a map while editing).
 - **Atlas**: lead description · *Who can add maps here* (radio sentences while editing) · *Pinned by me/author N* · *Added by others N* · *Waiting for me N* (owner only, amber, Pin · accept).
 - **Sighting**: photo + note lead · *When & where* (Seen, Expires, Position, By).
 - **Person**: header + Maps · Stories · Atlases lists.
+
+### 6.4 The Features list
+
+The contents of a Map, in both modes, directly under *At a glance*.
+
+- **Row**: expander, type glyph (● line ╱ area ⬠), name, then `4 points · 2 properties`. Clicking the name **focuses** it when reading (emphasised on the canvas, camera flies to it) and **selects** it when editing (the same selection the canvas and the AI scope use, so the two can never disagree).
+- **Row actions**, revealed on hover and always visible on a phone. Reading: ⌖ zoom to · ⧉ copy GeoJSON · 💬 comment on this feature, which attaches its geometry to a comment and opens the Comments tab. Editing: ⌖ zoom to · ✎ rename · ⧉ duplicate · ⌫ delete · ↑ ↓ reorder, with Undo offered in the toast.
+- **Expanded** shows the feature's properties as chips, editable in place while editing with **+ property**, and its coordinates (a point's position, or the vertex count and first vertex).
+- **Tools**: a filter box over names and property values, and type chips with counts (`All 13 · ● 12 · ╱ 1`). Long lists cap at 12 rows with **Show all N**; the list scrolls within its box.
+- **Bulk bar** appears while a selection exists: `2 selected · Zoom to · Duplicate · Delete · ×`. *Select all* sits in the section header.
+- Clicking a feature on the canvas scrolls its row into view; hovering a row highlights the geometry.
 
 ## 7. Editing model
 
