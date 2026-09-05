@@ -1527,7 +1527,11 @@ export function AppSidebar({
 		}
 
 		if (metaModeActive && isMetaMode(contentMode)) {
-			return renderMetaContent(contentMode)
+			return (
+				<div className="h-full min-h-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+					{renderMetaContent(contentMode)}
+				</div>
+			)
 		}
 
 		if (showEntityAsFullPanel || contentMode === 'edit' || contentMode === 'context-editor') {

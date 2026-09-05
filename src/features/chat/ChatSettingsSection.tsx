@@ -596,13 +596,14 @@ export function ChatSettingsSection() {
 				</div>
 
 				<div className="space-y-2">
-					<Label className="text-xs text-muted-foreground">Paste exported settings JSON</Label>
+					<Label htmlFor="chat-settings-import" className="text-xs text-muted-foreground">Paste exported settings JSON</Label>
 					<Textarea
+						id="chat-settings-import"
 						value={importText}
 						onChange={(event) => setImportText(event.target.value)}
 						placeholder='{ "provider": "lmstudio", ... }'
 						rows={4}
-						className="min-w-0 max-w-full font-mono text-xs"
+						className="max-h-48 min-w-0 max-w-full overflow-y-auto font-mono text-xs"
 					/>
 					<Button
 						type="button"
