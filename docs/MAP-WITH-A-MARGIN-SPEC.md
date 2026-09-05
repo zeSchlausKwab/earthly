@@ -467,6 +467,10 @@ first adds an authoritative body reference and then a presentation layer.
 
 ## 17. Build order and acceptance
 
+September 5 finishing-pass implementation and measured verification are recorded in
+[REDESIGN-FINISHING-CHECKLIST.md](REDESIGN-FINISHING-CHECKLIST.md). That checkpoint does not
+waive the wider acceptance requirements or the outstanding repository type/native-device gates.
+
 The numbered items below are implementation order inside one migration, not separately releasable
 slices. The rewrite is accepted and shipped only after every item passes and the temporary
 compatibility layout/routing paths have been removed.

@@ -14,7 +14,7 @@ import { completeTour, skipTour, startTour } from '../tasks/onboarding/tour'
 
 test('anonymous first visit can complete the tour', async ({ earthly }) => {
 	await earthly.open({ tour: 'new', discover: 'new' })
-	await expect(earthly.page.getByRole('dialog', { name: 'Discover Earthly' })).toBeVisible()
+	await expect(earthly.page.getByRole('region', { name: 'Welcome to Earthly' })).toBeVisible()
 	await startTour(earthly)
 	await expect(earthly.page.getByText('Welcome to Earthly')).toBeVisible()
 	await completeTour(earthly)
@@ -49,19 +49,22 @@ test('anonymous first visit can skip the tour', async ({ earthly }) => {
 	await expect(earthly.page.locator('.driver-popover')).toBeHidden()
 })
 
-test('Discover opens once automatically and remains available from navigation', async ({
+test('Welcome opens once; Discover remains available from navigation', async ({
 	earthly,
 }) => {
 	await earthly.open({ discover: 'new' })
 	const dialog = earthly.page.getByRole('dialog', { name: 'Discover Earthly' })
-	await expect(dialog).toBeVisible()
-	await earthly.page.getByRole('button', { name: 'Close Discover' }).click()
+	const welcome = earthly.page.getByRole('region', { name: 'Welcome to Earthly' })
+	await expect(welcome).toBeVisible()
+	await earthly.page.getByRole('button', { name: 'Dismiss welcome' }).click()
+	await expect(welcome).toBeHidden()
 	await expect(dialog).toBeHidden()
 	await expect
 		.poll(() => earthly.page.evaluate(() => localStorage.getItem('earthly-discover-welcome-v1')))
 		.toBe('seen')
 
 	await earthly.page.reload({ waitUntil: 'domcontentloaded' })
+	await expect(welcome).toBeHidden()
 	await expect(dialog).toBeHidden()
 	await openPanel(earthly, 'Settings')
 	const beforeDiscover = earthly.page.url()
@@ -113,7 +116,7 @@ test('Publish menu owns the working copy audience', async ({ earthly }, testInfo
 	await startDataset(earthly)
 	await expect(earthly.page.locator('[data-destination-kind]')).toHaveCount(0)
 
-	const audienceTrigger = earthly.page.getByRole('button', { name: /^Audience/ }).first()
+	const audienceTrigger = earthly.page.getByRole('button', { name: /^(?:Audience|Publish)$/ }).first()
 	await expect(audienceTrigger).toBeVisible()
 	await audienceTrigger.click()
 	const audienceMenu = earthly.page.getByRole('menu')
