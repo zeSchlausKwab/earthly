@@ -25,6 +25,7 @@
  */
 
 import { toast } from 'sonner'
+import { publishFailureMessage } from '@/features/geo-editor/hooks/publishFailure'
 import { castEvent } from 'applesauce-core/casts'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import {
@@ -1095,6 +1096,7 @@ export function GroupEditorPanel({
 	const handleSave = async () => {
 		if (!currentUser) return
 		setSaveError(null)
+		toast.dismiss('atlas-publish-error')
 
 		if (!name.trim()) {
 			setSaveError('Atlas name is required.')
@@ -1199,11 +1201,9 @@ export function GroupEditorPanel({
 			onSave(cast)
 			onClose()
 		} catch (error) {
-			setSaveError(
-				error instanceof Error
-					? error.message
-					: "Couldn't publish — check your connection and try again.",
-			)
+			const message = publishFailureMessage('publish this Atlas', error, isEditing ? 'Save Atlas' : 'Create Atlas')
+			setSaveError(message)
+			toast.error(message, { id: 'atlas-publish-error', duration: 10_000 })
 		} finally {
 			setIsSaving(false)
 		}

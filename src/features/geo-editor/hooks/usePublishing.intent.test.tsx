@@ -18,6 +18,8 @@ const ownerKey = generateSecretKey()
 const contributor = getPublicKey(contributorKey)
 const owner = getPublicKey(ownerKey)
 const published: Array<{ event: NostrEvent; options: unknown }> = []
+let publishFailure: Error | null = null
+const errorToast = mock((_message: string, _options?: unknown) => {})
 let signingKey = contributorKey
 const signer: EventSigner = {
 	getPublicKey: () => getPublicKey(signingKey),
@@ -29,10 +31,11 @@ mock.module('@/lib/nostr', () => ({
 	accounts: { signer },
 	eventStore: testStore,
 	publish: async (event: NostrEvent, options: unknown) => {
+		if (publishFailure) throw publishFailure
 		published.push({ event, options })
 	},
 }))
-mock.module('sonner', () => ({ toast: { success() {}, error() {} } }))
+mock.module('sonner', () => ({ toast: { success() {}, error: errorToast, dismiss() {} } }))
 
 let act: typeof import('react').act
 let createElement: typeof import('react').createElement
@@ -86,6 +89,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
 	published.length = 0
+	publishFailure = null
+	errorToast.mockClear()
 	signingKey = contributorKey
 	useEditorStore.setState(initialState, true)
 })
@@ -194,6 +199,28 @@ async function mountHook(options: Partial<Parameters<typeof usePublishing>[0]> =
 }
 
 describe('saved Map intent controls publication', () => {
+	for (const intent of ['edit', 'fork', 'propose'] as const) {
+		test(`${intent} failure shows one actionable toast per attempt and retains the draft for retry`, async () => {
+			const { draft } = installDraft(intent)
+			if (intent === 'edit') signingKey = ownerKey
+			const current = await mountHook({ currentUserPubkey: intent === 'edit' ? owner : contributor })
+			const dispatch = () => intent === 'edit' ? current().handlePublishUpdate()
+				: intent === 'fork' ? current().handlePublishCopy() : current().handleProposeEdit('Fix geometry')
+			publishFailure = new Error('Relay rejected the event')
+			for (let attempt = 1; attempt <= 2; attempt++) {
+				await flush(dispatch)
+				expect(errorToast).toHaveBeenCalledTimes(attempt)
+				expect(errorToast.mock.calls[attempt - 1]?.[0]).toContain('Relay rejected the event')
+				expect(useEditorStore.getState().geoEditDrafts[draft.id]).toEqual(draft)
+				expect(useEditorStore.getState().isPublishing).toBe(false)
+			}
+			expect(published).toHaveLength(0)
+			publishFailure = null
+			await flush(dispatch)
+			expect(published).toHaveLength(1)
+			expect(useEditorStore.getState().publishError).toBeNull()
+		})
+	}
 	test('a materialized fork can publish without resolving its original Map, and only as a new copy', async () => {
 		const { draft } = installDraft('fork')
 		useEditorStore.setState({ activeDataset: null })

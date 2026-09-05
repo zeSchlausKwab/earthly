@@ -37,6 +37,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
+import { publishFailureMessage } from '@/features/geo-editor/hooks/publishFailure'
 import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import {
 	GeoRichTextEditor,
@@ -1030,6 +1031,7 @@ export function StoryEditorPanel({
 	const handleSave = async () => {
 		if (!currentUser) return
 		setSaveError(null)
+		toast.dismiss('story-publish-error')
 
 		if (!isProposal && !title.trim()) {
 			setSaveError('A title is required to publish.')
@@ -1108,13 +1110,9 @@ export function StoryEditorPanel({
 			// clobbering the publish destination (workflow audit P1).
 			onSave(cast)
 		} catch (error) {
-			setSaveError(
-				error instanceof Error && error.message === 'No active account'
-					? error.message
-					: error instanceof Error
-						? error.message
-						: "Couldn't publish — check your connection and try again.",
-			)
+			const message = publishFailureMessage(isProposal ? 'send this Story proposal' : 'publish this Story', error, submitLabel)
+			setSaveError(message)
+			toast.error(message, { id: 'story-publish-error', duration: 10_000 })
 		} finally {
 			setIsSaving(false)
 		}

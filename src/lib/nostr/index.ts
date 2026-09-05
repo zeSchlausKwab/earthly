@@ -57,6 +57,7 @@ import {
 } from './deletionCache'
 import { eventStore, isEventDeleted } from './store'
 import { cacheQueryableFilters } from './filterGuards'
+import { requirePublishAcknowledgement } from './publishAcknowledgement'
 import { LIVE_BEACON_KIND } from './kinds'
 import { invalidateCachedMapLayerSetForDeletion } from './map-layer-set/cache'
 import {
@@ -715,10 +716,17 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 			})
 		: null
 	if (queued) notifyPublishOutboxChanged()
-	if (event.kind === 5) await ingestDeletionEvent(event)
-	else eventStore.add(event)
+	// A native queued event is already durable; a web event must first be
+	// acknowledged. Otherwise failed Map publishes appear as published locally.
+	if (queued) {
+		if (event.kind === 5) await ingestDeletionEvent(event)
+		else eventStore.add(event)
+	}
 	const deliveryRelays = queued ? pendingOutboxRelays(queued) : targetRelays
-	if (deliveryRelays.length === 0) return []
+	if (deliveryRelays.length === 0) {
+		if (!queued) requirePublishAcknowledgement([])
+		return []
+	}
 	// Normal native authoring succeeds once the immutable signed event is durable.
 	// Delivery continues in the background and survives process death. Explicit
 	// relay-management publishes remain synchronous because that UI displays each
@@ -731,6 +739,13 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 	}
 	try {
 		const responses = await pool.publish(deliveryRelays, event)
+		// Explicit relay-management calls need every per-relay response, while
+		// normal web authoring must not report success when all relays refused it.
+		if (!outbox && !relays) requirePublishAcknowledgement(responses)
+		if (!queued && responses.some((response) => response.ok)) {
+			if (event.kind === 5) await ingestDeletionEvent(event)
+			else eventStore.add(event)
+		}
 		if (outbox && queued) {
 			await outbox.recordResults(queued.id, relayResults(responses))
 			notifyPublishOutboxChanged()

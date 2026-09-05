@@ -213,7 +213,14 @@ export function usePublishing({
 	const setIsPublishing = useEditorStore((state) => state.setIsPublishing)
 	const setPublishMessage = useEditorStore((state) => state.setPublishMessage)
 	const setIsDirty = useEditorStore((state) => state.setIsDirty)
-	const setPublishError = useEditorStore((state) => state.setPublishError)
+	const setStoredPublishError = useEditorStore((state) => state.setPublishError)
+	// Publish can be initiated outside the edit panel, where its inline error is
+	// not visible. Report every failed attempt here, including validation failures.
+	const setPublishError = useCallback((message: string | null) => {
+		setStoredPublishError(message)
+		if (message) toast.error(message, { id: 'map-publish-error', duration: 10_000 })
+		else toast.dismiss('map-publish-error')
+	}, [setStoredPublishError])
 	const setActiveDataset = useEditorStore((state) => state.setActiveDataset)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
@@ -1250,7 +1257,6 @@ export function usePublishing({
 			} catch (error) {
 				console.error('Failed to publish edit proposal', error)
 				setPublishError(publishFailureMessage('publish this edit proposal', error))
-				toast.error('Failed to publish edit proposal.')
 			} finally {
 				setIsPublishing(false)
 			}
