@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { attachBasemapLifecycle, type BasemapState } from "./mapLifecycle";
 import {
   Tooltip,
   TooltipContent,
@@ -161,18 +162,6 @@ type MapProps = {
   loading?: boolean;
 } & Omit<MapLibreGL.MapOptions, "container" | "style">;
 
-function DefaultLoader() {
-  return (
-    <div className="bg-background/50 pointer-events-none absolute inset-0 z-10 flex items-center justify-center backdrop-blur-xs">
-      <div className="flex gap-1">
-        <span className="bg-muted-foreground/60 size-1.5 animate-pulse rounded-full" />
-        <span className="bg-muted-foreground/60 size-1.5 animate-pulse rounded-full [animation-delay:150ms]" />
-        <span className="bg-muted-foreground/60 size-1.5 animate-pulse rounded-full [animation-delay:300ms]" />
-      </div>
-    </div>
-  );
-}
-
 function getViewport(map: MapLibreGL.Map): MapViewport {
   const center = map.getCenter();
   return {
@@ -199,10 +188,9 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapInstance, setMapInstance] = useState<MapLibreGL.Map | null>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [isStyleLoaded, setIsStyleLoaded] = useState(false);
+  const [basemap, setBasemap] = useState<BasemapState>({ styleReady: false, status: 'loading' });
+  const lifecycleRef = useRef<ReturnType<typeof attachBasemapLifecycle> | null>(null);
   const currentStyleRef = useRef<MapStyleOption | null>(null);
-  const styleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const internalUpdateRef = useRef(false);
   const resolvedTheme = useResolvedTheme(themeProp);
 
@@ -221,13 +209,6 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
 
   // Expose the map instance to the parent component
   useImperativeHandle(ref, () => mapInstance as MapLibreGL.Map, [mapInstance]);
-
-  const clearStyleTimeout = useCallback(() => {
-    if (styleTimeoutRef.current) {
-      clearTimeout(styleTimeoutRef.current);
-      styleTimeoutRef.current = null;
-    }
-  }, []);
 
   // Initialize the map
   useEffect(() => {
@@ -248,19 +229,8 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
       ...viewport,
     });
 
-    const styleDataHandler = () => {
-      clearStyleTimeout();
-      // Delay to ensure style is fully processed before allowing layer operations
-      // This is a workaround to avoid race conditions with the style loading
-      // else we have to force update every layer on setStyle change
-      styleTimeoutRef.current = setTimeout(() => {
-        setIsStyleLoaded(true);
-        if (projection) {
-          map.setProjection(projection);
-        }
-      }, 100);
-    };
-    const loadHandler = () => setIsLoaded(true);
+    const lifecycle = attachBasemapLifecycle(map, initialStyle, setBasemap);
+    lifecycleRef.current = lifecycle;
 
     if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
       // Dev-only debug handle from the moment of construction (pairs with
@@ -274,19 +244,15 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
       onViewportChangeRef.current?.(getViewport(map));
     };
 
-    map.on("load", loadHandler);
-    map.on("styledata", styleDataHandler);
     map.on("move", handleMove);
     setMapInstance(map);
 
     return () => {
-      clearStyleTimeout();
-      map.off("load", loadHandler);
-      map.off("styledata", styleDataHandler);
+      lifecycle.dispose();
+      lifecycleRef.current = null;
       map.off("move", handleMove);
       map.remove();
-      setIsLoaded(false);
-      setIsStyleLoaded(false);
+      setBasemap({ styleReady: false, status: 'loading' });
       setMapInstance(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -329,19 +295,20 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
 
     if (currentStyleRef.current === newStyle) return;
 
-    clearStyleTimeout();
     currentStyleRef.current = newStyle;
-    setIsStyleLoaded(false);
+    lifecycleRef.current?.setStyle(newStyle);
+  }, [mapInstance, resolvedTheme, mapStyles]);
 
-    mapInstance.setStyle(newStyle, { diff: true });
-  }, [mapInstance, resolvedTheme, mapStyles, clearStyleTimeout]);
+  useEffect(() => {
+    if (mapInstance && basemap.styleReady && projection) mapInstance.setProjection(projection);
+  }, [mapInstance, basemap.styleReady, projection]);
 
   const contextValue = useMemo(
     () => ({
       map: mapInstance,
-      isLoaded: isLoaded && isStyleLoaded,
+      isLoaded: basemap.styleReady,
     }),
-    [mapInstance, isLoaded, isStyleLoaded],
+    [mapInstance, basemap.styleReady],
   );
 
   return (
@@ -350,8 +317,21 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
         ref={containerRef}
         className={cn("relative h-full w-full", className)}
       >
-        {(!isLoaded || loading) && <DefaultLoader />}
-        {/* SSR-safe: children render only when map is loaded on client */}
+        {(basemap.status !== 'ready' || loading) && (
+          <div className="earthly-basemap-status pointer-events-auto absolute bottom-2 left-2 z-10 max-w-[calc(100%-4rem)] border border-border bg-background/95 px-2 py-1 text-xs shadow-sm" aria-label="Basemap status">
+            <span role="status">
+              {basemap.status === 'error' ? 'Basemap unavailable. Your work is safe.' :
+                basemap.status === 'fallback' ? 'No basemap · showing your maps' : 'Loading basemap…'}
+            </span>
+            {(basemap.status === 'error' || basemap.status === 'fallback') && (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="min-h-11 font-medium underline md:min-h-8" onClick={() => lifecycleRef.current?.retry()}>Retry basemap</button>
+                {basemap.status === 'error' && <button type="button" className="min-h-11 font-medium underline md:min-h-8" onClick={() => lifecycleRef.current?.useFallback()}>Continue without basemap</button>}
+              </div>
+            )}
+          </div>
+        )}
+        {/* Controls and the editor bind immediately; layers wait only for style readiness. */}
         {mapInstance && children}
       </div>
     </MapContext.Provider>
@@ -1078,6 +1058,8 @@ function MapControls({
 
   return (
     <div
+      role="group"
+      aria-label="Map controls"
       className={cn(
         "absolute z-10 flex flex-col gap-1.5",
         positionClasses[position],

@@ -575,6 +575,16 @@
   bottom: calc(var(--shell-canvas-shelf-h) + var(--shell-canvas-status-h) + 4px) !important;
 }
 
+.earthly-canvas-frame .earthly-basemap-status {
+  bottom: calc(var(--shell-canvas-shelf-h) + var(--shell-canvas-status-h) + 12px);
+}
+
+@media (max-width: 767px) {
+  .earthly-canvas-frame .earthly-basemap-status {
+    bottom: calc(var(--mobile-dock-height) + env(safe-area-inset-bottom) + 74px);
+  }
+}
+
 .earthly-shell-frame__mobile-top,
 .earthly-shell-frame__mobile-margin,
 .earthly-shell-frame__mobile-dock {
