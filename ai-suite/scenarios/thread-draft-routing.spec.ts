@@ -16,7 +16,7 @@ import { installDeterministicChatProvider } from '../tasks/setup/deterministic-c
 
 test('a local Map Thread binds only on send and survives closing and reload @regression', async ({
 	earthly,
-}) => {
+}, testInfo) => {
 	const renderErrors: string[] = []
 	earthly.page.on('pageerror', (error) => renderErrors.push(error.message))
 	const provider = await installDeterministicChatProvider(earthly, 'target-binding')
@@ -26,7 +26,28 @@ test('a local Map Thread binds only on send and survives closing and reload @reg
 	const draft = await startDataset(earthly)
 	await draft.nameInput.fill('A Map with its own Thread')
 	const before = await editorLifecycleSnapshot(earthly)
+	const editChat = earthly.page.getByRole('button', { name: 'Chat about this map', exact: true })
+	await expect(editChat).toBeInViewport()
+	if (earthly.isMobile) {
+		const viewport = earthly.page.viewportSize()
+		if (!viewport) throw new Error('Phone viewport must be available')
+		for (const width of [320, viewport.width]) {
+			await earthly.page.setViewportSize({ ...viewport, width })
+			await expect(editChat).toBeInViewport()
+			await expect
+				.poll(() => editChat.evaluate((element) => element.getBoundingClientRect().height))
+				.toBeGreaterThanOrEqual(44)
+		}
+	}
+	await expect(
+		earthly.page.getByText('Ask AI to draw, style, or explain this map in its Thread.'),
+	).toBeVisible()
+	await earthly.page.screenshot({ path: testInfo.outputPath('map-edit-chat-entry.png') })
+	await editChat.click()
+	await expect(earthly.page.getByRole('region', { name: 'AI Thread', exact: true })).toBeVisible()
 	await openAiChat(earthly)
+	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(before.activeWorkspaceId)
+	expect((await editorLifecycleSnapshot(earthly)).workspaceCount).toBe(before.workspaceCount)
 	await expect(earthly.page).toHaveURL(/\/edit\?tab=thread$/)
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 	await expect(panel.getByText('A Map with its own Thread', { exact: true })).toBeVisible()

@@ -1187,6 +1187,10 @@ export function AppSidebar({
 		contextCreationSeed,
 		objectTab: route.tab,
 		onObjectTabChange: navigateToTab,
+		onOpenMapThread: () => {
+			if (route.focusType === 'geoevent') navigateToTab('thread')
+			else navigateToRoute('/edit?tab=thread')
+		},
 		onCreateContext: handleCreateContext,
 		onSaveContext: handleSaveContext,
 		onCloseContextEditor: handleCloseContextEditor,
@@ -1551,11 +1555,11 @@ export function AppSidebar({
 			)
 		}
 
-		if (isWorkMode(contentMode)) {
-			return renderWorkContent(contentMode)
-		}
-
-		return renderWorkContent(activeWorkMode)
+		return (
+			<div className="h-full min-h-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+				{renderWorkContent(isWorkMode(contentMode) ? contentMode : activeWorkMode)}
+			</div>
+		)
 	}
 
 	return (

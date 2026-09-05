@@ -15,6 +15,7 @@ describe('phone drawing and Browse composition', () => {
 		expect(mobileDrawingHint('draw_linestring', 0, 0)).toBe('Tap the map to start')
 		expect(mobileDrawingHint('draw_point', 0, 0)).toContain('add a point')
 		expect(mobileDrawingHint('draw_annotation', 0, 0)).toContain('place a label')
+		expect(mobileDrawingHint('select', 0, 0)).toContain('tap Ask for AI help')
 	})
 	test('uses a one-line edit peek and a half-viewport Browse detent', () => {
 		expect(mobileSheetDetentHeight('peek', 812, true)).toBe(62)

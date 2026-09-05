@@ -1,4 +1,4 @@
-import { Eye, MapPin, Pencil } from 'lucide-react'
+import { Eye, MapPin, MessageSquare, Pencil } from 'lucide-react'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { cn } from '@/lib/utils'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -165,6 +165,8 @@ export interface GeoEditorInfoPanelProps {
 	/** Route-backed Details / Comments / Thread selection for inspected social objects. */
 	objectTab?: EarthlyObjectTab
 	onObjectTabChange?: (tab: EarthlyObjectTab) => void
+	/** Open the current Map's Thread without sending or replacing its working copy. */
+	onOpenMapThread?: () => void
 	entityWorkspace?: 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
 	entityIntent?: 'inspect' | 'edit'
 	/** Retained Inspector subject used without restoring route-owned view state. */
@@ -315,6 +317,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		focusCommentId,
 		objectTab,
 		onObjectTabChange,
+		onOpenMapThread,
 		entityWorkspace,
 		entityIntent,
 		inspectionSubjectOverride,
@@ -1081,9 +1084,21 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			<LocalDraftPersistenceWarning currentUserPubkey={currentUserPubkey ?? null} />
 			{/* Dataset-level actions. Scratch work has no View target or published
 			    name yet, but still exposes an explicit local discard action. */}
-			{(activeDataset || activeDatasetInfo || datasetEditorDeleteMode) && (
+			{(activeDataset || activeDatasetInfo || datasetEditorDeleteMode || onOpenMapThread) && (
 				<div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1">
 					<div className="flex items-center gap-2">
+						{onOpenMapThread && (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="max-md:min-h-11"
+								onClick={onOpenMapThread}
+							>
+								<MessageSquare className="h-3.5 w-3.5" />
+								Chat about this map
+							</Button>
+						)}
 						{activeDataset && (
 							<Button
 								size="sm"
@@ -1123,6 +1138,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						) : null}
 					</div>
 				</div>
+			)}
+			{onOpenMapThread && (
+				<p className="text-xs text-muted-foreground">
+					Ask AI to draw, style, or explain this map in its Thread.
+				</p>
 			)}
 
 			{/* Stats row - inline (counts + passive measurement totals) */}

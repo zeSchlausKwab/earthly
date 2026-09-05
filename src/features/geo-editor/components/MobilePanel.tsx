@@ -1111,6 +1111,7 @@ export function MobilePanel(props: MobilePanelProps) {
 			<GeoEditorInfoPanelContent
 				objectTab={route.focusType !== 'none' ? route.tab : undefined}
 				onObjectTabChange={handleObjectTabChange}
+				onOpenMapThread={() => void selectPanel('chat')}
 				mapStories={props.mapStories}
 				mapGroups={props.mapGroups}
 				entityWorkspace={selectedEntityWorkspace ?? undefined}

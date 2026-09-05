@@ -40,6 +40,14 @@ Implementation follows the September 5 UX/startup audit. This is one full migrat
 - Strict TypeScript remains a failing repository-wide gate: **432 diagnostics**, versus 434 at the earlier checkpoint; no new diagnostic messages after normalizing line positions. The missing line-splitting import and overly wide label-anchor return type were repaired. Do not represent a successful build or focused tests as a green type gate.
 - Server restored directly on port 3001 with the existing local relay data on 3334; no reset or reseed. Production measurements use a separate read-only preview. Proposal acceptance tests add ordinary test fixtures only to the loopback relay; they do not publish to external relays.
 
+## Panel scrolling and edit-chat follow-up — September 5
+
+- Reproduced desktop Settings import clipping with a long dummy JSON paste and ordinary wheel scrolling. Utility and Browse/account surfaces now have a bounded scroll owner; existing nested catalog/editor scroll areas remain intact. The settings JSON field has its own capped height and an associated label.
+- Reproduced and fixed Profile section access in a 500px-high desktop window. Tests check viewport hit-testing, not just forced scrolling from automated clicks.
+- Map edit controls now expose **Chat about this map**, with a brief description of AI drawing/styling help. Phone drawing guidance also points to Ask. The entry opens the current Map's Thread without creating a working copy or dispatching a model request; target binding remains part of Send. A separate 320px phone check confirms the entry remains visible with a 44px touch target.
+- Verification: **17 browser checks passed, 7 viewport skips**, covering Settings import, Profile scrolling, Browse/Me, mobile drawing sheets, draft retention, and separate route-bound Threads. Nine focused unit tests, AI-suite typecheck and a production build passed. Full repository typing remains at the unchanged **432-diagnostic** baseline.
+- Verified against the already-running server on port 3000 using isolated browser storage and a deterministic provider. No relay reset, reseeding, real API credentials, or paid model calls.
+
 ## Saved commits
 
 - `0ef42e6`: progressive map rendering and basemap recovery.
