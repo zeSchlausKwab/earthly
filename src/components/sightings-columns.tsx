@@ -100,9 +100,21 @@ function SightingListRow({
 			}
 			title={title}
 			selected={isSelected}
-			onTitleClick={() => context.onOpen(sighting)}
+			onTitleClick={() => {
+				context.onAddToMapStack?.(sighting)
+				context.onOpen(sighting)
+			}}
 			titleAriaLabel={`Open sighting ${title}`}
 			titleTitle="Open sighting"
+			primaryAction={
+				context.onAddToMapStack ? (
+					<RowActionButton
+						icon={MapPlus}
+						label="Show on map"
+						onClick={() => context.onAddToMapStack?.(sighting)}
+					/>
+				) : undefined
+			}
 			badges={
 				<>
 					<RowBadge label={cue.label} className={cue.className} />

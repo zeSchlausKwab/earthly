@@ -54,9 +54,9 @@ export function LensBar({
 				</button>
 			) : null}
 			{onShare ? (
-				<button type="button" onClick={onShare} className="earthly-lensbar__action">
+				<button type="button" onClick={onShare} className="earthly-lensbar__action" aria-label="Share Atlas app link">
 					<Share2 aria-hidden="true" />
-					<span>Share app link</span>
+					<span className="earthly-lensbar__share-label">Share app link</span>
 				</button>
 			) : null}
 			<button type="button" onClick={onLeave} className="earthly-lensbar__action">

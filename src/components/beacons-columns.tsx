@@ -72,9 +72,21 @@ function BeaconListRow({ row, context }: { row: BeaconRowData; context: BeaconCo
 			// the shared amber wash for consistency with the other rails.
 			selected={isSelected || (isOwner && isLive)}
 			selectedClassName={isLive ? 'border-l-ok bg-ok/[0.08]' : undefined}
-			onTitleClick={() => context.onOpen(beacon)}
+			onTitleClick={() => {
+				context.onAddToMapStack?.(beacon)
+				context.onOpen(beacon)
+			}}
 			titleAriaLabel={`Open beacon ${label}`}
 			titleTitle="Open live position"
+			primaryAction={
+				context.onWatch ? (
+					<RowActionButton
+						icon={ZoomActionIcon}
+						label="Watch on map"
+						onClick={() => context.onWatch?.(beacon)}
+					/>
+				) : undefined
+			}
 			badges={<RowBadge label={chip.label} className={chip.className} />}
 			meta={
 				<>

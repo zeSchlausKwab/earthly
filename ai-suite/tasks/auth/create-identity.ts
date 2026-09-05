@@ -23,5 +23,6 @@ export async function createIdentity(earthly: EarthlySession): Promise<void> {
 	await earthly.page.getByRole('button', { name: 'Skip for now' }).click()
 	await expect(earthly.page.getByRole('dialog', { name: "You're on Nostr!" })).toBeVisible()
 	await earthly.page.getByRole('button', { name: 'Start Exploring' }).click()
+	await earthly.page.getByRole('button', { name: 'Me', exact: true }).click()
 	await expect(earthly.page.getByRole('button', { name: 'Account menu' })).toBeVisible()
 }

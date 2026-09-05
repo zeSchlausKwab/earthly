@@ -98,6 +98,11 @@ import { buildLiveAssistantMessage } from './liveAssistantMessage'
 import { EMPTY_STATE_PROMPTS } from './examplePrompts'
 import { ensureDatasetReferencePublished } from './referencePublishing'
 import { useChatComposerStore } from './composerState'
+import {
+	chatSafetyPresentation,
+	ChatSafetyIndicator,
+	ChatThreadIdentity,
+} from './components/ChatHeaderPresentation'
 
 const PROVIDER_LABELS: Record<ProviderType, string> = {
 	routstr: 'Routstr (paid)',
@@ -230,6 +235,8 @@ export interface ChatPanelProps {
 	threadKey?: string
 	/** Object-facing title used by a bound Thread. */
 	threadTitle?: string
+	/** The surrounding object panel already renders this Thread's title. */
+	embeddedInObject?: boolean
 	/** Allows text answers without an editing target and disables all tools for the Thread. */
 	readOnly?: boolean
 	/** Seeds an empty selected Thread composer once; it is never sent automatically. */
@@ -265,6 +272,7 @@ export function ChatPanel({
 	authoringActionLabel = 'Edit & send',
 	threadKey,
 	threadTitle,
+	embeddedInObject = false,
 	readOnly,
 	initialPrompt,
 }: ChatPanelProps) {
@@ -432,11 +440,13 @@ export function ChatPanel({
 
 	// Load models on mount
 	useEffect(() => {
+		if (settingsStatus !== 'loaded' && settingsStatus !== 'no-signer') return
 		if (provider === 'custom' && !providerOverrides.custom.baseUrl.trim()) return
 		if (models.length === 0 && !modelsLoading && !modelsError) {
 			void loadModels()
 		}
 	}, [
+		settingsStatus,
 		providerOverrides.custom.baseUrl,
 		loadModels,
 		models.length,
@@ -903,30 +913,23 @@ export function ChatPanel({
 			className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
 			aria-label="AI Thread"
 		>
-			<div
+			<Collapsible
+				open={connectionDetailsOpen}
+				onOpenChange={setConnectionDetailsOpen}
 				className={cn(
-					'border-b bg-background/95',
-					isMobile ? 'space-y-1 px-2 py-1.5' : 'space-y-2 px-3 py-2.5',
+					'flex max-h-[50%] min-h-0 shrink-0 flex-col border-b bg-background/95',
+					isMobile ? 'px-2' : 'px-3 py-1',
 				)}
 			>
-				<div className="flex items-center gap-1.5">
+				<fieldset
+					className="m-0 flex min-w-0 shrink-0 flex-wrap items-center gap-x-1 border-0 p-0"
+					aria-label="Thread controls"
+				>
 					{isBoundThread ? (
-						<div className="min-w-0 flex-1">
-							<div className="flex min-w-0 items-center gap-1.5">
-								<span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-									Thread
-								</span>
-								{isReadOnlyThread ? (
-									<span className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-										<LockKeyhole className="h-2.5 w-2.5" />
-										Read-only
-									</span>
-								) : null}
-							</div>
-							<p className="truncate text-sm font-semibold" title={activeChatSession?.title}>
-								{activeChatSession?.title ?? threadTitle ?? 'Thread'}
-							</p>
-						</div>
+						<ChatThreadIdentity
+							title={activeChatSession?.title ?? threadTitle ?? 'Thread'}
+							embedded={embeddedInObject}
+						/>
 					) : (
 						<>
 							<Button
@@ -970,6 +973,40 @@ export function ChatPanel({
 							</NativeSelect>
 						</>
 					)}
+					<CollapsibleTrigger asChild>
+						<Button
+							variant="ghost"
+							size="sm"
+							className={cn('shrink-0 rounded-none px-2', isMobile ? 'h-11' : 'h-8')}
+							aria-label={`AI edit safety: ${chatSafetyPresentation(isReadOnlyThread, safetyLevel).label}`}
+						>
+							<ChatSafetyIndicator readOnly={isReadOnlyThread} safetyLevel={safetyLevel} />
+						</Button>
+					</CollapsibleTrigger>
+					<CollapsibleTrigger asChild>
+						<Button
+							variant="ghost"
+							size="icon"
+							className={cn(
+								'shrink-0 rounded-none',
+								embeddedInObject && 'ml-auto',
+								resolveChatHeaderControlSizing(isMobile, 'icon'),
+								(!selectedModel || modelsError) && 'text-amber-700 dark:text-amber-400',
+							)}
+							aria-label="Thread settings"
+							title={
+								!selectedModel
+									? 'Choose a model in Thread settings'
+									: `Thread settings · ${selectedModelLabel} · ${providerLabel}`
+							}
+						>
+							{!selectedModel || modelsError ? (
+								<AlertCircle className="size-4" />
+							) : (
+								<Settings2 className="size-4" />
+							)}
+						</Button>
+					</CollapsibleTrigger>
 					<Button
 						type="button"
 						variant="ghost"
@@ -1009,85 +1046,55 @@ export function ChatPanel({
 							<X className="h-4 w-4" />
 						</Button>
 					) : null}
-				</div>
+				</fieldset>
 
-				{!isReadOnlyThread ? (
-					<div className="flex min-w-0 items-center gap-2">
-						<span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-							Safety
-						</span>
-						<NativeSelect
-							aria-label="AI edit safety"
-							value={safetyLevel}
-							onChange={(event) => {
-								const level = Number(event.target.value)
-								if (level === 1 || level === 2 || level === 3) setSafetyLevel(level)
-							}}
-							disabled={
-								Boolean(runningChatId) ||
-								settingsStatus === 'loading' ||
-								settingsStatus === 'failed'
-							}
-							className={cn('min-w-0 flex-1', isMobile && '[&>select]:min-h-11')}
-						>
-							<NativeSelectOption value="2">Ask before changing</NativeSelectOption>
-							<NativeSelectOption value="1">Ask before every change</NativeSelectOption>
-							<NativeSelectOption value="3">Apply automatically</NativeSelectOption>
-						</NativeSelect>
-					</div>
-				) : null}
+				<CollapsibleContent className="min-h-0 overflow-y-auto overscroll-contain border-t pb-2 pt-2">
+					{!isReadOnlyThread ? (
+						<div className="flex min-w-0 items-center gap-2">
+							<span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+								Safety
+							</span>
+							<NativeSelect
+								aria-label="AI edit safety"
+								value={safetyLevel}
+								onChange={(event) => {
+									const level = Number(event.target.value)
+									if (level === 1 || level === 2 || level === 3) setSafetyLevel(level)
+								}}
+								disabled={
+									Boolean(runningChatId) ||
+									settingsStatus === 'loading' ||
+									settingsStatus === 'failed'
+								}
+								className={cn('min-w-0 flex-1', isMobile && '[&>select]:min-h-11')}
+							>
+								<NativeSelectOption value="2">Ask before changing</NativeSelectOption>
+								<NativeSelectOption value="1">Ask before every change</NativeSelectOption>
+								<NativeSelectOption value="3">Apply automatically</NativeSelectOption>
+							</NativeSelect>
+						</div>
+					) : null}
 
-				<Collapsible open={connectionDetailsOpen} onOpenChange={setConnectionDetailsOpen}>
-					<div className="overflow-hidden rounded-lg border bg-muted/15">
-						<div className="flex min-w-0 items-stretch">
-							<CollapsibleTrigger asChild>
-								<button
-									type="button"
-									className={cn(
-										'group flex min-w-0 flex-1 items-center text-left outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-										isMobile ? 'gap-1.5 px-2 py-1' : 'gap-2.5 px-2.5 py-2',
-									)}
-									aria-label="AI connection details"
-								>
-									<span
-										className={cn(
-											'flex shrink-0 items-center justify-center rounded-md bg-foreground text-background',
-											isMobile ? 'h-6 w-6' : 'h-7 w-7',
-										)}
-									>
-										<Bot className="h-3.5 w-3.5" />
-									</span>
-									<span className="min-w-0 flex-1">
-										<span className="flex min-w-0 items-center gap-1.5">
-											<span className="truncate text-xs font-semibold">{selectedModelLabel}</span>
-											{provider === 'routstr' ? <DangerIndicator /> : null}
-										</span>
-										<span className="block truncate text-[10px] leading-none text-muted-foreground">
-											{isMobile ? providerLabel : `${providerLabel} · ${providerEndpointLabel}`}
-										</span>
-									</span>
-									<ChevronDown
-										className={cn(
-											'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
-											connectionDetailsOpen && 'rotate-180',
-										)}
-									/>
-								</button>
-							</CollapsibleTrigger>
+					<div className="my-2 border-t pt-2">
+						<div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+							<span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+								Model & provider
+							</span>
 							<Button
 								type="button"
 								variant="ghost"
-								size="icon"
-								className={cn('h-auto shrink-0 rounded-none border-l', isMobile ? 'w-8' : 'w-9')}
+								size="sm"
+								className={cn('shrink-0 gap-1.5 rounded-none text-xs', isMobile && 'min-h-11')}
 								onClick={handleOpenSettings}
 								title="Open provider settings"
 								aria-label="Open provider settings"
 							>
 								<Settings2 className="h-3.5 w-3.5" />
+								Provider settings
 							</Button>
 						</div>
 
-						<CollapsibleContent className="border-t bg-background/75 px-2.5 py-2.5">
+						<div>
 							<div className="grid grid-cols-[4.25rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2">
 								<label
 									htmlFor="chat-inline-model-select"
@@ -1101,7 +1108,7 @@ export function ChatPanel({
 									value={selectedModel ?? ''}
 									onChange={(event) => setSelectedModel(event.target.value)}
 									disabled={modelsLoading || isStreaming || models.length === 0}
-									className="w-full"
+									className={cn('w-full', isMobile && '[&>select]:min-h-11')}
 								>
 									{selectedModel ? null : (
 										<NativeSelectOption value="" disabled>
@@ -1209,150 +1216,176 @@ export function ChatPanel({
 									Provider and credentials stay in Settings
 								</span>
 							</div>
-						</CollapsibleContent>
+						</div>
 					</div>
-				</Collapsible>
 
-				<Collapsible open={diagnosticsOpen} onOpenChange={setDiagnosticsOpen}>
-					<div className="overflow-hidden rounded-md border">
-						<CollapsibleTrigger asChild>
-							<button
-								type="button"
-								className={cn(
-									'flex w-full min-w-0 items-center gap-1.5 text-left text-[10px] text-muted-foreground outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-									isMobile ? 'min-h-7 px-2 py-1' : 'min-h-8 px-2.5 py-1.5',
-								)}
-								aria-label="Chat usage details"
-							>
-								<Gauge className="h-3.5 w-3.5 shrink-0" />
-								<span className="shrink-0 font-medium text-foreground">
-									Usage {contextUsageSummary}
-								</span>
-								<span aria-hidden="true" className="text-border">
-									/
-								</span>
-								<span className="shrink-0">{requestSummary}</span>
-								<span aria-hidden="true" className="hidden text-border sm:inline">
-									/
-								</span>
-								<span className="hidden min-w-0 truncate sm:inline">{activitySummary}</span>
-								<ChevronDown
+					<Collapsible open={diagnosticsOpen} onOpenChange={setDiagnosticsOpen}>
+						<div className="overflow-hidden rounded-md border">
+							<CollapsibleTrigger asChild>
+								<button
+									type="button"
 									className={cn(
-										'ml-auto h-3.5 w-3.5 shrink-0 transition-transform',
-										diagnosticsOpen && 'rotate-180',
+										'flex w-full min-w-0 items-center gap-1.5 text-left text-[10px] text-muted-foreground outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+										isMobile ? 'min-h-11 px-2 py-1' : 'min-h-8 px-2.5 py-1.5',
 									)}
-								/>
-							</button>
-						</CollapsibleTrigger>
-						<CollapsibleContent className="border-t bg-muted/10 p-2">
-							<dl className="grid grid-cols-2 gap-1.5">
-								<ChatMetric
-									label="Prompt capacity"
-									value={contextTokenDisplay ? contextTokenDisplay.toLocaleString() : 'Unknown'}
-								/>
-								<ChatMetric
-									label="Prompt budget"
-									value={
-										diagnostics.promptBudgetTokens
-											? diagnostics.promptBudgetTokens.toLocaleString()
-											: 'Not calculated'
-									}
-								/>
-								<ChatMetric
-									label="Current prompt"
-									value={
-										diagnostics.estimatedPromptTokens
-											? `~${diagnostics.estimatedPromptTokens.toLocaleString()} tokens`
-											: 'No request yet'
-									}
-								/>
-								<ChatMetric
-									label="Expected reply"
-									value={
-										diagnostics.estimatedCompletionTokens
-											? `~${diagnostics.estimatedCompletionTokens.toLocaleString()} tokens`
-											: 'Not estimated'
-									}
-								/>
-								<ChatMetric label="Model requests" value={requestSummary} />
-								<ChatMetric
-									label="Current phase"
-									value={activitySummary}
-									title={
-										activeChatIsRunning && stalledSeconds > 0
-											? `${phaseLabel}; ${stalledSeconds}s since the last model or tool progress`
-											: undefined
-									}
-								/>
-								<ChatMetric
-									label="Cumulative input"
-									value={`~${diagnostics.cumulativeEstimatedPromptTokens.toLocaleString()} tokens`}
-								/>
-								<ChatMetric
-									label="Cumulative output"
-									value={`~${diagnostics.cumulativeEstimatedCompletionTokens.toLocaleString()} tokens`}
-								/>
-								<ChatMetric
-									label="Tool work"
-									value={
-										diagnostics.toolCallCount > 0
-											? `${diagnostics.toolCallCount} calls · ${Math.ceil(diagnostics.toolResultBytes / 1024)} KiB · ${(diagnostics.totalToolDurationMs / 1000).toFixed(1)}s`
-											: 'No tool calls'
-									}
-									title={Object.entries(diagnostics.toolStats)
-										.map(
-											([name, stats]) =>
-												`${name}: ${stats.calls} calls, ${(stats.durationMs / 1000).toFixed(1)}s, ${Math.ceil(stats.resultBytes / 1024)} KiB, ${stats.errors} errors`,
-										)
-										.join('\n')}
-								/>
-								<ChatMetric
-									label="Map progress"
-									value={
-										diagnostics.mapChangingToolResultCount > 0
-											? `${diagnostics.mapChangingToolResultCount} map-changing result${diagnostics.mapChangingToolResultCount === 1 ? '' : 's'}`
-											: 'No map change yet'
-									}
-								/>
-								<ChatMetric label="Finish reason" value={diagnostics.finishReason ?? 'Pending'} />
-								<ChatMetric label="Prompt profile" value={diagnostics.promptProfile} />
-								<ChatMetric
-									label="Advertised tools"
-									value={`${diagnostics.advertisedToolCount} · ${Math.ceil(diagnostics.advertisedToolSchemaChars / 1024)} KiB schema`}
-								/>
-								<ChatMetric
-									label="System prompt"
-									value={`${diagnostics.systemPromptChars.toLocaleString()} chars`}
-								/>
-							</dl>
-						</CollapsibleContent>
-					</div>
-				</Collapsible>
+									aria-label="Chat usage details"
+								>
+									<Gauge className="h-3.5 w-3.5 shrink-0" />
+									<span className="shrink-0 font-medium text-foreground">
+										Usage {contextUsageSummary}
+									</span>
+									<span aria-hidden="true" className="text-border">
+										/
+									</span>
+									<span className="shrink-0">{requestSummary}</span>
+									<span aria-hidden="true" className="hidden text-border sm:inline">
+										/
+									</span>
+									<span className="hidden min-w-0 truncate sm:inline">{activitySummary}</span>
+									<ChevronDown
+										className={cn(
+											'ml-auto h-3.5 w-3.5 shrink-0 transition-transform',
+											diagnosticsOpen && 'rotate-180',
+										)}
+									/>
+								</button>
+							</CollapsibleTrigger>
+							<CollapsibleContent className="border-t bg-muted/10 p-2">
+								<dl className="grid grid-cols-2 gap-1.5">
+									<ChatMetric
+										label="Prompt capacity"
+										value={contextTokenDisplay ? contextTokenDisplay.toLocaleString() : 'Unknown'}
+									/>
+									<ChatMetric
+										label="Prompt budget"
+										value={
+											diagnostics.promptBudgetTokens
+												? diagnostics.promptBudgetTokens.toLocaleString()
+												: 'Not calculated'
+										}
+									/>
+									<ChatMetric
+										label="Current prompt"
+										value={
+											diagnostics.estimatedPromptTokens
+												? `~${diagnostics.estimatedPromptTokens.toLocaleString()} tokens`
+												: 'No request yet'
+										}
+									/>
+									<ChatMetric
+										label="Expected reply"
+										value={
+											diagnostics.estimatedCompletionTokens
+												? `~${diagnostics.estimatedCompletionTokens.toLocaleString()} tokens`
+												: 'Not estimated'
+										}
+									/>
+									<ChatMetric label="Model requests" value={requestSummary} />
+									<ChatMetric
+										label="Current phase"
+										value={activitySummary}
+										title={
+											activeChatIsRunning && stalledSeconds > 0
+												? `${phaseLabel}; ${stalledSeconds}s since the last model or tool progress`
+												: undefined
+										}
+									/>
+									<ChatMetric
+										label="Cumulative input"
+										value={`~${diagnostics.cumulativeEstimatedPromptTokens.toLocaleString()} tokens`}
+									/>
+									<ChatMetric
+										label="Cumulative output"
+										value={`~${diagnostics.cumulativeEstimatedCompletionTokens.toLocaleString()} tokens`}
+									/>
+									<ChatMetric
+										label="Tool work"
+										value={
+											diagnostics.toolCallCount > 0
+												? `${diagnostics.toolCallCount} calls · ${Math.ceil(diagnostics.toolResultBytes / 1024)} KiB · ${(diagnostics.totalToolDurationMs / 1000).toFixed(1)}s`
+												: 'No tool calls'
+										}
+										title={Object.entries(diagnostics.toolStats)
+											.map(
+												([name, stats]) =>
+													`${name}: ${stats.calls} calls, ${(stats.durationMs / 1000).toFixed(1)}s, ${Math.ceil(stats.resultBytes / 1024)} KiB, ${stats.errors} errors`,
+											)
+											.join('\n')}
+									/>
+									<ChatMetric
+										label="Map progress"
+										value={
+											diagnostics.mapChangingToolResultCount > 0
+												? `${diagnostics.mapChangingToolResultCount} map-changing result${diagnostics.mapChangingToolResultCount === 1 ? '' : 's'}`
+												: 'No map change yet'
+										}
+									/>
+									<ChatMetric label="Finish reason" value={diagnostics.finishReason ?? 'Pending'} />
+									<ChatMetric label="Prompt profile" value={diagnostics.promptProfile} />
+									<ChatMetric
+										label="Advertised tools"
+										value={`${diagnostics.advertisedToolCount} · ${Math.ceil(diagnostics.advertisedToolSchemaChars / 1024)} KiB schema`}
+									/>
+									<ChatMetric
+										label="System prompt"
+										value={`${diagnostics.systemPromptChars.toLocaleString()} chars`}
+									/>
+								</dl>
+							</CollapsibleContent>
+						</div>
+					</Collapsible>
+				</CollapsibleContent>
 
 				{/* Errors */}
 				{modelsError && (
-					<div className="flex items-center gap-1.5 text-xs text-destructive">
-						<AlertCircle className="h-3.5 w-3.5" />
-						{modelsError}
-						<Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={loadModels}>
+					<div
+						role="alert"
+						className="flex min-w-0 shrink-0 items-center gap-1.5 text-xs text-destructive"
+					>
+						<AlertCircle className="h-3.5 w-3.5 shrink-0" />
+						<span className="min-w-0 flex-1 break-words">{modelsError}</span>
+						<Button
+							variant="link"
+							size="sm"
+							className={cn('shrink-0 px-1 text-xs', isMobile && 'min-h-11 min-w-11')}
+							onClick={loadModels}
+						>
 							Retry
 						</Button>
 					</div>
 				)}
-			</div>
+				{!selectedModel ? (
+					<button
+						type="button"
+						onClick={() => { if (modelsError && onOpenSettings) onOpenSettings(); else setConnectionDetailsOpen(true) }}
+						className={cn(
+							'flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 border border-primary bg-primary/10 px-3 py-2 text-left text-xs font-semibold text-foreground',
+							isMobile && 'min-h-11',
+						)}
+					>
+						{modelsLoading ? (
+							<Loader2 className="size-3.5 animate-spin" />
+						) : (
+							<AlertCircle className="size-3.5" />
+						)}
+						{modelsLoading ? 'Loading models…' : modelsError ? 'Configure AI' : 'Choose a model to start'}
+					</button>
+				) : null}
+			</Collapsible>
 
 			{/* Messages */}
 			<div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-3">
 				{messages.length === 0 && !activeChatIsRunning ? (
 					<div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-4">
 						<Bot className="h-12 w-12 mb-4 opacity-50" />
-						<p className="text-sm font-medium">{isBoundThread ? 'Thread' : 'AI Chat'}</p>
+						<p className="text-sm font-medium">Your AI conversation</p>
+						<p className="mt-1 text-xs">This is not the shared Comments discussion. Messages go to your configured AI provider.</p>
 						<p className="text-xs mt-1">
 							{isReadOnlyThread
 								? 'Ask a question here. Earthly will answer without tools or map changes.'
 								: isWalletRequired
 									? 'Pay per message with eCash. Unused funds are refunded automatically.'
-									: 'Running locally \u2014 no payment required.'}
+									: 'No in-app payment required; your provider’s terms apply.'}
 						</p>
 						{selectedModelData && <p className="text-xs mt-2">Using {selectedModelData.name}</p>}
 						{toolsEnabled && !isReadOnlyThread && (
@@ -1367,7 +1400,11 @@ export function ChatPanel({
 									Try an example prompt
 								</p>
 								<div className="grid gap-2 sm:grid-cols-2">
-									{EMPTY_STATE_PROMPTS.map((prompt) => (
+									{[
+										'Summarize this Map and suggest ways to make it easier to understand.',
+										'Check the selected features for missing names or inconsistent styles.',
+										'Create a timeline Story from these Maps, with inline views and camera changes.',
+									].map((prompt) => (
 										<button
 											key={prompt}
 											type="button"
@@ -1378,6 +1415,12 @@ export function ChatPanel({
 										</button>
 									))}
 								</div>
+								<details className="mt-2 text-xs">
+									<summary className="cursor-pointer py-2">More mapping examples</summary>
+									<div className="grid gap-2">
+										{EMPTY_STATE_PROMPTS.map((prompt) => <button key={prompt} type="button" className="min-h-11 border bg-muted/20 p-2 text-left" onClick={() => handleExamplePromptClick(prompt)}>{prompt}</button>)}
+									</div>
+								</details>
 							</div>
 						) : null}
 					</div>

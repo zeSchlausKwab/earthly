@@ -3,13 +3,12 @@ import {
 	ChevronDown,
 	CopyPlus,
 	GitPullRequest,
-	Info,
 	MapPinned,
 	RefreshCw,
 	TriangleAlert,
 	UploadCloud,
 } from 'lucide-react'
-import { GeoRichTextEditor } from '@/components/editor/GeoRichTextEditor'
+import { ProposalDialog } from './ProposalDialog'
 import { Button } from '@/components/ui/button'
 import {
 	DropdownMenu,
@@ -24,6 +23,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { PublishChannel } from '../../store/types'
 import type { ResolvedAuthoringDestination } from '../authoringDestination'
+import type { MapAuthoringIntent } from '@/components/info-panel/mapProposalPresentation'
 
 export interface PublishAudienceOption {
 	id: string
@@ -32,6 +32,7 @@ export interface PublishAudienceOption {
 }
 
 export interface PublishDropdownProps {
+	authoringIntent?: MapAuthoringIntent
 	canPublishNew?: boolean
 	canPublishUpdate?: boolean
 	canPublishCopy?: boolean
@@ -52,6 +53,7 @@ export interface PublishDropdownProps {
 }
 
 export function PublishDropdown({
+	authoringIntent,
 	canPublishNew,
 	canPublishUpdate,
 	canPublishCopy,
@@ -71,21 +73,38 @@ export function PublishDropdown({
 	small,
 }: PublishDropdownProps) {
 	const [open, setOpen] = useState(false)
-	const [composingProposal, setComposingProposal] = useState(false)
-	const [proposalDescription, setProposalDescription] = useState('')
+	const [proposalOpen, setProposalOpen] = useState(false)
 	const iconSize = small ? 'h-3.5 w-3.5' : 'h-4 w-4'
 	const buttonSize = small ? 'h-8' : 'h-9'
-	const trimmedProposalDescription = proposalDescription.trim()
 	const workspaceMode = publishMode !== 'public'
 	const workspaceLabel = publishMode === 'private' ? 'private' : 'nearby'
 
-	const resetProposalComposer = () => {
-		setComposingProposal(false)
-		setProposalDescription('')
+	// The working copy already knows its intent. Sending never converts it to a fork.
+	if (authoringIntent === 'propose' || canProposeEdit) {
+		return (
+			<>
+				<Button
+					size="sm"
+					className={`${buttonSize} gap-1 rounded-none px-2`}
+					disabled={isPublishing || !canProposeEdit}
+					onClick={() => setProposalOpen(true)}
+					aria-label="Send proposal"
+				>
+					<GitPullRequest className={iconSize} aria-hidden="true" />
+					{!small && <span className="text-xs">Send proposal</span>}
+				</Button>
+				<ProposalDialog
+					open={proposalOpen}
+					onOpenChange={setProposalOpen}
+					isPublishing={isPublishing}
+					onSubmit={(description) => onProposeEdit?.(description)}
+				/>
+			</>
+		)
 	}
 
 	// Determine primary action based on state
-	const hasPrimaryAction = canPublishUpdate || canPublishNew
+	const hasPrimaryAction = canPublishUpdate || canPublishNew || canPublishCopy
 	const primaryIcon = canPublishUpdate ? RefreshCw : UploadCloud
 	const primaryLabel = canPublishUpdate
 		? 'Update'
@@ -93,8 +112,16 @@ export function PublishDropdown({
 			? workspaceMode
 				? 'Save'
 				: 'Publish'
-			: 'Audience'
-	const primaryAction = canPublishUpdate ? onPublishUpdate : onPublishNew
+			: canPublishCopy
+				? workspaceMode
+					? 'Save'
+					: 'Publish map'
+				: 'Audience'
+	const primaryAction = canPublishUpdate
+		? onPublishUpdate
+		: canPublishNew
+			? onPublishNew
+			: onPublishCopy
 	const PrimaryIcon = primaryIcon
 	const hasAudienceMenu = audienceOptions.length > 0 && Boolean(onAudienceChange)
 	const hasScopeMenu = Boolean(publishingScope)
@@ -134,10 +161,7 @@ export function PublishDropdown({
 		)
 	}
 
-	// User can only fork/propose — they're editing someone else's Map.
-	const viewingOnly = !hasPrimaryAction && (canPublishCopy || canProposeEdit)
-
-	// Show dropdown if fork is also available
+	// Keep audience and the owner's optional publish-as-new action available.
 	const showDropdown =
 		canPublishCopy ||
 		canProposeEdit ||
@@ -171,61 +195,34 @@ export function PublishDropdown({
 
 	return (
 		<TooltipProvider delayDuration={500}>
-			<DropdownMenu
-				open={open}
-				onOpenChange={(nextOpen) => {
-					setOpen(nextOpen)
-					if (!nextOpen) {
-						resetProposalComposer()
-					}
-				}}
-			>
+			<DropdownMenu open={open} onOpenChange={setOpen}>
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<DropdownMenuTrigger asChild>
 							<Button
-								variant={viewingOnly ? 'outline' : 'default'}
+								variant="default"
 								size="sm"
 								disabled={isPublishing}
-								className={`${buttonSize} gap-1 px-2 ${viewingOnly ? '' : 'bg-ok hover:bg-ok/15'}`}
+								className={`${buttonSize} gap-1 px-2 bg-ok hover:bg-ok/15`}
+								aria-label={primaryLabel}
 							>
-								{viewingOnly ? (
-									<GitPullRequest className={iconSize} />
-								) : (
-									<PrimaryIcon className={iconSize} />
-								)}
-								{!small && (
-									<span className="text-xs">{viewingOnly ? 'Fork / Propose' : primaryLabel}</span>
-								)}
+								<PrimaryIcon className={iconSize} />
+								{!small && <span className="text-xs">{primaryLabel}</span>}
 								<ChevronDown className="h-3 w-3" />
 							</Button>
 						</DropdownMenuTrigger>
 					</TooltipTrigger>
 					<TooltipContent side="bottom" sideOffset={8}>
 						<p>
-							{viewingOnly
-								? "You're editing someone else's Map"
-								: workspaceMode
-									? publishMode === 'private'
-										? 'Private save options'
-										: 'Nearby save options'
-									: 'Publish options'}
+							{workspaceMode
+								? publishMode === 'private'
+									? 'Private save options'
+									: 'Nearby save options'
+								: 'Publish options'}
 						</p>
 					</TooltipContent>
 				</Tooltip>
 				<DropdownMenuContent align="end" className="max-w-[280px] rounded-none">
-					{viewingOnly && (
-						<>
-							<div className="flex items-start gap-2 px-3 py-2 text-xs text-muted-foreground">
-								<Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-								<span>
-									You're editing someone else's Map. You can fork it as your own or propose changes
-									to the owner.
-								</span>
-							</div>
-							<DropdownMenuSeparator />
-						</>
-					)}
 					{canPublishNew && (
 						<DropdownMenuItem onClick={onPublishNew}>
 							<UploadCloud className="h-4 w-4" />
@@ -255,62 +252,10 @@ export function PublishDropdown({
 									? 'Save as new private Map'
 									: publishMode === 'field'
 										? 'Save as new nearby Map'
-										: 'Fork as new Map'}
+										: canPublishUpdate
+											? 'Publish as new map'
+											: 'Publish map'}
 							</DropdownMenuItem>
-						</>
-					)}
-					{canProposeEdit && (
-						<>
-							<DropdownMenuSeparator />
-							{!composingProposal ? (
-								<DropdownMenuItem
-									onSelect={(event) => {
-										event.preventDefault()
-										setComposingProposal(true)
-									}}
-								>
-									<GitPullRequest className="h-4 w-4" />
-									Propose edit to owner
-								</DropdownMenuItem>
-							) : (
-								<div className="space-y-2 px-2 py-2">
-									<DropdownMenuLabel className="px-0 py-0 text-xs font-medium text-foreground">
-										Proposal summary
-									</DropdownMenuLabel>
-									<GeoRichTextEditor
-										initialValue={proposalDescription}
-										onChange={setProposalDescription}
-										rows={3}
-										placeholder="Describe your proposed changes..."
-										className="min-h-[120px]"
-									/>
-									<div className="flex items-center justify-end gap-2">
-										<Button
-											type="button"
-											size="sm"
-											variant="ghost"
-											className="h-8 px-2 text-xs"
-											onClick={resetProposalComposer}
-										>
-											Cancel
-										</Button>
-										<Button
-											type="button"
-											size="sm"
-											className="h-8 bg-ok px-2 text-xs hover:bg-ok/15"
-											onClick={() => {
-												if (!trimmedProposalDescription) return
-												onProposeEdit?.(trimmedProposalDescription)
-												setOpen(false)
-												resetProposalComposer()
-											}}
-											disabled={!trimmedProposalDescription || isPublishing}
-										>
-											Send proposal
-										</Button>
-									</div>
-								</div>
-							)}
 						</>
 					)}
 					{hasAudienceMenu ? (

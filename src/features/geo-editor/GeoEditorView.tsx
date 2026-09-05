@@ -6,14 +6,11 @@ import {
 	CircleDot,
 	Crosshair,
 	Database,
-	Download,
 	Eye,
 	FilePenLine,
 	Globe,
 	Hexagon,
 	Inbox,
-	Lock,
-	LockOpen,
 	Map as MapIcon,
 	MapPin,
 	MapPinned,
@@ -21,20 +18,13 @@ import {
 	MessageSquare,
 	MessageSquareOff,
 	MessageSquarePlus,
-	Menu,
 	Minimize2,
-	MousePointer2,
 	PanelTopOpen,
 	Plus,
 	Radio,
-	Redo2,
 	Search,
 	Scissors,
-	Spline,
-	Trash2,
-	Undo2,
 	UserRound,
-	Waypoints,
 	X,
 } from 'lucide-react'
 import type { FeatureCollection } from 'geojson'
@@ -74,7 +64,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { replaceEarthlySearch } from '@/router/navigation'
-import { navigateToRoute } from './hooks/useRouting'
+import { buildRoutePath, navigateToRoute } from './hooks/useRouting'
 import { executeEditorCommand } from './commands'
 import {
 	DiscoverDialog,
@@ -91,16 +81,20 @@ import {
 	type DiscoveryItemKind,
 } from '@/features/discovery'
 import { useTourStore } from '@/features/tour'
+import { WelcomeCard } from '../discovery/WelcomeCard.tsx'
 import { StudioShell } from './components/StudioShell'
 import {
 	LensBar,
 	ShelfStrip,
 	TopBar,
+	TopBarActionControl,
 	type ActivityTickerItem,
 	type ShelfReorderPlacement,
 	type ShelfStripItem,
 	type TopBarAction,
 } from './components/margin-shell'
+import { MeMenu } from './components/margin-shell/MeMenu'
+import { MobileDrawingChrome } from './components/MobileDrawingChrome'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useGeoDatasets, useMapContexts } from '@/lib/hooks/useGeoDatasets'
@@ -209,7 +203,7 @@ import {
 	resolveAuthoringDestination,
 	resolveAuthoringPublishChannel,
 } from './components/authoringDestination'
-import type { EditorEvent, EditorFeature, EditorMode } from './core'
+import type { EditorEvent, EditorFeature } from './core'
 import {
 	MAGNIFIER_SIZE,
 	useBlobResolution,
@@ -236,12 +230,14 @@ import { usePresentationMapLayers } from './hooks/usePresentationMapLayers'
 import { usePresentationCamera } from './hooks/usePresentationCamera'
 import type { PresentationLayerMaterializationInput } from './map-presentation/materialize'
 import { PresentationCanvas, presentationFitCollection } from '@/pages/read/PresentationCanvas'
+import type { StoryViewDraftContext } from '@/components/editor/StoryViewDraftContext'
 import {
 	applyAmbientSourcesToLayers,
 	authorizePresentationLayer,
 	buildFallbackAtlasPresentation,
 	buildFallbackStoryPresentation,
 	deriveAtlasPresentationAuthorization,
+	deriveStoryPresentationAuthorization,
 	getPresentationDatasetSource,
 	getUsableMapPresentation,
 	MAP_PRESENTATION_VERSION,
@@ -280,9 +276,10 @@ import { registerDatasetDraftEnsurer, type DatasetDraftRequest } from './authori
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
-import { getMobileDrawingGuidance, isDrawingEditorMode } from './mobileDrawingGuidance'
+import { isDrawingEditorMode } from './mobileDrawingGuidance'
 import { isDatasetMapInteractionEnabled } from './mobileDatasetInteraction'
 import { switchWorkspaceFromView } from './workspaceSwitchPresentation'
+import type { DatasetEditOptions } from '@/components/info-panel/mapProposalPresentation'
 import { deriveReferenceMapRenderState, featureMatchesReferenceSelector } from './referenceMapStack'
 import {
 	applyShelfRouteIntentToSearch,
@@ -467,17 +464,18 @@ function presentationMaterializationInputs(
 
 function presentationInputsForStorySnapshot(
 	carrierId: string,
-	presentationAuthor: string,
+	presentationAuthor: string | undefined,
 	state: EffectiveStoryViewStateV1,
 	resolved: readonly PresentationLayerResolution[],
 ): readonly PresentationLayerMaterializationInput[] {
-	const resolvedBySource = new Map<MapPresentationSource, PresentationLayerResolution>()
+	const resolvedByLayer = new Map<string, PresentationLayerResolution>()
 	for (const entry of resolved) {
-		if (!resolvedBySource.has(entry.layer.source)) resolvedBySource.set(entry.layer.source, entry)
+		resolvedByLayer.set(entry.layer.id, entry)
 	}
 	return Object.freeze(
 		state.layers.map((layer) => {
-			const source = resolvedBySource.get(layer.source)
+			const entry = resolvedByLayer.get(layer.id)
+			const source = entry?.layer.source === layer.source ? entry : undefined
 			return {
 				carrierId,
 				layer,
@@ -494,12 +492,12 @@ function presentationInputsForStorySnapshot(
 
 function StoryPresentationFigure({
 	carrierId,
-	story,
+	presentationAuthor,
 	snapshot,
 	resolved,
 }: {
 	carrierId: string
-	story: Article
+	presentationAuthor?: string
 	snapshot: StoryViewSnapshotV1
 	resolved: readonly PresentationLayerResolution[]
 }) {
@@ -508,11 +506,11 @@ function StoryPresentationFigure({
 		() =>
 			presentationInputsForStorySnapshot(
 				`${carrierId}:figure:${snapshot.view.id}`,
-				story.pubkey,
+				presentationAuthor,
 				snapshot.state,
 				resolved,
 			),
-		[carrierId, resolved, snapshot.state, snapshot.view.id, story.pubkey],
+		[carrierId, resolved, snapshot.state, snapshot.view.id, presentationAuthor],
 	)
 	return (
 		<PresentationCanvas
@@ -520,10 +518,49 @@ function StoryPresentationFigure({
 			mapRef={figureMapRef}
 			layers={layers}
 			camera={snapshot.state.camera}
-			cameraIntentId="figure"
+			cameraIntentId={`figure:${JSON.stringify(snapshot.state)}`}
 			compact
 			interactive={false}
 			className="h-64 min-h-64 w-full border border-border"
+		/>
+	)
+}
+
+/** An unsaved Story has a local draft identity, not a fabricated signed Article. */
+function DraftStoryPresentationFigure({
+	carrierId,
+	presentationAuthor,
+	snapshot,
+	context,
+}: {
+	carrierId: string
+	presentationAuthor?: string
+	snapshot: StoryViewSnapshotV1
+	context: StoryViewDraftContext
+}) {
+	const authorization = useMemo(
+		() => deriveStoryPresentationAuthorization(context.body),
+		[context.body],
+	)
+	const presentation = useMemo<MapPresentationParseResult>(
+		() => ({
+			status: 'valid',
+			value: {
+				version: 1,
+				layers: snapshot.state.layers,
+				...(snapshot.state.camera ? { initialView: snapshot.state.camera } : {}),
+			},
+			issues: [],
+		}),
+		[snapshot.state],
+	)
+	const runtime = usePresentationSources({ presentation, authorization })
+	return (
+		<StoryPresentationFigure
+			carrierId={carrierId}
+			presentationAuthor={presentationAuthor}
+			snapshot={snapshot}
+			resolved={runtime.layers}
 		/>
 	)
 }
@@ -672,21 +709,8 @@ export function GeoEditorView() {
 		},
 		[loadedMap],
 	)
-	// Mutable intent flag shared by the generic mobile-drawing guidance and the
-	// later Sighting controller. Sighting pin-drop has its own tap-specific prompt;
-	// showing the dataset lock/drag guidance at the same time is contradictory.
+	// Sighting placement owns its tap behavior separately from Map drawing.
 	const sightingPlacementArmedRef = useRef(false)
-	// Viewport width — drives how many mobile tool-strip overflow actions fit in
-	// the strip vs. collapse into the ••• menu (measured, not fixed breakpoints).
-	const [viewportWidth, setViewportWidth] = useState(() =>
-		typeof window !== 'undefined' ? window.innerWidth : 1024,
-	)
-	useEffect(() => {
-		if (typeof window === 'undefined') return
-		const onResize = () => setViewportWidth(window.innerWidth)
-		window.addEventListener('resize', onResize)
-		return () => window.removeEventListener('resize', onResize)
-	}, [])
 	// The route is the sole owner of Ask and object Thread visibility. Clear a
 	// persisted pre-cutover flag once so an old profile cannot resurrect the
 	// retired unbound chat panel.
@@ -816,6 +840,10 @@ export function GeoEditorView() {
 		const activeDraftId = state.activeGeoEditDraftId
 		return activeDraftId ? (state.geoEditDrafts[activeDraftId]?.publishChannel ?? null) : null
 	})
+	const activeMapDraft = useEditorStore((state) =>
+		state.activeGeoEditDraftId ? state.geoEditDrafts[state.activeGeoEditDraftId] : undefined,
+	)
+	const pendingHydratedDraftId = useEditorStore((state) => state.pendingHydratedDraftId)
 	const activeWorkspaceDatasetKey = useEditorStore((state) => {
 		const workspace = state.activeWorkspaceId ? state.workspaces[state.activeWorkspaceId] : null
 		return workspace?.datasetKey ?? null
@@ -867,7 +895,6 @@ export function GeoEditorView() {
 	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
 	const setMobilePanelSnap = useEditorStore((state) => state.setMobilePanelSnap)
 	const mobileSidebarOpen = useEditorStore((state) => state.mobileSidebarOpen)
-	const openMobileSidebar = useEditorStore((state) => state.openMobileSidebar)
 	const selectMobileSidebarDestination = useEditorStore(
 		(state) => state.selectMobileSidebarDestination,
 	)
@@ -878,11 +905,9 @@ export function GeoEditorView() {
 	// toolbar replaces them. Store fields stay for backward compat.
 	const panLocked = useEditorStore((state) => state.panLocked)
 	const setPanLocked = useEditorStore((state) => state.setPanLocked)
-	const canFinishDrawing = useEditorStore((state) => state.canFinishDrawing)
 	const currentMode = useEditorStore((state) => state.mode)
 	const geometryOperation = useEditorStore((state) => state.geometryOperation)
 	const isDrawingMode = isDrawingEditorMode(currentMode)
-	const lastMobileDrawGuideRef = useRef<EditorMode | null>(null)
 	const mapSource = useEditorStore((state) => state.mapSource)
 	const inspectorActive = useEditorStore((state) => state.inspectorActive)
 	const mapSourceKey = useMemo(() => {
@@ -1091,26 +1116,14 @@ export function GeoEditorView() {
 	const mapPopupToolbarOffset = 112
 
 	useEffect(() => {
-		if (!isMobile || !isDrawingMode || sightingPlacementArmedRef.current) {
-			lastMobileDrawGuideRef.current = null
-			toast.dismiss('mobile-pan-lock-guide')
-			return
+		if (!isMobile || !isDrawingMode || sightingPlacementArmedRef.current) return
+		// Tap places a vertex; dragging still pans. Pan lock remains an optional
+		// precision tool in More, not a prerequisite for drawing on a phone.
+		editor?.setTouchTapDrawEnabled(true)
+		return () => {
+			editor?.setTouchTapDrawEnabled(false)
 		}
-		if (panLocked) {
-			toast.dismiss('mobile-pan-lock-guide')
-			return
-		}
-		if (lastMobileDrawGuideRef.current === currentMode) return
-
-		lastMobileDrawGuideRef.current = currentMode
-		const description = getMobileDrawingGuidance(currentMode)
-		if (!description) return
-		toast.info('Lock panning to draw', {
-			id: 'mobile-pan-lock-guide',
-			description,
-			duration: 7_000,
-		})
-	}, [currentMode, isDrawingMode, isMobile, panLocked])
+	}, [editor, isDrawingMode, isMobile])
 
 	// Native URLs are navigation, not alternate trust paths. Custom pairing URLs
 	// reveal the existing approval UI. A verified public Earthly URL is reduced to
@@ -1224,7 +1237,18 @@ export function GeoEditorView() {
 		setDisplayedAnnotationPopupData(null)
 	}, [clearAnnotationPopupHideTimeout, setAnnotationPopupData])
 
+	const focusHandledRef = useRef<string | null>(null)
+	// In-app inspect navigation must not be mistaken for a fresh shared-link
+	// landing that adds/isolate entities on the map.
+	const inAppDatasetInspectRouteRef = useRef<string | null>(null)
+	const inAppEphemeralInspectRouteRef = useRef<string | null>(null)
 	useEffect(() => {
+		// Account restoration clears transient inspection along with the old
+		// account's draft state. Re-resolve the current route after that reset,
+		// including when its public event arrived before the signer did.
+		focusHandledRef.current = null
+		inAppDatasetInspectRouteRef.current = null
+		inAppEphemeralInspectRouteRef.current = null
 		hydrateEditorSessionForPubkey(currentUserPubkey)
 	}, [currentUserPubkey, hydrateEditorSessionForPubkey])
 
@@ -1238,11 +1262,11 @@ export function GeoEditorView() {
 	const openMobilePanel = useEditorStore((state) => state.openMobilePanel)
 	const ensureInfoPanelVisible = useCallback(() => {
 		if (isMobile) {
-			openMobilePanel('edit')
+			openMobilePanel(route.tab === 'thread' ? 'chat' : 'edit')
 		} else {
 			setShowInfoPanel(true)
 		}
-	}, [isMobile, openMobilePanel, setShowInfoPanel])
+	}, [isMobile, openMobilePanel, route.tab, setShowInfoPanel])
 
 	// A direct map/touch selection explicitly asks to see Dataset properties, so it
 	// may surface the Edit sheet. Programmatic selection changes (including AI tool
@@ -1279,7 +1303,15 @@ export function GeoEditorView() {
 		const mapInstance = map.current
 		const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0
 		const rawBottom =
-			isMobile && mobilePanelOpen ? Math.round(mobilePanelHeightPx(mobilePanelSnap)) : 0
+			isMobile && mobilePanelOpen
+				? Math.round(
+						mobilePanelHeightPx(
+							mobilePanelSnap,
+							window.innerHeight,
+							stance === 'author' && mobileEntitySurface === 'dataset',
+						),
+					)
+				: 0
 		mapContainerRef.current?.style.setProperty('--mobile-sheet-height', `${rawBottom}px`)
 		if (!mapInstance || !mounted) return
 		// Never pad away the whole map — keep a usable strip so MapLibre always has
@@ -1289,7 +1321,7 @@ export function GeoEditorView() {
 		return () => {
 			mapContainerRef.current?.style.setProperty('--mobile-sheet-height', '0px')
 		}
-	}, [isMobile, mobilePanelOpen, mobilePanelSnap, mounted])
+	}, [isMobile, mobilePanelOpen, mobilePanelSnap, mounted, stance, mobileEntitySurface])
 
 	// Custom hooks
 	const {
@@ -1311,6 +1343,40 @@ export function GeoEditorView() {
 		tearDownEditSession,
 		startNewDataset: startNewDatasetWithOptions,
 	} = useDatasetManagement(map, mapGeoEvents)
+
+	useEffect(() => {
+		// Restoring saved IDs is not the same as installing their contents in the
+		// map editor. Only an unloaded saved draft is hydrated here; ordinary live
+		// edits (including intentionally empty Maps) keep their current contents.
+		if (
+			!editor ||
+			!pendingHydratedDraftId ||
+			route.focusType !== 'none' ||
+			route.sidebarView !== 'edit'
+		)
+			return
+		const state = useEditorStore.getState()
+		const retained = getRetainedDatasetSurfaceTarget(state)
+		if (!retained || retained.draft.id !== pendingHydratedDraftId) return
+		const channel = retained.draft.publishChannel
+		if (privateGroupId && (channel.kind !== 'private-group' || channel.id !== privateGroupId))
+			return
+		if (fieldSessionId && (channel.kind !== 'field-session' || channel.id !== fieldSessionId))
+			return
+		loadDraftInWorkspace(retained.workspace.id, retained.draft.id)
+		state.selectMobileEntitySurface('dataset')
+		if (isMobile && route.tab === 'thread') state.openMobilePanel('chat')
+	}, [
+		editor,
+		isMobile,
+		pendingHydratedDraftId,
+		route.focusType,
+		route.sidebarView,
+		route.tab,
+		privateGroupId,
+		fieldSessionId,
+		loadDraftInWorkspace,
+	])
 
 	const discoverySelectionOptions = useMemo(
 		() => ({
@@ -1396,18 +1462,39 @@ export function GeoEditorView() {
 	)
 	const discoveryLoading = !geoEventsSettled || !storiesSettled || !mapContextsSettled
 
+	const navigateToDraftEditor = useCallback((channel: PublishChannel) => {
+		navigateToRoute(
+			buildRoutePath({
+				sidebarView: 'edit',
+				privateGroupId: channel.kind === 'private-group' ? channel.id : undefined,
+				fieldSessionId: channel.kind === 'field-session' ? channel.id : undefined,
+			}),
+		)
+	}, [])
 	const surfaceDraftEditorOnMobile = useCallback(() => {
 		if (!isMobile) return
-		useEditorStore.getState().selectMobileEntitySurface('dataset')
+		const state = useEditorStore.getState()
+		const retained = getRetainedDatasetSurfaceTarget(state)
+		if (!retained) return
+		navigateToDraftEditor(retained.draft.publishChannel)
+		state.selectMobileEntitySurface('dataset')
 		closeMobileSidebar()
 		openMobilePanel('edit')
 		setMobilePanelSnap('half')
-	}, [closeMobileSidebar, isMobile, openMobilePanel, setMobilePanelSnap])
+	}, [closeMobileSidebar, isMobile, navigateToDraftEditor, openMobilePanel, setMobilePanelSnap])
 
 	const startNewDataset = useCallback(() => {
-		startNewDatasetWithOptions({ publishChannel: routePublishChannel })
-		if (useEditorStore.getState().activeGeoEditDraftId) surfaceDraftEditorOnMobile()
-	}, [routePublishChannel, startNewDatasetWithOptions, surfaceDraftEditorOnMobile])
+		const workspaceId = startNewDatasetWithOptions({ publishChannel: routePublishChannel })
+		if (!workspaceId) return
+		if (isMobile) surfaceDraftEditorOnMobile()
+		else navigateToDraftEditor(routePublishChannel)
+	}, [
+		isMobile,
+		navigateToDraftEditor,
+		routePublishChannel,
+		startNewDatasetWithOptions,
+		surfaceDraftEditorOnMobile,
+	])
 
 	const ensureAiDatasetDraft = useCallback(
 		(request?: DatasetDraftRequest) => {
@@ -1546,6 +1633,10 @@ export function GeoEditorView() {
 			const workspace = state.workspaces[workspaceId]
 			const draft = state.geoEditDrafts[draftId]
 			if (!workspace || !draft || draft.sourceId !== workspace.sourceId) return
+			if (draft.authoringIntent === 'propose' && publishChannel.kind !== 'public') {
+				toast.error('Proposals target the original public Map. Choose Everyone or start a fork.')
+				return
+			}
 			state.saveGeoEditDraft(draftId, { publishChannel })
 			if (
 				state.activeWorkspaceId === workspaceId &&
@@ -1566,7 +1657,7 @@ export function GeoEditorView() {
 	)
 
 	const loadDatasetForCurrentChannel = useCallback(
-		(event: GeoDataset) => {
+		async (event: GeoDataset, options?: DatasetEditOptions) => {
 			const privateWorkspaceId = privateWorkspaceIdForDataset(event)
 			const nearbySessionId = fieldSessionIdForEvent(event.event)
 			const publishChannel: PublishChannel = privateWorkspaceId
@@ -1574,7 +1665,27 @@ export function GeoEditorView() {
 				: nearbySessionId
 					? { kind: 'field-session', id: nearbySessionId }
 					: { kind: 'public' }
-			return loadDatasetForEditing(event, { publishChannel })
+			const loaded = await loadDatasetForEditing(event, { ...options, publishChannel })
+			// Only an explicit entry gesture navigates. Route hydration and Thread
+			// binding use the same loader without stealing their current surface.
+			if (loaded && options?.intent) {
+				useEditorStore.getState().selectMobileEntitySurface('dataset')
+				if (options.intent === 'fork') {
+					navigateToRoute('/edit')
+				} else if (privateWorkspaceId) {
+					navigateToRoute(`/circle/${encodeURIComponent(privateWorkspaceId)}/edit`)
+				} else if (nearbySessionId) {
+					navigateToRoute(`/nearby/${encodeURIComponent(nearbySessionId)}/edit`)
+				} else {
+					const naddr = nip19.naddrEncode({
+						kind: event.kind,
+						pubkey: event.pubkey,
+						identifier: event.datasetId,
+					})
+					navigateToRoute(`/map/${naddr}/edit`)
+				}
+			}
+			return loaded
 		},
 		[loadDatasetForEditing],
 	)
@@ -1590,17 +1701,24 @@ export function GeoEditorView() {
 			fieldSessionId: fieldSessionIdForEvent(activeDataset.event) ?? undefined,
 		})
 	}, [activeDataset, activeDraftPublishChannel])
-	const draftSourceIdentityPending = Boolean(
+	const materializedFork =
+		activeMapDraft?.authoringIntent === 'fork' && Boolean(activeMapDraft.sourceDataset)
+	const draftSourceNeedsResolution = Boolean(
 		activeDraftPublishChannel &&
 			activeWorkspaceDatasetKey &&
-			(activeDatasetKey !== activeWorkspaceDatasetKey || !activeDatasetMatchesDraftChannel),
+			(activeDatasetKey !== activeWorkspaceDatasetKey ||
+				(!materializedFork && !activeDatasetMatchesDraftChannel)),
 	)
+	// The fork already owns its local snapshot. Resolving its original Map is
+	// useful context, not a requirement for publishing to the selected audience.
+	const draftSourceIdentityPending = draftSourceNeedsResolution && !materializedFork
 	const draftSourceCandidates = useMemo(() => {
+		if (materializedFork) return [...geoEvents, ...privateGeoEvents, ...fieldGeoEvents]
 		if (activeDraftPublishChannel?.kind === 'private-group') return privateGeoEvents
 		if (activeDraftPublishChannel?.kind === 'field-session') return fieldGeoEvents
 		if (activeDraftPublishChannel?.kind === 'public') return geoEvents
 		return []
-	}, [activeDraftPublishChannel, fieldGeoEvents, geoEvents, privateGeoEvents])
+	}, [activeDraftPublishChannel, fieldGeoEvents, geoEvents, privateGeoEvents, materializedFork])
 
 	// Local drafts can be opened from the unscoped /drafts route before their
 	// private-group or Field-session event is in the current map collection.
@@ -1609,9 +1727,11 @@ export function GeoEditorView() {
 	// Publishing stays blocked while the source is unresolved, so an update can
 	// never be mistaken for a new dataset during this short hand-off.
 	useEffect(() => {
-		if (!activeWorkspaceDatasetKey || !draftSourceIdentityPending) return
-		const sourceDataset = draftSourceCandidates.find(
-			(event) => getDatasetKey(event) === activeWorkspaceDatasetKey,
+		if (!activeWorkspaceDatasetKey || !draftSourceNeedsResolution) return
+		const sourceDataset = draftSourceCandidates.find((event) =>
+			materializedFork
+				? event.event.id === activeMapDraft?.sourceDataset?.eventId
+				: getDatasetKey(event) === activeWorkspaceDatasetKey,
 		)
 		if (!sourceDataset) return
 		setActiveDataset(sourceDataset)
@@ -1619,7 +1739,9 @@ export function GeoEditorView() {
 	}, [
 		activeWorkspaceDatasetKey,
 		draftSourceCandidates,
-		draftSourceIdentityPending,
+		draftSourceNeedsResolution,
+		materializedFork,
+		activeMapDraft?.sourceDataset?.eventId,
 		getDatasetKey,
 		setActiveDataset,
 		setIsDirty,
@@ -2311,13 +2433,6 @@ export function GeoEditorView() {
 		},
 		[authoringFieldSession, authoringFieldSessionId, fieldTransport.publishEvent],
 	)
-	// A Dataset inspect writes a shareable focus URL, but that in-app URL update
-	// must not be mistaken for a fresh shared-link landing by the route hydrator.
-	const inAppDatasetInspectRouteRef = useRef<string | null>(null)
-	// Sightings and Beacons share the same distinction: an in-app Inspect action
-	// writes a canonical URL but must not route-add/isolate the entity. Only a fresh
-	// shared-link landing gets that Map Stack behavior.
-	const inAppEphemeralInspectRouteRef = useRef<string | null>(null)
 	const navigateToEntityFocus = useCallback(
 		(
 			focusType: 'geoevent' | 'mapcontext' | 'story',
@@ -2328,24 +2443,22 @@ export function GeoEditorView() {
 			// Projected private datasets have no public naddr route. Keep inspection
 			// inside /privategroup/:id so opening a map row cannot drop the MLS scope.
 			if ((privateWorkspaceScopeId || fieldSessionScopeId) && focusType === 'geoevent') return
+			if (
+				!edit &&
+				!route.edit &&
+				route.focusType === focusType &&
+				route.naddr &&
+				naddrTargetsSameEntity(route.naddr, naddr)
+			) {
+				// Hydrating the routed object must preserve its tab and relay hints.
+				// Re-encoding the same address is not a new Details navigation.
+				return
+			}
 			if (focusType === 'geoevent') {
 				const nextRouteKey = `${focusType}:${naddr}`
 				const currentRouteKey =
 					route.focusType !== 'none' && route.naddr ? `${route.focusType}:${route.naddr}` : null
 				inAppDatasetInspectRouteRef.current = currentRouteKey === nextRouteKey ? null : nextRouteKey
-			} else if (focusType === 'story') {
-				if (
-					!edit &&
-					!route.edit &&
-					route.focusType === 'story' &&
-					route.naddr &&
-					naddrTargetsSameEntity(route.naddr, naddr)
-				) {
-					// Shared addresses may carry relay hints that disappear when Earthly
-					// re-encodes them. They are still the same route; do not rewrite the URL
-					// while the routed Story is refreshed in the Inspector.
-					return
-				}
 			}
 			navigateTo(focusType, naddr, sidebarView, edit)
 		},
@@ -2375,6 +2488,7 @@ export function GeoEditorView() {
 
 	const {
 		handlePublishNew,
+		authoringIntent: mapAuthoringIntent,
 		handlePublishUpdate,
 		handlePublishCopy,
 		handleProposeEdit,
@@ -2444,8 +2558,8 @@ export function GeoEditorView() {
 
 	// Round H.5: the in-edit draft row in the Map Stack gets the usual row
 	// actions' analogues. "Open editor panel" activates the validated retained
-	// Dataset; on mobile it reveals the route-neutral Edit sheet, while desktop
-	// keeps its canonical /edit route. "Zoom to edit" fits the draft geometry.
+	// Dataset and writes its authoring route so mobile Resume survives reload.
+	// "Zoom to edit" fits the draft geometry.
 	// Edit-isolation reuses the row's Focus button (draft.isolated).
 	const openDraftEditor = useCallback(
 		async (workspaceId?: string): Promise<boolean> => {
@@ -2461,7 +2575,12 @@ export function GeoEditorView() {
 			}
 
 			try {
-				if (plan.switchWorkspace) {
+				const retainedDraft = getRetainedDatasetSurfaceTarget(initialState, plan.workspaceId)?.draft
+				if (
+					plan.switchWorkspace ||
+					initialState.activeGeoEditDraftId !== retainedDraft?.id ||
+					initialState.pendingHydratedDraftId === retainedDraft?.id
+				) {
 					// Thread activation may switch only to the validated retained draft.
 					await switchToWorkspace(plan.workspaceId)
 				}
@@ -2469,6 +2588,8 @@ export function GeoEditorView() {
 				const state = useEditorStore.getState()
 				if (
 					state.activeWorkspaceId !== plan.workspaceId ||
+					(state.pendingHydratedDraftId != null &&
+						state.pendingHydratedDraftId === state.activeGeoEditDraftId) ||
 					!getRetainedDatasetSurfaceTarget(state, plan.workspaceId)
 				) {
 					toast.error('The Thread\u2019s Map draft could not be opened.')
@@ -2490,23 +2611,23 @@ export function GeoEditorView() {
 					closeMobileSidebar()
 					openMobilePanel('edit')
 					setMobilePanelSnap('half')
-				} else {
-					navigateToView('edit')
 				}
+				const channel = getRetainedDatasetSurfaceTarget(state, plan.workspaceId)?.draft
+					.publishChannel
+				navigateToRoute(
+					channel?.kind === 'private-group'
+						? `/circle/${encodeURIComponent(channel.id)}/edit`
+						: channel?.kind === 'field-session'
+							? `/nearby/${encodeURIComponent(channel.id)}/edit`
+							: '/edit',
+				)
 				return true
 			} catch {
 				toast.error('The Thread\u2019s Map draft could not be opened.')
 				return false
 			}
 		},
-		[
-			closeMobileSidebar,
-			isMobile,
-			navigateToView,
-			openMobilePanel,
-			setMobilePanelSnap,
-			switchToWorkspace,
-		],
+		[closeMobileSidebar, isMobile, openMobilePanel, setMobilePanelSnap, switchToWorkspace],
 	)
 
 	const zoomToDraft = useCallback(async () => {
@@ -2663,7 +2784,7 @@ export function GeoEditorView() {
 	])
 	const selectedAudienceId = publishChannelOptionId(authoringPublishChannel)
 	const publishAudienceOptions = useMemo<PublishAudienceOption[]>(() => {
-		if (!activeDraftPublishChannel) return []
+		if (!activeDraftPublishChannel || mapAuthoringIntent === 'propose') return []
 		const options = localDraftDestinationOptions.map((option) => ({ ...option }))
 		if (
 			selectedAudienceId &&
@@ -2683,12 +2804,22 @@ export function GeoEditorView() {
 		currentDestination.label,
 		localDraftDestinationOptions,
 		selectedAudienceId,
+		mapAuthoringIntent,
 	])
 	const handleAudienceChange = useCallback(
 		(publishChannel: PublishChannel) => {
 			const state = useEditorStore.getState()
 			const draftId = state.activeGeoEditDraftId
 			if (!draftId || !state.geoEditDrafts[draftId]) return
+			if (
+				state.geoEditDrafts[draftId]?.authoringIntent === 'propose' ||
+				mapAuthoringIntent === 'propose'
+			) {
+				toast.error(
+					'A proposal stays with the original Map. Start a fork to choose another audience.',
+				)
+				return
+			}
 			state.saveGeoEditDraft(draftId, { publishChannel })
 			syncRouteToDraftChannel(publishChannel)
 			const optionId = publishChannelOptionId(publishChannel)
@@ -2697,7 +2828,7 @@ export function GeoEditorView() {
 				description: option ? `This working copy is now for ${option.label}.` : undefined,
 			})
 		},
-		[localDraftDestinationOptions, syncRouteToDraftChannel],
+		[localDraftDestinationOptions, syncRouteToDraftChannel, mapAuthoringIntent],
 	)
 
 	const openCurrentDestination = useCallback(() => {
@@ -3434,8 +3565,8 @@ export function GeoEditorView() {
 	}, [handlePaste])
 
 	// Dataset actions
-	const handleDatasetSelect = (event: GeoDataset) => {
-		handleLoadDatasetForEditing(event)
+	const handleDatasetSelect = (event: GeoDataset, options?: DatasetEditOptions) => {
+		handleLoadDatasetForEditing(event, options)
 	}
 
 	const handleProposalAccepted = useCallback(
@@ -3655,6 +3786,7 @@ export function GeoEditorView() {
 
 	const {
 		storyEditorMode,
+		storyEditorRevealNonce,
 		editingStory,
 		handleInspectStory,
 		handleCreateStory,
@@ -3673,17 +3805,101 @@ export function GeoEditorView() {
 	// Creating a Story also moves to the Stories route. Route reconciliation owns
 	// mobile catalog restoration, so reassert the retained authoring surface after
 	// that route settles instead of allowing the catalog drawer to cover the editor.
+	const consumedStoryRevealNonceRef = useRef(0)
 	useEffect(() => {
-		if (!isMobile || storyEditorMode === 'none' || route.sidebarView !== 'stories') return
+		if (!isMobile || storyEditorMode === 'none') {
+			consumedStoryRevealNonceRef.current = storyEditorRevealNonce
+			return
+		}
+		if (
+			!storyEditorRevealNonce ||
+			consumedStoryRevealNonceRef.current === storyEditorRevealNonce ||
+			route.sidebarView !== 'stories' ||
+			(storyEditorMode === 'create'
+				? route.focusType !== 'none'
+				: !(
+						route.focusType === 'story' &&
+						route.edit &&
+						editingStory &&
+						encodeStoryNaddr(editingStory) === route.naddr
+					))
+		)
+			return
+		consumedStoryRevealNonceRef.current = storyEditorRevealNonce
 		const state = useEditorStore.getState()
 		state.selectMobileEntitySurface('story')
 		state.openMobilePanel('edit')
-	}, [isMobile, route.sidebarView, storyEditorMode])
+	}, [
+		isMobile,
+		route.sidebarView,
+		route.focusType,
+		route.edit,
+		route.naddr,
+		storyEditorMode,
+		storyEditorRevealNonce,
+		editingStory,
+		encodeStoryNaddr,
+	])
+
+	// Retaining a draft (including an AI write) does not select its editor. Only
+	// the mounted authoring surface can claim the main presentation; returning to
+	// that surface also works without changing the current Atlas/Map route.
+	const [foregroundStoryEditor, setForegroundStoryEditor] = useState<{
+		owner: 'desktop' | 'mobile'
+		draftKey: string
+		account: string | null
+	} | null>(null)
+	const handleDesktopStoryEditorActiveChange = useCallback(
+		(draftKey: string, active: boolean) => {
+			setForegroundStoryEditor((current) =>
+				active
+					? { owner: 'desktop', draftKey, account: currentUserPubkey ?? null }
+					: current?.owner === 'desktop' && current.draftKey === draftKey
+						? null
+						: current,
+			)
+		},
+		[currentUserPubkey],
+	)
+	const handleMobileStoryEditorActiveChange = useCallback(
+		(draftKey: string, active: boolean) => {
+			setForegroundStoryEditor((current) =>
+				active
+					? { owner: 'mobile', draftKey, account: currentUserPubkey ?? null }
+					: current?.owner === 'mobile' && current.draftKey === draftKey
+						? null
+						: current,
+			)
+		},
+		[currentUserPubkey],
+	)
+	const retainedStoryDraftKey =
+		storyEditorMode !== 'none' ? (editingStory?.dTag ?? 'new-story') : null
+	const storyAuthoringKey =
+		foregroundStoryEditor?.draftKey === retainedStoryDraftKey &&
+		foregroundStoryEditor.account === (currentUserPubkey ?? null) &&
+		foregroundStoryEditor.owner === (isMobile ? 'mobile' : 'desktop')
+			? retainedStoryDraftKey
+			: null
 
 	// A Story's authored presentation, inline views, and route-local `on=` Maps
 	// share one exact-source runtime on the main canvas. The ordinary map renderer
 	// remains active for every source not claimed by this composition.
-	const presentationStory = storyEditorMode !== 'none' ? editingStory : viewStory
+	const presentationStory =
+		storyAuthoringKey !== null ? editingStory : route.focusType === 'story' ? viewStory : null
+	const presentationAuthor =
+		storyAuthoringKey !== null ? (currentUserPubkey ?? undefined) : presentationStory?.pubkey
+	const presentationCarrierId = useMemo(
+		() =>
+			storyAuthoringKey !== null
+				? `draft-story:${currentUserPubkey ?? 'anonymous'}:${editingStory?.pubkey ?? ''}:${storyAuthoringKey}`
+				: presentationStory
+					? storyPresentationCarrier(presentationStory)
+					: null,
+		[currentUserPubkey, editingStory?.pubkey, presentationStory, storyAuthoringKey],
+	)
+	const presentationRevisionId =
+		storyAuthoringKey !== null ? presentationCarrierId : presentationStory?.id
 	const routedLensAtlas = useMemo(
 		() =>
 			contextCoordinate
@@ -3694,13 +3910,9 @@ export function GeoEditorView() {
 	// Story presentation is the foreground narrative whenever one is open. The
 	// Atlas lens remains visible as route context, but its canonical layers do not
 	// compete with the Story's authored composition.
-	const presentationAtlas = presentationStory ? null : routedLensAtlas
-	const presentationCarrierId = useMemo(
-		() => (presentationStory ? storyPresentationCarrier(presentationStory) : null),
-		[presentationStory],
-	)
+	const presentationAtlas = presentationCarrierId ? null : routedLensAtlas
 	const atlasPresentationCarrierId = presentationAtlas?.groupCoordinate ?? null
-	const { isMentionVisible, presentationAuthorization: storyPresentationAuthorization } =
+	const { isMentionVisible, presentationAuthorization: publishedStoryAuthorization } =
 		useStoryMapRefs(presentationStory)
 	const storedStoryPresentation = useMemo(
 		() =>
@@ -3732,11 +3944,24 @@ export function GeoEditorView() {
 		snapshot: StoryViewSnapshotV1
 		index: number
 		revision: number
+		draftContext?: StoryViewDraftContext
 	} | null>(null)
+	const activeDraftContext =
+		activeStoryView?.carrierId === presentationCarrierId &&
+		activeStoryView.storyEventId === presentationRevisionId
+			? activeStoryView.draftContext
+			: undefined
+	const storyPresentationAuthorization = useMemo(
+		() =>
+			activeDraftContext
+				? deriveStoryPresentationAuthorization(activeDraftContext.body)
+				: publishedStoryAuthorization,
+		[activeDraftContext, publishedStoryAuthorization],
+	)
 	const [presentationVisibilityOverrides, setPresentationVisibilityOverrides] = useState<
 		Readonly<Record<string, boolean>>
 	>({})
-	const presentationResetKey = `${presentationCarrierId ?? ''}:${presentationStory?.id ?? ''}:${atlasPresentationCarrierId ?? ''}:${presentationAtlas?.id ?? ''}`
+	const presentationResetKey = `${presentationCarrierId ?? ''}:${presentationRevisionId ?? ''}:${atlasPresentationCarrierId ?? ''}:${presentationAtlas?.id ?? ''}`
 	useEffect(() => {
 		void presentationResetKey
 		setActiveStoryView(null)
@@ -3748,7 +3973,7 @@ export function GeoEditorView() {
 			activeStoryView &&
 			presentationCarrierId &&
 			activeStoryView.carrierId === presentationCarrierId &&
-			activeStoryView.storyEventId === presentationStory?.id
+			activeStoryView.storyEventId === presentationRevisionId
 		) {
 			return activeStoryView.snapshot.state
 		}
@@ -3756,7 +3981,7 @@ export function GeoEditorView() {
 			...(baseStoryPresentation.initialView ? { camera: baseStoryPresentation.initialView } : {}),
 			layers: baseStoryPresentation.layers,
 		})
-	}, [activeStoryView, baseStoryPresentation, presentationCarrierId, presentationStory?.id])
+	}, [activeStoryView, baseStoryPresentation, presentationCarrierId, presentationRevisionId])
 
 	const parsedAmbientOn = useMemo(() => parseAmbientOn((route.on ?? []).join(',')), [route.on])
 	const resolvedAmbientOn = useMemo(
@@ -3825,7 +4050,7 @@ export function GeoEditorView() {
 		[effectiveStoryState.layers, storyPresentationAuthorization],
 	)
 	const composedStoryLayers = useMemo<readonly MapPresentationLayerV1[]>(() => {
-		if (!presentationStory) return Object.freeze([])
+		if (!presentationCarrierId) return Object.freeze([])
 		// Authorization is evaluated before ambient Shelf grants are added. Otherwise
 		// a route-local whole-map overlay could accidentally bless an unauthorized
 		// authored selector that happens to target the same source.
@@ -3853,14 +4078,14 @@ export function GeoEditorView() {
 	}, [
 		effectiveAmbientSources,
 		effectiveStoryState.layers,
-		presentationStory,
+		presentationCarrierId,
 		presentationVisibilityOverrides,
 		selectiveShelfLayers,
 		authorizedStoryLayerIds,
 	])
 	const runtimeStoryPresentation = useMemo<MapPresentationParseResult>(
 		() =>
-			presentationStory
+			presentationCarrierId
 				? Object.freeze({
 						status: 'valid' as const,
 						value: Object.freeze({
@@ -3871,7 +4096,12 @@ export function GeoEditorView() {
 						issues: storedStoryPresentation.issues,
 					})
 				: ABSENT_MAP_PRESENTATION,
-		[composedStoryLayers, effectiveStoryState.camera, presentationStory, storedStoryPresentation],
+		[
+			composedStoryLayers,
+			effectiveStoryState.camera,
+			presentationCarrierId,
+			storedStoryPresentation,
+		],
 	)
 	const runtimeStoryAuthorization = useMemo<MapPresentationAuthorization>(() => {
 		const authorization = new Map<MapPresentationSource, PresentationSourceAuthorization>(
@@ -3983,7 +4213,7 @@ export function GeoEditorView() {
 			presentationCarrierId
 				? presentationMaterializationInputs(
 						presentationCarrierId,
-						presentationStory?.pubkey,
+						presentationAuthor,
 						storyPresentationRuntime.layers,
 						authorizedStoryLayerIds,
 					)
@@ -3991,7 +4221,7 @@ export function GeoEditorView() {
 		[
 			authorizedStoryLayerIds,
 			presentationCarrierId,
-			presentationStory?.pubkey,
+			presentationAuthor,
 			storyPresentationRuntime.layers,
 		],
 	)
@@ -4067,12 +4297,13 @@ export function GeoEditorView() {
 		mapRef: map,
 		mounted,
 		intent:
-			presentationStory && presentationCarrierId
+			presentationCarrierId &&
+			(storyAuthoringKey === null || activeDraftContext || presentationStory)
 				? {
 						carrierId: presentationCarrierId,
 						intentId: activeStoryView
 							? `view:${activeStoryView.snapshot.view.id}:${activeStoryView.revision}`
-							: `opening:${presentationStory.id}`,
+							: `opening:${presentationRevisionId}`,
 						...(effectiveStoryState.camera
 							? { camera: effectiveStoryState.camera }
 							: { fitFeatureCollection: presentationFitFeatureCollection }),
@@ -4091,19 +4322,25 @@ export function GeoEditorView() {
 	})
 
 	const handleStoryViewActivate = useCallback(
-		(snapshot: StoryViewSnapshotV1, index: number) => {
-			if (!presentationStory || !presentationCarrierId) return
+		(snapshot: StoryViewSnapshotV1, index: number, draftContext?: StoryViewDraftContext) => {
+			if (snapshot.view.display === 'figure') return
+			if (!presentationCarrierId || !presentationRevisionId) return
+			if (draftContext && draftContext.draftKey !== storyAuthoringKey) return
 			setPresentationVisibilityOverrides({})
 			setActiveStoryView((current) => ({
 				carrierId: presentationCarrierId,
-				storyEventId: presentationStory.id,
+				storyEventId: presentationRevisionId,
 				snapshot,
 				index,
 				revision: (current?.revision ?? 0) + 1,
+				...(draftContext ? { draftContext } : {}),
 			}))
 		},
-		[presentationCarrierId, presentationStory],
+		[presentationCarrierId, presentationRevisionId, storyAuthoringKey],
 	)
+	const handleStoryViewPreviewReset = useCallback((draftKey: string) => {
+		setActiveStoryView((current) => (current?.draftContext?.draftKey === draftKey ? null : current))
+	}, [])
 	const captureMapPresentation = useCallback(
 		(
 			accepted?: readonly MapPresentationSource[] | MapPresentationAuthorization,
@@ -4137,7 +4374,7 @@ export function GeoEditorView() {
 						}),
 					]
 				})
-			const sourceLayers: readonly MapPresentationLayerV1[] = presentationStory
+			const sourceLayers: readonly MapPresentationLayerV1[] = presentationCarrierId
 				? composedStoryLayers
 				: presentationAtlas && usableRuntimeAtlasPresentation
 					? [
@@ -4181,7 +4418,7 @@ export function GeoEditorView() {
 			getDatasetKey,
 			ordinaryVisibleGeoEvents,
 			presentationAtlas,
-			presentationStory,
+			presentationCarrierId,
 			referenceMapRenderState.datasetFeatureSelectors,
 			usableRuntimeAtlasPresentation,
 			visibleGeoEvents,
@@ -4212,16 +4449,23 @@ export function GeoEditorView() {
 		}
 	}, [effectiveStoryState.layers, presentationVisibilityOverrides])
 	const renderStoryViewFigure = useCallback(
-		(snapshot: StoryViewSnapshotV1) =>
-			presentationStory && presentationCarrierId ? (
+		(snapshot: StoryViewSnapshotV1, _index: number, draftContext?: StoryViewDraftContext) =>
+			draftContext && presentationCarrierId ? (
+				<DraftStoryPresentationFigure
+					carrierId={presentationCarrierId}
+					presentationAuthor={presentationAuthor}
+					snapshot={snapshot}
+					context={draftContext}
+				/>
+			) : presentationStory && presentationCarrierId ? (
 				<StoryPresentationFigure
 					carrierId={presentationCarrierId}
-					story={presentationStory}
+					presentationAuthor={presentationAuthor}
 					snapshot={snapshot}
 					resolved={storyPresentationRuntime.layers}
 				/>
 			) : null,
-		[presentationCarrierId, presentationStory, storyPresentationRuntime.layers],
+		[presentationCarrierId, presentationAuthor, presentationStory, storyPresentationRuntime.layers],
 	)
 
 	const handleDiscoverOpenChange = useCallback((open: boolean) => {
@@ -4645,7 +4889,6 @@ export function GeoEditorView() {
 	}, [ownLiveBeacon, addBeaconToMapStack])
 
 	// Handle initial route on page load (direct URL navigation)
-	const focusHandledRef = useRef<string | null>(null)
 	useEffect(() => {
 		const routeKey =
 			route.focusType !== 'none' && route.naddr ? `${route.focusType}:${route.naddr}` : null
@@ -4715,11 +4958,22 @@ export function GeoEditorView() {
 				const handledKey = `${routeKey}:${route.edit ? 'edit' : 'view'}:${dataset.id}`
 				if (focusHandledRef.current === handledKey) return
 				if (route.edit) {
-					void loadDatasetForCurrentChannel(dataset).then((loaded) => {
-						if (!loaded) return
-						ensureInfoPanelVisible()
-						focusHandledRef.current = handledKey
-					})
+					// Claim before loading: restoring the draft changes several store
+					// fields and can rerender this effect before the Promise settles.
+					focusHandledRef.current = handledKey
+					void loadDatasetForCurrentChannel(dataset).then(
+						(loaded) => {
+							if (focusHandledRef.current !== handledKey) return
+							if (!loaded) focusHandledRef.current = null
+							else {
+								useEditorStore.getState().selectMobileEntitySurface('dataset')
+								ensureInfoPanelVisible()
+							}
+						},
+						() => {
+							if (focusHandledRef.current === handledKey) focusHandledRef.current = null
+						},
+					)
 					return
 				}
 				if (inAppDatasetInspectRouteRef.current === routeKey) {
@@ -4748,8 +5002,16 @@ export function GeoEditorView() {
 			if (context) {
 				const handledKey = `${routeKey}:${route.edit ? 'edit' : 'view'}:${context.id}`
 				if (focusHandledRef.current === handledKey) return
-				if (route.edit && currentUserPubkey === context.pubkey) handleEditContext(context)
-				else handleInspectContext(context)
+				if (route.edit && currentUserPubkey === context.pubkey) {
+					if (
+						contextEditorMode === 'edit' &&
+						editingContext?.pubkey === context.pubkey &&
+						(editingContext.contextId ?? editingContext.dTag) ===
+							(context.contextId ?? context.dTag)
+					)
+						ensureInfoPanelVisible()
+					else handleEditContext(context)
+				} else handleInspectContext(context)
 				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'story') {
@@ -4764,8 +5026,17 @@ export function GeoEditorView() {
 				// Inspection selects the Margin surface. Exact source resolution, feature
 				// selection, authored styling, and camera framing are owned by the shared
 				// presentation hooks above—this route effect never widens or auto-stacks.
-				if (route.edit && currentUserPubkey === story.pubkey) handleEditStory(story)
-				else handleInspectStory(story, { preserveRoute: route.edit })
+				// Both owner edits and reader proposals use the normal Story editor.
+				// Its submit path decides from ownership; entering never publishes.
+				if (route.edit) {
+					if (
+						storyEditorMode === 'edit' &&
+						editingStory?.pubkey === story.pubkey &&
+						editingStory.dTag === story.dTag
+					)
+						ensureInfoPanelVisible()
+					else handleEditStory(story)
+				} else handleInspectStory(story, { preserveRoute: route.edit })
 				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'sighting') {
@@ -4835,6 +5106,10 @@ export function GeoEditorView() {
 		route.commentId,
 		route.edit,
 		currentUserPubkey,
+		contextEditorMode,
+		editingContext,
+		storyEditorMode,
+		editingStory,
 		geoEvents,
 		mapContextEvents,
 		stories,
@@ -4860,22 +5135,6 @@ export function GeoEditorView() {
 		handleInspectBeacon,
 		zoomToDataset,
 	])
-
-	const routedStoryProposalOpen =
-		route.edit &&
-		route.focusType === 'story' &&
-		route.naddr &&
-		viewStory &&
-		currentUserPubkey !== viewStory.pubkey
-			? true
-			: undefined
-	const handleRoutedStoryProposalOpenChange = useCallback(
-		(open: boolean) => {
-			if (open || !route.naddr || route.focusType !== 'story' || !route.edit) return
-			navigateTo('story', route.naddr, 'stories', false)
-		},
-		[navigateTo, route.edit, route.focusType, route.naddr],
-	)
 
 	// Pan lock and magnifier
 	const togglePanLock = useCallback(() => {
@@ -4947,14 +5206,6 @@ export function GeoEditorView() {
 		},
 		[isMobile, setMobileSearchOpen],
 	)
-
-	const closeMobileNavigation = useCallback(() => {
-		const state = useEditorStore.getState()
-		if (state.mobileSidebarMode === 'content') {
-			navigateToView(getRetainedDatasetSurfaceTarget(state) ? 'edit' : 'sightings')
-		}
-		closeMobileSidebar()
-	}, [closeMobileSidebar, navigateToView])
 
 	const handleSearchResultSelect = useCallback(
 		(result: GeoSearchResult) => {
@@ -5149,7 +5400,7 @@ export function GeoEditorView() {
 		orderedShelfEntries,
 	])
 	const storyPresentationShelfItems = useMemo<readonly ShelfStripItem[]>(() => {
-		if (!presentationStory || !presentationCarrierId) return Object.freeze([])
+		if (!presentationCarrierId) return Object.freeze([])
 		const eventBySource = new Map(
 			storyPresentationRuntime.sourceEvents.flatMap((event) => {
 				const source = getPresentationDatasetSource(event)
@@ -5184,7 +5435,6 @@ export function GeoEditorView() {
 		effectiveStoryState.layers,
 		getDatasetName,
 		presentationCarrierId,
-		presentationStory,
 		presentationVisibilityOverrides,
 		storyPresentationRuntime.sourceEvents,
 	])
@@ -5640,7 +5890,28 @@ export function GeoEditorView() {
 				/>
 			}
 			activityItems={topBarActivityItems}
-			actions={topBarActions}
+			navigation={topBarActions.map((action) =>
+				action.id === 'me' ? (
+					<MeMenu
+						key="me"
+						currentUserPubkey={currentUserPubkey}
+						draftCount={retainedDraftCount}
+						unreadCount={inboxUnreadCount}
+						onNavigate={navigateToRoute}
+						onShareLive={handleShareLocation}
+						onDiscover={handleOpenDiscover}
+						onTakeTour={handleTakeDiscoverTour}
+						trigger={
+							<button type="button" className="earthly-topbar__action">
+								<UserRound aria-hidden="true" />
+								Me
+							</button>
+						}
+					/>
+				) : (
+					<TopBarActionControl key={action.id} action={action} />
+				),
+			)}
 			onBrandActivate={() => navigateToUnscopedView('datasets')}
 		/>
 	)
@@ -5719,6 +5990,7 @@ export function GeoEditorView() {
 	const canvasToolbarSlot = !isMobile ? (
 		<Toolbar
 			datasetActions={{
+				authoringIntent: mapAuthoringIntent,
 				onExportGeoJSON: exportGeoJSON,
 				onExportSHP: exportSHP,
 				canExport: stats.total > 0,
@@ -5872,64 +6144,6 @@ export function GeoEditorView() {
 		/>
 	) : null
 
-	// Mobile tool-strip overflow actions in PRIORITY order (extract to the strip
-	// first as the screen grows; collapse into ••• as it shrinks). How many fit is
-	// measured from the viewport width against the fixed strip content.
-	const mobileOverflowActions = [
-		{
-			key: 'lock',
-			label: panLocked ? 'Unlock pan while drawing' : 'Lock pan while drawing',
-			icon: panLocked ? Lock : LockOpen,
-			onClick: togglePanLock,
-			active: panLocked,
-			attention: isMobile && isDrawingMode && !panLocked,
-		},
-		{
-			key: 'magnifier',
-			label: magnifierEnabled ? 'Hide magnifier' : 'Show magnifier',
-			icon: Search,
-			onClick: toggleMagnifier,
-			active: magnifierEnabled,
-		},
-		{
-			key: 'snap',
-			label: 'Toggle snapping',
-			icon: Waypoints,
-			onClick: () => executeEditorCommand('toggle_snapping'),
-		},
-		{ key: 'undo', label: 'Undo', icon: Undo2, onClick: () => executeEditorCommand('undo') },
-		{ key: 'redo', label: 'Redo', icon: Redo2, onClick: () => executeEditorCommand('redo') },
-		{
-			key: 'export',
-			label: 'Export GeoJSON',
-			icon: Download,
-			onClick: exportGeoJSON,
-			disabled: stats.total === 0,
-		},
-		{
-			key: 'clear',
-			label: 'Clear draft',
-			icon: Trash2,
-			onClick: handleClear,
-			disabled: stats.total === 0,
-			danger: true,
-		},
-	] as const
-	const stripHasFinish = currentMode === 'draw_linestring' || currentMode === 'draw_polygon'
-	const overflowVisibleCount = (() => {
-		if (!isMobile) return 0
-		const ITEM_W = 42 // 36px button + 6px gap
-		// Fixed strip content: px-2 padding + draw-tools group + the always-present
-		// ••• menu + Publish + a Finish button (when drawing) + inter-item gaps.
-		const fixed = 16 + 42 + 146 + 42 + 60 + 18 + (stripHasFinish ? 66 : 0)
-		const available = viewportWidth - fixed
-		const count = Math.floor(available / ITEM_W)
-		return Math.max(0, Math.min(mobileOverflowActions.length, count))
-	})()
-	// The strip shows as many quick-access shortcut icons as fit; the full command
-	// set always lives in the ••• MobileToolMenu regardless of what's extracted.
-	const stripOverflowActions = mobileOverflowActions.slice(0, overflowVisibleCount)
-
 	// Mobile browse-rail bundles — the self-subscribing entity lists rendered in the
 	// bottom sheet (§14a). Mirror the desktop AppSidebar prop objects, but bound to
 	// the raw GeoEditorView handlers (which surface the editor via the mobile 'edit'
@@ -5991,6 +6205,28 @@ export function GeoEditorView() {
 		create()
 	}
 	const mobileMapIsCovered = mobileSidebarOpen || mobilePanelOpen || mobileSearchOpen
+	const mobileBrowseIsOpen = mobilePanelOpen && route.browseOpen === true && stance === 'browse'
+	const mobileMapEditing =
+		isMobile &&
+		route.sidebarView === 'edit' &&
+		(route.focusType === 'none' || (route.focusType === 'geoevent' && route.edit === true)) &&
+		stance === 'author' &&
+		!routedThreadOpen &&
+		mobileEntitySurface === 'dataset' &&
+		draftThreadWorkspaceId !== null
+	useEffect(() => {
+		if (!mobileMapEditing || !draftThreadWorkspaceId) return
+		openMobilePanel('edit')
+		setMobilePanelSnap('peek')
+	}, [mobileMapEditing, draftThreadWorkspaceId, openMobilePanel, setMobilePanelSnap])
+	const finishMobileMapEdit = () => {
+		editor?.setMode('select')
+		useEditorStore.getState().setStance('browse')
+		closeMobileSidebar()
+		setMobilePanelOpen(false)
+		setMobileSearchOpen(false)
+		navigateHome()
+	}
 	const showBareMobileMap = () => {
 		// closeMobileSidebar may restore a suspended map sheet, so close it first
 		// and then explicitly dismiss the sheet. The working copy and Shelf remain.
@@ -5999,23 +6235,25 @@ export function GeoEditorView() {
 		setMobileSearchOpen(false)
 		navigateHome()
 	}
-	const showMobileSearch = () => {
+	const showMobileBrowse = () => {
+		closeMobileSidebar()
+		setMobileSearchOpen(false)
+		navigateToView('datasets')
+		openMobilePanel('datasets')
+		setMobilePanelSnap('half')
+	}
+	const navigateFromMobileMe = (href: string) => {
 		closeMobileSidebar()
 		setMobilePanelOpen(false)
-		setMobileSearchOpen(true)
-	}
-	const showMobileMe = () => {
 		setMobileSearchOpen(false)
-		navigateToView('user')
-		// Open the route's profile content first. Its Back control reveals the
-		// complete retained navigation menu, so no former Menu capability is lost.
-		selectMobileSidebarDestination('profile')
+		navigateToRoute(href)
 	}
 	return (
 		<StudioShell
 			mapContainerRef={mapContainerRef}
 			topBar={topBarSlot}
 			banners={lensBarSlot}
+			mobileTop={lensBarSlot}
 			canvasToolbar={canvasToolbarSlot}
 			shelf={shelfSlot}
 			statusBar={statusBarSlot}
@@ -6026,6 +6264,9 @@ export function GeoEditorView() {
 					chatSlot
 				) : (
 					<AppSidebar
+						isMobile={isMobile}
+						mapGroups={groups}
+						mapStories={stories}
 						layout="margin"
 						onInboxUnreadCountChange={setInboxUnreadCount}
 						shelfPanel={shelfPanelSlot}
@@ -6081,10 +6322,10 @@ export function GeoEditorView() {
 						captureMapPresentation={captureMapPresentation}
 						captureStoryView={captureStoryView}
 						onStoryViewActivate={handleStoryViewActivate}
+						onStoryViewPreviewReset={handleStoryViewPreviewReset}
+						onStoryEditorActiveChange={isMobile ? undefined : handleDesktopStoryEditorActiveChange}
 						renderStoryViewFigure={renderStoryViewFigure}
 						activeStoryViewId={activeStoryView?.snapshot.view.id ?? null}
-						proposeEditOpen={routedStoryProposalOpen}
-						onProposeEditOpenChange={handleRoutedStoryProposalOpenChange}
 						contextEditorMode={contextEditorMode}
 						editingContext={editingContext}
 						contextCreationSeed={contextCreationSeed}
@@ -6155,8 +6396,15 @@ export function GeoEditorView() {
 				)
 			}
 		>
+			{discoverOpen && discoverOpenedAutomaticallyRef.current && <WelcomeCard
+				canCreate={Boolean(editor)}
+				onDismiss={() => handleDiscoverOpenChange(false)}
+				onBrowse={() => { handleDiscoverOpenChange(false); navigateToUnscopedView('datasets'); if (isMobile) selectMobileSidebarDestination('datasets') }}
+				onCreate={() => { handleDiscoverOpenChange(false); startNewDataset() }}
+				onTour={() => { handleDiscoverOpenChange(false); handleTakeDiscoverTour() }}
+			/>}
 			<DiscoverDialog
-				open={discoverOpen}
+				open={discoverOpen && !discoverOpenedAutomaticallyRef.current}
 				onOpenChange={handleDiscoverOpenChange}
 				datasets={discoveryDatasets}
 				stories={discoveryStories}
@@ -6197,7 +6445,16 @@ export function GeoEditorView() {
 				// On mobile the bottom sheet + tool strip/dock occupy the lower edge,
 				// so the control stack lives top-right (clear of the sheet at every
 				// detent). Desktop keeps them bottom-right (thumb-free, above the status bar).
-				controlsPosition={isMobile ? 'top-right' : 'bottom-right'}
+				controlsPosition={isMobile && !mobileMapEditing ? 'top-right' : 'bottom-right'}
+				controlsClassName={
+					!isMobile
+						? 'earthly-desktop-map-controls'
+						: mobileMapEditing
+							? selectionCount > 0
+								? 'bottom-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom)+114px)]'
+								: 'bottom-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom)+70px)]'
+							: undefined
+				}
 				controlsChildren={
 					!isMobile ? (
 						<ControlGroup>
@@ -6438,9 +6695,13 @@ export function GeoEditorView() {
 					onClose={handleCloseAnnotationPopup}
 				/>
 			)}
-			{isMobile && activeDraftPublishChannel ? (
+			{isMobile &&
+			activeDraftPublishChannel &&
+			!mobileMapEditing &&
+			mapAuthoringIntent !== 'propose' ? (
 				<div className="pointer-events-auto absolute left-1/2 top-[max(0.5rem,env(safe-area-inset-top))] z-30 -translate-x-1/2 md:hidden">
 					<PublishDropdown
+						authoringIntent={mapAuthoringIntent}
 						publishingScope={currentDestination}
 						audienceOptions={publishAudienceOptions}
 						selectedAudienceId={selectedAudienceId}
@@ -6502,6 +6763,31 @@ export function GeoEditorView() {
 			{/* Mobile Panel - unified tabbed drawer */}
 			{isMobile && (
 				<MobilePanel
+					mapGroups={groups}
+					mapStories={stories}
+					onPublishNew={handlePublishNew}
+					canPublishNew={canPublishNew}
+					mapEditPublishAction={
+						<PublishDropdown
+							authoringIntent={mapAuthoringIntent}
+							canPublishNew={canPublishNew}
+							canPublishUpdate={canPublishUpdate}
+							canPublishCopy={canPublishCopy}
+							canProposeEdit={canProposeEdit}
+							onPublishNew={handlePublishNew}
+							onPublishUpdate={handlePublishUpdate}
+							onPublishCopy={handlePublishCopy}
+							onProposeEdit={handleProposeEdit}
+							isPublishing={isPublishing}
+							publishMode={datasetPublishMode}
+							publishingScope={currentDestination}
+							audienceOptions={publishAudienceOptions}
+							selectedAudienceId={selectedAudienceId}
+							onAudienceChange={handleAudienceChange}
+							onOpenPublishingScope={openCurrentDestination}
+							onLeavePublishingScope={leaveCurrentDestination}
+						/>
+					}
 					onOpenDiscover={handleOpenDiscover}
 					geoEvents={scopedGeoEvents}
 					mapContextEvents={mapContextEvents}
@@ -6560,10 +6846,10 @@ export function GeoEditorView() {
 					captureMapPresentation={captureMapPresentation}
 					captureStoryView={captureStoryView}
 					onStoryViewActivate={handleStoryViewActivate}
+					onStoryViewPreviewReset={handleStoryViewPreviewReset}
+					onStoryEditorActiveChange={isMobile ? handleMobileStoryEditorActiveChange : undefined}
 					renderStoryViewFigure={renderStoryViewFigure}
 					activeStoryViewId={activeStoryView?.snapshot.view.id ?? null}
-					proposeEditOpen={routedStoryProposalOpen}
-					onProposeEditOpenChange={handleRoutedStoryProposalOpenChange}
 					contextEditorMode={contextEditorMode}
 					editingContext={editingContext}
 					contextCreationSeed={contextCreationSeed}
@@ -6617,160 +6903,54 @@ export function GeoEditorView() {
 					storiesPanelProps={mobileStoriesPanelProps}
 				/>
 			)}
-			{/* Mobile tool strip (redesign §14a Row 0) — pinned at the very bottom;
-			    the sheet docks directly above it. Draw tools left, Publish right. */}
-			{isMobile && stance === 'author' && (
-				<div className="fixed inset-x-0 bottom-0 z-[60] flex min-h-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] items-center gap-1.5 border-t border-border bg-[var(--surface-chrome)] px-2 pb-[env(safe-area-inset-bottom)] md:hidden">
-					<Button
-						variant={mobileSidebarOpen ? 'secondary' : 'ghost'}
-						size="icon-sm"
-						className="h-9 w-9 shrink-0 rounded-[2px]"
-						onClick={() => (mobileSidebarOpen ? closeMobileNavigation() : openMobileSidebar())}
-						aria-label="Menu"
-						aria-pressed={mobileSidebarOpen}
-						data-tour="mobile-dock-menu"
-					>
-						<Menu className="h-4 w-4" />
-					</Button>
-					<div className="inline-flex shrink-0 overflow-hidden rounded-[2px] border border-border">
-						{(
-							[
-								{ mode: 'select', icon: MousePointer2, label: 'Select / pan' },
-								{ mode: 'draw_point', icon: MapPin, label: 'Draw point' },
-								{ mode: 'draw_linestring', icon: Spline, label: 'Draw line' },
-								{ mode: 'draw_polygon', icon: Hexagon, label: 'Draw polygon' },
-							] as const
-						).map((tool) => {
-							const ToolIcon = tool.icon
-							const active = currentMode === tool.mode
-							return (
-								<button
-									key={tool.mode}
-									type="button"
-									onClick={() => executeEditorCommand('set_mode', { mode: tool.mode })}
-									aria-label={tool.label}
-									aria-pressed={active}
-									title={tool.label}
-									className={cn(
-										'flex h-9 w-9 items-center justify-center transition-colors [&:not(:first-child)]:border-border [&:not(:first-child)]:border-l',
-										active
-											? 'bg-edit text-white'
-											: 'bg-card text-muted-foreground hover:text-foreground',
-									)}
-								>
-									<ToolIcon className="h-4 w-4" />
-								</button>
-							)
-						})}
-					</div>
-					<Button
-						variant={calloutComposerActive || calloutAnchorDrawing ? 'default' : 'ghost'}
-						size="icon-sm"
-						className="h-9 w-9 shrink-0 rounded-[2px]"
-						onClick={handleOpenSelectedCallout}
-						aria-label={
-							calloutAnchorDrawing
-								? 'Cancel callout anchor'
-								: calloutComposerActive
-									? 'Cancel new map callout'
-									: selectedFeatureHasCallout
-										? 'Add another map callout'
-										: 'Add map callout'
-						}
-						title={
-							calloutAnchorDrawing
-								? 'Cancel callout anchor'
-								: calloutComposerActive
-									? 'Cancel new map callout'
-									: selectedFeatureHasCallout
-										? 'Add another map callout'
-										: 'Add map callout'
-						}
-					>
-						<MessageSquarePlus className="h-4 w-4" />
-					</Button>
-					{/* Responsive overflow (§14a): items extract into the strip as the
-					    screen grows (measured show-what-fits, priority: lock → snapping →
-					    the rest) and collapse into ••• as it shrinks. */}
-					{stripOverflowActions.map((action) => {
-						const ActionIcon = action.icon
-						return (
-							<Button
-								key={action.key}
-								variant={'active' in action && action.active ? 'default' : 'ghost'}
-								size="icon-sm"
-								className={cn(
-									'h-9 w-9 shrink-0 rounded-[2px]',
-									'danger' in action && action.danger && 'hover:text-destructive',
-									'attention' in action && action.attention && 'mobile-pan-lock-attention',
-								)}
-								onClick={action.onClick}
-								disabled={'disabled' in action ? action.disabled : false}
-								aria-label={action.label}
-								title={action.label}
-							>
-								<ActionIcon className="h-4 w-4" />
-							</Button>
-						)
-					})}
-					{/* ••• — the full desktop authoring toolbar (Draw / Edit / Geometry
-					    ops / File / Publish) in one menu. Always present; the strip icons
-					    above are just responsive fast-access shortcuts. */}
-					<MobileToolMenu
-						panLocked={panLocked}
-						panLockAttention={isDrawingMode && !panLocked}
-						panLockTriggerAttention={isDrawingMode && !panLocked && overflowVisibleCount === 0}
-						onTogglePanLock={togglePanLock}
-						magnifierEnabled={magnifierEnabled}
-						onToggleMagnifier={toggleMagnifier}
-						onExportGeoJSON={exportGeoJSON}
-						onExportSHP={exportSHP}
-						onImport={handleImport}
-						onClear={handleClear}
-						onCancelEditing={tearDownEditSession}
-						canExport={stats.total > 0}
-						canClear={stats.total > 0}
-						onPublishUpdate={handlePublishUpdate}
-						canPublishUpdate={canPublishUpdate}
-						onPublishCopy={handlePublishCopy}
-						canPublishCopy={canPublishCopy}
-						onProposeEdit={handleProposeEdit}
-						canProposeEdit={canProposeEdit}
-						isPublishing={isPublishing}
-						publishMode={datasetPublishMode}
-						onOsmClick={handleOsmQueryClick}
-						onOsmView={handleOsmQueryView}
-						onOsmAdvanced={() => setImportOsmDialogOpen(true)}
-						calloutsEnabled={calloutsEnabled}
-						calloutDisplayMode={calloutDisplayMode}
-						onToggleCallouts={() => setCalloutsEnabled(!calloutsEnabled)}
-						onCycleCalloutDisplayMode={cycleCalloutDisplayMode}
-					/>
-					{currentMode === 'draw_linestring' || currentMode === 'draw_polygon' ? (
-						<Button
-							size="sm"
-							className="h-9 shrink-0 rounded-[2px]"
-							onClick={() => editor?.finishDrawing()}
-							disabled={!canFinishDrawing}
-						>
-							Finish
-						</Button>
-					) : null}
-					<div className="min-w-0 flex-1" />
-					<Button
-						size="sm"
-						className="h-9 shrink-0 rounded-[2px] bg-primary text-primary-foreground hover:bg-primary/90"
-						onClick={handlePublishNew}
-						disabled={!canPublishNew}
-					>
-						{datasetPublishMode === 'public' ? 'Publish' : 'Save'}
-					</Button>
-				</div>
+			{mobileMapEditing && (
+				<MobileDrawingChrome
+					showStatus={!mobilePanelOpen || mobilePanelSnap === 'peek'}
+					onDone={finishMobileMapEdit}
+					onAsk={handleToggleThread}
+					moreTools={
+						<MobileToolMenu
+							dock
+							additionalActions={
+								<DropdownMenuItem onSelect={handleOpenSelectedCallout}>
+									<MessageSquarePlus className="h-4 w-4" />
+									{calloutAnchorDrawing || calloutComposerActive
+										? 'Cancel map callout'
+										: 'Add map callout'}
+								</DropdownMenuItem>
+							}
+							panLocked={panLocked}
+							onTogglePanLock={togglePanLock}
+							magnifierEnabled={magnifierEnabled}
+							onToggleMagnifier={toggleMagnifier}
+							onExportGeoJSON={exportGeoJSON}
+							onExportSHP={exportSHP}
+							onImport={handleImport}
+							onClear={handleClear}
+							onCancelEditing={finishMobileMapEdit}
+							canExport={stats.total > 0}
+							canClear={stats.total > 0}
+							onPublishUpdate={handlePublishUpdate}
+							canPublishUpdate={canPublishUpdate}
+							onPublishCopy={handlePublishCopy}
+							canPublishCopy={canPublishCopy}
+							onProposeEdit={handleProposeEdit}
+							canProposeEdit={canProposeEdit}
+							isPublishing={isPublishing}
+							publishMode={datasetPublishMode}
+							onOsmClick={handleOsmQueryClick}
+							onOsmView={handleOsmQueryView}
+							onOsmAdvanced={() => setImportOsmDialogOpen(true)}
+							calloutsEnabled={calloutsEnabled}
+							calloutDisplayMode={calloutDisplayMode}
+							onToggleCallouts={() => setCalloutsEnabled(!calloutsEnabled)}
+							onCycleCalloutDisplayMode={cycleCalloutDisplayMode}
+						/>
+					}
+				/>
 			)}
-			{/* Map-first phone dock (§13): four durable destinations. Me opens the
-			    route-backed profile first and keeps the complete navigation menu one
-			    Back action away; Shelf remains available there and at /shelf. */}
-			{isMobile && stance !== 'author' && (
+			{/* Map-first phone dock: Browse opens the sheet; Me opens an anchored menu. */}
+			{isMobile && !mobileMapEditing && (
 				<nav
 					aria-label="Primary"
 					data-tour="mobile-dock"
@@ -6788,16 +6968,16 @@ export function GeoEditorView() {
 					</button>
 					<button
 						type="button"
-						onClick={showMobileSearch}
-						aria-pressed={mobileSearchOpen}
-						data-tour="mobile-dock-search"
+						onClick={showMobileBrowse}
+						aria-pressed={mobileBrowseIsOpen}
+						data-tour="mobile-dock-browse"
 						className={cn(
 							'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
-							mobileSearchOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+							mobileBrowseIsOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
 						)}
 					>
 						<Search className="h-5 w-5" />
-						Search
+						Browse
 					</button>
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
@@ -6812,46 +6992,94 @@ export function GeoEditorView() {
 								</span>
 							</button>
 						</DropdownMenuTrigger>
-						<DropdownMenuContent side="top" align="center" className="w-52">
-							<DropdownMenuLabel>Create</DropdownMenuLabel>
+						<DropdownMenuContent
+							side="top"
+							align="center"
+							sideOffset={12}
+							collisionPadding={12}
+							aria-label="Create"
+							className="z-[70] w-[calc(100dvw-24px)] max-w-md max-h-[min(70dvh,var(--radix-dropdown-menu-content-available-height))] overscroll-contain rounded-none p-2 [&_[role=menuitem]]:min-h-16 [&_[role=menuitem]]:gap-4 [&_[role=menuitem]]:rounded-none [&_[role=menuitem]]:px-3 [&_[role=menuitem]]:py-3"
+						>
+							<DropdownMenuLabel className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest">
+								Create
+							</DropdownMenuLabel>
 							<DropdownMenuSeparator />
-							<DropdownMenuItem onSelect={() => startCreate(startNewDataset)}>
-								<Database className="h-4 w-4" />
-								Map
+							<DropdownMenuItem aria-label="Map" onSelect={() => startCreate(startNewDataset)}>
+								<Database className="size-5" />
+								<span className="min-w-0">
+									<span className="block text-base font-medium">Map</span>
+									<span className="block text-xs text-muted-foreground">
+										Draw points, lines, and areas
+									</span>
+								</span>
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleCreateContext)}>
-								<Globe className="h-4 w-4" />
-								Atlas
+							<DropdownMenuItem
+								aria-label="Atlas"
+								onSelect={() => startCreate(handleCreateContext)}
+							>
+								<Globe className="size-5" />
+								<span className="min-w-0">
+									<span className="block text-base font-medium">Atlas</span>
+									<span className="block text-xs text-muted-foreground">
+										Organize maps around a topic
+									</span>
+								</span>
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleCreateStory)}>
-								<BookOpen className="h-4 w-4" />
-								Story
+							<DropdownMenuItem aria-label="Story" onSelect={() => startCreate(handleCreateStory)}>
+								<BookOpen className="size-5" />
+								<span className="min-w-0">
+									<span className="block text-base font-medium">Story</span>
+									<span className="block text-xs text-muted-foreground">
+										Write with maps and inline views
+									</span>
+								</span>
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleCreateSighting)}>
-								<Eye className="h-4 w-4" />
-								Sighting
+							<DropdownMenuItem
+								aria-label="Sighting"
+								onSelect={() => startCreate(handleCreateSighting)}
+							>
+								<Eye className="size-5" />
+								<span className="min-w-0">
+									<span className="block text-base font-medium">Sighting</span>
+									<span className="block text-xs text-muted-foreground">
+										Share something you’ve seen
+									</span>
+								</span>
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleShareLocation)}>
-								<Radio className="h-4 w-4" />
-								Live beacon
+							<DropdownMenuItem
+								aria-label="Live beacon"
+								onSelect={() => startCreate(handleShareLocation)}
+							>
+								<Radio className="size-5" />
+								<span className="min-w-0">
+									<span className="block text-base font-medium">Live beacon</span>
+									<span className="block text-xs text-muted-foreground">
+										Share your live location
+									</span>
+								</span>
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-					<button
-						type="button"
-						onClick={showMobileMe}
-						aria-current={route.sidebarView === 'user' ? 'page' : undefined}
-						data-tour="mobile-dock-me"
-						className={cn(
-							'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
-							route.sidebarView === 'user'
-								? 'text-primary'
-								: 'text-muted-foreground hover:text-foreground',
-						)}
-					>
-						<UserRound className="h-5 w-5" />
-						Me
-					</button>
+					<MeMenu
+						mobile
+						currentUserPubkey={currentUserPubkey}
+						draftCount={retainedDraftCount}
+						unreadCount={inboxUnreadCount}
+						onNavigate={navigateFromMobileMe}
+						onShareLive={() => startCreate(handleShareLocation)}
+						onDiscover={handleOpenDiscover}
+						onTakeTour={handleTakeDiscoverTour}
+						trigger={
+							<button
+								type="button"
+								data-tour="mobile-dock-me"
+								className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] text-muted-foreground hover:text-foreground"
+							>
+								<UserRound className="h-5 w-5" aria-hidden="true" />
+								Me
+							</button>
+						}
+					/>
 				</nav>
 			)}
 			{debugEvent && (
@@ -6903,7 +7131,7 @@ export function GeoEditorView() {
 				}}
 			/>
 			{/* OSM Query Results Panel (cursor-oriented) */}
-			;<OsmResultsPanel onImport={handleOsmImport} onClose={clearOsmQuery} />
+			<OsmResultsPanel onImport={handleOsmImport} onClose={clearOsmQuery} />
 		</StudioShell>
 	)
 }

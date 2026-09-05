@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
+import { renderToStaticMarkup } from 'react-dom/server'
 import {
 	resolveChatErrorPresentation,
 	resolveChatHeaderControlSizing,
@@ -7,6 +8,37 @@ import {
 } from './ChatPanel'
 import { useChatComposerStore } from './composerState'
 import { useChatStore } from './store'
+import {
+	chatSafetyPresentation,
+	ChatSafetyIndicator,
+	ChatThreadIdentity,
+} from './components/ChatHeaderPresentation'
+
+describe('compact Thread header', () => {
+	test('omits an embedded object title but preserves standalone Thread identity', () => {
+		expect(renderToStaticMarkup(<ChatThreadIdentity title="Western Front" embedded />)).toBe('')
+		expect(
+			renderToStaticMarkup(<ChatThreadIdentity title="Western Front" embedded={false} />),
+		).toContain('Western Front')
+	})
+
+	test('keeps permissive editing explicit while settings are collapsed', () => {
+		const markup = renderToStaticMarkup(<ChatSafetyIndicator readOnly={false} safetyLevel={3} />)
+		expect(markup).toContain('Auto apply')
+		expect(markup).toContain('AI changes are applied automatically')
+		expect(markup).toContain('text-amber-700')
+		expect(chatSafetyPresentation(false, 1).label).toBe('Ask always')
+		expect(chatSafetyPresentation(false, 2).label).toBe('Ask first')
+	})
+
+	test('never presents writable safety in a read-only object Thread', () => {
+		const markup = renderToStaticMarkup(<ChatSafetyIndicator readOnly safetyLevel={3} />)
+		expect(markup).toContain('Read-only')
+		expect(markup).toContain('Text only; no tools or map changes.')
+		expect(markup).not.toContain('Auto apply')
+		expect(chatSafetyPresentation(true, 3).permissive).toBe(false)
+	})
+})
 
 describe('ChatPanel editing-target send contract', () => {
 	beforeEach(() => {

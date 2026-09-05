@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useEditorStore } from '@/features/geo-editor/store'
-import { GeoRichTextEditor, type GeoFeatureItem } from '../editor/GeoRichTextEditor'
+import { GeoRichTextEditor, type GeoFeatureItem } from '../editor/DeferredGeoRichTextEditor'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 

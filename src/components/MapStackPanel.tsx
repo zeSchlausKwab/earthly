@@ -672,11 +672,11 @@ function EntryRow({
 							}
 							className={cn(actionButtonClassName, 'hover:text-destructive')}
 							onClick={() => onRemoveEntry(entry)}
-							label={entry.pinned ? 'Remove pinned entry' : 'Remove from Shelf'}
+							label={entry.pinned ? 'Remove pinned entry' : 'Remove from map'}
 							tooltip={
 								entry.pinned
-									? 'Remove this pinned entry from the Shelf'
-									: 'Remove this entry from the Shelf'
+									? 'Remove this pinned entry from the map'
+									: 'Remove this entry from the map'
 							}
 						/>
 					) : null}
@@ -861,8 +861,8 @@ function CarriedGroupCard({
 						onClick={() => {
 							for (const entry of group.entries) onRemoveEntry(entry)
 						}}
-						label={`Remove ${carrierKind} Maps from Shelf`}
-						tooltip={`Remove this ${carrierKind}'s Maps from the Shelf`}
+						label={`Remove ${carrierKind} Maps from map`}
+						tooltip={`Remove this ${carrierKind}'s Maps from the map`}
 					/>
 				</div>
 			</div>
@@ -922,8 +922,8 @@ function CarriedGroupCard({
 									type="button"
 									className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
 									onClick={() => onRemoveEntry(entry)}
-									aria-label={`Remove ${name} from Shelf`}
-									title="Remove from Shelf"
+									aria-label={`Remove ${name} from map`}
+									title="Remove from map"
 								>
 									<RemoveActionIcon className="h-3 w-3" />
 								</button>
@@ -1313,7 +1313,7 @@ export function MapStackPanel({
 
 	return (
 		<section
-			aria-label="Shelf"
+			aria-label="On the map"
 			data-translucent={translucent ? 'true' : 'false'}
 			className={mapStackPanelSurfaceClassName({ compact, translucent, isDragOver })}
 			onDragEnter={(event) => {
@@ -1425,8 +1425,8 @@ export function MapStackPanel({
 							className={actionButtonClassName}
 							onClick={() => setIsCollapsed((collapsed) => !collapsed)}
 							aria-expanded={!isPanelCollapsed}
-							aria-label={isPanelCollapsed ? 'Expand Shelf' : 'Collapse Shelf'}
-							title={isPanelCollapsed ? 'Expand Shelf' : 'Collapse Shelf'}
+							aria-label={isPanelCollapsed ? 'Expand maps' : 'Collapse maps'}
+							title={isPanelCollapsed ? 'Expand maps' : 'Collapse maps'}
 						>
 							{isPanelCollapsed ? (
 								<ChevronDown className={actionIconClassName} />
@@ -1442,8 +1442,8 @@ export function MapStackPanel({
 							size="icon-sm"
 							className={actionButtonClassName}
 							onClick={onClose}
-							aria-label="Close Shelf"
-							title="Close Shelf"
+							aria-label="Close maps"
+							title="Close maps"
 						>
 							<X className={actionIconClassName} />
 						</Button>

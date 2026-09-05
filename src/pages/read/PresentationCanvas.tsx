@@ -104,6 +104,7 @@ export interface PresentationCanvasProps {
 	readonly interactive?: boolean
 	readonly compact?: boolean
 	readonly className?: string
+	readonly ariaLabel?: string
 	readonly overlay?: ReactNode
 	readonly containerRef?: RefObject<HTMLDivElement | null>
 	readonly onMapReadyChange?: (ready: boolean) => void
@@ -119,6 +120,7 @@ export function PresentationCanvas({
 	interactive = true,
 	compact = false,
 	className = '',
+	ariaLabel = compact ? 'Story figure map' : 'Story map',
 	overlay,
 	containerRef,
 	onMapReadyChange,
@@ -152,6 +154,20 @@ export function PresentationCanvas({
 		onMapReadyChange?.(mounted && ready)
 		return () => onMapReadyChange?.(false)
 	}, [mounted, onMapReadyChange, ready])
+
+	useEffect(() => {
+		if (process.env.NODE_ENV === 'production' || !mounted) return
+		const container = popupContainerRef.current as
+			| (HTMLDivElement & { __earthlyMap?: maplibregl.Map })
+			| null
+		const map = mapRef.current
+		if (!container || !map) return
+		// Scope the development inspection handle to this canvas; figures coexist with the Reader map.
+		container.__earthlyMap = map
+		return () => {
+			if (container.__earthlyMap === map) delete container.__earthlyMap
+		}
+	}, [mapRef, mounted, popupContainerRef])
 
 	useEffect(() => {
 		if (!interactive || !mounted || !ready) return
@@ -216,8 +232,11 @@ export function PresentationCanvas({
 	}, [interactive, interactiveLayerIds, layers, mapRef, mounted, ready])
 
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: Shared map/popover APIs require an HTMLDivElement container ref.
 		<div
 			ref={popupContainerRef}
+			role="region"
+			aria-label={ariaLabel}
 			className={`earthly-reader-map relative min-h-0 overflow-hidden bg-muted ${className}`}
 			data-presentation-ready={ready ? 'true' : 'false'}
 		>

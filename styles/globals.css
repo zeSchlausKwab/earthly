@@ -549,6 +549,10 @@
   max-width: calc(100% - 24px);
   transform: translateX(-50%);
   pointer-events: auto;
+  padding: 6px;
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-chrome);
+  box-shadow: 0 3px 12px rgb(0 0 0 / 12%);
 }
 
 .earthly-canvas-frame__status {
@@ -575,6 +579,19 @@
   bottom: calc(var(--shell-canvas-shelf-h) + var(--shell-canvas-status-h) + 4px) !important;
 }
 
+/* The React control stack is separate from MapLibre's native attribution.
+   Keep every action above the footer and scroll, never squash, on short canvases. */
+.earthly-canvas-frame .earthly-desktop-map-controls {
+  --controls-bottom: calc(var(--shell-canvas-shelf-h) + var(--shell-canvas-status-h) + 44px);
+  bottom: var(--controls-bottom);
+  max-height: calc(100% - var(--controls-bottom) - var(--shell-toolbar-h) - 24px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 2px;
+}
+
 .earthly-canvas-frame .earthly-basemap-status {
   bottom: calc(var(--shell-canvas-shelf-h) + var(--shell-canvas-status-h) + 12px);
 }
@@ -583,6 +600,10 @@
   .earthly-canvas-frame .earthly-basemap-status {
     bottom: calc(var(--mobile-dock-height) + env(safe-area-inset-bottom) + 74px);
   }
+}
+
+.earthly-desktop-map-controls > * {
+  flex-shrink: 0;
 }
 
 .earthly-shell-frame__mobile-top,
@@ -844,7 +865,7 @@
 .earthly-activity-ticker__item {
   display: flex;
   flex: 1;
-  align-items: baseline;
+  align-items: center;
   gap: 5px;
   min-width: 0;
   height: 100%;
@@ -866,6 +887,8 @@
   display: inline-flex;
   flex: none;
   color: var(--text-muted);
+  align-items: center;
+  justify-content: center;
 }
 
 .earthly-activity-ticker__glyph > svg {
@@ -912,6 +935,33 @@
   font-family: var(--font-mono);
   font-size: 9px;
 }
+
+/* Me is an anchored menu; opening it never replaces the current object. */
+.earthly-me-menu {
+  z-index: 90;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  max-height: min(760px, var(--radix-popover-content-available-height));
+  overflow-y: auto;
+  gap: 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: 0;
+  background: var(--surface-panel);
+  padding: 8px;
+}
+
+.earthly-me-menu[data-mobile] { width: calc(100vw - 24px); }
+.earthly-me-menu__identity { display: grid; gap: 8px; padding: 8px 6px 12px; border-bottom: 1px solid var(--border-hairline); }
+.earthly-me-menu__links { display: grid; padding-block: 6px; }
+.earthly-me-menu__links button { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 8px; text-align: left; font-size: 13px; }
+.earthly-me-menu[data-mobile] .earthly-me-menu__links button { min-height: 44px; }
+.earthly-me-menu__links button:hover, .earthly-me-menu__links button:focus-visible { background: var(--surface-raised); }
+.earthly-me-menu__links svg, .earthly-me-menu__theme svg { width: 15px; height: 15px; flex: none; color: var(--text-muted); }
+.earthly-me-menu__count { margin-left: auto; font-family: var(--font-mono); color: var(--text-muted); }
+.earthly-me-menu__theme { display: flex; align-items: center; gap: 8px; padding: 10px 6px 4px; border-top: 1px solid var(--border-hairline); }
+.earthly-me-menu__theme > span { margin-right: auto; color: var(--text-muted); }
+.earthly-me-menu__theme button { display: flex; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid var(--border-hairline); }
+.earthly-me-menu__theme button[aria-pressed="true"] { background: var(--accent-active); color: var(--surface-panel); }
 
 .earthly-activity-ticker__dots {
   display: flex;
@@ -1283,7 +1333,37 @@
   }
 
   .earthly-shell-frame__mobile-top {
-    top: 0;
+    top: env(safe-area-inset-top);
+  }
+
+  .earthly-shell-frame__mobile-top .earthly-lensbar {
+    min-height: 48px;
+    gap: 4px;
+  }
+
+  .earthly-shell-frame__mobile-top .earthly-lensbar__identity {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .earthly-shell-frame__mobile-top .earthly-lensbar__identity > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .earthly-shell-frame__mobile-top .earthly-lensbar__rule {
+    display: none;
+  }
+
+  .earthly-shell-frame__mobile-top .earthly-lensbar__action {
+    min-height: 44px;
+    min-width: 44px;
+    font-size: 11px;
+  }
+
+  .earthly-shell-frame__mobile-top .earthly-lensbar__action:has(.earthly-lensbar__share-label) > span {
+    display: none;
   }
 
   .earthly-shell-frame__mobile-margin {

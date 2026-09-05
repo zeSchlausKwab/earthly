@@ -10,3 +10,4 @@
 
 export * from './draft'
 export * from './lifecycle'
+export * from './proposal'

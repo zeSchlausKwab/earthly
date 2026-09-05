@@ -12,7 +12,7 @@
  * own that surface, and the map controls column stays short for drawing.
  */
 
-import { CircleDot, Crosshair, MapPin, Maximize2, Minimize2, Moon, Sun } from 'lucide-react'
+import { CircleDot, Crosshair, MapPin, Maximize2, Minimize2, Moon, Search, Sun } from 'lucide-react'
 import { ControlButton, ControlGroup } from '@/components/ui/map'
 import { useTheme } from '@/lib/theme'
 import { calloutDisplayModeActionLabel, type CalloutDisplayMode } from '../callouts/layout'
@@ -66,6 +66,11 @@ export function MobileMapActions({
 
 	return (
 		<>
+			<ControlGroup>
+				<ControlButton label="Search places" onClick={() => setSearchOpen(true)}>
+					<Search className="h-4 w-4" />
+				</ControlButton>
+			</ControlGroup>
 			<ControlGroup>
 				<ControlButton
 					label={calloutsEnabled ? 'Hide map callouts' : 'Show map callouts'}

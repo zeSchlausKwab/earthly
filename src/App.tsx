@@ -1,6 +1,6 @@
 import { Toaster } from './components/ui/sonner'
 import { TooltipProvider } from './components/ui/tooltip'
-import { useChatSettingsSync } from './features/chat/useChatSettingsSync'
+import { ChatRuntimeHost } from './features/chat/ChatRuntimeHost.tsx'
 import { GeoEditorView } from './features/geo-editor/GeoEditorView'
 import { ZapDialogHost } from './features/social/comments/GeoSocialActions'
 import { CurrentUserReactionSync } from './features/social/reactions/CurrentUserReactionSync'
@@ -8,12 +8,12 @@ import { TourManager } from './features/tour'
 import { useIsMobile } from './lib/hooks/useIsMobile'
 
 export function App() {
-	useChatSettingsSync()
 	const isMobile = useIsMobile()
 
 	return (
 		<TooltipProvider>
 			<GeoEditorView />
+			<ChatRuntimeHost />
 			<CurrentUserReactionSync />
 			<ZapDialogHost />
 			<Toaster

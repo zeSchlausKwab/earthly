@@ -8,6 +8,7 @@ import {
 	completeAiChatTurnTask,
 	configureChatProviderTask,
 	openAiChatTask,
+	setAiThreadSettingsOpenTask,
 	selectAiChatTargetTask,
 	sendAiChatMessageTask,
 	startNewAiChatTask,
@@ -54,6 +55,7 @@ import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-nat
 import { installDeterministicChatProviderTask } from './tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyleTask } from './tasks/setup/deterministic-map-style'
 import { installInMemoryContextFixtureTask } from './tasks/setup/in-memory-context-fixture'
+import { installInMemoryMapFixtureTask } from './tasks/setup/in-memory-map-fixture'
 import {
 	installDeterministicGeolocationTask,
 	recoverDeviceLocationTask,
@@ -84,6 +86,7 @@ const tasks = [
 	signInTask,
 	configureChatProviderTask,
 	openAiChatTask,
+	setAiThreadSettingsOpenTask,
 	selectAiChatTargetTask,
 	composeAiChatMessageTask,
 	attemptTargetRequiredAiChatSendTask,
@@ -121,6 +124,7 @@ const tasks = [
 	installDeterministicChatProviderTask,
 	installDeterministicMapStyleTask,
 	installInMemoryContextFixtureTask,
+	installInMemoryMapFixtureTask,
 	installDeterministicGeolocationTask,
 	recoverDeviceLocationTask,
 	startDatasetTask,

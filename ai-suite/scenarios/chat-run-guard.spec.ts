@@ -1,6 +1,11 @@
 import { expect, test } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
-import { configureChatProvider, openAiChat, sendAiChatMessage } from '../tasks/chat/conversation'
+import {
+	configureChatProvider,
+	openAiChat,
+	sendAiChatMessage,
+	setAiThreadSettingsOpen,
+} from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
 import { installDeterministicChatProvider } from '../tasks/setup/deterministic-chat-provider'
 
@@ -48,6 +53,7 @@ test('chat lets the model recover from repeated tool calls without a client-impo
 	expect(requests[0]?.toolSchemaChars ?? 0).toBeGreaterThan(0)
 
 	const usage = panel.getByRole('button', { name: 'Chat usage details', exact: true })
+	await setAiThreadSettingsOpen(earthly)
 	await usage.click()
 	await expect(panel.getByText('Guard stop', { exact: true })).not.toBeVisible()
 })

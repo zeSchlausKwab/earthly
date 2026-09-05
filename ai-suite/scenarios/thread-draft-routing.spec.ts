@@ -5,6 +5,7 @@ import {
 	configureChatProvider,
 	dispatchComposedAiChatMessage,
 	openAiChat,
+	persistedThreadSnapshot as persistedThread,
 	waitForAiChatCompletion,
 } from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
@@ -12,27 +13,6 @@ import { editorLifecycleSnapshot } from '../tasks/editor/lifecycle'
 import { openPanel } from '../tasks/navigation/open-panel'
 import { switchMobileWorkspacePanel } from '../tasks/navigation/mobile-workspace'
 import { installDeterministicChatProvider } from '../tasks/setup/deterministic-chat-provider'
-
-function persistedThread(earthly: Parameters<typeof openAiChat>[0]) {
-	return earthly.page.evaluate(() => {
-		const stored = JSON.parse(localStorage.getItem('chat-store') ?? '{}') as {
-			state?: {
-				activeChatId?: string
-				chatSessions?: Array<{
-					id: string
-					threadKey: string | null
-					targetWorkspaceId: string | null
-				}>
-			}
-		}
-		const active = stored.state?.chatSessions?.find(
-			(chat) => chat.id === stored.state?.activeChatId,
-		)
-		return active
-			? { id: active.id, threadKey: active.threadKey, targetWorkspaceId: active.targetWorkspaceId }
-			: null
-	})
-}
 
 test('a local Map Thread binds only on send and survives closing and reload @regression', async ({
 	earthly,

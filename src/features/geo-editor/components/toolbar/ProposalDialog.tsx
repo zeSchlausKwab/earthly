@@ -1,6 +1,6 @@
 import { GitPullRequest } from 'lucide-react'
 import { useState } from 'react'
-import { GeoRichTextEditor } from '@/components/editor/GeoRichTextEditor'
+import { GeoRichTextEditor } from '@/components/editor/DeferredGeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import {
 	Dialog,
@@ -22,10 +22,8 @@ export interface ProposalDialogProps {
 }
 
 /**
- * Proposal composer for "Propose edit to owner". Lives behind the File menu's
- * Publish section so the propose verb sits next to Fork/Update where users look
- * for it. A proposal needs a written summary, so it opens here as a dialog
- * rather than firing from the menu directly.
+ * Final review for a proposal working copy. Shared by the toolbar and phone
+ * dock; entering proposal mode never sends anything on its own.
  */
 export function ProposalDialog({
 	open,
@@ -48,7 +46,7 @@ export function ProposalDialog({
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-2">
 						<GitPullRequest className="h-4 w-4" />
-						Propose edit to owner
+						Send proposal
 					</DialogTitle>
 					<DialogDescription>
 						Send your changes{datasetName ? ` to the owner of “${datasetName}”` : ' to the owner'}{' '}

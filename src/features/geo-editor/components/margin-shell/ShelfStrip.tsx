@@ -130,7 +130,7 @@ export function ShelfStrip({
 				className="earthly-shelf__label"
 				onClick={onOpenShelf}
 				disabled={!onOpenShelf}
-				aria-label={`Open Shelf, ${items.length} ${items.length === 1 ? 'map' : 'maps'} on the map`}
+				aria-label={`On the map, ${items.length} ${items.length === 1 ? 'map' : 'maps'} on the map`}
 			>
 				On the map
 				<span>{items.length}</span>

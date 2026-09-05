@@ -448,6 +448,8 @@ export function WorkspaceDraftNavigator({
 		const activeDraftClassName =
 			workspaceTone === 'proposal' ? 'bg-primary/10 text-primary' : 'bg-ok/15 text-ok'
 		const displayLabel = getSavedWorkLabel(workspace.label)
+		const intent = (drafts.find((draft) => draft.id === workspace.activeDraftId) ?? drafts[0])
+			?.authoringIntent
 
 		return (
 			<>
@@ -523,11 +525,13 @@ export function WorkspaceDraftNavigator({
 											badgeClassName,
 										)}
 									>
-										{workspaceTone === 'proposal'
-											? 'proposal'
-											: workspace.kind === 'scratch'
-												? 'draft'
-												: 'Map'}
+										{intent === 'fork'
+											? 'fork'
+											: intent === 'propose' || workspaceTone === 'proposal'
+												? 'proposal'
+												: workspace.kind === 'scratch'
+													? 'draft'
+													: 'Map'}
 									</span>
 									{isActiveWorkspace ? (
 										<span className={cn('rounded-full', activeClassName)}>Current</span>
@@ -633,6 +637,11 @@ export function WorkspaceDraftNavigator({
 												className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
 											>
 												<span className="truncate text-[11px]">{draftLabel}</span>
+												{draft.authoringIntent === 'propose' || draft.authoringIntent === 'fork' ? (
+													<span className="text-[9px] text-muted-foreground">
+														{draft.authoringIntent === 'propose' ? 'proposal' : 'fork'}
+													</span>
+												) : null}
 												<span
 													className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-muted-foreground"
 													title={getDraftDestinationTitle(draft)}

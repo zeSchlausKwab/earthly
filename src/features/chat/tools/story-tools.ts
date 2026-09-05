@@ -22,12 +22,19 @@ import { ARTICLE_KIND } from '@/lib/nostr/kinds'
 import { eventStore } from '@/lib/nostr'
 import { NEW_STORY_DRAFT_KEY, readStoryDraft, writeStoryDraft } from '@/lib/nostr/story'
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
+import { parseStoryMarkdown } from '@/lib/map-presentation'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { gateStoryDatasetReferences } from '@/features/chat/referencePublishing'
 import { requestStoryTarget } from '@/features/chat/storyTargeting'
 import { fetchLatestByCoordinate, parseEntityReference } from './entity-tools'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
+import {
+	describeStoryMapContent,
+	prepareStoryMapAuthoring,
+	STORY_VIEW_AUTHORING_HINT,
+	storyPresentationSchema,
+} from './story-presentation'
 
 const MAX_TITLE_CHARS = 300
 const MAX_SUMMARY_CHARS = 2_000
@@ -52,9 +59,12 @@ export function normalizeStoryFeatureReferences(markdown: string): {
 	normalizedCount: number
 } {
 	let normalizedCount = 0
+	const viewFences = parseStoryMarkdown(markdown).views
 	const normalized = markdown.replace(
 		/(nostr:naddr1[a-z0-9]+)#([^\s)\],;]+)/gi,
-		(_match, fullReference: string, rawFeatureId: string) => {
+		(_match, fullReference: string, rawFeatureId: string, offset: number) => {
+			// A future view payload is opaque data, not prose to normalize.
+			if (viewFences.some((view) => offset >= view.start && offset < view.end)) return _match
 			if (!rawFeatureId.includes('/') || rawFeatureId.includes('%2F')) return _match
 			normalizedCount += 1
 			return stringifyNostrAddressReference({
@@ -129,7 +139,7 @@ const readStoryDraftSchema: Tool = {
 	function: {
 		name: 'read_story_draft',
 		description:
-			"Read a local Story draft (title, summary, Markdown body). Omit storyReference for the new-story slot; pass an existing Story's naddr to inspect its edit-draft slot. Use read_entity for the published source body.",
+			"Read a local Story draft (title, summary, full Markdown body, raw opening presentation, and inline view diagnostics). Omit storyReference for the new-story slot; pass an existing Story's naddr to inspect its edit-draft slot or the published source when no local draft exists. Read this before replacing an existing Story; preserve unsupported presentation/view data during unrelated edits.",
 		parameters: {
 			type: 'object',
 			properties: {
@@ -147,7 +157,7 @@ const writeStoryDraftSchema: Tool = {
 	type: 'function',
 	function: {
 		name: 'write_story_draft',
-		description: `Write a local Story draft the user reviews and publishes in the Story editor — this never publishes anything. Omit storyReference to create a new Story; when no new Story working copy exists, Earthly pauses this exact call and asks the user to create one before writing. Pass an existing Story naddr to update that Story in its edit screen. ${MENTION_SYNTAX_HINT} If a local draft this session didn't author already exists, the call fails unless overwrite is true — read it first and confirm with the user before overwriting.`,
+		description: `Write a local Story draft, including its opening MapPresentationV1 and physical inline earthly-view blocks, the user reviews and publishes in the Story editor — this never publishes anything. Omit storyReference to create a new Story; when no new Story working copy exists, Earthly pauses this exact call and asks the user to create one before writing. Pass an existing Story naddr to update that Story in its edit screen. ${MENTION_SYNTAX_HINT} If a local draft this session didn't author already exists, the call fails unless overwrite is true — read it first and confirm with the user before overwriting.`,
 		parameters: {
 			type: 'object',
 			properties: {
@@ -163,8 +173,9 @@ const writeStoryDraftSchema: Tool = {
 				},
 				markdown: {
 					type: 'string',
-					description: `The full Markdown body. ${MENTION_SYNTAX_HINT}`,
+					description: `The full Markdown body. ${MENTION_SYNTAX_HINT} ${STORY_VIEW_AUTHORING_HINT}`,
 				},
+				presentation: storyPresentationSchema,
 				image: {
 					type: 'string',
 					description: 'Optional cover-image URL (usually one the user provided or uploaded).',
@@ -232,6 +243,10 @@ export function registerStoryTools(
 								image: target.story.article.image ?? null,
 								markdown: target.story.article.content ?? null,
 								presentation: target.story.article.presentation ?? null,
+								mapAuthoring: describeStoryMapContent(
+									target.story.article.presentation,
+									target.story.article.content,
+								),
 								updatedAt: target.story.created_at * 1000,
 							}
 						: null,
@@ -248,6 +263,7 @@ export function registerStoryTools(
 					image: draft.image ?? null,
 					markdown: draft.content ?? null,
 					presentation: draft.presentation ?? null,
+					mapAuthoring: describeStoryMapContent(draft.presentation, draft.content),
 					updatedAt: draft.updatedAt,
 				},
 			}
@@ -295,6 +311,16 @@ export function registerStoryTools(
 			}
 
 			const normalizedBody = normalizeStoryFeatureReferences(markdown)
+			const mapContent = prepareStoryMapAuthoring({
+				markdown: normalizedBody.markdown,
+				previousMarkdown: existing?.content ?? target?.story.article.content,
+				presentation: Object.hasOwn(args, 'presentation')
+					? args.presentation
+					: existing
+						? existing.presentation
+						: target?.story.article.presentation,
+				replacePresentation: Object.hasOwn(args, 'presentation'),
+			})
 			const referenceGate = await gateDatasetReferences(normalizedBody.markdown, {
 				run: context?.run,
 				referencesActiveDataset: args.referencesActiveDataset === true,
@@ -315,10 +341,9 @@ export function registerStoryTools(
 				title: title.trim(),
 				summary,
 				image,
-				content: normalizedBody.markdown,
-				// This tool edits prose only. Carry the local/published embedded value
-				// forward byte-for-byte so future presentation schemas are not erased.
-				presentation: existing?.presentation ?? target?.story.article.presentation,
+				// Opening presentation and physical views commit together, after the
+				// existing target/reference approvals; omitted future data stays opaque.
+				...mapContent,
 			})
 			sessionOwnedDraftKeys.add(draftKey)
 
@@ -334,6 +359,7 @@ export function registerStoryTools(
 					titleChars: title.trim().length,
 					markdownChars: normalizedBody.markdown.length,
 					normalizedReferenceCount: normalizedBody.normalizedCount,
+					viewBlockCount: parseStoryMarkdown(normalizedBody.markdown).views.length,
 				},
 				...(referenceGate.published
 					? { datasetPublication: referenceGate.published }

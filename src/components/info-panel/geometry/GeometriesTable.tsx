@@ -19,7 +19,7 @@ import type { EditorFeature } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { parseCustomValue } from '@/features/geo-editor/utils'
 import { cn } from '@/lib/utils'
-import { GeoRichTextEditor, type GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import { GeoRichTextEditor, type GeoFeatureItem } from '@/components/editor/DeferredGeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {

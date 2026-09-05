@@ -3,6 +3,7 @@ import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identi
 import {
 	configureChatProvider,
 	openAiChat,
+	setAiThreadSettingsOpen,
 	sendAiChatMessage,
 	waitForAiChatCompletion,
 } from '../tasks/chat/conversation'
@@ -41,9 +42,11 @@ test('sequential AI metadata and geometry edits do not conflict with their own e
 
 	await openAiChat(earthly)
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
+	await setAiThreadSettingsOpen(earthly)
 	await expect(panel.getByRole('combobox', { name: 'AI edit safety', exact: true })).toHaveValue(
 		'3',
 	)
+	await setAiThreadSettingsOpen(earthly, false)
 	await expect(earthly.page).toHaveURL(/\/edit\?tab=thread$/)
 
 	const assistantMessagesBefore = await panel.getByTitle('Copy assistant message').count()

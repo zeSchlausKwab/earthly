@@ -40,6 +40,7 @@ export const EntitySearchInput = forwardRef<HTMLInputElement, EntitySearchInputP
 						variant="ghost"
 						size="icon-xs"
 						onClick={() => onChange('')}
+						aria-label="Clear search"
 						className={cn('absolute right-1.5', compact ? 'size-3.5' : 'size-4')}
 					>
 						<X className="h-full w-full" />

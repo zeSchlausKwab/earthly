@@ -3,15 +3,14 @@ export {
 	type GeoRichTextEditorProps,
 	type GeoRichTextEditorRef,
 	type GeoFeatureItem,
-} from './GeoRichTextEditor'
+} from './DeferredGeoRichTextEditor'
 
-export {
-	GeoMentionNode,
-	serializeToText,
-	parseFromText,
-	type GeoMentionAttrs,
-	type StoryViewCapture,
-	type StoryViewNodeCallbacks,
+// Runtime extensions/codecs are editor internals. Re-exporting them here loads
+// Tiptap even when a reader only asks for RichContentRenderer.
+export type {
+	GeoMentionAttrs,
+	StoryViewCapture,
+	StoryViewNodeCallbacks,
 } from './GeoMentionExtension'
 
 export { RichContentRenderer, type RichContentRendererProps } from './RichContentRenderer'

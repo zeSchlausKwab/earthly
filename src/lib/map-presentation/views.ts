@@ -37,7 +37,9 @@ function prefixIssuePath(issue: MapPresentationIssue, blockIndex: number): MapPr
 }
 
 /**
- * Apply inline Story views cumulatively in document order. Unknown layer ids
+ * Apply driving Story views cumulatively in document order. Figure-only views
+ * get a snapshot of their own delta but do not change the next driving view.
+ * Unknown layer ids
  * are ignored, which prevents a view block from mutating route-local ambient
  * overlays that are not part of the Story's own presentation.
  */
@@ -47,7 +49,7 @@ export function reduceStoryViewBlocks(
 ): StoryViewReductionResultV1 {
 	const presentation = normalizeMapPresentation(presentationValue)
 	let camera = presentation.initialView
-	const layers = presentation.layers.map(cloneLayer)
+	let layers = presentation.layers.map(cloneLayer)
 	const initialState = snapshotState(presentation, layers, camera)
 	const snapshots: StoryViewSnapshotV1[] = []
 	const issues: MapPresentationIssue[] = []
@@ -57,9 +59,10 @@ export function reduceStoryViewBlocks(
 		issues.push(...parsed.issues.map((entry) => prefixIssuePath(entry, blockIndex)))
 		if (parsed.status !== 'valid') continue
 
-		if (parsed.value.camera) camera = parsed.value.camera
+		const nextCamera = parsed.value.camera ?? camera
+		const nextLayers = layers.map(cloneLayer)
 		if (parsed.value.layers) {
-			const indexes = new Map(layers.map((layer, index) => [layer.id, index]))
+			const indexes = new Map(nextLayers.map((layer, index) => [layer.id, index]))
 			for (const [layerId, patch] of Object.entries(parsed.value.layers)) {
 				const index = indexes.get(layerId)
 				if (index === undefined) {
@@ -72,11 +75,11 @@ export function reduceStoryViewBlocks(
 					)
 					continue
 				}
-				const previous = layers[index]
+				const previous = nextLayers[index]
 				if (!previous) continue
 				let style: MapPresentationStyleOverrideV1 | undefined = previous.style
 				if (patch.style) style = Object.freeze({ ...previous.style, ...patch.style })
-				layers[index] = Object.freeze({
+				nextLayers[index] = Object.freeze({
 					...previous,
 					visible: patch.visible ?? previous.visible,
 					opacityMultiplier: patch.opacityMultiplier ?? previous.opacityMultiplier,
@@ -88,9 +91,13 @@ export function reduceStoryViewBlocks(
 		snapshots.push(
 			Object.freeze({
 				view: parsed.value,
-				state: snapshotState(presentation, layers, camera),
+				state: snapshotState(presentation, nextLayers, nextCamera),
 			}),
 		)
+		if (parsed.value.display !== 'figure') {
+			camera = nextCamera
+			layers = nextLayers
+		}
 	}
 
 	return Object.freeze({

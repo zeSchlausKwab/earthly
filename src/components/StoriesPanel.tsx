@@ -75,8 +75,27 @@ export function StoriesPanelContent({
 	}, [displayed, currentUserPubkey])
 
 	const columnsContext: StoryColumnsContext = useMemo(
-		() => ({ onOpen: onOpenStory, onEdit: onEditStory, onDelete: onDeleteStory }),
-		[onOpenStory, onEditStory, onDeleteStory],
+		() => ({
+			onOpen: onOpenStory,
+			onShowOnMap: (story) => {
+				const store = useEditorStore.getState()
+				for (const ref of parseStoryRefs(story)) {
+					if (store.mapStackEntries[ref.entryId]) store.setMapStackEntryVisible(ref.entryId, true)
+					else
+						addMapStackEntry({
+							entityType: 'dataset',
+							entityKey: ref.datasetKey,
+							title: ref.identifier,
+							source: 'story',
+							visible: true,
+							pinned: false,
+						})
+				}
+			},
+			onEdit: onEditStory,
+			onDelete: onDeleteStory,
+		}),
+		[onOpenStory, onEditStory, onDeleteStory, addMapStackEntry],
 	)
 	const columns = useMemo(() => createStoryColumns(columnsContext), [columnsContext])
 

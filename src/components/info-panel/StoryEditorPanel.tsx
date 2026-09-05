@@ -36,6 +36,7 @@ import {
 	Trash2,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { toast } from 'sonner'
 import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import {
 	GeoRichTextEditor,
@@ -77,6 +78,7 @@ import {
 import { captureVisibleDatasetReferenceTarget } from '@/features/chat/store'
 import { ensureDatasetReferencePublished } from '@/features/chat/referencePublishing'
 import { useRetainedEditorDraft } from '@/hooks/useRetainedEditorDraft'
+import type { StoryViewDraftContext } from '@/components/editor/StoryViewDraftContext'
 import { accounts, eventStore } from '@/lib/nostr'
 import { Article, type ArticleContent, getArticleContent, isArticle } from '@/lib/nostr/article'
 import {
@@ -98,7 +100,9 @@ import {
 	NEW_STORY_DRAFT_KEY,
 	clearStoryDraft,
 	editStory,
+	getStoryProposalUnsupportedFields,
 	publishStory,
+	proposeStoryEdit,
 	readStoryDraft,
 	writeStoryDraft,
 } from '@/lib/nostr/story'
@@ -116,8 +120,20 @@ export interface StoryEditorPanelProps {
 	) => MapPresentationV1 | null | undefined
 	/** Explicit view-delta capture used by the editor's physical view block. */
 	captureStoryView?: () => StoryViewCapture | null | undefined
-	onStoryViewActivate?: (snapshot: StoryViewSnapshotV1, index: number) => void
-	renderStoryViewFigure?: (snapshot: StoryViewSnapshotV1, index: number) => ReactNode
+	/** Clear an applied draft snapshot after discard or replacement of its content. */
+	onStoryViewPreviewReset?: (draftKey: string) => void
+	/** The actual mounted authoring surface, not merely a retained editor target. */
+	onStoryEditorActiveChange?: (draftKey: string, active: boolean) => void
+	onStoryViewActivate?: (
+		snapshot: StoryViewSnapshotV1,
+		index: number,
+		draft?: StoryViewDraftContext,
+	) => void
+	renderStoryViewFigure?: (
+		snapshot: StoryViewSnapshotV1,
+		index: number,
+		draft?: StoryViewDraftContext,
+	) => ReactNode
 }
 
 /**
@@ -821,6 +837,8 @@ export function StoryEditorPanel({
 	availableFeatures = [],
 	captureMapPresentation,
 	captureStoryView,
+	onStoryViewPreviewReset,
+	onStoryEditorActiveChange,
 	onStoryViewActivate,
 	renderStoryViewFigure,
 }: StoryEditorPanelProps) {
@@ -835,6 +853,11 @@ export function StoryEditorPanel({
 		const event = initialStory?.rawEvent()
 		return Boolean(event && isArticle(event))
 	}, [initialStory])
+	const isProposal = isEditing && currentUser?.pubkey !== initialStory?.pubkey
+	const publishedContent = useMemo(() => {
+		const event = initialStory?.rawEvent()
+		return event && isArticle(event) ? getArticleContent(event) : undefined
+	}, [initialStory])
 
 	const [title, setTitle] = useState(initial.title)
 	const [summary, setSummary] = useState(initial.summary)
@@ -844,21 +867,58 @@ export function StoryEditorPanel({
 	const [presentation, setPresentation] = useState<unknown>(initial.presentation)
 	const [isSaving, setIsSaving] = useState(false)
 	const [saveError, setSaveError] = useState<string | null>(null)
+	// Controlled inputs represent absent optional strings as ''. Map unchanged
+	// values back to their exact source representation; proposals do not trim or
+	// otherwise normalize metadata that the body-only protocol cannot carry.
+	const proposalContent: ArticleContent = {
+		title: title === (publishedContent?.title ?? '') ? publishedContent?.title : title,
+		summary: summary === (publishedContent?.summary ?? '') ? publishedContent?.summary : summary,
+		image: image === (publishedContent?.image ?? '') ? publishedContent?.image : image,
+		presentation,
+		content: body,
+	}
+	const proposalMetadataChanged =
+		isProposal &&
+		getStoryProposalUnsupportedFields(publishedContent ?? {}, proposalContent).length > 0
+	const submitLabel = isSaving
+		? isProposal
+			? 'Sending…'
+			: 'Publishing…'
+		: isProposal
+			? 'Send proposal'
+			: isEditing
+				? 'Save changes'
+				: 'Publish Story'
+	const openingPresentation = useMemo(
+		() => getUsableMapPresentation(parseMapPresentation(presentation)),
+		[presentation],
+	)
 	const viewReduction = useMemo(() => {
-		const parsed = parseMapPresentation(presentation)
-		const base = getUsableMapPresentation(parsed) ?? { version: 1 as const, layers: [] }
+		const base = openingPresentation ?? { version: 1 as const, layers: [] }
 		return reduceStoryMarkdownViews(base, body)
-	}, [body, presentation])
+	}, [body, openingPresentation])
 	const activateStoryView = (view: StoryViewBlockV1, index?: number) => {
+		if (view.display === 'figure') {
+			setBodyTab('preview')
+			return
+		}
 		const snapshot =
 			index === undefined
 				? viewReduction.snapshots.find((entry) => entry.view.id === view.id)
 				: viewReduction.snapshots[index]
 		if (!snapshot) return
 		const resolvedIndex = index ?? viewReduction.snapshots.indexOf(snapshot)
-		onStoryViewActivate?.(snapshot, resolvedIndex)
+		onStoryViewActivate?.(snapshot, resolvedIndex, { body, draftKey: initial.draftKey })
 	}
 	const draftKey = initial.draftKey
+	const loadedStoryRef = useRef({
+		draftKey,
+		eventId: initialStory?.rawEvent().id ?? null,
+	})
+	useEffect(() => {
+		onStoryEditorActiveChange?.(draftKey, true)
+		return () => onStoryEditorActiveChange?.(draftKey, false)
+	}, [draftKey, onStoryEditorActiveChange])
 	const draftSnapshot = useMemo(
 		() => storyDraftSnapshot({ title, summary, image, body, bodyTab, presentation }),
 		[title, summary, image, body, bodyTab, presentation],
@@ -874,8 +934,14 @@ export function StoryEditorPanel({
 		clear: clearStoryDraft,
 	})
 
-	// Reset all fields when the edited Story changes.
+	// Reset only for a genuinely replaced Story/revision, not a recreated Article
+	// wrapper or an unrelated parent render. The mounted create slot starts from state.
 	useEffect(() => {
+		const previous = loadedStoryRef.current
+		const eventId = initialStory?.rawEvent().id ?? null
+		if (previous.draftKey === draftKey && previous.eventId === eventId) return
+		loadedStoryRef.current = { draftKey, eventId }
+		onStoryViewPreviewReset?.(previous.draftKey)
 		const next = readInitialContent(initialStory)
 		cleanDraftSignatureRef.current = JSON.stringify(storyDraftSnapshot(next))
 		setTitle(next.title)
@@ -886,7 +952,7 @@ export function StoryEditorPanel({
 		setBodyTab(next.bodyTab)
 		setPresentation(next.presentation)
 		setSaveError(null)
-	}, [initialStory])
+	}, [draftKey, initialStory, onStoryViewPreviewReset])
 
 	// Chat seam (storyEditorBridge): re-run pre-fill when AI writes either the
 	// new-story slot or the d-tag slot of the published Story already being edited.
@@ -905,6 +971,7 @@ export function StoryEditorPanel({
 				return
 			}
 			const next = readInitialContent(initialStory)
+			onStoryViewPreviewReset?.(next.draftKey)
 			cleanDraftSignatureRef.current = JSON.stringify(storyDraftSnapshot(next))
 			setTitle(next.title)
 			setSummary(next.summary)
@@ -915,7 +982,7 @@ export function StoryEditorPanel({
 			setPresentation(next.presentation)
 			setSaveError(null)
 		})
-	}, [initialStory])
+	}, [initialStory, onStoryViewPreviewReset])
 
 	useEffect(() => {
 		setDirty(draftSignature !== cleanDraftSignatureRef.current)
@@ -933,34 +1000,53 @@ export function StoryEditorPanel({
 
 	const handleDiscardDraft = () => {
 		const discarded = storyDraftSnapshot({
-			title: '',
-			summary: '',
-			image: '',
+			title: isProposal ? (publishedContent?.title ?? '') : '',
+			summary: isProposal ? (publishedContent?.summary ?? '') : '',
+			image: isProposal ? (publishedContent?.image ?? '') : '',
 			body: '',
 			bodyTab: 'write',
-			presentation: undefined,
+			presentation: isProposal ? publishedContent?.presentation : undefined,
 		})
 		cleanDraftSignatureRef.current = JSON.stringify(discarded)
 		clearRetainedDraft()
-		setTitle('')
-		setSummary('')
-		setImage('')
+		onStoryViewPreviewReset?.(draftKey)
+		setTitle(discarded.title)
+		setSummary(discarded.summary)
+		setImage(discarded.image)
 		setBody('')
 		bodyEditorRef.current?.setContent('')
 		setBodyTab('write')
-		setPresentation(undefined)
+		setPresentation(discarded.presentation)
+	}
+	const restoreProposalMetadata = () => {
+		setTitle(publishedContent?.title ?? '')
+		setSummary(publishedContent?.summary ?? '')
+		setImage(publishedContent?.image ?? '')
+		setPresentation(publishedContent?.presentation)
+		setSaveError(null)
+		onStoryViewPreviewReset?.(draftKey)
 	}
 
 	const handleSave = async () => {
 		if (!currentUser) return
 		setSaveError(null)
 
-		if (!title.trim()) {
+		if (!isProposal && !title.trim()) {
 			setSaveError('A title is required to publish.')
 			return
 		}
 		if (!body.trim()) {
-			setSaveError('Add some narrative before publishing.')
+			setSaveError(
+				isProposal
+					? 'Add some narrative before proposing your edit.'
+					: 'Add some narrative before publishing.',
+			)
+			return
+		}
+		if (proposalMetadataChanged) {
+			setSaveError(
+				'This saved draft changes cover details or the opening view, which proposals cannot carry. Restore the original cover and opening view to send your narrative changes.',
+			)
 			return
 		}
 
@@ -969,13 +1055,15 @@ export function StoryEditorPanel({
 			const signer = accounts.signer
 			if (!signer) throw new Error('No active account')
 
-			const content: ArticleContent = {
-				title: title.trim(),
-				summary: summary.trim() || undefined,
-				image: image.trim() || undefined,
-				content: body,
-				presentation,
-			}
+			const content: ArticleContent = isProposal
+				? proposalContent
+				: {
+						title: title.trim(),
+						summary: summary.trim() || undefined,
+						image: image.trim() || undefined,
+						content: body,
+						presentation,
+					}
 
 			// A Story must never persist an address for an older Dataset revision while
 			// the referenced Dataset has local changes. Capture the visible edit state
@@ -994,6 +1082,16 @@ export function StoryEditorPanel({
 			}
 
 			const editedEvent = initialStory?.rawEvent()
+			if (isProposal && initialStory && editedEvent && isArticle(editedEvent)) {
+				// Existing Story proposals carry only Markdown. Both the UI guard and
+				// service reject unsupported metadata changes instead of dropping them.
+				await proposeStoryEdit(editedEvent, content, signer)
+				clearRetainedDraft()
+				onStoryViewPreviewReset?.(draftKey)
+				toast.success('Edit proposed — the author will see it for review.')
+				onSave(initialStory)
+				return
+			}
 			// publishStory/editStory (Plan 01) own the STORY-03 naddr→`a` re-derive
 			// and the STORY-04 d-tag lineage — never re-inline ArticleFactory here.
 			const signed =
@@ -1022,85 +1120,92 @@ export function StoryEditorPanel({
 		}
 	}
 
+	const coverDetails = (
+		<EntityPanelSurface tone="context" className="space-y-3">
+			<EntityPanelSectionHeader eyebrow="Story" title="Cover details" description="Title and summary appear on the story card and social previews." />
+			<div className="space-y-2">
+				<Label htmlFor="story-title">Title</Label>
+				<Input id="story-title" value={title} readOnly={isProposal} onChange={event => setTitle(event.target.value)} placeholder="Roman ruins in Carinthia" className="rounded-none" />
+			</div>
+			<div className="space-y-2">
+				<Label htmlFor="story-summary">Summary</Label>
+				<Textarea id="story-summary" value={summary} readOnly={isProposal} onChange={event => setSummary(event.target.value)} placeholder="A one-line summary readers see on the story card." rows={2} className="rounded-none" />
+			</div>
+			<div className="space-y-2">
+				<Label>Cover image</Label>
+				<p className="text-[11px] text-muted-foreground">Optional — shown on the story card and social previews.</p>
+				{image.trim() ? <AspectRatio ratio={16 / 9} className="overflow-hidden border border-border bg-muted">
+					<img src={image} alt="Story cover" className="h-full w-full object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
+				</AspectRatio> : null}
+				<div className="flex items-center gap-2">
+					<Input value={image} aria-label="Cover image URL" readOnly={isProposal} onChange={event => setImage(event.target.value)} placeholder="https://..." className="rounded-none" />
+					<BlossomUploaderButton currentUrl={image} disabled={isProposal} onUploaded={({url}) => setImage(url)} buttonLabel="Blossom" className="rounded-none" />
+				</div>
+			</div>
+		</EntityPanelSurface>
+	)
+	const openingView = (
+		<EntityPanelSurface tone="neutral" className="space-y-3">
+			<EntityPanelSectionHeader eyebrow="Map presentation" title="Opening view" description="Choose ordered Map instances, feature subsets, styling, and the camera readers see first. View blocks in the narrative change this state later." />
+			{isProposal && <p className="text-xs text-muted-foreground">Opening view is read-only in proposals. You can change its existing layers and camera within the narrative's inline views.</p>}
+			<fieldset disabled={isProposal} className="min-w-0">
+				<legend className="sr-only">Opening view settings</legend>
+				<StoryPresentationEditor value={presentation} body={body} availableFeatures={availableFeatures} onChange={setPresentation} captureMapPresentation={captureMapPresentation} />
+			</fieldset>
+		</EntityPanelSurface>
+	)
+
 	return (
-		<EntityPanelShell title={isEditing ? 'Edit Story' : 'New Story'}>
+		<EntityPanelShell
+			title={isProposal ? 'Propose a Story edit' : isEditing ? 'Edit Story' : 'New Story'}
+		>
 			<MobilePanelHeaderActions>
 				<div className="flex items-center gap-1">
 					<Button type="button" variant="ghost" size="sm" onClick={onClose}>
 						Cancel
 					</Button>
 					<Button type="button" size="sm" onClick={handleSave} disabled={isSaving || !currentUser}>
-						{isSaving ? 'Publishing…' : isEditing ? 'Save changes' : 'Publish Story'}
+						{submitLabel}
 					</Button>
 				</div>
 			</MobilePanelHeaderActions>
-			<EntityPanelSurface tone="context" className="space-y-3">
-				<EntityPanelSectionHeader
-					eyebrow="Story"
-					title="Cover details"
-					description="Title and summary appear on the story card and social previews."
-				/>
-				<div className="space-y-2">
-					<Label htmlFor="story-title">Title</Label>
-					<Input
-						id="story-title"
-						value={title}
-						onChange={(event) => setTitle(event.target.value)}
-						placeholder="Roman ruins in Carinthia"
-						className="rounded-none"
-					/>
-				</div>
-				<div className="space-y-2">
-					<Label htmlFor="story-summary">Summary</Label>
-					<Textarea
-						id="story-summary"
-						value={summary}
-						onChange={(event) => setSummary(event.target.value)}
-						placeholder="A one-line summary readers see on the story card."
-						rows={2}
-						className="rounded-none"
-					/>
-				</div>
-				<div className="space-y-2">
-					<Label>Cover image</Label>
-					<p className="text-[11px] text-muted-foreground">
-						Optional — shown on the story card and social previews.
+			{isProposal ? (
+				<div className="space-y-2 border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+					<p>
+						Suggest changes to the narrative and inline map views. The author can accept or decline
+						your proposal. Cover details and the opening view are read-only because proposals carry
+						only the narrative.
 					</p>
-					{image.trim() ? (
-						<AspectRatio ratio={16 / 9} className="overflow-hidden border border-border bg-muted">
-							{/* Cover renders as a plain <img src> — no HTML injection sink (T-10-05). */}
-							<img
-								src={image}
-								alt="Story cover"
-								className="h-full w-full object-cover"
-								onError={(event) => {
-									event.currentTarget.style.display = 'none'
-								}}
-							/>
-						</AspectRatio>
+					{!currentUser ? (
+						<p>Sign in to send a proposal. You can still save a local draft.</p>
 					) : null}
-					<div className="flex items-center gap-2">
-						<Input
-							value={image}
-							onChange={(event) => setImage(event.target.value)}
-							placeholder="https://..."
-							className="rounded-none"
-						/>
-						<BlossomUploaderButton
-							currentUrl={image}
-							onUploaded={({ url }) => setImage(url)}
-							buttonLabel="Blossom"
-							className="rounded-none"
-						/>
-					</div>
+					{proposalMetadataChanged ? (
+						<div className="space-y-2 text-destructive">
+							<p>
+								This saved draft contains cover or opening-view changes that cannot be proposed.
+								They are preserved here until you explicitly restore the original; your narrative
+								will stay.
+							</p>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-auto whitespace-normal rounded-none text-left"
+								onClick={restoreProposalMetadata}
+							>
+								Restore original cover and opening view
+							</Button>
+						</div>
+					) : null}
 				</div>
-			</EntityPanelSurface>
+			) : null}
+			{!isProposal && coverDetails}
 
 			<EntityPanelSurface tone="neutral" className="space-y-3">
 				<EntityPanelSectionHeader
 					eyebrow="Narrative"
 					title="Write your story"
-					description="Markdown is stored verbatim. Type $ to reference a Map, feature, OSM element, or coordinate."
+					description="Type $ to reference a Map or feature. Place the cursor in your prose, then use View in the toolbar to insert a map cue or figure."
 				/>
 				<Tabs
 					value={bodyTab}
@@ -1125,6 +1230,7 @@ export function StoryEditorPanel({
 					<TabsContent value="write" className="mt-0">
 						<GeoRichTextEditor
 							ref={bodyEditorRef}
+							autoFocus={isProposal}
 							initialValue={body}
 							onChange={setBody}
 							availableFeatures={availableFeatures}
@@ -1133,6 +1239,7 @@ Type $ to reference a Map, feature, OSM element, or coordinate.`}
 							rows={12}
 							className="min-h-[320px] w-full"
 							enableStoryViews
+							storyViewLayers={openingPresentation?.layers}
 							captureStoryView={captureStoryView}
 							onStoryViewActivate={(view) => activateStoryView(view)}
 						/>
@@ -1151,7 +1258,9 @@ Type $ to reference a Map, feature, OSM element, or coordinate.`}
 								renderStoryViewFigure
 									? (_view, index) => {
 											const snapshot = viewReduction.snapshots[index]
-											return snapshot ? renderStoryViewFigure(snapshot, index) : null
+											return snapshot
+												? renderStoryViewFigure(snapshot, index, { body, draftKey })
+												: null
 										}
 									: undefined
 							}
@@ -1160,20 +1269,7 @@ Type $ to reference a Map, feature, OSM element, or coordinate.`}
 				</Tabs>
 			</EntityPanelSurface>
 
-			<EntityPanelSurface tone="neutral" className="space-y-3">
-				<EntityPanelSectionHeader
-					eyebrow="Map presentation"
-					title="Opening view"
-					description="Choose ordered Map instances, feature subsets, styling, and the camera readers see first. View blocks in the narrative change this state later."
-				/>
-				<StoryPresentationEditor
-					value={presentation}
-					body={body}
-					availableFeatures={availableFeatures}
-					onChange={setPresentation}
-					captureMapPresentation={captureMapPresentation}
-				/>
-			</EntityPanelSurface>
+			{isProposal ? <details className="border border-border p-3 text-xs text-muted-foreground"><summary className="cursor-pointer font-medium">Cover and opening view · read-only</summary><div className="mt-3 space-y-3">{coverDetails}{openingView}</div></details> : openingView}
 
 			<EntityPanelSurface tone="neutral" className="space-y-2">
 				{saveError && <p className="text-xs text-destructive">{saveError}</p>}
@@ -1215,7 +1311,7 @@ Type $ to reference a Map, feature, OSM element, or coordinate.`}
 								disabled={isSaving || !currentUser}
 								className="rounded-none bg-primary text-primary-foreground"
 							>
-								{isSaving ? 'Publishing…' : isEditing ? 'Save changes' : 'Publish Story'}
+								{submitLabel}
 							</Button>
 						</>
 					) : null}

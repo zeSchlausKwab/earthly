@@ -1,6 +1,10 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { BookOpen } from 'lucide-react'
-import { InspectActionIcon, LoadEditorActionIcon } from '@/components/entity-action-icons'
+import {
+	InspectActionIcon,
+	LoadEditorActionIcon,
+	ZoomActionIcon,
+} from '@/components/entity-action-icons'
 import { CoverThumb, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
 import { ConfirmDeleteAction } from '@/components/info-panel/ConfirmDeleteAction'
 import { GeoSocialActions } from '@/features/social/comments/GeoSocialActions'
@@ -20,6 +24,7 @@ export interface StoryRowData {
 
 export interface StoryColumnsContext {
 	onOpen: (story: Article) => void
+	onShowOnMap?: (story: Article) => void
 	onEdit: (story: Article) => void
 	onDelete: (story: Article) => void
 }
@@ -48,6 +53,15 @@ export const createStoryColumns = (context: StoryColumnsContext): ColumnDef<Stor
 					onTitleClick={() => context.onOpen(story)}
 					titleAriaLabel={`Open story ${title}`}
 					titleTitle="Open story"
+					primaryAction={
+						context.onShowOnMap ? (
+							<RowActionButton
+								icon={ZoomActionIcon}
+								label="Show story maps"
+								onClick={() => context.onShowOnMap?.(story)}
+							/>
+						) : undefined
+					}
 					badges={
 						hasLocalDraft ? (
 							<RowBadge label="Draft" className="border border-border text-muted-foreground" />

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Eye, EyeOff, MapPin } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type { CommentNode } from '../hooks/useGeoComments'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
@@ -10,6 +10,8 @@ import { GeoCommentForm } from './GeoCommentForm'
 import { GeoSocialActions } from './GeoSocialActions'
 import { RichContentRenderer } from '@/components/editor'
 import { UserProfile } from '@/components/user-profile'
+import { PanelTranslucencyContext } from '@/components/PanelTranslucencyContext'
+import { cn } from '@/lib/utils'
 
 interface GeoCommentItemProps {
 	commentNode: CommentNode
@@ -27,6 +29,7 @@ interface GeoCommentItemProps {
 	activeComposerId: string
 	onComposerTargetChange: (composerId: string) => void
 	focusCommentId?: string
+	onReactionCountChange?: (id: string, count: number) => void
 	maxDepth?: number
 	className?: string
 }
@@ -46,10 +49,12 @@ export function GeoCommentItem({
 	activeComposerId,
 	onComposerTargetChange,
 	focusCommentId,
-	maxDepth = 5,
+	onReactionCountChange,
+	maxDepth = 1,
 	className = '',
 }: GeoCommentItemProps) {
 	const { event: comment, children, depth } = commentNode
+	const translucent = useContext(PanelTranslucencyContext)
 	const [isExpanded, setIsExpanded] = useState(true)
 	const commentRef = useRef<HTMLDivElement | null>(null)
 
@@ -59,6 +64,12 @@ export function GeoCommentItem({
 	const isGeojsonVisible = visibleGeojsonCommentIds.has(commentId)
 	const showReplyForm = activeComposerId === commentId
 	const isFocusedComment = focusCommentId === commentId
+	const handleReactionCountChange = useCallback(
+		(count: number) => {
+			onReactionCountChange?.(comment.id ?? commentId, count)
+		},
+		[comment.id, commentId, onReactionCountChange],
+	)
 
 	const timestamp = useMemo(() => {
 		if (!comment.created_at) return 'Unknown time'
@@ -103,22 +114,34 @@ export function GeoCommentItem({
 	}, [isFocusedComment])
 
 	return (
-		<div className={`space-y-1 ${className}`}>
+		<div className={className}>
 			{/* Main comment */}
 			<div
 				ref={commentRef}
-				className={`group rounded-lg border bg-card p-2 transition-colors ${
+				data-translucent={translucent}
+				className={cn(
+					'group border-b border-border py-2 transition-colors',
+					depth > 0 && 'border-l-2 pl-2',
 					isFocusedComment
-						? 'border-primary/40 bg-primary/10 shadow-sm'
-						: 'border-border hover:border-border'
-				}`}
+						? 'border-primary/40 bg-primary/10'
+						: translucent
+							? 'bg-transparent hover:bg-muted/15'
+							: 'bg-card hover:bg-muted/35',
+				)}
 				style={indentStyle}
 			>
 				{/* Header: author, timestamp, collapse button */}
 				<div className="flex items-center justify-between gap-2 mb-1">
-					<div className="flex items-center gap-2 min-w-0">
+					<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
 						<UserProfile pubkey={comment.pubkey} mode="avatar-name" size="sm" showNip05Badge />
-						<span className="text-[10px] text-muted-foreground">{timestamp}</span>
+						<time
+							className="text-[10px] text-muted-foreground"
+							dateTime={
+								comment.created_at ? new Date(comment.created_at * 1000).toISOString() : undefined
+							}
+						>
+							{timestamp}
+						</time>
 					</div>
 
 					<div className="flex items-center gap-1">
@@ -128,6 +151,8 @@ export function GeoCommentItem({
 								variant="ghost"
 								size="icon-xs"
 								onClick={() => setIsExpanded(!isExpanded)}
+								aria-label={isExpanded ? 'Collapse replies' : 'Expand replies'}
+								aria-expanded={isExpanded}
 								className="h-5 w-5 p-0 text-muted-foreground hover:text-muted-foreground"
 							>
 								{isExpanded ? (
@@ -151,7 +176,7 @@ export function GeoCommentItem({
 
 				{/* GeoJSON attachment indicator */}
 				{hasGeojson && (
-					<div className="mt-2 flex items-center gap-2 rounded-md bg-ok/15 border border-ok/40 px-2 py-1 text-xs text-ok">
+					<div className="mt-2 flex w-fit max-w-full items-center gap-2 border border-ok/40 bg-ok/10 px-2 py-1 text-xs text-ok">
 						<MapPin className="h-3.5 w-3.5 flex-shrink-0" />
 						<span>{featureCount === 1 ? '1 geometry' : `${featureCount} geometries`}</span>
 
@@ -162,6 +187,8 @@ export function GeoCommentItem({
 									variant="ghost"
 									size="icon-xs"
 									onClick={handleToggleGeojsonVisibility}
+									aria-label={isGeojsonVisible ? 'Hide comment geometry' : 'Show comment geometry'}
+									aria-pressed={isGeojsonVisible}
 									className={`ml-auto h-5 w-5 p-0 ${
 										isGeojsonVisible ? 'text-ok' : 'text-muted-foreground'
 									} hover:text-ok`}
@@ -202,6 +229,7 @@ export function GeoCommentItem({
 						onReplyClick={() => onComposerTargetChange(showReplyForm ? 'root' : commentId)}
 						commentCount={children.length}
 						compact
+						onReactionCountChange={handleReactionCountChange}
 					/>
 				</div>
 
@@ -237,6 +265,7 @@ export function GeoCommentItem({
 							activeComposerId={activeComposerId}
 							onComposerTargetChange={onComposerTargetChange}
 							focusCommentId={focusCommentId}
+							onReactionCountChange={onReactionCountChange}
 							maxDepth={maxDepth}
 						/>
 					))}

@@ -63,7 +63,9 @@ export function repairWorkspaceActiveDraftIds(
 			suffix += 1
 		}
 
-		const kind: GeoEditorWorkspace['kind'] = sourceId.startsWith('dataset:') ? 'dataset' : 'scratch'
+		const kind: GeoEditorWorkspace['kind'] = inferDatasetKeyFromSourceId(sourceId)
+			? 'dataset'
+			: 'scratch'
 		const draftLabel = normalizeWorkspaceLabel(
 			newestDraft.collectionMeta.name || newestDraft.name,
 			kind,
@@ -106,8 +108,13 @@ function normalizeWorkspaceLabel(
 }
 
 function inferDatasetKeyFromSourceId(sourceId: string): string | null {
-	if (!sourceId.startsWith('dataset:')) return null
-	const datasetKey = sourceId.slice('dataset:'.length).trim()
+	const prefix = sourceId.startsWith('dataset:')
+		? 'dataset:'
+		: sourceId.startsWith('fork:')
+			? 'fork:'
+			: null
+	if (!prefix) return null
+	const datasetKey = sourceId.slice(prefix.length).trim()
 	return datasetKey || null
 }
 
@@ -129,7 +136,9 @@ function buildWorkspaceMigrationState(pubkey?: string | null): PersistedWorkspac
 		const latestDraft = sortedDrafts[0]
 		if (!latestDraft) continue
 
-		const kind: GeoEditorWorkspace['kind'] = sourceId.startsWith('dataset:') ? 'dataset' : 'scratch'
+		const kind: GeoEditorWorkspace['kind'] = inferDatasetKeyFromSourceId(sourceId)
+			? 'dataset'
+			: 'scratch'
 		const workspaceId = createWorkspaceId()
 		const workspace: GeoEditorWorkspace = {
 			id: workspaceId,

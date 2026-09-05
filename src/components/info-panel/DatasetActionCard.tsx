@@ -4,7 +4,8 @@ import { cn } from '@/lib/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { Button } from '../ui/button'
 import { UserProfile } from '../user-profile'
-import { getMapEditPresentation } from './mapProposalPresentation'
+import type { DatasetEditOptions } from './mapProposalPresentation'
+import { MapEditActions } from './MapEditActions'
 
 export interface DatasetActionCardProps {
 	event: GeoDataset
@@ -14,7 +15,7 @@ export interface DatasetActionCardProps {
 	isOwned: boolean
 	isPublishing?: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: GeoDataset) => void
+	onLoadDataset: (event: GeoDataset, options?: DatasetEditOptions) => void
 	onToggleVisibility: (event: GeoDataset) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
@@ -37,7 +38,6 @@ export function DatasetActionCard({
 	onZoomToDataset,
 	onDeleteDataset,
 }: DatasetActionCardProps) {
-	const primaryLabel = getMapEditPresentation(isOwned).actionLabel
 	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const isDeleting = deletingKey === datasetKey
 
@@ -75,17 +75,12 @@ export function DatasetActionCard({
 				</div>
 			)}
 			<div className="flex flex-col gap-2">
-				<Button
-					size="sm"
-					className={cn(
-						'w-full',
-						isOwned ? 'bg-ok text-white hover:bg-ok/15' : 'bg-info text-white hover:bg-info/15',
-					)}
-					onClick={() => onLoadDataset(event)}
+				<MapEditActions
+					dataset={event}
+					isOwner={isOwned}
+					onBegin={onLoadDataset}
 					disabled={isPublishing}
-				>
-					{primaryLabel}
-				</Button>
+				/>
 				{isOwned &&
 					(confirmingDelete || isDeleting ? (
 						<div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2">

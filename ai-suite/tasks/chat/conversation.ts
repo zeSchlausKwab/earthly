@@ -24,6 +24,14 @@ export const openAiChatTask: AiTaskMetadata = {
 	viewports: 'both',
 }
 
+export const setAiThreadSettingsOpenTask: AiTaskMetadata = {
+	id: 'chat.set-settings-open',
+	summary: 'Expand or collapse Thread settings without changing its conversation or composer.',
+	preconditions: ['AI Thread is visible'],
+	sideEffects: ['Changes only the local settings disclosure'],
+	viewports: 'both',
+}
+
 export const sendAiChatMessageTask: AiTaskMetadata = {
 	id: 'chat.send-message',
 	summary: 'Send a user-visible prompt through the Earthly AI chat composer.',
@@ -104,6 +112,28 @@ export const approveAiEditTask: AiTaskMetadata = {
 
 function chatRegion(earthly: EarthlySession) {
 	return earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
+}
+
+/** Read the persisted identity behind a route-bound Thread, which has no picker. */
+export function persistedThreadSnapshot(earthly: EarthlySession) {
+	return earthly.page.evaluate(() => {
+		const stored = JSON.parse(localStorage.getItem('chat-store') ?? '{}') as {
+			state?: {
+				activeChatId?: string
+				chatSessions?: Array<{
+					id: string
+					threadKey: string | null
+					targetWorkspaceId: string | null
+				}>
+			}
+		}
+		const active = stored.state?.chatSessions?.find(
+			(chat) => chat.id === stored.state?.activeChatId,
+		)
+		return active
+			? { id: active.id, threadKey: active.threadKey, targetWorkspaceId: active.targetWorkspaceId }
+			: null
+	})
 }
 
 function chatComposer(earthly: EarthlySession) {
@@ -230,6 +260,17 @@ export async function openAiChat(earthly: EarthlySession): Promise<void> {
 	}
 	await expect(panel).toBeVisible()
 	await expect(composer).toBeEnabled({ timeout: 15_000 })
+}
+
+export async function setAiThreadSettingsOpen(earthly: EarthlySession, open = true): Promise<void> {
+	const panel = chatRegion(earthly)
+	const trigger = panel.getByRole('button', { name: 'Thread settings', exact: true })
+	await expect(trigger).toBeVisible()
+	if ((await trigger.getAttribute('aria-expanded')) !== String(open)) await trigger.click()
+	await expect(trigger).toHaveAttribute('aria-expanded', String(open))
+	const model = panel.getByRole('combobox', { name: 'Select chat model', exact: true })
+	if (open) await expect(model).toBeVisible()
+	else await expect(model).toBeHidden()
 }
 
 export type AiChatSendOutcome = 'chat-visible'

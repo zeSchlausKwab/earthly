@@ -176,6 +176,54 @@ describe('MapPresentationV1 codec', () => {
 })
 
 describe('sparse cumulative Story views', () => {
+	test('figure-only snapshots inherit driving views but never change later driving state', () => {
+		const presentation = normalizeMapPresentation({
+			version: 1,
+			initialView: { center: [4, 49], zoom: 6 },
+			layers: [{ ...layer('front'), style: { color: '#111111' } }],
+		})
+		const reduced = reduceStoryViewBlocks(presentation, [
+			{
+				version: 1,
+				type: 'view',
+				id: 'first',
+				title: '1914',
+				display: 'cue',
+				layers: { front: { opacityMultiplier: 0.5 } },
+			},
+			{
+				version: 1,
+				type: 'view',
+				id: 'detail',
+				title: 'Comparison only',
+				display: 'figure',
+				camera: { center: [5, 50], zoom: 10 },
+				layers: { front: { visible: false, style: { color: '#ff0000' } } },
+			},
+			{
+				version: 1,
+				type: 'view',
+				id: 'next',
+				title: '1916',
+				display: 'both',
+				layers: { front: { style: { strokeWidth: 4 } } },
+			},
+		])
+		expect(reduced.snapshots[1]?.state.layers[0]).toMatchObject({
+			opacityMultiplier: 0.5,
+			visible: false,
+			style: { color: '#ff0000' },
+		})
+		expect(reduced.snapshots[1]?.state.camera?.zoom).toBe(10)
+		expect(reduced.snapshots[2]?.state.camera).toEqual(presentation.initialView)
+		expect(reduced.snapshots[2]?.state.layers[0]).toMatchObject({
+			opacityMultiplier: 0.5,
+			visible: true,
+			style: { color: '#111111', strokeWidth: 4 },
+		})
+		expect(presentation.layers[0]?.opacityMultiplier).toBe(1)
+	})
+
 	test('accumulates camera and local layer patches without retargeting sources/selectors', () => {
 		const presentation = normalizeMapPresentation({
 			version: 1,

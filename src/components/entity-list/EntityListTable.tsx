@@ -10,8 +10,9 @@
  */
 
 import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
-import { Fragment } from 'react'
+import { Fragment, useContext } from 'react'
 import { cn } from '@/lib/utils'
+import { EntityListTranslucencyContext } from './TranslucencyContext'
 
 interface EntityListTableProps<TData> {
 	/** Typically a single display column whose `cell` renders a `<ListRow/>`. */
@@ -27,6 +28,7 @@ export function EntityListTable<TData>({
 	getRowId,
 	className,
 }: EntityListTableProps<TData>) {
+	const translucent = useContext(EntityListTranslucencyContext)
 	const table = useReactTable({
 		data,
 		columns,
@@ -37,9 +39,11 @@ export function EntityListTable<TData>({
 
 	return (
 		<div
+			data-translucent={translucent}
 			className={cn(
 				// Hide the final row's hairline so it doesn't double up with the frame.
-				'overflow-hidden rounded-[3px] border border-border bg-card [&>div:last-child>div]:border-b-0',
+				'entity-list-table overflow-hidden border-y border-border [&>div:last-child>div]:border-b-0',
+				translucent ? 'bg-transparent' : 'bg-card',
 				className,
 			)}
 		>

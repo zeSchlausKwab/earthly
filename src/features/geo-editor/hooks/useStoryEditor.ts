@@ -52,6 +52,9 @@ export function useStoryEditor({
 
 	const [storyEditorMode, setStoryEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingStory, setEditingStory] = useState<Article | null>(null)
+	// Explicit UI/route entry owns revealing the editor. Background AI writes
+	// retain the same draft state but must never manufacture a reveal request.
+	const [storyEditorRevealNonce, setStoryEditorRevealNonce] = useState(0)
 
 	const clearStoryEditorModes = useCallback(() => {
 		setStoryEditorMode('none')
@@ -117,6 +120,7 @@ export function useStoryEditor({
 		onBeforeAuthoring?.()
 		clearStoryEditorModes()
 		setStoryEditorMode('create')
+		setStoryEditorRevealNonce((nonce) => nonce + 1)
 		retainStoryEditorTarget()
 		prepareNonGeometryWorkspace()
 		navigateToView('stories')
@@ -140,6 +144,7 @@ export function useStoryEditor({
 			clearStoryEditorModes()
 			setStoryEditorMode('edit')
 			setEditingStory(story)
+			setStoryEditorRevealNonce((nonce) => nonce + 1)
 			retainStoryEditorTarget(story)
 			// Keep a direct /story/:naddr/edit request intact while the route
 			// controller opens the editor. Clearing focus first would briefly replace
@@ -213,6 +218,7 @@ export function useStoryEditor({
 	return {
 		storyEditorMode,
 		editingStory,
+		storyEditorRevealNonce,
 		clearStoryEditorModes,
 		handleInspectStory,
 		handleCreateStory,

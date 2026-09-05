@@ -32,9 +32,10 @@ export async function proposeStoryEdit(
 	proposedBody: string,
 ): Promise<void> {
 	await draftStoryProposal(earthly, storyUrl, proposedBody)
-	const dialog = earthly.page.getByRole('dialog', { name: 'Propose an edit' })
-	await dialog.getByRole('button', { name: 'Propose an edit', exact: true }).click()
-	await expect(dialog).toBeHidden()
+	await earthly.page.getByRole('button', { name: 'Send proposal', exact: true }).last().click()
+	await expect(
+		earthly.page.getByRole('heading', { name: 'Propose a Story edit', exact: true }),
+	).toBeHidden()
 	await expect(
 		earthly.page.getByText('Edit proposed — the author will see it for review.'),
 	).toBeVisible()
@@ -48,12 +49,15 @@ export async function draftStoryProposal(
 	const url = new URL(storyUrl)
 	await earthly.open({ path: `${url.pathname}${url.search}`, tour: 'seen' })
 	await earthly.page.getByRole('button', { name: 'Propose an edit', exact: true }).click()
-	const dialog = earthly.page.getByRole('dialog', { name: 'Propose an edit' })
-	await expect(dialog).toBeVisible()
-	const editor = dialog.locator('.ProseMirror[contenteditable="true"]')
+	await expect(
+		earthly.page.getByRole('heading', { name: 'Propose a Story edit', exact: true }),
+	).toBeVisible()
+	await expect(earthly.page.getByRole('dialog', { name: 'Propose an edit' })).toBeHidden()
+	const editor = earthly.page.locator('.ProseMirror[contenteditable="true"]').first()
 	await editor.click()
 	await earthly.page.keyboard.press('ControlOrMeta+A')
 	await earthly.page.keyboard.type(proposedBody)
+	await expect(editor).toContainText(proposedBody)
 }
 
 async function openProposalReview(earthly: EarthlySession): Promise<void> {

@@ -2,6 +2,12 @@ import { castEvent } from 'applesauce-core/casts'
 import type { FeatureCollection } from 'geojson'
 import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import {
+	mapIntentAllowsPublication,
+	resolveMapAuthoringIntent,
+} from '@/components/info-panel/mapProposalPresentation'
+import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
+import { privateWorkspaceIdForDataset } from '@/lib/private-workspace/projection'
 import { resolveSchemaCacheKey, validateAttachment } from '@/lib/group'
 import { accounts, eventStore, publish } from '@/lib/nostr'
 import {
@@ -180,6 +186,24 @@ export function usePublishing({
 	const editor = useEditorStore((state) => state.editor)
 	const features = useEditorStore((state) => state.features)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
+	const activeDraft = useEditorStore((state) =>
+		state.activeGeoEditDraftId ? state.geoEditDrafts[state.activeGeoEditDraftId] : undefined,
+	)
+	const authoringIntent = activeDataset
+		? resolveMapAuthoringIntent(
+				activeDraft?.authoringIntent,
+				currentUserPubkey === activeDataset.pubkey,
+				hasWorkspaceScope,
+			)
+		: activeDraft?.authoringIntent
+	const draftDestinationMatches =
+		!activeDraft ||
+		(activeDraft.publishChannel.kind === 'public' && !hasWorkspaceScope) ||
+		(activeDraft.publishChannel.kind === 'private-group' &&
+			activeDraft.publishChannel.id === privateWorkspaceId) ||
+		(activeDraft.publishChannel.kind === 'field-session' &&
+			!privateWorkspaceId &&
+			activeDraft.publishChannel.id === fieldSessionId)
 	const isDirty = useEditorStore((state) => state.isDirty)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const collectionMeta = useEditorStore((state) => state.collectionMeta)
@@ -200,6 +224,85 @@ export function usePublishing({
 	const setStance = useEditorStore((state) => state.setStance)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
+
+	/** Recheck live draft intent at dispatch; hidden menu actions are not a safety boundary. */
+	const allowPublication = useCallback(
+		(action: 'new' | 'update' | 'copy' | 'propose') => {
+			const state = useEditorStore.getState()
+			const draft = state.activeGeoEditDraftId
+				? state.geoEditDrafts[state.activeGeoEditDraftId]
+				: undefined
+			const source = state.activeDataset
+			const currentIntent = source
+				? resolveMapAuthoringIntent(
+						draft?.authoringIntent,
+						currentUserPubkey === source.pubkey,
+						hasWorkspaceScope,
+					)
+				: draft?.authoringIntent
+			const sourcePrivate = Boolean(
+				source && (privateWorkspaceIdForDataset(source) || fieldSessionIdForEvent(source.event)),
+			)
+			const proposalScopeInvalid =
+				hasWorkspaceScope ||
+				sourcePrivate ||
+				Boolean(draft && draft.publishChannel.kind !== 'public')
+			const sameDraft = draft?.id === activeDraft?.id
+			const destinationMatches =
+				!draft ||
+				(draft.publishChannel.kind === 'public' && !hasWorkspaceScope) ||
+				(draft.publishChannel.kind === 'private-group' &&
+					draft.publishChannel.id === privateWorkspaceId) ||
+				(draft.publishChannel.kind === 'field-session' &&
+					!privateWorkspaceId &&
+					draft.publishChannel.id === fieldSessionId)
+			const targetMatches =
+				currentIntent !== 'propose' ||
+				!draft?.sourceDataset ||
+				Boolean(
+					source &&
+						draft.sourceDataset.pubkey === source.pubkey &&
+						draft.sourceDataset.identifier === source.dTag &&
+						draft.sourceDataset.address === `${GEO_EVENT_KIND}:${source.pubkey}:${source.dTag}`,
+				)
+			const allowed =
+				sameDraft &&
+				destinationMatches &&
+				targetMatches &&
+				(action === 'new'
+					? !source &&
+						!draft?.sourceDataset &&
+						currentIntent !== 'propose' &&
+						currentIntent !== 'fork'
+					: action === 'copy' && currentIntent === 'fork' && draft?.sourceDataset
+						? source === activeDataset
+						: Boolean(
+								source &&
+									source === activeDataset &&
+									currentIntent &&
+									mapIntentAllowsPublication(
+										currentIntent,
+										action,
+										currentUserPubkey === source.pubkey,
+										proposalScopeInvalid,
+									),
+							))
+			if (!allowed)
+				setPublishError(
+					'This action does not match the saved Map intent or audience. Resume the intended draft before publishing.',
+				)
+			return allowed
+		},
+		[
+			activeDataset,
+			activeDraft?.id,
+			currentUserPubkey,
+			hasWorkspaceScope,
+			setPublishError,
+			privateWorkspaceId,
+			fieldSessionId,
+		],
+	)
 
 	// Blossom dialog state
 	const setBlossomUploadDialogOpen = useEditorStore((state) => state.setBlossomUploadDialogOpen)
@@ -597,6 +700,7 @@ export function usePublishing({
 
 	const handlePublishNew = useCallback(async () => {
 		if (!editor) return
+		if (!allowPublication('new')) return
 		if (!publishBoundaryResolved) {
 			setPublishError(publishBoundaryMessage)
 			return
@@ -698,6 +802,7 @@ export function usePublishing({
 		setIsDirty,
 		switchToDatasetViewMode,
 		navigateToPublishedDataset,
+		allowPublication,
 	])
 
 	/**
@@ -706,6 +811,7 @@ export function usePublishing({
 	 */
 	const handlePublishWithBlossomUpload = useCallback(
 		async (blobResult: { sha256: string; url: string; size: number }) => {
+			if (!allowPublication('new')) return
 			if (!publishBoundaryResolved || hasWorkspaceScope) {
 				setPublishError('External public storage is unavailable for this draft destination.')
 				return
@@ -803,11 +909,13 @@ export function usePublishing({
 			navigateToPublishedDataset,
 			setPendingPublishCollection,
 			setBlossomUploadDialogOpen,
+			allowPublication,
 		],
 	)
 
 	const handlePublishUpdate = useCallback(async () => {
 		if (!editor || !activeDataset) return
+		if (!allowPublication('update')) return
 		if (!publishBoundaryResolved) {
 			setPublishError(publishBoundaryMessage)
 			return
@@ -857,6 +965,18 @@ export function usePublishing({
 			const refs = serializeBlobReferences()
 			const collectionBlobRef = refs.find((ref) => ref.scope === 'collection')
 			const referencedCoords = extractReferencedCoordinates(getCollectionDescription(collection))
+			// Editing a published fork must not erase its original Map attribution.
+			// The same existing `a` reference used when copying stays independent of
+			// description links, but owner edits never add a self-reference.
+			const originalSourceAddress = activeDraft?.sourceDataset?.address
+			const currentAddress = `${GEO_EVENT_KIND}:${activeDataset.pubkey}:${activeDataset.dTag}`
+			if (
+				originalSourceAddress &&
+				originalSourceAddress !== currentAddress &&
+				!referencedCoords.includes(originalSourceAddress)
+			) {
+				referencedCoords.push(originalSourceAddress)
+			}
 
 			let factory = GeoDatasetFactory.update(activeDataset.event, collection)
 				.hashtags(activeDataset.hashtags)
@@ -933,10 +1053,13 @@ export function usePublishing({
 		setIsDirty,
 		switchToDatasetViewMode,
 		navigateToPublishedDataset,
+		allowPublication,
+		activeDraft?.sourceDataset?.address,
 	])
 
 	const handlePublishCopy = useCallback(async () => {
 		if (!editor) return
+		if (!allowPublication('copy')) return
 		if (!publishBoundaryResolved) {
 			setPublishError(publishBoundaryMessage)
 			return
@@ -948,13 +1071,28 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
+			const publicationBinding = captureActiveDatasetPublicationBinding()
 			if (hasWorkspaceScope) {
 				if (!workspacePublisher) throw new Error('The selected audience is not available')
 				const dataset = await workspacePublisher(collection)
-				finishWorkspaceDatasetSave(dataset, collection, 'copied')
+				const reconciliation = reconcilePublishedDatasetIdentity(
+					publicationBinding,
+					dataset,
+					extractCollectionMeta(collection).name,
+				)
+				if (reconciliation.status === 'reconciled' && publicationBinding) {
+					useEditorStore
+						.getState()
+						.saveGeoEditDraft(publicationBinding.draftId, { authoringIntent: 'edit' })
+				}
+				if (
+					!publicationBinding ||
+					(reconciliation.status === 'reconciled' && reconciliation.stillDisplayed)
+				) {
+					finishWorkspaceDatasetSave(dataset, collection, 'copied')
+				}
 				return
 			}
-			const publicationBinding = captureActiveDatasetPublicationBinding()
 
 			const signer = accounts.signer
 			if (!signer) {
@@ -965,6 +1103,14 @@ export function usePublishing({
 			const refs = serializeBlobReferences()
 			const collectionBlobRef = refs.find((ref) => ref.scope === 'collection')
 			const referencedCoords = extractReferencedCoordinates(getCollectionDescription(collection))
+			const originalSourceAddress =
+				authoringIntent === 'fork' && activeDraft?.sourceDataset
+					? activeDraft.sourceDataset.address
+					: activeDataset
+						? `${GEO_EVENT_KIND}:${activeDataset.pubkey}:${activeDataset.dTag}`
+						: undefined
+			if (originalSourceAddress && !referencedCoords.includes(originalSourceAddress))
+				referencedCoords.push(originalSourceAddress)
 
 			let factory = GeoDatasetFactory.create(collection)
 				.contextReferences(activeDatasetContextRefs)
@@ -993,6 +1139,11 @@ export function usePublishing({
 				cast,
 				extractCollectionMeta(collection).name,
 			)
+			if (reconciliation.status === 'reconciled' && publicationBinding) {
+				useEditorStore
+					.getState()
+					.saveGeoEditDraft(publicationBinding.draftId, { authoringIntent: 'edit' })
+			}
 			const stillOwnsVisibleEditor =
 				!publicationBinding ||
 				(reconciliation.status === 'reconciled' && reconciliation.stillDisplayed)
@@ -1035,11 +1186,16 @@ export function usePublishing({
 		setIsDirty,
 		switchToDatasetViewMode,
 		navigateToPublishedDataset,
+		activeDraft?.sourceDataset,
+		allowPublication,
+		activeDataset,
+		authoringIntent,
 	])
 
 	const handleProposeEdit = useCallback(
 		async (description: string) => {
 			if (!editor || !activeDataset) return
+			if (!allowPublication('propose')) return
 			if (!publishBoundaryResolved) {
 				setPublishError(publishBoundaryMessage)
 				return
@@ -1058,13 +1214,16 @@ export function usePublishing({
 					return
 				}
 
-				const targetAddress = `${GEO_EVENT_KIND}:${activeDataset.pubkey}:${activeDataset.dTag}`
+				const targetAddress =
+					activeDraft?.sourceDataset?.address ??
+					`${GEO_EVENT_KIND}:${activeDataset.pubkey}:${activeDataset.dTag}`
+				const targetPubkey = activeDraft?.sourceDataset?.pubkey ?? activeDataset.pubkey
 				const referencedCoords = extractReferencedCoordinates(description)
 				const signedEvent = await GeoProposalFactory.create(
 					{
 						address: targetAddress,
-						ownerPubkey: activeDataset.pubkey,
-						baseVersion: activeDataset.id,
+						ownerPubkey: targetPubkey,
+						baseVersion: activeDraft?.sourceDataset?.eventId ?? activeDataset.id,
 					},
 					collection,
 				)
@@ -1077,12 +1236,17 @@ export function usePublishing({
 
 				// Route to the dataset owner's inbox so they're notified, with a
 				// safe dev-mode fallback to `config.relayUrls`.
-				await publish(signedEvent, { routing: 'inbox', target: activeDataset.pubkey })
+				await publish(signedEvent, { routing: 'inbox', target: targetPubkey })
 
 				setPublishMessage('Edit proposal published successfully.')
 				toast.success('Edit proposal sent to the dataset owner.')
-				switchToDatasetViewMode(activeDataset)
-				setSelectedFeatureIds([])
+				if (
+					useEditorStore.getState().activeGeoEditDraftId === activeDraft?.id &&
+					useEditorStore.getState().activeDataset === activeDataset
+				) {
+					switchToDatasetViewMode(activeDataset)
+					setSelectedFeatureIds([])
+				}
 			} catch (error) {
 				console.error('Failed to publish edit proposal', error)
 				setPublishError(publishFailureMessage('publish this edit proposal', error))
@@ -1102,6 +1266,11 @@ export function usePublishing({
 			buildCollectionFromEditor,
 			switchToDatasetViewMode,
 			setSelectedFeatureIds,
+			allowPublication,
+			activeDraft?.sourceDataset?.pubkey,
+			activeDraft?.sourceDataset?.eventId,
+			activeDraft?.sourceDataset?.address,
+			activeDraft?.id,
 		],
 	)
 
@@ -1146,27 +1315,47 @@ export function usePublishing({
 	const canPublishNew =
 		features.length > 0 &&
 		!activeDataset &&
+		!activeDraft?.sourceDataset &&
+		authoringIntent !== 'propose' &&
+		authoringIntent !== 'fork' &&
 		workspacePublisherReady &&
 		(hasWorkspaceScope || hasCollectionBlob || (collection ? !isOverSizeLimit(collection) : true))
 	const canPublishUpdate =
 		workspacePublisherReady &&
 		!!activeDataset &&
 		currentUserPubkey === activeDataset?.pubkey &&
+		authoringIntent === 'edit' &&
 		features.length > 0 &&
 		isDirty
 	const canPublishCopy =
 		workspacePublisherReady &&
-		!!activeDataset &&
-		currentUserPubkey !== activeDataset?.pubkey &&
+		draftDestinationMatches &&
+		(!!activeDataset || (authoringIntent === 'fork' && Boolean(activeDraft?.sourceDataset))) &&
+		Boolean(
+			authoringIntent &&
+				mapIntentAllowsPublication(
+					authoringIntent,
+					'copy',
+					currentUserPubkey === activeDataset?.pubkey,
+					hasWorkspaceScope,
+				),
+		) &&
 		features.length > 0
 	const canProposeEdit =
 		publishBoundaryResolved &&
 		!hasWorkspaceScope &&
+		!(
+			activeDataset &&
+			(privateWorkspaceIdForDataset(activeDataset) || fieldSessionIdForEvent(activeDataset.event))
+		) &&
+		(!activeDraft || activeDraft.publishChannel.kind === 'public') &&
 		!!activeDataset &&
 		currentUserPubkey !== activeDataset?.pubkey &&
+		authoringIntent === 'propose' &&
 		features.length > 0
 
 	return {
+		authoringIntent,
 		// Actions
 		handlePublishNew,
 		handlePublishUpdate,

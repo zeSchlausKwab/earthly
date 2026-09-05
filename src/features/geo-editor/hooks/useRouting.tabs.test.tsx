@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:te
 import { parseHTML } from 'linkedom'
 import type { ReactNode } from 'react'
 import type { Root } from 'react-dom/client'
-import { parseEarthlyRoute } from '@/router/routeContract'
+import { parseEarthlyRoute, type EarthlyRouteState } from '@/router/routeContract'
 
 let act: typeof import('react').act
 let createElement: typeof import('react').createElement
@@ -26,7 +26,17 @@ async function flush(action?: () => void | Promise<void>): Promise<void> {
 	})
 }
 
-async function mountRoutingProbe(): Promise<void> {
+async function mountRoutingProbe(
+	state: EarthlyRouteState = {
+		kind: 'story',
+		id: CURRENT_NADDR,
+		edit: false,
+		tab: 'comments',
+		on: ['map-one', 'map-two'],
+		live: true,
+		in: LENS_NADDR,
+	},
+): Promise<void> {
 	function Probe(): ReactNode {
 		routing = useRouting()
 		return null
@@ -39,15 +49,7 @@ async function mountRoutingProbe(): Promise<void> {
 	await flush(() =>
 		root.render(
 			createElement(EarthlyRouteStateProvider, {
-				state: {
-					kind: 'story',
-					id: CURRENT_NADDR,
-					edit: false,
-					tab: 'comments',
-					on: ['map-one', 'map-two'],
-					live: true,
-					in: LENS_NADDR,
-				},
+				state,
 				children: createElement(Probe),
 			}),
 		),
@@ -127,6 +129,104 @@ afterEach(async () => {
 })
 
 describe('useRouting object tabs', () => {
+	test('composition changes preserve the active sheet while object tab navigation reconciles it', async () => {
+		const { useEditorStore } = await import('../store')
+		const initialState = useEditorStore.getState()
+		function Probe(): ReactNode {
+			useRouting({ reconcileStore: true })
+			return null
+		}
+		const container = document.createElement('div')
+		document.body.append(container)
+		const root = createRoot(container)
+		mountedRoots.push(root)
+		const renderRoute = (state: EarthlyRouteState) =>
+			flush(() =>
+				root.render(
+					createElement(EarthlyRouteStateProvider, { state, children: createElement(Probe) }),
+				),
+			)
+		const objectRoute: EarthlyRouteState = {
+			kind: 'map',
+			id: CURRENT_NADDR,
+			edit: false,
+			tab: 'details',
+			on: [],
+			live: false,
+		}
+		try {
+			await renderRoute(objectRoute)
+			expect(useEditorStore.getState().mobilePanelTab).toBe('edit')
+			useEditorStore.getState().setMobilePanelSnap('full')
+			await renderRoute({ ...objectRoute, on: ['loaded-map'], live: true })
+			expect(useEditorStore.getState().mobilePanelSnap).toBe('full')
+			await renderRoute({ ...objectRoute, tab: 'thread', on: ['loaded-map'], live: true })
+			expect(useEditorStore.getState().mobilePanelTab).toBe('chat')
+			await renderRoute({ ...objectRoute, on: ['loaded-map'], live: true })
+			expect(useEditorStore.getState().mobilePanelTab).toBe('edit')
+			expect(useEditorStore.getState().mobilePanelSnap).toBe('half')
+		} finally {
+			await flush(() => useEditorStore.setState(initialState))
+		}
+	})
+
+	test('Back from a Circle surface returns to that Circle without an edit suffix', async () => {
+		await mountRoutingProbe({
+			kind: 'circle',
+			id: 'alpine-rescue',
+			edit: true,
+			tab: 'thread',
+			on: ['map-one', 'map-two'],
+			live: true,
+		})
+		routing?.clearFocus()
+		const { destination, route } = parsedNavigation()
+		expect(destination.pathname).toBe('/circle/alpine-rescue')
+		expect(route).toMatchObject({
+			kind: 'circle',
+			id: 'alpine-rescue',
+			edit: false,
+			tab: 'details',
+			on: ['map-one', 'map-two'],
+			live: true,
+		})
+	})
+
+	test('Back from a Nearby surface returns to that session instead of public Browse', async () => {
+		await mountRoutingProbe({
+			kind: 'nearby',
+			id: 'saturday-survey',
+			edit: true,
+			tab: 'comments',
+			on: ['map-one', 'map-two'],
+			live: true,
+		})
+		routing?.clearFocus()
+		const { destination, route } = parsedNavigation()
+		expect(destination.pathname).toBe('/nearby/saturday-survey')
+		expect(route).toMatchObject({
+			kind: 'nearby',
+			id: 'saturday-survey',
+			edit: false,
+			tab: 'details',
+			on: ['map-one', 'map-two'],
+			live: true,
+		})
+	})
+
+	test('Back from an unscoped object still opens its catalog and preserves the lens', async () => {
+		await mountRoutingProbe()
+		routing?.clearFocus()
+		const { destination, route } = parsedNavigation()
+		expect(destination.pathname).toBe('/browse/stories')
+		expect(route).toMatchObject({
+			kind: 'browse',
+			browseKind: 'stories',
+			in: LENS_NADDR,
+			on: ['map-one', 'map-two'],
+			live: true,
+		})
+	})
 	test('navigateToTab changes only the object panel and preserves route-local composition', async () => {
 		await mountRoutingProbe()
 		routing?.navigateToTab('thread')

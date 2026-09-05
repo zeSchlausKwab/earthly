@@ -1,5 +1,6 @@
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
-import { ChatPanel } from '@/features/chat/ChatPanel'
+import { useEffect, useState } from 'react'
+import { ChatPanel } from '@/features/chat/DeferredChatPanel.tsx'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { cn } from '@/lib/utils'
@@ -42,6 +43,8 @@ export function AssistantSidebar({
 }: AssistantSidebarProps) {
 	const dock = useEditorStore((state) => state.chatDock)
 	const dockedLeft = dock === 'left'
+	const [visited, setVisited] = useState(open)
+	useEffect(() => { if (open) setVisited(true) }, [open])
 
 	return (
 		<aside
@@ -81,7 +84,7 @@ export function AssistantSidebar({
 							: 'w-[var(--shell-chat-w)] min-w-[var(--shell-chat-w-min)] max-w-[var(--shell-chat-w-max)]',
 				)}
 			>
-				<ChatPanel
+				{(open || visited) && <ChatPanel
 					geoEvents={geoEvents}
 					mapContextEvents={mapContextEvents}
 					availableFeatures={availableFeatures}
@@ -94,7 +97,7 @@ export function AssistantSidebar({
 					threadTitle={threadTitle}
 					readOnly={readOnly}
 					initialPrompt={initialPrompt}
-				/>
+				/>}
 			</div>
 		</aside>
 	)

@@ -76,6 +76,7 @@ import {
 	subscribeStoryTargetRequest,
 } from '@/features/chat/storyTargeting'
 import { chatComposerActions } from './composerState'
+import { reportChatActivity } from './activity.ts'
 
 // Output is NOT artificially capped. We size the completion budget from the
 // room left in the context window (see deriveOutputBudget). The constants below
@@ -3347,6 +3348,13 @@ subscribeStoryTargetRequest(syncRunningChatApprovalStatus)
 // static import cycle (runCode is pulled into the registry bootstrap that this
 // store transitively imports). The gate reads through this injected getter.
 setSafetyLevelProvider(() => useChatStore.getState().safetyLevel)
+
+const syncActivity = () => {
+	const { runningChatId, activeRun } = useChatStore.getState()
+	reportChatActivity({ runningChatId, activeRun })
+}
+syncActivity()
+useChatStore.subscribe(syncActivity)
 
 // Action helpers for non-hook usage
 export const chatActions = {

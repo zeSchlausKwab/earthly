@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import type { DatasetEditOptions } from '@/components/info-panel/mapProposalPresentation'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import {
@@ -26,7 +27,7 @@ interface UseContextEditorParams {
 	navigateToView: (view: SidebarViewMode) => void
 	clearFocus: () => void
 	handleInspectDataset: (event: GeoDataset) => void
-	loadDatasetForEditing: (event: GeoDataset) => void
+	loadDatasetForEditing: (event: GeoDataset, options?: DatasetEditOptions) => void
 	startNewDataset: () => void
 	switchToWorkspace: (
 		workspaceId: string,
@@ -78,8 +79,8 @@ export function useContextEditor({
 	}, [])
 
 	const handleLoadDatasetForEditing = useCallback(
-		(event: GeoDataset) => {
-			loadDatasetForEditing(event)
+		(event: GeoDataset, options?: DatasetEditOptions) => {
+			loadDatasetForEditing(event, options)
 			selectMobileEntitySurface('dataset')
 			if (isMobile) ensureInfoPanelVisible()
 		},
@@ -121,24 +122,27 @@ export function useContextEditor({
 		],
 	)
 
-	const handleCreateContext = useCallback((creationSeed?: GroupCreationSeed) => {
-		selectMobileEntitySurface('context')
-		clearEditorModes()
-		setContextCreationSeed(creationSeed ?? null)
-		setContextEditorMode('create')
-		prepareNonGeometryEditorWorkspace()
-		navigateToView('context-editor')
-		if (isMobile) ensureInfoPanelVisible()
-		else setShowInfoPanel(true)
-	}, [
-		clearEditorModes,
-		prepareNonGeometryEditorWorkspace,
-		navigateToView,
-		isMobile,
-		ensureInfoPanelVisible,
-		selectMobileEntitySurface,
-		setShowInfoPanel,
-	])
+	const handleCreateContext = useCallback(
+		(creationSeed?: GroupCreationSeed) => {
+			selectMobileEntitySurface('context')
+			clearEditorModes()
+			setContextCreationSeed(creationSeed ?? null)
+			setContextEditorMode('create')
+			prepareNonGeometryEditorWorkspace()
+			navigateToView('context-editor')
+			if (isMobile) ensureInfoPanelVisible()
+			else setShowInfoPanel(true)
+		},
+		[
+			clearEditorModes,
+			prepareNonGeometryEditorWorkspace,
+			navigateToView,
+			isMobile,
+			ensureInfoPanelVisible,
+			selectMobileEntitySurface,
+			setShowInfoPanel,
+		],
+	)
 
 	const handleEditContext = useCallback(
 		(context: MapContext) => {
@@ -171,10 +175,10 @@ export function useContextEditor({
 
 	const handleSaveContext = useCallback(
 		(_context: MapContext) => {
-		setContextEditorMode('none')
-		setEditingContext(null)
-		setContextCreationSeed(null)
-		navigateToView('contexts')
+			setContextEditorMode('none')
+			setEditingContext(null)
+			setContextCreationSeed(null)
+			navigateToView('contexts')
 		},
 		[navigateToView],
 	)

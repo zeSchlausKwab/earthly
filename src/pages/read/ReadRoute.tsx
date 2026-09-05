@@ -40,6 +40,7 @@ import {
 	applyAmbientSourcesToLayers,
 	buildFallbackStoryPresentation,
 	deriveStoryPresentationAuthorization,
+	drivingStoryViewIndexes,
 	getPresentationDatasetSource,
 	getUsableMapPresentation,
 	MAP_PRESENTATION_VERSION,
@@ -47,6 +48,8 @@ import {
 	parseMapPresentationSource,
 	reduceStoryMarkdownViews,
 	resolveAmbientOn,
+	scrollStoryViewIntoView,
+	storyViewAtReadingLine,
 	type EffectiveStoryViewStateV1,
 	type MapPresentationAuthorization,
 	type MapPresentationLayerV1,
@@ -60,6 +63,7 @@ import {
 import { navigateEarthly } from '@/router/navigation'
 import { useEarthlyRouteState } from '@/router/routeState'
 import { PresentationCanvas } from './PresentationCanvas'
+import { DeferredMapFigure } from './DeferredMapFigure'
 import { useStoryReader } from './useStoryReader'
 import './reader.css'
 
@@ -143,16 +147,18 @@ function ReaderFigure({
 		[carrierId, resolved, snapshot.state, story.pubkey],
 	)
 	return (
+		<DeferredMapFigure>
 		<PresentationCanvas
 			carrierId={`${carrierId}:figure:${snapshot.view.id}`}
 			mapRef={mapRef}
 			layers={inputs}
 			camera={snapshot.state.camera}
-			cameraIntentId="figure"
+			cameraIntentId={`figure:${JSON.stringify(snapshot.state)}`}
 			compact
 			interactive={false}
 			className="earthly-reader__figure-map"
 		/>
+		</DeferredMapFigure>
 	)
 }
 
@@ -219,6 +225,7 @@ export function ReadRoute() {
 		[basePresentation, content?.content],
 	)
 	const [activeViewIndex, setActiveViewIndex] = useState<number | null>(null)
+	const activeViewIndexRef = useRef<number | null>(null)
 	const [cameraRevision, setCameraRevision] = useState(0)
 	const [followText, setFollowText] = useState(true)
 	const articleScrollRef = useRef<HTMLDivElement>(null)
@@ -313,14 +320,29 @@ export function ReadRoute() {
 	const { annotationPopupData, setAnnotationPopupData, handleCommentGeometryVisibility } =
 		useCommentGeometry(mapRef, mapReady)
 
-	const activateView = useCallback((_: StoryViewBlockV1, index: number) => {
+	const activateView = useCallback((view: StoryViewBlockV1, index: number) => {
+		if (view.display === 'figure') return
+		activeViewIndexRef.current = index
 		setActiveViewIndex(index)
 		setCameraRevision((revision) => revision + 1)
 	}, [])
+	const drivingIndexes = useMemo(
+		() => drivingStoryViewIndexes(viewReduction.snapshots),
+		[viewReduction.snapshots],
+	)
+	const presentView = (index: number | undefined) => {
+		if (index === undefined) return
+		const snapshot = viewReduction.snapshots[index]
+		if (!snapshot || snapshot.view.display === 'figure') return
+		setFollowText(false)
+		activateView(snapshot.view, index)
+		scrollStoryViewIntoView(articleScrollRef.current, index)
+	}
 
 	useEffect(() => {
 		if (activeStoryRouteRef.current === route.id) return
 		activeStoryRouteRef.current = route.id
+		activeViewIndexRef.current = null
 		setActiveViewIndex(null)
 		setCameraRevision(0)
 		setReferenceLayers([])
@@ -328,31 +350,42 @@ export function ReadRoute() {
 	}, [route.id])
 
 	useEffect(() => {
-		if (!followText || !articleScrollRef.current || viewReduction.snapshots.length === 0) return
+		if (!followText || !articleScrollRef.current || drivingIndexes.length === 0) return
 		const root = articleScrollRef.current
-		const observer = new IntersectionObserver(
-			(entries) => {
-				const visible = entries
-					.filter((entry) => entry.isIntersecting)
-					.sort((left, right) => right.intersectionRatio - left.intersectionRatio)
-				for (const entry of visible) {
-					const index = Number((entry.target as HTMLElement).dataset.storyViewIndex)
-					const snapshot = viewReduction.snapshots[index]
-					if (!snapshot || snapshot.view.display === 'figure') continue
-					setActiveViewIndex(index)
-					setCameraRevision((revision) => revision + 1)
-					break
-				}
-			},
-			{ root, rootMargin: '-12% 0px -58% 0px', threshold: [0.15, 0.5, 0.8] },
-		)
-		for (const element of Array.from(
-			root.querySelectorAll<HTMLElement>('[data-story-view-index]'),
-		)) {
-			observer.observe(element)
+		let frame: number | undefined
+		const update = () => {
+			frame = undefined
+			const bounds = root.getBoundingClientRect()
+			const positions = drivingIndexes.flatMap((index) => {
+				const element = root.querySelector<HTMLElement>(`[data-story-view-index="${index}"]`)
+				return element ? [{ index, top: element.getBoundingClientRect().top }] : []
+			})
+			const index = storyViewAtReadingLine(
+				positions,
+				bounds.top + Math.min(bounds.height * 0.2, 120),
+			)
+			// Font/figure layout and scroll events can repeat without changing the
+			// effective stage. Never take the camera back on those notifications.
+			if (index === activeViewIndexRef.current) return
+			activeViewIndexRef.current = index
+			setActiveViewIndex(index)
+			setCameraRevision((revision) => revision + 1)
 		}
-		return () => observer.disconnect()
-	}, [followText, viewReduction.snapshots])
+		const schedule = () => {
+			if (frame === undefined) frame = window.requestAnimationFrame(update)
+		}
+		root.addEventListener('scroll', schedule, { passive: true })
+		const observer = new ResizeObserver(schedule)
+		observer.observe(root)
+		const body = root.querySelector('.earthly-reader__body')
+		if (body) observer.observe(body)
+		schedule()
+		return () => {
+			root.removeEventListener('scroll', schedule)
+			observer.disconnect()
+			if (frame !== undefined) window.cancelAnimationFrame(frame)
+		}
+	}, [followText, drivingIndexes])
 
 	const ensureReferenceLayer = useCallback(
 		(address: string, featureId: string | undefined) => {
@@ -479,9 +512,6 @@ export function ReadRoute() {
 		)
 	}
 
-	const drivingIndexes = viewReduction.snapshots.flatMap((snapshot, index) =>
-		snapshot.view.display === 'figure' ? [] : [index],
-	)
 	const currentDrivingPosition =
 		activeViewIndex === null ? -1 : drivingIndexes.indexOf(activeViewIndex)
 	const activeSnapshot =
@@ -539,7 +569,7 @@ export function ReadRoute() {
 							<img className="earthly-reader__cover" src={content.image} alt="" loading="eager" />
 						) : null}
 
-						{viewReduction.snapshots.length > 0 ? (
+						{drivingIndexes.length > 0 ? (
 							<nav className="earthly-reader__presenter" aria-label="Story map presentation">
 								<Button
 									type="button"
@@ -559,13 +589,7 @@ export function ReadRoute() {
 									size="icon-sm"
 									className="rounded-none"
 									disabled={currentDrivingPosition <= 0}
-									onClick={() => {
-										const index = drivingIndexes[currentDrivingPosition - 1]
-										if (index === undefined) return
-										setFollowText(false)
-										setActiveViewIndex(index)
-										setCameraRevision((value) => value + 1)
-									}}
+									onClick={() => presentView(drivingIndexes[currentDrivingPosition - 1])}
 									aria-label="Previous map view"
 								>
 									<ChevronLeft className="size-3.5" />
@@ -580,18 +604,29 @@ export function ReadRoute() {
 									size="sm"
 									className="rounded-none"
 									disabled={currentDrivingPosition >= drivingIndexes.length - 1}
-									onClick={() => {
-										const index = drivingIndexes[currentDrivingPosition + 1]
-										if (index === undefined) return
-										setFollowText(false)
-										setActiveViewIndex(index)
-										setCameraRevision((value) => value + 1)
-									}}
+									onClick={() => presentView(drivingIndexes[currentDrivingPosition + 1])}
 								>
-									Present <ChevronRight className="size-3.5" />
+									{currentDrivingPosition < 0 ? 'Present' : 'Next'}{' '}
+									<ChevronRight className="size-3.5" />
 								</Button>
 							</nav>
 						) : null}
+						{drivingIndexes.length > 0 && (
+							<ol className="earthly-reader__timeline" aria-label="Story timeline">
+								{drivingIndexes.map((index, step) => (
+									<li key={viewReduction.snapshots[index]?.view.id}>
+										<button
+											type="button"
+											onClick={() => presentView(index)}
+											aria-current={index === activeViewIndex ? 'step' : undefined}
+										>
+											<span>{step + 1}</span>
+											{viewReduction.snapshots[index]?.view.title}
+										</button>
+									</li>
+								))}
+							</ol>
+						)}
 
 						<RichContentRenderer
 							content={content.content ?? ''}
@@ -664,6 +699,7 @@ export function ReadRoute() {
 							<h2 id="reader-comments-title">Discussion</h2>
 							<p>Comments and attached places stay rooted to this Story.</p>
 							<CommentsPanel
+								layout="flow"
 								target={story}
 								focusCommentId={route.commentId}
 								availableFeatures={availableFeatures}

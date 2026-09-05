@@ -62,7 +62,7 @@ async function submitCurrentDatasetProposal(
 	})
 }
 
-async function waitForEditorReady(earthly: EarthlySession): Promise<void> {
+export async function waitForEditorReady(earthly: EarthlySession): Promise<void> {
 	await expect
 		.poll(() =>
 			earthly.page.evaluate(() =>

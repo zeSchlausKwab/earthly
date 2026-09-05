@@ -99,6 +99,21 @@ describe('parsePathSegments — canonical margin routes', () => {
 })
 
 describe('TanStack route → retained controller adapter', () => {
+	test('a focused Map edit route opens the editor rather than its Browse catalog', () => {
+		const map = { kind: 'map', id: NADDR, tab: 'details', on: [], live: false } as const
+		expect(routeStateFromEarthlyRoute({ ...map, edit: true })).toMatchObject({
+			focusType: 'geoevent',
+			sidebarView: 'edit',
+			naddr: NADDR,
+			edit: true,
+		})
+		expect(routeStateFromEarthlyRoute({ ...map, edit: false })).toMatchObject({
+			focusType: 'geoevent',
+			sidebarView: 'datasets',
+			naddr: NADDR,
+		})
+	})
+
 	test('carries edit intent, Shelf overlays, Live, and the Atlas lens', () => {
 		const result = routeStateFromEarthlyRoute({
 			kind: 'story',

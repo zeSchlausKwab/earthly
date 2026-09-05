@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { finalizeEvent, generateSecretKey, nip19 } from 'nostr-tools'
 import { eventStore } from '@/lib/nostr'
-import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { ARTICLE_KIND, GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { MAP_CALLOUTS_PROPERTY } from '@/lib/geo/callouts'
 import { parseEntityReference } from './entity-tools'
 import { dispatch } from './registry'
@@ -139,5 +139,62 @@ describe('read_entity dataset callout inventory', () => {
 		})
 		expect(result.features?.[0]?.callouts?.[1]?.text.length).toBeLessThan(300)
 		expect(JSON.stringify(result)).not.toContain(longText)
+	})
+})
+
+describe('read_entity Story presentation inventory', () => {
+	it('returns opening presentation and physical view diagnostics alongside published Markdown', async () => {
+		const presentation = { version: 1, initialView: { center: [2, 49], zoom: 6 }, layers: [] }
+		const markdown =
+			'The opening paragraph.\n\n```earthly-view\n{"version":1,"type":"view","id":"first","title":"A closer look","display":"both","camera":{"center":[2,49],"zoom":10}}\n```'
+		const event = finalizeEvent(
+			{
+				kind: ARTICLE_KIND,
+				created_at: Math.floor(Date.now() / 1000),
+				tags: [['d', 'story-presentation']],
+				content: JSON.stringify({ title: 'Story presentation', content: markdown, presentation }),
+			},
+			generateSecretKey(),
+		)
+		eventStore.add(event)
+		addedEventIds.push(event.id)
+		await expect(
+			dispatch('read_entity', { reference: `${ARTICLE_KIND}:${event.pubkey}:story-presentation` }),
+		).resolves.toMatchObject({
+			markdown,
+			presentation,
+			presentationTruncated: false,
+			mapAuthoring: {
+				presentationStatus: 'valid',
+				viewBlockCount: 1,
+				viewBlocks: [{ id: 'first', display: 'both', status: 'valid' }],
+			},
+		})
+	})
+
+	it('bounds opaque future presentation output and directs full reads to the draft tool', async () => {
+		const event = finalizeEvent(
+			{
+				kind: ARTICLE_KIND,
+				created_at: Math.floor(Date.now() / 1000),
+				tags: [['d', 'future-presentation']],
+				content: JSON.stringify({
+					title: 'Future presentation',
+					content: 'Prose',
+					presentation: { version: 12, futureData: 'x'.repeat(25_000) },
+				}),
+			},
+			generateSecretKey(),
+		)
+		eventStore.add(event)
+		addedEventIds.push(event.id)
+		await expect(
+			dispatch('read_entity', { reference: `${ARTICLE_KIND}:${event.pubkey}:future-presentation` }),
+		).resolves.toMatchObject({
+			presentation: undefined,
+			presentationTruncated: true,
+			mapAuthoring: { presentationStatus: 'unsupported' },
+			editHint: expect.stringContaining('read_story_draft'),
+		})
 	})
 })

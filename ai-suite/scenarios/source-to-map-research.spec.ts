@@ -4,6 +4,7 @@ import {
 	approveAiEdit,
 	configureChatProvider,
 	openAiChat,
+	setAiThreadSettingsOpen,
 	selectAiChatTarget,
 	sendAiChatMessage,
 	waitForAiChatCompletion,
@@ -43,6 +44,7 @@ test('structured research commits one provenance-valid Dataset behind a compact 
 	await expect(earthly.page.getByText(/I created one validated Dataset/)).toBeVisible({
 		timeout: 15_000,
 	})
+	await setAiThreadSettingsOpen(earthly)
 	await earthly.page.getByRole('button', { name: 'Chat usage details', exact: true }).click()
 	await expect(earthly.page.getByText('2 requests', { exact: true }).last()).toBeVisible()
 	await expect(earthly.page.getByText('Cumulative input', { exact: true })).toBeVisible()

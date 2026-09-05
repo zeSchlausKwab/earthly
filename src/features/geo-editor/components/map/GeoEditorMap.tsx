@@ -48,6 +48,8 @@ export interface GeoEditorMapProps {
 	showControls?: boolean
 	/** Position of the controls group. Default: 'bottom-right'. */
 	controlsPosition?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+	/** Composition-specific clearance around the shared map controls. */
+	controlsClassName?: string
 	/** Include the pitch (3D) toggle. Default: true when showControls is true. */
 	showPitch?: boolean
 	/** Include the mercator/globe projection toggle. Default: true when showControls is true. */
@@ -102,6 +104,7 @@ export function GeoEditorMap({
 	mapSource = { type: 'default', location: 'remote' },
 	showControls = true,
 	controlsPosition = 'bottom-right',
+	controlsClassName,
 	showPitch = true,
 	showGlobe = true,
 	showLocate = true,
@@ -196,6 +199,7 @@ export function GeoEditorMap({
 			{showControls ? (
 				<MapControls
 					position={controlsPosition}
+					className={controlsClassName}
 					showZoom
 					showCompass
 					showLocate={showLocate}

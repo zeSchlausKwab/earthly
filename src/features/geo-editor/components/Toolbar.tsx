@@ -53,7 +53,7 @@ import {
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useChatStore } from '@/features/chat/store'
+import { useChatActivity } from '@/features/chat/activity.ts'
 import { Button } from '@/components/ui/button'
 import {
 	Menubar,
@@ -88,7 +88,7 @@ import { useEditorStore } from '../store'
 import type { GeoSearchResult } from '../types'
 import { CreateMapPopover } from './CreateMapPopover'
 import { MeasurePopover } from './MeasurePopover'
-import { MapSettingsPanel } from './MapSettingsPanel'
+import { MapSettingsPanel } from '../../../components/optionalSurfaces.tsx'
 import { ShareExportPopover } from './share/ShareExportPopover'
 import {
 	Divider,
@@ -119,6 +119,7 @@ const geometryOperationIcons: Record<GeometryOperationIcon, typeof Scissors> = {
 }
 
 interface DatasetActionsProps {
+	authoringIntent?: PublishDropdownProps['authoringIntent']
 	onExportGeoJSON?: () => void
 	onExportSHP?: () => void
 	canExport?: boolean
@@ -215,11 +216,11 @@ function MapStateCluster({
 							}`
 				}
 				onClick={onToggleMapStack}
-				aria-label={mapStackOpen ? 'Hide Shelf' : 'Show Shelf'}
-				title={mapStackOpen ? 'Hide Shelf' : 'Show Shelf'}
+				aria-label={mapStackOpen ? 'Hide On the map panel' : 'Show On the map panel'}
+				title={mapStackOpen ? 'Hide On the map panel' : 'Show On the map panel'}
 			>
 				<Layers className="h-3.5 w-3.5" />
-				<span className="sr-only">Shelf</span>
+				<span className="sr-only">On the map</span>
 				{mapStackEntryCount > 0 ? (
 					<span
 						className={
@@ -395,7 +396,7 @@ export function Toolbar({
 	const setInspectorActive = useEditorStore((state) => state.setInspectorActive)
 	const chatDock = useEditorStore((state) => state.chatDock)
 	const toggleChatAtDock = useEditorStore((state) => state.toggleChatAtDock)
-	const chatWorking = useChatStore((state) => state.runningChatId !== null)
+	const chatWorking = useChatActivity().runningChatId !== null
 	const showMapSettings = useEditorStore((state) => state.showMapSettings)
 	const setShowMapSettings = useEditorStore((state) => state.setShowMapSettings)
 
@@ -806,30 +807,36 @@ export function Toolbar({
 						<>
 							<MenubarSeparator />
 							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
-								Publish
+								{datasetActions?.canProposeEdit ? 'Proposal' : 'Publish'}
 							</MenubarLabel>
-							<ToolbarMenuItem
-								icon={UploadCloud}
-								label="Publish new Map"
-								onSelect={datasetActions?.onPublishNew}
-								disabled={publishMenuDisabled || !datasetActions?.canPublishNew}
-							/>
-							<ToolbarMenuItem
-								icon={RefreshCw}
-								label="Update existing"
-								onSelect={datasetActions?.onPublishUpdate}
-								disabled={publishMenuDisabled || !datasetActions?.canPublishUpdate}
-							/>
-							<ToolbarMenuItem
-								icon={CopyPlus}
-								label="Fork as new Map"
-								onSelect={datasetActions?.onPublishCopy}
-								disabled={publishMenuDisabled || !datasetActions?.canPublishCopy}
-							/>
+							{datasetActions?.canPublishNew && (
+								<ToolbarMenuItem
+									icon={UploadCloud}
+									label="Publish new Map"
+									onSelect={datasetActions?.onPublishNew}
+									disabled={publishMenuDisabled || !datasetActions?.canPublishNew}
+								/>
+							)}
+							{datasetActions?.canPublishUpdate && (
+								<ToolbarMenuItem
+									icon={RefreshCw}
+									label="Update existing"
+									onSelect={datasetActions?.onPublishUpdate}
+									disabled={publishMenuDisabled || !datasetActions?.canPublishUpdate}
+								/>
+							)}
+							{datasetActions?.canPublishCopy && (
+								<ToolbarMenuItem
+									icon={CopyPlus}
+									label={datasetActions?.canPublishUpdate ? 'Publish as new map' : 'Publish map'}
+									onSelect={datasetActions?.onPublishCopy}
+									disabled={publishMenuDisabled || !datasetActions?.canPublishCopy}
+								/>
+							)}
 							{datasetActions?.canProposeEdit ? (
 								<ToolbarMenuItem
 									icon={GitPullRequest}
-									label="Propose edit to owner…"
+									label="Send proposal…"
 									onSelect={() => setProposalDialogOpen(true)}
 									disabled={publishMenuDisabled}
 								/>
@@ -1447,6 +1454,7 @@ export function Toolbar({
 					    import/export. */}
 					{datasetActions && (canPublishFromMenu || destination) ? (
 						<PublishDropdown
+							authoringIntent={datasetActions.authoringIntent}
 							canPublishNew={datasetActions.canPublishNew}
 							canPublishUpdate={datasetActions.canPublishUpdate}
 							canPublishCopy={datasetActions.canPublishCopy}

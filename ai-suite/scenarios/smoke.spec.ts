@@ -63,9 +63,11 @@ test('Discover opens once automatically and remains available from navigation', 
 
 	await earthly.page.reload({ waitUntil: 'domcontentloaded' })
 	await expect(dialog).toBeHidden()
+	await openPanel(earthly, 'Settings')
+	const beforeDiscover = earthly.page.url()
 	await openDiscover(earthly)
 	await expect(dialog).toBeVisible()
-	await expect.poll(() => earthly.page.evaluate(() => location.pathname)).toBe('/me')
+	await expect.poll(() => earthly.page.url()).toBe(beforeDiscover)
 })
 
 test('Contexts can be opened through the current viewport navigation', async ({ earthly }) => {

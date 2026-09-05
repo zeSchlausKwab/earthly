@@ -16,6 +16,7 @@ export const createPublishingSlice: StateCreator<EditorState, [], [], Publishing
 	const syncActiveDraftBlobReferences = () => {
 		const state = get()
 		if (!state.activeGeoEditDraftId || !state.geoEditDrafts[state.activeGeoEditDraftId]) return
+		if (state.pendingHydratedDraftId === state.activeGeoEditDraftId) return
 		state.saveGeoEditDraft(state.activeGeoEditDraftId, {
 			blobReferences: state.blobReferences,
 		})

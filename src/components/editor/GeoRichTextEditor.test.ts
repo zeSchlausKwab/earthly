@@ -11,17 +11,25 @@ function item(entityType: GeoFeatureItem['entityType']): GeoFeatureItem {
 
 describe('getGeoReferenceTypeLabel', () => {
 	it('gives every reference choice an explicit user-facing type', () => {
-		expect(getGeoReferenceTypeLabel(item('dataset'))).toBe('Dataset')
+		expect(getGeoReferenceTypeLabel(item('dataset'))).toBe('Map')
 		expect(getGeoReferenceTypeLabel(item('feature'))).toBe('Feature')
 		expect(getGeoReferenceTypeLabel(item('osm'))).toBe('OSM')
 		expect(getGeoReferenceTypeLabel(item('coordinate'))).toBe('Coordinate')
 		expect(getGeoReferenceTypeLabel(item('coordinate-picker'))).toBe('Coordinate')
-		expect(getGeoReferenceTypeLabel(item('context'))).toBe('Context')
+		expect(getGeoReferenceTypeLabel(item('context'))).toBe('Atlas')
 		expect(getGeoReferenceTypeLabel(item('story'))).toBe('Story')
 	})
 })
 
 describe('replaceGeoRichTextEditorContent', () => {
+	it('ignores a disposed editor while Suspense reconnects effects', () => {
+		const editor = {
+			isDestroyed: true,
+			get commands(): never { throw new Error('Disposed editor has no command manager') },
+		}
+		expect(replaceGeoRichTextEditorContent(editor as never, '')).toBe(false)
+	})
+
 	it('replaces prop-driven content without echoing it through onUpdate', () => {
 		const calls: Array<{ content: unknown; options: unknown }> = []
 		const editor = {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { nip19 } from 'nostr-tools'
 import { navigateEarthly } from '@/router/navigation'
 import type { EarthlyObjectTab, EarthlyRouteState } from '@/router/routeContract'
@@ -83,6 +83,8 @@ export interface RouteState {
 	tab: EarthlyObjectTab
 	/** Current sidebar view mode */
 	sidebarView: SidebarViewMode
+	/** The route explicitly opens a Browse catalog rather than the bare map. */
+	browseOpen?: boolean
 	/** Local MLS workspace identifier for a `/privategroup/:id` detail route. */
 	privateGroupId?: string
 	/** Local collaboration identifier for a `/fieldsession/:id` detail route. */
@@ -125,6 +127,7 @@ export function routeStateFromEarthlyRoute(route: EarthlyRouteState): RouteState
 		return {
 			focusType: 'none',
 			sidebarView: BROWSE_VIEW_ALIASES[route.browseKind ?? 'maps'] ?? DEFAULT_SIDEBAR_VIEW,
+			browseOpen: route.browseOpen,
 			...common,
 		}
 	}
@@ -180,7 +183,7 @@ export function routeStateFromEarthlyRoute(route: EarthlyRouteState): RouteState
 
 	const focus =
 		route.kind === 'map'
-			? ({ focusType: 'geoevent', sidebarView: 'datasets' } as const)
+			? ({ focusType: 'geoevent', sidebarView: route.edit ? 'edit' : 'datasets' } as const)
 			: route.kind === 'atlas'
 				? ({ focusType: 'mapcontext', sidebarView: 'contexts' } as const)
 				: route.kind === 'story'
@@ -593,11 +596,21 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 	// Phase 1.3: the single atomic reducer that reconciles every piece of
 	// navigation-derived store state from a parsed route.
 	const applyRouteState = useEditorStore((state) => state.applyRouteState)
+	const lastAppliedSurface = useRef<string | null>(null)
 
 	// TanStack is the only navigation observer; reconcile its state into the
-	// retained editor controller once per committed route.
+	// retained editor controller once per navigation surface. Map composition
+	// synchronization is not navigation and must not reset the current sheet,
+	// inspector, or authoring state while an entity is arriving asynchronously.
 	useEffect(() => {
-		if (!reconcileStore) return
+		if (!reconcileStore) {
+			lastAppliedSurface.current = null
+			return
+		}
+		const { on: _on, live: _live, ...surface } = route
+		const surfaceKey = JSON.stringify(surface)
+		if (lastAppliedSurface.current === surfaceKey) return
+		lastAppliedSurface.current = surfaceKey
 		applyRouteState(route, { syncMobileTab: true })
 	}, [applyRouteState, reconcileStore, route])
 
@@ -696,10 +709,20 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 	)
 
 	/**
-	 * Clear focus but stay on current sidebar view
+	 * Clear focus while preserving the source scope. Circle/Nearby inspectors
+	 * return to that audience's page, not an unscoped public catalog.
 	 */
 	const clearFocus = useCallback(() => {
-		commit({ sidebarView: route.sidebarView, contextNaddr: route.contextNaddr })
+		commit({
+			sidebarView: route.fieldSessionId
+				? 'field-sessions'
+				: route.privateGroupId
+					? 'private-groups'
+					: route.sidebarView,
+			contextNaddr: route.contextNaddr,
+			privateGroupId: route.privateGroupId,
+			fieldSessionId: route.fieldSessionId,
+		})
 	}, [commit, route])
 
 	/**

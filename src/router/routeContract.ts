@@ -29,6 +29,8 @@ export interface EarthlyRouteState {
 	readonly kind: EarthlyRouteKind
 	readonly id?: string
 	readonly browseKind?: EarthlyBrowseKind
+	/** Explicit catalog destination; `/` keeps the phone canvas unobstructed. */
+	readonly browseOpen?: boolean
 	readonly meSection?: 'circles' | 'nearby'
 	readonly edit: boolean
 	readonly tab: EarthlyObjectTab
@@ -132,7 +134,12 @@ export function parseEarthlyRoute(
 	const id = decodeSegment(rawSecond)
 
 	if (first === 'browse' && id && BROWSE_KIND_SET.has(id)) {
-		return Object.freeze({ kind: 'browse', browseKind: id as EarthlyBrowseKind, ...base })
+		return Object.freeze({
+			kind: 'browse',
+			browseKind: id as EarthlyBrowseKind,
+			browseOpen: true,
+			...base,
+		})
 	}
 
 	if (first === 'read' && id) {
@@ -167,7 +174,7 @@ export function parseEarthlyRoute(
 	}
 
 	if (first === 'in' && id) {
-		return Object.freeze({ kind: 'browse', browseKind: 'maps', ...base, in: id })
+		return Object.freeze({ kind: 'browse', browseKind: 'maps', browseOpen: true, ...base, in: id })
 	}
 
 	return Object.freeze({

@@ -56,6 +56,7 @@ import { Button } from '../ui/button'
 import { ConfirmDeleteAction } from './ConfirmDeleteAction'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
 import { ObjectTabs, ThreadTabNotice } from './ObjectTabs'
+import { useObjectContentTab } from './ObjectThreadPlacement'
 
 interface SightingViewPanelProps {
 	/** The Sighting being viewed (cast). Absent ⇒ empty fallback. */
@@ -118,6 +119,7 @@ export function SightingViewPanel({
 }: SightingViewPanelProps) {
 	const [uncontrolledObjectTab, setUncontrolledObjectTab] = useState<EarthlyObjectTab>('details')
 	const activeObjectTab = objectTab ?? uncontrolledObjectTab
+	const contentTab = useObjectContentTab(activeObjectTab)
 	const setActiveObjectTab = (tab: EarthlyObjectTab) => {
 		if (objectTab === undefined) setUncontrolledObjectTab(tab)
 		onObjectTabChange?.(tab)
@@ -174,10 +176,11 @@ export function SightingViewPanel({
 
 	return (
 		<EntityPanelShell
+			contained={contentTab === 'comments'}
 			title={title}
 			tabs={<ObjectTabs value={activeObjectTab} onValueChange={setActiveObjectTab} />}
 		>
-			{activeObjectTab === 'details' ? (
+			{contentTab === 'details' ? (
 				<div className="space-y-3 text-[13px]">
 					<EntityPanelSurface tone="context" className="space-y-3">
 						<EntityPanelSectionHeader
@@ -300,9 +303,8 @@ export function SightingViewPanel({
 						) : null}
 					</EntityPanelSurface>
 				</div>
-			) : activeObjectTab === 'comments' ? (
-				<EntityPanelSurface tone="discussion" className="space-y-4">
-					<EntityPanelSectionHeader eyebrow="Discussion" title="Comments" />
+			) : contentTab === 'comments' ? (
+				<EntityPanelSurface tone="discussion" className="h-full min-h-0 px-0 py-2">
 					<CommentsPanel
 						key={sighting.id ?? sighting.dTag ?? 'no-sighting'}
 						target={sighting}

@@ -27,18 +27,21 @@ import {
 	PencilLine,
 	Play,
 } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CommentsPanel } from '@/features/social/comments'
-import { StoryProposalsPanel, StoryProposeEditDialog } from '@/features/social/proposals'
+import { StoryProposalsPanel } from '@/features/social/proposals'
 import type { Article } from '@/lib/nostr/article'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { getStoryReaderPath } from '@/lib/nostr/story/routes'
 import { navigateEarthly } from '@/router/navigation'
 import type { EarthlyObjectTab } from '@/router/routeContract'
 import {
+	buildFallbackStoryPresentation,
+	drivingStoryViewIndexes,
 	getUsableMapPresentation,
 	parseMapPresentation,
 	reduceStoryMarkdownViews,
+	scrollStoryViewIntoView,
 	type StoryViewSnapshotV1,
 } from '@/lib/map-presentation'
 import { RichContentRenderer } from '../editor'
@@ -48,6 +51,10 @@ import { Button } from '../ui/button'
 import { ConfirmDeleteAction } from './ConfirmDeleteAction'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
 import { ObjectTabs, ThreadTabNotice } from './ObjectTabs'
+import { useObjectContentTab } from './ObjectThreadPlacement'
+import { ObjectInspectLayout } from './ObjectInspectLayout'
+import { UserProfile } from '@/components/user-profile'
+import { GeoSocialActions } from '@/features/social/comments/GeoSocialActions'
 
 interface StoryViewPanelProps {
 	/** The Story being viewed (published Article cast). Absent ⇒ empty fallback. */
@@ -55,6 +62,7 @@ interface StoryViewPanelProps {
 	currentUserPubkey?: string
 	onDeleteStory?: (story: Article) => void
 	onEditStory?: (story: Article) => void
+	onBack?: () => void
 	/** Fly the map to this Story's footprint (the inspect-panel "Zoom to" button). */
 	onZoomTo?: () => void
 	/** The d-tag key of a Story whose delete is in flight. */
@@ -74,15 +82,6 @@ interface StoryViewPanelProps {
 	/** Called with the republished Story after an accepted proposed edit, to refresh the view in place. */
 	onStoryUpdated?: (updated: Article) => void
 	focusCommentId?: string
-	/**
-	 * Controlled proposal-dialog state. Route controllers use this to materialize
-	 * a direct `/story/:naddr/edit` request for a non-owner reader.
-	 */
-	proposeEditOpen?: boolean
-	/** Initial proposal-dialog state for an otherwise uncontrolled panel. */
-	defaultProposeEditOpen?: boolean
-	/** Receives both local button actions and controlled dialog dismissals. */
-	onProposeEditOpenChange?: (open: boolean) => void
 	/** Receives the cumulative state at the clicked/presented physical view. */
 	onStoryViewActivate?: (snapshot: StoryViewSnapshotV1, index: number) => void
 	/** Caller-supplied live-map figure using the same presentation runtime as the main canvas. */
@@ -112,6 +111,7 @@ export function StoryViewPanel({
 	currentUserPubkey,
 	onDeleteStory,
 	onEditStory,
+	onBack,
 	onZoomTo,
 	deletingKey,
 	availableFeatures = [],
@@ -122,9 +122,6 @@ export function StoryViewPanel({
 	onZoomToBounds,
 	onStoryUpdated,
 	focusCommentId,
-	proposeEditOpen,
-	defaultProposeEditOpen = false,
-	onProposeEditOpenChange,
 	onStoryViewActivate,
 	renderStoryViewFigure,
 	activeStoryViewId,
@@ -134,34 +131,35 @@ export function StoryViewPanel({
 	const [coverFailed, setCoverFailed] = useState(false)
 	const [uncontrolledObjectTab, setUncontrolledObjectTab] = useState<EarthlyObjectTab>('details')
 	const activeObjectTab = objectTab ?? uncontrolledObjectTab
+	const contentTab = useObjectContentTab(activeObjectTab)
 	const setActiveObjectTab = (tab: EarthlyObjectTab) => {
 		if (objectTab === undefined) setUncontrolledObjectTab(tab)
 		onObjectTabChange?.(tab)
 	}
-	const [uncontrolledProposeOpen, setUncontrolledProposeOpen] = useState(defaultProposeEditOpen)
-	const proposalDialogOpen = proposeEditOpen ?? uncontrolledProposeOpen
-	const setProposalDialogOpen = (open: boolean) => {
-		if (proposeEditOpen === undefined) setUncontrolledProposeOpen(open)
-		onProposeEditOpenChange?.(open)
-	}
 	const [presentIndex, setPresentIndex] = useState(-1)
+	const narrativeRef = useRef<HTMLDivElement>(null)
 	const storyContent = story?.article
 	const viewReduction = useMemo(() => {
 		const parsed = parseMapPresentation(storyContent?.presentation)
-		const base = getUsableMapPresentation(parsed) ?? { version: 1 as const, layers: [] }
+		const base =
+			getUsableMapPresentation(parsed) ?? buildFallbackStoryPresentation(storyContent?.content)
 		return reduceStoryMarkdownViews(base, storyContent?.content)
 	}, [storyContent?.content, storyContent?.presentation])
+	const drivingIndexes = drivingStoryViewIndexes(viewReduction.snapshots)
+	const presentPosition = drivingIndexes.indexOf(presentIndex)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different Story resets step navigation.
 	useEffect(() => {
 		setPresentIndex(-1)
 	}, [story?.id, story?.dTag])
 
-	const activateView = (index: number) => {
+	const activateView = (index: number | undefined, scroll = false) => {
+		if (index === undefined) return
 		const snapshot = viewReduction.snapshots[index]
-		if (!snapshot) return
+		if (!snapshot || snapshot.view.display === 'figure') return
 		setPresentIndex(index)
 		onStoryViewActivate?.(snapshot, index)
+		if (scroll) scrollStoryViewIntoView(narrativeRef.current, index)
 	}
 
 	if (!story) {
@@ -185,19 +183,16 @@ export function StoryViewPanel({
 	const readerPath = getStoryReaderPath(story)
 
 	return (
-		<EntityPanelShell
+		<ObjectInspectLayout
+			contained={contentTab === 'comments'}
+			kind="Story"
 			title={title}
-			tabs={<ObjectTabs value={activeObjectTab} onValueChange={setActiveObjectTab} />}
-		>
-			{activeObjectTab === 'details' ? (
-				<div className="space-y-3 text-[13px]">
-					<EntityPanelSurface tone="context" className="space-y-3">
-						<EntityPanelSectionHeader
-							eyebrow="Story"
-							title={title}
-							description={formatRelativeDate(story.created_at)}
-							action={
-								<div className="flex items-center gap-2">
+			state={`published · ${formatRelativeDate(story.created_at)}`}
+			author={<UserProfile pubkey={story.pubkey} mode="avatar-name" size="xs" showNip05Badge={false} />}
+			onBack={onBack}
+			social={<GeoSocialActions target={story} compact showShareButton onReplyClick={() => setActiveObjectTab('comments')} />}
+			actions={
+								<div className="flex flex-wrap items-center gap-1.5">
 									{readerPath && (
 										<Button
 											type="button"
@@ -210,12 +205,14 @@ export function StoryViewPanel({
 											Read
 										</Button>
 									)}
-									{viewReduction.snapshots.length > 0 && onStoryViewActivate && (
+									{drivingIndexes.length > 0 && onStoryViewActivate && (
 										<Button
 											type="button"
 											variant={presentIndex >= 0 ? 'default' : 'outline'}
 											size="sm"
-											onClick={() => activateView(presentIndex >= 0 ? presentIndex : 0)}
+											onClick={() =>
+												activateView(presentPosition >= 0 ? presentIndex : drivingIndexes[0], true)
+											}
 											className="gap-1 rounded-none px-2 text-[11px]"
 										>
 											<Play className="h-3 w-3" />
@@ -257,24 +254,26 @@ export function StoryViewPanel({
 												/>
 											)}
 										</>
-									) : (
-										// A reader (non-owner) can propose a narrative edit (STORY-06). The
-										// dialog opens the body in an edit affordance and submits a
-										// kind-37519 Markdown-content proposal targeting this Story.
+									) : onEditStory ? (
 										<Button
 											type="button"
 											variant="outline"
 											size="sm"
-											onClick={() => setProposalDialogOpen(true)}
+											onClick={() => onEditStory(story)}
 											className="gap-1 rounded-none px-2 text-[11px]"
 										>
 											<PencilLine className="h-3 w-3" />
 											Propose an edit
 										</Button>
-									)}
+									) : null}
 								</div>
-							}
-						/>
+			}
+			tabs={<ObjectTabs value={activeObjectTab} onValueChange={setActiveObjectTab} />}
+		>
+			{contentTab === 'details' ? (
+				<div ref={narrativeRef} className="space-y-3 text-[13px]">
+					<EntityPanelSurface tone="context" className="space-y-3">
+
 
 						{showCover && (
 							<AspectRatio ratio={16 / 9} className="overflow-hidden border border-border bg-muted">
@@ -290,6 +289,36 @@ export function StoryViewPanel({
 							</AspectRatio>
 						)}
 
+						{presentPosition >= 0 && drivingIndexes.length > 0 && (
+							<nav
+								aria-label="Story map presentation"
+								className="sticky top-0 z-10 flex items-center justify-between border border-primary/40 bg-background px-2 py-1.5"
+							>
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									className="gap-1 rounded-none px-2 text-xs"
+									disabled={presentPosition <= 0}
+									onClick={() => activateView(drivingIndexes[presentPosition - 1], true)}
+								>
+									<ChevronLeft className="h-3.5 w-3.5" /> Previous
+								</Button>
+								<span className="font-mono text-xs text-muted-foreground">
+									{presentPosition + 1} / {drivingIndexes.length}
+								</span>
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									className="gap-1 rounded-none px-2 text-xs"
+									disabled={presentPosition >= drivingIndexes.length - 1}
+									onClick={() => activateView(drivingIndexes[presentPosition + 1], true)}
+								>
+									Next <ChevronRight className="h-3.5 w-3.5" />
+								</Button>
+							</nav>
+						)}
 						{/* Narrative — sanitized render only; inline refs default HIDDEN, each carries
 					    its own eye-toggle (show/hide on main map) + fly-to (T-10-07/T-10-08). */}
 						<RichContentRenderer
@@ -312,33 +341,6 @@ export function StoryViewPanel({
 								activeStoryViewId ?? viewReduction.snapshots[presentIndex]?.view.id ?? null
 							}
 						/>
-						{presentIndex >= 0 && viewReduction.snapshots.length > 0 && (
-							<div className="flex items-center justify-between border border-primary/40 bg-primary/10 px-2 py-1.5">
-								<Button
-									type="button"
-									variant="ghost"
-									size="sm"
-									className="h-7 gap-1 rounded-none px-2 text-[10px]"
-									disabled={presentIndex <= 0}
-									onClick={() => activateView(presentIndex - 1)}
-								>
-									<ChevronLeft className="h-3.5 w-3.5" /> Previous
-								</Button>
-								<span className="font-mono text-[10px] text-muted-foreground">
-									{presentIndex + 1} / {viewReduction.snapshots.length}
-								</span>
-								<Button
-									type="button"
-									variant="ghost"
-									size="sm"
-									className="h-7 gap-1 rounded-none px-2 text-[10px]"
-									disabled={presentIndex >= viewReduction.snapshots.length - 1}
-									onClick={() => activateView(presentIndex + 1)}
-								>
-									Next <ChevronRight className="h-3.5 w-3.5" />
-								</Button>
-							</div>
-						)}
 					</EntityPanelSurface>
 
 					{/* Author-side Proposed edits (STORY-06). The panel self-gates on ownership and
@@ -355,9 +357,8 @@ export function StoryViewPanel({
 						</EntityPanelSurface>
 					)}
 				</div>
-			) : activeObjectTab === 'comments' ? (
-				<EntityPanelSurface tone="discussion" className="space-y-4">
-					<EntityPanelSectionHeader eyebrow="Discussion" title="Comments" />
+			) : contentTab === 'comments' ? (
+				<EntityPanelSurface tone="discussion" className="h-full min-h-0 px-0 py-2">
 					<CommentsPanel
 						key={story.id ?? story.dTag ?? 'no-story'}
 						target={story}
@@ -376,17 +377,6 @@ export function StoryViewPanel({
 			) : (
 				<ThreadTabNotice />
 			)}
-
-			{/* Reader-side Propose-an-edit dialog (STORY-06) — only mounted for a
-			    non-owner reader; submits a kind-37519 Markdown-content proposal. */}
-			{!isOwner && (
-				<StoryProposeEditDialog
-					story={story}
-					open={proposalDialogOpen}
-					onOpenChange={setProposalDialogOpen}
-					availableFeatures={availableFeatures}
-				/>
-			)}
-		</EntityPanelShell>
+		</ObjectInspectLayout>
 	)
 }

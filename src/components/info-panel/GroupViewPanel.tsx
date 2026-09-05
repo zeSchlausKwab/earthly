@@ -15,7 +15,7 @@
  * the same 37518 event) — no store-wide type migration required for this surface.
  */
 
-import { LocateFixed } from 'lucide-react'
+import { LocateFixed, Pencil, LogIn } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
@@ -55,6 +55,12 @@ import { CuratedLane } from './group-lane/CuratedLane'
 import { ForeignLane } from './group-lane/ForeignLane'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
 import { ObjectTabs, ThreadTabNotice } from './ObjectTabs'
+import { useObjectContentTab } from './ObjectThreadPlacement'
+import { ObjectInspectLayout } from './ObjectInspectLayout'
+import { UserProfile } from '@/components/user-profile'
+import { GeoSocialActions } from '@/features/social/comments/GeoSocialActions'
+import { useRouting, navigateToRoute, buildRoutePath } from '@/features/geo-editor/hooks/useRouting'
+import { resolveEntityReference } from '@/lib/nostr/entityReference.ts'
 
 interface GroupViewPanelProps {
 	currentUserPubkey?: string
@@ -63,6 +69,8 @@ interface GroupViewPanelProps {
 	onInspectDataset: (event: GeoDataset) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
+	onEditContext?: (context: MapContext) => void
+	onBack?: () => void
 	/** Fly the map to this Group's footprint (the inspect-panel "Zoom to" button). */
 	onZoomTo?: () => void
 	deletingKey?: string | null
@@ -88,6 +96,8 @@ export function GroupViewPanel({
 	onInspectDataset,
 	onZoomToDataset,
 	onDeleteContext,
+	onEditContext,
+	onBack,
 	onZoomTo,
 	deletingKey,
 	onCommentGeometryVisibility,
@@ -100,10 +110,12 @@ export function GroupViewPanel({
 	onObjectTabChange,
 }: GroupViewPanelProps) {
 	const viewContext = useEditorStore((state) => state.viewContext)
+	const { encodeContextNaddr, clearFocus } = useRouting()
 	const activeAccount = useActiveAccount()
 	const [lockingDown, setLockingDown] = useState(false)
 	const [uncontrolledObjectTab, setUncontrolledObjectTab] = useState<EarthlyObjectTab>('details')
 	const activeObjectTab = objectTab ?? uncontrolledObjectTab
+	const contentTab = useObjectContentTab(activeObjectTab)
 	const setActiveObjectTab = useCallback(
 		(tab: EarthlyObjectTab) => {
 			if (objectTab === undefined) setUncontrolledObjectTab(tab)
@@ -187,33 +199,32 @@ export function GroupViewPanel({
 	const isDeleting = groupKey ? deletingKey === `context:${groupKey}` : false
 
 	return (
-		<EntityPanelShell
+		<ObjectInspectLayout
+			contained={contentTab === 'comments'}
+			kind="Atlas"
 			title={group.name || viewContext.contextId || 'Untitled Atlas'}
+			state={`published · ${new Date(viewContext.created_at * 1000).toLocaleDateString()}`}
+			author={<UserProfile pubkey={viewContext.pubkey} mode="avatar-name" size="xs" showNip05Badge={false} />}
+			meta={`${referencedAddresses.length} pinned`}
+			onBack={onBack ?? clearFocus}
+			actions={<>
+				<Button size="sm" className="min-h-11 md:min-h-8" onClick={() => { const address = encodeContextNaddr(viewContext); if (address) navigateToRoute(buildRoutePath({ sidebarView: 'datasets', contextNaddr: address })) }}><LogIn className="size-3.5" />Enter atlas</Button>
+				{isOwner && onEditContext && <Button size="sm" variant="outline" className="min-h-11 md:min-h-8" onClick={() => onEditContext(viewContext)}><Pencil className="size-3.5" />Edit</Button>}
+				{onZoomTo && <Button size="sm" variant="outline" className="min-h-11 md:min-h-8" onClick={onZoomTo}><LocateFixed className="size-3.5" />Zoom</Button>}
+			</>}
+			social={<GeoSocialActions target={viewContext} compact showShareButton onReplyClick={() => setActiveObjectTab('comments')} />}
 			tabs={<ObjectTabs value={activeObjectTab} onValueChange={setActiveObjectTab} />}
 		>
-			{activeObjectTab === 'details' ? (
+			{contentTab === 'details' ? (
 				<div className="space-y-3 text-[13px]">
 					<EntityPanelSurface tone="context" className="space-y-3">
 						<EntityPanelSectionHeader
-							eyebrow="Atlas"
-							title={group.name || viewContext.contextId || 'Untitled Atlas'}
-							description={`Governance: ${group.governance}`}
+							title="Who can add maps"
+							description={group.governance === 'closed' ? 'Only the author’s pinned references are shown.' : group.governance === 'schema' ? 'Others can contribute Maps that meet this Atlas’s requirements.' : 'Anyone can contribute Maps; the author’s pinned references appear first.'}
 							action={
 								onZoomTo || isOwner ? (
 									<div className="flex items-center gap-2">
-										{onZoomTo && (
-											<Button
-												type="button"
-												variant="outline"
-												size="sm"
-												onClick={onZoomTo}
-												className="gap-1 rounded-none px-2 text-[11px]"
-												title="Zoom to on map"
-											>
-												<LocateFixed className="h-3 w-3" />
-												Zoom
-											</Button>
-										)}
+
 										{isOwner && group.governance !== 'closed' && (
 											<AlertDialog>
 												<AlertDialogTrigger asChild>
@@ -273,7 +284,7 @@ export function GroupViewPanel({
 						referencedAddresses={referencedAddresses}
 						isOwner={isOwner}
 						signer={activeAccount ? accounts.signer : null}
-						onInspectCoordinate={(coord) => onMentionZoomTo?.(coord, undefined)}
+						onInspectCoordinate={(coord) => { const reference = resolveEntityReference(coord); if (reference) navigateToRoute(reference.path) }}
 						onZoomToCoordinate={(coord) => onMentionZoomTo?.(coord, undefined)}
 					/>
 
@@ -291,9 +302,8 @@ export function GroupViewPanel({
 						curatedCoordinates={referencedAddresses}
 					/>
 				</div>
-			) : activeObjectTab === 'comments' ? (
-				<EntityPanelSurface tone="discussion" className="space-y-4">
-					<EntityPanelSectionHeader eyebrow="Discussion" title="Comments" />
+			) : contentTab === 'comments' ? (
+				<EntityPanelSurface tone="discussion" className="h-full min-h-0 px-0 py-2">
 					<CommentsPanel
 						key={viewContext.id ?? viewContext.dTag ?? 'no-group'}
 						target={viewContext}
@@ -312,6 +322,6 @@ export function GroupViewPanel({
 			) : (
 				<ThreadTabNotice />
 			)}
-		</EntityPanelShell>
+		</ObjectInspectLayout>
 	)
 }

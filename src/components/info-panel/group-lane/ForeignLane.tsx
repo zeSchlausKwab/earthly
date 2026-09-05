@@ -230,8 +230,8 @@ export function ForeignLane({
 				<CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-left">
 					<EntityPanelSectionHeader
 						eyebrow="Community"
-						title={`Community contributions (${count})`}
-						description="Attachments from anyone — shown below your curated picks."
+						title={`Added by others (${count})`}
+						description="Community Maps, checked against this Atlas’s contribution requirements."
 					/>
 				</CollapsibleTrigger>
 				<CollapsibleContent className="space-y-3 pt-3">
@@ -332,7 +332,7 @@ export function ForeignLane({
 													</DropdownMenuItem>
 													{isOwner && onBlessForeign && (
 														<DropdownMenuItem onClick={() => onBlessForeign(coordinate)}>
-															Add to curated
+															Pin in Atlas
 														</DropdownMenuItem>
 													)}
 													<DropdownMenuSeparator />

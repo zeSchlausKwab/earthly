@@ -61,7 +61,13 @@ export async function startDataset(earthly: EarthlySession): Promise<DatasetDraf
 		await earthly.page.getByRole('button', { name: 'New Map', exact: true }).click()
 	}
 
-	const nameInput = earthly.page.getByPlaceholder('Name').first()
+	const nameInput = earthly.isMobile
+		? earthly.page.getByTestId('mobile-sheet').getByPlaceholder('Name', { exact: true }).first()
+		: earthly.page.getByPlaceholder('Name', { exact: true }).first()
+	if (earthly.isMobile) {
+		const details = earthly.page.getByRole('button', { name: 'Map details', exact: true })
+		if (await details.isVisible()) await details.click()
+	}
 	await expect(nameInput).toBeVisible()
 	await expect(nameInput).toHaveValue('')
 	await expect.poll(activeWorkspaceId).not.toBe(previousWorkspaceId)

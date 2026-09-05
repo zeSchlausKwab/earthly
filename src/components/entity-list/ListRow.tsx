@@ -1,10 +1,8 @@
 /**
  * ListRow — the single row grammar shared by every entity list rail (Datasets,
- * Contexts, Beacons, Sightings, Stories). Redesign §11a "Four panels, one row
- * grammar": each row is [leading glyph/thumb/avatar] · [title + state badges] ·
- * [author + mono meta] · [identical action bar: engage on the left, act on the
- * right]. Only the leading element and the badges change per entity, so the
- * rails read as one learnable component.
+ * Contexts, Beacons, Sightings, Stories). Margin spec §5: compact thumbnail,
+ * title and metadata, then one primary action and More. Social shortcuts reveal
+ * on desktop hover; the same controls remain available in More on touch screens.
  *
  * Selection is an amber left-border + faint amber wash (overridable per entity
  * via `selectedClassName`). The row draws a hairline bottom border so a dense
@@ -12,9 +10,11 @@
  */
 
 import type { ReactNode, Ref } from 'react'
-import type { LucideIcon } from 'lucide-react'
+import { Ellipsis, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import './entity-list.css'
 
 /**
  * Resting style for a row action icon — muted-but-present (so the cluster never
@@ -55,12 +55,13 @@ export function RowActionButton({
 			size="icon-sm"
 			variant="ghost"
 			disabled={disabled}
-			className={cn(ROW_ACTION_BTN, hover, active && activeClassName)}
+			className={cn('entity-row-action', ROW_ACTION_BTN, hover, active && activeClassName)}
 			onClick={onClick}
 			aria-label={label}
 			title={label}
 		>
 			<Icon className={cn('h-4 w-4', filled && 'fill-current')} />
+			<span className="entity-row-action-label">{label}</span>
 		</Button>
 	)
 }
@@ -80,7 +81,7 @@ export function RowBadge({ label, className }: { label: ReactNode; className?: s
 }
 
 export interface ListRowProps {
-	/** 34×34 leading element — type-glyph tile, cover thumb, or avatar. */
+	/** 40×28 leading element — geometry preview, cover thumb, glyph, or avatar. */
 	leading?: ReactNode
 	title: ReactNode
 	/** Title click (zoom / open). When omitted the title is inert text. */
@@ -89,16 +90,18 @@ export interface ListRowProps {
 	titleTitle?: string
 	draggable?: boolean
 	onDragStart?: (event: React.DragEvent<HTMLButtonElement>) => void
-	/** Right-aligned chips on the title row. */
+	/** Compact state chips below the metadata. */
 	badges?: ReactNode
 	/** Author + mono meta line (usually a UserProfile + · + relative time). */
 	meta?: ReactNode
 	/** Extra sub-line under the meta row (e.g. a curated-child note). */
 	note?: ReactNode
-	/** Engage cluster — the left side of the action bar (GeoSocialActions). */
+	/** Social shortcuts on desktop hover and in the More popover. */
 	engage?: ReactNode
-	/** Act cluster — the right side of the action bar (RowActionButtons). */
+	/** Full action collection in the More popover (including destructive confirmation). */
 	actions?: ReactNode
+	/** Always-visible map toggle or frame action. Everything else lives in More. */
+	primaryAction?: ReactNode
 	selected?: boolean
 	/** Override the selected accent (defaults to amber `--primary`). */
 	selectedClassName?: string
@@ -124,6 +127,7 @@ export function ListRow({
 	note,
 	engage,
 	actions,
+	primaryAction,
 	selected = false,
 	selectedClassName = 'border-l-primary bg-primary/[0.08]',
 	dimmed = false,
@@ -131,24 +135,39 @@ export function ListRow({
 	rowRef,
 	className,
 }: ListRowProps) {
-	const hasActionBar = Boolean(engage) || Boolean(actions)
+	const hasActionBar = Boolean(engage) || Boolean(actions) || Boolean(primaryAction)
 
-	const titleClass = 'line-clamp-2 min-w-0 flex-1 break-words text-sm font-semibold text-foreground'
+	const titleClass =
+		'entity-list-row-title min-w-0 flex-1 truncate text-sm font-semibold text-foreground'
 
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: Delegates empty-row clicks to the real title button without nesting the independent action buttons.
+		// biome-ignore lint/a11y/useKeyWithClickEvents: The real title button below supplies native keyboard activation for this same action.
 		<div
 			ref={rowRef}
+			onClick={(event) => {
+				// The whole ledger row opens the object, except for its independent controls.
+				if (
+					(event.target as Element).closest(
+						'button, a, input, select, textarea, [role="button"], [role="dialog"]',
+					)
+				)
+					return
+				onTitleClick?.()
+			}}
 			className={cn(
-				'border-b border-l-2 border-border px-2.5 py-2 transition-colors',
-				selected ? selectedClassName : 'border-l-transparent hover:bg-muted/40',
+				'entity-list-row border-b border-l-2 border-border px-2.5 py-2 transition-colors',
+				onTitleClick && 'cursor-pointer',
+				// The table owns the resting surface so a glass sheet can show through each row.
+				selected ? selectedClassName : 'border-l-transparent bg-transparent hover:bg-muted/40',
 				dimmed && 'opacity-60',
 				className,
 			)}
 			style={indentRem ? { paddingLeft: `${0.625 + indentRem}rem` } : undefined}
 		>
-			<div className="flex min-w-0 items-start gap-2">
-				{leading ? <div className="shrink-0">{leading}</div> : null}
-				<div className="flex min-w-0 flex-1 flex-col gap-1">
+			<div className="entity-list-row-content flex min-w-0 items-center gap-2">
+				{leading ? <div className="entity-list-row-leading shrink-0">{leading}</div> : null}
+				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 					<div className="flex min-w-0 items-center gap-1.5">
 						{onTitleClick ? (
 							<button
@@ -169,24 +188,43 @@ export function ListRow({
 						) : (
 							<span className={titleClass}>{title}</span>
 						)}
-						{badges ? <div className="flex shrink-0 items-center gap-1">{badges}</div> : null}
 					</div>
 					{meta ? (
-						<div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+						<div className="entity-list-row-meta flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
 							{meta}
 						</div>
+					) : null}
+					{badges ? (
+						<div className="entity-list-row-badges flex min-w-0 items-center gap-1">{badges}</div>
 					) : null}
 					{note ? <div className="text-[10px] text-muted-foreground">{note}</div> : null}
 				</div>
 			</div>
 			{hasActionBar ? (
-				<div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-					{engage ? <div className="flex shrink-0 items-center">{engage}</div> : null}
-					<div className="flex-1" />
-					{actions ? (
-						<div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-0.5">
-							{actions}
-						</div>
+				<div className="entity-list-row-controls flex shrink-0 items-center gap-0.5">
+					{primaryAction}
+					{engage ? <div className="entity-list-row-engage">{engage}</div> : null}
+					{actions || engage ? (
+						<Popover>
+							<PopoverTrigger asChild>
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									aria-label={`More actions${typeof title === 'string' ? ` for ${title}` : ''}`}
+									title="More actions"
+								>
+									<Ellipsis className="h-4 w-4" />
+								</Button>
+							</PopoverTrigger>
+							<PopoverContent
+								align="end"
+								className="entity-list-row-menu"
+								aria-label="Entity actions"
+							>
+								{engage ? <div className="entity-list-row-menu-social">{engage}</div> : null}
+								<div className="entity-list-row-menu-actions">{actions}</div>
+							</PopoverContent>
+						</Popover>
 					) : null}
 				</div>
 			) : null}

@@ -1,15 +1,16 @@
 import { expect } from '@playwright/test'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
+import { openPanel } from './open-panel'
 
 export type MobileWorkspacePanel = 'Shelf' | 'Edit' | 'Inspect' | 'Chat'
 export type MobileEntitySurface = 'Map' | 'Story' | 'Atlas' | 'Inspect'
 
 export const switchMobileWorkspacePanelTask: AiTaskMetadata = {
 	id: 'navigation.switch-mobile-workspace-panel',
-	summary: 'Switch between the map-bound Shelf, Edit or Inspect, and Chat panels.',
+	summary: 'Open Shelf or the current object’s Details/Thread through visible route controls.',
 	preconditions: ['Mobile Earthly session', 'The map workspace sheet is open'],
-	sideEffects: ['Changes only the visible map workspace panel'],
+	sideEffects: ['Navigates to Shelf, object Details, or the route-bound Thread'],
 	viewports: 'mobile',
 }
 
@@ -23,9 +24,9 @@ export const setMobileWorkspaceTransparencyTask: AiTaskMetadata = {
 
 export const selectMobileEntitySurfaceTask: AiTaskMetadata = {
 	id: 'navigation.select-mobile-entity-surface',
-	summary: 'Choose one retained Map, Story, Atlas, or inspection surface in mobile Edit.',
+	summary: 'Resume a retained Map, Story, Atlas, or inspection through saved work.',
 	preconditions: ['Mobile Earthly session', 'At least two retained entity surfaces exist'],
-	sideEffects: ['Changes only the entity surface shown in the Edit panel'],
+	sideEffects: ['Restores the retained entity through its canonical route'],
 	viewports: 'mobile',
 }
 
@@ -41,40 +42,59 @@ export function mobileWorkspaceSheetControls(earthly: EarthlySession) {
 	return mobileWorkspaceSheet(earthly).getByTestId('mobile-sheet-controls')
 }
 
+/** Object tabs belong to the inspected entity, never to the sheet chrome. */
 export function mobileWorkspaceTabs(earthly: EarthlySession) {
-	return mobileWorkspaceSheetControls(earthly).getByRole('tablist', {
-		name: 'Map panels',
+	return mobileWorkspaceSheet(earthly).getByRole('tablist', {
+		name: 'Object sections',
 		exact: true,
 	})
 }
 
-export function mobileWorkspaceTab(earthly: EarthlySession, panel: MobileWorkspacePanel) {
-	const panelName =
-		panel === 'Edit' || panel === 'Inspect'
-			? '(?:Edit|Inspect)'
-			: panel === 'Chat'
-				? 'Thread'
-				: panel
-	return mobileWorkspaceTabs(earthly).getByRole('tab', {
-		name: new RegExp(`^${panelName}(?:,|$)`),
-	})
-}
-
-/**
- * Reveal a retained map-work surface. This task deliberately clicks only the
- * visible switcher: it never invokes create, load, bind, or Shelf actions.
- */
+/** Navigate through the actual account, object, or draft controls. */
 export async function switchMobileWorkspacePanel(
 	earthly: EarthlySession,
 	panel: MobileWorkspacePanel,
 ): Promise<void> {
 	requireMobile(earthly)
+	const page = earthly.page
+	if (panel === 'Shelf') {
+		await openPanel(earthly, 'Shelf')
+		return
+	}
 	const tabs = mobileWorkspaceTabs(earthly)
-	await expect(tabs).toBeVisible()
-	const tab = mobileWorkspaceTab(earthly, panel)
-	await expect(tab).toBeVisible()
-	if ((await tab.getAttribute('aria-selected')) !== 'true') await tab.click()
-	await expect(tab).toHaveAttribute('aria-selected', 'true')
+	if (panel === 'Chat') {
+		const thread = page.getByRole('region', { name: 'AI Thread', exact: true })
+		if (await thread.isVisible()) return
+		// Deep-link hydration may still be mounting its already-routed Thread.
+		// Do not click a draft dock that this route deliberately replaces.
+		if (new URL(page.url()).searchParams.get('tab') === 'thread') {
+			await expect(thread).toBeVisible()
+			return
+		}
+		if (await tabs.isVisible()) {
+			await tabs.getByRole('tab', { name: 'Thread', exact: true }).click()
+		} else {
+			await page.getByRole('button', { name: 'Ask', exact: true }).click()
+		}
+		await expect(page.getByRole('region', { name: 'AI Thread', exact: true })).toBeVisible()
+		return
+	}
+	if (await tabs.isVisible()) {
+		await tabs.getByRole('tab', { name: 'Details', exact: true }).click()
+		return
+	}
+	const back = page.getByRole('button', { name: 'Back to Map', exact: true })
+	if (await back.isVisible()) await back.click()
+	const details = page.getByRole('button', { name: 'Map details', exact: true })
+	if (await details.isVisible()) await details.click()
+	if (
+		await mobileWorkspaceSheet(earthly)
+			.getByPlaceholder('Name', { exact: true })
+			.first()
+			.isVisible()
+	)
+		return
+	await selectMobileEntitySurface(earthly, panel === 'Inspect' ? 'Inspect' : 'Map')
 }
 
 export async function selectMobileEntitySurface(
@@ -83,22 +103,35 @@ export async function selectMobileEntitySurface(
 	expectedName?: string,
 ): Promise<void> {
 	requireMobile(earthly)
-	await switchMobileWorkspacePanel(earthly, 'Edit')
-	const picker = mobileWorkspaceSheet(earthly).getByRole('combobox', {
-		name: 'Edit or inspect target',
-		exact: true,
-	})
-	await expect(picker).toBeVisible()
-	const option = picker
-		.locator('option')
-		.filter({ hasText: new RegExp(`^${surface} · `) })
-		.first()
-	await expect(option).toHaveCount(1)
-	if (expectedName) await expect(option).toContainText(expectedName)
-	const value = await option.getAttribute('value')
-	if (!value) throw new Error(`The retained ${surface} option has no selectable value.`)
-	await picker.selectOption(value)
-	await expect(picker).toHaveValue(value)
+	const page = earthly.page
+	const shelf = mobileWorkspaceSheet(earthly).getByRole('region', { name: 'Shelf', exact: true })
+	if (surface === 'Map' && (await shelf.isVisible())) {
+		if (expectedName) await expect(shelf).toContainText(expectedName)
+		await shelf.getByRole('button', { name: 'Open editor panel', exact: true }).click()
+	} else {
+		const picker = mobileWorkspaceSheet(earthly).getByRole('button', {
+			name: 'Resume saved work',
+			exact: true,
+		})
+		await expect(picker).toBeVisible()
+		await picker.click()
+		const option = page
+			.getByRole('menuitem', {
+				name: expectedName ? `${surface} · ${expectedName}` : new RegExp(`^${surface} · `),
+				exact: Boolean(expectedName),
+			})
+			.first()
+		await expect(option).toBeVisible()
+		await option.click()
+		await expect(page.getByRole('menu')).toBeHidden()
+	}
+	if (surface === 'Map') {
+		const details = page.getByRole('button', { name: 'Map details', exact: true })
+		const name = mobileWorkspaceSheet(earthly).getByPlaceholder('Name', { exact: true }).first()
+		await expect(details.or(name).first()).toBeVisible()
+		if (await details.isVisible()) await details.click()
+		await expect(name).toBeVisible()
+	}
 }
 
 export async function setMobileWorkspaceTransparency(
@@ -110,31 +143,22 @@ export async function setMobileWorkspaceTransparency(
 	await expect(sheet).toBeVisible()
 	const currentAction = translucent ? 'See map through panel' : 'Use opaque panel'
 	const resultingAction = translucent ? 'Use opaque panel' : 'See map through panel'
-	const controls = mobileWorkspaceSheetControls(earthly)
-	await expect(controls).toBeVisible()
-	const toggle = controls.getByRole('button', { name: currentAction, exact: true })
+	const toggle = sheet.getByRole('button', { name: currentAction, exact: true })
 	if (await toggle.isVisible()) await toggle.click()
-	await expect(controls.getByRole('button', { name: resultingAction, exact: true })).toBeVisible()
+	await expect(sheet.getByRole('button', { name: resultingAction, exact: true })).toBeVisible()
 	await expect(sheet).toHaveAttribute('data-translucent', translucent ? 'true' : 'false')
 }
 
+type ControlBox = { x: number; y: number; width: number; height: number }
+
 export interface MobileWorkspaceChromeSnapshot {
-	sheet: { x: number; y: number; width: number; height: number }
-	controls: { x: number; y: number; width: number; height: number }
-	slider: { x: number; y: number; width: number; height: number }
+	sheet: ControlBox
+	controls: ControlBox
+	slider: ControlBox
 	detentPx: number
-	transparency: { x: number; y: number; width: number; height: number }
-	close: { x: number; y: number; width: number; height: number }
-	actionGroup: { x: number; y: number; width: number; height: number }
-	tablist: { x: number; y: number; width: number; height: number }
-	tabs: Array<{
-		x: number
-		y: number
-		width: number
-		height: number
-		label: string
-		labelFits: boolean
-	}>
+	transparency: ControlBox
+	close: ControlBox
+	resume: ControlBox | null
 }
 
 export interface MobileEditingTargetPillSnapshot {
@@ -147,11 +171,7 @@ export interface MobileEditingTargetPillSnapshot {
 	textContrastRatio: number
 }
 
-/**
- * Capture the geometry of the single sheet-wide rail: resize handle, workspace
- * tabs, transparency, and close. Keeping this in one task makes the responsive
- * contract reusable without baking production layout classes into scenarios.
- */
+/** Capture the compact sheet rail without the removed workspace tabs/picker. */
 export async function mobileWorkspaceChromeSnapshot(
 	earthly: EarthlySession,
 ): Promise<MobileWorkspaceChromeSnapshot> {
@@ -159,98 +179,43 @@ export async function mobileWorkspaceChromeSnapshot(
 	const sheet = mobileWorkspaceSheet(earthly)
 	const controls = mobileWorkspaceSheetControls(earthly)
 	const slider = controls.getByRole('slider', { name: 'Resize panel', exact: true })
-	const transparency = controls.getByRole('button', {
+	const transparency = sheet.getByRole('button', {
 		name: /^(?:See map through panel|Use opaque panel)$/,
 	})
-	const close = controls.getByRole('button', { name: 'Close Map tools', exact: true })
-	const actionGroup = transparency.locator('xpath=parent::*')
-	const tablist = mobileWorkspaceTabs(earthly)
-	const tabs = tablist.getByRole('tab')
-	const sheetTablists = sheet.getByRole('tablist', {
-		name: 'Map panels',
-		exact: true,
-	})
-
-	await expect(sheet).toBeVisible()
+	const close = sheet.getByRole('button', { name: /^Close / }).first()
+	const resume = sheet.getByRole('button', { name: 'Resume saved work', exact: true })
 	await expect(controls).toBeVisible()
-	await expect(slider).toBeVisible()
-	await expect(transparency).toBeVisible()
-	await expect(close).toBeVisible()
-	await expect(actionGroup).toBeVisible()
-	await expect(actionGroup.getByRole('button')).toHaveCount(2)
-	await expect(tablist).toBeVisible()
-	await expect(sheetTablists).toHaveCount(1)
-	await expect(tabs).toHaveCount(3)
-	for (const tabId of ['map-stack', 'edit', 'chat']) {
-		await expect(sheet.locator(`[id="mobile-workspace-tab-${tabId}"]`)).toHaveCount(1)
-	}
-
-	const [sheetBox, controlsBox, sliderBox, transparencyBox, closeBox, actionGroupBox, tablistBox] =
+	await expect(controls.getByRole('tablist')).toHaveCount(0)
+	await expect(sheet.getByRole('combobox', { name: 'Edit or inspect target' })).toHaveCount(0)
+	for (const control of [slider, transparency, close]) await expect(control).toBeVisible()
+	const [sheetBox, controlsBox, sliderBox, transparencyBox, closeBox, resumeBox] =
 		await Promise.all([
 			sheet.boundingBox(),
 			controls.boundingBox(),
 			slider.boundingBox(),
 			transparency.boundingBox(),
 			close.boundingBox(),
-			actionGroup.boundingBox(),
-			tablist.boundingBox(),
+			resume.isVisible().then((visible) => (visible ? resume.boundingBox() : null)),
 		])
-	const tabBoxes = await tabs.evaluateAll((elements) =>
-		elements.map((element) => {
-			const box = element.getBoundingClientRect()
-			const labelElement = Array.from(element.querySelectorAll<HTMLElement>('span')).find(
-				(candidate) => {
-					const text = candidate.textContent?.trim()
-					return (
-						candidate.childElementCount === 0 &&
-						text !== undefined &&
-						['Shelf', 'Edit', 'Inspect', 'Chat'].includes(text)
-					)
-				},
-			)
-			const labelBox = labelElement?.getBoundingClientRect()
-			return {
-				x: box.x,
-				y: box.y,
-				width: box.width,
-				height: box.height,
-				label: labelElement?.textContent?.trim() ?? '',
-				labelFits:
-					labelElement !== undefined &&
-					labelElement.scrollWidth <= labelElement.clientWidth + 1 &&
-					labelBox !== undefined &&
-					labelBox.left >= box.left - 1 &&
-					labelBox.right <= box.right + 1,
-			}
-		}),
-	)
-	const detentAttribute = await slider.getAttribute('aria-valuenow')
-	const detentValue = detentAttribute === null ? Number.NaN : Number(detentAttribute)
+	const detentPx = Number(await slider.getAttribute('aria-valuenow'))
 	if (
 		!sheetBox ||
 		!controlsBox ||
 		!sliderBox ||
 		!transparencyBox ||
 		!closeBox ||
-		!actionGroupBox ||
-		!tablistBox
+		!Number.isFinite(detentPx)
 	) {
-		throw new Error('The mobile workspace chrome did not produce measurable controls.')
+		throw new Error('The compact mobile sheet rail did not produce measurable controls.')
 	}
-	if (!Number.isFinite(detentValue)) {
-		throw new Error('The mobile workspace resize control did not expose its current detent.')
-	}
-
 	return {
 		sheet: sheetBox,
 		controls: controlsBox,
 		slider: sliderBox,
-		detentPx: detentValue,
 		transparency: transparencyBox,
 		close: closeBox,
-		actionGroup: actionGroupBox,
-		tablist: tablistBox,
-		tabs: tabBoxes,
+		resume: resumeBox,
+		detentPx,
 	}
 }
 
@@ -427,7 +392,7 @@ export async function mobileWorkspaceBodyBackgroundAlpha(earthly: EarthlySession
 	requireMobile(earthly)
 	const sheet = mobileWorkspaceSheet(earthly)
 	await expect(sheet).toBeVisible()
-	const body = sheet.getByRole('tabpanel').first()
+	const body = sheet.getByTestId('mobile-sheet-body')
 	await expect(body).toBeVisible()
 	return body.evaluate((body) => {
 		const root = body.closest<HTMLElement>('[data-testid="mobile-sheet"]')

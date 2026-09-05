@@ -1,5 +1,17 @@
-import { Check, Edit3, MapPin, MousePointer2, Send, Trash2, X } from 'lucide-react'
-import { forwardRef, useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import {
+	Check,
+	ChevronDown,
+	Edit3,
+	MapPin,
+	MousePointer2,
+	Pentagon,
+	Route,
+	Send,
+	Trash2,
+	Type,
+	X,
+} from 'lucide-react'
+import { forwardRef, useState, useRef, useCallback, useContext, useEffect, useMemo } from 'react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import type { FeatureCollection } from 'geojson'
 import { Button } from '@/components/ui/button'
@@ -9,10 +21,18 @@ import {
 	GeoRichTextEditor,
 	type GeoRichTextEditorRef,
 	type GeoFeatureItem,
-} from '@/components/editor/GeoRichTextEditor'
+} from '@/components/editor/DeferredGeoRichTextEditor'
 import { DrawButtonGroup } from '@/features/geo-editor/components/toolbar/DrawButtonGroup'
 import type { EditorFeature, EditorMode } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { PanelTranslucencyContext } from '@/components/PanelTranslucencyContext'
+import { cn } from '@/lib/utils'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface EditorSnapshot {
 	features: EditorFeature[]
@@ -64,6 +84,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 		_ref,
 	) => {
 		const currentUser = useActiveAccount()
+		const translucent = useContext(PanelTranslucencyContext)
 		const editor = useEditorStore((state) => state.editor)
 		const features = useEditorStore((state) => state.features)
 		const mode = useEditorStore((state) => state.mode)
@@ -317,7 +338,22 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 			: 'Log in to comment...'
 
 		return (
-			<form onSubmit={handleSubmit} className={`space-y-2 ${className}`}>
+			<form
+				onSubmit={handleSubmit}
+				aria-label={isReply ? 'Reply composer' : 'Comment composer'}
+				data-translucent={translucent}
+				className={cn('space-y-2', className)}
+				onKeyDown={(event) => {
+					if (
+						event.key !== 'Enter' ||
+						!(event.metaKey || event.ctrlKey) ||
+						event.nativeEvent.isComposing
+					)
+						return
+					event.preventDefault()
+					if (canSubmit) event.currentTarget.requestSubmit()
+				}}
+			>
 				{/* Editor */}
 				<div className="relative">
 					<GeoRichTextEditor
@@ -327,134 +363,148 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 						searchRelayMentions={searchRelayMentions}
 						onChange={handleRichEditorChange}
 						disabled={isSubmitting || !currentUser}
-						rows={isReply ? 2 : 3}
+						rows={2}
+						translucent={translucent}
+						defaultToolbarExpanded={false}
 					/>
 				</div>
 
-				<div className="border-t border-border pt-2">
-					{!currentUser ? (
-						<p className="text-[10px] text-muted-foreground">Log in to comment &amp; annotate</p>
-					) : (
-						<>
-							{!isGeometryDraftActive && (
-								<p className="mb-1 text-[10px] text-muted-foreground">
-									Draw a point, line, or polygon on the map to attach it to your comment.
-								</p>
-							)}
-							<div className="flex flex-wrap items-center gap-1">
-								{/* The shared DrawButtonGroup already includes the "Draw label"
+				{currentUser && isGeometryDraftActive && (
+					<div className="border-t border-border pt-2">
+						<p className="mb-2 border border-amber-600/30 bg-amber-500/10 px-2 py-1 text-[11px] text-foreground">
+							{mode === 'draw_point'
+								? 'Tap the map to attach a place.'
+								: mode === 'draw_linestring' || mode === 'draw_polygon'
+									? 'Tap points on the map, then finish the shape.'
+									: mode === 'draw_annotation'
+										? 'Tap the map to place a label.'
+										: 'Adjust the attached geometry, then post your comment.'}
+						</p>
+						<div className="flex flex-wrap items-center gap-1">
+							{/* The shared DrawButtonGroup already includes the "Draw label"
 								    (draw_annotation) action — no second label button (audit P2:
 								    two identical-looking label tools read as two concepts). */}
-								<DrawButtonGroup mode={mode} onModeChange={ensureDraftSession} />
-								<Button
-									type="button"
-									size="icon-sm"
-									variant={mode === 'select' ? 'default' : 'outline'}
-									onClick={() => isGeometryDraftActive && setMode('select')}
-									disabled={!isGeometryDraftActive}
-									className="rounded-none border-border"
-								>
-									<MousePointer2 className="h-4 w-4" />
-								</Button>
-								<Button
-									type="button"
-									size="icon-sm"
-									variant={mode === 'edit' ? 'default' : 'outline'}
-									onClick={() => isGeometryDraftActive && setMode('edit')}
-									disabled={!isGeometryDraftActive || draftFeatureCount === 0}
-									className="rounded-none border-border"
-								>
-									<Edit3 className="h-4 w-4" />
-								</Button>
-								{isDrawingComplexGeometry && (
-									<Button
-										type="button"
-										size="sm"
-										variant="outline"
-										onClick={() => editor?.finishDrawing()}
-										disabled={!canFinishDrawing}
-										className="gap-1 rounded-none border-ok/40 bg-card text-ok hover:bg-ok/15"
-									>
-										<Check className="h-3.5 w-3.5" />
-										Finish
-									</Button>
-								)}
+							<DrawButtonGroup mode={mode} onModeChange={ensureDraftSession} />
+							<Button
+								type="button"
+								size="icon-sm"
+								variant={mode === 'select' ? 'default' : 'outline'}
+								onClick={() => isGeometryDraftActive && setMode('select')}
+								aria-label="Select comment geometry"
+								disabled={!isGeometryDraftActive}
+								className="rounded-none border-border"
+							>
+								<MousePointer2 className="h-4 w-4" />
+							</Button>
+							<Button
+								type="button"
+								size="icon-sm"
+								variant={mode === 'edit' ? 'default' : 'outline'}
+								onClick={() => isGeometryDraftActive && setMode('edit')}
+								aria-label="Edit comment geometry"
+								disabled={!isGeometryDraftActive || draftFeatureCount === 0}
+								className="rounded-none border-border"
+							>
+								<Edit3 className="h-4 w-4" />
+							</Button>
+							{isDrawingComplexGeometry && (
 								<Button
 									type="button"
 									size="sm"
 									variant="outline"
-									onClick={handleClearDraftGeometry}
-									disabled={!isGeometryDraftActive || draftFeatureCount === 0}
-									className="gap-1 rounded-none border-border bg-card text-muted-foreground hover:bg-muted"
+									onClick={() => editor?.finishDrawing()}
+									disabled={!canFinishDrawing}
+									className={cn(
+										'gap-1 rounded-none border-ok/40 text-ok hover:bg-ok/15',
+										translucent ? 'bg-transparent' : 'bg-card',
+									)}
 								>
-									<Trash2 className="h-3.5 w-3.5" />
-									Clear draft
+									<Check className="h-3.5 w-3.5" />
+									Finish
 								</Button>
+							)}
+							<Button
+								type="button"
+								size="sm"
+								variant="outline"
+								onClick={handleClearDraftGeometry}
+								disabled={!isGeometryDraftActive || draftFeatureCount === 0}
+								className={cn(
+									'gap-1 rounded-none border-border text-muted-foreground hover:bg-muted/40',
+									translucent ? 'bg-transparent' : 'bg-card',
+								)}
+							>
+								<Trash2 className="h-3.5 w-3.5" />
+								Clear draft
+							</Button>
+						</div>
+						{mode === 'draw_annotation' && draftAnnotationFeatures.length === 0 && (
+							<p className="mt-2 text-[11px] text-primary">
+								Click on the map to place a label, then type its text here.
+							</p>
+						)}
+						{activeDraftAnnotation && (
+							<div className="mt-2 space-y-1">
+								<div className="flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-primary">
+									<span>Label text</span>
+									{draftAnnotationFeatures.length > 1 && (
+										<span className="text-[10px] normal-case tracking-normal text-muted-foreground">
+											Editing selected/latest label
+										</span>
+									)}
+								</div>
+								<Input
+									ref={annotationInputRef}
+									value={activeDraftAnnotationText}
+									onChange={(event) => handleAnnotationTextChange(event.target.value)}
+									placeholder="Type label text..."
+									aria-label="Comment label text"
+									className={cn(
+										'h-8 rounded-none border-primary/40 px-2 text-sm',
+										translucent ? 'bg-transparent' : 'bg-card',
+									)}
+									disabled={isSubmitting || !currentUser}
+									autoFocus
+								/>
 							</div>
-							{mode === 'draw_annotation' && draftAnnotationFeatures.length === 0 && (
-								<p className="mt-2 text-[11px] text-primary">
-									Click on the map to place a label, then type its text here.
-								</p>
-							)}
-							{activeDraftAnnotation && (
-								<div className="mt-2 space-y-1">
-									<div className="flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-primary">
-										<span>Label text</span>
-										{draftAnnotationFeatures.length > 1 && (
-											<span className="text-[10px] normal-case tracking-normal text-muted-foreground">
-												Editing selected/latest label
-											</span>
-										)}
-									</div>
-									<Input
-										ref={annotationInputRef}
-										value={activeDraftAnnotationText}
-										onChange={(event) => handleAnnotationTextChange(event.target.value)}
-										placeholder="Type label text..."
-										className="h-8 rounded-none border-primary/40 bg-card px-2 text-sm"
-										disabled={isSubmitting || !currentUser}
-										autoFocus
-									/>
-								</div>
-							)}
-							{hasAnyGeometry && (
-								<div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-foreground">
-									<span className="border border-border px-2 py-0.5 font-medium text-foreground">
-										{totalFeatureCount} geometry attached
+						)}
+						{hasAnyGeometry && (
+							<div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-foreground">
+								<span className="border border-ok/40 bg-ok/10 px-2 py-0.5 font-medium text-ok">
+									{totalFeatureCount} {totalFeatureCount === 1 ? 'geometry' : 'geometries'} attached
+								</span>
+								{geometrySummary.labels > 0 && (
+									<span>
+										{geometrySummary.labels} {geometrySummary.labels === 1 ? 'label' : 'labels'}
 									</span>
-									{geometrySummary.labels > 0 && (
-										<span>
-											{geometrySummary.labels} {geometrySummary.labels === 1 ? 'label' : 'labels'}
-										</span>
-									)}
-									{geometrySummary.points > 0 && (
-										<span>
-											{geometrySummary.points} {geometrySummary.points === 1 ? 'point' : 'points'}
-										</span>
-									)}
-									{geometrySummary.lines > 0 && (
-										<span>
-											{geometrySummary.lines} {geometrySummary.lines === 1 ? 'line' : 'lines'}
-										</span>
-									)}
-									{geometrySummary.polygons > 0 && (
-										<span>
-											{geometrySummary.polygons}{' '}
-											{geometrySummary.polygons === 1 ? 'polygon' : 'polygons'}
-										</span>
-									)}
-								</div>
-							)}
-						</>
-					)}
-				</div>
+								)}
+								{geometrySummary.points > 0 && (
+									<span>
+										{geometrySummary.points} {geometrySummary.points === 1 ? 'point' : 'points'}
+									</span>
+								)}
+								{geometrySummary.lines > 0 && (
+									<span>
+										{geometrySummary.lines} {geometrySummary.lines === 1 ? 'line' : 'lines'}
+									</span>
+								)}
+								{geometrySummary.polygons > 0 && (
+									<span>
+										{geometrySummary.polygons}{' '}
+										{geometrySummary.polygons === 1 ? 'polygon' : 'polygons'}
+									</span>
+								)}
+							</div>
+						)}
+					</div>
+				)}
 
 				{hasAttachedGeometry && (
 					<div className="flex items-center gap-2 border border-ok/40 px-2 py-1 text-[11px] text-ok">
 						<MapPin className="h-3.5 w-3.5" />
 						<span>
-							{attachedFeatures.length} geometry{attachedFeatures.length === 1 ? '' : 'ies'} from
-							selection
+							{attachedFeatures.length} {attachedFeatures.length === 1 ? 'geometry' : 'geometries'}{' '}
+							from selection
 						</span>
 						{onClearAttachment && (
 							<Button
@@ -462,6 +512,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 								variant="ghost"
 								size="icon-sm"
 								onClick={onClearAttachment}
+								aria-label="Remove attached selection"
 								className="ml-auto h-6 w-6 rounded-none p-0 text-ok hover:text-ok"
 							>
 								<X className="h-3 w-3" />
@@ -472,10 +523,46 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 
 				{/* Action buttons */}
 				<div className="flex items-center justify-between gap-2">
-					{!currentUser && <p className="text-[10px] text-muted-foreground">Log in to comment</p>}
+					{!currentUser ? (
+						<p className="text-[11px] text-muted-foreground">Log in to comment</p>
+					) : (
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									disabled={!editor || isSubmitting}
+									className={cn('gap-1.5 rounded-none', translucent ? 'bg-transparent' : 'bg-card')}
+								>
+									<MapPin className="h-3.5 w-3.5" />
+									{hasAnyGeometry ? 'Add a place' : 'Attach a place'}
+									<ChevronDown className="h-3 w-3" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start" className="min-w-44">
+								<DropdownMenuItem onSelect={() => ensureDraftSession('draw_point')}>
+									<MapPin />
+									Drop a pin
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={() => ensureDraftSession('draw_linestring')}>
+									<Route />
+									Draw a line
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={() => ensureDraftSession('draw_polygon')}>
+									<Pentagon />
+									Draw an area
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={() => ensureDraftSession('draw_annotation')}>
+									<Type />
+									Add a label
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					)}
 
 					<div className="ml-auto flex items-center gap-2">
-						{onCancel && (
+						{onCancel && (isReply || isGeometryDraftActive) && (
 							<Button
 								type="button"
 								variant="ghost"

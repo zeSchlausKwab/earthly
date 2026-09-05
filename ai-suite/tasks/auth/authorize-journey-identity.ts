@@ -36,8 +36,8 @@ export async function authorizeJourneyIdentity(
 	await earthly.page.setViewportSize(journeyViewport)
 	await earthly.open({ tour: 'seen' })
 	await earthly.page.getByRole('button', { name: 'Me', exact: true }).click()
-	const profile = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
-	await expect(profile.getByText('This is your profile', { exact: true })).toBeVisible()
-	await profile.getByRole('button', { name: 'Close Me', exact: true }).click()
-	await expect(profile).toBeHidden()
+	const menu = earthly.page.getByRole('dialog', { name: 'Me menu', exact: true })
+	await expect(menu.getByRole('button', { name: 'Account menu' })).toBeVisible()
+	await earthly.page.keyboard.press('Escape')
+	await expect(menu).toBeHidden()
 }

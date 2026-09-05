@@ -36,7 +36,7 @@ export interface GeoDatasetsPanelProps {
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: GeoDataset) => void
+	onLoadDataset: (event: GeoDataset, options?: DatasetEditOptions) => void
 	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
@@ -80,7 +80,11 @@ const getDatasetDescriptionText = (event: GeoDataset): string | undefined => {
 const createDatasetFilterConfig = (
 	getDatasetName: (event: GeoDataset) => string,
 ): FilterConfig<GeoDataset> => ({
-	getSearchableText: (event) => [getDatasetName(event), getDatasetDescriptionText(event)],
+	getSearchableText: (event) => [
+		getDatasetName(event),
+		getDatasetDescriptionText(event),
+		...(event.hashtags ?? []),
+	],
 	getName: (event) => getDatasetName(event),
 })
 
@@ -409,7 +413,10 @@ export function GeoDatasetsPanelContent({
 			if (!coordinate) return
 			const store = useEditorStore.getState()
 			const entryId = `context:${coordinate}`
-			if (store.mapStackEntries[entryId]) return
+			if (store.mapStackEntries[entryId]) {
+				store.setMapStackEntryVisible(entryId, true)
+				return
+			}
 			store.addMapStackEntry({
 				entityType: 'context',
 				entityKey: coordinate,
@@ -454,6 +461,7 @@ export function GeoDatasetsPanelContent({
 			onDeleteContext,
 			deletingKey,
 			onToggleContextOnMap: toggleContextOnMap,
+			onShowContextOnMap: (context) => addContextToMapStack(context, 'manual'),
 			onToggleCatalogPin: toggleContextFavorite,
 			onOpenDebug: onOpenDebug
 				? (event) => {
@@ -469,6 +477,7 @@ export function GeoDatasetsPanelContent({
 			deletingKey,
 			onOpenDebug,
 			toggleContextOnMap,
+			addContextToMapStack,
 			toggleContextFavorite,
 		],
 	)
@@ -500,7 +509,7 @@ export function GeoDatasetsPanelContent({
 							: undefined
 						: addFilteredContextsToMapStack
 				}
-				label={isDatasets ? 'Add filtered maps to Shelf' : 'Add filtered atlases to Shelf'}
+				label={isDatasets ? 'Show filtered Maps on the map' : 'Show filtered Atlases on the map'}
 			/>
 			<div className="inline-flex items-center gap-0.5 rounded-[3px] border border-border bg-muted p-0.5">
 				{(
@@ -571,6 +580,7 @@ export function GeoDatasetsPanelContent({
 			onNew={showCreateAction ? (isDatasets ? onStartNewDataset : onCreateContext) : undefined}
 			newLabel={isDatasets ? 'New map' : 'New atlas'}
 			titleAccessory={titleAccessory}
+			optionsActiveCount={Number(catalogTab !== 'all') + Number(isFocused)}
 			headerExtra={headerExtra}
 			toolbar={
 				<EntitySearchToolbar
@@ -634,3 +644,4 @@ export function GeoDatasetsSidebar({
 		</div>
 	)
 }
+import type { DatasetEditOptions } from './info-panel/mapProposalPresentation'

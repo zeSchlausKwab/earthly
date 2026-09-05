@@ -139,7 +139,7 @@ Chip per visible Map: swatch, ✎ when in Edit, title, ◉/○ visibility, ×. A
 
 ## 5. Browse
 
-Header (one row): eyebrow *Browse* or emblem + atlas title · filter chip `in …` · **On the map · N** · ◐ · (phone ×).
+Unscoped desktop Browse starts directly with the entity tabs, without a separate *Browse* eyebrow row. Active atlas scope keeps its meaningful picker/filter and clear action. On phones, the title/resize/transparency/close rail leads directly into the tabs; there is no separate **On the map · N** row.
 Tabs with counts: Maps · Stories · Atlases · Sightings · People. In a lens: *Spots · Stories · People* using the atlas noun. One **+** at the right end of the tabs creates whatever the active tab shows; hidden on People; label from 1180px; reads "New spot map" in a lens.
 Tools row: filter box, sort Newest / Title / Author. Column-hint line.
 
@@ -156,7 +156,7 @@ Title                                  (contenteditable while editing)
 avatar Author · meta counts                 [primary actions, small]
 ♡ n  ⚡ n  💬 n  ☆ n  ↗ Share  [✎ n proposals]              ⋯
 ```
-Four rows, then tabs. State pill: `published · 2026-09-01` / `draft · unpublished` / `✎ editing` / `✎ editing · fork` / `✎ proposing to Aria Voss`.
+Four compact rows, then one Details / Comments / Thread tab row. There is no outer Shelf / Inspect / Thread navigation or Inspect / Map selector above an object. On phones, the resize handle stays separate; transparency and close belong to the object header. A conditional Resume menu preserves access to other retained work without repeating the current object's title. State pill: `published · 2026-09-01` / `draft · unpublished` / `✎ editing` / `✎ editing · fork` / `✎ proposing to Aria Voss`.
 
 ### 6.2 Primary actions matrix
 
@@ -193,6 +193,7 @@ The contents of a Map, in both modes, directly under *At a glance*.
 - **Publish ▾**: Publish update (same replaceable address) is the default for anything already published; *Publish as new map* is the secondary item (maps only). Audience radio: Everyone · Circle: … · Nearby: …. Audience is per working copy and never global. There is no Versions/history surface for parameterized replaceable events above kind 30000 in this milestone.
 - **Done** keeps the draft and leaves Edit. **Discard** deletes the working copy. **Drafts** (top bar / Me) lists working copies with Resume and Discard; proposal drafts are labelled "proposal to X".
 - **Fork** copies to a new address owned by you with `forkOf`; the original's Shelf chip is replaced by the fork.
+- **Intent is chosen before editing.** Propose changes is the primary entry on another author's public Map, with Fork in its adjoining menu. Both create or resume local drafts; neither publishes on entry. Fork and proposal drafts have separate local identities and preserve their intent and source across reloads. Forks use the local `/edit` route until publication; the original Map's `/edit` route means proposal. The final action follows the stored intent: Send proposal or Publish map. Circle/Nearby Maps retain their existing no-proposals restriction. This is local draft state only, not a protocol change.
 - Title is edited in place in the header; summary/description in the lead textarea; Belongs to, Topics, Properties in their boxes.
 
 ## 8. Proposals (kind 37519)
@@ -208,11 +209,15 @@ The contents of a Map, in both modes, directly under *At a glance*.
 
 - Comments tab on Map, Story, Atlas, Sighting. Header: count and sort Newest / Most liked. One level of replies. Each comment: avatar, name, time, optional ⌖ pin/line chip, text, ♡ n · Reply · Delete (own) / Report. Reading, writing, replies, and geometry continue through Earthly's current kind-37517 model; this rewrite does not migrate comments to kind 1111 or another protocol.
 - **Composer** at the bottom (stays put): textarea, **Attach a place ▾** (Drop a pin · Draw a line · Use the selected feature), Post (⌘/Ctrl+Enter). While placing, an amber instruction chip; once attached, a green removable chip.
+- The Comments tab inherits the containing sheet's transparency through the discussion, reply rows, formatting bar, and input itself. It starts with count/sort, not another Discussion/Comments heading; Map inspection also omits the social row already present in its object header. The discussion scrolls independently of the bottom composer, whose expanded controls remain scrollable on short sheets. Existing rich text, references, uploads, all geometry tools, and deeper reply data remain available.
+- Reading pages and the unbounded editor discussion retain normal document flow, with the composer above the threads; the docked composer applies only to bounded object tabs.
 - Geometry renders green on the canvas while the Comments tab is open; hovering a comment highlights it; ⌖ flies to it. No Edit state is involved; a comment never changes the object.
+- Showing annotations during map loading preserves that visibility request and retries when the map is idle. Hiding an annotation or removing its parent cancels pending visibility; retries do not duplicate existing overlays.
 
 ## 10. Thread contract
 
 - The Thread belongs to the object in the Margin. There is no unbound chat. Header: object title · state (`editing`, `proposing to X`, `read-only`, `read-only · concierge` on atlases you don't own) · safety level ▾ · Details toggle.
+- An embedded Thread does not repeat the surrounding object's title. Its compact control row keeps the current safety state visible (including explicit Auto apply), while Thread settings initially collapse the safety selector, model/provider, screenshots, wallet, usage, and diagnostics. Standalone Threads retain their own title. Model failures and recovery actions remain visible outside the disclosure.
 - A new, unpublished Map has no public address yet. Its Thread uses `/edit?tab=thread` and a stable local working-copy id (`map-draft:<id>`); closing it returns to `/edit`. Different local Maps never share a Thread or unsent composer. Opening or switching tabs does not bind an AI target; the first **Send** binds that retained Map without creating a second working copy. Desktop and phone restore the same route and transcript after reload.
 - **Send labels**: Send (in Edit/Propose) · Edit & send (owner, read-only) · Propose & send (non-owner) · Ask (atlas you don't own). Binding happens in the send gesture and in no other place.
 - **Scope**: writes go to the object in Edit. Selected features show as `N features selected ×`; clearing widens to the whole map. `+ reference` adds read-only Maps/Stories; references never grant edit rights.
@@ -284,8 +289,8 @@ interface StoryViewBlockV1 {
 
 ### Reading
 - **▶ Present** steps the driving views in document order with a bar (‹ Next ›), scrolling each into view. This is the primary way to read a story map.
-- **◎ Follow text** is a toggle, not a requirement. When on, the map takes the state of the topmost block in view and only acts when that state actually changes. Off, the map stays where the reader left it and only Present, a view click, or a reference moves it.
-- Clicking any block applies its effective state explicitly.
+- **◎ Follow text** is a toggle, not a requirement. When on, the map takes the state of the last driving block to cross the reading line near the top of the article viewport, holds it through intervening prose, and only acts when that stage changes. Off, the map stays where the reader left it and only Present, a driving view click, or a reference moves it.
+- Clicking a driving block applies its effective state explicitly. Figure-only blocks keep their camera and layer changes independent of the main map and later driving views.
 
 ### Serialization
 Views use Earthly's deterministic Markdown view-block codec. They are physical blocks in the Story
@@ -340,8 +345,10 @@ Interactions: hover → feature-state + chip; click → select (in Edit, ctrl/sh
 
 ## 13. Phone shell (`≤ 760px`)
 
-- Bottom bar: **Map** (bare map; becomes **⌄ Just map** whenever a sheet is open) · **Search** (Browse at full height) · **+** (Sighting here · Share live location · New map [in atlas] · Import file) · **Me**.
+- Bottom bar: **Map** (bare map; becomes **⌄ Just map** whenever a sheet is open) · **Browse** (catalog sheet initially at 50% of the viewport) · **+** (Sighting here · Share live location · New map [in atlas] · Import file) · **Me**.
 - The Margin is a bottom sheet with detents peek (96px; 62px while editing) / half / full. Drag the handle or tap it to cycle. Dismiss with × in the header, *Just map*, or dragging below peek. Dismissing clears the focus, keeps the map's chip on the Shelf, keeps any draft. Phones start on the bare map.
+- Transparency carries through the list frame and rows; selection and hover remain legible overlays. The opaque setting restores the solid surface.
+- During drawing, drag the draft-summary handle up to the half/full sheet to access the same Map editor as desktop: metadata, geometry properties/style/actions, Atlas attachment, references, and draft discard. Collapse it to continue drawing; this never creates a second draft or publishes. The drawing status banner yields to the expanded editor, while drawing tools remain in the dock.
 - Top: search field and Shelf chips (lens bar between them when in a lens).
 - **Editing a map** is its own composition: the bottom bar becomes the **edit dock** (Point · Line · Area · Label | Undo · More · Ask · **Done**; while drawing: Finish · n · Undo point · Cancel). The sheet collapses to a one-line peek (✎ title · n features · Publish ▾). A **status line** replaces search and Shelf: name, hint for the current state, **Exit**. Selecting raises a strip above the dock: *N selected · Move · Rename · Delete · ×*; Move means "tap the new place". Done and Exit both keep the draft.
 - Hover-only affordances (row social actions, chip hover) do not exist; ⋯ menus carry them.
@@ -532,7 +539,7 @@ This is an in-progress verification record, not approval for a partial rollout.
 The latest integration pass covers:
 
 - Persistent identity onboarding when signing in changes the active account, and separate Inbox versus Sync & delivery surfaces.
-- Local Map Threads at `/edit?tab=thread`, one stable session per working copy, binding only on Send, retained unsent prompts, reload persistence, and phone Thread → Edit navigation before the first send.
+- Local Map Threads at `/edit?tab=thread`, one stable session per working copy, binding only on Send, unsent prompts retained across in-page navigation, saved sessions restored on reload, and phone Thread → Edit navigation before the first send. Unsent composer text remains memory-only and is not restored after a page reload.
 - The Thread header's three safety levels, provider/model controls, and expandable diagnostics on both layouts. The desktop Thread no longer mounts invisibly beneath the phone composition.
 - A React external-store snapshot regression during new-Map creation: the route composition now selects the primitive working-copy id, not a freshly allocated target object.
 - Atlas presentation feature-picker wiring and route-tab types used by phone restoration.
@@ -549,3 +556,47 @@ Remaining release gates:
 - The monolithic Bun test run also needs test-isolation cleanup; shared module mocks contaminate later suites, while the focused migration groups pass independently.
 
 Protocol migrations, comment migration, event versioning, partial release flags, and benchmarks remain outside this milestone's agreed scope.
+
+### Sketch-alignment follow-up — 2026-09-04
+
+- Drafts are reached from the top bar or Me; the obsolete draft navigator above entity catalogs is removed.
+- Me is an anchored account popover on desktop and phone. Opening it preserves the current route; choosing Profile or another destination navigates explicitly. Existing identity, settings, theme, live-location, and discovery actions remain available.
+- Phone Browse initially opens the half-height (50% viewport) catalog sheet and can expand to full height. Explicit Browse routes, reload, and Back restore the half-height sheet; `/` returns to the bare map. Place search remains available in the map controls.
+- Browse gives the saved vertical space to the list: no standalone desktop eyebrow and no phone On-the-map count row. Atlas scope and Shelf controls remain available.
+- Phone Create uses a near-full-width menu with generous touch rows, short descriptions, and the existing Map/Atlas/Story/Sighting/Live beacon icons and actions.
+- Desktop map controls clear the Shelf, status, and compact attribution. Short canvases scroll the control stack without squeezing or removing buttons; opening Thread does not change canvas-relative placement.
+- Catalog rows use compact geometry previews and metadata. Opening a row shows its geometry and inspects it; the separate visibility control does not navigate. Social, edit/proposal, and other actions remain available in More.
+- Map inspection uses a persistent object header followed by Details/Comments/Thread and boxed At a glance, Features, Belonging, Properties, and Appears in sections. Features retain filtering, expansion, zoom, and comment attachments. No event-version UI is restored from the sketch.
+- Phone object tabs open the actual route-bound Thread inside the same compact header, and Details returns to that object. Shelf composition controls remain available via Me even though the redundant outer tab has gone. Proposal/Fork is chosen at entry and remains explicit in saved drafts and publishing controls.
+- Reload restores the selected object/Thread and the retained Map's actual geometry and metadata, not only its saved identifiers. A local hydration marker protects saved drafts from empty startup mirrors; normal live edits are not reloaded. Map edit routes open the desktop editor, and Resume keeps each retained editor's contents and audience.
+- Phone Map editing uses a status header, draft summary with Publish, and Point/Line/Area/Label/Undo/More/Ask/Done dock. Active drawings expose Finish, Undo point, and Cancel; Done retains completed draft geometry. The existing extended tool catalog remains in More. Publish also remains available in expanded Map details.
+- Desktop tools are retained on an opaque toolbar surface, and ticker glyphs/text share a centerline. Existing icons are retained instead of sketch emoji/ASCII stand-ins.
+
+The new `margin-browse-contract`, `mobile-drawing-chrome`, and `mobile-object-workspace` browser scenarios cover these interactions using the real application and local data. Responsive and Discover checks now follow the Browse/Me contracts. The delayed-AI editor contract also verifies that Create clears the previous Thread route, independent Map drafts keep their own Threads, and background Story writes remain correctly named and resumable without replacing the visible Map. This follow-up does not supersede the remaining release gates above.
+
+### Comments and Thread follow-up — 2026-09-04
+
+Comments now share sheet transparency through the editor and replies, omit duplicate headings/actions in Map inspection, and retain separate discussion/composer scrolling in bounded tabs. Thread settings collapse behind one compact control row; the embedded object title is not repeated and the active safety level remains visible. Existing icons, editor controls, and comment protocol are retained.
+
+Verification: 44 focused unit tests pass. The Comments browser contract passes on desktop and phone, including 320/390px half/full sheets in glass/opaque modes, sorting, replies, attachment tools, and annotation restoration after map movement. Compact Thread controls and model-error recovery pass browser checks. Production build and AI-suite typecheck pass; the full TypeScript output remains identical to the existing 434-diagnostic baseline.
+
+The reported Map-route maximum-update-depth error remains **unreproduced**, not proven fixed: the exact reported Map at 464×977 passes authenticated tab/dropdown/reload checks, and the new six-case desktop/phone route-stability regression passes. Further triggering steps are needed if the error persists.
+
+### Story view authoring and WW1 fixture — 2026-09-04
+
+- Story view blocks have manual cue/figure/both selection, captions, camera capture/numeric editing, per-stable-layer visibility/opacity/style changes, inheritance resets, and undoable up/down movement among prose. Insertion preserves selected prose; invalid style input preserves the last valid value. Opening layers supply sources and feature selections; inline views remain sparse rendering deltas.
+- Unpublished Story previews use a local draft identity and the current body/snapshot. Both inline figures and Apply view resolve actual source geometry before publication, rather than relying on a published Article. Figure resolution stays scoped to each authorized layer instance, even when several instances share a foreign source.
+- Only the visible Story editor can claim the draft presentation; retained/background AI drafts do not displace an Atlas or Map. Explicit mobile editor reveals are separate from background writes. Discarding or replacing draft content invalidates its applied preview, without deleting unrelated map data.
+- The Reader exposes an ordered timeline and Present/Previous/Next navigation through driving blocks. Follow text holds its stage through prose without repeatedly taking back a manually moved camera. Figure-only changes are isolated from later cues. Figures share the real presentation canvas; there is no static-image upload path. Deferred scrolling survives the final Next button becoming disabled.
+- The existing AI `write_story_draft` tool accepts opening `presentation` and physical view fences in `markdown` atomically. Both prompt profiles document the contract; Story reads return raw presentation and view diagnostics. New AI writes reject invalid views, unauthorized layers, and source/feature-selector retargeting while retaining existing approval gates and untouched future data. This adds no automatic publication or event/protocol migration.
+- `bun run seed:ww1` adds five synthetic foreign-source Maps and one Story on the local development relay only. The example has four chronological driving views, one independent comparison figure, nine layer instances, selective battle references, and contrasting styles/opacities/cameras. A repeat seed preserves identical events and rejects differing demo addresses by default. See [WW1 Story demo](WW1-STORY-DEMO.md) for links and authoring instructions.
+
+Focused coverage includes real editor document transactions and save/reload, shared codec/reducer behavior, safe seeding, and deterministic AI execution from advertised schema through approval, dispatch, persistence, and serialized readback. The desktop/phone `story-view-blocks` and `story-manual-view-authoring` scenarios exercise actual canvases and authoring controls without publishing. The seeded Reader also loads in a fresh anonymous browser directly from the local relay, not only from injected test data.
+
+This is a bounded feature verification, not completion of the remaining milestone release gates above. AI verification uses deterministic tool calls, not a paid live-model quality benchmark.
+
+### Story pencil entry — 2026-09-04
+
+The Reader pencil and the Story's Propose an edit action open the normal, route-backed Story editor directly. Owners edit in place; non-owners prepare a proposal with Save draft and Send proposal, never a separate narrative modal or an implicit fork. Reloading `/story/:id/edit` restores the same editing surface.
+
+The existing proposal format remains Markdown-only: narrative and inline Story views are editable, while cover details and the opening presentation are read-only. Unsupported changes already present in a retained draft are shown with an explicit restore action, not silently discarded. Sending uses the existing proposal factory and original Story target; only the author's later acceptance updates the Story.

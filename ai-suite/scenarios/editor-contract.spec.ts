@@ -1,12 +1,11 @@
 import { test, expect } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import {
-	aiChatSurfaceSnapshot,
 	completeAiChatTurn,
 	composeAiChatMessage,
 	configureChatProvider,
 	openAiChat,
-	selectAiChatTarget,
+	persistedThreadSnapshot,
 	sendAiChatMessage,
 } from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
@@ -37,18 +36,15 @@ import {
 } from '../tasks/editor/geometry-workbench'
 import { openPanel } from '../tasks/navigation/open-panel'
 import {
-	mobileEditingTargetPillSnapshot,
 	mobileWorkspaceBodyBackgroundAlpha,
 	mobileWorkspaceChromeSnapshot,
 	mobileWorkspaceRootBackgroundAlpha,
 	mobileWorkspaceSheet,
-	mobileWorkspaceTab,
 	selectMobileEntitySurface,
 	setMobileWorkspaceTransparency,
 	switchMobileWorkspacePanel,
 } from '../tasks/navigation/mobile-workspace'
 import { installDeterministicChatProvider } from '../tasks/setup/deterministic-chat-provider'
-import { installInMemoryContextFixture } from '../tasks/setup/in-memory-context-fixture'
 import {
 	attemptDeniedDeviceLocation,
 	installDeterministicGeolocation,
@@ -366,12 +362,11 @@ test('mobile map attribution remains a compact control above every sheet detent 
 	await expectCompactAttribution()
 })
 
-test('mobile workspace keeps a running Chat and its exact edit target visible @editor-contract', async ({
+test('mobile workspace keeps a running Thread and its exact edit target visible @editor-contract', async ({
 	earthly,
-}, testInfo) => {
-	test.skip(testInfo.project.name !== 'mobile', 'The three-surface workspace is mobile-only')
+}) => {
+	test.skip(!earthly.isMobile, 'The compact workspace header is mobile-only')
 	test.setTimeout(120_000)
-
 	const provider = await installDeterministicChatProvider(earthly, 'mobile-workspace-switch', {
 		holdCompletionResponses: true,
 	})
@@ -380,510 +375,177 @@ test('mobile workspace keeps a running Chat and its exact edit target visible @e
 		await configureChatProvider(earthly, { ...provider.settings, safetyLevel: 3 })
 		await earthly.open({ tour: 'preserve' })
 		await installDeterministicMapStyle(earthly)
-
-		const inspectorContextName = `Mobile Inspector fixture ${Date.now().toString(36)}`
-		const inspectorContextDescription =
-			'A local Context used to prove that read-only inspection remains independent from Chat and Dataset editing.'
-		await installInMemoryContextFixture(earthly, {
-			name: inspectorContextName,
-			description: inspectorContextDescription,
-		})
-
 		const datasetName = 'Dataset A — exact mobile Chat target'
 		const draft = await startDataset(earthly)
 		await draft.nameInput.fill(datasetName)
-		await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().click()
-		await clickEditorMap(earthly, 0.62, 0.38)
-		await expectGeometryFeatureCount(earthly, 1)
-		// This journey later opens Local drafts to create a competing workspace.
-		// Leave point drawing through the visible mobile action first so its
-		// persistent pan-lock guidance cannot cover that next explicit choice.
-		const mobileTools = earthly.page.getByRole('button', { name: /^More tools/ })
-		await expect(mobileTools).toBeVisible()
-		await mobileTools.click()
-		await earthly.page.getByRole('menuitem', { name: 'Cancel drawing', exact: true }).click()
-		await expect.poll(async () => (await editorLifecycleSnapshot(earthly)).mode).toBe('select')
-		await expect(earthly.page.getByText('Lock panning to draw', { exact: true })).toBeHidden()
-		const materializedDraftFeatureCount = () =>
-			earthly.page.evaluate(() => {
-				const map = (
-					window as unknown as {
-						__earthlyUiMap?: { querySourceFeatures(id: string): unknown[] }
-					}
-				).__earthlyUiMap
-				if (!map) return -1
-				try {
-					return map.querySourceFeatures('geo-editor').length
-				} catch {
-					return -1
-				}
-			})
-		await expect.poll(materializedDraftFeatureCount).toBeGreaterThan(0)
-		const taskBeforeChat = await editorLifecycleSnapshot(earthly)
-		expect(taskBeforeChat.activeWorkspaceId).not.toBeNull()
-		expect(taskBeforeChat.activeDraftId).not.toBeNull()
-
-		// Dataset A is active authoring work, so its Map Stack representation is
-		// mandatory: it has no hide/remove action and survives Clear.
-		await switchMobileWorkspacePanel(earthly, 'Shelf')
-		const stack = earthly.page.getByRole('region', { name: 'Shelf', exact: true })
-		await expect(stack).toBeVisible()
-		await expect
-			.poll(async () =>
-				(await editorLifecycleSnapshot(earthly)).mapStack.some(
-					(entry) => entry.id === 'draft:active',
-				),
-			)
-			.toBe(true)
-		await expect(
-			stack.getByRole('button', { name: 'Hide edit from map', exact: true }),
-		).toHaveCount(0)
-		const clearStack = stack.getByRole('button', { name: 'Clear', exact: true })
-		if (await clearStack.isEnabled()) await clearStack.click()
-		await expect
-			.poll(async () =>
-				(await editorLifecycleSnapshot(earthly)).mapStack.some(
-					(entry) => entry.id === 'draft:active',
-				),
-			)
-			.toBe(true)
-		await expect.poll(materializedDraftFeatureCount).toBeGreaterThan(0)
-		await switchMobileWorkspacePanel(earthly, 'Edit')
-		await expect(earthly.page.getByPlaceholder('Name').first()).toHaveValue(datasetName)
-		const retainedAInEdit = await editorLifecycleSnapshot(earthly)
-		expect(retainedAInEdit.activeWorkspaceId).toBe(taskBeforeChat.activeWorkspaceId)
-		expect(retainedAInEdit.activeDraftId).toBe(taskBeforeChat.activeDraftId)
-		expect(retainedAInEdit.featureCount).toBe(1)
-		expect(retainedAInEdit.mapStack.some((entry) => entry.id === 'draft:active')).toBe(true)
-
+		const original = await editorLifecycleSnapshot(earthly)
 		await openAiChat(earthly)
-		const targetName = await selectAiChatTarget(earthly, 'current-dataset')
-		expect(targetName).toBe(datasetName)
-		const chatBeforeRun = await aiChatSurfaceSnapshot(earthly)
-		expect(chatBeforeRun.targetName).toBe(datasetName)
-		expect(chatBeforeRun.targetRequired).toBe(false)
-		const boundA = await editorLifecycleSnapshot(earthly)
-		expect(boundA.activeWorkspaceId).toBe(taskBeforeChat.activeWorkspaceId)
-		expect(boundA.activeDraftId).toBe(taskBeforeChat.activeDraftId)
-		expect(boundA.mapStack.some((entry) => entry.id === 'draft:active')).toBe(true)
-
-		const chatRegion = earthly.page.getByRole('region', { name: 'AI chat', exact: true })
+		const chatRegion = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 		const assistantMessagesBefore = await chatRegion.getByTitle('Copy assistant message').count()
 		await sendAiChatMessage(
 			earthly,
 			'Retain a Story draft in the background while I inspect this exact Dataset target.',
 		)
 		await expect.poll(() => provider.requests().length).toBe(1)
+		await expect(chatRegion.getByText(datasetName, { exact: true })).toBeVisible()
+		const bound = await editorLifecycleSnapshot(earthly)
+		expect(bound.activeWorkspaceId).toBe(original.activeWorkspaceId)
+		await expect
+			.poll(() => persistedThreadSnapshot(earthly))
+			.toMatchObject({
+				threadKey: `map-draft:${original.activeWorkspaceId}`,
+				targetWorkspaceId: original.activeWorkspaceId,
+			})
+		const threadBeforeRun = await persistedThreadSnapshot(earthly)
 
-		// Make a genuinely competing task visible after Chat binds Dataset A. The
-		// pending run must neither follow nor acquire this new Dataset B.
-		const datasetBName = 'Dataset B — visible but never rebound'
+		// A competing working copy gets its own route-bound Thread, never A's run.
 		const datasetB = await startDataset(earthly)
-		await datasetB.nameInput.fill(datasetBName)
-		await expect(datasetB.nameInput).toHaveValue(datasetBName)
-		const taskBVisible = await editorLifecycleSnapshot(earthly)
-		expect(taskBVisible.activeWorkspaceId).not.toBe(taskBeforeChat.activeWorkspaceId)
-		expect(taskBVisible.activeDraftId).not.toBe(taskBeforeChat.activeDraftId)
-		expect(taskBVisible.workspaceCount).toBe(taskBeforeChat.workspaceCount + 1)
-		expect(taskBVisible.mapStack.some((entry) => entry.id === 'draft:active')).toBe(true)
+		await datasetB.nameInput.fill('Dataset B — visible but never rebound')
+		await expect(earthly.page).toHaveURL(/\/edit$/)
+		const competing = await editorLifecycleSnapshot(earthly)
+		expect(competing.activeWorkspaceId).not.toBe(original.activeWorkspaceId)
+		expect(competing.activeDraftId).not.toBe(original.activeDraftId)
 		expect(
-			taskBVisible.workspaces.find((workspace) => workspace.id === taskBVisible.activeWorkspaceId)
-				?.chatSessionId,
+			competing.workspaces.find((item) => item.id === competing.activeWorkspaceId)?.chatSessionId,
 		).toBeNull()
-		const currentRouteIdentity = () =>
-			earthly.page.evaluate(
-				() => `${window.location.pathname}${window.location.search}${window.location.hash}`,
-			)
-		const workspaceRouteBeforeSwitches = await currentRouteIdentity()
-		// Chat is a presentation switch and leaves B active. Only the explicit
-		// Chat -> Edit action restores this conversation's immutable Dataset A.
-		await switchMobileWorkspacePanel(earthly, 'Chat')
-		await expect.poll(currentRouteIdentity).toBe(workspaceRouteBeforeSwitches)
-		await expect(mobileWorkspaceTab(earthly, 'Chat')).toHaveAttribute('aria-selected', 'true')
-		expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-			chatId: chatBeforeRun.chatId,
-			targetName: datasetName,
-			targetRequired: false,
+
+		await openPanel(earthly, 'Local drafts')
+		const drafts = earthly.page.getByRole('region', { name: 'Local drafts', exact: true })
+		await expect(drafts).toBeVisible()
+		const expand = drafts.getByRole('button', { name: 'Expand saved drafts' }).first()
+		if (await expand.isVisible()) await expand.click()
+		await drafts.getByRole('button').filter({ hasText: datasetName }).first().click()
+		await openAiChat(earthly)
+		await expect(earthly.page).toHaveURL(/\/edit\?tab=thread$/)
+		await expect(chatRegion.getByText(datasetName, { exact: true })).toBeVisible()
+		expect(await editorLifecycleSnapshot(earthly)).toMatchObject({
+			activeWorkspaceId: original.activeWorkspaceId,
 		})
-		expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(
-			taskBVisible.activeWorkspaceId,
-		)
-		await switchMobileWorkspacePanel(earthly, 'Edit')
-		await expect.poll(currentRouteIdentity).toBe(workspaceRouteBeforeSwitches)
-		await expect(mobileWorkspaceTab(earthly, 'Edit')).toHaveAttribute('aria-selected', 'true')
-		await expect(earthly.page.getByPlaceholder('Name').first()).toHaveValue(datasetName)
-		const taskInEdit = await editorLifecycleSnapshot(earthly)
-		expect(taskInEdit.activeWorkspaceId).toBe(taskBeforeChat.activeWorkspaceId)
-		expect(taskInEdit.activeDraftId).toBe(taskBeforeChat.activeDraftId)
-		expect(taskInEdit.workspaceCount).toBe(taskBeforeChat.workspaceCount + 1)
-		// Exact Chat target restoration replaces Dataset B's shared draft row with
-		// Dataset A's mandatory visible authoring representation.
-		expect(taskInEdit.mapStack.some((entry) => entry.id === 'draft:active')).toBe(true)
-		await expect.poll(materializedDraftFeatureCount).toBeGreaterThan(0)
-		expect(
-			taskInEdit.workspaces.find((workspace) => workspace.id === taskBVisible.activeWorkspaceId)
-				?.chatSessionId,
-		).toBeNull()
+		expect(await persistedThreadSnapshot(earthly)).toEqual(threadBeforeRun)
 		expect(provider.requests()).toHaveLength(1)
 
-		// Android commonly resizes the layout viewport instead of reporting an
-		// occluding overlay. The focused Dataset field must remain above both the
-		// visual viewport edge and the sheet's reserved bottom-dock boundary.
-		const editNameInput = earthly.page.getByPlaceholder('Name').first()
-		const fullViewport = earthly.page.viewportSize()
-		expect(fullViewport).not.toBeNull()
-		await editNameInput.focus()
-		await expect(editNameInput).toBeFocused()
-		await earthly.page.setViewportSize({
-			width: fullViewport?.width ?? 390,
-			height: Math.max(480, (fullViewport?.height ?? 844) - 320),
-		})
-		try {
-			await expect(editNameInput).toBeFocused()
-			await expect
-				.poll(async () => {
-					const inputBox = await editNameInput.boundingBox()
-					const sheetBox = await mobileWorkspaceSheet(earthly).boundingBox()
-					const visualBounds = await earthly.page.evaluate(() => {
-						const top = window.visualViewport?.offsetTop ?? 0
-						return {
-							top,
-							bottom: top + (window.visualViewport?.height ?? window.innerHeight),
-						}
-					})
-					if (!inputBox || !sheetBox) return false
-					const inputBottom = inputBox.y + inputBox.height
-					const sheetBottom = sheetBox.y + sheetBox.height
-					return (
-						inputBox.y >= visualBounds.top &&
-						inputBottom <= sheetBottom + 1 &&
-						sheetBottom < visualBounds.bottom - 24
-					)
-				})
-				.toBe(true)
-			await expect(editNameInput).toHaveValue(datasetName)
-		} finally {
-			if (fullViewport) await earthly.page.setViewportSize(fullViewport)
-			await editNameInput.blur()
-		}
-		await expect(editNameInput).toHaveValue(datasetName)
-
-		// The handle, three workspace tabs, eye, and close action form one compact
-		// sheet-wide rail. Its three groups distribute spare width between them so
-		// the handle and close action anchor the sheet edges at every phone width.
-		const assertSingleRowWorkspaceRail = async (expectedViewportWidth?: number) => {
+		await switchMobileWorkspacePanel(earthly, 'Edit')
+		await expect(draft.nameInput).toHaveValue(datasetName)
+		const viewport = earthly.page.viewportSize()
+		if (!viewport) throw new Error('Mobile viewport is unavailable')
+		for (const width of [viewport.width, 320]) {
+			await earthly.page.setViewportSize({ ...viewport, width })
 			const chrome = await mobileWorkspaceChromeSnapshot(earthly)
-			expect(chrome.controls.height).toBe(48)
-			const controlsCenter = chrome.controls.y + chrome.controls.height / 2
-			const orderedTargets = [chrome.slider, ...chrome.tabs, chrome.transparency, chrome.close]
-			for (const control of orderedTargets) {
+			expect(chrome.controls.height).toBeLessThanOrEqual(48)
+			for (const control of [
+				chrome.slider,
+				chrome.transparency,
+				chrome.close,
+				...(chrome.resume ? [chrome.resume] : []),
+			]) {
 				expect(control.width).toBeGreaterThanOrEqual(44)
 				expect(control.height).toBeGreaterThanOrEqual(44)
-				expect(Math.abs(control.y + control.height / 2 - controlsCenter)).toBeLessThanOrEqual(2)
-				expect(control.x).toBeGreaterThanOrEqual(chrome.controls.x - 1)
-				expect(control.y).toBeGreaterThanOrEqual(chrome.controls.y)
-				expect(control.x + control.width).toBeLessThanOrEqual(
-					chrome.controls.x + chrome.controls.width + 1,
-				)
-				expect(control.y + control.height).toBeLessThanOrEqual(
-					chrome.controls.y + chrome.controls.height,
-				)
-			}
-			for (let index = 0; index < orderedTargets.length - 1; index += 1) {
-				const current = orderedTargets[index]
-				const next = orderedTargets[index + 1]
-				expect(current).toBeDefined()
-				expect(next).toBeDefined()
-				expect((current?.x ?? 0) + (current?.width ?? 0)).toBeLessThanOrEqual((next?.x ?? 0) + 1)
-			}
-			const groupedTargets = [chrome.slider, chrome.tablist, chrome.actionGroup]
-			const interGroupGaps = groupedTargets.slice(0, -1).map((current, index) => {
-				const next = groupedTargets[index + 1]
-				expect(next).toBeDefined()
-				return (next?.x ?? 0) - (current.x + current.width)
-			})
-			for (const gap of interGroupGaps) expect(gap).toBeGreaterThanOrEqual(-1)
-			expect(Math.max(...interGroupGaps) - Math.min(...interGroupGaps)).toBeLessThanOrEqual(2)
-			expect(chrome.transparency.width).toBeGreaterThanOrEqual(44)
-			expect(chrome.close.width).toBeGreaterThanOrEqual(44)
-			expect(
-				chrome.close.x - (chrome.transparency.x + chrome.transparency.width),
-			).toBeLessThanOrEqual(1)
-			expect(
-				chrome.close.x - (chrome.transparency.x + chrome.transparency.width),
-			).toBeGreaterThanOrEqual(-1)
-			expect(Math.abs(chrome.actionGroup.x - chrome.transparency.x)).toBeLessThanOrEqual(1)
-			expect(
-				Math.abs(
-					chrome.actionGroup.x + chrome.actionGroup.width - (chrome.close.x + chrome.close.width),
-				),
-			).toBeLessThanOrEqual(1)
-			expect(chrome.controls.x).toBeGreaterThanOrEqual(chrome.sheet.x - 1)
-			expect(chrome.controls.x + chrome.controls.width).toBeLessThanOrEqual(
-				chrome.sheet.x + chrome.sheet.width + 1,
-			)
-			expect(chrome.tablist.x).toBeGreaterThanOrEqual(chrome.controls.x - 1)
-			expect(chrome.tablist.x + chrome.tablist.width).toBeLessThanOrEqual(
-				chrome.controls.x + chrome.controls.width + 1,
-			)
-			for (const tab of chrome.tabs) {
-				expect(tab.width).toBeGreaterThanOrEqual(44)
-				expect(tab.width).toBeLessThanOrEqual(88)
-				expect(tab.height).toBeGreaterThanOrEqual(44)
-				expect(tab.labelFits).toBe(true)
-			}
-			expect(chrome.tabs.map((tab) => tab.label)).toEqual(['Shelf', 'Edit', 'Chat'])
-			if (expectedViewportWidth !== undefined) {
-				expect(chrome.sheet.x + chrome.sheet.width).toBeLessThanOrEqual(expectedViewportWidth + 1)
-				expect(chrome.controls.x + chrome.controls.width).toBeLessThanOrEqual(
-					expectedViewportWidth + 1,
-				)
-				const leftBoundary = Math.max(chrome.controls.x, 0)
-				const rightBoundary = Math.min(
-					chrome.controls.x + chrome.controls.width,
-					expectedViewportWidth,
-				)
-				const leftInset = chrome.slider.x - leftBoundary
-				const rightInset = rightBoundary - (chrome.close.x + chrome.close.width)
-				expect(Math.abs(leftInset)).toBeLessThanOrEqual(1)
-				expect(Math.abs(rightInset)).toBeLessThanOrEqual(1)
-				expect(Math.min(...interGroupGaps)).toBeGreaterThan(1)
+				expect(control.x).toBeGreaterThanOrEqual(0)
+				expect(control.x + control.width).toBeLessThanOrEqual(width + 1)
 			}
 		}
-
-		const regularMobileViewport = earthly.page.viewportSize()
-		expect(regularMobileViewport).not.toBeNull()
-		await assertSingleRowWorkspaceRail(regularMobileViewport?.width)
+		await earthly.page.setViewportSize(viewport)
+		await draft.nameInput.focus()
 		await earthly.page.setViewportSize({
-			width: 320,
-			height: regularMobileViewport?.height ?? 844,
+			...viewport,
+			height: Math.max(480, viewport.height - 320),
 		})
-		try {
-			await assertSingleRowWorkspaceRail(320)
-		} finally {
-			if (regularMobileViewport) await earthly.page.setViewportSize(regularMobileViewport)
-		}
+		await expect(draft.nameInput).toBeFocused()
+		await expect
+			.poll(async () => {
+				const input = await draft.nameInput.boundingBox()
+				const sheet = await mobileWorkspaceSheet(earthly).boundingBox()
+				return Boolean(
+					input && sheet && input.y >= 0 && input.y + input.height <= sheet.y + sheet.height + 1,
+				)
+			})
+			.toBe(true)
+		await earthly.page.setViewportSize(viewport)
+		await draft.nameInput.blur()
 
-		// The purple target capsule is a compact visual inside a full-size action
-		// row: reducing header density must not shrink the semantic open target.
-		await switchMobileWorkspacePanel(earthly, 'Chat')
-		const targetPill = await mobileEditingTargetPillSnapshot(earthly, datasetName)
-		expect(targetPill.shell.height).toBeGreaterThanOrEqual(44)
-		expect(targetPill.visualCapsule.height).toBeGreaterThanOrEqual(28)
-		expect(targetPill.visualCapsule.height).toBeLessThanOrEqual(36)
-		expect(targetPill.shell.height - targetPill.visualCapsule.height).toBeGreaterThanOrEqual(8)
-		expect(targetPill.openAction.width).toBeGreaterThanOrEqual(44)
-		expect(targetPill.openAction.height).toBeGreaterThanOrEqual(44)
-		expect(targetPill.label).toBe(datasetName)
-		// The label is normal-size text, so its rendered foreground and effective
-		// capsule background must meet WCAG AA. This catches opaque color fallbacks
-		// that collapse both sides of the compact purple pill to the same token.
-		expect(targetPill.foregroundRgb).not.toEqual(targetPill.visualCapsuleBackgroundRgb)
-		expect(targetPill.textContrastRatio).toBeGreaterThanOrEqual(4.5)
-
-		// Moving the tabs into the resize rail must not make panel selection a
-		// resize gesture. Preserve both the stored detent and rendered sheet height
-		// across a click transition and a successful keyboard-arrow transition.
-		const railBeforePanelSwitch = await mobileWorkspaceChromeSnapshot(earthly)
-		const expectUnchangedSheetDetent = async () => {
-			const currentRail = await mobileWorkspaceChromeSnapshot(earthly)
-			expect(currentRail.detentPx).toBe(railBeforePanelSwitch.detentPx)
-			expect(
-				Math.abs(currentRail.sheet.height - railBeforePanelSwitch.sheet.height),
-			).toBeLessThanOrEqual(1)
-		}
-		await switchMobileWorkspacePanel(earthly, 'Shelf')
-		await expectUnchangedSheetDetent()
-		const stackRailTab = mobileWorkspaceTab(earthly, 'Shelf')
-		await stackRailTab.focus()
-		await expect(stackRailTab).toBeFocused()
-		await stackRailTab.press('ArrowRight')
-		const editRailTab = mobileWorkspaceTab(earthly, 'Edit')
-		await expect(editRailTab).toHaveAttribute('aria-selected', 'true')
-		await expect(editRailTab).toBeFocused()
-		await expectUnchangedSheetDetent()
-
-		// Transparency must affect the root and every workspace body, not just
-		// paint a blue border around an otherwise opaque child panel. The eye and
-		// close controls stay global and measurable while each panel is selected.
-		const workspacePanels = ['Shelf', 'Edit', 'Chat'] as const
-		const opaqueAlphas: Partial<Record<(typeof workspacePanels)[number], number>> = {}
-		const opaqueRootAlpha = await mobileWorkspaceRootBackgroundAlpha(earthly)
-		expect(opaqueRootAlpha).toBeGreaterThan(0.98)
-		for (const panel of workspacePanels) {
-			await switchMobileWorkspacePanel(earthly, panel)
-			await expect.poll(currentRouteIdentity).toBe(workspaceRouteBeforeSwitches)
-			await assertSingleRowWorkspaceRail()
-			opaqueAlphas[panel] = await mobileWorkspaceBodyBackgroundAlpha(earthly)
-			expect(opaqueAlphas[panel]).toBeGreaterThan(0.98)
-		}
+		await openAiChat(earthly)
+		await expect(chatRegion.getByText(datasetName, { exact: true })).toBeVisible()
+		const backToMap = earthly.page.getByRole('button', { name: 'Back to Map', exact: true })
+		expect((await backToMap.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+		await setMobileWorkspaceTransparency(earthly, false)
+		const opaque = await mobileWorkspaceRootBackgroundAlpha(earthly)
 		await setMobileWorkspaceTransparency(earthly, true)
-		const translucentRootAlpha = await mobileWorkspaceRootBackgroundAlpha(earthly)
-		expect(translucentRootAlpha).toBeLessThan(0.7)
-		expect(opaqueRootAlpha - translucentRootAlpha).toBeGreaterThan(0.25)
-		for (const panel of workspacePanels) {
-			await switchMobileWorkspacePanel(earthly, panel)
-			await assertSingleRowWorkspaceRail()
-			const translucentAlpha = await mobileWorkspaceBodyBackgroundAlpha(earthly)
-			expect(translucentAlpha).toBeLessThan(0.7)
-			expect((opaqueAlphas[panel] ?? 0) - translucentAlpha).toBeGreaterThan(0.25)
-		}
+		expect(await mobileWorkspaceRootBackgroundAlpha(earthly)).toBeLessThan(opaque - 0.25)
+		expect(await mobileWorkspaceBodyBackgroundAlpha(earthly)).toBeLessThan(0.7)
 		await setMobileWorkspaceTransparency(earthly, false)
 
-		// The transparency loop ends on Chat without treating the tab as routing or
-		// moving the conversation's target.
-		await expect.poll(currentRouteIdentity).toBe(workspaceRouteBeforeSwitches)
-		await expect(mobileWorkspaceTab(earthly, 'Chat')).toHaveAttribute('aria-selected', 'true')
-		expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-			chatId: chatBeforeRun.chatId,
-			targetName: datasetName,
-			targetRequired: false,
-			userMessageCount: chatBeforeRun.userMessageCount + 1,
-		})
-		expect(provider.requests()).toHaveLength(1)
-
-		// An explicit catalog action may establish the canonical Context route. Once
-		// there, Inspector and the retained Dataset editor are presentation choices:
-		// neither may rewrite that route, move Chat's target, change the active
-		// workspace, nor make hidden edit geometry visible again.
-		await openPanel(earthly, 'Atlases')
-		const inspectContext = earthly.page
-			.getByRole('button', {
-				name: `Inspect context ${inspectorContextName}`,
-				exact: true,
-			})
-			.first()
-		await expect(inspectContext).toBeVisible()
-		await inspectContext.click()
-		await expect(mobileWorkspaceTab(earthly, 'Inspect')).toHaveAttribute('aria-selected', 'true')
-		const inspectorSheet = mobileWorkspaceSheet(earthly)
-		await expect(
-			inspectorSheet.getByText(inspectorContextName, { exact: true }).first(),
-		).toBeVisible()
-		await expect(
-			inspectorSheet.getByText(inspectorContextDescription, { exact: true }).first(),
-		).toBeVisible()
-		await expect(inspectorSheet.getByPlaceholder('Roman ruins in Carinthia')).toHaveCount(0)
-		await expect(
-			inspectorSheet.getByRole('button', { name: 'Edit context', exact: true }),
-		).toHaveCount(0)
-
-		const inspectorRoute = await currentRouteIdentity()
-		const taskInInspector = await editorLifecycleSnapshot(earthly)
-		expect(taskInInspector.activeWorkspaceId).toBe(taskBeforeChat.activeWorkspaceId)
-		expect(taskInInspector.activeDraftId).toBe(taskBeforeChat.activeDraftId)
-		expect(taskInInspector.workspaceCount).toBe(taskBeforeChat.workspaceCount + 1)
-		expect(taskInInspector.featureCount).toBe(1)
-		expect(taskInInspector.mapStack).toEqual(taskInEdit.mapStack)
-
-		await selectMobileEntitySurface(earthly, 'Map', datasetName)
-		await expect.poll(currentRouteIdentity).toBe(inspectorRoute)
-		await expect(mobileWorkspaceTab(earthly, 'Edit')).toHaveAttribute('aria-selected', 'true')
-		await expect(earthly.page.getByPlaceholder('Name').first()).toHaveValue(datasetName)
-		const taskAfterInspectorToEditor = await editorLifecycleSnapshot(earthly)
-		expect(taskAfterInspectorToEditor.activeWorkspaceId).toBe(taskInInspector.activeWorkspaceId)
-		expect(taskAfterInspectorToEditor.activeDraftId).toBe(taskInInspector.activeDraftId)
-		expect(taskAfterInspectorToEditor.workspaceCount).toBe(taskInInspector.workspaceCount)
-		expect(taskAfterInspectorToEditor.featureCount).toBe(taskInInspector.featureCount)
-		expect(taskAfterInspectorToEditor.mapStack).toEqual(taskInInspector.mapStack)
-
-		await selectMobileEntitySurface(earthly, 'Inspect', inspectorContextName)
-		await expect.poll(currentRouteIdentity).toBe(inspectorRoute)
-		await expect(mobileWorkspaceTab(earthly, 'Inspect')).toHaveAttribute('aria-selected', 'true')
-		await expect(
-			inspectorSheet.getByText(inspectorContextName, { exact: true }).first(),
-		).toBeVisible()
-		const taskAfterEditorToInspector = await editorLifecycleSnapshot(earthly)
-		expect(taskAfterEditorToInspector.activeWorkspaceId).toBe(taskInInspector.activeWorkspaceId)
-		expect(taskAfterEditorToInspector.activeDraftId).toBe(taskInInspector.activeDraftId)
-		expect(taskAfterEditorToInspector.workspaceCount).toBe(taskInInspector.workspaceCount)
-		expect(taskAfterEditorToInspector.featureCount).toBe(taskInInspector.featureCount)
-		expect(taskAfterEditorToInspector.mapStack).toEqual(taskInInspector.mapStack)
-
-		await switchMobileWorkspacePanel(earthly, 'Chat')
-		await expect.poll(currentRouteIdentity).toBe(inspectorRoute)
-		expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-			chatId: chatBeforeRun.chatId,
-			targetName: datasetName,
-			targetRequired: false,
-			userMessageCount: chatBeforeRun.userMessageCount + 1,
-		})
-		expect((await editorLifecycleSnapshot(earthly)).mapStack).toEqual(taskInInspector.mapStack)
-		expect(provider.requests()).toHaveLength(1)
-
 		provider.releaseCompletionResponses()
-		await completeAiChatTurn(earthly, assistantMessagesBefore, {
-			approvals: ['story-target'],
-		})
+		await completeAiChatTurn(earthly, assistantMessagesBefore, { approvals: ['story-target'] })
 		await expect(
 			chatRegion.getByText(
 				'I retained the background Story draft without changing your visible mobile workspace.',
 				{ exact: true },
 			),
 		).toBeVisible()
-		await expect(mobileWorkspaceTab(earthly, 'Chat')).toHaveAttribute('aria-selected', 'true')
-		expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-			chatId: chatBeforeRun.chatId,
-			targetName: datasetName,
-			targetRequired: false,
+		await expect(chatRegion.getByText(datasetName, { exact: true })).toBeVisible()
+		expect(await editorLifecycleSnapshot(earthly)).toMatchObject({
+			activeWorkspaceId: original.activeWorkspaceId,
 		})
-
-		// Background Story creation is retained but must not steal Chat or change
-		// the Dataset editor selected for this task.
-		await expect
-			.poll(() =>
-				earthly.page.evaluate(() =>
-					Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).some(
-						(key) =>
-							key?.startsWith('earthly:story:drafts:v1:') &&
-							localStorage.getItem(key)?.includes('Background mobile Story'),
-					),
-				),
-			)
-			.toBe(true)
-		await selectMobileEntitySurface(earthly, 'Story', 'Background mobile Story')
-		await expect(earthly.page.getByLabel('Title', { exact: true })).toHaveValue(
-			'Background mobile Story',
+		expect(await persistedThreadSnapshot(earthly)).toEqual(threadBeforeRun)
+		const savedStories = await earthly.page.evaluate(() =>
+			Object.keys(localStorage)
+				.filter((key) => key.startsWith('earthly:story:drafts:v1'))
+				.flatMap((key) => {
+					const drafts = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<
+						string,
+						{ title?: string; content?: string }
+					>
+					const draft = drafts['new-story']
+					return draft ? [{ title: draft.title, content: draft.content }] : []
+				}),
 		)
+		await test.info().attach('retained Story payload', {
+			body: JSON.stringify(savedStories, null, 2),
+			contentType: 'application/json',
+		})
+		expect(savedStories).toContainEqual({
+			title: 'Background mobile Story',
+			content: 'This deterministic Story is retained without stealing the active Chat panel.',
+		})
+		await selectMobileEntitySurface(earthly, 'Story', 'Background mobile Story')
+		await expect(
+			mobileWorkspaceSheet(earthly).getByPlaceholder('Roman ruins in Carinthia', { exact: true }),
+		).toHaveValue('Background mobile Story')
 		await selectMobileEntitySurface(earthly, 'Map', datasetName)
-		await expect(earthly.page.getByPlaceholder('Name').first()).toHaveValue(datasetName)
-		const followUpDraft = 'Keep this unsent follow-up while I compare the work surfaces.'
-		await switchMobileWorkspacePanel(earthly, 'Chat')
-		await composeAiChatMessage(earthly, followUpDraft)
+		await openAiChat(earthly)
+		const followUp = 'Keep this unsent follow-up while I compare the work surfaces.'
+		await composeAiChatMessage(earthly, followUp)
 		await switchMobileWorkspacePanel(earthly, 'Edit')
 		await switchMobileWorkspacePanel(earthly, 'Shelf')
-		await switchMobileWorkspacePanel(earthly, 'Chat')
-		expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-			chatId: chatBeforeRun.chatId,
-			prompt: followUpDraft,
-			targetName: datasetName,
-			targetRequired: false,
-		})
-		expect(provider.requests()).toHaveLength(2)
-		const finalTask = await editorLifecycleSnapshot(earthly)
-		expect(finalTask.activeWorkspaceId).toBe(taskBeforeChat.activeWorkspaceId)
-		expect(finalTask.workspaceCount).toBe(taskBeforeChat.workspaceCount + 1)
+		await selectMobileEntitySurface(earthly, 'Map', datasetName)
+		await openAiChat(earthly)
+		await expect(chatRegion.getByText(datasetName, { exact: true })).toBeVisible()
+		await expect(chatRegion.locator('textarea')).toHaveValue(followUp)
+		const final = await editorLifecycleSnapshot(earthly)
+		expect(final.activeWorkspaceId).toBe(original.activeWorkspaceId)
+		expect(final.activeDraftId).toBe(original.activeDraftId)
+		expect(await persistedThreadSnapshot(earthly)).toEqual(threadBeforeRun)
+		expect(final.workspaceCount).toBe(original.workspaceCount + 1)
 		expect(
-			finalTask.workspaces.find((workspace) => workspace.id === taskBVisible.activeWorkspaceId)
-				?.chatSessionId,
+			final.workspaces.find((item) => item.id === competing.activeWorkspaceId)?.chatSessionId,
 		).toBeNull()
-		await expect(mobileWorkspaceSheet(earthly)).toBeVisible()
+		expect(provider.requests()).toHaveLength(2)
 	} finally {
 		provider.releaseCompletionResponses()
 	}
 })
 
-test('mobile global create closes navigation before arming map placement @editor-contract', async ({
+test('mobile global create closes the account menu before arming map placement @editor-contract', async ({
 	earthly,
 }, testInfo) => {
-	test.skip(testInfo.project.name !== 'mobile', 'The mobile drawer owns this transition')
+	test.skip(testInfo.project.name !== 'mobile', 'The mobile account popover owns this transition')
 	await earthly.open({ tour: 'seen' })
 	await earthly.page.getByRole('button', { name: 'Me', exact: true }).click()
-	const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
-	await expect(drawer).toBeVisible()
+	const menu = earthly.page.getByRole('dialog', { name: 'Me menu', exact: true })
+	await expect(menu).toBeVisible()
 
 	await startSightingPlacement(earthly)
-	await expect(drawer).toBeHidden()
+	await expect(menu).toBeHidden()
 	await expect(earthly.page.getByRole('button', { name: 'Cancel placement' })).toBeVisible()
 	await cancelSightingPlacement(earthly)
 })

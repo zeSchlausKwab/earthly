@@ -800,7 +800,7 @@ function storyViewSummary(view: StoryViewBlockV1): string {
 		shown.length > 0 ? `Shows ${shown.join(', ')}` : '',
 		hidden.length > 0 ? `Hides ${hidden.join(', ')}` : '',
 		styled > 0 ? `Restyles ${styled} layer${styled === 1 ? '' : 's'}` : '',
-		view.camera ? 'Moves the camera' : '',
+		view.camera ? (view.display === 'figure' ? 'Figure camera' : 'Moves the camera') : '',
 	]
 		.filter(Boolean)
 		.join(' · ')
@@ -823,7 +823,7 @@ function renderStoryView(
 			key={`story-view-${view.id}-${viewIndex}`}
 			data-story-view-id={view.id}
 			data-story-view-index={viewIndex}
-			className={`overflow-hidden border ${isActive ? 'border-primary bg-primary/10' : 'border-border bg-muted/30'}`}
+			className={`scroll-mt-14 overflow-hidden border ${isActive ? 'border-primary bg-primary/10' : 'border-border bg-muted/30'}`}
 		>
 			{drivesCanvas ? (
 				<button

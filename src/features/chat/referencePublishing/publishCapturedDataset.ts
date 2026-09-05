@@ -10,6 +10,7 @@ import {
 } from '@/lib/nostr/references'
 import { noteSessionPublish } from '@/lib/nostr/sessionPublishes'
 import { reconcilePublishedDatasetIdentity } from '@/features/geo-editor/publicationIdentity'
+import { useEditorStore } from '@/features/geo-editor/store'
 import type {
 	CapturedDatasetPublication,
 	DatasetPublicationMode,
@@ -67,6 +68,43 @@ function applyBlobStrategy(
 		.withContentMetadata()
 }
 
+/** Intent, not source ownership, decides whether a captured fork gets a new address. */
+export function capturedDatasetPublicationMode(
+	captured: CapturedDatasetPublication,
+	signerPubkey: string,
+): DatasetPublicationMode {
+	if (captured.authoringIntent === 'propose') {
+		throw new Error(
+			'A proposal cannot be published as an independent Map reference. Send the proposal or explicitly start a fork.',
+		)
+	}
+	if (captured.authoringIntent === 'fork') return 'copy'
+	if (!captured.baseEvent) return 'new'
+	if (captured.baseEvent.pubkey === signerPubkey) return 'update'
+	throw new Error(
+		'Only the owner can update this Map. Explicitly start a fork before publishing a new Map reference.',
+	)
+}
+
+/** Keep fork provenance in existing address-reference tags, including later owner updates. */
+export function capturedDatasetReferenceCoordinates(
+	captured: CapturedDatasetPublication,
+	mode: DatasetPublicationMode,
+): string[] {
+	const coordinates = extractReferencedCoordinates(
+		collectionDescription(captured.featureCollection),
+	)
+	const source = captured.sourceDataset?.address ?? captured.binding.baseCoordinate
+	if (
+		source &&
+		(mode === 'copy' || source !== captured.binding.baseCoordinate) &&
+		!coordinates.includes(source)
+	) {
+		coordinates.push(source)
+	}
+	return coordinates
+}
+
 /** Publish the immutable payload captured at gate creation, never live editor state. */
 export async function publishCapturedPublicDataset(
 	captured: CapturedDatasetPublication,
@@ -82,14 +120,8 @@ export async function publishCapturedPublicDataset(
 	if (!signer) throw new Error('Sign in before publishing this Dataset.')
 	const signerPubkey = await signer.getPublicKey()
 	const base = captured.baseEvent
-	const mode: DatasetPublicationMode = !base
-		? 'new'
-		: base.pubkey === signerPubkey
-			? 'update'
-			: 'copy'
-	const referencedCoordinates = extractReferencedCoordinates(
-		collectionDescription(captured.featureCollection),
-	)
+	const mode = capturedDatasetPublicationMode(captured, signerPubkey)
+	const referencedCoordinates = capturedDatasetReferenceCoordinates(captured, mode)
 
 	let factory =
 		mode === 'update' && base
@@ -131,7 +163,17 @@ export async function publishCapturedPublicDataset(
 	if (!mention) throw new Error('The published Dataset did not produce a referenceable address.')
 
 	noteSessionPublish({ type: 'dataset', name: captured.title, coordinate })
-	reconcilePublishedDatasetIdentity(captured.binding, dataset, captured.title)
+	const reconciliation = reconcilePublishedDatasetIdentity(
+		captured.binding,
+		dataset,
+		captured.title,
+	)
+	if (captured.authoringIntent === 'fork' && reconciliation.status === 'reconciled') {
+		useEditorStore.getState().saveGeoEditDraft(captured.binding.draftId, {
+			authoringIntent: 'edit',
+			sourceDataset: captured.sourceDataset,
+		})
+	}
 	return {
 		mode,
 		datasetCoordinate: coordinate,

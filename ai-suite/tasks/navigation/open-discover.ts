@@ -14,14 +14,8 @@ export async function openDiscover(earthly: EarthlySession): Promise<void> {
 	const dialog = earthly.page.getByRole('dialog', { name: 'Discover Earthly' })
 	if (await dialog.isVisible()) return
 
-	if (earthly.isMobile) {
-		await earthly.page.getByRole('button', { name: 'Me', exact: true }).click()
-		const navigation = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
-		await navigation.getByRole('button', { name: 'Back to menu', exact: true }).click()
-		await navigation.getByRole('button', { name: /^Discover(?:\s|$)/ }).click()
-	} else {
-		await earthly.page.getByRole('button', { name: 'Me', exact: true }).click()
-		await earthly.page.getByRole('button', { name: 'Discover', exact: true }).click()
-	}
+	await earthly.page.getByRole('button', { name: 'Me', exact: true }).click()
+	const menu = earthly.page.getByRole('dialog', { name: 'Me menu', exact: true })
+	await menu.getByRole('button', { name: 'Discover', exact: true }).click()
 	await expect(dialog).toBeVisible()
 }

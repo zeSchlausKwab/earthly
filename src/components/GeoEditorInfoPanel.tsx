@@ -34,6 +34,7 @@ import {
 	ViewModePanel,
 } from './info-panel'
 import { StoryEditorPanel } from './info-panel/StoryEditorPanel'
+import type { StoryViewDraftContext } from './editor/StoryViewDraftContext'
 import { SightingEditorPanel } from './info-panel/SightingEditorPanel'
 import { BeaconControlPanel } from './info-panel/BeaconControlPanel'
 import type { BeaconStartOptions } from './info-panel/BeaconControlPanel'
@@ -45,6 +46,7 @@ import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
 import { GroupEditorPanel } from '../features/groups/GroupEditorPanel'
 import type { GroupCreationSeed } from '../features/groups/creationSeed'
 import type { Article } from '@/lib/nostr/article'
+import type { Group } from '@/lib/nostr/group'
 import { GroupAttachField } from '../features/geo-editor/components/GroupAttachField'
 import { CommentsPanel } from '../features/social/comments'
 import { Button } from './ui/button'
@@ -66,7 +68,10 @@ import { LocalDraftPersistenceWarning } from '@/features/geo-editor/components/L
 import { resolveInfoPanelViewState } from '@/features/geo-editor/components/mobileEditPanelPresentation'
 import { ConfirmDeleteAction } from './info-panel/ConfirmDeleteAction'
 import { resolveDatasetEditorDeleteMode } from './info-panel/datasetEditorDeletion'
-import { getMapEditPresentation } from './info-panel/mapProposalPresentation'
+import {
+	getMapEditPresentation,
+	type DatasetEditOptions,
+} from './info-panel/mapProposalPresentation'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -77,7 +82,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 export interface GeoEditorInfoPanelProps {
 	currentUserPubkey?: string
-	onLoadDataset: (event: GeoDataset) => void
+	onLoadDataset: (event: GeoDataset, options?: DatasetEditOptions) => void
 	onInspectDataset?: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
 	onOpenGeometryEditor?: () => void
@@ -88,6 +93,8 @@ export interface GeoEditorInfoPanelProps {
 	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
+	onEditContext?: (context: MapContext) => void
+	onBackToBrowse?: () => void
 	deletingKey: string | null
 	onExitViewMode?: () => void
 	onClose?: () => void
@@ -129,6 +136,9 @@ export interface GeoEditorInfoPanelProps {
 	onCreateContext?: () => void
 	/** Available contexts for dataset attachment */
 	mapContextEvents?: MapContext[]
+	/** Loaded Stories used to show backlinks in a Map's inspect panel. */
+	mapStories?: Article[]
+	mapGroups?: Group[]
 	/** Callback when a proposal overlay visibility is toggled */
 	onToggleProposalOverlay?: (
 		proposal: import('@/lib/nostr/geo-proposal').GeoProposal,
@@ -181,15 +191,22 @@ export interface GeoEditorInfoPanelProps {
 	) => MapPresentationV1 | null | undefined
 	/** Capture the current camera and effective Story layer state for an inline view. */
 	captureStoryView?: () => StoryViewCapture | null | undefined
+	onStoryViewPreviewReset?: (draftKey: string) => void
+	onStoryEditorActiveChange?: (draftKey: string, active: boolean) => void
 	/** Apply a cumulative inline Story view to the shared canvas. */
-	onStoryViewActivate?: (snapshot: StoryViewSnapshotV1, index: number) => void
+	onStoryViewActivate?: (
+		snapshot: StoryViewSnapshotV1,
+		index: number,
+		draft?: StoryViewDraftContext,
+	) => void
 	/** Render a compact live map for figure/both Story view blocks. */
-	renderStoryViewFigure?: (snapshot: StoryViewSnapshotV1, index: number) => ReactNode
+	renderStoryViewFigure?: (
+		snapshot: StoryViewSnapshotV1,
+		index: number,
+		draft?: StoryViewDraftContext,
+	) => ReactNode
 	/** Active view marker shared by the panel and canvas presenter. */
 	activeStoryViewId?: string | null
-	/** Canonical non-owner `/story/:naddr/edit` proposal intent. */
-	proposeEditOpen?: boolean
-	onProposeEditOpenChange?: (open: boolean) => void
 	/** Sighting editor mode (Phase 11, D-01/D-07). */
 	sightingEditorMode?: 'none' | 'create' | 'edit'
 	/** Sighting being edited (create ⇒ null). */
@@ -266,6 +283,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onDeleteWorkspace,
 		deletingKey,
 		onExitViewMode,
+		onEditContext,
+		onBackToBrowse,
 		getDatasetKey,
 		getDatasetName,
 		onCommentGeometryVisibility,
@@ -282,6 +301,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onCloseContextEditor,
 		onCreateContext,
 		mapContextEvents = [],
+		mapStories,
+		mapGroups,
 		onToggleProposalOverlay,
 		onProposalAccepted,
 		visibleProposalIds,
@@ -307,11 +328,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onStoryUpdated,
 		captureMapPresentation,
 		captureStoryView,
+		onStoryViewPreviewReset,
+		onStoryEditorActiveChange,
 		onStoryViewActivate,
 		renderStoryViewFigure,
 		activeStoryViewId,
-		proposeEditOpen,
-		onProposeEditOpenChange,
 		sightingEditorMode = 'none',
 		editingSighting,
 		viewSighting: suppliedViewSighting,
@@ -392,7 +413,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				isOwner: currentUserPubkey === activeDataset.pubkey,
 			}
 		: null
-	const activeDatasetEditPresentation = getMapEditPresentation(Boolean(activeDatasetInfo?.isOwner))
 	const datasetEditorDeleteMode = resolveDatasetEditorDeleteMode({
 		hasActiveDataset: Boolean(activeDataset),
 		isDatasetOwner: Boolean(activeDatasetInfo?.isOwner),
@@ -404,6 +424,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		() => (activeGeoEditDraftId ? (geoEditDrafts[activeGeoEditDraftId] ?? null) : null),
 		[activeGeoEditDraftId, geoEditDrafts],
 	)
+	const activeDatasetEditPresentation = getMapEditPresentation(
+		Boolean(activeDatasetInfo?.isOwner),
+		activeDraft?.authoringIntent,
+	)
 	const selectedFeatures = useMemo(() => {
 		if (selectedFeatureIds.length === 0) return []
 		return features.filter((feature) => selectedFeatureIds.includes(feature.id))
@@ -411,9 +435,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	// Passive companion (AI_GEO_AWARENESS §2): dataset totals for the stats row.
 	const datasetMeasurements = useMemo(() => aggregateMeasurements(features), [features])
 	const canAttachCommentGeometry = selectedFeatures.length > 0 && !attachedGeojson
-	const currentDraftSourceId = activeDataset
-		? `dataset:${getDatasetKey(activeDataset)}`
-		: (activeDraft?.sourceId ?? null)
+	const currentDraftSourceId =
+		activeDraft?.sourceId ?? (activeDataset ? `dataset:${getDatasetKey(activeDataset)}` : null)
 
 	useEffect(() => {
 		if (contextEditorMode !== 'none' || viewMode === 'view') return
@@ -829,6 +852,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				availableFeatures={availableFeatures}
 				captureMapPresentation={captureMapPresentation}
 				captureStoryView={captureStoryView}
+				onStoryViewPreviewReset={onStoryViewPreviewReset}
+				onStoryEditorActiveChange={onStoryEditorActiveChange}
 				onStoryViewActivate={onStoryViewActivate}
 				renderStoryViewFigure={renderStoryViewFigure}
 			/>
@@ -919,6 +944,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		if (viewStory && (!entityWorkspace || entityWorkspace === 'story')) {
 			return (
 				<StoryViewPanel
+					onBack={onBackToBrowse ?? onExitViewMode}
 					story={viewStory}
 					currentUserPubkey={currentUserPubkey}
 					onEditStory={onEditStory}
@@ -940,8 +966,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onStoryViewActivate={onStoryViewActivate}
 					renderStoryViewFigure={renderStoryViewFigure}
 					activeStoryViewId={activeStoryViewId}
-					proposeEditOpen={proposeEditOpen}
-					onProposeEditOpenChange={onProposeEditOpenChange}
 					objectTab={objectTab}
 					onObjectTabChange={onObjectTabChange}
 				/>
@@ -951,6 +975,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		if (viewContext && (!entityWorkspace || entityWorkspace === 'context')) {
 			return (
 				<GroupViewPanel
+					onEditContext={onEditContext}
+					onBack={onBackToBrowse}
 					currentUserPubkey={currentUserPubkey}
 					getDatasetKey={getDatasetKey}
 					getDatasetName={getDatasetName}
@@ -1022,6 +1048,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 		return (
 			<ViewModePanel
+				mapContextEvents={mapContextEvents}
+				mapStories={mapStories}
+				mapGroups={mapGroups}
 				currentUserPubkey={currentUserPubkey}
 				onLoadDataset={onLoadDataset}
 				onToggleVisibility={onToggleVisibility}
@@ -1080,7 +1109,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						{datasetEditorDeleteMode === 'published-dataset' && activeDataset ? (
 							<ConfirmDeleteAction
 								label="Map"
-				message="Delete this Map from Nostr?"
+								message="Delete this Map from Nostr?"
 								isDeleting={deletingKey === getDatasetKey(activeDataset)}
 								onConfirm={() => onDeleteDataset(activeDataset)}
 							/>
@@ -1212,6 +1241,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					/>
 					<CommentsPanel
 						key={activeDataset.id ?? activeDataset.dTag ?? 'edit-dataset'}
+						layout="flow"
 						target={activeDataset}
 						onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
 						onZoomToCommentGeojson={handleZoomToCommentGeojson}

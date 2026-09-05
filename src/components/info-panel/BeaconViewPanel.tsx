@@ -66,6 +66,7 @@ import type { EarthlyObjectTab } from '@/router/routeContract'
 import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
 import { ObjectTabs, ThreadTabNotice } from './ObjectTabs'
+import { useObjectContentTab } from './ObjectThreadPlacement'
 
 interface BeaconViewPanelProps {
 	/** The beacon being viewed (cast). Absent ⇒ empty fallback. */
@@ -157,6 +158,7 @@ export function BeaconViewPanel({
 }: BeaconViewPanelProps) {
 	const [uncontrolledObjectTab, setUncontrolledObjectTab] = useState<EarthlyObjectTab>('details')
 	const activeObjectTab = objectTab ?? uncontrolledObjectTab
+	const contentTab = useObjectContentTab(activeObjectTab)
 	const setActiveObjectTab = (tab: EarthlyObjectTab) => {
 		if (objectTab === undefined) setUncontrolledObjectTab(tab)
 		onObjectTabChange?.(tab)
@@ -222,10 +224,11 @@ export function BeaconViewPanel({
 
 	return (
 		<EntityPanelShell
+			contained={contentTab === 'comments'}
 			title={label}
 			tabs={<ObjectTabs value={activeObjectTab} onValueChange={setActiveObjectTab} />}
 		>
-			{activeObjectTab === 'details' ? (
+			{contentTab === 'details' ? (
 				<div className="space-y-3 text-[13px]">
 					<EntityPanelSurface tone="context" className="space-y-3">
 						<EntityPanelSectionHeader
@@ -351,9 +354,8 @@ export function BeaconViewPanel({
 						</div>
 					</EntityPanelSurface>
 				</div>
-			) : activeObjectTab === 'comments' ? (
-				<EntityPanelSurface tone="discussion" className="space-y-4">
-					<EntityPanelSectionHeader eyebrow="Discussion" title="Comments" />
+			) : contentTab === 'comments' ? (
+				<EntityPanelSurface tone="discussion" className="h-full min-h-0 px-0 py-2">
 					<CommentsPanel
 						key={beacon.id ?? beacon.dTag ?? 'no-beacon'}
 						target={beacon}

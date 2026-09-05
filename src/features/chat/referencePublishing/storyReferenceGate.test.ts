@@ -54,13 +54,26 @@ function installDraft({
 	base = makeDataset(),
 	channel = { kind: 'public' } as const,
 	chatId = 'chat-a',
+	intent = 'edit',
 }: {
 	base?: GeoDataset | null
 	channel?: GeoCollectionEditDraft['publishChannel']
 	chatId?: string | null
+	intent?: GeoCollectionEditDraft['authoringIntent']
 } = {}) {
-	const sourceId = base ? `dataset:${base.pubkey}:${base.dTag}` : 'session:new-dataset'
+	const sourceId = base
+		? `${intent === 'fork' ? 'fork' : 'dataset'}:${base.pubkey}:${base.dTag}`
+		: 'session:new-dataset'
 	const draft: GeoCollectionEditDraft = {
+		authoringIntent: intent,
+		sourceDataset: base
+			? {
+					address: `${GEO_EVENT_KIND}:${base.pubkey}:${base.dTag}`,
+					pubkey: base.pubkey,
+					identifier: base.datasetId,
+					eventId: base.event.id,
+				}
+			: undefined,
 		persistenceVersion: 2,
 		id: 'draft-a',
 		sourceId,
@@ -141,6 +154,147 @@ afterAll(() => {
 })
 
 describe('Story Dataset reference publication gate', () => {
+	test('captures an offline materialized fork and preserves its exact run binding and source attribution', () => {
+		const { draft, base, target } = installDraft({ intent: 'fork' })
+		if (!base) throw new Error('expected base')
+		eventStore.remove(base.event.id)
+		useEditorStore.setState({ activeDataset: null })
+		const capture = captureTargetDatasetPublication({
+			markdown: '',
+			chatId: 'chat-a',
+			toolCallId: 'tool-a',
+			target,
+			referencesNewDataset: true,
+		})
+		expect(capture.kind).toBe('captured')
+		if (capture.kind !== 'captured') return
+		expect(capture.captured.authoringIntent).toBe('fork')
+		expect(capture.captured.baseEvent).toBeNull()
+		expect(capture.captured.sourceDataset).toEqual(draft.sourceDataset)
+		expect(capture.captured.binding.baseRevisionId).toBe(target.baseRevisionId)
+		expect(capture.captured.binding.baseCoordinate).toBe(draft.sourceDataset?.address ?? null)
+		expect(capture.captured.featureCollection.features[0]?.id).toBe('bridge-1')
+	})
+
+	test('offline original events do not relax proposal/update or private-fork publication boundaries', () => {
+		for (const setup of [
+			{ intent: 'edit' as const },
+			{ intent: 'propose' as const },
+			{ intent: 'fork' as const, channel: { kind: 'private-group' as const, id: 'circle' } },
+			{ intent: 'fork' as const, channel: { kind: 'field-session' as const, id: 'nearby' } },
+		]) {
+			const { draft, base, target } = installDraft(setup)
+			if (!base || !draft.sourceDataset) throw new Error('expected source')
+			eventStore.remove(base.event.id)
+			const capture = captureTargetDatasetPublication({
+				markdown: `See ${coordinateToNaddrReference(draft.sourceDataset.address)}`,
+				chatId: 'chat-a',
+				toolCallId: 'tool-a',
+				target,
+				referencesNewDataset: true,
+			})
+			expect(capture.kind).toBe('blocked')
+			if (capture.kind !== 'blocked') continue
+			expect(capture.result).toMatchObject({
+				code:
+					setup.intent === 'fork'
+						? 'reference_publish_scope_incompatible'
+						: 'reference_publish_source_unavailable',
+			})
+		}
+	})
+
+	test('an offline fork cannot substitute a different captured base or source identity', () => {
+		const { draft, base, target } = installDraft({ intent: 'fork' })
+		if (!base || !draft.sourceDataset) throw new Error('expected source')
+		eventStore.remove(base.event.id)
+		for (const invalidTarget of [
+			{ ...target, baseRevisionId: 'f'.repeat(64) },
+			{ ...target, entityId: 'other-map' },
+		]) {
+			const capture = captureTargetDatasetPublication({
+				markdown: '',
+				chatId: 'chat-a',
+				toolCallId: 'tool-a',
+				target: invalidTarget,
+				referencesNewDataset: true,
+			})
+			expect(capture).toMatchObject({
+				kind: 'blocked',
+				result: { code: 'reference_publish_source_unavailable' },
+			})
+		}
+	})
+
+	test('captures an explicit fork as a new reference while preserving its source and Thread binding', () => {
+		const { draft, base, target } = installDraft({ intent: 'fork' })
+		if (!base) throw new Error('expected base')
+		const capture = captureTargetDatasetPublication({
+			markdown: 'Reference my independent fork here.',
+			chatId: 'chat-a',
+			toolCallId: 'tool-a',
+			target: { ...target, wasDirty: false },
+			referencesNewDataset: true,
+		})
+		expect(capture.kind).toBe('captured')
+		if (capture.kind !== 'captured') return
+		expect(capture.captured.authoringIntent).toBe('fork')
+		expect(capture.captured.sourceDataset).toEqual(draft.sourceDataset)
+		expect(capture.captured.binding).toMatchObject({
+			workspaceId: target.workspaceId,
+			draftId: target.draftId,
+			sourceId: draft.sourceId,
+			baseRevisionId: base.event.id,
+		})
+		expect(capture.captured.baseEvent?.id).toBe(base.event.id)
+	})
+
+	test('never promotes proposal or private fork drafts into public references', () => {
+		for (const setup of [
+			{ intent: 'propose' as const },
+			{ intent: 'fork' as const, channel: { kind: 'private-group' as const, id: 'circle-a' } },
+			{ intent: 'fork' as const, channel: { kind: 'field-session' as const, id: 'nearby-a' } },
+		]) {
+			const { base, target } = installDraft(setup)
+			if (!base) throw new Error('expected base')
+			const mention = coordinateToNaddrReference(`${GEO_EVENT_KIND}:${base.pubkey}:${base.dTag}`)
+			const capture = captureTargetDatasetPublication({
+				markdown: `See ${mention}.`,
+				chatId: 'chat-a',
+				toolCallId: 'tool-a',
+				target,
+				referencesNewDataset: true,
+			})
+			expect(capture).toMatchObject({
+				kind: 'blocked',
+				result: { code: 'reference_publish_scope_incompatible', retryable: false },
+			})
+			expect(getReferencePublishRequest()).toBeNull()
+		}
+	})
+
+	test('recovers intent and provenance from a legacy fork without changing its target', () => {
+		const { draft, base, target } = installDraft({ intent: 'fork' })
+		if (!base) throw new Error('expected base')
+		useEditorStore.setState({
+			geoEditDrafts: {
+				[draft.id]: { ...draft, authoringIntent: undefined, sourceDataset: undefined },
+			},
+		})
+		const capture = captureTargetDatasetPublication({
+			markdown: '',
+			chatId: 'chat-a',
+			toolCallId: 'tool-a',
+			target,
+			referencesNewDataset: true,
+		})
+		expect(capture.kind).toBe('captured')
+		if (capture.kind !== 'captured') return
+		expect(capture.captured.authoringIntent).toBe('fork')
+		expect(capture.captured.sourceDataset).toEqual(draft.sourceDataset)
+		expect(capture.captured.binding.sourceId).toBe(draft.sourceId)
+	})
+
 	test('captures the exact draft and base revision when prose cites the dirty Dataset', () => {
 		const { draft, base, target } = installDraft()
 		if (!base) throw new Error('expected base')

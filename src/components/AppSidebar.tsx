@@ -20,26 +20,25 @@ import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoProposal } from '@/lib/nostr/geo-proposal'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { DEFAULT_WORK_VIEW } from '@/features/geo-editor/defaults'
-import { ShoutboxPanel } from '../features/social/shoutbox'
+import { ShoutboxPanel } from './optionalSurfaces.tsx'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
+import { EmbeddedListPanelContext } from './entity-list'
 import { StoriesPanelContent } from './StoriesPanel'
 import { SightingsPanelContent } from './SightingsPanel'
 import { BeaconsPanelContent } from './BeaconsPanel'
-import { UserProfilePanel } from './UserProfilePanel'
-import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
+import { UserProfilePanel } from './optionalSurfaces.tsx'
+import { GeoEditorInfoPanelContent } from './optionalSurfaces.tsx'
 import { HelpPanel } from './HelpPanel'
-import { PrivateGroupsPanel } from '../features/private-maps/PrivateMapsDialog'
-import {
-	FieldSessionsPanel,
-	type FieldDatasetActions,
-} from '../features/field-sessions/FieldSessionsPanel'
+import { PrivateGroupsPanel } from './optionalSurfaces.tsx'
+import { FieldSessionsPanel } from './optionalSurfaces.tsx'
+import type { FieldDatasetActions } from '@/features/field-sessions/FieldSessionsPanel'
 import type { PrivateDatasetActions } from '../features/private-maps/PrivateGeometryReferences'
 import { LoginSessionButtons } from '../features/auth/LoginSessionButtons'
 import { SignedOutCta } from '../features/auth/SignedOutCta'
 import { SignupDialog } from '../features/auth/SignupDialog'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './ui/resizable'
-import { MapSettingsPanel } from '../features/geo-editor/components/MapSettingsPanel'
-import { Nip60Wallet } from '../features/wallet/components/Nip60Wallet'
+import { MapSettingsPanel } from './optionalSurfaces.tsx'
+import { Nip60Wallet } from './optionalSurfaces.tsx'
 import {
 	getRetainedDatasetSurfaceTarget,
 	hasRetainedDatasetSurface,
@@ -53,6 +52,7 @@ import {
 } from '../features/geo-editor/hooks/useRouting'
 import type { PlacedSightingGeometry } from '../features/geo-editor/hooks/useSightingEditor'
 import type { GeoFeatureItem, StoryViewCapture } from './editor'
+import type { StoryViewDraftContext } from './editor/StoryViewDraftContext'
 import type {
 	MapPresentationAuthorization,
 	MapPresentationSource,
@@ -65,12 +65,14 @@ import {
 	LocalDraftsPanel,
 	type LocalDraftDestinationOption,
 	type WorkspaceDraftNavigatorProps,
-	WorkspaceDraftNavigator,
 } from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
 import { buildInboxTargetHref, InboxPanel, useInboxFeed } from '../features/inbox'
 import { PublishOutboxPanel } from '../features/delivery'
 import type { GroupCreationSeed } from '../features/groups/creationSeed'
+import type { Group } from '@/lib/nostr/group'
+import type { Article } from '@/lib/nostr/article'
+import { naddrToCoordinate } from '@/lib/nostr/references'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
@@ -235,6 +237,8 @@ export function resolveActiveInspectEntity(
 }
 
 export interface AppSidebarProps {
+	/** The shell preserves sidebar state on phones, but only MobilePanel mounts editors. */
+	isMobile?: boolean
 	/**
 	 * Retained temporarily as an integration seam for callers completing the
 	 * atomic shell cutover. The Margin is now the only production presentation.
@@ -247,12 +251,14 @@ export interface AppSidebarProps {
 	discoverOpen?: boolean
 	geoEvents: GeoDataset[]
 	mapContextEvents: MapContext[]
+	mapGroups?: Group[]
+	mapStories?: Article[]
 	activeDataset: GeoDataset | null
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: GeoDataset) => void
+	onLoadDataset: (event: GeoDataset, options?: DatasetEditOptions) => void
 	onStartNewDataset?: () => void
 	privateDatasetActions?: PrivateDatasetActions
 	fieldDatasetActions?: FieldDatasetActions
@@ -316,11 +322,19 @@ export interface AppSidebarProps {
 		acceptedSources?: readonly MapPresentationSource[] | MapPresentationAuthorization,
 	) => MapPresentationV1 | null | undefined
 	captureStoryView?: () => StoryViewCapture | null | undefined
-	onStoryViewActivate?: (snapshot: StoryViewSnapshotV1, index: number) => void
-	renderStoryViewFigure?: (snapshot: StoryViewSnapshotV1, index: number) => ReactNode
+	onStoryViewPreviewReset?: (draftKey: string) => void
+	onStoryEditorActiveChange?: (draftKey: string, active: boolean) => void
+	onStoryViewActivate?: (
+		snapshot: StoryViewSnapshotV1,
+		index: number,
+		draft?: StoryViewDraftContext,
+	) => void
+	renderStoryViewFigure?: (
+		snapshot: StoryViewSnapshotV1,
+		index: number,
+		draft?: StoryViewDraftContext,
+	) => ReactNode
 	activeStoryViewId?: string | null
-	proposeEditOpen?: boolean
-	onProposeEditOpenChange?: (open: boolean) => void
 	/** Sighting editor mode (Phase 11, D-01/D-07). */
 	sightingEditorMode?: 'none' | 'create' | 'edit'
 	editingSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
@@ -407,10 +421,13 @@ export interface AppSidebarProps {
 }
 
 export function AppSidebar({
+	isMobile = false,
 	shelfPanel,
 	onOpenDiscover,
 	geoEvents,
 	mapContextEvents,
+	mapGroups,
+	mapStories,
 	activeDataset,
 	currentUserPubkey,
 	datasetVisibility,
@@ -470,11 +487,11 @@ export function AppSidebar({
 	onStoryUpdated,
 	captureMapPresentation,
 	captureStoryView,
+	onStoryViewPreviewReset,
+	onStoryEditorActiveChange,
 	onStoryViewActivate,
 	renderStoryViewFigure,
 	activeStoryViewId,
-	proposeEditOpen,
-	onProposeEditOpenChange,
 	sightingEditorMode = 'none',
 	editingSighting,
 	viewSighting,
@@ -674,7 +691,9 @@ export function AppSidebar({
 		// snapping back to the beacons LIST.
 		const inspectionChanged = inspectionSubject !== lastResolvedInspectionSubjectRef.current
 		lastResolvedInspectionSubjectRef.current = inspectionSubject
-		if (selectedEntitySurface && showEntityAsFullPanel) return
+		// A newly inspected entity can have a different kind (Atlas → Map, for
+		// example). Keep a deliberate surface selection only for the same subject.
+		if (selectedEntitySurface && showEntityAsFullPanel && !inspectionChanged) return
 		// Hiding the Inspector (for a catalog/editor/Chat) retains its subject and
 		// legacy per-kind view objects. Those retained values must not reopen it;
 		// only a newly inspected subject may claim an otherwise unselected surface.
@@ -725,6 +744,37 @@ export function AppSidebar({
 		setShowEntityAsFullPanel(true)
 	}, [contentMode, editorStance])
 
+	const editingStoryCoordinate = editingStory
+		? `${editingStory.kind}:${editingStory.pubkey}:${editingStory.dTag}`
+		: null
+	useEffect(() => {
+		// Reader pencil links and direct /story/:naddr/edit loads bypass the local
+		// button wrappers. Reveal exactly that editor, never an unrelated retained
+		// draft populated by Chat in the background.
+		if (
+			isMobile ||
+			publicRoute.kind !== 'story' ||
+			!publicRoute.edit ||
+			!publicRoute.id ||
+			storyEditorMode !== 'edit' ||
+			!editingStoryCoordinate ||
+			naddrToCoordinate(publicRoute.id) !== editingStoryCoordinate
+		)
+			return
+		setActiveEntity('story')
+		setSelectedEntitySurface('story')
+		setShowEntityAsFullPanel(true)
+		setChatOpen(false)
+	}, [
+		isMobile,
+		publicRoute.kind,
+		publicRoute.edit,
+		publicRoute.id,
+		storyEditorMode,
+		editingStoryCoordinate,
+		setChatOpen,
+	])
+
 	const leaveMetaOverrideIfNeeded = () => {
 		if (metaModeActive) {
 			navigateToView(activeWorkMode)
@@ -738,8 +788,8 @@ export function AppSidebar({
 		navigateToView(mode)
 	}
 
-	const handleLoadDataset = (event: GeoDataset) => {
-		onLoadDataset(event)
+	const handleLoadDataset = (event: GeoDataset, options?: DatasetEditOptions) => {
+		onLoadDataset(event, options)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('geometry')
 		setSelectedEntitySurface('dataset')
@@ -1104,6 +1154,8 @@ export function AppSidebar({
 	}
 
 	const editorPanelProps = {
+		onEditContext: handleEditContext,
+		onBackToBrowse: () => handleBackToWorkSurface(),
 		currentUserPubkey,
 		onLoadDataset: handleLoadDataset,
 		onInspectDataset: handleInspectDataset,
@@ -1148,11 +1200,11 @@ export function AppSidebar({
 		onStoryUpdated,
 		captureMapPresentation,
 		captureStoryView,
+		onStoryViewPreviewReset,
+		onStoryEditorActiveChange: chatOnLeft ? undefined : onStoryEditorActiveChange,
 		onStoryViewActivate,
 		renderStoryViewFigure,
 		activeStoryViewId,
-		proposeEditOpen,
-		onProposeEditOpenChange,
 		sightingEditorMode,
 		editingSighting,
 		viewSighting,
@@ -1187,6 +1239,8 @@ export function AppSidebar({
 		isPublishing,
 		focusCommentId,
 		entityWorkspace: activeEntity,
+		mapGroups,
+		mapStories,
 		entityIntent: currentEntityIntent,
 	}
 
@@ -1432,7 +1486,10 @@ export function AppSidebar({
 		</button>
 	)
 
-	const renderEntityContent = () => <GeoEditorInfoPanelContent {...editorPanelProps} />
+	// CSS hides this sidebar on phones without unmounting it. Avoid a second
+	// hidden editor autosaving the same draft as the visible mobile sheet.
+	const renderEntityContent = () =>
+		isMobile ? null : <GeoEditorInfoPanelContent {...editorPanelProps} />
 	const handleBrowseCreate = (kind: 'maps' | 'stories' | 'atlases' | 'sightings') => {
 		switch (kind) {
 			case 'maps':
@@ -1479,7 +1536,10 @@ export function AppSidebar({
 			// have their own save/cancel exits, so no back bar there.
 			return (
 				<div className="flex h-full min-h-0 flex-col">
-					{showEntityAsFullPanel ? renderBackToCatalogBar() : null}
+					{showEntityAsFullPanel &&
+					!(['geometry', 'story', 'context'].includes(activeEntity) && currentEntityIntent === 'inspect')
+						? renderBackToCatalogBar()
+						: null}
 					<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pr-2 [scrollbar-gutter:stable]">
 						{renderEntityContent()}
 					</div>
@@ -1503,133 +1563,123 @@ export function AppSidebar({
 			aria-hidden={chatOnLeft}
 			inert={chatOnLeft ? true : undefined}
 		>
-			{/* Keep the contextual scope, draft switcher, and account actions while
-				    removing the old always-visible navigation rail. */}
-			<div className="shrink-0 border-b border-border bg-[var(--surface-chrome)] px-3 py-2">
-				<div className="flex min-w-0 items-center gap-2">
-					<div className="min-w-0 flex-1">
-						{contentMode === 'drafts' ? (
-							<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
-								Saved on this device
-							</div>
-						) : contentMode === 'private-groups' ? (
-							<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
-								Circle records
-							</div>
-						) : contentMode === 'field-sessions' ? (
-							<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
-								Nearby records
-							</div>
-						) : contentMode === 'delivery' ? (
-							<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
-								{publicRoute.kind === 'inbox'
-									? 'Replies, proposals, and activity'
-									: 'Queued and delivered changes'}
-							</div>
-						) : (
-							<EntitySearchPopover
-								sources={{ contexts: mapContextEvents }}
-								entityTypes={['context']}
-								onSelect={handleContextScopeSelect}
-								placeholder={
-									activeContextScopeLabel ? activeContextScopeLabel : 'Browse all atlases'
-								}
-								searchMode="local"
-								compact
-							/>
-						)}
+			{/* Objects own their headers; catalog context does not sit above inspection. */}
+			{!showEntityAsFullPanel &&
+			contentMode !== 'edit' &&
+			contentMode !== 'context-editor' &&
+			(!browseKind || contextNaddr) ? (
+				<div className="shrink-0 border-b border-border bg-[var(--surface-chrome)] px-3 py-2">
+					<div className="flex min-w-0 items-center gap-2">
+						<div className="min-w-0 flex-1">
+							{contentMode === 'drafts' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Saved on this device
+								</div>
+							) : contentMode === 'private-groups' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Circle records
+								</div>
+							) : contentMode === 'field-sessions' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Nearby records
+								</div>
+							) : contentMode === 'delivery' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									{publicRoute.kind === 'inbox'
+										? 'Replies, proposals, and activity'
+										: 'Queued and delivered changes'}
+								</div>
+							) : (
+								<EntitySearchPopover
+									sources={{ contexts: mapContextEvents }}
+									entityTypes={['context']}
+									onSelect={handleContextScopeSelect}
+									placeholder={
+										activeContextScopeLabel ? activeContextScopeLabel : 'Browse all atlases'
+									}
+									searchMode="local"
+									compact
+								/>
+							)}
+						</div>
+						{contextNaddr && contentMode !== 'drafts' ? (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-sm"
+								onClick={clearContextScope}
+								title="Clear atlas browse scope"
+								aria-label="Clear atlas browse scope"
+								className="h-7 w-7 rounded-none"
+							>
+								<X className="h-3.5 w-3.5" />
+							</Button>
+						) : null}
 					</div>
-					{contextNaddr && contentMode !== 'drafts' ? (
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							onClick={clearContextScope}
-							title="Clear atlas browse scope"
-							aria-label="Clear atlas browse scope"
-							className="h-7 w-7 rounded-none"
+					{hasRetainedSurface && !browseKind ? (
+						<nav
+							className="mt-2 flex min-w-0 items-center gap-1 overflow-x-auto border-t border-border pt-2"
+							aria-label="Return to retained work"
 						>
-							<X className="h-3.5 w-3.5" />
-						</Button>
+							<span className="mr-1 shrink-0 font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+								Return to
+							</span>
+							{inspectionSubject ? (
+								<Button
+									type="button"
+									variant={inspectorSelected ? 'secondary' : 'ghost'}
+									size="sm"
+									onClick={returnToInspector}
+									className="h-7 shrink-0 rounded-none border border-border px-2 text-[10px]"
+									aria-current={inspectorSelected ? 'page' : undefined}
+								>
+									<Search className="h-3 w-3" aria-hidden="true" />
+									Last viewed
+								</Button>
+							) : null}
+							{datasetEditorResumable ? (
+								<Button
+									type="button"
+									variant={datasetEditorSelected ? 'secondary' : 'ghost'}
+									size="sm"
+									onClick={returnToDatasetEditor}
+									className="h-7 shrink-0 rounded-none border border-border px-2 text-[10px]"
+									aria-current={datasetEditorSelected ? 'page' : undefined}
+								>
+									<Database className="h-3 w-3" aria-hidden="true" />
+									Map edit
+								</Button>
+							) : null}
+							{storyEditorMode !== 'none' ? (
+								<Button
+									type="button"
+									variant={storyEditorSelected ? 'secondary' : 'ghost'}
+									size="sm"
+									onClick={returnToStoryEditor}
+									className="h-7 shrink-0 rounded-none border border-border px-2 text-[10px]"
+									aria-current={storyEditorSelected ? 'page' : undefined}
+								>
+									<BookOpen className="h-3 w-3" aria-hidden="true" />
+									Story edit
+								</Button>
+							) : null}
+							{contextEditorMode !== 'none' ? (
+								<Button
+									type="button"
+									variant={contextEditorSelected ? 'secondary' : 'ghost'}
+									size="sm"
+									onClick={returnToContextEditor}
+									className="h-7 shrink-0 rounded-none border border-border px-2 text-[10px]"
+									aria-current={contextEditorSelected ? 'page' : undefined}
+								>
+									<Globe className="h-3 w-3" aria-hidden="true" />
+									Atlas edit
+								</Button>
+							) : null}
+						</nav>
 					) : null}
 				</div>
-				{hasRetainedSurface ? (
-					<nav
-						className="mt-2 flex min-w-0 items-center gap-1 overflow-x-auto border-t border-border pt-2"
-						aria-label="Return to retained work"
-					>
-						<span className="mr-1 shrink-0 font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
-							Return to
-						</span>
-						{inspectionSubject ? (
-							<Button
-								type="button"
-								variant={inspectorSelected ? 'secondary' : 'ghost'}
-								size="sm"
-								onClick={returnToInspector}
-								className="h-7 shrink-0 rounded-none border border-border px-2 text-[10px]"
-								aria-current={inspectorSelected ? 'page' : undefined}
-							>
-								<Search className="h-3 w-3" aria-hidden="true" />
-								Last viewed
-							</Button>
-						) : null}
-						{datasetEditorResumable ? (
-							<Button
-								type="button"
-								variant={datasetEditorSelected ? 'secondary' : 'ghost'}
-								size="sm"
-								onClick={returnToDatasetEditor}
-								className="h-7 shrink-0 rounded-none border border-border px-2 text-[10px]"
-								aria-current={datasetEditorSelected ? 'page' : undefined}
-							>
-								<Database className="h-3 w-3" aria-hidden="true" />
-								Map edit
-							</Button>
-						) : null}
-						{storyEditorMode !== 'none' ? (
-							<Button
-								type="button"
-								variant={storyEditorSelected ? 'secondary' : 'ghost'}
-								size="sm"
-								onClick={returnToStoryEditor}
-								className="h-7 shrink-0 rounded-none border border-border px-2 text-[10px]"
-								aria-current={storyEditorSelected ? 'page' : undefined}
-							>
-								<BookOpen className="h-3 w-3" aria-hidden="true" />
-								Story edit
-							</Button>
-						) : null}
-						{contextEditorMode !== 'none' ? (
-							<Button
-								type="button"
-								variant={contextEditorSelected ? 'secondary' : 'ghost'}
-								size="sm"
-								onClick={returnToContextEditor}
-								className="h-7 shrink-0 rounded-none border border-border px-2 text-[10px]"
-								aria-current={contextEditorSelected ? 'page' : undefined}
-							>
-								<Globe className="h-3 w-3" aria-hidden="true" />
-								Atlas edit
-							</Button>
-						) : null}
-					</nav>
-				) : null}
-				{contentMode !== 'drafts' && contentMode !== 'delivery' ? (
-					<div className="mt-2">
-						<WorkspaceDraftNavigator
-							onStartNewDataset={handleStartNewDataset}
-							onSwitchWorkspace={onSwitchWorkspace}
-							onDeleteWorkspace={onDeleteWorkspace}
-							onAddDraftToWorkspace={onAddDraftToWorkspace}
-							onLoadDraft={onLoadDraft}
-							onDeleteDraft={onDeleteDraft}
-							destinationOptions={draftDestinationOptions}
-							onResolveDraftDestination={onResolveDraftDestination}
-						/>
-					</div>
-				) : null}
-			</div>
+			) : null}
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2 pr-3 [scrollbar-gutter:stable]">
 				{browseKind ? (
 					<BrowseEntityTabs
@@ -1641,9 +1691,14 @@ export function AppSidebar({
 						className="mb-2"
 					/>
 				) : null}
-				<div className="min-h-0 flex-1 overflow-hidden">{renderContent()}</div>
+				<div className="min-h-0 flex-1 overflow-hidden">
+					<EmbeddedListPanelContext.Provider value={Boolean(browseKind)}>
+						{renderContent()}
+					</EmbeddedListPanelContext.Provider>
+				</div>
 			</div>
 			<SignupDialog open={authDialogOpen} onOpenChange={setAuthDialogOpen} />
 		</aside>
 	)
 }
+import type { DatasetEditOptions } from './info-panel/mapProposalPresentation'

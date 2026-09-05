@@ -3,7 +3,16 @@ import { finalizeEvent, generateSecretKey, nip19 } from 'nostr-tools'
 import { eventStore } from '@/lib/nostr'
 import { ARTICLE_KIND } from '@/lib/nostr/kinds'
 import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
-import { NEW_STORY_DRAFT_KEY, writeStoryDraft } from '@/lib/nostr/story'
+import { NEW_STORY_DRAFT_KEY, readStoryDraft, writeStoryDraft } from '@/lib/nostr/story'
+import {
+	parseMapPresentation,
+	parseStoryMarkdown,
+	reduceStoryMarkdownViews,
+	stringifyMapPresentation,
+	stringifyStoryViewMarkdownBlock,
+	type MapPresentationV1,
+	type StoryViewBlockV1,
+} from '@/lib/map-presentation'
 import {
 	clearStoryEditorTarget,
 	getStoryEditorTarget,
@@ -26,9 +35,11 @@ import {
 	confirmStoryTarget,
 	getStoryTargetRequest,
 } from '@/features/chat/storyTargeting'
-import type { ToolEntry } from './registry'
+import { advertise, registry, type ToolEntry } from './registry'
 import { registerStoryTools, resetStoryDraftOwnership } from './story-tools'
 import type { ToolExecutionContext } from './types'
+import { executeToolCall } from './execute'
+import { releaseToolExecutionRun } from './executionTarget'
 
 // readScopedStorage/writeScopedStorage no-op without a window — give the tools a
 // map-backed localStorage so draft round-trips are observable.
@@ -48,6 +59,34 @@ let previousWindow: unknown
 
 const tools = new Map<string, ToolEntry>()
 registerStoryTools((entry) => tools.set(entry.name, entry))
+
+const FOREIGN_MAP_PUBKEY = 'a'.repeat(64)
+const FOREIGN_MAP_SOURCE = `37515:${FOREIGN_MAP_PUBKEY}:foreign-map` as const
+const FOREIGN_MAP_MENTION = `nostr:${nip19.naddrEncode({ kind: 37515, pubkey: FOREIGN_MAP_PUBKEY, identifier: 'foreign-map' })}`
+const opening: MapPresentationV1 = {
+	version: 1,
+	initialView: { center: [2.3, 48.8], zoom: 6 },
+	layers: [
+		{
+			id: 'battle-sites',
+			source: FOREIGN_MAP_SOURCE,
+			featureIds: ['relation/62504'],
+			visible: true,
+			opacityMultiplier: 1,
+			style: { color: '#456' },
+		},
+	],
+}
+const cue: StoryViewBlockV1 = {
+	version: 1,
+	type: 'view',
+	id: 'first-cue',
+	title: 'First battle',
+	display: 'cue',
+	camera: { center: [2.4, 49], zoom: 9 },
+	layers: { 'battle-sites': { opacityMultiplier: 0.6, style: { strokeWidth: 3 } } },
+}
+const viewFence = (value: unknown) => `\`\`\`earthly-view\n${JSON.stringify(value)}\n\`\`\``
 
 const call = (name: string, args: Record<string, unknown> = {}, context?: ToolExecutionContext) => {
 	const entry = tools.get(name)
@@ -167,6 +206,129 @@ describe('story draft tools', () => {
 	it('registers both tools', () => {
 		expect(tools.has('read_story_draft')).toBe(true)
 		expect(tools.has('write_story_draft')).toBe(true)
+	})
+
+	it('dispatches advertised Story presentation tools with bound approval and serialized results', async () => {
+		// Use production registration/JSON argument parsing/execution, not the
+		// direct handler Map used by the smaller authoring tests below.
+		expect(registry.get('write_story_draft')?.kind).toBe('host-builtin')
+		expect(
+			advertise().find((tool) => tool.function.name === 'write_story_draft')?.function.parameters
+				.properties.presentation,
+		).toMatchObject({
+			type: 'object',
+			required: ['version', 'layers'],
+		})
+		const context: ToolExecutionContext = {
+			toolCallId: 'stale-context-id-must-not-own-approval',
+			run: {
+				runId: 901,
+				chatId: 'story-dispatch-thread',
+				startedAt: 1,
+				target: {
+					entityType: 'story',
+					draftId: NEW_STORY_DRAFT_KEY,
+					entityId: null,
+					sourceId: null,
+					baseRevisionId: null,
+					draftUpdatedAt: null,
+					wasDirty: false,
+					workspaceId: null,
+				},
+			},
+		}
+		const markdown = `${FOREIGN_MAP_MENTION}#relation%2F62504\n\n${viewFence(cue)}`
+		const mapDraftsBefore = useEditorStore.getState().geoEditDrafts
+		try {
+			const writing = executeToolCall(
+				{
+					id: 'dispatch-write-story-view',
+					type: 'function',
+					function: {
+						name: 'write_story_draft',
+						arguments: JSON.stringify({
+							title: 'Dispatched Story',
+							markdown,
+							presentation: opening,
+						}),
+					},
+				},
+				context,
+			)
+			await Promise.resolve()
+			const request = getStoryTargetRequest()
+			expect(request).toMatchObject({
+				chatId: 'story-dispatch-thread',
+				toolCallId: 'dispatch-write-story-view',
+				status: 'awaiting-confirmation',
+			})
+			expect(readStoryDraft(NEW_STORY_DRAFT_KEY)).toBeNull()
+			if (!request) throw new Error('Expected the real Story target approval')
+			confirmStoryTarget(request.id)
+			const writeResult = await writing
+			expect(writeResult).toMatchObject({ role: 'tool', tool_call_id: 'dispatch-write-story-view' })
+			expect(JSON.parse(writeResult.content)).toMatchObject({
+				ok: true,
+				draftKey: NEW_STORY_DRAFT_KEY,
+				mode: 'create',
+				stats: { viewBlockCount: 1 },
+			})
+			expect(readStoryDraft(NEW_STORY_DRAFT_KEY)).toMatchObject({
+				content: markdown,
+				presentation: opening,
+			})
+
+			const readResult = await executeToolCall(
+				{
+					id: 'dispatch-read-story-view',
+					type: 'function',
+					function: { name: 'read_story_draft', arguments: '{}' },
+				},
+				context,
+			)
+			expect(readResult).toMatchObject({ role: 'tool', tool_call_id: 'dispatch-read-story-view' })
+			expect(JSON.parse(readResult.content)).toMatchObject({
+				ok: true,
+				draft: {
+					markdown,
+					presentation: opening,
+					mapAuthoring: { viewBlocks: [{ id: cue.id, display: 'cue' }] },
+				},
+			})
+
+			const persisted = readStoryDraft(NEW_STORY_DRAFT_KEY)
+			const failedResult = await executeToolCall(
+				{
+					id: 'dispatch-invalid-story-view',
+					type: 'function',
+					function: {
+						name: 'write_story_draft',
+						arguments: JSON.stringify({
+							title: 'Invalid',
+							markdown: `${FOREIGN_MAP_MENTION}\n\n${viewFence({ ...cue, layers: { 'battle-sites': { featureIds: ['other'] } } })}`,
+						}),
+					},
+				},
+				context,
+			)
+			expect(failedResult).toMatchObject({
+				role: 'tool',
+				tool_call_id: 'dispatch-invalid-story-view',
+			})
+			expect(JSON.parse(failedResult.content)).toMatchObject({
+				ok: false,
+				toolName: 'write_story_draft',
+				code: 'tool_handler_error',
+				sideEffectsApplied: false,
+				message: expect.stringContaining('unsupported fields: featureIds'),
+			})
+			expect(readStoryDraft(NEW_STORY_DRAFT_KEY)).toEqual(persisted)
+			expect(useEditorStore.getState().geoEditDrafts).toBe(mapDraftsBefore)
+			expect(getReferencePublishRequest()).toBeNull()
+		} finally {
+			clearStoryTargetRequests()
+			releaseToolExecutionRun(context.run?.runId)
+		}
 	})
 
 	it('reads an empty draft slot', async () => {
@@ -407,6 +569,236 @@ describe('story draft tools', () => {
 		).rejects.toThrow(/confirm/i)
 	})
 
+	it('writes opening layers and cue/figure/both fences atomically into the actual Story draft', async () => {
+		const figure: StoryViewBlockV1 = {
+			...cue,
+			id: 'inline-detail',
+			display: 'figure',
+			camera: { center: [3, 50], zoom: 12 },
+			layers: { 'battle-sites': { opacityMultiplier: 0.2 } },
+		}
+		const both: StoryViewBlockV1 = {
+			...cue,
+			id: 'later-cue',
+			display: 'both',
+			camera: undefined,
+			layers: { 'battle-sites': { style: { color: '#c44' } } },
+		}
+		const markdown = [
+			`Only this foreign feature: ${FOREIGN_MAP_MENTION}#relation%2F62504`,
+			stringifyStoryViewMarkdownBlock(cue),
+			'An inline detail follows.',
+			stringifyStoryViewMarkdownBlock(figure),
+			'Return to the cumulative main view.',
+			stringifyStoryViewMarkdownBlock(both),
+		].join('\n\n')
+		await expect(
+			call('write_story_draft', { title: 'Battle Story', markdown, presentation: opening }),
+		).resolves.toMatchObject({ ok: true, stats: { viewBlockCount: 3 } })
+		const saved = readStoryDraft(NEW_STORY_DRAFT_KEY)
+		expect(saved?.content).toBe(markdown)
+		expect(saved?.presentation).toEqual(opening)
+		const parsed = parseMapPresentation(JSON.parse(stringifyMapPresentation(saved?.presentation)))
+		expect(parsed.status).toBe('valid')
+		if (parsed.status !== 'valid') throw new Error('Expected usable presentation')
+		const reduced = reduceStoryMarkdownViews(parsed.value, saved?.content ?? '')
+		expect(reduced.issues).toEqual([])
+		expect(reduced.snapshots[0]?.state.layers[0]).toMatchObject({
+			opacityMultiplier: 0.6,
+			style: { color: '#456', strokeWidth: 3 },
+		})
+		expect(reduced.snapshots[1]?.state.layers[0]?.opacityMultiplier).toBe(0.2)
+		expect(reduced.snapshots[2]?.state).toMatchObject({
+			camera: cue.camera,
+			layers: [{ opacityMultiplier: 0.6, style: { color: '#c44', strokeWidth: 3 } }],
+		})
+		await expect(call('read_story_draft')).resolves.toMatchObject({
+			draft: {
+				mapAuthoring: {
+					presentationStatus: 'valid',
+					openingLayerIds: ['battle-sites'],
+					viewBlocks: [
+						{ id: cue.id, display: 'cue' },
+						{ id: figure.id, display: 'figure' },
+						{ id: both.id, display: 'both' },
+					],
+				},
+			},
+		})
+		expect(getReferencePublishRequest()).toBeNull()
+	})
+
+	it('updates a physical view in place and preserves the omitted opening presentation', async () => {
+		const before = `${FOREIGN_MAP_MENTION}\n\nBefore.\n\n${viewFence(cue)}\n\nAfter.`
+		await call('write_story_draft', { title: 'Map Story', markdown: before, presentation: opening })
+		const changedCue = {
+			...cue,
+			title: 'Closer battle view',
+			camera: { center: [2.5, 49], zoom: 10 },
+		}
+		const after = before.replace(viewFence(cue), viewFence(changedCue))
+		await call('write_story_draft', { title: 'Map Story', markdown: after })
+		const saved = readStoryDraft(NEW_STORY_DRAFT_KEY)
+		expect(saved?.presentation).toEqual(opening)
+		expect(saved?.content).toBe(after)
+		expect(parseStoryMarkdown(saved?.content).views[0]?.result).toMatchObject({
+			status: 'valid',
+			value: { id: cue.id, title: changedCue.title, camera: changedCue.camera },
+		})
+	})
+
+	it('preserves untouched future fences byte-for-byte, including opaque reference-like text', async () => {
+		const opaqueFence = viewFence({
+			version: 12,
+			type: 'view',
+			reference: `${FOREIGN_MAP_MENTION}#relation/62504`,
+		})
+		const futurePresentation = { version: 12, futureLayers: ['opaque'] }
+		writeStoryDraft(NEW_STORY_DRAFT_KEY, {
+			title: 'Future Story',
+			content: `Old prose.\n\n${opaqueFence}`,
+			presentation: futurePresentation,
+		})
+		await call('read_story_draft')
+		await call(
+			'write_story_draft',
+			{ title: 'Future Story', markdown: `New prose.\n\n${opaqueFence}`, overwrite: true },
+			{ userMessage: 'Please overwrite the prose in this draft.' },
+		)
+		expect(readStoryDraft(NEW_STORY_DRAFT_KEY)).toMatchObject({
+			content: `New prose.\n\n${opaqueFence}`,
+			presentation: futurePresentation,
+		})
+		await call('write_story_draft', {
+			title: 'Future Story',
+			markdown: `New prose.\n\n${opaqueFence}\n\nMore prose after the unchanged fence.`,
+		})
+		expect(readStoryDraft(NEW_STORY_DRAFT_KEY)?.content).toContain(opaqueFence)
+	})
+
+	it('does not strip uninterpreted opening fields during an unrelated prose edit', async () => {
+		const presentation = { ...opening, extension: { keep: 'opaque' } }
+		writeStoryDraft(NEW_STORY_DRAFT_KEY, {
+			title: 'Existing Story',
+			content: FOREIGN_MAP_MENTION,
+			presentation,
+		})
+		await call('read_story_draft')
+		await call(
+			'write_story_draft',
+			{
+				title: 'Existing Story',
+				markdown: `${FOREIGN_MAP_MENTION}\n\nMore context.`,
+				overwrite: true,
+			},
+			{ userMessage: 'Please overwrite the prose in this draft.' },
+		)
+		expect(readStoryDraft(NEW_STORY_DRAFT_KEY)?.presentation).toEqual(presentation)
+	})
+
+	it.each([
+		[
+			'feature-only reference cannot authorize a whole Map',
+			`${FOREIGN_MAP_MENTION}#relation%2F62504`,
+			{
+				...opening,
+				layers: [
+					{ id: 'battle-sites', source: FOREIGN_MAP_SOURCE, visible: true, opacityMultiplier: 1 },
+				],
+			},
+			/whole Map/,
+		],
+		[
+			'feature selectors cannot exceed body authorization',
+			`${FOREIGN_MAP_MENTION}#relation%2F62504`,
+			{ ...opening, layers: [{ ...opening.layers[0], featureIds: ['another-feature'] }] },
+			/not mentioned/,
+		],
+		[
+			'a code example cannot authorize a source',
+			`\`${FOREIGN_MAP_MENTION}\``,
+			opening,
+			/mentioned in the Story body/,
+		],
+		[
+			'a source embedded only in a view is not authorization',
+			viewFence(cue),
+			opening,
+			/mentioned in the Story body/,
+		],
+		[
+			'invalid camera values are not silently dropped',
+			FOREIGN_MAP_MENTION,
+			{ ...opening, initialView: { center: [2, 49], zoom: 90 } },
+			/valid MapPresentationV1/,
+		],
+		[
+			'legacy scenes are not accepted as opening presentation',
+			FOREIGN_MAP_MENTION,
+			{ ...opening, scenes: [] },
+			/unsupported fields: scenes/,
+		],
+	] as const)('rejects %s without saving any draft', async (_name, markdown, presentation, message) => {
+		await expect(
+			call('write_story_draft', { title: 'Invalid', markdown, presentation }),
+		).rejects.toThrow(message)
+		expect(readStoryDraft(NEW_STORY_DRAFT_KEY)).toBeNull()
+	})
+
+	it.each([
+		[
+			'source retargeting',
+			{ ...cue, layers: { 'battle-sites': { source: FOREIGN_MAP_SOURCE } } },
+			/unsupported fields: source/,
+		],
+		[
+			'selector retargeting',
+			{ ...cue, layers: { 'battle-sites': { featureIds: ['other'] } } },
+			/unsupported fields: featureIds/,
+		],
+		[
+			'unknown ambient layer',
+			{ ...cue, layers: { ambient: { visible: true } } },
+			/unknown opening layer 'ambient'/,
+		],
+		[
+			'invalid style',
+			{ ...cue, layers: { 'battle-sites': { style: { opacity: 0.5 } } } },
+			/valid StoryViewBlockV1/,
+		],
+		['future view intent', { ...cue, version: 12 }, /valid StoryViewBlockV1/],
+	] as const)('rejects new %s while preserving the previous Story draft', async (_name, view, message) => {
+		await call('write_story_draft', {
+			title: 'Good',
+			markdown: FOREIGN_MAP_MENTION,
+			presentation: opening,
+		})
+		const previous = readStoryDraft(NEW_STORY_DRAFT_KEY)
+		await expect(
+			call('write_story_draft', {
+				title: 'Bad',
+				markdown: `${FOREIGN_MAP_MENTION}\n\n${viewFence(view)}`,
+			}),
+		).rejects.toThrow(message)
+		expect(readStoryDraft(NEW_STORY_DRAFT_KEY)).toEqual(previous)
+	})
+
+	it('rejects duplicate view ids and newly unclosed view fences', async () => {
+		for (const suffix of [
+			`${viewFence(cue)}\n\n${viewFence(cue)}`,
+			`\`\`\`earthly-view\n${JSON.stringify(cue)}`,
+		]) {
+			await expect(
+				call('write_story_draft', {
+					title: 'Invalid',
+					markdown: `${FOREIGN_MAP_MENTION}\n\n${suffix}`,
+					presentation: opening,
+				}),
+			).rejects.toThrow(/duplicates view id|fence is not closed/)
+			expect(readStoryDraft(NEW_STORY_DRAFT_KEY)).toBeNull()
+		}
+	})
+
 	it('surfaces the draft: a successful write fires a story-editor open request', async () => {
 		expect(getStoryEditorOpenRequest()).toBeNull()
 
@@ -457,6 +849,58 @@ describe('story draft tools', () => {
 		})
 	})
 
+	it('keeps the resolved Story target while a presentation write waits on a prerequisite', async () => {
+		const identifier = 'captured-story-view'
+		const event = finalizeEvent(
+			{
+				kind: ARTICLE_KIND,
+				created_at: Math.floor(Date.now() / 1000),
+				tags: [['d', identifier]],
+				content: JSON.stringify({
+					modelVersion: MODEL_VERSION,
+					title: 'Captured Story',
+					content: 'Published prose',
+				}),
+			},
+			generateSecretKey(),
+		)
+		eventStore.add(event)
+		const storyReference = `${ARTICLE_KIND}:${event.pubkey}:${identifier}`
+		await call('read_story_draft', { storyReference })
+		const retainedNewDraft = { title: 'Other retained draft', content: 'Do not change this.' }
+		writeStoryDraft(NEW_STORY_DRAFT_KEY, retainedNewDraft)
+		let releaseGate!: () => void
+		const gate = new Promise<void>((resolve) => {
+			releaseGate = resolve
+		})
+		let enteredGate!: () => void
+		const entered = new Promise<void>((resolve) => {
+			enteredGate = resolve
+		})
+		const gatedTools = new Map<string, ToolEntry>()
+		registerStoryTools((entry) => gatedTools.set(entry.name, entry), {
+			gateDatasetReferences: async () => {
+				enteredGate()
+				await gate
+				return { status: 'ready' }
+			},
+		})
+		const markdown = `${FOREIGN_MAP_MENTION}\n\n${viewFence(cue)}`
+		const writing = gatedTools
+			.get('write_story_draft')
+			?.handler({ storyReference, title: 'Captured Story', markdown, presentation: opening })
+		await entered
+		retainStoryEditorTarget()
+		releaseGate()
+		await expect(writing).resolves.toMatchObject({ ok: true, draftKey: identifier, mode: 'edit' })
+		expect(readStoryDraft(identifier)).toMatchObject({ content: markdown, presentation: opening })
+		expect(readStoryDraft(NEW_STORY_DRAFT_KEY)).toMatchObject(retainedNewDraft)
+		expect(getStoryEditorOpenRequest()).toMatchObject({
+			mode: 'edit',
+			story: { dTag: identifier, pubkey: event.pubkey },
+		})
+	})
+
 	it('does not fire an open request when the overwrite gate rejects the write', async () => {
 		await call('write_story_draft', { title: 'User draft', markdown: 'precious user text' })
 		resetStoryDraftOwnership()
@@ -475,6 +919,7 @@ describe('story draft tools', () => {
 			{
 				title: 'Survey story',
 				markdown: 'The survey found one important site.',
+				presentation: { version: 1, initialView: { center: [16.37, 48.2], zoom: 9 }, layers: [] },
 				referencesActiveDataset: true,
 			},
 			context,

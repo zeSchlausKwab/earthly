@@ -20,6 +20,7 @@ import { countFeaturesByGeometry } from './helpers'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '@/features/geo-editor/constants'
 import { getFeatureCallouts, type MapCallout } from '@/lib/geo/callouts'
 import { serializedFeatureCollectionBytes } from '@/lib/geo/serializedSize'
+import { STORY_PRESENTATION_PROMPT_HINT } from './story-presentation'
 
 export const mapSnapshotCache = new Map<string, CachedMapSnapshot>()
 
@@ -520,6 +521,7 @@ function createLegacyMapContextSystemMessage(
 			'Recipe — offshore offset line ("follow the coastline of X, N km out to sea"), ONE run_code call, no OSM: take the country polygon from world.get("countries_110m"), ring = turf.polygonToLine(turf.buffer(country, N, {units:"kilometers"})), split the ring into segments and keep those whose midpoint has world.isOnLand(mid) === false, then authoring.writeGeoJSON the kept segments.',
 			'Trust tool results: after a successful authoring write (a tool result with created/updated/deleted counts), do NOT re-verify with capture_map_snapshot or get_editor_state. The write result is authoritative.',
 			'To compose a long-form article/story, use write_story_draft. Omit storyReference for a new Story; pass the existing Story naddr to update it in edit mode. Use read_entity first to pull the published Story and dataset inventory. Prefer the ready-to-cite feature references returned in that inventory; coordinates use geo:latitude,longitude and OSM elements use canonical openstreetmap.org URLs. If you refine cited dataset features later in the request, refresh the same Story draft rather than stopping to ask whether it should be updated. You cannot publish — the user reviews and publishes in the Story editor.',
+			STORY_PRESENTATION_PROMPT_HINT,
 			...(sessionPublishBlock ? [sessionPublishBlock] : []),
 			`Current map state JSON:\n${JSON.stringify(compact)}`,
 		].join('\n\n'),
@@ -596,6 +598,7 @@ function createCompactMapContextSystemMessage(
 			...(hasStoryTools
 				? [
 						'STORIES — read the published Story or local draft before updating it, preserve existing content unless replacement is explicit, and use canonical encoded Nostr feature references. Warn when cited dataset edits are still unpublished.',
+						STORY_PRESENTATION_PROMPT_HINT,
 					]
 				: []),
 			...(sessionPublishBlock ? [sessionPublishBlock] : []),

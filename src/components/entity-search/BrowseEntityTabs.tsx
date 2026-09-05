@@ -75,7 +75,7 @@ export function BrowseEntityTabs({
 			<div
 				role="tablist"
 				aria-label="Browse"
-				className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto"
+				className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto [scrollbar-width:thin]"
 			>
 				{tabs.map((tab) => {
 					const Icon = tab.icon
@@ -90,7 +90,7 @@ export function BrowseEntityTabs({
 							aria-controls={`browse-${tab.kind}-panel`}
 							onClick={() => onKindChange(tab.kind)}
 							className={cn(
-								'relative inline-flex h-8 shrink-0 items-center gap-1.5 px-2 text-[11px] font-medium transition-colors',
+								'relative inline-flex h-11 shrink-0 items-center gap-1.5 px-2 text-xs font-medium transition-colors md:h-8 md:text-[11px]',
 								'after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:scale-x-0 after:bg-primary after:transition-transform',
 								active
 									? 'text-foreground after:scale-x-100'
@@ -111,7 +111,7 @@ export function BrowseEntityTabs({
 					type="button"
 					variant="ghost"
 					size="sm"
-					className="mb-0.5 h-7 shrink-0 rounded-sm px-2 text-[11px]"
+					className="mb-0.5 h-11 min-w-11 shrink-0 rounded-sm px-2 text-[11px] md:h-7 md:min-w-0"
 					onClick={() => onCreate(createKind)}
 					aria-label={createLabel ?? CREATE_LABELS[createKind]}
 				>

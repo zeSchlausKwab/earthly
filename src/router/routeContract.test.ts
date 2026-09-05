@@ -7,6 +7,18 @@ import {
 } from './routeContract'
 
 describe('Earthly route state', () => {
+	test('distinguishes an explicit Browse catalog from the bare phone map', () => {
+		expect(parseEarthlyRoute('/').browseOpen).toBeUndefined()
+		for (const kind of ['maps', 'stories', 'atlases', 'sightings', 'people']) {
+			expect(parseEarthlyRoute(`/browse/${kind}`)).toMatchObject({
+				kind: 'browse',
+				browseKind: kind,
+				browseOpen: true,
+			})
+		}
+		expect(parseEarthlyRoute('/in/atlas').browseOpen).toBe(true)
+	})
+
 	test('parses the new object, edit, tab, and ambient grammar', () => {
 		expect(
 			parseEarthlyRoute('/story/naddr1story/edit', {

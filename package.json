@@ -22,6 +22,7 @@
     "tauri:frontend": "bun --hot src/index.ts --host 0.0.0.0",
     "dev": "./scripts/dev-clean.sh",
     "seed": "bun run scripts/seed.ts",
+    "seed:ww1": "bun run scripts/seed-ww1.ts",
     "seed:entities": "bun run scripts/seed.ts full",
     "seed:sightings": "bun run scripts/seed.ts sightings",
     "relay": "cd relay && go run . --port 3334",

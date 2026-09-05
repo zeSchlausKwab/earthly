@@ -1,7 +1,6 @@
 import { mergeAttributes, Node } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from '@tiptap/react'
 import {
-	Camera,
 	ExternalLink,
 	Eye,
 	EyeOff,
@@ -12,9 +11,7 @@ import {
 	Map as MapIcon,
 	MapPin,
 	Maximize2,
-	Play,
 	Shapes,
-	Trash2,
 } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { useState } from 'react'
@@ -36,6 +33,8 @@ import {
 } from '@/lib/map-presentation'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+import { StoryViewBlockEditor } from './StoryViewBlockEditor'
+import { getStoryViewMoveTarget, moveStoryView } from './storyViewEditing'
 
 export interface GeoMentionAttrs {
 	/** Bare naddr1..., geo: URI, or canonical OpenStreetMap URL. */
@@ -243,7 +242,7 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
  * TipTap extension for geo mentions.
  * Renders as inline chips with visibility/zoom/delete controls.
  */
-export const GeoMentionNode = Node.create<GeoMentionNodeOptions>({
+export const GeoMentionNode = /* @__PURE__ */ Node.create<GeoMentionNodeOptions>({
 	name: 'geoMention',
 	group: 'inline',
 	inline: true,
@@ -324,27 +323,14 @@ function readStoryViewAttr(value: unknown): StoryViewBlockV1 | null {
 	}
 }
 
-function StoryViewNodeView({ node, deleteNode, editor, updateAttributes }: NodeViewProps) {
+function StoryViewNodeView({ node, deleteNode, editor, updateAttributes, getPos }: NodeViewProps) {
 	const view = readStoryViewAttr(node.attrs.value)
 	if (!view) return null
 	const extension = editor.extensionManager.extensions.find((entry) => entry.name === 'storyView')
 	const callbacks = (extension?.storage?.callbacks ?? extension?.options?.callbacks) as
 		| StoryViewNodeCallbacks
 		| undefined
-	const updateView = (patch: Partial<StoryViewBlockV1>) => {
-		const candidate = { ...view, ...patch }
-		const parsed = parseStoryViewBlock(candidate)
-		if (parsed.status !== 'valid') return
-		updateAttributes({ value: stringifyStoryViewBlock(parsed.value) })
-	}
-	const updateCaption = (caption: string) => {
-		const { caption: _caption, ...withoutCaption } = view
-		const candidate = caption.trim() ? { ...withoutCaption, caption } : withoutCaption
-		const parsed = parseStoryViewBlock(candidate)
-		if (parsed.status !== 'valid') return
-		updateAttributes({ value: stringifyStoryViewBlock(parsed.value) })
-	}
-	const layerPatchCount = Object.keys(view.layers ?? {}).length
+	const position = getPos()
 
 	return (
 		<NodeViewWrapper
@@ -353,116 +339,32 @@ function StoryViewNodeView({ node, deleteNode, editor, updateAttributes }: NodeV
 			data-story-view=""
 			contentEditable={false}
 		>
-			<div className="flex items-start gap-2">
-				<div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center border border-primary/30 bg-background text-primary">
-					<MapIcon className="h-4 w-4" />
-				</div>
-				<div className="min-w-0 flex-1 space-y-2">
-					<div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem]">
-						<label className="space-y-1">
-							<span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-								View title
-							</span>
-							<input
-								value={view.title}
-								disabled={!editor.isEditable}
-								onChange={(event) => updateView({ title: event.target.value || 'Untitled view' })}
-								className="h-8 w-full border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-70"
-							/>
-						</label>
-						<label className="space-y-1">
-							<span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-								Display
-							</span>
-							<select
-								value={view.display}
-								disabled={!editor.isEditable}
-								onChange={(event) =>
-									updateView({ display: event.target.value as StoryViewBlockV1['display'] })
-								}
-								className="h-8 w-full border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-70"
-							>
-								<option value="cue">Main map</option>
-								<option value="figure">Figure</option>
-								<option value="both">Both</option>
-							</select>
-						</label>
-					</div>
-					<label className="space-y-1">
-						<span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-							Caption
-						</span>
-						<input
-							value={view.caption ?? ''}
-							disabled={!editor.isEditable}
-							onChange={(event) => updateCaption(event.target.value)}
-							placeholder="Optional figure caption"
-							className="h-8 w-full border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-70"
-						/>
-					</label>
-					<div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
-						<span className="inline-flex items-center gap-1">
-							<Camera className="h-3 w-3" />
-							{view.camera ? `Zoom ${view.camera.zoom.toFixed(1)}` : 'Camera inherited'}
-						</span>
-						<span className="inline-flex items-center gap-1">
-							<Layers3 className="h-3 w-3" />
-							{layerPatchCount} layer change{layerPatchCount === 1 ? '' : 's'}
-						</span>
-					</div>
-					<div className="flex flex-wrap items-center gap-2">
-						{callbacks?.onCapture && editor.isEditable && (
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								className="h-7 gap-1 rounded-none px-2 text-[10px]"
-								onClick={() => {
-									const captured = callbacks.onCapture?.()
-									if (!captured) return
-									updateView({
-										...(captured.camera ? { camera: captured.camera } : {}),
-										...(captured.layers ? { layers: captured.layers } : {}),
-									})
-								}}
-							>
-								<Camera className="h-3 w-3" />
-								Capture current map
-							</Button>
-						)}
-						{callbacks?.onActivate && (
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								className="h-7 gap-1 rounded-none px-2 text-[10px]"
-								onClick={() => callbacks.onActivate?.(view)}
-							>
-								<Play className="h-3 w-3" />
-								Apply view
-							</Button>
-						)}
-					</div>
-				</div>
-				{editor.isEditable && (
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						className="h-7 w-7 flex-shrink-0 rounded-none text-muted-foreground hover:text-destructive"
-						onClick={deleteNode}
-						aria-label="Remove Story view"
-					>
-						<Trash2 className="h-3.5 w-3.5" />
-					</Button>
-				)}
-			</div>
+			<StoryViewBlockEditor
+				view={view}
+				editable={editor.isEditable}
+				onChange={(next) => updateAttributes({ value: stringifyStoryViewBlock(next) })}
+				onCapture={callbacks?.onCapture}
+				onActivate={callbacks?.onActivate}
+				onRemove={deleteNode}
+				canMoveUp={
+					position !== undefined && getStoryViewMoveTarget(editor.state.doc, position, -1) !== null
+				}
+				canMoveDown={
+					position !== undefined && getStoryViewMoveTarget(editor.state.doc, position, 1) !== null
+				}
+				onMove={(direction) => {
+					const currentPosition = getPos()
+					if (currentPosition === undefined) return
+					const transaction = moveStoryView(editor.state.tr, currentPosition, direction)
+					if (transaction) editor.view.dispatch(transaction)
+				}}
+			/>
 		</NodeViewWrapper>
 	)
 }
 
 /** Physical block node for canonical fenced `earthly-view` JSON. */
-export const StoryViewNode = Node.create<StoryViewNodeOptions>({
+export const StoryViewNode = /* @__PURE__ */ Node.create<StoryViewNodeOptions>({
 	name: 'storyView',
 	group: 'block',
 	atom: true,

@@ -7,6 +7,8 @@
  */
 
 import type { ReactNode, RefObject } from 'react'
+import { ObjectThreadBesideContext } from '../../../components/info-panel/ObjectThreadPlacement.tsx'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '../store'
 import { CanvasFrame, ShellFrame } from './margin-shell'
 
@@ -64,6 +66,7 @@ export function StudioShell({
 	const storedThreadDock = useEditorStore((state) => state.chatDock)
 	const threadOpen = threadOpenOverride ?? storedThreadOpen
 	const threadDock = storedThreadDock
+	const compact = useIsMobile(1100)
 
 	return (
 		<ShellFrame
@@ -71,7 +74,7 @@ export function StudioShell({
 			translucent={translucent}
 			topBar={topBar}
 			banners={banners}
-			margin={sidebar}
+			margin={<ObjectThreadBesideContext.Provider value={threadOpen && threadDock === 'right' && !compact}>{sidebar}</ObjectThreadBesideContext.Provider>}
 			thread={thread ?? chat}
 			threadOpen={threadOpen}
 			threadDock={threadDock}

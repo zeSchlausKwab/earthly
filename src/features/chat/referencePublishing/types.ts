@@ -2,6 +2,10 @@ import type { FeatureCollection } from 'geojson'
 import type { NostrEvent } from 'nostr-tools'
 import type { GeoBlobReference } from '@/lib/nostr/geo-event'
 import type { PublishChannel } from '@/features/geo-editor/store'
+import type {
+	MapAuthoringIntent,
+	MapDraftSource,
+} from '@/components/info-panel/mapProposalPresentation'
 
 /** Identity captured when a tool asks to publish before creating a reference. */
 export interface ReferencePublishBinding {
@@ -22,6 +26,8 @@ export interface ReferencePublishBinding {
  */
 export interface CapturedDatasetPublication {
 	binding: ReferencePublishBinding
+	authoringIntent?: MapAuthoringIntent
+	sourceDataset?: MapDraftSource
 	title: string
 	publishChannel: PublishChannel
 	featureCollection: FeatureCollection

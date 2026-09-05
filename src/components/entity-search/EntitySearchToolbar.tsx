@@ -10,7 +10,12 @@ import {
 	RadioTower,
 	UserRound,
 	X,
+	SlidersHorizontal,
 } from 'lucide-react'
+import { useContext } from 'react'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
+import { ListOptionsContext } from '@/components/entity-list/ListOptionsContext.ts'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
 	LIMIT_OPTIONS,
 	type FilterActions,
@@ -63,6 +68,9 @@ export function EntitySearchToolbar({
 	placeholder,
 }: EntitySearchToolbarProps) {
 	const sortValue = `${sortConfig.field}-${sortConfig.direction}` as const
+	const mobile = useIsMobile()
+	const options = useContext(ListOptionsContext)
+	const activeCount = options.activeCount + Number(sortValue !== 'recency-desc') + Number(Boolean(searchQuery))
 
 	const handleSortChange = (value: string) => {
 		const [field, direction] = value.split('-') as [SortField, SortDirection]
@@ -77,9 +85,23 @@ export function EntitySearchToolbar({
 				placeholder={placeholder}
 				compact
 				className="flex-1 min-w-0"
+				inputClassName="min-h-11 md:min-h-0"
 			/>
+			{mobile ? <Popover>
+				<PopoverTrigger asChild><Button variant="outline" className="h-11 shrink-0 px-3" aria-label={`Filters${activeCount ? ` (${activeCount} active)` : ''}`}><SlidersHorizontal className="size-4" />Filters{activeCount ? ` · ${activeCount}` : ''}</Button></PopoverTrigger>
+				<PopoverContent align="end" className="z-[80] w-[min(340px,calc(100vw-24px))] space-y-3">
+					<div className="flex flex-wrap items-center gap-2 [&_button]:min-h-11 [&_button]:min-w-11">{options.controls}</div>
+					<label className="flex items-center justify-between gap-3 text-sm">Sort
+						<select aria-label="Sort results" value={sortValue} onChange={e => handleSortChange(e.target.value)} className="h-11 min-w-36 border border-border bg-background px-2">{SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+					</label>
+					<label className="flex items-center justify-between gap-3 text-sm">Results
+						<select aria-label="Number of results" value={displayLimit} onChange={e => setDisplayLimit(Number(e.target.value))} className="h-11 min-w-36 border border-border bg-background px-2">{LIMIT_OPTIONS.map(limit => <option key={limit} value={limit}>Show {limit}</option>)}</select>
+					</label>
+					<p className="text-xs text-muted-foreground">{displayedCount} of {filteredCount} matching results</p>
+				</PopoverContent>
+			</Popover> : <>
 			<Select value={sortValue} onValueChange={handleSortChange}>
-				<SelectTrigger size="sm" className="w-[75px] h-7 text-xs">
+				<SelectTrigger size="sm" aria-label="Sort results" className="w-[110px] h-7 text-xs">
 					<SelectValue placeholder="Sort" />
 				</SelectTrigger>
 				<SelectContent>
@@ -109,6 +131,7 @@ export function EntitySearchToolbar({
 				{displayedCount}/{filteredCount}
 				{filteredCount !== totalCount && ` (${totalCount})`}
 			</span>
+			</>}
 		</div>
 	)
 }
