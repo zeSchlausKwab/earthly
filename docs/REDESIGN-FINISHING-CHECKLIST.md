@@ -48,6 +48,16 @@ Implementation follows the September 5 UX/startup audit. This is one full migrat
 - Verification: **17 browser checks passed, 7 viewport skips**, covering Settings import, Profile scrolling, Browse/Me, mobile drawing sheets, draft retention, and separate route-bound Threads. Nine focused unit tests, AI-suite typecheck and a production build passed. Full repository typing remains at the unchanged **432-diagnostic** baseline.
 - Verified against the already-running server on port 3000 using isolated browser storage and a deterministic provider. No relay reset, reseeding, real API credentials, or paid model calls.
 
+## Publishing feedback and Thread placement — September 5
+
+- Map publish errors (including guard/signing/delivery failures) now produce a ten-second error toast as well as the retained inline error. Story and Atlas publishing failures also toast with the actual reason and the matching retry action. Repeated attempts update one notification instead of stacking duplicates.
+- The web publisher now checks relay acknowledgements: a resolved request containing only rejected/error responses is not success. Failed events are not inserted into the local published catalog. One accepted relay is sufficient; explicit relay-management calls still return individual results, and native durable-outbox enqueue/delivery behavior is unchanged.
+- At desktop widths of 1100px and above, the panel icon in the Thread header moves the same mounted conversation to the left panel or right column. The covered left panel becomes inert. Closing restores the object/editor; moving preserves the composer, target, messages, and active run. The toolbar's Move action does not close a left Thread. Compact layouts keep a single Thread panel and omit an unavailable right-column action.
+- The existing desktop toolbar and icons remain in use. Controls wrap within the available canvas width rather than clipping Audience/Publish/Thread. Map navigation reserves the measured toolbar height, and portaled search results follow panel-induced reflow.
+- Final new browser regression: **10 passed, 2 desktop-only skips**. Includes Map relay rejection followed by acknowledged retry, signing failures for Map/Story/Atlas on both viewports, a single AI request continuing across docking, close/reopen retention, and full control hit-testing at 1024/1100/1280/1440/1920px widths.
+- Across the associated existing/new scenarios, **26 distinct browser checks passed**, with 8 intentional viewport skips. Two old small-window selectors were updated for the compact Thread label; one mobile provider-readiness timeout passed on an isolated rerun (no provider implementation changes). The final new regression batch was clean. **23 unit tests**, AI-suite typecheck, and a fresh production build passed. Repository-wide TypeScript still reports the same **432 diagnostic headers** after normalizing line numbers; the broader type gate remains open.
+- Tests used isolated browser storage and a deterministic provider on the already-running port 3000 server. Relay rejection/retry was intercepted in the test browser; no relay reset, reseeding, external publication, or paid AI calls.
+
 ## Saved commits
 
 - `0ef42e6`: progressive map rendering and basemap recovery.

@@ -11,9 +11,8 @@ export const TOOLBAR_MENU_PRIORITY = ['draw', 'edit'] as const
 export type ResponsiveToolbarMenu = (typeof TOOLBAR_MENU_PRIORITY)[number]
 
 /**
- * Approximate pixel widths of each menu when expanded inline. Slightly
- * UNDER-estimated so we expand readily — the parent has `overflow-x-auto`
- * as a safety net for the rare case we miscount.
+ * Width budgets for inline menus. The parent wraps at narrow canvas widths;
+ * leave room for the completion controls before expanding editing tools.
  */
 const EXPANDED_WIDTH: Record<ResponsiveToolbarMenu, number> = {
 	// Draw inline = 2 select buttons + 4 draw mode buttons (OSM moved out).

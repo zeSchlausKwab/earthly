@@ -717,6 +717,7 @@ export function GeoEditorView() {
 	// persisted pre-cutover flag once so an old profile cannot resurrect the
 	// retired unbound chat panel.
 	const setChatOpen = useEditorStore((state) => state.setChatOpen)
+	const compactThreadLayout = useIsMobile(1100)
 	useEffect(() => {
 		setChatOpen(false)
 	}, [setChatOpen])
@@ -725,6 +726,16 @@ export function GeoEditorView() {
 		// and the read-only Ask concierge. Retire any legacy unbound-panel state as
 		// soon as the retained toolbar is used.
 		setChatOpen(false)
+		// The toolbar button explicitly opens/moves to the right. Moving an open
+		// left Thread must not toggle its route closed or recreate its session.
+		if (!compactThreadLayout) {
+			const state = useEditorStore.getState()
+			if (routedThreadOpen && state.chatDock === 'left') {
+				state.setChatDock('right')
+				return
+			}
+			if (!routedThreadOpen) state.setChatDock('right')
+		}
 		if (route.focusType !== 'none') {
 			navigateToTab(route.tab === 'thread' ? 'details' : 'thread')
 			return
@@ -735,6 +746,8 @@ export function GeoEditorView() {
 		}
 		navigateToView(routedAskOpen ? 'datasets' : 'chat')
 	}, [
+		compactThreadLayout,
+		routedThreadOpen,
 		draftThreadWorkspaceId,
 		navigateToTab,
 		navigateToView,

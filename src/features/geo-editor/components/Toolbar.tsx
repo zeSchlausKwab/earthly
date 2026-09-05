@@ -52,6 +52,7 @@ import {
 } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { createPortal } from 'react-dom'
 import { useChatActivity } from '@/features/chat/activity.ts'
 import { Button } from '@/components/ui/button'
@@ -395,8 +396,17 @@ export function Toolbar({
 	const inspectorActive = useEditorStore((state) => state.inspectorActive)
 	const setInspectorActive = useEditorStore((state) => state.setInspectorActive)
 	const chatDock = useEditorStore((state) => state.chatDock)
-	const toggleChatAtDock = useEditorStore((state) => state.toggleChatAtDock)
 	const chatWorking = useChatActivity().runningChatId !== null
+	const compactThreadLayout = useIsMobile(1100)
+	const threadToggleLabel =
+		chatOpen && (chatDock === 'right' || compactThreadLayout)
+			? 'Hide Thread'
+			: chatOpen
+				? 'Move Thread to the right'
+				: chatWorking
+					? `Thread is working; show it${compactThreadLayout ? '' : ' on the right'}`
+					: `Show Thread${compactThreadLayout ? '' : ' on the right'}`
+	const toggleChatAtDock = useEditorStore((state) => state.toggleChatAtDock)
 	const showMapSettings = useEditorStore((state) => state.showMapSettings)
 	const setShowMapSettings = useEditorStore((state) => state.setShowMapSettings)
 
@@ -435,15 +445,13 @@ export function Toolbar({
 	const [numericGeometryOperation, setNumericGeometryOperation] =
 		useState<NumericGeometryOperation | null>(null)
 
-	// Search results dropdown needs to escape the toolbar's `overflow-x-auto`
-	// wrapper (CSS forces overflow-y: auto whenever overflow-x: auto, which
-	// otherwise clips the dropdown below the bar). We portal to body and
-	// position via the form's bounding rect.
+	// Keep search results outside canvas clipping and anchor them to the form,
+	// including when opening panels reflows the toolbar without a window resize.
 	const searchFormRef = useRef<HTMLFormElement | null>(null)
 	const [searchAnchorRect, setSearchAnchorRect] = useState<DOMRect | null>(null)
 
 	// Responsive toolbar — measures available width and decides which priority
-	// menus (Draw → Edit → View) expand inline vs stay as MenubarMenu dropdowns.
+	// menus (Draw → Edit) expand inline vs stay as MenubarMenu dropdowns.
 	const { containerRef: toolbarContainerRef, expanded: expandedMenus } = useResponsiveToolbar()
 
 	// Refresh the dropdown's anchor rect whenever the dropdown should be visible
@@ -459,9 +467,12 @@ export function Toolbar({
 			if (node) setSearchAnchorRect(node.getBoundingClientRect())
 		}
 		update()
+		const observer = new ResizeObserver(update)
+		if (toolbarContainerRef.current) observer.observe(toolbarContainerRef.current)
 		window.addEventListener('resize', update)
 		window.addEventListener('scroll', update, true)
 		return () => {
+			observer.disconnect()
 			window.removeEventListener('resize', update)
 			window.removeEventListener('scroll', update, true)
 		}
@@ -1194,7 +1205,8 @@ export function Toolbar({
 		/>
 	)
 
-	// The desktop toolbar is reused unchanged inside the new Canvas shell.
+	// Reflow the existing controls against the canvas, not the viewport: opening
+	// both panels must not put Publish or Thread beyond a horizontal scroll edge.
 	return (
 		<>
 			<div
@@ -1203,7 +1215,7 @@ export function Toolbar({
 			>
 				<div
 					ref={toolbarContainerRef}
-					className="flex w-full items-center gap-1 overflow-x-auto p-0"
+					className="flex w-full min-w-0 flex-wrap items-center gap-1 p-0"
 				>
 					{showSidebarTrigger ? (
 						<>
@@ -1320,8 +1332,7 @@ export function Toolbar({
 								</Button>
 							)}
 						</form>
-						{/* Search results — portaled to body so the toolbar's
-						    `overflow-x-auto` wrapper can't clip the dropdown. P2.1:
+						{/* Search results — portaled to body to escape canvas clipping. P2.1:
 						    shown for every post-submit state (loading / results /
 						    no-results / error) so the geocode never fails silently. */}
 						{showSearchDropdown &&
@@ -1473,9 +1484,7 @@ export function Toolbar({
 							onLeavePublishingScope={onLeaveDestination}
 						/>
 					) : null}
-					{/* Thread / right-column toggle — pinned to the far right,
-				    mirroring the far-left sidebar trigger, with a separator to its
-				    left signalling that it opens the right sidebar. */}
+					{/* Thread toggle follows publication, including on wrapped rows. */}
 					<Divider />
 					<Button
 						type="button"
@@ -1483,28 +1492,12 @@ export function Toolbar({
 						size="icon-sm"
 						onClick={() => (onToggleChat ? onToggleChat() : toggleChatAtDock('right'))}
 						data-tour="sidebar-chat"
-						aria-label={
-							chatOpen && chatDock === 'right'
-								? 'Hide Thread'
-								: chatWorking
-									? 'Thread is working; show it on the right'
-									: chatOpen
-										? 'Move Thread to the right'
-										: 'Show Thread on the right'
-						}
-						title={
-							chatOpen && chatDock === 'right'
-								? 'Hide Thread'
-								: chatWorking
-									? 'Thread is working; show it on the right'
-									: chatOpen
-										? 'Move Thread to the right'
-										: 'Show Thread on the right'
-						}
+						aria-label={threadToggleLabel}
+						title={threadToggleLabel}
 						className={cn(
 							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
 							chatOpen &&
-								chatDock === 'right' &&
+								(chatDock === 'right' || compactThreadLayout) &&
 								'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
 						)}
 					>

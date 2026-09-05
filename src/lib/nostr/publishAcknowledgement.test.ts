@@ -27,12 +27,17 @@ describe('web publication acknowledgement', () => {
 			ok: false,
 			message: 'blocked\nagain ' + 'x'.repeat(500),
 		}
+		let failure: unknown
 		try {
 			requirePublishAcknowledgement([response, response])
-			throw new Error('Expected rejection')
 		} catch (error) {
-			expect((error as Error).message.length).toBeLessThan(300)
-			expect((error as Error).message).not.toContain('\n')
+			failure = error
 		}
+		expect(failure).toBeInstanceOf(Error)
+		expect((failure as Error).message).toStartWith('No relay accepted this publication: blocked again ')
+		expect((failure as Error).message.length).toBeLessThan(300)
+		expect((failure as Error).message).not.toContain('\n')
+		const repeated = { ...response, message: 'blocked' }
+		expect(() => requirePublishAcknowledgement([repeated, repeated])).toThrow(/^No relay accepted this publication: blocked$/)
 	})
 })

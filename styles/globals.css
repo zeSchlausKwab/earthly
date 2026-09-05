@@ -584,7 +584,7 @@
 .earthly-canvas-frame .earthly-desktop-map-controls {
   --controls-bottom: calc(var(--shell-canvas-shelf-h) + var(--shell-canvas-status-h) + 44px);
   bottom: var(--controls-bottom);
-  max-height: calc(100% - var(--controls-bottom) - var(--shell-toolbar-h) - 24px);
+  max-height: calc(100% - var(--controls-bottom) - var(--canvas-toolbar-clearance, calc(var(--shell-toolbar-h) + 24px)));
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;

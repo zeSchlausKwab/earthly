@@ -241,21 +241,9 @@ export async function openAiChat(earthly: EarthlySession): Promise<void> {
 		}
 	} else {
 		if (!(await panel.isVisible())) {
-			const assistant = earthly.page.locator('[data-tour="assistant-sidebar"]')
-			const side = await assistant.getAttribute('data-side')
-			if (side === 'left') {
-				await earthly.page
-					.getByRole('button', {
-						name: /^(?:Show Thread on the left|Thread is working; show it on the left)$/,
-					})
-					.click()
-			} else {
-				await earthly.page
-					.getByRole('button', {
-						name: /^(?:Show Thread on the right|Thread is working; show it on the right)$/,
-					})
-					.click()
-			}
+			await earthly.page.getByRole('button', {
+				name: /^(?:Show Thread|Thread is working; show it)(?: on the right)?$/,
+			}).click()
 		}
 	}
 	await expect(panel).toBeVisible()

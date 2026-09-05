@@ -18,7 +18,7 @@ export const createContextTask: AiTaskMetadata = {
 
 export async function createContext(earthly: EarthlySession, input: ContextInput): Promise<void> {
 	await openPanel(earthly, 'Atlases')
-	await earthly.page.getByRole('button', { name: 'New atlas', exact: true }).click()
+	await earthly.page.getByRole('button', { name: 'New Atlas', exact: true }).click()
 	await expect(
 		earthly.page.getByRole('heading', { name: 'Create Atlas', exact: true }),
 	).toBeVisible()

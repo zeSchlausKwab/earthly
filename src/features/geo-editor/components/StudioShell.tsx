@@ -74,10 +74,17 @@ export function StudioShell({
 			translucent={translucent}
 			topBar={topBar}
 			banners={banners}
-			margin={<ObjectThreadBesideContext.Provider value={threadOpen && threadDock === 'right' && !compact}>{sidebar}</ObjectThreadBesideContext.Provider>}
+			margin={
+				<ObjectThreadBesideContext.Provider
+					value={threadOpen && threadDock === 'right' && !compact}
+				>
+					{sidebar}
+				</ObjectThreadBesideContext.Provider>
+			}
 			thread={thread ?? chat}
 			threadOpen={threadOpen}
 			threadDock={threadDock}
+			marginCovered={threadOpen && (threadDock === 'left' || compact)}
 			mobileTop={mobileTop}
 			mobileMargin={mobileMargin}
 			mobileDock={mobileDock}

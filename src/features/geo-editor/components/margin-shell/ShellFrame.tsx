@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from 'react'
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { cn } from '@/lib/utils'
 
 export interface ShellFrameProps {
@@ -9,6 +9,7 @@ export interface ShellFrameProps {
 	thread?: ReactNode
 	threadOpen: boolean
 	threadDock: 'left' | 'right'
+	marginCovered?: boolean
 	mobileTop?: ReactNode
 	mobileMargin?: ReactNode
 	mobileDock?: ReactNode
@@ -24,6 +25,7 @@ export function ShellFrame({
 	thread,
 	threadOpen,
 	threadDock,
+	marginCovered = false,
 	mobileTop,
 	mobileMargin,
 	mobileDock,
@@ -40,7 +42,13 @@ export function ShellFrame({
 			<div className="earthly-shell-frame__top">{topBar}</div>
 			{banners ? <div className="earthly-shell-frame__banners">{banners}</div> : null}
 			<div className="earthly-shell-frame__stage">
-				<div className="earthly-shell-frame__margin">{margin}</div>
+				<div
+					className="earthly-shell-frame__margin"
+					aria-hidden={marginCovered || undefined}
+					inert={marginCovered || undefined}
+				>
+					{margin}
+				</div>
 				{canvas}
 				<section
 					className="earthly-shell-frame__thread"
@@ -69,8 +77,29 @@ export interface CanvasFrameProps {
 }
 
 export function CanvasFrame({ containerRef, children, toolbar, status, shelf }: CanvasFrameProps) {
+	const frameRef = useRef<HTMLElement | null>(null)
+	const toolbarRef = useRef<HTMLDivElement | null>(null)
+	const hasToolbar = Boolean(toolbar)
+	useEffect(() => {
+		const frame = frameRef.current
+		const bar = toolbarRef.current
+		if (!frame || !bar) return
+		const measure = () =>
+			frame.style.setProperty(
+				'--canvas-toolbar-clearance',
+				`${bar.offsetTop + bar.offsetHeight + 12}px`,
+			)
+		measure()
+		const observer = new ResizeObserver(measure)
+		observer.observe(bar)
+		return () => {
+			observer.disconnect()
+			frame.style.removeProperty('--canvas-toolbar-clearance')
+		}
+	}, [hasToolbar])
 	return (
 		<main
+			ref={frameRef}
 			className="earthly-canvas-frame"
 			aria-label="Map canvas"
 			data-has-shelf
@@ -79,7 +108,11 @@ export function CanvasFrame({ containerRef, children, toolbar, status, shelf }: 
 			<div ref={containerRef} data-tour="map-canvas" className="earthly-canvas-frame__map">
 				{children}
 			</div>
-			{toolbar ? <div className="earthly-canvas-frame__toolbar">{toolbar}</div> : null}
+			{toolbar ? (
+				<div ref={toolbarRef} className="earthly-canvas-frame__toolbar">
+					{toolbar}
+				</div>
+			) : null}
 			{status ? <div className="earthly-canvas-frame__status">{status}</div> : null}
 			<div className="earthly-canvas-frame__shelf">{shelf}</div>
 		</main>

@@ -1,5 +1,6 @@
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { useEffect, useState } from 'react'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { ChatPanel } from '@/features/chat/DeferredChatPanel.tsx'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
@@ -42,9 +43,13 @@ export function AssistantSidebar({
 	placement = 'thread',
 }: AssistantSidebarProps) {
 	const dock = useEditorStore((state) => state.chatDock)
+	const setDock = useEditorStore((state) => state.setChatDock)
+	const compact = useIsMobile(1100)
 	const dockedLeft = dock === 'left'
 	const [visited, setVisited] = useState(open)
-	useEffect(() => { if (open) setVisited(true) }, [open])
+	useEffect(() => {
+		if (open) setVisited(true)
+	}, [open])
 
 	return (
 		<aside
@@ -84,20 +89,28 @@ export function AssistantSidebar({
 							: 'w-[var(--shell-chat-w)] min-w-[var(--shell-chat-w-min)] max-w-[var(--shell-chat-w-max)]',
 				)}
 			>
-				{(open || visited) && <ChatPanel
-					geoEvents={geoEvents}
-					mapContextEvents={mapContextEvents}
-					availableFeatures={availableFeatures}
-					getDatasetName={getDatasetName}
-					onOpenSettings={onOpenSettings}
-					onClose={onClose}
-					onEnsureAuthoringTarget={onEnsureAuthoringTarget}
-					authoringActionLabel={authoringActionLabel}
-					threadKey={threadKey}
-					threadTitle={threadTitle}
-					readOnly={readOnly}
-					initialPrompt={initialPrompt}
-				/>}
+				{(open || visited) && (
+					<ChatPanel
+						geoEvents={geoEvents}
+						mapContextEvents={mapContextEvents}
+						availableFeatures={availableFeatures}
+						getDatasetName={getDatasetName}
+						onOpenSettings={onOpenSettings}
+						onClose={onClose}
+						threadDock={dock}
+						onMoveThread={
+							placement === 'thread' && !compact
+								? () => setDock(dock === 'left' ? 'right' : 'left')
+								: undefined
+						}
+						onEnsureAuthoringTarget={onEnsureAuthoringTarget}
+						authoringActionLabel={authoringActionLabel}
+						threadKey={threadKey}
+						threadTitle={threadTitle}
+						readOnly={readOnly}
+						initialPrompt={initialPrompt}
+					/>
+				)}
 			</div>
 		</aside>
 	)

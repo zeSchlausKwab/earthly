@@ -69,6 +69,8 @@ import {
 	RefreshCw,
 	Camera,
 	LockKeyhole,
+	PanelLeft,
+	PanelRight,
 	X,
 } from 'lucide-react'
 import { preloadWorldData } from '@/lib/geo/worldData'
@@ -227,6 +229,9 @@ export interface ChatPanelProps {
 	getDatasetName?: (event: GeoDataset) => string
 	onOpenSettings?: () => void
 	onClose?: () => void
+	/** Moves the existing desktop Thread; never starts a new conversation. */
+	onMoveThread?: () => void
+	threadDock?: 'left' | 'right'
 	/** Creates or restores the route object's Map working copy immediately before its first send. */
 	onEnsureAuthoringTarget?: () => Promise<string | null>
 	/** Visible send verb while the route object still needs its working copy. */
@@ -268,6 +273,8 @@ export function ChatPanel({
 	getDatasetName = defaultGetDatasetName,
 	onOpenSettings,
 	onClose,
+	onMoveThread,
+	threadDock,
 	onEnsureAuthoringTarget,
 	authoringActionLabel = 'Edit & send',
 	threadKey,
@@ -1019,6 +1026,27 @@ export function ChatPanel({
 					>
 						<Download className="h-4 w-4" />
 					</Button>
+					{onMoveThread && !isMobile ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							className="h-8 w-8 shrink-0"
+							onClick={onMoveThread}
+							aria-label={
+								threadDock === 'right' ? 'Move Thread to left panel' : 'Move Thread to right column'
+							}
+							title={
+								threadDock === 'right' ? 'Move Thread to left panel' : 'Move Thread to right column'
+							}
+						>
+							{threadDock === 'right' ? (
+								<PanelLeft className="size-4" />
+							) : (
+								<PanelRight className="size-4" />
+							)}
+						</Button>
+					) : null}
 					{!isBoundThread ? (
 						<Button
 							type="button"

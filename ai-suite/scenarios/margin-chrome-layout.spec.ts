@@ -246,7 +246,7 @@ for (const viewport of [
 		await expectDesktopMapControls(earthly, scrollEach, testInfo, 'edit')
 		// Only open the Thread chrome: no provider configuration or model request is necessary.
 		await earthly.page
-			.getByRole('button', { name: 'Show Thread on the right', exact: true })
+			.getByRole('button', { name: /^Show Thread(?: on the right)?$/ })
 			.click()
 		await expect(earthly.page.getByRole('region', { name: 'Thread', exact: true })).toBeVisible()
 		await expectDesktopMapControls(earthly, scrollEach, testInfo, 'thread')
