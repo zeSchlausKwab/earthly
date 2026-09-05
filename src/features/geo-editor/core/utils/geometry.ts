@@ -4,6 +4,7 @@ import {
 	bearing as turfBearing,
 	midpoint as turfMidpoint,
 	lineString as turfLineString,
+	nearestPointOnLine as turfNearestPointOnLine,
 	pointToLineDistance as turfPointToLineDistance,
 	transformRotate,
 	lineSlice,

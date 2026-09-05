@@ -21,6 +21,8 @@ import { useStories } from '@/lib/hooks/useStories'
 import type { Article } from '@/lib/nostr/article'
 import { readStoryDraft } from '@/lib/nostr/story'
 import { BulkMapStackButton, EntityListTable, ListPanel } from '@/components/entity-list'
+import { CatalogPagination, useCatalogFilterReach } from '@/components/entity-list/CatalogPagination'
+import { ARTICLE_KIND } from '@/lib/nostr/kinds'
 import { createStoryColumns, type StoryColumnsContext, type StoryRowData } from './stories-columns'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
 import { EntitySearchToolbar } from './entity-search'
@@ -57,6 +59,7 @@ export function StoriesPanelContent({
 	deletingKey,
 }: StoriesPanelProps) {
 	const filterState = useFilterState()
+	useCatalogFilterReach(ARTICLE_KIND, filterState)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const { events: stories, eose } = useStories()
@@ -161,8 +164,8 @@ export function StoriesPanelContent({
 					placeholder="Search stories…"
 				/>
 			}
-			footerLeft={`${rows.length} shown`}
-			footerRight={draftKeys.size > 0 ? `${draftKeys.size} draft` : undefined}
+			footerLeft={`${rows.length} shown · ${stories.length} loaded`}
+			footerRight={<><span>{draftKeys.size > 0 ? `${draftKeys.size} draft · ` : ''}</span><CatalogPagination kind={ARTICLE_KIND} label="stories" onMore={() => filterState.setDisplayLimit(filterState.displayLimit + 100)} /></>}
 		>
 			{!eose && stories.length === 0 ? (
 				<div className="space-y-2">

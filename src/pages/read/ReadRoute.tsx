@@ -35,6 +35,7 @@ import { getArticleMapPresentation, type Article } from '@/lib/nostr/article'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { naddrToCoordinate } from '@/lib/nostr/references'
+import { catalogWindows } from '@/lib/nostr/catalogWindow'
 import { formatRelativeDate } from '@/lib/nostr/temporal-sighting'
 import {
 	applyAmbientSourcesToLayers,
@@ -239,6 +240,7 @@ export function ReadRoute() {
 
 	const parsedAmbient = useMemo(() => parseAmbientOn(route.on.join(',')), [route.on])
 	const needsLegacyAmbientCatalog = parsedAmbient.tokens.some((token) => token.kind === 'legacy')
+	useEffect(() => { if (needsLegacyAmbientCatalog) catalogWindows.all(GEO_EVENT_KIND) }, [needsLegacyAmbientCatalog])
 	const { events: ambientCatalog } = useGeoDatasets(needsLegacyAmbientCatalog ? [{}] : null)
 	const ambient = useMemo(
 		() =>

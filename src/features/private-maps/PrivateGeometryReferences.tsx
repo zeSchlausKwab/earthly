@@ -103,7 +103,7 @@ export function PrivateGeometryReferences({
 									<>
 										<RowActionButton
 											icon={MapStackActionIcon}
-											label={isInMapStack ? 'Remove from Shelf' : 'Show on map'}
+											label={isInMapStack ? 'Remove from map' : 'Show on map'}
 											hover="hover:text-ok"
 											active={isInMapStack}
 											activeClassName="text-ok hover:text-ok"

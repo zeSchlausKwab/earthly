@@ -104,7 +104,7 @@ export async function selectMobileEntitySurface(
 ): Promise<void> {
 	requireMobile(earthly)
 	const page = earthly.page
-	const shelf = mobileWorkspaceSheet(earthly).getByRole('region', { name: 'Shelf', exact: true })
+	const shelf = mobileWorkspaceSheet(earthly).getByRole('region', { name: 'On the map', exact: true })
 	if (surface === 'Map' && (await shelf.isVisible())) {
 		if (expectedName) await expect(shelf).toContainText(expectedName)
 		await shelf.getByRole('button', { name: 'Open editor panel', exact: true }).click()

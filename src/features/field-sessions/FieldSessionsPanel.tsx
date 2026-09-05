@@ -971,7 +971,7 @@ export function FieldSessionsPanel({
 											<>
 												<RowActionButton
 													icon={MapStackActionIcon}
-													label={isInMapStack ? 'Remove from Shelf' : 'Show on map'}
+													label={isInMapStack ? 'Remove from map' : 'Show on map'}
 													active={isInMapStack}
 													onClick={() =>
 														isInMapStack

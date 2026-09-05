@@ -66,7 +66,9 @@ export async function openPanel(earthly: EarthlySession, panel: EarthlyPanel): P
 		if (!(await menu.isVisible())) await me.click()
 		await expect(menu).toBeVisible()
 		const label =
-			panel === 'Me'
+			panel === 'Shelf'
+				? 'On the map'
+				: panel === 'Me'
 				? 'Profile'
 				: panel === 'Local drafts'
 					? 'Drafts'

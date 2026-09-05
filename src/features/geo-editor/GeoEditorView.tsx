@@ -1,4 +1,5 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
+import { useCatalogRoutePriority, useCatalogStackPriority } from '@/lib/hooks/useCatalogRoutePriority'
 import { castEvent } from 'applesauce-core/casts'
 import {
 	BookOpen,
@@ -638,6 +639,7 @@ export function GeoEditorView() {
 		fieldSessionId,
 		commentId: focusCommentId,
 	} = useRouting({ reconcileStore: true })
+	useCatalogRoutePriority(route.naddr, contextNaddr, userPubkey)
 	const routedAskOpen = route.sidebarView === 'chat'
 	const routedObjectThreadOpen = route.tab === 'thread' && route.focusType !== 'none'
 	// Select a primitive here. getRetainedDatasetSurfaceTarget intentionally
@@ -851,6 +853,7 @@ export function GeoEditorView() {
 	const stance = useEditorStore((state) => state.stance)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
+	useCatalogStackPriority(mapStackEntries, mapStackOrder)
 	const retainedDraftCount = useEditorStore((state) => Object.keys(state.geoEditDrafts).length)
 	const activeDraftAuthoring = useEditorStore(
 		(state) => resolveActiveDraftMapPresentation(state) !== null,

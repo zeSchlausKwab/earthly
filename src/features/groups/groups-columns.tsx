@@ -157,8 +157,8 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 													row.original.isInMapStack ? 'text-ok hover:text-ok' : 'hover:text-ok',
 												)}
 												onClick={() => context.onToggleGroupOnMap?.(group)}
-												aria-label={row.original.isInMapStack ? 'Remove from Shelf' : 'Show on map'}
-												title={row.original.isInMapStack ? 'Remove from Shelf' : 'Show on map'}
+												aria-label={row.original.isInMapStack ? 'Remove from map' : 'Show on map'}
+												title={row.original.isInMapStack ? 'Remove from map' : 'Show on map'}
 											>
 												<MapStackActionIcon className="h-4 w-4" />
 											</Button>

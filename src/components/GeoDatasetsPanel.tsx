@@ -12,6 +12,8 @@ import { cn } from '@/lib/utils'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { DatasetGlyphIcon } from './entity-action-icons'
 import { BulkMapStackButton, EntityListTable, ListPanel } from './entity-list'
+import { CatalogPagination, useCatalogFilterReach } from './entity-list/CatalogPagination'
+import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
 import {
 	createContextColumns,
@@ -148,6 +150,8 @@ export function GeoDatasetsPanelContent({
 	const recentEntities = useEditorStore((state) => state.recentEntities)
 	const togglePinnedEntity = useEditorStore((state) => state.togglePinnedEntity)
 	const [catalogTab, setCatalogTab] = useState<'all' | 'favorites' | 'recent'>('all')
+	const catalogKind = mode === 'datasets' ? GEO_EVENT_KIND : MAP_CONTEXT_KIND
+	useCatalogFilterReach(catalogKind, filterState, catalogTab)
 	const pinnedEntitySet = useMemo(() => new Set(pinnedEntityIds), [pinnedEntityIds])
 	const recentRankById = useMemo(
 		() => new Map(recentEntities.map((entry, index) => [entry.id, index])),
@@ -592,8 +596,8 @@ export function GeoDatasetsPanelContent({
 					hasMore={activeResult.hasMore}
 				/>
 			}
-			footerLeft={`${shownCount} shown`}
-			footerRight={isFocused ? 'focused view' : undefined}
+			footerLeft={`${shownCount} shown · ${activeResult.totalCount} loaded${isFocused ? ' · focused' : ''}`}
+			footerRight={<CatalogPagination kind={catalogKind} label={isDatasets ? 'maps' : 'atlases'} onMore={() => filterState.setDisplayLimit(filterState.displayLimit + 100)} />}
 		>
 			{isDatasets ? (
 				geoEvents.length === 0 ? (

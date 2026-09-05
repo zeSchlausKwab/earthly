@@ -31,6 +31,7 @@ const mapEvent = {
 	datasetId: 'map-id',
 	kind: 31991,
 	pubkey: 'map-author',
+	event: { tags: [] },
 } as unknown as GeoDataset
 
 function mapRow(isOwned: boolean, isInMapStack = false): DatasetRowData {
@@ -65,7 +66,7 @@ describe('catalog row vocabulary', () => {
 		const proposal = actions.find((action) => action.label === 'Propose changes')
 
 		expect(proposal?.icon).toBe(ProposalActionIcon)
-		expect(actions.map((action) => action.label)).toContain('Add to Shelf')
+		expect(actions.map((action) => action.label)).toContain('Show on map')
 		expect(actions.map((action) => action.label)).not.toContain('Load into editor')
 
 		proposal?.onClick()
@@ -91,12 +92,13 @@ describe('catalog row vocabulary', () => {
 		expect(actions.map((action) => action.label)).not.toContain('Propose changes')
 	})
 
-	test('uses Atlas and Shelf language for atlas rows', () => {
+	test('uses Atlas and map language for atlas rows', () => {
 		const atlas = {
 			id: 'atlas-event',
 			pubkey: 'atlas-author',
 			contextId: 'atlas-id',
 			context: { name: 'Field atlas' },
+			rawEvent: () => ({ content: JSON.stringify({ name: 'Field atlas', governance: 'closed' }), tags: [] }),
 		} as unknown as MapContext
 		const row: ContextRowData = {
 			context: atlas,
@@ -119,7 +121,7 @@ describe('catalog row vocabulary', () => {
 		})
 		const labels = actionPropsFromCell(columns[0]?.cell, row).map((action) => action.label)
 
-		expect(labels).toContain('Add to Shelf')
+		expect(labels).toContain('Show on map')
 		expect(labels).toContain('Open Atlas')
 		expect(labels).toContain('Edit atlas')
 		expect(labels.some((label) => /context|map stack/i.test(label))).toBe(false)

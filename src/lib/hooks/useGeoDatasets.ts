@@ -11,7 +11,7 @@ import type { Filter } from 'nostr-tools'
 import { useMemo } from 'react'
 import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import { eventStore } from '@/lib/nostr'
-import { useTimelineWithEose } from '@/lib/nostr/hooks'
+import { useCatalogTimeline } from './useCatalogTimeline'
 import { GeoDataset } from '@/lib/nostr/geo-event'
 import { MapContext } from '@/lib/nostr/map-context'
 
@@ -25,14 +25,7 @@ import { MapContext } from '@/lib/nostr/map-context'
  * matching context coordinates" patterns without violating rules-of-hooks).
  */
 export function useGeoDatasets(additionalFilters: Omit<Filter, 'kinds'>[] | null = [{}]) {
-	const filters = additionalFilters
-		? additionalFilters.map((filter) => ({
-				...filter,
-				kinds: [GEO_EVENT_KIND],
-			}))
-		: null
-
-	const { events, eose } = useTimelineWithEose(filters)
+	const { events, eose } = useCatalogTimeline(GEO_EVENT_KIND, additionalFilters)
 
 	const datasets = useMemo(
 		() => events.map((event) => castEvent(event, GeoDataset, eventStore)),
@@ -44,12 +37,7 @@ export function useGeoDatasets(additionalFilters: Omit<Filter, 'kinds'>[] | null
 
 /** Subscribe to Map Context events (kind 37518). */
 export function useMapContexts(additionalFilters: Omit<Filter, 'kinds'>[] = [{}]) {
-	const filters = additionalFilters.map((filter) => ({
-		...filter,
-		kinds: [MAP_CONTEXT_KIND],
-	}))
-
-	const { events, eose } = useTimelineWithEose(filters)
+	const { events, eose } = useCatalogTimeline(MAP_CONTEXT_KIND, additionalFilters)
 
 	const contexts = useMemo(
 		() => events.map((event) => castEvent(event, MapContext, eventStore)),

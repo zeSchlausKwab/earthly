@@ -732,8 +732,8 @@ export function UserProfilePanel({
 							}
 							label={
 								activeTab === 'datasets'
-									? 'Add filtered maps to Shelf'
-									: 'Add filtered atlases to Shelf'
+									? 'Show filtered maps on map'
+									: 'Show filtered atlases on map'
 							}
 						/>
 					) : null}

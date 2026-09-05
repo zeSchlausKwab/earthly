@@ -22,6 +22,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { filterForeignAttachment } from '@/lib/group'
 import { useGroups } from '@/lib/hooks/useGroups'
+import { catalogWindows } from '@/lib/nostr/catalogWindow'
+import { MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import type { Group } from '@/lib/nostr/group'
 import { cn } from '@/lib/utils'
 import {
@@ -88,6 +90,9 @@ export function GroupAttachField({
 }: GroupAttachFieldProps) {
 	const { events: groups } = useGroups()
 	const [open, setOpen] = useState(false)
+	useEffect(() => {
+		if (open || contextRefs.length) catalogWindows.all(MAP_CONTEXT_KIND)
+	}, [open, contextRefs.length])
 	const [checking, setChecking] = useState(false)
 	const [workerFailed, setWorkerFailed] = useState(false)
 	const [warnings, setWarnings] = useState<GroupAttachWarning[]>([])

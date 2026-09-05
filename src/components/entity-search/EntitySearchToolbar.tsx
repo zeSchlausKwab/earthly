@@ -68,6 +68,7 @@ export function EntitySearchToolbar({
 	placeholder,
 }: EntitySearchToolbarProps) {
 	const sortValue = `${sortConfig.field}-${sortConfig.direction}` as const
+	const limitOptions = [...new Set([...LIMIT_OPTIONS, displayLimit])].sort((a, b) => a - b)
 	const mobile = useIsMobile()
 	const options = useContext(ListOptionsContext)
 	const activeCount = options.activeCount + Number(sortValue !== 'recency-desc') + Number(Boolean(searchQuery))
@@ -95,7 +96,7 @@ export function EntitySearchToolbar({
 						<select aria-label="Sort results" value={sortValue} onChange={e => handleSortChange(e.target.value)} className="h-11 min-w-36 border border-border bg-background px-2">{SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
 					</label>
 					<label className="flex items-center justify-between gap-3 text-sm">Results
-						<select aria-label="Number of results" value={displayLimit} onChange={e => setDisplayLimit(Number(e.target.value))} className="h-11 min-w-36 border border-border bg-background px-2">{LIMIT_OPTIONS.map(limit => <option key={limit} value={limit}>Show {limit}</option>)}</select>
+						<select aria-label="Number of results" value={displayLimit} onChange={e => setDisplayLimit(Number(e.target.value))} className="h-11 min-w-36 border border-border bg-background px-2">{limitOptions.map(limit => <option key={limit} value={limit}>Show {limit}</option>)}</select>
 					</label>
 					<p className="text-xs text-muted-foreground">{displayedCount} of {filteredCount} matching results</p>
 				</PopoverContent>
@@ -120,7 +121,7 @@ export function EntitySearchToolbar({
 					<SelectValue />
 				</SelectTrigger>
 				<SelectContent>
-					{LIMIT_OPTIONS.map((limit) => (
+					{limitOptions.map((limit) => (
 						<SelectItem key={limit} value={String(limit)}>
 							Show {limit}
 						</SelectItem>

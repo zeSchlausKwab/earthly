@@ -310,7 +310,7 @@ const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[]
 	{ id: 'beacons', label: 'Live positions', icon: Radio },
 	{ id: 'stories', label: 'Stories', icon: BookOpen },
 	{ id: 'datasets', label: 'Maps', icon: Database },
-	{ id: 'map-stack', label: 'Shelf', icon: Layers },
+	{ id: 'map-stack', label: 'On the map', icon: Layers },
 	{ id: 'contexts', label: 'Atlases', icon: Globe },
 	{ id: 'field-sessions', label: 'Nearby', icon: RadioTower },
 	{ id: 'private-groups', label: 'Circles', icon: UsersRound },
