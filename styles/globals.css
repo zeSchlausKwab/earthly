@@ -545,8 +545,8 @@
   top: 12px;
   left: 50%;
   z-index: 24;
-  width: max-content;
-  max-width: calc(100% - 24px);
+  width: calc(100% - 24px);
+  max-width: 1440px;
   transform: translateX(-50%);
   pointer-events: auto;
   padding: 6px;

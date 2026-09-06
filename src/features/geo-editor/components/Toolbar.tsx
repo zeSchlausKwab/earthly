@@ -22,6 +22,10 @@ import {
 	Merge,
 	Minus,
 	Moon,
+	MoreHorizontal,
+	Ruler,
+	Share2,
+	Map as MapIcon,
 	MousePointerClick,
 	MousePointer2,
 	MoveHorizontal,
@@ -107,6 +111,19 @@ import {
 	type NumericGeometryOperation,
 } from './toolbar/index'
 import { OSM_FILTER_PRESETS } from './toolbar/OsmImportPopover'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+	ToolPopoverAnchor,
+	useToolPopoverFocusProps,
+	type ToolPopoverControl,
+} from './toolbar/toolPopoverControl'
 import { useResponsiveToolbar } from './toolbar/useResponsiveToolbar'
 import { Input } from '@/components/ui/input'
 import type { ResolvedAuthoringDestination } from './authoringDestination'
@@ -177,6 +194,7 @@ interface MapStateClusterProps {
 	onToggleMapStack?: () => void
 	compact?: boolean
 	flat?: boolean
+	hideCount?: boolean
 }
 
 function MapStateCluster({
@@ -186,6 +204,7 @@ function MapStateCluster({
 	onToggleMapStack,
 	compact = false,
 	flat = false,
+	hideCount = false,
 }: MapStateClusterProps) {
 	const mapCountLabel =
 		mapStackEntryCount > 0 ? `${mapStackVisibleCount}/${mapStackEntryCount}` : '0'
@@ -225,9 +244,11 @@ function MapStateCluster({
 				{mapStackEntryCount > 0 ? (
 					<span
 						className={
-							flat
-								? 'font-mono text-[10px] tabular-nums'
-								: 'rounded bg-black/5 px-1.5 py-0.5 font-mono text-[10px] tabular-nums'
+							hideCount
+								? 'sr-only'
+								: flat
+									? 'font-mono text-[10px] tabular-nums'
+									: 'rounded bg-black/5 px-1.5 py-0.5 font-mono text-[10px] tabular-nums'
 						}
 					>
 						{mapCountLabel}
@@ -235,28 +256,6 @@ function MapStateCluster({
 				) : null}
 			</Button>
 		</div>
-	)
-}
-
-/**
- * Dark/light theme toggle. The active theme is the `light`/`dark` class on
- * `<html>` (see `@/lib/theme`); flipping it re-themes the whole app and the
- * map basemap. Light is the default working theme.
- */
-function ThemeToggleButton() {
-	const [theme, setTheme] = useTheme()
-	const isDark = theme === 'dark'
-	return (
-		<Button
-			variant="ghost"
-			size="icon-sm"
-			aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-			title={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-			className="h-8 w-8 shrink-0 rounded-md border border-transparent text-muted-foreground shadow-none hover:text-foreground"
-			onClick={() => setTheme(isDark ? 'light' : 'dark')}
-		>
-			{isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-		</Button>
 	)
 }
 
@@ -271,6 +270,8 @@ interface ToolbarMenuTriggerProps {
 function ToolbarMenuTrigger({ icon: Icon, label, active }: ToolbarMenuTriggerProps) {
 	return (
 		<MenubarTrigger
+			aria-label={label}
+			title={label}
 			className={cn(
 				'h-8 gap-1.5 px-2 text-sm font-medium',
 				active &&
@@ -452,7 +453,35 @@ export function Toolbar({
 
 	// Responsive toolbar — measures available width and decides which priority
 	// menus (Draw → Edit) expand inline vs stay as MenubarMenu dropdowns.
-	const { containerRef: toolbarContainerRef, expanded: expandedMenus } = useResponsiveToolbar()
+	const {
+		containerRef: toolbarContainerRef,
+		expanded: expandedMenus,
+		compactSearch,
+		compactLabels,
+		inlineCallout,
+	} = useResponsiveToolbar()
+	const [searchOpen, setSearchOpen] = useState(false)
+	const [theme, setTheme] = useTheme()
+	const moreToolsRef = useRef<HTMLButtonElement>(null)
+	const [activeTool, setActiveTool] = useState<'excerpt' | 'measure' | 'share' | null>(null)
+	const toolControl = (tool: NonNullable<typeof activeTool>): ToolPopoverControl => ({
+		anchorRef: moreToolsRef,
+		open: activeTool === tool,
+		onOpenChange: (open) =>
+			setActiveTool((current) => (open ? tool : current === tool ? null : current)),
+	})
+	const osmControl: ToolPopoverControl = {
+		anchorRef: moreToolsRef,
+		open: magicPopoverOpen,
+		onOpenChange: setMagicPopoverOpen,
+	}
+	const settingsControl: ToolPopoverControl = {
+		anchorRef: moreToolsRef,
+		open: showMapSettings,
+		onOpenChange: setShowMapSettings,
+	}
+
+	const settingsFocusProps = useToolPopoverFocusProps(settingsControl)
 
 	// Refresh the dropdown's anchor rect whenever the dropdown should be visible
 	// (any post-submit state, not just results) and on resize/scroll so the
@@ -476,7 +505,7 @@ export function Toolbar({
 			window.removeEventListener('resize', update)
 			window.removeEventListener('scroll', update, true)
 		}
-	}, [showSearchDropdown])
+	}, [showSearchDropdown, compactSearch, searchOpen])
 
 	// Reset the keyboard highlight whenever the result set changes.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset on result-set identity change
@@ -500,7 +529,7 @@ export function Toolbar({
 			// A result is highlighted → select it instead of re-running the search.
 			event.preventDefault()
 			const result = searchResults[activeResultIndex]
-			if (result) onSearchResultSelect?.(result)
+			if (result) selectSearchResult(result)
 		}
 	}
 
@@ -536,6 +565,12 @@ export function Toolbar({
 				runEditorCommand('set_mode', { mode: 'select' })
 			}
 		}
+	}
+
+	const selectSearchResult = (result: GeoSearchResult) => {
+		onSearchResultSelect?.(result)
+		setActiveResultIndex(-1)
+		setSearchOpen(false)
 	}
 
 	const handleSearchSubmit = (e: React.FormEvent) => {
@@ -1205,8 +1240,174 @@ export function Toolbar({
 		/>
 	)
 
-	// Reflow the existing controls against the canvas, not the viewport: opening
-	// both panels must not put Publish or Thread beyond a horizontal scroll edge.
+	const searchForm = (
+		<form
+			ref={searchFormRef}
+			onSubmit={handleSearchSubmit}
+			className={cn(
+				'group relative flex h-8 shrink-0 items-center rounded-md border border-transparent transition-colors hover:bg-accent/70 focus-within:border-ring/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/20',
+				compactSearch ? 'w-full' : 'w-36',
+			)}
+		>
+			<Input
+				value={searchQuery}
+				onChange={(event) => {
+					setSearchQuery(event.target.value)
+					setActiveResultIndex(-1)
+				}}
+				onKeyDown={handleSearchKeyDown}
+				placeholder="Search..."
+				className="h-8 border-0 bg-transparent px-2 pr-8 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
+				aria-label="Search location"
+			/>
+			{searchQuery ? (
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-xs"
+					aria-label="Clear search"
+					className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground"
+					onClick={clearSearch}
+				>
+					<X className="h-3.5 w-3.5" />
+				</Button>
+			) : (
+				<Button
+					type="submit"
+					variant="ghost"
+					size="icon-xs"
+					aria-label="Search"
+					disabled={searchLoading}
+					className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground"
+				>
+					{searchLoading ? (
+						<RefreshCw className="h-3.5 w-3.5 animate-spin" />
+					) : (
+						<Search className="h-3.5 w-3.5" />
+					)}
+				</Button>
+			)}
+		</form>
+	)
+	const searchFeedback = showSearchDropdown ? (
+		<div className="rounded-lg border border-border bg-popover p-2 shadow-lg">
+			<div className="mb-2 flex items-center justify-between border-b border-border pb-2">
+				<span className="text-xs font-medium text-muted-foreground">
+					{searchLoading
+						? 'Searching…'
+						: searchError
+							? 'Search error'
+							: searchHasNoResults
+								? 'No results'
+								: 'Results'}
+				</span>
+				<Button variant="ghost" size="sm" className="h-auto p-0 text-xs" onClick={clearSearch}>
+					Close
+				</Button>
+			</div>
+			{searchLoading ? (
+				<div className="flex items-center gap-2 px-1 py-2 text-sm text-muted-foreground">
+					<RefreshCw className="h-3.5 w-3.5 animate-spin" />
+					<span>Searching for “{searchQuery.trim()}”…</span>
+				</div>
+			) : searchError ? (
+				<div className="px-1 py-2 text-sm text-destructive">{searchError}</div>
+			) : searchHasNoResults ? (
+				<div className="px-1 py-2 text-sm text-muted-foreground">
+					No places match “{searchQuery.trim()}”.
+				</div>
+			) : (
+				<div className="max-h-60 space-y-1 overflow-y-auto">
+					{searchResults.map((result, index) => (
+						<button
+							type="button"
+							key={result.placeId ?? `result-${index}`}
+							className={cn(
+								'w-full truncate rounded p-1.5 text-left text-sm hover:bg-muted/50',
+								index === activeResultIndex && 'bg-muted',
+							)}
+							onClick={() => selectSearchResult(result)}
+						>
+							{result.displayName}
+						</button>
+					))}
+				</div>
+			)}
+		</div>
+	) : null
+
+	const moreTools = (
+		<DropdownMenu modal={false}>
+			<DropdownMenuTrigger asChild>
+				<Button
+					ref={moreToolsRef}
+					variant="ghost"
+					size="sm"
+					aria-label="More tools"
+					title="More tools"
+					className={cn('h-8 shrink-0 gap-1.5 px-2', compactLabels && 'w-8 px-0')}
+				>
+					<MoreHorizontal className="h-4 w-4" />
+					{!compactLabels && <span>More</span>}
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="end"
+				className="w-64"
+				onCloseAutoFocus={(event) => {
+					// The selected tool takes focus; closing this menu must not steal it back.
+					if (activeTool || magicPopoverOpen || showMapSettings) event.preventDefault()
+				}}
+			>
+				<DropdownMenuLabel>On the map</DropdownMenuLabel>
+				<DropdownMenuItem onSelect={handleToggleInspector}>
+					<Crosshair className="h-4 w-4" />
+					{inspectorActive ? 'Stop location lookup' : 'Look up a location'}
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => setActiveTool('measure')}>
+					<Ruler className="h-4 w-4" />
+					Measure
+				</DropdownMenuItem>
+				{isAuthoring && (
+					<DropdownMenuItem onSelect={onOpenSelectedCallout}>
+						<MessageSquarePlus className="h-4 w-4" />
+						{calloutComposerActive || calloutAnchorDrawing
+							? 'Cancel map callout'
+							: 'Add map callout'}
+					</DropdownMenuItem>
+				)}
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel>Data and sharing</DropdownMenuLabel>
+				{isAuthoring && (
+					<DropdownMenuItem onSelect={() => setMagicPopoverOpen(true)}>
+						<Sparkles className="h-4 w-4" />
+						Import from OpenStreetMap
+					</DropdownMenuItem>
+				)}
+				<DropdownMenuItem onSelect={() => setActiveTool('excerpt')}>
+					<MapIcon className="h-4 w-4" />
+					Create map excerpt
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => setActiveTool('share')}>
+					<Share2 className="h-4 w-4" />
+					Share and export image
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel>Appearance</DropdownMenuLabel>
+				<DropdownMenuItem onSelect={() => setShowMapSettings(true)}>
+					<Settings2 className="h-4 w-4" />
+					Map settings
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+					{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+					{theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	)
+
+	// One row against the actual canvas width. Secondary tools share a stable
+	// overflow launcher; their popovers stay mounted while panels are resized.
 	return (
 		<>
 			<div
@@ -1215,7 +1416,7 @@ export function Toolbar({
 			>
 				<div
 					ref={toolbarContainerRef}
-					className="flex w-full min-w-0 flex-wrap items-center gap-1 p-0"
+					className="flex w-full min-w-0 flex-nowrap items-center gap-1 p-0"
 				>
 					{showSidebarTrigger ? (
 						<>
@@ -1235,12 +1436,13 @@ export function Toolbar({
 						onToggleMapStack={onToggleMapStack}
 						compact
 						flat
+						hideCount={compactLabels}
 					/>
 					<Divider />
 
 					{/* Topic 5: file / draw / edit menus (priority-expanding) */}
 					{desktopCommandMenubar}
-					{isAuthoring ? (
+					{isAuthoring && inlineCallout ? (
 						<TooltipProvider>
 							<Tooltip>
 								<TooltipTrigger asChild>
@@ -1289,175 +1491,45 @@ export function Toolbar({
 
 					<Divider />
 
-					{/* Topic 5: search + location lookup */}
-					<div className="relative shrink-0">
-						<form
-							ref={searchFormRef}
-							onSubmit={handleSearchSubmit}
-							className="group relative flex h-8 w-36 shrink-0 items-center rounded-md border border-transparent transition-colors hover:bg-accent/70 focus-within:border-ring/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/20 2xl:w-48"
-						>
-							<Input
-								value={searchQuery}
-								onChange={(event) => setSearchQuery(event.target.value)}
-								onKeyDown={handleSearchKeyDown}
-								placeholder="Search..."
-								className="h-8 border-0 bg-transparent px-2 pr-8 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
-								aria-label="Search location"
-							/>
-							{searchQuery ? (
+					{compactSearch ? (
+						<Popover open={searchOpen} onOpenChange={setSearchOpen}>
+							<PopoverTrigger asChild>
 								<Button
-									type="button"
 									variant="ghost"
-									size="icon-xs"
-									aria-label="Clear search"
-									className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground"
-									onClick={clearSearch}
+									size="icon-sm"
+									className="h-8 w-8 shrink-0"
+									aria-label="Search location"
+									title="Search location"
 								>
-									<X className="h-3.5 w-3.5" />
+									<Search className="h-4 w-4" />
 								</Button>
-							) : (
-								<Button
-									type="submit"
-									variant="ghost"
-									size="icon-xs"
-									aria-label="Search"
-									disabled={searchLoading}
-									className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground"
-								>
-									{searchLoading ? (
-										<RefreshCw className="h-3.5 w-3.5 animate-spin" />
-									) : (
-										<Search className="h-3.5 w-3.5" />
-									)}
-								</Button>
-							)}
-						</form>
-						{/* Search results — portaled to body to escape canvas clipping. P2.1:
-						    shown for every post-submit state (loading / results /
-						    no-results / error) so the geocode never fails silently. */}
-						{showSearchDropdown &&
-							searchAnchorRect &&
-							typeof document !== 'undefined' &&
-							createPortal(
-								<div
-									className="fixed z-50 w-72 rounded-lg border border-border bg-popover p-2 shadow-lg"
-									style={{
-										top: searchAnchorRect.bottom + 8,
-										left: searchAnchorRect.left,
-									}}
-								>
-									<div className="mb-2 flex items-center justify-between border-b border-border pb-2">
-										<span className="text-xs font-medium text-muted-foreground">
-											{searchLoading
-												? 'Searching…'
-												: searchError
-													? 'Search error'
-													: searchHasNoResults
-														? 'No results'
-														: 'Results'}
-										</span>
-										<Button
-											variant="ghost"
-											size="sm"
-											className="h-auto p-0 text-xs"
-											onClick={clearSearch}
-										>
-											Close
-										</Button>
-									</div>
-									{searchLoading ? (
-										<div className="flex items-center gap-2 px-1 py-2 text-sm text-muted-foreground">
-											<RefreshCw className="h-3.5 w-3.5 animate-spin" />
-											<span>Searching for “{searchQuery.trim()}”…</span>
-										</div>
-									) : searchError ? (
-										<div className="px-1 py-2 text-sm text-destructive">{searchError}</div>
-									) : searchHasNoResults ? (
-										<div className="px-1 py-2 text-sm text-muted-foreground">
-											No places match “{searchQuery.trim()}”.
-										</div>
-									) : (
-										<div className="max-h-60 space-y-1 overflow-y-auto">
-											{searchResults.map((result, index) => (
-												<button
-													type="button"
-													key={result.placeId ?? `result-${index}`}
-													className={cn(
-														'w-full truncate rounded p-1.5 text-left text-sm hover:bg-muted/50',
-														index === activeResultIndex && 'bg-muted',
-													)}
-													onClick={() => onSearchResultSelect?.(result)}
-												>
-													{result.displayName}
-												</button>
-											))}
-										</div>
-									)}
-								</div>,
-								document.body,
-							)}
-					</div>
-					{/* Location lookup (formerly the only View menu item) sits next
-					    to the search box's looking-glass icon so it forms a single
-					    "find / inspect" group. */}
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						onClick={handleToggleInspector}
-						aria-label={inspectorActive ? 'Disable location lookup' : 'Enable location lookup'}
-						title="Click map to look up location"
-						className={cn(
-							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
-							inspectorActive &&
-								'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-						)}
-					>
-						<Crosshair className="h-4 w-4" />
-					</Button>
-					<Divider />
-
-					{/* Topic 6: data sources + share / settings. OsmImportPopover
-					    moved here from inside the Draw menu — it's an import
-					    operation, not a draw mode. E.1: import only exists while
-					    authoring (it pulls features into the active draft). */}
-					{isAuthoring ? (
-						<OsmImportPopover
-							open={magicPopoverOpen}
-							onOpenChange={setMagicPopoverOpen}
-							osmQueryFilter={osmQueryFilter}
-							onOsmFilterChange={setOsmQueryFilter}
-							onOsmClickMode={handleOsmClickMode}
-							onOsmQueryView={handleOsmQueryView}
-							onOsmAdvanced={onOsmAdvanced}
-							isClickMode={osmQueryMode === 'click'}
-							small
-						/>
-					) : null}
-					<CreateMapPopover small />
-					<MeasurePopover />
-					<ShareExportPopover small />
-					<ThemeToggleButton />
-					<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
-						<PopoverTrigger asChild>
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								aria-label="Map settings"
-								title="Map settings"
-								className={cn(
-									'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
-									showMapSettings &&
-										'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
+							</PopoverTrigger>
+							<PopoverContent aria-label="Search location" align="end" className="w-80 gap-2">
+								{searchForm}
+								{searchFeedback}
+							</PopoverContent>
+						</Popover>
+					) : (
+						<>
+							{searchForm}
+							{showSearchDropdown &&
+								searchAnchorRect &&
+								typeof document !== 'undefined' &&
+								createPortal(
+									<div
+										className="fixed z-50 w-72"
+										style={{
+											top: searchAnchorRect.bottom + 8,
+											left: Math.min(searchAnchorRect.left, window.innerWidth - 300),
+										}}
+									>
+										{searchFeedback}
+									</div>,
+									document.body,
 								)}
-							>
-								<Settings2 className="h-4 w-4" />
-							</Button>
-						</PopoverTrigger>
-						<PopoverContent className="w-[28rem]" side="bottom" align="start">
-							<MapSettingsPanel mode="map-only" />
-						</PopoverContent>
-					</Popover>
+						</>
+					)}
+					{moreTools}
 					{/* Workflow audit P2: publishing is the completion of the core
 					    workflow, so the primary Publish action stays persistently
 					    visible beside the editing controls whenever a publish verb is
@@ -1465,6 +1537,7 @@ export function Toolbar({
 					    import/export. */}
 					{datasetActions && (canPublishFromMenu || destination) ? (
 						<PublishDropdown
+							small={compactLabels}
 							authoringIntent={datasetActions.authoringIntent}
 							canPublishNew={datasetActions.canPublishNew}
 							canPublishUpdate={datasetActions.canPublishUpdate}
@@ -1484,7 +1557,7 @@ export function Toolbar({
 							onLeavePublishingScope={onLeaveDestination}
 						/>
 					) : null}
-					{/* Thread toggle follows publication, including on wrapped rows. */}
+					{/* Thread and publishing stay pinned; neither is put in overflow. */}
 					<Divider />
 					<Button
 						type="button"
@@ -1514,6 +1587,36 @@ export function Toolbar({
 				    and the mobile search panel, so the old toolbar-level error banner
 				    here was removed to avoid a duplicate message. */}
 			</div>
+
+			{isAuthoring && (
+				<OsmImportPopover
+					control={osmControl}
+					open={magicPopoverOpen}
+					onOpenChange={setMagicPopoverOpen}
+					osmQueryFilter={osmQueryFilter}
+					onOsmFilterChange={setOsmQueryFilter}
+					onOsmClickMode={handleOsmClickMode}
+					onOsmQueryView={handleOsmQueryView}
+					onOsmAdvanced={onOsmAdvanced}
+					isClickMode={osmQueryMode === 'click'}
+					small
+				/>
+			)}
+			<CreateMapPopover control={toolControl('excerpt')} small />
+			<MeasurePopover control={toolControl('measure')} />
+			<ShareExportPopover control={toolControl('share')} small />
+			<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
+				<ToolPopoverAnchor anchorRef={moreToolsRef} />
+				<PopoverContent
+					aria-label="Map settings"
+					className="w-[28rem] max-w-[calc(100vw-2rem)]"
+					side="bottom"
+					align="end"
+					{...settingsFocusProps}
+				>
+					<MapSettingsPanel mode="map-only" />
+				</PopoverContent>
+			</Popover>
 			<SimplifyDialog open={simplifyDialogOpen} onOpenChange={setSimplifyDialogOpen} />
 			<GeometryOperationDialog
 				operation={numericGeometryOperation}

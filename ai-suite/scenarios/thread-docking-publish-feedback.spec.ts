@@ -218,7 +218,9 @@ test('publishing controls fit the canvas toolbar with both desktop panels open @
 	await earthly.page.getByRole('button', { name: 'Show Thread on the right', exact: true }).click()
 	const canvas = earthly.page.getByRole('main', { name: 'Map canvas', exact: true })
 	const audience = canvas.getByRole('button', { name: /^Audience/ })
-	for (const width of [1440, 1100, 1280, 1920, 1024]) {
+	for (const width of [
+		1440, 1100, 1200, 1280, 1360, 1600, 1760, 1800, 1920, 2040, 2240, 2560, 1024,
+	]) {
 		await earthly.page.setViewportSize({ width, height: 900 })
 		await expect(audience).toBeVisible()
 		await expect
@@ -244,6 +246,8 @@ test('publishing controls fit the canvas toolbar with both desktop panels open @
 			)
 			.toEqual([])
 		const bar = await canvas.locator('[data-tour="toolbar"]').boundingBox()
+		// A second row is not a responsive solution: reserve the canvas for the map.
+		expect(bar!.height).toBeLessThanOrEqual(40)
 		const navigation = await canvas
 			.getByRole('button', { name: 'Zoom in', exact: true })
 			.boundingBox()

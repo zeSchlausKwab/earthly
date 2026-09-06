@@ -5,8 +5,14 @@ import { QRCodeCanvas } from 'qrcode.react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+	ToolPopoverAnchor,
+	useToolPopoverControl,
+	useToolPopoverFocusProps,
+	type ToolPopoverControl,
+} from '../toolbar/toolPopoverControl'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useRouting } from '../../hooks/useRouting'
+import { buildRoutePath, useRouting } from '../../hooks/useRouting'
 import { earthlyPublicUrl } from '@/platform/publicUrl'
 import { useEditorStore } from '../../store'
 
@@ -16,6 +22,7 @@ type ShareResolution = 1 | 2 | 3
 
 interface ShareExportPopoverProps {
 	small?: boolean
+	control?: ToolPopoverControl
 }
 
 const SHARE_ASPECTS: Array<{ id: ShareAspect; label: string; ratio: number }> = [
@@ -268,7 +275,7 @@ async function buildShareImage(options: {
 	}
 }
 
-export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
+export function ShareExportPopover({ small = false, control }: ShareExportPopoverProps) {
 	const editor = useEditorStore((state) => state.editor)
 	const focusedMapGeometry = useEditorStore((state) => state.focusedMapGeometry)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
@@ -278,26 +285,27 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 	const { clearFocus, route } = useRouting()
 
 	const isFocused = Boolean(focusedNaddr && focusedType)
-	// Build a clean server-side URL so OG crawlers can resolve it properly.
-	// /context/:naddr and /geoevent/:naddr serve OG HTML to crawlers and the
-	// SPA renders the same clean path for regular users (Round I — no more #/).
+	// Share the same canonical object route as navigation, not its legacy alias.
 	const shareRouteUrl = useMemo(() => {
-		if (focusedType === 'mapcontext' && (focusedNaddr || route.contextNaddr)) {
-			return earthlyPublicUrl(`/context/${focusedNaddr ?? route.contextNaddr}`)
-		}
-		if (focusedType === 'geoevent' && focusedNaddr) {
-			return earthlyPublicUrl(`/geoevent/${focusedNaddr}`)
+		const focusType = focusedType ?? (route.focusType === 'none' ? null : route.focusType)
+		const naddr = focusedNaddr ?? route.naddr
+		if (focusType && naddr) {
+			return earthlyPublicUrl(buildRoutePath({ sidebarView: 'datasets', focusType, naddr }))
 		}
 		if (route.contextNaddr) {
-			return earthlyPublicUrl(`/context/${route.contextNaddr}`)
-		}
-		if (route.naddr) {
-			return earthlyPublicUrl(`/geoevent/${route.naddr}`)
+			return earthlyPublicUrl(
+				buildRoutePath({
+					sidebarView: 'contexts',
+					focusType: 'mapcontext',
+					naddr: route.contextNaddr,
+				}),
+			)
 		}
 		return earthlyPublicUrl()
-	}, [focusedType, focusedNaddr, route.contextNaddr, route.naddr])
+	}, [focusedType, focusedNaddr, route.focusType, route.contextNaddr, route.naddr])
 
-	const [sharePopoverOpen, setSharePopoverOpen] = useState(false)
+	const [sharePopoverOpen, setSharePopoverOpen] = useToolPopoverControl(control)
+	const focusProps = useToolPopoverFocusProps(control)
 	const [copiedUrl, setCopiedUrl] = useState(false)
 	const [shareAspect, setShareAspect] = useState<ShareAspect>('16:9')
 	const [shareCaptureMode, setShareCaptureMode] = useState<ShareCaptureMode>('viewport')
@@ -466,9 +474,8 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 		}
 	}
 
-	const handleSharePopoverOpenChange = (open: boolean) => {
-		setSharePopoverOpen(open)
-		if (open) {
+	useEffect(() => {
+		if (sharePopoverOpen) {
 			setCopiedUrl(false)
 			setSharePreviewError(null)
 			setShareCaptureMode(canUseEntityBounds ? 'entity-bounds' : 'viewport')
@@ -479,7 +486,7 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 		setSharePreviewLoading(false)
 		setSharePreviewError(null)
 		setSharePreviewDataUrl(null)
-	}
+	}, [sharePopoverOpen, canUseEntityBounds])
 
 	const handleExitFocus = () => {
 		setSharePopoverOpen(false)
@@ -496,29 +503,39 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 
 	return (
 		<TooltipProvider delayDuration={500}>
-			<Popover open={sharePopoverOpen} onOpenChange={handleSharePopoverOpenChange}>
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<PopoverTrigger asChild>
-							<Button
-								variant={small ? 'ghost' : 'default'}
-								size={small ? 'icon-sm' : 'icon'}
-								className={
-									small
-										? 'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none'
-										: undefined
-								}
-								aria-label="Share"
-							>
-								<Share2 className="h-4 w-4" />
-							</Button>
-						</PopoverTrigger>
-					</TooltipTrigger>
-					<TooltipContent side="bottom" sideOffset={8}>
-						<p>Share this view</p>
-					</TooltipContent>
-				</Tooltip>
-				<PopoverContent className="w-[32rem] max-w-[calc(100vw-2rem)]" side="bottom" align="end">
+			<Popover open={sharePopoverOpen} onOpenChange={setSharePopoverOpen}>
+				{control ? (
+					<ToolPopoverAnchor anchorRef={control.anchorRef} />
+				) : (
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<PopoverTrigger asChild>
+								<Button
+									variant={small ? 'ghost' : 'default'}
+									size={small ? 'icon-sm' : 'icon'}
+									className={
+										small
+											? 'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none'
+											: undefined
+									}
+									aria-label="Share"
+								>
+									<Share2 className="h-4 w-4" />
+								</Button>
+							</PopoverTrigger>
+						</TooltipTrigger>
+						<TooltipContent side="bottom" sideOffset={8}>
+							<p>Share this view</p>
+						</TooltipContent>
+					</Tooltip>
+				)}
+				<PopoverContent
+					aria-label="Share this view"
+					className="w-[32rem] max-w-[calc(100vw-2rem)]"
+					side="bottom"
+					align="end"
+					{...focusProps}
+				>
 					<div className="space-y-3">
 						<div>
 							<h4 className="text-sm font-semibold mb-1">Share this view</h4>

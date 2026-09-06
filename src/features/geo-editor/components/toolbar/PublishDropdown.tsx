@@ -149,6 +149,7 @@ export function PublishDropdown({
 							size="sm"
 							disabled
 							className={`${buttonSize} gap-1 px-2 bg-ok hover:bg-ok/15`}
+							aria-label={primaryLabel}
 						>
 							<UploadCloud className={iconSize} />
 						</Button>

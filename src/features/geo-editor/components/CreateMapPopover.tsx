@@ -26,6 +26,12 @@ import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+	ToolPopoverAnchor,
+	useToolPopoverControl,
+	useToolPopoverFocusProps,
+	type ToolPopoverControl,
+} from './toolbar/toolPopoverControl'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { useEditorStore } from '../store'
 import { accounts } from '@/lib/nostr'
@@ -97,6 +103,7 @@ type FlowState = 'idle' | 'extracting' | 'signing' | 'uploading' | 'done' | 'err
 
 interface CreateMapPopoverProps {
 	small?: boolean
+	control?: ToolPopoverControl
 }
 
 interface MapExtractUnsignedEvent {
@@ -135,8 +142,9 @@ interface MapExtractClient {
 	}>
 }
 
-export function CreateMapPopover({ small = false }: CreateMapPopoverProps) {
-	const [open, setOpen] = useState(false)
+export function CreateMapPopover({ small = false, control }: CreateMapPopoverProps) {
+	const [open, setOpen] = useToolPopoverControl(control)
+	const focusProps = useToolPopoverFocusProps(control)
 	const [sourceType, setSourceType] = useState<SourceType>('viewport')
 	const [blossomUrl, setBlossomUrl] = useState(
 		config.isDevelopment ? 'http://localhost:3544' : 'https://blossom.earthly.city',
@@ -413,29 +421,39 @@ export function CreateMapPopover({ small = false }: CreateMapPopoverProps) {
 	return (
 		<TooltipProvider delayDuration={500}>
 			<Popover open={open} onOpenChange={setOpen}>
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<PopoverTrigger asChild>
-							<Button
-								variant={small ? 'ghost' : 'outline'}
-								size={small ? 'icon-sm' : 'icon'}
-								className={
-									small
-										? 'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none'
-										: undefined
-								}
-								aria-label="Create Map"
-							>
-								<MapIcon className="h-4 w-4" />
-							</Button>
-						</PopoverTrigger>
-					</TooltipTrigger>
-					<TooltipContent side="bottom" sideOffset={8}>
-						<p>Create map excerpt</p>
-					</TooltipContent>
-				</Tooltip>
+				{control ? (
+					<ToolPopoverAnchor anchorRef={control.anchorRef} />
+				) : (
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<PopoverTrigger asChild>
+								<Button
+									variant={small ? 'ghost' : 'outline'}
+									size={small ? 'icon-sm' : 'icon'}
+									className={
+										small
+											? 'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none'
+											: undefined
+									}
+									aria-label="Create Map"
+								>
+									<MapIcon className="h-4 w-4" />
+								</Button>
+							</PopoverTrigger>
+						</TooltipTrigger>
+						<TooltipContent side="bottom" sideOffset={8}>
+							<p>Create map excerpt</p>
+						</TooltipContent>
+					</Tooltip>
+				)}
 
-				<PopoverContent className="w-80" side="bottom" align="end">
+				<PopoverContent
+					aria-label="Create map excerpt"
+					className="w-80"
+					side="bottom"
+					align="end"
+					{...focusProps}
+				>
 					<div className="space-y-4">
 						<div>
 							<h4 className="text-sm font-semibold">Create Map</h4>
@@ -457,6 +475,7 @@ export function CreateMapPopover({ small = false }: CreateMapPopoverProps) {
 														variant={sourceType === 'viewport' ? 'default' : 'outline'}
 														size="icon"
 														onClick={() => handleSourceChange('viewport')}
+														aria-label="Current View"
 													>
 														<Maximize className="h-4 w-4" />
 													</Button>
@@ -471,6 +490,7 @@ export function CreateMapPopover({ small = false }: CreateMapPopoverProps) {
 														variant={sourceType === 'dataset' ? 'default' : 'outline'}
 														size="icon"
 														onClick={() => handleSourceChange('dataset')}
+														aria-label="From Geometry"
 													>
 														<MousePointer2 className="h-4 w-4" />
 													</Button>
@@ -485,6 +505,7 @@ export function CreateMapPopover({ small = false }: CreateMapPopoverProps) {
 														variant={sourceType === 'selection' ? 'default' : 'outline'}
 														size="icon"
 														onClick={() => handleSourceChange('selection')}
+														aria-label="Draw Area"
 													>
 														<PenTool className="h-4 w-4" />
 													</Button>

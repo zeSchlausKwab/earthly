@@ -225,9 +225,37 @@ export async function configureChatProvider(
 	await expect(settingsSurface.locator('#chat-provider-select')).toHaveValue(settings.provider)
 	await expect
 		.poll(() =>
-			earthly.page.evaluate(() =>
-				Object.keys(localStorage).some((key) => key.startsWith('earthly.chat-settings.v1.')),
-			),
+			earthly.page.evaluate(async (expected) => {
+				// The envelope may already contain defaults. Wait for this import's
+				// debounced encrypted save, not just for any storage key to exist.
+				// Return only a boolean; never put decrypted credentials in diagnostics.
+				const signer = (
+					window as unknown as {
+						nostr: {
+							getPublicKey(): Promise<string>
+							nip44?: { decrypt(pubkey: string, ciphertext: string): Promise<string> }
+							nip04?: { decrypt(pubkey: string, ciphertext: string): Promise<string> }
+						}
+					}
+				).nostr
+				try {
+					const pubkey = await signer.getPublicKey()
+					const raw = localStorage.getItem(`earthly.chat-settings.v1.${pubkey}`)
+					if (!raw) return false
+					const envelope = JSON.parse(raw) as { scheme: 'nip04' | 'nip44'; ciphertext: string }
+					const cipher = signer[envelope.scheme]
+					if (!cipher) return false
+					const saved = JSON.parse(await cipher.decrypt(pubkey, envelope.ciphertext)) as Record<
+						string,
+						unknown
+					>
+					return Object.entries(expected).every(
+						([key, value]) => JSON.stringify(saved[key]) === JSON.stringify(value),
+					)
+				} catch {
+					return false
+				}
+			}, settings),
 		)
 		.toBe(true)
 }
@@ -241,9 +269,11 @@ export async function openAiChat(earthly: EarthlySession): Promise<void> {
 		}
 	} else {
 		if (!(await panel.isVisible())) {
-			await earthly.page.getByRole('button', {
-				name: /^(?:Show Thread|Thread is working; show it)(?: on the right)?$/,
-			}).click()
+			await earthly.page
+				.getByRole('button', {
+					name: /^(?:Show Thread|Thread is working; show it)(?: on the right)?$/,
+				})
+				.click()
 		}
 	}
 	await expect(panel).toBeVisible()

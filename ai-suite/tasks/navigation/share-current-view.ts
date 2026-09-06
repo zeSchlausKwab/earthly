@@ -14,7 +14,14 @@ export async function copyCurrentShareLink(earthly: EarthlySession): Promise<str
 	await earthly.page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
 		origin: earthly.environment.baseURL,
 	})
-	await earthly.page.locator('button[aria-label="Share"][aria-haspopup="dialog"]').first().click()
+	const direct = earthly.page.locator('button[aria-label="Share"][aria-haspopup="dialog"]').first()
+	if (await direct.isVisible()) await direct.click()
+	else {
+		await earthly.page.getByRole('button', { name: 'More tools', exact: true }).click()
+		await earthly.page
+			.getByRole('menuitem', { name: 'Share and export image', exact: true })
+			.click()
+	}
 	await expect(
 		earthly.page.getByRole('heading', { name: 'Share this view', exact: true }),
 	).toBeVisible()
