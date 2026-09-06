@@ -97,7 +97,6 @@ import { MapSettingsPanel } from '../../../components/optionalSurfaces.tsx'
 import { ShareExportPopover } from './share/ShareExportPopover'
 import {
 	Divider,
-	DrawButtonGroup,
 	GeometryOpsDropdown,
 	GeometryOperationDialog,
 	IconButtonRow,
@@ -125,6 +124,7 @@ import {
 	type ToolPopoverControl,
 } from './toolbar/toolPopoverControl'
 import { useResponsiveToolbar } from './toolbar/useResponsiveToolbar'
+import { drawModes } from './toolbar/DrawButtonGroup'
 import { Input } from '@/components/ui/input'
 import type { ResolvedAuthoringDestination } from './authoringDestination'
 
@@ -451,15 +451,18 @@ export function Toolbar({
 	const searchFormRef = useRef<HTMLFormElement | null>(null)
 	const [searchAnchorRect, setSearchAnchorRect] = useState<DOMRect | null>(null)
 
-	// Responsive toolbar — measures available width and decides which priority
-	// menus (Draw → Edit) expand inline vs stay as MenubarMenu dropdowns.
+	// Fit individual shortcuts into the space left by the actual pinned controls.
 	const {
 		containerRef: toolbarContainerRef,
-		expanded: expandedMenus,
+		menubarRef,
+		spacerRef,
+		measureRef,
+		searchRef,
+		inlineShortcuts,
 		compactSearch,
 		compactLabels,
 		inlineCallout,
-	} = useResponsiveToolbar()
+	} = useResponsiveToolbar(isAuthoring)
 	const [searchOpen, setSearchOpen] = useState(false)
 	const [theme, setTheme] = useTheme()
 	const moreToolsRef = useRef<HTMLButtonElement>(null)
@@ -746,77 +749,103 @@ export function Toolbar({
 	// verbs do instead of in a separate toolbar control.
 	const [proposalDialogOpen, setProposalDialogOpen] = useState(false)
 
-	// Desktop menus — Draw, Edit, View each render in one of two forms depending
-	// on `expandedMenus`: inline button row (when the toolbar has horizontal
-	// room) or a collapsed MenubarMenu dropdown. File never expands inline
-	// (too many items) so it stays as a dropdown always.
-	const drawExpandedInline = (
-		<div className="flex items-center gap-0.5">
-			<IconButtonRow buttons={selectButtons} small />
-			<DrawButtonGroup
-				mode={mode}
-				onModeChange={handleModeChange}
-				onArrowDraw={handleArrowDrawing}
-				disabled={isEditingDisabled}
-				small
-			/>
-			<MenubarMenu>
-				<MenubarTrigger asChild>
-					<Button
-						type="button"
-						size="icon"
-						variant={mode === 'draw_primitive' ? 'default' : 'outline'}
-						className="h-8 w-8 rounded-none"
-						disabled={isEditingDisabled}
-						aria-label="Draw shape"
-						title="Draw shape"
-					>
-						<Shapes className="h-3.5 w-3.5" />
-					</Button>
-				</MenubarTrigger>
-				<MenubarContent align="start" className="min-w-48">
-					<ToolbarMenuItem
-						icon={Square}
-						label="Rectangle"
-						onSelect={() => handleInsertPrimitive('rectangle')}
-					/>
-					<ToolbarMenuItem
-						icon={Square}
-						label="Square"
-						onSelect={() => handleInsertPrimitive('square')}
-					/>
-					<ToolbarMenuItem
-						icon={Circle}
-						label="Circle"
-						onSelect={() => handleInsertPrimitive('circle')}
-					/>
-					<ToolbarMenuItem
-						icon={Triangle}
-						label="Triangle"
-						onSelect={() => handleInsertPrimitive('triangle')}
-					/>
-					<ToolbarMenuItem
-						icon={Diamond}
-						label="Diamond"
-						onSelect={() => handleInsertPrimitive('diamond')}
-					/>
-				</MenubarContent>
-			</MenubarMenu>
-			{/* OsmImportPopover moved out of Draw — rendered as a standalone
-			    button next to the File menu so it's always reachable. */}
+	const drawButtons: ToolbarButton[] = [
+		...selectButtons,
+		...drawModes.map(({ key, icon, label }) => ({
+			key,
+			icon,
+			ariaLabel: label,
+			description: label,
+			onClick: () => handleModeChange(key),
+			variant: mode === key ? ('default' as const) : ('outline' as const),
+			disabled: isEditingDisabled,
+		})),
+		{
+			key: 'draw_arrow',
+			icon: ArrowUpRight,
+			ariaLabel: 'Draw arrow',
+			description: 'Draw arrow',
+			onClick: handleArrowDrawing,
+			disabled: isEditingDisabled,
+		},
+	]
+	const renderShortcut = (button: ToolbarButton) => (
+		<div key={button.key} data-toolbar-shortcut={button.key} className="w-8 shrink-0">
+			<IconButtonRow buttons={[button]} small />
 		</div>
+	)
+	// Menus remain stable keyboard-accessible command catalogs. Their most-used
+	// commands also become direct shortcuts, one at a time as room becomes free.
+	const drawExpandedInline = (
+		<>
+			{drawButtons.filter((button) => inlineShortcuts.has(button.key)).map(renderShortcut)}
+			{inlineShortcuts.has('draw_shape') && (
+				<div data-toolbar-shortcut="draw_shape" className="w-8 shrink-0">
+					<MenubarMenu>
+						<MenubarTrigger asChild>
+							<Button
+								type="button"
+								size="icon"
+								variant={mode === 'draw_primitive' ? 'default' : 'outline'}
+								className="h-8 w-8 rounded-none"
+								disabled={isEditingDisabled}
+								aria-label="Draw shape"
+								title="Draw shape"
+							>
+								<Shapes className="h-3.5 w-3.5" />
+							</Button>
+						</MenubarTrigger>
+						<MenubarContent align="start" className="min-w-48">
+							<ToolbarMenuItem
+								icon={Square}
+								label="Rectangle"
+								onSelect={() => handleInsertPrimitive('rectangle')}
+							/>
+							<ToolbarMenuItem
+								icon={Square}
+								label="Square"
+								onSelect={() => handleInsertPrimitive('square')}
+							/>
+							<ToolbarMenuItem
+								icon={Circle}
+								label="Circle"
+								onSelect={() => handleInsertPrimitive('circle')}
+							/>
+							<ToolbarMenuItem
+								icon={Triangle}
+								label="Triangle"
+								onSelect={() => handleInsertPrimitive('triangle')}
+							/>
+							<ToolbarMenuItem
+								icon={Diamond}
+								label="Diamond"
+								onSelect={() => handleInsertPrimitive('diamond')}
+							/>
+						</MenubarContent>
+					</MenubarMenu>
+				</div>
+			)}
+		</>
 	)
 
 	const editExpandedInline = (
-		<div className="flex items-center gap-0.5">
-			<IconButtonRow buttons={historyButtons} small />
-			<IconButtonRow buttons={editButtons} small />
-			<GeometryOpsDropdown {...geometryOpsProps} small />
-		</div>
+		<>
+			{[...historyButtons, ...editButtons]
+				.filter((button) => inlineShortcuts.has(button.key))
+				.map(renderShortcut)}
+			{inlineShortcuts.has('geometry_ops') && (
+				<div data-toolbar-shortcut="geometry_ops" className="w-8 shrink-0">
+					<GeometryOpsDropdown {...geometryOpsProps} small />
+				</div>
+			)}
+		</>
 	)
 
 	const desktopCommandMenubar = (
-		<Menubar className="h-8 shrink-0 gap-0.5 border-0 bg-transparent p-0 shadow-none">
+		<Menubar
+			ref={menubarRef}
+			className="h-8 shrink-0 gap-0.5 border-0 bg-transparent p-0 shadow-none"
+		>
 			<MenubarMenu>
 				<ToolbarMenuTrigger icon={isEditing ? XCircle : FileText} label="File" active={isEditing} />
 				<MenubarContent align="start" className="min-w-56">
@@ -892,9 +921,7 @@ export function Toolbar({
 				</MenubarContent>
 			</MenubarMenu>
 
-			{!isAuthoring ? null : expandedMenus.has('draw') ? (
-				drawExpandedInline
-			) : (
+			{isAuthoring && (
 				<MenubarMenu>
 					<ToolbarMenuTrigger icon={MousePointer2} label="Draw" active={mode.startsWith('draw_')} />
 					<MenubarContent align="start" className="min-w-56">
@@ -1034,9 +1061,8 @@ export function Toolbar({
 				</MenubarMenu>
 			)}
 
-			{!isAuthoring ? null : expandedMenus.has('edit') ? (
-				editExpandedInline
-			) : (
+			{isAuthoring && drawExpandedInline}
+			{isAuthoring && (
 				<MenubarMenu>
 					<ToolbarMenuTrigger
 						icon={Edit3}
@@ -1224,8 +1250,7 @@ export function Toolbar({
 				</MenubarMenu>
 			)}
 
-			{/* View menu dropped — Location lookup is now a standalone
-			    Crosshair button rendered next to the search box (below). */}
+			{isAuthoring && editExpandedInline}
 		</Menubar>
 	)
 
@@ -1443,92 +1468,98 @@ export function Toolbar({
 					{/* Topic 5: file / draw / edit menus (priority-expanding) */}
 					{desktopCommandMenubar}
 					{isAuthoring && inlineCallout ? (
-						<TooltipProvider>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<Button
-										type="button"
-										variant={calloutComposerActive || calloutAnchorDrawing ? 'default' : 'outline'}
-										size="icon-sm"
-										onClick={onOpenSelectedCallout}
-										aria-label={
-											calloutAnchorDrawing
+						<div data-toolbar-shortcut="callout" className="w-8 shrink-0">
+							<TooltipProvider>
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Button
+											type="button"
+											variant={
+												calloutComposerActive || calloutAnchorDrawing ? 'default' : 'outline'
+											}
+											size="icon-sm"
+											onClick={onOpenSelectedCallout}
+											aria-label={
+												calloutAnchorDrawing
+													? 'Cancel callout anchor'
+													: calloutComposerActive
+														? 'Cancel new map callout'
+														: selectedFeatureHasCallout
+															? 'Add another map callout'
+															: 'Add map callout'
+											}
+											className="h-8 w-8 shrink-0 rounded-none"
+										>
+											<MessageSquarePlus className="h-3.5 w-3.5" />
+										</Button>
+									</TooltipTrigger>
+									<TooltipContent side="bottom" sideOffset={8}>
+										<p>
+											{calloutAnchorDrawing
 												? 'Cancel callout anchor'
 												: calloutComposerActive
 													? 'Cancel new map callout'
-													: selectedFeatureHasCallout
-														? 'Add another map callout'
-														: 'Add map callout'
-										}
-										className="h-8 w-8 shrink-0 rounded-none"
-									>
-										<MessageSquarePlus className="h-3.5 w-3.5" />
-									</Button>
-								</TooltipTrigger>
-								<TooltipContent side="bottom" sideOffset={8}>
-									<p>
-										{calloutAnchorDrawing
-											? 'Cancel callout anchor'
-											: calloutComposerActive
-												? 'Cancel new map callout'
-												: selectedFeatureCount === 0
-													? 'Draw a point anchor and add a map callout'
-													: selectedFeatureCount > 1
-														? 'Select a single geometry to add a map callout'
-														: selectedFeatureHasCallout
-															? 'Add another map callout'
-															: 'Add map callout'}
-									</p>
-								</TooltipContent>
-							</Tooltip>
-						</TooltipProvider>
+													: selectedFeatureCount === 0
+														? 'Draw a point anchor and add a map callout'
+														: selectedFeatureCount > 1
+															? 'Select a single geometry to add a map callout'
+															: selectedFeatureHasCallout
+																? 'Add another map callout'
+																: 'Add map callout'}
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							</TooltipProvider>
+						</div>
 					) : null}
 
 					{/* Grow-spacer: once the priority-expanding menus can't grow any
 					    further, this invisible element takes the slack and pushes the
 					    search bar + right cluster to the right edge. */}
-					<div className="min-w-0 flex-1" aria-hidden="true" />
+					<div ref={spacerRef} className="min-w-0 flex-1" aria-hidden="true" />
 
 					<Divider />
 
-					{compactSearch ? (
-						<Popover open={searchOpen} onOpenChange={setSearchOpen}>
-							<PopoverTrigger asChild>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									className="h-8 w-8 shrink-0"
-									aria-label="Search location"
-									title="Search location"
-								>
-									<Search className="h-4 w-4" />
-								</Button>
-							</PopoverTrigger>
-							<PopoverContent aria-label="Search location" align="end" className="w-80 gap-2">
-								{searchForm}
-								{searchFeedback}
-							</PopoverContent>
-						</Popover>
-					) : (
-						<>
-							{searchForm}
-							{showSearchDropdown &&
-								searchAnchorRect &&
-								typeof document !== 'undefined' &&
-								createPortal(
-									<div
-										className="fixed z-50 w-72"
-										style={{
-											top: searchAnchorRect.bottom + 8,
-											left: Math.min(searchAnchorRect.left, window.innerWidth - 300),
-										}}
+					<div ref={searchRef} className={cn('shrink-0', compactSearch ? 'w-8' : 'w-36')}>
+						{compactSearch ? (
+							<Popover open={searchOpen} onOpenChange={setSearchOpen}>
+								<PopoverTrigger asChild>
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										className="h-8 w-8 shrink-0"
+										aria-label="Search location"
+										title="Search location"
 									>
-										{searchFeedback}
-									</div>,
-									document.body,
-								)}
-						</>
-					)}
+										<Search className="h-4 w-4" />
+									</Button>
+								</PopoverTrigger>
+								<PopoverContent aria-label="Search location" align="end" className="w-80 gap-2">
+									{searchForm}
+									{searchFeedback}
+								</PopoverContent>
+							</Popover>
+						) : (
+							<>
+								{searchForm}
+								{showSearchDropdown &&
+									searchAnchorRect &&
+									typeof document !== 'undefined' &&
+									createPortal(
+										<div
+											className="fixed z-50 w-72"
+											style={{
+												top: searchAnchorRect.bottom + 8,
+												left: Math.min(searchAnchorRect.left, window.innerWidth - 300),
+											}}
+										>
+											{searchFeedback}
+										</div>,
+										document.body,
+									)}
+							</>
+						)}
+					</div>
 					{moreTools}
 					{/* Workflow audit P2: publishing is the completion of the core
 					    workflow, so the primary Publish action stays persistently
@@ -1580,6 +1611,16 @@ export function Toolbar({
 							<MessageCircle className="h-4 w-4" />
 						)}
 					</Button>
+				</div>
+				{/* Inert sizing probes use the same rem-based dimensions as the real
+				    shortcuts/search; no duplicate controls or popovers are mounted. */}
+				<div
+					ref={measureRef}
+					aria-hidden="true"
+					className="pointer-events-none invisible absolute left-0 top-0 flex h-0 overflow-hidden"
+				>
+					<span className="w-8 shrink-0" />
+					<span className="w-36 shrink-0" />
 				</div>
 
 				{fileInput}

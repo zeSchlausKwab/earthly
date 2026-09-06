@@ -112,6 +112,8 @@ test('compact location search keeps feedback, keyboard selection and its query a
 	await startDataset(earthly)
 	await installDeterministicMapStyle(earthly)
 	// Deterministic search response: exercise the toolbar, not an external geocoder.
+	// Editing shortcuts take priority over expanding the search input now.
+	await earthly.page.setViewportSize({ width: 1920, height: 900 })
 	await earthly.page.evaluate(() => {
 		const store = (
 			window as unknown as {
@@ -174,6 +176,89 @@ test('compact location search keeps feedback, keyboard selection and its query a
 	await expect(
 		earthly.page.getByRole('dialog', { name: 'Search location', exact: true }),
 	).toBeHidden()
+})
+
+test('Draw and Edit progressively release shortcuts into available canvas space @regression', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(earthly.isMobile, 'Desktop toolbar allocation')
+	const health = monitorBrowserHealth(earthly.page)
+	await earthly.open({ tour: 'seen' })
+	await startDataset(earthly)
+	await installDeterministicMapStyle(earthly)
+	await addPointToGeometryDraft(earthly)
+	await earthly.page.getByRole('button', { name: 'Show Thread on the right', exact: true }).click()
+	const toolbar = earthly.page.locator('[data-tour="toolbar"]')
+	const shortcutNames = [
+		'Select mode',
+		'Box select mode',
+		'Draw point',
+		'Draw line',
+		'Draw polygon',
+		'Draw label',
+		'Draw arrow',
+		'Draw shape',
+		'Undo',
+		'Redo',
+		'Toggle snapping',
+		'Edit vertices',
+		'Toggle edit isolation',
+		'Delete',
+		'Duplicate',
+		'Geometry operations',
+	]
+	const snapshot = () =>
+		toolbar.evaluate((element, names) => {
+				const buttons = Array.from(element.querySelectorAll('button')).filter(
+				(button) =>
+					names.includes(button.getAttribute('aria-label') ?? '') &&
+					button.getBoundingClientRect().width > 0,
+			)
+			const menu = element.querySelector('[role="menubar"]')!.getBoundingClientRect()
+			const search = element
+				.querySelector('[aria-label="Search location"]')!
+				.getBoundingClientRect()
+			return {
+				count: buttons.length,
+				gap: search.left - menu.right,
+				height: element.getBoundingClientRect().height,
+			}
+		}, shortcutNames)
+	const counts: number[] = []
+	for (const width of [1440, 1600, 1760, 1920, 2040, 2240, 2560]) {
+		await earthly.page.setViewportSize({ width, height: 900 })
+		await expect
+			.poll(async () => {
+				const state = await snapshot()
+				return state.count === 16 || state.gap < 52
+			})
+			.toBe(true)
+		const state = await snapshot()
+		expect(state.height).toBeLessThanOrEqual(40)
+		counts.push(state.count)
+		if (width === 1920) {
+			for (const name of ['Draw point', 'Draw line', 'Draw polygon', 'Undo', 'Redo']) {
+				await expect(toolbar.getByRole('button', { name, exact: true })).toBeVisible()
+			}
+			await earthly.page.screenshot({ path: testInfo.outputPath('progressive-both-panels.png') })
+		}
+	}
+	expect(new Set(counts).size).toBeGreaterThanOrEqual(4)
+	expect(counts).toEqual([...counts].sort((a, b) => a - b))
+	expect(counts.at(-1)).toBe(16)
+	// Closing a dock changes the canvas width without a viewport resize.
+	await earthly.page.setViewportSize({ width: 1440, height: 900 })
+	await expect.poll(async () => (await snapshot()).count).toBe(counts[0])
+	await earthly.page.getByRole('button', { name: 'Hide Thread', exact: true }).click()
+	await expect.poll(async () => (await snapshot()).count).toBeGreaterThan(counts[0]!)
+	// Direct history and the full menu catalog both still operate.
+	await toolbar.getByRole('button', { name: 'Undo', exact: true }).click()
+	await expectGeometryFeatureCount(earthly, 0)
+	await toolbar.getByRole('menuitem', { name: 'Edit', exact: true }).click()
+	await earthly.page.getByRole('menuitem', { name: 'Redo', exact: true }).click()
+	await expectGeometryFeatureCount(earthly, 1)
+	expect(health.snapshot().pageErrors).toEqual([])
+	health.stop()
 })
 
 test('the existing Share workflow reaches its canonical link through overflow @regression', async ({

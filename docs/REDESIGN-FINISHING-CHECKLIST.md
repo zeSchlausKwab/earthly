@@ -68,6 +68,16 @@ Implementation follows the September 5 UX/startup audit. This is one full migrat
 - The docking test exposed a setup race: its settings helper waited for *any* encrypted envelope, which could still contain defaults before the imported snapshot's debounced save. The helper now verifies the saved snapshot without returning decrypted credentials to diagnostics. The unchanged reload/active-run docking assertions then passed.
 - Three layout-policy unit tests, AI-suite typecheck, and a fresh production build passed. Repository TypeScript remains at **432 unchanged diagnostic headers**; the broader release gates above remain open. No relay reset/reseed, external publication, or paid provider calls.
 
+## Per-shortcut toolbar release — September 6
+
+- Replaced the all-or-nothing Draw/Edit thresholds with an allocation based on the rendered toolbar's remaining space. Measurements include pinned controls, publication text, counter widths, real button dimensions, gaps and font sizing; released shortcuts are added back when calculating the budget, preventing expand/collapse feedback loops.
+- Selection, Point, Line, Area, Undo/Redo, vertex editing and Geometry have priority. Further drawing/editing shortcuts appear individually as space permits. The labeled Draw/Edit menus remain complete command catalogs, and File, Audience/Publish and Thread stay pinned on one row. The search field expands only after editing shortcuts fit. Existing icons, actions and tool-popover state are retained.
+- The new browser contract covers multiple partial expansion levels, reclaiming unused space, growth/shrinkage across seven desktop widths, full expansion, and docking without a viewport resize. It also exercises direct Undo and menu Redo against real draft geometry. The previous 13-width button hit-test and all 11 focused toolbar/docking/publish checks passed before the final Geometry-priority adjustment; the new allocation contract passed again afterward.
+- Six allocation unit tests, AI-suite typecheck and a fresh production build pass. Full repository typing remains at the same 432 diagnostic headers (normalized line numbers).
+- Final focused verification on port 3001: **7 passed, 7 intentional viewport skips**. This includes the five desktop toolbar scenarios and both phone drawing/edit-sheet scenarios. The progressive layout screenshot was reviewed with both desktop panels open.
+- A broader legacy editor-contract run was **not green**: nested geometry-menu pointer navigation, copy confirmation, reselecting a reloaded draft, legacy Map Stack labels, the published-presentation row selector, and the old sidebar selector failed. The run was stopped before completing its mobile cases. Nested geometry submenus need separate follow-up; an experimental portal change did not resolve them and was removed. No shared menu primitive changes are included here. These results are not a claim that the broader redesign release gate passes.
+- The server on port 3000 became unavailable during the extra checks. Verification continued against the existing server for the same checkout on port 3001. Neither server nor relay was reset/reseeded; browser state was isolated.
+
 ## Saved commits
 
 - `0ef42e6`: progressive map rendering and basemap recovery.
