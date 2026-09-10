@@ -1219,6 +1219,13 @@ export function StoryEditorPanel({
 					title="Write your story"
 					description="Type $ to reference a Map or feature. Place the cursor in your prose, then use View in the toolbar to insert a map cue or figure."
 				/>
+				{body.includes('earthly-draft:') && (
+					<p className="text-xs text-muted-foreground">
+						This story includes local Map references. When you publish, you’ll be asked to publish
+						each required Map and replace its draft reference with a public link. Cancelling keeps
+						your Story draft and any completed links. Inline map views currently require published Maps.
+					</p>
+				)}
 				<Tabs
 					value={bodyTab}
 					onValueChange={(value) => setBodyTab(value as 'write' | 'preview')}

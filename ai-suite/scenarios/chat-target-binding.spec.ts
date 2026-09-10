@@ -2,28 +2,25 @@ import { expect, test } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import {
 	aiChatSurfaceSnapshot,
-	attemptTargetRequiredAiChatSend,
-	composeAiChatMessage,
 	configureChatProvider,
-	dispatchComposedAiChatMessage,
 	openAiChat,
 	selectAiChatTarget,
+	sendAiChatMessage,
 	startNewAiChat,
 	switchAiChat,
-	waitForAiChatCompletion,
 } from '../tasks/chat/conversation'
+import { setThreadWorkingSetOpen, threadWorkSnapshot } from '../tasks/chat/working-set'
 import { startDataset } from '../tasks/create/dataset'
 import { clickEditorMap, expectGeometryFeatureCount } from '../tasks/create/geometry'
 import { editorLifecycleSnapshot } from '../tasks/editor/lifecycle'
 import { installDeterministicChatProvider } from '../tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyle } from '../tasks/setup/deterministic-map-style'
+import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
 
 function materializedDraftFeatureCount(earthly: Parameters<typeof editorLifecycleSnapshot>[0]) {
 	return earthly.page.evaluate(() => {
 		const map = (
-			window as unknown as {
-				__earthlyUiMap?: { querySourceFeatures(id: string): unknown[] }
-			}
+			window as unknown as { __earthlyUiMap?: { querySourceFeatures(id: string): unknown[] } }
 		).__earthlyUiMap
 		if (!map) return -1
 		try {
@@ -34,33 +31,28 @@ function materializedDraftFeatureCount(earthly: Parameters<typeof editorLifecycl
 	})
 }
 
-test('editing target always restores a visible Map Stack draft @regression', async ({
+test('opening a working-set Map restores its visible draft @regression', async ({
 	earthly,
 }, testInfo) => {
-	test.skip(testInfo.project.name !== 'desktop', 'The target pill is exercised on desktop')
-
+	test.skip(testInfo.project.name !== 'desktop', 'Desktop map and Thread restoration regression')
+	await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly, 'target-binding')
 	await authorizeJourneyIdentity(earthly, 'owner')
 	await configureChatProvider(earthly, provider.settings)
-	await earthly.open({ tour: 'preserve' })
+	await earthly.open()
 	await installDeterministicMapStyle(earthly)
-
-	const datasetName = 'Dataset edit that must stay on the map'
+	const datasetName = 'Map edit that must stay on the map'
 	const dataset = await startDataset(earthly)
 	await dataset.nameInput.fill(datasetName)
 	await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().click()
 	await clickEditorMap(earthly, 0.62, 0.43)
 	await expectGeometryFeatureCount(earthly, 1)
 	await expect.poll(() => materializedDraftFeatureCount(earthly)).toBeGreaterThan(0)
-
 	await openAiChat(earthly)
 	await selectAiChatTarget(earthly, 'current-dataset')
 	const bound = await editorLifecycleSnapshot(earthly)
-	expect(bound.activeWorkspaceId).not.toBeNull()
-	expect(bound.activeDraftId).not.toBeNull()
-
-	// Leave the retained target dormant, then reproduce a missing presentation.
-	// The same-target Open action must reactivate it and restore map visibility.
+	// Reproduce a dormant target whose presentation was removed. Opening it must
+	// restore editor and presentation together, not merely change a store pointer.
 	await earthly.page.evaluate(() => {
 		const store = (
 			window as typeof window & {
@@ -74,21 +66,9 @@ test('editing target always restores a visible Map Stack draft @regression', asy
 		store.setState({ viewMode: 'view', stance: 'focus' })
 		store.getState().removeMapStackEntry('draft:active')
 	})
-	await expect
-		.poll(async () =>
-			(await editorLifecycleSnapshot(earthly)).mapStack.some(
-				(entry) => entry.id === 'draft:active',
-			),
-		)
-		.toBe(false)
 	await expect.poll(() => materializedDraftFeatureCount(earthly)).toBe(0)
-	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(bound.activeWorkspaceId)
-
-	await earthly.page
-		.getByRole('region', { name: 'AI chat', exact: true })
-		.getByRole('button', { name: `Open ${datasetName} in geometry editor` })
-		.click()
-
+	const working = await setThreadWorkingSetOpen(earthly)
+	await working.getByRole('button', { name: datasetName, exact: true }).click()
 	await expect
 		.poll(
 			async () =>
@@ -101,132 +81,74 @@ test('editing target always restores a visible Map Stack draft @regression', asy
 	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(bound.activeWorkspaceId)
 })
 
-test('each Chat requires and retains its own explicit Dataset target @regression', async ({
+test('read-only Threads can ask; references and navigation never grant Map writes @regression', async ({
 	earthly,
 }, testInfo) => {
-	test.skip(testInfo.project.name !== 'desktop', 'The retained Dataset target rail is desktop-only')
-
+	test.skip(testInfo.project.name !== 'desktop', 'Desktop reference and navigation regression')
+	await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly, 'target-binding')
 	await authorizeJourneyIdentity(earthly, 'owner')
 	await configureChatProvider(earthly, provider.settings)
-	await earthly.open({ tour: 'preserve' })
+	await earthly.open()
 	await installDeterministicMapStyle(earthly)
-
-	const datasetName = 'Dataset A — explicit Chat target'
 	const dataset = await startDataset(earthly)
-	await dataset.nameInput.fill(datasetName)
-	await expect(dataset.nameInput).toHaveValue(datasetName)
-	const visibleDataset = await editorLifecycleSnapshot(earthly)
-	expect(visibleDataset.activeWorkspaceId).not.toBeNull()
-	expect(visibleDataset.activeDraftId).not.toBeNull()
-
+	await dataset.nameInput.fill('Map A')
+	const visible = await editorLifecycleSnapshot(earthly)
 	await openAiChat(earthly)
 	const chatA = await startNewAiChat(earthly)
-	const prompt = 'Keep this exact prompt while I choose its Dataset target.'
-
-	expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-		chatId: chatA.newChatId,
-		prompt: '',
-		sendEnabled: false,
-		targetRequired: true,
-		targetName: null,
-		userMessageCount: 0,
+	let working = await setThreadWorkingSetOpen(earthly)
+	await working.getByRole('button', { name: 'Reference viewed object', exact: true }).click()
+	expect(await threadWorkSnapshot(earthly)).toMatchObject({
+		id: chatA.newChatId,
+		outputs: [],
+		referenceCount: 1,
+		allowCreate: false,
 	})
-	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(
-		visibleDataset.activeWorkspaceId,
-	)
-
-	await composeAiChatMessage(earthly, prompt)
-	await attemptTargetRequiredAiChatSend(earthly)
-	expect(provider.requests()).toHaveLength(0)
-	expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-		chatId: chatA.newChatId,
-		prompt,
-		sendEnabled: false,
-		targetRequired: true,
-		targetName: null,
-		userMessageCount: 0,
-	})
-
-	const selectedTarget = await selectAiChatTarget(earthly, 'current-dataset')
-	expect(selectedTarget).toBe(datasetName)
-	expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-		chatId: chatA.newChatId,
-		prompt,
-		sendEnabled: true,
-		targetRequired: false,
-		targetName: datasetName,
-		userMessageCount: 0,
-	})
-
-	const panel = earthly.page.getByRole('region', { name: 'AI chat', exact: true })
-	const assistantMessagesBefore = await panel.getByTitle('Copy assistant message').count()
-	await dispatchComposedAiChatMessage(earthly)
-	await waitForAiChatCompletion(earthly, assistantMessagesBefore)
-	expect(provider.requests()).toHaveLength(1)
+	await setThreadWorkingSetOpen(earthly, false)
+	await sendAiChatMessage(earthly, 'Explain the Map reference without editing it.')
+	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 	await expect(
-		panel.getByText('The explicitly selected Dataset target received this prompt.', {
-			exact: true,
-		}),
+		panel.getByText('The work Thread received this prompt.', { exact: true }),
 	).toBeVisible()
-
+	expect(provider.requests()).toHaveLength(1)
+	expect(provider.requests()[0]?.toolNames).toContain('read_thread_reference')
+	expect(provider.requests()[0]?.toolNames).not.toContain('run_code')
+	expect(provider.requests()[0]?.toolNames).not.toContain('write_story_draft')
+	expect((await threadWorkSnapshot(earthly)).outputs).toEqual([])
+	await selectAiChatTarget(earthly, 'current-dataset')
 	await earthly.page.reload({ waitUntil: 'domcontentloaded' })
 	await installDeterministicMapStyle(earthly)
 	await openAiChat(earthly)
-	await expect
-		.poll(async () => {
-			const surface = await aiChatSurfaceSnapshot(earthly)
-			return { chatId: surface.chatId, targetName: surface.targetName }
-		})
-		.toEqual({ chatId: chatA.newChatId, targetName: datasetName })
-	expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-		chatId: chatA.newChatId,
-		prompt: '',
-		sendEnabled: false,
-		targetRequired: false,
-		targetName: datasetName,
-		userMessageCount: 1,
+	expect(await threadWorkSnapshot(earthly)).toMatchObject({
+		id: chatA.newChatId,
+		referenceCount: 1,
+		outputs: [{ title: 'Map A', kind: 'dataset' }],
 	})
-
-	const datasetBName = 'Dataset B — visible but not Chat A target'
 	const datasetB = await startDataset(earthly)
-	await datasetB.nameInput.fill(datasetBName)
-	await expect(datasetB.nameInput).toHaveValue(datasetBName)
-	await expect
-		.poll(async () => (await editorLifecycleSnapshot(earthly)).activeWorkspaceId)
-		.not.toBe(visibleDataset.activeWorkspaceId)
-	const secondVisibleDataset = await editorLifecycleSnapshot(earthly)
-	expect(secondVisibleDataset.activeWorkspaceId).not.toBeNull()
-	expect(secondVisibleDataset.activeDraftId).not.toBe(visibleDataset.activeDraftId)
-	expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-		chatId: chatA.newChatId,
-		targetRequired: false,
-		targetName: datasetName,
-	})
-
+	await datasetB.nameInput.fill('Map B')
+	await openAiChat(earthly)
+	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).not.toBe(
+		visible.activeWorkspaceId,
+	)
+	expect((await threadWorkSnapshot(earthly)).outputs.map((item) => item.title)).toEqual(['Map A'])
 	const chatB = await startNewAiChat(earthly)
-	expect(chatB.previousChatId).toBe(chatA.newChatId)
-	expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
-		chatId: chatB.newChatId,
-		prompt: '',
-		sendEnabled: false,
-		targetRequired: true,
-		targetName: null,
-		userMessageCount: 0,
+	expect(await threadWorkSnapshot(earthly)).toMatchObject({
+		id: chatB.newChatId,
+		outputs: [],
+		referenceCount: 0,
 	})
-	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(
-		secondVisibleDataset.activeWorkspaceId,
-	)
-
 	await switchAiChat(earthly, chatA.newChatId)
-	await expect.poll(async () => (await aiChatSurfaceSnapshot(earthly)).targetName).toBe(datasetName)
 	expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
 		chatId: chatA.newChatId,
+		targetName: 'Map A',
 		targetRequired: false,
-		targetName: datasetName,
 	})
-	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(
-		secondVisibleDataset.activeWorkspaceId,
-	)
+	working = await setThreadWorkingSetOpen(earthly)
+	await expect(working.getByText('Drawing into: Map B', { exact: true })).toBeVisible()
+	await working.getByRole('button', { name: 'Remove reference Map A', exact: true }).click()
+	expect(await threadWorkSnapshot(earthly)).toMatchObject({
+		referenceCount: 0,
+		outputs: [{ title: 'Map A' }],
+	})
 	expect(provider.requests()).toHaveLength(1)
 })

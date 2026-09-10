@@ -57,14 +57,12 @@ export function WorkingSetControls({
 		const kind = viewedKey.slice(0, separator)
 		const address = viewedKey.slice(separator + 1)
 		if (!address || separator < 0) return
-		useChatStore
-			.getState()
-			.addReferenceToChat(chatId, {
-				id: viewedKey,
-				name: viewedTitle || 'Reference',
-				type: kind === 'story' ? 'story' : kind === 'atlas' ? 'context' : 'dataset',
-				...(kind === 'map-draft' ? { localWorkspaceId: address } : { address }),
-			})
+		useChatStore.getState().addReferenceToChat(chatId, {
+			id: viewedKey,
+			name: viewedTitle || 'Reference',
+			type: kind === 'story' ? 'story' : kind === 'atlas' ? 'context' : 'dataset',
+			...(kind === 'map-draft' ? { localWorkspaceId: address } : { address }),
+		})
 	}
 	const add = (item: ThreadWorkTarget) => {
 		if (!chatId) return
@@ -153,8 +151,12 @@ export function WorkingSetControls({
 						>
 							{item.title}
 						</button>
-						<span>
-							{item.intent}
+						<span className="shrink-0 text-muted-foreground">
+							{
+								{ create: 'New draft', edit: 'Editing', propose: 'Proposal', fork: 'Fork' }[
+									item.intent
+								]
+							}
 							{item.featureIds ? ` · only ${item.featureIds.length} features` : ''}
 						</span>
 						<Button
@@ -207,8 +209,15 @@ export function WorkingSetControls({
 				</label>
 				{session?.allowCreate && (
 					<p className="text-muted-foreground">
-						New Maps: {audience.kind}. New Stories: public drafts. Nothing is published
-						automatically.
+						New Maps:{' '}
+						{audience.kind === 'public'
+							? 'public drafts'
+							: audience.kind === 'private-group'
+								? 'same private Circle'
+								: audience.kind === 'field-session'
+									? 'same Nearby session'
+									: 'choose an audience first'}
+						. New Stories: public drafts. Nothing is published automatically.
 					</p>
 				)}
 				<p className="flex items-center gap-1 text-muted-foreground">

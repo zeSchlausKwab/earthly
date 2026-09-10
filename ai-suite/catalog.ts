@@ -3,7 +3,6 @@ import { authorizeJourneyIdentityTask } from './tasks/auth/authorize-journey-ide
 import { signInTask } from './tasks/auth/sign-in'
 import {
 	approveAiEditTask,
-	attemptTargetRequiredAiChatSendTask,
 	composeAiChatMessageTask,
 	completeAiChatTurnTask,
 	configureChatProviderTask,
@@ -16,6 +15,7 @@ import {
 	waitForAiChatCompletionTask,
 } from './tasks/chat/conversation'
 import { startDatasetTask } from './tasks/create/dataset'
+import { setThreadWorkingSetOpenTask } from './tasks/chat/working-set'
 import { createContextTask } from './tasks/create/context'
 import { createGeometryDraftTask, publishGeometryDatasetTask } from './tasks/create/geometry'
 import {
@@ -54,6 +54,7 @@ import {
 import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-native-local-node'
 import { installDeterministicChatProviderTask } from './tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyleTask } from './tasks/setup/deterministic-map-style'
+import { installIsolatedRelaysTask } from './tasks/setup/isolated-relays'
 import { installInMemoryContextFixtureTask } from './tasks/setup/in-memory-context-fixture'
 import { installInMemoryMapFixtureTask } from './tasks/setup/in-memory-map-fixture'
 import {
@@ -81,6 +82,8 @@ import {
 } from './tasks/social/story-proposals'
 
 const tasks = [
+	installIsolatedRelaysTask,
+	setThreadWorkingSetOpenTask,
 	createIdentityTask,
 	authorizeJourneyIdentityTask,
 	signInTask,
@@ -89,7 +92,6 @@ const tasks = [
 	setAiThreadSettingsOpenTask,
 	selectAiChatTargetTask,
 	composeAiChatMessageTask,
-	attemptTargetRequiredAiChatSendTask,
 	sendAiChatMessageTask,
 	waitForAiChatCompletionTask,
 	startNewAiChatTask,

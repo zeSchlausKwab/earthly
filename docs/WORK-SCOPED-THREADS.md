@@ -18,3 +18,13 @@ Agreed September 10, 2026. This supersedes the one-object/one-Thread and target-
 ## Verification
 
 Exercise one Thread producing a WW1 Story and multiple named Maps; foreign feature references; read-only questions; disallowed target writes; switching visible objects during runs; two independent Story Threads; draft-to-publication continuity; desktop/mobile scope controls; and unchanged private audiences.
+
+Implemented coverage:
+
+- `workingSet.test.ts` checks multi-Map target isolation, foreign feature-only references, immutable local references, private audiences, independent Story drafts, review conflicts, and dependency publication/retry.
+- `ai-suite/scenarios/chat-working-set.spec.ts` creates two Maps and a Story on desktop and mobile, preserves the drawing target and Thread across navigation/reload, and exercises partial dependency publication followed by retry.
+- `chat-target-binding.spec.ts` checks read-only questions, explicit Map grants, reference removal, Thread switching, and restoring an output to the visible map.
+- `chat-story-target-gate.spec.ts` verifies that new-draft permission replaces the old per-Story target dialog, and unsolicited writes remain blocked.
+- The new browser fixtures use a simulated provider and intercepted relay acknowledgements; they do not publish test events externally.
+
+Current authoring boundary: local `earthly-draft:` references work in Story prose and resolve with confirmation at publication. Opening presentations and view-block layers still require published Map addresses. The AI instructions and Story editor explain this; no fabricated public addresses or protocol extensions are used.

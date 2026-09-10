@@ -148,7 +148,7 @@ test('an analyst turns a chat proposal into a canonical Dataset @experience-audi
 		expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
 			chatId: chatTransition.newChatId,
 			sendEnabled: false,
-			targetRequired: true,
+			targetRequired: false,
 			targetName: null,
 		})
 		await recorder.observe(

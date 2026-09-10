@@ -4,6 +4,8 @@ import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
 import { openPanel } from '../navigation/open-panel'
 import { switchMobileWorkspacePanel } from '../navigation/mobile-workspace'
+import { startDataset } from '../create/dataset'
+import { setThreadWorkingSetOpen, threadWorkSnapshot } from './working-set'
 
 export const configureChatProviderTask: AiTaskMetadata = {
 	id: 'chat.configure-provider',
@@ -18,9 +20,9 @@ export const configureChatProviderTask: AiTaskMetadata = {
 
 export const openAiChatTask: AiTaskMetadata = {
 	id: 'chat.open',
-	summary: 'Open the current Map Thread and wait until its model and composer are ready.',
-	preconditions: ['Earthly is open', 'A provider and model are configured', 'A Map is open'],
-	sideEffects: ['Opens the route-bound Thread surface'],
+	summary: 'Open the current work Thread and wait until its model and composer are ready.',
+	preconditions: ['Earthly is open', 'A provider and model are configured'],
+	sideEffects: ['Opens the retained Thread surface without changing write permissions'],
 	viewports: 'both',
 }
 
@@ -35,11 +37,7 @@ export const setAiThreadSettingsOpenTask: AiTaskMetadata = {
 export const sendAiChatMessageTask: AiTaskMetadata = {
 	id: 'chat.send-message',
 	summary: 'Send a user-visible prompt through the Earthly AI chat composer.',
-	preconditions: [
-		'AI chat is open',
-		'The configured model is available',
-		'The conversation has an explicit Dataset editing target',
-	],
+	preconditions: ['AI chat is open', 'The configured model is available'],
 	sideEffects: ['Adds a user message and starts a model request'],
 	viewports: 'both',
 }
@@ -49,14 +47,6 @@ export const composeAiChatMessageTask: AiTaskMetadata = {
 	summary: 'Type a prompt into the AI chat composer without dispatching it.',
 	preconditions: ['AI chat is open', 'The configured model is available'],
 	sideEffects: ['Updates the active conversation composer draft'],
-	viewports: 'both',
-}
-
-export const attemptTargetRequiredAiChatSendTask: AiTaskMetadata = {
-	id: 'chat.attempt-target-required-send',
-	summary: 'Attempt to send a composed prompt while the conversation still requires a target.',
-	preconditions: ['AI chat is open', 'A prompt is composed', 'No authoring target is selected'],
-	sideEffects: ['None; the prompt remains in the composer and no user turn is added'],
 	viewports: 'both',
 }
 
@@ -88,7 +78,7 @@ export const completeAiChatTurnTask: AiTaskMetadata = {
 
 export const selectAiChatTargetTask: AiTaskMetadata = {
 	id: 'chat.select-target',
-	summary: 'Explicitly bind a conversation to a new or currently visible Dataset edit.',
+	summary: 'Explicitly add a new or currently visible Map working copy to a Thread.',
 	preconditions: ['AI chat is open'],
 	sideEffects: ['May create a local Dataset draft or bind the conversation to the visible edit'],
 	viewports: 'both',
@@ -114,7 +104,7 @@ function chatRegion(earthly: EarthlySession) {
 	return earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 }
 
-/** Read the persisted identity behind a route-bound Thread, which has no picker. */
+/** Read only the persisted authoring identity behind the selected Thread. */
 export function persistedThreadSnapshot(earthly: EarthlySession) {
 	return earthly.page.evaluate(() => {
 		const stored = JSON.parse(localStorage.getItem('chat-store') ?? '{}') as {
@@ -142,32 +132,13 @@ function chatComposer(earthly: EarthlySession) {
 
 function chatSelector(earthly: EarthlySession) {
 	return chatRegion(earthly).getByRole('combobox', {
-		name: 'Select Thread',
+		name: 'Select work Thread',
 		exact: true,
 	})
 }
 
 function chatSendButton(earthly: EarthlySession) {
 	return chatComposer(earthly).locator('xpath=ancestor::form').locator('button[type="submit"]')
-}
-
-function targetRequiredLabel(earthly: EarthlySession) {
-	return chatRegion(earthly)
-		.getByText(/^(?:Editing target required|Target required)$/)
-		.first()
-}
-
-function openTargetButton(earthly: EarthlySession) {
-	return chatRegion(earthly)
-		.getByRole('button', { name: /^Open .+ in geometry editor$/ })
-		.first()
-}
-
-async function boundTargetName(earthly: EarthlySession): Promise<string | null> {
-	const openTarget = openTargetButton(earthly)
-	if (!(await openTarget.isVisible())) return null
-	const label = await openTarget.getAttribute('aria-label')
-	return label?.match(/^Open (.+) in geometry editor$/)?.[1] ?? null
 }
 
 export interface AiChatSurfaceSnapshot {
@@ -179,7 +150,7 @@ export interface AiChatSurfaceSnapshot {
 	userMessageCount: number
 }
 
-/** Read the user-visible Chat identity/composer state without reaching into app stores. */
+/** Read composer state plus the persisted Thread's authoring identity, never credentials. */
 export async function aiChatSurfaceSnapshot(
 	earthly: EarthlySession,
 ): Promise<AiChatSurfaceSnapshot> {
@@ -197,12 +168,13 @@ export async function aiChatSurfaceSnapshot(
 			)
 		}),
 	)
+	const work = await threadWorkSnapshot(earthly)
 	return {
-		chatId: await chatSelector(earthly).inputValue(),
+		chatId: work.id,
 		prompt: await chatComposer(earthly).inputValue(),
 		sendEnabled,
-		targetRequired: await targetRequiredLabel(earthly).isVisible(),
-		targetName: await boundTargetName(earthly),
+		targetRequired: false,
+		targetName: work.outputs.find((item) => item.kind === 'dataset')?.title ?? null,
 		userMessageCount: await chatRegion(earthly).getByTitle('Copy user message').count(),
 	}
 }
@@ -304,38 +276,43 @@ export async function selectAiChatTarget(
 	earthly: EarthlySession,
 	target: AiChatTarget,
 ): Promise<string> {
-	const panel = chatRegion(earthly)
-	const action = panel.getByRole('button', {
-		name: target === 'new-dataset' ? 'New map' : /^Use current(?: edit)?$/,
-		exact: target === 'new-dataset',
-	})
-	await expect(action).toBeVisible()
-	await action.click()
-	await expect(openTargetButton(earthly)).toBeVisible()
-	await expect(targetRequiredLabel(earthly)).toBeHidden()
-	const targetName = await boundTargetName(earthly)
-	if (!targetName) throw new Error('The selected Chat Dataset target has no accessible name.')
-	return targetName
+	if (target === 'new-dataset') await startDataset(earthly)
+	await openAiChat(earthly)
+	const working = await setThreadWorkingSetOpen(earthly)
+	await working.getByRole('button', { name: 'Add Map working copy', exact: true }).click()
+	await expect
+		.poll(async () => (await threadWorkSnapshot(earthly)).outputs.length)
+		.toBeGreaterThan(0)
+	const output = (await threadWorkSnapshot(earthly)).outputs
+		.filter((item) => item.kind === 'dataset')
+		.at(-1)
+	if (!output) throw new Error('The selected Map working copy was not added to the Thread.')
+	await setThreadWorkingSetOpen(earthly, false)
+	return output.title
 }
 
 export async function startNewAiChat(earthly: EarthlySession): Promise<NewAiChatResult> {
 	const panel = chatRegion(earthly)
-	const selector = chatSelector(earthly)
 	const composer = chatComposer(earthly)
-	await expect(selector).toBeEnabled()
-	const previousChatId = await selector.inputValue()
+	const previousChatId = (await threadWorkSnapshot(earthly)).id
+	await setThreadWorkingSetOpen(earthly)
 	await panel.getByRole('button', { name: 'New Thread', exact: true }).click()
-	await expect.poll(() => selector.inputValue()).not.toBe(previousChatId)
+	await expect.poll(async () => (await threadWorkSnapshot(earthly)).id).not.toBe(previousChatId)
 	await expect(composer).toHaveValue('')
-	await expect(targetRequiredLabel(earthly)).toBeVisible()
-	return { previousChatId, newChatId: await selector.inputValue() }
+	await expect(panel.locator('summary').filter({ hasText: 'Working on:' })).toContainText(
+		'Read-only',
+	)
+	await setThreadWorkingSetOpen(earthly, false)
+	return { previousChatId, newChatId: (await threadWorkSnapshot(earthly)).id }
 }
 
 export async function switchAiChat(earthly: EarthlySession, chatId: string): Promise<void> {
+	await setThreadWorkingSetOpen(earthly)
 	const selector = chatSelector(earthly)
 	await expect(selector).toBeEnabled()
 	await selector.selectOption(chatId)
 	await expect(selector).toHaveValue(chatId)
+	await setThreadWorkingSetOpen(earthly, false)
 }
 
 export async function composeAiChatMessage(
@@ -351,23 +328,6 @@ export async function composeAiChatMessage(
 		await composer.fill(prompt)
 	}
 	await expect(composer).toHaveValue(prompt)
-}
-
-/**
- * Exercise Enter while the active conversation has no target. The task owns
- * the composer/transcript selectors; the scenario separately proves no model
- * request crossed the deterministic provider boundary.
- */
-export async function attemptTargetRequiredAiChatSend(earthly: EarthlySession): Promise<void> {
-	const before = await aiChatSurfaceSnapshot(earthly)
-	if (!before.prompt) throw new Error('Compose a prompt before attempting a target-required send.')
-	await expect(targetRequiredLabel(earthly)).toBeVisible()
-	await expect(chatSendButton(earthly)).toBeDisabled()
-	await chatComposer(earthly).press('Enter')
-	await expect(chatComposer(earthly)).toHaveValue(before.prompt)
-	await expect(chatRegion(earthly).getByTitle('Copy user message')).toHaveCount(
-		before.userMessageCount,
-	)
 }
 
 export async function dispatchComposedAiChatMessage(
