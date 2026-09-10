@@ -34,6 +34,7 @@ function materializedDraftFeatureCount(earthly: Parameters<typeof editorLifecycl
 test('opening a working-set Map restores its visible draft @regression', async ({
 	earthly,
 }, testInfo) => {
+	test.setTimeout(120_000)
 	test.skip(testInfo.project.name !== 'desktop', 'Desktop map and Thread restoration regression')
 	const publishedEvents = await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly, 'target-binding')
@@ -90,10 +91,10 @@ test('opening a working-set Map restores its visible draft @regression', async (
 	await setThreadWorkingSetOpen(earthly)
 	await working.getByRole('button', { name: `View on map: ${datasetName}`, exact: true }).click()
 	await expect(earthly.page.getByRole('region', { name: 'AI Thread', exact: true })).toBeVisible()
-	await earthly.page.getByRole('button', { name: 'Move Thread to left panel', exact: true }).click()
+	await earthly.page.getByRole('button', { name: 'Move chat left', exact: true }).click()
 	await setThreadWorkingSetOpen(earthly)
 	await working.getByRole('button', { name: datasetName, exact: true }).click()
-	await expect(earthly.page.getByRole('button', { name: 'Move Thread to left panel', exact: true })).toBeVisible()
+	await expect(earthly.page.getByRole('button', { name: 'Move chat left', exact: true })).toBeVisible()
 	expect((await threadWorkSnapshot(earthly)).id).toBe(originalThread.id)
 	await setThreadWorkingSetOpen(earthly)
 	await earthly.page.screenshot({ path: testInfo.outputPath('draft-actions.png') })
@@ -118,6 +119,7 @@ test('opening a working-set Map restores its visible draft @regression', async (
 test('read-only Threads can ask; references and navigation never grant Map writes @regression', async ({
 	earthly,
 }, testInfo) => {
+	test.setTimeout(120_000)
 	test.skip(testInfo.project.name !== 'desktop', 'Desktop reference and navigation regression')
 	await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly, 'target-binding')

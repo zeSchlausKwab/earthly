@@ -96,6 +96,13 @@ test('a work Thread creates independent Maps and a Story without publishing or r
 		.poll(() => [...publishedEvents.values()].filter((kind) => kind === 37520).length)
 		.toBe(1)
 	expect([...publishedEvents.values()].filter((kind) => kind === 37515)).toHaveLength(2)
+	if (!earthly.isMobile) {
+		await expect(panel).toBeVisible()
+		expect((await threadWorkSnapshot(earthly)).id).toBe(originalThread.id)
+		await setThreadWorkingSetOpen(earthly)
+		await expect(working.getByText('Published', { exact: true })).toHaveCount(3)
+		await earthly.page.screenshot({ path: testInfo.outputPath('published-work.png') })
+	}
 })
 
 test('Story draft shortcuts share the global inventory and discard without resurrection @regression', async ({ earthly }, testInfo) => {

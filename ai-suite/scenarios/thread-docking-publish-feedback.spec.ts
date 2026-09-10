@@ -14,6 +14,7 @@ import { installDeterministicChatProvider } from '../tasks/setup/deterministic-c
 import { createStoryDraft } from '../tasks/create/story'
 import { openPanel } from '../tasks/navigation/open-panel'
 import { installDeterministicMapStyle } from '../tasks/setup/deterministic-map-style'
+import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
 
 test('relay rejection is not reported as a successful Map publish @regression', async ({
 	earthly,
@@ -144,6 +145,8 @@ test('the same Thread can move left and right without changing its draft, compos
 	earthly,
 }) => {
 	test.skip(earthly.isMobile, 'Desktop Thread placement')
+	test.setTimeout(120_000)
+	await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly, 'target-binding', {
 		holdCompletionResponses: true,
 	})
@@ -155,7 +158,7 @@ test('the same Thread can move left and right without changing its draft, compos
 	const thread = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 	await thread.locator('textarea').fill('Keep this prompt when moving the Thread')
 	const before = await persistedThreadSnapshot(earthly)
-	const moveLeft = thread.getByRole('button', { name: 'Move Thread to left panel', exact: true })
+	const moveLeft = thread.getByRole('button', { name: 'Move chat left', exact: true })
 	await expect(moveLeft).toBeVisible()
 	await moveLeft.click()
 	await expect(thread).toBeVisible()
@@ -169,7 +172,7 @@ test('the same Thread can move left and right without changing its draft, compos
 		.toBe(true)
 	await expect(thread.locator('textarea')).toHaveValue('Keep this prompt when moving the Thread')
 	expect(await persistedThreadSnapshot(earthly)).toEqual(before)
-	await thread.getByRole('button', { name: 'Move Thread to right column', exact: true }).click()
+	await thread.getByRole('button', { name: 'Move chat right', exact: true }).click()
 	await expect(
 		earthly.page.getByRole('complementary', { name: 'Margin', exact: true }),
 	).toBeVisible()
@@ -190,7 +193,7 @@ test('the same Thread can move left and right without changing its draft, compos
 	// The toolbar's Move action must move, not close, an already-open left Thread.
 	await canvas.getByRole('button', { name: 'Move Thread to the right', exact: true }).click()
 	await expect(
-		thread.getByRole('button', { name: 'Move Thread to left panel', exact: true }),
+		thread.getByRole('button', { name: 'Move chat left', exact: true }),
 	).toBeVisible()
 	expect(await persistedThreadSnapshot(earthly)).toEqual(running)
 	provider.releaseCompletionResponses()

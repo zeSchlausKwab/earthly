@@ -26,6 +26,28 @@ export const openAiChatTask: AiTaskMetadata = {
 	viewports: 'both',
 }
 
+export const moveAiChatTask: AiTaskMetadata = {
+	id: 'chat.move',
+	summary: 'Move the same desktop conversation to the left margin or right column.',
+	preconditions: ['AI chat is open', 'Desktop viewport at least 1100px wide'],
+	sideEffects: ['Changes chat placement only'],
+	viewports: 'desktop',
+}
+
+export async function moveAiChat(earthly: EarthlySession, side: 'left' | 'right'): Promise<void> {
+	const panel = chatRegion(earthly)
+	const button = panel.getByRole('button', { name: `Move chat ${side}`, exact: true })
+	await expect(button).toBeVisible()
+	await button.click()
+	await expect(panel.getByRole('button', { name: `Move chat ${side === 'left' ? 'right' : 'left'}`, exact: true })).toBeVisible()
+	const canvas = earthly.page.getByRole('main', { name: 'Map canvas', exact: true })
+	await expect.poll(async () => {
+		const chat = await panel.boundingBox()
+		const map = await canvas.boundingBox()
+		return Boolean(chat && map && (side === 'left' ? chat.x < map.x : chat.x >= map.x + map.width - 1))
+	}).toBe(true)
+}
+
 export const setAiThreadSettingsOpenTask: AiTaskMetadata = {
 	id: 'chat.set-settings-open',
 	summary: 'Expand or collapse Thread settings without changing its conversation or composer.',

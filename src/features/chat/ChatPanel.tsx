@@ -984,14 +984,14 @@ export function ChatPanel({
 						<Button
 							type="button"
 							variant="ghost"
-							size="icon"
-							className="h-8 w-8 shrink-0"
+							size="sm"
+							className="h-8 shrink-0 gap-1.5 rounded-none px-2 text-xs"
 							onClick={onMoveThread}
 							aria-label={
-								threadDock === 'right' ? 'Move Thread to left panel' : 'Move Thread to right column'
+								threadDock === 'right' ? 'Move chat left' : 'Move chat right'
 							}
 							title={
-								threadDock === 'right' ? 'Move Thread to left panel' : 'Move Thread to right column'
+								threadDock === 'right' ? 'Move chat to the left panel' : 'Move chat to the right panel'
 							}
 						>
 							{threadDock === 'right' ? (
@@ -999,6 +999,7 @@ export function ChatPanel({
 							) : (
 								<PanelRight className="size-4" />
 							)}
+							{threadDock === 'right' ? 'Move left' : 'Move right'}
 						</Button>
 					) : null}
 					{onClose ? (

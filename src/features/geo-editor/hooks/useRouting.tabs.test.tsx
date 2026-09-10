@@ -129,6 +129,27 @@ afterEach(async () => {
 })
 
 describe('useRouting object tabs', () => {
+	test.each(['/drafts', '/map/naddr1published', '/story/naddr1published', '/settings', '/map/naddr1published?tab=comments'])('desktop navigation to %s does not dismiss chat', async (to) => {
+		const previous = { pathname: window.location.pathname, search: window.location.search, matchMedia: window.matchMedia }
+		const { useEditorStore } = await import('../store')
+		const state = useEditorStore.getState()
+		try {
+			Object.assign(window.location, { pathname: '/edit', search: '?tab=thread&on=map-one&live=1' })
+			window.matchMedia = (query: string) => ({ matches: true, media: query, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => true })
+			useEditorStore.setState({ chatOpen: true, chatDock: 'right' })
+			const { navigateToRoute } = await import('./useRouting')
+			navigateToRoute(to)
+			expect(parsedNavigation().route.tab).toBe(to.includes('comments') ? 'comments' : 'thread')
+			expect(parsedNavigation().route.on).toEqual(['map-one'])
+			expect(useEditorStore.getState().chatOpen).toBe(true)
+			expect(useEditorStore.getState().chatDock).toBe('right')
+		} finally {
+			Object.assign(window.location, previous)
+			window.matchMedia = previous.matchMedia
+			useEditorStore.setState(state)
+		}
+	})
+
 	test.each([
 		['/edit?tab=thread', '/edit', true, 'thread'],
 		['/ask', '/browse/stories', true, 'thread'],
@@ -140,7 +161,9 @@ describe('useRouting object tabs', () => {
 		const previous = { pathname: window.location.pathname, search: window.location.search, matchMedia: window.matchMedia }
 		const { useEditorStore } = await import('../store')
 		const dock = useEditorStore.getState().chatDock
+		const open = useEditorStore.getState().chatOpen
 		try {
+			useEditorStore.getState().setChatOpen(false)
 			const url = new URL(from, ORIGIN)
 			Object.assign(window.location, { pathname: url.pathname, search: url.search })
 			window.matchMedia = (query: string) => ({
@@ -157,6 +180,7 @@ describe('useRouting object tabs', () => {
 			Object.assign(window.location, { pathname: previous.pathname, search: previous.search })
 			window.matchMedia = previous.matchMedia
 			useEditorStore.getState().setChatDock(dock)
+			useEditorStore.getState().setChatOpen(open)
 		}
 	})
 
@@ -258,6 +282,14 @@ describe('useRouting object tabs', () => {
 			live: true,
 		})
 	})
+	test.each(['circle', 'nearby'] as const)('opening chat keeps the %s audience route', async (kind) => {
+		await mountRoutingProbe({ kind, id: 'private-work', edit: true, tab: 'details', on: ['map-one', 'map-two'], live: true })
+		routing?.navigateToTab('thread')
+		const { destination, route } = parsedNavigation()
+		expect(destination.pathname).toBe(`/${kind}/private-work/edit`)
+		expect(route).toMatchObject({ kind, id: 'private-work', edit: true, tab: 'thread', on: ['map-one', 'map-two'], live: true })
+	})
+
 	test('navigateToTab changes only the object panel and preserves route-local composition', async () => {
 		await mountRoutingProbe()
 		routing?.navigateToTab('thread')

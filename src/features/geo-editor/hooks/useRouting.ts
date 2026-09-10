@@ -538,11 +538,13 @@ export function buildRoutePath({
 }): string {
 	if (fieldSessionId) {
 		const root = `/nearby/${encodeURIComponent(fieldSessionId)}`
-		return sidebarView === 'field-sessions' ? root : `${root}/${sidebarView}`
+		const path = sidebarView === 'field-sessions' ? root : `${root}/${sidebarView}`
+		return tab === 'details' ? path : `${path}?tab=${tab}`
 	}
 	if (privateGroupId) {
 		const root = `/circle/${encodeURIComponent(privateGroupId)}`
-		return sidebarView === 'private-groups' ? root : `${root}/${sidebarView}`
+		const path = sidebarView === 'private-groups' ? root : `${root}/${sidebarView}`
+		return tab === 'details' ? path : `${path}?tab=${tab}`
 	}
 	if (focusType && naddr) {
 		const root = `/${CANONICAL_FOCUS_PATHS[focusType]}/${naddr}`
@@ -570,17 +572,24 @@ export const buildRouteHash = buildRoutePath
  */
 export function isDesktopThreadOpen(): boolean {
 	return typeof window !== 'undefined' && window.matchMedia?.('(min-width: 768px)').matches === true &&
-		(window.location.pathname === '/ask' || new URLSearchParams(window.location.search).get('tab') === 'thread')
+		(useEditorStore.getState().chatOpen || window.location.pathname === '/ask' || new URLSearchParams(window.location.search).get('tab') === 'thread')
 }
 
 export function navigateToRoute(routePath: string, options?: { replace?: boolean; preserveThread?: boolean }): void {
 	if (typeof window === 'undefined') return
 	const destination = new URL(routePath, window.location.origin)
 	const currentSearch = new URLSearchParams(window.location.search)
-	if (options?.preserveThread && isDesktopThreadOpen()) {
-		destination.searchParams.set('tab', 'thread')
-		// An editor needs the left margin. Keep the same conversation alongside it.
-		useEditorStore.getState().setChatDock('right')
+	if (options?.preserveThread !== false && isDesktopThreadOpen()) {
+		// Navigation is not a chat-close command. Preserve explicit Comments/Details
+		// tabs too: desktop visibility lives independently in the shell.
+		useEditorStore.getState().setChatOpen(true)
+		if (destination.pathname !== '/ask') {
+			if (!destination.searchParams.has('tab') && !destination.pathname.includes('/comment/')) {
+				destination.searchParams.set('tab', 'thread')
+			}
+			// The selected destination needs the margin; keep chat alongside it.
+			useEditorStore.getState().setChatDock('right')
+		}
 	}
 	for (const key of ['on', 'live', 'in'] as const) {
 		if (!destination.searchParams.has(key) && currentSearch.has(key)) {
@@ -698,7 +707,7 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 				naddr,
 				edit,
 				tab: 'details',
-			}, { preserveThread: edit })
+			})
 		},
 		[commit, route],
 	)
@@ -784,16 +793,17 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 	/** Select a panel on the current object without changing its composition. */
 	const navigateToTab = useCallback(
 		(tab: EarthlyObjectTab) => {
-			if (route.focusType === 'none' || !route.naddr) return
 			commit({
 				sidebarView: route.sidebarView,
 				contextNaddr: route.contextNaddr,
-				focusType: route.focusType,
+				privateGroupId: route.privateGroupId,
+				fieldSessionId: route.fieldSessionId,
+				focusType: route.focusType === 'none' ? undefined : route.focusType,
 				naddr: route.naddr,
 				commentId: tab === 'comments' ? route.commentId : undefined,
 				edit: route.edit,
 				tab,
-			})
+			}, { preserveThread: false })
 		},
 		[commit, route],
 	)

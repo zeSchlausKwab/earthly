@@ -567,7 +567,6 @@ export function AppSidebar({
 	const setStance = useEditorStore((state) => state.setStance)
 	const chatOpen = useEditorStore((state) => state.chatOpen)
 	const chatDock = useEditorStore((state) => state.chatDock)
-	const setChatOpen = useEditorStore((state) => state.setChatOpen)
 	// Map task lifetime is the validated workspace -> draft relationship.
 	// Shelf state only controls whether that retained geometry is rendered, so
 	// hiding/removing `draft:active` must not clear the retained editor or resume target.
@@ -765,7 +764,7 @@ export function AppSidebar({
 		setActiveEntity('story')
 		setSelectedEntitySurface('story')
 		setShowEntityAsFullPanel(true)
-		setChatOpen(false)
+		if (useEditorStore.getState().chatOpen) useEditorStore.getState().setChatDock('right')
 	}, [
 		isMobile,
 		publicRoute.kind,
@@ -773,7 +772,6 @@ export function AppSidebar({
 		publicRoute.id,
 		storyEditorMode,
 		editingStoryCoordinate,
-		setChatOpen,
 	])
 
 	const leaveMetaOverrideIfNeeded = () => {
@@ -1002,7 +1000,7 @@ export function AppSidebar({
 	const revealLeftSidebarSurface = () => {
 		// Chat remains mounted (and any run keeps going); this only reveals the
 		// retained sidebar surface the user explicitly selected.
-		if (chatOpen && chatDock === 'left') setChatOpen(false)
+		if (chatOpen && chatDock === 'left') useEditorStore.getState().setChatDock('right')
 	}
 
 	const returnToInspector = () => {
@@ -1047,14 +1045,14 @@ export function AppSidebar({
 			const request = getStoryEditorOpenRequest()
 			if (!request?.reveal || request.nonce === consumedStoryReveal.current) return
 			consumedStoryReveal.current = request.nonce
-			if (chatOpen && chatDock === 'left') setChatOpen(false)
+			if (chatOpen && chatDock === 'left') useEditorStore.getState().setChatDock('right')
 			setActiveEntity('story')
 			setSelectedEntitySurface('story')
 			setShowEntityAsFullPanel(true)
 		}
 		reveal()
 		return subscribeStoryEditorOpenRequests(reveal)
-	}, [chatOpen, chatDock, setChatOpen])
+	}, [chatOpen, chatDock])
 
 	const returnToContextEditor = () => {
 		revealLeftSidebarSurface()
@@ -1063,7 +1061,7 @@ export function AppSidebar({
 		setSelectedEntitySurface('context')
 		setShowEntityAsFullPanel(true)
 	}
-	const chatOnLeft = chatOpen && chatDock === 'left'
+	const chatOnLeft = !isMobile && chatOpen && chatDock === 'left'
 	const inspectorSelected = showEntityAsFullPanel && selectedEntitySurface === 'inspector'
 	const datasetEditorSelected = showEntityAsFullPanel && selectedEntitySurface === 'dataset'
 	const storyEditorSelected = showEntityAsFullPanel && selectedEntitySurface === 'story'

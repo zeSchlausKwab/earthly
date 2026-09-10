@@ -37,6 +37,12 @@ Draft row actions reuse the same editor and lifecycle handlers: **View on map** 
 
 The global Map group deletion remains distinct: it removes that saved-work group and all its local drafts. The chat row's discard action removes only the selected draft, not sibling drafts in that group.
 
+### Conversation placement and publication status — September 10
+
+Desktop chat has a visible **Move right** / **Move left** action in its header, including when opened through **Ask**. Moving only changes placement: the same conversation, composer and active run remain mounted. Ask starts in the left margin; opening Drafts, an editor or a published object reveals that destination on the left and keeps the conversation on the right. Normal navigation and successful publication are not close commands. Explicitly closing chat keeps it closed until requested again. Mobile retains its single-sheet navigation without desktop docking controls.
+
+The **AI can edit** menu marks each permitted output as **Unpublished**, **Proposal draft**, **Copy draft**, or **Published**. Published links open the published Map or Story without dismissing chat. This indicates that a publication exists, not that every later local edit is already published. Changes remain in drafts until the user publishes again; AI permissions remain separate from publication status.
+
 ### Coverage
 
 Exercise one Thread producing a WW1 Story and multiple named Maps; foreign feature references; read-only questions; disallowed target writes; switching visible objects during runs; two independent Story Threads; draft-to-publication continuity; desktop/mobile scope controls; and unchanged private audiences.
@@ -47,6 +53,7 @@ Implemented coverage:
 - `ai-suite/scenarios/chat-working-set.spec.ts` creates two Maps and a Story on desktop and mobile, preserves the drawing target and Thread across navigation/reload, and exercises partial dependency publication followed by retry.
 - `chat-target-binding.spec.ts` checks read-only questions, explicit Map grants, reference removal, Thread switching, and restoring an output to the visible map.
 - Draft action regressions additionally cover retained desktop chat/docking, review without publishing, permission removal versus discard, shared Story inventory/preview, and no discarded-Story resurrection after reload.
+- `chat-placement.spec.ts` checks Ask docking, explicit close/reopen, desktop-to-mobile navigation, Drafts navigation and Map publication without losing chat or its composer. The multi-output Story scenario also checks publication markers after dependency publication/retry; `workPublication.test.ts` covers unpublished, published, proposal and copy labels.
 - `chat-story-target-gate.spec.ts` verifies that new-draft permission replaces the old per-Story target dialog, and unsolicited writes remain blocked.
 - The new browser fixtures use a simulated provider and intercepted relay acknowledgements; they do not publish test events externally.
 

@@ -69,6 +69,7 @@ import {
 import { cn } from '@/lib/utils'
 import { replaceEarthlySearch } from '@/router/navigation'
 import { buildRoutePath, navigateToRoute } from './hooks/useRouting'
+import { useDesktopThread } from './hooks/useDesktopThread'
 import { executeEditorCommand } from './commands'
 import {
 	DiscoverDialog,
@@ -660,6 +661,9 @@ export function GeoEditorView() {
 	// Thread visibility is independent of the editor currently in the margin.
 	// New Story drafts have no published object address yet.
 	const routedThreadOpen = route.tab === 'thread'
+	const isMobile = useIsMobile()
+	const desktopThread = useDesktopThread(route, isMobile)
+	const threadVisible = isMobile ? routedAskOpen || routedThreadOpen : desktopThread.open
 	const {
 		account: privateWorkspaceAccount,
 		runtime: privateWorkspaceRuntime,
@@ -719,28 +723,19 @@ export function GeoEditorView() {
 	)
 	// Sighting placement owns its tap behavior separately from Map drawing.
 	const sightingPlacementArmedRef = useRef(false)
-	// The route is the sole owner of Ask and object Thread visibility. Clear a
-	// persisted pre-cutover flag once so an old profile cannot resurrect the
-	// retired unbound chat panel.
-	const setChatOpen = useEditorStore((state) => state.setChatOpen)
 	const compactThreadLayout = useIsMobile(1100)
-	useEffect(() => {
-		setChatOpen(false)
-	}, [setChatOpen])
 	const handleToggleThread = useCallback(() => {
-		// The public route owns the semantic distinction between an object's Thread
-		// and the read-only Ask concierge. Retire any legacy unbound-panel state as
-		// soon as the retained toolbar is used.
-		setChatOpen(false)
-		// The toolbar button explicitly opens/moves to the right. Moving an open
-		// left Thread must not toggle its route closed or recreate its session.
-		if (!compactThreadLayout) {
+		if (!isMobile) {
 			const state = useEditorStore.getState()
-			if (routedThreadOpen && state.chatDock === 'left') {
-				state.setChatDock('right')
+			if (desktopThread.open) {
+				if (!compactThreadLayout && state.chatDock === 'left') state.setChatDock('right')
+				else desktopThread.close()
 				return
 			}
-			if (!routedThreadOpen) state.setChatDock('right')
+			state.setChatDock('right')
+			state.setChatOpen(true)
+			navigateToTab('thread')
+			return
 		}
 		if (route.focusType !== 'none') {
 			navigateToTab(route.tab === 'thread' ? 'details' : 'thread')
@@ -760,7 +755,9 @@ export function GeoEditorView() {
 		route.focusType,
 		route.tab,
 		routedAskOpen,
-		setChatOpen,
+		isMobile,
+		desktopThread.open,
+		desktopThread.close,
 	])
 
 	const [, setShowToolbar] = useState(true)
@@ -1136,7 +1133,6 @@ export function GeoEditorView() {
 	const currentUser = useActiveAccount()
 	const currentUserPubkey = currentUser?.pubkey ?? null
 	const retainedDraftCount = retainedMapDraftCount + listNewStoryDrafts(currentUserPubkey).length
-	const isMobile = useIsMobile()
 	const mapPopupToolbarOffset = 112
 
 	useEffect(() => {
@@ -6067,7 +6063,7 @@ export function GeoEditorView() {
 			mapStackOpen={toolbarMapStackOpen}
 			mapStackEntryCount={mapStackStats.total}
 			mapStackVisibleCount={mapStackStats.visible}
-			chatOpen={routedAskOpen || routedThreadOpen}
+			chatOpen={threadVisible}
 			onToggleMapStack={toggleToolbarMapStack}
 			onToggleChat={handleToggleThread}
 			onOpenSelectedCallout={handleOpenSelectedCallout}
@@ -6162,8 +6158,7 @@ export function GeoEditorView() {
 
 	const chatSlot = !isMobile ? (
 		<AssistantSidebar
-			open={routedAskOpen || routedThreadOpen}
-			placement={routedAskOpen ? 'margin' : 'thread'}
+			open={desktopThread.open}
 			geoEvents={geoEvents}
 			mapContextEvents={mapContextEvents}
 			availableFeatures={availableFeatures}
@@ -6185,10 +6180,7 @@ export function GeoEditorView() {
 						? 'Edit & send'
 						: 'Propose & send'
 			}
-			onClose={() => {
-				if (routedAskOpen) navigateToView('datasets')
-				else navigateToTab('details')
-			}}
+			onClose={desktopThread.close}
 		/>
 	) : null
 
@@ -6305,12 +6297,9 @@ export function GeoEditorView() {
 			canvasToolbar={canvasToolbarSlot}
 			shelf={shelfSlot}
 			statusBar={statusBarSlot}
-			chat={routedAskOpen ? undefined : chatSlot}
-			threadOpen={routedThreadOpen}
-			sidebar={
-				routedAskOpen ? (
-					chatSlot
-				) : (
+			chat={chatSlot}
+			threadOpen={desktopThread.open}
+			sidebar={(
 					<AppSidebar
 						isMobile={isMobile}
 						mapGroups={groups}
@@ -6441,8 +6430,7 @@ export function GeoEditorView() {
 						onProposalAccepted={handleProposalAccepted}
 						visibleProposalIds={visibleProposalIds}
 					/>
-				)
-			}
+			)}
 		>
 			{discoverOpen && discoverOpenedAutomaticallyRef.current && <WelcomeCard
 				canCreate={Boolean(editor)}

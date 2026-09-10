@@ -1,5 +1,6 @@
 import { useRef, useState, useSyncExternalStore } from 'react'
-import { BookOpen, ChevronDown, Layers, Pencil, Unlink } from 'lucide-react'
+import { BookOpen, Check, ChevronDown, Layers, Pencil, Unlink } from 'lucide-react'
+import { workPublication } from '../workPublication'
 import { DraftRowActions } from '@/components/DraftRowActions'
 import { openSavedDraft } from '@/features/geo-editor/draftActions'
 import { toast } from 'sonner'
@@ -43,7 +44,7 @@ export function WorkingSetControls({
 		setOpen(false)
 	}
 	useEditorStore((state) => state.geoEditDrafts)
-	useEditorStore((state) => state.workspaces)
+	const workspaces = useEditorStore((state) => state.workspaces)
 	useSyncExternalStore(subscribeStoryDrafts, getStoryDraftRevision, getStoryDraftRevision)
 	const storyTarget = useSyncExternalStore(
 		subscribeStoryEditorOpenRequests,
@@ -151,62 +152,91 @@ export function WorkingSetControls({
 					<div>
 						<h3 className="font-semibold">What AI can edit</h3>
 						<p className="mt-1 text-xs text-muted-foreground">
-							Drafts available to this conversation. Changes stay local until you publish.
+							Maps and stories available to this conversation. Published items are marked below;
+							further edits stay local until you publish again.
 						</p>
 					</div>
 					{targets.length ? (
 						<ul className="space-y-1">
-							{targets.map((item) => (
-								<li
-									key={item.id}
-									className="flex min-w-0 items-center gap-1 border-b border-border/60 py-1 last:border-0"
-								>
-									{item.kind === 'story' ? (
-										<BookOpen className="size-3.5 shrink-0" />
-									) : (
-										<Layers className="size-3.5 shrink-0" />
-									)}
-									<button
-										type="button"
-										aria-label={item.title}
-										title={item.title}
-										className="min-h-9 min-w-0 flex-1 truncate text-left underline"
-										onClick={() => {
-											closeForNavigation()
-											void openSavedDraft(item).catch((error) => toast.error(error.message))
-										}}
+							{targets.map((item) => {
+								const publication = workPublication(
+									item,
+									item.kind === 'dataset' ? workspaces[item.workspaceId] : undefined,
+								)
+								return (
+									<li
+										key={item.id}
+										className="flex min-w-0 items-center gap-1 border-b border-border/60 py-1 last:border-0"
 									>
-										<span className="block truncate">{item.title}</span>
-										{(item.intent === 'propose' || item.intent === 'fork') && (
-											<span className="block text-[11px] text-muted-foreground">
-												{item.intent === 'propose' ? 'Proposal' : 'Your copy'}
-											</span>
+										{item.kind === 'story' ? (
+											<BookOpen className="size-3.5 shrink-0" />
+										) : (
+											<Layers className="size-3.5 shrink-0" />
 										)}
-										{item.featureIds && (
-											<span className="block text-[11px] text-muted-foreground">
-												{item.featureIds.length} features
-											</span>
-										)}
-									</button>
-									<DraftRowActions target={item} onNavigate={closeForNavigation} />
-									<Button
-										size="icon"
-										variant="ghost"
-										className="size-11 shrink-0 border-l md:size-8"
-										aria-label={`Stop AI editing ${item.title}`}
-										title="Stop AI editing this; keep the draft"
-										onClick={() =>
-											chatId &&
-											useChatStore.getState().setWorkingSet(
-												chatId,
-												targets.filter((other) => other.id !== item.id),
-											)
-										}
-									>
-										<Unlink className="size-3.5" />
-									</Button>
-								</li>
-							))}
+										<div className="min-w-0 flex-1">
+											<button
+												type="button"
+												aria-label={item.title}
+												title={item.title}
+												className="min-h-7 w-full min-w-0 truncate text-left underline"
+												onClick={() => {
+													closeForNavigation()
+													void openSavedDraft(item).catch((error) => toast.error(error.message))
+												}}
+											>
+												<span className="block truncate">{item.title}</span>
+												{publication.href && item.intent === 'fork' && (
+													<span className="block text-[11px] text-muted-foreground">Your copy</span>
+												)}
+												{item.featureIds && (
+													<span className="block text-[11px] text-muted-foreground">
+														{item.featureIds.length} features
+													</span>
+												)}
+											</button>
+											{publication.href ? (
+												<button
+													type="button"
+													className="flex min-h-6 items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400"
+													title={publication.description}
+													aria-label={`View published: ${item.title}`}
+													onClick={() => {
+														closeForNavigation()
+														if (publication.href) navigateToRoute(publication.href)
+													}}
+												>
+													<Check className="size-3" />
+													{publication.label}
+												</button>
+											) : (
+												<span
+													className="block text-[11px] text-muted-foreground"
+													title={publication.description}
+												>
+													{publication.label}
+												</span>
+											)}
+										</div>
+										<DraftRowActions target={item} onNavigate={closeForNavigation} />
+										<Button
+											size="icon"
+											variant="ghost"
+											className="size-11 shrink-0 border-l md:size-8"
+											aria-label={`Stop AI editing ${item.title}`}
+											title="Stop AI editing this; keep the draft"
+											onClick={() =>
+												chatId &&
+												useChatStore.getState().setWorkingSet(
+													chatId,
+													targets.filter((other) => other.id !== item.id),
+												)
+											}
+										>
+											<Unlink className="size-3.5" />
+										</Button>
+									</li>
+								)
+							})}
 						</ul>
 					) : (
 						<p className="text-xs text-muted-foreground">No existing maps or stories selected.</p>
