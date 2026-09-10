@@ -1,5 +1,8 @@
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { useEditorStore } from './store'
+import { draftContentFingerprint } from './draftContent'
+import type { FeatureCollection } from 'geojson'
+import { extractCollectionMeta } from './utils'
 
 /**
  * The retained editor identity captured before an asynchronous Dataset publish.
@@ -14,6 +17,7 @@ export interface DatasetPublicationBinding {
 	draftId: string
 	sourceId: string
 	draftUpdatedAt: number
+	contentFingerprint?: string
 }
 
 export type DatasetPublicationReconciliation =
@@ -26,7 +30,9 @@ export type DatasetPublicationReconciliation =
 	  }
 
 /** Capture only a coherent, currently active Dataset authoring task. */
-export function captureActiveDatasetPublicationBinding(): DatasetPublicationBinding | null {
+export function captureActiveDatasetPublicationBinding(
+	collection?: FeatureCollection,
+): DatasetPublicationBinding | null {
 	const state = useEditorStore.getState()
 	const workspaceId = state.activeWorkspaceId
 	const draftId = state.activeGeoEditDraftId
@@ -48,6 +54,9 @@ export function captureActiveDatasetPublicationBinding(): DatasetPublicationBind
 		draftId,
 		sourceId: draft.sourceId,
 		draftUpdatedAt: draft.updatedAt,
+		contentFingerprint: draftContentFingerprint(
+			collection ? { ...draft, collectionMeta: extractCollectionMeta(collection) } : draft,
+		),
 	}
 }
 
@@ -108,6 +117,7 @@ export function reconcilePublishedDatasetIdentity(
 		kind: currentWorkspace.kind,
 		datasetKey: currentWorkspace.datasetKey,
 		baseRevisionId: currentWorkspace.baseRevisionId,
+		publishedContentFingerprint: currentWorkspace.publishedContentFingerprint,
 	}
 
 	state.saveGeoEditDraft(currentDraft.id, { sourceId })
@@ -120,6 +130,7 @@ export function reconcilePublishedDatasetIdentity(
 		kind: 'dataset',
 		datasetKey,
 		baseRevisionId: dataset.event.id,
+		publishedContentFingerprint: binding.contentFingerprint ?? null,
 		activeDraftId: workspaceActiveDraftId,
 		label: title || currentDraft.collectionMeta.name || currentDraft.name || currentWorkspace.label,
 	})
@@ -140,7 +151,10 @@ export function reconcilePublishedDatasetIdentity(
 		})
 		// createWorkspace intentionally preserves an existing binding when its
 		// input is null. A recovery task must never duplicate the captured Chat.
-		useEditorStore.getState().updateWorkspace(recoveryWorkspaceId, { chatSessionId: null })
+		useEditorStore.getState().updateWorkspace(recoveryWorkspaceId, {
+			chatSessionId: null,
+			publishedContentFingerprint: previousWorkspaceIdentity.publishedContentFingerprint,
+		})
 		if (selectedSibling && state.activeWorkspaceId === binding.workspaceId) {
 			useEditorStore.getState().setActiveWorkspaceId(recoveryWorkspaceId)
 		}

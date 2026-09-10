@@ -725,7 +725,7 @@ export function usePublishing({
 				finishWorkspaceDatasetSave(dataset, collection, 'saved')
 				return
 			}
-			const publicationBinding = captureActiveDatasetPublicationBinding()
+			const publicationBinding = captureActiveDatasetPublicationBinding(collection)
 
 			const signer = accounts.signer
 			if (!signer) {
@@ -772,8 +772,10 @@ export function usePublishing({
 				(reconciliation.status === 'reconciled' && reconciliation.stillDisplayed)
 			if (stillOwnsVisibleEditor) {
 				setActiveDataset(cast)
-				setActiveDatasetContextRefs(cast.contextReferences)
-				setCollectionMeta(extractCollectionMeta(collection))
+				if (reconciliation.status !== 'reconciled' || reconciliation.draftWasUnchanged) {
+					setActiveDatasetContextRefs(cast.contextReferences)
+					setCollectionMeta(extractCollectionMeta(collection))
+				}
 				setSelectedFeatureIds([])
 				switchToDatasetViewMode(cast)
 				if (reconciliation.status === 'reconciled' && !reconciliation.draftWasUnchanged) {
@@ -836,7 +838,7 @@ export function usePublishing({
 			try {
 				const collection = buildCollectionFromEditor()
 				if (!collection) throw new Error('No features to publish')
-				const publicationBinding = captureActiveDatasetPublicationBinding()
+				const publicationBinding = captureActiveDatasetPublicationBinding(collection)
 
 				const existingRefs = serializeBlobReferences()
 				const blobRefs: GeoBlobReference[] = [
@@ -877,8 +879,10 @@ export function usePublishing({
 					(reconciliation.status === 'reconciled' && reconciliation.stillDisplayed)
 				if (stillOwnsVisibleEditor) {
 					setActiveDataset(cast)
-					setActiveDatasetContextRefs(cast.contextReferences)
-					setCollectionMeta(extractCollectionMeta(collection))
+					if (reconciliation.status !== 'reconciled' || reconciliation.draftWasUnchanged) {
+						setActiveDatasetContextRefs(cast.contextReferences)
+						setCollectionMeta(extractCollectionMeta(collection))
+					}
 					setSelectedFeatureIds([])
 					switchToDatasetViewMode(cast)
 					if (reconciliation.status === 'reconciled' && !reconciliation.draftWasUnchanged) {
@@ -959,7 +963,7 @@ export function usePublishing({
 			}
 			return
 		}
-		const publicationBinding = captureActiveDatasetPublicationBinding()
+		const publicationBinding = captureActiveDatasetPublicationBinding(collection)
 
 		const signer = accounts.signer
 		if (!signer) {
@@ -1021,8 +1025,10 @@ export function usePublishing({
 			if (stillOwnsVisibleEditor) {
 				setIsDirty(false)
 				setActiveDataset(cast)
-				setActiveDatasetContextRefs(cast.contextReferences)
-				setCollectionMeta(extractCollectionMeta(collection))
+				if (reconciliation.status !== 'reconciled' || reconciliation.draftWasUnchanged) {
+					setActiveDatasetContextRefs(cast.contextReferences)
+					setCollectionMeta(extractCollectionMeta(collection))
+				}
 				setSelectedFeatureIds([])
 				switchToDatasetViewMode(cast)
 				if (reconciliation.status === 'reconciled' && !reconciliation.draftWasUnchanged) {
@@ -1078,7 +1084,7 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
-			const publicationBinding = captureActiveDatasetPublicationBinding()
+			const publicationBinding = captureActiveDatasetPublicationBinding(collection)
 			if (hasWorkspaceScope) {
 				if (!workspacePublisher) throw new Error('The selected audience is not available')
 				const dataset = await workspacePublisher(collection)
@@ -1156,8 +1162,10 @@ export function usePublishing({
 				(reconciliation.status === 'reconciled' && reconciliation.stillDisplayed)
 			if (stillOwnsVisibleEditor) {
 				setActiveDataset(cast)
-				setActiveDatasetContextRefs(cast.contextReferences)
-				setCollectionMeta(extractCollectionMeta(collection))
+				if (reconciliation.status !== 'reconciled' || reconciliation.draftWasUnchanged) {
+					setActiveDatasetContextRefs(cast.contextReferences)
+					setCollectionMeta(extractCollectionMeta(collection))
+				}
 				setSelectedFeatureIds([])
 				switchToDatasetViewMode(cast)
 				if (reconciliation.status === 'reconciled' && !reconciliation.draftWasUnchanged) {

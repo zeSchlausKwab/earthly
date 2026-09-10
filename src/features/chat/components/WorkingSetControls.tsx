@@ -1,6 +1,7 @@
 import { useRef, useState, useSyncExternalStore } from 'react'
 import { BookOpen, Check, ChevronDown, Layers, Pencil, Unlink } from 'lucide-react'
 import { workPublication } from '../workPublication'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { DraftRowActions } from '@/components/DraftRowActions'
 import { openSavedDraft } from '@/features/geo-editor/draftActions'
 import { toast } from 'sonner'
@@ -28,11 +29,13 @@ export function WorkingSetControls({
 	onAddViewedMap,
 	viewedTitle,
 	viewedKey,
+	geoEvents = [],
 }: {
 	chatId: string | null
 	onAddViewedMap?: () => Promise<string | null>
 	viewedTitle?: string
 	viewedKey?: string
+	geoEvents?: GeoDataset[]
 }) {
 	const sessions = useChatStore((state) => state.chatSessions)
 	const session = sessions.find((item) => item.id === chatId)
@@ -43,7 +46,7 @@ export function WorkingSetControls({
 		navigating.current = true
 		setOpen(false)
 	}
-	useEditorStore((state) => state.geoEditDrafts)
+	const drafts = useEditorStore((state) => state.geoEditDrafts)
 	const workspaces = useEditorStore((state) => state.workspaces)
 	useSyncExternalStore(subscribeStoryDrafts, getStoryDraftRevision, getStoryDraftRevision)
 	const storyTarget = useSyncExternalStore(
@@ -162,6 +165,10 @@ export function WorkingSetControls({
 								const publication = workPublication(
 									item,
 									item.kind === 'dataset' ? workspaces[item.workspaceId] : undefined,
+									item.kind === 'dataset'
+										? drafts[workspaces[item.workspaceId]?.activeDraftId ?? '']
+										: undefined,
+									geoEvents,
 								)
 								return (
 									<li
@@ -197,7 +204,7 @@ export function WorkingSetControls({
 											{publication.href ? (
 												<button
 													type="button"
-													className="flex min-h-6 items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400"
+													className={`flex min-h-6 items-center gap-1 text-[11px] ${publication.modified ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}
 													title={publication.description}
 													aria-label={`View published: ${item.title}`}
 													onClick={() => {
@@ -205,7 +212,11 @@ export function WorkingSetControls({
 														if (publication.href) navigateToRoute(publication.href)
 													}}
 												>
-													<Check className="size-3" />
+													{publication.modified ? (
+														<Pencil className="size-3" />
+													) : (
+														<Check className="size-3" />
+													)}
 													{publication.label}
 												</button>
 											) : (

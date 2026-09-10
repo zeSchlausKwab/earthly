@@ -16,6 +16,7 @@ import { privateWorkspaceIdForDataset } from '@/lib/private-workspace/projection
 import { getLocalBlobRevision } from '@/platform/registry'
 import { publishChannelMatchesDatasetScope } from '../components/authoringDestination'
 import { useEditorStore, type PublishChannel } from '../store'
+import { draftContentFingerprint } from '../draftContent'
 import type { EditorBlobReference } from '../types'
 import {
 	convertGeoEventsToEditorFeatures,
@@ -733,6 +734,7 @@ export function useDatasetManagement(
 				activeDraftId: draftId,
 				datasetKey,
 				baseRevisionId: event.event.id,
+				publishedContentFingerprint: intent === 'fork' ? null : draftContentFingerprint(useEditorStore.getState().geoEditDrafts[draftId]!),
 			})
 			return true
 		},

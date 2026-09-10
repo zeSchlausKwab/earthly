@@ -317,6 +317,8 @@ export interface GeoEditorWorkspace {
 	datasetKey: string | null
 	/** Exact published revision the retained draft was opened from. */
 	baseRevisionId?: string | null
+	/** Semantic content submitted in the last successful publication; local only. */
+	publishedContentFingerprint?: string | null
 	activeDraftId: string | null
 	chatSessionId: string | null
 	createdAt: number

@@ -273,6 +273,10 @@ export function readPersistedWorkspaceState(pubkey?: string | null): PersistedWo
 				kind,
 				datasetKey: typeof record.datasetKey === 'string' ? record.datasetKey : null,
 				baseRevisionId: typeof record.baseRevisionId === 'string' ? record.baseRevisionId : null,
+				publishedContentFingerprint:
+					typeof record.publishedContentFingerprint === 'string'
+						? record.publishedContentFingerprint
+						: null,
 				activeDraftId: typeof record.activeDraftId === 'string' ? record.activeDraftId : null,
 				chatSessionId: typeof record.chatSessionId === 'string' ? record.chatSessionId : null,
 				createdAt,
@@ -381,6 +385,11 @@ export const createWorkspaceSlice: StateCreator<EditorState, [], [], WorkspaceSl
 				const nextWorkspace: GeoEditorWorkspace = {
 					...existing,
 					...updates,
+					...(updates.baseRevisionId !== undefined &&
+					updates.baseRevisionId !== existing.baseRevisionId &&
+					!Object.hasOwn(updates, 'publishedContentFingerprint')
+						? { publishedContentFingerprint: null }
+						: {}),
 					label: normalizeWorkspaceLabel(updates.label ?? existing.label, existing.kind),
 					updatedAt: Date.now(),
 				}

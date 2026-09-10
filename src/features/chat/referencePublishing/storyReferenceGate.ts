@@ -9,6 +9,7 @@ import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
 import type { ToolExecutionRunIdentity, ToolExecutionTarget } from '@/features/chat/tools/types'
 import { publishChannelMatchesDatasetScope } from '@/features/geo-editor/components/authoringDestination'
 import { useEditorStore, type GeoCollectionEditDraft } from '@/features/geo-editor/store'
+import { draftContentFingerprint } from '@/features/geo-editor/draftContent'
 import { sanitizeEditorProperties } from '@/features/geo-editor/utils'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace/projection'
 import { eventStore } from '@/lib/nostr'
@@ -496,6 +497,7 @@ export function captureTargetDatasetPublication(
 				draftId,
 				sourceId: draft.sourceId,
 				draftUpdatedAt: draft.updatedAt,
+				contentFingerprint: draftContentFingerprint(draft),
 				baseRevisionId: forkSource ? target.baseRevisionId : (base?.event.id ?? null),
 				baseCoordinate,
 			},

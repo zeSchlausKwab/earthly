@@ -4,6 +4,9 @@ import { finalizeEvent, generateSecretKey } from 'nostr-tools'
 import { eventStore } from '@/lib/nostr'
 import { GeoDataset } from '@/lib/nostr/geo-event'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { workPublication } from '@/features/chat/workPublication'
+import { datasetDraftHasChanges, draftContentFingerprint } from './draftContent'
+import { convertGeoEventsToEditorFeatures, extractCollectionMeta } from './utils'
 import { useEditorStore, type GeoCollectionEditDraft, type GeoEditorWorkspace } from './store'
 import {
 	captureActiveDatasetPublicationBinding,
@@ -103,10 +106,142 @@ afterAll(() => {
 })
 
 describe('published Dataset identity continuity', () => {
+	test('compares legacy drafts against their exact published source, without requiring another publish', () => {
+		const { draft, workspace } = installScratchWorkspace()
+		const source = makeDataset('legacy')
+		const legacyWorkspace = {
+			...workspace,
+			baseRevisionId: source.event.id,
+			datasetKey: `${source.pubkey}:${source.dTag}`,
+		}
+		const localDraft = {
+			...draft,
+			features: convertGeoEventsToEditorFeatures([source]),
+			collectionMeta: extractCollectionMeta(source.featureCollection),
+		}
+		expect(datasetDraftHasChanges(legacyWorkspace, localDraft, [source])).toBe(false)
+		expect(
+			datasetDraftHasChanges(
+				legacyWorkspace,
+				{
+					...localDraft,
+					features: [...localDraft.features, { ...localDraft.features[0]!, id: 'battle' }],
+				},
+				[source],
+			),
+		).toBe(true)
+		expect(datasetDraftHasChanges(legacyWorkspace, localDraft, [])).toBeUndefined()
+		expect(
+			datasetDraftHasChanges(
+				{ ...legacyWorkspace, baseRevisionId: 'different-revision' },
+				localDraft,
+				[source],
+			),
+		).toBeUndefined()
+	})
+	test('fingerprints publishing content, not editor bookkeeping or property key order', () => {
+		const { draft } = installScratchWorkspace()
+		const fingerprint = draftContentFingerprint(draft)
+		expect(
+			draftContentFingerprint({
+				...draft,
+				features: draft.features.map((feature) => ({
+					...feature,
+					properties: {
+						...feature.properties,
+						meta: 'feature',
+						sourceEventId: 'new',
+						active: false,
+						featureId: feature.id,
+						datasetId: 'new',
+						hashtags: ['x'],
+					},
+				})),
+			}),
+		).toBe(fingerprint)
+		for (const updates of [
+			{ collectionMeta: { ...draft.collectionMeta, description: 'Changed description' } },
+			{ collectionMeta: { ...draft.collectionMeta, color: '#ff0000' } },
+			{
+				features: draft.features.map((feature) => ({
+					...feature,
+					geometry: { type: 'Point' as const, coordinates: [1, 2] },
+				})),
+			},
+			{ contextRefs: ['37518:author:atlas'] },
+			{ publishChannel: { kind: 'unresolved' as const, reason: 'legacy' as const } },
+		])
+			expect(draftContentFingerprint({ ...draft, ...updates })).not.toBe(fingerprint)
+		const withProperties = {
+			...draft,
+			collectionMeta: { ...draft.collectionMeta, customProperties: { a: 1, b: 2 } },
+		}
+		expect(draftContentFingerprint(withProperties)).toBe(
+			draftContentFingerprint({
+				...withProperties,
+				collectionMeta: { ...withProperties.collectionMeta, customProperties: { b: 2, a: 1 } },
+			}),
+		)
+	})
+	test('publication records the submitted content, not edits made while acknowledgement is pending', () => {
+		const { draft, workspace } = installScratchWorkspace()
+		const binding = captureActiveDatasetPublicationBinding()
+		useEditorStore.getState().saveGeoEditDraft(draft.id, {
+			collectionMeta: { ...draft.collectionMeta, description: 'Edited during publication' },
+		})
+		reconcilePublishedDatasetIdentity(binding, makeDataset('pending'))
+		const state = useEditorStore.getState()
+		expect(
+			datasetDraftHasChanges(state.workspaces[workspace.id]!, state.geoEditDrafts[draft.id]!),
+		).toBe(true)
+		// Persisted baseline can be compared without any active editor or relay event.
+		expect(
+			datasetDraftHasChanges(
+				JSON.parse(JSON.stringify(state.workspaces[workspace.id])),
+				state.geoEditDrafts[draft.id]!,
+			),
+		).toBe(true)
+		const nextBinding = captureActiveDatasetPublicationBinding()
+		reconcilePublishedDatasetIdentity(nextBinding, makeDataset('pending'))
+		expect(
+			datasetDraftHasChanges(
+				useEditorStore.getState().workspaces[workspace.id]!,
+				useEditorStore.getState().geoEditDrafts[draft.id]!,
+			),
+		).toBe(false)
+	})
+	test('distinguishes local content changes after publication, including inactive drafts', () => {
+		const { workspace, draft } = installScratchWorkspace()
+		const binding = captureActiveDatasetPublicationBinding()
+		reconcilePublishedDatasetIdentity(binding, makeDataset('survey'))
+		const target = {
+			id: 'map:workspace-a',
+			kind: 'dataset' as const,
+			workspaceId: workspace.id,
+			title: 'Survey',
+			intent: 'create' as const,
+		}
+		const status = () => {
+			const state = useEditorStore.getState()
+			return workPublication(target, state.workspaces[workspace.id], state.geoEditDrafts[draft.id])
+				.label
+		}
+		expect(status()).toBe('Published')
+		useEditorStore.getState().saveGeoEditDraft(draft.id, { selectedFeatureIds: ['site-1'] })
+		expect(status()).toBe('Published')
+		useEditorStore.getState().saveGeoEditDraft(draft.id, {
+			features: [...draft.features, { ...draft.features[0]!, id: 'new-battle' }],
+		})
+		useEditorStore.setState({ activeWorkspaceId: null, activeGeoEditDraftId: null, isDirty: false })
+		expect(status()).toBe('Unpublished changes')
+		useEditorStore.getState().saveGeoEditDraft(draft.id, { features: draft.features })
+		expect(status()).toBe('Published')
+	})
 	test('promotes the retained workspace and draft without changing their binding ids', () => {
 		const { draft, workspace } = installScratchWorkspace()
 		const binding = captureActiveDatasetPublicationBinding()
 		expect(binding).toEqual({
+			contentFingerprint: expect.any(String),
 			workspaceId: workspace.id,
 			draftId: draft.id,
 			sourceId: draft.sourceId,

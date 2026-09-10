@@ -1017,6 +1017,7 @@ export function ChatPanel({
 					) : null}
 				</fieldset>
 				<WorkingSetControls
+					geoEvents={geoEvents}
 					chatId={activeChatId}
 					onAddViewedMap={onEnsureAuthoringTarget}
 					viewedTitle={threadTitle}

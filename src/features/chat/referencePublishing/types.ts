@@ -15,6 +15,7 @@ export interface ReferencePublishBinding {
 	draftId: string
 	sourceId: string
 	draftUpdatedAt: number
+	contentFingerprint?: string
 	baseRevisionId: string | null
 	baseCoordinate: string | null
 }

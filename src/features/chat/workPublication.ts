@@ -1,5 +1,7 @@
 import type { ThreadWorkTarget } from './workingSet'
-import type { GeoEditorWorkspace } from '@/features/geo-editor/store'
+import type { GeoEditorWorkspace, GeoCollectionEditDraft } from '@/features/geo-editor/store'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import { datasetDraftHasChanges } from '@/features/geo-editor/draftContent'
 import { nip19 } from 'nostr-tools'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 
@@ -7,8 +9,11 @@ import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 export function workPublication(
 	target: ThreadWorkTarget,
 	workspace?: GeoEditorWorkspace,
+	draft?: GeoCollectionEditDraft,
+	geoEvents: GeoDataset[] = [],
 ): {
-	label: 'Published' | 'Unpublished' | 'Proposal draft' | 'Copy draft'
+	label: 'Published' | 'Unpublished changes' | 'Unpublished' | 'Proposal draft' | 'Copy draft'
+	modified?: boolean
 	description: string
 	href?: string
 } {
@@ -33,13 +38,22 @@ export function workPublication(
 			})
 		}
 	}
-	if (address)
+	if (address) {
+		const modified =
+			target.kind === 'dataset' && workspace && draft
+				? datasetDraftHasChanges(workspace, draft, geoEvents)
+				: undefined
 		return {
-			label: 'Published',
-			description:
-				'Open the published item. Further draft edits stay local until you publish again.',
+			label: modified ? 'Unpublished changes' : 'Published',
+			modified,
+			description: modified
+				? 'This draft differs from its last publication. Open the published version; review and publish to share your changes.'
+				: modified === false
+					? 'This draft matches its last publication. Open the published version.'
+					: 'Open the published item. Further draft edits stay local until you publish again. Changes have not been compared with the published content.',
 			href: `/${target.kind === 'story' ? 'story' : 'map'}/${address}`,
 		}
+	}
 	return {
 		label: target.intent === 'fork' ? 'Copy draft' : 'Unpublished',
 		description: 'Saved on this device. This draft has not been published.',
