@@ -49,13 +49,15 @@ The indicator's close action leaves the current destination or scope while prese
 
 ## Thread
 
-A **Thread** is the durable transcript belonging to the route's object, with its own read-only references and AI-run history. Its place in the Margin or beside the map is presentation only. Published objects use a stable object key; unpublished Maps use their retained local working-copy id. Ask Earthly has a separate read-only concierge Thread.
+A **Thread** is a durable conversation about a piece of work, with its own working set, read-only references, and AI-run history. One Thread may work on several Maps and Stories; viewing another object, publishing a draft, or moving the Thread does not change its identity.
 
-Opening, docking, or closing the Thread must not create authoring work. Opening another object selects that object's Thread without cancelling an existing AI run or moving its captured target. Returning to a Thread restores its transcript and unsent composer.
+**Working set**: The named local drafts a Thread is explicitly allowed to change. A reference, visible layer, or inspected object is not a working-set member merely because the user can see it.
 
-Binding is part of the send gesture, not a separate **New map / Use current edit** control. **Edit & send** or **Propose & send** prepares the route's Map working copy; **Send** from an existing local Map uses that exact retained copy. Merely opening the Thread does not bind it. If preparation fails or the exact target is unavailable, the prompt remains composable and no model request starts. Read-only Threads never acquire a writable target or advertise editing tools.
+**Viewing**: The object currently shown in the panel. **Drawing into**: The single Map receiving manual geometry; neither determines which drafts a Thread may change.
 
-A Thread may refer to any number of published entities. A reference supplies read-only context; it never grants permission to edit, update, fork, attach, or show the entity on the map.
+**Thread reference**: Read-only source material explicitly supplied to a Thread, including foreign Maps, individual features, Stories, and local drafts. A feature reference retains its feature scope; presentation overrides belong to the consuming Story, never to the source.
+
+**AI changes**: Suggested or applied changes to local drafts. These are distinct from an **edit proposal** sent to another author and from **publication** to an audience.
 
 ## Edit state
 
@@ -71,15 +73,15 @@ In particular, inspection does not change browse scope, create or retarget a loc
 
 ## AI run
 
-An **AI run** is one execution owned by a conversation and bound to the exact authoring target captured when the user sends the prompt. No run or model request begins without that explicit target. Navigation is presentation-only: changing conversations, Inspectors, edit surfaces, or entities never cancels or retargets the run.
+An **AI run** is one execution owned by a Thread with its reading context and permitted working set captured when the user sends. Read-only runs need no editing target; creating requested new local drafts requires creation permission, and changing existing objects requires an explicit working-set member.
 
 Earthly initially executes at most one AI run globally. Other conversations remain browsable and composable while it works, but cannot start another run until it finishes or is stopped. The owning conversation and target edit state display the run's current status.
 
 ## Referenceable publication
 
-A Dataset or feature becomes **referenceable** only after the current local draft version containing it has been published. A new or dirty local draft is not referenceable, even if an older version of the same Dataset is already published.
+A **publication reference** identifies published source material. A **local draft reference** identifies unpublished work during authoring and must be resolved before its consumer is published; referring to local work does not itself publish it.
 
-When an operation needs such a reference, Earthly pauses that exact operation and asks the user to **Publish and continue**. Successful publication resumes the operation with the resulting stable reference; cancellation creates no reference. The request remains bound to the captured local draft even if the user navigates elsewhere.
+Publication of dependent objects retains each object's audience and reports each result separately. A reference never silently converts private work to public material.
 
 ## Delete
 

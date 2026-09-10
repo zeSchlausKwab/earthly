@@ -10,6 +10,8 @@
  */
 
 import type { ToolCall, ToolExecutionContext, ToolResult } from './types'
+import { READ_ONLY_TOOLS, resolveRunWorkTarget } from '../workingSet'
+import { setPendingDiffRunContext } from '../safeEditing/pendingDiffStore'
 import { TO_EDITOR_COMPATIBLE_TOOLS } from './types'
 import {
 	attachPendingDiffCommit,
@@ -38,6 +40,7 @@ import {
 	ToolExecutionTargetPersistenceError,
 } from './executionTarget'
 import { getEditorDatasetMetadata } from './editorDatasetMetadata'
+import { getMapContextSnapshotForTarget, getCompactMapContextForTool } from './context'
 
 function requiresDatasetTarget(toolName: string, args: Record<string, unknown>): boolean {
 	if (args.toEditor === true && TO_EDITOR_COMPATIBLE_TOOLS.has(toolName)) return true
@@ -222,6 +225,16 @@ async function executeToolCallBound(
 			}
 		}
 		if (toolCall.function.name === 'get_editor_state' && context?.run) {
+			if (context.run.workingSet) {
+				const snapshot = getMapContextSnapshotForTarget(context.run.target)
+				return {
+					role: 'tool',
+					tool_call_id: toolCall.id,
+					content: JSON.stringify(
+						args.detail === 'full' ? snapshot : getCompactMapContextForTool(snapshot),
+					),
+				}
+			}
 			const hasDatasetTarget = context.run.target.entityType === 'dataset'
 			const targetVisible = hasDatasetTarget && isToolExecutionTargetVisible(context.run)
 			if (!targetVisible) {
@@ -348,7 +361,45 @@ export async function executeToolCall(
 	context?: ToolExecutionContext,
 ): Promise<ToolResult> {
 	const boundContext: ToolExecutionContext = { ...context, toolCallId: toolCall.id }
+	if (context?.run?.workingSet) {
+		try {
+			const args = parseToolCallArguments(toolCall.function.arguments)
+			const name = toolCall.function.name
+			const hasWrites = context.run.workingSet.length > 0 || context.run.allowCreate
+			if (!hasWrites && (!READ_ONLY_TOOLS.has(name) || args.toEditor === true))
+				throw new Error(
+					'This Thread can read references, but has no permission to change or create drafts.',
+				)
+			if (
+				requiresDatasetTarget(name, args) ||
+				[
+					'get_editor_state',
+					'capture_map_snapshot',
+					'find_features',
+					'measure',
+					'validate_geometry',
+				].includes(name)
+			) {
+				const item = resolveRunWorkTarget(context.run, args.workingTarget, 'dataset')
+				boundContext.run = { ...context.run, target: item.target }
+			}
+		} catch (error) {
+			return {
+				role: 'tool',
+				tool_call_id: toolCall.id,
+				content: JSON.stringify({
+					ok: false,
+					kind: 'handler_error',
+					toolName: toolCall.function.name,
+					code: 'working_target_required',
+					message: error instanceof Error ? error.message : 'Working target unavailable',
+					sideEffectsApplied: false,
+				}),
+			}
+		}
+	}
 	if (boundContext.run) prepareToolExecutionRun(boundContext.run)
+	if (boundContext.run) setPendingDiffRunContext(boundContext.run)
 	const result = await executeToolCallBound(toolCall, boundContext)
 	if (getStructuredToolError(result)) {
 		rollbackToolExecutionRun(boundContext.run)

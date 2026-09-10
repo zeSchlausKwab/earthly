@@ -19,13 +19,30 @@ import {
 import { castEvent } from 'applesauce-core/casts'
 import { Article } from '@/lib/nostr/article'
 import { ARTICLE_KIND } from '@/lib/nostr/kinds'
-import { eventStore } from '@/lib/nostr'
-import { NEW_STORY_DRAFT_KEY, readStoryDraft, writeStoryDraft } from '@/lib/nostr/story'
+import { eventStore, accounts } from '@/lib/nostr'
+import {
+	NEW_STORY_DRAFT_KEY,
+	readStoryDraft,
+	writeStoryDraft,
+	getStoryProposalUnsupportedFields,
+	clearStoryDraft,
+} from '@/lib/nostr/story'
+import { toast } from 'sonner'
+import { localStoryReferences } from '@/lib/nostr/story/localReferences'
+import { isToolExecutionRunActive } from './executionTarget'
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
 import { parseStoryMarkdown } from '@/lib/map-presentation'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { gateStoryDatasetReferences } from '@/features/chat/referencePublishing'
 import { requestStoryTarget } from '@/features/chat/storyTargeting'
+import { useChatStore } from '../store'
+import {
+	assertThreadStoryReferenceScope,
+	registerRunOutput,
+	resolveRunWorkTarget,
+	runWorkingSet,
+	type ThreadWorkTarget,
+} from '../workingSet'
 import { fetchLatestByCoordinate, parseEntityReference } from './entity-tools'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
@@ -47,11 +64,14 @@ const MAX_BODY_CHARS = 100_000
  */
 const sessionOwnedDraftKeys = new Set<string>()
 const sessionReadDraftKeys = new Set<string>()
+const sessionReadDraftRevisions = new Map<string, string>()
+const ownershipKey = (draftKey: string, chatId?: string) => `${chatId ?? 'headless'}:${draftKey}`
 
 /** Test hook — re-arm the overwrite gate. */
 export function resetStoryDraftOwnership(): void {
 	sessionOwnedDraftKeys.clear()
 	sessionReadDraftKeys.clear()
+	sessionReadDraftRevisions.clear()
 }
 
 export function normalizeStoryFeatureReferences(markdown: string): {
@@ -103,7 +123,7 @@ function explicitlyConfirmsOverwrite(message: string | undefined): boolean {
 }
 
 const MENTION_SYNTAX_HINT =
-	'Cite datasets inline as bare nostr:naddr1… references. For one dataset feature, append the percent-encoded feature id fragment returned by read_entity (for example #relation%2F62504). When the working Dataset is new and has no naddr yet, set referencesActiveDataset=true: Earthly will ask the user to publish it, return its fresh mention, and require this Story write to be retried with that mention. Coordinates use bare RFC 5870 geo:latitude,longitude URIs; OSM elements use canonical https://www.openstreetmap.org/{node|way|relation}/{id} URLs. Never wrap references in code spans. On publish, Nostr mentions are mirrored into queryable references and all supported forms render as interactive pills.'
+	'Cite published Maps inline as bare nostr:naddr1… references. Preserve feature-only fragments returned by read_entity (for example #relation%2F62504). For a local Map, use the exact localReference from get_working_set or create_map_draft in the narrative; the Story editor resolves it with explicit confirmation at publication. Local references cannot yet be opening-presentation layer sources: use published sources for view layers. Never publish while authoring. Coordinates use bare RFC 5870 geo:latitude,longitude URIs; OSM elements use canonical https://www.openstreetmap.org/{node|way|relation}/{id} URLs. Never wrap references in code spans.'
 
 const REVIEW_HINT =
 	'Draft saved locally. The Story working copy is ready behind the Story icon. Tell the user to review it there and publish when ready — publishing is always their action.'
@@ -139,7 +159,7 @@ const readStoryDraftSchema: Tool = {
 	function: {
 		name: 'read_story_draft',
 		description:
-			"Read a local Story draft (title, summary, full Markdown body, raw opening presentation, and inline view diagnostics). Omit storyReference for the new-story slot; pass an existing Story's naddr to inspect its edit-draft slot or the published source when no local draft exists. Read this before replacing an existing Story; preserve unsupported presentation/view data during unrelated edits.",
+			'Read a permitted local Story using workingTarget from get_working_set, or a published Story using storyReference. Without a permitted target, only published content is readable. Read before changing a Story and preserve unsupported presentation/view data.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -157,7 +177,7 @@ const writeStoryDraftSchema: Tool = {
 	type: 'function',
 	function: {
 		name: 'write_story_draft',
-		description: `Write a local Story draft, including its opening MapPresentationV1 and physical inline earthly-view blocks, the user reviews and publishes in the Story editor — this never publishes anything. Omit storyReference to create a new Story; when no new Story working copy exists, Earthly pauses this exact call and asks the user to create one before writing. Pass an existing Story naddr to update that Story in its edit screen. ${MENTION_SYNTAX_HINT} If a local draft this session didn't author already exists, the call fails unless overwrite is true — read it first and confirm with the user before overwriting.`,
+		description: `Write a permitted local Story using workingTarget, or create a separate Story with createNew=true when creation is enabled. Supports MapPresentationV1 and inline earthly-view blocks. This never publishes or changes the visible editor. Read existing content first; preserve unrelated text and view data. Changes follow the user's review setting. ${MENTION_SYNTAX_HINT}`,
 		parameters: {
 			type: 'object',
 			properties: {
@@ -176,6 +196,11 @@ const writeStoryDraftSchema: Tool = {
 					description: `The full Markdown body. ${MENTION_SYNTAX_HINT} ${STORY_VIEW_AUTHORING_HINT}`,
 				},
 				presentation: storyPresentationSchema,
+				createNew: {
+					type: 'boolean',
+					description:
+						'Create another separate Story output, even if this Thread already has Story outputs. Requires new-draft permission.',
+				},
 				image: {
 					type: 'string',
 					description: 'Optional cover-image URL (usually one the user provided or uploaded).',
@@ -188,7 +213,7 @@ const writeStoryDraftSchema: Tool = {
 				referencesActiveDataset: {
 					type: 'boolean',
 					description:
-						'Set true only when this Story is intended to cite the working Dataset or one of its features and that Dataset is new (so no naddr exists yet). This triggers an explicit Publish and continue dialog before any Story draft is saved.',
+						'Legacy option; do not use in work Threads. Use named localReference values from get_working_set instead. Authoring never publishes a reference.',
 				},
 			},
 			required: ['title', 'markdown'],
@@ -225,11 +250,22 @@ export function registerStoryTools(
 		name: 'read_story_draft',
 		kind: 'host-builtin',
 		schema: readStoryDraftSchema,
-		handler: async (args) => {
-			const target = await resolveStoryTarget(args.storyReference)
-			const draftKey = target?.draftKey ?? NEW_STORY_DRAFT_KEY
-			const draft = readStoryDraft(draftKey)
-			sessionReadDraftKeys.add(draftKey)
+		handler: async (args, context) => {
+			const run = context?.run
+			const scoped =
+				run?.workingSet && (args.workingTarget || !args.storyReference)
+					? resolveRunWorkTarget(run, args.workingTarget, 'story')
+					: null
+			const target = await resolveStoryTarget(
+				scoped?.kind === 'story' ? scoped.storyReference : args.storyReference,
+			)
+			const draftKey =
+				scoped?.kind === 'story' ? scoped.draftKey : (target?.draftKey ?? NEW_STORY_DRAFT_KEY)
+			// A public address permits reading the published source, not a private local edit slot.
+			const draft = run?.workingSet && !scoped ? null : readStoryDraft(draftKey)
+			sessionReadDraftKeys.add(ownershipKey(draftKey, context?.run?.chatId))
+			if (scoped)
+				sessionReadDraftRevisions.set(ownershipKey(draftKey, run?.chatId), JSON.stringify(draft))
 			if (!draft) {
 				return {
 					ok: true,
@@ -256,7 +292,9 @@ export function registerStoryTools(
 				ok: true,
 				exists: true,
 				draftKey,
-				authoredByThisSession: sessionOwnedDraftKeys.has(draftKey),
+				authoredByThisSession: sessionOwnedDraftKeys.has(
+					ownershipKey(draftKey, context?.run?.chatId),
+				),
 				draft: {
 					title: draft.title ?? null,
 					summary: draft.summary ?? null,
@@ -276,21 +314,68 @@ export function registerStoryTools(
 		schema: writeStoryDraftSchema,
 		handler: async (args, context) => {
 			const title = requireString(args.title, 'title', MAX_TITLE_CHARS)
+			const ownerPubkey = accounts.active?.pubkey ?? null
 			const markdown = requireString(args.markdown, 'markdown', MAX_BODY_CHARS)
-			const summary = optionalString(args.summary, 'summary', MAX_SUMMARY_CHARS)
-			const image = optionalString(args.image, 'image', MAX_TITLE_CHARS)
+			let summary = optionalString(args.summary, 'summary', MAX_SUMMARY_CHARS)
+			let image = optionalString(args.image, 'image', MAX_TITLE_CHARS)
 
-			const target = await resolveStoryTarget(args.storyReference)
-			const draftKey = target?.draftKey ?? NEW_STORY_DRAFT_KEY
-			if (target && !sessionReadDraftKeys.has(draftKey)) {
+			const run = context?.run
+			let scoped: ThreadWorkTarget | undefined
+			if (run?.workingSet) {
+				const candidates = runWorkingSet(run).filter((item) => item.kind === 'story')
+				if (!args.createNew && (args.workingTarget || candidates.length || args.storyReference)) {
+					scoped = resolveRunWorkTarget(run, args.workingTarget, 'story')
+					if (
+						scoped.kind !== 'story' ||
+						(args.storyReference && args.storyReference !== scoped.storyReference)
+					)
+						throw new Error(
+							'The requested Story is not this working target. Add its edit/proposal explicitly, not as a reference.',
+						)
+				} else {
+					if (args.workingTarget || args.storyReference)
+						throw new Error('Creating a new Story cannot also name an existing destination.')
+					if (!run.allowCreate)
+						throw new Error('Enable new local drafts in Working on to create a Story.')
+					const key = `thread-story:${run.chatId}:${crypto.randomUUID()}`
+					scoped = {
+						id: `story:${key}`,
+						kind: 'story',
+						draftKey: key,
+						title: title.trim(),
+						intent: 'create',
+					}
+				}
+			}
+			const target = await resolveStoryTarget(
+				scoped?.kind === 'story' ? scoped.storyReference : args.storyReference,
+			)
+			const draftKey =
+				scoped?.kind === 'story' ? scoped.draftKey : (target?.draftKey ?? NEW_STORY_DRAFT_KEY)
+			const ownerKey = ownershipKey(draftKey, run?.chatId)
+			if (target && !sessionReadDraftKeys.has(ownerKey)) {
 				throw new Error(
 					'Read the existing Story with read_story_draft before updating it. This prevents rewriting published content from model memory.',
 				)
 			}
 			const existing = readStoryDraft(draftKey)
 			if (
+				run?.workingSet &&
 				existing &&
-				!sessionOwnedDraftKeys.has(draftKey) &&
+				sessionReadDraftRevisions.get(ownerKey) !== JSON.stringify(existing)
+			)
+				throw new Error(
+					'Read the latest local Story with read_story_draft and workingTarget before replacing it. The draft may contain new user edits.',
+				)
+			if (run?.workingSet) {
+				if (!Object.hasOwn(args, 'summary'))
+					summary = existing?.summary ?? target?.story.article.summary
+				if (!Object.hasOwn(args, 'image')) image = existing?.image ?? target?.story.article.image
+			}
+			if (
+				existing &&
+				!run?.workingSet &&
+				!sessionOwnedDraftKeys.has(ownerKey) &&
 				(args.overwrite !== true || !explicitlyConfirmsOverwrite(context?.userMessage))
 			) {
 				const existingChars = existing.content?.length ?? 0
@@ -306,11 +391,29 @@ export function registerStoryTools(
 			// tool may invent. Park the exact AI call until the user explicitly
 			// creates that target. Direct/headless invocations without run ownership
 			// retain the legacy behavior because they cannot own a visible dialog.
-			if (!target && !(await ensureNewStoryTarget(context, title.trim()))) {
+			if (!run?.workingSet && !target && !(await ensureNewStoryTarget(context, title.trim()))) {
 				return STORY_TARGET_CANCELLED_RESULT
 			}
 
 			const normalizedBody = normalizeStoryFeatureReferences(markdown)
+			if (run?.workingSet) {
+				assertThreadStoryReferenceScope(normalizedBody.markdown, run)
+				for (const reference of localStoryReferences(normalizedBody.markdown)) {
+					const output = runWorkingSet(run).find(
+						(item) => item.kind === 'dataset' && item.workspaceId === reference.workspaceId,
+					)
+					const sources =
+						run.references?.filter((item) => item.localWorkspaceId === reference.workspaceId) ?? []
+					const allowed = output
+						? !output.featureIds ||
+							(reference.featureId && output.featureIds.includes(reference.featureId))
+						: sources.some((item) => !item.featureId || item.featureId === reference.featureId)
+					if (!allowed)
+						throw new Error(
+							'This local Story reference is outside the Thread’s outputs or attached feature scope. Attach that source explicitly first.',
+						)
+				}
+			}
 			const mapContent = prepareStoryMapAuthoring({
 				markdown: normalizedBody.markdown,
 				previousMarkdown: existing?.content ?? target?.story.article.content,
@@ -321,10 +424,30 @@ export function registerStoryTools(
 						: target?.story.article.presentation,
 				replacePresentation: Object.hasOwn(args, 'presentation'),
 			})
-			const referenceGate = await gateDatasetReferences(normalizedBody.markdown, {
-				run: context?.run,
-				referencesActiveDataset: args.referencesActiveDataset === true,
-			})
+			if (
+				scoped?.intent === 'propose' &&
+				target &&
+				getStoryProposalUnsupportedFields(target.story.article, {
+					title: title.trim(),
+					summary,
+					image,
+					...mapContent,
+				}).length
+			) {
+				throw new Error(
+					'A Story proposal can change narrative and inline views only. Preserve the cover and opening presentation, or explicitly start a new Story to make independent changes.',
+				)
+			}
+			if (run?.workingSet && args.referencesActiveDataset === true)
+				throw new Error(
+					'Name an attached reference or working output explicitly. The visible Map is not an implicit source and will not be published.',
+				)
+			const referenceGate = run?.workingSet
+				? { status: 'ready' as const, published: undefined }
+				: await gateDatasetReferences(normalizedBody.markdown, {
+						run: context?.run,
+						referencesActiveDataset: args.referencesActiveDataset === true,
+					})
 			if (referenceGate.status !== 'ready') {
 				return {
 					ok: false,
@@ -334,8 +457,49 @@ export function registerStoryTools(
 			// Dataset publication is an independent awaited gate. The author may
 			// close the Story state while this tool is parked, so revalidate the
 			// target at the final write boundary instead of reviving it implicitly.
-			if (!target && !(await ensureNewStoryTarget(context, title.trim()))) {
+			if (!run?.workingSet && !target && !(await ensureNewStoryTarget(context, title.trim()))) {
 				return STORY_TARGET_CANCELLED_RESULT
+			}
+			if (run?.workingSet) {
+				const level = useChatStore.getState().safetyLevel
+				if (level === 1 || (level !== 3 && (existing || target))) {
+					const decision = await requestStoryTarget(
+						{
+							chatId: run.chatId,
+							toolCallId: context?.toolCallId ?? '',
+							storyTitle: title.trim(),
+							review: {
+								before: JSON.stringify(existing ?? target?.story.article ?? {}, null, 2),
+								after: JSON.stringify({ title, summary, image, ...mapContent }, null, 2),
+							},
+						},
+						() => {},
+					)
+					if (decision.decision !== 'created')
+						return {
+							ok: false,
+							status: 'cancelled',
+							message: 'Story changes discarded. No content changed.',
+						}
+				}
+				if (JSON.stringify(readStoryDraft(draftKey)) !== JSON.stringify(existing))
+					throw new Error(
+						'The Story changed while the AI was working. Read the latest draft and try again; nothing was overwritten.',
+					)
+				if (
+					(context?.toolCallId && !isToolExecutionRunActive(run)) ||
+					!useChatStore.getState().chatSessions.some((chat) => chat.id === run.chatId) ||
+					(accounts.active?.pubkey ?? null) !== ownerPubkey
+				)
+					throw new Error(
+						'This Thread run ended or its account changed. No Story changes were applied.',
+					)
+				if (scoped && !runWorkingSet(run).some((item) => item.id === scoped.id)) {
+					registerRunOutput(run, scoped)
+					const chat = useChatStore.getState().chatSessions.find((chat) => chat.id === run.chatId)
+					if (!chat) throw new Error('Owning Thread unavailable.')
+					useChatStore.getState().setWorkingSet(chat.id, [...(chat.workingSet ?? []), scoped])
+				}
 			}
 			writeStoryDraft(draftKey, {
 				title: title.trim(),
@@ -345,16 +509,40 @@ export function registerStoryTools(
 				// existing target/reference approvals; omitted future data stays opaque.
 				...mapContent,
 			})
-			sessionOwnedDraftKeys.add(draftKey)
+			sessionOwnedDraftKeys.add(ownerKey)
+			sessionReadDraftRevisions.set(ownerKey, JSON.stringify(readStoryDraft(draftKey)))
+			if (run?.workingSet) {
+				const saved = readStoryDraft(draftKey)
+				toast.success(`Updated local Story: ${title.trim()}`, {
+					action: {
+						label: 'Undo',
+						onClick: () => {
+							if (
+								(accounts.active?.pubkey ?? null) !== ownerPubkey ||
+								JSON.stringify(readStoryDraft(draftKey)) !== JSON.stringify(saved)
+							) {
+								toast.error('The Story has changed since this AI edit. Undo was not applied.')
+								return
+							}
+							if (existing) writeStoryDraft(draftKey, existing)
+							else clearStoryDraft(draftKey)
+							if (getStoryEditorTarget()?.draftKey === draftKey)
+								requestOpenStoryEditor(target?.story, draftKey)
+						},
+					},
+				})
+			}
 
 			// Retain the Story edit state in create mode (or refresh its pre-fill if
 			// it already exists). The sidebar decides whether that state is visible.
-			requestOpenStoryEditor(target?.story)
+			if (!run?.workingSet || getStoryEditorTarget()?.draftKey === draftKey)
+				requestOpenStoryEditor(target?.story, scoped ? draftKey : undefined)
 
 			return {
 				ok: true,
 				draftKey,
 				mode: target ? 'edit' : 'create',
+				workingTarget: scoped?.id,
 				stats: {
 					titleChars: title.trim().length,
 					markdownChars: normalizedBody.markdown.length,
@@ -363,7 +551,9 @@ export function registerStoryTools(
 				},
 				...(referenceGate.published
 					? { datasetPublication: referenceGate.published }
-					: useEditorStore.getState().activeDataset && useEditorStore.getState().isDirty
+					: !run?.workingSet &&
+							useEditorStore.getState().activeDataset &&
+							useEditorStore.getState().isDirty
 						? {
 								datasetWarning:
 									'This Story does not cite the active Dataset, which still has unpublished local edits.',

@@ -31,11 +31,12 @@ import {
 	Eye,
 	EyeOff,
 	Layers3,
+	MessageSquare,
 	Plus,
 	RotateCcw,
 	Trash2,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { publishFailureMessage } from '@/features/geo-editor/hooks/publishFailure'
 import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
@@ -74,10 +75,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import {
 	getStoryEditorOpenRequest,
+	getStoryEditorTarget,
 	subscribeStoryEditorOpenRequests,
 } from '@/features/geo-editor/storyEditorBridge'
-import { captureVisibleDatasetReferenceTarget } from '@/features/chat/store'
-import { ensureDatasetReferencePublished } from '@/features/chat/referencePublishing'
+import { addTargetToActiveThread, reconcileStoryThreadTarget } from '@/features/chat/store'
+import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
+import { resolveLocalStoryDependencies } from '@/features/chat/referencePublishing/localStoryDependencies'
 import { useRetainedEditorDraft } from '@/hooks/useRetainedEditorDraft'
 import type { StoryViewDraftContext } from '@/components/editor/StoryViewDraftContext'
 import { accounts, eventStore } from '@/lib/nostr'
@@ -96,7 +99,7 @@ import {
 	type StoryViewSnapshotV1,
 	reduceStoryMarkdownViews,
 } from '@/lib/map-presentation'
-import { naddrToCoordinate } from '@/lib/nostr/references'
+import { naddrToCoordinate, coordinateToNaddrReference } from '@/lib/nostr/references'
 import {
 	NEW_STORY_DRAFT_KEY,
 	clearStoryDraft,
@@ -151,7 +154,7 @@ function readInitialContent(initialStory?: Article | null): {
 	draftKey: string
 	presentation?: unknown
 } {
-	const draftKey = initialStory?.dTag ?? NEW_STORY_DRAFT_KEY
+	const draftKey = initialStory?.dTag ?? getStoryEditorTarget()?.draftKey ?? NEW_STORY_DRAFT_KEY
 	const draft = readStoryDraft(draftKey)
 	if (draft) {
 		return {
@@ -847,7 +850,8 @@ export function StoryEditorPanel({
 	const mobileHeaderActionTarget = useMobilePanelHeaderActionTarget()
 	const bodyEditorRef = useRef<GeoRichTextEditorRef>(null)
 
-	const initial = useMemo(() => readInitialContent(initialStory), [initialStory])
+	const selectedDraftKey = useSyncExternalStore(subscribeStoryEditorOpenRequests, () => getStoryEditorTarget()?.draftKey ?? null, () => null)
+	const initial = useMemo(() => readInitialContent(initialStory), [initialStory, selectedDraftKey])
 	// Editing a *published* Article switches the submit to "Save changes" and the
 	// edit code path; a draft-backed create stays in publish mode.
 	const isEditing = useMemo(() => {
@@ -1056,6 +1060,9 @@ export function StoryEditorPanel({
 		try {
 			const signer = accounts.signer
 			if (!signer) throw new Error('No active account')
+			const ownerPubkey = currentUser.pubkey
+			persistNow()
+			let expectedDraft = JSON.stringify(readStoryDraft(draftKey, ownerPubkey))
 
 			const content: ArticleContent = isProposal
 				? proposalContent
@@ -1067,21 +1074,19 @@ export function StoryEditorPanel({
 						presentation,
 					}
 
-			// A Story must never persist an address for an older Dataset revision while
-			// the referenced Dataset has local changes. Capture the visible edit state
-			// before the dialog boundary so navigating elsewhere cannot retarget this
-			// publish-and-continue operation.
-			const target = captureVisibleDatasetReferenceTarget()
-			const referenceGate = await ensureDatasetReferencePublished({
-				markdown: content.content ?? '',
-				chatId: `manual-story:${draftKey}`,
-				toolCallId: `publish-story:${Date.now()}`,
-				target,
+			// Only explicit LOCAL dependencies need publishing. An ordinary public
+			// reference never publishes the visible editor's unrelated changes.
+			content.content = await resolveLocalStoryDependencies(content.content ?? '', {
+				storyDraftKey: draftKey,
+				onProgress: (resolvedBody) => {
+					if (JSON.stringify(readStoryDraft(draftKey, ownerPubkey)) !== expectedDraft) throw new Error('This Story draft changed while publishing its Maps. The published Maps remain available; review your draft before retrying.')
+					writeStoryDraft(draftKey, { ...draftSnapshot, content: resolvedBody }, ownerPubkey)
+					expectedDraft = JSON.stringify(readStoryDraft(draftKey, ownerPubkey))
+					setBody(resolvedBody)
+					bodyEditorRef.current?.setContent(resolvedBody)
+				},
 			})
-			if (referenceGate.status === 'blocked') {
-				setSaveError(referenceGate.message)
-				return
-			}
+			if (accounts.active?.pubkey !== ownerPubkey || JSON.stringify(readStoryDraft(draftKey, ownerPubkey)) !== expectedDraft) throw new Error('The account or Story draft changed. Nothing further was published; review and retry.')
 
 			const editedEvent = initialStory?.rawEvent()
 			if (isProposal && initialStory && editedEvent && isArticle(editedEvent)) {
@@ -1103,6 +1108,8 @@ export function StoryEditorPanel({
 
 			clearRetainedDraft()
 			const cast = castEvent(signed, Article, eventStore)
+			const reference = coordinateToNaddrReference(`${cast.kind}:${cast.pubkey}:${cast.dTag}`)
+			if (reference && cast.dTag) reconcileStoryThreadTarget(draftKey, { draftKey: cast.dTag, reference, title: cast.article.title || 'Story' })
 			// onSave (handleSaveStory) both tears the editor down AND navigates to
 			// the published story's canonical /stories/story/:naddr route. Do NOT
 			// also call onClose() here: its close handler still sees the pre-render
@@ -1167,6 +1174,13 @@ export function StoryEditorPanel({
 					</Button>
 				</div>
 			</MobilePanelHeaderActions>
+			<fieldset disabled={isSaving} className="min-w-0 space-y-3">
+			<Button type="button" size="sm" variant="outline" onClick={() => {
+				persistNow()
+				const storyReference = initialStory?.dTag ? coordinateToNaddrReference(`${initialStory.kind}:${initialStory.pubkey}:${initialStory.dTag}`) ?? undefined : undefined
+				addTargetToActiveThread({ id: `story:${draftKey}`, kind: 'story', draftKey, title: title.trim() || 'Untitled Story', intent: isProposal ? 'propose' : isEditing ? 'edit' : 'create', storyReference })
+				navigateToRoute('/ask')
+			}}><MessageSquare className="size-3.5" /> Edit this Story with AI</Button>
 			{isProposal ? (
 				<div className="space-y-2 border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
 					<p>
@@ -1230,6 +1244,7 @@ export function StoryEditorPanel({
 							ref={bodyEditorRef}
 							autoFocus={isProposal}
 							initialValue={body}
+							disabled={isSaving}
 							onChange={setBody}
 							availableFeatures={availableFeatures}
 							placeholder={`Start writing…
@@ -1315,6 +1330,7 @@ Type $ to reference a Map, feature, OSM element, or coordinate.`}
 					) : null}
 				</div>
 			</EntityPanelSurface>
+			</fieldset>
 		</EntityPanelShell>
 	)
 }

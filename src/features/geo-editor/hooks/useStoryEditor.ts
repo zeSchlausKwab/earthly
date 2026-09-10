@@ -188,12 +188,24 @@ export function useStoryEditor({
 				setStoryEditorMode('create')
 				setEditingStory(null)
 			}
+			if (request.reveal) {
+				selectMobileEntitySurface('story')
+				prepareNonGeometryWorkspace({ clearRoute: false })
+				setStoryEditorRevealNonce((nonce) => nonce + 1)
+				navigateToView('stories')
+				ensureInfoPanelVisible()
+			}
 		}
 		// Replay the latest request before subscribing so a request fired during
 		// mount cannot disappear between render and this effect.
 		consumeOpenRequest()
 		return subscribeStoryEditorOpenRequests(consumeOpenRequest)
-	}, [])
+	}, [
+		selectMobileEntitySurface,
+		prepareNonGeometryWorkspace,
+		navigateToView,
+		ensureInfoPanelVisible,
+	])
 
 	const handleSaveStory = useCallback(
 		(story: Article) => {

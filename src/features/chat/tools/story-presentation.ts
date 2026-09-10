@@ -211,13 +211,16 @@ export function prepareStoryMapAuthoring(options: {
 		}
 	}
 
-	const validated = validateStoryPresentation({
-		content: options.markdown,
-		presentation:
-			options.replacePresentation && parsed.status === 'valid'
-				? parsed.value
-				: options.presentation,
-	})
+	const validated = validateStoryPresentation(
+		{
+			content: options.markdown,
+			presentation:
+				options.replacePresentation && parsed.status === 'valid'
+					? parsed.value
+					: options.presentation,
+		},
+		{ allowLocalDraftReferences: true },
+	)
 	return {
 		content: options.markdown,
 		presentation: options.replacePresentation ? validated.presentation : options.presentation,

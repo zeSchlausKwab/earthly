@@ -36,6 +36,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 	type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { toast } from 'sonner'
@@ -47,6 +48,8 @@ import {
 } from '@/components/entity-search'
 import { ReferencePublishDialog } from '@/features/chat/referencePublishing'
 import { StoryTargetDialog } from '@/features/chat/storyTargeting'
+import { getStoryEditorTarget, subscribeStoryEditorOpenRequests } from './storyEditorBridge'
+import { getStoryDraftRevision, subscribeStoryDrafts, listNewStoryDrafts } from '@/lib/nostr/story/draft'
 import { config } from '@/config/env.client'
 import { EARTHLY_ZAPSTORE_URL } from '@/config/app-downloads'
 import type { LocalDraftDestinationOption } from '@/components/WorkspaceDraftNavigator'
@@ -273,7 +276,7 @@ function publishChannelOptionId(channel: PublishChannel): string | undefined {
 	if (channel.kind === 'field-session') return `field-session:${channel.id}`
 	return undefined
 }
-import { registerDatasetDraftEnsurer, type DatasetDraftRequest } from './authoringTaskBridge'
+import { registerChatWorkspaceOpener, registerDatasetDraftEnsurer, type DatasetDraftRequest } from './authoringTaskBridge'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
@@ -867,7 +870,8 @@ export function GeoEditorView() {
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
 	useCatalogStackPriority(mapStackEntries, mapStackOrder)
-	const retainedDraftCount = useEditorStore((state) => Object.keys(state.geoEditDrafts).length)
+	const retainedMapDraftCount = useEditorStore((state) => Object.keys(state.geoEditDrafts).length)
+	useSyncExternalStore(subscribeStoryDrafts, getStoryDraftRevision, () => 0)
 	const activeDraftAuthoring = useEditorStore(
 		(state) => resolveActiveDraftMapPresentation(state) !== null,
 	)
@@ -1128,6 +1132,7 @@ export function GeoEditorView() {
 	)
 	const currentUser = useActiveAccount()
 	const currentUserPubkey = currentUser?.pubkey ?? null
+	const retainedDraftCount = retainedMapDraftCount + listNewStoryDrafts(currentUserPubkey).length
 	const isMobile = useIsMobile()
 	const mapPopupToolbarOffset = 112
 
@@ -1586,6 +1591,11 @@ export function GeoEditorView() {
 			syncRouteToDraftChannel,
 		],
 	)
+
+	useEffect(() => registerChatWorkspaceOpener(async (workspaceId) => {
+		await handleSwitchWorkspace(workspaceId)
+		if (!isMobile) navigateToDraftEditor(readActiveWorkspaceDraftChannel(workspaceId) ?? routePublishChannel)
+	}), [handleSwitchWorkspace, isMobile, navigateToDraftEditor, readActiveWorkspaceDraftChannel, routePublishChannel])
 
 	const handleAddDraftToWorkspace = useCallback(
 		async (workspaceId: string) => {
@@ -3889,8 +3899,9 @@ export function GeoEditorView() {
 		},
 		[currentUserPubkey],
 	)
+	const selectedStoryDraftKey = useSyncExternalStore(subscribeStoryEditorOpenRequests, () => getStoryEditorTarget()?.draftKey ?? null, () => null)
 	const retainedStoryDraftKey =
-		storyEditorMode !== 'none' ? (editingStory?.dTag ?? 'new-story') : null
+		storyEditorMode !== 'none' ? (selectedStoryDraftKey ?? editingStory?.dTag ?? 'new-story') : null
 	const storyAuthoringKey =
 		foregroundStoryEditor?.draftKey === retainedStoryDraftKey &&
 		foregroundStoryEditor.account === (currentUserPubkey ?? null) &&

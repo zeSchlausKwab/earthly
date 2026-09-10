@@ -28,6 +28,28 @@ const STORY_DRAFTS_STORAGE_KEY = 'earthly:story:drafts:v1'
 /** Sentinel key for an unsaved Story that has no `d`-tag yet. */
 export const NEW_STORY_DRAFT_KEY = 'new-story'
 
+let revision = 0
+const subscribers = new Set<() => void>()
+export const getStoryDraftRevision = () => revision
+export function subscribeStoryDrafts(subscriber: () => void) {
+	subscribers.add(subscriber)
+	return () => {
+		subscribers.delete(subscriber)
+	}
+}
+function notifyDraftsChanged() {
+	revision += 1
+	for (const subscriber of subscribers) subscriber()
+}
+
+/** Unpublished Stories remain discoverable even if their originating Thread is deleted. */
+export function listNewStoryDrafts(pubkey?: string | null) {
+	return Object.entries(readDraftMap(pubkey))
+		.filter(([key]) => key === NEW_STORY_DRAFT_KEY || key.startsWith('thread-story:'))
+		.map(([draftKey, draft]) => ({ draftKey, ...draft }))
+		.sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
 /** Defensive read of the whole drafts map — a malformed value yields `{}`, never throws. */
 function readDraftMap(pubkey?: string | null): Record<string, StoryDraft> {
 	const parsed = readScopedStorage<unknown>(STORY_DRAFTS_STORAGE_KEY, null, pubkey)
@@ -65,6 +87,7 @@ export function writeStoryDraft(
 	const map = readDraftMap(pubkey)
 	map[dTag] = { ...draft, updatedAt: draft.updatedAt ?? Date.now() }
 	writeScopedStorage(STORY_DRAFTS_STORAGE_KEY, map, pubkey)
+	notifyDraftsChanged()
 }
 
 /** Remove a single Story draft (call on publish). No-op if absent. */
@@ -73,4 +96,5 @@ export function clearStoryDraft(dTag: string, pubkey?: string | null): void {
 	if (!(dTag in map)) return
 	delete map[dTag]
 	writeScopedStorage(STORY_DRAFTS_STORAGE_KEY, map, pubkey)
+	notifyDraftsChanged()
 }

@@ -1,5 +1,7 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { getStoryDraftRevision, subscribeStoryDrafts, listNewStoryDrafts } from '@/lib/nostr/story/draft'
+import { requestOpenStoryEditor } from '@/features/geo-editor/storyEditorBridge'
 import {
 	Check,
 	ChevronDown,
@@ -336,6 +338,7 @@ export function WorkspaceDraftNavigator({
 	function renderDraftGroups() {
 		return (
 			<div className="space-y-2">
+				<NewStoryDrafts />
 				{proposalWorkspaces.length > 0 ? (
 					<div className="space-y-1.5">
 						<div className="px-1 text-[10px] font-medium uppercase tracking-[0.16em] text-primary">
@@ -714,6 +717,17 @@ export type LocalDraftsPanelProps = Omit<WorkspaceDraftNavigatorProps, 'presenta
 /** Flat, full-height local-draft browser for a mobile sidebar or drawer. */
 export function LocalDraftsPanel(props: LocalDraftsPanelProps) {
 	return <WorkspaceDraftNavigator {...props} presentation="panel" />
+}
+
+function NewStoryDrafts() {
+	const account = useActiveAccount()
+	useSyncExternalStore(subscribeStoryDrafts, getStoryDraftRevision, () => 0)
+	const drafts = listNewStoryDrafts(account?.pubkey ?? null)
+	if (!drafts.length) return null
+	return <section aria-label="New Story drafts" className="space-y-1.5 pb-2">
+		<h3 className="px-1 text-xs font-medium">Story drafts · {drafts.length}</h3>
+		{drafts.map((draft) => <Button key={draft.draftKey} variant="outline" className="w-full justify-start" onClick={() => requestOpenStoryEditor(null, draft.draftKey, { reveal: true })}><FileText className="size-3.5 shrink-0" /><span className="truncate">{draft.title || 'Untitled Story'}</span><span className="ml-auto text-xs text-muted-foreground">Open</span></Button>)}
+	</section>
 }
 
 function getSavedWorkLabel(label: string): string {

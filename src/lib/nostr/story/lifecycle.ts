@@ -39,6 +39,7 @@ import {
 } from '@/lib/map-presentation'
 import { setAddressReferenceTags } from '@/lib/nostr/references'
 import { noteSessionPublish } from '@/lib/nostr/sessionPublishes'
+import { assertPublishedStoryReferences } from './localReferences'
 
 /** AI-chat session breadcrumb (one line per publish) — see sessionPublishes.ts. */
 function noteStorySessionPublish(signed: NostrEvent, content: Partial<ArticleContent>): void {
@@ -102,8 +103,9 @@ function assertStoryViewTargets(
  * Absent, malformed, and future versions keep legacy fallback/preservation;
  * only a usable V1 is interpreted and therefore subject to strict grants.
  */
-export function validateStoryPresentation(content: Partial<ArticleContent>): ArticleContent {
+export function validateStoryPresentation(content: Partial<ArticleContent>, options?: { allowLocalDraftReferences?: boolean }): ArticleContent {
 	const markdown = content.content ?? ''
+	if (!options?.allowLocalDraftReferences) assertPublishedStoryReferences(markdown)
 	const parsed = parseMapPresentation(content.presentation)
 	if (parsed.status !== 'valid') {
 		if (parsed.status === 'absent') {

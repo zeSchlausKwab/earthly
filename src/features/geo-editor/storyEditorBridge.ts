@@ -17,8 +17,12 @@
  */
 
 import type { Article } from '@/lib/nostr/article'
+import { NEW_STORY_DRAFT_KEY } from '@/lib/nostr/story/draft'
 
 export interface StoryEditorOpenRequest {
+	/** Only explicit user navigation may reveal the editor; AI refreshes never do. */
+	reveal?: boolean
+	draftKey?: string
 	/** Monotonic id — a new request always carries a higher nonce. */
 	nonce: number
 	mode: 'create' | 'edit'
@@ -32,8 +36,8 @@ export interface StoryEditorOpenRequest {
  * user-created Story target from the absence of one.
  */
 export type StoryEditorTarget =
-	| { mode: 'create'; story?: undefined }
-	| { mode: 'edit'; story: Article }
+	| { mode: 'create'; story?: undefined; draftKey?: string }
+	| { mode: 'edit'; story: Article; draftKey?: string }
 
 let counter = 0
 let lastRequest: StoryEditorOpenRequest | null = null
@@ -41,8 +45,9 @@ let retainedTarget: StoryEditorTarget | null = null
 const subscribers = new Set<() => void>()
 
 /** Record the Story edit state retained by the UI or an explicit dialog action. */
-export function retainStoryEditorTarget(story?: Article | null): void {
-	retainedTarget = story ? { mode: 'edit', story } : { mode: 'create' }
+export function retainStoryEditorTarget(story?: Article | null, draftKey?: string): void {
+	draftKey ??= story?.dTag ?? NEW_STORY_DRAFT_KEY
+	retainedTarget = story ? { mode: 'edit', story, draftKey } : { mode: 'create', draftKey }
 }
 
 /** Clear the retained Story edit state when the author closes or publishes it. */
@@ -65,10 +70,16 @@ export function getStoryEditorTarget(): StoryEditorTarget | null {
  * and refreshes the same retained state after persistence; consumers do not
  * navigate or reveal it automatically.
  */
-export function requestOpenStoryEditor(story?: Article | null): void {
-	retainStoryEditorTarget(story)
+export function requestOpenStoryEditor(
+	story?: Article | null,
+	draftKey?: string,
+	options?: { reveal?: boolean },
+): void {
+	retainStoryEditorTarget(story, draftKey)
 	counter += 1
-	lastRequest = story ? { nonce: counter, mode: 'edit', story } : { nonce: counter, mode: 'create' }
+	lastRequest = story
+		? { nonce: counter, mode: 'edit', story, draftKey, reveal: options?.reveal }
+		: { nonce: counter, mode: 'create', draftKey, reveal: options?.reveal }
 	for (const fn of subscribers) fn()
 }
 

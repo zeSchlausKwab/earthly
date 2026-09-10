@@ -216,6 +216,8 @@ The contents of a Map, in both modes, directly under *At a glance*.
 
 ## 10. Thread contract
 
+**September 10 update:** [Work-scoped Threads](WORK-SCOPED-THREADS.md) supersedes this section's one-object ownership, target-required inference, and publish-before-referencing rules. The remaining layout guidance still applies.
+
 - The Thread belongs to the object in the Margin. There is no unbound chat. Header: object title · state (`editing`, `proposing to X`, `read-only`, `read-only · concierge` on atlases you don't own) · safety level ▾ · Details toggle.
 - An embedded Thread does not repeat the surrounding object's title. Its compact control row keeps the current safety state visible (including explicit Auto apply), while Thread settings initially collapse the safety selector, model/provider, screenshots, wallet, usage, and diagnostics. Standalone Threads retain their own title. Model failures and recovery actions remain visible outside the disclosure.
 - A new, unpublished Map has no public address yet. Its Thread uses `/edit?tab=thread` and a stable local working-copy id (`map-draft:<id>`); closing it returns to `/edit`. Different local Maps never share a Thread or unsent composer. Opening or switching tabs does not bind an AI target; the first **Send** binds that retained Map without creating a second working copy. Desktop and phone restore the same route and transcript after reload.

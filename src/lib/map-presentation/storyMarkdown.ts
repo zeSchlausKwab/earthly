@@ -291,7 +291,7 @@ export function removeStoryViewBlock(markdown: string, id: string): string {
  * to feed through the existing NIP-27 scanner without letting examples in code
  * authorize presentation data.
  */
-function semanticMarkdownText(markdown: string): string {
+export function semanticMarkdownText(markdown: string): string {
 	// All parser offsets are UTF-16 code-unit offsets. Keep the mask in the same
 	// units so non-BMP characters before a fence cannot shift the hidden region.
 	const chars = markdown.split('')

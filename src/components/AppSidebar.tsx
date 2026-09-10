@@ -20,6 +20,7 @@ import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoProposal } from '@/lib/nostr/geo-proposal'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { DEFAULT_WORK_VIEW } from '@/features/geo-editor/defaults'
+import { getStoryEditorOpenRequest, subscribeStoryEditorOpenRequests } from '@/features/geo-editor/storyEditorBridge'
 import { ShoutboxPanel } from './optionalSurfaces.tsx'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
 import { EmbeddedListPanelContext } from './entity-list'
@@ -1040,6 +1041,20 @@ export function AppSidebar({
 		setSelectedEntitySurface('story')
 		setShowEntityAsFullPanel(true)
 	}
+	const consumedStoryReveal = useRef(0)
+	useEffect(() => {
+		const reveal = () => {
+			const request = getStoryEditorOpenRequest()
+			if (!request?.reveal || request.nonce === consumedStoryReveal.current) return
+			consumedStoryReveal.current = request.nonce
+			if (chatOpen && chatDock === 'left') setChatOpen(false)
+			setActiveEntity('story')
+			setSelectedEntitySurface('story')
+			setShowEntityAsFullPanel(true)
+		}
+		reveal()
+		return subscribeStoryEditorOpenRequests(reveal)
+	}, [chatOpen, chatDock, setChatOpen])
 
 	const returnToContextEditor = () => {
 		revealLeftSidebarSurface()

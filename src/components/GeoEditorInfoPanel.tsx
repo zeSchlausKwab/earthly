@@ -1,4 +1,6 @@
 import { Eye, MapPin, MessageSquare, Pencil } from 'lucide-react'
+import { addTargetToActiveThread } from '@/features/chat/store'
+import { mapWorkTarget } from '@/features/chat/workingSet'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { cn } from '@/lib/utils'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -1093,10 +1095,15 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 								variant="outline"
 								size="sm"
 								className="max-md:min-h-11"
-								onClick={onOpenMapThread}
+								onClick={() => {
+									const workspaceId = useEditorStore.getState().activeWorkspaceId
+									const target = workspaceId ? mapWorkTarget(workspaceId) : null
+									if (target) addTargetToActiveThread(target)
+									onOpenMapThread()
+								}}
 							>
 								<MessageSquare className="h-3.5 w-3.5" />
-								Chat about this map
+								Edit this Map with AI
 							</Button>
 						)}
 						{activeDataset && (

@@ -19,6 +19,17 @@ type DatasetDraftEnsurer = (
 ) => string | null | undefined | Promise<string | null | undefined>
 
 let datasetDraftEnsurer: DatasetDraftEnsurer | null = null
+let workspaceOpener: ((workspaceId: string) => Promise<void>) | null = null
+
+export function registerChatWorkspaceOpener(opener: (workspaceId: string) => Promise<void>): () => void {
+	workspaceOpener = opener
+	return () => { if (workspaceOpener === opener) workspaceOpener = null }
+}
+
+export async function openChatWorkspace(workspaceId: string): Promise<void> {
+	if (!workspaceOpener || !useEditorStore.getState().workspaces[workspaceId]) throw new Error('This Map working copy is unavailable.')
+	await workspaceOpener(workspaceId)
+}
 
 export function registerDatasetDraftEnsurer(ensurer: DatasetDraftEnsurer): () => void {
 	datasetDraftEnsurer = ensurer

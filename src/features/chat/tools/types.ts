@@ -78,6 +78,11 @@ export interface ToolExecutionTarget {
 }
 
 export interface ToolExecutionRunIdentity {
+	readonly view?: ReturnType<typeof import('../workingSet').captureThreadView>
+	readonly references?: import('../workingSet').CapturedThreadReference[]
+	readonly newDraftAudience?: import('@/features/geo-editor/store').PublishChannel
+	readonly workingSet?: import('../workingSet').CapturedWorkTarget[]
+	readonly allowCreate?: boolean
 	readonly runId: number
 	readonly chatId: string
 	readonly target: ToolExecutionTarget
