@@ -556,6 +556,8 @@ export function WorkspaceDraftNavigator({
 							<Button
 								type="button"
 								variant="ghost"
+								title={displayLabel}
+								aria-current={isActiveWorkspace ? 'true' : undefined}
 								onClick={() =>
 									workspace.activeDraftId
 										? void openSavedDraft({
@@ -567,13 +569,13 @@ export function WorkspaceDraftNavigator({
 								}
 								className="min-w-0 flex-1 h-auto flex-col items-start px-1 py-1 text-left justify-start"
 							>
-								<div className="flex min-w-0 flex-wrap items-center gap-2">
-									<span className="truncate text-xs font-medium text-foreground">
+								<div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+									<span className="max-w-full truncate text-xs font-medium text-foreground">
 										{displayLabel}
 									</span>
 									<span
 										className={cn(
-											'rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em]',
+											'hidden rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] md:inline-flex',
 											badgeClassName,
 										)}
 									>
@@ -586,10 +588,12 @@ export function WorkspaceDraftNavigator({
 													: 'Map'}
 									</span>
 									{isActiveWorkspace ? (
-										<span className={cn('rounded-full', activeClassName)}>Current</span>
+										<span className={cn('sr-only rounded-full md:not-sr-only', activeClassName)}>
+											Current
+										</span>
 									) : null}
 								</div>
-								<div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+								<div className="mt-0.5 flex w-full flex-wrap items-center gap-x-2 whitespace-normal text-[11px] text-muted-foreground">
 									<span
 										title={publication.description}
 										className={

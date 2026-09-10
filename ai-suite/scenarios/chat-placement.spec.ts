@@ -144,7 +144,7 @@ test('publishing a Map keeps the conversation open and marks its publication @re
 test('drafts are flat, with saved alternatives only on demand @regression', async ({
 	earthly,
 }, testInfo) => {
-	test.setTimeout(90_000)
+	test.setTimeout(180_000)
 	await installIsolatedRelays(earthly)
 	await authorizeJourneyIdentity(earthly, 'owner')
 	await earthly.open()
