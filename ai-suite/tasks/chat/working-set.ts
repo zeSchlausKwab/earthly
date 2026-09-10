@@ -50,3 +50,10 @@ export function localMapOutputCounts(earthly: EarthlySession) {
 		return drafts
 	})
 }
+
+/** Draft titles only; this never reads provider settings or account secrets. */
+export function localStoryDraftTitles(earthly: EarthlySession) {
+	return earthly.page.evaluate(() => Object.entries(localStorage)
+		.filter(([key]) => key.startsWith('earthly:story:drafts:v1'))
+		.flatMap(([, value]) => Object.values(JSON.parse(value) as Record<string, { title?: string }>).map(draft => draft.title)))
+}

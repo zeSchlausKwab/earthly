@@ -1,5 +1,7 @@
-import { useState, useSyncExternalStore } from 'react'
-import { BookOpen, ChevronDown, Layers, Pencil, X } from 'lucide-react'
+import { useRef, useState, useSyncExternalStore } from 'react'
+import { BookOpen, ChevronDown, Layers, Pencil, Unlink } from 'lucide-react'
+import { DraftRowActions } from '@/components/DraftRowActions'
+import { openSavedDraft } from '@/features/geo-editor/draftActions'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -8,7 +10,6 @@ import { mapWorkTarget, newDraftAudience, type ThreadWorkTarget } from '../worki
 import { useEditorStore } from '@/features/geo-editor/store'
 import {
 	getStoryEditorTarget,
-	requestOpenStoryEditor,
 	subscribeStoryEditorOpenRequests,
 } from '@/features/geo-editor/storyEditorBridge'
 import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
@@ -20,7 +21,6 @@ import {
 	subscribeStoryDrafts,
 } from '@/lib/nostr/story'
 import { accounts } from '@/lib/nostr'
-import { openChatWorkspace } from '@/features/geo-editor/authoringTaskBridge'
 
 export function WorkingSetControls({
 	chatId,
@@ -37,7 +37,13 @@ export function WorkingSetControls({
 	const session = sessions.find((item) => item.id === chatId)
 	const [open, setOpen] = useState(false)
 	const [pending, setPending] = useState(false)
+	const navigating = useRef(false)
+	const closeForNavigation = () => {
+		navigating.current = true
+		setOpen(false)
+	}
 	useEditorStore((state) => state.geoEditDrafts)
+	useEditorStore((state) => state.workspaces)
 	useSyncExternalStore(subscribeStoryDrafts, getStoryDraftRevision, getStoryDraftRevision)
 	const storyTarget = useSyncExternalStore(
 		subscribeStoryEditorOpenRequests,
@@ -136,18 +142,25 @@ export function WorkingSetControls({
 				<PopoverContent
 					align="start"
 					aria-label="AI editing"
-					className="z-[80] max-h-[min(65dvh,var(--radix-popover-content-available-height))] w-[min(360px,calc(100vw-24px))] gap-3 overflow-y-auto rounded-none p-3"
+					className="z-[80] max-h-[min(65dvh,var(--radix-popover-content-available-height))] w-[min(440px,calc(100vw-24px))] gap-3 overflow-y-auto rounded-none p-3"
+					onCloseAutoFocus={(event) => {
+						if (navigating.current) event.preventDefault()
+						navigating.current = false
+					}}
 				>
 					<div>
 						<h3 className="font-semibold">What AI can edit</h3>
 						<p className="mt-1 text-xs text-muted-foreground">
-							Changes stay in drafts. You choose what to publish.
+							Drafts available to this conversation. Changes stay local until you publish.
 						</p>
 					</div>
 					{targets.length ? (
 						<ul className="space-y-1">
 							{targets.map((item) => (
-								<li key={item.id} className="flex min-w-0 items-center gap-2">
+								<li
+									key={item.id}
+									className="flex min-w-0 items-center gap-1 border-b border-border/60 py-1 last:border-0"
+								>
 									{item.kind === 'story' ? (
 										<BookOpen className="size-3.5 shrink-0" />
 									) : (
@@ -155,37 +168,31 @@ export function WorkingSetControls({
 									)}
 									<button
 										type="button"
+										aria-label={item.title}
+										title={item.title}
 										className="min-h-9 min-w-0 flex-1 truncate text-left underline"
 										onClick={() => {
-											setOpen(false)
-											if (item.kind === 'story') {
-												if (item.storyReference)
-													navigateToRoute(
-														`/story/${item.storyReference.replace(/^nostr:/, '')}/edit`,
-													)
-												else requestOpenStoryEditor(null, item.draftKey, { reveal: true })
-											} else
-												void openChatWorkspace(item.workspaceId).catch((error) =>
-													toast.error(error.message),
-												)
+											closeForNavigation()
+											void openSavedDraft(item).catch((error) => toast.error(error.message))
 										}}
 									>
-										{item.title}
+										<span className="block truncate">{item.title}</span>
+										{(item.intent === 'propose' || item.intent === 'fork') && (
+											<span className="block text-[11px] text-muted-foreground">
+												{item.intent === 'propose' ? 'Proposal' : 'Your copy'}
+											</span>
+										)}
+										{item.featureIds && (
+											<span className="block text-[11px] text-muted-foreground">
+												{item.featureIds.length} features
+											</span>
+										)}
 									</button>
-									<span className="text-[11px] text-muted-foreground">
-										{item.intent === 'propose'
-											? 'Proposal'
-											: item.intent === 'fork'
-												? 'Your copy'
-												: item.intent === 'create'
-													? 'Draft'
-													: ''}
-										{item.featureIds ? ` · ${item.featureIds.length} features` : ''}
-									</span>
+									<DraftRowActions target={item} onNavigate={closeForNavigation} />
 									<Button
 										size="icon"
 										variant="ghost"
-										className="size-9 shrink-0"
+										className="size-11 shrink-0 border-l md:size-8"
 										aria-label={`Stop AI editing ${item.title}`}
 										title="Stop AI editing this; keep the draft"
 										onClick={() =>
@@ -196,7 +203,7 @@ export function WorkingSetControls({
 											)
 										}
 									>
-										<X className="size-3.5" />
+										<Unlink className="size-3.5" />
 									</Button>
 								</li>
 							))}
@@ -204,6 +211,17 @@ export function WorkingSetControls({
 					) : (
 						<p className="text-xs text-muted-foreground">No existing maps or stories selected.</p>
 					)}
+					<Button
+						variant="ghost"
+						size="sm"
+						className="justify-start"
+						onClick={() => {
+							closeForNavigation()
+							navigateToRoute('/drafts', { preserveThread: true })
+						}}
+					>
+						All drafts
+					</Button>
 					{onAddViewedMap && !hasViewedMap && (
 						<Button
 							variant="outline"

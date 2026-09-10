@@ -80,6 +80,8 @@ import {
 } from '@/features/geo-editor/storyEditorBridge'
 import { addTargetToActiveThread, reconcileStoryThreadTarget } from '@/features/chat/store'
 import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
+import { useDraftPublishReview } from '@/features/geo-editor/hooks/useDraftPublishReview'
+import { clearDraftReview, getDraftReviewRequest, subscribeDraftReview, registerStoryDraftDiscard, removeDraftEditingAccess } from '@/features/geo-editor/draftActions'
 import { resolveLocalStoryDependencies } from '@/features/chat/referencePublishing/localStoryDependencies'
 import { useRetainedEditorDraft } from '@/hooks/useRetainedEditorDraft'
 import type { StoryViewDraftContext } from '@/components/editor/StoryViewDraftContext'
@@ -1015,6 +1017,7 @@ export function StoryEditorPanel({
 		cleanDraftSignatureRef.current = JSON.stringify(discarded)
 		clearRetainedDraft()
 		onStoryViewPreviewReset?.(draftKey)
+		void removeDraftEditingAccess({ kind: 'story', draftKey, title }, accounts.active?.pubkey)
 		setTitle(discarded.title)
 		setSummary(discarded.summary)
 		setImage(discarded.image)
@@ -1023,6 +1026,21 @@ export function StoryEditorPanel({
 		setBodyTab('write')
 		setPresentation(discarded.presentation)
 	}
+	useEffect(() => registerStoryDraftDiscard(draftKey, () => {
+		handleDiscardDraft()
+		onClose()
+	}), [draftKey, handleDiscardDraft, onClose])
+	const publishRef = useDraftPublishReview(`story:${draftKey}`)
+	useEffect(() => {
+		const preview = () => {
+			const request = getDraftReviewRequest()
+			if (request?.key !== `story:${draftKey}` || request.action !== 'preview' || request.owner !== accounts.active?.pubkey) return
+			clearDraftReview(request)
+			setBodyTab('preview')
+		}
+		preview()
+		return subscribeDraftReview(preview)
+	}, [draftKey])
 	const restoreProposalMetadata = () => {
 		setTitle(publishedContent?.title ?? '')
 		setSummary(publishedContent?.summary ?? '')
@@ -1169,7 +1187,7 @@ export function StoryEditorPanel({
 					<Button type="button" variant="ghost" size="sm" onClick={onClose}>
 						Cancel
 					</Button>
-					<Button type="button" size="sm" onClick={handleSave} disabled={isSaving || !currentUser}>
+					<Button ref={mobileHeaderActionTarget ? publishRef : undefined} type="button" size="sm" onClick={handleSave} disabled={isSaving || !currentUser}>
 						{submitLabel}
 					</Button>
 				</div>
@@ -1328,6 +1346,7 @@ Type $ to reference a Map, feature, OSM element, or coordinate.`}
 							</Button>
 							<Button
 								onClick={handleSave}
+								ref={publishRef}
 								disabled={isSaving || !currentUser}
 								className="rounded-none bg-primary text-primary-foreground"
 							>

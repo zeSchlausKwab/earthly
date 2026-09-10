@@ -23,6 +23,20 @@ Use **draft**, not **working copy**, in user-facing copy. “Working set” rema
 
 There is one **References** picker beside the message. It offers search and the currently open source, with one removable chip per attachment. A source chip preserves feature-only and unpublished-draft identity; removing it never alters an editing grant. **Selection**, **Sketch**, and **Files** describe the distinct spatial/file attachments. The picker discloses that references are read-only and shared with the AI provider; detailed privacy and safety information lives in settings. The conversation-title menu contains switching, New, Export, and Delete. Docking remains in the header.
 
+### Draft navigation and shared actions — September 10
+
+These surfaces are projections, not separate copies of the same draft:
+
+- **Drafts** is the saved-work inventory, including Map draft groups and new Story drafts. Older Map drafts, grouping and renaming remain here.
+- **AI can edit** is the current conversation's explicitly permitted subset. **All drafts** links back to the inventory; appearing on the map is neither necessary nor sufficient for AI permission.
+- **On the map** describes the current visual composition. A Story or an off-map draft can still be part of the conversation's work.
+
+Opening a Map or Story draft preserves the selected conversation. On desktop, a left-docked conversation moves right to make room for the editor. A closed chat is not opened implicitly. On mobile, opening a draft shows its editor in the single sheet; returning to chat preserves the conversation and grants.
+
+Draft row actions reuse the same editor and lifecycle handlers: **View on map** restores and fits a Map draft; **Preview Story** opens its Preview tab; **Review & publish** reveals the existing publish/proposal controls without submitting. Publication still uses the normal audience, ownership and dependency checks. **Discard draft** confirms removal of the local draft and revokes its editing grants across conversations; published events and read-only references are not deleted. References to discarded local content remain explicit unresolved references, never silently substituted. Discard is blocked during an AI run. The separate unlink icon only stops AI editing and keeps the draft.
+
+The global Map group deletion remains distinct: it removes that saved-work group and all its local drafts. The chat row's discard action removes only the selected draft, not sibling drafts in that group.
+
 ### Coverage
 
 Exercise one Thread producing a WW1 Story and multiple named Maps; foreign feature references; read-only questions; disallowed target writes; switching visible objects during runs; two independent Story Threads; draft-to-publication continuity; desktop/mobile scope controls; and unchanged private audiences.
@@ -32,6 +46,7 @@ Implemented coverage:
 - `workingSet.test.ts` checks multi-Map target isolation, foreign feature-only references, immutable local references, private audiences, independent Story drafts, review conflicts, and dependency publication/retry.
 - `ai-suite/scenarios/chat-working-set.spec.ts` creates two Maps and a Story on desktop and mobile, preserves the drawing target and Thread across navigation/reload, and exercises partial dependency publication followed by retry.
 - `chat-target-binding.spec.ts` checks read-only questions, explicit Map grants, reference removal, Thread switching, and restoring an output to the visible map.
+- Draft action regressions additionally cover retained desktop chat/docking, review without publishing, permission removal versus discard, shared Story inventory/preview, and no discarded-Story resurrection after reload.
 - `chat-story-target-gate.spec.ts` verifies that new-draft permission replaces the old per-Story target dialog, and unsolicited writes remain blocked.
 - The new browser fixtures use a simulated provider and intercepted relay acknowledgements; they do not publish test events externally.
 

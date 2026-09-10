@@ -1,7 +1,9 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { getStoryDraftRevision, subscribeStoryDrafts, listNewStoryDrafts } from '@/lib/nostr/story/draft'
-import { requestOpenStoryEditor } from '@/features/geo-editor/storyEditorBridge'
+import { openSavedDraft } from '@/features/geo-editor/draftActions'
+import { toast } from 'sonner'
+import { DraftRowActions } from './DraftRowActions'
 import {
 	Check,
 	ChevronDown,
@@ -515,10 +517,12 @@ export function WorkspaceDraftNavigator({
 							<Button
 								type="button"
 								variant="ghost"
-								onClick={() => onSwitchWorkspace?.(workspace.id)}
-								className="min-w-0 flex-1 h-auto px-1 py-1 text-left justify-start"
+								onClick={() => workspace.activeDraftId
+									? void openSavedDraft({ kind: 'dataset', workspaceId: workspace.id, title: displayLabel }).catch(error => toast.error(error.message))
+									: onSwitchWorkspace?.(workspace.id)}
+								className="min-w-0 flex-1 h-auto flex-col items-start px-1 py-1 text-left justify-start"
 							>
-								<div className="flex min-w-0 items-center gap-2">
+								<div className="flex min-w-0 flex-wrap items-center gap-2">
 									<span className="truncate text-xs font-medium text-foreground">
 										{displayLabel}
 									</span>
@@ -726,7 +730,13 @@ function NewStoryDrafts() {
 	if (!drafts.length) return null
 	return <section aria-label="New Story drafts" className="space-y-1.5 pb-2">
 		<h3 className="px-1 text-xs font-medium">Story drafts · {drafts.length}</h3>
-		{drafts.map((draft) => <Button key={draft.draftKey} variant="outline" className="w-full justify-start" onClick={() => requestOpenStoryEditor(null, draft.draftKey, { reveal: true })}><FileText className="size-3.5 shrink-0" /><span className="truncate">{draft.title || 'Untitled Story'}</span><span className="ml-auto text-xs text-muted-foreground">Open</span></Button>)}
+		{drafts.map((draft) => {
+			const target = { kind: 'story' as const, draftKey: draft.draftKey, title: draft.title || 'Untitled Story' }
+			return <div key={draft.draftKey} className="flex min-w-0 items-center border border-border p-1">
+				<Button variant="ghost" className="min-w-0 flex-1 justify-start" onClick={() => void openSavedDraft(target).catch(error => toast.error(error.message))}><FileText className="size-3.5 shrink-0" /><span className="truncate">{target.title}</span></Button>
+				<DraftRowActions target={target} />
+			</div>
+		})}
 	</section>
 }
 

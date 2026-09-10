@@ -18,7 +18,7 @@ interface UseStoryEditorParams {
 		sidebarView?: SidebarViewMode,
 		edit?: boolean,
 	) => void
-	navigateToView: (view: SidebarViewMode) => void
+	navigateToView: (view: SidebarViewMode, options?: { preserveThread?: boolean }) => void
 	clearFocus: () => void
 	onBeforeAuthoring?: () => void
 }
@@ -192,7 +192,7 @@ export function useStoryEditor({
 				selectMobileEntitySurface('story')
 				prepareNonGeometryWorkspace({ clearRoute: false })
 				setStoryEditorRevealNonce((nonce) => nonce + 1)
-				navigateToView('stories')
+				navigateToView('stories', { preserveThread: true })
 				ensureInfoPanelVisible()
 			}
 		}
@@ -224,7 +224,7 @@ export function useStoryEditor({
 		setStoryEditorMode('none')
 		setEditingStory(null)
 		clearStoryEditorTarget()
-		if (wasOpen) navigateToView('stories')
+		if (wasOpen) navigateToView('stories', { preserveThread: true })
 	}, [storyEditorMode, navigateToView])
 
 	return {

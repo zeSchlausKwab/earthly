@@ -24,6 +24,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type { PublishChannel } from '../../store/types'
 import type { ResolvedAuthoringDestination } from '../authoringDestination'
 import type { MapAuthoringIntent } from '@/components/info-panel/mapProposalPresentation'
+import { useEditorStore } from '../../store'
+import { useDraftPublishReview } from '../../hooks/useDraftPublishReview'
 
 export interface PublishAudienceOption {
 	id: string
@@ -78,12 +80,18 @@ export function PublishDropdown({
 	const buttonSize = small ? 'h-8' : 'h-9'
 	const workspaceMode = publishMode !== 'public'
 	const workspaceLabel = publishMode === 'private' ? 'private' : 'nearby'
+	const workspaceId = useEditorStore(state => state.activeWorkspaceId)
+	const publishRef = useDraftPublishReview(`map:${workspaceId}`, () => {
+		if (authoringIntent === 'propose' || canProposeEdit) setProposalOpen(true)
+		else setOpen(true)
+	})
 
 	// The working copy already knows its intent. Sending never converts it to a fork.
 	if (authoringIntent === 'propose' || canProposeEdit) {
 		return (
 			<>
 				<Button
+					ref={publishRef}
 					size="sm"
 					className={`${buttonSize} gap-1 rounded-none px-2`}
 					disabled={isPublishing || !canProposeEdit}
@@ -145,6 +153,7 @@ export function PublishDropdown({
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
+							ref={publishRef}
 							variant="default"
 							size="sm"
 							disabled
@@ -176,6 +185,7 @@ export function PublishDropdown({
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
+							ref={publishRef}
 							variant="default"
 							size="sm"
 							disabled={isPublishing}
@@ -201,6 +211,7 @@ export function PublishDropdown({
 					<TooltipTrigger asChild>
 						<DropdownMenuTrigger asChild>
 							<Button
+								ref={publishRef}
 								variant="default"
 								size="sm"
 								disabled={isPublishing}

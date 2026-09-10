@@ -555,7 +555,10 @@ export function buildRoutePath({
 		return search.length > 0 ? `${objectPath}?${search.join('&')}` : objectPath
 	}
 	const root = CANONICAL_VIEW_PATHS[sidebarView] ?? `/${sidebarView}`
-	return contextNaddr ? `${root}?in=${encodeURIComponent(contextNaddr)}` : root
+	const search = new URLSearchParams()
+	if (contextNaddr) search.set('in', contextNaddr)
+	if (tab !== 'details') search.set('tab', tab)
+	return search.size ? `${root}?${search}` : root
 }
 
 /** @deprecated Round I renamed this to {@link buildRoutePath}; kept as an alias for callers. */
@@ -565,10 +568,20 @@ export const buildRouteHash = buildRoutePath
  * Navigate through TanStack Router. The public route-local composition keys
  * survive navigation unless the destination explicitly sets (or empties) one.
  */
-export function navigateToRoute(routePath: string, options?: { replace?: boolean }): void {
+export function isDesktopThreadOpen(): boolean {
+	return typeof window !== 'undefined' && window.matchMedia?.('(min-width: 768px)').matches === true &&
+		(window.location.pathname === '/ask' || new URLSearchParams(window.location.search).get('tab') === 'thread')
+}
+
+export function navigateToRoute(routePath: string, options?: { replace?: boolean; preserveThread?: boolean }): void {
 	if (typeof window === 'undefined') return
 	const destination = new URL(routePath, window.location.origin)
 	const currentSearch = new URLSearchParams(window.location.search)
+	if (options?.preserveThread && isDesktopThreadOpen()) {
+		destination.searchParams.set('tab', 'thread')
+		// An editor needs the left margin. Keep the same conversation alongside it.
+		useEditorStore.getState().setChatDock('right')
+	}
 	for (const key of ['on', 'live', 'in'] as const) {
 		if (!destination.searchParams.has(key) && currentSearch.has(key)) {
 			destination.searchParams.set(key, currentSearch.get(key) ?? '')
@@ -577,7 +590,7 @@ export function navigateToRoute(routePath: string, options?: { replace?: boolean
 	const url = `${destination.pathname}${destination.search}${destination.hash}`
 	const current = `${window.location.pathname}${window.location.search}`
 	if (url === current) return
-	navigateEarthly(url, options)
+	navigateEarthly(url, { replace: options?.replace })
 }
 
 /**
@@ -620,15 +633,15 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 	 * pushed in exactly one place. The wrappers stay thin and the
 	 * preserve-vs-replace decisions live where each verb expresses them.
 	 */
-	const commit = useCallback((params: Parameters<typeof buildRoutePath>[0]) => {
-		navigateToRoute(buildRoutePath(params))
+	const commit = useCallback((params: Parameters<typeof buildRoutePath>[0], options?: { preserveThread?: boolean }) => {
+		navigateToRoute(buildRoutePath(params), options)
 	}, [])
 
 	/**
 	 * Navigate to a sidebar view (without focus)
 	 */
 	const navigateToView = useCallback(
-		(view: SidebarViewMode) => {
+		(view: SidebarViewMode, options?: { preserveThread?: boolean }) => {
 			const currentRoute = route
 			commit({
 				sidebarView: view,
@@ -642,7 +655,7 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 					view === 'drafts' || view === 'private-groups' ? undefined : currentRoute.privateGroupId,
 				fieldSessionId:
 					view === 'drafts' || view === 'field-sessions' ? undefined : currentRoute.fieldSessionId,
-			})
+			}, options)
 		},
 		[commit, route],
 	)
@@ -685,7 +698,7 @@ export function useRouting({ reconcileStore = false }: UseRoutingOptions = {}) {
 				naddr,
 				edit,
 				tab: 'details',
-			})
+			}, { preserveThread: edit })
 		},
 		[commit, route],
 	)

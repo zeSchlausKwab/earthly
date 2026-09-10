@@ -277,6 +277,7 @@ function publishChannelOptionId(channel: PublishChannel): string | undefined {
 	return undefined
 }
 import { registerChatWorkspaceOpener, registerDatasetDraftEnsurer, type DatasetDraftRequest } from './authoringTaskBridge'
+import { registerMapDraftActions, removeDraftEditingAccess } from './draftActions'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
@@ -656,7 +657,9 @@ export function GeoEditorView() {
 		route.focusType === 'none' &&
 		route.sidebarView === 'edit' &&
 		draftThreadWorkspaceId !== null
-	const routedThreadOpen = routedObjectThreadOpen || routedDraftThreadOpen
+	// Thread visibility is independent of the editor currently in the margin.
+	// New Story drafts have no published object address yet.
+	const routedThreadOpen = route.tab === 'thread'
 	const {
 		account: privateWorkspaceAccount,
 		runtime: privateWorkspaceRuntime,
@@ -1490,6 +1493,7 @@ export function GeoEditorView() {
 				privateGroupId: channel.kind === 'private-group' ? channel.id : undefined,
 				fieldSessionId: channel.kind === 'field-session' ? channel.id : undefined,
 			}),
+			{ preserveThread: true },
 		)
 	}, [])
 	const surfaceDraftEditorOnMobile = useCallback(() => {
@@ -1592,11 +1596,6 @@ export function GeoEditorView() {
 		],
 	)
 
-	useEffect(() => registerChatWorkspaceOpener(async (workspaceId) => {
-		await handleSwitchWorkspace(workspaceId)
-		if (!isMobile) navigateToDraftEditor(readActiveWorkspaceDraftChannel(workspaceId) ?? routePublishChannel)
-	}), [handleSwitchWorkspace, isMobile, navigateToDraftEditor, readActiveWorkspaceDraftChannel, routePublishChannel])
-
 	const handleAddDraftToWorkspace = useCallback(
 		async (workspaceId: string) => {
 			await createDraftInWorkspace(workspaceId, { publishChannel: routePublishChannel })
@@ -1634,6 +1633,9 @@ export function GeoEditorView() {
 				before.activeWorkspaceId === workspaceId &&
 				(workspace?.activeDraftId === draftId || before.activeGeoEditDraftId === draftId)
 			deleteDraftInWorkspace(workspaceId, draftId)
+			if (workspace?.activeDraftId === draftId) {
+				void removeDraftEditingAccess({ kind: 'dataset', workspaceId, title: workspace.label }, accounts.active?.pubkey)
+			}
 			if (!deletingActiveDraft) return
 			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
 		},
@@ -1643,7 +1645,9 @@ export function GeoEditorView() {
 	const handleDeleteWorkspace = useCallback(
 		async (workspaceId: string) => {
 			const wasActive = useEditorStore.getState().activeWorkspaceId === workspaceId
+			const deletionOwner = accounts.active?.pubkey
 			await deleteWorkspace(workspaceId)
+			void removeDraftEditingAccess({ kind: 'dataset', workspaceId, title: '' }, deletionOwner)
 			if (!wasActive) return
 			const nextWorkspaceId = useEditorStore.getState().activeWorkspaceId
 			syncRouteToDraftChannel(
@@ -2646,6 +2650,7 @@ export function GeoEditorView() {
 						: channel?.kind === 'field-session'
 							? `/nearby/${encodeURIComponent(channel.id)}/edit`
 							: '/edit',
+					{ preserveThread: true },
 				)
 				return true
 			} catch {
@@ -2655,6 +2660,23 @@ export function GeoEditorView() {
 		},
 		[closeMobileSidebar, isMobile, openMobilePanel, setMobilePanelSnap, switchToWorkspace],
 	)
+
+	useEffect(() => registerChatWorkspaceOpener(async (workspaceId) => {
+		if (!await openDraftEditor(workspaceId)) throw new Error('This map draft could not be opened.')
+	}), [openDraftEditor])
+	useEffect(() => registerMapDraftActions({
+		discard: handleDeleteDraft,
+		view: async (workspaceId) => {
+			if (!await openDraftEditor(workspaceId)) throw new Error('This map draft could not be opened.')
+			const state = useEditorStore.getState()
+			const draftId = state.workspaces[workspaceId]?.activeDraftId
+			const features = draftId ? state.geoEditDrafts[draftId]?.features : null
+			if (!features?.length) return
+			const { bbox } = await import('@turf/turf')
+			const bounds = bbox({ type: 'FeatureCollection', features })
+			if (bounds.length === 4 && bounds.every(Number.isFinite)) handleZoomToBounds(bounds as [number, number, number, number])
+		},
+	}), [handleDeleteDraft, openDraftEditor, handleZoomToBounds])
 
 	const zoomToDraft = useCallback(async () => {
 		const drawn = (features ?? []).filter((feature) => feature.geometry !== null)
@@ -6115,7 +6137,7 @@ export function GeoEditorView() {
 			? `map-draft:${draftThreadWorkspaceId}`
 			: routedThreadOpen && route.naddr
 				? `${objectThreadKind}:${route.naddr}`
-				: undefined
+				: routedThreadOpen ? retainedStoryDraftKey ? `story-draft:${retainedStoryDraftKey}` : 'ask' : undefined
 	const routeThreadTitle = routedAskOpen
 		? 'Ask Earthly'
 		: routedDraftThreadOpen
@@ -6165,8 +6187,7 @@ export function GeoEditorView() {
 			}
 			onClose={() => {
 				if (routedAskOpen) navigateToView('datasets')
-				else if (routedDraftThreadOpen) navigateToRoute('/edit')
-				else if (routedObjectThreadOpen) navigateToTab('details')
+				else navigateToTab('details')
 			}}
 		/>
 	) : null

@@ -129,6 +129,37 @@ afterEach(async () => {
 })
 
 describe('useRouting object tabs', () => {
+	test.each([
+		['/edit?tab=thread', '/edit', true, 'thread'],
+		['/ask', '/browse/stories', true, 'thread'],
+		['/edit?tab=thread', '/circle/private/edit', true, 'thread'],
+		['/edit?tab=thread', '/nearby/survey/edit', true, 'thread'],
+		['/edit', '/browse/stories', true, 'details'],
+		['/edit?tab=thread', '/browse/stories', false, 'details'],
+	] as const)('draft navigation from %s to %s preserves desktop chat=%s', async (from, to, desktop, tab) => {
+		const previous = { pathname: window.location.pathname, search: window.location.search, matchMedia: window.matchMedia }
+		const { useEditorStore } = await import('../store')
+		const dock = useEditorStore.getState().chatDock
+		try {
+			const url = new URL(from, ORIGIN)
+			Object.assign(window.location, { pathname: url.pathname, search: url.search })
+			window.matchMedia = (query: string) => ({
+				matches: desktop, media: query, onchange: null,
+				addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => true,
+			})
+			useEditorStore.getState().setChatDock('left')
+			const { navigateToRoute } = await import('./useRouting')
+			navigateToRoute(to, { preserveThread: true })
+			// An unchanged route still moves a left-docked Thread out of the editor's way.
+			if (navigatedHref) expect(parsedNavigation().route.tab).toBe(tab)
+			expect(useEditorStore.getState().chatDock).toBe(tab === 'thread' ? 'right' : 'left')
+		} finally {
+			Object.assign(window.location, { pathname: previous.pathname, search: previous.search })
+			window.matchMedia = previous.matchMedia
+			useEditorStore.getState().setChatDock(dock)
+		}
+	})
+
 	test('composition changes preserve the active sheet while object tab navigation reconciles it', async () => {
 		const { useEditorStore } = await import('../store')
 		const initialState = useEditorStore.getState()
