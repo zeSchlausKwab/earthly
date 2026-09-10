@@ -20,6 +20,11 @@ import {
 import { useEditorStore } from '@/features/geo-editor/store'
 import { useChatActivity } from '@/features/chat/activity'
 import { accounts } from '@/lib/nostr'
+import { useActiveAccount } from 'applesauce-react/hooks'
+import {
+	canPublishSavedMapChanges,
+	publishSavedMapChanges,
+} from '@/features/geo-editor/draftPublication'
 
 /** Shared shortcuts, not a second draft store or a second publishing flow. */
 export function DraftRowActions({
@@ -36,6 +41,17 @@ export function DraftRowActions({
 	const [discardTarget, setDiscardTarget] = useState(target)
 	const [discardOwner, setDiscardOwner] = useState(accounts.active?.pubkey)
 	const { runningChatId } = useChatActivity()
+	const account = useActiveAccount()
+	const isPublishing = useEditorStore((state) => state.isPublishing)
+	const directPublish = useEditorStore((state) => {
+		const workspace = target.kind === 'dataset' ? state.workspaces[target.workspaceId] : undefined
+		return canPublishSavedMapChanges(
+			workspace,
+			state.geoEditDrafts[workspace?.activeDraftId ?? ''],
+			account?.pubkey,
+		)
+	})
+	const publishLabel = directPublish ? 'Publish changes' : 'Review & publish'
 	const run = async (action: () => Promise<void>, navigate = false) => {
 		if (pending) return
 		setPending(true)
@@ -72,12 +88,27 @@ export function DraftRowActions({
 					variant="ghost"
 					size="icon"
 					className="size-11 md:size-8"
-					disabled={pending}
-					title="Review & publish"
-					aria-label={`Review & publish: ${target.title}`}
-					onClick={() => void run(() => reviewSavedDraft(target), true)}
+					disabled={pending || isPublishing}
+					title={publishLabel}
+					aria-label={`${publishLabel}: ${target.title}`}
+					aria-busy={pending}
+					onClick={() =>
+						void run(async () => {
+							if (directPublish && target.kind === 'dataset') {
+								await publishSavedMapChanges(target.workspaceId)
+								toast.success(`Changes to “${target.title}” published.`)
+							} else {
+								await reviewSavedDraft(target)
+								onNavigate?.()
+							}
+						})
+					}
 				>
-					<UploadCloud className="size-3.5" />
+					{pending ? (
+						<LoaderCircle className="size-3.5 animate-spin" />
+					) : (
+						<UploadCloud className="size-3.5" />
+					)}
 				</Button>
 				{includeDiscard && (
 					<Button

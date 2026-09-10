@@ -12,7 +12,7 @@ import { noteSessionPublish } from '@/lib/nostr/sessionPublishes'
 import { reconcilePublishedDatasetIdentity } from '@/features/geo-editor/publicationIdentity'
 import { useEditorStore } from '@/features/geo-editor/store'
 import type {
-	CapturedDatasetPublication,
+	DatasetPublicationSnapshot,
 	DatasetPublicationMode,
 	PublishedDatasetReference,
 } from './types'
@@ -70,7 +70,7 @@ function applyBlobStrategy(
 
 /** Intent, not source ownership, decides whether a captured fork gets a new address. */
 export function capturedDatasetPublicationMode(
-	captured: CapturedDatasetPublication,
+	captured: DatasetPublicationSnapshot,
 	signerPubkey: string,
 ): DatasetPublicationMode {
 	if (captured.authoringIntent === 'propose') {
@@ -88,7 +88,7 @@ export function capturedDatasetPublicationMode(
 
 /** Keep fork provenance in existing address-reference tags, including later owner updates. */
 export function capturedDatasetReferenceCoordinates(
-	captured: CapturedDatasetPublication,
+	captured: DatasetPublicationSnapshot,
 	mode: DatasetPublicationMode,
 ): string[] {
 	const coordinates = extractReferencedCoordinates(
@@ -107,8 +107,10 @@ export function capturedDatasetReferenceCoordinates(
 
 /** Publish the immutable payload captured at gate creation, never live editor state. */
 export async function publishCapturedPublicDataset(
-	captured: CapturedDatasetPublication,
+	captured: DatasetPublicationSnapshot,
+	validate: () => void = () => {},
 ): Promise<PublishedDatasetReference> {
+	validate()
 	if (captured.publishChannel.kind !== 'public') {
 		throw new Error('A public reference cannot expose a private or nearby Dataset draft.')
 	}
@@ -117,8 +119,10 @@ export async function publishCapturedPublicDataset(
 	}
 
 	const signer = accounts.signer
+	const account = accounts.active
 	if (!signer) throw new Error('Sign in before publishing this Dataset.')
 	const signerPubkey = await signer.getPublicKey()
+	validate()
 	const base = captured.baseEvent
 	const mode = capturedDatasetPublicationMode(captured, signerPubkey)
 	const referencedCoordinates = capturedDatasetReferenceCoordinates(captured, mode)
@@ -156,6 +160,9 @@ export async function publishCapturedPublicDataset(
 	factory = applyBlobStrategy(factory, captured.featureCollection, captured.blobReferences)
 
 	const signed = await factory.sign(signer)
+	validate()
+	if (accounts.active !== account || signed.pubkey !== signerPubkey)
+		throw new Error('The signing account changed. Reopen the Map and try again.')
 	await publish(signed, { routing: 'outbox' })
 	const dataset = castEvent(signed, GeoDataset, eventStore)
 	const coordinate = `${GEO_EVENT_KIND}:${dataset.pubkey}:${dataset.dTag}`
@@ -163,11 +170,12 @@ export async function publishCapturedPublicDataset(
 	if (!mention) throw new Error('The published Dataset did not produce a referenceable address.')
 
 	noteSessionPublish({ type: 'dataset', name: captured.title, coordinate })
-	const reconciliation = reconcilePublishedDatasetIdentity(
-		captured.binding,
-		dataset,
-		captured.title,
-	)
+	// Publication may finish after an account switch. Never write its identity
+	// into the newly active account's retained drafts.
+	const reconciliation =
+		accounts.active === account
+			? reconcilePublishedDatasetIdentity(captured.binding, dataset, captured.title)
+			: { status: 'stale-binding' as const }
 	if (captured.authoringIntent === 'fork' && reconciliation.status === 'reconciled') {
 		useEditorStore.getState().saveGeoEditDraft(captured.binding.draftId, {
 			authoringIntent: 'edit',

@@ -120,10 +120,14 @@ test('publishing a Map keeps the conversation open and marks its publication @re
 	await setThreadWorkingSetOpen(earthly)
 	await expect(working.getByText('Unpublished changes', { exact: true })).toBeVisible()
 	await working
-		.getByRole('button', { name: 'Review & publish: Publication with local changes', exact: true })
+		.getByRole('button', { name: 'Publish changes: Publication with local changes', exact: true })
 		.click()
-	await earthly.page.getByRole('menuitem', { name: 'Update existing', exact: true }).click()
 	await expect.poll(() => [...published.values()].filter((kind) => kind === 37515).length).toBe(2)
+	await expect(
+		earthly.page.getByRole('menuitem', { name: 'Update existing', exact: true }),
+	).toHaveCount(0)
+	await expect(panel).toBeVisible()
+	await expect(earthly.page).toHaveURL(/\/drafts(?:\?|$)/)
 	await setThreadWorkingSetOpen(earthly)
 	await expect(working.getByText('Published', { exact: true })).toBeVisible()
 	await expect(working.getByText('Unpublished changes', { exact: true })).toHaveCount(0)
@@ -131,6 +135,24 @@ test('publishing a Map keeps the conversation open and marks its publication @re
 	await draft.nameInput.fill('Further changes after publication')
 	await openPanel(earthly, 'Local drafts')
 	await expect(earthly.page.getByText('Unpublished changes', { exact: true })).toBeVisible()
+	// The global inventory uses the same one-click action as the AI editing menu.
+	const inventory = earthly.page.getByRole('region', { name: 'Local drafts', exact: true })
+	await inventory
+		.getByRole('button', {
+			name: 'Publish changes: Further changes after publication',
+			exact: true,
+		})
+		.click()
+	await expect.poll(() => [...published.values()].filter((kind) => kind === 37515).length).toBe(3)
+	await expect(inventory.getByText('Published', { exact: true })).toBeVisible()
+	await expect(panel).toBeVisible()
+	await expect(panel.locator('textarea')).toHaveValue('What should we improve next?')
+	await expect(earthly.page).toHaveURL(/\/drafts(?:\?|$)/)
+	await inventory
+		.getByRole('button', { name: /^Further changes after publication\b/ })
+		.click()
+	await draft.nameInput.fill('Changes kept after reload')
+	await openPanel(earthly, 'Local drafts')
 	// The isolated relay does not replay events: this also verifies that the
 	// persisted baseline works offline, without a source event or active editor.
 	await earthly.page.reload()

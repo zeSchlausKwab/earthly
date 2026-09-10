@@ -47,7 +47,7 @@ export function workPublication(
 			label: modified ? 'Unpublished changes' : 'Published',
 			modified,
 			description: modified
-				? 'This draft differs from its last publication. Open the published version; review and publish to share your changes.'
+				? 'This draft differs from its last publication. Publish changes to share the update, or open the published version to compare.'
 				: modified === false
 					? 'This draft matches its last publication. Open the published version.'
 					: 'Open the published item. Further draft edits stay local until you publish again. Changes have not been compared with the published content.',

@@ -1,5 +1,4 @@
 import { castEvent } from 'applesauce-core/casts'
-import type { FeatureCollection } from 'geojson'
 import type { NostrEvent } from 'nostr-tools'
 import {
 	mapDraftSourceId,
@@ -10,10 +9,13 @@ import type { ToolExecutionRunIdentity, ToolExecutionTarget } from '@/features/c
 import { publishChannelMatchesDatasetScope } from '@/features/geo-editor/components/authoringDestination'
 import { useEditorStore, type GeoCollectionEditDraft } from '@/features/geo-editor/store'
 import { draftContentFingerprint } from '@/features/geo-editor/draftContent'
-import { sanitizeEditorProperties } from '@/features/geo-editor/utils'
+import {
+	buildFeatureCollection,
+	serializeBlobReferences,
+} from '@/features/geo-editor/datasetDraftPayload'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace/projection'
 import { eventStore } from '@/lib/nostr'
-import { GeoDataset, type GeoBlobReference } from '@/lib/nostr/geo-event'
+import { GeoDataset } from '@/lib/nostr/geo-event'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { getCurrentPubkey } from '@/lib/wallet/currentUser'
 import { extractNostrAddressReferences, naddrToCoordinate } from '@/lib/nostr/references'
@@ -31,70 +33,6 @@ import type {
 
 function clone<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T
-}
-
-function buildFeatureCollection(draft: GeoCollectionEditDraft): FeatureCollection {
-	const collection: FeatureCollection & {
-		name?: string
-		description?: string
-		color?: string
-		properties?: Record<string, unknown>
-	} = {
-		type: 'FeatureCollection',
-		features: draft.features.map((feature) => {
-			const properties = sanitizeEditorProperties(
-				feature.properties as Record<string, unknown> | undefined,
-			)
-			return {
-				type: 'Feature' as const,
-				id: feature.id,
-				geometry: clone(feature.geometry),
-				...(properties ? { properties } : {}),
-			}
-		}) as FeatureCollection['features'],
-	}
-
-	const existingIds = new Set(collection.features.map((feature) => String(feature.id)))
-	for (const reference of draft.blobReferences) {
-		if (
-			reference.scope !== 'feature' ||
-			!reference.featureId ||
-			existingIds.has(reference.featureId)
-		) {
-			continue
-		}
-		existingIds.add(reference.featureId)
-		collection.features.push({
-			type: 'Feature',
-			id: reference.featureId,
-			geometry: null,
-			properties: { externalPlaceholder: true, blobUrl: reference.url },
-		} as unknown as FeatureCollection['features'][number])
-	}
-
-	const title = draft.collectionMeta.name || draft.name || 'Untitled Dataset'
-	collection.name = title
-	if (draft.collectionMeta.description) collection.description = draft.collectionMeta.description
-	if (draft.collectionMeta.color) collection.color = draft.collectionMeta.color
-	const properties: Record<string, unknown> = { ...draft.collectionMeta.customProperties }
-	if (draft.collectionMeta.name) properties.name = draft.collectionMeta.name
-	if (draft.collectionMeta.description) properties.description = draft.collectionMeta.description
-	if (draft.collectionMeta.color) properties.color = draft.collectionMeta.color
-	if (Object.keys(properties).length > 0) collection.properties = properties
-	return collection
-}
-
-function serializeBlobReferences(draft: GeoCollectionEditDraft): GeoBlobReference[] {
-	return draft.blobReferences
-		.filter((reference) => Boolean(reference.url))
-		.map(({ scope, featureId, url, sha256, size, mimeType }) => ({
-			scope,
-			featureId,
-			url,
-			sha256,
-			size,
-			mimeType,
-		}))
 }
 
 function datasetCoordinate(dataset: GeoDataset | null): string | null {

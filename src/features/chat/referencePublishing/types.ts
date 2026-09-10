@@ -2,6 +2,7 @@ import type { FeatureCollection } from 'geojson'
 import type { NostrEvent } from 'nostr-tools'
 import type { GeoBlobReference } from '@/lib/nostr/geo-event'
 import type { PublishChannel } from '@/features/geo-editor/store'
+import type { DatasetPublicationBinding } from '@/features/geo-editor/publicationIdentity'
 import type {
 	MapAuthoringIntent,
 	MapDraftSource,
@@ -36,6 +37,11 @@ export interface CapturedDatasetPublication {
 	blobReferences: GeoBlobReference[]
 	featureIds: string[]
 	baseEvent: NostrEvent | null
+}
+
+/** The same immutable payload can be published directly by its author, without a Chat gate. */
+export type DatasetPublicationSnapshot = Omit<CapturedDatasetPublication, 'binding'> & {
+	binding: DatasetPublicationBinding & { baseCoordinate: string | null }
 }
 
 export type DatasetPublicationMode = 'new' | 'update' | 'copy'
