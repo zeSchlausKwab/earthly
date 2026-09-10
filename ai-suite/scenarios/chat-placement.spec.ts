@@ -74,9 +74,9 @@ test('global Drafts leaves the right chat and its composer open @regression', as
 
 test('publishing a Map keeps the conversation open and marks its publication @regression', async ({
 	earthly,
-}) => {
+}, testInfo) => {
 	test.skip(earthly.isMobile, 'Desktop simultaneous editor and chat')
-	test.setTimeout(120_000)
+	test.setTimeout(240_000)
 	const published = await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly, 'target-binding')
 	await authorizeJourneyIdentity(earthly, 'owner')
@@ -107,4 +107,70 @@ test('publishing a Map keeps the conversation open and marks its publication @re
 		.click()
 	await expect(panel).toBeVisible()
 	expect((await threadWorkSnapshot(earthly)).id).toBe(before.id)
+	await setThreadWorkingSetOpen(earthly)
+	await working.getByRole('button', { name: 'Publication stays in this chat', exact: true }).click()
+	await draft.nameInput.fill('Publication with local changes')
+	await setThreadWorkingSetOpen(earthly)
+	await expect(working.getByText('Unpublished changes', { exact: true })).toBeVisible()
+	await setThreadWorkingSetOpen(earthly, false)
+	await openPanel(earthly, 'Local drafts')
+	await expect(earthly.page.getByText('Unpublished changes', { exact: true })).toBeVisible()
+	await expect(earthly.page.getByRole('button', { name: /saved alternatives/ })).toHaveCount(0)
+	await earthly.page.screenshot({ path: testInfo.outputPath('draft-changes.png') })
+	await setThreadWorkingSetOpen(earthly)
+	await expect(working.getByText('Unpublished changes', { exact: true })).toBeVisible()
+	await working
+		.getByRole('button', { name: 'Review & publish: Publication with local changes', exact: true })
+		.click()
+	await earthly.page.getByRole('menuitem', { name: 'Update existing', exact: true }).click()
+	await expect.poll(() => [...published.values()].filter((kind) => kind === 37515).length).toBe(2)
+	await setThreadWorkingSetOpen(earthly)
+	await expect(working.getByText('Published', { exact: true })).toBeVisible()
+	await expect(working.getByText('Unpublished changes', { exact: true })).toHaveCount(0)
+	await working.getByRole('button', { name: 'Publication with local changes', exact: true }).click()
+	await draft.nameInput.fill('Further changes after publication')
+	await openPanel(earthly, 'Local drafts')
+	await expect(earthly.page.getByText('Unpublished changes', { exact: true })).toBeVisible()
+	// The isolated relay does not replay events: this also verifies that the
+	// persisted baseline works offline, without a source event or active editor.
+	await earthly.page.reload()
+	await expect(panel).toBeVisible()
+	await expect(earthly.page.getByText('Unpublished changes', { exact: true })).toBeVisible()
+	await setThreadWorkingSetOpen(earthly)
+	await expect(working.getByText('Unpublished changes', { exact: true })).toBeVisible()
+	expect((await threadWorkSnapshot(earthly)).id).toBe(before.id)
+})
+
+test('drafts are flat, with saved alternatives only on demand @regression', async ({
+	earthly,
+}, testInfo) => {
+	test.setTimeout(90_000)
+	await installIsolatedRelays(earthly)
+	await authorizeJourneyIdentity(earthly, 'owner')
+	await earthly.open()
+	const draft = await startDataset(earthly)
+	await draft.nameInput.fill('One Map, one row')
+	await openPanel(earthly, 'Local drafts')
+	const inventory = earthly.page.getByRole('region', { name: 'Local drafts', exact: true })
+	await expect(inventory.getByText('One Map, one row', { exact: true })).toHaveCount(1)
+	await expect(earthly.page.getByRole('button', { name: /saved alternatives/ })).toHaveCount(0)
+	await expect(
+		earthly.page.getByRole('button', { name: 'Review & publish: One Map, one row', exact: true }),
+	).toBeVisible()
+	await earthly.page.screenshot({ path: testInfo.outputPath('flat-drafts.png') })
+	await earthly.page
+		.getByRole('button', { name: 'More actions for One Map, one row', exact: true })
+		.click()
+	await earthly.page.getByRole('menuitem', { name: 'Rename Map', exact: true }).click()
+	await inventory.getByRole('textbox', { name: 'Map name', exact: true }).fill('Renamed Map')
+	await inventory.getByRole('button', { name: 'Save name', exact: true }).click()
+	await expect(inventory.getByText('Renamed Map', { exact: true })).toHaveCount(1)
+	await earthly.page
+		.getByRole('button', { name: 'More actions for Renamed Map', exact: true })
+		.click()
+	await earthly.page
+		.getByRole('menuitem', { name: 'Save an alternative draft', exact: true })
+		.click()
+	await openPanel(earthly, 'Local drafts')
+	await expect(earthly.page.getByRole('button', { name: /saved alternatives/ })).toBeVisible()
 })

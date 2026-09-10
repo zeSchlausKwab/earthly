@@ -1266,6 +1266,7 @@ export function AppSidebar({
 			case 'drafts':
 				return (
 					<LocalDraftsPanel
+						geoEvents={geoEvents}
 						onStartNewDataset={handleStartNewDataset}
 						onSwitchWorkspace={onSwitchWorkspace}
 						onDeleteWorkspace={onDeleteWorkspace}

@@ -1,9 +1,21 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { getStoryDraftRevision, subscribeStoryDrafts, listNewStoryDrafts } from '@/lib/nostr/story/draft'
+import {
+	getStoryDraftRevision,
+	subscribeStoryDrafts,
+	listNewStoryDrafts,
+} from '@/lib/nostr/story/draft'
 import { openSavedDraft } from '@/features/geo-editor/draftActions'
 import { toast } from 'sonner'
 import { DraftRowActions } from './DraftRowActions'
+import { workPublication } from '@/features/chat/workPublication'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from './ui/dropdown-menu'
 import {
 	Check,
 	ChevronDown,
@@ -11,6 +23,7 @@ import {
 	FilePenLine,
 	FileText,
 	Layers,
+	MoreHorizontal,
 	Plus,
 	Trash2,
 	X,
@@ -28,6 +41,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collap
 import { Input } from './ui/input'
 
 export interface WorkspaceDraftNavigatorProps {
+	geoEvents?: GeoDataset[]
 	onStartNewDataset?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
@@ -120,6 +134,7 @@ export function WorkspaceDraftNavigator({
 	className,
 	presentation = 'compact',
 	showPanelHeader = true,
+	geoEvents = [],
 }: WorkspaceDraftNavigatorProps) {
 	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
@@ -201,6 +216,14 @@ export function WorkspaceDraftNavigator({
 		const nextLabel = workspaceLabelDraft.trim()
 		if (!nextLabel || nextLabel === currentLabel) return
 		updateWorkspace(workspaceId, { label: nextLabel })
+		const state = useEditorStore.getState()
+		const draftId = state.workspaces[workspaceId]?.activeDraftId
+		const draft = draftId ? state.geoEditDrafts[draftId] : undefined
+		if (draft) {
+			const collectionMeta = { ...draft.collectionMeta, name: nextLabel }
+			state.saveGeoEditDraft(draft.id, { name: nextLabel, collectionMeta })
+			if (state.activeGeoEditDraftId === draft.id) state.setCollectionMeta(collectionMeta)
+		}
 		setRenamingWorkspaceId(null)
 		setWorkspaceLabelDraft('')
 	}
@@ -452,40 +475,56 @@ export function WorkspaceDraftNavigator({
 				: 'bg-ok/15 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-ok'
 		const activeDraftClassName =
 			workspaceTone === 'proposal' ? 'bg-primary/10 text-primary' : 'bg-ok/15 text-ok'
-		const displayLabel = getSavedWorkLabel(workspace.label)
-		const intent = (drafts.find((draft) => draft.id === workspace.activeDraftId) ?? drafts[0])
-			?.authoringIntent
+		const currentDraft = drafts.find((draft) => draft.id === workspace.activeDraftId) ?? drafts[0]
+		const displayLabel = getSavedWorkLabel(currentDraft?.collectionMeta.name || workspace.label)
+		const intent = currentDraft?.authoringIntent
+		const target = {
+			id: `map:${workspace.id}`,
+			kind: 'dataset' as const,
+			workspaceId: workspace.id,
+			title: displayLabel,
+			intent: intent ?? (workspaceTone === 'proposal' ? ('propose' as const) : ('edit' as const)),
+		}
+		const publication = workPublication(target, workspace, currentDraft, geoEvents)
+		const hasAlternatives = drafts.length > 1
+		const needsDestination = drafts.some((draft) => draft.publishChannel.kind === 'unresolved')
 
 		return (
 			<>
 				<div className="flex items-center gap-1 px-1.5 py-1.5">
-					<Button
-						type="button"
-						variant="ghost"
-						onClick={() =>
-							setExpandedWorkspaceIds((current) => ({
-								...current,
-								[workspace.id]: !current[workspace.id],
-							}))
-						}
-						className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-						aria-label={isExpanded ? 'Collapse saved drafts' : 'Expand saved drafts'}
-					>
-						{isExpanded ? (
-							<ChevronDown className="h-3.5 w-3.5" />
-						) : (
-							<ChevronRight className="h-3.5 w-3.5" />
-						)}
-					</Button>
+					{hasAlternatives || needsDestination ? (
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() =>
+								setExpandedWorkspaceIds((current) => ({
+									...current,
+									[workspace.id]: !current[workspace.id],
+								}))
+							}
+							className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+							aria-label={isExpanded ? 'Hide saved alternatives' : 'Show saved alternatives'}
+							aria-expanded={isExpanded}
+						>
+							{isExpanded ? (
+								<ChevronDown className="h-3.5 w-3.5" />
+							) : (
+								<ChevronRight className="h-3.5 w-3.5" />
+							)}
+						</Button>
+					) : (
+						<Layers className="mx-2 size-4 shrink-0 text-muted-foreground" />
+					)}
 					{isRenamingWorkspace ? (
 						<form
 							className="flex min-w-0 flex-1 items-center gap-1"
 							onSubmit={(event) => {
 								event.preventDefault()
-								handleRenameWorkspace(workspace.id, workspace.label)
+								handleRenameWorkspace(workspace.id, displayLabel)
 							}}
 						>
 							<Input
+								aria-label="Map name"
 								value={workspaceLabelDraft}
 								onChange={(event) => setWorkspaceLabelDraft(event.target.value)}
 								className="h-8 text-xs"
@@ -517,9 +556,15 @@ export function WorkspaceDraftNavigator({
 							<Button
 								type="button"
 								variant="ghost"
-								onClick={() => workspace.activeDraftId
-									? void openSavedDraft({ kind: 'dataset', workspaceId: workspace.id, title: displayLabel }).catch(error => toast.error(error.message))
-									: onSwitchWorkspace?.(workspace.id)}
+								onClick={() =>
+									workspace.activeDraftId
+										? void openSavedDraft({
+												kind: 'dataset',
+												workspaceId: workspace.id,
+												title: displayLabel,
+											}).catch((error) => toast.error(error.message))
+										: onSwitchWorkspace?.(workspace.id)
+								}
 								className="min-w-0 flex-1 h-auto flex-col items-start px-1 py-1 text-left justify-start"
 							>
 								<div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -544,50 +589,68 @@ export function WorkspaceDraftNavigator({
 										<span className={cn('rounded-full', activeClassName)}>Current</span>
 									) : null}
 								</div>
-								<div className="mt-0.5 text-[10px] text-muted-foreground">
-									{drafts.length} draft{drafts.length === 1 ? '' : 's'}
+								<div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+									<span
+										title={publication.description}
+										className={
+											publication.modified
+												? 'text-amber-700 dark:text-amber-400'
+												: publication.href
+													? 'text-ok'
+													: undefined
+										}
+									>
+										{publication.label}
+									</span>
+									{currentDraft && (
+										<span title={getDraftDestinationTitle(currentDraft)}>
+											{getDraftDestinationLabel(currentDraft)}
+										</span>
+									)}
+									{hasAlternatives && (
+										<span>
+											{drafts.length - 1} saved alternative{drafts.length === 2 ? '' : 's'}
+										</span>
+									)}
 								</div>
 							</Button>
 							<div className="flex shrink-0 items-center gap-1">
-								<Button
-									type="button"
-									size="icon-sm"
-									variant="ghost"
-									className="h-7 w-7"
-									onClick={(event) => {
-										event.stopPropagation()
-										void onAddDraftToWorkspace?.(workspace.id)
-									}}
-									title="Add another draft"
-								>
-									<Plus className="h-3.5 w-3.5" />
-								</Button>
-								<Button
-									type="button"
-									size="icon-sm"
-									variant="ghost"
-									className="h-7 w-7"
-									onClick={(event) => {
-										event.stopPropagation()
-										handleBeginWorkspaceRename(workspace.id, workspace.label)
-									}}
-									title="Rename saved work"
-								>
-									<FilePenLine className="h-3.5 w-3.5" />
-								</Button>
-								<Button
-									type="button"
-									size="icon-sm"
-									variant="ghost"
-									className="h-7 w-7 text-destructive hover:text-destructive"
-									onClick={(event) => {
-										event.stopPropagation()
-										handleRequestWorkspaceDelete(workspace.id)
-									}}
-									title="Delete saved work"
-								>
-									<Trash2 className="h-3.5 w-3.5" />
-								</Button>
+								{currentDraft && (
+									<DraftRowActions target={target} includeDiscard={!hasAlternatives} />
+								)}
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<Button
+											variant="ghost"
+											size="icon"
+											className="size-11 md:size-8"
+											aria-label={`More actions for ${displayLabel}`}
+										>
+											<MoreHorizontal className="size-4" />
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end">
+										<DropdownMenuItem onSelect={() => void onAddDraftToWorkspace?.(workspace.id)}>
+											<Plus className="size-4" />
+											Save an alternative draft
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											onSelect={() => handleBeginWorkspaceRename(workspace.id, displayLabel)}
+										>
+											<FilePenLine className="size-4" />
+											Rename Map
+										</DropdownMenuItem>
+										{(hasAlternatives || !currentDraft) && (
+											<DropdownMenuItem
+												className="text-destructive"
+												onSelect={() => handleRequestWorkspaceDelete(workspace.id)}
+											>
+												<Trash2 className="size-4" />
+												Delete saved work
+											</DropdownMenuItem>
+										)}
+									</DropdownMenuContent>
+								</DropdownMenu>
 							</div>
 						</>
 					)}
@@ -621,7 +684,7 @@ export function WorkspaceDraftNavigator({
 					</div>
 				) : null}
 
-				{isExpanded ? (
+				{isExpanded && (hasAlternatives || needsDestination) ? (
 					<div className="space-y-1 border-t border-border/80 bg-card/60 px-2 py-1.5">
 						{drafts.length > 0 ? (
 							drafts.map((draft, index) => {
@@ -657,7 +720,7 @@ export function WorkspaceDraftNavigator({
 												</span>
 											</button>
 											<span className="shrink-0 text-[10px] text-muted-foreground">
-												{draft.id.slice(0, 8)}
+												{new Date(draft.createdAt).toLocaleDateString()}
 											</span>
 											<Button
 												type="button"
@@ -728,16 +791,33 @@ function NewStoryDrafts() {
 	useSyncExternalStore(subscribeStoryDrafts, getStoryDraftRevision, () => 0)
 	const drafts = listNewStoryDrafts(account?.pubkey ?? null)
 	if (!drafts.length) return null
-	return <section aria-label="New Story drafts" className="space-y-1.5 pb-2">
-		<h3 className="px-1 text-xs font-medium">Story drafts · {drafts.length}</h3>
-		{drafts.map((draft) => {
-			const target = { kind: 'story' as const, draftKey: draft.draftKey, title: draft.title || 'Untitled Story' }
-			return <div key={draft.draftKey} className="flex min-w-0 items-center border border-border p-1">
-				<Button variant="ghost" className="min-w-0 flex-1 justify-start" onClick={() => void openSavedDraft(target).catch(error => toast.error(error.message))}><FileText className="size-3.5 shrink-0" /><span className="truncate">{target.title}</span></Button>
-				<DraftRowActions target={target} />
-			</div>
-		})}
-	</section>
+	return (
+		<section aria-label="New Story drafts" className="space-y-1.5 pb-2">
+			<h3 className="px-1 text-xs font-medium">Story drafts · {drafts.length}</h3>
+			{drafts.map((draft) => {
+				const target = {
+					kind: 'story' as const,
+					draftKey: draft.draftKey,
+					title: draft.title || 'Untitled Story',
+				}
+				return (
+					<div key={draft.draftKey} className="flex min-w-0 items-center border border-border p-1">
+						<Button
+							variant="ghost"
+							className="min-w-0 flex-1 justify-start"
+							onClick={() =>
+								void openSavedDraft(target).catch((error) => toast.error(error.message))
+							}
+						>
+							<FileText className="size-3.5 shrink-0" />
+							<span className="truncate">{target.title}</span>
+						</Button>
+						<DraftRowActions target={target} />
+					</div>
+				)
+			})}
+		</section>
+	)
 }
 
 function getSavedWorkLabel(label: string): string {

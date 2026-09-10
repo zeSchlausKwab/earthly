@@ -10,6 +10,8 @@ A **local draft** is recoverable, unpublished work saved on the current device f
 
 Use **Local drafts** or **Saved work** in the UI. Do not call this a workspace. `GeoEditorWorkspace` remains an internal compatibility name for the index that groups revisions of one local draft.
 
+A published Map can still have a retained local draft. **Published** means its draft matches the last known publication when comparison is available; **Unpublished changes** means its content differs. Selection and opening an editor do not count as changes. If an older draft's published source is unavailable, comparison is explicitly unknown. The inventory normally shows one row per Map; saved alternatives are disclosed only when they exist, not as a redundant single-draft container.
+
 ## Publish channel
 
 A **publish channel** answers who receives the record:

@@ -1798,6 +1798,7 @@ export function MobilePanel(props: MobilePanelProps) {
 													{mobilePanelTab === 'drafts' ? (
 														<div className="-mx-3 -mb-4 -mt-2 h-full min-h-[18rem]">
 															<LocalDraftsPanel
+																geoEvents={geoEvents}
 																onStartNewDataset={onStartNewDataset}
 																onSwitchWorkspace={onSwitchWorkspace}
 																onDeleteWorkspace={onDeleteWorkspace}
