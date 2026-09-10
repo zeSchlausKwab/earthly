@@ -96,17 +96,21 @@ test('read-only Threads can ask; references and navigation never grant Map write
 	const visible = await editorLifecycleSnapshot(earthly)
 	await openAiChat(earthly)
 	const chatA = await startNewAiChat(earthly)
-	let working = await setThreadWorkingSetOpen(earthly)
-	await working.getByRole('button', { name: 'Reference viewed object', exact: true }).click()
+	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
+	await expect(panel.getByRole('button', { name: 'References', exact: true })).toHaveCount(1)
+	await expect(panel).not.toContainText('working copy')
+	await panel.getByRole('button', { name: 'References', exact: true }).click()
+	await earthly.page
+		.getByRole('dialog', { name: 'Add references', exact: true })
+		.getByRole('button', { name: 'Map A Currently open · draft', exact: true })
+		.click()
 	expect(await threadWorkSnapshot(earthly)).toMatchObject({
 		id: chatA.newChatId,
 		outputs: [],
 		referenceCount: 1,
 		allowCreate: false,
 	})
-	await setThreadWorkingSetOpen(earthly, false)
 	await sendAiChatMessage(earthly, 'Explain the Map reference without editing it.')
-	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 	await expect(
 		panel.getByText('The work Thread received this prompt.', { exact: true }),
 	).toBeVisible()
@@ -143,9 +147,7 @@ test('read-only Threads can ask; references and navigation never grant Map write
 		targetName: 'Map A',
 		targetRequired: false,
 	})
-	working = await setThreadWorkingSetOpen(earthly)
-	await expect(working.getByText('Drawing into: Map B', { exact: true })).toBeVisible()
-	await working.getByRole('button', { name: 'Remove reference Map A', exact: true }).click()
+	await panel.getByRole('button', { name: 'Remove Map A', exact: true }).click()
 	expect(await threadWorkSnapshot(earthly)).toMatchObject({
 		referenceCount: 0,
 		outputs: [{ title: 'Map A' }],

@@ -234,7 +234,7 @@ test('embedded Map Thread has one compact header and reachable settings at 320 a
 		await expect(controls).toBeInViewport({ ratio: 1 })
 		const box = await controls.boundingBox()
 		expect(box?.height).toBe(44)
-		for (const name of ['AI edit safety: Auto apply', 'Thread settings', 'Export Thread']) {
+		for (const name of ['AI edit safety: Auto apply', 'Thread settings', 'Conversations']) {
 			const button = controls.getByRole('button', { name, exact: true })
 			await expect(button).toBeInViewport({ ratio: 1 })
 			const control = await button.boundingBox()

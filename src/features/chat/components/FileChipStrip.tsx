@@ -156,13 +156,13 @@ export const FileChipStrip = forwardRef<FileChipStripHandle, FileChipStripProps>
 					type="button"
 					variant={dragActive ? 'default' : 'outline'}
 					size="sm"
-					className="h-8 gap-1.5 text-xs"
+					className="h-11 gap-1.5 text-xs md:h-9"
 					onClick={() => inputRef.current?.click()}
 					title="Attach files"
 					aria-label="Attach files"
 				>
 					<Paperclip className="h-3.5 w-3.5" />
-					Attach
+					Files
 				</Button>
 				<input
 					ref={inputRef}

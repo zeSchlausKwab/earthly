@@ -3,10 +3,12 @@ import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identi
 import {
 	configureChatProvider,
 	openAiChat,
+	selectAiChatTarget,
 	setAiThreadSettingsOpen,
 } from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
 import { switchMobileWorkspacePanel } from '../tasks/navigation/mobile-workspace'
+import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
 import {
 	DETERMINISTIC_CHAT_BASE_URL,
 	DETERMINISTIC_CHAT_MODEL_ID,
@@ -17,6 +19,7 @@ import {
 test('chat keeps advanced status compact and lets the model change in place', async ({
 	earthly,
 }, testInfo) => {
+	await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly)
 	await authorizeJourneyIdentity(earthly, 'owner')
 	await configureChatProvider(earthly, { ...provider.settings, safetyLevel: 2 })
@@ -31,6 +34,7 @@ test('chat keeps advanced status compact and lets the model change in place', as
 	await earthly.open({ tour: 'seen' })
 	await startDataset(earthly)
 	await openAiChat(earthly)
+	await selectAiChatTarget(earthly, 'current-dataset')
 
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 	const settings = panel.getByRole('button', { name: 'Thread settings', exact: true })
@@ -84,6 +88,7 @@ test('mobile compact Thread keeps model failure recovery in view at 320 and 390p
 	earthly,
 }) => {
 	test.skip(!earthly.isMobile, 'Phone header recovery contract')
+	await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly)
 	let modelsAvailable = false
 	await earthly.page.route(`${DETERMINISTIC_CHAT_BASE_URL}/models`, async (route) => {
@@ -138,6 +143,7 @@ test('mobile compact Thread keeps model failure recovery in view at 320 and 390p
 })
 
 test('reopening a routed Thread keeps one composer action set @regression', async ({ earthly }) => {
+	await installIsolatedRelays(earthly)
 	const duplicateKeyWarnings: string[] = []
 	earthly.page.on('console', (message) => {
 		if (message.type() === 'error' && message.text().includes('same key')) {
@@ -152,7 +158,7 @@ test('reopening a routed Thread keeps one composer action set @regression', asyn
 	await openAiChat(earthly)
 
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
-	const drawAction = panel.getByRole('button', { name: 'Draw', exact: true })
+	const drawAction = panel.getByRole('button', { name: 'Sketch', exact: true })
 	await expect(drawAction).toHaveCount(1)
 
 	for (let index = 0; index < 3; index += 1) {

@@ -33,7 +33,7 @@ for (const allowCreate of [false, true]) {
 		await openAiChat(earthly)
 		await startNewAiChat(earthly)
 		const working = await setThreadWorkingSetOpen(earthly)
-		await working.getByLabel('Allow requested new local Maps and Stories').setChecked(allowCreate)
+		await working.getByLabel('Create new maps and stories', { exact: true }).setChecked(allowCreate)
 		await setThreadWorkingSetOpen(earthly, false)
 		await sendAiChatMessage(earthly, 'Create a separate article draft.')
 		const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })

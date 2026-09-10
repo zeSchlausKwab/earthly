@@ -2011,7 +2011,7 @@ export const useChatStore = create<ChatStore>()(
 					!workScoped && !readOnlyRun &&
 					(sendTarget.entityType !== 'dataset' || !sendTarget.workspaceId || !sendTarget.draftId)
 				) {
-					toast.error('The Map working copy for this Thread is no longer available.')
+					toast.error('This conversation’s map draft is no longer available.')
 					return
 				}
 				const {

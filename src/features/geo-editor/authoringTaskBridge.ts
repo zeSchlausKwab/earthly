@@ -27,7 +27,7 @@ export function registerChatWorkspaceOpener(opener: (workspaceId: string) => Pro
 }
 
 export async function openChatWorkspace(workspaceId: string): Promise<void> {
-	if (!workspaceOpener || !useEditorStore.getState().workspaces[workspaceId]) throw new Error('This Map working copy is unavailable.')
+	if (!workspaceOpener || !useEditorStore.getState().workspaces[workspaceId]) throw new Error('This map draft is unavailable.')
 	await workspaceOpener(workspaceId)
 }
 

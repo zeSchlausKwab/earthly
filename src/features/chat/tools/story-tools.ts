@@ -126,14 +126,14 @@ const MENTION_SYNTAX_HINT =
 	'Cite published Maps inline as bare nostr:naddr1… references. Preserve feature-only fragments returned by read_entity (for example #relation%2F62504). For a local Map, use the exact localReference from get_working_set or create_map_draft in the narrative; the Story editor resolves it with explicit confirmation at publication. Local references cannot yet be opening-presentation layer sources: use published sources for view layers. Never publish while authoring. Coordinates use bare RFC 5870 geo:latitude,longitude URIs; OSM elements use canonical https://www.openstreetmap.org/{node|way|relation}/{id} URLs. Never wrap references in code spans.'
 
 const REVIEW_HINT =
-	'Draft saved locally. The Story working copy is ready behind the Story icon. Tell the user to review it there and publish when ready — publishing is always their action.'
+	'Draft saved. Tell the user to open the story by its title in the AI editing menu, review it, and publish when ready. Publishing is always their action. Use “draft” in user-facing explanations, not “working copy”.'
 
 const STORY_TARGET_CANCELLED_RESULT = {
 	ok: false,
 	status: 'blocked',
 	code: 'story_target_cancelled',
 	message:
-		'Story creation was cancelled. No Story draft was written; ask again when a Story working copy is ready.',
+		'Story creation was cancelled. No Story draft was written; ask again when a Story draft is ready.',
 } as const
 
 async function ensureNewStoryTarget(

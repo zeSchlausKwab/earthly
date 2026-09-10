@@ -2,6 +2,7 @@ import { expect, test } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import { configureChatProvider, sendAiChatMessage } from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
+import { editorLifecycleSnapshot } from '../tasks/editor/lifecycle'
 import { installDeterministicChatProvider } from '../tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyle } from '../tasks/setup/deterministic-map-style'
 import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
@@ -23,26 +24,29 @@ test('a work Thread creates independent Maps and a Story without publishing or r
 	await installDeterministicMapStyle(earthly)
 	const dataset = await startDataset(earthly)
 	await dataset.nameInput.fill('Map I am viewing')
+	const viewedMap = (await editorLifecycleSnapshot(earthly)).activeWorkspaceId
 	await earthly.page.getByRole('button', { name: 'Edit this Map with AI', exact: true }).click()
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 	await expect(panel).toBeVisible()
-	const summary = panel.locator('summary').filter({ hasText: 'Working on:' })
-	await expect(summary).toContainText('Map I am viewing')
-	await summary.click()
-	await panel.getByLabel('Allow requested new local Maps and Stories').check()
-	await summary.click()
+	await expect(
+		panel.getByRole('button', { name: 'AI can edit: Map I am viewing', exact: true }),
+	).toBeVisible()
+	await expect(earthly.page.getByRole('dialog', { name: 'AI editing', exact: true })).toBeHidden()
+	const working = await setThreadWorkingSetOpen(earthly)
+	await working.getByLabel('Create new maps and stories', { exact: true }).check()
+	await setThreadWorkingSetOpen(earthly, false)
 	await sendAiChatMessage(earthly, 'Create two separate Maps and a Story that references both.')
 	await expect(
 		panel.getByText('Created two separate local Maps and a Story. Nothing was published.', {
 			exact: true,
 		}),
 	).toBeVisible({ timeout: 60_000 })
-	await summary.click()
-	const working = panel.getByLabel('Thread working set')
+	await earthly.page.screenshot({ path: testInfo.outputPath('compact-chat.png') })
+	await setThreadWorkingSetOpen(earthly)
 	await expect(working.getByRole('button', { name: 'Front 1914', exact: true })).toBeVisible()
 	await expect(working.getByRole('button', { name: 'Front 1916', exact: true })).toBeVisible()
 	await expect(working.getByRole('button', { name: 'A changing front', exact: true })).toBeVisible()
-	await expect(working.getByText('Drawing into: Map I am viewing')).toBeVisible()
+	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(viewedMap)
 	expect(provider.requests()).toHaveLength(3)
 	expect([...publishedEvents.values()].filter((kind) => kind === 37515 || kind === 37520)).toEqual(
 		[],

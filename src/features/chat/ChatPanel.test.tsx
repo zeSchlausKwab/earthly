@@ -5,6 +5,9 @@ import {
 	resolveChatHeaderControlSizing,
 	resolveInitialThreadPrompt,
 	resolveChatSendState,
+	getChatReferenceKey,
+	chatReferenceToSearchResult,
+	referenceForViewedObject,
 } from './ChatPanel'
 import { useChatComposerStore } from './composerState'
 import { useChatStore } from './store'
@@ -34,9 +37,47 @@ describe('compact Thread header', () => {
 	test('never presents writable safety in a read-only object Thread', () => {
 		const markup = renderToStaticMarkup(<ChatSafetyIndicator readOnly safetyLevel={3} />)
 		expect(markup).toContain('Read-only')
-		expect(markup).toContain('Text only; no tools or map changes.')
+		expect(markup).toContain('Questions and research; no changes to maps or stories.')
 		expect(markup).not.toContain('Auto apply')
 		expect(chatSafetyPresentation(true, 3).permissive).toBe(false)
+	})
+})
+
+describe('chat reference picker identity', () => {
+	test('removal keeps the exact feature and local draft identity', () => {
+		const reference = {
+			id: 'foreign-map',
+			name: 'Western Front',
+			type: 'feature' as const,
+			pubkey: 'author',
+			featureId: 'verdun',
+			localWorkspaceId: 'draft-1',
+		}
+		const chip = chatReferenceToSearchResult(reference)
+		expect(getChatReferenceKey(chip)).toBe(getChatReferenceKey(reference))
+		expect(chip).toMatchObject({ featureId: 'verdun', localWorkspaceId: 'draft-1' })
+		const sibling = { ...reference, featureId: 'somme' }
+		const remaining = [reference, sibling].filter(
+			(item) => getChatReferenceKey(item) !== getChatReferenceKey(chip),
+		)
+		expect(remaining).toEqual([sibling])
+	})
+
+	test('current-object shortcuts preserve unpublished draft identity without granting writes', () => {
+		expect(referenceForViewedObject('map-draft:workspace-1', 'My map')).toMatchObject({
+			id: 'workspace-1',
+			name: 'My map',
+			type: 'dataset',
+			localWorkspaceId: 'workspace-1',
+			address: undefined,
+		})
+		expect(referenceForViewedObject('story:naddr1example', 'A story')).toMatchObject({
+			type: 'story',
+			address: 'naddr1example',
+			localWorkspaceId: undefined,
+		})
+		expect(referenceForViewedObject('ask')).toBeNull()
+		expect(referenceForViewedObject('unknown:somewhere')).toBeNull()
 	})
 })
 

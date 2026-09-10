@@ -141,7 +141,7 @@ async function executeToolCallBound(
 				kind: 'handler_error',
 				toolName: toolCall.function.name,
 				message:
-					'This Thread has no Map working copy. Open it from a Map, then send the request again.',
+					'No map is selected for AI editing. Open a map and choose Edit this map with AI, then try again.',
 				code: 'dataset_target_required',
 				retryable: true,
 				sideEffectsApplied: false,

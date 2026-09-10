@@ -5,7 +5,7 @@ Agreed September 10, 2026. This supersedes the one-object/one-Thread and target-
 ## Contract
 
 - A durable Thread follows the work across viewing, editing, docking, and publication. Object routes are entry points, not write authority.
-- The compact header names **Working on** separately from **References**. A read-only Thread may inspect/search without creating a draft.
+- The compact header says **AI can edit: [names]** (or **AI: Answer questions only** / **AI: Create maps & stories**). References belong beside the message, not in the editing controls. A read-only Thread may inspect/search without creating a draft.
 - The working set contains explicitly permitted Map/Story drafts. Existing foreign objects enter through Propose or Fork, never through the reference picker.
 - New local outputs may be created within a Thread with creation enabled. Existing drafts cannot be silently recruited. Each tool resolves a named target from the run's captured working set, not the visible editor.
 - References remain read-only, including foreign sources and local drafts. Referencing a feature does not widen it to a whole-Map presentation reference. Showing/hiding source geometry and overriding a Story layer's style/opacity do not mutate the source.
@@ -16,6 +16,14 @@ Agreed September 10, 2026. This supersedes the one-object/one-Thread and target-
 - Local Story references resolve to publication addresses at publication time. Dependencies publish individually with visible progress/errors; there is no fictitious multi-event transaction.
 
 ## Verification
+
+### UI refinement — September 10
+
+Use **draft**, not **working copy**, in user-facing copy. “Working set” remains an internal permission model, not a UI concept. The AI editing menu lists permitted maps and stories, provides explicit **Edit this map with AI** / Story actions, and a **Create new maps and stories** checkbox. Stopping AI editing keeps the draft. The menu is closed initially and overlays the conversation, without expanding its header.
+
+There is one **References** picker beside the message. It offers search and the currently open source, with one removable chip per attachment. A source chip preserves feature-only and unpublished-draft identity; removing it never alters an editing grant. **Selection**, **Sketch**, and **Files** describe the distinct spatial/file attachments. The picker discloses that references are read-only and shared with the AI provider; detailed privacy and safety information lives in settings. The conversation-title menu contains switching, New, Export, and Delete. Docking remains in the header.
+
+### Coverage
 
 Exercise one Thread producing a WW1 Story and multiple named Maps; foreign feature references; read-only questions; disallowed target writes; switching visible objects during runs; two independent Story Threads; draft-to-publication continuity; desktop/mobile scope controls; and unchanged private audiences.
 

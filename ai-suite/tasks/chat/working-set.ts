@@ -4,7 +4,7 @@ import type { AiTaskMetadata } from '../../core/task'
 
 export const setThreadWorkingSetOpenTask: AiTaskMetadata = {
 	id: 'chat.set-working-set-open',
-	summary: 'Reveal or collapse the Thread’s explicit outputs and read-only references.',
+	summary: 'Open or close the AI editing menu, listing the maps and stories AI may change.',
 	preconditions: ['AI Thread is visible'],
 	sideEffects: ['Changes a local disclosure only'],
 	viewports: 'both',
@@ -12,10 +12,9 @@ export const setThreadWorkingSetOpenTask: AiTaskMetadata = {
 
 export async function setThreadWorkingSetOpen(earthly: EarthlySession, open = true) {
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
-	const summary = panel.locator('summary').filter({ hasText: 'Working on:' })
-	const details = summary.locator('..')
-	if (((await details.getAttribute('open')) !== null) !== open) await summary.click()
-	const working = panel.getByLabel('Thread working set')
+	const trigger = panel.getByRole('button', { name: /^AI(?: can edit:|:)/ })
+	if ((await trigger.getAttribute('aria-expanded')) !== String(open)) await trigger.click()
+	const working = earthly.page.getByRole('dialog', { name: 'AI editing', exact: true })
 	if (open) await expect(working).toBeVisible()
 	else await expect(working).toBeHidden()
 	return working

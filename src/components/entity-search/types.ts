@@ -57,6 +57,9 @@ export interface EntitySearchResult {
 	type: EntityType
 	subtitle?: string
 	address?: string
+	/** Read-only attachment scope; independent of the search result's source id. */
+	featureId?: string
+	localWorkspaceId?: string
 	pubkey?: string
 	createdAt?: number
 	/** Original entity reference for callbacks */

@@ -78,7 +78,7 @@ export const completeAiChatTurnTask: AiTaskMetadata = {
 
 export const selectAiChatTargetTask: AiTaskMetadata = {
 	id: 'chat.select-target',
-	summary: 'Explicitly add a new or currently visible Map working copy to a Thread.',
+	summary: 'Explicitly allow AI to edit a new or currently visible map draft.',
 	preconditions: ['AI chat is open'],
 	sideEffects: ['May create a local Dataset draft or bind the conversation to the visible edit'],
 	viewports: 'both',
@@ -131,10 +131,12 @@ function chatComposer(earthly: EarthlySession) {
 }
 
 function chatSelector(earthly: EarthlySession) {
-	return chatRegion(earthly).getByRole('combobox', {
-		name: 'Select work Thread',
-		exact: true,
-	})
+	return earthly.page
+		.getByRole('dialog', { name: 'Conversations', exact: true })
+		.getByRole('combobox', {
+			name: 'Select Thread',
+			exact: true,
+		})
 }
 
 function chatSendButton(earthly: EarthlySession) {
@@ -279,14 +281,15 @@ export async function selectAiChatTarget(
 	if (target === 'new-dataset') await startDataset(earthly)
 	await openAiChat(earthly)
 	const working = await setThreadWorkingSetOpen(earthly)
-	await working.getByRole('button', { name: 'Add Map working copy', exact: true }).click()
+	const edit = working.getByRole('button', { name: 'Edit this map with AI', exact: true })
+	if (await edit.isVisible()) await edit.click()
 	await expect
 		.poll(async () => (await threadWorkSnapshot(earthly)).outputs.length)
 		.toBeGreaterThan(0)
 	const output = (await threadWorkSnapshot(earthly)).outputs
 		.filter((item) => item.kind === 'dataset')
 		.at(-1)
-	if (!output) throw new Error('The selected Map working copy was not added to the Thread.')
+	if (!output) throw new Error('The selected map was not enabled for AI editing.')
 	await setThreadWorkingSetOpen(earthly, false)
 	return output.title
 }
@@ -295,24 +298,25 @@ export async function startNewAiChat(earthly: EarthlySession): Promise<NewAiChat
 	const panel = chatRegion(earthly)
 	const composer = chatComposer(earthly)
 	const previousChatId = (await threadWorkSnapshot(earthly)).id
-	await setThreadWorkingSetOpen(earthly)
-	await panel.getByRole('button', { name: 'New Thread', exact: true }).click()
+	await panel.getByRole('button', { name: 'Conversations', exact: true }).click()
+	await earthly.page
+		.getByRole('dialog', { name: 'Conversations', exact: true })
+		.getByRole('button', { name: 'New Thread', exact: true })
+		.click()
 	await expect.poll(async () => (await threadWorkSnapshot(earthly)).id).not.toBe(previousChatId)
 	await expect(composer).toHaveValue('')
-	await expect(panel.locator('summary').filter({ hasText: 'Working on:' })).toContainText(
-		'Read-only',
-	)
-	await setThreadWorkingSetOpen(earthly, false)
+	await expect(
+		panel.getByRole('button', { name: 'AI: Answer questions only', exact: true }),
+	).toBeVisible()
 	return { previousChatId, newChatId: (await threadWorkSnapshot(earthly)).id }
 }
 
 export async function switchAiChat(earthly: EarthlySession, chatId: string): Promise<void> {
-	await setThreadWorkingSetOpen(earthly)
+	await chatRegion(earthly).getByRole('button', { name: 'Conversations', exact: true }).click()
 	const selector = chatSelector(earthly)
 	await expect(selector).toBeEnabled()
 	await selector.selectOption(chatId)
-	await expect(selector).toHaveValue(chatId)
-	await setThreadWorkingSetOpen(earthly, false)
+	await expect.poll(async () => (await threadWorkSnapshot(earthly)).id).toBe(chatId)
 }
 
 export async function composeAiChatMessage(

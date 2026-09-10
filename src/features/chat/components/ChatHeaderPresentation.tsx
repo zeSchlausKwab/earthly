@@ -5,7 +5,7 @@ export function chatSafetyPresentation(readOnly: boolean, safetyLevel: number) {
 	if (readOnly) {
 		return {
 			label: 'Read-only',
-			description: 'Text only; no tools or map changes.',
+			description: 'Questions and research; no changes to maps or stories.',
 			permissive: false,
 		}
 	}
@@ -18,7 +18,7 @@ export function chatSafetyPresentation(readOnly: boolean, safetyLevel: number) {
 	}
 	return {
 		label: safetyLevel === 1 ? 'Ask always' : 'Ask first',
-		description: safetyLevel === 1 ? 'Ask before every change.' : 'Ask before changing the map.',
+		description: safetyLevel === 1 ? 'Ask before every change.' : 'Ask before changing maps or stories.',
 		permissive: false,
 	}
 }

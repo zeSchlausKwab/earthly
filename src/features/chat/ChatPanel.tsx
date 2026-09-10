@@ -37,6 +37,7 @@ import {
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -97,11 +98,7 @@ import {
 import { buildLiveAssistantMessage } from './liveAssistantMessage'
 import { EMPTY_STATE_PROMPTS } from './examplePrompts'
 import { useChatComposerStore } from './composerState'
-import {
-	chatSafetyPresentation,
-	ChatSafetyIndicator,
-	ChatThreadIdentity,
-} from './components/ChatHeaderPresentation'
+import { chatSafetyPresentation, ChatSafetyIndicator } from './components/ChatHeaderPresentation'
 
 const PROVIDER_LABELS: Record<ProviderType, string> = {
 	routstr: 'Routstr (paid)',
@@ -175,7 +172,7 @@ export function resolveChatSendState(input: {
 	const title = input.imageSendBlocked
 		? 'Resolve the image support warning before sending.'
 		: input.targetCreationPending
-			? 'Wait for the Map working copy to finish'
+			? 'Preparing the map draft…'
 			: !input.hasValidEditingTarget && input.canCreateEditingTarget
 				? input.authoringActionLabel || 'Edit & send'
 				: !input.hasValidEditingTarget
@@ -402,6 +399,7 @@ export function ChatPanel({
 	const [visionSupport, setVisionSupport] = useState<VisionSupport>('no-vision')
 	const [nowMs, setNowMs] = useState(Date.now())
 	const [connectionDetailsOpen, setConnectionDetailsOpen] = useState(false)
+	const [conversationsOpen, setConversationsOpen] = useState(false)
 	const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -413,7 +411,12 @@ export function ChatPanel({
 	useEffect(() => {
 		const normalizedThreadKey = threadKey?.trim()
 		const selectedChatId = normalizedThreadKey
-			? openThread({ threadKey: normalizedThreadKey, title: threadTitle, readOnly, continueActive: true })
+			? openThread({
+					threadKey: normalizedThreadKey,
+					title: threadTitle,
+					readOnly,
+					continueActive: true,
+				})
 			: useChatStore.getState().activeChatId
 		const normalizedPromptValue = initialPrompt?.trim()
 		if (!selectedChatId || !normalizedPromptValue) return
@@ -604,15 +607,18 @@ export function ChatPanel({
 	// cancels the globally-owned run; Stop remains the only ordinary cancellation.
 	const handleCreateChat = () => {
 		createChat()
+		setConversationsOpen(false)
 	}
 
 	const handleSwitchChat = (chatId: string) => {
 		switchChat(chatId)
+		setConversationsOpen(false)
 	}
 
 	const handleDeleteChat = () => {
 		if (!activeChatId) return
 		deleteChat(activeChatId)
+		setConversationsOpen(false)
 	}
 
 	const handleExportConversation = async () => {
@@ -711,6 +717,7 @@ export function ChatPanel({
 			subtitle: referenceResult.subtitle,
 			address: resolveReferenceAddress(referenceResult),
 			featureId: resolveReferenceFeatureId(referenceResult),
+			localWorkspaceId: referenceResult.localWorkspaceId,
 			pubkey: referenceResult.pubkey,
 			createdAt: referenceResult.createdAt,
 		}
@@ -724,6 +731,14 @@ export function ChatPanel({
 	const handleClearReferences = () => {
 		setReferences([])
 	}
+	const viewedReference = referenceForViewedObject(threadKey, threadTitle)
+	const suggestedReferences =
+		viewedReference &&
+		!references.some(
+			(reference) => getChatReferenceKey(reference) === getChatReferenceKey(viewedReference),
+		)
+			? [chatReferenceToSearchResult(viewedReference)]
+			: []
 
 	const sortedChatSessions = useMemo(
 		() => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -734,7 +749,10 @@ export function ChatPanel({
 		[activeChatId, sortedChatSessions],
 	)
 	const isBoundThread = Boolean(threadKey?.trim())
-	const isReadOnlyThread = !activeChatSession?.workingSet?.length && !activeChatSession?.allowCreate && !activeChatSession?.targetWorkspaceId
+	const isReadOnlyThread =
+		!activeChatSession?.workingSet?.length &&
+		!activeChatSession?.allowCreate &&
+		!activeChatSession?.targetWorkspaceId
 	const runningChatSession = useMemo(
 		() => sortedChatSessions.find((chat) => chat.id === runningChatId) ?? null,
 		[runningChatId, sortedChatSessions],
@@ -841,7 +859,6 @@ export function ChatPanel({
 			className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
 			aria-label="AI Thread"
 		>
-			<WorkingSetControls chatId={activeChatId} onAddViewedMap={onEnsureAuthoringTarget} viewedTitle={threadTitle} viewedKey={threadKey} />
 			<Collapsible
 				open={connectionDetailsOpen}
 				onOpenChange={setConnectionDetailsOpen}
@@ -854,44 +871,39 @@ export function ChatPanel({
 					className="m-0 flex min-w-0 shrink-0 flex-wrap items-center gap-x-1 border-0 p-0"
 					aria-label="Thread controls"
 				>
-					{isBoundThread ? (
-						<ChatThreadIdentity
-							title={activeChatSession?.title ?? threadTitle ?? 'Thread'}
-							embedded={embeddedInObject}
-						/>
-					) : (
-						<>
-							<Button
+					<Popover open={conversationsOpen} onOpenChange={setConversationsOpen}>
+						<PopoverTrigger asChild>
+							<button
 								type="button"
-								variant="outline"
-								size="sm"
-								className={cn(
-									'shrink-0 gap-1.5 text-xs',
-									resolveChatHeaderControlSizing(isMobile, 'new-conversation'),
-								)}
-								aria-label="New Thread"
-								onClick={handleCreateChat}
+								aria-label="Conversations"
+								title={activeChatSession?.title}
+								className="flex min-h-11 min-w-0 flex-1 items-center gap-1 text-left text-xs font-semibold md:min-h-8"
 							>
-								<MessageSquarePlus className="h-3.5 w-3.5" />
-								<span className="hidden sm:inline">New Thread</span>
-								<span className="sm:hidden">New</span>
-							</Button>
-							{/* Navigation remains enabled while another conversation works. */}
+								<span className="truncate">
+									{embeddedInObject ? 'Chat' : (activeChatSession?.title ?? 'Chat')}
+								</span>
+								<ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+							</button>
+						</PopoverTrigger>
+						<PopoverContent
+							align="start"
+							aria-label="Conversations"
+							className="z-[80] w-[min(360px,calc(100vw-24px))] gap-2 rounded-none p-3"
+						>
+							<label className="text-xs font-semibold" htmlFor="chat-conversation-select">
+								Conversations
+							</label>
 							<NativeSelect
+								id="chat-conversation-select"
+								aria-label="Select Thread"
 								value={activeChatSession ? (activeChatId ?? '') : ''}
 								onChange={(event) => {
-									const chatId = event.target.value
-									if (chatId) handleSwitchChat(chatId)
+									if (event.target.value) handleSwitchChat(event.target.value)
 								}}
-								aria-label="Select Thread"
-								className={cn(
-									'min-w-0 flex-1',
-									resolveChatHeaderControlSizing(isMobile, 'conversation-select'),
-								)}
 							>
-								{activeChatSession ? null : (
+								{!activeChatSession && (
 									<NativeSelectOption value="" disabled>
-										Select Thread
+										Select a conversation
 									</NativeSelectOption>
 								)}
 								{sortedChatSessions.map((chat) => (
@@ -900,8 +912,40 @@ export function ChatPanel({
 									</NativeSelectOption>
 								))}
 							</NativeSelect>
-						</>
-					)}
+							<Button
+								type="button"
+								variant="outline"
+								className="justify-start"
+								onClick={handleCreateChat}
+								aria-label="New Thread"
+							>
+								<MessageSquarePlus className="size-4" />
+								New conversation
+							</Button>
+							<Button
+								type="button"
+								variant="ghost"
+								className="justify-start"
+								onClick={handleExportConversation}
+								disabled={!messages.length}
+								aria-label="Export Thread"
+							>
+								<Download className="size-4" />
+								Export conversation
+							</Button>
+							<Button
+								type="button"
+								variant="ghost"
+								className="justify-start text-destructive"
+								onClick={handleDeleteChat}
+								disabled={!activeChatId}
+								aria-label="Delete Thread"
+							>
+								<Trash2 className="size-4" />
+								Delete conversation
+							</Button>
+						</PopoverContent>
+					</Popover>
 					<CollapsibleTrigger asChild>
 						<Button
 							variant="ghost"
@@ -936,18 +980,6 @@ export function ChatPanel({
 							)}
 						</Button>
 					</CollapsibleTrigger>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon"
-						className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
-						onClick={handleExportConversation}
-						disabled={messages.length === 0}
-						title="Export Thread (copy JSON + download .json)"
-						aria-label="Export Thread"
-					>
-						<Download className="h-4 w-4" />
-					</Button>
 					{onMoveThread && !isMobile ? (
 						<Button
 							type="button"
@@ -969,20 +1001,6 @@ export function ChatPanel({
 							)}
 						</Button>
 					) : null}
-					{!isBoundThread ? (
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon"
-							className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
-							onClick={handleDeleteChat}
-							disabled={!activeChatId}
-							title="Delete Thread"
-							aria-label="Delete Thread"
-						>
-							<Trash2 className="h-4 w-4" />
-						</Button>
-					) : null}
 					{onClose ? (
 						<Button
 							type="button"
@@ -997,8 +1015,19 @@ export function ChatPanel({
 						</Button>
 					) : null}
 				</fieldset>
+				<WorkingSetControls
+					chatId={activeChatId}
+					onAddViewedMap={onEnsureAuthoringTarget}
+					viewedTitle={threadTitle}
+					viewedKey={threadKey}
+				/>
 
 				<CollapsibleContent className="min-h-0 overflow-y-auto overscroll-contain border-t pb-2 pt-2">
+					<p className="mb-3 text-xs text-muted-foreground">
+						Messages and references are sent to your AI provider. References are read-only,
+						including other people’s maps. Removing one affects future messages, not earlier
+						messages or Story citations.
+					</p>
 					{!isReadOnlyThread ? (
 						<div className="flex min-w-0 items-center gap-2">
 							<span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
@@ -1307,7 +1336,10 @@ export function ChatPanel({
 				{!selectedModel ? (
 					<button
 						type="button"
-						onClick={() => { if (modelsError && onOpenSettings) onOpenSettings(); else setConnectionDetailsOpen(true) }}
+						onClick={() => {
+							if (modelsError && onOpenSettings) onOpenSettings()
+							else setConnectionDetailsOpen(true)
+						}}
 						className={cn(
 							'flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 border border-primary bg-primary/10 px-3 py-2 text-left text-xs font-semibold text-foreground',
 							isMobile && 'min-h-11',
@@ -1318,7 +1350,11 @@ export function ChatPanel({
 						) : (
 							<AlertCircle className="size-3.5" />
 						)}
-						{modelsLoading ? 'Loading models…' : modelsError ? 'Configure AI' : 'Choose a model to start'}
+						{modelsLoading
+							? 'Loading models…'
+							: modelsError
+								? 'Configure AI'
+								: 'Choose a model to start'}
 					</button>
 				) : null}
 			</Collapsible>
@@ -1329,10 +1365,13 @@ export function ChatPanel({
 					<div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-4">
 						<Bot className="h-12 w-12 mb-4 opacity-50" />
 						<p className="text-sm font-medium">Your AI conversation</p>
-						<p className="mt-1 text-xs">This is not the shared Comments discussion. Messages go to your configured AI provider.</p>
+						<p className="mt-1 text-xs">
+							This is not the shared Comments discussion. Messages go to your configured AI
+							provider.
+						</p>
 						<p className="text-xs mt-1">
 							{isReadOnlyThread
-								? 'Ask a question here. Earthly will answer without tools or map changes.'
+								? 'Ask questions and search sources without changing your maps or stories.'
 								: isWalletRequired
 									? 'Pay per message with eCash. Unused funds are refunded automatically.'
 									: 'No in-app payment required; your provider’s terms apply.'}
@@ -1368,7 +1407,16 @@ export function ChatPanel({
 								<details className="mt-2 text-xs">
 									<summary className="cursor-pointer py-2">More mapping examples</summary>
 									<div className="grid gap-2">
-										{EMPTY_STATE_PROMPTS.map((prompt) => <button key={prompt} type="button" className="min-h-11 border bg-muted/20 p-2 text-left" onClick={() => handleExamplePromptClick(prompt)}>{prompt}</button>)}
+										{EMPTY_STATE_PROMPTS.map((prompt) => (
+											<button
+												key={prompt}
+												type="button"
+												className="min-h-11 border bg-muted/20 p-2 text-left"
+												onClick={() => handleExamplePromptClick(prompt)}
+											>
+												{prompt}
+											</button>
+										))}
 									</div>
 								</details>
 							</div>
@@ -1535,17 +1583,20 @@ export function ChatPanel({
 							onAddReference={handleAddReference}
 							onRemoveReference={handleRemoveReference}
 							onClearReferences={handleClearReferences}
+							getReferenceKey={getChatReferenceKey}
+							pickerLabel="References"
+							suggestions={suggestedReferences}
 							searchMode="both"
 							entityTypes={CHAT_REFERENCE_ENTITY_TYPES}
 							getDatasetName={getDatasetName}
-							placeholder="Add Map, Atlas, Story, or feature references..."
-							className="min-w-0 flex-1"
+							placeholder="Search maps, stories, atlases…"
+							className="min-w-0"
 						/>
 						<Button
 							type="button"
 							variant={selectionContextEnabled ? 'default' : 'outline'}
 							size="sm"
-							className="h-8 shrink-0 gap-1.5 text-xs"
+							className="h-11 shrink-0 gap-1.5 text-xs md:h-9"
 							onClick={handleToggleSelectionContext}
 							disabled={!selectionContextEnabled && selectedEditorFeatures.length === 0}
 							title={
@@ -1561,7 +1612,7 @@ export function ChatPanel({
 							) : (
 								<ToggleLeft className="h-3.5 w-3.5" />
 							)}
-							Select
+							Selection
 						</Button>
 						<ChatGeometryAttachment
 							key={`chat-geometry-${activeChatId ?? 'default'}`}
@@ -1570,7 +1621,7 @@ export function ChatPanel({
 							layout="detached"
 							panelClassName="w-full"
 						/>
-						<div className="flex min-w-0 basis-full items-center gap-1.5 overflow-x-auto pb-0.5">
+						<div className="flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5">
 							<FileChipStrip
 								ref={fileChipStripRef}
 								key={`chat-files-${activeChatId ?? 'default'}`}
@@ -1617,10 +1668,10 @@ export function ChatPanel({
 									: isWalletRequired && walletStatus !== 'ready'
 										? 'Connect wallet to chat...'
 										: anotherChatIsRunning
-												? 'Compose while the other Thread works...'
-												: isReadOnlyThread
-													? 'Ask Earthly...'
-													: 'Type a message...'
+											? 'Compose while the other Thread works...'
+											: isReadOnlyThread
+												? 'Ask Earthly...'
+												: 'Type a message...'
 							}
 							disabled={!canCompose}
 							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-[150px]"
@@ -1654,7 +1705,7 @@ export function ChatPanel({
 	)
 }
 
-function getChatReferenceKey(reference: ChatReference): string {
+export function getChatReferenceKey(reference: ChatReference): string {
 	const stableId = reference.id || reference.name || 'unknown'
 	return `${reference.type}:${stableId}:${reference.pubkey ?? ''}:${reference.featureId ?? ''}:${reference.localWorkspaceId ?? ''}`
 }
@@ -1702,21 +1753,51 @@ function resolveReferenceAddress(result: EntitySearchResult): string | undefined
 }
 
 function resolveReferenceFeatureId(result: EntitySearchResult): string | undefined {
+	if (result.featureId) return result.featureId
 	if (result.type !== 'feature') return undefined
 	const entity = result.entity as { featureId?: string }
 	return typeof entity?.featureId === 'string' ? entity.featureId : undefined
 }
 
-function chatReferenceToSearchResult(reference: ChatReference): EntitySearchResult {
+export function chatReferenceToSearchResult(reference: ChatReference): EntitySearchResult {
 	return {
 		id: reference.id,
 		name: reference.name,
 		type: reference.type,
 		subtitle: reference.subtitle,
 		address: reference.address,
+		featureId: reference.featureId,
+		localWorkspaceId: reference.localWorkspaceId,
 		pubkey: reference.pubkey,
 		createdAt: reference.createdAt,
 		entity: reference as unknown as GeoFeatureItem,
+	}
+}
+
+/** A source shortcut in the reference picker, never an implicit edit grant. */
+export function referenceForViewedObject(key?: string, title?: string): ChatReference | null {
+	if (!key) return null
+	const separator = key.indexOf(':')
+	if (separator < 0) return null
+	const kind = key.slice(0, separator)
+	const id = key.slice(separator + 1)
+	const sourceTypes: Record<string, ChatReference['type']> = {
+		'map-draft': 'dataset',
+		map: 'dataset',
+		story: 'story',
+		atlas: 'context',
+		sighting: 'sighting',
+		live: 'beacon',
+	}
+	const type = sourceTypes[kind]
+	if (!type || !id) return null
+	return {
+		id,
+		name: title || 'Untitled',
+		type,
+		subtitle: kind === 'map-draft' ? 'Currently open · draft' : 'Currently open',
+		localWorkspaceId: kind === 'map-draft' ? id : undefined,
+		address: id.startsWith('naddr1') ? id : undefined,
 	}
 }
 
