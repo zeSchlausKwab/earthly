@@ -1,3 +1,5 @@
+import { transferFromResult } from '@/components/entity-list/entityTransfer'
+import { sightingToSearchResult } from '@/components/entity-search/types'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Eye, MapPlus } from 'lucide-react'
 import { useEffect, useRef } from 'react'
@@ -72,7 +74,7 @@ function SightingListRow({
 	}, [isSelected])
 
 	return (
-		<ListRow
+		<ListRow dragItem={transferFromResult(sightingToSearchResult(sighting))}
 			rowRef={rowRef}
 			leading={
 				primaryImage?.url ? (

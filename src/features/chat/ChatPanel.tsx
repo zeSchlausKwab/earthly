@@ -20,7 +20,6 @@ import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import {
-	EntityReferenceToolbar,
 	type EntitySearchResult,
 	type EntityType,
 } from '@/components/entity-search'
@@ -318,8 +317,6 @@ export function ChatPanel({
 		switchChat,
 		deleteChat,
 		references,
-		setReferences,
-		addReferenceToChat,
 		cancelStream,
 	} = useChatStore()
 	const composerDrafts = useChatComposerStore((state) => state.drafts)
@@ -704,33 +701,6 @@ export function ChatPanel({
 		})
 	}
 
-	const handleAddReference = async (result: EntitySearchResult) => {
-		const initiatingChatId = activeChatId
-		if (!initiatingChatId) return
-		// A picker reference is read-only. Adding it must never publish or bind a draft.
-		const referenceResult = result
-
-		const nextReference: ChatReference = {
-			id: referenceResult.id,
-			name: referenceResult.name,
-			type: referenceResult.type,
-			subtitle: referenceResult.subtitle,
-			address: resolveReferenceAddress(referenceResult),
-			featureId: resolveReferenceFeatureId(referenceResult),
-			localWorkspaceId: referenceResult.localWorkspaceId,
-			pubkey: referenceResult.pubkey,
-			createdAt: referenceResult.createdAt,
-		}
-		addReferenceToChat(initiatingChatId, nextReference)
-	}
-
-	const handleRemoveReference = (referenceKey: string) => {
-		setReferences(references.filter((reference) => getChatReferenceKey(reference) !== referenceKey))
-	}
-
-	const handleClearReferences = () => {
-		setReferences([])
-	}
 	const viewedReference = referenceForViewedObject(threadKey, threadTitle)
 	const suggestedReferences =
 		viewedReference &&
@@ -1017,12 +987,11 @@ export function ChatPanel({
 					) : null}
 				</fieldset>
 				<WorkingSetControls
-					geoEvents={geoEvents}
-					chatId={activeChatId}
-					onAddViewedMap={onEnsureAuthoringTarget}
-					viewedTitle={threadTitle}
-					viewedKey={threadKey}
-				/>
+     chatId={activeChatId}
+     sources={{ datasets: geoEvents, contexts: mapContextEvents, features: availableFeatures }}
+     getDatasetName={getDatasetName}
+     suggestedReferences={suggestedReferences}
+    />
 
 				<CollapsibleContent className="min-h-0 overflow-y-auto overscroll-contain border-t pb-2 pt-2">
 					<p className="mb-3 text-xs text-muted-foreground">
@@ -1574,26 +1543,7 @@ export function ChatPanel({
 			{/* Input */}
 			<form onSubmit={handleSubmit} className={cn('shrink-0 border-t', isMobile ? 'p-2' : 'p-3')}>
 				<div className="space-y-2">
-					<div className="flex flex-wrap items-start gap-2">
-						<EntityReferenceToolbar
-							sources={{
-								datasets: geoEvents,
-								contexts: mapContextEvents,
-								features: availableFeatures,
-							}}
-							references={references.map(chatReferenceToSearchResult)}
-							onAddReference={handleAddReference}
-							onRemoveReference={handleRemoveReference}
-							onClearReferences={handleClearReferences}
-							getReferenceKey={getChatReferenceKey}
-							pickerLabel="References"
-							suggestions={suggestedReferences}
-							searchMode="both"
-							entityTypes={CHAT_REFERENCE_ENTITY_TYPES}
-							getDatasetName={getDatasetName}
-							placeholder="Search maps, stories, atlases…"
-							className="min-w-0"
-						/>
+					<details className="group/attachments"><summary className="cursor-pointer text-xs text-muted-foreground">Attach to message{displayedFiles.length + attachedSelection.length + (attachedGeometry?.features.length ?? 0) > 0 ? ' · attachments added' : ''}</summary><div className="mt-2 flex flex-wrap items-start gap-2">
 						<Button
 							type="button"
 							variant={selectionContextEnabled ? 'default' : 'outline'}
@@ -1656,7 +1606,7 @@ export function ChatPanel({
 								) : null}
 							</div>
 						)}
-					</div>
+					</div></details>
 					<div className="flex gap-2">
 						<textarea
 							ref={textareaRef}
@@ -1709,56 +1659,7 @@ export function ChatPanel({
 
 export function getChatReferenceKey(reference: ChatReference): string {
 	const stableId = reference.id || reference.name || 'unknown'
-	return `${reference.type}:${stableId}:${reference.pubkey ?? ''}:${reference.featureId ?? ''}:${reference.localWorkspaceId ?? ''}`
-}
-
-/**
- * Entity types offered by the chat reference picker. Passed explicitly because
- * the relay search DEFAULTS to datasets+contexts only — without this, stories,
- * beacons, and sightings are silently unsearchable in the composer (the whole
- * point of referencing entities before composing an article).
- */
-const CHAT_REFERENCE_ENTITY_TYPES: EntityType[] = [
-	'dataset',
-	'context',
-	'feature',
-	'story',
-	'beacon',
-	'sighting',
-]
-
-const ENTITY_TYPE_TO_KIND: Partial<Record<ChatReference['type'], number>> = {
-	dataset: GEO_EVENT_KIND,
-	context: MAP_CONTEXT_KIND,
-	story: ARTICLE_KIND,
-	beacon: LIVE_BEACON_KIND,
-	sighting: TEMPORAL_SIGHTING_KIND,
-}
-
-/**
- * Resolve the bare `naddr1…` address for a picked search result. Feature results
- * already carry one; entity results from the relay search don't, so derive it
- * from kind + pubkey + d-tag. The address is what lets the model cite the
- * reference inline (`nostr:naddr…`) when composing story drafts.
- */
-function resolveReferenceAddress(result: EntitySearchResult): string | undefined {
-	if (result.address) return result.address
-	const kind = ENTITY_TYPE_TO_KIND[result.type]
-	const entity = result.entity as { dTag?: string | null }
-	const identifier = typeof entity?.dTag === 'string' ? entity.dTag : undefined
-	if (!kind || !result.pubkey || !identifier) return undefined
-	try {
-		return nip19.naddrEncode({ kind, pubkey: result.pubkey, identifier })
-	} catch {
-		return undefined
-	}
-}
-
-function resolveReferenceFeatureId(result: EntitySearchResult): string | undefined {
-	if (result.featureId) return result.featureId
-	if (result.type !== 'feature') return undefined
-	const entity = result.entity as { featureId?: string }
-	return typeof entity?.featureId === 'string' ? entity.featureId : undefined
+	return `${reference.type}:${stableId}:${reference.pubkey ?? ''}:${reference.featureId ?? ''}:${reference.localWorkspaceId ?? ''}:${reference.localStoryDraftKey ?? ''}`
 }
 
 export function chatReferenceToSearchResult(reference: ChatReference): EntitySearchResult {
@@ -1770,6 +1671,7 @@ export function chatReferenceToSearchResult(reference: ChatReference): EntitySea
 		address: reference.address,
 		featureId: reference.featureId,
 		localWorkspaceId: reference.localWorkspaceId,
+		localStoryDraftKey: reference.localStoryDraftKey,
 		pubkey: reference.pubkey,
 		createdAt: reference.createdAt,
 		entity: reference as unknown as GeoFeatureItem,

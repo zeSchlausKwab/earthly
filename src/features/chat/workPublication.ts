@@ -4,6 +4,7 @@ import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { datasetDraftHasChanges } from '@/features/geo-editor/draftContent'
 import { nip19 } from 'nostr-tools'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { savedStoryHasChanges } from '@/features/geo-editor/storyPublication'
 
 /** Publication and AI permission are independent. A published Map keeps a local draft. */
 export function workPublication(
@@ -42,7 +43,7 @@ export function workPublication(
 		const modified =
 			target.kind === 'dataset' && workspace && draft
 				? datasetDraftHasChanges(workspace, draft, geoEvents)
-				: undefined
+				: target.kind === 'story' ? savedStoryHasChanges(target) : undefined
 		return {
 			label: modified ? 'Unpublished changes' : 'Published',
 			modified,

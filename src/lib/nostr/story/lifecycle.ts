@@ -163,7 +163,9 @@ export function validateStoryPresentation(content: Partial<ArticleContent>, opti
 export async function publishStory(
 	content: Partial<ArticleContent>,
 	signer: SignerLike,
+	validate: () => void = () => {},
 ): Promise<NostrEvent> {
+	validate()
 	const effectiveContent = validateStoryPresentation(content)
 	const referencedCoords = extractSemanticStoryReferencedCoordinates(effectiveContent.content)
 
@@ -174,6 +176,7 @@ export async function publishStory(
 		.modifyPublicTags(setAddressReferenceTags(referencedCoords))
 		.sign(signer)
 
+	validate()
 	await publish(signed, { routing: 'outbox' })
 	noteStorySessionPublish(signed, effectiveContent)
 	return signed
@@ -188,7 +191,9 @@ export async function editStory(
 	existingEvent: NostrEvent,
 	content: Partial<ArticleContent>,
 	signer: SignerLike,
+	validate: () => void = () => {},
 ): Promise<NostrEvent> {
+	validate()
 	if (!isArticle(existingEvent)) {
 		throw new Error('The event is not a Story and cannot be edited.')
 	}
@@ -201,6 +206,7 @@ export async function editStory(
 		.modifyPublicTags(setAddressReferenceTags(referencedCoords))
 		.sign(signer)
 
+	validate()
 	await publish(signed, { routing: 'outbox' })
 	noteStorySessionPublish(signed, effectiveContent)
 	return signed

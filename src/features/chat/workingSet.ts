@@ -4,7 +4,9 @@ import {
 	type PublishChannel,
 } from '@/features/geo-editor/store'
 import type { ChatReference } from './store'
+import { eventStore } from '@/lib/nostr'
 import { readStoryDraft } from '@/lib/nostr/story'
+import type { StoryDraft } from '@/lib/nostr/story/draft'
 import type { ToolExecutionTarget, ToolExecutionRunIdentity } from './tools/types'
 import { parseNostrAddressReference, naddrToCoordinate } from '@/lib/nostr/references'
 import { extractSemanticStoryAddressReferences } from '@/lib/map-presentation/storyMarkdown'
@@ -12,8 +14,9 @@ import { extractSemanticStoryAddressReferences } from '@/lib/map-presentation/st
 /** The selector is part of a reference's identity. */
 export function threadReferenceId(reference: ChatReference): string {
 	return JSON.stringify([
-		reference.id,
+		 reference.id,
 		reference.localWorkspaceId ?? null,
+		reference.localStoryDraftKey ?? null,
 		reference.featureId ?? null,
 	])
 }
@@ -120,6 +123,8 @@ export function captureThreadView() {
 }
 
 export type CapturedThreadReference = ChatReference & {
+	profileSnapshot?: { pubkey: string; content: string }
+	localStorySnapshot?: StoryDraft
 	/** Immutable source data for this run; never persisted in the Thread. */
 	localSnapshot?: Pick<
 		GeoCollectionEditDraft,
@@ -131,6 +136,11 @@ export function captureThreadReferences(
 	references: readonly ChatReference[],
 ): CapturedThreadReference[] {
 	return references.map((reference) => {
+		if (reference.type === 'person' && reference.pubkey) {
+			const profile = eventStore.getReplaceable(0, reference.pubkey)
+			if (!profile) throw new Error(`Profile unavailable: ${reference.name}. Open it and try again.`)
+			return { ...structuredClone(reference), profileSnapshot: { pubkey: profile.pubkey, content: profile.content } }
+		}
 		if (reference.address) {
 			const parsed = parseNostrAddressReference(
 				reference.address.startsWith('nostr:') ? reference.address : `nostr:${reference.address}`,
@@ -143,6 +153,11 @@ export function captureThreadReferences(
 					address: parsed.address,
 					featureId: reference.featureId ?? parsed.featureId,
 				}
+		}
+		if (reference.localStoryDraftKey) {
+			const draft = readStoryDraft(reference.localStoryDraftKey)
+			if (!draft) throw new Error(`Reference unavailable: ${reference.name}`)
+			return { ...structuredClone(reference), localStorySnapshot: structuredClone(draft) }
 		}
 		if (!reference.localWorkspaceId) return structuredClone(reference)
 		const state = useEditorStore.getState()

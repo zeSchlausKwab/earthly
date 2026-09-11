@@ -25,6 +25,7 @@ import {
 	canPublishSavedMapChanges,
 	publishSavedMapChanges,
 } from '@/features/geo-editor/draftPublication'
+import { canPublishSavedStory, publishSavedStory } from '@/features/geo-editor/storyPublication'
 
 /** Shared shortcuts, not a second draft store or a second publishing flow. */
 export function DraftRowActions({
@@ -43,7 +44,7 @@ export function DraftRowActions({
 	const { runningChatId } = useChatActivity()
 	const account = useActiveAccount()
 	const isPublishing = useEditorStore((state) => state.isPublishing)
-	const directPublish = useEditorStore((state) => {
+	const directMapPublish = useEditorStore((state) => {
 		const workspace = target.kind === 'dataset' ? state.workspaces[target.workspaceId] : undefined
 		return canPublishSavedMapChanges(
 			workspace,
@@ -51,7 +52,9 @@ export function DraftRowActions({
 			account?.pubkey,
 		)
 	})
-	const publishLabel = directPublish ? 'Publish changes' : 'Review & publish'
+	const directStoryPublish = target.kind === 'story' && canPublishSavedStory(target, account?.pubkey)
+	const directPublish = directMapPublish || directStoryPublish
+	const publishLabel = directPublish ? target.kind === 'story' && !target.storyReference ? 'Publish Story' : 'Publish changes' : 'Review & publish'
 	const run = async (action: () => Promise<void>, navigate = false) => {
 		if (pending) return
 		setPending(true)
@@ -97,6 +100,9 @@ export function DraftRowActions({
 							if (directPublish && target.kind === 'dataset') {
 								await publishSavedMapChanges(target.workspaceId)
 								toast.success(`Changes to “${target.title}” published.`)
+							} else if (directStoryPublish && target.kind === 'story') {
+								await publishSavedStory(target)
+								toast.success(`“${target.title}” published.`)
 							} else {
 								await reviewSavedDraft(target)
 								onNavigate?.()
@@ -115,7 +121,7 @@ export function DraftRowActions({
 						variant="ghost"
 						size="icon"
 						className="size-11 md:size-8 text-muted-foreground hover:text-destructive"
-						disabled={pending || Boolean(runningChatId)}
+						disabled={pending || isPublishing || Boolean(runningChatId)}
 						title={runningChatId ? 'Stop AI before discarding a draft' : 'Discard draft'}
 						aria-label={`Discard draft: ${target.title}`}
 						onClick={() => {
@@ -151,7 +157,7 @@ export function DraftRowActions({
 						<AlertDialogCancel disabled={pending}>Keep draft</AlertDialogCancel>
 						<Button
 							variant="destructive"
-							disabled={pending || Boolean(runningChatId)}
+							disabled={pending || isPublishing || Boolean(runningChatId)}
 							onClick={() =>
 								void run(async () => {
 									await discardSavedDraft(discardTarget, discardOwner)

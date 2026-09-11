@@ -1,3 +1,5 @@
+import { transferFromResult } from '@/components/entity-list/entityTransfer'
+import { contextToSearchResult } from '@/components/entity-search/types'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Globe } from 'lucide-react'
 import {
@@ -71,7 +73,7 @@ export const createContextColumns = (
 				Boolean(context.currentUserPubkey) && contextEvent.pubkey === context.currentUserPubkey
 
 			return (
-				<ListRow
+				<ListRow dragItem={transferFromResult(contextToSearchResult(contextEvent))}
 					leading={
 						<CoverThumb
 							src={image}

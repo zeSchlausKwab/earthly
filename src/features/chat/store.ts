@@ -3,6 +3,7 @@
  */
 import type { FeatureCollection } from 'geojson'
 import { create } from 'zustand'
+import { registerEntityConversationContext } from '@/components/entity-list/entityTransfer'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type {
 	ChatMessage,
@@ -351,6 +352,7 @@ export interface ChatSession {
 export interface ChatReference {
 	/** A read-only local source; never a write grant or an implicit publication. */
 	localWorkspaceId?: string
+	localStoryDraftKey?: string
 	id: string
 	name: string
 	type: EntityType
@@ -1952,12 +1954,12 @@ export const useChatStore = create<ChatStore>()(
 				set((state) => {
 					const target = state.chatSessions.find((chat) => chat.id === chatId)
 					if (!target) return {}
-					const key = `${reference.type}:${reference.id || reference.name}:${reference.pubkey ?? ''}:${reference.featureId ?? ''}:${reference.localWorkspaceId ?? ''}`
+					const key = `${reference.type}:${reference.id || reference.name}:${reference.pubkey ?? ''}:${reference.featureId ?? ''}:${reference.localWorkspaceId ?? ''}:${reference.localStoryDraftKey ?? ''}`
 					const currentReferences = target.references ?? []
 					if (
 						currentReferences.some(
 							(candidate) =>
-								`${candidate.type}:${candidate.id || candidate.name}:${candidate.pubkey ?? ''}:${candidate.featureId ?? ''}:${candidate.localWorkspaceId ?? ''}` ===
+								`${candidate.type}:${candidate.id || candidate.name}:${candidate.pubkey ?? ''}:${candidate.featureId ?? ''}:${candidate.localWorkspaceId ?? ''}:${candidate.localStoryDraftKey ?? ''}` ===
 								key,
 						)
 					) {
@@ -2632,7 +2634,7 @@ export const useChatStore = create<ChatStore>()(
 						const systemSections = continuingAfterAppliedChanges
 							? [FINISH_APPLIED_CHANGES_INSTRUCTION]
 							: [
-									workScoped ? `${WORKING_SET_INSTRUCTION}\nWorking set: ${JSON.stringify(capturedWorkingSet)}\nReferences: ${JSON.stringify(capturedReferences.map(({ localSnapshot: _snapshot, ...reference }) => reference))}\nNew local drafts: ${runIdentity.allowCreate ? 'allowed' : 'not allowed'}` : readOnlyRun
+									workScoped ? `${WORKING_SET_INSTRUCTION}\nWorking set: ${JSON.stringify(capturedWorkingSet)}\nReferences: ${JSON.stringify(capturedReferences.map(({ localSnapshot: _snapshot, localStorySnapshot: _story, profileSnapshot: _profile, ...reference }) => reference))}\nNew local drafts: ${runIdentity.allowCreate ? 'allowed' : 'not allowed'}` : readOnlyRun
 										? READ_ONLY_THREAD_INSTRUCTION
 										: toolsEnabledForRun
 											? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
@@ -3469,3 +3471,8 @@ export const chatActions = {
 	cancelStream: () => useChatStore.getState().cancelStream(),
 	reset: () => useChatStore.getState().reset(),
 }
+
+registerEntityConversationContext(() => ({
+	chatId: useChatStore.getState().activeChatId,
+	pubkey: accounts.active?.pubkey ?? null,
+}))

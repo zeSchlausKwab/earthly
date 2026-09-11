@@ -1,3 +1,5 @@
+import { EntityDragHandle } from '@/components/entity-list/EntityDragHandle'
+import { transferFromTarget } from '@/components/entity-list/entityTransfer'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
@@ -492,6 +494,7 @@ export function WorkspaceDraftNavigator({
 		return (
 			<>
 				<div className="flex items-center gap-1 px-1.5 py-1.5">
+					<EntityDragHandle item={transferFromTarget(target)}/>
 					{hasAlternatives || needsDestination ? (
 						<Button
 							type="button"
@@ -806,6 +809,7 @@ function NewStoryDrafts() {
 				}
 				return (
 					<div key={draft.draftKey} className="flex min-w-0 items-center border border-border p-1">
+						<EntityDragHandle item={{ id: `story:${draft.draftKey}`, type: 'story', name: target.title, localStoryDraftKey: draft.draftKey }}/>
 						<Button
 							variant="ghost"
 							className="min-w-0 flex-1 justify-start"

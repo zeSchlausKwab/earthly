@@ -1,3 +1,4 @@
+import { EntityDragHandle } from '@/components/entity-list/EntityDragHandle'
 import {
 	AlertTriangle,
 	ArrowDown,
@@ -149,6 +150,7 @@ function FeatureRow({
 	annotationTextareaRef,
 }: FeatureRowProps) {
 	const editor = useEditorStore((state) => state.editor)
+	const workspaceId = useEditorStore(state => state.activeWorkspaceId)
 	const [dropPlacement, setDropPlacement] = useState<GeometryDropPlacement | null>(null)
 
 	// Local state for new property - each row has its own
@@ -276,7 +278,8 @@ function FeatureRow({
 		>
 			{/* Row header */}
 			<div className="flex items-center gap-1 px-1.5 py-1">
-				<button
+{workspaceId ? <EntityDragHandle item={{ id: `feature:${workspaceId}:${feature.id}`, type: 'feature', name, localWorkspaceId: workspaceId, featureId: String(feature.id) }}
+ onDragStart={event => event.dataTransfer.setData(GEOMETRY_REORDER_MIME, feature.id)}/> : <button
 					type="button"
 					draggable
 					className="flex h-7 w-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground hover:text-foreground active:cursor-grabbing"
@@ -289,7 +292,7 @@ function FeatureRow({
 					title="Drag to reorder"
 				>
 					<GripVertical className="h-3.5 w-3.5" />
-				</button>
+				</button>}
 				<Button
 					type="button"
 					variant="ghost"

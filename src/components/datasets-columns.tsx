@@ -1,3 +1,5 @@
+import { transferFromResult } from '@/components/entity-list/entityTransfer'
+import { datasetToSearchResult } from '@/components/entity-search/types'
 import type { ColumnDef } from '@tanstack/react-table'
 import { CopyPlus, Loader2 } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
@@ -174,7 +176,7 @@ export const createDatasetColumns = (
 			}
 
 			return (
-				<ListRow
+				<ListRow dragItem={transferFromResult(datasetToSearchResult(event, () => datasetName))}
 					leading={
 						<GeometryThumb collection={event.featureCollection} fallbackIcon={DatasetGlyphIcon} />
 					}

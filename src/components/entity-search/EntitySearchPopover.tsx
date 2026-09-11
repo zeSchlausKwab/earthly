@@ -21,6 +21,7 @@ import {
 export type SearchMode = 'local' | 'relay' | 'both'
 
 interface EntitySearchPopoverProps {
+	dragHandles?: boolean
 	sources?: EntitySearchSources
 	entityTypes?: EntityType[]
 	onSelect: (result: EntitySearchResult) => void
@@ -72,6 +73,7 @@ function groupSearchResults(results: EntitySearchResult[]) {
 }
 
 export function EntitySearchPopover({
+	dragHandles = true,
 	sources = {},
 	entityTypes,
 	onSelect,
@@ -290,6 +292,7 @@ export function EntitySearchPopover({
 								const globalIndex = flatResults.indexOf(result) + (hasAskRow ? 1 : 0)
 								return (
 									<EntityResultItem
+										dragHandle={dragHandles}
 										key={result.id}
 										result={result}
 										isSelected={globalIndex === selectedIndex}

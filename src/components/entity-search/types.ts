@@ -60,6 +60,7 @@ export interface EntitySearchResult {
 	/** Read-only attachment scope; independent of the search result's source id. */
 	featureId?: string
 	localWorkspaceId?: string
+	localStoryDraftKey?: string
 	pubkey?: string
 	createdAt?: number
 	/** Original entity reference for callbacks */
@@ -244,12 +245,17 @@ export function placeToSearchResult(place: PlaceSearchEntity): EntitySearchResul
 }
 
 export function featureToSearchResult(feature: GeoFeatureItem): EntitySearchResult {
+	const entityType = feature.entityType
 	return {
 		id: feature.id,
 		name: feature.name,
-		type: 'feature',
+		type:
+			entityType === 'dataset' || entityType === 'story' || entityType === 'context'
+				? entityType
+				: 'feature',
 		subtitle: feature.datasetName,
 		address: feature.address,
+		featureId: feature.featureId,
 		entity: feature,
 	}
 }

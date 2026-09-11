@@ -2,7 +2,9 @@
  * Local-first Story draft persistence (STORY-04 draft).
  *
  * A Story draft is held per-device in scoped localStorage, keyed by the Story's
- * `d`-tag, and cleared on publish. Reuses the existing `readScopedStorage` /
+ * `d`-tag. Publishing retains its latest local content and an acknowledged
+ * publication baseline, so subsequent edits can be marked as unpublished.
+ * Reuses the existing `readScopedStorage` /
  * `writeScopedStorage` primitives (pubkey-scoped storage), so there is no new
  * localStorage code here. The whole drafts map lives at a single base key; a
  * malformed stored value yields an empty map and NEVER throws (mirrors the
@@ -19,6 +21,8 @@ export type StoryDraft = Pick<
 	'title' | 'summary' | 'image' | 'content' | 'presentation'
 > & {
 	bodyTab?: 'write' | 'preview'
+	/** Last acknowledged publication; form writes preserve it for change detection. */
+	publication?: { reference: string; eventId: string; fingerprint: string }
 	updatedAt: number
 }
 
@@ -66,6 +70,7 @@ function readDraftMap(pubkey?: string | null): Record<string, StoryDraft> {
 			content: typeof r.content === 'string' ? r.content : undefined,
 			...(Object.hasOwn(r, 'presentation') ? { presentation: r.presentation } : {}),
 			bodyTab: r.bodyTab === 'preview' ? 'preview' : r.bodyTab === 'write' ? 'write' : undefined,
+			publication: isStoryPublication(r.publication) ? r.publication : undefined,
 			updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : 0,
 		}
 	}
@@ -85,9 +90,31 @@ export function writeStoryDraft(
 	pubkey?: string | null,
 ): void {
 	const map = readDraftMap(pubkey)
-	map[dTag] = { ...draft, updatedAt: draft.updatedAt ?? Date.now() }
+	map[dTag] = { ...draft, publication: draft.publication ?? map[dTag]?.publication, updatedAt: draft.updatedAt ?? Date.now() }
 	writeScopedStorage(STORY_DRAFTS_STORAGE_KEY, map, pubkey)
 	notifyDraftsChanged()
+}
+
+function isStoryPublication(value: unknown): value is NonNullable<StoryDraft['publication']> {
+	if (!value || typeof value !== 'object') return false
+	const record = value as Record<string, unknown>
+	return ['reference', 'eventId', 'fingerprint'].every(key => typeof record[key] === 'string')
+}
+
+/** Match published semantics, ignoring authoring tabs, timestamps, and object key order. */
+export function storyContentFingerprint(content: Partial<StoryDraft>): string {
+	const canonical = (value: unknown): unknown => {
+		if (Array.isArray(value)) return value.map(canonical)
+		if (value && typeof value === 'object') return Object.fromEntries(
+			Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)]),
+		)
+		return value
+	}
+	return JSON.stringify(canonical({
+		title: content.title?.trim() || '', summary: content.summary?.trim() || '',
+		image: content.image?.trim() || '', content: content.content ?? '',
+		presentation: content.presentation,
+	}))
 }
 
 /** Remove a single Story draft (call on publish). No-op if absent. */

@@ -2,6 +2,8 @@ import { BookOpen, Database, Eye, Globe, MapPin, RadioTower, UserRound } from 'l
 import { cn } from '@/lib/utils'
 import type { EntitySearchResult, EntityType } from './types'
 import { Button } from '@/components/ui/button'
+import { EntityDragHandle } from '@/components/entity-list/EntityDragHandle'
+import { transferFromResult } from '@/components/entity-list/entityTransfer'
 
 const TYPE_ICONS: Record<EntityType, typeof Database> = {
 	dataset: Database,
@@ -26,6 +28,7 @@ const TYPE_COLORS: Record<EntityType, string> = {
 }
 
 interface EntityResultItemProps {
+	dragHandle?: boolean
 	result: EntitySearchResult
 	isSelected?: boolean
 	showTypeIcon?: boolean
@@ -33,6 +36,7 @@ interface EntityResultItemProps {
 }
 
 export function EntityResultItem({
+	dragHandle = true,
 	result,
 	isSelected,
 	showTypeIcon = true,
@@ -44,22 +48,27 @@ export function EntityResultItem({
 	const colorClass = TYPE_COLORS[result.type] ?? 'text-muted-foreground'
 
 	return (
-		<Button
-			type="button"
-			variant="ghost"
-			className={cn(
-				'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm h-auto justify-start',
-				isSelected && 'bg-accent text-accent-foreground',
+		<div className="flex min-w-0 items-center gap-1">
+			{dragHandle && result.type !== 'place' && (
+				<EntityDragHandle item={transferFromResult(result)} />
 			)}
-			onClick={() => onSelect?.(result)}
-		>
-			{showTypeIcon && <Icon className={cn('h-3.5 w-3.5 shrink-0', colorClass)} />}
-			<div className="min-w-0 flex-1">
-				<div className="truncate font-medium text-xs">{result.name}</div>
-				{result.subtitle && (
-					<div className="truncate text-[11px] text-muted-foreground">{result.subtitle}</div>
+			<Button
+				type="button"
+				variant="ghost"
+				className={cn(
+					'flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm h-auto justify-start',
+					isSelected && 'bg-accent text-accent-foreground',
 				)}
-			</div>
-		</Button>
+				onClick={() => onSelect?.(result)}
+			>
+				{showTypeIcon && <Icon className={cn('h-3.5 w-3.5 shrink-0', colorClass)} />}
+				<div className="min-w-0 flex-1">
+					<div className="truncate font-medium text-xs">{result.name}</div>
+					{result.subtitle && (
+						<div className="truncate text-[11px] text-muted-foreground">{result.subtitle}</div>
+					)}
+				</div>
+			</Button>
+		</div>
 	)
 }

@@ -22,7 +22,6 @@
  * (Publish Story / Save changes).
  */
 
-import { castEvent } from 'applesauce-core/casts'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import {
 	ArrowDown,
@@ -78,14 +77,16 @@ import {
 	getStoryEditorTarget,
 	subscribeStoryEditorOpenRequests,
 } from '@/features/geo-editor/storyEditorBridge'
-import { addTargetToActiveThread, reconcileStoryThreadTarget } from '@/features/chat/store'
+import { addTargetToActiveThread } from '@/features/chat/store'
 import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import { useDraftPublishReview } from '@/features/geo-editor/hooks/useDraftPublishReview'
 import { clearDraftReview, getDraftReviewRequest, subscribeDraftReview, registerStoryDraftDiscard, removeDraftEditingAccess } from '@/features/geo-editor/draftActions'
 import { resolveLocalStoryDependencies } from '@/features/chat/referencePublishing/localStoryDependencies'
+import { flushSync } from 'react-dom'
+import { publishSavedStory, registerStoryPublicationEditor } from '@/features/geo-editor/storyPublication'
 import { useRetainedEditorDraft } from '@/hooks/useRetainedEditorDraft'
 import type { StoryViewDraftContext } from '@/components/editor/StoryViewDraftContext'
-import { accounts, eventStore } from '@/lib/nostr'
+import { accounts } from '@/lib/nostr'
 import { Article, type ArticleContent, getArticleContent, isArticle } from '@/lib/nostr/article'
 import {
 	authorizePresentationLayer,
@@ -105,9 +106,7 @@ import { naddrToCoordinate, coordinateToNaddrReference } from '@/lib/nostr/refer
 import {
 	NEW_STORY_DRAFT_KEY,
 	clearStoryDraft,
-	editStory,
 	getStoryProposalUnsupportedFields,
-	publishStory,
 	proposeStoryEdit,
 	readStoryDraft,
 	writeStoryDraft,
@@ -994,6 +993,12 @@ export function StoryEditorPanel({
 	useEffect(() => {
 		setDirty(draftSignature !== cleanDraftSignatureRef.current)
 	}, [draftSignature, setDirty])
+	useEffect(() => {
+		if (draftSignature === cleanDraftSignatureRef.current && !readStoryDraft(draftKey)) return
+		// Keep the chat's publication status in sync while this form is mounted.
+		const timer = setTimeout(persistNow, 250)
+		return () => clearTimeout(timer)
+	}, [draftKey, draftSignature, persistNow])
 
 	const handleSaveDraft = () => {
 		setSaveError(null)
@@ -1031,6 +1036,16 @@ export function StoryEditorPanel({
 		onClose()
 	}), [draftKey, handleDiscardDraft, onClose])
 	const publishRef = useDraftPublishReview(`story:${draftKey}`)
+	useEffect(() => registerStoryPublicationEditor(draftKey, {
+		flush: persistNow,
+		published: clearRetainedDraft,
+		resolvedBody: (resolved) => {
+			// The publisher validates again before signing. Commit the resolved
+			// body now so its flush callback cannot overwrite it with stale state.
+			flushSync(() => setBody(resolved))
+			bodyEditorRef.current?.setContent(resolved)
+		},
+	}), [draftKey, persistNow, clearRetainedDraft])
 	useEffect(() => {
 		const preview = () => {
 			const request = getDraftReviewRequest()
@@ -1076,26 +1091,25 @@ export function StoryEditorPanel({
 
 		setIsSaving(true)
 		try {
+			if (!isProposal) {
+				const storyReference = initialStory?.dTag ? coordinateToNaddrReference(`${initialStory.kind}:${initialStory.pubkey}:${initialStory.dTag}`) ?? undefined : undefined
+				await publishSavedStory({ kind: 'story', draftKey, title, storyReference })
+				toast.success('Story published. Further edits stay in your draft.')
+				return
+			}
 			const signer = accounts.signer
 			if (!signer) throw new Error('No active account')
 			const ownerPubkey = currentUser.pubkey
 			persistNow()
 			let expectedDraft = JSON.stringify(readStoryDraft(draftKey, ownerPubkey))
 
-			const content: ArticleContent = isProposal
-				? proposalContent
-				: {
-						title: title.trim(),
-						summary: summary.trim() || undefined,
-						image: image.trim() || undefined,
-						content: body,
-						presentation,
-					}
+			const content: ArticleContent = { ...proposalContent }
 
 			// Only explicit LOCAL dependencies need publishing. An ordinary public
 			// reference never publishes the visible editor's unrelated changes.
 			content.content = await resolveLocalStoryDependencies(content.content ?? '', {
 				storyDraftKey: draftKey,
+				storyTitle: title,
 				onProgress: (resolvedBody) => {
 					if (JSON.stringify(readStoryDraft(draftKey, ownerPubkey)) !== expectedDraft) throw new Error('This Story draft changed while publishing its Maps. The published Maps remain available; review your draft before retrying.')
 					writeStoryDraft(draftKey, { ...draftSnapshot, content: resolvedBody }, ownerPubkey)
@@ -1117,23 +1131,7 @@ export function StoryEditorPanel({
 				onSave(initialStory)
 				return
 			}
-			// publishStory/editStory (Plan 01) own the STORY-03 naddr→`a` re-derive
-			// and the STORY-04 d-tag lineage — never re-inline ArticleFactory here.
-			const signed =
-				editedEvent && isArticle(editedEvent)
-					? await editStory(editedEvent, content, signer)
-					: await publishStory(content, signer)
-
-			clearRetainedDraft()
-			const cast = castEvent(signed, Article, eventStore)
-			const reference = coordinateToNaddrReference(`${cast.kind}:${cast.pubkey}:${cast.dTag}`)
-			if (reference && cast.dTag) reconcileStoryThreadTarget(draftKey, { draftKey: cast.dTag, reference, title: cast.article.title || 'Story' })
-			// onSave (handleSaveStory) both tears the editor down AND navigates to
-			// the published story's canonical /stories/story/:naddr route. Do NOT
-			// also call onClose() here: its close handler still sees the pre-render
-			// editor mode and would re-navigate to the bare /stories catalog,
-			// clobbering the publish destination (workflow audit P1).
-			onSave(cast)
+			throw new Error('The original Story is unavailable. Reopen it before proposing changes.')
 		} catch (error) {
 			const message = publishFailureMessage(isProposal ? 'send this Story proposal' : 'publish this Story', error, submitLabel)
 			setSaveError(message)

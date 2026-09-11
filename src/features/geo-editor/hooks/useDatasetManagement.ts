@@ -654,7 +654,9 @@ export function useDatasetManagement(
 			// A direct canonical `/map/:id/edit` route can resolve its event before
 			// the MapLibre editor child has mounted. Report readiness to the route
 			// controller so it can retry instead of permanently consuming the URL.
-			if (!editor) return false
+			const activate = options?.activate !== false
+			if (!editor && activate) return false
+			const initiatingPubkey = getCurrentPubkey()
 			const publishChannel = options?.publishChannel ?? PUBLIC_PUBLISH_CHANNEL
 			const privateScope =
 				Boolean(privateWorkspaceIdForDataset(event) || fieldSessionIdForEvent(event.event)) ||
@@ -677,7 +679,7 @@ export function useDatasetManagement(
 				(workspace) => workspace.sourceId === draftSourceId,
 			)
 			if (existingWorkspace?.activeDraftId) {
-				await switchToWorkspace(existingWorkspace.id, options)
+				if (activate) await switchToWorkspace(existingWorkspace.id, options)
 				return true
 			}
 			try {
@@ -688,6 +690,7 @@ export function useDatasetManagement(
 				return false
 			}
 			const datasetFeatures = convertGeoEventsToEditorFeatures([event], resolvedCollectionResolver)
+			if (getCurrentPubkey() !== initiatingPubkey) throw new Error('The account changed. Please try again.')
 			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
 			const originalCollectionMeta = extractCollectionMeta(collection)
 			const collectionMeta =
@@ -701,6 +704,7 @@ export function useDatasetManagement(
 				existingWorkspace?.id ??
 				createWorkspace({
 					sourceId: draftSourceId,
+					activate,
 					label: collectionMeta.name || getDatasetName(event),
 					kind: 'dataset',
 					datasetKey,
@@ -708,13 +712,13 @@ export function useDatasetManagement(
 					chatSessionId: existingWorkspace?.chatSessionId ?? null,
 				})
 			if (existingWorkspace) {
-				setActiveWorkspaceId(existingWorkspace.id)
+				if (activate) setActiveWorkspaceId(existingWorkspace.id)
 				updateWorkspace(existingWorkspace.id, {
 					datasetKey,
 					baseRevisionId: event.event.id,
 				})
 			}
-			applyEditingState({
+			if (activate) applyEditingState({
 				features: datasetFeatures,
 				activeDataset: event,
 				contextRefs: event.contextReferences,
@@ -732,7 +736,7 @@ export function useDatasetManagement(
 				publishChannel,
 				contextRefs: event.contextReferences,
 				blobReferences: convertGeoBlobReferencesToEditor(event.blobReferences),
-			})
+			}, { activate })
 			updateWorkspace(workspaceId, {
 				activeDraftId: draftId,
 				datasetKey,

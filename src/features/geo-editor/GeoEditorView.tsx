@@ -99,6 +99,8 @@ import {
 	type TopBarAction,
 } from './components/margin-shell'
 import { MeMenu } from './components/margin-shell/MeMenu'
+import { AccountMenuButton } from '@/features/auth/AccountMenuButton'
+import { StoryPublicationDialog } from '@/features/chat/referencePublishing/StoryPublicationDialog'
 import { MobileDrawingChrome } from './components/MobileDrawingChrome'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
@@ -276,7 +278,7 @@ function publishChannelOptionId(channel: PublishChannel): string | undefined {
 	if (channel.kind === 'field-session') return `field-session:${channel.id}`
 	return undefined
 }
-import { registerChatWorkspaceOpener, registerDatasetDraftEnsurer, type DatasetDraftRequest } from './authoringTaskBridge'
+import { registerChatMapPreparer, registerChatWorkspaceOpener, registerDatasetDraftEnsurer, type DatasetDraftRequest } from './authoringTaskBridge'
 import { registerMapDraftActions, removeDraftEditingAccess } from './draftActions'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
@@ -284,7 +286,7 @@ import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from 
 import { isDrawingEditorMode } from './mobileDrawingGuidance'
 import { isDatasetMapInteractionEnabled } from './mobileDatasetInteraction'
 import { switchWorkspaceFromView } from './workspaceSwitchPresentation'
-import type { DatasetEditOptions } from '@/components/info-panel/mapProposalPresentation'
+import { mapDraftSourceId, type DatasetEditOptions } from '@/components/info-panel/mapProposalPresentation'
 import { deriveReferenceMapRenderState, featureMatchesReferenceSelector } from './referenceMapStack'
 import {
 	applyShelfRouteIntentToSearch,
@@ -1713,6 +1715,22 @@ export function GeoEditorView() {
 		() => (activeDataset ? getDatasetKey(activeDataset) : null),
 		[activeDataset, getDatasetKey],
 	)
+	useEffect(() => registerChatMapPreparer(async (event, fork) => {
+		const privateId = privateWorkspaceIdForDataset(event)
+		const nearbyId = fieldSessionIdForEvent(event.event)
+		const intent = fork ? 'fork' : event.pubkey === accounts.active?.pubkey ? 'edit' : 'propose'
+		const loaded = await loadDatasetForEditing(event, {
+			activate: false,
+			intent,
+			publishChannel: privateId ? { kind: 'private-group', id: privateId }
+				: nearbyId ? { kind: 'field-session', id: nearbyId } : { kind: 'public' },
+		})
+		if (!loaded) throw new Error('This map could not be added. Private maps from another author require an explicit copy.')
+		const sourceId = mapDraftSourceId(getDatasetKey(event), intent)
+		const workspace = Object.values(useEditorStore.getState().workspaces).find(item => item.sourceId === sourceId)
+		if (!workspace?.activeDraftId) throw new Error('The map draft is unavailable.')
+		return workspace.id
+	}), [loadDatasetForEditing, getDatasetKey])
 	const activeDatasetMatchesDraftChannel = useMemo(() => {
 		if (!activeDataset || !activeDraftPublishChannel) return false
 		return publishChannelMatchesDatasetScope(activeDraftPublishChannel, {
@@ -5929,10 +5947,7 @@ export function GeoEditorView() {
 						onDiscover={handleOpenDiscover}
 						onTakeTour={handleTakeDiscoverTour}
 						trigger={
-							<button type="button" className="earthly-topbar__action">
-								<UserRound aria-hidden="true" />
-								Me
-							</button>
+							<AccountMenuButton pubkey={currentUserPubkey} />
 						}
 					/>
 				) : (
@@ -7088,14 +7103,11 @@ export function GeoEditorView() {
 						onDiscover={handleOpenDiscover}
 						onTakeTour={handleTakeDiscoverTour}
 						trigger={
-							<button
-								type="button"
+							<AccountMenuButton
+								pubkey={currentUserPubkey}
+								mobile
 								data-tour="mobile-dock-me"
-								className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] text-muted-foreground hover:text-foreground"
-							>
-								<UserRound className="h-5 w-5" aria-hidden="true" />
-								Me
-							</button>
+							/>
 						}
 					/>
 				</nav>
@@ -7104,6 +7116,7 @@ export function GeoEditorView() {
 				<DebugDialog event={debugEvent} open={debugDialogOpen} onOpenChange={setDebugDialogOpen} />
 			)}
 			<ReferencePublishDialog />
+			<StoryPublicationDialog />
 			<StoryTargetDialog />
 			{/* Blossom Upload Dialog */}
 			<BlossomUploadDialog

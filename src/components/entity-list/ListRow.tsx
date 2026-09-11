@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import './entity-list.css'
+import { EntityDragHandle } from './EntityDragHandle'
+import type { EntityTransfer } from './entityTransfer'
 
 /**
  * Resting style for a row action icon — muted-but-present (so the cluster never
@@ -81,6 +83,7 @@ export function RowBadge({ label, className }: { label: ReactNode; className?: s
 }
 
 export interface ListRowProps {
+	dragItem?: EntityTransfer
 	/** 40×28 leading element — geometry preview, cover thumb, glyph, or avatar. */
 	leading?: ReactNode
 	title: ReactNode
@@ -115,6 +118,7 @@ export interface ListRowProps {
 }
 
 export function ListRow({
+	dragItem,
 	leading,
 	title,
 	onTitleClick,
@@ -166,6 +170,7 @@ export function ListRow({
 			style={indentRem ? { paddingLeft: `${0.625 + indentRem}rem` } : undefined}
 		>
 			<div className="entity-list-row-content flex min-w-0 items-center gap-2">
+				{dragItem && <EntityDragHandle item={dragItem} onDragStart={onDragStart}/>}
 				{leading ? <div className="entity-list-row-leading shrink-0">{leading}</div> : null}
 				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 					<div className="flex min-w-0 items-center gap-1.5">
@@ -175,10 +180,10 @@ export function ListRow({
 								className={cn(
 									titleClass,
 									'cursor-pointer text-left transition-colors hover:text-info',
-									draggable && 'cursor-grab active:cursor-grabbing',
+									!dragItem && draggable && 'cursor-grab active:cursor-grabbing',
 								)}
-								draggable={draggable}
-								onDragStart={onDragStart}
+								draggable={!dragItem && draggable}
+								onDragStart={!dragItem ? onDragStart : undefined}
 								onClick={onTitleClick}
 								aria-label={titleAriaLabel}
 								title={titleTitle}

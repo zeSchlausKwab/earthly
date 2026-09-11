@@ -5,6 +5,18 @@
  * must have a recoverable target.
  */
 import { useEditorStore } from './store'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+
+type MapPreparer = (dataset: GeoDataset, fork: boolean) => Promise<string>
+let mapPreparer: MapPreparer | null = null
+export function registerChatMapPreparer(prepare: MapPreparer) {
+	mapPreparer = prepare
+	return () => { if (mapPreparer === prepare) mapPreparer = null }
+}
+export async function prepareChatMap(dataset: GeoDataset, fork = false) {
+	if (!mapPreparer) throw new Error('The map editor is not ready yet. Please try again.')
+	return mapPreparer(dataset, fork)
+}
 
 export interface DatasetDraftRequest {
 	/** Start a fresh map even when this conversation already owns a target. */

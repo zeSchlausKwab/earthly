@@ -1,3 +1,5 @@
+import { transferFromResult } from '@/components/entity-list/entityTransfer'
+import { beaconToSearchResult } from '@/components/entity-search/types'
 import type { ColumnDef } from '@tanstack/react-table'
 import { MapPlus, Power, Radio } from 'lucide-react'
 import { useEffect, useRef } from 'react'
@@ -52,7 +54,7 @@ function BeaconListRow({ row, context }: { row: BeaconRowData; context: BeaconCo
 	}, [isSelected])
 
 	return (
-		<ListRow
+		<ListRow dragItem={transferFromResult(beaconToSearchResult(beacon))}
 			rowRef={rowRef}
 			leading={
 				<div

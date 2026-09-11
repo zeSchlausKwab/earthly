@@ -1,7 +1,7 @@
 import { localStoryReferences, resolveLocalStoryReference } from '@/lib/nostr/story/localReferences'
 import { mapWorkTarget, workTargetIdentity } from '../workingSet'
 import { captureTargetDatasetPublication } from './storyReferenceGate'
-import { requestReferencePublish } from './requestStore'
+import { requestStoryPublicationApproval } from './storyPublicationApproval'
 import { publishCapturedPublicDataset } from './publishCapturedDataset'
 import type { CapturedDatasetPublication, PublishedDatasetReference } from './types'
 import { accounts } from '@/lib/nostr'
@@ -55,6 +55,8 @@ export async function resolveLocalStoryDependencies(
 	markdown: string,
 	options: {
 		storyDraftKey: string
+		storyTitle?: string
+		validate?: () => void
 		onProgress: (markdown: string, completed: number, total: number) => void
 		/** Injected in tests; production always uses the explicit publish confirmation. */
 		publishDependency?: (captured: CapturedDatasetPublication) => Promise<PublishedDatasetReference>
@@ -63,21 +65,20 @@ export async function resolveLocalStoryDependencies(
 	const dependencies = captureLocalStoryDependencies(markdown, options.storyDraftKey)
 	const owner = accounts.active?.pubkey
 	let current = markdown
+	if (dependencies.length && !options.publishDependency) {
+		const confirmed = await requestStoryPublicationApproval(options.storyTitle || 'Story', dependencies.map(item => item.title))
+		if (!confirmed) throw new Error('Story publication cancelled. Your drafts are kept.')
+	}
+	const validate = () => {
+		if (accounts.active?.pubkey !== owner) throw new Error('The account changed. Nothing further was published.')
+		options.validate?.()
+	}
 	for (const [index, captured] of dependencies.entries()) {
+		validate()
 		const published = options.publishDependency
 			? await options.publishDependency(captured)
-			: await (async () => {
-					const decision = await requestReferencePublish(captured, () => {
-						if (accounts.active?.pubkey !== owner)
-							throw new Error('The account changed. Cancel and publish from the original account.')
-						return publishCapturedPublicDataset(captured)
-					})
-					if (decision.decision === 'cancelled')
-						throw new Error(
-							'Story publication cancelled. Already published Maps remain published; the Story draft and unresolved references are kept.',
-						)
-					return decision.published
-				})()
+			: await publishCapturedPublicDataset(captured, validate)
+		validate()
 		current = resolveLocalStoryReference(
 			current,
 			captured.binding.workspaceId,

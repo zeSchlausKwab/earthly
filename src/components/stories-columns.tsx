@@ -1,3 +1,5 @@
+import { transferFromResult } from '@/components/entity-list/entityTransfer'
+import { storyToSearchResult } from '@/components/entity-search/types'
 import type { ColumnDef } from '@tanstack/react-table'
 import { BookOpen } from 'lucide-react'
 import {
@@ -40,7 +42,7 @@ export const createStoryColumns = (context: StoryColumnsContext): ColumnDef<Stor
 			const readerPath = getStoryReaderPath(story)
 
 			return (
-				<ListRow
+				<ListRow dragItem={transferFromResult(storyToSearchResult(story))}
 					leading={
 						<CoverThumb
 							src={image}
