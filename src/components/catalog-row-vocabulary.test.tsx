@@ -25,19 +25,22 @@ function actionPropsFromCell(cell: unknown, original: unknown): RowActionProps[]
 		.map((child) => child.props)
 }
 
+const MAP_AUTHOR = 'a'.repeat(64)
+const READER = 'b'.repeat(64)
+
 const mapEvent = {
-	id: 'map-event',
+	id: 'c'.repeat(64),
 	dTag: 'map-id',
 	datasetId: 'map-id',
 	kind: 31991,
-	pubkey: 'map-author',
+	pubkey: MAP_AUTHOR,
 	event: { tags: [] },
 } as unknown as GeoDataset
 
 function mapRow(isOwned: boolean, isInMapStack = false): DatasetRowData {
 	return {
 		event: mapEvent,
-		datasetKey: 'map-author:map-id',
+		datasetKey: `${MAP_AUTHOR}:map-id`,
 		datasetName: 'River map',
 		isActive: false,
 		isOwned,
@@ -51,7 +54,7 @@ describe('catalog row vocabulary', () => {
 	test('uses proposal semantics and iconography for a foreign map', () => {
 		const loaded: GeoDataset[] = []
 		const columns = createDatasetColumns({
-			currentUserPubkey: 'reader',
+			currentUserPubkey: READER,
 			onLoadDataset: (event) => loaded.push(event),
 			onDeleteDataset: () => {},
 			onToggleVisibility: () => {},
@@ -75,7 +78,7 @@ describe('catalog row vocabulary', () => {
 
 	test('keeps the edit affordance for a map owned by the signed-in user', () => {
 		const columns = createDatasetColumns({
-			currentUserPubkey: 'map-author',
+			currentUserPubkey: MAP_AUTHOR,
 			onLoadDataset: () => {},
 			onDeleteDataset: () => {},
 			onToggleVisibility: () => {},
@@ -98,7 +101,10 @@ describe('catalog row vocabulary', () => {
 			pubkey: 'atlas-author',
 			contextId: 'atlas-id',
 			context: { name: 'Field atlas' },
-			rawEvent: () => ({ content: JSON.stringify({ name: 'Field atlas', governance: 'closed' }), tags: [] }),
+			rawEvent: () => ({
+				content: JSON.stringify({ name: 'Field atlas', governance: 'closed' }),
+				tags: [],
+			}),
 		} as unknown as MapContext
 		const row: ContextRowData = {
 			context: atlas,
