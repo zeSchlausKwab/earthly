@@ -21,6 +21,9 @@
 
 ### Known limitations
 
+- This release retains MapLibre GL JS 5.24.0, affected by the critical attribution-sanitizer issue
+  [GHSA-jrc7-96c5-q579](https://github.com/maplibre/maplibre-gl-js/security/advisories/GHSA-jrc7-96c5-q579).
+  The dependency security fix is not included in this release.
 - Adding the same Map through both chat search and Browse can create duplicate read-only references.
 - On small phones, expanding both chat settings and context leaves too little room for references;
   some draft actions and touch targets also need further spacing polish.
