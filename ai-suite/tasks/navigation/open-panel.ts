@@ -48,7 +48,7 @@ const routes: Record<EarthlyPanel, string> = {
 export async function openPanel(earthly: EarthlySession, panel: EarthlyPanel): Promise<void> {
 	const page = earthly.page
 	const browsePanel = ['Maps', 'Stories', 'Atlases', 'Sightings'].includes(panel)
-	const me = page.getByRole('button', { name: 'Me', exact: true })
+	const me = page.getByRole('button', { name: /^(Your account:|Sign in$)/ })
 	if (earthly.isMobile && !(await me.isVisible())) {
 		// Done exits drawing without discarding the retained working copy.
 		await page.getByRole('button', { name: /^Done/ }).click()

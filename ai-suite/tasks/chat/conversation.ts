@@ -303,8 +303,11 @@ export async function selectAiChatTarget(
 	if (target === 'new-dataset') await startDataset(earthly)
 	await openAiChat(earthly)
 	const working = await setThreadWorkingSetOpen(earthly)
-	const edit = working.getByRole('button', { name: 'Edit this map with AI', exact: true })
-	if (await edit.isVisible()) await edit.click()
+	if (!(await threadWorkSnapshot(earthly)).outputs.length) {
+		const reference = working.getByRole('button', { name: /^Reference / }).first()
+		if (await reference.isVisible()) await reference.click()
+		await working.getByRole('button', { name: /^Let AI edit / }).first().click()
+	}
 	await expect
 		.poll(async () => (await threadWorkSnapshot(earthly)).outputs.length)
 		.toBeGreaterThan(0)
@@ -328,8 +331,8 @@ export async function startNewAiChat(earthly: EarthlySession): Promise<NewAiChat
 	await expect.poll(async () => (await threadWorkSnapshot(earthly)).id).not.toBe(previousChatId)
 	await expect(composer).toHaveValue('')
 	await expect(
-		panel.getByRole('button', { name: 'AI: Answer questions only', exact: true }),
-	).toBeVisible()
+		panel.getByRole('button', { name: 'AI editing and references', exact: true }),
+	).toHaveText('AI can edit 0 · References 0')
 	return { previousChatId, newChatId: (await threadWorkSnapshot(earthly)).id }
 }
 

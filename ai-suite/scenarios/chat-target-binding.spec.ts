@@ -106,7 +106,7 @@ test('opening a working-set Map restores its visible draft @regression', async (
 	await working.getByRole('button', { name: `Stop AI editing ${datasetName}`, exact: true }).click()
 	expect((await threadWorkSnapshot(earthly)).outputs).toHaveLength(0)
 	expect(await localMapOutputCounts(earthly)).toContainEqual({ title: datasetName, features: 1 })
-	await working.getByRole('button', { name: 'Edit this map with AI', exact: true }).click()
+	await selectAiChatTarget(earthly, 'current-dataset')
 	await setThreadWorkingSetOpen(earthly)
 	await working.getByRole('button', { name: `Discard draft: ${datasetName}`, exact: true }).click()
 	await discard.getByRole('button', { name: 'Discard draft', exact: true }).click()
@@ -133,13 +133,10 @@ test('read-only Threads can ask; references and navigation never grant Map write
 	await openAiChat(earthly)
 	const chatA = await startNewAiChat(earthly)
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
-	await expect(panel.getByRole('button', { name: 'References', exact: true })).toHaveCount(1)
+	await expect(panel.getByRole('button', { name: 'AI editing and references', exact: true })).toHaveCount(1)
 	await expect(panel).not.toContainText('working copy')
-	await panel.getByRole('button', { name: 'References', exact: true }).click()
-	await earthly.page
-		.getByRole('dialog', { name: 'Add references', exact: true })
-		.getByRole('button', { name: 'Map A Currently open · draft', exact: true })
-		.click()
+	const context = await setThreadWorkingSetOpen(earthly)
+	await context.getByRole('button', { name: 'Reference Map A', exact: true }).click()
 	expect(await threadWorkSnapshot(earthly)).toMatchObject({
 		id: chatA.newChatId,
 		outputs: [],
@@ -161,7 +158,7 @@ test('read-only Threads can ask; references and navigation never grant Map write
 	await openAiChat(earthly)
 	expect(await threadWorkSnapshot(earthly)).toMatchObject({
 		id: chatA.newChatId,
-		referenceCount: 1,
+		referenceCount: 0,
 		outputs: [{ title: 'Map A', kind: 'dataset' }],
 	})
 	const datasetB = await startDataset(earthly)
@@ -183,7 +180,9 @@ test('read-only Threads can ask; references and navigation never grant Map write
 		targetName: 'Map A',
 		targetRequired: false,
 	})
-	await panel.getByRole('button', { name: 'Remove Map A', exact: true }).click()
+	// Promotion moved Map A out of references; navigation did not re-add it.
+	await setThreadWorkingSetOpen(earthly)
+	await expect(panel.getByRole('button', { name: 'Remove reference Map A', exact: true })).toHaveCount(0)
 	expect(await threadWorkSnapshot(earthly)).toMatchObject({
 		referenceCount: 0,
 		outputs: [{ title: 'Map A' }],

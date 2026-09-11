@@ -95,7 +95,7 @@ test('Me opens an account popover without replacing the current route @regressio
 	await authorizeJourneyIdentity(earthly, 'owner')
 	await earthly.open({ path: '/', tour: 'seen' })
 	const initialUrl = earthly.page.url()
-	await earthly.page.getByRole('button', { name: 'Me', exact: true }).click()
+	await earthly.page.getByRole('button', { name: /^(Your account:|Sign in$)/ }).click()
 	const menu = earthly.page.getByRole('dialog', { name: 'Me menu', exact: true })
 	await expect(menu).toBeVisible()
 	await expect(menu.getByRole('button', { name: 'Profile', exact: true })).toBeVisible()

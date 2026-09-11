@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { ReadonlyAccount } from 'applesauce-accounts/accounts'
-import { accounts } from '@/lib/nostr'
+import { accounts, eventStore } from '@/lib/nostr'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { createDefaultCollectionMeta } from '@/features/geo-editor/utils'
 import {
@@ -13,8 +13,9 @@ import {
 import { useChatStore } from './store'
 import { captureThreadReferences, mapWorkTarget } from './workingSet'
 import { setConversationEntityRole, referenceFromTransfer } from './entityContext'
-import { nip19 } from 'nostr-tools'
+import { nip19, finalizeEvent } from 'nostr-tools'
 import { featureToSearchResult } from '@/components/entity-search/types'
+import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
 import { readStoryDraft, writeStoryDraft } from '@/lib/nostr/story/draft'
 
 const initialEditor = useEditorStore.getState()
@@ -162,6 +163,73 @@ test('local Story reference captures the narrative immutably without granting ed
 	expect(captured[0]!.localStorySnapshot!.content).toBe('Original text')
 	expect(chat().workingSet ?? []).toHaveLength(0)
 	expect(readStoryDraft('thread-story:source')!.content).toBe('Changed text')
+})
+
+test('profile references are immutable read-only snapshots', async () => {
+	const profile = finalizeEvent(
+		{ kind: 0, created_at: 1720000000, tags: [], content: JSON.stringify({ name: 'Surveyor' }) },
+		new Uint8Array(32).fill(9),
+	)
+	eventStore.add(profile)
+	await setConversationEntityRole(
+		chatId,
+		{ id: profile.pubkey, type: 'person', name: 'Surveyor', pubkey: profile.pubkey },
+		'reference',
+	)
+	const snapshot = captureThreadReferences(chat().references!)[0]!
+	expect(snapshot.profileSnapshot).toEqual({ pubkey: profile.pubkey, content: profile.content })
+	expect(chat().workingSet).toEqual([])
+})
+
+test('Stories with the same identifier but different authors never share edit access', async () => {
+	const foreign = finalizeEvent(
+		{
+			kind: 37520,
+			created_at: 1720000000,
+			tags: [
+				['d', 'colliding-story'],
+				['title', 'Foreign Story'],
+			],
+			content: JSON.stringify({
+				modelVersion: MODEL_VERSION,
+				title: 'Foreign Story',
+				content: 'Foreign narrative',
+			}),
+		},
+		new Uint8Array(32).fill(7),
+	)
+	eventStore.add(foreign)
+	writeStoryDraft('colliding-story', {
+		title: 'Keep my Story',
+		content: 'My narrative',
+		publication: {
+			reference: nip19.naddrEncode({
+				kind: 37520,
+				pubkey: accounts.active!.pubkey,
+				identifier: 'colliding-story',
+			}),
+			eventId: 'c'.repeat(64),
+			fingerprint: 'baseline',
+		},
+	})
+	await expect(
+		setConversationEntityRole(
+			chatId,
+			{
+				id: foreign.id,
+				type: 'story',
+				name: 'Foreign Story',
+				address: nip19.naddrEncode({
+					kind: foreign.kind,
+					pubkey: foreign.pubkey,
+					identifier: 'colliding-story',
+				}),
+			},
+			'edit',
+		),
+	).rejects.toThrow('different Story')
+	expect(readStoryDraft('colliding-story')!.content).toBe('My narrative')
+	expect(chat().workingSet ?? []).toEqual([])
 })
 
 test('cannot change a running conversation or use an unreadable source', async () => {

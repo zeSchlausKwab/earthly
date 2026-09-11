@@ -542,7 +542,7 @@ test('mobile global create closes the account menu before arming map placement @
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'The mobile account popover owns this transition')
 	await earthly.open({ tour: 'seen' })
-	await earthly.page.getByRole('button', { name: 'Me', exact: true }).click()
+	await earthly.page.getByRole('button', { name: /^(Your account:|Sign in$)/ }).click()
 	const menu = earthly.page.getByRole('dialog', { name: 'Me menu', exact: true })
 	await expect(menu).toBeVisible()
 

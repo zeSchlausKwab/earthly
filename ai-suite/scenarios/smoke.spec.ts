@@ -86,7 +86,7 @@ test('unfinished dataset is recoverable from Local drafts', async ({ earthly }) 
 	if (earthly.isMobile) {
 		await earthly.page.getByRole('button', { name: 'More tools', exact: true }).click()
 		await earthly.page.getByRole('menuitem', { name: 'Exit editing', exact: true }).click()
-		await expect(earthly.page.getByRole('button', { name: 'Me', exact: true })).toBeVisible()
+		await expect(earthly.page.getByRole('button', { name: /^(Your account:|Sign in$)/ })).toBeVisible()
 	}
 	await openPanel(earthly, 'Local drafts')
 	const panel = earthly.page.getByRole('region', { name: 'Local drafts' })
@@ -100,7 +100,7 @@ test('unfinished dataset is recoverable from Local drafts', async ({ earthly }) 
 	const expandDrafts = panel.getByRole('button', { name: 'Expand saved drafts' }).first()
 	if (await expandDrafts.isVisible()) await expandDrafts.click()
 	const recoverableDraft = panel.getByRole('button', {
-		name: /^Recoverable trail sketch Public$/i,
+		name: /^Recoverable trail sketch\b/i,
 	})
 	await expect(recoverableDraft).toBeVisible()
 	if (earthly.isMobile) {

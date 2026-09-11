@@ -161,7 +161,7 @@ test('mobile Browse opens the catalog sheet and Me opens a route-preserving menu
 	await earthly.page.keyboard.press('Escape')
 
 	const beforeMe = earthly.page.url()
-	await dock.getByRole('button', { name: 'Me', exact: true }).click()
+	await dock.getByRole('button', { name: /^(Your account:|Sign in$)/ }).click()
 	const menu = earthly.page.getByRole('dialog', { name: 'Me menu', exact: true })
 	const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
 	await expect(menu).toBeVisible()

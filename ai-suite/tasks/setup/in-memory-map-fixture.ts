@@ -17,6 +17,7 @@ export async function installInMemoryMapFixture(
 	earthly: EarthlySession,
 	input: {
 		title: string
+		author?: 'owner' | 'mara'
 		identifier?: string
 		commentCount?: number
 		/** Exercise reply, reaction sorting, and annotation controls without publishing. */
@@ -46,7 +47,7 @@ export async function installInMemoryMapFixture(
 				],
 			}),
 		},
-		hexToBytes(testIdentities.owner.secretKeyHex),
+		hexToBytes(testIdentities[input.author ?? 'owner'].secretKeyHex),
 	)
 	const address = `${event.kind}:${event.pubkey}:${identifier}`
 	const comments = Array.from({ length: input.commentCount ?? 0 }, (_, index) =>

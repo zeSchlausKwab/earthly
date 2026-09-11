@@ -114,7 +114,7 @@ test('publishing a Map keeps the conversation open and marks its publication @re
 	await expect(working.getByText('Unpublished changes', { exact: true })).toBeVisible()
 	await setThreadWorkingSetOpen(earthly, false)
 	await openPanel(earthly, 'Local drafts')
-	await expect(earthly.page.getByText('Unpublished changes', { exact: true })).toBeVisible()
+	await expect(earthly.page.getByRole('region', { name: 'Local drafts', exact: true }).getByText('Unpublished changes', { exact: true })).toBeVisible()
 	await expect(earthly.page.getByRole('button', { name: /saved alternatives/ })).toHaveCount(0)
 	await earthly.page.screenshot({ path: testInfo.outputPath('draft-changes.png') })
 	await setThreadWorkingSetOpen(earthly)
@@ -134,7 +134,7 @@ test('publishing a Map keeps the conversation open and marks its publication @re
 	await working.getByRole('button', { name: 'Publication with local changes', exact: true }).click()
 	await draft.nameInput.fill('Further changes after publication')
 	await openPanel(earthly, 'Local drafts')
-	await expect(earthly.page.getByText('Unpublished changes', { exact: true })).toBeVisible()
+	await expect(earthly.page.getByRole('region', { name: 'Local drafts', exact: true }).getByText('Unpublished changes', { exact: true })).toBeVisible()
 	// The global inventory uses the same one-click action as the AI editing menu.
 	const inventory = earthly.page.getByRole('region', { name: 'Local drafts', exact: true })
 	await inventory
@@ -157,7 +157,7 @@ test('publishing a Map keeps the conversation open and marks its publication @re
 	// persisted baseline works offline, without a source event or active editor.
 	await earthly.page.reload()
 	await expect(panel).toBeVisible()
-	await expect(earthly.page.getByText('Unpublished changes', { exact: true })).toBeVisible()
+	await expect(earthly.page.getByRole('region', { name: 'Local drafts', exact: true }).getByText('Unpublished changes', { exact: true })).toBeVisible()
 	await setThreadWorkingSetOpen(earthly)
 	await expect(working.getByText('Unpublished changes', { exact: true })).toBeVisible()
 	expect((await threadWorkSnapshot(earthly)).id).toBe(before.id)

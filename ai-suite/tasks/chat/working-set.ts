@@ -12,9 +12,9 @@ export const setThreadWorkingSetOpenTask: AiTaskMetadata = {
 
 export async function setThreadWorkingSetOpen(earthly: EarthlySession, open = true) {
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
-	const trigger = panel.getByRole('button', { name: /^AI(?: can edit:|:)/ })
+	const trigger = panel.getByRole('button', { name: 'AI editing and references', exact: true })
 	if ((await trigger.getAttribute('aria-expanded')) !== String(open)) await trigger.click()
-	const working = earthly.page.getByRole('dialog', { name: 'AI editing', exact: true })
+	const working = earthly.page.getByRole('region', { name: 'AI editing and references', exact: true })
 	if (open) await expect(working).toBeVisible()
 	else await expect(working).toBeHidden()
 	return working
