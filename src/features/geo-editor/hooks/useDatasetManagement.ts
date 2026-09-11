@@ -314,6 +314,9 @@ export function useDatasetManagement(
 				visible: true,
 				pinned: false,
 			})
+			// Explicitly starting/loading an edit must also reveal it when another
+			// layer was isolated. Later background edits leave visibility alone.
+			useEditorStore.getState().clearMapStackIsolation()
 		},
 		[
 			editor,

@@ -5,6 +5,8 @@ import {
 	ChevronUp,
 	Crosshair,
 	Database,
+	Eye,
+	EyeOff,
 	Layers,
 	Loader2,
 	MapPin,
@@ -49,11 +51,7 @@ interface MapStackPanelProps {
 	onZoomToDataset: (event: GeoDataset) => void
 	onLoadDataset: (event: GeoDataset) => void
 	onInspectContext: (context: MapContext) => void
-	/**
-	 * Retained for backward compatibility — under the Round C invariant
-	 * (stack = map visibility), the eye toggle is dropped and visibility is
-	 * implicit. This callback is no longer wired to a UI control.
-	 */
+	/** Hide a layer without removing it from the canvas list. */
 	onSetEntryVisible?: (entry: MapStackEntry, visible: boolean) => void
 	onSetEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
 	onRemoveEntry: (entry: MapStackEntry) => void
@@ -338,6 +336,7 @@ function RowAction({
 }
 
 interface EntryRowProps {
+	onSetEntryVisible?: (entry: MapStackEntry, visible: boolean) => void
 	entry: MapStackEntry
 	dataset: GeoDataset | undefined
 	context: MapContext | undefined
@@ -364,6 +363,7 @@ interface EntryRowProps {
 }
 
 function EntryRow({
+	onSetEntryVisible,
 	entry,
 	dataset,
 	context,
@@ -389,6 +389,10 @@ function EntryRow({
 	onReorderEntry,
 }: EntryRowProps) {
 	const isolated = entry.isolated === true
+	const isolatedEntryId = useEditorStore((state) =>
+		state.mapStackOrder.find((id) => state.mapStackEntries[id]?.isolated),
+	)
+	const visible = isolatedEntryId ? isolatedEntryId === entry.id : entry.visible
 	// Live draft name — reactive so the entry title updates on the fly as you type
 	// it in the editor. Returns a constant '' for non-draft rows so only the draft
 	// row re-renders on name changes (keeps the rest of the stack cheap).
@@ -435,7 +439,7 @@ function EntryRow({
 				isolated
 					? 'border-primary/40 bg-primary/10 shadow-[inset_3px_0_0_0] shadow-primary'
 					: 'border-border',
-				!entry.visible && !isolated && 'opacity-60',
+				!visible && 'opacity-60',
 				isReorderTarget && 'border-info/40 shadow-[0_-2px_0_0] shadow-info',
 			)}
 			data-isolated={isolated ? 'true' : undefined}
@@ -541,6 +545,21 @@ function EntryRow({
 					</div>
 				</div>
 				<div className="flex shrink-0 items-center gap-0.5">
+					{onSetEntryVisible ? (
+						<RowAction
+							icon={
+								visible ? (
+									<Eye className={actionIconClassName} />
+								) : (
+									<EyeOff className={actionIconClassName} />
+								)
+							}
+							className={actionButtonClassName}
+							onClick={() => onSetEntryVisible(entry, !visible)}
+							label={`${visible ? 'Hide' : 'Show'} ${displayTitle}`}
+							pressed={visible}
+						/>
+					) : null}
 					{canExpand ? (
 						<RowAction
 							icon={
@@ -661,25 +680,23 @@ function EntryRow({
 							pressed={entry.pinned}
 						/>
 					) : null}
-					{entry.entityType !== 'draft' ? (
-						<RowAction
-							icon={
-								entry.pinned ? (
-									<DeleteActionIcon className={actionIconClassName} />
-								) : (
-									<RemoveActionIcon className={actionIconClassName} />
-								)
-							}
-							className={cn(actionButtonClassName, 'hover:text-destructive')}
-							onClick={() => onRemoveEntry(entry)}
-							label={entry.pinned ? 'Remove pinned entry' : 'Remove from map'}
-							tooltip={
-								entry.pinned
-									? 'Remove this pinned entry from the map'
-									: 'Remove this entry from the map'
-							}
-						/>
-					) : null}
+					<RowAction
+						icon={
+							entry.pinned ? (
+								<DeleteActionIcon className={actionIconClassName} />
+							) : (
+								<RemoveActionIcon className={actionIconClassName} />
+							)
+						}
+						className={cn(actionButtonClassName, 'hover:text-destructive')}
+						onClick={() => onRemoveEntry(entry)}
+						label={entry.pinned ? 'Remove pinned entry' : 'Remove from map'}
+						tooltip={
+							entry.pinned
+								? 'Remove this pinned entry from the map'
+								: 'Remove this entry from the map'
+						}
+					/>
 				</div>
 			</div>
 			{isContextEntry && expanded ? (
@@ -937,6 +954,7 @@ function CarriedGroupCard({
 }
 
 interface EntryGroupListProps {
+	onSetEntryVisible?: (entry: MapStackEntry, visible: boolean) => void
 	compact: boolean
 	sightingLayerEntries: MapStackEntry[]
 	beaconLayerEntries: MapStackEntry[]
@@ -971,6 +989,7 @@ interface EntryGroupListProps {
 }
 
 function EntryGroupList({
+	onSetEntryVisible,
 	compact,
 	sightingLayerEntries,
 	beaconLayerEntries,
@@ -1020,6 +1039,7 @@ function EntryGroupList({
 				: entry.title
 		return (
 			<EntryRow
+				onSetEntryVisible={onSetEntryVisible}
 				key={entry.id}
 				entry={entry}
 				dataset={dataset}
@@ -1212,7 +1232,7 @@ export function MapStackPanel({
 	onZoomToDataset,
 	onLoadDataset,
 	onInspectContext,
-	onSetEntryVisible: _onSetEntryVisible,
+	onSetEntryVisible,
 	onSetEntryIsolated,
 	onRemoveEntry,
 	onOpenDraftEditor,
@@ -1280,12 +1300,12 @@ export function MapStackPanel({
 		datasetEntries,
 		otherEntries,
 	} = useMemo(() => bucketMapStackEntries(entries), [entries])
-	const visibleCount = entries.filter((entry) => entry.visible).length
 	// Query-by-view mode (header toggle + "Geo query" section readout).
 	const geoQueryEnabled = useEditorStore((state) => state.geoQueryEnabled)
 	const geoQueryStatus = useEditorStore((state) => state.geoQueryStatus)
 	const setGeoQueryEnabled = useEditorStore((state) => state.setGeoQueryEnabled)
 	const isolatedEntry = entries.find((entry) => entry.isolated) ?? null
+	const visibleCount = isolatedEntry ? 1 : entries.filter((entry) => entry.visible).length
 	const isolatedLabel = (() => {
 		if (!isolatedEntry) return null
 		if (isolatedEntry.entityType === 'dataset') {
@@ -1469,6 +1489,7 @@ export function MapStackPanel({
 						)}
 					>
 						<EntryGroupList
+							onSetEntryVisible={onSetEntryVisible}
 							compact={compact}
 							sightingLayerEntries={sightingLayerEntries}
 							beaconLayerEntries={beaconLayerEntries}
@@ -1508,6 +1529,7 @@ export function MapStackPanel({
 				// affecting the independently retained editor surface.
 				<div className="hidden" aria-hidden="true">
 					<EntryGroupList
+						onSetEntryVisible={onSetEntryVisible}
 						compact={compact}
 						sightingLayerEntries={[]}
 						beaconLayerEntries={[]}

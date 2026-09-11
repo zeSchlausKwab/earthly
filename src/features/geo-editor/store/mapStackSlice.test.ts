@@ -3,6 +3,7 @@ import type { EditorFeature, GeoEditor } from '../core'
 import { isDraftGeometryVisible } from '../draftMapVisibility'
 import { createDefaultCollectionMeta } from '../utils'
 import { createMapStackSlice } from './mapStackSlice'
+import { ensureActiveDraftMapPresentation } from './activeDraftMapPresentation'
 import type {
 	EditorState,
 	GeoCollectionEditDraft,
@@ -43,7 +44,7 @@ function createMapStackHarness(seed: Partial<EditorState>) {
 }
 
 describe('published Dataset Map Stack removal', () => {
-	test('Clear preserves the active Dataset edit as a visible draft row', () => {
+	test('Clear removes the active draft from the canvas, not from saved work', () => {
 		const draftId = 'draft-1'
 		const workspaceId = 'workspace-1'
 		const retainedDraft = {
@@ -67,15 +68,26 @@ describe('published Dataset Map Stack removal', () => {
 		})
 
 		harness.getState().clearMapStack()
+		ensureActiveDraftMapPresentation(harness.getState())
 
 		const state = harness.getState()
-		expect(state.mapStackOrder).toEqual(['draft:active'])
-		expect(state.mapStackEntries['draft:active']?.visible).toBe(true)
+		expect(state.mapStackOrder).toEqual([])
+		expect(state.mapStackEntries['draft:active']).toBeUndefined()
 		expect(state.geoEditDrafts[draftId]).toBe(retainedDraft)
 		expect(state.workspaces[workspaceId]).toBe(retainedWorkspace)
+
+		// A removal belongs to that draft, not to newly created Maps.
+		const nextDraft = { ...retainedDraft, id: 'draft-2' }
+		harness.setState({
+			activeGeoEditDraftId: nextDraft.id,
+			geoEditDrafts: { ...state.geoEditDrafts, [nextDraft.id]: nextDraft },
+			workspaces: { [workspaceId]: { ...retainedWorkspace, activeDraftId: nextDraft.id } },
+		})
+		ensureActiveDraftMapPresentation(harness.getState())
+		expect(harness.getState().mapStackEntries['draft:active']?.visible).toBe(true)
 	})
 
-	test('only active authoring overrides ordinary draft visibility and isolation', () => {
+	test('draft geometry follows canvas visibility and isolation', () => {
 		const visibleDraft = draftEntry()
 		const hiddenDraft = draftEntry({ visible: false })
 		const isolatedDraft = draftEntry({ visible: false, isolated: true })
@@ -98,21 +110,9 @@ describe('published Dataset Map Stack removal', () => {
 				'dataset:other',
 			]),
 		).toBe(false)
-		expect(
-			isDraftGeometryVisible({ 'draft:active': hiddenDraft }, ['draft:active'], {
-				activeAuthoring: true,
-			}),
-		).toBe(true)
-		expect(
-			isDraftGeometryVisible(
-				{ 'draft:active': visibleDraft, 'dataset:other': other },
-				['draft:active', 'dataset:other'],
-				{ activeAuthoring: true },
-			),
-		).toBe(true)
 	})
 
-	test('cannot hide or remove active Dataset geometry until authoring ends', () => {
+	test('hiding and removing active Dataset geometry preserves saved work', () => {
 		const feature: EditorFeature = {
 			type: 'Feature',
 			id: 'published-point',
@@ -174,25 +174,58 @@ describe('published Dataset Map Stack removal', () => {
 
 		const syncEditorVisibility = () => {
 			const state = harness.getState()
-			editor.setGeometryVisible(
-				isDraftGeometryVisible(state.mapStackEntries, state.mapStackOrder, {
-					activeAuthoring: state.viewMode === 'edit' && state.stance === 'author',
-				}),
-			)
+			editor.setGeometryVisible(isDraftGeometryVisible(state.mapStackEntries, state.mapStackOrder))
 		}
 		expect(
-			isDraftGeometryVisible(harness.getState().mapStackEntries, harness.getState().mapStackOrder, {
-				activeAuthoring: true,
-			}),
+			isDraftGeometryVisible(harness.getState().mapStackEntries, harness.getState().mapStackOrder),
 		).toBe(true)
 
-		// Map presentation actions cannot contradict the active editor.
-		harness.getState().removeMapStackEntry('draft:active')
-		harness.getState().setMapStackEntryVisible('draft:active', false)
+		// Explicit visibility choices must survive the active-draft repair loop.
 		harness.getState().toggleMapStackEntryVisible('draft:active')
+		ensureActiveDraftMapPresentation(harness.getState())
+		syncEditorVisibility()
+		expect(editorGeometryVisible).toBe(false)
+		expect(harness.getState().mapStackEntries['draft:active']?.visible).toBe(false)
+		harness.setState({
+			geoEditDrafts: { [draftId]: { ...draft, name: 'Updated while hidden' } },
+		})
+		ensureActiveDraftMapPresentation(harness.getState())
+		expect(harness.getState().mapStackEntries['draft:active']?.title).toBe('Updated while hidden')
+		expect(harness.getState().mapStackEntries['draft:active']?.visible).toBe(false)
+		harness.setState({ geoEditDrafts: { [draftId]: draft } })
+		harness.getState().setMapStackEntryVisible('draft:active', true)
+		ensureActiveDraftMapPresentation(harness.getState())
 		syncEditorVisibility()
 		expect(editorGeometryVisible).toBe(true)
 		expect(harness.getState().mapStackEntries['draft:active']?.visible).toBe(true)
+		harness.getState().removeMapStackEntry('draft:active')
+		ensureActiveDraftMapPresentation(harness.getState())
+		syncEditorVisibility()
+		expect(editorGeometryVisible).toBe(false)
+		expect(harness.getState().mapStackOrder).toEqual([])
+		expect(harness.getState().stance).toBe('author')
+		expect(harness.getState().viewMode).toBe('edit')
+		expect(harness.getState().features).toEqual([feature])
+		expect(harness.getState().geoEditDrafts[draftId]).toBe(draft)
+
+		// Explicitly reopening the same draft restores it without replacing it.
+		harness
+			.getState()
+			.addMapStackEntry(
+				draftEntry({
+					id: 'dataset:other',
+					entityType: 'dataset',
+					entityKey: 'other',
+					isolated: true,
+				}),
+			)
+		ensureActiveDraftMapPresentation(harness.getState(), { reveal: true })
+		syncEditorVisibility()
+		expect(editorGeometryVisible).toBe(true)
+		expect(harness.getState().mapStackEntries['dataset:other']?.isolated).toBe(false)
+		harness.getState().removeMapStackEntry('dataset:other')
+		expect(harness.getState().dismissedDraftMapId).toBeNull()
+		expect(harness.getState().activeGeoEditDraftId).toBe(draftId)
 
 		// Successful publication first ends authoring, then swaps the draft row for
 		// the saved Dataset while retaining local work for Chat and later editing.

@@ -24,9 +24,8 @@ export interface ActiveDraftMapPresentation {
  * Resolve the canonical Map Stack row for the active Dataset edit.
  *
  * A retained background draft is not enough: only the active workspace/draft
- * pair owns `draft:active`. Whenever that pair is surfaced for authoring, this
- * row is present and visible so the editor and the map cannot contradict each
- * other.
+ * pair owns `draft:active`. Opening an edit reveals it initially; subsequent
+ * visibility choices belong to the user, independently of the retained editor.
  */
 export function resolveActiveDraftMapPresentation(
 	state: ActiveDraftMapState,
@@ -52,7 +51,7 @@ export function resolveActiveDraftMapPresentation(
 			entityKey: 'draft:active',
 			title,
 			source: 'workspace',
-			visible: true,
+			visible: existing?.visible ?? true,
 			pinned: false,
 			isolated: existing?.isolated ?? false,
 			exclusions: existing?.exclusions ?? [],
@@ -61,8 +60,11 @@ export function resolveActiveDraftMapPresentation(
 	}
 }
 
-/** Restore the active edit's single visible row and suspend its published twin. */
-export function ensureActiveDraftMapPresentation(state: EditorState): boolean {
+/** Keep the active edit's row in sync without undoing explicit Hide/Remove. */
+export function ensureActiveDraftMapPresentation(
+	state: EditorState,
+	{ reveal = false }: { reveal?: boolean } = {},
+): boolean {
 	const presentation = resolveActiveDraftMapPresentation(state)
 	if (!presentation) return false
 
@@ -77,6 +79,15 @@ export function ensureActiveDraftMapPresentation(state: EditorState): boolean {
 		}
 	}
 
+	if (!reveal && state.dismissedDraftMapId === presentation.draftId) return changed
+	if (reveal) {
+		presentation.entry.visible = true
+		presentation.entry.isolated = false
+		if (state.mapStackOrder.some((id) => state.mapStackEntries[id]?.isolated)) {
+			state.clearMapStackIsolation()
+			changed = true
+		}
+	}
 	const current = state.mapStackEntries[presentation.entry.id]
 	const isCanonical =
 		state.mapStackOrder.includes(presentation.entry.id) &&
@@ -84,7 +95,7 @@ export function ensureActiveDraftMapPresentation(state: EditorState): boolean {
 		current.entityKey === presentation.entry.entityKey &&
 		current.title === presentation.entry.title &&
 		current.source === presentation.entry.source &&
-		current.visible === true &&
+		current.visible === presentation.entry.visible &&
 		current.pinned === false
 	if (!isCanonical) {
 		state.addMapStackEntry(presentation.entry)

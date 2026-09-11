@@ -137,6 +137,8 @@ Present only while a Map is in Edit or Propose. It opens with the map's name (`�
 ### 4.6 Shelf
 Chip per visible Map: swatch, ✎ when in Edit, title, ◉/○ visibility, ×. A pulsing chip means an AI run is working on that map. One **Live · N** chip for sightings and live positions. **Save this view** turns the Shelf into a personal Atlas (door policy Only me). Hovering a feature lights its chip; hovering a list row lights the chip and the layer.
 
+Eye hides/shows a Map without removing its chip. × removes it from the canvas; Clear removes unpinned entries. These actions also work on the active draft: they never discard saved work, close Chat, or revoke AI editing permission. Background changes respect the user's visibility choice. Explicitly reopening the draft reveals it again, including when another layer was isolated. The mobile **On the map** panel exposes the same Hide/Show and Remove actions.
+
 ## 5. Browse
 
 Unscoped desktop Browse starts directly with the entity tabs, without a separate *Browse* eyebrow row. Active atlas scope keeps its meaningful picker/filter and clear action. On phones, the title/resize/transparency/close rail leads directly into the tabs; there is no separate **On the map · N** row.

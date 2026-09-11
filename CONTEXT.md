@@ -65,7 +65,7 @@ A **Thread** is a durable conversation about a piece of work, with its own worki
 
 An **edit state** is retained authoring work for a Dataset, Story, or Context. It owns its local draft and remains alive when another sidebar surface is selected.
 
-Selecting an edit-state button changes which retained authoring surface is visible. It does not start a conversation, close another edit state, or publish anything. A Dataset edit is the one deliberate Map Stack exception: while it is the active authoring surface, Earthly maintains exactly one visible draft row and renders its geometry. Story and Context edit states do not change the Map Stack. A visible activity indicator may show that an AI run is working on an edit state without forcing it open.
+Selecting an edit-state button changes which retained authoring surface is visible. It does not start a conversation, close another edit state, or publish anything. Explicitly opening a Dataset edit reveals its single draft row and replaces its published twin on the canvas. After that, Eye hides/shows its geometry, and Remove or Clear takes it off the canvas without discarding saved work, closing Chat, or changing AI editing permissions. Background draft updates must respect that choice; explicitly reopening the draft reveals it again. Story and Context edit states do not change the Map Stack. A visible activity indicator may show that an AI run is working on an edit state without forcing it open.
 
 ## Inspector
 

@@ -263,7 +263,6 @@ import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import {
 	ensureActiveDraftMapPresentation,
 	getRetainedDatasetSurfaceTarget,
-	resolveActiveDraftMapPresentation,
 	resolveDraftEditorOpenPlan,
 	useEditorStore,
 	type MapStackEntry,
@@ -872,15 +871,9 @@ export function GeoEditorView() {
 	useCatalogStackPriority(mapStackEntries, mapStackOrder)
 	const retainedMapDraftCount = useEditorStore((state) => Object.keys(state.geoEditDrafts).length)
 	useSyncExternalStore(subscribeStoryDrafts, getStoryDraftRevision, () => 0)
-	const activeDraftAuthoring = useEditorStore(
-		(state) => resolveActiveDraftMapPresentation(state) !== null,
-	)
 	const draftGeometryVisible = useMemo(
-		() =>
-			isDraftGeometryVisible(mapStackEntries, mapStackOrder, {
-				activeAuthoring: activeDraftAuthoring,
-			}),
-		[activeDraftAuthoring, mapStackEntries, mapStackOrder],
+		() => isDraftGeometryVisible(mapStackEntries, mapStackOrder),
+		[mapStackEntries, mapStackOrder],
 	)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
@@ -2006,6 +1999,7 @@ export function GeoEditorView() {
 
 	const setMapStackVisibility = useCallback(
 		(entry: MapStackEntry, visible: boolean) => {
+			useEditorStore.getState().clearMapStackIsolation()
 			setMapStackEntryVisible(entry.id, visible)
 		},
 		[setMapStackEntryVisible],
@@ -2024,8 +2018,6 @@ export function GeoEditorView() {
 
 	const removeFromMapStack = useCallback(
 		(entry: MapStackEntry) => {
-			// Active Dataset drafts are not removable presentation rows. The panel
-			// withholds that action and the store guards the invariant as a backstop.
 			if (entry.source === 'private-group') {
 				dismissedPrivateDatasetIds().add(entry.id)
 			}
@@ -2332,9 +2324,7 @@ export function GeoEditorView() {
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
 
-	// Dataset authoring and map presentation are one product state. Repair old or
-	// externally-mutated sessions immediately so an editor can never remain open
-	// while its geometry is absent from the Map Stack or map.
+	// Sync the active draft's identity/title, respecting explicit Hide and Remove.
 	useEffect(() => {
 		const repair = () => ensureActiveDraftMapPresentation(useEditorStore.getState())
 		repair()
@@ -2631,7 +2621,7 @@ export function GeoEditorView() {
 					beacon: false,
 				})
 				if (!activated) return false
-				ensureActiveDraftMapPresentation(useEditorStore.getState())
+				ensureActiveDraftMapPresentation(useEditorStore.getState(), { reveal: true })
 
 				if (!plan.navigateToEditRoute) {
 					closeMobileSidebar()
@@ -5409,27 +5399,19 @@ export function GeoEditorView() {
 					(entry) => entry.entityType !== 'sighting-layer' && entry.entityType !== 'beacon-layer',
 				)
 				.map((entry) => {
-					const isRequiredDraft = entry.entityType === 'draft'
+					const isDraft = entry.entityType === 'draft'
 					const isPrivate = entry.source === 'private-group' || entry.source === 'field-session'
 					return Object.freeze({
 						id: entry.id,
 						title: resolveTitle(entry),
 						visible: isolatedShelfEntry ? isolatedShelfEntry.id === entry.id : entry.visible,
 						active: entry.isolated,
-						editing: isRequiredDraft,
+						editing: isDraft,
 						locked: isPrivate,
 						...(isPrivate
 							? {
 									lockLabel:
 										entry.source === 'private-group' ? 'Private Circle map' : 'Nearby session map',
-								}
-							: {}),
-						toggleable: !isRequiredDraft,
-						removable: !isRequiredDraft,
-						...(isRequiredDraft
-							? {
-									toggleDisabledLabel: 'The active working map stays visible while editing',
-									removeDisabledLabel: 'Finish editing before removing this working map',
 								}
 							: {}),
 					}) satisfies ShelfStripItem
@@ -5650,7 +5632,7 @@ export function GeoEditorView() {
 				return
 			}
 			const entry = shelfEntryById.get(item.id)
-			if (!entry || entry.entityType === 'draft') return
+			if (!entry) return
 			for (const candidate of orderedShelfEntries) {
 				if (candidate.isolated) setMapStackEntryIsolated(candidate.id, false)
 			}
@@ -5671,7 +5653,7 @@ export function GeoEditorView() {
 				return
 			}
 			const entry = shelfEntryById.get(item.id)
-			if (entry && entry.entityType !== 'draft') removeFromMapStack(entry)
+			if (entry) removeFromMapStack(entry)
 		},
 		[handleShelfToggleItem, removeFromMapStack, shelfEntryById],
 	)

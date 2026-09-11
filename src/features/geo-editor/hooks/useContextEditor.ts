@@ -235,7 +235,7 @@ export function useContextEditor({
 					beacon: false,
 				})
 				if (!activated) return false
-				ensureActiveDraftMapPresentation(useEditorStore.getState())
+				ensureActiveDraftMapPresentation(useEditorStore.getState(), { reveal: true })
 
 				// Desktop keeps its canonical route. Mobile's map-bound workspace tabs are
 				// presentation-only and reveal the sheet without rewriting location state.

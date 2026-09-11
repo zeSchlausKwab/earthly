@@ -540,6 +540,8 @@ export interface ViewModeSlice {
 export interface MapStackSlice {
 	mapStackEntries: Record<string, MapStackEntry>
 	mapStackOrder: string[]
+	/** Explicit canvas removal; saved work and Thread permissions are unchanged. */
+	dismissedDraftMapId: string | null
 
 	addMapStackEntry: (
 		entry: Omit<MapStackEntry, 'id' | 'addedAt' | 'isolated' | 'exclusions'> & {

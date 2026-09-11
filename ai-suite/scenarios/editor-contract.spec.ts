@@ -50,6 +50,7 @@ import {
 	installDeterministicGeolocation,
 } from '../tasks/setup/deterministic-geolocation'
 import { installDeterministicMapStyle } from '../tasks/setup/deterministic-map-style'
+import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
 
 test('cancel drawing unlocks panning and leaves the editor usable @editor-contract', async ({
 	earthly,
@@ -151,14 +152,15 @@ test('geometry and metadata in an unfinished draft survive reload @editor-contra
 	await expect(earthly.page.getByPlaceholder('Name').first()).toHaveValue(draftName)
 })
 
-test('Map Stack Clear preserves and can isolate the active draft @editor-contract', async ({
+test('Map Stack Clear removes geometry but preserves the active draft @editor-contract', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'desktop', 'The floating Map Stack contract is desktop-only')
+	await installIsolatedRelays(earthly)
 	await earthly.open({ tour: 'seen' })
 	await startDataset(earthly)
 	const result = await exerciseMapStackDraftLifecycle(earthly)
-	expect(result.mapStack.some((entry) => entry.id === 'draft:active')).toBe(true)
+	expect(result.mapStack.some((entry) => entry.id === 'draft:active')).toBe(false)
 	expect(result.mapStack.some((entry) => entry.isolated)).toBe(false)
 })
 
