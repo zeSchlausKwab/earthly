@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.1.9] - 2026-09-11
+
+- Rebuilt the interface around a persistent map, compact browsing and inspection panels, and a
+  mobile sheet that opens halfway and expands for editing. Existing icons are retained, account
+  controls show the signed-in avatar and name, and drawing tools appear as toolbar space permits.
+- Added map-backed Story view blocks with selective references to other Maps, camera changes,
+  view-local styling and opacity, and independent inline figures. Both manual authoring and AI
+  chat can create these Stories; a local WW1 timeline fixture supports authoring and styling tests.
+- Made chat work with multiple Map and Story drafts, with separate editable and read-only sections,
+  drag-and-drop entity references, and searchable/tappable alternatives. Foreign references remain
+  read-only unless explicitly added for a change proposal.
+- Kept conversations open through draft navigation and publication, added clear left/right chat
+  placement, flattened saved Map drafts, and exposed direct publication of saved Map and Story
+  changes with distinct published and unpublished-change states.
+- Fixed hidden or removed draft geometry remaining on the map, restored panel scrolling, and added
+  useful publishing failures instead of treating unacknowledged writes as successful.
+- Improved initial loading with progressive, recoverable basemap rendering, bounded Browse
+  discovery, shared live subscriptions, and cached hydration.
+
+### Known limitations
+
+- Adding the same Map through both chat search and Browse can create duplicate read-only references.
+- On small phones, expanding both chat settings and context leaves too little room for references;
+  some draft actions and touch targets also need further spacing polish.
+- Mobile verification used browser touch emulation. A physical-device upgrade and keyboard smoke
+  test are still pending for this candidate.
+
 ## [0.1.8] - 2026-09-01
 
 - Added image uploads and clipboard pasting for vision-capable models, including official Kimi K3

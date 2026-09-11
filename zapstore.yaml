@@ -6,8 +6,10 @@ description: |
   Earthly is a touch-first collaborative mapping app for creating, discussing,
   and sharing geographic datasets over Nostr.
 
-  Draw points, lines, and polygons; publish versioned GeoJSON datasets; annotate
-  maps with geographic comments; and work in MLS-encrypted Private groups.
+  Draw points, lines, and polygons; publish GeoJSON maps and map-backed Stories;
+  annotate maps with geographic comments; and work in MLS-encrypted Private groups.
+  AI chat can help edit multiple drafts using explicit editable and read-only
+  references. You choose what to publish.
   Android Field sessions add explicit nearby-only collaboration over a shared
   Wi-Fi network or hotspot, including chat, map editing, and one-time mirroring
   of referenced map files for offline use.
