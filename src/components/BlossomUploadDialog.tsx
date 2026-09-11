@@ -199,7 +199,7 @@ export function BlossomUploadDialog({
 					{uploadState === 'idle' && (
 						<div className="space-y-2">
 							<div className="flex justify-between text-xs text-muted-foreground">
-								<span>Dataset size</span>
+								<span>Map size</span>
 								<span>{Math.round(percentOfLimit)}% of limit</span>
 							</div>
 							<Progress

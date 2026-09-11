@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import type { DatasetEditOptions } from '@/components/info-panel/mapProposalPresentation'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import {
@@ -11,16 +12,22 @@ import {
 	shouldOpenMobileEditSheet,
 	type MobileWorkspaceOpenOptions,
 } from '../components/mobileEditPanelPresentation'
+import type { GroupCreationSeed } from '@/features/groups/creationSeed'
 
 interface UseContextEditorParams {
 	isMobile: boolean
 	ensureInfoPanelVisible: () => void
 	encodeContextNaddr: (context: MapContext) => string | null
-	navigateTo: (focusType: 'mapcontext', naddr: string, sidebarView?: SidebarViewMode) => void
+	navigateTo: (
+		focusType: 'mapcontext',
+		naddr: string,
+		sidebarView?: SidebarViewMode,
+		edit?: boolean,
+	) => void
 	navigateToView: (view: SidebarViewMode) => void
 	clearFocus: () => void
 	handleInspectDataset: (event: GeoDataset) => void
-	loadDatasetForEditing: (event: GeoDataset) => void
+	loadDatasetForEditing: (event: GeoDataset, options?: DatasetEditOptions) => void
 	startNewDataset: () => void
 	switchToWorkspace: (
 		workspaceId: string,
@@ -52,23 +59,28 @@ export function useContextEditor({
 
 	const [contextEditorMode, setContextEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingContext, setEditingContext] = useState<MapContext | null>(null)
+	const [contextCreationSeed, setContextCreationSeed] = useState<GroupCreationSeed | null>(null)
 
-	const prepareNonGeometryEditorWorkspace = useCallback(() => {
-		setViewModeState('view')
-		setViewDatasetState(null)
-		setViewContext(null)
-		setViewContextDatasets([])
-		clearFocus()
-	}, [setViewModeState, setViewDatasetState, setViewContext, setViewContextDatasets, clearFocus])
+	const prepareNonGeometryEditorWorkspace = useCallback(
+		({ clearRoute = true }: { clearRoute?: boolean } = {}) => {
+			setViewModeState('view')
+			setViewDatasetState(null)
+			setViewContext(null)
+			setViewContextDatasets([])
+			if (clearRoute) clearFocus()
+		},
+		[setViewModeState, setViewDatasetState, setViewContext, setViewContextDatasets, clearFocus],
+	)
 
 	const clearEditorModes = useCallback(() => {
 		setContextEditorMode('none')
 		setEditingContext(null)
+		setContextCreationSeed(null)
 	}, [])
 
 	const handleLoadDatasetForEditing = useCallback(
-		(event: GeoDataset) => {
-			loadDatasetForEditing(event)
+		(event: GeoDataset, options?: DatasetEditOptions) => {
+			loadDatasetForEditing(event, options)
 			selectMobileEntitySurface('dataset')
 			if (isMobile) ensureInfoPanelVisible()
 		},
@@ -110,30 +122,12 @@ export function useContextEditor({
 		],
 	)
 
-	const handleCreateContext = useCallback(() => {
-		selectMobileEntitySurface('context')
-		clearEditorModes()
-		setContextEditorMode('create')
-		prepareNonGeometryEditorWorkspace()
-		navigateToView('context-editor')
-		if (isMobile) ensureInfoPanelVisible()
-		else setShowInfoPanel(true)
-	}, [
-		clearEditorModes,
-		prepareNonGeometryEditorWorkspace,
-		navigateToView,
-		isMobile,
-		ensureInfoPanelVisible,
-		selectMobileEntitySurface,
-		setShowInfoPanel,
-	])
-
-	const handleEditContext = useCallback(
-		(context: MapContext) => {
+	const handleCreateContext = useCallback(
+		(creationSeed?: GroupCreationSeed) => {
 			selectMobileEntitySurface('context')
 			clearEditorModes()
-			setContextEditorMode('edit')
-			setEditingContext(context)
+			setContextCreationSeed(creationSeed ?? null)
+			setContextEditorMode('create')
 			prepareNonGeometryEditorWorkspace()
 			navigateToView('context-editor')
 			if (isMobile) ensureInfoPanelVisible()
@@ -150,10 +144,40 @@ export function useContextEditor({
 		],
 	)
 
+	const handleEditContext = useCallback(
+		(context: MapContext) => {
+			selectMobileEntitySurface('context')
+			clearEditorModes()
+			setContextEditorMode('edit')
+			setEditingContext(context)
+			// Opening the Atlas editor is an object route, not a legacy panel route.
+			// Preserve an incoming /atlas/:naddr/edit location and write the same
+			// canonical route when editing starts from an inspect surface.
+			prepareNonGeometryEditorWorkspace({ clearRoute: false })
+			const naddr = encodeContextNaddr(context)
+			if (naddr) navigateTo('mapcontext', naddr, 'contexts', true)
+			else navigateToView('contexts')
+			if (isMobile) ensureInfoPanelVisible()
+			else setShowInfoPanel(true)
+		},
+		[
+			clearEditorModes,
+			prepareNonGeometryEditorWorkspace,
+			encodeContextNaddr,
+			navigateTo,
+			navigateToView,
+			isMobile,
+			ensureInfoPanelVisible,
+			selectMobileEntitySurface,
+			setShowInfoPanel,
+		],
+	)
+
 	const handleSaveContext = useCallback(
 		(_context: MapContext) => {
 			setContextEditorMode('none')
 			setEditingContext(null)
+			setContextCreationSeed(null)
 			navigateToView('contexts')
 		},
 		[navigateToView],
@@ -165,6 +189,7 @@ export function useContextEditor({
 		const wasOpen = contextEditorMode !== 'none'
 		setContextEditorMode('none')
 		setEditingContext(null)
+		setContextCreationSeed(null)
 		if (wasOpen) navigateToView('contexts')
 	}, [contextEditorMode, navigateToView])
 
@@ -210,7 +235,7 @@ export function useContextEditor({
 					beacon: false,
 				})
 				if (!activated) return false
-				ensureActiveDraftMapPresentation(useEditorStore.getState())
+				ensureActiveDraftMapPresentation(useEditorStore.getState(), { reveal: true })
 
 				// Desktop keeps its canonical route. Mobile's map-bound workspace tabs are
 				// presentation-only and reveal the sheet without rewriting location state.
@@ -243,6 +268,7 @@ export function useContextEditor({
 	return {
 		contextEditorMode,
 		editingContext,
+		contextCreationSeed,
 		clearEditorModes,
 		handleLoadDatasetForEditing,
 		handleInspectContext,

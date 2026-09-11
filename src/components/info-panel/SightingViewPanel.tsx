@@ -32,6 +32,7 @@
 
 import { unixNow } from 'applesauce-core/helpers/time'
 import { Images, LocateFixed, MapPlus, Pencil } from 'lucide-react'
+import { useState } from 'react'
 import { ImageGalleryDialog } from '@/components/media/ImageGalleryDialog'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { CommentsPanel } from '@/features/social/comments'
@@ -43,6 +44,7 @@ import {
 	formatRelativeDate,
 } from '@/lib/nostr/temporal-sighting'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
+import type { EarthlyObjectTab } from '@/router/routeContract'
 
 // IN-03: re-export the shared formatters so the Plan-01 test contract
 // (SightingViewPanel.test.ts imports them from this module path) stays intact
@@ -53,6 +55,8 @@ import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { ConfirmDeleteAction } from './ConfirmDeleteAction'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
+import { ObjectTabs, ThreadTabNotice } from './ObjectTabs'
+import { useObjectContentTab } from './ObjectThreadPlacement'
 
 interface SightingViewPanelProps {
 	/** The Sighting being viewed (cast). Absent ⇒ empty fallback. */
@@ -81,6 +85,9 @@ interface SightingViewPanelProps {
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	focusCommentId?: string
+	/** Route-backed social-object tab. Omit to let the panel manage it locally. */
+	objectTab?: EarthlyObjectTab
+	onObjectTabChange?: (tab: EarthlyObjectTab) => void
 }
 
 function ExpiredOrEmpty({ heading, body }: { heading: string; body: string }) {
@@ -107,7 +114,17 @@ export function SightingViewPanel({
 	onMentionZoomTo,
 	onZoomToBounds,
 	focusCommentId,
+	objectTab,
+	onObjectTabChange,
 }: SightingViewPanelProps) {
+	const [uncontrolledObjectTab, setUncontrolledObjectTab] = useState<EarthlyObjectTab>('details')
+	const activeObjectTab = objectTab ?? uncontrolledObjectTab
+	const contentTab = useObjectContentTab(activeObjectTab)
+	const setActiveObjectTab = (tab: EarthlyObjectTab) => {
+		if (objectTab === undefined) setUncontrolledObjectTab(tab)
+		onObjectTabChange?.(tab)
+	}
+
 	if (!sighting) {
 		return (
 			<ExpiredOrEmpty
@@ -158,136 +175,136 @@ export function SightingViewPanel({
 					}
 
 	return (
-		<EntityPanelShell title={title}>
-			<div className="space-y-3 text-[13px]">
-				<EntityPanelSurface tone="context" className="space-y-3">
-					<EntityPanelSectionHeader
-						eyebrow="Sighting"
-						title={title}
-						description={formatRelativeDate(sighting.created_at)}
-						action={
-							onZoomTo || isOwner ? (
-								<div className="flex items-center gap-2">
-									{onZoomTo && (
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											onClick={onZoomTo}
-											className="gap-1 rounded-none px-2 text-[11px]"
-											title="Zoom to on map"
-										>
-											<LocateFixed className="h-3 w-3" />
-											Zoom
-										</Button>
-									)}
-									{isOwner && onEditSighting && (
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											onClick={() => onEditSighting(sighting)}
-											className="gap-1 rounded-none px-2 text-[11px]"
-										>
-											<Pencil className="h-3 w-3" />
-											Edit
-										</Button>
-									)}
-									{isOwner && onDeleteSighting && (
-										<ConfirmDeleteAction
-											label="sighting"
-											isDeleting={isDeleting}
-											onConfirm={() => onDeleteSighting(sighting)}
-										/>
-									)}
-								</div>
-							) : undefined
-						}
-					/>
-
-					{/* Observation-state cue (D-06) + expiry countdown (D-05). */}
-					<div className="flex flex-wrap items-center gap-2">
-						{obsState === 'past' ? (
-							<span className={cue.className}>{cue.label}</span>
-						) : (
-							<Badge className={cue.className}>{cue.label}</Badge>
-						)}
-						{expiryCountdown ? (
-							<span className="text-[11px] text-muted-foreground">{expiryCountdown}</span>
-						) : null}
-					</div>
-
-					{primaryImage?.url ? (
-						<ImageGalleryDialog
-							images={images}
+		<EntityPanelShell
+			contained={contentTab === 'comments'}
+			title={title}
+			tabs={<ObjectTabs value={activeObjectTab} onValueChange={setActiveObjectTab} />}
+		>
+			{contentTab === 'details' ? (
+				<div className="space-y-3 text-[13px]">
+					<EntityPanelSurface tone="context" className="space-y-3">
+						<EntityPanelSectionHeader
+							eyebrow="Sighting"
 							title={title}
-							trigger={
-								<button
-									type="button"
-									className="group relative block w-full overflow-hidden rounded-[2px] border border-border bg-muted text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-									aria-label={`View ${images.length === 1 ? 'photo' : `${images.length} photos`} for ${title}`}
-								>
-									<img
-										src={primaryImage.url}
-										alt={primaryImage.alt ?? `${title} primary photo`}
-										className="aspect-video w-full object-cover transition-transform duration-200 group-hover:scale-[1.015]"
-									/>
-									<span className="absolute right-2 bottom-2 flex items-center gap-1 rounded-[2px] bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
-										<Images className="h-3.5 w-3.5" />
-										{images.length === 1 ? 'View photo' : `View ${images.length} photos`}
-									</span>
-								</button>
+							description={formatRelativeDate(sighting.created_at)}
+							action={
+								onZoomTo || isOwner ? (
+									<div className="flex items-center gap-2">
+										{onZoomTo && (
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												onClick={onZoomTo}
+												className="gap-1 rounded-none px-2 text-[11px]"
+												title="Zoom to on map"
+											>
+												<LocateFixed className="h-3 w-3" />
+												Zoom
+											</Button>
+										)}
+										{isOwner && onEditSighting && (
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												onClick={() => onEditSighting(sighting)}
+												className="gap-1 rounded-none px-2 text-[11px]"
+											>
+												<Pencil className="h-3 w-3" />
+												Edit
+											</Button>
+										)}
+										{isOwner && onDeleteSighting && (
+											<ConfirmDeleteAction
+												label="sighting"
+												isDeleting={isDeleting}
+												onConfirm={() => onDeleteSighting(sighting)}
+											/>
+										)}
+									</div>
+								) : undefined
 							}
 						/>
-					) : null}
 
-					{/* Description — escaped React text node only (T-11-04-02). */}
-					{description ? (
-						<p className="whitespace-pre-wrap text-sm text-foreground">{description}</p>
-					) : (
-						<p className="text-sm text-muted-foreground">No details added.</p>
-					)}
-
-					{/* Observation-time range (D-03). The three timestamps stay legible:
-					    `created_at` is the meta line above; this row is the observation
-					    window only. */}
-					{range.observed || range.until ? (
-						<div className="space-y-1 text-[12px] text-muted-foreground">
-							{range.observed ? (
-								<div>
-									<span className="font-semibold text-foreground">Observed</span> {range.observed}
-								</div>
-							) : null}
-							{range.until ? (
-								<div>
-									<span className="font-semibold text-foreground">Until</span> {range.until}
-								</div>
+						{/* Observation-state cue (D-06) + expiry countdown (D-05). */}
+						<div className="flex flex-wrap items-center gap-2">
+							{obsState === 'past' ? (
+								<span className={cue.className}>{cue.label}</span>
+							) : (
+								<Badge className={cue.className}>{cue.label}</Badge>
+							)}
+							{expiryCountdown ? (
+								<span className="text-[11px] text-muted-foreground">{expiryCountdown}</span>
 							) : null}
 						</div>
-					) : null}
 
-					{/* Add to map stack (SPEC §3.4) — a normal, non-isolated visible entry so
+						{primaryImage?.url ? (
+							<ImageGalleryDialog
+								images={images}
+								title={title}
+								trigger={
+									<button
+										type="button"
+										className="group relative block w-full overflow-hidden rounded-[2px] border border-border bg-muted text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										aria-label={`View ${images.length === 1 ? 'photo' : `${images.length} photos`} for ${title}`}
+									>
+										<img
+											src={primaryImage.url}
+											alt={primaryImage.alt ?? `${title} primary photo`}
+											className="aspect-video w-full object-cover transition-transform duration-200 group-hover:scale-[1.015]"
+										/>
+										<span className="absolute right-2 bottom-2 flex items-center gap-1 rounded-[2px] bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
+											<Images className="h-3.5 w-3.5" />
+											{images.length === 1 ? 'View photo' : `View ${images.length} photos`}
+										</span>
+									</button>
+								}
+							/>
+						) : null}
+
+						{/* Description — escaped React text node only (T-11-04-02). */}
+						{description ? (
+							<p className="whitespace-pre-wrap text-sm text-foreground">{description}</p>
+						) : (
+							<p className="text-sm text-muted-foreground">No details added.</p>
+						)}
+
+						{/* Observation-time range (D-03). The three timestamps stay legible:
+					    `created_at` is the meta line above; this row is the observation
+					    window only. */}
+						{range.observed || range.until ? (
+							<div className="space-y-1 text-[12px] text-muted-foreground">
+								{range.observed ? (
+									<div>
+										<span className="font-semibold text-foreground">Observed</span> {range.observed}
+									</div>
+								) : null}
+								{range.until ? (
+									<div>
+										<span className="font-semibold text-foreground">Until</span> {range.until}
+									</div>
+								) : null}
+							</div>
+						) : null}
+
+						{/* Add to map stack (SPEC §3.4) — a normal, non-isolated visible entry so
 					    the sighting shows on the map without going solo. Only when wired. */}
-					{onAddToMapStack ? (
-						<Button
-							type="button"
-							variant="outline"
-							onClick={() => onAddToMapStack(sighting)}
-							className="w-full gap-1 rounded-none"
-						>
-							<MapPlus className="h-4 w-4" />
-							Add to map stack
-						</Button>
-					) : null}
-				</EntityPanelSurface>
-
-				{/* Comment + react on the Sighting coordinate (SIGHT-04). The TemporalSighting
-				    cast is a kind-37522 event, so CommentsPanel/GeoSocialActions root the
-				    comment at `target.kind === TEMPORAL_SIGHTING_KIND` directly — runtime
-				    rooting is kind-generic; only the type union widens (full NIP-22 K/k
-				    widening stays Phase 13 / XCUT-01). */}
-				<EntityPanelSurface tone="discussion" className="space-y-4">
-					<EntityPanelSectionHeader eyebrow="Discussion" title="Comments" />
+						{onAddToMapStack ? (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => onAddToMapStack(sighting)}
+								className="w-full gap-1 rounded-none"
+							>
+								<MapPlus className="h-4 w-4" />
+								Show on map
+							</Button>
+						) : null}
+					</EntityPanelSurface>
+				</div>
+			) : contentTab === 'comments' ? (
+				<EntityPanelSurface tone="discussion" className="h-full min-h-0 px-0 py-2">
 					<CommentsPanel
 						key={sighting.id ?? sighting.dTag ?? 'no-sighting'}
 						target={sighting}
@@ -303,7 +320,9 @@ export function SightingViewPanel({
 						focusCommentId={focusCommentId}
 					/>
 				</EntityPanelSurface>
-			</div>
+			) : (
+				<ThreadTabNotice />
+			)}
 		</EntityPanelShell>
 	)
 }

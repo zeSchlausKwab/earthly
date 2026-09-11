@@ -1,5 +1,9 @@
 import { bearing } from '@turf/turf'
 import type { Feature, LineString, MultiLineString, Point, Position } from 'geojson'
+import {
+	copyPresentationProvenanceProperties,
+	PRESENTATION_PROPERTY_KEYS,
+} from '../map-presentation/ids'
 
 type LineFeature = Feature<LineString | MultiLineString>
 export type LineArrowFeature = Feature<
@@ -12,7 +16,7 @@ export type LineArrowFeature = Feature<
 		strokeWidth?: number
 		strokeOpacity?: number
 		active?: boolean
-	}
+	} & Record<string, unknown>
 >
 
 function samePosition(left: Position, right: Position): boolean {
@@ -49,7 +53,7 @@ export function lineArrowFeatures(feature: LineFeature): LineArrowFeature[] {
 	const arrowEnd = properties?.arrowEnd === true
 	if (!arrowStart && !arrowEnd) return []
 
-	const sourceFeatureId = String(feature.id ?? properties?.featureId ?? properties?.id ?? 'line')
+	const sourceFeatureId = String(properties?.featureId ?? feature.id ?? properties?.id ?? 'line')
 	const lines =
 		feature.geometry.type === 'LineString'
 			? [feature.geometry.coordinates]
@@ -60,22 +64,33 @@ export function lineArrowFeatures(feature: LineFeature): LineArrowFeature[] {
 		const common = {
 			meta: 'arrowhead' as const,
 			sourceFeatureId,
+			...(properties?.featureId != null ? { featureId: properties.featureId } : {}),
+			...(properties?.datasetId != null ? { datasetId: properties.datasetId } : {}),
+			...(properties?.sourceEventId != null ? { sourceEventId: properties.sourceEventId } : {}),
 			strokeColor: typeof properties?.strokeColor === 'string' ? properties.strokeColor : undefined,
 			strokeWidth: typeof properties?.strokeWidth === 'number' ? properties.strokeWidth : undefined,
 			strokeOpacity:
 				typeof properties?.strokeOpacity === 'number' ? properties.strokeOpacity : undefined,
 			active: properties?.active === true ? true : undefined,
+			...copyPresentationProvenanceProperties(properties),
 		}
 
 		if (arrowStart) {
 			const segment = firstDistinctSegment(coordinates)
 			if (segment) {
+				const sourceRenderId = properties?.[PRESENTATION_PROPERTY_KEYS.renderId]
+				const arrowId = `${
+					typeof sourceRenderId === 'string' ? sourceRenderId : sourceFeatureId
+				}:arrow-start:${lineIndex}`
 				arrows.push({
 					type: 'Feature',
-					id: `${sourceFeatureId}:arrow-start:${lineIndex}`,
+					id: arrowId,
 					geometry: { type: 'Point', coordinates: segment[0] },
 					properties: {
 						...common,
+						...(properties?.[PRESENTATION_PROPERTY_KEYS.renderId]
+							? { [PRESENTATION_PROPERTY_KEYS.renderId]: arrowId }
+							: {}),
 						// Start arrows point out of the line: second coordinate → first.
 						arrowBearing: bearing(segment[1], segment[0]),
 					},
@@ -86,12 +101,19 @@ export function lineArrowFeatures(feature: LineFeature): LineArrowFeature[] {
 		if (arrowEnd) {
 			const segment = lastDistinctSegment(coordinates)
 			if (segment) {
+				const sourceRenderId = properties?.[PRESENTATION_PROPERTY_KEYS.renderId]
+				const arrowId = `${
+					typeof sourceRenderId === 'string' ? sourceRenderId : sourceFeatureId
+				}:arrow-end:${lineIndex}`
 				arrows.push({
 					type: 'Feature',
-					id: `${sourceFeatureId}:arrow-end:${lineIndex}`,
+					id: arrowId,
 					geometry: { type: 'Point', coordinates: segment[1] },
 					properties: {
 						...common,
+						...(properties?.[PRESENTATION_PROPERTY_KEYS.renderId]
+							? { [PRESENTATION_PROPERTY_KEYS.renderId]: arrowId }
+							: {}),
 						arrowBearing: bearing(segment[0], segment[1]),
 					},
 				})

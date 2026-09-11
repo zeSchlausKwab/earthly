@@ -51,7 +51,7 @@ function DiffCardStack({ entries }: { entries: PendingDiffEntry[] }) {
 									size="sm"
 									className="h-auto gap-1 px-2 py-0.5 text-[11px] text-muted-foreground"
 									onClick={() => undoPendingDiff(entry.id)}
-									title="Undo this exact AI edit in its bound Dataset"
+									title="Undo this exact AI edit in its bound Map"
 								>
 									<Undo2 className="h-3 w-3" />
 									Undo AI edit

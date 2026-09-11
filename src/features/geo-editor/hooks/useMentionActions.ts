@@ -1,5 +1,8 @@
 import { useCallback } from 'react'
-import type { GeoDataset } from '@/lib/nostr/geo-event'
+import { GeoDataset } from '@/lib/nostr/geo-event'
+import { castEvent } from 'applesauce-core/casts'
+import { eventStore } from '@/lib/nostr'
+import { resolveEntityReference } from '@/lib/nostr/entityReference'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace'
 import { privateDatasetStackEntryId } from '@/features/private-maps/privateDatasetStack'
 import { geoReferenceLabel, parseGeoReference } from '@/lib/geo/reference'
@@ -40,28 +43,14 @@ export function useMentionActions({
 
 	const resolveNaddrToDataset = useCallback(
 		(address: string): GeoDataset | null => {
-			if (!address?.startsWith('naddr1')) {
-				return null
-			}
-			try {
-				const { nip19 } = require('nostr-tools')
-				const decoded = nip19.decode(address)
-				if (decoded.type !== 'naddr') return null
-
-				const { kind, pubkey, identifier } = decoded.data
-
-				return (
-					geoEvents.find(
-						(ev) =>
-							ev.kind === kind &&
-							ev.pubkey === pubkey &&
-							(ev.datasetId === identifier || ev.dTag === identifier || ev.id === identifier),
-					) ?? null
-				)
-			} catch {
-				console.warn('Failed to decode naddr:', address)
-				return null
-			}
+			const reference = resolveEntityReference(address)
+			if (!reference || reference.entityKind !== 'map') return null
+			const { kind, pubkey, identifier } = reference
+			const loaded = geoEvents.find((event) => event.kind === kind && event.pubkey === pubkey && (event.datasetId === identifier || event.dTag === identifier || event.id === identifier))
+			if (loaded) return loaded
+			const cached = eventStore.getReplaceable(kind, pubkey, identifier)
+			if (!cached) return null
+			try { return castEvent(cached, GeoDataset, eventStore) } catch { return null }
 		},
 		[geoEvents],
 	)

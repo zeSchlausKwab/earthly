@@ -358,10 +358,19 @@ export function useCommentGeometry(
 				showCommentLayers(comment)
 			}
 		}
+		const replayPendingComments = () => {
+			// Source loading or map movement can temporarily block Show without
+			// replacing the style. Retry once idle, leaving existing overlays intact.
+			for (const [commentId, comment] of desiredVisibleComments.current) {
+				if (!commentGeometryLayers.current.has(commentId)) showCommentLayers(comment)
+			}
+		}
 
 		mapInstance.on('style.load', replayVisibleComments)
+		mapInstance.on('idle', replayPendingComments)
 		return () => {
 			mapInstance.off('style.load', replayVisibleComments)
+			mapInstance.off('idle', replayPendingComments)
 		}
 	}, [mapReady, mapRef, showCommentLayers])
 

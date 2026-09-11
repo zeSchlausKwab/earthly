@@ -1,3 +1,5 @@
+import { transferFromResult } from '@/components/entity-list/entityTransfer'
+import { sightingToSearchResult } from '@/components/entity-search/types'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Eye, MapPlus } from 'lucide-react'
 import { useEffect, useRef } from 'react'
@@ -72,7 +74,7 @@ function SightingListRow({
 	}, [isSelected])
 
 	return (
-		<ListRow
+		<ListRow dragItem={transferFromResult(sightingToSearchResult(sighting))}
 			rowRef={rowRef}
 			leading={
 				primaryImage?.url ? (
@@ -100,9 +102,21 @@ function SightingListRow({
 			}
 			title={title}
 			selected={isSelected}
-			onTitleClick={() => context.onOpen(sighting)}
+			onTitleClick={() => {
+				context.onAddToMapStack?.(sighting)
+				context.onOpen(sighting)
+			}}
 			titleAriaLabel={`Open sighting ${title}`}
 			titleTitle="Open sighting"
+			primaryAction={
+				context.onAddToMapStack ? (
+					<RowActionButton
+						icon={MapPlus}
+						label="Show on map"
+						onClick={() => context.onAddToMapStack?.(sighting)}
+					/>
+				) : undefined
+			}
 			badges={
 				<>
 					<RowBadge label={cue.label} className={cue.className} />
@@ -153,7 +167,7 @@ function SightingListRow({
 					{context.onAddToMapStack ? (
 						<RowActionButton
 							icon={MapPlus}
-							label="Add to map stack"
+							label="Show on map"
 							hover="hover:text-ok"
 							onClick={() => context.onAddToMapStack?.(sighting)}
 						/>

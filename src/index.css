@@ -1,3 +1,4 @@
+/* Shared shell, panels and progressive map-loading surfaces. */
 @import "../styles/globals.css";
 @import "maplibre-gl/dist/maplibre-gl.css";
 

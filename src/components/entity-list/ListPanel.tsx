@@ -17,6 +17,8 @@ import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { EmbeddedListPanelContext } from './EmbeddedContext'
+import { ListOptionsContext } from './ListOptionsContext.ts'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 
 interface ListPanelProps {
 	icon: LucideIcon
@@ -31,6 +33,7 @@ interface ListPanelProps {
 	/** Inline controls sharing the title line (e.g. the All/Favorites/Recent strip),
 	 * right-aligned before the "+ new" button. */
 	titleAccessory?: ReactNode
+	optionsActiveCount?: number
 	/** Extra header controls on their own row below the title. */
 	headerExtra?: ReactNode
 	/** The search/sort toolbar. */
@@ -50,6 +53,7 @@ export function ListPanel({
 	onNew,
 	newLabel = 'New',
 	titleAccessory,
+	optionsActiveCount = 0,
 	headerExtra,
 	toolbar,
 	footerLeft,
@@ -59,6 +63,7 @@ export function ListPanel({
 	// Inside the mobile sheet the §14a switcher pill is already the header, so the
 	// panel's own title row (glyph · title · count · + new) would double it up.
 	const embedded = useContext(EmbeddedListPanelContext)
+	const compactOptions = useIsMobile() && embedded
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			{embedded ? <h2 className="sr-only">{title}</h2> : null}
@@ -89,17 +94,30 @@ export function ListPanel({
 						</div>
 					</div>
 				)}
-				{/* On mobile keep the tab strip (All/Favorites/Recent) — it moves off the
-				    hidden title row into its own line. */}
-				{embedded ? titleAccessory : null}
-				{headerExtra}
-				{toolbar}
+				{/* Browse already supplies the title; keep all secondary controls together. */}
+				{embedded && titleAccessory && !compactOptions ? (
+					<fieldset
+						className="flex min-w-0 items-center gap-1.5"
+						aria-label={`${title} list options`}
+					>
+						<legend className="sr-only">{title} list options</legend>
+						{titleAccessory}
+					</fieldset>
+				) : null}
+				{!compactOptions && headerExtra}
+				<ListOptionsContext.Provider value={{ controls: compactOptions ? <>{titleAccessory}{headerExtra}</> : undefined, activeCount: optionsActiveCount }}>{toolbar}</ListOptionsContext.Provider>
+				{embedded && !compactOptions ? (
+					<div className="flex min-w-0 items-center justify-between gap-2 border-t border-border pt-1.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+						<span>
+							{count} {title}
+						</span>
+						<span className="truncate">Open to inspect · More actions</span>
+					</div>
+				) : null}
 			</div>
 
 			{/* Body — the list, the only scroll region. */}
-			<div className="min-h-0 flex-1 overflow-y-auto py-2 pr-2 [scrollbar-gutter:stable]">
-				{children}
-			</div>
+			<div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">{children}</div>
 
 			{/* Footer — mono ledger line. */}
 			{footerLeft != null || footerRight != null ? (

@@ -420,7 +420,7 @@ export function SightingEditorPanel({
 						}
 					/>
 					<p className="text-xs text-muted-foreground">
-						The first photo is shown on the map, in lists, and in the sighting inspector.
+						The first photo is shown on the map, in lists, and in Sighting details.
 					</p>
 				</div>
 				{!hasPlacement ? (
@@ -454,7 +454,7 @@ export function SightingEditorPanel({
 								<span className="min-w-0 flex-1">
 									<span className="block text-sm font-semibold text-foreground">More options</span>
 									<span className="block text-xs text-muted-foreground">
-										Time, lifespan, and Context
+										Time, lifespan, and Atlas
 									</span>
 								</span>
 								<ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
@@ -584,7 +584,7 @@ export function SightingEditorPanel({
 			{/* ── Group attach (SIGHT-02) + submit. Publish NEVER disabled by verdict ── */}
 			<EntityPanelSurface tone="neutral" className="space-y-3">
 				{advancedControlsVisible ? (
-					<EntityPanelSectionHeader eyebrow="Optional" title="Add to a Context (optional)" />
+					<EntityPanelSectionHeader eyebrow="Optional" title="Add to an Atlas (optional)" />
 				) : null}
 				{saveError && <p className="text-xs text-destructive">{saveError}</p>}
 				<GroupAttachField

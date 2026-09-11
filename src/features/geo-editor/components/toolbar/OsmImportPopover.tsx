@@ -2,6 +2,11 @@ import { MousePointerClick, Scan, Settings2, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
+	ToolPopoverAnchor,
+	useToolPopoverFocusProps,
+	type ToolPopoverControl,
+} from './toolPopoverControl'
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -31,6 +36,7 @@ export interface OsmImportPopoverProps {
 	onOsmAdvanced?: () => void
 	isClickMode?: boolean
 	small?: boolean
+	control?: ToolPopoverControl
 }
 
 export function OsmImportPopover({
@@ -43,7 +49,9 @@ export function OsmImportPopover({
 	onOsmAdvanced,
 	isClickMode,
 	small,
+	control,
 }: OsmImportPopoverProps) {
+	const focusProps = useToolPopoverFocusProps(control)
 	const iconSize = small ? 'h-3.5 w-3.5' : 'h-4 w-4'
 	const buttonSize = small ? 'h-8 w-8' : 'h-9 w-9'
 	// Uniform style with Chat / Lookup / Settings / Share: ghost variant +
@@ -60,25 +68,35 @@ export function OsmImportPopover({
 	return (
 		<TooltipProvider delayDuration={500}>
 			<Popover open={open} onOpenChange={onOpenChange}>
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<PopoverTrigger asChild>
-							<Button
-								size={small ? 'icon-sm' : 'icon'}
-								variant={small ? 'ghost' : isClickMode ? 'default' : 'outline'}
-								className={triggerClass}
-								aria-label="OSM Import"
-							>
-								<Sparkles className={iconSize} />
-							</Button>
-						</PopoverTrigger>
-					</TooltipTrigger>
-					<TooltipContent side="bottom" sideOffset={8}>
-						<p>OSM Import</p>
-					</TooltipContent>
-				</Tooltip>
+				{control ? (
+					<ToolPopoverAnchor anchorRef={control.anchorRef} />
+				) : (
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<PopoverTrigger asChild>
+								<Button
+									size={small ? 'icon-sm' : 'icon'}
+									variant={small ? 'ghost' : isClickMode ? 'default' : 'outline'}
+									className={triggerClass}
+									aria-label="OSM Import"
+								>
+									<Sparkles className={iconSize} />
+								</Button>
+							</PopoverTrigger>
+						</TooltipTrigger>
+						<TooltipContent side="bottom" sideOffset={8}>
+							<p>OSM Import</p>
+						</TooltipContent>
+					</Tooltip>
+				)}
 
-				<PopoverContent className="w-64 p-3" side="bottom" align="start">
+				<PopoverContent
+					aria-label="Import from OpenStreetMap"
+					className="w-64 p-3"
+					side="bottom"
+					align="start"
+					{...focusProps}
+				>
 					<div className="space-y-3">
 						<div className="text-sm font-medium">Import from OpenStreetMap</div>
 

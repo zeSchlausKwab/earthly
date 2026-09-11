@@ -290,7 +290,7 @@ export const desktopTourSteps: DriveStep[] = [
 				<ul style="margin:0 0 8px;padding-left:1.2em;line-height:1.8">
 					<li><strong>Comments</strong> — discuss datasets, mention features by drawing geometry inline</li>
 					<li><strong>Reactions</strong> — react with emoji or zap sats via Lightning</li>
-					<li><strong>Edit Proposals</strong> — suggest geometry edits; the dataset owner accepts or rejects</li>
+					<li><strong>Edit Proposals</strong> — suggest geometry edits; the Map owner accepts or rejects</li>
 					<li><strong>Local posts</strong> — short-form posts visible to people in the same area</li>
 				</ul>
 				<p style="margin:0;font-size:.85em;opacity:.7">
@@ -313,15 +313,15 @@ export const desktopTourSteps: DriveStep[] = [
 				</p>
 				<ol style="margin:0 0 10px;padding-left:1.4em;line-height:2">
 					<li>Explore the map — no sign-in needed</li>
-					<li>Browse the <strong>Contexts</strong> panel — there may already be a
-					    <em>global context</em> for your region you can attach geometry to</li>
-					<li>Or open <strong>Datasets</strong> and press <strong>New dataset</strong>,
+					<li>Browse <strong>Atlases</strong> — there may already be a public Atlas
+					    for your region that you can add a Map to</li>
+					<li>Or open <strong>Maps</strong> and press <strong>New Map</strong>,
 					    draw some features, and hit <strong>Publish</strong></li>
-					<li>Create your own <strong>Map Context</strong> to curate datasets for a
+					<li>Create your own <strong>Atlas</strong> to curate Maps for a
 					    place or theme you care about</li>
 				</ol>
 				<p style="margin:0;font-size:.85em;opacity:.7">
-					You can replay this tour anytime from the <strong>Help</strong> panel in the sidebar.
+					You can replay this tour anytime from <strong>Help</strong>.
 				</p>
 			`,
 			side: 'over',
@@ -343,7 +343,7 @@ export const mobileTourSteps: DriveStep[] = [
 			title: '🌍 Welcome to Earthly',
 			description: `
 				<p style="margin:0 0 10px">
-					<strong>Earthly</strong> is a shared map workspace built on
+					<strong>Earthly</strong> is a shared mapping app built on
 					<a href="https://nostr.com" target="_blank" rel="noreferrer">Nostr</a>.
 					Explore community geographic data, add your own observations, and publish
 					them without any central server.
@@ -351,7 +351,7 @@ export const mobileTourSteps: DriveStep[] = [
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					This tour takes under a minute. Press <strong>Next →</strong> to begin, or the
 					<strong>✕</strong> in the corner to skip — you can replay it any time from
-					<strong>Help</strong> in the panel switcher.
+					<strong>Help</strong> in the top bar.
 				</p>
 			`,
 			side: 'over',
@@ -389,15 +389,14 @@ export const mobileTourSteps: DriveStep[] = [
 					The dock at the bottom is your navigation:
 				</p>
 				<ul style="margin:0 0 8px;padding-left:1.2em;line-height:1.8">
-					<li><strong>Menu</strong> — account, drafts, lists, groups, sessions, and settings</li>
+					<li><strong>Map</strong> — close panels and return to the bare map</li>
 					<li><strong>Search</strong> — find places and map entities</li>
 					<li><strong>+</strong> — create something new</li>
-					<li><strong>Map stack</strong> — control what is visible on the map</li>
-					<li><strong>Map</strong> — close panels and return to the map</li>
+					<li><strong>Me</strong> — your profile, Shelf, drafts, groups, sessions, and settings</li>
 				</ul>
 				<p style="margin:0;font-size:.85em;opacity:.7">
-					Choose a section from <strong>Menu</strong>; inspections and map-bound tools open
-					in the sheet so you can keep seeing the map.
+					Tap <strong>Me</strong>, then Back, to reach the complete menu. Inspections and
+					map-bound tools open in the sheet so you can keep seeing the map.
 				</p>
 			`,
 			side: 'top',
@@ -416,9 +415,9 @@ export const mobileTourSteps: DriveStep[] = [
 				</p>
 				<ul style="margin:0 0 8px;padding-left:1.2em;line-height:1.8">
 					<li><strong>Sighting</strong> — a quick observation pinned to a spot</li>
-					<li><strong>Dataset</strong> — draw and publish map features</li>
+					<li><strong>Map</strong> — draw and publish map features</li>
 					<li><strong>Story</strong> — a longer article tied to places</li>
-					<li><strong>Context</strong> — a curated community map</li>
+					<li><strong>Atlas</strong> — a curated community map</li>
 					<li><strong>Live beacon</strong> — share your live location</li>
 				</ul>
 			`,
@@ -427,15 +426,15 @@ export const mobileTourSteps: DriveStep[] = [
 		},
 	},
 
-	// ── 5. Menu / identity ─────────────────────────────────────────────────────
+	// ── 5. Me / identity ───────────────────────────────────────────────────────
 	{
-		element: '[data-tour="mobile-dock-menu"]',
+		element: '[data-tour="mobile-dock-me"]',
 		popover: {
 			title: '🔑 Your Nostr Identity',
 			description: `
 				<p style="margin:0 0 8px">
 					Earthly uses <strong>Nostr</strong> for identity — a key pair you control,
-					no email or password. Tap <strong>Menu</strong>; the account controls at the top
+					no email or password. Tap <strong>Me</strong>; the account controls at the top
 					let you create a key, import one, or connect a remote signer.
 				</p>
 				<p style="margin:0;font-size:.85em;opacity:.7">

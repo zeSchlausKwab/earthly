@@ -18,11 +18,10 @@ export const DETERMINISTIC_CHAT_SECONDARY_MODEL_ID = 'earthly-compact-fixture'
 export const DETERMINISTIC_SEQUENTIAL_DATASET_NAME = 'Sequential AI edit regression'
 export const DETERMINISTIC_SEQUENTIAL_DATASET_DESCRIPTION =
 	'Non-empty AI-authored description applied while the Dataset metadata editor is mounted.'
-export const DETERMINISTIC_STORY_TARGET_TITLE = 'Dataset-bound Story target regression'
+export const DETERMINISTIC_STORY_TARGET_TITLE = 'Work-scoped Story creation regression'
 export const DETERMINISTIC_STORY_TARGET_BODY =
-	'This local Story draft was written only after the author explicitly created its edit state.'
-export const DETERMINISTIC_STORY_TARGET_FINAL_ANSWER =
-	'I created the requested local Story draft after you approved its Story edit state.'
+	'This separate Story output was written with the Thread’s new-draft permission.'
+export const DETERMINISTIC_STORY_TARGET_FINAL_ANSWER = 'The Story creation attempt has finished.'
 
 export type DeterministicChatScenario =
 	| 'spatial-research'
@@ -30,11 +29,13 @@ export type DeterministicChatScenario =
 	| 'metadata-then-geometry'
 	| 'mobile-workspace-switch'
 	| 'story-target-gate'
+	| 'working-set'
 	| 'nearby-discovery'
 	| 'source-to-map-research'
 	| 'repeated-tool-error'
 
 const scenarioModels: Record<DeterministicChatScenario, { id: string; name: string }> = {
+	'working-set': { id: 'earthly-working-set-fixture', name: 'Earthly working set fixture' },
 	'spatial-research': {
 		id: DETERMINISTIC_CHAT_MODEL_ID,
 		name: 'Earthly spatial fixture',
@@ -276,6 +277,62 @@ async function fulfillModelRoute(
 		.slice(lastUserIndex + 1)
 		.some((message) => message.role === 'tool')
 	const userMessageCount = messages.filter((message) => message.role === 'user').length
+	if (scenario === 'working-set') {
+		const results = messages
+			.filter((message) => message.role === 'tool')
+			.map((message) => {
+				try {
+					return JSON.parse(String(message.content))
+				} catch {
+					return {}
+				}
+			})
+		const maps = results.filter(
+			(result) => result.workingTarget?.startsWith('map:') && result.localReference,
+		)
+		const calls = !hasToolResultForCurrentTurn
+			? ['Front 1914', 'Front 1916'].map((title) => ({ name: 'create_map_draft', args: { title } }))
+			: results.length === 2 && maps.length === 2
+				? [
+						...maps.map((map, index) => ({
+							name: 'run_code',
+							args: {
+								workingTarget: map.workingTarget,
+								code: `authoring.commitDataset({ featureCollection: ${JSON.stringify({ type: 'FeatureCollection', features: [syntheticSpatialDraft.features[index]] })}, metadata: { name: '${index ? 'Front 1916' : 'Front 1914'}' } }); 'Created one feature'`,
+							},
+						})),
+						{
+							name: 'write_story_draft',
+							args: {
+								title: 'A changing front',
+								markdown: `Compare ${maps[0].localReference} with ${maps[1].localReference}.`,
+								createNew: true,
+							},
+						},
+					]
+				: []
+		const delta = calls.length
+			? {
+					role: 'assistant',
+					tool_calls: calls.map((call, index) => ({
+						index,
+						id: `work-${requests.length}-${index}`,
+						type: 'function',
+						function: { name: call.name, arguments: JSON.stringify(call.args) },
+					})),
+				}
+			: {
+					role: 'assistant',
+					content: 'Created two separate local Maps and a Story. Nothing was published.',
+				}
+		if (completionGate) await completionGate
+		await route.fulfill({
+			status: 200,
+			headers: corsHeaders('text/event-stream; charset=utf-8'),
+			body: streamBody(delta, calls.length ? 'tool_calls' : 'stop', model.id),
+		})
+		return
+	}
 
 	const nearbyBodyText = hasToolResultForCurrentTurn
 		? streamBody(
@@ -348,7 +405,7 @@ async function fulfillModelRoute(
 	const targetBindingBodyText = streamBody(
 		{
 			role: 'assistant',
-			content: 'The explicitly selected Dataset target received this prompt.',
+			content: 'The work Thread received this prompt.',
 		},
 		'stop',
 		model.id,

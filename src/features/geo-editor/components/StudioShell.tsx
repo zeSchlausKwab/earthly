@@ -1,94 +1,103 @@
 /**
- * StudioShell — the single responsive layout frame for the geo editor.
+ * StudioShell is Earthly's single application composition root.
  *
- * It owns the desktop skeleton ("The skeleton, three widths", redesign §15a):
- * the left panel (navigator + active panel), the map with its floating Map Stack
- * and controls, the right chat, and the bottom status bar. All of its dimensions
- * come from the `--shell-*` CSS variables in `styles/globals.css`, so the widths
- * and insets are tweakable in ONE place instead of being scattered across a
- * 3000-line orchestration component.
- *
- * The map-container contents (the map itself, its overlays, the toolbar, the
- * floating Map Stack, and the mobile sheet + controls) are passed as `children`
- * — those are the editor's domain. The shell only arranges the frame around them
- * and flips between the desktop columns and the mobile (map + one sheet) layout.
+ * Domain surfaces arrive as slots; this component only owns their placement.
+ * That keeps the existing toolbar, Margin panels, Thread, mobile controls and
+ * map overlays mounted while the layout changes around them.
  */
 
-import type { CSSProperties, ReactNode, RefObject } from 'react'
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
+import type { ReactNode, RefObject } from 'react'
+import { ObjectThreadBesideContext } from '../../../components/info-panel/ObjectThreadPlacement.tsx'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '../store'
+import { CanvasFrame, ShellFrame } from './margin-shell'
 
-interface StudioShellProps {
-	/** Left panel — the AppSidebar (rendered desktop-only). */
+export interface StudioShellProps {
+	/** The active object/catalog surface. Use `<AppSidebar layout="margin" />`. */
 	sidebar: ReactNode
-	/** Bottom status bar (desktop-only). */
-	statusBar: ReactNode
-	/** Right chat / assistant panel (desktop-only; self-manages its open width). */
-	chat: ReactNode
+	/** Existing map instrument status. It sits just above the Shelf. */
+	statusBar?: ReactNode
+	/** Existing single mounted Chat tree; retained as the compatibility prop name. */
+	chat?: ReactNode
+	/** Preferred semantic alias for `chat` in new integrations. */
+	thread?: ReactNode
+	/** Route-owned Thread visibility. Falls back to the legacy editor-store flag. */
+	threadOpen?: boolean
 	/** The map container ref — overlays/popups/magnifier measure against it. */
 	mapContainerRef: RefObject<HTMLDivElement | null>
-	/** Everything inside the map container: the map, its overlays, the toolbar,
-	 *  the floating Map Stack, and (on mobile) the sheet + floating controls. */
+	/** Map, map-owned overlays, dialogs, and the existing mobile composition. */
 	children: ReactNode
+	/** Global 46px application bar (`TopBar`). Required by the production frame. */
+	topBar: ReactNode
+	/** Lens/live/offline bars. Each surface owns its own height. */
+	banners?: ReactNode
+	/** Existing desktop toolbar, positioned as a canvas overlay when provided. */
+	canvasToolbar?: ReactNode
+	/** The always-present 42px `ShelfStrip`. */
+	shelf: ReactNode
+	/** Optional phone-only slots. Existing MobilePanel controls can remain in children. */
+	mobileTop?: ReactNode
+	mobileMargin?: ReactNode
+	mobileDock?: ReactNode
+	/** "See the map through panels" presentation; ownership remains with the host setting. */
+	translucent?: boolean
+	className?: string
 }
 
 export function StudioShell({
 	sidebar,
 	statusBar,
 	chat,
+	thread,
+	threadOpen: threadOpenOverride,
 	mapContainerRef,
 	children,
+	topBar,
+	banners,
+	canvasToolbar,
+	shelf,
+	mobileTop,
+	mobileMargin,
+	mobileDock,
+	translucent = false,
+	className,
 }: StudioShellProps) {
-	const isMobile = useIsMobile()
-	const sidebarExpanded = useEditorStore((state) => state.sidebarExpanded)
-	const setSidebarExpanded = useEditorStore((state) => state.setSidebarExpanded)
-	const chatDock = useEditorStore((state) => state.chatDock)
-
-	// Every dimension is a --shell-* CSS var (globals.css). Only the expanded/default
-	// width choice and the mobile/desktop branch are decided here in JS.
-	const shellStyle = isMobile
-		? undefined
-		: ({
-				'--sidebar-width': sidebarExpanded
-					? 'var(--shell-sidebar-w-expanded)'
-					: 'var(--shell-sidebar-w)',
-				// Keep the fixed sidebar between the docked top bar and the status bar.
-				'--sidebar-inset-top': 'var(--shell-toolbar-h)',
-				'--sidebar-inset-bottom': 'var(--shell-statusbar-h)',
-			} as CSSProperties)
+	const storedThreadOpen = useEditorStore((state) => state.chatOpen)
+	const storedThreadDock = useEditorStore((state) => state.chatDock)
+	const threadOpen = threadOpenOverride ?? storedThreadOpen
+	const threadDock = storedThreadDock
+	const compact = useIsMobile(1100)
 
 	return (
-		<SidebarProvider
-			sidebarExpanded={sidebarExpanded}
-			onExpandedChange={setSidebarExpanded}
-			style={shellStyle}
-			data-chat-dock={chatDock}
-		>
-			{!isMobile && sidebar}
-
-			<SidebarInset>
-				<div
-					ref={mapContainerRef}
-					data-tour="map-canvas"
-					className="relative w-full"
-					style={
-						isMobile
-							? { height: '100dvh', minHeight: '100svh' }
-							: {
-									// Reserve the status-bar band so the map + its floating panels
-									// sit above the footer instead of behind it.
-									height: 'calc(100dvh - var(--shell-statusbar-h))',
-									minHeight: 'calc(100svh - var(--shell-statusbar-h))',
-								}
-					}
+		<ShellFrame
+			className={className}
+			translucent={translucent}
+			topBar={topBar}
+			banners={banners}
+			margin={
+				<ObjectThreadBesideContext.Provider
+					value={threadOpen && threadDock === 'right' && !compact}
+				>
+					{sidebar}
+				</ObjectThreadBesideContext.Provider>
+			}
+			thread={thread ?? chat}
+			threadOpen={threadOpen}
+			threadDock={threadDock}
+			marginCovered={threadOpen && (threadDock === 'left' || compact)}
+			mobileTop={mobileTop}
+			mobileMargin={mobileMargin}
+			mobileDock={mobileDock}
+			canvas={
+				<CanvasFrame
+					containerRef={mapContainerRef}
+					toolbar={canvasToolbar}
+					status={statusBar}
+					shelf={shelf}
 				>
 					{children}
-				</div>
-			</SidebarInset>
-
-			{!isMobile && <div className="fixed right-0 bottom-0 left-0 z-30">{statusBar}</div>}
-			{!isMobile && chat}
-		</SidebarProvider>
+				</CanvasFrame>
+			}
+		/>
 	)
 }

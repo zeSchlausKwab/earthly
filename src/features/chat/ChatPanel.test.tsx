@@ -1,18 +1,92 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
+import { renderToStaticMarkup } from 'react-dom/server'
 import {
 	resolveChatErrorPresentation,
 	resolveChatHeaderControlSizing,
+	resolveInitialThreadPrompt,
 	resolveChatSendState,
+	getChatReferenceKey,
+	chatReferenceToSearchResult,
+	referenceForViewedObject,
 } from './ChatPanel'
 import { useChatComposerStore } from './composerState'
 import { useChatStore } from './store'
+import {
+	chatSafetyPresentation,
+	ChatSafetyIndicator,
+	ChatThreadIdentity,
+} from './components/ChatHeaderPresentation'
+
+describe('compact Thread header', () => {
+	test('omits an embedded object title but preserves standalone Thread identity', () => {
+		expect(renderToStaticMarkup(<ChatThreadIdentity title="Western Front" embedded />)).toBe('')
+		expect(
+			renderToStaticMarkup(<ChatThreadIdentity title="Western Front" embedded={false} />),
+		).toContain('Western Front')
+	})
+
+	test('keeps permissive editing explicit while settings are collapsed', () => {
+		const markup = renderToStaticMarkup(<ChatSafetyIndicator readOnly={false} safetyLevel={3} />)
+		expect(markup).toContain('Auto apply')
+		expect(markup).toContain('AI changes are applied automatically')
+		expect(markup).toContain('text-amber-700')
+		expect(chatSafetyPresentation(false, 1).label).toBe('Ask always')
+		expect(chatSafetyPresentation(false, 2).label).toBe('Ask first')
+	})
+
+	test('never presents writable safety in a read-only object Thread', () => {
+		const markup = renderToStaticMarkup(<ChatSafetyIndicator readOnly safetyLevel={3} />)
+		expect(markup).toContain('Read-only')
+		expect(markup).toContain('Questions and research; no changes to maps or stories.')
+		expect(markup).not.toContain('Auto apply')
+		expect(chatSafetyPresentation(true, 3).permissive).toBe(false)
+	})
+})
+
+describe('chat reference picker identity', () => {
+	test('removal keeps the exact feature and local draft identity', () => {
+		const reference = {
+			id: 'foreign-map',
+			name: 'Western Front',
+			type: 'feature' as const,
+			pubkey: 'author',
+			featureId: 'verdun',
+			localWorkspaceId: 'draft-1',
+		}
+		const chip = chatReferenceToSearchResult(reference)
+		expect(getChatReferenceKey(chip)).toBe(getChatReferenceKey(reference))
+		expect(chip).toMatchObject({ featureId: 'verdun', localWorkspaceId: 'draft-1' })
+		const sibling = { ...reference, featureId: 'somme' }
+		const remaining = [reference, sibling].filter(
+			(item) => getChatReferenceKey(item) !== getChatReferenceKey(chip),
+		)
+		expect(remaining).toEqual([sibling])
+	})
+
+	test('current-object shortcuts preserve unpublished draft identity without granting writes', () => {
+		expect(referenceForViewedObject('map-draft:workspace-1', 'My map')).toMatchObject({
+			id: 'workspace-1',
+			name: 'My map',
+			type: 'dataset',
+			localWorkspaceId: 'workspace-1',
+			address: undefined,
+		})
+		expect(referenceForViewedObject('story:naddr1example', 'A story')).toMatchObject({
+			type: 'story',
+			address: 'naddr1example',
+			localWorkspaceId: undefined,
+		})
+		expect(referenceForViewedObject('ask')).toBeNull()
+		expect(referenceForViewedObject('unknown:somewhere')).toBeNull()
+	})
+})
 
 describe('ChatPanel editing-target send contract', () => {
 	beforeEach(() => {
 		useChatStore.getState().reset()
 	})
 
-	test('keeps an unbound prompt editable but makes Send target-required', () => {
+	test('fails closed when a writable Thread has no route-owned Map', () => {
 		const chatId = useChatStore.getState().activeChatId as string
 		useChatStore.setState({
 			provider: 'custom',
@@ -43,7 +117,7 @@ describe('ChatPanel editing-target send contract', () => {
 			}),
 		).toEqual({
 			canSend: false,
-			title: 'Choose New map or Use current edit before sending.',
+			title: 'Open this Thread from a Map before sending.',
 		})
 		expect(
 			resolveChatSendState({
@@ -68,6 +142,40 @@ describe('ChatPanel editing-target send contract', () => {
 			canSend: false,
 			title: 'Resolve the image support warning before sending.',
 		})
+	})
+
+	test('allows an explicit read-only Thread to use the same send state without an editor target', () => {
+		// ChatPanel supplies the read-only capability as a valid no-edit target to
+		// this presentation helper; the store independently enforces tool gating.
+		expect(
+			resolveChatSendState({
+				canCompose: true,
+				hasValidEditingTarget: true,
+				targetCreationPending: false,
+				anotherChatIsRunning: false,
+			}),
+		).toEqual({ canSend: true, title: 'Send' })
+	})
+
+	test('offers the route-owned authoring verb when a Map Thread can prepare its target', () => {
+		expect(
+			resolveChatSendState({
+				canCompose: true,
+				hasValidEditingTarget: false,
+				canCreateEditingTarget: true,
+				authoringActionLabel: 'Propose & send',
+				targetCreationPending: false,
+				anotherChatIsRunning: false,
+			}),
+		).toEqual({ canSend: true, title: 'Propose & send' })
+	})
+})
+
+describe('ChatPanel initial Thread prompt', () => {
+	test('seeds only an empty composer and never overwrites an existing draft', () => {
+		expect(resolveInitialThreadPrompt('  Where was this made?  ', '')).toBe('Where was this made?')
+		expect(resolveInitialThreadPrompt('Where was this made?', 'Keep my draft')).toBeNull()
+		expect(resolveInitialThreadPrompt('   ', '')).toBeNull()
 	})
 })
 

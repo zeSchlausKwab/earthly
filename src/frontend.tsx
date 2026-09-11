@@ -7,6 +7,7 @@
 
 import { StrictMode, type ReactNode } from 'react'
 import { createRoot, type RootOptions } from 'react-dom/client'
+import { installEarthlyNavigator } from './router/navigation'
 import './index.css'
 
 interface EarthlyBootCoordinator {
@@ -131,13 +132,15 @@ async function createApplication(): Promise<ReactNode> {
 
 	const [
 		{ AccountsProvider, EventStoreProvider },
-		{ App },
+		{ RouterProvider },
+		{ createEarthlyRouter },
 		{ upgradeLegacyHashRoute },
 		{ accounts, eventStore, initializeAccountPersistence, startPublishOutbox },
 		{ startNativeDeepLinks },
 	] = await Promise.all([
 		import('applesauce-react/providers'),
-		import('./App'),
+		import('@tanstack/react-router'),
+		import('./router/router'),
 		import('./features/geo-editor/hooks/useRouting'),
 		import('./lib/nostr'),
 		import('./platform/registry'),
@@ -146,6 +149,14 @@ async function createApplication(): Promise<ReactNode> {
 	// Rewrite legacy `#/…` routes before the editor mounts so its first location
 	// parse sees the canonical clean path.
 	upgradeLegacyHashRoute()
+	// Instantiate browser history only after the legacy hash has been upgraded.
+	// TanStack is the sole owner of top-level route matching and browser history.
+	// The editor's remaining route adapter derives domain state; it never writes
+	// history directly.
+	const router = createEarthlyRouter()
+	installEarthlyNavigator((href, options) =>
+		router.navigate({ href, replace: options?.replace, resetScroll: false }),
+	)
 	await initializeAccountPersistence()
 	await startNativeDeepLinks()
 	void startPublishOutbox()
@@ -154,7 +165,7 @@ async function createApplication(): Promise<ReactNode> {
 		<StrictMode>
 			<EventStoreProvider eventStore={eventStore}>
 				<AccountsProvider manager={accounts}>
-					<App />
+					<RouterProvider router={router} />
 				</AccountsProvider>
 			</EventStoreProvider>
 		</StrictMode>

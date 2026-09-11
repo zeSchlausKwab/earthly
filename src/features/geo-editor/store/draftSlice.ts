@@ -1,4 +1,8 @@
 import type { StateCreator } from 'zustand'
+import type {
+	MapAuthoringIntent,
+	MapDraftSource,
+} from '@/components/info-panel/mapProposalPresentation'
 import type { EditorFeature } from '../core'
 import type { CollectionMeta, EditorBlobReference } from '../types'
 import { createDefaultCollectionMeta } from '../utils'
@@ -12,6 +16,27 @@ export interface PersistedGeoCollectionDraftState {
 }
 
 const GEO_COLLECTION_DRAFTS_STORAGE_KEY = 'earthly:geo-editor:collection-drafts:v1'
+
+function normalizeAuthoringIntent(value: unknown): MapAuthoringIntent | undefined {
+	return value === 'edit' || value === 'propose' || value === 'fork' ? value : undefined
+}
+
+function normalizeMapDraftSource(value: unknown): MapDraftSource | undefined {
+	if (!value || typeof value !== 'object') return undefined
+	const record = value as Record<string, unknown>
+	if (
+		!['address', 'pubkey', 'identifier', 'eventId'].every(
+			(key) => typeof record[key] === 'string' && record[key].trim(),
+		)
+	)
+		return undefined
+	return {
+		address: record.address as string,
+		pubkey: record.pubkey as string,
+		identifier: record.identifier as string,
+		eventId: record.eventId as string,
+	}
+}
 
 const normalizeDraftCollectionMeta = (value: unknown): CollectionMeta => {
 	const defaults = createDefaultCollectionMeta()
@@ -158,6 +183,8 @@ export const normalizePersistedGeoCollectionDraftState = (
 			Object.hasOwn(asRecord, 'contextRefs') ||
 			Object.hasOwn(asRecord, 'blobReferences')
 		const normalized: GeoCollectionEditDraft = {
+			authoringIntent: normalizeAuthoringIntent(asRecord.authoringIntent),
+			sourceDataset: normalizeMapDraftSource(asRecord.sourceDataset),
 			persistenceVersion: hasVersionTwoFields ? 2 : 1,
 			id: typeof asRecord.id === 'string' ? asRecord.id : draftId,
 			sourceId:
@@ -215,6 +242,7 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 	return {
 		geoEditDrafts: persisted.drafts,
 		activeGeoEditDraftId: persisted.activeDraftId,
+		pendingHydratedDraftId: persisted.activeDraftId,
 
 		createGeoEditDraft: (sourceId, seed, options) => {
 			const id = createGeoDraftId()
@@ -222,6 +250,8 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 			const state = get()
 			const activate = options?.activate !== false
 			const draft: GeoCollectionEditDraft = {
+				authoringIntent: normalizeAuthoringIntent(seed?.authoringIntent),
+				sourceDataset: normalizeMapDraftSource(seed?.sourceDataset),
 				persistenceVersion: 2,
 				id,
 				sourceId,
@@ -242,7 +272,7 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 			}
 			set({
 				geoEditDrafts: nextDrafts,
-				...(activate ? { activeGeoEditDraftId: id } : {}),
+				...(activate ? { activeGeoEditDraftId: id, pendingHydratedDraftId: null } : {}),
 			})
 			writePersistedGeoCollectionDraftState(nextDrafts, activate ? id : state.activeGeoEditDraftId)
 			if (!activate) return id
@@ -262,7 +292,10 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 			set((state) => {
 				const nextId = id && state.geoEditDrafts[id] ? id : null
 				writePersistedGeoCollectionDraftState(state.geoEditDrafts, nextId)
-				return { activeGeoEditDraftId: nextId }
+				return {
+					activeGeoEditDraftId: nextId,
+					pendingHydratedDraftId: nextId === state.pendingHydratedDraftId ? nextId : null,
+				}
 			}),
 
 		saveGeoEditDraft: (id, updates) =>
@@ -271,6 +304,10 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 				if (!existing) return {}
 				const updatedDraft: GeoCollectionEditDraft = {
 					...existing,
+					authoringIntent: normalizeAuthoringIntent(
+						updates.authoringIntent ?? existing.authoringIntent,
+					),
+					sourceDataset: normalizeMapDraftSource(updates.sourceDataset ?? existing.sourceDataset),
 					persistenceVersion: 2,
 					sourceId: updates.sourceId ?? existing.sourceId,
 					name: updates.name ?? existing.name,
@@ -319,6 +356,7 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 			}
 			set({
 				activeGeoEditDraftId: id,
+				pendingHydratedDraftId: null,
 				collectionMeta: updatedDraft.collectionMeta,
 				features: updatedDraft.features,
 				selectedFeatureIds: updatedDraft.selectedFeatureIds,
@@ -367,6 +405,8 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 				return {
 					geoEditDrafts: nextDrafts,
 					activeGeoEditDraftId: nextActiveId,
+					pendingHydratedDraftId:
+						state.pendingHydratedDraftId === id ? nextActiveId : state.pendingHydratedDraftId,
 				}
 			}),
 
@@ -408,6 +448,10 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 				return {
 					geoEditDrafts: nextDrafts,
 					activeGeoEditDraftId: nextActiveId,
+					pendingHydratedDraftId:
+						state.pendingHydratedDraftId && removedIds.has(state.pendingHydratedDraftId)
+							? nextActiveId
+							: state.pendingHydratedDraftId,
 				}
 			}),
 	}

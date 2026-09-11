@@ -1,15 +1,23 @@
 import { castEvent } from 'applesauce-core/casts'
-import type { FeatureCollection } from 'geojson'
 import type { NostrEvent } from 'nostr-tools'
+import {
+	mapDraftSourceId,
+	resolveMapAuthoringIntent,
+} from '@/components/info-panel/mapProposalPresentation'
 import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
 import type { ToolExecutionRunIdentity, ToolExecutionTarget } from '@/features/chat/tools/types'
 import { publishChannelMatchesDatasetScope } from '@/features/geo-editor/components/authoringDestination'
 import { useEditorStore, type GeoCollectionEditDraft } from '@/features/geo-editor/store'
-import { sanitizeEditorProperties } from '@/features/geo-editor/utils'
+import { draftContentFingerprint } from '@/features/geo-editor/draftContent'
+import {
+	buildFeatureCollection,
+	serializeBlobReferences,
+} from '@/features/geo-editor/datasetDraftPayload'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace/projection'
 import { eventStore } from '@/lib/nostr'
-import { GeoDataset, type GeoBlobReference } from '@/lib/nostr/geo-event'
+import { GeoDataset } from '@/lib/nostr/geo-event'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { getCurrentPubkey } from '@/lib/wallet/currentUser'
 import { extractNostrAddressReferences, naddrToCoordinate } from '@/lib/nostr/references'
 import { publishCapturedPublicDataset } from './publishCapturedDataset'
 import {
@@ -25,70 +33,6 @@ import type {
 
 function clone<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T
-}
-
-function buildFeatureCollection(draft: GeoCollectionEditDraft): FeatureCollection {
-	const collection: FeatureCollection & {
-		name?: string
-		description?: string
-		color?: string
-		properties?: Record<string, unknown>
-	} = {
-		type: 'FeatureCollection',
-		features: draft.features.map((feature) => {
-			const properties = sanitizeEditorProperties(
-				feature.properties as Record<string, unknown> | undefined,
-			)
-			return {
-				type: 'Feature' as const,
-				id: feature.id,
-				geometry: clone(feature.geometry),
-				...(properties ? { properties } : {}),
-			}
-		}) as FeatureCollection['features'],
-	}
-
-	const existingIds = new Set(collection.features.map((feature) => String(feature.id)))
-	for (const reference of draft.blobReferences) {
-		if (
-			reference.scope !== 'feature' ||
-			!reference.featureId ||
-			existingIds.has(reference.featureId)
-		) {
-			continue
-		}
-		existingIds.add(reference.featureId)
-		collection.features.push({
-			type: 'Feature',
-			id: reference.featureId,
-			geometry: null,
-			properties: { externalPlaceholder: true, blobUrl: reference.url },
-		} as unknown as FeatureCollection['features'][number])
-	}
-
-	const title = draft.collectionMeta.name || draft.name || 'Untitled Dataset'
-	collection.name = title
-	if (draft.collectionMeta.description) collection.description = draft.collectionMeta.description
-	if (draft.collectionMeta.color) collection.color = draft.collectionMeta.color
-	const properties: Record<string, unknown> = { ...draft.collectionMeta.customProperties }
-	if (draft.collectionMeta.name) properties.name = draft.collectionMeta.name
-	if (draft.collectionMeta.description) properties.description = draft.collectionMeta.description
-	if (draft.collectionMeta.color) properties.color = draft.collectionMeta.color
-	if (Object.keys(properties).length > 0) collection.properties = properties
-	return collection
-}
-
-function serializeBlobReferences(draft: GeoCollectionEditDraft): GeoBlobReference[] {
-	return draft.blobReferences
-		.filter((reference) => Boolean(reference.url))
-		.map(({ scope, featureId, url, sha256, size, mimeType }) => ({
-			scope,
-			featureId,
-			url,
-			sha256,
-			size,
-			mimeType,
-		}))
 }
 
 function datasetCoordinate(dataset: GeoDataset | null): string | null {
@@ -253,19 +197,31 @@ export function captureTargetDatasetPublication(
 	const toolCallId = input.toolCallId ?? execution.toolCallId
 	const target = input.target ?? execution.runTarget
 	if (target?.entityType !== 'dataset') return { kind: 'none' }
+	const workspaceId = target.workspaceId
+	const draftId = target.draftId
+	const workspace = workspaceId ? state.workspaces[workspaceId] : null
+	const draft = draftId ? state.geoEditDrafts[draftId] : null
+	const forkRequested =
+		draft?.authoringIntent === 'fork' ||
+		(!draft?.authoringIntent && target.sourceId?.startsWith('fork:') === true)
+	const forkSource = forkRequested ? draft?.sourceDataset : undefined
 	const referencedCoordinates = referencedDatasetCoordinates(input.markdown)
 	const resolvedBase = resolveTargetBaseDataset(target)
 	const base = resolvedBase.dataset
-	const baseCoordinate = datasetCoordinate(base)
+	const baseCoordinate = datasetCoordinate(base) ?? forkSource?.address ?? null
 	const capturedCoordinate = targetDatasetCoordinate(target)
 	const referencesCapturedDataset = Boolean(
 		(baseCoordinate && referencedCoordinates.has(baseCoordinate)) ||
 			(capturedCoordinate && referencedCoordinates.has(capturedCoordinate)) ||
-			(resolvedBase.error && target.baseRevisionId && referencedCoordinates.size > 0),
+			(!forkSource &&
+				resolvedBase.error &&
+				target.baseRevisionId &&
+				referencedCoordinates.size > 0),
 	)
-	const referencesNewDataset = target.baseRevisionId === null && input.referencesNewDataset === true
+	const referencesNewDataset =
+		(target.baseRevisionId === null || forkRequested) && input.referencesNewDataset === true
 	if (!referencesCapturedDataset && !referencesNewDataset) return { kind: 'none' }
-	if (resolvedBase.error) {
+	if (resolvedBase.error && !forkSource) {
 		return {
 			kind: 'blocked',
 			result: {
@@ -277,10 +233,6 @@ export function captureTargetDatasetPublication(
 		}
 	}
 
-	const workspaceId = target.workspaceId
-	const draftId = target.draftId
-	const workspace = workspaceId ? state.workspaces[workspaceId] : null
-	const draft = draftId ? state.geoEditDrafts[draftId] : null
 	if (!workspaceId || !workspace || !draftId || !draft) {
 		return {
 			kind: 'blocked',
@@ -303,7 +255,7 @@ export function captureTargetDatasetPublication(
 			result: {
 				status: 'blocked',
 				code: 'reference_publish_source_unavailable',
-				message: 'The captured Dataset draft no longer belongs to its original edit state.',
+				message: 'The captured Map draft no longer belongs to its original working copy.',
 				retryable: true,
 			},
 		}
@@ -321,7 +273,7 @@ export function captureTargetDatasetPublication(
 		}
 	}
 
-	if ((workspace.datasetKey || draft.sourceId.startsWith('dataset:')) && !base) {
+	if (!forkSource && (workspace.datasetKey || draft.sourceId.startsWith('dataset:')) && !base) {
 		return {
 			kind: 'blocked',
 			result: {
@@ -332,9 +284,33 @@ export function captureTargetDatasetPublication(
 			},
 		}
 	}
-	if (base) {
+	if (forkSource) {
+		// A fork contains its own geometry and immutable source provenance. Its
+		// original event may be offline, but the run must still bind that exact
+		// retained fork rather than a different Map or working copy.
+		const sourceKey = `${forkSource.pubkey}:${forkSource.identifier}`
+		const sourceId = mapDraftSourceId(sourceKey, 'fork')
+		if (
+			forkSource.address !== `${GEO_EVENT_KIND}:${sourceKey}` ||
+			workspace.kind !== 'dataset' ||
+			workspace.datasetKey !== sourceKey ||
+			workspace.sourceId !== sourceId ||
+			(target.entityId !== sourceKey && target.entityId !== forkSource.eventId) ||
+			(target.baseRevisionId !== null && target.baseRevisionId !== forkSource.eventId)
+		) {
+			return {
+				kind: 'blocked',
+				result: {
+					status: 'blocked',
+					code: 'reference_publish_source_unavailable',
+					message: 'The captured fork no longer matches its saved source and working copy.',
+					retryable: true,
+				},
+			}
+		}
+	} else if (base) {
 		const baseKey = `${base.pubkey}:${base.dTag}`
-		const expectedSourceId = `dataset:${baseKey}`
+		const expectedSourceId = mapDraftSourceId(baseKey, forkRequested ? 'fork' : 'edit')
 		if (
 			workspace.kind !== 'dataset' ||
 			workspace.datasetKey !== baseKey ||
@@ -362,7 +338,7 @@ export function captureTargetDatasetPublication(
 			result: {
 				status: 'blocked',
 				code: 'reference_publish_source_unavailable',
-				message: 'The captured new Dataset no longer matches its original edit state.',
+				message: 'The captured new Map no longer matches its original working copy.',
 				retryable: true,
 			},
 		}
@@ -380,12 +356,31 @@ export function captureTargetDatasetPublication(
 		}
 	}
 	const dirty =
+		forkRequested ||
 		!base ||
 		target.wasDirty ||
 		target.draftUpdatedAt === null ||
 		draft.updatedAt !== target.draftUpdatedAt ||
 		attachmentsDiffer(draft, base)
 	if (!dirty) return { kind: 'none' }
+	const authoringIntent = base
+		? resolveMapAuthoringIntent(
+				draft.authoringIntent ?? (forkRequested ? 'fork' : undefined),
+				base.pubkey === getCurrentPubkey(),
+			)
+		: (draft.authoringIntent ?? (forkRequested ? 'fork' : undefined))
+	if (authoringIntent === 'propose') {
+		return {
+			kind: 'blocked',
+			result: {
+				status: 'blocked',
+				code: 'reference_publish_scope_incompatible',
+				message:
+					'This working Map is a proposal. Send the proposal to its owner, or explicitly start a fork before publishing an independent Map reference.',
+				retryable: false,
+			},
+		}
+	}
 
 	if (!chatId || !toolCallId) {
 		return {
@@ -393,8 +388,7 @@ export function captureTargetDatasetPublication(
 			result: {
 				status: 'blocked',
 				code: 'reference_publish_context_missing',
-				message:
-					'This action is not bound to a conversation and operation, so publishing was refused.',
+				message: 'This action is not bound to a Thread and operation, so publishing was refused.',
 				retryable: true,
 			},
 		}
@@ -402,6 +396,7 @@ export function captureTargetDatasetPublication(
 
 	if (
 		base &&
+		!forkSource &&
 		!publishChannelMatchesDatasetScope(draft.publishChannel, {
 			privateGroupId: privateWorkspaceIdForDataset(base),
 			fieldSessionId: fieldSessionIdForEvent(base.event) ?? undefined,
@@ -422,6 +417,17 @@ export function captureTargetDatasetPublication(
 	return {
 		kind: 'captured',
 		captured: {
+			authoringIntent,
+			sourceDataset: draft.sourceDataset
+				? clone(draft.sourceDataset)
+				: base
+					? {
+							address: `${GEO_EVENT_KIND}:${base.pubkey}:${base.datasetId}`,
+							pubkey: base.pubkey,
+							identifier: base.datasetId,
+							eventId: base.event.id,
+						}
+					: undefined,
 			binding: {
 				chatId,
 				toolCallId,
@@ -429,7 +435,8 @@ export function captureTargetDatasetPublication(
 				draftId,
 				sourceId: draft.sourceId,
 				draftUpdatedAt: draft.updatedAt,
-				baseRevisionId: base?.event.id ?? null,
+				contentFingerprint: draftContentFingerprint(draft),
+				baseRevisionId: forkSource ? target.baseRevisionId : (base?.event.id ?? null),
 				baseCoordinate,
 			},
 			title: draft.collectionMeta.name || draft.name || 'Untitled Dataset',

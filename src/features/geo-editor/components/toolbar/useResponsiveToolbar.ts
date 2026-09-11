@@ -1,88 +1,130 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 
-/**
- * Priority-ordered menu identifiers used by the toolbar. Order matters —
- * earlier menus are expanded first when there's room.
- *
- * The View menu was dropped (its sole remaining item, Location lookup, is
- * now a standalone Crosshair button next to the search box).
- */
-export const TOOLBAR_MENU_PRIORITY = ['draw', 'edit'] as const
-export type ResponsiveToolbarMenu = (typeof TOOLBAR_MENU_PRIORITY)[number]
+// Release common drawing and history commands first, without moving the
+// remaining commands out of their familiar Draw / Edit menus.
+export const TOOLBAR_SHORTCUT_PRIORITY = [
+	'select',
+	'draw_point',
+	'draw_linestring',
+	'draw_polygon',
+	'undo',
+	'redo',
+	'edit',
+	'geometry_ops',
+	'draw_annotation',
+	'box_select',
+	'snapping',
+	'delete',
+	'duplicate',
+	'draw_arrow',
+	'draw_shape',
+	'edit-isolation',
+] as const
 
-/**
- * Approximate pixel widths of each menu when expanded inline. Slightly
- * UNDER-estimated so we expand readily — the parent has `overflow-x-auto`
- * as a safety net for the rare case we miscount.
- */
-const EXPANDED_WIDTH: Record<ResponsiveToolbarMenu, number> = {
-	// Draw inline = 2 select buttons + 4 draw mode buttons (OSM moved out).
-	draw: 210,
-	edit: 270,
+export function resolveToolbarLayout({
+	budget,
+	buttonWidth,
+	menuGap,
+	rowGap,
+	searchExtra,
+	authoring,
+}: {
+	budget: number
+	buttonWidth: number
+	menuGap: number
+	rowGap: number
+	searchExtra: number
+	authoring: boolean
+}) {
+	// Leave one pixel for fractional layout rounding.
+	let remaining = Math.max(0, budget - 1)
+	const cost = buttonWidth + menuGap
+	const releasedCount =
+		authoring && cost > 0
+			? Math.min(TOOLBAR_SHORTCUT_PRIORITY.length, Math.floor(remaining / cost))
+			: 0
+	remaining -= releasedCount * cost
+	const inlineCallout =
+		authoring &&
+		releasedCount === TOOLBAR_SHORTCUT_PRIORITY.length &&
+		remaining >= buttonWidth + rowGap
+	if (inlineCallout) remaining -= buttonWidth + rowGap
+	const compactSearch =
+		(authoring && releasedCount < TOOLBAR_SHORTCUT_PRIORITY.length) || remaining < searchExtra
+	return { releasedCount, inlineCallout, compactSearch }
 }
 
-/**
- * Width of the collapsed `<MenubarMenu>` dropdown trigger (icon + label).
- * Used to compute the "cost difference" between collapsed and expanded.
- */
-const COLLAPSED_TRIGGER_WIDTH = 80
+export function useResponsiveToolbar(authoring: boolean) {
+	const containerRef = useRef<HTMLDivElement>(null)
+	const menubarRef = useRef<HTMLDivElement>(null)
+	const spacerRef = useRef<HTMLDivElement>(null)
+	const measureRef = useRef<HTMLDivElement>(null)
+	const searchRef = useRef<HTMLDivElement>(null)
+	const [layout, setLayout] = useState({
+		releasedCount: 0,
+		inlineCallout: false,
+		compactSearch: true,
+		compactLabels: true,
+	})
 
-/**
- * Width budget reserved for non-priority toolbar elements (sidebar trigger,
- * search box, map state cluster, chat toggle, settings, share, create-map,
- * measure, file menu, etc.). Treated as fixed overhead — the hook subtracts
- * this from the available width before deciding what to expand.
- */
-const NON_PRIORITY_RESERVED_WIDTH = 556
-
-/**
- * Hook: measures a container's available width and decides which priority
- * menus should render in their expanded inline form.
- *
- * Returns a `Set` so callers can check membership in O(1):
- *
- *   const { containerRef, expanded } = useResponsiveToolbar()
- *   expanded.has('draw')  // → true if there's room to inline Draw's tools
- */
-export function useResponsiveToolbar(): {
-	containerRef: React.RefObject<HTMLDivElement | null>
-	expanded: Set<ResponsiveToolbarMenu>
-} {
-	const containerRef = useRef<HTMLDivElement | null>(null)
-	const [width, setWidth] = useState(0)
-
-	useEffect(() => {
-		const el = containerRef.current
-		if (!el) return
-		// Seed with the initial measurement.
-		setWidth(el.clientWidth)
-		const observer = new ResizeObserver((entries) => {
-			const entry = entries[0]
-			if (entry) setWidth(entry.contentRect.width)
-		})
-		observer.observe(el)
-		return () => observer.disconnect()
-	}, [])
-
-	const expanded = useMemo(() => {
-		const result = new Set<ResponsiveToolbarMenu>()
-		if (width <= 0) return result
-		// Start from a fully-collapsed cost: NON_PRIORITY + (every menu collapsed).
-		const baselineCost =
-			NON_PRIORITY_RESERVED_WIDTH + TOOLBAR_MENU_PRIORITY.length * COLLAPSED_TRIGGER_WIDTH
-		let used = baselineCost
-		for (const key of TOOLBAR_MENU_PRIORITY) {
-			// Expanding a menu replaces its trigger with the wider inline form.
-			const expandCost = EXPANDED_WIDTH[key] - COLLAPSED_TRIGGER_WIDTH
-			if (used + expandCost <= width) {
-				result.add(key)
-				used += expandCost
-			} else {
-				break
+	// Measure the rendered pinned controls, including publication text, font
+	// metrics and counters. Adding back released shortcuts gives the same budget
+	// in either layout, so expansion cannot create a resize feedback loop.
+	useLayoutEffect(() => {
+		const row = containerRef.current
+		const menu = menubarRef.current
+		const spacer = spacerRef.current
+		const probes = measureRef.current
+		if (!row || !menu || !spacer || !probes) return
+		const measure = () => {
+			const bounds = row.getBoundingClientRect()
+			if (!bounds.width) return
+			const buttonWidth = probes.children[0]!.getBoundingClientRect().width
+			const searchExtra = probes.children[1]!.getBoundingClientRect().width - buttonWidth
+			const menuGap = Number.parseFloat(getComputedStyle(menu).columnGap) || 0
+			const rowGap = Number.parseFloat(getComputedStyle(row).columnGap) || 0
+			let budget = spacer.getBoundingClientRect().width
+			for (const shortcut of Array.from(
+				row.querySelectorAll<HTMLElement>('[data-toolbar-shortcut]'),
+			)) {
+				budget +=
+					shortcut.getBoundingClientRect().width +
+					(shortcut.parentElement === menu ? menuGap : rowGap)
 			}
+			budget += Math.max(
+				0,
+				(searchRef.current?.getBoundingClientRect().width ?? buttonWidth) - buttonWidth,
+			)
+			const lastControl = row.lastElementChild!.getBoundingClientRect()
+			budget -= Math.max(0, lastControl.right - bounds.right)
+			const next = {
+				...resolveToolbarLayout({ budget, buttonWidth, menuGap, rowGap, searchExtra, authoring }),
+				compactLabels: bounds.width < 560,
+			}
+			setLayout((previous) =>
+				previous.releasedCount === next.releasedCount &&
+				previous.inlineCallout === next.inlineCallout &&
+				previous.compactSearch === next.compactSearch &&
+				previous.compactLabels === next.compactLabels
+					? previous
+					: next,
+			)
 		}
-		return result
-	}, [width])
-
-	return { containerRef, expanded }
+		measure()
+		const observer = new ResizeObserver(measure)
+		observer.observe(row)
+		// Also react to labels/fonts changing without a canvas resize.
+		for (const child of Array.from(row.children)) observer.observe(child)
+		observer.observe(probes)
+		return () => observer.disconnect()
+	})
+	return {
+		containerRef,
+		menubarRef,
+		spacerRef,
+		measureRef,
+		searchRef,
+		...layout,
+		inlineShortcuts: new Set<string>(TOOLBAR_SHORTCUT_PRIORITY.slice(0, layout.releasedCount)),
+	}
 }

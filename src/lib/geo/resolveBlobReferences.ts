@@ -25,8 +25,27 @@ function normalizeToFeatureArray(payload: BlobPayload): Feature[] {
 	return (normalized.features ?? []).filter((feature) => Boolean(feature.geometry)) as Feature[]
 }
 
-/** URLs that have permanently failed — skipped on subsequent calls. */
-const failedUrls = new Set<string>()
+export type BlobResolutionFailureCode =
+	| 'http'
+	| 'too-large'
+	| 'checksum-mismatch'
+	| 'invalid-payload'
+	| 'unavailable'
+
+export interface BlobResolutionFailure {
+	readonly reference: GeoBlobReference
+	readonly code: BlobResolutionFailureCode
+	readonly message: string
+	readonly retryable: boolean
+}
+
+interface BlobFetchOutcome {
+	readonly payload: BlobPayload | null
+	readonly failure?: BlobResolutionFailure
+}
+
+/** Permanently failed URL-specific payloads. Transient network/5xx failures are retryable. */
+const failedUrls = new Map<string, BlobResolutionFailure>()
 
 /**
  * Hard cap per blob (SPEC §1.5). Protects against hostile/broken Blossom
@@ -40,6 +59,9 @@ class BlobTooLargeError extends Error {
 		super(`Blob at ${url} exceeds the ${MAX_BLOB_SIZE_BYTES} byte cap (got ${size})`)
 	}
 }
+
+class BlobChecksumError extends Error {}
+class InvalidBlobPayloadError extends Error {}
 
 /**
  * Verify a fetched blob against the `sha256=<hex>` parameter from its blob
@@ -59,26 +81,24 @@ async function parseVerifiedBlobPayload(
 	text: string,
 	expectedHash: string | undefined,
 	sourceUrl: string,
-): Promise<BlobPayload | null> {
+): Promise<BlobPayload> {
 	if (expectedHash && !(await verifyBlobSha256(text, expectedHash))) {
-		console.warn(
-			`Blob ${sourceUrl} failed sha256 verification (expected ${expectedHash}). Discarding.`,
+		throw new BlobChecksumError(
+			`Blob ${sourceUrl} failed sha256 verification (expected ${expectedHash}).`,
 		)
-		return null
 	}
 
 	const json = await parseJsonInWorker(text)
 	if (!isGeoJsonFeatureCollection(json) && !isGeoJsonFeature(json) && !isGeoJsonGeometry(json)) {
-		console.warn(
+		throw new InvalidBlobPayloadError(
 			`Blob payload at ${sourceUrl} is not a valid GeoJSON Feature, FeatureCollection, or Geometry.`,
 		)
-		return null
 	}
 	return json
 }
 
 /** In-flight fetches by URL, so concurrent callers share one network round-trip. */
-const inFlight = new Map<string, Promise<BlobPayload | null>>()
+const inFlight = new Map<string, Promise<BlobFetchOutcome>>()
 
 /**
  * Error class that signals "don't bother retrying" — used for HTTP 4xx
@@ -202,11 +222,11 @@ async function fetchBlobReference(
 	reference: GeoBlobReference,
 	onProgress?: BlobProgressCallback,
 	localBlobUrl?: (sha256: string) => Promise<string | null>,
-): Promise<BlobPayload | null> {
+): Promise<BlobFetchOutcome> {
 	const validHash = reference.sha256?.toLowerCase().match(/^[0-9a-f]{64}$/)?.[0]
 	const cacheKey = validHash ? `sha256:${validHash}` : reference.url
 	const cached = blobCache.get(cacheKey)
-	if (cached) return cached
+	if (cached) return { payload: cached }
 
 	if (!globalThis.fetch) {
 		throw new Error('fetch API is not available in this environment.')
@@ -241,27 +261,37 @@ async function fetchBlobReference(
 				}
 			}
 			if (payload === null) {
-				if (failedUrls.has(reference.url)) return null
+				const knownFailure = failedUrls.get(reference.url)
+				if (knownFailure) return { payload: null, failure: knownFailure }
 				const text = await fetchWithProgress(reference.url, reference.size, onProgress)
 				payload = await parseVerifiedBlobPayload(text, reference.sha256, reference.url)
 			}
-			if (payload === null) {
-				failedUrls.add(reference.url)
-				return null
-			}
 			blobCache.set(cacheKey, payload)
-			return payload
+			return { payload }
 		} catch (error) {
-			failedUrls.add(reference.url)
-			// Log with status detail so 404s are obviously distinguishable from network errors.
-			if (error instanceof NonRetryableHttpError) {
-				console.warn(
-					`Blob ${reference.url} unavailable (HTTP ${error.status}). Marking as permanently failed.`,
-				)
-			} else {
-				console.warn(`Failed to fetch blob reference ${reference.url}:`, error)
-			}
-			return null
+			const failure: BlobResolutionFailure = Object.freeze({
+				reference,
+				code:
+					error instanceof NonRetryableHttpError
+						? 'http'
+						: error instanceof BlobTooLargeError
+							? 'too-large'
+							: error instanceof BlobChecksumError
+								? 'checksum-mismatch'
+								: error instanceof InvalidBlobPayloadError
+									? 'invalid-payload'
+									: 'unavailable',
+				message: error instanceof Error ? error.message : String(error),
+				retryable: !(
+					error instanceof NonRetryableHttpError ||
+					error instanceof BlobTooLargeError ||
+					error instanceof BlobChecksumError ||
+					error instanceof InvalidBlobPayloadError
+				),
+			})
+			if (!failure.retryable) failedUrls.set(reference.url, failure)
+			console.warn(`Failed to resolve blob reference ${reference.url}: ${failure.message}`)
+			return { payload: null, failure }
 		} finally {
 			inFlight.delete(cacheKey)
 		}
@@ -278,13 +308,28 @@ export interface ResolveOptions {
 	localBlobUrl?: (sha256: string) => Promise<string | null>
 }
 
-export async function resolveGeoEventFeatureCollection(
+export interface GeoBlobResolutionResult {
+	readonly featureCollection: FeatureCollection
+	readonly failures: readonly BlobResolutionFailure[]
+}
+
+export class GeoBlobResolutionError extends Error {
+	readonly result: GeoBlobResolutionResult
+
+	constructor(result: GeoBlobResolutionResult) {
+		super(result.failures.map((failure) => failure.message).join('; '))
+		this.name = 'GeoBlobResolutionError'
+		this.result = result
+	}
+}
+
+export async function resolveGeoEventFeatureCollectionDetailed(
 	event: GeoDataset,
 	options?: ResolveOptions,
-): Promise<FeatureCollection> {
+): Promise<GeoBlobResolutionResult> {
 	const baseCollection = event.featureCollection
 	if (event.blobReferences.length === 0) {
-		return baseCollection
+		return Object.freeze({ featureCollection: baseCollection, failures: Object.freeze([]) })
 	}
 
 	let features = normalizeGeoJsonToFeatureCollection(baseCollection)
@@ -295,6 +340,7 @@ export async function resolveGeoEventFeatureCollection(
 	const totalSize = event.blobReferences.reduce((sum, ref) => sum + (ref.size ?? 0), 0)
 	let completedSize = 0
 	let currentRefProgress = 0
+	const failures: BlobResolutionFailure[] = []
 
 	for (const reference of event.blobReferences) {
 		const refSize = reference.size ?? 0
@@ -309,16 +355,17 @@ export async function resolveGeoEventFeatureCollection(
 				}
 			: undefined
 
-		const payload = await fetchBlobReference(reference, refProgress, options?.localBlobUrl)
+		const outcome = await fetchBlobReference(reference, refProgress, options?.localBlobUrl)
 
 		// Mark this reference as complete
 		completedSize += refSize
 		currentRefProgress = 0
 
-		// Skip if blob couldn't be resolved (already logged in fetchBlobReference)
-		if (!payload) continue
+		if (outcome.failure) failures.push(outcome.failure)
+		// Skip if blob couldn't be resolved (the failure is returned to the caller).
+		if (!outcome.payload) continue
 
-		const resolvedFeatures = normalizeToFeatureArray(payload).map(cloneFeature)
+		const resolvedFeatures = normalizeToFeatureArray(outcome.payload).map(cloneFeature)
 		if (resolvedFeatures.length === 0) continue
 
 		if (reference.scope === 'collection') {
@@ -343,9 +390,30 @@ export async function resolveGeoEventFeatureCollection(
 		}
 	}
 
-	return normalizeGeoJsonToFeatureCollection({
-		...baseCollection,
-		type: 'FeatureCollection',
-		features,
+	return Object.freeze({
+		featureCollection: normalizeGeoJsonToFeatureCollection({
+			...baseCollection,
+			type: 'FeatureCollection',
+			features,
+		}),
+		failures: Object.freeze(failures),
 	})
+}
+
+/** Existing permissive seam: callers that do not need diagnostics receive the resolved subset. */
+export async function resolveGeoEventFeatureCollection(
+	event: GeoDataset,
+	options?: ResolveOptions,
+): Promise<FeatureCollection> {
+	return (await resolveGeoEventFeatureCollectionDetailed(event, options)).featureCollection
+}
+
+/** Strict seam for editor/runtime consumers that must not cache incomplete blob data as success. */
+export async function resolveGeoEventFeatureCollectionOrThrow(
+	event: GeoDataset,
+	options?: ResolveOptions,
+): Promise<FeatureCollection> {
+	const result = await resolveGeoEventFeatureCollectionDetailed(event, options)
+	if (result.failures.length > 0) throw new GeoBlobResolutionError(result)
+	return result.featureCollection
 }

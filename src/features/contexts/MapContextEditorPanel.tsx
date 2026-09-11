@@ -505,7 +505,7 @@ export function MapContextEditorPanel({
 		setSaveError(null)
 
 		if (!name.trim()) {
-			setSaveError('Context name is required.')
+			setSaveError('Atlas name is required.')
 			return
 		}
 
@@ -591,12 +591,12 @@ export function MapContextEditorPanel({
 				.sign(signer)
 
 			await publish(signedEvent, { routing: 'outbox' })
-			toast.success('Context published.')
+			toast.success('Atlas published.')
 			const cast = castEvent(signedEvent, MapContext, eventStore)
 			onSave(cast)
 			onClose()
 		} catch (error) {
-			setSaveError(error instanceof Error ? error.message : 'Failed to save context')
+			setSaveError(error instanceof Error ? error.message : 'Failed to save Atlas')
 		} finally {
 			setIsSaving(false)
 		}
@@ -609,7 +609,7 @@ export function MapContextEditorPanel({
 			className="flex h-full min-h-0 flex-col"
 		>
 			<EntityPanelShell
-				title={initialContext ? 'Edit context' : 'Create context'}
+				title={initialContext ? 'Edit Atlas' : 'Create Atlas'}
 				tabs={
 					<TabsList className="h-8 w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
 						<TabsTrigger
@@ -639,7 +639,7 @@ export function MapContextEditorPanel({
 					<EntityPanelSurface tone="context" className="space-y-3">
 						<EntityPanelSectionHeader
 							eyebrow="Narrative"
-							title="Describe the context"
+							title="Describe the Atlas"
 							description="Markdown is stored verbatim. Use $ to insert NIP-27 nostr references inline."
 						/>
 						<div className="space-y-2">
@@ -659,7 +659,7 @@ export function MapContextEditorPanel({
 								onChange={setDescription}
 								availableFeatures={availableFeatures}
 								placeholder={`## Scope
-Write in Markdown. Use $ to insert datasets, contexts, or features.`}
+Write in Markdown. Use $ to insert Maps, Atlases, or features.`}
 								rows={8}
 								className="min-h-[280px] w-full"
 							/>
@@ -713,13 +713,13 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 								sources={{ features: availableCuratedReferenceFeatures }}
 								entityTypes={['feature']}
 								onSelect={handleCuratedReferenceSelect}
-								placeholder="Search geometries and datasets to reference…"
+								placeholder="Search geometry and Maps to reference…"
 								searchMode="local"
 								inputClassName="rounded-none"
 							/>
 							{curatedReferenceEntities.length === 0 ? (
 								<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
-									No extra curated references. Add items here when they belong to the context but do
+									No extra curated references. Add items here when they belong to the Atlas but do
 									not need to appear in the narrative text.
 								</p>
 							) : (
@@ -786,7 +786,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 						<EntityPanelSectionHeader
 							eyebrow="Participation"
 							title="Attachment policy"
-							description="Open contexts accept foreign c attachments. Closed contexts ignore them."
+							description="Open Atlases accept foreign contributions. Closed Atlases ignore them."
 						/>
 						<div className="flex items-start justify-between gap-3 border border-border px-3 py-2">
 							<div className="space-y-1">
@@ -809,24 +809,24 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 
 					<EntityPanelSurface tone="neutral" className="space-y-3">
 						<EntityPanelSectionHeader
-							eyebrow="Context Graph"
-							title="Attach this context"
-							description="Use c attachments for open parent contexts. Closed contexts are excluded from search unless already attached."
+							eyebrow="Atlas graph"
+							title="Add this Atlas to another"
+							description="Open parent Atlases accept contributions. Closed Atlases are excluded unless already linked."
 						/>
 						<div className="space-y-2">
-							<Label>Attach to open context</Label>
+							<Label>Add to an open Atlas</Label>
 							<EntitySearchPopover
 								sources={{ contexts: attachableContexts }}
 								entityTypes={['context']}
 								onSelect={handleAttachmentSearchSelect}
-								placeholder="Search open contexts…"
+								placeholder="Search open Atlases…"
 								searchMode="local"
 								inputClassName="rounded-none"
 							/>
 						</div>
 						{attachedContexts.length === 0 ? (
 							<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
-								This context is currently standalone.
+								This Atlas is currently standalone.
 							</p>
 						) : (
 							<div className="space-y-2">
@@ -840,7 +840,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 										>
 											<div className="min-w-0">
 												<p className="truncate text-xs font-medium text-foreground">
-													{context.context.name || context.contextId || 'Untitled context'}
+													{context.context.name || context.contextId || 'Untitled Atlas'}
 												</p>
 												<p className="truncate text-[10px] text-muted-foreground">
 													{context.context.allowForeignAttachments ? 'open' : 'closed'} ·{' '}
@@ -872,11 +872,11 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							<EntityPanelSectionHeader
 								eyebrow="Validation"
 								title="Validation behavior"
-								description="Choose whether the context is taxonomy-only or also validates incoming geometry."
+								description="Choose whether the Atlas is taxonomy-only or also validates incoming geometry."
 							/>
 							<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 								<div className="space-y-2">
-									<Label>Context use</Label>
+									<Label>Atlas use</Label>
 									<Select
 										value={contextUse}
 										onValueChange={(value) => {
@@ -1134,7 +1134,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							disabled={isSaving || !currentUser}
 							className="rounded-none"
 						>
-							{isSaving ? 'Saving…' : 'Save context'}
+							{isSaving ? 'Saving…' : 'Save Atlas'}
 						</Button>
 					</div>
 				</EntityPanelSurface>

@@ -1,5 +1,23 @@
+import { EntityDragHandle } from '@/components/entity-list/EntityDragHandle'
+import { transferFromTarget } from '@/components/entity-list/entityTransfer'
 import { useActiveAccount } from 'applesauce-react/hooks'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import {
+	getStoryDraftRevision,
+	subscribeStoryDrafts,
+	listNewStoryDrafts,
+} from '@/lib/nostr/story/draft'
+import { openSavedDraft } from '@/features/geo-editor/draftActions'
+import { toast } from 'sonner'
+import { DraftRowActions } from './DraftRowActions'
+import { workPublication } from '@/features/chat/workPublication'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from './ui/dropdown-menu'
 import {
 	Check,
 	ChevronDown,
@@ -7,6 +25,7 @@ import {
 	FilePenLine,
 	FileText,
 	Layers,
+	MoreHorizontal,
 	Plus,
 	Trash2,
 	X,
@@ -24,6 +43,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collap
 import { Input } from './ui/input'
 
 export interface WorkspaceDraftNavigatorProps {
+	geoEvents?: GeoDataset[]
 	onStartNewDataset?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
@@ -116,6 +136,7 @@ export function WorkspaceDraftNavigator({
 	className,
 	presentation = 'compact',
 	showPanelHeader = true,
+	geoEvents = [],
 }: WorkspaceDraftNavigatorProps) {
 	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
@@ -197,6 +218,14 @@ export function WorkspaceDraftNavigator({
 		const nextLabel = workspaceLabelDraft.trim()
 		if (!nextLabel || nextLabel === currentLabel) return
 		updateWorkspace(workspaceId, { label: nextLabel })
+		const state = useEditorStore.getState()
+		const draftId = state.workspaces[workspaceId]?.activeDraftId
+		const draft = draftId ? state.geoEditDrafts[draftId] : undefined
+		if (draft) {
+			const collectionMeta = { ...draft.collectionMeta, name: nextLabel }
+			state.saveGeoEditDraft(draft.id, { name: nextLabel, collectionMeta })
+			if (state.activeGeoEditDraftId === draft.id) state.setCollectionMeta(collectionMeta)
+		}
 		setRenamingWorkspaceId(null)
 		setWorkspaceLabelDraft('')
 	}
@@ -336,13 +365,14 @@ export function WorkspaceDraftNavigator({
 	function renderDraftGroups() {
 		return (
 			<div className="space-y-2">
+				<NewStoryDrafts />
 				{proposalWorkspaces.length > 0 ? (
 					<div className="space-y-1.5">
 						<div className="px-1 text-[10px] font-medium uppercase tracking-[0.16em] text-primary">
 							Proposal drafts
 						</div>
 						<div className="px-1 text-[11px] text-muted-foreground">
-							Unpublished edits to someone else&apos;s dataset stay grouped here.
+							Unpublished edits to someone else&apos;s Map stay grouped here.
 						</div>
 						{proposalWorkspaces.map((workspace) => {
 							const drafts = workspaceDrafts.get(workspace.sourceId) ?? []
@@ -447,38 +477,57 @@ export function WorkspaceDraftNavigator({
 				: 'bg-ok/15 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-ok'
 		const activeDraftClassName =
 			workspaceTone === 'proposal' ? 'bg-primary/10 text-primary' : 'bg-ok/15 text-ok'
-		const displayLabel = getSavedWorkLabel(workspace.label)
+		const currentDraft = drafts.find((draft) => draft.id === workspace.activeDraftId) ?? drafts[0]
+		const displayLabel = getSavedWorkLabel(currentDraft?.collectionMeta.name || workspace.label)
+		const intent = currentDraft?.authoringIntent
+		const target = {
+			id: `map:${workspace.id}`,
+			kind: 'dataset' as const,
+			workspaceId: workspace.id,
+			title: displayLabel,
+			intent: intent ?? (workspaceTone === 'proposal' ? ('propose' as const) : ('edit' as const)),
+		}
+		const publication = workPublication(target, workspace, currentDraft, geoEvents)
+		const hasAlternatives = drafts.length > 1
+		const needsDestination = drafts.some((draft) => draft.publishChannel.kind === 'unresolved')
 
 		return (
 			<>
 				<div className="flex items-center gap-1 px-1.5 py-1.5">
-					<Button
-						type="button"
-						variant="ghost"
-						onClick={() =>
-							setExpandedWorkspaceIds((current) => ({
-								...current,
-								[workspace.id]: !current[workspace.id],
-							}))
-						}
-						className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-						aria-label={isExpanded ? 'Collapse saved drafts' : 'Expand saved drafts'}
-					>
-						{isExpanded ? (
-							<ChevronDown className="h-3.5 w-3.5" />
-						) : (
-							<ChevronRight className="h-3.5 w-3.5" />
-						)}
-					</Button>
+					<EntityDragHandle item={transferFromTarget(target)}/>
+					{hasAlternatives || needsDestination ? (
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() =>
+								setExpandedWorkspaceIds((current) => ({
+									...current,
+									[workspace.id]: !current[workspace.id],
+								}))
+							}
+							className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+							aria-label={isExpanded ? 'Hide saved alternatives' : 'Show saved alternatives'}
+							aria-expanded={isExpanded}
+						>
+							{isExpanded ? (
+								<ChevronDown className="h-3.5 w-3.5" />
+							) : (
+								<ChevronRight className="h-3.5 w-3.5" />
+							)}
+						</Button>
+					) : (
+						<Layers className="mx-2 size-4 shrink-0 text-muted-foreground" />
+					)}
 					{isRenamingWorkspace ? (
 						<form
 							className="flex min-w-0 flex-1 items-center gap-1"
 							onSubmit={(event) => {
 								event.preventDefault()
-								handleRenameWorkspace(workspace.id, workspace.label)
+								handleRenameWorkspace(workspace.id, displayLabel)
 							}}
 						>
 							<Input
+								aria-label="Map name"
 								value={workspaceLabelDraft}
 								onChange={(event) => setWorkspaceLabelDraft(event.target.value)}
 								className="h-8 text-xs"
@@ -510,73 +559,105 @@ export function WorkspaceDraftNavigator({
 							<Button
 								type="button"
 								variant="ghost"
-								onClick={() => onSwitchWorkspace?.(workspace.id)}
-								className="min-w-0 flex-1 h-auto px-1 py-1 text-left justify-start"
+								title={displayLabel}
+								aria-current={isActiveWorkspace ? 'true' : undefined}
+								onClick={() =>
+									workspace.activeDraftId
+										? void openSavedDraft({
+												kind: 'dataset',
+												workspaceId: workspace.id,
+												title: displayLabel,
+											}).catch((error) => toast.error(error.message))
+										: onSwitchWorkspace?.(workspace.id)
+								}
+								className="min-w-0 flex-1 h-auto flex-col items-start px-1 py-1 text-left justify-start"
 							>
-								<div className="flex min-w-0 items-center gap-2">
-									<span className="truncate text-xs font-medium text-foreground">
+								<div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+									<span className="max-w-full truncate text-xs font-medium text-foreground">
 										{displayLabel}
 									</span>
 									<span
 										className={cn(
-											'rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em]',
+											'hidden rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] md:inline-flex',
 											badgeClassName,
 										)}
 									>
-										{workspaceTone === 'proposal'
-											? 'proposal'
-											: workspace.kind === 'scratch'
-												? 'draft'
-												: 'dataset'}
+										{intent === 'fork'
+											? 'fork'
+											: intent === 'propose' || workspaceTone === 'proposal'
+												? 'proposal'
+												: workspace.kind === 'scratch'
+													? 'draft'
+													: 'Map'}
 									</span>
 									{isActiveWorkspace ? (
-										<span className={cn('rounded-full', activeClassName)}>Current</span>
+										<span className={cn('sr-only rounded-full md:not-sr-only', activeClassName)}>
+											Current
+										</span>
 									) : null}
 								</div>
-								<div className="mt-0.5 text-[10px] text-muted-foreground">
-									{drafts.length} draft{drafts.length === 1 ? '' : 's'}
+								<div className="mt-0.5 flex w-full flex-wrap items-center gap-x-2 whitespace-normal text-[11px] text-muted-foreground">
+									<span
+										title={publication.description}
+										className={
+											publication.modified
+												? 'text-amber-700 dark:text-amber-400'
+												: publication.href
+													? 'text-ok'
+													: undefined
+										}
+									>
+										{publication.label}
+									</span>
+									{currentDraft && (
+										<span title={getDraftDestinationTitle(currentDraft)}>
+											{getDraftDestinationLabel(currentDraft)}
+										</span>
+									)}
+									{hasAlternatives && (
+										<span>
+											{drafts.length - 1} saved alternative{drafts.length === 2 ? '' : 's'}
+										</span>
+									)}
 								</div>
 							</Button>
 							<div className="flex shrink-0 items-center gap-1">
-								<Button
-									type="button"
-									size="icon-sm"
-									variant="ghost"
-									className="h-7 w-7"
-									onClick={(event) => {
-										event.stopPropagation()
-										void onAddDraftToWorkspace?.(workspace.id)
-									}}
-									title="Add another draft"
-								>
-									<Plus className="h-3.5 w-3.5" />
-								</Button>
-								<Button
-									type="button"
-									size="icon-sm"
-									variant="ghost"
-									className="h-7 w-7"
-									onClick={(event) => {
-										event.stopPropagation()
-										handleBeginWorkspaceRename(workspace.id, workspace.label)
-									}}
-									title="Rename saved work"
-								>
-									<FilePenLine className="h-3.5 w-3.5" />
-								</Button>
-								<Button
-									type="button"
-									size="icon-sm"
-									variant="ghost"
-									className="h-7 w-7 text-destructive hover:text-destructive"
-									onClick={(event) => {
-										event.stopPropagation()
-										handleRequestWorkspaceDelete(workspace.id)
-									}}
-									title="Delete saved work"
-								>
-									<Trash2 className="h-3.5 w-3.5" />
-								</Button>
+								{currentDraft && (
+									<DraftRowActions target={target} includeDiscard={!hasAlternatives} />
+								)}
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<Button
+											variant="ghost"
+											size="icon"
+											className="size-11 md:size-8"
+											aria-label={`More actions for ${displayLabel}`}
+										>
+											<MoreHorizontal className="size-4" />
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end">
+										<DropdownMenuItem onSelect={() => void onAddDraftToWorkspace?.(workspace.id)}>
+											<Plus className="size-4" />
+											Save an alternative draft
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											onSelect={() => handleBeginWorkspaceRename(workspace.id, displayLabel)}
+										>
+											<FilePenLine className="size-4" />
+											Rename Map
+										</DropdownMenuItem>
+										{(hasAlternatives || !currentDraft) && (
+											<DropdownMenuItem
+												className="text-destructive"
+												onSelect={() => handleRequestWorkspaceDelete(workspace.id)}
+											>
+												<Trash2 className="size-4" />
+												Delete saved work
+											</DropdownMenuItem>
+										)}
+									</DropdownMenuContent>
+								</DropdownMenu>
 							</div>
 						</>
 					)}
@@ -610,7 +691,7 @@ export function WorkspaceDraftNavigator({
 					</div>
 				) : null}
 
-				{isExpanded ? (
+				{isExpanded && (hasAlternatives || needsDestination) ? (
 					<div className="space-y-1 border-t border-border/80 bg-card/60 px-2 py-1.5">
 						{drafts.length > 0 ? (
 							drafts.map((draft, index) => {
@@ -633,6 +714,11 @@ export function WorkspaceDraftNavigator({
 												className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
 											>
 												<span className="truncate text-[11px]">{draftLabel}</span>
+												{draft.authoringIntent === 'propose' || draft.authoringIntent === 'fork' ? (
+													<span className="text-[9px] text-muted-foreground">
+														{draft.authoringIntent === 'propose' ? 'proposal' : 'fork'}
+													</span>
+												) : null}
 												<span
 													className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-muted-foreground"
 													title={getDraftDestinationTitle(draft)}
@@ -641,7 +727,7 @@ export function WorkspaceDraftNavigator({
 												</span>
 											</button>
 											<span className="shrink-0 text-[10px] text-muted-foreground">
-												{draft.id.slice(0, 8)}
+												{new Date(draft.createdAt).toLocaleDateString()}
 											</span>
 											<Button
 												type="button"
@@ -661,7 +747,7 @@ export function WorkspaceDraftNavigator({
 											<label className="block border-t border-border/70 px-2 py-2 text-[10px] font-medium text-muted-foreground">
 												Choose where this legacy draft belongs
 												<select
-													aria-label={`Destination for ${draftLabel}`}
+													aria-label={`Publishing choice for ${draftLabel}`}
 													value=""
 													onChange={(event) => {
 														const option = destinationOptions.find(
@@ -676,7 +762,7 @@ export function WorkspaceDraftNavigator({
 													}}
 													className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-[11px] text-foreground"
 												>
-													<option value="">Select destination…</option>
+													<option value="">Select where to publish…</option>
 													{destinationOptions.map((option) => (
 														<option key={option.id} value={option.id}>
 															{option.label}
@@ -707,6 +793,41 @@ export function LocalDraftsPanel(props: LocalDraftsPanelProps) {
 	return <WorkspaceDraftNavigator {...props} presentation="panel" />
 }
 
+function NewStoryDrafts() {
+	const account = useActiveAccount()
+	useSyncExternalStore(subscribeStoryDrafts, getStoryDraftRevision, () => 0)
+	const drafts = listNewStoryDrafts(account?.pubkey ?? null)
+	if (!drafts.length) return null
+	return (
+		<section aria-label="New Story drafts" className="space-y-1.5 pb-2">
+			<h3 className="px-1 text-xs font-medium">Story drafts · {drafts.length}</h3>
+			{drafts.map((draft) => {
+				const target = {
+					kind: 'story' as const,
+					draftKey: draft.draftKey,
+					title: draft.title || 'Untitled Story',
+				}
+				return (
+					<div key={draft.draftKey} className="flex min-w-0 items-center border border-border p-1">
+						<EntityDragHandle item={{ id: `story:${draft.draftKey}`, type: 'story', name: target.title, localStoryDraftKey: draft.draftKey }}/>
+						<Button
+							variant="ghost"
+							className="min-w-0 flex-1 justify-start"
+							onClick={() =>
+								void openSavedDraft(target).catch((error) => toast.error(error.message))
+							}
+						>
+							<FileText className="size-3.5 shrink-0" />
+							<span className="truncate">{target.title}</span>
+						</Button>
+						<DraftRowActions target={target} />
+					</div>
+				)
+			})}
+		</section>
+	)
+}
+
 function getSavedWorkLabel(label: string): string {
 	const normalized = label.trim().toLowerCase()
 	if (!normalized || normalized === 'untitled workspace' || normalized === 'untitled') {
@@ -730,23 +851,23 @@ function getDraftLabel(
 function getDraftDestinationLabel(draft: GeoCollectionEditDraft): string {
 	if (draft.publishChannel.kind === 'private-group') return 'Private'
 	if (draft.publishChannel.kind === 'field-session') return 'Nearby'
-	if (draft.publishChannel.kind === 'unresolved') return 'Destination needed'
-	return draft.contextRefs.length > 0 ? 'Public · context' : 'Public'
+	if (draft.publishChannel.kind === 'unresolved') return 'Publishing choice needed'
+	return draft.contextRefs.length > 0 ? 'Public · Atlas' : 'Public'
 }
 
 function getDraftDestinationTitle(draft: GeoCollectionEditDraft): string {
 	if (draft.publishChannel.kind === 'private-group') {
-		return `Private group destination: ${draft.publishChannel.id}`
+		return `Circle: ${draft.publishChannel.id}`
 	}
 	if (draft.publishChannel.kind === 'field-session') {
-		return `Field session destination: ${draft.publishChannel.id}`
+		return `Nearby session: ${draft.publishChannel.id}`
 	}
 	if (draft.publishChannel.kind === 'unresolved') {
-		return 'Destination needed before this draft can be published'
+		return 'Choose where to publish this draft'
 	}
 	return draft.contextRefs.length > 0
-		? `${draft.contextRefs.length} public context attachment${draft.contextRefs.length === 1 ? '' : 's'}`
-		: 'Public, unattached'
+		? `Belongs to ${draft.contextRefs.length} public Atlas${draft.contextRefs.length === 1 ? '' : 'es'}`
+		: 'Public · no Atlas'
 }
 
 function isProposalWorkspace(

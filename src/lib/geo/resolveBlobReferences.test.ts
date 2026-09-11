@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { FeatureCollection } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import { resolveGeoEventFeatureCollection } from './resolveBlobReferences'
+import {
+	GeoBlobResolutionError,
+	resolveGeoEventFeatureCollection,
+	resolveGeoEventFeatureCollectionDetailed,
+	resolveGeoEventFeatureCollectionOrThrow,
+} from './resolveBlobReferences'
 
 const originalFetch = globalThis.fetch
 
@@ -84,9 +89,11 @@ describe('GeoJSON blob resolution', () => {
 	})
 
 	test('discards a corrupt local copy and verifies the signed event URL fallback', async () => {
+		const originalFeature = payload.features[0]
+		if (!originalFeature) throw new Error('Expected the test payload to contain one feature')
 		const remotePayload: FeatureCollection = {
 			...payload,
-			features: [{ ...payload.features[0], id: 'verified-remote-fallback' }],
+			features: [{ ...originalFeature, id: 'verified-remote-fallback' }],
 		}
 		const text = JSON.stringify(remotePayload)
 		const hash = await sha256(text)
@@ -106,5 +113,28 @@ describe('GeoJSON blob resolution', () => {
 
 		expect(requests).toEqual([`earthly-blob://localhost/${hash}`, remoteUrl])
 		expect(resolved.features[0]?.id).toBe('verified-remote-fallback')
+	})
+
+	test('reports blob failures and lets strict callers reject incomplete data', async () => {
+		const remoteUrl = 'https://missing.example/presentation-source.json'
+		let requests = 0
+		globalThis.fetch = (async () => {
+			requests += 1
+			return new Response('missing', { status: 404, statusText: 'Not Found' })
+		}) as unknown as typeof fetch
+		const source = dataset(remoteUrl, '')
+
+		const detailed = await resolveGeoEventFeatureCollectionDetailed(source, {
+			localBlobUrl: async () => null,
+		})
+		expect(detailed.featureCollection.features).toEqual([])
+		expect(detailed.failures).toHaveLength(1)
+		expect(detailed.failures[0]).toMatchObject({ code: 'http', retryable: false })
+
+		await expect(
+			resolveGeoEventFeatureCollectionOrThrow(source, { localBlobUrl: async () => null }),
+		).rejects.toBeInstanceOf(GeoBlobResolutionError)
+		// Permanent URL failures are diagnostic-cached instead of refetched.
+		expect(requests).toBe(1)
 	})
 })

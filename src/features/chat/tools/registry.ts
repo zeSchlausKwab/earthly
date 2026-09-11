@@ -31,6 +31,7 @@ import { registerBulkTools } from './bulk-tools'
 import { registerEntityTools } from './entity-tools'
 import { registerGeoAwarenessTools } from './geo-awareness-tools'
 import { registerStoryTools } from './story-tools'
+import { registerWorkingSetTools } from './working-set-tools'
 import { registerGeometryTools } from './geometry-tools'
 import { registerCalloutTools } from './callout-tools'
 import { registerIngestTools } from './ingest-tools'
@@ -2074,6 +2075,7 @@ function bootstrapRegistry(): void {
 	// composition pair read_story_draft + write_story_draft. Publishing a story
 	// remains a user action in the StoryEditorPanel — no publish tool exists.
 	registerStoryTools(register)
+	registerWorkingSetTools(register)
 }
 
 bootstrapRegistry()

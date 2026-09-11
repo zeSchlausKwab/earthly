@@ -6,9 +6,53 @@
  * presence dot is needed).
  */
 
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
+import type { FeatureCollection } from 'geojson'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { geometryThumbnail } from './geometryThumbnail'
+
+export const GeometryThumb = memo(function GeometryThumb({
+	collection,
+	fallbackIcon,
+}: {
+	collection: FeatureCollection | null | undefined
+	fallbackIcon: LucideIcon
+}) {
+	const shapes = useMemo(() => geometryThumbnail(collection), [collection])
+	if (!shapes.length) return <GlyphTile icon={fallbackIcon} />
+	return (
+		<div
+			className="h-7 w-10 overflow-hidden border border-border bg-info/10 text-info"
+			aria-hidden="true"
+		>
+			<svg viewBox="0 0 40 28" className="h-full w-full" aria-hidden="true">
+				{shapes.map((shape, index) =>
+					shape.points.length === 1 ? (
+						<circle
+							// biome-ignore lint/suspicious/noArrayIndexKey: Thumbnail primitives are stateless positional SVG shapes rebuilt together.
+							key={index}
+							cx={shape.points[0]?.[0]}
+							cy={shape.points[0]?.[1]}
+							r="1.25"
+							fill="currentColor"
+						/>
+					) : (
+						<path
+							// biome-ignore lint/suspicious/noArrayIndexKey: Thumbnail primitives are stateless positional SVG shapes rebuilt together.
+							key={index}
+							d={`M${shape.points.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' L')}${shape.closed ? ' Z' : ''}`}
+							stroke="currentColor"
+							strokeWidth=".8"
+							fill={shape.closed ? 'currentColor' : 'none'}
+							fillOpacity=".15"
+						/>
+					),
+				)}
+			</svg>
+		</div>
+	)
+})
 
 /** A tinted square with a centered glyph — the datasets/contexts/sightings lead. */
 export function GlyphTile({ icon: Icon, className }: { icon: LucideIcon; className?: string }) {

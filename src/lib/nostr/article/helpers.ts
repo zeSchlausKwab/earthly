@@ -10,6 +10,7 @@
 
 import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
 import { getTagValue, type KnownEvent, type NostrEvent } from 'applesauce-core/helpers/event'
+import { parseMapPresentation, type MapPresentationParseResult } from '@/lib/map-presentation'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { ARTICLE_KIND } from '@/lib/nostr/kinds'
 import { hasCurrentModelVersion } from '@/lib/nostr/modelVersion'
@@ -40,6 +41,12 @@ export interface ArticleContent {
 	publishedAt?: number
 	/** Long-form markdown body. */
 	content?: string
+	/**
+	 * Embedded Story presentation. Kept unknown here so a future schema version
+	 * survives unrelated title/body edits without interpretation; use the presentation
+	 * codec to read it and `ArticleFactory.mapPresentation()` to replace it.
+	 */
+	presentation?: unknown
 }
 
 export const DEFAULT_ARTICLE_CONTENT: ArticleContent = {}
@@ -75,6 +82,11 @@ export function getArticleContent(event: NostrEvent): ArticleContent {
 			return { ...DEFAULT_ARTICLE_CONTENT }
 		}
 	})
+}
+
+/** Parse the embedded presentation without throwing or discarding future versions. */
+export function getArticleMapPresentation(event: NostrEvent): MapPresentationParseResult {
+	return parseMapPresentation(getArticleContent(event).presentation)
 }
 
 // Tag reads delegate to the shared tags.ts seam (SPEC-02) — no copy-paste.

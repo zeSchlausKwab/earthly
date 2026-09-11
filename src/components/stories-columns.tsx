@@ -1,12 +1,20 @@
+import { transferFromResult } from '@/components/entity-list/entityTransfer'
+import { storyToSearchResult } from '@/components/entity-search/types'
 import type { ColumnDef } from '@tanstack/react-table'
 import { BookOpen } from 'lucide-react'
-import { InspectActionIcon, LoadEditorActionIcon } from '@/components/entity-action-icons'
+import {
+	InspectActionIcon,
+	LoadEditorActionIcon,
+	ZoomActionIcon,
+} from '@/components/entity-action-icons'
 import { CoverThumb, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
 import { ConfirmDeleteAction } from '@/components/info-panel/ConfirmDeleteAction'
 import { GeoSocialActions } from '@/features/social/comments/GeoSocialActions'
 import { UserProfile } from '@/components/user-profile'
 import type { Article } from '@/lib/nostr/article'
 import { formatRelativeDate } from '@/lib/nostr/temporal-sighting'
+import { getStoryReaderPath } from '@/lib/nostr/story/routes'
+import { navigateEarthly } from '@/router/navigation'
 
 export interface StoryRowData {
 	story: Article
@@ -18,6 +26,7 @@ export interface StoryRowData {
 
 export interface StoryColumnsContext {
 	onOpen: (story: Article) => void
+	onShowOnMap?: (story: Article) => void
 	onEdit: (story: Article) => void
 	onDelete: (story: Article) => void
 }
@@ -30,9 +39,10 @@ export const createStoryColumns = (context: StoryColumnsContext): ColumnDef<Stor
 			const content = story.article
 			const title = content.title?.trim() || 'Untitled'
 			const image = content.image?.trim()
+			const readerPath = getStoryReaderPath(story)
 
 			return (
-				<ListRow
+				<ListRow dragItem={transferFromResult(storyToSearchResult(story))}
 					leading={
 						<CoverThumb
 							src={image}
@@ -45,6 +55,15 @@ export const createStoryColumns = (context: StoryColumnsContext): ColumnDef<Stor
 					onTitleClick={() => context.onOpen(story)}
 					titleAriaLabel={`Open story ${title}`}
 					titleTitle="Open story"
+					primaryAction={
+						context.onShowOnMap ? (
+							<RowActionButton
+								icon={ZoomActionIcon}
+								label="Show story maps"
+								onClick={() => context.onShowOnMap?.(story)}
+							/>
+						) : undefined
+					}
 					badges={
 						hasLocalDraft ? (
 							<RowBadge label="Draft" className="border border-border text-muted-foreground" />
@@ -77,6 +96,14 @@ export const createStoryColumns = (context: StoryColumnsContext): ColumnDef<Stor
 					}
 					actions={
 						<>
+							{readerPath ? (
+								<RowActionButton
+									icon={BookOpen}
+									label="Read story"
+									hover="hover:text-ok"
+									onClick={() => navigateEarthly(readerPath)}
+								/>
+							) : null}
 							<RowActionButton
 								icon={InspectActionIcon}
 								label="Open story"

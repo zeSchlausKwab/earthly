@@ -151,14 +151,15 @@ describe('resolveActiveConversationEditTarget', () => {
 		).toBe(false)
 		expect(openTarget).toHaveBeenCalledWith('stale-workspace')
 		expect(announceUnavailable).toHaveBeenCalledTimes(1)
-		expect(CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE).toContain('Choose New map or Use current in Chat')
+		expect(CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE).toContain('Thread')
+		expect(CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE).toContain('Return to the Map')
 	})
 })
 
 describe('resolveMobileEditPanelPresentation', () => {
 	test('describes inspected entities without implying edit mode', () => {
 		expect(resolveMobileEditPanelPresentation({ hasViewedDataset: true })).toEqual({
-			label: 'Dataset',
+			label: 'Map',
 			intent: 'inspect',
 		})
 		expect(resolveMobileEditPanelPresentation({ hasViewedSighting: true })).toEqual({
@@ -169,7 +170,7 @@ describe('resolveMobileEditPanelPresentation', () => {
 
 	test('describes create and edit tasks as authoring', () => {
 		expect(resolveMobileEditPanelPresentation({ hasRetainedDataset: true })).toEqual({
-			label: 'Edit dataset',
+			label: 'Edit Map',
 			intent: 'author',
 		})
 		expect(resolveMobileEditPanelPresentation({ storyEditorMode: 'create' })).toEqual({
@@ -198,7 +199,7 @@ describe('resolveMobileEditPanelPresentation', () => {
 				hasRetainedDataset: true,
 				storyEditorMode: 'edit',
 			}),
-		).toEqual({ label: 'Edit dataset', intent: 'author' })
+		).toEqual({ label: 'Edit Map', intent: 'author' })
 		expect(
 			resolveMobileEditPanelPresentation({
 				surface: 'story',
@@ -215,7 +216,7 @@ describe('resolveMobileEditPanelPresentation', () => {
 				inspectionKind: 'context',
 				hasRetainedDataset: true,
 			}),
-		).toEqual({ label: 'Context', intent: 'inspect' })
+		).toEqual({ label: 'Atlas', intent: 'inspect' })
 	})
 
 	test('prefers an active authoring task over a stale viewed entity', () => {

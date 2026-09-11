@@ -29,22 +29,22 @@ async function tourChat(earthly: EarthlySession): Promise<void> {
 
 async function tourGeometry(earthly: EarthlySession): Promise<void> {
 	await hideChatWhenOpen(earthly)
-	const mapStack = earthly.page.getByRole('region', { name: 'Map stack', exact: true })
-	if (!(await mapStack.isVisible())) {
-		await earthly.page.getByRole('button', { name: 'Show map stack', exact: true }).click()
+	const shelf = earthly.page.getByRole('region', { name: 'Shelf', exact: true })
+	if (!(await shelf.isVisible())) {
+		const openShelf = earthly.page.getByRole('button', { name: /^Open Shelf/ })
+		if (await openShelf.isVisible()) await openShelf.click()
+		else await earthly.page.getByRole('button', { name: 'Show map stack', exact: true }).click()
 	}
-	await expect(mapStack).toBeVisible()
+	await expect(shelf).toBeVisible()
 
-	const zoomToEdit = mapStack.getByRole('button', { name: 'Zoom to edit', exact: true })
-	const zoomToDataset = mapStack
-		.getByRole('button', { name: 'Zoom to dataset', exact: true })
-		.last()
+	const zoomToEdit = shelf.getByRole('button', { name: 'Zoom to edit', exact: true })
+	const zoomToDataset = shelf.getByRole('button', { name: 'Zoom to dataset', exact: true }).last()
 	if (await zoomToEdit.isVisible()) await zoomToEdit.click()
 	else if (await zoomToDataset.isVisible()) await zoomToDataset.click()
-	else throw new Error('Geometry tour found no editable or published result in the Map stack.')
+	else throw new Error('Geometry tour found no editable or published result on the Shelf.')
 	await waitForMapToSettle(earthly)
 
-	const openEditor = mapStack.getByRole('button', { name: 'Open editor panel', exact: true })
+	const openEditor = shelf.getByRole('button', { name: 'Open editor panel', exact: true })
 	if (await openEditor.isVisible()) await openEditor.click()
 	await expect(earthly.page.getByText(/^Geometries \([1-9][0-9]*\)$/)).toBeVisible()
 

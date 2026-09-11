@@ -17,6 +17,7 @@
 
 import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
 import { getTagValue, type KnownEvent, type NostrEvent } from 'applesauce-core/helpers/event'
+import { parseMapPresentation, type MapPresentationParseResult } from '@/lib/map-presentation'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import { hasCurrentModelVersion } from '@/lib/nostr/modelVersion'
@@ -65,6 +66,11 @@ export interface GroupContent {
 	/** draft-2020-12 JSON Schema; only under `governance: 'schema'`. */
 	schema?: Record<string, unknown>
 	image?: string
+	/**
+	 * Embedded Atlas presentation. Its raw shape stays unknown so unsupported
+	 * future versions survive unrelated Group edits.
+	 */
+	presentation?: unknown
 }
 
 export const DEFAULT_GROUP_CONTENT: GroupContent = {
@@ -109,6 +115,11 @@ export function getGroupContent(event: NostrEvent): GroupContent {
 			return { ...DEFAULT_GROUP_CONTENT }
 		}
 	})
+}
+
+/** Parse the embedded presentation without throwing or discarding future versions. */
+export function getGroupMapPresentation(event: NostrEvent): MapPresentationParseResult {
+	return parseMapPresentation(getGroupContent(event).presentation)
 }
 
 export function getGroupCoordinate(event: NostrEvent): string | undefined {

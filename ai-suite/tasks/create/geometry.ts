@@ -125,19 +125,16 @@ export async function addLabelToGeometryDraft(
 }
 
 export async function publishCurrentGeometryDataset(earthly: EarthlySession): Promise<string> {
-	let publishButton = earthly.page.getByRole('button', { name: 'Publish', exact: true })
-	if (!(await publishButton.isVisible())) {
+	const publishButton = earthly.page.getByRole('button', { name: 'Publish', exact: true })
+	if (await publishButton.isVisible()) {
+		await publishButton.click()
+	} else {
 		await earthly.page.getByText('File', { exact: true }).first().click()
-		publishButton = earthly.page.getByRole('menuitem', {
-			name: 'Publish new dataset',
-			exact: true,
-		})
 	}
-	await expect(publishButton).toBeEnabled()
-	await publishButton.click()
+	await earthly.page.getByRole('menuitem', { name: 'Publish new Map', exact: true }).click()
 	await expect
 		.poll(() => new URL(earthly.page.url()).pathname, { timeout: 15_000 })
-		.toMatch(/^\/datasets\/geoevent\//)
+		.toMatch(/^\/map\//)
 	return earthly.page.url()
 }
 

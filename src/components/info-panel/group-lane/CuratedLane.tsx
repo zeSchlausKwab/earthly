@@ -22,8 +22,7 @@ import type { EntitySearchResult } from '@/components/entity-search/types'
 import { GroupFactory } from '@/lib/nostr/group'
 import type { GroupEvent } from '@/lib/nostr/group'
 import { publish } from '@/lib/nostr'
-import { Badge } from '../../ui/badge'
-import { Button } from '../../ui/button'
+import { PinnedReferenceRow } from './PinnedReferenceRow.tsx'
 import { EntityPanelSectionHeader, EntityPanelSurface } from '../EntityPanelShell'
 
 export interface CuratedLaneProps {
@@ -89,16 +88,15 @@ export function CuratedLane({
 	return (
 		<EntityPanelSurface tone="context" className="space-y-3">
 			<EntityPanelSectionHeader
-				eyebrow="Curated"
-				title="Canonical references"
-				description="The owner's pinned references — shown first."
+				eyebrow="Maps and references"
+				title="Pinned by the author"
 				action={
 					isOwner ? (
 						<EntitySearchPopover
 							onSelect={handlePick}
 							searchMode="both"
 							compact
-							placeholder="Add curated reference"
+							placeholder="Pin a Map or reference"
 						/>
 					) : null
 				}
@@ -106,42 +104,11 @@ export function CuratedLane({
 
 			{referencedAddresses.length === 0 ? (
 				<p className="text-[13px] text-foreground/70">
-					No canonical references yet. The owner hasn't pinned any references. Conforming community
-					contributions appear below.
+					No pinned references yet. Maps added by others appear below when this Atlas accepts contributions.
 				</p>
 			) : (
 				<div className="space-y-2">
-					{referencedAddresses.map((coordinate) => (
-						<div
-							key={coordinate}
-							className="flex items-center justify-between gap-2 border-b border-primary/40 py-2"
-						>
-							<div className="min-w-0 space-y-1">
-								<p className="truncate font-mono text-xs text-foreground">{coordinate}</p>
-								<Badge variant="secondary" className="rounded-none text-[10px]">
-									Canonical
-								</Badge>
-							</div>
-							<div className="flex items-center gap-2">
-								<Button
-									size="sm"
-									variant="outline"
-									onClick={() => onInspectCoordinate?.(coordinate)}
-									className="rounded-none border-border bg-card px-2 text-xs"
-								>
-									Inspect
-								</Button>
-								<Button
-									size="sm"
-									variant="outline"
-									onClick={() => onZoomToCoordinate?.(coordinate)}
-									className="rounded-none border-border bg-card px-2 text-xs"
-								>
-									Zoom
-								</Button>
-							</div>
-						</div>
-					))}
+					{referencedAddresses.map((coordinate) => <PinnedReferenceRow key={coordinate} coordinate={coordinate} onInspect={onInspectCoordinate} onZoom={onZoomToCoordinate} />)}
 				</div>
 			)}
 		</EntityPanelSurface>

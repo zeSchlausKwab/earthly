@@ -12,7 +12,8 @@ export const createIdentityTask: AiTaskMetadata = {
 
 export async function createIdentity(earthly: EarthlySession): Promise<void> {
 	if (earthly.isMobile) throw new Error('The current create-identity trigger is desktop-only')
-	await earthly.page.getByRole('button', { name: 'Get a Nostr identity' }).click()
+	await earthly.page.getByRole('button', { name: /^(Your account:|Sign in$)/ }).click()
+	await earthly.page.getByRole('button', { name: 'Sign in or create identity' }).click()
 	await expect(earthly.page.getByRole('dialog', { name: 'Connect to Nostr' })).toBeVisible()
 	await earthly.page.getByRole('button', { name: /New to Nostr\? Get your identity/ }).click()
 	await expect(earthly.page.getByRole('dialog', { name: 'Your Nostr Identity' })).toBeVisible()
@@ -22,5 +23,6 @@ export async function createIdentity(earthly: EarthlySession): Promise<void> {
 	await earthly.page.getByRole('button', { name: 'Skip for now' }).click()
 	await expect(earthly.page.getByRole('dialog', { name: "You're on Nostr!" })).toBeVisible()
 	await earthly.page.getByRole('button', { name: 'Start Exploring' }).click()
+	await earthly.page.getByRole('button', { name: /^(Your account:|Sign in$)/ }).click()
 	await expect(earthly.page.getByRole('button', { name: 'Account menu' })).toBeVisible()
 }

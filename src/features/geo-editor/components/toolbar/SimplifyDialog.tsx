@@ -260,7 +260,7 @@ export function SimplifyDialog({ open, onOpenChange }: SimplifyDialogProps) {
 								nextDatasetOverLimit ? 'border-primary/40 bg-primary/10' : 'border-ok/40 bg-ok/15'
 							}`}
 						>
-							<div className="font-medium text-foreground">Dataset size estimate</div>
+							<div className="font-medium text-foreground">Map size estimate</div>
 							<div className="mt-1 text-foreground">
 								{formatBytes(metrics.datasetBytesBefore)} → {formatBytes(metrics.datasetBytesAfter)}
 							</div>

@@ -14,7 +14,7 @@ import type maplibregl from 'maplibre-gl'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
-import { GeoRichTextEditor } from '@/components/editor/GeoRichTextEditor'
+import { GeoRichTextEditor } from '@/components/editor/DeferredGeoRichTextEditor'
 import { RichContentRenderer } from '@/components/editor/RichContentRenderer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -219,7 +219,7 @@ function QuickAddCallout({
 			</div>
 			<GeoRichTextEditor
 				initialValue={text}
-				placeholder="Put context directly on the map… Type $ to reference geometry."
+				placeholder="Put a note directly on the map… Type $ to reference geometry."
 				availableFeatures={availableFeatures}
 				onChange={setText}
 				rows={3}

@@ -23,8 +23,18 @@ import {
 } from '@/lib/geo/reference'
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
 import { ARTICLE_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
+import {
+	parseStoryMarkdown,
+	parseStoryViewBlock,
+	stringifyStoryViewBlock,
+	stringifyStoryViewMarkdownBlock,
+	type StoryViewBlockV1,
+	type StoryViewLayerPatchV1,
+} from '@/lib/map-presentation'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+import { StoryViewBlockEditor } from './StoryViewBlockEditor'
+import { getStoryViewMoveTarget, moveStoryView } from './storyViewEditing'
 
 export interface GeoMentionAttrs {
 	/** Bare naddr1..., geo: URI, or canonical OpenStreetMap URL. */
@@ -232,7 +242,7 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
  * TipTap extension for geo mentions.
  * Renders as inline chips with visibility/zoom/delete controls.
  */
-export const GeoMentionNode = Node.create<GeoMentionNodeOptions>({
+export const GeoMentionNode = /* @__PURE__ */ Node.create<GeoMentionNodeOptions>({
 	name: 'geoMention',
 	group: 'inline',
 	inline: true,
@@ -289,8 +299,105 @@ export const GeoMentionNode = Node.create<GeoMentionNodeOptions>({
 	},
 })
 
+export interface StoryViewCapture {
+	camera?: StoryViewBlockV1['camera']
+	layers?: Readonly<Record<string, StoryViewLayerPatchV1>>
+}
+
+export interface StoryViewNodeCallbacks {
+	onCapture?: () => StoryViewCapture | null | undefined
+	onActivate?: (view: StoryViewBlockV1) => void
+}
+
+export interface StoryViewNodeOptions {
+	callbacks?: StoryViewNodeCallbacks
+}
+
+function readStoryViewAttr(value: unknown): StoryViewBlockV1 | null {
+	if (typeof value !== 'string') return null
+	try {
+		const parsed = parseStoryViewBlock(JSON.parse(value))
+		return parsed.status === 'valid' ? parsed.value : null
+	} catch {
+		return null
+	}
+}
+
+function StoryViewNodeView({ node, deleteNode, editor, updateAttributes, getPos }: NodeViewProps) {
+	const view = readStoryViewAttr(node.attrs.value)
+	if (!view) return null
+	const extension = editor.extensionManager.extensions.find((entry) => entry.name === 'storyView')
+	const callbacks = (extension?.storage?.callbacks ?? extension?.options?.callbacks) as
+		| StoryViewNodeCallbacks
+		| undefined
+	const position = getPos()
+
+	return (
+		<NodeViewWrapper
+			as="section"
+			className="my-2 border border-primary/40 bg-primary/5 p-3"
+			data-story-view=""
+			contentEditable={false}
+		>
+			<StoryViewBlockEditor
+				view={view}
+				editable={editor.isEditable}
+				onChange={(next) => updateAttributes({ value: stringifyStoryViewBlock(next) })}
+				onCapture={callbacks?.onCapture}
+				onActivate={callbacks?.onActivate}
+				onRemove={deleteNode}
+				canMoveUp={
+					position !== undefined && getStoryViewMoveTarget(editor.state.doc, position, -1) !== null
+				}
+				canMoveDown={
+					position !== undefined && getStoryViewMoveTarget(editor.state.doc, position, 1) !== null
+				}
+				onMove={(direction) => {
+					const currentPosition = getPos()
+					if (currentPosition === undefined) return
+					const transaction = moveStoryView(editor.state.tr, currentPosition, direction)
+					if (transaction) editor.view.dispatch(transaction)
+				}}
+			/>
+		</NodeViewWrapper>
+	)
+}
+
+/** Physical block node for canonical fenced `earthly-view` JSON. */
+export const StoryViewNode = /* @__PURE__ */ Node.create<StoryViewNodeOptions>({
+	name: 'storyView',
+	group: 'block',
+	atom: true,
+	selectable: true,
+	draggable: true,
+
+	addOptions() {
+		return { callbacks: undefined }
+	},
+
+	addStorage() {
+		return { callbacks: this.options.callbacks }
+	},
+
+	addAttributes() {
+		return { value: { default: null } }
+	},
+
+	parseHTML() {
+		return [{ tag: 'section[data-story-view]' }]
+	},
+
+	renderHTML({ HTMLAttributes }) {
+		return ['section', mergeAttributes(HTMLAttributes, { 'data-story-view': '' })]
+	},
+
+	addNodeView() {
+		return ReactNodeViewRenderer(StoryViewNodeView)
+	},
+})
+
 /** TipTap JSON node structure */
-interface TipTapNode {
+export interface TipTapNode {
 	type: string
 	content?: TipTapNode[]
 	text?: string
@@ -306,9 +413,9 @@ function resolveMentionDisplayName(
 		return `Feature: ${featureId}`
 	}
 	if (nameResolver) {
-		return nameResolver(address) ?? 'Dataset'
+		return nameResolver(address) ?? 'Map'
 	}
-	return 'Dataset'
+	return 'Map'
 }
 
 function parseInlineContent(
@@ -385,6 +492,11 @@ export function serializeToText(json: TipTapNode | null): string {
 			return reference ? stringifyGeoReference(reference) : address
 		}
 
+		if (node.type === 'storyView') {
+			const view = readStoryViewAttr(node.attrs?.value)
+			return view ? stringifyStoryViewMarkdownBlock(view) : ''
+		}
+
 		if (node.type === 'paragraph') {
 			const content = node.content?.map(processNode).join('') || ''
 			return content
@@ -414,13 +526,49 @@ export function parseFromText(
 	text: string,
 	nameResolver?: (address: string) => string | undefined,
 ): TipTapNode {
-	const paragraphs = text.length > 0 ? text.split('\n') : ['']
+	const lines = text.length > 0 ? text.split('\n') : ['']
+	const validViewsByLine = new Map<
+		number,
+		{ readonly endLine: number; readonly view: StoryViewBlockV1 }
+	>()
+	const opaqueViewLineRanges: Array<{ readonly startLine: number; readonly endLine: number }> = []
+	for (const occurrence of parseStoryMarkdown(text).views) {
+		const startLine = text.slice(0, occurrence.start).split('\n').length - 1
+		const endLine = text.slice(0, occurrence.end).split('\n').length - 1
+		if (occurrence.result.status === 'valid') {
+			validViewsByLine.set(startLine, { endLine, view: occurrence.result.value })
+		} else {
+			opaqueViewLineRanges.push({ startLine, endLine })
+		}
+	}
+
+	const content: TipTapNode[] = []
+	for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+		const physicalView = validViewsByLine.get(lineIndex)
+		if (physicalView) {
+			content.push({
+				type: 'storyView',
+				attrs: { value: stringifyStoryViewBlock(physicalView.view) },
+			})
+			lineIndex = physicalView.endLine
+			continue
+		}
+		const paragraph = lines[lineIndex] ?? ''
+		const isOpaqueViewSource = opaqueViewLineRanges.some(
+			(range) => lineIndex >= range.startLine && lineIndex <= range.endLine,
+		)
+		content.push({
+			type: 'paragraph',
+			content: isOpaqueViewSource
+				? paragraph
+					? [{ type: 'text', text: paragraph }]
+					: undefined
+				: parseInlineContent(paragraph, nameResolver),
+		})
+	}
 
 	return {
 		type: 'doc',
-		content: paragraphs.map((paragraph) => ({
-			type: 'paragraph',
-			content: parseInlineContent(paragraph, nameResolver),
-		})),
+		content,
 	}
 }

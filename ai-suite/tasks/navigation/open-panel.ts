@@ -4,14 +4,15 @@ import type { AiTaskMetadata } from '../../core/task'
 
 export type EarthlyPanel =
 	| 'Local drafts'
-	| 'Datasets'
-	| 'Contexts'
-	| 'Field sessions'
-	| 'Private groups'
+	| 'Maps'
+	| 'Shelf'
+	| 'Atlases'
+	| 'Nearby'
+	| 'Circles'
 	| 'Stories'
 	| 'Sightings'
 	| 'Beacons'
-	| 'Profile'
+	| 'Me'
 	| 'Posts'
 	| 'Sync & delivery'
 	| 'Wallet'
@@ -20,22 +21,23 @@ export type EarthlyPanel =
 
 export const openPanelTask: AiTaskMetadata = {
 	id: 'navigation.open-panel',
-	summary: 'Open an Earthly browse or account panel on desktop or mobile.',
+	summary: 'Open a Browse or account destination through the visible shell controls.',
 	preconditions: ['Earthly is open', 'First-run tour is not blocking the UI'],
-	sideEffects: ['Changes the current route and opens the mobile navigation drawer'],
+	sideEffects: ['Changes route; leaving mobile drawing keeps the working copy'],
 	viewports: 'both',
 }
 
-const desktopRoutes: Record<EarthlyPanel, string> = {
+const routes: Record<EarthlyPanel, string> = {
 	'Local drafts': '/drafts',
-	Datasets: '/datasets',
-	Contexts: '/contexts',
-	'Field sessions': '/field-sessions',
-	'Private groups': '/private-groups',
-	Stories: '/stories',
-	Sightings: '/sightings',
+	Maps: '/browse/maps',
+	Shelf: '/shelf',
+	Atlases: '/browse/atlases',
+	Nearby: '/me/nearby',
+	Circles: '/me/circles',
+	Stories: '/browse/stories',
+	Sightings: '/browse/sightings',
 	Beacons: '/beacons',
-	Profile: '/user',
+	Me: '/me',
 	Posts: '/posts',
 	'Sync & delivery': '/delivery',
 	Wallet: '/wallet',
@@ -44,37 +46,41 @@ const desktopRoutes: Record<EarthlyPanel, string> = {
 }
 
 export async function openPanel(earthly: EarthlySession, panel: EarthlyPanel): Promise<void> {
-	// Unified vocabulary (audit P2 #8): Posts is labeled "Local posts" on both
-	// viewports; the mobile dock's beacon destination is labeled "Live".
-	const visibleLabel =
-		panel === 'Posts'
-			? 'Local posts'
-			: earthly.isMobile && panel === 'Beacons'
-				? 'Live beacons'
-				: earthly.isMobile && panel === 'Profile'
-					? 'My entities'
-					: panel
-	if (!earthly.isMobile) {
-		const desktopLabel = panel === 'Profile' ? 'My Entities' : visibleLabel
-		await earthly.page.getByRole('button', { name: desktopLabel, exact: true }).click()
-		await expect.poll(() => new URL(earthly.page.url()).pathname).toBe(desktopRoutes[panel])
-		return
+	const page = earthly.page
+	const browsePanel = ['Maps', 'Stories', 'Atlases', 'Sightings'].includes(panel)
+	const me = page.getByRole('button', { name: /^(Your account:|Sign in$)/ })
+	if (earthly.isMobile && !(await me.isVisible())) {
+		// Done exits drawing without discarding the retained working copy.
+		await page.getByRole('button', { name: /^Done/ }).click()
+		await expect(me).toBeVisible()
 	}
-
-	const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
-	if (await drawer.isVisible()) {
-		const backToMenu = drawer.getByRole('button', { name: 'Back to menu', exact: true })
-		if (await backToMenu.isVisible()) await backToMenu.click()
+	const menu = page.getByRole('dialog', { name: 'Me menu', exact: true })
+	if (browsePanel) {
+		if (await menu.isVisible()) await page.keyboard.press('Escape')
+		await page.getByRole('button', { name: 'Browse', exact: true }).click()
+		await page.getByRole('tab', { name: new RegExp(`^${panel}(?:\\s|$)`) }).click()
+	} else if (!earthly.isMobile && panel === 'Local drafts') {
+		if (await menu.isVisible()) await page.keyboard.press('Escape')
+		await page.getByRole('button', { name: /^Drafts(?:\s|$)/ }).click()
 	} else {
-		await earthly.page.getByRole('button', { name: 'Menu', exact: true }).click()
+		if (!(await menu.isVisible())) await me.click()
+		await expect(menu).toBeVisible()
+		const label =
+			panel === 'Shelf'
+				? 'On the map'
+				: panel === 'Me'
+				? 'Profile'
+				: panel === 'Local drafts'
+					? 'Drafts'
+					: panel === 'Nearby'
+						? 'Nearby sessions'
+						: panel === 'Beacons'
+							? 'Live positions'
+							: panel === 'Help'
+								? 'Help & tour'
+								: panel
+		await menu.getByRole('button', { name: new RegExp(`^${label}(?:\\s|$)`) }).click()
+		await expect(menu).toBeHidden()
 	}
-	await expect(drawer).toBeVisible()
-	await drawer.getByRole('button', { name: new RegExp(`^${visibleLabel}(?:\\s|$)`) }).click()
-	await expect(
-		drawer
-			.locator('h2:visible')
-			.filter({ hasText: new RegExp(`^${visibleLabel}$`) })
-			.first(),
-	).toBeVisible()
-	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe(desktopRoutes[panel])
+	await expect.poll(() => new URL(page.url()).pathname).toBe(routes[panel])
 }

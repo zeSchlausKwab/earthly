@@ -41,6 +41,7 @@ import { stringifyGeoReference, type OsmElementType } from '@/lib/geo/reference'
 import { getFeatureCallouts, type MapCallout } from '@/lib/geo/callouts'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
+import { describeStoryMapContent } from './story-presentation'
 
 const KIND_TO_ENTITY_TYPE: Record<number, string> = {
 	[GEO_EVENT_KIND]: 'dataset',
@@ -358,6 +359,7 @@ function shapeStory(event: NostrEvent): Record<string, unknown> {
 	const content = parseContentJson(event)
 	const body = str(content.content) ?? ''
 	const truncated = truncate(body, MAX_BODY_CHARS)
+	const presentationTruncated = (JSON.stringify(content.presentation)?.length ?? 0) > MAX_BODY_CHARS
 	return {
 		title: str(content.title),
 		summary: str(content.summary),
@@ -365,6 +367,15 @@ function shapeStory(event: NostrEvent): Record<string, unknown> {
 		publishedAt: typeof content.publishedAt === 'number' ? content.publishedAt : undefined,
 		markdown: truncated.text,
 		markdownTruncated: truncated.truncated,
+		presentation: presentationTruncated ? undefined : content.presentation,
+		presentationTruncated,
+		mapAuthoring: describeStoryMapContent(content.presentation, body),
+		...(truncated.truncated || presentationTruncated
+			? {
+					editHint:
+						'Use read_story_draft with this Story reference for the complete body and opening presentation before editing.',
+				}
+			: {}),
 		referencedMentions: toMentions(getReferencedAddresses(event)),
 	}
 }
@@ -407,7 +418,7 @@ const readEntitySchema: Tool = {
 	function: {
 		name: 'read_entity',
 		description:
-			"Fetch ONE Earthly entity's full content by reference — use after search_entities (which only returns summaries) or when the user attaches/mentions an entity. Accepts an naddr (nostr:naddr1…), including an encoded #featureId selector, or a kind:pubkey:d coordinate. Returns the full story Markdown body with its referenced mentions, a group/context's content and curated references, or a dataset's metadata and feature inventory. Dataset inventory rows include ready-to-cite fine-grained references, OSM references when present, Point coordinates, compact semantic properties, and bounded summaries of existing map callouts. An explicit featureId overrides the selector in reference.",
+			"Fetch ONE Earthly entity's content by reference — use after search_entities (which only returns summaries) or when the user attaches/mentions an entity. Accepts an naddr (nostr:naddr1…), including an encoded #featureId selector, or a kind:pubkey:d coordinate. Returns Story Markdown, opening presentation, inline-view diagnostics and referenced mentions (read_story_draft provides a complete editable copy if truncated), a group/context's content and curated references, or a dataset's metadata and feature inventory. Dataset inventory rows include ready-to-cite fine-grained references, OSM references when present, Point coordinates, compact semantic properties, and bounded summaries of existing map callouts. An explicit featureId overrides the selector in reference.",
 		parameters: {
 			type: 'object',
 			properties: {

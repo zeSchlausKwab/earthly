@@ -134,7 +134,7 @@ export function ProposalsPanel({
 					<div className="text-center py-8 text-sm text-muted-foreground">
 						<GitPullRequest className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
 						<p>No edit proposals</p>
-						<p className="text-xs mt-1">Others can propose changes to this dataset.</p>
+						<p className="text-xs mt-1">Others can propose changes to this Map.</p>
 					</div>
 				) : (
 					<div className="space-y-2">

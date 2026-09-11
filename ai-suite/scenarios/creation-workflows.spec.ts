@@ -145,7 +145,7 @@ test('a Dataset owner can preview, request changes, reject, and accept proposals
 	await openDatasetProposal(earthly, acceptedDescription)
 	await acceptDatasetProposal(earthly)
 	await earthly.page.getByRole('tab', { name: 'Details', exact: true }).click()
-	await expect(earthly.page.getByText('Features (1)', { exact: true })).toBeVisible()
+	await expect(earthly.page.getByText('AI suite proposed point', { exact: true })).toBeVisible()
 	await testInfo.attach('dataset-proposal-decisions.png', {
 		body: await earthly.page.screenshot({ animations: 'disabled' }),
 		contentType: 'image/png',
@@ -184,13 +184,13 @@ test('an accepted Dataset proposal applies a real geometry change @workflow-audi
 	await previewDatasetProposal(earthly)
 	await acceptDatasetProposal(earthly)
 	await earthly.page.getByRole('tab', { name: 'Details', exact: true }).click()
-	await expect(earthly.page.getByText('Features (5)', { exact: true })).toBeVisible({
+	await expect(earthly.page.getByRole('region', { name: 'Features', exact: true }).getByRole('button', { name: 'All 5', exact: true })).toBeVisible({
 		timeout: 15_000,
 	})
 
 	const accepted = new URL(earthly.page.url())
 	await earthly.open({ path: `${accepted.pathname}${accepted.search}`, tour: 'seen' })
-	await expect(earthly.page.getByText('Features (5)', { exact: true })).toBeVisible({
+	await expect(earthly.page.getByRole('region', { name: 'Features', exact: true }).getByRole('button', { name: 'All 5', exact: true })).toBeVisible({
 		timeout: 15_000,
 	})
 	await testInfo.attach('dataset-proposal-geometry-accepted.png', {
@@ -278,7 +278,7 @@ test('a Story reference carries its Dataset into a mobile reader @workflow-audit
 	await publishOpenStory(earthly)
 	await expect
 		.poll(() => new URL(earthly.page.url()).pathname, { timeout: 15_000 })
-		.toMatch(/^\/stories\/story\//)
+		.toMatch(/^\/story\//)
 	const storyUrl = earthly.page.url()
 
 	const mobileContext = await browser.newContext({

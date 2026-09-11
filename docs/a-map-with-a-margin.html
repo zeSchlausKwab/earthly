@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Map with a Margin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ground:#EDF0EA; --surface:#F7F8F5; --surface-2:#E3E8E1;
+  --ink:#172019; --ink-2:#3A453E; --muted:#5B675F; --rule:#CBD3CC; --rule-2:#B4BEB6;
+  --accent:#1F5F8B; --accent-ink:#FFFFFF; --accent-soft:#D8E6F0;
+  --green:#4E7D5B; --green-soft:#DCE8DE;
+  --amber:#B7791F; --amber-soft:#F3E6CC;
+  --red:#A23B2A; --red-soft:#F1D9D3;
+  --published:#7B8A80; --working:#1F5F8B; --proposed:#B7791F;
+  --display:"Bricolage Grotesque",ui-sans-serif,system-ui,"Helvetica Neue",Arial,sans-serif;
+  --body:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E1412; --surface:#161D1A; --surface-2:#1E2723;
+    --ink:#E5ECE6; --ink-2:#C4CEC6; --muted:#93A197; --rule:#2A342F; --rule-2:#3A463F;
+    --accent:#74B3E0; --accent-ink:#0B1A26; --accent-soft:#17303F;
+    --green:#7FB48C; --green-soft:#1B2E21;
+    --amber:#D9A441; --amber-soft:#3A2D12;
+    --red:#E0806E; --red-soft:#3D1E18;
+    --published:#6F7D74; --working:#74B3E0; --proposed:#D9A441;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E1412; --surface:#161D1A; --surface-2:#1E2723;
+  --ink:#E5ECE6; --ink-2:#C4CEC6; --muted:#93A197; --rule:#2A342F; --rule-2:#3A463F;
+  --accent:#74B3E0; --accent-ink:#0B1A26; --accent-soft:#17303F;
+  --green:#7FB48C; --green-soft:#1B2E21;
+  --amber:#D9A441; --amber-soft:#3A2D12;
+  --red:#E0806E; --red-soft:#3D1E18;
+  --published:#6F7D74; --working:#74B3E0; --proposed:#D9A441;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.55;font-variation-settings:"opsz" 17}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+code,kbd,.mono{font-family:var(--mono);font-size:.86em}
+code{background:var(--surface-2);padding:.08em .35em;border-radius:3px;color:var(--ink-2)}
+h1,h2,h3,h4{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.08;letter-spacing:-.01em}
+h2{font-size:2rem;font-weight:800;font-variation-settings:"opsz" 48}
+h3{font-size:1.25rem;font-weight:700;margin-top:2.4rem;margin-bottom:.6rem}
+h4{font-size:1rem;font-weight:700;margin-top:1.6rem;margin-bottom:.35rem}
+p{margin:0 0 1rem}
+ul,ol{margin:0 0 1rem;padding-left:1.3rem}
+li{margin:.25rem 0}
+li::marker{color:var(--muted)}
+strong{font-weight:600}
+.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+
+/* ---------- header ---------- */
+.masthead{position:relative;border-bottom:1px solid var(--rule);background:var(--surface);overflow:hidden}
+.masthead .contours{position:absolute;inset:0;opacity:.55;pointer-events:none}
+.masthead .inner{position:relative;max-width:1180px;margin:0 auto;padding:3.5rem 1.5rem 2.6rem;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:2rem;align-items:end}
+.masthead h1{font-size:clamp(2.6rem,6vw,4.6rem);font-weight:800;font-variation-settings:"opsz" 96;letter-spacing:-.025em;max-width:16ch}
+.masthead .dek{font-size:1.15rem;color:var(--ink-2);max-width:56ch;margin-top:1rem}
+.meta{font-family:var(--mono);font-size:.78rem;color:var(--muted);display:grid;gap:.35rem;border-left:1px solid var(--rule-2);padding-left:1rem}
+.meta b{color:var(--ink);font-weight:500}
+@media (max-width:840px){.masthead .inner{grid-template-columns:1fr}.meta{border-left:0;padding-left:0;border-top:1px solid var(--rule-2);padding-top:1rem}}
+
+/* ---------- page grid: legend | main | notes ---------- */
+.page{max-width:1180px;margin:0 auto;padding:0 1.5rem 5rem;display:grid;grid-template-columns:200px minmax(0,1fr);gap:0 3rem}
+.legend{position:sticky;top:0;align-self:start;padding:2rem 0;max-height:100vh;overflow:auto}
+.legend .eyebrow{margin-bottom:.8rem;display:block}
+.legend a{display:block;color:var(--muted);text-decoration:none;font-family:var(--display);font-weight:500;font-size:.92rem;padding:.3rem 0 .3rem .8rem;border-left:2px solid var(--rule)}
+.legend a:hover{color:var(--ink)}
+.legend a.on{color:var(--ink);border-left-color:var(--accent)}
+.legend a small{display:block;font-family:var(--mono);font-size:.68rem;color:var(--muted);font-weight:400;letter-spacing:.06em}
+main{min-width:0}
+section.part{padding:3rem 0 1rem;border-top:1px solid var(--rule);scroll-margin-top:1rem}
+section.part:first-of-type{border-top:0}
+.part-head{display:grid;grid-template-columns:auto 1fr;gap:1.2rem;align-items:baseline;margin-bottom:1.4rem}
+.part-head .no{font-family:var(--display);font-weight:800;font-size:2rem;color:var(--muted);font-variation-settings:"opsz" 48;letter-spacing:-.03em}
+.prose{max-width:68ch}
+.wide{max-width:none}
+
+/* marginalia: a two-col row where note sits right */
+.row{display:grid;grid-template-columns:minmax(0,68ch) minmax(180px,240px);gap:2rem;align-items:start}
+.note{font-size:.86rem;line-height:1.45;color:var(--muted);border-top:2px solid var(--rule-2);padding-top:.6rem;position:sticky;top:1.5rem}
+.note b{color:var(--ink);font-weight:600}
+.note .src{display:block;font-family:var(--mono);font-size:.7rem;margin-top:.5rem;color:var(--muted);word-break:break-word}
+@media (max-width:1000px){.page{grid-template-columns:1fr;gap:0}.legend{position:static;max-height:none;padding:1.5rem 0 0;display:flex;flex-wrap:wrap;gap:.3rem .8rem}.legend .eyebrow{width:100%}.legend a{border-left:0;padding:.2rem .5rem;border:1px solid var(--rule);border-radius:999px}.legend a small{display:none}.row{grid-template-columns:1fr}.note{position:static;border-top:0;border-left:2px solid var(--rule-2);padding:.1rem 0 .1rem .9rem}}
+
+/* ---------- tables ---------- */
+.tbl{width:100%;border-collapse:collapse;font-size:.92rem;margin:1rem 0 1.4rem;font-variant-numeric:tabular-nums}
+.tbl th{text-align:left;font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:.5rem .6rem;border-bottom:1px solid var(--rule-2)}
+.tbl td{padding:.5rem .6rem;border-bottom:1px solid var(--rule);vertical-align:top}
+.tbl td.n{text-align:right;font-family:var(--mono);font-size:.85rem}
+.tbl tr.zero td{color:var(--muted)}
+.tbl tr.noise td{color:var(--muted);font-style:italic}
+.scroll{overflow-x:auto}
+
+/* ---------- callouts / cards ---------- */
+.pull{font-family:var(--display);font-weight:700;font-size:1.45rem;line-height:1.25;letter-spacing:-.015em;padding:1.2rem 0 1.2rem 1.4rem;border-left:4px solid var(--accent);margin:1.6rem 0;max-width:34ch;text-wrap:balance}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin:1rem 0 1.4rem}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:1rem 1.1rem}
+.card h4{margin-top:0}
+.card .k{font-family:var(--mono);font-size:.72rem;color:var(--muted);letter-spacing:.08em}
+.card p{margin:.4rem 0 0;font-size:.95rem}
+.chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0 1rem}
+.chip{font-family:var(--mono);font-size:.75rem;padding:.2rem .55rem;border-radius:999px;border:1px solid var(--rule-2);background:var(--surface);color:var(--ink-2)}
+.chip.bad{border-color:var(--red);color:var(--red);background:var(--red-soft)}
+.chip.good{border-color:var(--green);color:var(--green);background:var(--green-soft)}
+.chip.pen{border-color:var(--working);background:var(--accent-soft);color:var(--ink)}
+.chip.ghost{border-style:dashed;border-color:var(--proposed);color:var(--amber);background:var(--amber-soft)}
+
+/* ---------- concept diagrams ---------- */
+.tangle{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin:1.2rem 0 1.6rem}
+.tangle .box{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:1rem}
+.tangle .box h4{margin:0 0 .6rem}
+.nouns{display:flex;flex-wrap:wrap;gap:.35rem}
+.nouns span{font-family:var(--mono);font-size:.72rem;padding:.18rem .5rem;border:1px solid var(--rule-2);border-radius:3px;background:var(--surface-2);color:var(--ink-2)}
+.nouns span.dead{text-decoration:line-through;opacity:.55}
+.nouns span.keep{border-color:var(--green);background:var(--green-soft);color:var(--ink)}
+@media (max-width:700px){.tangle{grid-template-columns:1fr}}
+
+/* wireframes */
+.wire{background:var(--surface);border:1px solid var(--rule-2);border-radius:8px;padding:.6rem;font-family:var(--mono);font-size:.7rem;color:var(--ink-2);margin:1rem 0 1.6rem}
+.wire .bar{display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;border:1px solid var(--rule);border-radius:4px;background:var(--ground)}
+.wire .bar .grow{flex:1;color:var(--muted)}
+.wire .lay{display:grid;grid-template-columns:200px 1fr;gap:.6rem;margin-top:.6rem;min-height:300px}
+.wire .margin{border:1px solid var(--rule);border-radius:4px;padding:.5rem;background:var(--ground);display:flex;flex-direction:column;gap:.45rem}
+.wire .margin .title{font-family:var(--display);font-size:1rem;font-weight:700;color:var(--ink);letter-spacing:-.01em}
+.wire .tabs{display:flex;gap:.3rem}
+.wire .tabs span{padding:.15rem .5rem;border:1px solid var(--rule-2);border-radius:3px}
+.wire .tabs span.on{background:var(--surface);color:var(--ink);border-color:var(--rule-2)}
+.wire .canvas{position:relative;border:1px solid var(--rule);border-radius:4px;background:
+  repeating-linear-gradient(0deg,transparent 0 23px,var(--rule) 23px 24px),
+  repeating-linear-gradient(90deg,transparent 0 23px,var(--rule) 23px 24px),var(--surface-2);min-height:260px;padding:.5rem}
+.wire .tool{position:absolute;top:.5rem;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--rule-2);border-radius:999px;padding:.25rem .7rem;color:var(--ink)}
+.wire .diff{position:absolute;left:.5rem;right:.5rem;bottom:2.6rem;background:var(--amber-soft);border:1px dashed var(--proposed);border-radius:4px;padding:.3rem .6rem;color:var(--ink);display:flex;gap:.8rem;align-items:center}
+.wire .diff .grow{flex:1}
+.wire .shelf{position:absolute;left:.5rem;right:.5rem;bottom:.5rem;display:flex;gap:.35rem;flex-wrap:wrap}
+.wire .btn{padding:.15rem .5rem;border-radius:3px;border:1px solid var(--rule-2);background:var(--surface);color:var(--ink)}
+.wire .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.wire .muted{color:var(--muted)}
+.wire.phone{max-width:300px;margin:1rem auto 1.6rem}
+.wire.phone .screen{position:relative;border:1px solid var(--rule);border-radius:10px;background:var(--surface-2);height:520px;overflow:hidden;background-image:repeating-linear-gradient(0deg,transparent 0 23px,var(--rule) 23px 24px),repeating-linear-gradient(90deg,transparent 0 23px,var(--rule) 23px 24px)}
+.wire.phone .top{position:absolute;top:.5rem;left:.5rem;right:.5rem;display:flex;flex-direction:column;gap:.35rem}
+.wire.phone .sheet{position:absolute;left:0;right:0;bottom:3rem;background:var(--surface);border-top:1px solid var(--rule-2);border-radius:10px 10px 0 0;padding:.6rem .7rem;display:flex;flex-direction:column;gap:.4rem;box-shadow:0 -6px 20px rgba(0,0,0,.08)}
+.wire.phone .sheet::before{content:"";width:36px;height:4px;border-radius:2px;background:var(--rule-2);margin:0 auto .2rem}
+.wire.phone .nav{position:absolute;left:0;right:0;bottom:0;height:3rem;background:var(--surface);border-top:1px solid var(--rule-2);display:grid;grid-template-columns:repeat(4,1fr);align-items:center;text-align:center;color:var(--muted)}
+.wire.phone .nav .plus{display:inline-grid;place-items:center;width:1.8rem;height:1.8rem;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:1rem}
+.wire .two{display:grid;grid-template-columns:1fr auto;gap:.5rem}
+
+/* geometry states legend */
+.states{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin:1rem 0 1.4rem}
+.state{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:.8rem .9rem}
+.state svg{display:block;width:100%;height:70px;margin-bottom:.4rem}
+.state h4{margin:0 0 .2rem;font-size:.95rem}
+.state p{margin:0;font-size:.85rem;color:var(--muted)}
+@media (max-width:700px){.states{grid-template-columns:1fr}}
+
+/* keep/kill table */
+.kk td:first-child{color:var(--muted)}
+.kk td:last-child{font-weight:600}
+
+/* order list */
+.steps{counter-reset:s;list-style:none;padding:0;margin:1rem 0}
+.steps li{counter-increment:s;display:grid;grid-template-columns:2.4rem 1fr;gap:.6rem;padding:.7rem 0;border-top:1px solid var(--rule)}
+.steps li::before{content:counter(s);font-family:var(--display);font-weight:800;font-size:1.3rem;color:var(--muted);line-height:1.1}
+.steps li:first-child::before{content:"0"}
+.steps li b{font-family:var(--display);font-weight:700;display:block;margin-bottom:.15rem;color:var(--ink)}
+.steps li span{font-size:.95rem}
+
+.verdict{background:var(--surface);border:1px solid var(--rule-2);border-left:4px solid var(--green);border-radius:6px;padding:1rem 1.2rem;margin:1.2rem 0}
+.verdict .eyebrow{color:var(--green)}
+.verdict p:last-child{margin-bottom:0}
+footer{border-top:1px solid var(--rule);color:var(--muted);font-size:.85rem;padding:2rem 1.5rem;text-align:center;font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <svg class="contours" viewBox="0 0 1200 320" preserveAspectRatio="none" aria-hidden="true">
+    <g fill="none" stroke="var(--rule-2)" stroke-width="1">
+      <path d="M-20 260 C 150 200, 260 300, 420 240 S 700 150, 880 220 S 1100 300, 1240 210"/>
+      <path d="M-20 290 C 160 230, 280 330, 440 270 S 720 180, 900 250 S 1120 330, 1240 240"/>
+      <path d="M-20 230 C 140 170, 240 270, 400 210 S 680 120, 860 190 S 1080 270, 1240 180"/>
+      <path d="M-20 200 C 130 140, 220 240, 380 180 S 660 90, 840 160 S 1060 240, 1240 150"/>
+      <path d="M300 60 C 380 20, 520 30, 600 70 S 760 140, 660 170 S 420 160, 340 120 S 240 90, 300 60 Z"/>
+      <path d="M340 75 C 400 45, 510 55, 580 90 S 700 135, 640 152 S 450 145, 380 115 S 300 95, 340 75 Z"/>
+    </g>
+  </svg>
+  <div class="inner">
+    <div>
+      <span class="eyebrow">Earthly · from-scratch UI/UX and protocol audit</span>
+      <h1>A Map with a Margin</h1>
+      <p class="dek">What a restless designer and a patient Nostr developer would build if they were allowed to start Earthly over: one canvas, one margin, one thread, six nouns, two verbs, and a spec that says the same things in fewer places.</p>
+    </div>
+    <div class="meta">
+      <span>Date <b>2026-09-02</b></span>
+      <span>Status <b>discussion document</b></span>
+      <span>Evidence <b>code, screenshots, live relay sample</b></span>
+      <span>Repo copy <b>docs/FROM-SCRATCH-UX-AUDIT-2026-09.md</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="page">
+  <nav class="legend" aria-label="Sections">
+    <span class="eyebrow">Legend</span>
+    <a href="#saw">What we saw<small>evidence</small></a>
+    <a href="#why">Five confusions<small>diagnosis</small></a>
+    <a href="#margin">A map with a margin<small>the redesign</small></a>
+    <a href="#ai">Talking to a map<small>the AI model</small></a>
+    <a href="#wire">Desktop and phone<small>layouts</small></a>
+    <a href="#spec">The protocol half<small>spec changes</small></a>
+    <a href="#mobile">Native or not<small>the Android call</small></a>
+    <a href="#order">Keep, kill, order<small>migration</small></a>
+    <a href="#open">Open questions</a>
+  </nav>
+
+  <main>
+
+  <!-- ============ PART 1 ============ -->
+  <section class="part" id="saw">
+    <div class="part-head"><span class="no">1</span><h2>What we saw</h2></div>
+
+    <div class="row">
+      <div class="prose">
+        <h3 style="margin-top:0">The app carries more concepts than it has users</h3>
+        <p>Counted from the code, not estimated.</p>
+      </div>
+    </div>
+    <div class="scroll"><table class="tbl">
+      <thead><tr><th>Surface</th><th style="text-align:right">Count</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td>Sidebar view modes</td><td class="n">19</td><td class="mono">useRouting.ts · SIDEBAR_VIEW_MODES</td></tr>
+        <tr><td>Mobile panel tabs</td><td class="n">18</td><td class="mono">store/types.ts · MobilePanelTab</td></tr>
+        <tr><td>Top-level stances (browse / focus / author)</td><td class="n">3</td><td class="mono">stanceSlice.ts</td></tr>
+        <tr><td>Publish destination kinds</td><td class="n">5</td><td class="mono">authoringDestination.ts</td></tr>
+        <tr><td>Nouns for “the thing I’m working on”: local draft, workspace, edit state, conversation, Map Stack entry, Inspector subject</td><td class="n">6</td><td class="mono">CONTEXT.md</td></tr>
+        <tr><td>Entity kinds with their own list, editor, route and share path</td><td class="n">5 + 5</td><td class="mono">SHARE_ROUTES · AppSidebar.tsx</td></tr>
+        <tr><td>Icons in the left rail</td><td class="n">12</td><td class="mono">docs/image_web.png</td></tr>
+        <tr><td>Lines in the composition root</td><td class="n">5,626</td><td class="mono">GeoEditorView.tsx</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="row">
+      <div class="prose">
+        <p>The strongest single piece of evidence is <code>CONTEXT.md</code>. It is a 150-line glossary the team had to write to keep the app’s own nouns from colliding. It has an <em>Avoided terms</em> section. It says that “workspace” is “overloaded across local drafts, MLS groups, field sessions, and AI chat.”</p>
+        <p class="pull">When a product needs a glossary to tell an edit state from a workspace from a draft from a conversation, the glossary is the bug report.</p>
+      </div>
+      <aside class="note"><b>The rules in that glossary are right.</b> Never auto-retarget, never auto-publish, never turn a private draft public by navigating. This audit keeps every one of those rules. It removes the number of objects they have to protect.</aside>
+    </div>
+
+    <div class="row">
+      <div class="prose">
+        <h3>Internal state leaks onto the screen</h3>
+        <ul>
+          <li>The Contexts list shows <code>TAXONOMY</code> <code>NONE</code> <code>OPEN</code> <code>CLOSED</code>. Those are raw enum values of <code>contextUse</code>, <code>validationMode</code> and the attachment policy.</li>
+          <li>The chat header shows <code>ctx(model) 262,144</code>, <code>Reasoning (46 lines)</code>, <code>Tool Result (61 lines)</code>, <code>get_editor_state · 1 tool call(s)</code>, and a safety setting labelled <code>Just accept</code>. A developer console is rendered as the primary conversation.</li>
+          <li>The Map Stack offers <code>Sightings layer · suggested</code> and <code>Live beacons layer · suggested</code> on a relay holding six sightings and zero beacons.</li>
+          <li>The top bar reads <code>3/3 · BROWSE · Public · Unattached · File</code>. Four state machines share one row.</li>
+          <li>On a phone, the largest text on the map is <code>Public · Unattached</code>. “Unattached” is a word from the group-attachment lane of the spec.</li>
+        </ul>
+      </div>
+      <aside class="note"><b>Chat cannot be used until you answer a question you didn’t ask.</b> “Choose New map or Use current edit before sending.” A conversation is its own object with a <code>targetWorkspaceId</code> that must be bound first. The intent (never edit what the user didn’t point at) is right; the mechanism makes the person do the joining.<span class="src">ChatPanel.tsx:172 · BindingChip.tsx</span></aside>
+    </div>
+
+    <div class="row">
+      <div class="prose">
+        <h3>Four cursors for “what is on screen”</h3>
+        <p>The Map Stack says what is drawn. The Inspector says what is being read. The sidebar list says what is being browsed. The route says what was opened. A Context can set a browse scope that filters lists without touching the map, or sit on the Stack without being inspected. Each is defensible alone. Together they ask the user to hold four cursors in their head.</p>
+      </div>
+    </div>
+
+    <h3>What people actually publish on earthly.city</h3>
+    <div class="row">
+      <div class="prose"><p>Live sample of <code>wss://relay.earthly.city</code>, taken today, limit 1000 per kind.</p></div>
+      <aside class="note"><b>The relay is an open firehose.</b> Kind 1 notes from Amethyst, Damus, Primal, Nostur and Wisp; <code>nym-vouches</code> app data; 481 pubkeys reacting in the last day. None of it is Earthly. It pollutes “recent”, search relevance and the disk that filled in June.</aside>
+    </div>
+    <div class="scroll"><table class="tbl">
+      <thead><tr><th>Kind</th><th>What</th><th style="text-align:right">Events</th><th style="text-align:right">Authors</th><th>Span</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">37515</td><td>Map (dataset)</td><td class="n">32</td><td class="n">7</td><td>2023-11 → 2026-09-01</td></tr>
+        <tr><td class="mono">37520</td><td>Story</td><td class="n">13</td><td class="n">4</td><td>2026-07-12 → 2026-09-01</td></tr>
+        <tr><td class="mono">37522</td><td>Sighting</td><td class="n">6</td><td class="n">4</td><td>2026-07 → 2026-08-30</td></tr>
+        <tr><td class="mono">37517</td><td>Comment</td><td class="n">1</td><td class="n">1</td><td>“Like heart in not reactive”</td></tr>
+        <tr><td class="mono">37518</td><td>Group / Context</td><td class="n">1</td><td class="n">1</td><td>seeded, legacy v1 shape</td></tr>
+        <tr class="zero"><td class="mono">37521</td><td>Beacon</td><td class="n">0</td><td class="n">–</td><td>–</td></tr>
+        <tr class="zero"><td class="mono">37519</td><td>Proposal</td><td class="n">0</td><td class="n">–</td><td>–</td></tr>
+        <tr class="noise"><td class="mono">1 · 7 · 1111 · 30078</td><td>Other clients’ notes, reactions, comments, app data</td><td class="n">500+ each</td><td class="n">100–480</td><td>last 48 h</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="row">
+      <div class="prose">
+        <p>The maps: <em>China’s Belt and Road Initiative</em>, nine regional <em>Submarine Cables</em> maps, <em>World Enclaves &amp; Exclaves</em>, <em>Major Disputed Territories</em>, <em>World’s Largest Resource Deposits</em>, <em>West Berlin Transit Corridors 1949–1990</em>, <em>Hokkaido–Russian Far East: a counterfactual</em>, <em>Kyushu under Chinese Rule (fictional)</em>, <em>Pax Silica vs WAICO</em> (published twice), <em>World’s 100 Largest Cities</em>, <em>The European Fire Line Moved North — August 2026</em>, <em>2026 Nepal–China border flash floods</em>, <em>Major Nuclear Bunkers</em>, <em>The Hippie Trail</em>.</p>
+        <p>Every Story references one or two of those maps. Sizes run 20–350 KB. Almost no map carries a <code>t</code> tag. No user has used the <code>c</code> attach lane. Two maps were published twice under different <code>d</code> tags, which reads as “I meant to update and made a new one.”</p>
+        <p class="pull">Earthly today, in one sentence: one person and an AI make an explanatory thematic map and write an essay around it, on a desktop.</p>
+        <p>That is a real genre and the UI should serve it well. It is also a snapshot of early usage, not a ceiling. Open attachment (other people’s maps joining a shared topic), private circles, sightings and live positions are deliberate use cases that haven’t had their moment yet, and the redesign designs for them explicitly rather than deducing their absence from a 32-map sample. What the sample <em>does</em> justify is ordering: make the map-and-essay path effortless first, and make belonging simple enough that the first person who wants it succeeds.</p>
+      </div>
+      <aside class="note"><b>Names live inside 300 KB blobs.</b> To print a list of titles a client has to download and parse every FeatureCollection. Stories have no <code>title</code> tag either. This shows up as slow lists, empty link previews, and a landing page that can’t show thumbnails.</aside>
+    </div>
+  </section>
+
+  <!-- ============ PART 2 ============ -->
+  <section class="part" id="why">
+    <div class="part-head"><span class="no">2</span><h2>Five confusions, one root</h2></div>
+    <div class="grid2 wide">
+      <div class="card"><span class="k">CONTAINER</span><h4>Six nouns for one thing</h4><p>Local draft, workspace, edit state, conversation, Map Stack entry, Inspector subject. A person wants one: <em>this map</em>.</p></div>
+      <div class="card"><span class="k">WHERE IT GOES</span><h4>Three ideas in one pill</h4><p><b>Audience</b> (who can read), <b>belonging</b> (what it’s filed under) and <b>filter</b> (what I’m browsing) are orthogonal. “Public · Unattached” is two of them fused, and it changes with the route.</p></div>
+      <div class="card"><span class="k">CONTEXT</span><h4>A poisoned word</h4><p>Group entity, browse scope, <code>c</code> attachment, the model’s request context, React context. Unrecoverable as a user term. The entity behind it is sound: a place maps belong to, with a pinned lane and an open lane behind a door policy. The confusion is that <em>belonging</em> got fused into the destination pill and a browse scope, so it changed whenever the route did.</p></div>
+      <div class="card"><span class="k">AI TARGET</span><h4>Chat is a peer, not a property</h4><p>A free-floating conversation must be <em>bound</em> to an edit. That is why “New map / Use current edit” and the BindingChip exist, and why the question “how do I assign what the AI edits?” gets asked at all.</p></div>
+      <div class="card"><span class="k">MODE</span><h4>Six parallel state machines</h4><p>Stance, view mode, sidebar view, mobile tab, Inspector subject, Stack visibility. Every transition is reconciled against the other five. That is what 5,600 lines of composition root is made of.</p></div>
+      <div class="card" style="border-color:var(--accent)"><span class="k" style="color:var(--accent)">THE ROOT</span><h4>A workbench of panels around a map</h4><p>Every capability got its own panel, noun and route. The alternative is a <em>map with a margin</em>: one canvas, one panel that always shows exactly one object, and one conversation that belongs to that object.</p></div>
+    </div>
+  </section>
+
+  <!-- ============ PART 3 ============ -->
+  <section class="part" id="margin">
+    <div class="part-head"><span class="no">3</span><h2>A map with a margin</h2></div>
+
+    <div class="tangle wide">
+      <div class="box">
+        <h4>Today · user-facing vocabulary</h4>
+        <div class="nouns">
+          <span class="dead">Workspace</span><span class="dead">Scratch workspace</span><span class="dead">Local draft</span><span class="dead">Edit state</span><span class="dead">Conversation</span><span class="dead">Map Stack</span><span class="dead">Inspector</span><span class="dead">Stance</span><span class="dead">Browse scope</span><span class="dead">Destination</span><span class="dead">Context</span><span class="dead">Group</span><span class="dead">Attachment policy</span><span class="dead">Field session</span><span class="dead">Posts</span><span class="keep">Dataset</span><span class="keep">Story</span><span class="keep">Sighting</span><span class="keep">Beacon</span><span class="keep">Private group</span>
+        </div>
+      </div>
+      <div class="box">
+        <h4>Tomorrow · six nouns, two verbs, three surfaces</h4>
+        <div class="nouns">
+          <span class="keep">Map</span><span class="keep">Story</span><span class="keep">Atlas</span><span class="keep">Sighting</span><span class="keep">Live</span><span class="keep">Circle</span>
+          <span>Open</span><span>Edit</span>
+          <span>Canvas</span><span>Margin</span><span>Thread</span><span>Shelf</span><span>Belongs to</span><span>Drafts</span>
+        </div>
+        <p style="font-size:.85rem;color:var(--muted);margin:.7rem 0 0">Shelf, Belongs to and Drafts are places on the screen, not objects: a chip strip, a field on the Map, a list.</p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="prose">
+        <h3 style="margin-top:.5rem">Three surfaces</h3>
+        <p><b>Canvas.</b> The map, full bleed on every device.</p>
+        <p><b>Margin.</b> One panel. It shows exactly one object at a time: a Map, a Story, a Place, a Person, or the Shelf. Its back button is browser back. Desktop: a 380px column. Phone: a bottom sheet with three detents.</p>
+        <p><b>Thread.</b> The conversation that belongs to the Map in the Margin. A tab of the Margin, not a separate panel. On desktop it can be pulled out to the right as a second column; that is layout, not a different object.</p>
+
+        <h3>Six nouns</h3>
+      </div>
+      <aside class="note"><b>Why a “margin”?</b> An atlas plate has a legend in its margin: the one place that tells you what you are looking at. Earthly’s panel should do exactly that job and no other. The word also gives the team a way to say “that goes in the margin” instead of inventing a seventh panel.</aside>
+    </div>
+    <div class="scroll"><table class="tbl">
+      <thead><tr><th>Noun</th><th>Kind</th><th>What a person understands</th></tr></thead>
+      <tbody>
+        <tr><td><b>Map</b></td><td class="mono">37515</td><td>Features you drew, imported or generated. Has a title, a thumbnail, topics and its own Thread.</td></tr>
+        <tr><td><b>Story</b></td><td class="mono">37520</td><td>Writing that puts maps together. Prose first; the maps it references come along.</td></tr>
+        <tr><td><b>Atlas</b></td><td class="mono">37518</td><td>A place maps belong to. The owner pins maps and sets a door policy; anyone may add their own map to an open atlas. Today’s Group / Context, renamed and given one home.</td></tr>
+        <tr><td><b>Sighting</b></td><td class="mono">37522</td><td>Something seen at a place and time. The phone’s <b>+</b> button.</td></tr>
+        <tr><td><b>Live</b></td><td class="mono">37521</td><td>An action (“share my live location”), not a navigation destination.</td></tr>
+        <tr><td><b>Circle</b></td><td class="mono">MLS group</td><td>An <em>audience</em>. Appears only inside “who can see this”, never as a place you go. Nearby sessions are audiences too.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="row">
+      <div class="prose">
+        <p>Story and Atlas are deliberately two nouns. A Story is <em>writing</em> that pulls maps in. An Atlas is a <em>place</em> that maps push themselves into. People understand “I wrote about these maps” and “my map belongs in that atlas” as different acts, and the wire already models them as <code>a</code> versus <code>c</code>.</p>
+        <h3>Two verbs</h3>
+        <p><b>Open</b> puts an object in the Margin and its geometry on the Canvas. Read-only. <b>Edit</b> turns the Map in the Margin into your working copy, or a fork if it isn’t yours. Exactly one Map is in Edit at a time. It wears a pencil.</p>
+        <p>That is the whole mode system. There is no browse / focus / author. The URL is the object: <code>/map/naddr</code> is Open, <code>/map/naddr/edit</code> is Edit, <code>?on=</code> lists what else is on the Shelf.</p>
+
+        <h3>The Shelf replaces the Map Stack</h3>
+        <p>A chip strip along the bottom of the Canvas. One chip per Map currently drawn. Tap to Open it in the Margin; the eye toggles visibility; × removes it. The chip with the pencil is the Map being edited. Sightings and Live collapse into one <b>Live</b> chip, off by default, with a count when something is nearby or recent.</p>
+        <div class="chips"><span class="chip pen">✎ Hippie Trail</span><span class="chip">● Belt and Road</span><span class="chip">○ Submarine Cables</span><span class="chip">Live · 3</span></div>
+
+        <h3>Where it goes, split into three homes</h3>
+        <ul>
+          <li><b>Audience</b> lives on the Publish split button: <code>Publish to Everyone ▾</code> → Everyone · Circle: Alpine rescue · Nearby: Saturday survey. Stored per working copy. No global pill.</li>
+          <li><b>Belonging</b> lives in the Map’s details in one field, <b>Belongs to</b>: zero or more Atlases (written as <code>c</code> tags on publish) plus <b>Topics</b> (<code>t</code> hashtags, controlled <code>l</code> labels). Under it, read-only, <b>Appears in</b> lists the Stories that reference the Map. Belonging is a property of the Map, edited where the Map is edited, never shown as global state.</li>
+          <li><b>Filter</b> lives in Search as a removable chip: <code>Browsing in Roman ruins</code> or <code>#submarine-cables</code>. It only affects lists. Never the Canvas, never what gets published.</li>
+        </ul>
+
+        <h3>Atlases: the open-attach lane, given one home</h3>
+        <p>The lane stays exactly as specified. What changes is that it has one place in the UI and one vocabulary.</p>
+        <ul>
+          <li><b>An Atlas is a page.</b> Opening it fills the Margin like a Story: description, owner, door policy, then two lists, <b>Pinned</b> (the <code>a</code> lane) and <b>Added by others</b> (the <code>c</code> lane, filtered by the door policy). “Show all on map” fills the Shelf. Being in an Atlas sets the Search filter chip and nothing else.</li>
+          <li><b>Door policy is a sentence, not an enum.</b> <code>open · schema · closed</code> becomes “Who can add maps here: <em>Anyone</em> / <em>Anyone, if the map fits the schema</em> / <em>Only me</em>.” The schema builder sits behind the middle option.</li>
+          <li><b>Adding is done from either side, always explicitly.</b> From a Map: Belongs to → <b>Add to atlas…</b> (a Publish update if already published). From an Atlas: <b>Add a map</b> → one of mine, or <em>new map in this atlas</em>, which opens a working copy with Belongs to pre-filled. The route suggests belonging for a <em>new</em> working copy only; it never rewrites an existing one.</li>
+          <li><b>Fit is shown on the Map, where the author can act.</b> Each Belongs-to chip carries a state.</li>
+        </ul>
+        <div class="chips"><span class="chip good">In Roman ruins ✓</span><span class="chip ghost">Roman ruins · doesn’t fit: missing “period”</span><span class="chip">Cool historical maps · closed, ask the owner</span></div>
+        <ul>
+          <li><b>Accepting is pinning.</b> In a closed or schema atlas the owner accepts a foreign map by pinning it. The <code>a</code> lane already expresses approval, so no new status kind is needed. The owner sees a <b>Waiting</b> list: maps that carry the <code>c</code> tag but aren’t pinned yet.</li>
+          <li><b>The owner’s AI works on the Atlas.</b> An Atlas has no geometry, so its Thread is a concierge over the collection: “which maps lack descriptions”, “translate the Arabic names across the pinned maps.” It opens the owner’s own maps in Edit one at a time, and for other people’s maps it drafts <b>proposals</b> (kind 37519) that appear as ghosts to the original author. Visible scope at every step.</li>
+        </ul>
+
+        <h3>The Atlas lens: one atlas as the whole app</h3>
+        <p>Niche communities do not want “a mapping app that also has skate spots.” They want <em>the skate-spot app</em>. Entering an Atlas makes it a lens over everything, without forking the product.</p>
+        <ul>
+          <li><b>Lists show only this atlas.</b> Browse tabs become <em>Spots · Stories · People</em>; the atlas supplies the noun. Search is scoped the same way.</li>
+          <li><b>New maps belong here.</b> The + button reads “New spot map in Global skate spots.” The working copy opens with Belongs to pre-filled and visible, still removable. Existing drafts are never retargeted.</li>
+          <li><b>The schema becomes a form.</b> Every map inside gets a Properties section: <em>Surface: marble · Type: plaza</em>. Fit chips and the Waiting list follow from the same fields.</li>
+          <li><b>The Shelf loads the atlas; the Thread knows where it is.</b> Prompt suggestions and model context carry the atlas and its schema.</li>
+          <li><b>It is visibly a mode, one tap to leave.</b> A lens bar under the top bar names the atlas, states the rule, and offers About, Share app link, and Leave. The atlas may set an accent colour and emblem.</li>
+          <li><b>The lens is a URL.</b> <code>/in/global-skate-spots</code> is a link a community can hand around as <em>their app</em>.</li>
+        </ul>
+        <p>The lens never changes the audience of a map, never hides what is already on the Shelf, and never silently edits belonging on anything you did not create inside it.</p>
+        <h3>Every Map has one working copy</h3>
+        <ul>
+          <li>Open a published Map: you read it. Press <b>Edit</b>: if it’s yours, Earthly creates or resumes <em>your working copy</em>. If not, the button says <b>Fork</b> and the copy is a new Map with lineage.</li>
+          <li>The working copy persists on the device. Navigating away never loses it. The single list of unfinished work is <b>Drafts</b>, under Me and as a badge on the chip. No scratch workspaces, no retained edit states as concepts.</li>
+          <li><b>Publish update</b> is the default on your own Map (same <code>d</code>, new version). <b>Publish as new map</b> is the secondary item. This fixes the double-publish seen on the relay.</li>
+          <li>Pressing Edit on a second Map asks: “Finish with <em>Hippie Trail</em> first? Keep draft · Discard · Cancel.” Keep is the default.</li>
+        </ul>
+      </div>
+      <aside class="note"><b>“Save this view” makes a personal Atlas.</b> Today the stack is URL query state. An Atlas with only pins and “Only me” as the door policy is the shareable Shelf, with no new object type.<br><br><b>Why not fold Atlas into Story?</b> Because push and pull are different acts with different owners. A Story author decides what’s in it; an Atlas lets other people decide to belong. Collapsing them would put the attach lane back inside prose, which is where it got confusing.<br><br><b>Sightings, Live and Circles are unchanged on the wire.</b> Only their place in the UI changes: from destinations to actions and audiences.</aside>
+    </div>
+  </section>
+
+  <!-- ============ PART 4: AI ============ -->
+  <section class="part" id="ai">
+    <div class="part-head"><span class="no">4</span><h2>Talking to a map</h2></div>
+    <div class="row">
+      <div class="prose">
+        <p>This is the answer to two of the questions in the brief: <em>how does the user assign what the AI edits</em>, and <em>how do they know what is being edited and what isn’t</em>.</p>
+        <p class="pull">You don’t assign the AI a target. You open a map and talk to it.</p>
+        <h3>The Thread lives in the Map’s margin</h3>
+        <ul>
+          <li><b>There is no unbound chat.</b> The Thread is a tab in the Margin of the Map that is Open. Its header is the Map’s title and state: <code>Hippie Trail · editing</code> or <code>Hippie Trail · read-only</code>. On a read-only Map the send button reads <b>Edit &amp; send</b> and puts the Map into Edit before the first tool call; if it isn’t yours, <b>Fork &amp; send</b>. That is the whole binding step, and it happens in the same gesture as sending.</li>
+          <li><b>A global Ask exists, but it’s a concierge.</b> With no Map open, the search field takes a question. The answer is read-only: find, measure, explain, geocode. Its only write affordance is a button, <b>Start a map from this</b>, which creates a Map, opens it in Edit, and moves the conversation into its Thread.</li>
+          <li><b>Scope is selection.</b> Writes go to the Map in Edit, period. If features are selected, the composer shows <code>12 features selected ×</code>. The model receives the selection; the user sees the scope; clearing the chip widens it to the whole Map.</li>
+          <li><b>References are drag-in and read-only.</b> Other Maps and Stories can be dragged from the Shelf or Search into the composer as reference chips. The spec already says references never grant edit rights. Keep that sentence.</li>
+          <li><b>One run at a time, shown where it happens.</b> The pencil chip pulses while the AI works. Navigating elsewhere never cancels the run; the pulsing chip is how you find your way back.</li>
+        </ul>
+      </div>
+      <aside class="note"><b>What moves out of the transcript.</b> Reasoning, tool calls, token counts, <code>ctx(model)</code>, and per-tool timings go to a <b>Details</b> drawer that is closed by default and remembered per user. The transcript keeps one collapsed line per operation: “Drew 8 corridors and 72 nodes.”<br><br>The safety levels stay, renamed from “Just accept” to what they do: <em>Apply automatically · Ask before changing · Ask before every change</em>.</aside>
+    </div>
+
+    <h3>Show the change on the Canvas, not in the transcript</h3>
+    <div class="row">
+      <div class="prose"><p>AI-proposed geometry renders as ghosted, dashed, amber features. A diff bar sits on the Canvas. Accepting is a Canvas gesture. Three geometry states and one rule replace the BindingChip, the destination pill, the stance label and the “which draft is active” navigator:</p></div>
+    </div>
+    <div class="states wide">
+      <div class="state">
+        <svg viewBox="0 0 200 70" aria-hidden="true"><path d="M10 50 C 50 20, 90 60, 130 30 S 180 20, 190 40" fill="none" stroke="var(--published)" stroke-width="3" stroke-linecap="round"/><circle cx="60" cy="38" r="5" fill="var(--published)"/><circle cx="150" cy="28" r="5" fill="var(--published)"/></svg>
+        <h4>Published</h4><p>Solid, muted. Someone’s finished map, including your own published version.</p>
+      </div>
+      <div class="state">
+        <svg viewBox="0 0 200 70" aria-hidden="true"><path d="M10 50 C 50 20, 90 60, 130 30 S 180 20, 190 40" fill="none" stroke="var(--working)" stroke-width="3.5" stroke-linecap="round"/><circle cx="60" cy="38" r="6" fill="var(--working)" stroke="var(--surface)" stroke-width="2"/><circle cx="150" cy="28" r="6" fill="var(--working)" stroke="var(--surface)" stroke-width="2"/><text x="172" y="14" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--working)">✎</text></svg>
+        <h4>Your working copy</h4><p>Solid, saturated. Its chip on the Shelf wears the pencil. This is what you and the AI edit.</p>
+      </div>
+      <div class="state">
+        <svg viewBox="0 0 200 70" aria-hidden="true"><path d="M10 50 C 50 20, 90 60, 130 30 S 180 20, 190 40" fill="none" stroke="var(--proposed)" stroke-width="3" stroke-dasharray="6 5" stroke-linecap="round" opacity=".9"/><circle cx="60" cy="38" r="6" fill="none" stroke="var(--proposed)" stroke-width="2" stroke-dasharray="3 3"/><circle cx="150" cy="28" r="6" fill="none" stroke="var(--proposed)" stroke-width="2" stroke-dasharray="3 3"/></svg>
+        <h4>Proposed</h4><p>Dashed amber ghost. Pending from the AI or from a collaborator’s proposal. Apply or Discard on the Canvas.</p>
+      </div>
+    </div>
+    <div class="row">
+      <div class="prose">
+        <p class="pull" style="border-left-color:var(--proposed)">Every feature belongs to a chip on the Shelf. The chip with the pencil is what’s being edited. Hover a feature and its chip lights up.</p>
+      </div>
+      <aside class="note"><b>Why this works for the “clean up a convoluted context” story.</b> The user opens the map, selects the ports, says “recolor these and translate the names.” The scope chip says 12 selected, the ghosts show the recolor before it lands, the diff bar says ~12 · +0 · −0. Nothing else on the Canvas can be touched, and the user can see that.</aside>
+    </div>
+  </section>
+
+  <!-- ============ PART 5: layouts ============ -->
+  <section class="part" id="wire">
+    <div class="part-head"><span class="no">5</span><h2>Desktop and phone</h2></div>
+
+    <div class="row"><div class="prose"><h3 style="margin-top:0">Desktop</h3><p>Everything that used to be a rail icon lives under <b>Me</b>: settings, wallet, outbox, help, circles, nearby sessions, profile. The drawing toolbar exists only while a Map is in Edit. Gone: the 12-icon rail, the stance tab, the destination pill, the File menu, the floating Map Stack.</p></div></div>
+
+    <div class="wire wide" role="img" aria-label="Desktop wireframe: search bar on top, a margin panel on the left showing one map with Details and Thread tabs, a full-bleed canvas with a tool pill, a pending diff bar, and a shelf of chips along the bottom.">
+      <div class="bar"><span class="grow">Search maps, stories, places, people… or ask a question</span><span class="btn">Drafts · 2</span><span class="btn">Me</span></div>
+      <div class="lay">
+        <div class="margin">
+          <span class="muted">◂ back</span>
+          <span class="muted">MAP · by Schlaus · in 2 stories</span>
+          <span class="title">The Hippie Trail</span>
+          <div class="two"><span class="btn primary">Publish update ▾</span><span class="btn">Share</span></div>
+          <div class="tabs"><span>Details</span><span class="on">Thread</span></div>
+          <div style="border:1px solid var(--rule);border-radius:4px;padding:.4rem;flex:1;display:flex;flex-direction:column;gap:.3rem">
+            <span class="muted">Hippie Trail · editing</span>
+            <span style="align-self:flex-end;background:var(--accent-soft);padding:.25rem .5rem;border-radius:4px;color:var(--ink)">Add the 1970s overland bus stops between Istanbul and Kabul.</span>
+            <span class="muted">▸ Researched 3 sources · Drew 14 points</span>
+            <span style="margin-top:auto;border:1px dashed var(--proposed);padding:.2rem .4rem;border-radius:3px;color:var(--amber)">12 features selected ×</span>
+            <span class="btn">Type a message…</span>
+          </div>
+        </div>
+        <div class="canvas">
+          <span class="tool">●&nbsp; ╱&nbsp; ⬠&nbsp; T&nbsp;&nbsp;│&nbsp; ↶ ↷&nbsp; ⋯</span>
+          <div class="diff"><span class="grow">+14 · ~0 · −0 proposed</span><span class="btn primary">Apply</span><span class="btn">Discard</span><span class="muted">Show only changes</span></div>
+          <div class="shelf"><span class="chip pen">✎ Hippie Trail</span><span class="chip">● Belt and Road</span><span class="chip">○ Submarine Cables</span><span class="chip">Live · 3</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="prose">
+        <h3>Phone</h3>
+        <p>Four destinations. <b>+</b> opens a chooser: <em>Sighting here · Share live location · New map · Import file</em>. Editing on a phone is deliberately shallow: add and move points, edit properties, use the Thread. Lines and polygons can be drawn, not vertex-edited. That is a product statement, not a limitation to apologise for.</p>
+      </div>
+      <aside class="note"><b>The phone gets the depth the desktop doesn’t have.</b> Saved regions, Nearby sessions, LAN sharing, the durable outbox and Live already exist only on Android. The mobile shell should lead with them instead of collapsing the desktop editor.</aside>
+    </div>
+
+    <div class="wire phone" role="img" aria-label="Phone wireframe: search and shelf on top, full-screen map, a bottom sheet at peek height showing the open map with Details and Thread tabs, and a four-item bottom bar: Map, Search, plus, Me.">
+      <div class="screen">
+        <div class="top">
+          <div class="bar"><span class="grow">Search or ask…</span><span class="chip">Live · 3</span></div>
+          <div style="display:flex;gap:.3rem;flex-wrap:wrap"><span class="chip pen">✎ Hippie Trail</span><span class="chip">● Belt and Road</span></div>
+        </div>
+        <div class="sheet">
+          <div class="two"><span class="title" style="font-family:var(--display);font-size:.95rem;font-weight:700;color:var(--ink)">The Hippie Trail · editing</span><span class="btn primary">Done</span></div>
+          <div class="tabs"><span class="on">Details</span><span>Thread</span></div>
+          <span class="muted">54 features · by Schlaus · Publish update ▾</span>
+        </div>
+        <div class="nav"><span>Map</span><span>Search</span><span><span class="plus">+</span></span><span>Me</span></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="prose">
+        <h3>First run</h3>
+        <p>The culture is “someone shared a story with me.” The anonymous landing should be a gallery of Story and Map thumbnails, not a dialog over an empty map. That needs an <code>image</code> tag on Maps and Stories, which is the first item of the protocol half.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PART 6: protocol ============ -->
+  <section class="part" id="spec">
+    <div class="part-head"><span class="no">6</span><h2>The protocol half</h2></div>
+    <div class="row">
+      <div class="prose">
+        <p>The Nostr developer’s rule for the afternoon: change the spec only where the UI above can’t be built honestly without it, and prefer an existing NIP over an Earthly kind so other clients can take part.</p>
+        <h3>Give Maps and Stories tag-level metadata</h3>
+        <p>Add to 37515 and 37520: <code>title</code>, <code>summary</code>, <code>image</code> (a Blossom URL), <code>published_at</code>, following NIP-23 conventions. Add to 37515: <code>features</code> (count) and <code>size</code> (bytes). Lists, cards, link previews and the landing gallery then render without fetching 300 KB blobs. The publisher renders a static PNG thumbnail on publish. This is the single highest-leverage change for discovery on both desktop and phone.</p>
+
+        <h3>Keep 37518 and both lanes; rename, and make the states legible on the wire</h3>
+        <ul>
+          <li>Kind 37518 stays as the Atlas. The <code>a</code> pinned lane, the <code>c</code> attach lane and the <code>governance</code> ladder are unchanged. The one legacy-shaped event in the wild is already skipped by the v2 gate.</li>
+          <li>Give the Atlas the same tag-level metadata as Maps and Stories (<code>title</code>, <code>summary</code>, <code>image</code>; <code>bbox</code> is already there) so atlas cards and the landing gallery render without parsing content.</li>
+          <li><b>Acceptance is expressed by pinning.</b> A foreign map that carries <code>c</code> and also appears in the owner’s <code>a</code> lane is accepted. Clients compute the Waiting list (<code>c</code> present, <code>a</code> absent) with no new kind. Write this into §3.3 so other clients agree.</li>
+          <li><b>Fit results stay client-side.</b> Schema validation remains validate-on-fetch; verdicts are never published as events. The fit chips are derived.</li>
+          <li><b>“Save this view” writes a personal Atlas.</b> No NIP-51 set kind is needed.</li>
+          <li>Freeform <code>t</code> and controlled <code>L</code>/<code>l</code> keep their §7 roles and power a Topic search page; they complement <code>c</code>, they don’t replace it.</li>
+        </ul>
+
+        <h3>Comments move to NIP-22 kind 1111</h3>
+        <p>SPEC §2 already uses NIP-22 threading tags on kind 37517. The relay already holds 500 kind-1111 comments from other clients. Adopting 1111 with <code>K=37515</code> / <code>K=37520</code> lets any NIP-22 client read and reply to Earthly comments. Reactions stay kind 7; zaps stay 9735. The custom kind buys nothing and costs interoperability.</p>
+
+        <h3>Lineage, provenance, hygiene</h3>
+        <ul>
+          <li><b>Updates.</b> Keep 37515 addressable; make Publish update the default so <code>d</code> is reused; keep <code>v</code> and the previous-version pointer from SPEC §15. Fork writes a new <code>d</code> with a <code>fork</code>-marked <code>a</code> pointer so the original author sees forks under “Appears in”.</li>
+          <li><b>Honest provenance.</b> The culture is AI-made maps; say so on the wire with <code>["l","ai-assisted","earthly"]</code>, set automatically when a Thread contributed geometry. Readers can filter either way. A Story may get a “How this was made” section generated from the Thread, published only on explicit action.</li>
+          <li><b>Relay write policy.</b> Accept profiles, Earthly kinds, shelves, and comments / reactions / zaps that reference an Earthly event. Reject the rest at write time. It fixes discovery quality, search relevance, “recent”, and the disk. It is the cheapest change in this document and should ship first.</li>
+        </ul>
+      </div>
+      <aside class="note"><b>Unchanged on the wire:</b> 37521 Live, 37522 Sighting, MLS circles, field-session transport, NIP-40 expiry, the <code>L</code>/<code>l</code> · <code>t</code> discipline.<br><br><b>No clean break needed.</b> Nothing above changes an event’s shape; tags are added and a derivation rule is written down. This is a v2.1, not a v3. The one shape change, comments to kind 1111, is a new kind beside the old one.</aside>
+    </div>
+  </section>
+
+  <!-- ============ PART 7: mobile ============ -->
+  <section class="part" id="mobile">
+    <div class="part-head"><span class="no">7</span><h2>Native Android, or not</h2></div>
+    <div class="verdict wide">
+      <span class="eyebrow">Recommendation</span>
+      <p><b>Do not build a native Android app now.</b> Re-conceive the mobile shell inside the existing Tauri build as a separate composition root with the four-destination layout above. Set explicit triggers for revisiting native.</p>
+    </div>
+    <div class="row">
+      <div class="prose">
+        <ol>
+          <li><b>The phone’s job is different, not smaller.</b> Authoring is a desktop activity in the relay sample. On a phone people read a shared Story, drop a Sighting, share a live position, look at a saved region on a hike, join a nearby session. None of that needs vertex editing. A responsive collapse of the workbench is the wrong shape; a Kotlin rewrite of that same shape would be the wrong shape in another language.</li>
+          <li><b>Native forks four runtimes.</b> The GeoEditor, the applesauce Nostr runtime, the MLS private-workspace runtime, and the AI tool loop with its QuickJS sandbox would all need Android twins, and the safety gates around AI mutation would have to be re-proven. That is the whole project’s risk surface, twice.</li>
+          <li><b>What native buys is mostly reachable already.</b> Background location for Live, a foreground service for LAN sharing (built), deep links (built), a SQLite outbox (built), saved regions (built). The remaining gap is MapLibre frame rate in a WebView on low-end devices and gesture fidelity. That is a benchmark, not a belief. Run it on the reference device before deciding.</li>
+          <li><b>Seven authors.</b> A second client is a maintenance commitment the community can’t yet justify.</li>
+        </ol>
+        <h3>Triggers to revisit</h3>
+        <ul>
+          <li>Sustained weekly mobile authors above a number the team picks.</li>
+          <li>A measured frame-budget miss for MapLibre on the reference Android device.</li>
+          <li>An OS capability Tauri’s plugin surface cannot reach.</li>
+        </ul>
+      </div>
+      <aside class="note"><b>Make Sighting and Live first-class on the phone.</b> The <b>+</b> button, camera attach, “here” as the default location, one-tap share. These are the only content types whose natural home is a pocket, and they currently sit behind two of eighteen tabs.</aside>
+    </div>
+  </section>
+
+  <!-- ============ PART 8: order ============ -->
+  <section class="part" id="order">
+    <div class="part-head"><span class="no">8</span><h2>Keep, kill, order</h2></div>
+    <div class="row">
+      <div class="prose">
+        <h3 style="margin-top:0">Keep, because it is good and deep</h3>
+        <p>GeoEditor core and managers · the Authoring facade · the tool registry and safety gates · the QuickJS sandbox · the applesauce runtime and relay router · the Go relay with NIP-50 geo grammar · the MLS runtime · the Tauri outbox, saved regions, local node and pairing · <code>SHARE_ROUTES</code> · NIP-40 expiry · the tag discipline in <code>tags.ts</code> · every “never auto-” rule in <code>CONTEXT.md</code>.</p>
+      </div>
+    </div>
+    <h3>Kill or merge, user-facing</h3>
+    <div class="scroll"><table class="tbl kk">
+      <thead><tr><th>Today</th><th>Becomes</th></tr></thead>
+      <tbody>
+        <tr><td>stance + viewMode + sidebarView + mobileTab</td><td>One router: <code>/{map,story,sighting,place,person}/{id}[/edit]?on=…</code></td></tr>
+        <tr><td>Destination pill</td><td>Audience on the Publish split button, per working copy</td></tr>
+        <tr><td>Context browse scope</td><td>Filter chip in Search, lists only</td></tr>
+        <tr><td>Context attachment (<code>c</code>) inside the destination pill</td><td><b>Belongs to</b> field on the Map with fit-state chips; <code>c</code> tags unchanged</td></tr>
+        <tr><td>Map Stack panel</td><td>Shelf chip strip; one Live chip</td></tr>
+        <tr><td>Inspector + entity panels + Workspace / Draft navigator</td><td>The Margin, one object; Drafts under Me</td></tr>
+        <tr><td>Chat panel as a peer + BindingChip + New map / Use current edit</td><td>Thread tab in the Margin; Edit &amp; send / Fork &amp; send; selection scope chip</td></tr>
+        <tr><td>12-icon rail, File menu, toolbar in view mode</td><td>Search, Me, and a tool pill only while in Edit</td></tr>
+        <tr><td>Contexts / Groups list and editor, <code>TAXONOMY NONE OPEN</code> chips</td><td>Atlas page in the Margin: Pinned, Added by others, Waiting; door policy as a sentence</td></tr>
+        <tr><td>Custom comment kind 37517</td><td>NIP-22 kind 1111</td></tr>
+        <tr><td>Posts / Shoutbox</td><td>Deferred; a Topic page for a city is the same thing</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="row">
+      <div class="prose">
+        <h3>Order</h3>
+        <ol class="steps">
+          <li><b>Week one, no UI change.</b><span>Relay write policy. <code>title</code> / <code>summary</code> / <code>image</code> / <code>features</code> / <code>size</code> tags written on publish and read in lists. Rename “Context” to “Atlas” and replace the raw enum chips with the door-policy sentence. Benchmark MapLibre on the reference Android device.</span></li>
+          <li><b>The Margin.</b><span>Replace AppSidebar, the Inspector, the entity panels and the chat column with one Margin showing one object, with Details and Thread tabs. Old routes keep working through <code>SHARE_ROUTES</code>.</span></li>
+          <li><b>Working copy and Publish control.</b><span>Collapse draft / workspace / edit state into “this Map has a working copy.” Publish split button with audience. Publish update as default.</span></li>
+          <li><b>Thread in the margin, ghosts on the canvas.</b><span>Remove BindingChip and the binding modal. Edit &amp; send, Fork &amp; send, selection scope chip, Canvas diff bar, Details drawer for tool chatter.</span></li>
+          <li><b>Shelf.</b><span>Chip strip replaces the Map Stack panel; one Live chip replaces two aggregate layers.</span></li>
+          <li><b>Mobile shell.</b><span>Separate composition root, four destinations, sheet detents, the + chooser.</span></li>
+          <li><b>Atlas page and Belongs to.</b><span>Atlas page in the Margin with Pinned / Added by others / Waiting; Belongs-to field with fit-state chips; accept-by-pin; door policy as a sentence. Comments to 1111 and the provenance label ride along as spec v2.1 additions.</span></li>
+        </ol>
+        <p>Each step leaves the app shippable. Steps 1–4 answer the questions in the brief. Steps 5 and 6 make Earthly a place where other people’s maps can belong somewhere, and where a phone is a reason to open it.</p>
+      </div>
+      <aside class="note"><b>What this does to the big files.</b> The Margin removes most of AppSidebar and the Inspector; the single router removes the stance / viewMode / mobileTab reconciliation from GeoEditorView; the Thread-in-margin removes the binding branch from the chat store. None of it touches GeoEditor, Authoring or the relay.</aside>
+    </div>
+  </section>
+
+  <!-- ============ open ============ -->
+  <section class="part" id="open">
+    <div class="part-head"><span class="no">?</span><h2>What the two of them didn’t settle</h2></div>
+    <div class="prose">
+      <ol>
+        <li>Should a closed Atlas show its Waiting maps to visitors, or only to the owner? Discoverability of unaccepted work against the owner’s editorial control.</li>
+        <li>Should a Thread ever be publishable, or is “How this was made” always a human-edited Story section?</li>
+        <li>Is one Map in Edit at a time too strict for “compare two maps and merge,” or does Fork-then-reference cover it?</li>
+        <li>Who renders the thumbnail: the client on publish, or a job the relay operator runs?</li>
+        <li>What is the reference Android device and frame budget that would flip the native decision?</li>
+      </ol>
+    </div>
+  </section>
+
+  </main>
+</div>
+<footer>Evidence: CONTEXT.md · SPEC.md · docs/architecture · store/types.ts · useRouting.ts · docs/image_*.png · wss://relay.earthly.city sampled 2026-09-02</footer>
+
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('.legend a'));
+  var secs=links.map(function(a){return document.querySelector(a.getAttribute('href'))}).filter(Boolean);
+  if(!('IntersectionObserver' in window))return;
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(e.isIntersecting){ links.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id)}); } });
+  },{rootMargin:'-20% 0px -70% 0px'});
+  secs.forEach(function(s){io.observe(s)});
+})();
+</script>
+</body>
+</html>

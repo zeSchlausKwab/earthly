@@ -16,8 +16,9 @@ interface UseStoryEditorParams {
 		focusType: 'geoevent' | 'mapcontext' | 'story',
 		naddr: string,
 		sidebarView?: SidebarViewMode,
+		edit?: boolean,
 	) => void
-	navigateToView: (view: SidebarViewMode) => void
+	navigateToView: (view: SidebarViewMode, options?: { preserveThread?: boolean }) => void
 	clearFocus: () => void
 	onBeforeAuthoring?: () => void
 }
@@ -26,8 +27,9 @@ interface UseStoryEditorParams {
  * Story create/edit/inspect lifecycle (Phase 10, D-01/D-02/D-03). The structural
  * twin of `useContextEditor`: it owns the `storyEditorMode`/`editingStory` local
  * state and the handlers the rail (AppSidebar) + info panel (GeoEditorInfoPanel)
- * thread through. Opening a Story sets `viewStory` and navigates to the
- * `/stories/story/:naddr` focus route; creating/editing opens the StoryEditorPanel.
+ * thread through. Opening a Story sets `viewStory` and navigates to
+ * `/story/:naddr`; editing retains `/story/:naddr/edit` while opening the
+ * StoryEditorPanel.
  */
 export function useStoryEditor({
 	isMobile,
@@ -50,6 +52,9 @@ export function useStoryEditor({
 
 	const [storyEditorMode, setStoryEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingStory, setEditingStory] = useState<Article | null>(null)
+	// Explicit UI/route entry owns revealing the editor. Background AI writes
+	// retain the same draft state but must never manufacture a reveal request.
+	const [storyEditorRevealNonce, setStoryEditorRevealNonce] = useState(0)
 
 	const clearStoryEditorModes = useCallback(() => {
 		setStoryEditorMode('none')
@@ -57,24 +62,27 @@ export function useStoryEditor({
 		clearStoryEditorTarget()
 	}, [])
 
-	const prepareNonGeometryWorkspace = useCallback(() => {
-		setViewModeState('view')
-		setViewDatasetState(null)
-		setViewContext(null)
-		setViewContextDatasets([])
-		setViewStory(null)
-		clearFocus()
-	}, [
-		setViewModeState,
-		setViewDatasetState,
-		setViewContext,
-		setViewContextDatasets,
-		setViewStory,
-		clearFocus,
-	])
+	const prepareNonGeometryWorkspace = useCallback(
+		({ clearRoute = true }: { clearRoute?: boolean } = {}) => {
+			setViewModeState('view')
+			setViewDatasetState(null)
+			setViewContext(null)
+			setViewContextDatasets([])
+			setViewStory(null)
+			if (clearRoute) clearFocus()
+		},
+		[
+			setViewModeState,
+			setViewDatasetState,
+			setViewContext,
+			setViewContextDatasets,
+			setViewStory,
+			clearFocus,
+		],
+	)
 
 	const handleInspectStory = useCallback(
-		(story: Article) => {
+		(story: Article, { preserveRoute = false }: { preserveRoute?: boolean } = {}) => {
 			selectMobileEntitySurface('inspector')
 			setViewModeState('view')
 			setViewDatasetState(null)
@@ -89,7 +97,7 @@ export function useStoryEditor({
 			}
 
 			const naddr = encodeStoryNaddr(story)
-			if (naddr) {
+			if (naddr && !preserveRoute) {
 				navigateTo('story', naddr, 'stories')
 			}
 		},
@@ -112,6 +120,7 @@ export function useStoryEditor({
 		onBeforeAuthoring?.()
 		clearStoryEditorModes()
 		setStoryEditorMode('create')
+		setStoryEditorRevealNonce((nonce) => nonce + 1)
 		retainStoryEditorTarget()
 		prepareNonGeometryWorkspace()
 		navigateToView('stories')
@@ -135,15 +144,23 @@ export function useStoryEditor({
 			clearStoryEditorModes()
 			setStoryEditorMode('edit')
 			setEditingStory(story)
+			setStoryEditorRevealNonce((nonce) => nonce + 1)
 			retainStoryEditorTarget(story)
-			prepareNonGeometryWorkspace()
-			navigateToView('stories')
+			// Keep a direct /story/:naddr/edit request intact while the route
+			// controller opens the editor. Clearing focus first would briefly replace
+			// it with the Stories catalog and lose the edit intent on re-entry.
+			prepareNonGeometryWorkspace({ clearRoute: false })
+			const naddr = encodeStoryNaddr(story)
+			if (naddr) navigateTo('story', naddr, 'stories', true)
+			else navigateToView('stories')
 			if (isMobile) ensureInfoPanelVisible()
 			else setShowInfoPanel(true)
 		},
 		[
 			clearStoryEditorModes,
 			prepareNonGeometryWorkspace,
+			encodeStoryNaddr,
+			navigateTo,
 			navigateToView,
 			isMobile,
 			setShowInfoPanel,
@@ -171,12 +188,24 @@ export function useStoryEditor({
 				setStoryEditorMode('create')
 				setEditingStory(null)
 			}
+			if (request.reveal) {
+				selectMobileEntitySurface('story')
+				prepareNonGeometryWorkspace({ clearRoute: false })
+				setStoryEditorRevealNonce((nonce) => nonce + 1)
+				navigateToView('stories', { preserveThread: true })
+				ensureInfoPanelVisible()
+			}
 		}
 		// Replay the latest request before subscribing so a request fired during
 		// mount cannot disappear between render and this effect.
 		consumeOpenRequest()
 		return subscribeStoryEditorOpenRequests(consumeOpenRequest)
-	}, [])
+	}, [
+		selectMobileEntitySurface,
+		prepareNonGeometryWorkspace,
+		navigateToView,
+		ensureInfoPanelVisible,
+	])
 
 	const handleSaveStory = useCallback(
 		(story: Article) => {
@@ -195,12 +224,13 @@ export function useStoryEditor({
 		setStoryEditorMode('none')
 		setEditingStory(null)
 		clearStoryEditorTarget()
-		if (wasOpen) navigateToView('stories')
+		if (wasOpen) navigateToView('stories', { preserveThread: true })
 	}, [storyEditorMode, navigateToView])
 
 	return {
 		storyEditorMode,
 		editingStory,
+		storyEditorRevealNonce,
 		clearStoryEditorModes,
 		handleInspectStory,
 		handleCreateStory,

@@ -8,9 +8,15 @@
  */
 
 import { Ruler } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+	ToolPopoverAnchor,
+	useToolPopoverControl,
+	useToolPopoverFocusProps,
+	type ToolPopoverControl,
+} from './toolbar/toolPopoverControl'
 import { cn } from '@/lib/utils'
 import {
 	aggregateMeasurements,
@@ -103,8 +109,9 @@ function computeMeasurements(
 	}
 }
 
-export function MeasurePopover() {
-	const [open, setOpen] = useState(false)
+export function MeasurePopover({ control }: { control?: ToolPopoverControl }) {
+	const [open, setOpen] = useToolPopoverControl(control)
+	const focusProps = useToolPopoverFocusProps(control)
 	const features = useEditorStore((state) => state.features)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 
@@ -117,22 +124,32 @@ export function MeasurePopover() {
 
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
-			<PopoverTrigger asChild>
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					aria-label="Measure"
-					title="Measure selection (or all features)"
-					className={cn(
-						'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
-						open &&
-							'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-					)}
-				>
-					<Ruler className="h-4 w-4" />
-				</Button>
-			</PopoverTrigger>
-			<PopoverContent className="w-72" side="bottom" align="end">
+			{control ? (
+				<ToolPopoverAnchor anchorRef={control.anchorRef} />
+			) : (
+				<PopoverTrigger asChild>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						aria-label="Measure"
+						title="Measure selection (or all features)"
+						className={cn(
+							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
+							open &&
+								'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
+						)}
+					>
+						<Ruler className="h-4 w-4" />
+					</Button>
+				</PopoverTrigger>
+			)}
+			<PopoverContent
+				aria-label="Measure"
+				className="w-72"
+				side="bottom"
+				align="end"
+				{...focusProps}
+			>
 				{!measurements ? (
 					<p className="text-xs text-muted-foreground">
 						Nothing to measure — draw or select features first.

@@ -38,13 +38,19 @@ export const inspectTourTask: AiTaskMetadata = {
 
 export const startTourTask: AiTaskMetadata = {
 	id: 'onboarding.start-tour',
-	summary: 'Start the optional guided tour from Discover.',
+	summary: 'Start the optional guided tour from Welcome or Discover.',
 	preconditions: ['Earthly is ready'],
 	sideEffects: ['Opens Discover', 'Starts the guided tour'],
 	viewports: 'both',
 }
 
 export async function startTour(earthly: EarthlySession): Promise<void> {
+	const welcome = earthly.page.getByRole('region', { name: 'Welcome to Earthly', exact: true })
+	if (await welcome.isVisible()) {
+		await welcome.getByRole('button', { name: 'Take a tour', exact: true }).click()
+		await waitForTour(earthly)
+		return
+	}
 	await openDiscover(earthly)
 	const takeTour = earthly.page.getByRole('button', { name: 'Take the tour' })
 	await expect(takeTour).toBeEnabled()

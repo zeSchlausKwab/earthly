@@ -53,7 +53,11 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 					areCollectionMetasEqual(activeDraft.collectionMeta, collectionMeta))
 			if (currentMetaMatches && activeDraftMatches) return state
 
-			if (!activeGeoEditDraftId || !activeDraft) {
+			if (
+				!activeGeoEditDraftId ||
+				!activeDraft ||
+				state.pendingHydratedDraftId === activeGeoEditDraftId
+			) {
 				return { collectionMeta }
 			}
 			const updatedDraft = {
@@ -103,6 +107,7 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 			...(changed && before.activeGeoEditDraftId ? { isDirty: true } : {}),
 		})
 		const { activeGeoEditDraftId, geoEditDrafts } = get()
+		if (get().pendingHydratedDraftId === activeGeoEditDraftId) return
 		if (!changed) return
 		if (!activeGeoEditDraftId || !geoEditDrafts[activeGeoEditDraftId]) return
 		get().saveGeoEditDraft(activeGeoEditDraftId, { contextRefs: activeDatasetContextRefs })

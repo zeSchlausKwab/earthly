@@ -55,12 +55,14 @@ export const createSessionSyncSlice: StateCreator<EditorState, [], [], SessionSy
 			history: { canUndo: false, canRedo: false },
 			geoEditDrafts: {},
 			activeGeoEditDraftId: null,
+			pendingHydratedDraftId: null,
 			workspaces: {},
 			activeWorkspaceId: null,
 			collectionMeta: createDefaultCollectionMeta(),
 			activeDataset: null,
 			activeDatasetContextRefs: [],
 			isPublishing: false,
+			isDirty: false,
 			publishMessage: null,
 			publishError: null,
 			blossomUploadDialogOpen: false,
@@ -83,6 +85,7 @@ export const createSessionSyncSlice: StateCreator<EditorState, [], [], SessionSy
 		set({
 			geoEditDrafts: persistedDrafts.drafts,
 			activeGeoEditDraftId: repairedActiveDraftId,
+			pendingHydratedDraftId: repairedActiveDraftId,
 			workspaces: repairedWorkspaces.workspaces,
 			activeWorkspaceId: persistedWorkspaces.activeWorkspaceId,
 		})

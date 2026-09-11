@@ -129,12 +129,12 @@ export function resolveAuthoringDestination(
 ): ResolvedAuthoringDestination {
 	if (input.publishChannel === 'public') {
 		if (!input.context) {
-			const label = 'Public · Unattached'
+			const label = 'Public · No Atlas'
 			return {
 				kind: 'public-unattached',
 				publishChannel: 'public',
 				channelLabel: 'Public',
-				detailLabel: 'Unattached',
+				detailLabel: 'No Atlas',
 				label,
 				accessibleLabel: label,
 				availability: 'available',
@@ -144,7 +144,7 @@ export function resolveAuthoringDestination(
 			}
 		}
 
-		const detailLabel = targetLabel(input.context, 'Unnamed context')
+		const detailLabel = targetLabel(input.context, 'Unnamed Atlas')
 		const label = `Public · ${detailLabel}`
 		return {
 			kind: 'public-context',
@@ -161,12 +161,12 @@ export function resolveAuthoringDestination(
 	}
 
 	if (input.publishChannel === 'private-group') {
-		const detailLabel = targetLabel(input.group, 'Private group')
-		const label = `Private · ${detailLabel}`
+		const detailLabel = targetLabel(input.group, 'Circle')
+		const label = `Circle · ${detailLabel}`
 		return {
 			kind: 'private-group',
 			publishChannel: 'private-group',
-			channelLabel: 'Private',
+			channelLabel: 'Circle',
 			detailLabel,
 			label,
 			accessibleLabel: accessibleLabel(label, input.group.availability),
@@ -178,12 +178,12 @@ export function resolveAuthoringDestination(
 	}
 
 	if (input.publishChannel === 'unresolved') {
-		const detailLabel = input.reason === 'legacy' ? 'Legacy draft' : 'Invalid saved destination'
-		const label = `Destination needed · ${detailLabel}`
+		const detailLabel = input.reason === 'legacy' ? 'Legacy draft' : 'Invalid publishing choice'
+		const label = `Publishing choice needed · ${detailLabel}`
 		return {
 			kind: 'unresolved',
 			publishChannel: 'unresolved',
-			channelLabel: 'Destination needed',
+			channelLabel: 'Choose where to publish',
 			detailLabel,
 			label,
 			accessibleLabel: `${label}, publishing blocked`,
@@ -194,7 +194,7 @@ export function resolveAuthoringDestination(
 		}
 	}
 
-	const detailLabel = targetLabel(input.session, 'Field session')
+	const detailLabel = targetLabel(input.session, 'Nearby session')
 	const label = `Nearby · ${detailLabel}`
 	return {
 		kind: 'field-session',

@@ -35,6 +35,54 @@ function createDraftHarness() {
 }
 
 describe('geo collection draft persistence', () => {
+	test('round-trips independent fork and proposal intent, original targets, and later edits', () => {
+		const harness = createDraftHarness()
+		const sourceDataset = {
+			address: '37515:owner:map',
+			pubkey: 'owner',
+			identifier: 'map',
+			eventId: 'original-revision',
+		}
+		for (const authoringIntent of ['propose', 'fork'] as const) {
+			const id = harness
+				.getState()
+				.createGeoEditDraft(`${authoringIntent === 'fork' ? 'fork' : 'dataset'}:owner:map`, {
+					authoringIntent,
+					sourceDataset,
+					publishChannel: { kind: 'public' },
+				})
+			harness.getState().saveGeoEditDraft(id, { name: `${authoringIntent} changes` })
+		}
+		const state = harness.getState()
+		const restored = normalizePersistedGeoCollectionDraftState(
+			JSON.parse(
+				JSON.stringify({ drafts: state.geoEditDrafts, activeDraftId: state.activeGeoEditDraftId }),
+			),
+		)
+		expect(Object.values(restored.drafts).map((entry) => entry.authoringIntent)).toEqual([
+			'propose',
+			'fork',
+		])
+		for (const entry of Object.values(restored.drafts)) {
+			expect(entry.sourceDataset).toEqual(sourceDataset)
+			expect(entry.name).toBe(`${entry.authoringIntent} changes`)
+		}
+		expect(restored.drafts[restored.activeDraftId as string]?.authoringIntent).toBe('fork')
+	})
+
+	test('does not invent authoring intent or source provenance for old or corrupt drafts', () => {
+		const harness = createDraftHarness()
+		const id = harness.getState().createGeoEditDraft('dataset:owner:map')
+		const stored = harness.getState().geoEditDrafts[id]
+		const restored = normalizePersistedGeoCollectionDraftState({
+			drafts: {
+				[id]: { ...stored, authoringIntent: 'publish', sourceDataset: { address: 'incomplete' } },
+			},
+		})
+		expect(restored.drafts[id]?.authoringIntent).toBeUndefined()
+		expect(restored.drafts[id]?.sourceDataset).toBeUndefined()
+	})
+
 	test('quarantines legacy drafts until their publish destination is classified', () => {
 		const persisted = normalizePersistedGeoCollectionDraftState({
 			drafts: {

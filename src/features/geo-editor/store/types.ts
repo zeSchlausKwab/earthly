@@ -54,8 +54,12 @@ export type InspectionSubject =
  * slice doesn't import the routing hook (which imports the store → cycle).
  */
 export interface RouteSnapshot {
+	/** Explicit authoring destination, distinct from read-only object focus. */
+	edit?: boolean
 	sidebarView: SidebarViewMode
+	browseOpen?: boolean
 	focusType: 'none' | 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon'
+	tab?: 'details' | 'comments' | 'thread'
 	naddr?: string
 	contextNaddr?: string
 	contextCoordinate?: string
@@ -256,7 +260,7 @@ export type MobileEntitySurface =
 export type MobileEntitySurfaceAvailability = Record<MobileEntitySurface, boolean>
 
 /** Mobile bottom-sheet detents (redesign §5a "one sheet, three detents"):
- *  peek ≈ 15% (browse, map owns the screen), half ≈ 55% (properties on select),
+ *  peek = 96px (62px while drawing), half = 50% (Browse and properties),
  *  full ≈ 92% (the outliner, full height). */
 export type MobilePanelSnap = 'peek' | 'half' | 'full'
 
@@ -282,6 +286,10 @@ export type PublishChannel =
 	| { kind: 'unresolved'; reason: 'legacy' | 'invalid' }
 
 export interface GeoCollectionEditDraft {
+	/** Local authoring intent is independent of the publish audience. Missing on legacy drafts. */
+	authoringIntent?: import('@/components/info-panel/mapProposalPresentation').MapAuthoringIntent
+	/** Original target/base for proposals; retained attribution for independent forks. */
+	sourceDataset?: import('@/components/info-panel/mapProposalPresentation').MapDraftSource
 	/**
 	 * Version 1 is a legacy draft that predates persisted destination/context
 	 * state. Any write upgrades it to version 2.
@@ -309,6 +317,8 @@ export interface GeoEditorWorkspace {
 	datasetKey: string | null
 	/** Exact published revision the retained draft was opened from. */
 	baseRevisionId?: string | null
+	/** Semantic content submitted in the last successful publication; local only. */
+	publishedContentFingerprint?: string | null
 	activeDraftId: string | null
 	chatSessionId: string | null
 	createdAt: number
@@ -346,6 +356,8 @@ export interface EditorCoreSlice {
 export interface DraftSlice {
 	geoEditDrafts: Record<string, GeoCollectionEditDraft>
 	activeGeoEditDraftId: string | null
+	/** Volatile: account hydration restored this identity, but not its live editor payload yet. */
+	pendingHydratedDraftId: string | null
 
 	createGeoEditDraft: (
 		sourceId: string,
@@ -360,6 +372,8 @@ export interface DraftSlice {
 				| 'publishChannel'
 				| 'contextRefs'
 				| 'blobReferences'
+				| 'authoringIntent'
+				| 'sourceDataset'
 			>
 		>,
 		options?: { activate?: boolean },
@@ -379,6 +393,8 @@ export interface DraftSlice {
 				| 'publishChannel'
 				| 'contextRefs'
 				| 'blobReferences'
+				| 'authoringIntent'
+				| 'sourceDataset'
 			>
 		>,
 	) => void
@@ -524,6 +540,8 @@ export interface ViewModeSlice {
 export interface MapStackSlice {
 	mapStackEntries: Record<string, MapStackEntry>
 	mapStackOrder: string[]
+	/** Explicit canvas removal; saved work and Thread permissions are unchanged. */
+	dismissedDraftMapId: string | null
 
 	addMapStackEntry: (
 		entry: Omit<MapStackEntry, 'id' | 'addedAt' | 'isolated' | 'exclusions'> & {

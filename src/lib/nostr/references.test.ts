@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'bun:test'
+import { nip19 } from 'nostr-tools'
 import {
+	coordinateToNaddrReference,
 	decodeNostrFeatureId,
 	dedupeNostrAddressReferences,
 	encodeNostrFeatureId,
 	extractNostrAddressReferences,
 	parseNostrAddressReference,
 	stringifyNostrAddressReference,
+	naddrToCoordinate,
 } from './references'
 
 const NADDR = `naddr1${'q'.repeat(80)}`
@@ -47,5 +50,18 @@ describe('fine-grained Nostr address references', () => {
 				{ address: NADDR, featureId: 'way/42' },
 			]),
 		).toHaveLength(2)
+	})
+
+	it('round-trips coordinates whose d-tag contains colons', () => {
+		const coordinate = `37515:${'a'.repeat(64)}:western:front:1918`
+		const reference = coordinateToNaddrReference(coordinate)
+		expect(reference).not.toBeNull()
+		const parsed = reference ? parseNostrAddressReference(reference) : null
+		expect(parsed?.address).toBeDefined()
+		expect(parsed?.address ? naddrToCoordinate(parsed.address) : null).toBe(coordinate)
+
+		const decoded = parsed?.address ? nip19.decode(parsed.address) : null
+		expect(decoded?.type).toBe('naddr')
+		if (decoded?.type === 'naddr') expect(decoded.data.identifier).toBe('western:front:1918')
 	})
 })

@@ -12,7 +12,7 @@ export interface DrawButtonGroupProps {
 	small?: boolean
 }
 
-const drawModes = [
+export const drawModes = [
 	{ key: 'draw_point', icon: MapPin, label: 'Draw point' },
 	{ key: 'draw_linestring', icon: Route, label: 'Draw line' },
 	{ key: 'draw_polygon', icon: Pentagon, label: 'Draw polygon' },

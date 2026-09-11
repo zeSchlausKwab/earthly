@@ -19,10 +19,23 @@ export interface OGMeta {
 const DEFAULT_IMAGE = '/static/og-default.png'
 const SITE_NAME = 'Earthly'
 
-/**
- * Generate an HTML page with Open Graph meta tags for social media crawlers
- */
-export function generateOGHtml(meta: OGMeta): string {
+interface PreparedOGMeta {
+	safeTitle: string
+	safeDescription: string
+	safeUrlAttr: string
+	safeRedirectUrlAttr: string
+	safeRedirectUrlJs: string
+	safeImage: string
+	safeImageAttr: string
+	safeImageAlt: string
+	safeSiteName: string
+	type: 'website' | 'article'
+	imageWidth?: number
+	imageHeight?: number
+	imageType?: string
+}
+
+function prepareOGMeta(meta: OGMeta): PreparedOGMeta {
 	const {
 		title,
 		description,
@@ -49,25 +62,77 @@ export function generateOGHtml(meta: OGMeta): string {
 	// context: escapeHtml for attribute/text sinks, escapeJsString for the
 	// inline-script sink.
 	const safeUrl = sanitizeUrl(url, '/')
-	const safeUrlAttr = escapeHtml(safeUrl)
 	const safeRedirectUrl = sanitizeUrl(redirectUrl, safeUrl)
-	const safeRedirectUrlAttr = escapeHtml(safeRedirectUrl)
-	const safeRedirectUrlJs = escapeJsString(safeRedirectUrl)
 	const safeImage = sanitizeUrl(image, DEFAULT_IMAGE)
-	const safeImageAttr = escapeHtml(safeImage)
-	const safeImageAlt = escapeHtml(imageAlt)
-	const secureImageMeta = safeImage.startsWith('https:')
-		? `\n  <meta property="og:image:secure_url" content="${safeImageAttr}">`
+
+	return {
+		safeTitle,
+		safeDescription: truncatedDescription,
+		safeUrlAttr: escapeHtml(safeUrl),
+		safeRedirectUrlAttr: escapeHtml(safeRedirectUrl),
+		safeRedirectUrlJs: escapeJsString(safeRedirectUrl),
+		safeImage,
+		safeImageAttr: escapeHtml(safeImage),
+		safeImageAlt: escapeHtml(imageAlt),
+		safeSiteName: escapeHtml(siteName),
+		type,
+		imageWidth,
+		imageHeight,
+		imageType,
+	}
+}
+
+function renderPreparedOGHead(meta: PreparedOGMeta): string {
+	const secureImageMeta = meta.safeImage.startsWith('https:')
+		? `\n  <meta property="og:image:secure_url" content="${meta.safeImageAttr}">`
 		: ''
-	const imageTypeMeta = imageType
-		? `\n  <meta property="og:image:type" content="${escapeHtml(imageType)}">`
+	const imageTypeMeta = meta.imageType
+		? `\n  <meta property="og:image:type" content="${escapeHtml(meta.imageType)}">`
 		: ''
-	const imageWidthMeta = imageWidth
-		? `\n  <meta property="og:image:width" content="${imageWidth}">`
-		: ''
-	const imageHeightMeta = imageHeight
-		? `\n  <meta property="og:image:height" content="${imageHeight}">`
-		: ''
+	const imageWidthMeta =
+		meta.imageWidth && Number.isFinite(meta.imageWidth) && meta.imageWidth > 0
+			? `\n  <meta property="og:image:width" content="${Math.floor(meta.imageWidth)}">`
+			: ''
+	const imageHeightMeta =
+		meta.imageHeight && Number.isFinite(meta.imageHeight) && meta.imageHeight > 0
+			? `\n  <meta property="og:image:height" content="${Math.floor(meta.imageHeight)}">`
+			: ''
+
+	return `<!-- Primary Meta Tags -->
+  <title>${meta.safeTitle} | ${meta.safeSiteName}</title>
+  <meta name="title" content="${meta.safeTitle} | ${meta.safeSiteName}">
+  <meta name="description" content="${meta.safeDescription}">
+  <link rel="canonical" href="${meta.safeUrlAttr}">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="${meta.type}">
+  <meta property="og:url" content="${meta.safeUrlAttr}">
+  <meta property="og:title" content="${meta.safeTitle}">
+  <meta property="og:description" content="${meta.safeDescription}">
+  <meta property="og:image" content="${meta.safeImageAttr}">${secureImageMeta}${imageTypeMeta}${imageWidthMeta}${imageHeightMeta}
+  <meta property="og:image:alt" content="${meta.safeImageAlt}">
+  <meta property="og:site_name" content="${meta.safeSiteName}">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="${meta.safeUrlAttr}">
+  <meta name="twitter:title" content="${meta.safeTitle}">
+  <meta name="twitter:description" content="${meta.safeDescription}">
+  <meta name="twitter:image" content="${meta.safeImageAttr}">
+  <meta name="twitter:image:alt" content="${meta.safeImageAlt}">`
+}
+
+/** Render only the metadata nodes, for insertion into the executable SPA shell. */
+export function generateOGHeadTags(meta: OGMeta): string {
+	return renderPreparedOGHead(prepareOGMeta(meta))
+}
+
+/**
+ * Generate an HTML page with Open Graph meta tags for social media crawlers
+ */
+export function generateOGHtml(meta: OGMeta): string {
+	const prepared = prepareOGMeta(meta)
+	const head = renderPreparedOGHead(prepared)
 
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -75,39 +140,18 @@ export function generateOGHtml(meta: OGMeta): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <!-- Primary Meta Tags -->
-  <title>${safeTitle} | ${siteName}</title>
-  <meta name="title" content="${safeTitle} | ${siteName}">
-  <meta name="description" content="${truncatedDescription}">
-  <link rel="canonical" href="${safeUrlAttr}">
-
-  <!-- Open Graph / Facebook -->
-  <meta property="og:type" content="${type}">
-  <meta property="og:url" content="${safeUrlAttr}">
-  <meta property="og:title" content="${safeTitle}">
-  <meta property="og:description" content="${truncatedDescription}">
-  <meta property="og:image" content="${safeImageAttr}">${secureImageMeta}${imageTypeMeta}${imageWidthMeta}${imageHeightMeta}
-  <meta property="og:image:alt" content="${safeImageAlt}">
-  <meta property="og:site_name" content="${siteName}">
-
-  <!-- Twitter -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="${safeUrlAttr}">
-  <meta name="twitter:title" content="${safeTitle}">
-  <meta name="twitter:description" content="${truncatedDescription}">
-  <meta name="twitter:image" content="${safeImageAttr}">
-  <meta name="twitter:image:alt" content="${safeImageAlt}">
+  ${head}
 
   <!-- Redirect to SPA after brief delay for non-crawlers that slipped through -->
-  <meta http-equiv="refresh" content="0;url=${safeRedirectUrlAttr}">
+  <meta http-equiv="refresh" content="0;url=${prepared.safeRedirectUrlAttr}">
 </head>
 <body>
   <noscript>
-    <h1>${safeTitle}</h1>
-    <p>${truncatedDescription}</p>
-    <p><a href="${safeRedirectUrlAttr}">View on Earthly</a></p>
+    <h1>${prepared.safeTitle}</h1>
+    <p>${prepared.safeDescription}</p>
+    <p><a href="${prepared.safeRedirectUrlAttr}">View on Earthly</a></p>
   </noscript>
-  <script>window.location.href = ${safeRedirectUrlJs};</script>
+  <script>window.location.href = ${prepared.safeRedirectUrlJs};</script>
 </body>
 </html>`
 }
@@ -160,16 +204,31 @@ export function generateGeoEventOGHtml(
 	redirectUrl?: string,
 ): string {
 	return generateOGHtml({
-		title: title || 'Geographic Dataset',
-		description:
-			description ||
-			'View this geographic dataset on Earthly, a collaborative mapping platform on Nostr.',
-		url: `${baseUrl}/geoevent/${naddr}`,
+		...createGeoEventOGMeta(baseUrl, naddr, title, description, image, eventId),
 		redirectUrl: redirectUrl || `${baseUrl}/#/datasets/geoevent/${naddr}`,
+	})
+}
+
+/** Metadata for a Map app-shell route. The image endpoint remains the existing
+ * geoevent renderer; only the browser-facing canonical path changes. */
+export function createGeoEventOGMeta(
+	baseUrl: string,
+	naddr: string,
+	title: string,
+	description: string,
+	image?: string,
+	eventId?: string,
+	canonicalPath: 'geoevent' | 'map' = 'geoevent',
+): OGMeta {
+	return {
+		title: title || 'Map',
+		description:
+			description || 'View this map on Earthly, a collaborative mapping platform on Nostr.',
+		url: `${baseUrl}/${canonicalPath}/${naddr}`,
 		image: image || getGeneratedImageUrl(baseUrl, 'geoevent', naddr, eventId),
 		type: 'article',
 		...(image ? {} : generatedImageMeta()),
-	})
+	}
 }
 
 /**
@@ -185,16 +244,31 @@ export function generateContextOGHtml(
 	redirectUrl?: string,
 ): string {
 	return generateOGHtml({
-		title: title || 'Map Context',
-		description:
-			description ||
-			'Explore this geographic context on Earthly, a collaborative mapping platform on Nostr.',
-		url: `${baseUrl}/context/${naddr}`,
+		...createContextOGMeta(baseUrl, naddr, title, description, image, eventId),
 		redirectUrl: redirectUrl || `${baseUrl}/#/contexts/mapcontext/${naddr}`,
+	})
+}
+
+/** Metadata for an Atlas app-shell route, backed by the existing context image
+ * renderer and cache identity. */
+export function createContextOGMeta(
+	baseUrl: string,
+	naddr: string,
+	title: string,
+	description: string,
+	image?: string,
+	eventId?: string,
+	canonicalPath: 'context' | 'atlas' = 'context',
+): OGMeta {
+	return {
+		title: title || 'Atlas',
+		description:
+			description || 'Explore this Atlas on Earthly, a collaborative mapping platform on Nostr.',
+		url: `${baseUrl}/${canonicalPath}/${naddr}`,
 		image: image || getGeneratedImageUrl(baseUrl, 'context', naddr, eventId),
 		type: 'article',
 		...(image ? {} : generatedImageMeta()),
-	})
+	}
 }
 
 /**
@@ -203,6 +277,40 @@ export function generateContextOGHtml(
  * URL from the event body; generateOGHtml escapes every interpolated value and
  * validates `url`/`image` scheme before rendering (T-10-09).
  */
+export function createStoryOGMeta(
+	baseUrl: string,
+	naddr: string,
+	title: string,
+	description: string,
+	image: string | undefined,
+	eventId: string | undefined,
+	canonicalPath: 'story' | 'read',
+	redirectUrl?: string,
+): OGMeta {
+	return {
+		title: title || 'Story',
+		description:
+			description || 'Read this story on Earthly, a collaborative mapping platform on Nostr.',
+		url: `${baseUrl}/${canonicalPath}/${naddr}`,
+		...(redirectUrl ? { redirectUrl } : {}),
+		image: image || getGeneratedImageUrl(baseUrl, 'story', naddr, eventId),
+		type: 'article',
+		...(image ? {} : generatedImageMeta()),
+	}
+}
+
+/** Metadata for the canonical, executable Story reader route. */
+export function createStoryReadOGMeta(
+	baseUrl: string,
+	naddr: string,
+	title: string,
+	description: string,
+	image?: string,
+	eventId?: string,
+): OGMeta {
+	return createStoryOGMeta(baseUrl, naddr, title, description, image, eventId, 'read')
+}
+
 export function generateStoryOGHtml(
 	baseUrl: string,
 	naddr: string,
@@ -212,16 +320,18 @@ export function generateStoryOGHtml(
 	eventId?: string,
 	redirectUrl?: string,
 ): string {
-	return generateOGHtml({
-		title: title || 'Story',
-		description:
-			description || 'Read this story on Earthly, a collaborative mapping platform on Nostr.',
-		url: `${baseUrl}/story/${naddr}`,
-		redirectUrl: redirectUrl || `${baseUrl}/#/stories/story/${naddr}`,
-		image: image || getGeneratedImageUrl(baseUrl, 'story', naddr, eventId),
-		type: 'article',
-		...(image ? {} : generatedImageMeta()),
-	})
+	return generateOGHtml(
+		createStoryOGMeta(
+			baseUrl,
+			naddr,
+			title,
+			description,
+			image,
+			eventId,
+			'story',
+			redirectUrl || `${baseUrl}/#/stories/story/${naddr}`,
+		),
+	)
 }
 
 /**
@@ -240,15 +350,28 @@ export function generateSightingOGHtml(
 	redirectUrl?: string,
 ): string {
 	return generateOGHtml({
+		...createSightingOGMeta(baseUrl, naddr, title, description, eventId),
+		redirectUrl: redirectUrl || `${baseUrl}/#/sightings/sighting/${naddr}`,
+	})
+}
+
+/** Metadata for a Sighting app-shell route. */
+export function createSightingOGMeta(
+	baseUrl: string,
+	naddr: string,
+	title: string,
+	description: string,
+	eventId?: string,
+): OGMeta {
+	return {
 		title: title || 'Sighting',
 		description:
 			description || 'See this sighting on Earthly, a collaborative mapping platform on Nostr.',
 		url: `${baseUrl}/sighting/${naddr}`,
-		redirectUrl: redirectUrl || `${baseUrl}/#/sightings/sighting/${naddr}`,
 		image: getGeneratedImageUrl(baseUrl, 'sighting', naddr, eventId),
 		type: 'article',
 		...generatedImageMeta(),
-	})
+	}
 }
 
 /**
@@ -269,14 +392,28 @@ export function generateBeaconOGHtml(
 	redirectUrl?: string,
 ): string {
 	return generateOGHtml({
+		...createBeaconOGMeta(baseUrl, naddr, title, description, eventId),
+		redirectUrl: redirectUrl || `${baseUrl}/#/beacons/beacon/${naddr}`,
+	})
+}
+
+/** Metadata for a Live app-shell route. */
+export function createBeaconOGMeta(
+	baseUrl: string,
+	naddr: string,
+	title: string,
+	description: string,
+	eventId?: string,
+	canonicalPath: 'beacon' | 'live' = 'beacon',
+): OGMeta {
+	return {
 		title: title || 'Live location',
 		description: description || 'Live location — may have ended. Watch it on Earthly.',
-		url: `${baseUrl}/beacon/${naddr}`,
-		redirectUrl: redirectUrl || `${baseUrl}/#/beacons/beacon/${naddr}`,
+		url: `${baseUrl}/${canonicalPath}/${naddr}`,
 		image: getGeneratedImageUrl(baseUrl, 'beacon', naddr, eventId),
 		type: 'article',
 		...generatedImageMeta(),
-	})
+	}
 }
 
 function escapeHtml(text: string): string {

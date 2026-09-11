@@ -8,6 +8,7 @@
  */
 
 import { blankEventTemplate, toEventTemplate } from 'applesauce-core/factories'
+import { normalizeMapPresentation, type MapPresentationV1 } from '@/lib/map-presentation'
 import { generateShortDTag } from '@/lib/nostr/dTag'
 import { EntityFactory } from '@/lib/nostr/entityFactory'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
@@ -77,6 +78,13 @@ export class ArticleFactory extends EntityFactory<typeof ARTICLE_KIND> {
 					modelVersion: MODEL_VERSION,
 				}),
 			}
+		})
+	}
+
+	/** Explicitly replace (or remove) the embedded presentation using the V1 codec. */
+	mapPresentation(presentation: MapPresentationV1 | undefined): this {
+		return this.article({
+			presentation: presentation === undefined ? undefined : normalizeMapPresentation(presentation),
 		})
 	}
 

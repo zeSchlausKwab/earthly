@@ -1,10 +1,24 @@
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Database, Eye, Globe, Layers, MessageSquare, Trash2 } from 'lucide-react'
+import {
+	Bell,
+	CloudUpload,
+	Database,
+	Eye,
+	Globe,
+	Layers,
+	MapPin,
+	MessageSquare,
+	Settings,
+	Trash2,
+	Users,
+	WalletCards,
+} from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { GeoProposal } from '@/lib/nostr/geo-proposal'
 import { castEvent } from 'applesauce-core/casts'
 import { eventStore } from '@/lib/nostr'
+import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import {
@@ -40,6 +54,7 @@ import {
 	type DatasetRowData,
 } from './datasets-columns'
 import { BulkMapStackButton, EntityListTable } from './entity-list'
+import { getMapEditPresentation } from './info-panel/mapProposalPresentation'
 import { Button } from './ui/button'
 import { DataTable } from './ui/data-table'
 import { UserProfile } from './user-profile/UserProfile'
@@ -282,7 +297,7 @@ export function UserProfilePanel({
 				description: proposal.description?.trim() || '(No description)',
 				targetName: targetDataset
 					? getDatasetName(targetDataset)
-					: proposal.targetDatasetId || 'Unknown dataset',
+					: proposal.targetDatasetId || 'Unknown map',
 				targetAddress,
 				targetDataset,
 				status: statusInfo?.status ?? 'open',
@@ -313,8 +328,8 @@ export function UserProfilePanel({
 
 	const tabItems = useMemo(() => {
 		const items: Array<{ id: TabMode; label: string; count: number; icon: typeof Database }> = [
-			{ id: 'datasets', label: 'Datasets', count: userGeoEvents.length, icon: Database },
-			{ id: 'contexts', label: 'Contexts', count: userContextEvents.length, icon: Globe },
+			{ id: 'datasets', label: 'Maps', count: userGeoEvents.length, icon: Database },
+			{ id: 'contexts', label: 'Atlases', count: userContextEvents.length, icon: Globe },
 			{ id: 'proposals', label: 'Proposals', count: userProposalRows.length, icon: MessageSquare },
 		]
 		if (isOwnProfile) {
@@ -338,16 +353,17 @@ export function UserProfilePanel({
 		() =>
 			filteredGeoEvents.map((event) => {
 				const datasetKey = getDatasetKey(event)
+				const isOwned = Boolean(currentUserPubkey) && event.pubkey === currentUserPubkey
 				return {
 					event,
 					datasetKey,
 					datasetName: getDatasetName(event),
 					isActive: false,
-					isOwned: Boolean(currentUserPubkey) && event.pubkey === currentUserPubkey,
+					isOwned,
 					isVisible: datasetVisibility[datasetKey] !== false,
 					isInMapStack: Boolean(mapStackEntries[`dataset:${datasetKey}`]),
 					isCatalogPinned: pinnedEntitySet.has(`dataset:${datasetKey}`),
-					primaryLabel: isOwnProfile ? 'Edit dataset' : 'Load copy',
+					primaryLabel: getMapEditPresentation(isOwned).actionLabel,
 				}
 			}),
 		[
@@ -355,7 +371,6 @@ export function UserProfilePanel({
 			getDatasetKey,
 			getDatasetName,
 			datasetVisibility,
-			isOwnProfile,
 			currentUserPubkey,
 			mapStackEntries,
 			pinnedEntitySet,
@@ -372,6 +387,7 @@ export function UserProfilePanel({
 
 	const datasetColumnsContext: DatasetColumnsContext = useMemo(
 		() => ({
+			currentUserPubkey,
 			onLoadDataset,
 			onDeleteDataset,
 			onToggleVisibility,
@@ -590,8 +606,8 @@ export function UserProfilePanel({
 									if (!item.targetDataset) return
 									onInspectDataset?.(item.targetDataset)
 								}}
-								aria-label="Inspect target dataset"
-								title={inspectDisabled ? 'Target dataset not loaded' : 'Inspect target dataset'}
+								aria-label="Inspect target map"
+								title={inspectDisabled ? 'Target map not loaded' : 'Inspect target map'}
 							>
 								<Eye className="h-3 w-3" />
 							</Button>
@@ -629,6 +645,41 @@ export function UserProfilePanel({
 				/>
 				{isOwnProfile ? <p className="mt-2 text-xs text-ok">This is your profile</p> : null}
 			</div>
+
+			{isOwnProfile ? (
+				<section className="border border-border bg-card/55" aria-labelledby="account-links-title">
+					<h3
+						id="account-links-title"
+						className="border-b border-border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+					>
+						Your Earthly
+					</h3>
+					<div className="grid grid-cols-3 gap-px bg-border">
+						{[
+							{ label: 'Posts', href: '/posts', icon: MessageSquare },
+							{ label: 'Inbox', href: '/inbox', icon: Bell },
+							{ label: 'Sync & delivery', href: '/delivery', icon: CloudUpload },
+							{ label: 'Wallet', href: '/wallet', icon: WalletCards },
+							{ label: 'Circles', href: '/me/circles', icon: Users },
+							{ label: 'Nearby', href: '/me/nearby', icon: MapPin },
+							{ label: 'Settings', href: '/settings', icon: Settings },
+						].map((item) => {
+							const Icon = item.icon
+							return (
+								<button
+									key={item.href}
+									type="button"
+									onClick={() => navigateToRoute(item.href)}
+									className="flex min-h-14 flex-col items-center justify-center gap-1 bg-card px-2 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								>
+									<Icon className="h-4 w-4" aria-hidden="true" />
+									{item.label}
+								</button>
+							)
+						})}
+					</div>
+				</section>
+			) : null}
 
 			<div
 				className={isOwnProfile ? 'grid grid-cols-4 gap-2' : 'grid grid-cols-3 gap-2'}
@@ -681,8 +732,8 @@ export function UserProfilePanel({
 							}
 							label={
 								activeTab === 'datasets'
-									? 'Add filtered datasets to map stack'
-									: 'Add filtered contexts to map stack'
+									? 'Show filtered maps on map'
+									: 'Show filtered atlases on map'
 							}
 						/>
 					) : null}
@@ -700,9 +751,9 @@ export function UserProfilePanel({
 
 			{activeTab === 'datasets' ? (
 				userGeoEvents.length === 0 ? (
-					<p className="text-xs text-muted-foreground">No datasets published by this user.</p>
+					<p className="text-xs text-muted-foreground">No maps published by this user.</p>
 				) : filteredGeoEvents.length === 0 ? (
-					<p className="text-xs text-muted-foreground">No datasets match your filters.</p>
+					<p className="text-xs text-muted-foreground">No maps match your filters.</p>
 				) : (
 					<EntityListTable
 						columns={datasetColumns}
@@ -712,9 +763,9 @@ export function UserProfilePanel({
 				)
 			) : activeTab === 'contexts' ? (
 				userContextEvents.length === 0 ? (
-					<p className="text-xs text-muted-foreground">No contexts published by this user.</p>
+					<p className="text-xs text-muted-foreground">No atlases published by this user.</p>
 				) : filteredContexts.length === 0 ? (
-					<p className="text-xs text-muted-foreground">No contexts match your filters.</p>
+					<p className="text-xs text-muted-foreground">No atlases match your filters.</p>
 				) : (
 					<EntityListTable
 						columns={contextColumns}
@@ -756,8 +807,8 @@ export function UserProfilePanel({
 			) : (
 				<div className="space-y-3">
 					<p className="text-xs leading-relaxed text-muted-foreground">
-						Earthly keeps unfinished drawings and dataset edits on this device, so closing the app
-						does not lose them. Publishing remains a separate step.
+						Earthly keeps unfinished drawings and map edits on this device, so closing the app does
+						not lose them. Publishing remains a separate step.
 					</p>
 					<div className="space-y-2">
 						{sortedWorkspaces.map((workspace) => {
@@ -777,7 +828,7 @@ export function UserProfilePanel({
 													{displayLabel}
 												</p>
 												<span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-													{workspace.kind === 'scratch' ? 'new drawing' : 'dataset edit'}
+													{workspace.kind === 'scratch' ? 'new drawing' : 'map edit'}
 												</span>
 												{isActive ? (
 													<span className="rounded-full bg-ok/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-ok">

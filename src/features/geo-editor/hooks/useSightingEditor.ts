@@ -1,10 +1,10 @@
-import type { Geometry } from 'geojson'
+import type { LineString, Point, Polygon } from 'geojson'
 import { useCallback, useState } from 'react'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { useEditorStore, type SidebarViewMode } from '../store'
 
 /** A placeable Sighting geometry captured from the map-first pin-drop (D-01/D-02). */
-export type PlacedSightingGeometry = Geometry
+export type PlacedSightingGeometry = Point | LineString | Polygon
 
 interface UseSightingEditorParams {
 	isMobile: boolean

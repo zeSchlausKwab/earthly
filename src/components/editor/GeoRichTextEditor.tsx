@@ -34,10 +34,23 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { GeoMentionNode, serializeToText, parseFromText } from './GeoMentionExtension'
+import {
+	GeoMentionNode,
+	StoryViewNode,
+	parseFromText,
+	serializeToText,
+	type StoryViewCapture,
+} from './GeoMentionExtension'
 import { mergeMentionItems, searchMentionEntities } from './mentionSearch'
 import { stringifyGeoReference } from '@/lib/geo/reference'
 import { requestCoordinateReferencePick } from '@/features/geo-editor/coordinateReferencePickerBridge'
+import {
+	parseStoryViewBlock,
+	type StoryViewBlockV1,
+	type MapPresentationLayerV1,
+} from '@/lib/map-presentation'
+import { StoryViewLayersContext } from './StoryViewBlockEditor'
+import { insertStoryViewAtSelection } from './storyViewEditing'
 
 export interface GeoFeatureItem {
 	/** Unique identifier */
@@ -64,6 +77,7 @@ export interface GeoFeatureItem {
 }
 
 export interface GeoRichTextEditorProps {
+	autoFocus?: boolean
 	/** Initial text content (with nostr: mentions) */
 	initialValue?: string
 	/** Placeholder text */
@@ -90,12 +104,22 @@ export interface GeoRichTextEditorProps {
 	rows?: number
 	/** Additional class names */
 	className?: string
+	/** Let an enclosing glass panel show through the editable surface and toolbar. */
+	translucent?: boolean
 	/** Whether the editor is strictly read-only (no editing UI) */
 	readOnly?: boolean
 	/** Whether to show the formatting toolbar */
 	showToolbar?: boolean
 	/** Initial toolbar state */
 	defaultToolbarExpanded?: boolean
+	/** Reveal the physical Story-view block insertion affordance. */
+	enableStoryViews?: boolean
+	/** Stable instances from this Story's opening presentation, never ambient layers. */
+	storyViewLayers?: readonly MapPresentationLayerV1[]
+	/** Explicit map snapshot used only after the author presses Capture/Add view. */
+	captureStoryView?: () => StoryViewCapture | null | undefined
+	/** Apply a view to the shared canvas without changing the body. */
+	onStoryViewActivate?: (view: StoryViewBlockV1) => void
 }
 
 export interface GeoRichTextEditorRef {
@@ -109,6 +133,8 @@ export interface GeoRichTextEditorRef {
 	focus: () => void
 	/** Insert a geo mention at cursor */
 	insertMention: (item: GeoFeatureItem) => void
+	/** Insert a physical fenced earthly-view block at the selection. */
+	insertStoryView: (view?: StoryViewBlockV1) => void
 }
 
 interface SuggestionState {
@@ -133,6 +159,9 @@ export function replaceGeoRichTextEditorContent(
 	editor: GeoRichTextEditorInstance,
 	content: GeoRichTextEditorContent,
 ): boolean {
+	// Suspense can reconnect an effect captured with the previous editor before
+	// useEditor publishes its replacement. Destroyed instances have no commands.
+	if (editor.isDestroyed) return false
 	return editor.commands.setContent(content, { emitUpdate: false })
 }
 
@@ -142,13 +171,13 @@ export function getGeoReferenceTypeLabel(item: GeoFeatureItem): string {
 		case 'coordinate':
 			return 'Coordinate'
 		case 'dataset':
-			return 'Dataset'
+			return 'Map'
 		case 'feature':
 			return 'Feature'
 		case 'osm':
 			return 'OSM'
 		case 'context':
-			return 'Context'
+			return 'Atlas'
 		case 'story':
 			return 'Story'
 		default:
@@ -159,13 +188,11 @@ export function getGeoReferenceTypeLabel(item: GeoFeatureItem): string {
 function getSuggestionDescription(item: GeoFeatureItem): string {
 	if (item.entityType === 'coordinate-picker') return 'Click once on the map'
 	if (item.entityType === 'feature') {
-		return [item.geometryType, item.datasetName].filter(Boolean).join(' · ') || 'Dataset geometry'
+		return [item.geometryType, item.datasetName].filter(Boolean).join(' · ') || 'Map geometry'
 	}
 	if (item.entityType === 'osm') return item.geometryType || 'OpenStreetMap object'
 	if (item.entityType === 'dataset') {
-		return item.datasetName && item.datasetName !== item.name
-			? item.datasetName
-			: 'Complete dataset'
+		return item.datasetName && item.datasetName !== item.name ? item.datasetName : 'Complete Map'
 	}
 	return item.datasetName || item.geometryType || 'Spatial reference'
 }
@@ -180,6 +207,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 	(
 		{
 			initialValue = '',
+			autoFocus = false,
 			placeholder = 'Type here... Use $ to mention features',
 			availableFeatures = [],
 			searchRelayMentions = true,
@@ -190,9 +218,14 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			disabled = false,
 			rows = 3,
 			className = '',
+			translucent = false,
 			readOnly = false,
 			showToolbar = true,
 			defaultToolbarExpanded,
+			enableStoryViews = false,
+			storyViewLayers = [],
+			captureStoryView,
+			onStoryViewActivate,
 		},
 		ref,
 	) => {
@@ -215,6 +248,13 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 		const relayMentionQueryRef = useRef<string>('')
 		const coordinatePickerCancelRef = useRef<(() => void) | null>(null)
 		const beginCoordinatePickRef = useRef<(() => void) | null>(null)
+		const captureStoryViewRef = useRef(captureStoryView)
+		const activateStoryViewRef = useRef(onStoryViewActivate)
+
+		useEffect(() => {
+			captureStoryViewRef.current = captureStoryView
+			activateStoryViewRef.current = onStoryViewActivate
+		}, [captureStoryView, onStoryViewActivate])
 
 		useEffect(() => {
 			suggestionStateRef.current = suggestion
@@ -445,7 +485,21 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			})
 		}, [filterFeatures, queueRelayMentionSearch])
 
+		const storyViewExtension = useMemo(
+			() =>
+				StoryViewNode.configure({
+					callbacks: {
+						onCapture: () => captureStoryViewRef.current?.(),
+						onActivate: (view) => activateStoryViewRef.current?.(view),
+					},
+				}),
+			[],
+		)
+
 		const editor = useEditor({
+			// Allocate the editor after commit, not in a render that may suspend.
+			immediatelyRender: false,
+			autofocus: autoFocus ? 'start' : false,
 			extensions: [
 				StarterKit.configure({
 					// Disable features we don't need
@@ -465,6 +519,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 						onZoomTo: onMentionZoomTo,
 					},
 				}),
+				storyViewExtension,
 				mentionExtension,
 			],
 			content: initialValue ? parseFromText(initialValue, createNameResolver()) : '',
@@ -511,13 +566,6 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			},
 			[],
 		)
-
-		useEffect(() => {
-			if (!editor) return
-			const dom = editor.view.dom as HTMLElement
-			dom.style.minHeight = readOnly ? '' : `${editorMinHeight}px`
-			dom.style.height = readOnly ? 'auto' : '100%'
-		}, [editor, editorMinHeight, readOnly])
 
 		// Handle suggestion selection
 		const selectSuggestion = useCallback((item: GeoFeatureItem) => {
@@ -580,12 +628,36 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			[disabled, editor, readOnly],
 		)
 
+		const insertStoryView = useCallback(
+			(view?: StoryViewBlockV1) => {
+				if (!editor || disabled || readOnly) return
+				const captured = view ? undefined : captureStoryViewRef.current?.()
+				const defaultView: StoryViewBlockV1 = {
+					version: 1,
+					type: 'view',
+					id:
+						typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+							? `view-${crypto.randomUUID()}`
+							: `view-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+					title: 'New view',
+					display: 'cue',
+					...(captured?.camera ? { camera: captured.camera } : {}),
+					...(captured?.layers ? { layers: captured.layers } : {}),
+				}
+				const parsed = parseStoryViewBlock(view ?? defaultView)
+				if (parsed.status !== 'valid') return
+				insertStoryViewAtSelection(editor, parsed.value)
+				editor.commands.focus()
+			},
+			[disabled, editor, readOnly],
+		)
+
 		// Expose methods via ref
 		useImperativeHandle(
 			ref,
 			() => ({
 				getText: () => {
-					if (!editor) return ''
+					if (!editor || editor.isDestroyed) return initialValue
 					return serializeToText(editor.getJSON())
 				},
 				setContent: (text: string) => {
@@ -594,10 +666,10 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 					replaceGeoRichTextEditorContent(editor, content)
 				},
 				clear: () => {
-					editor?.commands.clearContent()
+					if (editor && !editor.isDestroyed) editor.commands.clearContent()
 				},
 				focus: () => {
-					editor?.commands.focus()
+					if (editor && !editor.isDestroyed) editor.commands.focus()
 				},
 				insertMention: (item: GeoFeatureItem) => {
 					if (!editor) return
@@ -616,14 +688,15 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 						.insertContent(' ')
 						.run()
 				},
+				insertStoryView,
 			}),
-			[editor, createNameResolver],
+			[editor, initialValue, createNameResolver, insertStoryView],
 		)
 
 		// Re-parse content when availableFeatures changes from empty to populated
 		// This ensures mention names are resolved even if features load after initial render
 		useEffect(() => {
-			if (!editor || availableFeatures.length === 0) return
+			if (!editor || editor.isDestroyed || availableFeatures.length === 0) return
 
 			// Get current content as text
 			const json = editor.getJSON()
@@ -639,7 +712,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 
 		// Update content when initialValue prop changes (e.g., switching between collections)
 		useEffect(() => {
-			if (!editor) return
+			if (!editor || editor.isDestroyed) return
 
 			const currentText = serializeToText(editor.getJSON())
 			if (currentText === initialValue) return
@@ -730,14 +803,19 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 				{/* biome-ignore lint/a11y/noStaticElementInteractions: container needs drag & drop handlers */}
 				<div
 					ref={editorContainerRef}
+					data-translucent={translucent}
 					className={cn(
 						'flex min-h-0 flex-1 flex-col border transition-colors',
 						readOnly
 							? 'border-transparent bg-transparent'
 							: isDragOver
 								? 'border-info/40 bg-info/15 ring-2 ring-info'
-								: 'border-border bg-card',
-						disabled && !readOnly && 'cursor-not-allowed bg-muted',
+								: translucent
+									? 'border-border bg-transparent'
+									: 'border-border bg-card',
+						disabled &&
+							!readOnly &&
+							(translucent ? 'cursor-not-allowed bg-muted/15' : 'cursor-not-allowed bg-muted'),
 					)}
 					onDragOver={!readOnly ? handleDragOver : undefined}
 					onDragLeave={!readOnly ? handleDragLeave : undefined}
@@ -745,7 +823,12 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 				>
 					{!readOnly && showToolbar && (
 						<>
-							<div className="flex items-center justify-between border-b border-border bg-muted px-1.5">
+							<div
+								className={cn(
+									'flex items-center justify-between border-b border-border px-1.5',
+									translucent ? 'bg-muted/15' : 'bg-muted',
+								)}
+							>
 								<Button
 									type="button"
 									variant="ghost"
@@ -764,7 +847,12 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 								<span className="text-[9px] text-muted-foreground">$ inserts references</span>
 							</div>
 							{isToolbarExpanded && (
-								<div className="flex flex-wrap items-center gap-1 border-b border-border bg-card px-2 py-1">
+								<div
+									className={cn(
+										'flex flex-wrap items-center gap-1 border-b border-border px-2 py-1',
+										translucent ? 'bg-transparent' : 'bg-card',
+									)}
+								>
 									<Button
 										type="button"
 										variant="ghost"
@@ -844,25 +932,41 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 									>
 										<Crosshair className="h-3.5 w-3.5" />
 									</Button>
+									{enableStoryViews && (
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-sm"
+											className="h-7 w-7 rounded-none"
+											onClick={() => insertStoryView()}
+											disabled={disabled}
+											title="Insert Story view from the current map"
+										>
+											<MapIcon className="h-3.5 w-3.5" />
+										</Button>
+									)}
 								</div>
 							)}
 						</>
 					)}
-					<EditorContent
-						editor={editor}
-						className={cn(
-							'min-h-0 flex-1 prose prose-sm max-w-none text-sm',
-							'[&_.ProseMirror]:h-full [&_.ProseMirror]:outline-none',
-							readOnly ? '[&_.ProseMirror]:p-0' : '[&_.ProseMirror]:px-3 [&_.ProseMirror]:py-2.5',
-							'[&_.ProseMirror]:whitespace-pre-wrap',
-							'[&_.ProseMirror_p]:my-0',
-							'[&_.ProseMirror_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]',
-							'[&_.ProseMirror_.is-editor-empty:first-child::before]:text-muted-foreground',
-							'[&_.ProseMirror_.is-editor-empty:first-child::before]:float-left',
-							'[&_.ProseMirror_.is-editor-empty:first-child::before]:h-0',
-							'[&_.ProseMirror_.is-editor-empty:first-child::before]:pointer-events-none',
-						)}
-					/>
+					<StoryViewLayersContext.Provider value={storyViewLayers}>
+						<EditorContent
+							editor={editor}
+							style={{ '--editor-min-height': `${editorMinHeight}px` } as CSSProperties}
+							className={cn(
+								'min-h-0 flex-1 prose prose-sm max-w-none text-sm',
+								'[&_.ProseMirror]:outline-none',
+								readOnly ? '[&_.ProseMirror]:h-auto [&_.ProseMirror]:p-0' : '[&_.ProseMirror]:h-full [&_.ProseMirror]:min-h-[var(--editor-min-height)] [&_.ProseMirror]:px-3 [&_.ProseMirror]:py-2.5',
+								'[&_.ProseMirror]:whitespace-pre-wrap',
+								'[&_.ProseMirror_p]:my-0',
+								'[&_.ProseMirror_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]',
+								'[&_.ProseMirror_.is-editor-empty:first-child::before]:text-muted-foreground',
+								'[&_.ProseMirror_.is-editor-empty:first-child::before]:float-left',
+								'[&_.ProseMirror_.is-editor-empty:first-child::before]:h-0',
+								'[&_.ProseMirror_.is-editor-empty:first-child::before]:pointer-events-none',
+							)}
+						/>
+					</StoryViewLayersContext.Provider>
 
 					{/* Drop zone indicator */}
 					{isDragOver && (

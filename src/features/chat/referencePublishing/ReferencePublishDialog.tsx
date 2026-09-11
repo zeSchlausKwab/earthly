@@ -34,7 +34,7 @@ export function ReferencePublishDialog() {
 		>
 			<AlertDialogContent>
 				<AlertDialogHeader>
-					<AlertDialogTitle>Publish changes to reference this Dataset?</AlertDialogTitle>
+					<AlertDialogTitle>Publish changes to reference this Map?</AlertDialogTitle>
 					<AlertDialogDescription>
 						{request
 							? `“${request.datasetTitle}” has unpublished changes. Publish the captured draft so this action can use a stable Dataset reference.`

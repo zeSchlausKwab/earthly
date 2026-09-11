@@ -3,6 +3,7 @@
  */
 import type { FeatureCollection } from 'geojson'
 import { create } from 'zustand'
+import { registerEntityConversationContext } from '@/components/entity-list/entityTransfer'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type {
 	ChatMessage,
@@ -33,6 +34,7 @@ import {
 } from './tools'
 import type { ToolExecutionRunIdentity, ToolExecutionTarget } from './tools/types'
 import { prepareToolExecutionRun, releaseToolExecutionRun } from './tools/executionTarget'
+import { mapWorkTarget, workTargetIdentity, captureThreadReferences, captureThreadView, newDraftAudience, normalizeWorkingSet, READ_ONLY_TOOLS, WORKING_SET_INSTRUCTION, type ThreadWorkTarget } from './workingSet'
 import { isToolError, type ToolError } from './tools/errors'
 import { appendRequestContextToLatestUserMessage } from './requestContext'
 import { ToolLoopRecovery } from './toolLoopRecovery'
@@ -76,6 +78,7 @@ import {
 	subscribeStoryTargetRequest,
 } from '@/features/chat/storyTargeting'
 import { chatComposerActions } from './composerState'
+import { reportChatActivity } from './activity.ts'
 
 // Output is NOT artificially capped. We size the completion budget from the
 // room left in the context window (see deriveOutputBudget). The constants below
@@ -130,6 +133,14 @@ const FINISH_APPLIED_CHANGES_INSTRUCTION = [
 	'Do not call tools or repeat any map work.',
 	'Give the user a concise final response summarizing what completed and anything that did not complete according to the transcript.',
 ].join(' ')
+export const READ_ONLY_THREAD_INSTRUCTION = [
+	'This is a read-only Earthly Thread.',
+	'Answer with model-generated text using only the Thread and supplied context.',
+	'Do not request tools, perform map edits, or claim that you changed application state.',
+].join(' ')
+
+const READ_ONLY_TOOL_CALL_ERROR =
+	'The model requested a tool in a read-only Thread. No tools were executed.'
 
 /**
  * Models receive every currently registered background-safe tool. Interactive
@@ -280,7 +291,7 @@ function serializedToolResultChangedMap(content: string, toolName?: string): boo
 		const value = JSON.parse(content) as Record<string, unknown>
 		// Dataset metadata is a real persisted edit, but its compact result predates
 		// the shared mutation-count envelope used by geometry/callout tools.
-		if (toolName === 'set_dataset_metadata' && value.ok === true) return true
+		if (['set_dataset_metadata', 'create_map_draft', 'write_story_draft'].includes(toolName ?? '') && value.ok === true) return true
 		const editorImport = value.editorImport as Record<string, unknown> | undefined
 		if (typeof editorImport?.importedCount === 'number' && editorImport.importedCount > 0)
 			return true
@@ -306,12 +317,30 @@ function serializedToolResultChangedMap(content: string, toolName?: string): boo
 	}
 }
 
-const DEFAULT_CHAT_TITLE = 'New conversation'
+const DEFAULT_CHAT_TITLE = 'New Thread'
+const DEFAULT_THREAD_TITLE = 'Thread'
 const MAX_CHAT_TITLE_CHARS = 60
 
+export interface OpenChatThreadOptions {
+	/** Keep the user's selected work Thread when another object is viewed. */
+	continueActive?: boolean
+	/** Stable caller-owned identity, for example `map:<naddr>` or `concierge`. */
+	threadKey: string
+	/** Object-facing title. Bound Threads keep this title instead of deriving one from the first turn. */
+	title?: string
+	/** Read-only Threads may ask the model questions but can never advertise or execute tools. */
+	readOnly?: boolean
+}
+
 export interface ChatSession {
+	workingSet?: import('./workingSet').ThreadWorkTarget[]
+	allowCreate?: boolean
 	id: string
 	title: string
+	/** Stable object/route binding. Null keeps this a legacy free conversation. */
+	threadKey: string | null
+	/** Allows text inference without an authoring target while keeping tools fail-closed. */
+	readOnly: boolean
 	messages: ChatMessage[]
 	references: ChatReference[]
 	/** Explicit authoring target. Multiple conversations may point at one workspace. */
@@ -321,6 +350,9 @@ export interface ChatSession {
 }
 
 export interface ChatReference {
+	/** A read-only local source; never a write grant or an implicit publication. */
+	localWorkspaceId?: string
+	localStoryDraftKey?: string
 	id: string
 	name: string
 	type: EntityType
@@ -334,6 +366,11 @@ export interface ChatReference {
 }
 
 export interface SendMessageOptions {
+	/** Scope-aware UI: asking needs no draft; references are not write grants. */
+	workScoped?: boolean
+	chatId?: string
+	/** Explicit text-only inference mode. It permits an empty target and hard-disables tools. */
+	readOnly?: boolean
 	referenceContextMessage?: string
 	selectionContextMessage?: string
 	geometryContextMessage?: string
@@ -461,11 +498,19 @@ function buildChatTitle(messages: ChatMessage[]): string {
 	return trimChatTitle(normalized)
 }
 
-function createEmptyChatSession(): ChatSession {
+function normalizeThreadTitle(title: string | undefined): string {
+	const normalized = title?.replace(/\s+/g, ' ').trim()
+	return normalized ? trimChatTitle(normalized) : DEFAULT_THREAD_TITLE
+}
+
+function createEmptyChatSession(options?: OpenChatThreadOptions): ChatSession {
 	const now = Date.now()
+	const threadKey = options?.threadKey.trim() || null
 	return {
 		id: createChatId(),
-		title: DEFAULT_CHAT_TITLE,
+		title: threadKey ? normalizeThreadTitle(options?.title) : DEFAULT_CHAT_TITLE,
+		threadKey,
+		readOnly: threadKey ? options?.readOnly === true : false,
 		messages: [],
 		references: [],
 		targetWorkspaceId: null,
@@ -637,7 +682,9 @@ export function applyMessagesToChat(
 			...chat,
 			messages,
 			references: chat.references ?? [],
-			title: buildChatTitle(messages),
+			// Object-bound Threads have an object-facing title. A first user turn
+			// must not quietly rename the Thread away from that object.
+			title: chat.threadKey ? chat.title : buildChatTitle(messages),
 			updatedAt: Date.now(),
 		}
 	})
@@ -1354,9 +1401,12 @@ interface ChatActions {
 	addMessage: (message: ChatMessage) => void
 	clearMessages: () => void
 	createChat: () => void
+	openThread: (options: OpenChatThreadOptions) => string | null
 	switchChat: (chatId: string) => void
 	deleteChat: (chatId: string) => void
 	setChatTargetWorkspace: (chatId: string, workspaceId: string | null) => void
+	setWorkingSet: (chatId: string, targets: ThreadWorkTarget[]) => void
+	setAllowCreate: (chatId: string, allow: boolean) => void
 	setReferences: (references: ChatReference[]) => void
 	addReferenceToChat: (chatId: string, reference: ChatReference) => void
 	// Chat actions
@@ -1718,7 +1768,7 @@ export const useChatStore = create<ChatStore>()(
 			clearMessages: () => {
 				const activeChatId = get().activeChatId
 				if (activeChatId && get().runningChatId === activeChatId) {
-					toast.info('Stop this conversation before clearing it')
+					toast.info('Stop this Thread before clearing it')
 					return
 				}
 				set((state) => {
@@ -1740,9 +1790,59 @@ export const useChatStore = create<ChatStore>()(
 					chatSessions: sortChatSessionsByRecent([...state.chatSessions, chat]),
 					activeChatId: chat.id,
 					messages: [],
+					references: [],
 					chatRunStates: { ...state.chatRunStates, [chat.id]: runState },
 					...chatRunStateToActiveView(runState),
 				}))
+			},
+
+			openThread: (options: OpenChatThreadOptions) => {
+				const threadKey = options.threadKey.trim()
+				if (!threadKey) return null
+				// A route is an entry point, not a request to replace ongoing work.
+				if (options.continueActive) {
+					const active = get().chatSessions.find((chat) => chat.id === get().activeChatId)
+					if (active) return active.id
+				}
+
+				let selectedChatId: string | null = null
+				set((state) => {
+					const existing = state.chatSessions.find((chat) => chat.threadKey === threadKey)
+					const now = Date.now()
+					const title = options.title?.trim()
+					const target = existing
+						? {
+								...existing,
+								title: title ? normalizeThreadTitle(title) : existing.title,
+								readOnly:
+									typeof options.readOnly === 'boolean'
+										? options.readOnly
+										: existing.readOnly === true,
+								updatedAt: now,
+							}
+						: createEmptyChatSession({
+								threadKey,
+								title: options.title,
+								readOnly: options.readOnly,
+							})
+					selectedChatId = target.id
+					const runState = getChatRunState(state, target.id)
+					const chatSessions = existing
+						? state.chatSessions.map((chat) => (chat.id === target.id ? target : chat))
+						: [...state.chatSessions, target]
+
+					return {
+						chatSessions: sortChatSessionsByRecent(chatSessions),
+						activeChatId: target.id,
+						messages: target.messages,
+						references: target.references ?? [],
+						chatRunStates: state.chatRunStates[target.id]
+							? state.chatRunStates
+							: { ...state.chatRunStates, [target.id]: runState },
+						...chatRunStateToActiveView(runState),
+					}
+				})
+				return selectedChatId
 			},
 
 			switchChat: (chatId: string) => {
@@ -1820,13 +1920,25 @@ export const useChatStore = create<ChatStore>()(
 					return {
 						chatSessions: state.chatSessions.map((chat) =>
 							chat.id === chatId
-								? { ...chat, targetWorkspaceId: workspaceId, updatedAt: Date.now() }
+								? { ...chat, targetWorkspaceId: workspaceId, updatedAt: Date.now(),
+									workingSet: workspaceId && mapWorkTarget(workspaceId)
+										? [...(chat.workingSet ?? []).filter((item) => item.id !== `map:${workspaceId}`), mapWorkTarget(workspaceId)!]
+										: chat.workingSet }
 								: chat,
 						),
 					}
 				})
 			},
 
+			setWorkingSet: (chatId, targets) => {
+				set((state) => ({ chatSessions: state.chatSessions.map((chat) => chat.id === chatId
+					? { ...chat, workingSet: targets, readOnly: targets.length === 0 && !chat.allowCreate, targetWorkspaceId: targets.find((item) => item.kind === 'dataset')?.workspaceId ?? null }
+					: chat) }))
+			},
+			setAllowCreate: (chatId, allow) => {
+				set((state) => ({ chatSessions: state.chatSessions.map((chat) => chat.id === chatId
+					? { ...chat, allowCreate: allow, readOnly: !allow && !chat.workingSet?.length } : chat) }))
+			},
 			setReferences: (references: ChatReference[]) => {
 				set((state) => ({
 					references,
@@ -1842,12 +1954,12 @@ export const useChatStore = create<ChatStore>()(
 				set((state) => {
 					const target = state.chatSessions.find((chat) => chat.id === chatId)
 					if (!target) return {}
-					const key = `${reference.type}:${reference.id || reference.name}:${reference.pubkey ?? ''}`
+					const key = `${reference.type}:${reference.id || reference.name}:${reference.pubkey ?? ''}:${reference.featureId ?? ''}:${reference.localWorkspaceId ?? ''}:${reference.localStoryDraftKey ?? ''}`
 					const currentReferences = target.references ?? []
 					if (
 						currentReferences.some(
 							(candidate) =>
-								`${candidate.type}:${candidate.id || candidate.name}:${candidate.pubkey ?? ''}` ===
+								`${candidate.type}:${candidate.id || candidate.name}:${candidate.pubkey ?? ''}:${candidate.featureId ?? ''}:${candidate.localWorkspaceId ?? ''}:${candidate.localStoryDraftKey ?? ''}` ===
 								key,
 						)
 					) {
@@ -1873,19 +1985,35 @@ export const useChatStore = create<ChatStore>()(
 					toast.info('A response is already in progress')
 					return
 				}
-				const targetChatId = get().activeChatId
+				const targetChatId = options?.chatId ?? get().activeChatId
 				if (!targetChatId || !hasChatSession(get().chatSessions, targetChatId)) {
-					toast.error('Select a conversation first')
+					toast.error('Select a Thread first')
 					return
 				}
 				const targetChat = get().chatSessions.find((chat) => chat.id === targetChatId)
-				if (!targetChat?.targetWorkspaceId) {
-					toast.error('Choose New map or Use current edit before sending.')
+				const workScoped = options?.workScoped === true
+				const legacyTarget = targetChat?.targetWorkspaceId ? mapWorkTarget(targetChat.targetWorkspaceId) : null
+				const workingSet = workScoped ? (targetChat?.workingSet ?? (legacyTarget ? [legacyTarget] : [])) : []
+				const readOnlyRun = workScoped ? workingSet.length === 0 && !targetChat?.allowCreate : targetChat?.readOnly === true || options?.readOnly === true
+				if (!workScoped && !readOnlyRun && !targetChat?.targetWorkspaceId) {
+					toast.error('Open this Thread from a Map before sending.')
 					return
 				}
-				const sendTarget = captureActiveToolExecutionTarget(targetChatId)
-				if (sendTarget.entityType !== 'dataset' || !sendTarget.workspaceId || !sendTarget.draftId) {
-					toast.error('The selected map edit is no longer available. Choose an editing target.')
+				let capturedWorkingSet: import('./workingSet').CapturedWorkTarget[] = []
+				let capturedReferences: import('./workingSet').CapturedThreadReference[] = []
+				try {
+					capturedWorkingSet = workingSet.map((item) => ({ ...structuredClone(item), target: workTargetIdentity(item) }))
+					if (workScoped) capturedReferences = captureThreadReferences(targetChat?.references ?? [])
+				}
+				catch (error) { toast.error(error instanceof Error ? error.message : 'Working copy unavailable'); return }
+				const sendTarget = workScoped ? capturedWorkingSet[0]?.target ?? emptyToolExecutionTarget() : readOnlyRun
+					? emptyToolExecutionTarget()
+					: captureActiveToolExecutionTarget(targetChatId)
+				if (
+					!workScoped && !readOnlyRun &&
+					(sendTarget.entityType !== 'dataset' || !sendTarget.workspaceId || !sendTarget.draftId)
+				) {
+					toast.error('This conversation’s map draft is no longer available.')
 					return
 				}
 				const {
@@ -1907,7 +2035,13 @@ export const useChatStore = create<ChatStore>()(
 					return
 				}
 				const continuingAfterAppliedChanges = options?.continueAfterAppliedChanges === true
-				const toolsEnabledForRun = toolsEnabled && !continuingAfterAppliedChanges
+				const toolsEnabledForRun = (workScoped || !readOnlyRun) && toolsEnabled && !continuingAfterAppliedChanges
+				const toolsForRun = (canCapture: boolean) => getAdvertisedGeoTools(canCapture)
+					.filter((tool) => !readOnlyRun || READ_ONLY_TOOLS.has(tool.function.name))
+					.map((tool) => !workScoped ? tool : ({ ...tool, function: { ...tool.function, parameters: {
+						...tool.function.parameters, properties: { ...tool.function.parameters.properties,
+							workingTarget: { type: 'string', description: 'Exact writable output id from get_working_set. References never grant write permission.' } },
+					} } }))
 				const providerConfig = resolveProvider(provider, providerOverrides)
 				// Hoisted so the request-builder closure can gate capture_map_snapshot on
 				// it; assigned once vision support resolves below. Default false fails
@@ -1960,14 +2094,22 @@ export const useChatStore = create<ChatStore>()(
 				const streamRunId = currentStreamRunId + 1
 				const runStartedAt = Date.now()
 				const runIdentity: ToolExecutionRunIdentity = Object.freeze({
+					...(workScoped ? { view: captureThreadView(), references: capturedReferences, newDraftAudience: newDraftAudience(workingSet) } : {}),
+					...(workScoped ? { workingSet: capturedWorkingSet, allowCreate: targetChat?.allowCreate === true } : {}),
 					runId: streamRunId,
 					chatId: targetChatId,
 					target: sendTarget,
 					startedAt: runStartedAt,
 				})
 				prepareToolExecutionRun(runIdentity)
-				const capturedMapSnapshot = getMapContextSnapshotForTarget(runIdentity.target)
-				const capturedSessionPublishContext = buildSessionPublishContextMessage() ?? null
+				const capturedMapSnapshot = workScoped && runIdentity.target.entityType !== 'dataset'
+					? getMapContextSnapshotForTarget({ ...emptyToolExecutionTarget(), entityType: 'dataset' })
+					: readOnlyRun
+					? undefined
+					: getMapContextSnapshotForTarget(runIdentity.target)
+				const capturedSessionPublishContext = readOnlyRun
+					? null
+					: (buildSessionPublishContextMessage() ?? null)
 				const setOwnedRunState = (
 					updater: Partial<ChatRunState> | ((current: ChatRunState) => ChatRunState),
 				) => {
@@ -2150,7 +2292,7 @@ export const useChatStore = create<ChatStore>()(
 						// model—or a user who opted out—never incurs a snapshot round.
 						const requestTools =
 							toolsEnabledForRun && allowTools
-								? getAdvertisedGeoTools(canCaptureMapSnapshotsNow())
+								? toolsForRun(canCaptureMapSnapshotsNow())
 								: undefined
 						console.log('[Chat] Request config:', {
 							provider: providerConfig.type,
@@ -2403,7 +2545,7 @@ export const useChatStore = create<ChatStore>()(
 						effectiveContextTokens >= MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE
 					const promptBudgetTokens = getPromptBudgetTokens(model, providerConfig)
 					const advertisedTools = toolsEnabledForRun
-						? getAdvertisedGeoTools(canCaptureMapSnapshotsNow())
+						? toolsForRun(canCaptureMapSnapshotsNow())
 						: []
 					const streamStartAt = Date.now()
 
@@ -2487,17 +2629,23 @@ export const useChatStore = create<ChatStore>()(
 						}
 
 						const advertisedToolNames = toolsEnabledForRun
-							? getAdvertisedGeoTools(canCaptureMapSnapshotsNow()).map((tool) => tool.function.name)
+							? toolsForRun(canCaptureMapSnapshotsNow()).map((tool) => tool.function.name)
 							: []
 						const systemSections = continuingAfterAppliedChanges
 							? [FINISH_APPLIED_CHANGES_INSTRUCTION]
 							: [
-									toolsEnabledForRun
-										? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
-												mapSnapshot: capturedMapSnapshot,
-												sessionPublishContextMessage: capturedSessionPublishContext,
-											})?.content
-										: null,
+									workScoped ? `${WORKING_SET_INSTRUCTION}\nWorking set: ${JSON.stringify(capturedWorkingSet)}\nReferences: ${JSON.stringify(capturedReferences.map(({ localSnapshot: _snapshot, localStorySnapshot: _story, profileSnapshot: _profile, ...reference }) => reference))}\nNew local drafts: ${runIdentity.allowCreate ? 'allowed' : 'not allowed'}` : readOnlyRun
+										? READ_ONLY_THREAD_INSTRUCTION
+										: toolsEnabledForRun
+											? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
+													mapSnapshot: capturedMapSnapshot,
+													sessionPublishContextMessage: capturedSessionPublishContext,
+												})?.content
+											: null,
+									workScoped && toolsEnabledForRun ? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
+										mapSnapshot: capturedMapSnapshot,
+										sessionPublishContextMessage: capturedSessionPublishContext,
+									})?.content : null,
 									referenceContextMessage || null,
 									selectionContextMessage || null,
 									oneShotGeometryContextMessage || null,
@@ -2650,6 +2798,13 @@ export const useChatStore = create<ChatStore>()(
 							throw new Error('Chat request finished without a result.')
 						}
 						recordModelCompletion(result.estimatedCompletionTokens)
+
+						// Providers occasionally emit tool calls even when none were advertised.
+						// Treat that as a hard boundary violation before persisting or executing
+						// any call; a read-only Thread must remain side-effect free.
+						if (readOnlyRun && result.toolCalls.some((call) => !workScoped || !READ_ONLY_TOOLS.has(call.function.name))) {
+							throw new Error(READ_ONLY_TOOL_CALL_ERROR)
+						}
 
 						// If we got tool calls, execute them and continue
 						if (result.toolCalls.length > 0) {
@@ -3180,6 +3335,13 @@ export const useChatStore = create<ChatStore>()(
 						: (currentState.chatSessions ?? [createEmptyChatSession()])
 				const chatSessions = rawChatSessions.map((session) => ({
 					...session,
+					...(session.workingSet !== undefined ? { workingSet: normalizeWorkingSet(session.workingSet) } : {}),
+					allowCreate: session.allowCreate === true,
+					threadKey:
+						typeof session.threadKey === 'string' && session.threadKey.trim()
+							? session.threadKey.trim()
+							: null,
+					readOnly: session.readOnly === true,
 					targetWorkspaceId:
 						typeof session.targetWorkspaceId === 'string' ? session.targetWorkspaceId : null,
 				}))
@@ -3245,6 +3407,33 @@ subscribeStoryTargetRequest(syncRunningChatApprovalStatus)
 // store transitively imports). The gate reads through this injected getter.
 setSafetyLevelProvider(() => useChatStore.getState().safetyLevel)
 
+const syncActivity = () => {
+	const { runningChatId, activeRun } = useChatStore.getState()
+	reportChatActivity({ runningChatId, activeRun })
+}
+syncActivity()
+useChatStore.subscribe(syncActivity)
+
+/** Explicit UI action: add a local edit without replacing this Thread's other work. */
+export function addTargetToActiveThread(target: ThreadWorkTarget): void {
+	if (!useChatStore.getState().activeChatId) useChatStore.getState().createChat()
+	const state = useChatStore.getState()
+	const session = state.chatSessions.find((chat) => chat.id === state.activeChatId)
+	if (!session) return
+	state.setWorkingSet(session.id, [...(session.workingSet ?? []).filter((item) => item.id !== target.id), target])
+}
+
+/** Publishing changes a local Story's address, not the identity of its Thread. */
+export function reconcileStoryThreadTarget(draftKey: string, published: { draftKey: string; reference: string; title: string }): void {
+	const state = useChatStore.getState()
+	for (const session of state.chatSessions) {
+		if (!session.workingSet?.some((target) => target.kind === 'story' && target.draftKey === draftKey)) continue
+		state.setWorkingSet(session.id, session.workingSet.map((target) => target.kind === 'story' && target.draftKey === draftKey
+			? { ...target, draftKey: published.draftKey, storyReference: published.reference, title: published.title, intent: 'edit' }
+			: target))
+	}
+}
+
 // Action helpers for non-hook usage
 export const chatActions = {
 	setProvider: (provider: ProviderType) => useChatStore.getState().setProvider(provider),
@@ -3271,6 +3460,7 @@ export const chatActions = {
 	finishLastResponse: () => useChatStore.getState().finishLastResponse(),
 	clearMessages: () => useChatStore.getState().clearMessages(),
 	createChat: () => useChatStore.getState().createChat(),
+	openThread: (options: OpenChatThreadOptions) => useChatStore.getState().openThread(options),
 	switchChat: (chatId: string) => useChatStore.getState().switchChat(chatId),
 	deleteChat: (chatId: string) => useChatStore.getState().deleteChat(chatId),
 	setChatTargetWorkspace: (chatId: string, workspaceId: string | null) =>
@@ -3281,3 +3471,8 @@ export const chatActions = {
 	cancelStream: () => useChatStore.getState().cancelStream(),
 	reset: () => useChatStore.getState().reset(),
 }
+
+registerEntityConversationContext(() => ({
+	chatId: useChatStore.getState().activeChatId,
+	pubkey: accounts.active?.pubkey ?? null,
+}))

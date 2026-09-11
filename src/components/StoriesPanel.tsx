@@ -21,6 +21,8 @@ import { useStories } from '@/lib/hooks/useStories'
 import type { Article } from '@/lib/nostr/article'
 import { readStoryDraft } from '@/lib/nostr/story'
 import { BulkMapStackButton, EntityListTable, ListPanel } from '@/components/entity-list'
+import { CatalogPagination, useCatalogFilterReach } from '@/components/entity-list/CatalogPagination'
+import { ARTICLE_KIND } from '@/lib/nostr/kinds'
 import { createStoryColumns, type StoryColumnsContext, type StoryRowData } from './stories-columns'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
 import { EntitySearchToolbar } from './entity-search'
@@ -31,6 +33,8 @@ export interface StoriesPanelProps {
 	currentUserPubkey?: string
 	onOpenStory: (story: Article) => void
 	onCreateStory: () => void
+	/** Browse owns the single tab-level create action in the Margin shell. */
+	showCreateAction?: boolean
 	onEditStory: (story: Article) => void
 	onDeleteStory: (story: Article) => void
 	/** `story:<d-tag>` for the Story whose delete is in flight. */
@@ -49,11 +53,13 @@ export function StoriesPanelContent({
 	currentUserPubkey,
 	onOpenStory,
 	onCreateStory,
+	showCreateAction = true,
 	onEditStory,
 	onDeleteStory,
 	deletingKey,
 }: StoriesPanelProps) {
 	const filterState = useFilterState()
+	useCatalogFilterReach(ARTICLE_KIND, filterState)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const { events: stories, eose } = useStories()
@@ -72,8 +78,27 @@ export function StoriesPanelContent({
 	}, [displayed, currentUserPubkey])
 
 	const columnsContext: StoryColumnsContext = useMemo(
-		() => ({ onOpen: onOpenStory, onEdit: onEditStory, onDelete: onDeleteStory }),
-		[onOpenStory, onEditStory, onDeleteStory],
+		() => ({
+			onOpen: onOpenStory,
+			onShowOnMap: (story) => {
+				const store = useEditorStore.getState()
+				for (const ref of parseStoryRefs(story)) {
+					if (store.mapStackEntries[ref.entryId]) store.setMapStackEntryVisible(ref.entryId, true)
+					else
+						addMapStackEntry({
+							entityType: 'dataset',
+							entityKey: ref.datasetKey,
+							title: ref.identifier,
+							source: 'story',
+							visible: true,
+							pinned: false,
+						})
+				}
+			},
+			onEdit: onEditStory,
+			onDelete: onDeleteStory,
+		}),
+		[onOpenStory, onEditStory, onDeleteStory, addMapStackEntry],
 	)
 	const columns = useMemo(() => createStoryColumns(columnsContext), [columnsContext])
 
@@ -119,14 +144,14 @@ export function StoriesPanelContent({
 			icon={BookOpen}
 			title="Stories"
 			count={result.totalCount}
-			onNew={onCreateStory}
+			onNew={showCreateAction ? onCreateStory : undefined}
 			newLabel="New Story"
 			titleAccessory={
 				<BulkMapStackButton
 					count={storyRefsToStack.length}
 					onClick={addFilteredStoryRefsToMapStack}
-					label="Add filtered story references to map stack"
-					emptyLabel="No referenced datasets in filtered stories"
+					label="Show filtered Story Maps on the map"
+					emptyLabel="No referenced Maps in filtered Stories"
 				/>
 			}
 			toolbar={
@@ -139,8 +164,8 @@ export function StoriesPanelContent({
 					placeholder="Search stories…"
 				/>
 			}
-			footerLeft={`${rows.length} shown`}
-			footerRight={draftKeys.size > 0 ? `${draftKeys.size} draft` : undefined}
+			footerLeft={`${rows.length} shown · ${stories.length} loaded`}
+			footerRight={<><span>{draftKeys.size > 0 ? `${draftKeys.size} draft · ` : ''}</span><CatalogPagination kind={ARTICLE_KIND} label="stories" onMore={() => filterState.setDisplayLimit(filterState.displayLimit + 100)} /></>}
 		>
 			{!eose && stories.length === 0 ? (
 				<div className="space-y-2">
@@ -155,7 +180,7 @@ export function StoriesPanelContent({
 						<EmptyDescription>
 							{hasSearch
 								? 'Try a different search, or clear the filter.'
-								: 'Start a story — write a narrative and weave in your datasets, places, and media.'}
+								: 'Start a Story — write a narrative and weave in your Maps, places, and media.'}
 						</EmptyDescription>
 					</EmptyHeader>
 				</Empty>

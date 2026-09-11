@@ -27,7 +27,7 @@ export function LocationInspectorPanel({
 		<div className={`pointer-events-auto flex h-full flex-col ${className}`}>
 			<div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
 				<div className="text-xs text-muted-foreground">
-					{inspectorActive ? 'Click on the map to get details' : 'Inspector paused'}
+					{inspectorActive ? 'Click on the map to get details' : 'Location lookup paused'}
 				</div>
 				<div className="flex items-center gap-1">
 					{inspectorActive && (

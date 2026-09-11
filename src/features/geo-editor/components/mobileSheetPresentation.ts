@@ -1,4 +1,26 @@
 import { cn } from '@/lib/utils'
+import type { EarthlyBrowseKind } from '@/router/routeContract'
+
+export const MOBILE_BROWSE_PANEL_TABS = {
+	maps: 'datasets',
+	stories: 'stories',
+	atlases: 'contexts',
+	sightings: 'sightings',
+	people: 'profile',
+} as const satisfies Record<EarthlyBrowseKind, string>
+
+export function mobileSheetDetentHeight(
+	snap: 'peek' | 'half' | 'full',
+	viewportHeight: number,
+	editingMap = false,
+	dockHeight = 52,
+): number {
+	const peek = editingMap ? 62 : 96
+	const full = Math.max(peek, viewportHeight - dockHeight - 12)
+	if (snap === 'peek') return peek
+	if (snap === 'half') return Math.min(full, Math.max(peek, viewportHeight * 0.5))
+	return full
+}
 
 export const MOBILE_WORKSPACE_RAIL_CONTROL_PX = 44
 export const MOBILE_WORKSPACE_RAIL_TAB_COUNT = 3
@@ -92,7 +114,7 @@ export function mobileSheetInnerSurfaceClassName(translucent: boolean): string {
 
 /** Preserve a stable global label for the triad while naming every other sheet. */
 export function mobileSheetCloseLabel(mapWorkspaceVisible: boolean, activeLabel: string): string {
-	return mapWorkspaceVisible ? 'Close map workspace' : `Close ${activeLabel}`
+	return mapWorkspaceVisible ? 'Close Map tools' : `Close ${activeLabel}`
 }
 
 /**

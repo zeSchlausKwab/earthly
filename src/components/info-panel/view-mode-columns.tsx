@@ -1,9 +1,10 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Download, Eye, EyeOff, Maximize2, Pencil } from 'lucide-react'
+import { Eye, EyeOff, GitPullRequest, Maximize2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { Button } from '../ui/button'
 import { UserProfile } from '../user-profile'
+import { getMapEditPresentation } from './mapProposalPresentation'
 
 export interface ViewModeRowData {
 	event: GeoDataset
@@ -26,7 +27,7 @@ export const createViewModeColumns = (
 ): ColumnDef<ViewModeRowData>[] => [
 	{
 		accessorKey: 'datasetName',
-		header: 'Dataset',
+		header: 'Map',
 		cell: ({ row }) => {
 			const { datasetName, event } = row.original
 			return (
@@ -59,6 +60,7 @@ export const createViewModeColumns = (
 		header: '',
 		cell: ({ row }) => {
 			const { event, isOwned, isVisible } = row.original
+			const editPresentation = getMapEditPresentation(isOwned)
 			return (
 				<div className="flex items-center gap-0.5">
 					<Button
@@ -68,17 +70,17 @@ export const createViewModeColumns = (
 						)}
 						onClick={() => context.onLoadDataset(event)}
 						disabled={context.isPublishing}
-						aria-label={isOwned ? 'Edit dataset' : 'Load copy'}
-						title={isOwned ? 'Edit dataset' : 'Load copy'}
+						aria-label={editPresentation.actionLabel}
+						title={editPresentation.actionLabel}
 					>
-						{isOwned ? <Pencil className="h-3 w-3" /> : <Download className="h-3 w-3" />}
+						{isOwned ? <Pencil className="h-3 w-3" /> : <GitPullRequest className="h-3 w-3" />}
 					</Button>
 					<Button
 						size="icon-xs"
 						variant="outline"
 						onClick={() => context.onToggleVisibility(event)}
-						aria-label={isVisible ? 'Hide dataset' : 'Show dataset'}
-						title={isVisible ? 'Hide dataset' : 'Show dataset'}
+						aria-label={isVisible ? 'Hide map' : 'Show map'}
+						title={isVisible ? 'Hide map' : 'Show map'}
 					>
 						{isVisible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
 					</Button>
@@ -86,8 +88,8 @@ export const createViewModeColumns = (
 						size="icon-xs"
 						variant="outline"
 						onClick={() => context.onZoomToDataset(event)}
-						aria-label="Zoom to dataset"
-						title="Zoom to dataset"
+						aria-label="Zoom to map"
+						title="Zoom to map"
 					>
 						<Maximize2 className="h-3 w-3" />
 					</Button>

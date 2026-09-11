@@ -138,12 +138,12 @@ const heroStories: HeroStory[] = [
 		kicker: 'Keep the crew connected',
 		title: 'Coordinate privately, across devices.',
 		description:
-			'A coordinator creates an MLS-protected festival group, Mara joins from her phone, and the operations desk answers by drawing the exact Crew Gate on the map.',
-		chapterHref: '/private-groups',
-		chapterLabel: 'Open private groups',
+			'A coordinator creates an MLS-protected festival Circle, Mara joins from her phone, and the operations desk answers by drawing the exact Crew Gate on the map.',
+		chapterHref: '/me/circles',
+		chapterLabel: 'Open Circles',
 		video: {
 			label:
-				'Earthly private group created on desktop, joined from a phone, and answered on desktop',
+				'Earthly Circle created on desktop, joined from a phone, and answered on desktop',
 			mp4: 'private-group-cross-device.mp4',
 			poster: 'private-group-cross-device-poster.png',
 			webm: 'private-group-cross-device.webm',
@@ -160,12 +160,12 @@ const heroStories: HeroStory[] = [
 		kicker: 'Delegate the cartography',
 		title: 'Ask once. Get a map—and its story.',
 		description:
-			'A short prompt becomes a 117-feature Belt and Road Dataset with distinct port anchors, annotated nodes, maritime routes, and potential Arctic passages—then a Story cites the signed map inline.',
+			'A short prompt becomes a 117-feature Belt and Road Map with distinct port anchors, annotated nodes, maritime routes, and potential Arctic passages—then a Story cites the signed map inline.',
 		chapterHref: '#foundation',
 		chapterLabel: 'See how it stays yours',
 		video: {
 			label:
-				'Earthly AI creating a Belt and Road map, showing its actions, and publishing a Story with an inline Dataset reference',
+				'Earthly AI creating a Belt and Road Map, showing its actions, and publishing a Story with an inline Map reference',
 			mp4: 'ai-belt-road-story.mp4',
 			poster: 'ai-belt-road-story-poster.png',
 			webm: 'ai-belt-road-story.webm',
@@ -208,7 +208,7 @@ const heroStories: HeroStory[] = [
 		mobileStory: {
 			eyebrow: 'W TREK / TORRES DEL PAINE',
 			title: 'A safer trail starts under your finger.',
-			copy: 'Lose the signal, keep the map, and place the detail exactly where your group needs it.',
+			copy: 'Lose the signal, keep the map, and place the detail exactly where your Circle needs it.',
 			actions: [
 				{ icon: WifiOff, label: 'Offline' },
 				{ icon: MapPin, label: 'Magnify' },
@@ -598,7 +598,7 @@ const tourPromises = [
 		icon: Network,
 		kicker: 'Verifiable',
 		title: 'Publish signed events',
-		copy: 'Versioned geographic entities travel through the open Nostr network.',
+		copy: 'Replaceable geographic records travel through the open Nostr network.',
 	},
 	{
 		icon: MessageCircle,
@@ -626,7 +626,7 @@ const useCases = [
 		number: '02',
 		icon: Compass,
 		title: 'Field knowledge that comes home',
-		copy: 'Capture sightings, photos, notes, and live beacons on location—then keep the geometry with the conversation.',
+		copy: 'Capture sightings, photos, notes, and live positions on location—then keep the geometry with its Thread.',
 		tags: ['ecology', 'surveys', 'expeditions'],
 	},
 	{
@@ -771,8 +771,8 @@ export function TourPage() {
 						<h2 id="create-heading">Build a map people can actually use.</h2>
 						<p>
 							Import what you already have or draw directly on the map. Earthly keeps the geometry,
-							properties, layers, and publishing flow in one workspace, so a sketch can become a
-							durable dataset without changing tools.
+							properties, layers, and publishing flow together, so a sketch can become a durable Map
+							without changing tools.
 						</p>
 					</div>
 					<div className="tour-chapter-index">
@@ -825,8 +825,8 @@ export function TourPage() {
 							<span className="tour-detail-number">C</span>
 							<h3>Publish with provenance</h3>
 							<p>
-								Every public entity is signed and versioned, giving shared geography an attributable
-								history.
+								Every public entity is signed, giving shared geography clear authorship and
+								provenance.
 							</p>
 						</article>
 					</div>
@@ -842,8 +842,8 @@ export function TourPage() {
 							<h3 id="analyze-heading">Ask the map to do the legwork.</h3>
 							<p>
 								Earthly can turn an ordinary life question into editable spatial analysis. The
-								answer is not a screenshot: the travel-time area, destination, parks, groceries, and
-								transit stops all remain map features.
+								answer is not a screenshot: the travel-time area, chosen place, parks, groceries,
+								and transit stops all remain map features.
 							</p>
 							<blockquote>
 								“Show me where to look for a flat in Porto if I want to cycle to Casa da Música in
@@ -914,25 +914,25 @@ export function TourPage() {
 						<p className="tour-kicker">The visitor’s map</p>
 						<h2 id="participate-heading">
 							A pin can carry
-							<br />a conversation.
+							<br />a Thread.
 						</h2>
 						<p>
 							On mobile, the map becomes a social surface. Open a stage, comment with a precise
-							point attached, then share that location with someone else. The context travels with
-							the link.
+							point attached, then share that location with someone else. The place note travels
+							with the link.
 						</p>
 						<ol className="tour-steps">
 							<li>
 								<span>1</span>
 								<div>
 									<strong>Find the place</strong>
-									<p>Open the shared festival dataset on the mobile map.</p>
+									<p>Open the shared festival Map on mobile.</p>
 								</div>
 							</li>
 							<li>
 								<span>2</span>
 								<div>
-									<strong>Add local context</strong>
+									<strong>Add local detail</strong>
 									<p>Write a comment and attach the exact meeting point.</p>
 								</div>
 							</li>
@@ -1061,7 +1061,7 @@ export function TourPage() {
 							<CheckCircle2 aria-hidden="true" />
 							<span>03 / ACCEPT</span>
 							<h3>Publish a signed revision</h3>
-							<p>Acceptance creates an attributable update to the canonical Dataset.</p>
+							<p>Acceptance creates an attributable update to the canonical Map.</p>
 						</article>
 					</section>
 				</section>
@@ -1099,7 +1099,7 @@ export function TourPage() {
 								<code>DESKTOP → MOBILE · ACTUAL UI</code>
 							</div>
 							<ProductFilm
-								label="Earthly editor publishing a Galápagos evolution Story whose inline Dataset and Sierra Negra references open on a student's phone"
+								label="Earthly editor publishing a Galápagos evolution Story whose inline Map and Sierra Negra references open on a student's phone"
 								mp4="story-to-map.mp4"
 								poster="story-to-map-poster.png"
 								webm="story-to-map.webm"
@@ -1119,13 +1119,13 @@ export function TourPage() {
 							<BookOpen aria-hidden="true" />
 							<span>01 / READ</span>
 							<h3>Begin with a question</h3>
-							<p>The Story gives the map a thesis, context, and sources—not just a title.</p>
+							<p>The Story gives the map a thesis, framing, and sources—not just a title.</p>
 						</article>
 						<article>
 							<NotebookTabs aria-hidden="true" />
 							<span>02 / REVEAL</span>
 							<h3>Open the referenced atlas</h3>
-							<p>An inline Dataset becomes a visible layer without leaving the reading flow.</p>
+							<p>An inline Map becomes a visible layer without leaving the reading flow.</p>
 						</article>
 						<article>
 							<ScanSearch aria-hidden="true" />
@@ -1148,8 +1148,8 @@ export function TourPage() {
 						</div>
 						<p>
 							Earthly is not a proprietary map format with collaboration bolted on. Portable
-							geometry is the base; signed, relayable events carry the people, revisions, and
-							conversation around it.
+							geometry is the base; signed, relayable events carry the people, authorship, and Thread
+							around it.
 						</p>
 					</div>
 
@@ -1162,14 +1162,14 @@ export function TourPage() {
 						</article>
 						<ChevronRight aria-hidden="true" />
 						<article>
-							<span>IDENTITY / HISTORY</span>
+							<span>IDENTITY / PROVENANCE</span>
 							<Radio aria-hidden="true" />
 							<h3>Signed Nostr events</h3>
-							<p>Datasets, comments, stories, and revisions retain authorship.</p>
+							<p>Maps, comments, and Stories retain authorship.</p>
 						</article>
 						<ChevronRight aria-hidden="true" />
 						<article>
-							<span>DELIVERY / CONTEXT</span>
+							<span>DELIVERY / PLACE</span>
 							<Network aria-hidden="true" />
 							<h3>Relays &amp; devices</h3>
 							<p>Publish publicly, work privately, or collaborate over a nearby node.</p>
@@ -1228,7 +1228,7 @@ export function TourPage() {
 						<h2 id="apps-heading">Take Earthly beyond the browser.</h2>
 						<p>
 							The web app is the quickest way into a public map. Install Earthly when you need
-							nearby Field sessions, saved offline regions, and a durable native delivery queue.
+							Nearby sessions, saved offline regions, and a durable native delivery queue.
 						</p>
 					</div>
 					<div className="tour-download-cards">
@@ -1264,7 +1264,7 @@ export function TourPage() {
 								</span>
 							</div>
 							<p>
-								Keep the full desktop workspace while adding local services, Field sessions, and
+								Keep the full desktop experience while adding local services, Nearby sessions, and
 								native offline storage on Apple silicon.
 							</p>
 							<div className="tour-download-actions">
@@ -1294,8 +1294,8 @@ export function TourPage() {
 							Open Earthly
 							<ArrowRight aria-hidden="true" />
 						</a>
-						<a className="tour-button tour-button-secondary" href="/datasets">
-							Explore public datasets
+						<a className="tour-button tour-button-secondary" href="/browse/maps">
+							Explore public Maps
 							<MapIcon aria-hidden="true" />
 						</a>
 					</div>

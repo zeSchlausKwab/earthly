@@ -76,13 +76,13 @@ export function useFieldSessionTransport(session?: FieldSessionRecord) {
 	const publishEvent = useCallback(
 		async (event: NostrEvent) => {
 			if (!sessionId || !sessionRole || !hostNodeId) {
-				throw new Error('Open a Field session before saving nearby records')
+				throw new Error('Open Nearby before saving nearby records')
 			}
 			if (!verifyEvent(event) || fieldSessionIdForEvent(event) !== sessionId) {
-				throw new Error('The signed record is not scoped to this Field session')
+				throw new Error('The signed record is not scoped to this Nearby session')
 			}
 			const service = await getLocalNodeService()
-			if (!service.supported) throw new Error('Field sessions require the Earthly app')
+			if (!service.supported) throw new Error('Nearby requires the Earthly app')
 			if (sessionRole === 'host') {
 				await service.ingestLocalEvent(event)
 			} else {

@@ -12,7 +12,14 @@ export {
 	warmOGCache,
 } from './cache'
 export {
+	createBeaconOGMeta,
+	createContextOGMeta,
+	createGeoEventOGMeta,
+	createStoryOGMeta,
+	createStoryReadOGMeta,
+	createSightingOGMeta,
 	generateOGHtml,
+	generateOGHeadTags,
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
 	generateContextOGHtml,
@@ -21,6 +28,14 @@ export {
 	generateStoryOGHtml,
 	type OGMeta,
 } from './template'
+export {
+	generateEntityAppShell,
+	generateStoryReadAppShell,
+	injectOGMetadataIntoAppShell,
+	isNaddrForKind,
+	isStoryReadAddress,
+	type StoryReadAppShellOptions,
+} from './appShell'
 export {
 	decodeNaddr,
 	fetchGeoEventOGData,

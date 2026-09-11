@@ -34,9 +34,9 @@ describe('mobile sheet presentation', () => {
 		expect(mobileSheetInnerSurfaceClassName(false).split(' ')).toContain('bg-card')
 	})
 
-	test('keeps the workspace close label stable without erasing specific sheet names', () => {
-		expect(mobileSheetCloseLabel(true, 'Edit')).toBe('Close map workspace')
-		expect(mobileSheetCloseLabel(false, 'Datasets')).toBe('Close Datasets')
+	test('keeps the Map-tools close label stable without erasing specific sheet names', () => {
+		expect(mobileSheetCloseLabel(true, 'Edit')).toBe('Close Map tools')
+		expect(mobileSheetCloseLabel(false, 'Maps')).toBe('Close Maps')
 	})
 
 	test('draws flexible compact tabs inside 44px touch targets', () => {

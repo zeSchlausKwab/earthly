@@ -1,3 +1,5 @@
+import { transferFromResult } from '@/components/entity-list/entityTransfer'
+import { beaconToSearchResult } from '@/components/entity-search/types'
 import type { ColumnDef } from '@tanstack/react-table'
 import { MapPlus, Power, Radio } from 'lucide-react'
 import { useEffect, useRef } from 'react'
@@ -52,7 +54,7 @@ function BeaconListRow({ row, context }: { row: BeaconRowData; context: BeaconCo
 	}, [isSelected])
 
 	return (
-		<ListRow
+		<ListRow dragItem={transferFromResult(beaconToSearchResult(beacon))}
 			rowRef={rowRef}
 			leading={
 				<div
@@ -72,9 +74,21 @@ function BeaconListRow({ row, context }: { row: BeaconRowData; context: BeaconCo
 			// the shared amber wash for consistency with the other rails.
 			selected={isSelected || (isOwner && isLive)}
 			selectedClassName={isLive ? 'border-l-ok bg-ok/[0.08]' : undefined}
-			onTitleClick={() => context.onOpen(beacon)}
+			onTitleClick={() => {
+				context.onAddToMapStack?.(beacon)
+				context.onOpen(beacon)
+			}}
 			titleAriaLabel={`Open beacon ${label}`}
-			titleTitle="Open beacon"
+			titleTitle="Open live position"
+			primaryAction={
+				context.onWatch ? (
+					<RowActionButton
+						icon={ZoomActionIcon}
+						label="Watch on map"
+						onClick={() => context.onWatch?.(beacon)}
+					/>
+				) : undefined
+			}
 			badges={<RowBadge label={chip.label} className={chip.className} />}
 			meta={
 				<>
@@ -101,21 +115,21 @@ function BeaconListRow({ row, context }: { row: BeaconRowData; context: BeaconCo
 					{context.onAddToMapStack ? (
 						<RowActionButton
 							icon={MapPlus}
-							label="Add to map stack"
+							label="Show on map"
 							hover="hover:text-ok"
 							onClick={() => context.onAddToMapStack?.(beacon)}
 						/>
 					) : null}
 					<RowActionButton
 						icon={InspectActionIcon}
-						label="Open beacon"
+						label="Open live position"
 						hover="hover:text-ok"
 						onClick={() => context.onOpen(beacon)}
 					/>
 					{isOwner && context.onAdjust ? (
 						<RowActionButton
 							icon={LoadEditorActionIcon}
-							label="Adjust beacon"
+							label="Adjust live position"
 							onClick={() => context.onAdjust?.(beacon)}
 						/>
 					) : null}

@@ -243,13 +243,13 @@ const IS_POINT_GEOMETRY: ExpressionSpecification = [
  * the marker ('top' anchor = text below the anchor point) so the glyph/circle
  * stays readable; line/polygon labels keep the centered placement.
  */
-export function pointLabelAnchorExpression(): DataDrivenPropertyValueSpecification<string> {
+export function pointLabelAnchorExpression(): DataDrivenPropertyValueSpecification<'top' | 'center'> {
 	return [
 		'case',
 		IS_POINT_GEOMETRY,
 		'top',
 		'center',
-	] as unknown as DataDrivenPropertyValueSpecification<string>
+	] as unknown as DataDrivenPropertyValueSpecification<'top' | 'center'>
 }
 
 /**

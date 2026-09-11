@@ -929,6 +929,7 @@ export class GeoEditor {
 				}
 			}
 			this.render()
+			this.emitDrawChange()
 		} else if (this.mode === 'draw_polygon') {
 			const feature = this.drawPolygonMode.onKeyDown(e)
 			if (feature) {
@@ -936,6 +937,7 @@ export class GeoEditor {
 				this.emit('create', { type: 'create', features: [feature] })
 			}
 			this.render()
+			this.emitDrawChange()
 		} else if (this.mode === 'draw_primitive') {
 			const feature = this.drawPrimitiveMode.onKeyDown(e)
 			if (feature) {
@@ -1689,6 +1691,31 @@ export class GeoEditor {
 			return this.drawPolygonMode.getCoordinates().length >= this.DRAW_MIN_POLYGON_POINTS
 		}
 		return false
+	}
+
+	/** Committed vertices only: the pointer preview is never part of this count. */
+	getDrawingPointCount(): number {
+		if (this.mode === 'draw_linestring') return this.drawLineMode.getCoordinates().length
+		if (this.mode === 'draw_polygon') return this.drawPolygonMode.getCoordinates().length
+		return 0
+	}
+
+	/** Undo an unfinished vertex without undoing an already saved feature. */
+	undoDrawingPoint(): boolean {
+		if (this.getDrawingPointCount() === 0) return false
+		const drawingMode = this.mode === 'draw_polygon' ? this.drawPolygonMode : this.drawLineMode
+		drawingMode.onKeyDown({ key: 'Backspace' } as KeyboardEvent)
+		this.render()
+		this.emitDrawChange()
+		return true
+	}
+
+	/** Leave the current gesture without touching completed draft features. */
+	cancelDrawing(): void {
+		if (this.geometryOperation) this.cancelGeometryOperation()
+		if (this.isDrawMode(this.mode)) this.setMode('select')
+		this.render()
+		this.emitDrawChange()
 	}
 
 	finishDrawing(): EditorFeature | null {

@@ -1,3 +1,4 @@
+import { EntityDragHandle } from '@/components/entity-list/EntityDragHandle'
 import {
 	AlertTriangle,
 	ArrowDown,
@@ -19,7 +20,7 @@ import type { EditorFeature } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { parseCustomValue } from '@/features/geo-editor/utils'
 import { cn } from '@/lib/utils'
-import { GeoRichTextEditor, type GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import { GeoRichTextEditor, type GeoFeatureItem } from '@/components/editor/DeferredGeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -149,6 +150,7 @@ function FeatureRow({
 	annotationTextareaRef,
 }: FeatureRowProps) {
 	const editor = useEditorStore((state) => state.editor)
+	const workspaceId = useEditorStore(state => state.activeWorkspaceId)
 	const [dropPlacement, setDropPlacement] = useState<GeometryDropPlacement | null>(null)
 
 	// Local state for new property - each row has its own
@@ -276,7 +278,8 @@ function FeatureRow({
 		>
 			{/* Row header */}
 			<div className="flex items-center gap-1 px-1.5 py-1">
-				<button
+{workspaceId ? <EntityDragHandle item={{ id: `feature:${workspaceId}:${feature.id}`, type: 'feature', name, localWorkspaceId: workspaceId, featureId: String(feature.id) }}
+ onDragStart={event => event.dataTransfer.setData(GEOMETRY_REORDER_MIME, feature.id)}/> : <button
 					type="button"
 					draggable
 					className="flex h-7 w-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground hover:text-foreground active:cursor-grabbing"
@@ -289,7 +292,7 @@ function FeatureRow({
 					title="Drag to reorder"
 				>
 					<GripVertical className="h-3.5 w-3.5" />
-				</button>
+				</button>}
 				<Button
 					type="button"
 					variant="ghost"
@@ -450,7 +453,7 @@ function FeatureRow({
 						<div className="rounded border border-primary/40 bg-primary/10 px-2 py-1">
 							<div className="mb-1 flex items-center gap-1 text-[10px] font-medium text-primary uppercase tracking-wide">
 								<AlertTriangle className="h-3 w-3" />
-								Context warnings
+								Atlas warnings
 							</div>
 							<div className="space-y-0.5 text-[10px] text-primary">
 								{validationIssues?.slice(0, 3).map((issue) => (

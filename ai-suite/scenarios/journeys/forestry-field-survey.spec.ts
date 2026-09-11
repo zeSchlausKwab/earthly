@@ -81,14 +81,14 @@ test('a forestry plan reaches the browser/native handoff and the field host can 
 			'The authoritative survey boundary exists as an ordinary public Dataset.',
 		)
 
-		await openPanel(earthly, 'Field sessions')
+		await openPanel(earthly, 'Nearby')
 		await expect(earthly.page.getByText('Earthly app required', { exact: true })).toBeVisible()
 		await plannerRecorder.observe(
 			'planner-native-boundary',
 			'The browser explains the native boundary but offers no handoff for the Dataset just prepared.',
 		)
 
-		await openPanel(fieldDevice, 'Field sessions')
+		await openPanel(fieldDevice, 'Nearby')
 		await hostRecorder.observe(
 			'field-device-entry',
 			'The app-shaped surface explains a shared nearby workspace and host policy.',

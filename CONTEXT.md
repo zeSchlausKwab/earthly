@@ -2,11 +2,15 @@
 
 This document defines the product terms used when Earthly authors map data. It is intentionally narrower than the implementation vocabulary.
 
+The [Map with a Margin spec](docs/MAP-WITH-A-MARGIN-SPEC.md) is the authority for the rewrite's product nouns, routes, and panel layout. Legacy implementation terms below do not override it: Dataset → Map, Context → Atlas, Map Stack → Shelf, Inspector → Margin, conversation → Thread, and destination controls → the working copy's Publish menu.
+
 ## Local draft
 
 A **local draft** is recoverable, unpublished work saved on the current device for the active account. A geometry draft owns its features, metadata, external file references, context attachments, and publish channel.
 
 Use **Local drafts** or **Saved work** in the UI. Do not call this a workspace. `GeoEditorWorkspace` remains an internal compatibility name for the index that groups revisions of one local draft.
+
+A published Map can still have a retained local draft. **Published** means its draft matches the last known publication when comparison is available; **Unpublished changes** means its content differs. Selection and opening an editor do not count as changes. If an older draft's published source is unavailable, comparison is explicitly unknown. The inventory normally shows one row per Map; saved alternatives are disclosed only when they exist, not as a redundant single-draft container.
 
 ## Publish channel
 
@@ -45,21 +49,23 @@ The Local drafts panel is the recovery surface for that classification. It lets 
 
 The indicator's close action leaves the current destination or scope while preserving saved work. Leaving Private or Nearby never converts that draft to Public. A separate, explicit destination-change action is required for conversion.
 
-## Conversation
+## Thread
 
-A **conversation** is a durable Chat transcript with its own read-only references and AI-run history. Its place on the left or right of the map is presentation only.
+A **Thread** is a durable conversation about a piece of work, with its own working set, read-only references, and AI-run history. One Thread may work on several Maps and Stories; viewing another object, publishing a draft, or moving the Thread does not change its identity.
 
-Selecting, creating, moving, or closing the visible Chat surface must not create, switch, close, or retarget authoring work. Likewise, selecting an Inspector or edit surface must not change or cancel a conversation.
+**Working set**: The named local drafts a Thread is explicitly allowed to change. A reference, visible layer, or inspected object is not a working-set member merely because the user can see it.
 
-Before a conversation can send a prompt, the user must explicitly bind it to a valid retained Dataset edit state with **New map** or **Use current edit**. A visible edit state does not imply consent to bind it, and Earthly never creates, repairs, or changes this target automatically. An unbound or stale conversation remains readable and composable, but starting an AI request is unavailable until the user chooses a target; the unsent prompt is preserved.
+**Viewing**: The object currently shown in the panel. **Drawing into**: The single Map receiving manual geometry; neither determines which drafts a Thread may change.
 
-A conversation may refer to any number of published entities. A reference supplies read-only context; it never grants permission to edit, update, fork, attach, or show the entity on the map.
+**Thread reference**: Read-only source material explicitly supplied to a Thread, including foreign Maps, individual features, Stories, and local drafts. A feature reference retains its feature scope; presentation overrides belong to the consuming Story, never to the source.
+
+**AI changes**: Suggested or applied changes to local drafts. These are distinct from an **edit proposal** sent to another author and from **publication** to an audience.
 
 ## Edit state
 
 An **edit state** is retained authoring work for a Dataset, Story, or Context. It owns its local draft and remains alive when another sidebar surface is selected.
 
-Selecting an edit-state button changes which retained authoring surface is visible. It does not start a conversation, close another edit state, or publish anything. A Dataset edit is the one deliberate Map Stack exception: while it is the active authoring surface, Earthly maintains exactly one visible draft row and renders its geometry. Story and Context edit states do not change the Map Stack. A visible activity indicator may show that an AI run is working on an edit state without forcing it open.
+Selecting an edit-state button changes which retained authoring surface is visible. It does not start a conversation, close another edit state, or publish anything. Explicitly opening a Dataset edit reveals its single draft row and replaces its published twin on the canvas. After that, Eye hides/shows its geometry, and Remove or Clear takes it off the canvas without discarding saved work, closing Chat, or changing AI editing permissions. Background draft updates must respect that choice; explicitly reopening the draft reveals it again. Story and Context edit states do not change the Map Stack. A visible activity indicator may show that an AI run is working on an edit state without forcing it open.
 
 ## Inspector
 
@@ -69,15 +75,15 @@ In particular, inspection does not change browse scope, create or retarget a loc
 
 ## AI run
 
-An **AI run** is one execution owned by a conversation and bound to the exact authoring target captured when the user sends the prompt. No run or model request begins without that explicit target. Navigation is presentation-only: changing conversations, Inspectors, edit surfaces, or entities never cancels or retargets the run.
+An **AI run** is one execution owned by a Thread with its reading context and permitted working set captured when the user sends. Read-only runs need no editing target; creating requested new local drafts requires creation permission, and changing existing objects requires an explicit working-set member.
 
 Earthly initially executes at most one AI run globally. Other conversations remain browsable and composable while it works, but cannot start another run until it finishes or is stopped. The owning conversation and target edit state display the run's current status.
 
 ## Referenceable publication
 
-A Dataset or feature becomes **referenceable** only after the current local draft version containing it has been published. A new or dirty local draft is not referenceable, even if an older version of the same Dataset is already published.
+A **publication reference** identifies published source material. A **local draft reference** identifies unpublished work during authoring and must be resolved before its consumer is published; referring to local work does not itself publish it.
 
-When an operation needs such a reference, Earthly pauses that exact operation and asks the user to **Publish and continue**. Successful publication resumes the operation with the resulting stable reference; cancellation creates no reference. The request remains bound to the captured local draft even if the user navigates elsewhere.
+Publication of dependent objects retains each object's audience and reports each result separately. A reference never silently converts private work to public material.
 
 ## Delete
 

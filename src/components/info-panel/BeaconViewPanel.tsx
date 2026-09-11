@@ -35,6 +35,7 @@
 import { unixNow } from 'applesauce-core/helpers/time'
 import { LocateFixed, MapPlus, Navigation, Pencil } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { earthlyPublicUrl } from '@/platform/publicUrl'
 import { Badge } from '@/components/ui/badge'
@@ -61,8 +62,11 @@ import {
 } from '@/lib/nostr/live-beacon'
 import { formatExpiryCountdown, formatRelativeDate } from '@/lib/nostr/temporal-sighting'
 import { cn } from '@/lib/utils'
+import type { EarthlyObjectTab } from '@/router/routeContract'
 import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
+import { ObjectTabs, ThreadTabNotice } from './ObjectTabs'
+import { useObjectContentTab } from './ObjectThreadPlacement'
 
 interface BeaconViewPanelProps {
 	/** The beacon being viewed (cast). Absent ⇒ empty fallback. */
@@ -99,6 +103,9 @@ interface BeaconViewPanelProps {
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	/** Route-backed social-object tab. Omit to let the panel manage it locally. */
+	objectTab?: EarthlyObjectTab
+	onObjectTabChange?: (tab: EarthlyObjectTab) => void
 }
 
 function EndedOrEmpty({ heading, body }: { heading: string; body: string }) {
@@ -146,12 +153,22 @@ export function BeaconViewPanel({
 	onZoomToBounds,
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	objectTab,
+	onObjectTabChange,
 }: BeaconViewPanelProps) {
+	const [uncontrolledObjectTab, setUncontrolledObjectTab] = useState<EarthlyObjectTab>('details')
+	const activeObjectTab = objectTab ?? uncontrolledObjectTab
+	const contentTab = useObjectContentTab(activeObjectTab)
+	const setActiveObjectTab = (tab: EarthlyObjectTab) => {
+		if (objectTab === undefined) setUncontrolledObjectTab(tab)
+		onObjectTabChange?.(tab)
+	}
+
 	if (!beacon) {
 		return (
 			<EndedOrEmpty
-				heading="No beacon selected"
-				body="No beacon selected. Pick a beacon from the Beacons panel, or share your own live location."
+				heading="No live position selected"
+				body="No live position selected. Pick one from Live positions, or share your own location."
 			/>
 		)
 	}
@@ -162,7 +179,7 @@ export function BeaconViewPanel({
 	// content — show the terminal copy instead. Gated independently of the
 	// subscription drop.
 	if (isExpired(beacon.event, now)) {
-		return <EndedOrEmpty heading="Beacon ended" body="This beacon has ended." />
+		return <EndedOrEmpty heading="Live position ended" body="This live position has ended." />
 	}
 
 	const label = beacon.beacon.label?.trim() || beacon.dTag || 'Live location'
@@ -178,7 +195,7 @@ export function BeaconViewPanel({
 	const handleCopyShareLink = () => {
 		const dTag = beacon.dTag
 		if (!dTag) {
-			toast.error("This beacon can't be shared — it has no address.")
+			toast.error("This live position can't be shared — it has no address.")
 			return
 		}
 		try {
@@ -206,140 +223,139 @@ export function BeaconViewPanel({
 	}
 
 	return (
-		<EntityPanelShell title={label}>
-			<div className="space-y-3 text-[13px]">
-				<EntityPanelSurface tone="context" className="space-y-3">
-					<EntityPanelSectionHeader
-						eyebrow="Beacon"
-						title={label}
-						action={
-							onZoomTo || (isOwner && (onAdjustBeacon || onStopBeacon)) ? (
-								<div className="flex items-center gap-2">
-									{onZoomTo && (
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											onClick={onZoomTo}
-											className="gap-1 rounded-none px-2 text-[11px]"
-											title="Watch on map"
-										>
-											<LocateFixed className="h-3 w-3" />
-											Watch
-										</Button>
-									)}
-									{isOwner && onAdjustBeacon && (
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											onClick={() => onAdjustBeacon(beacon)}
-											className="gap-1 rounded-none px-2 text-[11px]"
-										>
-											<Pencil className="h-3 w-3" />
-											Adjust
-										</Button>
-									)}
-									{/* Stop is the ONLY teardown — destructive-toned alert-dialog with the
+		<EntityPanelShell
+			contained={contentTab === 'comments'}
+			title={label}
+			tabs={<ObjectTabs value={activeObjectTab} onValueChange={setActiveObjectTab} />}
+		>
+			{contentTab === 'details' ? (
+				<div className="space-y-3 text-[13px]">
+					<EntityPanelSurface tone="context" className="space-y-3">
+						<EntityPanelSectionHeader
+							eyebrow="Live position"
+							title={label}
+							action={
+								onZoomTo || (isOwner && (onAdjustBeacon || onStopBeacon)) ? (
+									<div className="flex items-center gap-2">
+										{onZoomTo && (
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												onClick={onZoomTo}
+												className="gap-1 rounded-none px-2 text-[11px]"
+												title="Watch on map"
+											>
+												<LocateFixed className="h-3 w-3" />
+												Watch
+											</Button>
+										)}
+										{isOwner && onAdjustBeacon && (
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												onClick={() => onAdjustBeacon(beacon)}
+												className="gap-1 rounded-none px-2 text-[11px]"
+											>
+												<Pencil className="h-3 w-3" />
+												Adjust
+											</Button>
+										)}
+										{/* Stop is the ONLY teardown — destructive-toned alert-dialog with the
 									    no-delete recap. There is NO Delete action (D-04/D-06). */}
-									{isOwner && onStopBeacon && (
-										<AlertDialog>
-											<AlertDialogTrigger asChild>
-												<Button
-													type="button"
-													variant="destructive"
-													size="sm"
-													className="rounded-none px-2 text-[11px]"
-												>
-													Stop sharing
-												</Button>
-											</AlertDialogTrigger>
-											<AlertDialogContent>
-												<AlertDialogHeader>
-													<AlertDialogTitle>Stop sharing your location?</AlertDialogTitle>
-													<AlertDialogDescription>
-														Your last point stays visible until your time box runs out, then it's
-														gone. You can't remove it sooner.
-													</AlertDialogDescription>
-												</AlertDialogHeader>
-												<AlertDialogFooter>
-													<AlertDialogCancel>Keep sharing</AlertDialogCancel>
-													<AlertDialogAction onClick={() => onStopBeacon(beacon)}>
+										{isOwner && onStopBeacon && (
+											<AlertDialog>
+												<AlertDialogTrigger asChild>
+													<Button
+														type="button"
+														variant="destructive"
+														size="sm"
+														className="rounded-none px-2 text-[11px]"
+													>
 														Stop sharing
-													</AlertDialogAction>
-												</AlertDialogFooter>
-											</AlertDialogContent>
-										</AlertDialog>
-									)}
-								</div>
-							) : undefined
-						}
-					/>
+													</Button>
+												</AlertDialogTrigger>
+												<AlertDialogContent>
+													<AlertDialogHeader>
+														<AlertDialogTitle>Stop sharing your location?</AlertDialogTitle>
+														<AlertDialogDescription>
+															Your last point stays visible until your time box runs out, then it's
+															gone. You can't remove it sooner.
+														</AlertDialogDescription>
+													</AlertDialogHeader>
+													<AlertDialogFooter>
+														<AlertDialogCancel>Keep sharing</AlertDialogCancel>
+														<AlertDialogAction onClick={() => onStopBeacon(beacon)}>
+															Stop sharing
+														</AlertDialogAction>
+													</AlertDialogFooter>
+												</AlertDialogContent>
+											</AlertDialog>
+										)}
+									</div>
+								) : undefined
+							}
+						/>
 
-					{/* Status chip + last-seen (primary) + countdown (secondary). */}
-					<div className="flex flex-wrap items-center gap-2">
-						{isLive ? (
-							<Badge className={chip.className}>{chip.label}</Badge>
-						) : (
-							<span className={cn(chip.className, 'px-1.5 py-0.5')}>{chip.label}</span>
-						)}
-						<span className="text-[12px] text-muted-foreground">
-							{state === 'ended' ? `ended ${lastSeen}` : `last seen ${lastSeen}`}
-						</span>
-						{countdown ? (
-							<span className="text-[11px] text-muted-foreground">{countdown}</span>
-						) : null}
-					</div>
+						{/* Status chip + last-seen (primary) + countdown (secondary). */}
+						<div className="flex flex-wrap items-center gap-2">
+							{isLive ? (
+								<Badge className={chip.className}>{chip.label}</Badge>
+							) : (
+								<span className={cn(chip.className, 'px-1.5 py-0.5')}>{chip.label}</span>
+							)}
+							<span className="text-[12px] text-muted-foreground">
+								{state === 'ended' ? `ended ${lastSeen}` : `last seen ${lastSeen}`}
+							</span>
+							{countdown ? (
+								<span className="text-[11px] text-muted-foreground">{countdown}</span>
+							) : null}
+						</div>
 
-					{/* Follow — keep the map centered on the beacon as it moves. Auto-off
+						{/* Follow — keep the map centered on the beacon as it moves. Auto-off
 					    on a manual pan (handled by the map owner). Only for a live beacon. */}
-					{onToggleFollow && isLive ? (
-						<Button
-							type="button"
-							variant={isFollowing ? 'default' : 'outline'}
-							onClick={onToggleFollow}
-							aria-pressed={isFollowing}
-							className="w-full gap-2 rounded-none"
-						>
-							<Navigation className="h-4 w-4" />
-							{isFollowing ? 'Following — tap to stop' : 'Follow on map'}
-						</Button>
-					) : null}
+						{onToggleFollow && isLive ? (
+							<Button
+								type="button"
+								variant={isFollowing ? 'default' : 'outline'}
+								onClick={onToggleFollow}
+								aria-pressed={isFollowing}
+								className="w-full gap-2 rounded-none"
+							>
+								<Navigation className="h-4 w-4" />
+								{isFollowing ? 'Following — tap to stop' : 'Follow on map'}
+							</Button>
+						) : null}
 
-					{/* Add to map stack (SPEC §3.4) + Copy share link. Add-to-stack lands a
+						{/* Add to map stack (SPEC §3.4) + Copy share link. Add-to-stack lands a
 					    normal, non-isolated visible entry so the beacon shows on the map
 					    without going solo (unlike a deep link). Only when the handler is wired. */}
-					<div className="flex flex-col gap-2">
-						{onAddToMapStack ? (
+						<div className="flex flex-col gap-2">
+							{onAddToMapStack ? (
+								<Button
+									type="button"
+									variant="outline"
+									onClick={() => onAddToMapStack(beacon)}
+									className="w-full gap-1 rounded-none"
+								>
+									<MapPlus className="h-4 w-4" />
+									Show on map
+								</Button>
+							) : null}
 							<Button
 								type="button"
 								variant="outline"
-								onClick={() => onAddToMapStack(beacon)}
-								className="w-full gap-1 rounded-none"
+								onClick={handleCopyShareLink}
+								className="w-full rounded-none"
 							>
-								<MapPlus className="h-4 w-4" />
-								Add to map stack
+								Copy share link
 							</Button>
-						) : null}
-						<Button
-							type="button"
-							variant="outline"
-							onClick={handleCopyShareLink}
-							className="w-full rounded-none"
-						>
-							Copy share link
-						</Button>
-					</div>
-				</EntityPanelSurface>
-
-				{/* Comment + react on the beacon 37521 coordinate (XCUT-01, D-06). The
-				    LiveBeacon cast is a kind-LIVE_BEACON_KIND (37521) event, so
-				    CommentsPanel roots the comment at `target.kind === 37521` directly —
-				    runtime rooting is kind-generic (Phase 8); only the type union widened.
-				    Reached only for a non-expired beacon (the isExpired gate above
-				    short-circuits an ended beacon before this renders). */}
-				<EntityPanelSurface tone="discussion" className="space-y-4">
-					<EntityPanelSectionHeader eyebrow="Discussion" title="Comments" />
+						</div>
+					</EntityPanelSurface>
+				</div>
+			) : contentTab === 'comments' ? (
+				<EntityPanelSurface tone="discussion" className="h-full min-h-0 px-0 py-2">
 					<CommentsPanel
 						key={beacon.id ?? beacon.dTag ?? 'no-beacon'}
 						target={beacon}
@@ -355,7 +371,9 @@ export function BeaconViewPanel({
 						focusCommentId={focusCommentId}
 					/>
 				</EntityPanelSurface>
-			</div>
+			) : (
+				<ThreadTabNotice />
+			)}
 		</EntityPanelShell>
 	)
 }

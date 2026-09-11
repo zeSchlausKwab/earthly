@@ -9,6 +9,7 @@ import { GeoEditor, type EditorFeature } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
 import type { CollectionMeta } from '@/features/geo-editor/types'
 import type { ToolExecutionRunIdentity } from './types'
+import { runWorkingSet, releaseRunOutputs } from '../workingSet'
 
 interface DatasetExecutionRuntime {
 	runId: number
@@ -32,6 +33,7 @@ interface DatasetExecutionRuntime {
 
 let runtime: DatasetExecutionRuntime | null = null
 let activeExecutionRun: ToolExecutionRunIdentity | null = null
+const suspendedRuntimes = new Map<string, DatasetExecutionRuntime>()
 const destroyedDetachedEditors = new WeakSet<GeoEditor>()
 
 function destroyDetachedEditor(editor: GeoEditor): void {
@@ -251,11 +253,30 @@ function ensureBrowserTimerSurface(): void {
  * workspace cannot retarget a later tool call or flash background geometry.
  */
 export function prepareToolExecutionRun(run: ToolExecutionRunIdentity): void {
-	if (activeExecutionRun?.runId === run.runId && activeExecutionRun.chatId === run.chatId) return
-	destroyDetachedRuntime()
+	if (
+		activeExecutionRun?.runId === run.runId &&
+		activeExecutionRun.chatId === run.chatId &&
+		activeExecutionRun.target.draftId === run.target.draftId &&
+		activeExecutionRun.target.workspaceId === run.target.workspaceId
+	)
+		return
+	const sameRun =
+		activeExecutionRun?.runId === run.runId && activeExecutionRun.chatId === run.chatId
+	if (sameRun && run.workingSet) {
+		if (runtime) suspendedRuntimes.set(runtime.draftId, runtime)
+		runtime = null
+	} else {
+		releaseToolExecutionRun()
+	}
 	activeExecutionRun = run
 	const target = run.target
 	if (target.entityType !== 'dataset' || !target.draftId) return
+	const suspended = suspendedRuntimes.get(target.draftId)
+	if (suspended) {
+		suspendedRuntimes.delete(target.draftId)
+		runtime = suspended
+		return
+	}
 	const draft = useEditorStore.getState().geoEditDrafts[target.draftId]
 	if (!draft || (target.sourceId !== null && draft.sourceId !== target.sourceId)) return
 
@@ -418,6 +439,25 @@ export function persistToolExecutionRun(
 	const featuresChanged = featuresKey !== currentRuntime.lastCommittedFeaturesKey
 	const metadataChanged = metadataKey !== currentRuntime.lastCommittedMetadataKey
 	const selectionChanged = selectionKey !== currentRuntime.lastCommittedSelectionKey
+	const restriction = runWorkingSet(run).find(
+		(item) => item.target.draftId === currentRuntime.draftId,
+	)?.featureIds
+	if (restriction && metadataChanged)
+		throw new ToolExecutionTargetPersistenceError(
+			'dataset_target_conflict',
+			'A feature-only grant cannot change Map-level metadata.',
+		)
+	if (restriction && featuresChanged) {
+		const allowed = new Set(restriction)
+		const outside = (items: readonly EditorFeature[]) =>
+			JSON.stringify(items.filter((item) => !allowed.has(item.id)))
+		if (outside(features) !== outside(currentRuntime.lastCommittedFeatures)) {
+			throw new ToolExecutionTargetPersistenceError(
+				'dataset_target_conflict',
+				'The change exceeds the explicitly selected features. No changes were applied.',
+			)
+		}
+	}
 	if (!featuresChanged && !metadataChanged && !selectionChanged) return null
 
 	const state = useEditorStore.getState()
@@ -610,8 +650,15 @@ export function isToolExecutionTargetRendered(
 
 export function releaseToolExecutionRun(runId?: number): void {
 	if (runId !== undefined && activeExecutionRun?.runId !== runId) return
+	if (activeExecutionRun) releaseRunOutputs(activeExecutionRun)
 	destroyDetachedRuntime()
+	for (const suspended of suspendedRuntimes.values()) destroyDetachedEditor(suspended.editor)
+	suspendedRuntimes.clear()
 	activeExecutionRun = null
+}
+
+export function isToolExecutionRunActive(run: ToolExecutionRunIdentity): boolean {
+	return activeExecutionRun?.runId === run.runId && activeExecutionRun.chatId === run.chatId
 }
 
 export function hasPreparedDatasetExecutionTarget(

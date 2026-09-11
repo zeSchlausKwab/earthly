@@ -14,7 +14,7 @@ import { completeTour, skipTour, startTour } from '../tasks/onboarding/tour'
 
 test('anonymous first visit can complete the tour', async ({ earthly }) => {
 	await earthly.open({ tour: 'new', discover: 'new' })
-	await expect(earthly.page.getByRole('dialog', { name: 'Discover Earthly' })).toBeVisible()
+	await expect(earthly.page.getByRole('region', { name: 'Welcome to Earthly' })).toBeVisible()
 	await startTour(earthly)
 	await expect(earthly.page.getByText('Welcome to Earthly')).toBeVisible()
 	await completeTour(earthly)
@@ -49,29 +49,33 @@ test('anonymous first visit can skip the tour', async ({ earthly }) => {
 	await expect(earthly.page.locator('.driver-popover')).toBeHidden()
 })
 
-test('Discover opens once automatically and remains available from navigation', async ({
+test('Welcome opens once; Discover remains available from navigation', async ({
 	earthly,
 }) => {
 	await earthly.open({ discover: 'new' })
 	const dialog = earthly.page.getByRole('dialog', { name: 'Discover Earthly' })
-	await expect(dialog).toBeVisible()
-	await earthly.page.getByRole('button', { name: 'Close Discover' }).click()
+	const welcome = earthly.page.getByRole('region', { name: 'Welcome to Earthly' })
+	await expect(welcome).toBeVisible()
+	await earthly.page.getByRole('button', { name: 'Dismiss welcome' }).click()
+	await expect(welcome).toBeHidden()
 	await expect(dialog).toBeHidden()
 	await expect
 		.poll(() => earthly.page.evaluate(() => localStorage.getItem('earthly-discover-welcome-v1')))
 		.toBe('seen')
 
 	await earthly.page.reload({ waitUntil: 'domcontentloaded' })
+	await expect(welcome).toBeHidden()
 	await expect(dialog).toBeHidden()
-	const pathname = await earthly.page.evaluate(() => location.pathname)
+	await openPanel(earthly, 'Settings')
+	const beforeDiscover = earthly.page.url()
 	await openDiscover(earthly)
 	await expect(dialog).toBeVisible()
-	await expect.poll(() => earthly.page.evaluate(() => location.pathname)).toBe(pathname)
+	await expect.poll(() => earthly.page.url()).toBe(beforeDiscover)
 })
 
 test('Contexts can be opened through the current viewport navigation', async ({ earthly }) => {
 	await earthly.open({ tour: 'seen' })
-	await openPanel(earthly, 'Contexts')
+	await openPanel(earthly, 'Atlases')
 })
 
 test('unfinished dataset is recoverable from Local drafts', async ({ earthly }) => {
@@ -82,7 +86,7 @@ test('unfinished dataset is recoverable from Local drafts', async ({ earthly }) 
 	if (earthly.isMobile) {
 		await earthly.page.getByRole('button', { name: 'More tools', exact: true }).click()
 		await earthly.page.getByRole('menuitem', { name: 'Exit editing', exact: true }).click()
-		await expect(earthly.page.getByRole('button', { name: 'Menu', exact: true })).toBeVisible()
+		await expect(earthly.page.getByRole('button', { name: /^(Your account:|Sign in$)/ })).toBeVisible()
 	}
 	await openPanel(earthly, 'Local drafts')
 	const panel = earthly.page.getByRole('region', { name: 'Local drafts' })
@@ -92,11 +96,11 @@ test('unfinished dataset is recoverable from Local drafts', async ({ earthly }) 
 	})
 	await expect(localDraftHeadings.first()).toBeVisible()
 	if (earthly.isMobile) await expect(localDraftHeadings).toHaveCount(1)
-	await expect(earthly.page.getByText(/saved on this device/i).first()).toBeVisible()
+	await expect(panel.getByText(/saved on this device/i)).toBeVisible()
 	const expandDrafts = panel.getByRole('button', { name: 'Expand saved drafts' }).first()
 	if (await expandDrafts.isVisible()) await expandDrafts.click()
 	const recoverableDraft = panel.getByRole('button', {
-		name: /^Recoverable trail sketch Public$/i,
+		name: /^Recoverable trail sketch\b/i,
 	})
 	await expect(recoverableDraft).toBeVisible()
 	if (earthly.isMobile) {
@@ -106,32 +110,52 @@ test('unfinished dataset is recoverable from Local drafts', async ({ earthly }) 
 	}
 })
 
-test('Private groups can be opened as a routed panel', async ({ earthly }) => {
+test('Publish menu owns the working copy audience', async ({ earthly }, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'Desktop toolbar contract')
 	await earthly.open({ tour: 'seen' })
-	await openPanel(earthly, 'Private groups')
+	await startDataset(earthly)
+	await expect(earthly.page.locator('[data-destination-kind]')).toHaveCount(0)
+
+	const audienceTrigger = earthly.page.getByRole('button', { name: /^(?:Audience|Publish)$/ }).first()
+	await expect(audienceTrigger).toBeVisible()
+	await audienceTrigger.click()
+	const audienceMenu = earthly.page.getByRole('menu')
+	await expect(audienceMenu.getByText('Audience', { exact: true })).toBeVisible()
+	await expect(audienceMenu.getByRole('menuitemradio', { name: 'Everyone' })).toHaveAttribute(
+		'data-state',
+		'checked',
+	)
+})
+
+test('Circles can be opened as a routed panel', async ({ earthly }) => {
+	await earthly.open({ tour: 'seen' })
+	await openPanel(earthly, 'Circles')
 	await expect(
 		earthly.page
 			.locator('h2:visible')
-			.filter({ hasText: /^Private groups$/ })
+			.filter({ hasText: /^Circles$/ })
 			.first(),
 	).toBeVisible()
 })
 
-test('Field sessions are a routed native workspace', async ({ earthly }) => {
+test('Nearby is a routed native surface', async ({ earthly }) => {
 	await earthly.open({ tour: 'seen' })
-	await openPanel(earthly, 'Field sessions')
+	await openPanel(earthly, 'Nearby')
+	const nearbySurface = earthly.isMobile
+		? earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
+		: earthly.page.getByRole('complementary', { name: 'Margin' })
 	await expect(
-		earthly.page
+		nearbySurface
 			.locator('h2:visible')
-			.filter({ hasText: /^Field sessions$/ })
+			.filter({ hasText: /^Nearby$/ })
 			.first(),
 	).toBeVisible()
-	await expect(earthly.page.getByText('Earthly app required', { exact: true })).toBeVisible()
-	await expect(earthly.page.getByRole('link', { name: 'Get Android app' })).toHaveAttribute(
+	await expect(nearbySurface.getByText('Earthly app required', { exact: true })).toBeVisible()
+	await expect(nearbySurface.getByRole('link', { name: 'Get Android app' })).toHaveAttribute(
 		'href',
 		/https:\/\/zapstore\.dev\/apps\//,
 	)
-	await expect(earthly.page.getByRole('link', { name: 'Download for macOS' })).toHaveAttribute(
+	await expect(nearbySurface.getByRole('link', { name: 'Download for macOS' })).toHaveAttribute(
 		'href',
 		/\/releases\/latest\/download\/earthly-macos-aarch64\.dmg$/,
 	)
@@ -142,12 +166,15 @@ test('Sync & delivery is reachable and describes browser delivery honestly', asy
 }) => {
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Sync & delivery')
+	const deliverySurface = earthly.isMobile
+		? earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
+		: earthly.page.getByRole('complementary', { name: 'Margin' })
 	await expect(
-		earthly.page.getByText('Available in the native Earthly apps', { exact: true }),
+		deliverySurface.getByText('Available in the native Earthly apps', { exact: true }),
 	).toBeVisible()
-	await expect(earthly.page.getByText(/web app publishes directly/i)).toBeVisible()
-	await expect(earthly.page.getByRole('link', { name: 'Get Android app' })).toBeVisible()
-	await expect(earthly.page.getByRole('link', { name: 'Download for macOS' })).toBeVisible()
+	await expect(deliverySurface.getByText(/web app publishes directly/i)).toBeVisible()
+	await expect(deliverySurface.getByRole('link', { name: 'Get Android app' })).toBeVisible()
+	await expect(deliverySurface.getByRole('link', { name: 'Download for macOS' })).toBeVisible()
 })
 
 test('the web app describes native offline sharing without pretending to host a node', async ({

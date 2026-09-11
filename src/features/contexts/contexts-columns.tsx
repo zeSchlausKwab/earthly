@@ -1,3 +1,5 @@
+import { transferFromResult } from '@/components/entity-list/entityTransfer'
+import { contextToSearchResult } from '@/components/entity-search/types'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Globe } from 'lucide-react'
 import {
@@ -12,6 +14,7 @@ import { ConfirmDeleteAction } from '@/components/info-panel/ConfirmDeleteAction
 import { UserProfile } from '@/components/user-profile'
 import { cn } from '@/lib/utils'
 import type { MapContext } from '@/lib/nostr/map-context'
+import { getGroupContent } from '@/lib/nostr/group'
 import { GeoSocialActions } from '../social/comments/GeoSocialActions'
 
 export interface ContextRowData {
@@ -39,6 +42,8 @@ export interface ContextColumnsContext {
 	deletingKey?: string | null
 	/** Round F.3: add/remove the context's stack entry (the primary row verb). */
 	onToggleContextOnMap?: (context: MapContext) => void
+	/** Idempotent add/show when opening an Atlas, independent of the visibility toggle. */
+	onShowContextOnMap?: (context: MapContext) => void
 	/** Round G.2: toggle catalog favorite (Star). */
 	onToggleCatalogPin?: (context: MapContext) => void
 	onOpenDebug?: (event: MapContext) => void
@@ -53,9 +58,6 @@ export const createContextColumns = (
 			const {
 				context: contextEvent,
 				contextName,
-				contextUse,
-				validationMode,
-				attachmentPolicy,
 				displayDepth,
 				displayParentName,
 				isCuratedChild,
@@ -65,12 +67,13 @@ export const createContextColumns = (
 				isCatalogPinned,
 			} = row.original
 			const image = contextEvent.context.image
+			const governance = getGroupContent(contextEvent.rawEvent()).governance
 			const contextKey = contextEvent.contextId ?? contextEvent.dTag ?? contextEvent.id ?? ''
 			const isOwner =
 				Boolean(context.currentUserPubkey) && contextEvent.pubkey === context.currentUserPubkey
 
 			return (
-				<ListRow
+				<ListRow dragItem={transferFromResult(contextToSearchResult(contextEvent))}
 					leading={
 						<CoverThumb
 							src={image}
@@ -83,31 +86,33 @@ export const createContextColumns = (
 					selected={isMapActive}
 					indentRem={displayDepth > 0 ? displayDepth * 0.75 : undefined}
 					onTitleClick={
-						context.onInspectContext ? () => context.onInspectContext?.(contextEvent) : undefined
+						context.onInspectContext
+							? () => {
+									if (context.onShowContextOnMap) context.onShowContextOnMap(contextEvent)
+									else if (!isInMapStack) context.onToggleContextOnMap?.(contextEvent)
+									context.onInspectContext?.(contextEvent)
+								}
+							: undefined
 					}
-					titleAriaLabel={`Inspect context ${contextName}`}
-					titleTitle="Inspect context"
+					titleAriaLabel={`Open Atlas ${contextName}`}
+					titleTitle="Open Atlas"
+					primaryAction={
+						context.onToggleContextOnMap ? (
+							<RowActionButton
+								icon={MapStackActionIcon}
+								label={isInMapStack ? 'Remove from map' : 'Show all on map'}
+								active={isInMapStack}
+								activeClassName="text-ok"
+								onClick={() => context.onToggleContextOnMap?.(contextEvent)}
+							/>
+						) : null
+					}
 					badges={
 						<>
-							<RowBadge label={contextUse} className="bg-info/15 text-info" />
-							{validationMode ? (
-								<RowBadge
-									label={validationMode}
-									className={cn(
-										validationMode === 'required'
-											? 'bg-destructive/10 text-destructive'
-											: validationMode === 'optional'
-												? 'bg-primary/10 text-primary'
-												: 'bg-muted text-foreground',
-									)}
-								/>
-							) : (
-								<RowBadge label="none" className="bg-muted text-muted-foreground" />
-							)}
 							<RowBadge
-								label={attachmentPolicy}
+								label={governance === 'closed' ? 'Author picks' : governance === 'schema' ? 'Contributions with requirements' : 'Open to contributions'}
 								className={cn(
-									attachmentPolicy === 'open' ? 'bg-ok/15 text-ok' : 'bg-muted text-foreground',
+									'normal-case tracking-normal', governance === 'open' ? 'bg-ok/15 text-ok' : 'bg-muted/50 text-foreground',
 								)}
 							/>
 						</>
@@ -123,8 +128,8 @@ export const createContextColumns = (
 					}
 					note={
 						isCuratedChild
-							? `curated child${displayParentName ? ` in ${displayParentName}` : ''}${
-									attachmentCount > 1 ? ` · ${attachmentCount} contexts` : ''
+							? `Pinned${displayParentName ? ` in ${displayParentName}` : ''}${
+									attachmentCount > 1 ? ` · ${attachmentCount} atlases` : ''
 								}`
 							: undefined
 					}
@@ -144,7 +149,7 @@ export const createContextColumns = (
 							{context.onToggleContextOnMap ? (
 								<RowActionButton
 									icon={MapStackActionIcon}
-									label={isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
+									label={isInMapStack ? 'Remove from map' : 'Show on map'}
 									hover="hover:text-ok"
 									active={isInMapStack}
 									activeClassName="text-ok hover:text-ok"
@@ -153,14 +158,14 @@ export const createContextColumns = (
 							) : null}
 							<RowActionButton
 								icon={InspectActionIcon}
-								label="Inspect context"
+								label="Open Atlas"
 								hover="hover:text-ok"
 								onClick={() => context.onInspectContext?.(contextEvent)}
 							/>
 							{isOwner && context.onEditContext ? (
 								<RowActionButton
 									icon={LoadEditorActionIcon}
-									label="Edit context"
+									label="Edit atlas"
 									disabled={context.deletingKey === `context:${contextKey}`}
 									onClick={() => context.onEditContext?.(contextEvent)}
 								/>
@@ -195,7 +200,7 @@ export const createContextColumns = (
 							) : null}
 							{isOwner && context.onDeleteContext ? (
 								<ConfirmDeleteAction
-									label="Context"
+									label="Atlas"
 									isDeleting={context.deletingKey === `context:${contextKey}`}
 									onConfirm={() => context.onDeleteContext?.(contextEvent)}
 								/>

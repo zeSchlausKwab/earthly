@@ -57,6 +57,24 @@ describe('compact prompt profile', () => {
 		}
 	})
 
+	it('advertises physical Story views and atomic opening presentation on the first request', () => {
+		const tool = getGeoTools().find((entry) => entry.function.name === 'write_story_draft')
+		expect(tool?.function.parameters.properties.presentation).toMatchObject({
+			type: 'object',
+			required: ['version', 'layers'],
+		})
+		for (const text of [compact, legacy]) {
+			expect(text).toContain('```earthly-view')
+			expect(text).toContain('write_story_draft.presentation')
+			expect(text).toMatch(/figure renders inline without changing later cues/)
+		}
+		const bodySchema = tool?.function.parameters.properties.markdown?.description ?? ''
+		expect(bodySchema).toContain('"display":"both"')
+		expect(bodySchema).toContain('"battle-sites"')
+		expect(bodySchema).toContain('feature-only mentions authorize only')
+		expect(bodySchema).toContain('cannot add, remove, reorder, retarget a source')
+	})
+
 	it('pins the original task into a continuation prompt', () => {
 		const message = createMapContextSystemMessage('compact', ['run_code'], {
 			isContinuation: true,

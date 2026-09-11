@@ -1,4 +1,5 @@
 import { EARTHLY_PUBLIC_ORIGIN } from './publicUrl'
+import { hasEarthlyNavigator, navigateEarthly } from '@/router/navigation'
 
 const MAX_APP_LINK_LENGTH = 32 * 1024
 const RUNTIME_OWNED_QUERY_PARAMETERS = new Set(['ms', 'ex', 'iso'])
@@ -89,6 +90,10 @@ export function navigateToEarthlyAppLinkInPlace(
 	const currentRoute = `${target.location.pathname}${target.location.search}`
 	const route = earthlyAppLinkNavigationTarget(value, currentRoute)
 	if (!route) return false
+	if (typeof window !== 'undefined' && target === window && hasEarthlyNavigator()) {
+		navigateEarthly(route)
+		return true
+	}
 
 	try {
 		target.history.pushState(null, '', route)

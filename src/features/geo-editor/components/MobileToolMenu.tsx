@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import {
 	ArrowUpRight,
 	BetweenHorizontalStart,
@@ -89,6 +89,9 @@ const geometryOperationIcons: Record<GeometryOperationIcon, typeof Scissors> = {
  * data/publish verbs come in as callbacks from GeoEditorView.
  */
 export interface MobileToolMenuProps {
+	/** Use the labelled, thumb-sized trigger in the map-first drawing dock. */
+	dock?: boolean
+	additionalActions?: ReactNode
 	panLocked: boolean
 	panLockAttention?: boolean
 	panLockTriggerAttention?: boolean
@@ -122,6 +125,8 @@ export interface MobileToolMenuProps {
 }
 
 export function MobileToolMenu({
+	dock = false,
+	additionalActions,
 	panLocked,
 	panLockAttention = false,
 	panLockTriggerAttention = false,
@@ -207,16 +212,20 @@ export function MobileToolMenu({
 					variant="ghost"
 					size="icon-sm"
 					className={cn(
-						'h-9 w-9 shrink-0 rounded-[2px]',
+						dock
+							? 'mobile-drawing-tool h-auto w-auto rounded-none px-0'
+							: 'h-9 w-9 shrink-0 rounded-[2px]',
 						panLockTriggerAttention && 'mobile-pan-lock-attention',
 					)}
 					aria-label={panLockTriggerAttention ? 'More tools — lock panning to draw' : 'More tools'}
 					title="More tools"
 				>
 					<MoreHorizontal className="h-4 w-4" />
+					{dock ? <span>More</span> : null}
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent side="top" align="end" className="max-h-[70vh] w-60 overflow-y-auto">
+				{additionalActions}
 				{mode !== 'select' ? (
 					<>
 						<DropdownMenuLabel>Active mode</DropdownMenuLabel>
@@ -557,9 +566,9 @@ export function MobileToolMenu({
 								<DropdownMenuItem disabled={!canPublishUpdate} onSelect={onPublishUpdate}>
 									<RefreshCw className="h-4 w-4" />
 									{publishMode === 'private'
-										? 'Update private dataset'
+										? 'Update Circle Map'
 										: publishMode === 'field'
-											? 'Update nearby dataset'
+											? 'Update Nearby Map'
 											: 'Update existing'}
 								</DropdownMenuItem>
 							) : null}
@@ -567,10 +576,10 @@ export function MobileToolMenu({
 								<DropdownMenuItem disabled={!canPublishCopy} onSelect={onPublishCopy}>
 									<CopyPlus className="h-4 w-4" />
 									{publishMode === 'private'
-										? 'Save as new private dataset'
+										? 'Save as new Circle Map'
 										: publishMode === 'field'
-											? 'Save as new nearby dataset'
-											: 'Fork as new dataset'}
+											? 'Save as new Nearby Map'
+											: 'Fork as new Map'}
 								</DropdownMenuItem>
 							) : null}
 							{onProposeEdit && canProposeEdit ? (

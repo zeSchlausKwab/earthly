@@ -2,6 +2,7 @@ export { ListRow, RowActionButton, RowBadge, ROW_ACTION_BTN, type ListRowProps }
 export { EntityListTable } from './EntityListTable'
 export { BulkMapStackButton } from './BulkMapStackButton'
 export { ListPanel } from './ListPanel'
-export { GlyphTile, CoverThumb } from './ListLeading'
+export { GlyphTile, CoverThumb, GeometryThumb } from './ListLeading'
 export { AggregateMapLayerControl } from './AggregateMapLayerControl'
 export { EmbeddedListPanelContext } from './EmbeddedContext'
+export { EntityListTranslucencyContext } from './TranslucencyContext'

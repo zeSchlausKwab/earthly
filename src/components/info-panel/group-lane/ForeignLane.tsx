@@ -230,8 +230,8 @@ export function ForeignLane({
 				<CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-left">
 					<EntityPanelSectionHeader
 						eyebrow="Community"
-						title={`Community contributions (${count})`}
-						description="Attachments from anyone — shown below your curated picks."
+						title={`Added by others (${count})`}
+						description="Community Maps, checked against this Atlas’s contribution requirements."
 					/>
 				</CollapsibleTrigger>
 				<CollapsibleContent className="space-y-3 pt-3">
@@ -264,7 +264,7 @@ export function ForeignLane({
 						<p className="text-[13px] text-muted-foreground">
 							{isSchema && mode === 'strict'
 								? 'Nothing matches the rules. Switch the filter to Warn to see what was hidden and why.'
-								: 'No community contributions yet. Be the first — attach a dataset to this Group from its publish screen.'}
+								: 'No community contributions yet. Be the first — add a Map to this Atlas from its Publish menu.'}
 						</p>
 					) : (
 						<div className="space-y-2">
@@ -301,12 +301,12 @@ export function ForeignLane({
 												actions={[
 													{
 														icon: <Eye className="h-3.5 w-3.5" />,
-														label: 'Inspect dataset',
+												label: 'Open Map',
 														onClick: () => onInspectDataset(dataset),
 													},
 													{
 														icon: <Maximize2 className="h-3.5 w-3.5" />,
-														label: 'Zoom to dataset',
+												label: 'Zoom to Map',
 														onClick: () => onZoomToDataset(dataset),
 													},
 												]}
@@ -332,7 +332,7 @@ export function ForeignLane({
 													</DropdownMenuItem>
 													{isOwner && onBlessForeign && (
 														<DropdownMenuItem onClick={() => onBlessForeign(coordinate)}>
-															Add to curated
+															Pin in Atlas
 														</DropdownMenuItem>
 													)}
 													<DropdownMenuSeparator />

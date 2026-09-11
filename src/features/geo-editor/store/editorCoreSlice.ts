@@ -24,7 +24,11 @@ export const createEditorCoreSlice: StateCreator<EditorState, [], [], EditorCore
 	setFeatures: (features) => {
 		set((state) => {
 			const { activeGeoEditDraftId, geoEditDrafts } = state
-			if (!activeGeoEditDraftId || !geoEditDrafts[activeGeoEditDraftId]) {
+			if (
+				!activeGeoEditDraftId ||
+				!geoEditDrafts[activeGeoEditDraftId] ||
+				state.pendingHydratedDraftId === activeGeoEditDraftId
+			) {
 				return { features }
 			}
 			const updatedDraft = {
@@ -62,7 +66,11 @@ export const createEditorCoreSlice: StateCreator<EditorState, [], [], EditorCore
 	setSelectedFeatureIds: (selectedFeatureIds) =>
 		set((state) => {
 			const { activeGeoEditDraftId, geoEditDrafts } = state
-			if (!activeGeoEditDraftId || !geoEditDrafts[activeGeoEditDraftId]) {
+			if (
+				!activeGeoEditDraftId ||
+				!geoEditDrafts[activeGeoEditDraftId] ||
+				state.pendingHydratedDraftId === activeGeoEditDraftId
+			) {
 				return { selectedFeatureIds }
 			}
 			const updatedDraft = {

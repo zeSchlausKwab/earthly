@@ -8,11 +8,20 @@ import {
 	type EntitySearchSources,
 	type EntityType,
 	ENTITY_TYPE_LABELS,
+	beaconFilterConfig,
+	beaconToSearchResult,
 	contextFilterConfig,
 	contextToSearchResult,
 	createDatasetFilterConfig,
 	datasetToSearchResult,
 	featureToSearchResult,
+	personFilterConfig,
+	personToSearchResult,
+	placeToSearchResult,
+	sightingFilterConfig,
+	sightingToSearchResult,
+	storyFilterConfig,
+	storyToSearchResult,
 } from './types'
 
 interface UseEntitySearchOptions {
@@ -42,6 +51,11 @@ export function useEntitySearch({
 	const datasets = sources.datasets ?? []
 	const contexts = sources.contexts ?? []
 	const features = sources.features ?? []
+	const stories = sources.stories ?? []
+	const beacons = sources.beacons ?? []
+	const sightings = sources.sightings ?? []
+	const people = sources.people ?? []
+	const places = sources.places ?? []
 
 	const datasetResult = useSortedFilteredItems(
 		activeTypes.includes('dataset') ? datasets : [],
@@ -52,6 +66,30 @@ export function useEntitySearch({
 	const contextResult = useSortedFilteredItems(
 		activeTypes.includes('context') ? contexts : [],
 		contextFilterConfig,
+		filterState,
+	)
+
+	const storyResult = useSortedFilteredItems(
+		activeTypes.includes('story') ? stories : [],
+		storyFilterConfig,
+		filterState,
+	)
+
+	const sightingResult = useSortedFilteredItems(
+		activeTypes.includes('sighting') ? sightings : [],
+		sightingFilterConfig,
+		filterState,
+	)
+
+	const beaconResult = useSortedFilteredItems(
+		activeTypes.includes('beacon') ? beacons : [],
+		beaconFilterConfig,
+		filterState,
+	)
+
+	const personResult = useSortedFilteredItems(
+		activeTypes.includes('person') ? people : [],
+		personFilterConfig,
 		filterState,
 	)
 
@@ -74,6 +112,34 @@ export function useEntitySearch({
 		}
 	}, [activeTypes, features, filterState.searchQuery, filterState.displayLimit])
 
+	// Place rows normally arrive from the existing geocoder hook, but accepting
+	// local place sources keeps the search component usable with cached results.
+	const placeResult = useMemo(() => {
+		if (!activeTypes.includes('place') || places.length === 0) {
+			return { items: [], totalCount: 0, filteredCount: 0 }
+		}
+		const query = filterState.searchQuery.trim().toLowerCase()
+		const filtered = query
+			? places.filter((place) =>
+					[place.displayName, place.type, place.class].some((value) =>
+						value?.toLowerCase().includes(query),
+					),
+				)
+			: places
+		const sorted =
+			filterState.sortConfig.field === 'name'
+				? [...filtered].sort((left, right) => {
+						const diff = left.displayName.localeCompare(right.displayName)
+						return filterState.sortConfig.direction === 'asc' ? diff : -diff
+					})
+				: filtered
+		return {
+			items: sorted.slice(0, filterState.displayLimit),
+			totalCount: places.length,
+			filteredCount: filtered.length,
+		}
+	}, [activeTypes, places, filterState])
+
 	return useMemo(() => {
 		const groups: EntitySearchResultGroup[] = []
 
@@ -87,6 +153,16 @@ export function useEntitySearch({
 			})
 		}
 
+		if (activeTypes.includes('story') && storyResult.totalCount > 0) {
+			groups.push({
+				type: 'story',
+				label: ENTITY_TYPE_LABELS.story,
+				results: storyResult.items.map(storyToSearchResult),
+				totalCount: storyResult.totalCount,
+				filteredCount: storyResult.filteredCount,
+			})
+		}
+
 		if (activeTypes.includes('context') && contextResult.totalCount > 0) {
 			groups.push({
 				type: 'context',
@@ -94,6 +170,46 @@ export function useEntitySearch({
 				results: contextResult.items.map(contextToSearchResult),
 				totalCount: contextResult.totalCount,
 				filteredCount: contextResult.filteredCount,
+			})
+		}
+
+		if (activeTypes.includes('sighting') && sightingResult.totalCount > 0) {
+			groups.push({
+				type: 'sighting',
+				label: ENTITY_TYPE_LABELS.sighting,
+				results: sightingResult.items.map(sightingToSearchResult),
+				totalCount: sightingResult.totalCount,
+				filteredCount: sightingResult.filteredCount,
+			})
+		}
+
+		if (activeTypes.includes('person') && personResult.totalCount > 0) {
+			groups.push({
+				type: 'person',
+				label: ENTITY_TYPE_LABELS.person,
+				results: personResult.items.map(personToSearchResult),
+				totalCount: personResult.totalCount,
+				filteredCount: personResult.filteredCount,
+			})
+		}
+
+		if (activeTypes.includes('place') && placeResult.totalCount > 0) {
+			groups.push({
+				type: 'place',
+				label: ENTITY_TYPE_LABELS.place,
+				results: placeResult.items.map(placeToSearchResult),
+				totalCount: placeResult.totalCount,
+				filteredCount: placeResult.filteredCount,
+			})
+		}
+
+		if (activeTypes.includes('beacon') && beaconResult.totalCount > 0) {
+			groups.push({
+				type: 'beacon',
+				label: ENTITY_TYPE_LABELS.beacon,
+				results: beaconResult.items.map(beaconToSearchResult),
+				totalCount: beaconResult.totalCount,
+				filteredCount: beaconResult.filteredCount,
 			})
 		}
 
@@ -118,5 +234,16 @@ export function useEntitySearch({
 			filteredCount,
 			hasResults: results.length > 0,
 		}
-	}, [activeTypes, datasetResult, contextResult, featureResult, getDatasetName])
+	}, [
+		activeTypes,
+		beaconResult,
+		contextResult,
+		datasetResult,
+		featureResult,
+		getDatasetName,
+		personResult,
+		placeResult,
+		sightingResult,
+		storyResult,
+	])
 }

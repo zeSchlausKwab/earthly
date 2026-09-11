@@ -270,7 +270,7 @@ export function ChatGeometryAttachment({
 		return counts
 	}, [draftFeatures, value])
 
-	const attachedLabel = attachedFeatureCount > 0 ? `${attachedFeatureCount} attached` : 'Draw'
+	const attachedLabel = attachedFeatureCount > 0 ? `${attachedFeatureCount} attached` : 'Sketch'
 
 	const trigger = (
 		<div className="flex items-center gap-1">
@@ -278,7 +278,7 @@ export function ChatGeometryAttachment({
 				type="button"
 				variant={panelOpen || isDraftActive ? 'default' : 'outline'}
 				size="sm"
-				className="h-8 gap-1.5 text-xs"
+				className="h-11 gap-1.5 text-xs md:h-9"
 				onClick={handleTogglePanel}
 			>
 				<PencilRuler className="h-3.5 w-3.5" />

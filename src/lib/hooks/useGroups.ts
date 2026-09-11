@@ -18,16 +18,12 @@ import { useMemo } from 'react'
 import { eventStore } from '@/lib/nostr'
 import { Group, isGroup } from '@/lib/nostr/group'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
+import { useCatalogTimeline } from './useCatalogTimeline'
 import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 
 /** Subscribe to Group / Topic events (kind 37518). */
 export function useGroups(additionalFilters: Omit<Filter, 'kinds'>[] = [{}]) {
-	const filters = additionalFilters.map((filter) => ({
-		...filter,
-		kinds: [MAP_CONTEXT_KIND],
-	}))
-
-	const { events, eose } = useTimelineWithEose(filters)
+	const { events, eose } = useCatalogTimeline(MAP_CONTEXT_KIND, additionalFilters)
 
 	const groups = useMemo(
 		() => events.filter(isGroup).map((event) => castEvent(event, Group, eventStore)),

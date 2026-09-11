@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { GeoBlobResolutionError } from '@/lib/geo/resolveBlobReferences'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import {
 	getLocalBlobRevision,
@@ -68,7 +69,13 @@ export function useBlobResolution({
 					resolvedAny = true
 				} catch (error) {
 					console.warn('Failed to resolve external blob for dataset', event.id, error)
-					if (event.id) {
+					// Retry transient failures on the next source/revision change. Permanent
+					// URL failures can wait for the explicit local-blob invalidation above.
+					if (
+						event.id &&
+						error instanceof GeoBlobResolutionError &&
+						error.result.failures.every((failure) => !failure.retryable)
+					) {
 						processedBlobEventsRef.current.add(event.id)
 					}
 				}

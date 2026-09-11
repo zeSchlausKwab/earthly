@@ -2,13 +2,21 @@ import { coordAll } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import maplibregl from 'maplibre-gl'
 import { useCallback, useRef } from 'react'
+import {
+	mapDraftSourceId,
+	resolveMapAuthoringIntent,
+	type DatasetEditOptions,
+	type MapDraftSource,
+} from '@/components/info-panel/mapProposalPresentation'
 import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
-import { resolveGeoEventFeatureCollection } from '@/lib/geo/resolveBlobReferences'
+import { resolveGeoEventFeatureCollectionOrThrow } from '@/lib/geo/resolveBlobReferences'
 import type { GeoDataset, GeoBlobReference } from '@/lib/nostr/geo-event'
+import { getCurrentPubkey } from '@/lib/wallet/currentUser'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace/projection'
 import { getLocalBlobRevision } from '@/platform/registry'
 import { publishChannelMatchesDatasetScope } from '../components/authoringDestination'
 import { useEditorStore, type PublishChannel } from '../store'
+import { draftContentFingerprint } from '../draftContent'
 import type { EditorBlobReference } from '../types'
 import {
 	convertGeoEventsToEditorFeatures,
@@ -27,7 +35,7 @@ interface ResolvedCache {
  * A caller creating a draft must state its non-public boundary explicitly.
  * Existing drafts always keep their persisted channel when reopened.
  */
-export interface DraftAuthoringOptions {
+export interface DraftAuthoringOptions extends DatasetEditOptions {
 	publishChannel?: PublishChannel
 	/** Associate an AI-created draft with the conversation that caused the mutation. */
 	chatSessionId?: string | null
@@ -36,6 +44,16 @@ export interface DraftAuthoringOptions {
 }
 
 const PUBLIC_PUBLISH_CHANNEL: PublishChannel = { kind: 'public' }
+
+function sourceForDataset(event: GeoDataset, baseRevisionId?: string | null): MapDraftSource {
+	const identifier = event.datasetId ?? event.dTag
+	return {
+		address: `${event.kind ?? event.event.kind}:${event.pubkey}:${identifier}`,
+		pubkey: event.pubkey,
+		identifier,
+		eventId: baseRevisionId ?? event.event.id,
+	}
+}
 
 function datasetMatchesPublishChannel(event: GeoDataset, publishChannel: PublishChannel): boolean {
 	return publishChannelMatchesDatasetScope(publishChannel, {
@@ -153,7 +171,7 @@ export function useDatasetManagement(
 		(event: GeoDataset) => {
 			const datasetKey = getDatasetKey(event)
 			const cached = resolvedCollectionsRef.current.get(datasetKey)
-			return cached?.localBlobRevision === getLocalBlobRevision()
+			return cached?.eventId === event.id && cached.localBlobRevision === getLocalBlobRevision()
 				? cached.featureCollection
 				: undefined
 		},
@@ -179,7 +197,7 @@ export function useDatasetManagement(
 			const THROTTLE_MS = 100
 
 			try {
-				const resolved = await resolveGeoEventFeatureCollection(event, {
+				const resolved = await resolveGeoEventFeatureCollectionOrThrow(event, {
 					onProgress: (loaded, total) => {
 						const now = Date.now()
 						const isComplete = loaded >= total
@@ -296,6 +314,9 @@ export function useDatasetManagement(
 				visible: true,
 				pinned: false,
 			})
+			// Explicitly starting/loading an edit must also reveal it when another
+			// layer was isolated. Later background edits leave visibility alone.
+			useEditorStore.getState().clearMapStackIsolation()
 		},
 		[
 			editor,
@@ -348,6 +369,17 @@ export function useDatasetManagement(
 					null)
 				: null
 			const isLegacyDraft = draft.persistenceVersion === 1
+			const sourceDataset =
+				draft.sourceDataset ??
+				(event ? sourceForDataset(event, workspace.baseRevisionId) : undefined)
+			const authoringIntent = workspace.datasetKey
+				? resolveMapAuthoringIntent(
+						draft.authoringIntent ?? (workspace.sourceId.startsWith('fork:') ? 'fork' : undefined),
+						(sourceDataset?.pubkey ?? workspace.datasetKey?.split(':')[0]) === getCurrentPubkey(),
+						draft.publishChannel.kind === 'private-group' ||
+							draft.publishChannel.kind === 'field-session',
+					)
+				: draft.authoringIntent
 			const contextRefs = isLegacyDraft ? (event?.contextReferences ?? []) : draft.contextRefs
 			const blobReferences = isLegacyDraft
 				? convertGeoBlobReferencesToEditor(event?.blobReferences ?? [])
@@ -362,10 +394,12 @@ export function useDatasetManagement(
 				collectionMeta: draft.collectionMeta,
 				blobReferences,
 			})
-			if (isLegacyDraft) {
+			if (isLegacyDraft || (!draft.authoringIntent && workspace.datasetKey)) {
 				// Legacy drafts keep their quarantined destination. Restoring attachments
 				// must never infer Public from the route that happens to be open.
 				saveGeoEditDraft(draft.id, {
+					authoringIntent,
+					sourceDataset,
 					contextRefs,
 					blobReferences,
 				})
@@ -413,7 +447,7 @@ export function useDatasetManagement(
 			// caller with an explicit channel may create its first draft.
 			const publishChannel = options?.publishChannel
 			if (!publishChannel) {
-				setPublishError('Choose a destination before adding a draft to this saved work.')
+				setPublishError('Choose an audience before adding a draft to Saved work.')
 				return
 			}
 
@@ -436,7 +470,7 @@ export function useDatasetManagement(
 					await ensureResolvedFeatureCollection(event)
 				} catch (error) {
 					console.error('Failed to resolve external blobs for workspace dataset', error)
-					setPublishError('Failed to restore dataset blobs for this workspace.')
+					setPublishError('Failed to restore the Map data for this working copy.')
 					return
 				}
 			}
@@ -456,6 +490,12 @@ export function useDatasetManagement(
 					blobReferences: event.blobReferences,
 				})
 				const draftId = createGeoEditDraft(workspace.sourceId, {
+					authoringIntent: resolveMapAuthoringIntent(
+						workspace.sourceId.startsWith('fork:') ? 'fork' : options?.intent,
+						event.pubkey === getCurrentPubkey(),
+						publishChannel.kind !== 'public',
+					),
+					sourceDataset: sourceForDataset(event, workspace.baseRevisionId),
 					name: collectionMeta.name,
 					description: collectionMeta.description,
 					collectionMeta,
@@ -611,32 +651,60 @@ export function useDatasetManagement(
 
 	const loadDatasetForEditing = useCallback(
 		async (event: GeoDataset, options?: DraftAuthoringOptions) => {
-			if (!editor) return
+			// A direct canonical `/map/:id/edit` route can resolve its event before
+			// the MapLibre editor child has mounted. Report readiness to the route
+			// controller so it can retry instead of permanently consuming the URL.
+			const activate = options?.activate !== false
+			if (!editor && activate) return false
+			const initiatingPubkey = getCurrentPubkey()
+			const publishChannel = options?.publishChannel ?? PUBLIC_PUBLISH_CHANNEL
+			const privateScope =
+				Boolean(privateWorkspaceIdForDataset(event) || fieldSessionIdForEvent(event.event)) ||
+				publishChannel.kind !== 'public'
+			const isOwner = event.pubkey === getCurrentPubkey()
+			const intent = resolveMapAuthoringIntent(options?.intent, isOwner, privateScope)
+			if ((intent === 'edit' && !isOwner) || (intent === 'propose' && (isOwner || privateScope))) {
+				setPublishError(
+					intent === 'propose'
+						? 'Proposals can only target another author’s public Map. Choose Fork for a Circle or Nearby Map.'
+						: 'Only the owner can edit this Map directly. Choose Propose changes or Fork.',
+				)
+				return false
+			}
 			const datasetKey = getDatasetKey(event)
 			// Round G.2: loading for edit counts as a recent interaction too.
 			recordRecentEntity(`dataset:${datasetKey}`)
-			const draftSourceId = `dataset:${datasetKey}`
+			const draftSourceId = mapDraftSourceId(datasetKey, intent)
 			const existingWorkspace = Object.values(useEditorStore.getState().workspaces).find(
 				(workspace) => workspace.sourceId === draftSourceId,
 			)
 			if (existingWorkspace?.activeDraftId) {
-				await switchToWorkspace(existingWorkspace.id, options)
-				return
+				if (activate) await switchToWorkspace(existingWorkspace.id, options)
+				return true
 			}
 			try {
 				await ensureResolvedFeatureCollection(event)
 			} catch (error) {
 				console.error('Failed to resolve external blobs for dataset', error)
 				setPublishError('Failed to load dataset blobs. Check console for details.')
-				return
+				return false
 			}
 			const datasetFeatures = convertGeoEventsToEditorFeatures([event], resolvedCollectionResolver)
+			if (getCurrentPubkey() !== initiatingPubkey) throw new Error('The account changed. Please try again.')
 			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
-			const collectionMeta = extractCollectionMeta(collection)
+			const originalCollectionMeta = extractCollectionMeta(collection)
+			const collectionMeta =
+				intent === 'fork'
+					? {
+							...originalCollectionMeta,
+							name: `${originalCollectionMeta.name || getDatasetName(event)} (my copy)`,
+						}
+					: originalCollectionMeta
 			const workspaceId =
 				existingWorkspace?.id ??
 				createWorkspace({
 					sourceId: draftSourceId,
+					activate,
 					label: collectionMeta.name || getDatasetName(event),
 					kind: 'dataset',
 					datasetKey,
@@ -644,13 +712,13 @@ export function useDatasetManagement(
 					chatSessionId: existingWorkspace?.chatSessionId ?? null,
 				})
 			if (existingWorkspace) {
-				setActiveWorkspaceId(existingWorkspace.id)
+				if (activate) setActiveWorkspaceId(existingWorkspace.id)
 				updateWorkspace(existingWorkspace.id, {
 					datasetKey,
 					baseRevisionId: event.event.id,
 				})
 			}
-			applyEditingState({
+			if (activate) applyEditingState({
 				features: datasetFeatures,
 				activeDataset: event,
 				contextRefs: event.contextReferences,
@@ -658,20 +726,24 @@ export function useDatasetManagement(
 				blobReferences: event.blobReferences,
 			})
 			const draftId = createGeoEditDraft(draftSourceId, {
+				authoringIntent: intent,
+				sourceDataset: sourceForDataset(event),
 				name: collectionMeta.name,
 				description: collectionMeta.description,
 				collectionMeta,
 				features: datasetFeatures,
 				selectedFeatureIds: [],
-				publishChannel: options?.publishChannel ?? PUBLIC_PUBLISH_CHANNEL,
+				publishChannel,
 				contextRefs: event.contextReferences,
 				blobReferences: convertGeoBlobReferencesToEditor(event.blobReferences),
-			})
+			}, { activate })
 			updateWorkspace(workspaceId, {
 				activeDraftId: draftId,
 				datasetKey,
 				baseRevisionId: event.event.id,
+				publishedContentFingerprint: intent === 'fork' ? null : draftContentFingerprint(useEditorStore.getState().geoEditDrafts[draftId]!),
 			})
+			return true
 		},
 		[
 			editor,
@@ -834,20 +906,22 @@ export function useDatasetManagement(
 			// empty workspace; it must never retarget an existing private/nearby draft.
 			const publishChannel = inheritedDraft?.publishChannel ?? options?.publishChannel
 			if (!publishChannel) {
-				setPublishError('Choose a destination before adding a draft to this saved work.')
+				setPublishError('Choose an audience before adding a draft to Saved work.')
 				return
 			}
 
 			if (workspace.datasetKey) {
 				const event =
+					geoEventsRef.current.find((geoEvent) => geoEvent.event.id === workspace.baseRevisionId) ??
 					geoEventsRef.current.find(
 						(geoEvent) =>
 							getDatasetKey(geoEvent) === workspace.datasetKey &&
 							datasetMatchesPublishChannel(geoEvent, publishChannel),
-					) ?? null
+					) ??
+					null
 				if (!event) {
 					setPublishError(
-						'Wait for Earthly to restore the original dataset before adding another draft.',
+						'Wait for Earthly to restore the original Map before adding another draft.',
 					)
 					return
 				}
@@ -856,7 +930,7 @@ export function useDatasetManagement(
 						await ensureResolvedFeatureCollection(event)
 					} catch (error) {
 						console.error('Failed to resolve external blobs for fresh workspace draft', error)
-						setPublishError('Failed to load dataset blobs. Check console for details.')
+						setPublishError('Failed to load the Map data. Check console for details.')
 						return
 					}
 
@@ -876,6 +950,15 @@ export function useDatasetManagement(
 					})
 
 					const draftId = createGeoEditDraft(workspace.sourceId, {
+						authoringIntent:
+							inheritedDraft?.authoringIntent ??
+							resolveMapAuthoringIntent(
+								workspace.sourceId.startsWith('fork:') ? 'fork' : options?.intent,
+								event.pubkey === getCurrentPubkey(),
+								publishChannel.kind !== 'public',
+							),
+						sourceDataset:
+							inheritedDraft?.sourceDataset ?? sourceForDataset(event, workspace.baseRevisionId),
 						name: collectionMeta.name,
 						description: collectionMeta.description,
 						collectionMeta,

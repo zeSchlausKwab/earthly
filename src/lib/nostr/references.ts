@@ -134,11 +134,14 @@ export function naddrToCoordinate(address: string): string | null {
  * Group's existing `a` tags so a routine edit does not wipe the curated lane (CR-03).
  */
 export function coordinateToNaddrReference(coordinate: string): string | null {
-	const parts = coordinate.split(':')
-	if (parts.length !== 3) return null
-	const kind = Number.parseInt(parts[0] ?? '', 10)
-	const pubkey = parts[1]
-	const identifier = parts[2]
+	const firstColon = coordinate.indexOf(':')
+	const secondColon = firstColon < 0 ? -1 : coordinate.indexOf(':', firstColon + 1)
+	if (firstColon < 1 || secondColon <= firstColon + 1) return null
+	const kind = Number.parseInt(coordinate.slice(0, firstColon), 10)
+	const pubkey = coordinate.slice(firstColon + 1, secondColon)
+	// The parameterized-replaceable event identifier is the complete remainder;
+	// colons are valid d-tag content and must not be mistaken for delimiters.
+	const identifier = coordinate.slice(secondColon + 1)
 	if (!Number.isFinite(kind) || !pubkey || !identifier) return null
 
 	try {

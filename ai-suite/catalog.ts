@@ -3,11 +3,12 @@ import { authorizeJourneyIdentityTask } from './tasks/auth/authorize-journey-ide
 import { signInTask } from './tasks/auth/sign-in'
 import {
 	approveAiEditTask,
-	attemptTargetRequiredAiChatSendTask,
 	composeAiChatMessageTask,
 	completeAiChatTurnTask,
 	configureChatProviderTask,
 	openAiChatTask,
+	moveAiChatTask,
+	setAiThreadSettingsOpenTask,
 	selectAiChatTargetTask,
 	sendAiChatMessageTask,
 	startNewAiChatTask,
@@ -15,6 +16,7 @@ import {
 	waitForAiChatCompletionTask,
 } from './tasks/chat/conversation'
 import { startDatasetTask } from './tasks/create/dataset'
+import { setThreadWorkingSetOpenTask } from './tasks/chat/working-set'
 import { createContextTask } from './tasks/create/context'
 import { createGeometryDraftTask, publishGeometryDatasetTask } from './tasks/create/geometry'
 import {
@@ -53,7 +55,9 @@ import {
 import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-native-local-node'
 import { installDeterministicChatProviderTask } from './tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyleTask } from './tasks/setup/deterministic-map-style'
+import { installIsolatedRelaysTask } from './tasks/setup/isolated-relays'
 import { installInMemoryContextFixtureTask } from './tasks/setup/in-memory-context-fixture'
+import { installInMemoryMapFixtureTask } from './tasks/setup/in-memory-map-fixture'
 import {
 	installDeterministicGeolocationTask,
 	recoverDeviceLocationTask,
@@ -79,14 +83,17 @@ import {
 } from './tasks/social/story-proposals'
 
 const tasks = [
+	installIsolatedRelaysTask,
+	setThreadWorkingSetOpenTask,
 	createIdentityTask,
 	authorizeJourneyIdentityTask,
 	signInTask,
 	configureChatProviderTask,
 	openAiChatTask,
+	moveAiChatTask,
+	setAiThreadSettingsOpenTask,
 	selectAiChatTargetTask,
 	composeAiChatMessageTask,
-	attemptTargetRequiredAiChatSendTask,
 	sendAiChatMessageTask,
 	waitForAiChatCompletionTask,
 	startNewAiChatTask,
@@ -121,6 +128,7 @@ const tasks = [
 	installDeterministicChatProviderTask,
 	installDeterministicMapStyleTask,
 	installInMemoryContextFixtureTask,
+	installInMemoryMapFixtureTask,
 	installDeterministicGeolocationTask,
 	recoverDeviceLocationTask,
 	startDatasetTask,

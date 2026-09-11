@@ -26,7 +26,7 @@ export const undoRedoGeometryTask: AiTaskMetadata = {
 
 export const mapStackDraftLifecycleTask: AiTaskMetadata = {
 	id: 'editor.map-stack-draft-lifecycle',
-	summary: 'Keep the active draft through Map Stack Clear and exercise isolate/show-all.',
+	summary: 'Isolate/show-all, then clear the active draft from the canvas without discarding it.',
 	preconditions: ['Earthly is open', 'An active Dataset draft exists'],
 	sideEffects: ['Changes Map Stack visibility and isolation state'],
 	viewports: 'desktop',
@@ -36,7 +36,7 @@ export const openDatasetEditorTask: AiTaskMetadata = {
 	id: 'editor.open-dataset-editor',
 	summary: 'Reveal the retained Dataset editor without creating or replacing a draft.',
 	preconditions: ['Earthly is open', 'A retained Dataset draft exists'],
-	sideEffects: ['Restores the Dataset edit and its mandatory visible Map Stack presentation'],
+	sideEffects: ['Restores the Dataset edit and explicitly reveals it on the map'],
 	viewports: 'desktop',
 }
 
@@ -155,7 +155,7 @@ async function clickHistoryAction(earthly: EarthlySession, action: 'Undo' | 'Red
 
 export async function openDatasetEditor(earthly: EarthlySession): Promise<Locator> {
 	if (earthly.isMobile) throw new Error('The persistent Dataset editor rail is desktop-only')
-	const datasetSurface = earthly.page.getByRole('button', { name: 'Dataset', exact: true })
+	const datasetSurface = earthly.page.getByRole('button', { name: 'Map edit', exact: true })
 	await expect(datasetSurface).toBeVisible()
 	await datasetSurface.click()
 	const nameInput = earthly.page.getByPlaceholder('Name').first()
@@ -221,9 +221,9 @@ export async function exerciseMapStackDraftLifecycle(
 		await expectGeometryFeatureCount(earthly, 1)
 	}
 
-	const mapStack = earthly.page.getByRole('region', { name: 'Map stack' })
+	const mapStack = earthly.page.getByRole('region', { name: 'On the map', exact: true })
 	if (!(await mapStack.isVisible())) {
-		await earthly.page.getByRole('button', { name: 'Show map stack' }).click()
+		await earthly.page.getByRole('button', { name: /^On the map,/ }).click()
 		await expect(mapStack).toBeVisible()
 	}
 
@@ -231,23 +231,6 @@ export async function exerciseMapStackDraftLifecycle(
 		.poll(async () =>
 			(await editorLifecycleSnapshot(earthly)).mapStack.some(
 				(entry) => entry.id === 'draft:active',
-			),
-		)
-		.toBe(true)
-
-	const clear = mapStack.getByRole('button', { name: 'Clear', exact: true })
-	if (await clear.isEnabled()) await clear.click()
-	await expect
-		.poll(async () =>
-			(await editorLifecycleSnapshot(earthly)).mapStack.some(
-				(entry) => entry.id === 'draft:active',
-			),
-		)
-		.toBe(true)
-	await expect
-		.poll(async () =>
-			(await editorLifecycleSnapshot(earthly)).mapStack.every(
-				(entry) => entry.id === 'draft:active' || entry.pinned,
 			),
 		)
 		.toBe(true)
@@ -267,5 +250,16 @@ export async function exerciseMapStackDraftLifecycle(
 			(await editorLifecycleSnapshot(earthly)).mapStack.some((entry) => entry.isolated),
 		)
 		.toBe(false)
+	const beforeClear = await editorLifecycleSnapshot(earthly)
+	await mapStack.getByRole('button', { name: 'Clear', exact: true }).click()
+	await expect
+		.poll(async () =>
+			(await editorLifecycleSnapshot(earthly)).mapStack.every((entry) => entry.pinned),
+		)
+		.toBe(true)
+	const afterClear = await editorLifecycleSnapshot(earthly)
+	expect(afterClear.activeDraftId).toBe(beforeClear.activeDraftId)
+	expect(afterClear.activeWorkspaceId).toBe(beforeClear.activeWorkspaceId)
+	expect(afterClear.featureCount).toBe(beforeClear.featureCount)
 	return editorLifecycleSnapshot(earthly)
 }

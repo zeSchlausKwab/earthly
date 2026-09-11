@@ -1,7 +1,7 @@
 import { castEvent } from 'applesauce-core/casts'
 import type { Filter } from 'nostr-tools'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Subscription } from 'rxjs'
+import { merge, type Subscription } from 'rxjs'
 import {
 	ARTICLE_KIND,
 	GEO_EVENT_KIND,
@@ -25,7 +25,10 @@ import {
 	datasetToSearchResult,
 	sightingToSearchResult,
 	storyToSearchResult,
+	personToSearchResult,
 } from './types'
+
+const PROFILE_KIND = 0
 
 const TYPE_TO_KIND: Partial<Record<EntityType, number>> = {
 	dataset: GEO_EVENT_KIND,
@@ -33,14 +36,16 @@ const TYPE_TO_KIND: Partial<Record<EntityType, number>> = {
 	story: ARTICLE_KIND,
 	beacon: LIVE_BEACON_KIND,
 	sighting: TEMPORAL_SIGHTING_KIND,
+	person: PROFILE_KIND,
 }
 
-const KIND_TO_TYPE: Record<number, EntityType> = {
+const KIND_TO_TYPE: Partial<Record<number, EntityType>> = {
 	[GEO_EVENT_KIND]: 'dataset',
 	[MAP_CONTEXT_KIND]: 'context',
 	[ARTICLE_KIND]: 'story',
 	[LIVE_BEACON_KIND]: 'beacon',
 	[TEMPORAL_SIGHTING_KIND]: 'sighting',
+	[PROFILE_KIND]: 'person',
 }
 
 const DEBOUNCE_MS = 300
@@ -121,18 +126,40 @@ export function useRelayEntitySearch({
 			// the full replaceable HISTORY for a search, and keying results by event
 			// id would render one row per stale version of the same entity.
 			const newestByCoordinate = new Map<string, number>()
-			// NIP-50: relays with `search` capability filter server-side.
-			const filter: Filter & { search: string } = {
-				kinds,
-				search,
-				limit,
-			}
+			// Profiles use the profile relay bucket; Earthly content remains on the
+			// content bucket. Merging the one-shot requests preserves a single EOSE
+			// lifecycle without leaking content queries to public profile relays.
+			const contentKinds = kinds.filter((kind) => kind !== PROFILE_KIND)
+			const profileKinds = kinds.filter((kind) => kind === PROFILE_KIND)
+			const requests = [
+				...(contentKinds.length
+					? [
+							pool.request(readRelaysFor('content'), {
+								kinds: contentKinds,
+								search,
+								limit,
+							} as Filter & { search: string }),
+						]
+					: []),
+				...(profileKinds.length
+					? [
+							pool.request(readRelaysFor('profile'), {
+								kinds: profileKinds,
+								search,
+								limit,
+							} as Filter & { search: string }),
+						]
+					: []),
+			]
 
-			subRef.current = pool.request(readRelaysFor('content'), filter).subscribe({
+			subRef.current = merge(...requests).subscribe({
 				next: (event) => {
 					const kind = event.kind as number
 					const dTag = (event.tags as string[][]).find((t) => t[0] === 'd')?.[1]
-					const coordinate = `${kind}:${event.pubkey}:${dTag ?? event.id}`
+					const coordinate =
+						kind === PROFILE_KIND
+							? `${PROFILE_KIND}:${event.pubkey}`
+							: `${kind}:${event.pubkey}:${dTag ?? event.id}`
 					const newest = newestByCoordinate.get(coordinate)
 					if (newest !== undefined && newest >= (event.created_at as number)) return
 					newestByCoordinate.set(coordinate, event.created_at as number)
@@ -160,6 +187,8 @@ export function useRelayEntitySearch({
 					} else if (entityType === 'sighting') {
 						const wrapped = castEvent(event, TemporalSighting, eventStore)
 						result = sightingToSearchResult(wrapped)
+					} else if (entityType === 'person') {
+						result = personToSearchResult(event)
 					}
 
 					if (result) {

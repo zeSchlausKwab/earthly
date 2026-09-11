@@ -16,17 +16,12 @@ import type { Filter } from 'nostr-tools'
 import { useMemo } from 'react'
 import { eventStore } from '@/lib/nostr'
 import { Article, isArticle } from '@/lib/nostr/article'
-import { useTimelineWithEose } from '@/lib/nostr/hooks'
+import { useCatalogTimeline } from './useCatalogTimeline'
 import { ARTICLE_KIND } from '@/lib/nostr/kinds'
 
 /** Subscribe to Story / Article events (kind 37520). */
 export function useStories(additionalFilters: Omit<Filter, 'kinds'>[] = [{}]) {
-	const filters = additionalFilters.map((filter) => ({
-		...filter,
-		kinds: [ARTICLE_KIND],
-	}))
-
-	const { events, eose } = useTimelineWithEose(filters)
+	const { events, eose } = useCatalogTimeline(ARTICLE_KIND, additionalFilters)
 
 	const stories = useMemo(
 		() => events.filter(isArticle).map((event) => castEvent(event, Article, eventStore)),

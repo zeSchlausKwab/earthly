@@ -361,7 +361,7 @@ export function FieldSessionsPanel({
 		run('start', async () => {
 			if (!service || !selectedAddress) throw new Error('Join Wi-Fi or enable a hotspot first')
 			const trimmedName = name.trim()
-			if (!trimmedName) throw new Error('Give the field session a name')
+			if (!trimmedName) throw new Error('Give this Nearby session a name')
 			const nextStatus = await service.enableLan(selectedAddress, FIELD_SESSION_SECONDS)
 			if (nextStatus.state !== 'running') throw new Error('The local node did not start')
 			const now = Math.floor(Date.now() / 1000)
@@ -385,7 +385,7 @@ export function FieldSessionsPanel({
 			setName('')
 			setDescription('')
 			navigateToFieldSession(record.id)
-			toast.success('Field session is live on the nearby network')
+			toast.success('Nearby is live on the local network')
 		})
 
 	const resumeHost = (session: FieldSessionRecord) =>
@@ -417,7 +417,7 @@ export function FieldSessionsPanel({
 			if (!normalized) throw new Error('Paste or scan an Earthly invitation first')
 			const remote = await service.joinInvitation(normalized, 'Earthly field device')
 			const record = recordFromRemoteNode(remote)
-			if (!record) throw new Error('This invitation does not belong to a Field session')
+			if (!record) throw new Error('This invitation does not belong to Nearby')
 			upsertFieldSession(record)
 			setRemoteNodes((current) => [
 				remote,
@@ -465,7 +465,7 @@ export function FieldSessionsPanel({
 		setOperation('send')
 		try {
 			if (!service || !selected) return
-			if (!activeAccount?.signer) throw new Error('Sign in before posting to the Field session')
+			if (!activeAccount?.signer) throw new Error('Sign in before posting to Nearby')
 			const signed = (await activeAccount.signer.signEvent(
 				fieldSessionMessageTemplate(selected.id, text, geometry),
 			)) as NostrEvent
@@ -496,12 +496,12 @@ export function FieldSessionsPanel({
 			if (selected.role === 'host') {
 				setStatus(await service.disableLan())
 				updateFieldSession(selected.id, { state: 'ended' })
-				toast.success('Field session ended on this device')
+				toast.success('Nearby ended on this device')
 			} else {
 				await service.forgetRemoteNode(selected.hostNodeId)
 				removeFieldSession(selected.id)
 				navigateToView('field-sessions')
-				toast.success('Field session removed from this device')
+				toast.success('Nearby removed from this device')
 			}
 		})
 
@@ -529,14 +529,14 @@ export function FieldSessionsPanel({
 			}
 			removeFieldSession(selected.id)
 			navigateToView('field-sessions')
-			toast.success('Field session deleted from this device')
+			toast.success('Nearby deleted from this device')
 		})
 	}
 
 	if (!service || status.state === 'starting') {
 		return (
 			<div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-				<Loader2 className="h-4 w-4 animate-spin" /> Starting the nearby workspace…
+				<Loader2 className="h-4 w-4 animate-spin" /> Starting the Nearby session…
 			</div>
 		)
 	}
@@ -547,14 +547,14 @@ export function FieldSessionsPanel({
 				<header className="border-b border-border pb-3">
 					<div className="flex items-center gap-2">
 						<RadioTower className="h-5 w-5 text-primary" />
-						<h2 className="text-lg font-semibold">Field sessions</h2>
+						<h2 className="text-lg font-semibold">Nearby</h2>
 					</div>
 				</header>
 				<EmptyNativeState
 					reason={
 						status.state === 'unsupported'
 							? status.reason
-							: 'Field sessions use the embedded relay in the Earthly Android or macOS app.'
+							: 'Nearby uses the embedded relay in the Earthly Android or macOS app.'
 					}
 				/>
 			</div>
@@ -564,7 +564,7 @@ export function FieldSessionsPanel({
 	if (status.state === 'failed') {
 		return (
 			<div className="space-y-3 border border-destructive/40 bg-destructive/5 p-4">
-				<p className="text-sm font-semibold">Nearby workspace unavailable</p>
+				<p className="text-sm font-semibold">Nearby session unavailable</p>
 				<p className="text-xs text-muted-foreground">{status.message}</p>
 				<Button variant="outline" onClick={() => void refreshNode()}>
 					<RefreshCw /> Retry
@@ -579,11 +579,11 @@ export function FieldSessionsPanel({
 				<header className="border-b border-border pb-4">
 					<div className="flex items-center gap-2">
 						<RadioTower className="h-5 w-5 text-primary" />
-						<h2 className="text-lg font-semibold">Field sessions</h2>
+						<h2 className="text-lg font-semibold">Nearby</h2>
 					</div>
 					<p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-						A shared nearby workspace for a team on the same Wi-Fi or phone hotspot. The host
-						decides who may contribute.
+						A shared Nearby session for a team on the same Wi-Fi or phone hotspot. The host decides
+						who may contribute.
 					</p>
 				</header>
 
@@ -698,7 +698,7 @@ export function FieldSessionsPanel({
 						onClick={() => void startSession()}
 					>
 						{operation === 'start' ? <Loader2 className="animate-spin" /> : <RadioTower />}
-						Start Field session
+						Start Nearby
 					</Button>
 				</section>
 
@@ -769,7 +769,7 @@ export function FieldSessionsPanel({
 				className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
 				onClick={() => navigateToView('field-sessions')}
 			>
-				<ArrowLeft className="h-3.5 w-3.5" /> Back to Field sessions
+				<ArrowLeft className="h-3.5 w-3.5" /> Back to Nearby
 			</button>
 
 			<header className="border-b border-border pb-3">
@@ -793,7 +793,7 @@ export function FieldSessionsPanel({
 						variant="ghost"
 						size="icon-sm"
 						onClick={() => void refreshWorkspace()}
-						aria-label="Refresh Field session"
+						aria-label="Refresh Nearby"
 					>
 						<RefreshCw />
 					</Button>
@@ -841,7 +841,7 @@ export function FieldSessionsPanel({
 			<Tabs value={detailTab} onValueChange={(value) => setDetailTab(value as DetailTab)}>
 				<TabsList className="grid h-auto w-full grid-cols-4 rounded-none border border-border bg-muted/30 p-0">
 					<TabsTrigger value="chat" className="rounded-none text-[10px]">
-						<MessageSquare /> Chat
+						<MessageSquare /> Notes
 					</TabsTrigger>
 					<TabsTrigger value="map" className="rounded-none text-[10px]">
 						<MapIcon /> Map
@@ -864,7 +864,7 @@ export function FieldSessionsPanel({
 								<MessageSquare className="mb-2 h-6 w-6 text-muted-foreground" />
 								<p className="text-xs font-semibold">No field notes yet</p>
 								<p className="mt-1 text-[10px] text-muted-foreground">
-									Messages remain on the nearby workspace unless the session policy changes.
+									Messages remain in this Nearby session unless its policy changes.
 								</p>
 							</div>
 						) : (
@@ -888,7 +888,7 @@ export function FieldSessionsPanel({
 					{activeAccount && canContribute && sessionLive ? (
 						<GeoCommentForm
 							onSubmit={sendMessage}
-							placeholder="Comment in this Field session…"
+							placeholder="Post a field note in Nearby…"
 							availableFeatures={availableFeatures}
 							searchRelayMentions={false}
 						/>
@@ -897,7 +897,7 @@ export function FieldSessionsPanel({
 							{!activeAccount
 								? 'Sign in to contribute. The nearby device grant and your Nostr authorship are separate.'
 								: !canContribute
-									? 'This Field session is read-only for participant phones.'
+									? 'Nearby is read-only for participant phones.'
 									: 'Reconnect to the field host before posting.'}
 						</p>
 					)}
@@ -919,15 +919,15 @@ export function FieldSessionsPanel({
 						</div>
 					</div>
 					<p className="text-[11px] leading-relaxed text-muted-foreground">
-						Nearby datasets and optional note attachments. Removing a dataset from the Map Stack
-						does not delete it from the Field session.
+						Nearby Maps and optional note attachments. Removing a Map from the Shelf does not delete
+						it from the Nearby session.
 					</p>
 					{datasets.length === 0 && messageGeometryRecords.length === 0 ? (
 						<div className="border-y border-border px-3 py-8 text-center">
 							<DatasetGlyphIcon className="mx-auto mb-2 h-7 w-7 text-muted-foreground" />
 							<p className="text-xs font-medium">No nearby geometry yet</p>
 							<p className="mt-1 text-[11px] text-muted-foreground">
-								Create a dataset or attach a drawing to a field note.
+								Create a Map or attach a drawing to a field note.
 							</p>
 						</div>
 					) : null}
@@ -936,7 +936,7 @@ export function FieldSessionsPanel({
 							const datasetKey =
 								datasetActions?.getDatasetKey(dataset) ?? dataset.datasetId ?? dataset.event.id
 							const title =
-								datasetActions?.getDatasetName(dataset) ?? dataset.datasetId ?? 'Nearby dataset'
+								datasetActions?.getDatasetName(dataset) ?? dataset.datasetId ?? 'Nearby Map'
 							const entryId = fieldDatasetStackEntryId(selected.id, datasetKey)
 							const isInMapStack = Boolean(mapStackEntries[entryId])
 							const showAndZoom = () => {
@@ -971,7 +971,7 @@ export function FieldSessionsPanel({
 											<>
 												<RowActionButton
 													icon={MapStackActionIcon}
-													label={isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
+													label={isInMapStack ? 'Remove from map' : 'Show on map'}
 													active={isInMapStack}
 													onClick={() =>
 														isInMapStack
@@ -981,12 +981,12 @@ export function FieldSessionsPanel({
 												/>
 												<RowActionButton
 													icon={ZoomActionIcon}
-													label="Zoom to dataset"
+													label="Frame Map"
 													onClick={showAndZoom}
 												/>
 												<RowActionButton
 													icon={LoadEditorActionIcon}
-													label="Edit nearby dataset"
+													label="Edit nearby Map"
 													onClick={() => datasetActions.onLoadIntoEditor(dataset)}
 												/>
 											</>
@@ -1121,8 +1121,8 @@ export function FieldSessionsPanel({
 					</div>
 					<div className="border border-amber-500/35 bg-amber-500/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
 						<strong className="text-foreground">Access-controlled, not MLS private.</strong>{' '}
-						Approved installations authenticate to the field host. Use a Private group when records
-						require end-to-end group encryption.
+						Approved installations authenticate to the field host. Use a Circle when records require
+						end-to-end group encryption.
 					</div>
 					<Button variant="outline" className="w-full" onClick={() => void stopSession()}>
 						<Square /> {selected.role === 'host' ? 'End on this device' : 'Leave this session'}
@@ -1162,7 +1162,7 @@ function JoinDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Join a Field session</DialogTitle>
+					<DialogTitle>Join Nearby</DialogTitle>
 					<DialogDescription>
 						Paste the invite shown by the nearby field host. Internet is not required.
 					</DialogDescription>

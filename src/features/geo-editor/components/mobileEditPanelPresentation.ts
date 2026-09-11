@@ -67,15 +67,20 @@ export function resolveMobileWorkspaceTabKey(
 	key: string,
 ): MobileWorkspacePanelTab | null {
 	const currentIndex = MOBILE_WORKSPACE_PANEL_TABS.indexOf(current)
-	if (key === 'Home') return MOBILE_WORKSPACE_PANEL_TABS[0]
-	if (key === 'End') return MOBILE_WORKSPACE_PANEL_TABS[MOBILE_WORKSPACE_PANEL_TABS.length - 1]
+	if (key === 'Home') return MOBILE_WORKSPACE_PANEL_TABS[0] ?? null
+	if (key === 'End')
+		return MOBILE_WORKSPACE_PANEL_TABS[MOBILE_WORKSPACE_PANEL_TABS.length - 1] ?? null
 	if (key === 'ArrowRight') {
-		return MOBILE_WORKSPACE_PANEL_TABS[(currentIndex + 1) % MOBILE_WORKSPACE_PANEL_TABS.length]
+		return (
+			MOBILE_WORKSPACE_PANEL_TABS[(currentIndex + 1) % MOBILE_WORKSPACE_PANEL_TABS.length] ?? null
+		)
 	}
 	if (key === 'ArrowLeft') {
-		return MOBILE_WORKSPACE_PANEL_TABS[
-			(currentIndex - 1 + MOBILE_WORKSPACE_PANEL_TABS.length) % MOBILE_WORKSPACE_PANEL_TABS.length
-		]
+		return (
+			MOBILE_WORKSPACE_PANEL_TABS[
+				(currentIndex - 1 + MOBILE_WORKSPACE_PANEL_TABS.length) % MOBILE_WORKSPACE_PANEL_TABS.length
+			] ?? null
+		)
 	}
 	return null
 }
@@ -124,7 +129,7 @@ export interface ConversationEditTarget {
 }
 
 export const CHAT_EDIT_TARGET_UNAVAILABLE_MESSAGE =
-	'This conversation\u2019s map target is no longer available. Choose New map or Use current in Chat.'
+	'This Thread\u2019s Map target is no longer available. Return to the Map and send again.'
 
 /**
  * Resolve the target represented by the conversation the user is actually
@@ -244,13 +249,13 @@ export function resolveMobileEditPanelPresentation({
 }: MobileEditPanelPresentationInput): MobileEditPanelPresentation {
 	if (surface === 'dataset') {
 		return hasRetainedDataset
-			? { label: 'Edit dataset', intent: 'author' }
-			: { label: 'Dataset', intent: 'inspect' }
+			? { label: 'Edit Map', intent: 'author' }
+			: { label: 'Map', intent: 'inspect' }
 	}
 	if (surface === 'context') {
-		if (contextEditorMode === 'create') return { label: 'New context', intent: 'author' }
-		if (contextEditorMode === 'edit') return { label: 'Edit context', intent: 'author' }
-		return { label: 'Context', intent: 'inspect' }
+		if (contextEditorMode === 'create') return { label: 'New Atlas', intent: 'author' }
+		if (contextEditorMode === 'edit') return { label: 'Edit Atlas', intent: 'author' }
+		return { label: 'Atlas', intent: 'inspect' }
 	}
 	if (surface === 'story') {
 		if (storyEditorMode === 'create') return { label: 'New story', intent: 'author' }
@@ -268,31 +273,31 @@ export function resolveMobileEditPanelPresentation({
 		return { label: 'Live location', intent: 'inspect' }
 	}
 	if (surface === 'inspector') {
-		if (inspectionKind === 'dataset') return { label: 'Dataset', intent: 'inspect' }
-		if (inspectionKind === 'context') return { label: 'Context', intent: 'inspect' }
+		if (inspectionKind === 'dataset') return { label: 'Map', intent: 'inspect' }
+		if (inspectionKind === 'context') return { label: 'Atlas', intent: 'inspect' }
 		if (inspectionKind === 'story') return { label: 'Story', intent: 'inspect' }
 		if (inspectionKind === 'sighting') return { label: 'Sighting', intent: 'inspect' }
 		if (inspectionKind === 'beacon') return { label: 'Live location', intent: 'inspect' }
-		return { label: 'Inspect', intent: 'inspect' }
+		return { label: 'Details', intent: 'inspect' }
 	}
 
 	// Compatibility fallback for callers that have not yet adopted the explicit
 	// mobile surface discriminant.
-	if (contextEditorMode === 'create') return { label: 'New context', intent: 'author' }
-	if (contextEditorMode === 'edit') return { label: 'Edit context', intent: 'author' }
+	if (contextEditorMode === 'create') return { label: 'New Atlas', intent: 'author' }
+	if (contextEditorMode === 'edit') return { label: 'Edit Atlas', intent: 'author' }
 	if (storyEditorMode === 'create') return { label: 'New story', intent: 'author' }
 	if (storyEditorMode === 'edit') return { label: 'Edit story', intent: 'author' }
 	if (sightingEditorMode === 'create') return { label: 'New sighting', intent: 'author' }
 	if (sightingEditorMode === 'edit') return { label: 'Edit sighting', intent: 'author' }
 	if (beaconControlMode === 'create') return { label: 'Share live location', intent: 'author' }
 	if (beaconControlMode === 'adjust') return { label: 'Adjust live location', intent: 'author' }
-	if (hasRetainedDataset) return { label: 'Edit dataset', intent: 'author' }
+	if (hasRetainedDataset) return { label: 'Edit Map', intent: 'author' }
 
-	if (hasViewedDataset) return { label: 'Dataset', intent: 'inspect' }
-	if (hasViewedContext) return { label: 'Context', intent: 'inspect' }
+	if (hasViewedDataset) return { label: 'Map', intent: 'inspect' }
+	if (hasViewedContext) return { label: 'Atlas', intent: 'inspect' }
 	if (hasViewedStory) return { label: 'Story', intent: 'inspect' }
 	if (hasViewedSighting) return { label: 'Sighting', intent: 'inspect' }
 	if (hasViewedBeacon) return { label: 'Live location', intent: 'inspect' }
 
-	return { label: 'Inspect', intent: 'inspect' }
+	return { label: 'Details', intent: 'inspect' }
 }

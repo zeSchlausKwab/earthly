@@ -42,7 +42,7 @@ export function parsePrivateInviteLink(
 	const decoded = decodePrivateMapInvitation(invitation)
 	assertPrivateMapInvitationCurrent(decoded, nowMilliseconds)
 	if (decoded.workspaceId !== workspaceId) {
-		throw new Error('The invitation does not match this private group')
+		throw new Error('The invitation does not match this Circle')
 	}
 
 	return { workspaceId, invitation }

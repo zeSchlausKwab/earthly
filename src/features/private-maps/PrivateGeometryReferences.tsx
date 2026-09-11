@@ -46,7 +46,7 @@ export function PrivateGeometryReferences({
 				<DatasetGlyphIcon className="mx-auto mb-2 h-7 w-7 text-muted-foreground" />
 				<p className="text-xs font-medium text-foreground">No private geometry yet</p>
 				<p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-					Datasets and geometry attached to comments will appear here.
+					Maps and geometry attached to comments will appear here.
 				</p>
 			</div>
 		)
@@ -56,14 +56,14 @@ export function PrivateGeometryReferences({
 		<div>
 			{datasets.length > 0 && geometryComments.length > 0 ? (
 				<div className="border-y border-border bg-muted/25 px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
-					Datasets
+					Maps
 				</div>
 			) : null}
 			<div className="border-t border-border">
 				{datasets.map((dataset) => {
 					const datasetKey = actions?.getDatasetKey(dataset) ?? dataset.datasetId ?? dataset.id
 					const title =
-						actions?.getDatasetName(dataset) ?? dataset.datasetId ?? dataset.id ?? 'Private dataset'
+						actions?.getDatasetName(dataset) ?? dataset.datasetId ?? dataset.id ?? 'Circle Map'
 					const entryId = privateDatasetStackEntryId(workspaceId, datasetKey)
 					const isInMapStack = Boolean(mapStackEntries[entryId])
 					const featureCount = dataset.featureCollection.features.length
@@ -81,7 +81,7 @@ export function PrivateGeometryReferences({
 							title={title}
 							onTitleClick={actions ? showAndZoom : undefined}
 							titleAriaLabel={`Show and zoom to ${title}`}
-							titleTitle={isInMapStack ? 'Zoom to dataset' : 'Show on map and zoom'}
+							titleTitle={isInMapStack ? 'Frame Map' : 'Show on map and frame'}
 							badges={
 								<RowBadge
 									label={`${featureCount} feature${featureCount === 1 ? '' : 's'}`}
@@ -97,13 +97,13 @@ export function PrivateGeometryReferences({
 									interactive={false}
 								/>
 							}
-							note="MLS-encrypted group geometry"
+							note="MLS-encrypted Circle geometry"
 							actions={
 								actions ? (
 									<>
 										<RowActionButton
 											icon={MapStackActionIcon}
-											label={isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
+											label={isInMapStack ? 'Remove from map' : 'Show on map'}
 											hover="hover:text-ok"
 											active={isInMapStack}
 											activeClassName="text-ok hover:text-ok"
@@ -115,12 +115,12 @@ export function PrivateGeometryReferences({
 										/>
 										<RowActionButton
 											icon={ZoomActionIcon}
-											label="Zoom to dataset"
+											label="Frame Map"
 											onClick={showAndZoom}
 										/>
 										<RowActionButton
 											icon={LoadEditorActionIcon}
-											label="Edit private dataset"
+											label="Edit private Map"
 											hover="hover:text-ok"
 											onClick={() => actions.onLoadIntoEditor(dataset)}
 										/>

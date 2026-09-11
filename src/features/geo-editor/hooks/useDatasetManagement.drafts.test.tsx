@@ -5,6 +5,11 @@ import type { Root } from 'react-dom/client'
 import type { GeoEditor, EditorFeature } from '../core'
 import type { GeoCollectionEditDraft, GeoEditorWorkspace } from '../store'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
+import { setCurrentPubkey } from '@/lib/wallet/currentUser'
+import { normalizePersistedGeoCollectionDraftState } from '../store/draftSlice'
+import { flushPersistedGeoCollectionDraftState } from '../store/editorCoreSlice'
+import { writeScopedStorage } from '../store/persistence'
+import { createDefaultCollectionMeta } from '../utils'
 
 let act: typeof import('react').act
 let createElement: typeof import('react').createElement
@@ -149,6 +154,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
+	setCurrentPubkey(null)
 	chatCalls.length = 0
 	useEditorStore.setState(initialEditorState, true)
 })
@@ -158,9 +164,289 @@ afterEach(async () => {
 		for (const { root } of mountedRoots.splice(0)) root.unmount()
 	})
 	for (const container of Array.from(document.body.children)) container.remove()
+	flushPersistedGeoCollectionDraftState()
+	window.localStorage.clear()
+	useEditorStore.setState(initialEditorState, true)
 })
 
 describe('local draft transitions', () => {
+	test.each([
+		{ kind: 'public' as const },
+		{ kind: 'private-group' as const, id: 'survey-team' },
+		{ kind: 'field-session' as const, id: 'field-survey' },
+	])('restores pending retained payload in the same workspace after hydration (%j)', async (channel) => {
+		flushPersistedGeoCollectionDraftState()
+		const savedPoint = point('saved-point', 16)
+		savedPoint.properties = { name: 'Saved place', image: 'https://example.test/place.jpg' }
+		const retained = {
+			...draft('retained-map', savedPoint, 10),
+			publishChannel: channel,
+			selectedFeatureIds: ['saved-point'],
+			contextRefs: ['context:saved-atlas'],
+			blobReferences: [
+				{
+					id: 'saved-blob',
+					url: 'https://example.test/geometry.geojson',
+					scope: 'collection' as const,
+					status: 'ready' as const,
+				},
+			],
+		}
+		writeScopedStorage(
+			'earthly:geo-editor:collection-drafts:v1',
+			{
+				drafts: { [retained.id]: retained },
+				activeDraftId: retained.id,
+			},
+			null,
+		)
+		writeScopedStorage(
+			'earthly:geo-editor:workspaces:v1',
+			{
+				workspaces: { 'workspace-1': workspace(retained.id) },
+				activeWorkspaceId: 'workspace-1',
+			},
+			null,
+		)
+		const replacedFeatures: EditorFeature[][] = []
+		useEditorStore.setState({
+			editor: {
+				setMode() {},
+				setInteractionEnabled() {},
+				setFeatures(features: EditorFeature[]) {
+					replacedFeatures.push(features)
+					useEditorStore.getState().setFeatures(features)
+				},
+			} as unknown as GeoEditor,
+		})
+		useEditorStore.getState().hydrateEditorSessionForPubkey(null)
+		expect(useEditorStore.getState().activeWorkspaceId).toBe('workspace-1')
+		expect(useEditorStore.getState().activeGeoEditDraftId).toBe(retained.id)
+		expect(useEditorStore.getState().pendingHydratedDraftId).toBe(retained.id)
+		expect(useEditorStore.getState().features).toEqual([])
+		expect(useEditorStore.getState().collectionMeta.name).toBe('')
+
+		// Editor/UI mirrors can run after the saved identity is restored but
+		// before its payload is activated. They must not replace the saved Map.
+		const pending = useEditorStore.getState()
+		pending.setFeatures([])
+		pending.setSelectedFeatureIds([])
+		pending.setCollectionMeta(createDefaultCollectionMeta())
+		pending.setActiveDatasetContextRefs(['context:transient'])
+		pending.setActiveDatasetContextRefs([])
+		pending.setBlobReferences([
+			{
+				id: 'transient-blob',
+				url: 'https://example.test/transient.geojson',
+				scope: 'collection',
+				status: 'ready',
+			},
+		])
+		pending.setBlobReferences([])
+		expect(useEditorStore.getState().geoEditDrafts[retained.id]).toEqual(retained)
+
+		const current = await mountHook()
+		await flush(() => current().switchToWorkspace('workspace-1'))
+		const restored = useEditorStore.getState()
+		expect(restored.pendingHydratedDraftId).toBeNull()
+		expect(restored.activeGeoEditDraftId).toBe(retained.id)
+		expect(restored.features).toEqual([savedPoint])
+		expect(replacedFeatures.at(-1)).toEqual([savedPoint])
+		expect(restored.collectionMeta.name).toBe(retained.name)
+		expect(restored.selectedFeatureIds).toEqual(retained.selectedFeatureIds)
+		expect(restored.activeDatasetContextRefs).toEqual(retained.contextRefs)
+		expect(restored.blobReferences).toEqual(retained.blobReferences)
+		expect(restored.geoEditDrafts[retained.id]?.publishChannel).toEqual(channel)
+
+		// A normally active draft is different from a pending restore: clearing
+		// all geometry/name is a real edit, not a signal to reload older contents.
+		await flush(() => {
+			restored.setFeatures([])
+			restored.setCollectionMeta(createDefaultCollectionMeta())
+		})
+		expect(useEditorStore.getState().pendingHydratedDraftId).toBeNull()
+		expect(useEditorStore.getState().geoEditDrafts[retained.id]?.features).toEqual([])
+		expect(useEditorStore.getState().geoEditDrafts[retained.id]?.name).toBe('')
+		expect(useEditorStore.getState().features).toEqual([])
+	})
+
+	function intentDataset(): GeoDataset {
+		return {
+			id: 'source-revision',
+			pubkey: 'owner',
+			datasetId: 'source-map',
+			dTag: 'source-map',
+			hashtags: [],
+			contextReferences: [],
+			blobReferences: [],
+			featureCollection: {
+				type: 'FeatureCollection',
+				name: 'Original map',
+				features: [point('original', 16)],
+			},
+			event: {
+				id: 'source-revision',
+				pubkey: 'owner',
+				kind: 37515,
+				created_at: 1,
+				tags: [],
+				content: '',
+			},
+		} as unknown as GeoDataset
+	}
+
+	test('entry creates separate local fork/proposal drafts and resumes each without overwriting its geometry', async () => {
+		setCurrentPubkey('contributor')
+		const dataset = intentDataset()
+		useEditorStore.setState({
+			editor: { setFeatures() {}, setInteractionEnabled() {} } as unknown as GeoEditor,
+		})
+		const current = await mountHook([dataset])
+		await flush(async () => {
+			expect(await current().loadDatasetForEditing(dataset, { intent: 'propose' })).toBe(true)
+		})
+		const proposalId = useEditorStore.getState().activeGeoEditDraftId as string
+		await flush(() => {
+			useEditorStore
+				.getState()
+				.saveGeoEditDraft(proposalId, { features: [point('proposal-edit', 17)] })
+		})
+		await flush(async () => {
+			expect(await current().loadDatasetForEditing(dataset, { intent: 'fork' })).toBe(true)
+		})
+		const forkId = useEditorStore.getState().activeGeoEditDraftId as string
+		expect(forkId).not.toBe(proposalId)
+		expect(Object.values(useEditorStore.getState().workspaces)).toHaveLength(2)
+		expect(useEditorStore.getState().geoEditDrafts[forkId]).toMatchObject({
+			authoringIntent: 'fork',
+			sourceId: 'fork:owner:source-map',
+			name: 'Original map (my copy)',
+			sourceDataset: { address: '37515:owner:source-map', eventId: 'source-revision' },
+		})
+		await flush(() => {
+			useEditorStore.getState().saveGeoEditDraft(forkId, { features: [point('fork-edit', 18)] })
+		})
+		const persisted = normalizePersistedGeoCollectionDraftState(
+			JSON.parse(
+				JSON.stringify({ drafts: useEditorStore.getState().geoEditDrafts, activeDraftId: forkId }),
+			),
+		)
+		await flush(() => {
+			useEditorStore.setState({
+				geoEditDrafts: persisted.drafts,
+				activeGeoEditDraftId: persisted.activeDraftId,
+			})
+		})
+		await flush(async () => {
+			await current().loadDatasetForEditing(dataset, { intent: 'propose' })
+		})
+		expect(useEditorStore.getState().activeGeoEditDraftId).toBe(proposalId)
+		expect(useEditorStore.getState().features[0]?.id).toBe('proposal-edit')
+		await flush(async () => {
+			await current().loadDatasetForEditing(dataset, { intent: 'fork' })
+		})
+		expect(useEditorStore.getState().activeGeoEditDraftId).toBe(forkId)
+		expect(useEditorStore.getState().features[0]?.id).toBe('fork-edit')
+		expect(useEditorStore.getState().geoEditDrafts[forkId]?.authoringIntent).toBe('fork')
+	})
+
+	test('legacy foreign drafts resume as proposals without losing their original target or geometry', async () => {
+		setCurrentPubkey('contributor')
+		const dataset = intentDataset()
+		const legacy = {
+			...draft('legacy-proposal', point('legacy-edit', 18), 1),
+			sourceId: 'dataset:owner:source-map',
+			publishChannel: { kind: 'public' as const },
+		}
+		useEditorStore.setState({
+			editor: { setFeatures() {}, setInteractionEnabled() {} } as unknown as GeoEditor,
+			geoEditDrafts: { [legacy.id]: legacy },
+			workspaces: {
+				'workspace-1': {
+					...workspace(legacy.id, 'owner:source-map'),
+					sourceId: legacy.sourceId,
+					kind: 'dataset',
+					baseRevisionId: dataset.event.id,
+				},
+			},
+		})
+		const current = await mountHook([dataset])
+		await flush(async () => {
+			await current().loadDatasetForEditing(dataset, { intent: 'propose' })
+		})
+		expect(useEditorStore.getState().geoEditDrafts[legacy.id]?.authoringIntent).toBe('propose')
+		expect(useEditorStore.getState().geoEditDrafts[legacy.id]?.sourceDataset?.eventId).toBe(
+			'source-revision',
+		)
+		expect(useEditorStore.getState().features[0]?.id).toBe('legacy-edit')
+	})
+
+	test('rejects foreign owner edits and private/nearby proposals before opening any draft', async () => {
+		setCurrentPubkey('contributor')
+		const dataset = intentDataset()
+		useEditorStore.setState({
+			editor: { setFeatures() {}, setInteractionEnabled() {} } as unknown as GeoEditor,
+		})
+		const current = await mountHook([dataset])
+		await flush(async () => {
+			expect(await current().loadDatasetForEditing(dataset, { intent: 'edit' })).toBe(false)
+		})
+		for (const kind of ['private-group', 'field-session'] as const) {
+			await flush(async () => {
+				expect(
+					await current().loadDatasetForEditing(dataset, {
+						intent: 'propose',
+						publishChannel: { kind, id: 'scope' },
+					}),
+				).toBe(false)
+			})
+		}
+		expect(Object.keys(useEditorStore.getState().geoEditDrafts)).toHaveLength(0)
+		await flush(async () => {
+			expect(
+				await current().loadDatasetForEditing(dataset, {
+					intent: 'fork',
+					publishChannel: { kind: 'private-group', id: 'scope' },
+				}),
+			).toBe(true)
+		})
+		const state = useEditorStore.getState()
+		expect(state.geoEditDrafts[state.activeGeoEditDraftId as string]?.publishChannel).toEqual({
+			kind: 'private-group',
+			id: 'scope',
+		})
+	})
+
+	test('reports a routed edit as not ready until the editor mounts', async () => {
+		const dataset = {
+			id: 'event-before-editor',
+			pubkey: 'owner',
+			datasetId: 'dataset-before-editor',
+			dTag: 'dataset-before-editor',
+			hashtags: [],
+			contextReferences: [],
+			blobReferences: [],
+			featureCollection: { type: 'FeatureCollection', features: [] },
+			event: {
+				id: 'event-before-editor',
+				pubkey: 'owner',
+				kind: 37515,
+				created_at: 1,
+				tags: [],
+				content: '',
+			},
+		} as unknown as GeoDataset
+		const current = await mountHook([dataset])
+
+		let loaded: boolean | undefined
+		await flush(async () => {
+			loaded = await current().loadDatasetForEditing(dataset)
+		})
+
+		expect(loaded).toBe(false)
+		expect(useEditorStore.getState().activeWorkspaceId).toBeNull()
+	})
+
 	test('creates an AI New map as retained work without changing the visible Dataset or Inspector', async () => {
 		const visibleFeature = point('visible-feature', 16.37)
 		const visibleDraft = draft('visible-draft', visibleFeature, 1)
@@ -246,7 +532,9 @@ describe('local draft transitions', () => {
 		})
 		const current = await mountHook([dataset])
 
-		await flush(() => current().loadDatasetForEditing(dataset))
+		await flush(async () => {
+			await current().loadDatasetForEditing(dataset)
+		})
 
 		const state = useEditorStore.getState()
 		expect(state.mapStackEntries['dataset:owner:dataset-1']).toBeUndefined()
@@ -455,7 +743,7 @@ describe('local draft transitions', () => {
 
 		expect(useEditorStore.getState().geoEditDrafts).toEqual({})
 		expect(useEditorStore.getState().workspaces['workspace-1']?.activeDraftId).toBeNull()
-		expect(useEditorStore.getState().publishError).toContain('destination')
+		expect(useEditorStore.getState().publishError).toContain('audience')
 	})
 
 	test('a new revision inherits the existing private channel instead of the open route', async () => {
@@ -515,6 +803,6 @@ describe('local draft transitions', () => {
 		expect(Object.keys(state.geoEditDrafts)).toEqual([draftA.id])
 		expect(state.workspaces['workspace-1']?.activeDraftId).toBe(draftA.id)
 		expect(state.features).toEqual([featureA])
-		expect(state.publishError).toContain('restore the original dataset')
+		expect(state.publishError).toContain('restore the original Map')
 	})
 })

@@ -5,6 +5,18 @@
  * must have a recoverable target.
  */
 import { useEditorStore } from './store'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+
+type MapPreparer = (dataset: GeoDataset, fork: boolean) => Promise<string>
+let mapPreparer: MapPreparer | null = null
+export function registerChatMapPreparer(prepare: MapPreparer) {
+	mapPreparer = prepare
+	return () => { if (mapPreparer === prepare) mapPreparer = null }
+}
+export async function prepareChatMap(dataset: GeoDataset, fork = false) {
+	if (!mapPreparer) throw new Error('The map editor is not ready yet. Please try again.')
+	return mapPreparer(dataset, fork)
+}
 
 export interface DatasetDraftRequest {
 	/** Start a fresh map even when this conversation already owns a target. */
@@ -19,6 +31,17 @@ type DatasetDraftEnsurer = (
 ) => string | null | undefined | Promise<string | null | undefined>
 
 let datasetDraftEnsurer: DatasetDraftEnsurer | null = null
+let workspaceOpener: ((workspaceId: string) => Promise<void>) | null = null
+
+export function registerChatWorkspaceOpener(opener: (workspaceId: string) => Promise<void>): () => void {
+	workspaceOpener = opener
+	return () => { if (workspaceOpener === opener) workspaceOpener = null }
+}
+
+export async function openChatWorkspace(workspaceId: string): Promise<void> {
+	if (!workspaceOpener || !useEditorStore.getState().workspaces[workspaceId]) throw new Error('This map draft is unavailable.')
+	await workspaceOpener(workspaceId)
+}
 
 export function registerDatasetDraftEnsurer(ensurer: DatasetDraftEnsurer): () => void {
 	datasetDraftEnsurer = ensurer

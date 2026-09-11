@@ -17,7 +17,7 @@ import {
 
 const featured = 'a'.repeat(64)
 const options = { featuredPubkeys: [featured], allowUnfeaturedFallback: false }
-const rootRoute: RouteState = { focusType: 'none', sidebarView: 'datasets' }
+const rootRoute: RouteState = { focusType: 'none', sidebarView: 'datasets', tab: 'details' }
 const rootGuard = {
 	pathname: '/',
 	search: '',
@@ -126,7 +126,12 @@ describe('plain landing guards', () => {
 		expect(
 			shouldSeedLandingDataset({
 				...rootGuard,
-				route: { focusType: 'story', sidebarView: 'stories', naddr: 'naddr1story' },
+				route: {
+					focusType: 'story',
+					sidebarView: 'stories',
+					naddr: 'naddr1story',
+					tab: 'details',
+				},
 			}),
 		).toBe(false)
 		expect(shouldSeedLandingDataset({ ...rootGuard, activeDraftId: 'draft-1' })).toBe(false)

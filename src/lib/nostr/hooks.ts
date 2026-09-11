@@ -9,8 +9,9 @@ import { use$ } from 'applesauce-react/hooks'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
 import { eventStore, pool, queryCache } from './index'
-import { filterList, filterRequestKey } from './filterGuards'
+import { filterRequestKey } from './filterGuards'
 import { startLiveTimelineSubscription } from './liveTimeline'
+import { createSharedTimelines } from './sharedTimeline'
 import { bucketForKind, readRelaysFor } from './relay-router'
 
 /**
@@ -18,7 +19,11 @@ import { bucketForKind, readRelaysFor } from './relay-router'
  * must not hold "loading" states hostage — after this, we report eose anyway
  * and let late events stream in.
  */
-const EOSE_TIMEOUT_MS = 4_000
+const subscribeTimeline = createSharedTimelines({
+	start: (options) => startLiveTimelineSubscription({ ...options, pool, store: eventStore }),
+	hydrate: (filters) => queryCache(filters),
+	add: (event) => eventStore.add(event),
+})
 
 function filtersFromKey(filterKey: string | null): Filter | Filter[] | null {
 	return filterKey ? (JSON.parse(filterKey) as Filter | Filter[]) : null
@@ -72,12 +77,7 @@ export function useTimeline(filters: Filter | Filter[] | null, relays?: string[]
 		if (!activeFilters) return undefined
 
 		const activeRelays = relaysFromKey(relayKey)
-		return startLiveTimelineSubscription({
-			pool,
-			store: eventStore,
-			relays: activeRelays,
-			filters: activeFilters,
-		})
+		return subscribeTimeline(activeFilters, activeRelays)
 	}, [filterKey, relayKey])
 
 	const events = use$(() => {
@@ -121,69 +121,7 @@ export function useTimelineWithEose(
 		}
 
 		const activeRelays = relaysFromKey(relayKey)
-		if (activeRelays.length === 0) {
-			setEose(true)
-			return undefined
-		}
-
-		setEose(false)
-
-		let cancelled = false
-		let cacheHydrated = false
-		let relaysCompleted = false
-
-		// Cache hydration and relay EOSE race each other. Do not expose EOSE until
-		// both have finished, otherwise consumers can latch the relay-only snapshot
-		// before cached events have reached the reactive timeline. The deadline is
-		// still authoritative if either side hangs.
-		const eoseTimeout = setTimeout(() => {
-			if (!cancelled) setEose(true)
-		}, EOSE_TIMEOUT_MS)
-		const reportEoseIfReady = () => {
-			if (cancelled || !cacheHydrated || !relaysCompleted) return
-			clearTimeout(eoseTimeout)
-			setEose(true)
-		}
-
-		// Hydrate matching events from the IndexedDB cache so the timeline renders
-		// instantly on reload; relay events stream in on top and deduplicate.
-		void queryCache(filterList(activeFilters)).then(
-			(cached) => {
-				if (cancelled) return
-				for (const event of cached) eventStore.add(event)
-				cacheHydrated = true
-				reportEoseIfReady()
-			},
-			() => {
-				// queryCache normally degrades failures to an empty result. Treat an
-				// unexpected rejection as a completed hydration attempt so relay EOSE
-				// can still settle the hook without waiting for the deadline.
-				if (cancelled) return
-				cacheHydrated = true
-				reportEoseIfReady()
-			},
-		)
-
-		const doneRelays = new Set<string>()
-		const stopSubscription = startLiveTimelineSubscription({
-			pool,
-			store: eventStore,
-			relays: activeRelays,
-			filters: activeFilters,
-			onRelayDone: (relay) => {
-				doneRelays.add(relay)
-				if (doneRelays.size >= activeRelays.length) {
-					relaysCompleted = true
-					reportEoseIfReady()
-				}
-			},
-		})
-
-		return () => {
-			cancelled = true
-			clearTimeout(eoseTimeout)
-			stopSubscription()
-		}
+		return subscribeTimeline(activeFilters, activeRelays, setEose)
 	}, [filterKey, relayKey])
 
 	const events = use$(() => {

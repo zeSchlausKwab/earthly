@@ -22,6 +22,10 @@ import {
 	Merge,
 	Minus,
 	Moon,
+	MoreHorizontal,
+	Ruler,
+	Share2,
+	Map as MapIcon,
 	MousePointerClick,
 	MousePointer2,
 	MoveHorizontal,
@@ -52,10 +56,9 @@ import {
 } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { createPortal } from 'react-dom'
-import { HelpPopover } from '@/components/HelpPopover'
-import { LoginSessionButtons } from '@/features/auth/LoginSessionButtons'
-import { useChatStore } from '@/features/chat/store'
+import { useChatActivity } from '@/features/chat/activity.ts'
 import { Button } from '@/components/ui/button'
 import {
 	Menubar,
@@ -75,7 +78,6 @@ import {
 } from '@/components/ui/menubar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SidebarTrigger } from '@/components/ui/sidebar'
-import { SearchBar } from '@/components/ui/search-bar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
@@ -91,27 +93,39 @@ import { useEditorStore } from '../store'
 import type { GeoSearchResult } from '../types'
 import { CreateMapPopover } from './CreateMapPopover'
 import { MeasurePopover } from './MeasurePopover'
-import { MapSettingsPanel } from './MapSettingsPanel'
+import { MapSettingsPanel } from '../../../components/optionalSurfaces.tsx'
 import { ShareExportPopover } from './share/ShareExportPopover'
 import {
 	Divider,
-	DrawButtonGroup,
-	FileDropdown,
 	GeometryOpsDropdown,
 	GeometryOperationDialog,
 	IconButtonRow,
 	OsmImportPopover,
 	ProposalDialog,
 	PublishDropdown,
-	SessionButton,
 	SimplifyDialog,
+	type PublishAudienceOption,
+	type PublishDropdownProps,
 	type ToolbarButton,
 	type NumericGeometryOperation,
 } from './toolbar/index'
 import { OSM_FILTER_PRESETS } from './toolbar/OsmImportPopover'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+	ToolPopoverAnchor,
+	useToolPopoverFocusProps,
+	type ToolPopoverControl,
+} from './toolbar/toolPopoverControl'
 import { useResponsiveToolbar } from './toolbar/useResponsiveToolbar'
+import { drawModes } from './toolbar/DrawButtonGroup'
 import { Input } from '@/components/ui/input'
-import { CurrentDestinationPill } from './CurrentDestinationPill'
 import type { ResolvedAuthoringDestination } from './authoringDestination'
 
 const geometryOperationIcons: Record<GeometryOperationIcon, typeof Scissors> = {
@@ -123,6 +137,7 @@ const geometryOperationIcons: Record<GeometryOperationIcon, typeof Scissors> = {
 }
 
 interface DatasetActionsProps {
+	authoringIntent?: PublishDropdownProps['authoringIntent']
 	onExportGeoJSON?: () => void
 	onExportSHP?: () => void
 	canExport?: boolean
@@ -143,8 +158,8 @@ interface DatasetActionsProps {
 
 interface ToolbarProps {
 	datasetActions?: DatasetActionsProps
-	isMobile?: boolean
-	showLogin?: boolean
+	/** The Margin shell has no collapsible legacy sidebar to toggle. */
+	showSidebarTrigger?: boolean
 	onSearchResultSelect?: (result: GeoSearchResult) => void
 	onInspectorDeactivate?: () => void
 	onStartNewDataset?: () => void
@@ -164,75 +179,33 @@ interface ToolbarProps {
 	selectedFeatureHasCallout?: boolean
 	calloutComposerActive?: boolean
 	calloutAnchorDrawing?: boolean
-	/** E.3: exits the Focus stance — wired to the interactive stance pill. */
-	onExitFocus?: () => void
 	destination?: ResolvedAuthoringDestination
+	audienceOptions?: readonly PublishAudienceOption[]
+	selectedAudienceId?: string
+	onAudienceChange?: PublishDropdownProps['onAudienceChange']
 	onActivateDestination?: () => void
 	onLeaveDestination?: () => void
 }
 
 interface MapStateClusterProps {
-	viewMode: 'edit' | 'view'
 	mapStackOpen: boolean
 	mapStackEntryCount: number
 	mapStackVisibleCount: number
 	onToggleMapStack?: () => void
-	/**
-	 * Round E.3: when provided and the stance is `focus`, the stance pill
-	 * becomes a button that exits back to Browse (or Author when a draft is
-	 * active — `exitViewMode` decides).
-	 */
-	onExitFocus?: () => void
 	compact?: boolean
 	flat?: boolean
-	/**
-	 * Which part(s) of the cluster to render. The desktop toolbar uses this to
-	 * place the map-stack toggle and the stance pill in different positions:
-	 *   - 'toggle'  → just the map-stack Layers button + count
-	 *   - 'stance'  → just the stance pill
-	 *   - 'all'     → full cluster (default, used by mobile)
-	 *
-	 * Round C: the focused-entity and context-scope chips that used to live
-	 * here are removed — the MapStackPanel's per-row "Isolated" indicator and
-	 * its "Isolating: <name>" header subtitle now play that role, and they
-	 * stay coherent with the stack/visibility model. The toolbar surface is
-	 * lighter as a result.
-	 */
-	parts?: 'all' | 'toggle' | 'stance'
+	hideCount?: boolean
 }
 
 function MapStateCluster({
-	viewMode: _viewMode,
 	mapStackOpen,
 	mapStackEntryCount,
 	mapStackVisibleCount,
 	onToggleMapStack,
-	onExitFocus,
 	compact = false,
 	flat = false,
-	parts = 'all',
+	hideCount = false,
 }: MapStateClusterProps) {
-	const renderToggle = parts === 'all' || parts === 'toggle'
-	const renderStance = parts === 'all' || parts === 'stance'
-	// Stance is the source of truth (replaces the previously-derived label
-	// that combined viewMode + focusLabel). Transitions live at the explicit
-	// trigger sites — see stanceSlice for the model.
-	const stance = useEditorStore((state) => state.stance)
-	// Stance labels kept as-is (vocabulary change deferred). Colors follow the
-	// DS palette — amber = active/selection (focus), violet = edit/draft
-	// (author), muted neutral = browse.
-	const stanceLabel = stance === 'author' ? 'Edit' : stance === 'focus' ? 'Inspect' : 'Browse'
-	const stanceClass = flat
-		? stance === 'author'
-			? 'text-edit'
-			: stance === 'focus'
-				? 'text-primary'
-				: 'text-muted-foreground'
-		: stance === 'author'
-			? 'border-edit/40 bg-edit/10 text-edit'
-			: stance === 'focus'
-				? 'border-primary/40 bg-primary/10 text-primary'
-				: 'border-border bg-muted/40 text-muted-foreground'
 	const mapCountLabel =
 		mapStackEntryCount > 0 ? `${mapStackVisibleCount}/${mapStackEntryCount}` : '0'
 	const clusterClass = flat
@@ -251,92 +224,38 @@ function MapStateCluster({
 
 	return (
 		<div className={clusterClass}>
-			{renderToggle ? (
-				<Button
-					type="button"
-					variant={flat ? 'ghost' : mapStackOpen ? 'default' : 'ghost'}
-					size={compact ? 'sm' : 'default'}
-					className={
-						flat
-							? cn(flatToggleClass, mapStackOpen && flatActiveClass)
-							: `h-7 shrink-0 gap-1.5 rounded-md px-2 text-xs ${
-									mapStackOpen ? '' : 'text-muted-foreground hover:text-foreground'
-								}`
-					}
-					onClick={onToggleMapStack}
-					aria-label={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
-					title={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
-				>
-					<Layers className="h-3.5 w-3.5" />
-					<span className="sr-only">Map stack</span>
-					{mapStackEntryCount > 0 ? (
-						<span
-							className={
-								flat
-									? 'font-mono text-[10px] tabular-nums'
-									: 'rounded bg-black/5 px-1.5 py-0.5 font-mono text-[10px] tabular-nums'
-							}
-						>
-							{mapCountLabel}
-						</span>
-					) : null}
-				</Button>
-			) : null}
-			{/* Stance pill — compact in flat mode: tight padding + extra-small text.
-			    In the Focus stance the pill is interactive (E.3): clicking it exits
-			    inspection back to Browse/Author. */}
-			{renderStance ? (
-				stance === 'focus' && onExitFocus ? (
-					<button
-						type="button"
-						onClick={onExitFocus}
-						className={
-							flat
-								? `inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-transparent px-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:bg-primary/15 ${stanceClass}`
-								: `inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-2 text-[11px] font-semibold uppercase transition-colors hover:bg-primary/15 ${stanceClass}`
-						}
-						title="Exit inspection"
-						aria-label="Exit inspection"
-					>
-						{stanceLabel}
-						<X className="h-3 w-3" />
-					</button>
-				) : (
+			<Button
+				type="button"
+				variant={flat ? 'ghost' : mapStackOpen ? 'default' : 'ghost'}
+				size={compact ? 'sm' : 'default'}
+				className={
+					flat
+						? cn(flatToggleClass, mapStackOpen && flatActiveClass)
+						: `h-7 shrink-0 gap-1.5 rounded-md px-2 text-xs ${
+								mapStackOpen ? '' : 'text-muted-foreground hover:text-foreground'
+							}`
+				}
+				onClick={onToggleMapStack}
+				aria-label={mapStackOpen ? 'Hide On the map panel' : 'Show On the map panel'}
+				title={mapStackOpen ? 'Hide On the map panel' : 'Show On the map panel'}
+			>
+				<Layers className="h-3.5 w-3.5" />
+				<span className="sr-only">On the map</span>
+				{mapStackEntryCount > 0 ? (
 					<span
 						className={
-							flat
-								? `inline-flex h-8 shrink-0 items-center rounded-md border border-transparent px-1.5 text-[11px] font-semibold uppercase tracking-wide ${stanceClass}`
-								: `inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-[11px] font-semibold uppercase ${stanceClass}`
+							hideCount
+								? 'sr-only'
+								: flat
+									? 'font-mono text-[10px] tabular-nums'
+									: 'rounded bg-black/5 px-1.5 py-0.5 font-mono text-[10px] tabular-nums'
 						}
-						title={`Current stance: ${stanceLabel}`}
 					>
-						{stanceLabel}
+						{mapCountLabel}
 					</span>
-				)
-			) : null}
+				) : null}
+			</Button>
 		</div>
-	)
-}
-
-/**
- * Dark/light theme toggle. The active theme is the `light`/`dark` class on
- * `<html>` (see `@/lib/theme`); flipping it re-themes the whole app and the
- * map basemap. Light is the default working theme.
- */
-function ThemeToggleButton() {
-	const [theme, setTheme] = useTheme()
-	const isDark = theme === 'dark'
-	return (
-		<Button
-			variant="ghost"
-			size="icon-sm"
-			aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-			title={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-			className="h-8 w-8 shrink-0 rounded-md border border-transparent text-muted-foreground shadow-none hover:text-foreground"
-			onClick={() => setTheme(isDark ? 'light' : 'dark')}
-		>
-			{isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-		</Button>
 	)
 }
 
@@ -351,6 +270,8 @@ interface ToolbarMenuTriggerProps {
 function ToolbarMenuTrigger({ icon: Icon, label, active }: ToolbarMenuTriggerProps) {
 	return (
 		<MenubarTrigger
+			aria-label={label}
+			title={label}
 			className={cn(
 				'h-8 gap-1.5 px-2 text-sm font-medium',
 				active &&
@@ -423,8 +344,7 @@ function ToolbarMenuCheckbox({
 
 export function Toolbar({
 	datasetActions,
-	isMobile = false,
-	showLogin = true,
+	showSidebarTrigger = true,
 	onSearchResultSelect,
 	onInspectorDeactivate,
 	onStartNewDataset,
@@ -437,13 +357,16 @@ export function Toolbar({
 	mapStackVisibleCount = 0,
 	chatOpen = false,
 	onToggleMapStack,
+	onToggleChat,
 	onOpenSelectedCallout,
 	selectedFeatureCount = 0,
 	selectedFeatureHasCallout = false,
 	calloutComposerActive = false,
 	calloutAnchorDrawing = false,
-	onExitFocus,
 	destination,
+	audienceOptions,
+	selectedAudienceId,
+	onAudienceChange,
 	onActivateDestination,
 	onLeaveDestination,
 }: ToolbarProps) {
@@ -454,8 +377,7 @@ export function Toolbar({
 	// Round E.1: stance gates which toolbar clusters render at all. Browse and
 	// Focus show the lean discovery surface (File / search / view toggles);
 	// the Draw + Edit clusters and import tools only exist while authoring.
-	// File's "New dataset" and the mobile SessionButton remain the entry
-	// points into the Author stance.
+	// File's "New Map" action remains the entry point into authoring.
 	const stance = useEditorStore((state) => state.stance)
 	const isAuthoring = stance === 'author'
 	// Round D.4: edit-isolation is no longer a separate slice — it's the draft
@@ -472,14 +394,20 @@ export function Toolbar({
 	const history = useEditorStore((state) => state.history)
 
 	// UI State
-	const mobileToolsOpen = useEditorStore((state) => state.mobileToolsOpen)
-	const mobileSearchOpen = useEditorStore((state) => state.mobileSearchOpen)
-	const mobileActionsOpen = useEditorStore((state) => state.mobileActionsOpen)
 	const inspectorActive = useEditorStore((state) => state.inspectorActive)
 	const setInspectorActive = useEditorStore((state) => state.setInspectorActive)
 	const chatDock = useEditorStore((state) => state.chatDock)
+	const chatWorking = useChatActivity().runningChatId !== null
+	const compactThreadLayout = useIsMobile(1100)
+	const threadToggleLabel =
+		chatOpen && (chatDock === 'right' || compactThreadLayout)
+			? 'Hide Thread'
+			: chatOpen
+				? 'Move Thread to the right'
+				: chatWorking
+					? `Thread is working; show it${compactThreadLayout ? '' : ' on the right'}`
+					: `Show Thread${compactThreadLayout ? '' : ' on the right'}`
 	const toggleChatAtDock = useEditorStore((state) => state.toggleChatAtDock)
-	const chatWorking = useChatStore((state) => state.runningChatId !== null)
 	const showMapSettings = useEditorStore((state) => state.showMapSettings)
 	const setShowMapSettings = useEditorStore((state) => state.setShowMapSettings)
 
@@ -518,16 +446,45 @@ export function Toolbar({
 	const [numericGeometryOperation, setNumericGeometryOperation] =
 		useState<NumericGeometryOperation | null>(null)
 
-	// Search results dropdown needs to escape the toolbar's `overflow-x-auto`
-	// wrapper (CSS forces overflow-y: auto whenever overflow-x: auto, which
-	// otherwise clips the dropdown below the bar). We portal to body and
-	// position via the form's bounding rect.
+	// Keep search results outside canvas clipping and anchor them to the form,
+	// including when opening panels reflows the toolbar without a window resize.
 	const searchFormRef = useRef<HTMLFormElement | null>(null)
 	const [searchAnchorRect, setSearchAnchorRect] = useState<DOMRect | null>(null)
 
-	// Responsive toolbar — measures available width and decides which priority
-	// menus (Draw → Edit → View) expand inline vs stay as MenubarMenu dropdowns.
-	const { containerRef: toolbarContainerRef, expanded: expandedMenus } = useResponsiveToolbar()
+	// Fit individual shortcuts into the space left by the actual pinned controls.
+	const {
+		containerRef: toolbarContainerRef,
+		menubarRef,
+		spacerRef,
+		measureRef,
+		searchRef,
+		inlineShortcuts,
+		compactSearch,
+		compactLabels,
+		inlineCallout,
+	} = useResponsiveToolbar(isAuthoring)
+	const [searchOpen, setSearchOpen] = useState(false)
+	const [theme, setTheme] = useTheme()
+	const moreToolsRef = useRef<HTMLButtonElement>(null)
+	const [activeTool, setActiveTool] = useState<'excerpt' | 'measure' | 'share' | null>(null)
+	const toolControl = (tool: NonNullable<typeof activeTool>): ToolPopoverControl => ({
+		anchorRef: moreToolsRef,
+		open: activeTool === tool,
+		onOpenChange: (open) =>
+			setActiveTool((current) => (open ? tool : current === tool ? null : current)),
+	})
+	const osmControl: ToolPopoverControl = {
+		anchorRef: moreToolsRef,
+		open: magicPopoverOpen,
+		onOpenChange: setMagicPopoverOpen,
+	}
+	const settingsControl: ToolPopoverControl = {
+		anchorRef: moreToolsRef,
+		open: showMapSettings,
+		onOpenChange: setShowMapSettings,
+	}
+
+	const settingsFocusProps = useToolPopoverFocusProps(settingsControl)
 
 	// Refresh the dropdown's anchor rect whenever the dropdown should be visible
 	// (any post-submit state, not just results) and on resize/scroll so the
@@ -542,13 +499,16 @@ export function Toolbar({
 			if (node) setSearchAnchorRect(node.getBoundingClientRect())
 		}
 		update()
+		const observer = new ResizeObserver(update)
+		if (toolbarContainerRef.current) observer.observe(toolbarContainerRef.current)
 		window.addEventListener('resize', update)
 		window.addEventListener('scroll', update, true)
 		return () => {
+			observer.disconnect()
 			window.removeEventListener('resize', update)
 			window.removeEventListener('scroll', update, true)
 		}
-	}, [showSearchDropdown])
+	}, [showSearchDropdown, compactSearch, searchOpen])
 
 	// Reset the keyboard highlight whenever the result set changes.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset on result-set identity change
@@ -572,7 +532,7 @@ export function Toolbar({
 			// A result is highlighted → select it instead of re-running the search.
 			event.preventDefault()
 			const result = searchResults[activeResultIndex]
-			if (result) onSearchResultSelect?.(result)
+			if (result) selectSearchResult(result)
 		}
 	}
 
@@ -608,6 +568,12 @@ export function Toolbar({
 				runEditorCommand('set_mode', { mode: 'select' })
 			}
 		}
+	}
+
+	const selectSearchResult = (result: GeoSearchResult) => {
+		onSearchResultSelect?.(result)
+		setActiveResultIndex(-1)
+		setSearchOpen(false)
 	}
 
 	const handleSearchSubmit = (e: React.FormEvent) => {
@@ -729,7 +695,7 @@ export function Toolbar({
 			variant: editIsolationEnabled ? 'default' : 'outline',
 			disabled: isEditingDisabled,
 			ariaLabel: 'Toggle edit isolation',
-			description: 'Show only geometry in the current edit state',
+			description: 'Show only geometry in the working Map',
 		},
 		{
 			key: 'delete',
@@ -746,17 +712,6 @@ export function Toolbar({
 			disabled: isEditingDisabled || !canDuplicateSelected,
 			ariaLabel: 'Duplicate',
 			description: 'Duplicate selected features',
-		},
-	]
-
-	const lookupButtons: ToolbarButton[] = [
-		{
-			key: 'reverse-lookup',
-			icon: Crosshair,
-			onClick: handleToggleInspector,
-			variant: inspectorActive ? 'default' : 'outline',
-			ariaLabel: 'Location lookup',
-			description: 'Click map to get location info',
 		},
 	]
 
@@ -794,84 +749,110 @@ export function Toolbar({
 	// verbs do instead of in a separate toolbar control.
 	const [proposalDialogOpen, setProposalDialogOpen] = useState(false)
 
-	// Desktop menus — Draw, Edit, View each render in one of two forms depending
-	// on `expandedMenus`: inline button row (when the toolbar has horizontal
-	// room) or a collapsed MenubarMenu dropdown. File never expands inline
-	// (too many items) so it stays as a dropdown always.
-	const drawExpandedInline = (
-		<div className="flex items-center gap-0.5">
-			<IconButtonRow buttons={selectButtons} small />
-			<DrawButtonGroup
-				mode={mode}
-				onModeChange={handleModeChange}
-				onArrowDraw={handleArrowDrawing}
-				disabled={isEditingDisabled}
-				small
-			/>
-			<MenubarMenu>
-				<MenubarTrigger asChild>
-					<Button
-						type="button"
-						size="icon"
-						variant={mode === 'draw_primitive' ? 'default' : 'outline'}
-						className="h-8 w-8 rounded-none"
-						disabled={isEditingDisabled}
-						aria-label="Draw shape"
-						title="Draw shape"
-					>
-						<Shapes className="h-3.5 w-3.5" />
-					</Button>
-				</MenubarTrigger>
-				<MenubarContent align="start" className="min-w-48">
-					<ToolbarMenuItem
-						icon={Square}
-						label="Rectangle"
-						onSelect={() => handleInsertPrimitive('rectangle')}
-					/>
-					<ToolbarMenuItem
-						icon={Square}
-						label="Square"
-						onSelect={() => handleInsertPrimitive('square')}
-					/>
-					<ToolbarMenuItem
-						icon={Circle}
-						label="Circle"
-						onSelect={() => handleInsertPrimitive('circle')}
-					/>
-					<ToolbarMenuItem
-						icon={Triangle}
-						label="Triangle"
-						onSelect={() => handleInsertPrimitive('triangle')}
-					/>
-					<ToolbarMenuItem
-						icon={Diamond}
-						label="Diamond"
-						onSelect={() => handleInsertPrimitive('diamond')}
-					/>
-				</MenubarContent>
-			</MenubarMenu>
-			{/* OsmImportPopover moved out of Draw — rendered as a standalone
-			    button next to the File menu so it's always reachable. */}
+	const drawButtons: ToolbarButton[] = [
+		...selectButtons,
+		...drawModes.map(({ key, icon, label }) => ({
+			key,
+			icon,
+			ariaLabel: label,
+			description: label,
+			onClick: () => handleModeChange(key),
+			variant: mode === key ? ('default' as const) : ('outline' as const),
+			disabled: isEditingDisabled,
+		})),
+		{
+			key: 'draw_arrow',
+			icon: ArrowUpRight,
+			ariaLabel: 'Draw arrow',
+			description: 'Draw arrow',
+			onClick: handleArrowDrawing,
+			disabled: isEditingDisabled,
+		},
+	]
+	const renderShortcut = (button: ToolbarButton) => (
+		<div key={button.key} data-toolbar-shortcut={button.key} className="w-8 shrink-0">
+			<IconButtonRow buttons={[button]} small />
 		</div>
+	)
+	// Menus remain stable keyboard-accessible command catalogs. Their most-used
+	// commands also become direct shortcuts, one at a time as room becomes free.
+	const drawExpandedInline = (
+		<>
+			{drawButtons.filter((button) => inlineShortcuts.has(button.key)).map(renderShortcut)}
+			{inlineShortcuts.has('draw_shape') && (
+				<div data-toolbar-shortcut="draw_shape" className="w-8 shrink-0">
+					<MenubarMenu>
+						<MenubarTrigger asChild>
+							<Button
+								type="button"
+								size="icon"
+								variant={mode === 'draw_primitive' ? 'default' : 'outline'}
+								className="h-8 w-8 rounded-none"
+								disabled={isEditingDisabled}
+								aria-label="Draw shape"
+								title="Draw shape"
+							>
+								<Shapes className="h-3.5 w-3.5" />
+							</Button>
+						</MenubarTrigger>
+						<MenubarContent align="start" className="min-w-48">
+							<ToolbarMenuItem
+								icon={Square}
+								label="Rectangle"
+								onSelect={() => handleInsertPrimitive('rectangle')}
+							/>
+							<ToolbarMenuItem
+								icon={Square}
+								label="Square"
+								onSelect={() => handleInsertPrimitive('square')}
+							/>
+							<ToolbarMenuItem
+								icon={Circle}
+								label="Circle"
+								onSelect={() => handleInsertPrimitive('circle')}
+							/>
+							<ToolbarMenuItem
+								icon={Triangle}
+								label="Triangle"
+								onSelect={() => handleInsertPrimitive('triangle')}
+							/>
+							<ToolbarMenuItem
+								icon={Diamond}
+								label="Diamond"
+								onSelect={() => handleInsertPrimitive('diamond')}
+							/>
+						</MenubarContent>
+					</MenubarMenu>
+				</div>
+			)}
+		</>
 	)
 
 	const editExpandedInline = (
-		<div className="flex items-center gap-0.5">
-			<IconButtonRow buttons={historyButtons} small />
-			<IconButtonRow buttons={editButtons} small />
-			<GeometryOpsDropdown {...geometryOpsProps} small />
-		</div>
+		<>
+			{[...historyButtons, ...editButtons]
+				.filter((button) => inlineShortcuts.has(button.key))
+				.map(renderShortcut)}
+			{inlineShortcuts.has('geometry_ops') && (
+				<div data-toolbar-shortcut="geometry_ops" className="w-8 shrink-0">
+					<GeometryOpsDropdown {...geometryOpsProps} small />
+				</div>
+			)}
+		</>
 	)
 
 	const desktopCommandMenubar = (
-		<Menubar className="h-8 shrink-0 gap-0.5 border-0 bg-transparent p-0 shadow-none">
+		<Menubar
+			ref={menubarRef}
+			className="h-8 shrink-0 gap-0.5 border-0 bg-transparent p-0 shadow-none"
+		>
 			<MenubarMenu>
 				<ToolbarMenuTrigger icon={isEditing ? XCircle : FileText} label="File" active={isEditing} />
 				<MenubarContent align="start" className="min-w-56">
 					<MenubarGroup>
 						<ToolbarMenuItem
 							icon={isEditing ? XCircle : PlusCircle}
-							label={isEditing ? 'Cancel editing' : 'New dataset'}
+							label={isEditing ? 'Cancel editing' : 'New Map'}
 							onSelect={isEditing ? onCancelEditing : onStartNewDataset}
 							variant={isEditing ? 'destructive' : 'default'}
 						/>
@@ -901,30 +882,36 @@ export function Toolbar({
 						<>
 							<MenubarSeparator />
 							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
-								Publish
+								{datasetActions?.canProposeEdit ? 'Proposal' : 'Publish'}
 							</MenubarLabel>
-							<ToolbarMenuItem
-								icon={UploadCloud}
-								label="Publish new dataset"
-								onSelect={datasetActions?.onPublishNew}
-								disabled={publishMenuDisabled || !datasetActions?.canPublishNew}
-							/>
-							<ToolbarMenuItem
-								icon={RefreshCw}
-								label="Update existing"
-								onSelect={datasetActions?.onPublishUpdate}
-								disabled={publishMenuDisabled || !datasetActions?.canPublishUpdate}
-							/>
-							<ToolbarMenuItem
-								icon={CopyPlus}
-								label="Fork as new dataset"
-								onSelect={datasetActions?.onPublishCopy}
-								disabled={publishMenuDisabled || !datasetActions?.canPublishCopy}
-							/>
+							{datasetActions?.canPublishNew && (
+								<ToolbarMenuItem
+									icon={UploadCloud}
+									label="Publish new Map"
+									onSelect={datasetActions?.onPublishNew}
+									disabled={publishMenuDisabled || !datasetActions?.canPublishNew}
+								/>
+							)}
+							{datasetActions?.canPublishUpdate && (
+								<ToolbarMenuItem
+									icon={RefreshCw}
+									label="Update existing"
+									onSelect={datasetActions?.onPublishUpdate}
+									disabled={publishMenuDisabled || !datasetActions?.canPublishUpdate}
+								/>
+							)}
+							{datasetActions?.canPublishCopy && (
+								<ToolbarMenuItem
+									icon={CopyPlus}
+									label={datasetActions?.canPublishUpdate ? 'Publish as new map' : 'Publish map'}
+									onSelect={datasetActions?.onPublishCopy}
+									disabled={publishMenuDisabled || !datasetActions?.canPublishCopy}
+								/>
+							)}
 							{datasetActions?.canProposeEdit ? (
 								<ToolbarMenuItem
 									icon={GitPullRequest}
-									label="Propose edit to owner…"
+									label="Send proposal…"
 									onSelect={() => setProposalDialogOpen(true)}
 									disabled={publishMenuDisabled}
 								/>
@@ -934,9 +921,7 @@ export function Toolbar({
 				</MenubarContent>
 			</MenubarMenu>
 
-			{!isAuthoring ? null : expandedMenus.has('draw') ? (
-				drawExpandedInline
-			) : (
+			{isAuthoring && (
 				<MenubarMenu>
 					<ToolbarMenuTrigger icon={MousePointer2} label="Draw" active={mode.startsWith('draw_')} />
 					<MenubarContent align="start" className="min-w-56">
@@ -1076,9 +1061,8 @@ export function Toolbar({
 				</MenubarMenu>
 			)}
 
-			{!isAuthoring ? null : expandedMenus.has('edit') ? (
-				editExpandedInline
-			) : (
+			{isAuthoring && drawExpandedInline}
+			{isAuthoring && (
 				<MenubarMenu>
 					<ToolbarMenuTrigger
 						icon={Edit3}
@@ -1266,8 +1250,7 @@ export function Toolbar({
 				</MenubarMenu>
 			)}
 
-			{/* View menu dropped — Location lookup is now a standalone
-			    Crosshair button rendered next to the search box (below). */}
+			{isAuthoring && editExpandedInline}
 		</Menubar>
 	)
 
@@ -1282,196 +1265,174 @@ export function Toolbar({
 		/>
 	)
 
-	// ============================================
-	// MOBILE TOOLBAR (legacy — kept until we're sure the responsive unified
-	// toolbar handles every viewport. To re-enable, change `MOBILE_TOOLBAR_ENABLED`
-	// to use `isMobile`.)
-	// ============================================
-	const MOBILE_TOOLBAR_ENABLED = false
-	if (isMobile && MOBILE_TOOLBAR_ENABLED) {
-		return (
-			<>
-				<div className="pointer-events-auto w-full max-w-md px-2 mx-auto">
-					<div className="mb-2 flex justify-center">
-						<MapStateCluster
-							viewMode={viewMode}
-							mapStackOpen={mapStackOpen}
-							mapStackEntryCount={mapStackEntryCount}
-							mapStackVisibleCount={mapStackVisibleCount}
-							onToggleMapStack={onToggleMapStack}
-							onExitFocus={onExitFocus}
-							compact
-						/>
-					</div>
-
-					{mobileToolsOpen && (
-						<div className="glass-panel rounded-lg p-1.5">
-							{/* Row 1: Session + (when authoring) Select + Draw.
-							    E.1: SessionButton is the stance entry point and always
-							    renders; the draw/edit tools only exist in Author. */}
-							<div className="flex items-center justify-center gap-1 flex-wrap mb-1">
-								<SessionButton
-									viewMode={viewMode}
-									onStartNew={onStartNewDataset}
-									onCancel={onCancelEditing}
-									small
-								/>
-								{isAuthoring ? (
-									<>
-										<Divider />
-										<IconButtonRow buttons={selectButtons} small />
-										<Divider />
-										<DrawButtonGroup
-											mode={mode}
-											onModeChange={handleModeChange}
-											onArrowDraw={handleArrowDrawing}
-											disabled={isEditingDisabled}
-											small
-										/>
-									</>
-								) : null}
-							</div>
-							{/* Row 2: History + Edit tools + Geometry ops — Author only. */}
-							{isAuthoring ? (
-								<div className="flex items-center justify-center gap-1 flex-wrap">
-									<IconButtonRow buttons={historyButtons} small />
-									<Divider />
-									<IconButtonRow buttons={editButtons} small />
-									<GeometryOpsDropdown {...geometryOpsProps} small />
-								</div>
-							) : null}
-						</div>
+	const searchForm = (
+		<form
+			ref={searchFormRef}
+			onSubmit={handleSearchSubmit}
+			className={cn(
+				'group relative flex h-8 shrink-0 items-center rounded-md border border-transparent transition-colors hover:bg-accent/70 focus-within:border-ring/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/20',
+				compactSearch ? 'w-full' : 'w-36',
+			)}
+		>
+			<Input
+				value={searchQuery}
+				onChange={(event) => {
+					setSearchQuery(event.target.value)
+					setActiveResultIndex(-1)
+				}}
+				onKeyDown={handleSearchKeyDown}
+				placeholder="Search..."
+				className="h-8 border-0 bg-transparent px-2 pr-8 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
+				aria-label="Search location"
+			/>
+			{searchQuery ? (
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-xs"
+					aria-label="Clear search"
+					className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground"
+					onClick={clearSearch}
+				>
+					<X className="h-3.5 w-3.5" />
+				</Button>
+			) : (
+				<Button
+					type="submit"
+					variant="ghost"
+					size="icon-xs"
+					aria-label="Search"
+					disabled={searchLoading}
+					className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground"
+				>
+					{searchLoading ? (
+						<RefreshCw className="h-3.5 w-3.5 animate-spin" />
+					) : (
+						<Search className="h-3.5 w-3.5" />
 					)}
-
-					{mobileSearchOpen && (
-						<div className="glass-panel flex flex-col gap-2 rounded-lg p-1.5">
-							<div className="flex items-center gap-2">
-								<SearchBar
-									query={searchQuery}
-									loading={searchLoading}
-									placeholder="Search..."
-									onSubmit={(e) => {
-										e.preventDefault()
-										handleSearchSubmit(e)
-									}}
-									onQueryChange={setSearchQuery}
-									onClear={clearSearch}
-								/>
-								<IconButtonRow buttons={lookupButtons} small />
-							</div>
-							{searchResults && searchResults.length > 0 && (
-								<div className="max-h-48 overflow-y-auto space-y-1 bg-popover rounded-lg border border-border">
-									{searchResults.map((result, index) => (
-										<Button
-											type="button"
-											key={result.placeId ?? `result-${index}`}
-											variant="ghost"
-											className="w-full text-left text-sm p-2 hover:bg-muted/50 border-b border-border last:border-0 truncate"
-											onClick={() => onSearchResultSelect?.(result)}
-										>
-											{result.displayName}
-										</Button>
-									))}
-								</div>
-							)}
-							{/* P2.1: explicit non-result states so a slow/empty/failed
-							    geocode gives feedback on mobile too (report 8.1). */}
-							{searchLoading && (
-								<div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-									<RefreshCw className="h-3 w-3 animate-spin" />
-									<span>Searching…</span>
-								</div>
-							)}
-							{searchHasNoResults && (
-								<div className="px-1 text-xs text-muted-foreground">
-									No places match “{searchQuery.trim()}”.
-								</div>
-							)}
-							{searchError && <div className="text-xs text-destructive px-1">{searchError}</div>}
-						</div>
-					)}
-
-					{mobileActionsOpen && datasetActions && (
-						<div className="glass-panel rounded-lg p-1.5">
-							<div className="flex items-center justify-center gap-1 flex-wrap">
-								<FileDropdown
-									onImportClick={() => fileInputRef.current?.click()}
-									onExportGeoJSON={datasetActions.onExportGeoJSON ?? (() => {})}
-									onExportSHP={datasetActions.onExportSHP ?? (() => {})}
-									canExport={datasetActions.canExport}
-									disabled={isEditingDisabled}
-									small
-								/>
-								{isAuthoring ? (
-									<OsmImportPopover
-										open={magicPopoverOpen}
-										onOpenChange={setMagicPopoverOpen}
-										osmQueryFilter={osmQueryFilter}
-										onOsmFilterChange={setOsmQueryFilter}
-										onOsmClickMode={handleOsmClickMode}
-										onOsmQueryView={handleOsmQueryView}
-										onOsmAdvanced={onOsmAdvanced}
-										isClickMode={osmQueryMode === 'click'}
-										small
-									/>
-								) : null}
-								<CreateMapPopover />
-								<Divider />
-								<PublishDropdown
-									canPublishNew={datasetActions.canPublishNew}
-									canPublishUpdate={datasetActions.canPublishUpdate}
-									canPublishCopy={datasetActions.canPublishCopy}
-									canProposeEdit={datasetActions.canProposeEdit}
-									isPublishing={datasetActions.isPublishing}
-									onPublishNew={datasetActions.onPublishNew}
-									onPublishUpdate={datasetActions.onPublishUpdate}
-									onPublishCopy={datasetActions.onPublishCopy}
-									onProposeEdit={datasetActions.onProposeEdit}
-									publishMode={datasetActions.publishMode}
-									small
-								/>
-								<Divider />
-								<HelpPopover
-									multiSelectModifier={editor?.getMultiSelectModifierLabel() ?? 'Shift'}
-								/>
-								<TooltipProvider delayDuration={500}>
-									<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
-										<Tooltip>
-											<TooltipTrigger asChild>
-												<PopoverTrigger asChild>
-													<Button
-														variant={showMapSettings ? 'default' : 'outline'}
-														size="icon"
-														className="h-8 w-8"
-														aria-label="Map settings"
-													>
-														<Settings2 className="h-3.5 w-3.5" />
-													</Button>
-												</PopoverTrigger>
-											</TooltipTrigger>
-											<TooltipContent side="bottom" sideOffset={8}>
-												<p>Map settings</p>
-											</TooltipContent>
-										</Tooltip>
-										<PopoverContent className="w-[28rem]" side="bottom" align="center">
-											<MapSettingsPanel mode="map-only" />
-										</PopoverContent>
-									</Popover>
-								</TooltipProvider>
-								{showLogin && <LoginSessionButtons />}
-							</div>
-							{fileInput}
-						</div>
-					)}
+				</Button>
+			)}
+		</form>
+	)
+	const searchFeedback = showSearchDropdown ? (
+		<div className="rounded-lg border border-border bg-popover p-2 shadow-lg">
+			<div className="mb-2 flex items-center justify-between border-b border-border pb-2">
+				<span className="text-xs font-medium text-muted-foreground">
+					{searchLoading
+						? 'Searching…'
+						: searchError
+							? 'Search error'
+							: searchHasNoResults
+								? 'No results'
+								: 'Results'}
+				</span>
+				<Button variant="ghost" size="sm" className="h-auto p-0 text-xs" onClick={clearSearch}>
+					Close
+				</Button>
+			</div>
+			{searchLoading ? (
+				<div className="flex items-center gap-2 px-1 py-2 text-sm text-muted-foreground">
+					<RefreshCw className="h-3.5 w-3.5 animate-spin" />
+					<span>Searching for “{searchQuery.trim()}”…</span>
 				</div>
-				<SimplifyDialog open={simplifyDialogOpen} onOpenChange={setSimplifyDialogOpen} />
-			</>
-		)
-	}
+			) : searchError ? (
+				<div className="px-1 py-2 text-sm text-destructive">{searchError}</div>
+			) : searchHasNoResults ? (
+				<div className="px-1 py-2 text-sm text-muted-foreground">
+					No places match “{searchQuery.trim()}”.
+				</div>
+			) : (
+				<div className="max-h-60 space-y-1 overflow-y-auto">
+					{searchResults.map((result, index) => (
+						<button
+							type="button"
+							key={result.placeId ?? `result-${index}`}
+							className={cn(
+								'w-full truncate rounded p-1.5 text-left text-sm hover:bg-muted/50',
+								index === activeResultIndex && 'bg-muted',
+							)}
+							onClick={() => selectSearchResult(result)}
+						>
+							{result.displayName}
+						</button>
+					))}
+				</div>
+			)}
+		</div>
+	) : null
 
-	// ============================================
-	// DESKTOP TOOLBAR
-	// ============================================
+	const moreTools = (
+		<DropdownMenu modal={false}>
+			<DropdownMenuTrigger asChild>
+				<Button
+					ref={moreToolsRef}
+					variant="ghost"
+					size="sm"
+					aria-label="More tools"
+					title="More tools"
+					className={cn('h-8 shrink-0 gap-1.5 px-2', compactLabels && 'w-8 px-0')}
+				>
+					<MoreHorizontal className="h-4 w-4" />
+					{!compactLabels && <span>More</span>}
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="end"
+				className="w-64"
+				onCloseAutoFocus={(event) => {
+					// The selected tool takes focus; closing this menu must not steal it back.
+					if (activeTool || magicPopoverOpen || showMapSettings) event.preventDefault()
+				}}
+			>
+				<DropdownMenuLabel>On the map</DropdownMenuLabel>
+				<DropdownMenuItem onSelect={handleToggleInspector}>
+					<Crosshair className="h-4 w-4" />
+					{inspectorActive ? 'Stop location lookup' : 'Look up a location'}
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => setActiveTool('measure')}>
+					<Ruler className="h-4 w-4" />
+					Measure
+				</DropdownMenuItem>
+				{isAuthoring && (
+					<DropdownMenuItem onSelect={onOpenSelectedCallout}>
+						<MessageSquarePlus className="h-4 w-4" />
+						{calloutComposerActive || calloutAnchorDrawing
+							? 'Cancel map callout'
+							: 'Add map callout'}
+					</DropdownMenuItem>
+				)}
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel>Data and sharing</DropdownMenuLabel>
+				{isAuthoring && (
+					<DropdownMenuItem onSelect={() => setMagicPopoverOpen(true)}>
+						<Sparkles className="h-4 w-4" />
+						Import from OpenStreetMap
+					</DropdownMenuItem>
+				)}
+				<DropdownMenuItem onSelect={() => setActiveTool('excerpt')}>
+					<MapIcon className="h-4 w-4" />
+					Create map excerpt
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => setActiveTool('share')}>
+					<Share2 className="h-4 w-4" />
+					Share and export image
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel>Appearance</DropdownMenuLabel>
+				<DropdownMenuItem onSelect={() => setShowMapSettings(true)}>
+					<Settings2 className="h-4 w-4" />
+					Map settings
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+					{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+					{theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	)
+
+	// One row against the actual canvas width. Secondary tools share a stable
+	// overflow launcher; their popovers stay mounted while panels are resized.
 	return (
 		<>
 			<div
@@ -1480,284 +1441,135 @@ export function Toolbar({
 			>
 				<div
 					ref={toolbarContainerRef}
-					className="flex w-full items-center gap-1 overflow-x-auto p-0"
+					className="flex w-full min-w-0 flex-nowrap items-center gap-1 p-0"
 				>
-					{/* Topic 1: sidebar trigger (left-most chrome). */}
-					<SidebarTrigger className="h-8 w-8" />
-					<Divider />
+					{showSidebarTrigger ? (
+						<>
+							{/* Topic 1: optional legacy sidebar trigger. */}
+							<SidebarTrigger className="h-8 w-8" />
+							<Divider />
+						</>
+					) : null}
 
 					{/* Topic 2: map-stack toggle (the chat/right-sidebar toggle now lives
 					    at the far right of the bar — see Topic 7 — mirroring the left
 					    sidebar trigger on the far left). */}
 					<MapStateCluster
-						viewMode={viewMode}
 						mapStackOpen={mapStackOpen}
 						mapStackEntryCount={mapStackEntryCount}
 						mapStackVisibleCount={mapStackVisibleCount}
 						onToggleMapStack={onToggleMapStack}
 						compact
 						flat
-						parts="toggle"
+						hideCount={compactLabels}
 					/>
 					<Divider />
-
-					{/* Topic 3: stance indicator. The previously-shown context-scope and
-					    focus chips were removed in Round C: the MapStackPanel's per-row
-					    "Isolated" pill + header "Isolating: <name>" subtitle now play
-					    that role and stay coherent with the stack/visibility model. */}
-					<MapStateCluster
-						viewMode={viewMode}
-						mapStackOpen={mapStackOpen}
-						mapStackEntryCount={mapStackEntryCount}
-						mapStackVisibleCount={mapStackVisibleCount}
-						onExitFocus={onExitFocus}
-						compact
-						flat
-						parts="stance"
-					/>
-					<Divider />
-
-					{/* Topic 4: one truthful authoring destination. This is distinct
-					    from Browse / Inspect / Edit stance and from Map Stack isolation. */}
-					{destination ? (
-						<>
-							<CurrentDestinationPill
-								destination={destination}
-								onActivate={onActivateDestination}
-								onLeave={onLeaveDestination}
-							/>
-							<Divider />
-						</>
-					) : null}
 
 					{/* Topic 5: file / draw / edit menus (priority-expanding) */}
 					{desktopCommandMenubar}
-					{isAuthoring ? (
-						<TooltipProvider>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<Button
-										type="button"
-										variant={calloutComposerActive || calloutAnchorDrawing ? 'default' : 'outline'}
-										size="icon-sm"
-										onClick={onOpenSelectedCallout}
-										aria-label={
-											calloutAnchorDrawing
+					{isAuthoring && inlineCallout ? (
+						<div data-toolbar-shortcut="callout" className="w-8 shrink-0">
+							<TooltipProvider>
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Button
+											type="button"
+											variant={
+												calloutComposerActive || calloutAnchorDrawing ? 'default' : 'outline'
+											}
+											size="icon-sm"
+											onClick={onOpenSelectedCallout}
+											aria-label={
+												calloutAnchorDrawing
+													? 'Cancel callout anchor'
+													: calloutComposerActive
+														? 'Cancel new map callout'
+														: selectedFeatureHasCallout
+															? 'Add another map callout'
+															: 'Add map callout'
+											}
+											className="h-8 w-8 shrink-0 rounded-none"
+										>
+											<MessageSquarePlus className="h-3.5 w-3.5" />
+										</Button>
+									</TooltipTrigger>
+									<TooltipContent side="bottom" sideOffset={8}>
+										<p>
+											{calloutAnchorDrawing
 												? 'Cancel callout anchor'
 												: calloutComposerActive
 													? 'Cancel new map callout'
-													: selectedFeatureHasCallout
-														? 'Add another map callout'
-														: 'Add map callout'
-										}
-										className="h-8 w-8 shrink-0 rounded-none"
-									>
-										<MessageSquarePlus className="h-3.5 w-3.5" />
-									</Button>
-								</TooltipTrigger>
-								<TooltipContent side="bottom" sideOffset={8}>
-									<p>
-										{calloutAnchorDrawing
-											? 'Cancel callout anchor'
-											: calloutComposerActive
-												? 'Cancel new map callout'
-												: selectedFeatureCount === 0
-													? 'Draw a point anchor and add a map callout'
-													: selectedFeatureCount > 1
-														? 'Select a single geometry to add a map callout'
-														: selectedFeatureHasCallout
-															? 'Add another map callout'
-															: 'Add map callout'}
-									</p>
-								</TooltipContent>
-							</Tooltip>
-						</TooltipProvider>
+													: selectedFeatureCount === 0
+														? 'Draw a point anchor and add a map callout'
+														: selectedFeatureCount > 1
+															? 'Select a single geometry to add a map callout'
+															: selectedFeatureHasCallout
+																? 'Add another map callout'
+																: 'Add map callout'}
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							</TooltipProvider>
+						</div>
 					) : null}
 
 					{/* Grow-spacer: once the priority-expanding menus can't grow any
 					    further, this invisible element takes the slack and pushes the
 					    search bar + right cluster to the right edge. */}
-					<div className="min-w-0 flex-1" aria-hidden="true" />
+					<div ref={spacerRef} className="min-w-0 flex-1" aria-hidden="true" />
 
 					<Divider />
 
-					{/* Topic 5: search + location lookup */}
-					<div className="relative shrink-0">
-						<form
-							ref={searchFormRef}
-							onSubmit={handleSearchSubmit}
-							className="group relative flex h-8 w-36 shrink-0 items-center rounded-md border border-transparent transition-colors hover:bg-accent/70 focus-within:border-ring/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/20 2xl:w-48"
-						>
-							<Input
-								value={searchQuery}
-								onChange={(event) => setSearchQuery(event.target.value)}
-								onKeyDown={handleSearchKeyDown}
-								placeholder="Search..."
-								className="h-8 border-0 bg-transparent px-2 pr-8 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
-								aria-label="Search location"
-							/>
-							{searchQuery ? (
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon-xs"
-									aria-label="Clear search"
-									className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground"
-									onClick={clearSearch}
-								>
-									<X className="h-3.5 w-3.5" />
-								</Button>
-							) : (
-								<Button
-									type="submit"
-									variant="ghost"
-									size="icon-xs"
-									aria-label="Search"
-									disabled={searchLoading}
-									className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground"
-								>
-									{searchLoading ? (
-										<RefreshCw className="h-3.5 w-3.5 animate-spin" />
-									) : (
-										<Search className="h-3.5 w-3.5" />
-									)}
-								</Button>
-							)}
-						</form>
-						{/* Search results — portaled to body so the toolbar's
-						    `overflow-x-auto` wrapper can't clip the dropdown. P2.1:
-						    shown for every post-submit state (loading / results /
-						    no-results / error) so the geocode never fails silently. */}
-						{showSearchDropdown &&
-							searchAnchorRect &&
-							typeof document !== 'undefined' &&
-							createPortal(
-								<div
-									className="fixed z-50 w-72 rounded-lg border border-border bg-popover p-2 shadow-lg"
-									style={{
-										top: searchAnchorRect.bottom + 8,
-										left: searchAnchorRect.left,
-									}}
-								>
-									<div className="mb-2 flex items-center justify-between border-b border-border pb-2">
-										<span className="text-xs font-medium text-muted-foreground">
-											{searchLoading
-												? 'Searching…'
-												: searchError
-													? 'Search error'
-													: searchHasNoResults
-														? 'No results'
-														: 'Results'}
-										</span>
-										<Button
-											variant="ghost"
-											size="sm"
-											className="h-auto p-0 text-xs"
-											onClick={clearSearch}
+					<div ref={searchRef} className={cn('shrink-0', compactSearch ? 'w-8' : 'w-36')}>
+						{compactSearch ? (
+							<Popover open={searchOpen} onOpenChange={setSearchOpen}>
+								<PopoverTrigger asChild>
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										className="h-8 w-8 shrink-0"
+										aria-label="Search location"
+										title="Search location"
+									>
+										<Search className="h-4 w-4" />
+									</Button>
+								</PopoverTrigger>
+								<PopoverContent aria-label="Search location" align="end" className="w-80 gap-2">
+									{searchForm}
+									{searchFeedback}
+								</PopoverContent>
+							</Popover>
+						) : (
+							<>
+								{searchForm}
+								{showSearchDropdown &&
+									searchAnchorRect &&
+									typeof document !== 'undefined' &&
+									createPortal(
+										<div
+											className="fixed z-50 w-72"
+											style={{
+												top: searchAnchorRect.bottom + 8,
+												left: Math.min(searchAnchorRect.left, window.innerWidth - 300),
+											}}
 										>
-											Close
-										</Button>
-									</div>
-									{searchLoading ? (
-										<div className="flex items-center gap-2 px-1 py-2 text-sm text-muted-foreground">
-											<RefreshCw className="h-3.5 w-3.5 animate-spin" />
-											<span>Searching for “{searchQuery.trim()}”…</span>
-										</div>
-									) : searchError ? (
-										<div className="px-1 py-2 text-sm text-destructive">{searchError}</div>
-									) : searchHasNoResults ? (
-										<div className="px-1 py-2 text-sm text-muted-foreground">
-											No places match “{searchQuery.trim()}”.
-										</div>
-									) : (
-										<div className="max-h-60 space-y-1 overflow-y-auto">
-											{searchResults.map((result, index) => (
-												<button
-													type="button"
-													key={result.placeId ?? `result-${index}`}
-													className={cn(
-														'w-full truncate rounded p-1.5 text-left text-sm hover:bg-muted/50',
-														index === activeResultIndex && 'bg-muted',
-													)}
-													onClick={() => onSearchResultSelect?.(result)}
-												>
-													{result.displayName}
-												</button>
-											))}
-										</div>
+											{searchFeedback}
+										</div>,
+										document.body,
 									)}
-								</div>,
-								document.body,
-							)}
-					</div>
-					{/* Location lookup (formerly the only View menu item) sits next
-					    to the search box's looking-glass icon so it forms a single
-					    "find / inspect" group. */}
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						onClick={handleToggleInspector}
-						aria-label={inspectorActive ? 'Disable location lookup' : 'Enable location lookup'}
-						title="Click map to look up location"
-						className={cn(
-							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
-							inspectorActive &&
-								'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
+							</>
 						)}
-					>
-						<Crosshair className="h-4 w-4" />
-					</Button>
-					<Divider />
-
-					{/* Topic 6: data sources + share / settings. OsmImportPopover
-					    moved here from inside the Draw menu — it's an import
-					    operation, not a draw mode. E.1: import only exists while
-					    authoring (it pulls features into the active draft). */}
-					{isAuthoring ? (
-						<OsmImportPopover
-							open={magicPopoverOpen}
-							onOpenChange={setMagicPopoverOpen}
-							osmQueryFilter={osmQueryFilter}
-							onOsmFilterChange={setOsmQueryFilter}
-							onOsmClickMode={handleOsmClickMode}
-							onOsmQueryView={handleOsmQueryView}
-							onOsmAdvanced={onOsmAdvanced}
-							isClickMode={osmQueryMode === 'click'}
-							small
-						/>
-					) : null}
-					<CreateMapPopover small />
-					<MeasurePopover />
-					<ShareExportPopover small />
-					<ThemeToggleButton />
-					<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
-						<PopoverTrigger asChild>
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								aria-label="Map settings"
-								title="Map settings"
-								className={cn(
-									'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
-									showMapSettings &&
-										'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-								)}
-							>
-								<Settings2 className="h-4 w-4" />
-							</Button>
-						</PopoverTrigger>
-						<PopoverContent className="w-[28rem]" side="bottom" align="start">
-							<MapSettingsPanel mode="map-only" />
-						</PopoverContent>
-					</Popover>
+					</div>
+					{moreTools}
 					{/* Workflow audit P2: publishing is the completion of the core
 					    workflow, so the primary Publish action stays persistently
 					    visible beside the editing controls whenever a publish verb is
 					    available — the File menu keeps the full verb list alongside
 					    import/export. */}
-					{datasetActions && canPublishFromMenu ? (
+					{datasetActions && (canPublishFromMenu || destination) ? (
 						<PublishDropdown
+							small={compactLabels}
+							authoringIntent={datasetActions.authoringIntent}
 							canPublishNew={datasetActions.canPublishNew}
 							canPublishUpdate={datasetActions.canPublishUpdate}
 							canPublishCopy={datasetActions.canPublishCopy}
@@ -1768,40 +1580,28 @@ export function Toolbar({
 							onPublishCopy={datasetActions.onPublishCopy}
 							onProposeEdit={datasetActions.onProposeEdit}
 							publishMode={datasetActions.publishMode}
+							publishingScope={destination}
+							audienceOptions={audienceOptions}
+							selectedAudienceId={selectedAudienceId}
+							onAudienceChange={onAudienceChange}
+							onOpenPublishingScope={onActivateDestination}
+							onLeavePublishingScope={onLeaveDestination}
 						/>
 					) : null}
-					{/* Topic 7: chat / right-sidebar toggle — pinned to the FAR RIGHT,
-				    mirroring the far-left sidebar trigger, with a separator to its
-				    left signalling that it opens the right sidebar. */}
+					{/* Thread and publishing stay pinned; neither is put in overflow. */}
 					<Divider />
 					<Button
 						type="button"
 						variant="ghost"
 						size="icon-sm"
-						onClick={() => toggleChatAtDock('right')}
+						onClick={() => (onToggleChat ? onToggleChat() : toggleChatAtDock('right'))}
 						data-tour="sidebar-chat"
-						aria-label={
-							chatOpen && chatDock === 'right'
-								? 'Hide AI chat'
-								: chatWorking
-									? 'AI chat is working; show it on the right'
-									: chatOpen
-										? 'Move AI chat to the right'
-										: 'Show AI chat on the right'
-						}
-						title={
-							chatOpen && chatDock === 'right'
-								? 'Hide AI chat'
-								: chatWorking
-									? 'AI chat is working; show it on the right'
-									: chatOpen
-										? 'Move AI chat to the right'
-										: 'Show AI chat on the right'
-						}
+						aria-label={threadToggleLabel}
+						title={threadToggleLabel}
 						className={cn(
 							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
 							chatOpen &&
-								chatDock === 'right' &&
+								(chatDock === 'right' || compactThreadLayout) &&
 								'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
 						)}
 					>
@@ -1812,12 +1612,52 @@ export function Toolbar({
 						)}
 					</Button>
 				</div>
+				{/* Inert sizing probes use the same rem-based dimensions as the real
+				    shortcuts/search; no duplicate controls or popovers are mounted. */}
+				<div
+					ref={measureRef}
+					aria-hidden="true"
+					className="pointer-events-none invisible absolute left-0 top-0 flex h-0 overflow-hidden"
+				>
+					<span className="w-8 shrink-0" />
+					<span className="w-36 shrink-0" />
+				</div>
 
 				{fileInput}
 				{/* P2.1: search errors now surface in the portaled dropdown (desktop)
 				    and the mobile search panel, so the old toolbar-level error banner
 				    here was removed to avoid a duplicate message. */}
 			</div>
+
+			{isAuthoring && (
+				<OsmImportPopover
+					control={osmControl}
+					open={magicPopoverOpen}
+					onOpenChange={setMagicPopoverOpen}
+					osmQueryFilter={osmQueryFilter}
+					onOsmFilterChange={setOsmQueryFilter}
+					onOsmClickMode={handleOsmClickMode}
+					onOsmQueryView={handleOsmQueryView}
+					onOsmAdvanced={onOsmAdvanced}
+					isClickMode={osmQueryMode === 'click'}
+					small
+				/>
+			)}
+			<CreateMapPopover control={toolControl('excerpt')} small />
+			<MeasurePopover control={toolControl('measure')} />
+			<ShareExportPopover control={toolControl('share')} small />
+			<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
+				<ToolPopoverAnchor anchorRef={moreToolsRef} />
+				<PopoverContent
+					aria-label="Map settings"
+					className="w-[28rem] max-w-[calc(100vw-2rem)]"
+					side="bottom"
+					align="end"
+					{...settingsFocusProps}
+				>
+					<MapSettingsPanel mode="map-only" />
+				</PopoverContent>
+			</Popover>
 			<SimplifyDialog open={simplifyDialogOpen} onOpenChange={setSimplifyDialogOpen} />
 			<GeometryOperationDialog
 				operation={numericGeometryOperation}

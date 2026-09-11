@@ -25,6 +25,7 @@ export {
 	PanelLeft as OpenPanelActionIcon,
 	PencilLine as DraftGlyphIcon,
 	Pin as PinActionIcon,
+	GitPullRequest as ProposalActionIcon,
 	Search as InspectActionIcon,
 	SquarePen as LoadEditorActionIcon,
 	Star as FavoriteActionIcon,

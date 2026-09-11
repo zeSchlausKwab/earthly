@@ -7,7 +7,7 @@ import {
 } from './authoringDestination'
 
 describe('resolveAuthoringDestination', () => {
-	test('represents neutral public authoring as unattached', () => {
+	test('represents neutral public authoring without Atlas belonging', () => {
 		const destination = resolveAuthoringDestination({
 			publishChannel: 'public',
 			canLeave: false,
@@ -16,7 +16,7 @@ describe('resolveAuthoringDestination', () => {
 		expect(destination).toMatchObject({
 			kind: 'public-unattached',
 			publishChannel: 'public',
-			label: 'Public · Unattached',
+			label: 'Public · No Atlas',
 			availability: 'available',
 			canLeave: false,
 			target: null,
@@ -74,7 +74,7 @@ describe('resolveAuthoringDestination', () => {
 		expect(destination).toMatchObject({
 			kind: 'unresolved',
 			publishChannel: 'unresolved',
-			label: 'Destination needed · Legacy draft',
+			label: 'Publishing choice needed · Legacy draft',
 			availability: 'unavailable',
 			canLeave: true,
 		})
@@ -122,8 +122,8 @@ describe('resolveAuthoringDestination', () => {
 		expect(destination).toMatchObject({
 			kind: 'private-group',
 			publishChannel: 'private-group',
-			label: 'Private · Unavailable',
-			accessibleLabel: 'Private · Unavailable, unavailable',
+			label: 'Circle · Unavailable',
+			accessibleLabel: 'Circle · Unavailable, unavailable',
 			availability: 'unavailable',
 		})
 		expect(destination.target.id).toBe('private-group-route-id')

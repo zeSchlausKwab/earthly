@@ -1,7 +1,9 @@
 import type { StateCreator } from 'zustand'
+import { naddrToCoordinate } from '@/lib/nostr/references'
+import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
 import { isMobileMapSurfaceTab, viewToMobileTab } from './mobileTabRoute'
-import { hasRetainedDatasetSurface } from './mobileEntitySurface'
+import { getRetainedDatasetSurfaceTarget } from './mobileEntitySurface'
 import type { EditorState, ViewModeSlice } from './types'
 
 export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlice> = (
@@ -97,7 +99,8 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 			// A retained Dataset editor is a valid workspace -> draft relationship.
 			// When the route activates authoring, the editor workflow restores its
 			// mandatory visible Map Stack row after this pure route transition.
-			const editSessionLive = hasRetainedDatasetSurface(state)
+			const retainedDataset = getRetainedDatasetSurfaceTarget(state)
+			const editSessionLive = retainedDataset !== null
 			// The context editor edits metadata, not geometry — treat it as a
 			// non-geometry surface so a live geo draft doesn't flip us into 'edit'.
 			const inContextEditor = route.sidebarView === 'context-editor'
@@ -115,12 +118,20 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 			// like the dataset inspector. Drop it whenever the route isn't a story focus.
 			const viewStory = route.focusType === 'story' ? state.viewStory : null
 
-			const inspectingSubject = hasFocus
+			const routedCoordinate = route.naddr ? naddrToCoordinate(route.naddr) : null
+			const editingFocusedMap = Boolean(
+				route.edit &&
+					route.focusType === 'geoevent' &&
+					routedCoordinate?.startsWith(`${GEO_EVENT_KIND}:`) &&
+					retainedDataset?.draft.sourceId ===
+						`dataset:${routedCoordinate.slice(String(GEO_EVENT_KIND).length + 1)}`,
+			)
+			const inspectingSubject = hasFocus && !editingFocusedMap
 			// The geometry editor is the active interaction surface only when a draft
 			// is live and we're neither inspecting a subject nor editing a context.
 			const editingGeometry =
 				editSessionLive &&
-				(route.sidebarView === 'edit' || route.sidebarView === 'combined') &&
+				(editingFocusedMap || route.sidebarView === 'edit' || route.sidebarView === 'combined') &&
 				!inspectingSubject &&
 				!inContextEditor
 
@@ -139,12 +150,18 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 			// (audit P1 #6). In-app navigations skip this (syncMobileTab unset):
 			// their handlers own the tab (e.g. the `edit` overlay during inspect).
 			const mobileTab = options?.syncMobileTab ? viewToMobileTab(route.sidebarView) : null
+			const mobileThreadOpen = route.tab === 'thread' && (hasFocus || editingGeometry)
 			const mobileSurface = mobileTab
-				? hasFocus || inContextEditor || isMobileMapSurfaceTab(mobileTab)
+				? route.browseOpen || hasFocus || inContextEditor || isMobileMapSurfaceTab(mobileTab)
 					? {
-							mobilePanelTab: hasFocus ? ('edit' as const) : mobileTab,
+							mobilePanelTab: mobileThreadOpen
+								? ('chat' as const)
+								: hasFocus
+									? ('edit' as const)
+									: mobileTab,
 							mobilePanelOpen: true,
-							mobilePanelSnap: mobileTab === 'chat' ? ('full' as const) : ('half' as const),
+							mobilePanelSnap:
+								mobileThreadOpen || mobileTab === 'chat' ? ('full' as const) : ('half' as const),
 							mobileSidebarOpen: false,
 							mobilePanelResumeOnSidebarClose: null,
 						}
