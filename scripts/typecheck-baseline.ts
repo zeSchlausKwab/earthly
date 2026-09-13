@@ -14,11 +14,24 @@ export interface TypecheckBaseline {
 	diagnostics: BaselineEntry[]
 }
 
-function normalize(diagnostic: TypeDiagnostic): TypeDiagnostic {
+function normalizeWorkspacePaths(message: string, workspaceRoot?: string): string {
+	if (!workspaceRoot) return message
+	const root = workspaceRoot.replaceAll('\\', '/').replace(/\/+$/, '')
+	// TypeScript quotes paths in diagnostic messages. Keep the path within the checkout
+	// significant, while allowing the checkout itself to move between developer and CI hosts.
+	return message.replace(/(['"`])([^'"`\r\n]+)\1/g, (quoted, quote: string, path: string) => {
+		const normalizedPath = path.replaceAll('\\', '/')
+		return normalizedPath.startsWith(`${root}/`)
+			? `${quote}<workspace>${normalizedPath.slice(root.length)}${quote}`
+			: quoted
+	})
+}
+
+function normalize(diagnostic: TypeDiagnostic, workspaceRoot?: string): TypeDiagnostic {
 	return {
 		file: diagnostic.file.replaceAll('\\', '/'),
 		code: diagnostic.code,
-		message: diagnostic.message.replace(/\s+/g, ' ').trim(),
+		message: normalizeWorkspacePaths(diagnostic.message, workspaceRoot).replace(/\s+/g, ' ').trim(),
 	}
 }
 
@@ -28,13 +41,17 @@ function key(diagnostic: TypeDiagnostic): string {
 }
 
 /** Locations may move during a refactor; repeated diagnostics still consume separate entries. */
-export function summarizeDiagnostics(diagnostics: TypeDiagnostic[]): BaselineEntry[] {
+export function summarizeDiagnostics(
+	diagnostics: TypeDiagnostic[],
+	workspaceRoot?: string,
+): BaselineEntry[] {
 	const entries = new Map<string, BaselineEntry>()
 	for (const diagnostic of diagnostics) {
-		const id = key(diagnostic)
+		const normalized = normalize(diagnostic, workspaceRoot)
+		const id = key(normalized)
 		const existing = entries.get(id)
 		if (existing) existing.count += 1
-		else entries.set(id, { ...normalize(diagnostic), count: 1 })
+		else entries.set(id, { ...normalized, count: 1 })
 	}
 	return [...entries.values()].sort((left, right) => {
 		const a = key(left)

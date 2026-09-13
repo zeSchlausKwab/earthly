@@ -33,6 +33,72 @@ describe('TypeScript regression baseline', () => {
 		})
 	})
 
+	test('the checked-in missing declaration allowance survives macOS, Linux and Windows checkouts', async () => {
+		const stored = await Bun.file(new URL('./typecheck-baseline.json', import.meta.url)).json()
+		const baseline = parseBaseline(stored, stored.compilerVersion)
+		const missingDeclaration = baseline.diagnostics.find((entry) => entry.code === 7016)
+		expect(missingDeclaration).toBeDefined()
+		if (!missingDeclaration) throw new Error('Expected the existing missing declaration allowance')
+		expect(missingDeclaration.message).toContain("'<workspace>/node_modules/shpjs/lib/index.js'")
+
+		for (const [root, modulePath] of [
+			[
+				'/Users/schlaus/workspace/earthly',
+				'/Users/schlaus/workspace/earthly/node_modules/shpjs/lib/index.js',
+			],
+			[
+				'/home/runner/work/earthly/earthly',
+				'/home/runner/work/earthly/earthly/node_modules/shpjs/lib/index.js',
+			],
+			['C:\\work\\earthly', 'C:\\work\\earthly\\node_modules\\shpjs\\lib\\index.js'],
+			['C:\\work\\earthly', 'C:/work/earthly/node_modules/shpjs/lib/index.js'],
+			['/tmp/work space/earthly[1]/', '/tmp/work space/earthly[1]/node_modules/shpjs/lib/index.js'],
+		] as const) {
+			const diagnostic = {
+				...missingDeclaration,
+				message: missingDeclaration.message.replace(
+					'<workspace>/node_modules/shpjs/lib/index.js',
+					modulePath,
+				),
+			}
+			const current = summarizeDiagnostics([diagnostic], root)
+			expect(compareDiagnostics(current, [missingDeclaration])).toEqual({
+				additions: [],
+				resolved: 0,
+			})
+			expect(
+				compareDiagnostics(summarizeDiagnostics([diagnostic, diagnostic], root), [
+					missingDeclaration,
+				]).additions,
+			).toEqual([{ ...missingDeclaration, count: 1 }])
+		}
+	})
+
+	test('workspace normalization retains different module paths and paths outside the checkout', () => {
+		const message = (path: string) =>
+			`Could not find a declaration file. '${path}' implicitly has an 'any' type.`
+		const diagnostic = {
+			file: 'src/import.ts',
+			code: 7016,
+			message: message('/local/earthly/node_modules/shpjs/index.js'),
+		}
+		const baseline = summarizeDiagnostics([diagnostic], '/local/earthly')
+		const current = summarizeDiagnostics(
+			[
+				{ ...diagnostic, message: message('/ci/earthly/node_modules/other/index.js') },
+				{ ...diagnostic, message: message('/ci/earthly-copy/node_modules/shpjs/index.js') },
+				{ ...diagnostic, message: message('/external/ci/earthly/node_modules/shpjs/index.js') },
+			],
+			'/ci/earthly',
+		)
+		expect(compareDiagnostics(current, baseline)).toEqual({ additions: current, resolved: 1 })
+		expect(current.map((entry) => entry.message)).toEqual([
+			message('/ci/earthly-copy/node_modules/shpjs/index.js'),
+			message('/external/ci/earthly/node_modules/shpjs/index.js'),
+			message('<workspace>/node_modules/other/index.js'),
+		])
+	})
+
 	test('rejects compiler changes and malformed or duplicate allowances', () => {
 		const baseline = {
 			version: 1 as const,

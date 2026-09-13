@@ -37,6 +37,7 @@ try {
 			code: diagnostic.code,
 			message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
 		})),
+		root,
 	)
 	const { additions, resolved } = compareDiagnostics(current, baseline.diagnostics)
 	if (additions.length) {

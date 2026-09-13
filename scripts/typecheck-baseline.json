@@ -761,7 +761,7 @@
     {
       "file": "src/features/geo-editor/shapefile.ts",
       "code": 7016,
-      "message": "Could not find a declaration file for module 'shpjs'. '/Users/schlaus/workspace/earthly/node_modules/shpjs/lib/index.js' implicitly has an 'any' type. Try `npm i --save-dev @types/shpjs` if it exists or add a new declaration (.d.ts) file containing `declare module 'shpjs';`",
+      "message": "Could not find a declaration file for module 'shpjs'. '<workspace>/node_modules/shpjs/lib/index.js' implicitly has an 'any' type. Try `npm i --save-dev @types/shpjs` if it exists or add a new declaration (.d.ts) file containing `declare module 'shpjs';`",
       "count": 1
     },
     {
