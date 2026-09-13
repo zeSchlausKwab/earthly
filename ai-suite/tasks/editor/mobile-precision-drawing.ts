@@ -43,12 +43,18 @@ export async function placeMobilePrecisionPoint(
 	const before = (await geometryDraftSnapshot(earthly)).featureCount
 	const mobileSheet = earthly.page.getByTestId('mobile-sheet')
 	await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().tap()
-	await earthly.page
-		.getByRole('button', { name: 'Lock pan while drawing', exact: true })
-		.first()
-		.tap()
+	const moreTools = earthly.page.getByRole('button', { name: /^More tools/u }).first()
+	await moreTools.tap()
+	const panLock = earthly.page.getByRole('menuitemcheckbox', {
+		name: 'Lock pan while drawing',
+		exact: true,
+	})
+	if ((await panLock.getAttribute('aria-checked')) !== 'true') {
+		await panLock.tap()
+		await moreTools.tap()
+	}
+	await expect(panLock).toBeChecked()
 	await expect(earthly.page.getByText('Lock panning to draw', { exact: true })).toBeHidden()
-	await earthly.page.getByRole('button', { name: 'More tools', exact: true }).first().tap()
 	await earthly.page.getByRole('menuitemcheckbox', { name: 'Magnifier', exact: true }).tap()
 
 	const magnifier = earthly.page.getByTestId('map-magnifier')

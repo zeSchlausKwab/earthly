@@ -1,4 +1,4 @@
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import { useMemo } from 'react'
 import { useEditorStore, type MapLayerState } from '../../store'
 import { buildBlossomStyle, buildPmtilesStyle, resolvePmtilesUrl } from './buildStyles'

@@ -20,7 +20,7 @@
  */
 
 import { use$ } from 'applesauce-react/hooks'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImageGalleryDialog } from '@/components/media/ImageGalleryDialog'

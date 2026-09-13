@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import type { GeoProposal } from '@/lib/nostr/geo-proposal'
 
 export function useProposalGeometry(mapRef: React.RefObject<maplibregl.Map | null>) {

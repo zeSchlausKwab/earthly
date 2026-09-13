@@ -1,27 +1,26 @@
-import type maplibregl from 'maplibre-gl'
+import type { Map as MapLibreMap, MissingStyleImageResolver } from 'maplibre-gl'
 import { useEffect } from 'react'
 import { handleMissingDisplayIconImage } from '../../icons/registerDisplayIconImages'
 
 /**
- * MapLibre crashes on styles that reference missing sprite icons. We listen
- * for `styleimagemissing` and supply a transparent 1×1 placeholder so the
- * symbol layer still renders without errors.
+ * Resolve missing sprite icons before MapLibre builds their symbol layers.
+ * Unavailable basemap icons receive a transparent 1×1 placeholder.
  *
  * EXCEPTION: displayIcon ids (`lucide:<name>` + the fallback marker) must never
  * receive the transparent pixel — that would make iconed points vanish
  * silently. Those ids get a VISIBLE fallback dot (and, when bundled, the real
  * glyph shortly after) via `handleMissingDisplayIconImage`.
  */
-export function useStyleImageMissingHandler(map: maplibregl.Map | null): void {
+export function useStyleImageMissingHandler(map: MapLibreMap | null): void {
 	useEffect(() => {
 		if (!map) return
 
-		const onStyleImageMissing = (e: maplibregl.MapStyleImageMissingEvent) => {
+		const controller = new AbortController()
+		const resolveMissingImage: MissingStyleImageResolver = (id) => {
 			try {
-				const id = e.id
-				if (!id) return
+				if (!id || controller.signal.aborted) return
 				if (map.hasImage(id)) return
-				if (handleMissingDisplayIconImage(map, id)) return
+				if (handleMissingDisplayIconImage(map, id, controller.signal)) return
 
 				const imageData:
 					| ImageData
@@ -35,10 +34,11 @@ export function useStyleImageMissingHandler(map: maplibregl.Map | null): void {
 			}
 		}
 
-		map.on('styleimagemissing', onStyleImageMissing)
+		map.setMissingStyleImageResolver(resolveMissingImage)
 		return () => {
+			controller.abort()
 			try {
-				map.off('styleimagemissing', onStyleImageMissing)
+				map.setMissingStyleImageResolver(null)
 			} catch {
 				// ignore
 			}

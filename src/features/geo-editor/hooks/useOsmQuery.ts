@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import { earthlyGeoServer } from '@/ctxcn'
 import { createAuthoring } from '../api'
 import type { EditorFeature } from '../core'

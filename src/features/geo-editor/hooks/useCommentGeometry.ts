@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import type { CommentAnnotationPopupData } from '../components/CommentAnnotationPopup'
 
 export interface CommentGeometryRecord {

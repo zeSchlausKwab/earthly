@@ -10,7 +10,7 @@ import {
 	Trash2,
 	X,
 } from 'lucide-react'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import type { Feature, Geometry } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'

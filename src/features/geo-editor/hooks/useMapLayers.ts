@@ -1,7 +1,7 @@
 import { unixNow } from 'applesauce-core/helpers/time'
 import type { Feature, FeatureCollection, Point } from 'geojson'
 import type { GeoJSONSource } from 'maplibre-gl'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import { useEffect, useRef, useState } from 'react'
 import { pointOnFeature } from '@turf/turf'
 import { isGeoJsonGeometry } from '@/lib/geo/normalizeGeoJSON'

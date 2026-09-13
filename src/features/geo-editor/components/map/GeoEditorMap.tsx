@@ -1,4 +1,4 @@
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 // Aliased so we don't shadow the JS built-in `Map` constructor in this module.
 import { Map as McnMap, MapControls, useMap, type LocateCoords } from '@/components/ui/map'

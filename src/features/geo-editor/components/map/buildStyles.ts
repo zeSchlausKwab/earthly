@@ -1,5 +1,5 @@
 import { namedFlavor, layers as protomapsLayers } from '@protomaps/basemaps'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import type { PmtilesKind } from '@/lib/localPmtiles'
 import type { MapSource, OverlayStyleDescriptor } from './types'
 

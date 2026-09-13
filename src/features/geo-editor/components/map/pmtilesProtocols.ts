@@ -1,4 +1,4 @@
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import { PMTiles, Protocol, TileType } from 'pmtiles'
 import { config } from '@/config/env.client'
 import { isTauri } from '@/config/platform'

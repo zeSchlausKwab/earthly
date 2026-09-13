@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { Feature, Geometry } from 'geojson'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 
 /**
  * Renders the geometry of a Sighting that's being created/edited as an amber

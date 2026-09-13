@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { FeatureCollection, Point } from 'geojson'
 import type { Map as MapLibreMap } from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import type { MapPresentationLayerV1 } from '@/lib/map-presentation'
 import {
 	EMPTY_PRESENTATION_MAP_LAYER_REGISTRY,
