@@ -1,5 +1,6 @@
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import { useEffect, useRef, useState } from 'react'
+import { configureMapLibreWorker } from '@/lib/maplibreWorker'
 
 interface MagnifierProps {
 	enabled: boolean
@@ -30,15 +31,16 @@ export function Magnifier({
 		if (!mainMap) return
 
 		setMapReady(false)
+		configureMapLibreWorker()
 		mapRef.current = new maplibregl.Map({
 			container: containerRef.current,
-			style: mainMap.getStyle() as any,
+			style: mainMap.getStyle(),
 			center: mainMap.getCenter(),
 			zoom: mainMap.getZoom() + zoomOffset,
 			interactive: false,
 			attributionControl: false,
-			preserveDrawingBuffer: true,
-		} as any)
+			canvasContextAttributes: { preserveDrawingBuffer: true },
+		})
 
 		mapRef.current.dragPan.disable()
 		mapRef.current.scrollZoom.disable()

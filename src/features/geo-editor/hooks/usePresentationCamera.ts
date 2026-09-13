@@ -1,6 +1,7 @@
 import { bbox as turfBbox } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import type { Map as MapLibreMap } from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import { useEffect, useRef } from 'react'
 import type { MapPresentationCameraV1 } from '@/lib/map-presentation'
 

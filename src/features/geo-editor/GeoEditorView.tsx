@@ -29,7 +29,7 @@ import {
 	X,
 } from 'lucide-react'
 import type { FeatureCollection } from 'geojson'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import {
 	useCallback,
 	useEffect,

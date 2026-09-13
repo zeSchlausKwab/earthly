@@ -1,7 +1,119 @@
-import type { Position } from 'geojson'
-import type { Map, MapMouseEvent } from 'maplibre-gl'
+import type { Geometry, Position } from 'geojson'
+import type { Map as MapLibreMap } from 'maplibre-gl'
 import type { EditorFeature } from '../types'
-import { distance } from '../utils/geometry'
+import { isFinitePosition } from '../utils/coordinates'
+
+interface Vertex {
+	position: Position
+	path: number[]
+}
+
+interface CoordinateSequence {
+	coordinates: Position[]
+	path: number[]
+	isRing: boolean
+}
+
+/** Detach coordinate arrays even when an in-memory geometry reuses the same ring or position. */
+function cloneFeature(feature: EditorFeature): EditorFeature {
+	const clone = structuredClone(feature)
+	const geometry = clone.geometry
+	const copyPosition = (position: Position): Position => [...position]
+	const copyLine = (line: Position[]): Position[] => line.map(copyPosition)
+	const copyPolygon = (polygon: Position[][]): Position[][] => polygon.map(copyLine)
+	switch (geometry.type) {
+		case 'Point':
+			geometry.coordinates = copyPosition(geometry.coordinates)
+			break
+		case 'MultiPoint':
+		case 'LineString':
+			geometry.coordinates = copyLine(geometry.coordinates)
+			break
+		case 'MultiLineString':
+		case 'Polygon':
+			geometry.coordinates = copyPolygon(geometry.coordinates)
+			break
+		case 'MultiPolygon':
+			geometry.coordinates = geometry.coordinates.map(copyPolygon)
+			break
+	}
+	return clone
+}
+
+/** Enumerate editable sequences without erasing their geometry-specific path prefixes. */
+function coordinateSequences(geometry: Geometry): CoordinateSequence[] {
+	switch (geometry.type) {
+		case 'MultiPoint':
+		case 'LineString':
+			return [{ coordinates: geometry.coordinates, path: [], isRing: false }]
+		case 'MultiLineString':
+		case 'Polygon':
+			return geometry.coordinates.map((coordinates, index) => ({
+				coordinates,
+				path: [index],
+				isRing: geometry.type === 'Polygon',
+			}))
+		case 'MultiPolygon':
+			return geometry.coordinates.flatMap((polygon, polygonIndex) =>
+				polygon.map((coordinates, ringIndex) => ({
+					coordinates,
+					path: [polygonIndex, ringIndex],
+					isRing: true,
+				})),
+			)
+		default:
+			return []
+	}
+}
+
+function isClosedRing(coordinates: Position[]): boolean {
+	const first = coordinates[0]
+	const last = coordinates.at(-1)
+	return (
+		coordinates.length >= 4 &&
+		isFinitePosition(first) &&
+		isFinitePosition(last) &&
+		first.length === last.length &&
+		first.every((value, index) => value === last[index])
+	)
+}
+
+/** Reject stale, truncated and fractional paths before an array write can create holes. */
+function resolveVertex(
+	geometry: Geometry,
+	path: number[],
+): { coordinates: Position[]; index: number; isRing: boolean } | undefined {
+	if (!path.every((index) => Number.isInteger(index) && index >= 0)) return undefined
+	const [first, second, third] = path
+	let coordinates: Position[] | undefined
+	let index: number | undefined
+	let isRing = false
+	switch (geometry.type) {
+		case 'MultiPoint':
+		case 'LineString':
+			if (path.length !== 1) return undefined
+			coordinates = geometry.coordinates
+			index = first
+			break
+		case 'MultiLineString':
+		case 'Polygon':
+			if (path.length !== 2 || first === undefined) return undefined
+			coordinates = geometry.coordinates[first]
+			index = second
+			isRing = geometry.type === 'Polygon'
+			break
+		case 'MultiPolygon':
+			if (path.length !== 3 || first === undefined || second === undefined) return undefined
+			coordinates = geometry.coordinates[first]?.[second]
+			index = third
+			isRing = true
+			break
+		default:
+			return undefined
+	}
+	if (!coordinates || index === undefined || !isFinitePosition(coordinates[index])) return undefined
+	return { coordinates, index, isRing }
+}
 
 export interface EditState {
 	feature?: EditorFeature
@@ -13,7 +125,7 @@ export interface EditState {
 	draggingFeature?: {
 		featureId: string
 		startLngLat: Position
-		startGeometry: any
+		startGeometry: Geometry
 	}
 	hoveredVertex?: {
 		featureId: string
@@ -26,13 +138,9 @@ export interface EditState {
 }
 
 export class EditMode {
-	private map?: Map
 	private state: EditState = {}
-	private vertexRadius: number = 6
 
-	onAdd(map: Map): void {
-		this.map = map
-	}
+	onAdd(_map: MapLibreMap): void {}
 
 	onRemove(): void {
 		this.reset()
@@ -54,7 +162,7 @@ export class EditMode {
 		}
 	}
 
-	setDraggingFeature(featureId: string, startLngLat: Position, startGeometry: any): void {
+	setDraggingFeature(featureId: string, startLngLat: Position, startGeometry: Geometry): void {
 		this.state.draggingFeature = {
 			featureId,
 			startLngLat,
@@ -97,253 +205,139 @@ export class EditMode {
 		return !!(this.state.draggingVertex || this.state.draggingFeature)
 	}
 
-	// Extract vertices with their coordinate paths
-	extractVerticesWithPaths(feature: EditorFeature): Array<{ position: Position; path: number[] }> {
-		const vertices: Array<{ position: Position; path: number[] }> = []
-
-		if (feature.geometry.type === 'Point') {
-			vertices.push({
-				position: feature.geometry.coordinates as Position,
-				path: [],
-			})
-		} else if (feature.geometry.type === 'MultiPoint') {
-			const coords = feature.geometry.coordinates as Position[]
-			coords.forEach((coord, i) => {
-				vertices.push({ position: coord, path: [i] })
-			})
-		} else if (feature.geometry.type === 'LineString') {
-			const coords = feature.geometry.coordinates as Position[]
-			coords.forEach((coord, i) => {
-				vertices.push({ position: coord, path: [i] })
-			})
-		} else if (feature.geometry.type === 'MultiLineString') {
-			const lines = feature.geometry.coordinates as Position[][]
-			lines.forEach((line, lineIdx) => {
-				line.forEach((coord, coordIdx) => {
-					vertices.push({ position: coord, path: [lineIdx, coordIdx] })
-				})
-			})
-		} else if (feature.geometry.type === 'Polygon') {
-			const rings = feature.geometry.coordinates as Position[][]
-			rings.forEach((ring, ringIdx) => {
-				ring.forEach((coord, coordIdx) => {
-					// Don't duplicate the last vertex (which is same as first in closed polygon)
-					if (coordIdx < ring.length - 1) {
-						vertices.push({ position: coord, path: [ringIdx, coordIdx] })
-					}
-				})
-			})
-		} else if (feature.geometry.type === 'MultiPolygon') {
-			const polygons = feature.geometry.coordinates as Position[][][]
-			polygons.forEach((polygon, polyIdx) => {
-				polygon.forEach((ring, ringIdx) => {
-					ring.forEach((coord, coordIdx) => {
-						if (coordIdx < ring.length - 1) {
-							vertices.push({
-								position: coord,
-								path: [polyIdx, ringIdx, coordIdx],
-							})
-						}
-					})
-				})
-			})
+	// Polygon closing coordinates share a handle with the first vertex only when closed.
+	extractVerticesWithPaths(feature: EditorFeature): Vertex[] {
+		const { geometry } = feature
+		if (geometry.type === 'Point') {
+			return isFinitePosition(geometry.coordinates)
+				? [{ position: geometry.coordinates, path: [] }]
+				: []
 		}
 
+		const vertices: Vertex[] = []
+		for (const { coordinates, path, isRing } of coordinateSequences(geometry)) {
+			const closed = isRing && isClosedRing(coordinates)
+			coordinates.forEach((position, index) => {
+				if (isFinitePosition(position) && (!closed || index < coordinates.length - 1)) {
+					vertices.push({ position, path: [...path, index] })
+				}
+			})
+		}
 		return vertices
 	}
 
-	// Extract midpoints between vertices
-	extractMidpoints(feature: EditorFeature): Array<{ position: Position; path: number[] }> {
-		const midpoints: Array<{ position: Position; path: number[] }> = []
+	extractMidpoints(feature: EditorFeature): Vertex[] {
+		if (feature.geometry.type === 'MultiPoint') return []
 
-		if (feature.geometry.type === 'LineString') {
-			const coords = feature.geometry.coordinates as Position[]
-			for (let i = 0; i < coords.length - 1; i++) {
-				const mid: Position = [
-					(coords[i][0] + coords[i + 1][0]) / 2,
-					(coords[i][1] + coords[i + 1][1]) / 2,
-				]
-				midpoints.push({ position: mid, path: [i, i + 1] })
-			}
-		} else if (feature.geometry.type === 'MultiLineString') {
-			const lines = feature.geometry.coordinates as Position[][]
-			lines.forEach((line, lineIdx) => {
-				for (let i = 0; i < line.length - 1; i++) {
-					const mid: Position = [
-						(line[i][0] + line[i + 1][0]) / 2,
-						(line[i][1] + line[i + 1][1]) / 2,
-					]
-					midpoints.push({ position: mid, path: [lineIdx, i, i + 1] })
-				}
-			})
-		} else if (feature.geometry.type === 'Polygon') {
-			const rings = feature.geometry.coordinates as Position[][]
-			rings.forEach((ring, ringIdx) => {
-				for (let i = 0; i < ring.length - 1; i++) {
-					const mid: Position = [
-						(ring[i][0] + ring[i + 1][0]) / 2,
-						(ring[i][1] + ring[i + 1][1]) / 2,
-					]
-					midpoints.push({ position: mid, path: [ringIdx, i, i + 1] })
-				}
-			})
-		} else if (feature.geometry.type === 'MultiPolygon') {
-			const polygons = feature.geometry.coordinates as Position[][][]
-			polygons.forEach((polygon, polyIdx) => {
-				polygon.forEach((ring, ringIdx) => {
-					for (let i = 0; i < ring.length - 1; i++) {
-						const mid: Position = [
-							(ring[i][0] + ring[i + 1][0]) / 2,
-							(ring[i][1] + ring[i + 1][1]) / 2,
-						]
-						midpoints.push({
-							position: mid,
-							path: [polyIdx, ringIdx, i, i + 1],
-						})
-					}
+		const midpoints: Vertex[] = []
+		for (const { coordinates, path } of coordinateSequences(feature.geometry)) {
+			for (let index = 1; index < coordinates.length; index++) {
+				const before = coordinates[index - 1]
+				const after = coordinates[index]
+				if (!isFinitePosition(before) || !isFinitePosition(after)) continue
+				midpoints.push({
+					position: [before[0] / 2 + after[0] / 2, before[1] / 2 + after[1] / 2],
+					path: [...path, index - 1, index],
 				})
-			})
+			}
 		}
-
 		return midpoints
 	}
 
-	// Update vertex position in feature
 	updateVertexPosition(
 		feature: EditorFeature,
 		path: number[],
 		newPosition: Position,
 	): EditorFeature {
-		const updatedFeature = JSON.parse(JSON.stringify(feature)) as EditorFeature
-
-		if (feature.geometry.type === 'Point') {
-			updatedFeature.geometry.coordinates = newPosition
-		} else if (feature.geometry.type === 'MultiPoint') {
-			const coords = updatedFeature.geometry.coordinates as Position[]
-			coords[path[0]] = newPosition
-		} else if (feature.geometry.type === 'LineString') {
-			const coords = updatedFeature.geometry.coordinates as Position[]
-			coords[path[0]] = newPosition
-		} else if (feature.geometry.type === 'MultiLineString') {
-			const lines = updatedFeature.geometry.coordinates as Position[][]
-			lines[path[0]][path[1]] = newPosition
-		} else if (feature.geometry.type === 'Polygon') {
-			const rings = updatedFeature.geometry.coordinates as Position[][]
-			rings[path[0]][path[1]] = newPosition
-
-			// Update the closing vertex if we're editing the first vertex
-			if (path[1] === 0) {
-				rings[path[0]][rings[path[0]].length - 1] = newPosition
-			}
-			// Update the first vertex if we're editing what would be the closing vertex
-			if (path[1] === rings[path[0]].length - 2) {
-				rings[path[0]][rings[path[0]].length - 1] = newPosition
-			}
-		} else if (feature.geometry.type === 'MultiPolygon') {
-			const polygons = updatedFeature.geometry.coordinates as Position[][][]
-			const ring = polygons[path[0]][path[1]]
-			ring[path[2]] = newPosition
-			if (path[2] === 0) {
-				ring[ring.length - 1] = newPosition
-			}
-			if (path[2] === ring.length - 2) {
-				ring[ring.length - 1] = newPosition
-			}
+		if (!isFinitePosition(newPosition)) return feature
+		const updatedFeature = cloneFeature(feature)
+		const { geometry } = updatedFeature
+		if (geometry.type === 'Point') {
+			if (path.length !== 0 || !isFinitePosition(geometry.coordinates)) return feature
+			geometry.coordinates = [...newPosition]
+			return updatedFeature
 		}
 
+		const vertex = resolveVertex(geometry, path)
+		if (!vertex) return feature
+		const { coordinates, index, isRing } = vertex
+		const closed = isRing && isClosedRing(coordinates)
+		coordinates[index] = [...newPosition]
+		if (closed && (index === 0 || index === coordinates.length - 1)) {
+			coordinates[0] = [...newPosition]
+			coordinates[coordinates.length - 1] = [...newPosition]
+		}
 		return updatedFeature
 	}
 
-	// Insert new vertex at midpoint
+	// Midpoint paths end in two adjacent, existing vertex indices.
 	insertVertex(feature: EditorFeature, path: number[], position: Position): EditorFeature {
-		const updatedFeature = JSON.parse(JSON.stringify(feature)) as EditorFeature
-
-		if (feature.geometry.type === 'LineString') {
-			// path is [beforeIndex, afterIndex]
-			const coords = updatedFeature.geometry.coordinates as Position[]
-			coords.splice(path[1], 0, position)
-		} else if (feature.geometry.type === 'MultiLineString') {
-			// path is [lineIdx, beforeIndex, afterIndex]
-			const lines = updatedFeature.geometry.coordinates as Position[][]
-			lines[path[0]].splice(path[2], 0, position)
-		} else if (feature.geometry.type === 'Polygon') {
-			// path is [ringIdx, beforeIndex, afterIndex]
-			const rings = updatedFeature.geometry.coordinates as Position[][]
-			rings[path[0]].splice(path[2], 0, position)
-		} else if (feature.geometry.type === 'MultiPolygon') {
-			const polygons = updatedFeature.geometry.coordinates as Position[][][]
-			const ring = polygons[path[0]][path[1]]
-			ring.splice(path[3], 0, position)
+		if (!isFinitePosition(position) || feature.geometry.type === 'MultiPoint') return feature
+		const updatedFeature = cloneFeature(feature)
+		const vertex = resolveVertex(updatedFeature.geometry, path.slice(0, -1))
+		const afterIndex = path.at(-1)
+		if (
+			!vertex ||
+			afterIndex !== vertex.index + 1 ||
+			!isFinitePosition(vertex.coordinates[afterIndex])
+		) {
+			return feature
 		}
-
+		vertex.coordinates.splice(afterIndex, 0, [...position])
 		return updatedFeature
 	}
 
-	// Remove vertex
+	// null means the removal would leave too few vertices; invalid paths are no-ops.
 	removeVertex(feature: EditorFeature, path: number[]): EditorFeature | null {
-		const updatedFeature = JSON.parse(JSON.stringify(feature)) as EditorFeature
-
 		if (feature.geometry.type === 'Point') {
-			return null // Can't remove the only point
-		} else if (feature.geometry.type === 'MultiPoint') {
-			const coords = updatedFeature.geometry.coordinates as Position[]
-			if (coords.length <= 1) return null
-			coords.splice(path[0], 1)
-		} else if (feature.geometry.type === 'LineString') {
-			const coords = updatedFeature.geometry.coordinates as Position[]
-			if (coords.length <= 2) return null // Need at least 2 points
-			coords.splice(path[0], 1)
-		} else if (feature.geometry.type === 'MultiLineString') {
-			const lines = updatedFeature.geometry.coordinates as Position[][]
-			if (lines[path[0]].length <= 2) return null
-			lines[path[0]].splice(path[1], 1)
-		} else if (feature.geometry.type === 'Polygon') {
-			const rings = updatedFeature.geometry.coordinates as Position[][]
-			if (rings[path[0]].length <= 4) return null // Need at least 3 unique points (4 including closing)
-			rings[path[0]].splice(path[1], 1)
-
-			// Update closing vertex
-			rings[path[0]][rings[path[0]].length - 1] = rings[path[0]][0]
-		} else if (feature.geometry.type === 'MultiPolygon') {
-			const polygons = updatedFeature.geometry.coordinates as Position[][][]
-			const ring = polygons[path[0]][path[1]]
-			if (ring.length <= 4) return null
-			ring.splice(path[2], 1)
-			ring[ring.length - 1] = ring[0]
+			return path.length === 0 && isFinitePosition(feature.geometry.coordinates) ? null : feature
 		}
-
+		const updatedFeature = cloneFeature(feature)
+		const vertex = resolveVertex(updatedFeature.geometry, path)
+		if (!vertex) return feature
+		const { coordinates, index, isRing } = vertex
+		if (!coordinates.every(isFinitePosition)) return feature
+		if (isRing) {
+			if (!isClosedRing(coordinates)) return feature
+			if (coordinates.length <= 4) return null
+			// A path to the duplicate closing coordinate refers to the first vertex.
+			coordinates.splice(index === coordinates.length - 1 ? 0 : index, 1)
+			const first = coordinates[0]
+			if (!isFinitePosition(first)) return feature
+			coordinates[coordinates.length - 1] = [...first]
+		} else {
+			const minimum = feature.geometry.type === 'MultiPoint' ? 1 : 2
+			if (coordinates.length <= minimum) return null
+			coordinates.splice(index, 1)
+		}
 		return updatedFeature
 	}
 
-	// Translate entire feature
 	translateFeature(
 		feature: EditorFeature,
 		fromLngLat: Position,
 		toLngLat: Position,
 	): EditorFeature {
+		if (!isFinitePosition(fromLngLat) || !isFinitePosition(toLngLat)) return feature
 		const deltaLng = toLngLat[0] - fromLngLat[0]
 		const deltaLat = toLngLat[1] - fromLngLat[1]
-
-		const updatedFeature = JSON.parse(JSON.stringify(feature)) as EditorFeature
-
-		const translatePosition = (pos: Position): Position => {
-			return [pos[0] + deltaLng, pos[1] + deltaLat]
+		if (!Number.isFinite(deltaLng) || !Number.isFinite(deltaLat)) return feature
+		const updatedFeature = cloneFeature(feature)
+		const { geometry } = updatedFeature
+		const coordinates =
+			geometry.type === 'Point'
+				? [geometry.coordinates]
+				: coordinateSequences(geometry).flatMap((sequence) => sequence.coordinates)
+		if (coordinates.length === 0) return feature
+		for (const position of coordinates) {
+			if (!isFinitePosition(position)) return feature
+			const lng = position[0] + deltaLng
+			const lat = position[1] + deltaLat
+			if (!Number.isFinite(lng) || !Number.isFinite(lat)) return feature
+			// Preserve altitude and any further coordinate dimensions.
+			position[0] = lng
+			position[1] = lat
 		}
-
-		if (feature.geometry.type === 'Point') {
-			updatedFeature.geometry.coordinates = translatePosition(
-				feature.geometry.coordinates as Position,
-			)
-		} else if (feature.geometry.type === 'LineString') {
-			updatedFeature.geometry.coordinates = (feature.geometry.coordinates as Position[]).map(
-				translatePosition,
-			)
-		} else if (feature.geometry.type === 'Polygon') {
-			updatedFeature.geometry.coordinates = (feature.geometry.coordinates as Position[][]).map(
-				(ring) => ring.map(translatePosition),
-			)
-		}
-
 		return updatedFeature
 	}
 }

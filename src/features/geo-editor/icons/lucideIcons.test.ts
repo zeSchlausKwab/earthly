@@ -13,7 +13,7 @@ describe('bundled Lucide icon set (generated module integrity)', () => {
 	})
 
 	it('includes the core mapping vocabulary', () => {
-		for (const name of ['anchor', 'hospital', 'tent', 'map-pin', 'star', 'circle']) {
+		for (const name of ['anchor', 'hospital', 'tent', 'map-pin', 'star', 'circle'] as const) {
 			expect(LUCIDE_ICON_NAMES).toContain(name)
 		}
 	})

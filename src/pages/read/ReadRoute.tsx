@@ -1,6 +1,6 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
 import type { FeatureCollection } from 'geojson'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import {
 	AlertTriangle,
 	ChevronLeft,

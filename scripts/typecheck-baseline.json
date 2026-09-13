@@ -1,0 +1,972 @@
+{
+  "version": 1,
+  "compilerVersion": "5.9.3",
+  "diagnostics": [
+    {
+      "file": "ai-suite/scratch/build-galapagos-evolution-geojson.ts",
+      "code": 2353,
+      "message": "Object literal may only specify known properties, and 'properties' does not exist in type 'FeatureCollection<Geometry, GeoJsonProperties>'.",
+      "count": 1
+    },
+    {
+      "file": "ai-suite/scratch/build-hormuz-global-geojson.ts",
+      "code": 2339,
+      "message": "Property 'properties' does not exist on type 'FeatureCollection<Geometry, GeoJsonProperties>'.",
+      "count": 1
+    },
+    {
+      "file": "ai-suite/scratch/build-hormuz-global-geojson.ts",
+      "code": 2353,
+      "message": "Object literal may only specify known properties, and 'properties' does not exist in type 'FeatureCollection<Geometry, GeoJsonProperties>'.",
+      "count": 1
+    },
+    {
+      "file": "ai-suite/scratch/build-woss-forestry-geojson.ts",
+      "code": 2353,
+      "message": "Object literal may only specify known properties, and 'properties' does not exist in type 'FeatureCollection<Geometry, GeoJsonProperties>'.",
+      "count": 1
+    },
+    {
+      "file": "ai-suite/scratch/record-beira-cyclone-tour.ts",
+      "code": 2345,
+      "message": "Argument of type 'LngLat | undefined' is not assignable to parameter of type 'LngLat'. Type 'undefined' is not assignable to type 'readonly [longitude: number, latitude: number]'.",
+      "count": 1
+    },
+    {
+      "file": "ai-suite/scratch/record-disaster-relief-tour.ts",
+      "code": 18048,
+      "message": "'raw' is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "ai-suite/scratch/record-disaster-relief-tour.ts",
+      "code": 2345,
+      "message": "Argument of type 'LngLat | undefined' is not assignable to parameter of type 'LngLat'. Type 'undefined' is not assignable to type 'readonly [longitude: number, latitude: number]'.",
+      "count": 3
+    },
+    {
+      "file": "ai-suite/scratch/record-disaster-relief-tour.ts",
+      "code": 2345,
+      "message": "Argument of type 'readonly [number | undefined, number | undefined]' is not assignable to parameter of type 'LngLat'. Type at position 0 in source is not compatible with type at position 0 in target. Type 'number | undefined' is not assignable to type 'number'. Type 'undefined' is not assignable to type 'number'.",
+      "count": 1
+    },
+    {
+      "file": "ai-suite/scratch/rerecord-ai-chat-segments.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.",
+      "count": 2
+    },
+    {
+      "file": "ai-suite/scratch/submarine-context-mobile-repro.ts",
+      "code": 2352,
+      "message": "Conversion of type '(string | { width: number; height: number; })[][]' to type 'readonly (readonly [\"desktop\" | \"mobile\", { width: number; height: number; }])[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first. Type '(string | { width: number; height: number; })[]' is not comparable to type 'readonly [\"desktop\" | \"mobile\", { width: number; height: number; }]'. Target requires 2 element(s) but source may have fewer.",
+      "count": 1
+    },
+    {
+      "file": "build.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "build.ts",
+      "code": 2538,
+      "message": "Type 'undefined' cannot be used as an index type.",
+      "count": 3
+    },
+    {
+      "file": "build.ts",
+      "code": 7053,
+      "message": "Element implicitly has an 'any' type because expression of type 'string' can't be used to index type 'Partial<BuildConfig>'. No index signature with a parameter of type 'string' was found on type 'Partial<BuildConfig>'.",
+      "count": 3
+    },
+    {
+      "file": "contextvm/tools/valhalla.ts",
+      "code": 2488,
+      "message": "Type '[number, number] | undefined' must have a '[Symbol.iterator]()' method that returns an iterator.",
+      "count": 1
+    },
+    {
+      "file": "scripts/generate-lucide-icons.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ui/map.tsx",
+      "code": 18048,
+      "message": "'feature' is possibly 'undefined'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/chat/geometry/fixture.ts",
+      "code": 7022,
+      "message": "'endLat' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/geometry/fixture.ts",
+      "code": 7022,
+      "message": "'endLon' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/geometry/fixture.ts",
+      "code": 7022,
+      "message": "'startLat' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/geometry/fixture.ts",
+      "code": 7022,
+      "message": "'startLon' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/geometry/optimize.test.ts",
+      "code": 2352,
+      "message": "Conversion of type 'OptimizeReport' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first. Index signature for type 'string' is missing in type 'OptimizeReport'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/ingest/ingestClient.test.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/chat/ingest/ingestStore.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.",
+      "count": 6
+    },
+    {
+      "file": "src/features/chat/ingest/parse.test.ts",
+      "code": 18048,
+      "message": "'eiffel' is possibly 'undefined'.",
+      "count": 10
+    },
+    {
+      "file": "src/features/chat/ingest/parse.test.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 6
+    },
+    {
+      "file": "src/features/chat/ingest/parseSummary.ts",
+      "code": 2322,
+      "message": "Type 'T | undefined' is not assignable to type 'T'. 'T' could be instantiated with an arbitrary type which could be unrelated to 'T | undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/chat/ingest/parseSummary.ts",
+      "code": 2345,
+      "message": "Argument of type 'T | undefined' is not assignable to parameter of type 'T'. 'T' could be instantiated with an arbitrary type which could be unrelated to 'T | undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/chat/routstr.test.ts",
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'never'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/routstr.test.ts",
+      "code": 2339,
+      "message": "Property 'name' does not exist on type 'never'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/routstr.test.ts",
+      "code": 2352,
+      "message": "Conversion of type '() => Promise<Response>' to type 'typeof fetch' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first. Property 'preconnect' is missing in type '() => Promise<Response>' but required in type 'typeof fetch'.",
+      "count": 3
+    },
+    {
+      "file": "src/features/chat/routstr.test.ts",
+      "code": 2352,
+      "message": "Conversion of type '() => Promise<never>' to type 'typeof fetch' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first. Property 'preconnect' is missing in type '() => Promise<never>' but required in type 'typeof fetch'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/sandbox/readSnapshot.test.ts",
+      "code": 18048,
+      "message": "'cloned' is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/chat/sandbox/sandboxHost.test.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/sandbox/sandboxPathfinder.test.ts",
+      "code": 18048,
+      "message": "'lat' is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/chat/sandbox/sandboxPathfinder.test.ts",
+      "code": 18048,
+      "message": "'lon' is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/chat/sandbox/topLevelReturn.test.ts",
+      "code": 18048,
+      "message": "'r.recordedCalls' is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/sandbox/transport/sandbox.worker.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/sandbox/transport/sandbox.worker.ts",
+      "code": 2722,
+      "message": "Cannot invoke an object which is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/sandbox/transport/wasmReuse.test.ts",
+      "code": 18048,
+      "message": "'first.recordedCalls' is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/sandbox/transport/wasmReuse.test.ts",
+      "code": 18048,
+      "message": "'second.recordedCalls' is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/tools/helpers.ts",
+      "code": 2322,
+      "message": "Type 'EditorFeature[]' is not assignable to type 'Feature<Polygon | MultiPolygon, GeoJsonProperties>[]'. Type 'EditorFeature' is not assignable to type 'Feature<Polygon | MultiPolygon, GeoJsonProperties>'. Types of property 'geometry' are incompatible. Type 'Geometry' is not assignable to type 'Polygon | MultiPolygon'. Type 'Point' is not assignable to type 'Polygon | MultiPolygon'. Type 'Point' is not assignable to type 'MultiPolygon'. Types of property 'type' are incompatible. Type '\"Point\"' is not assignable to type '\"MultiPolygon\"'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/tools/helpers.ts",
+      "code": 2322,
+      "message": "Type 'Position | undefined' is not assignable to type 'Position | Position[]'. Type 'undefined' is not assignable to type 'Position | Position[]'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/tools/helpers.ts",
+      "code": 2345,
+      "message": "Argument of type 'Feature<LineString | MultiLineString, GeoJsonProperties> | FeatureCollection<LineString | MultiLineString, GeoJsonProperties>' is not assignable to parameter of type 'Splitter'. Type 'FeatureCollection<LineString | MultiLineString, GeoJsonProperties>' is missing the following properties from type 'Feature<Point | MultiPoint | LineString | MultiLineString | Polygon | MultiPolygon, GeoJsonProperties>': geometry, properties",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/tools/helpers.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/chat/tools/ingest-tools.test.ts",
+      "code": 2769,
+      "message": "No overload matches this call. Overload 1 of 2, '(o: {}): string[]', gave the following error. Argument of type 'Record<string, unknown> | undefined' is not assignable to parameter of type '{}'. Type 'undefined' is not assignable to type '{}'. Overload 2 of 2, '(o: object): string[]', gave the following error. Argument of type 'Record<string, unknown> | undefined' is not assignable to parameter of type 'object'. Type 'undefined' is not assignable to type 'object'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/tools/ingest-tools.ts",
+      "code": 18048,
+      "message": "'body' is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/tools/ingest-tools.ts",
+      "code": 18048,
+      "message": "'first' is possibly 'undefined'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/chat/tools/ingest-tools.ts",
+      "code": 18048,
+      "message": "'last' is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/chat/tools/ingest-tools.ts",
+      "code": 2322,
+      "message": "Type '(number | undefined)[][]' is not assignable to type 'number[][]'. Type '(number | undefined)[]' is not assignable to type 'number[]'. Type 'number | undefined' is not assignable to type 'number'. Type 'undefined' is not assignable to type 'number'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/chat/tools/ingest-tools.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.",
+      "count": 7
+    },
+    {
+      "file": "src/features/chat/tools/ingest-tools.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/chat/tools/registry.ts",
+      "code": 2345,
+      "message": "Argument of type 'GeoEditor | null' is not assignable to parameter of type 'GeoEditor | undefined'. Type 'null' is not assignable to type 'GeoEditor | undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/chat/tools/schemas.test.ts",
+      "code": 18048,
+      "message": "'tool.function.parameters.properties.locations' is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/api/authoring.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'Feature<Geometry, GeoJsonProperties> | undefined' is not assignable to parameter of type 'Feature<Geometry, GeoJsonProperties>'. Type 'undefined' is not assignable to type 'Feature<Geometry, GeoJsonProperties>'.",
+      "count": 14
+    },
+    {
+      "file": "src/features/geo-editor/api/datasetValidation.ts",
+      "code": 18048,
+      "message": "'lat' is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/api/datasetValidation.ts",
+      "code": 18048,
+      "message": "'lon' is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/api/geometryValidation.ts",
+      "code": 2345,
+      "message": "Argument of type 'AllGeoJSON' is not assignable to parameter of type 'LineString | MultiLineString | Polygon | MultiPolygon | Feature<LineString | MultiLineString | Polygon | MultiPolygon, GeoJsonProperties>'. Type 'Point' is not assignable to type 'LineString | MultiLineString | Polygon | MultiPolygon | Feature<LineString | MultiLineString | Polygon | MultiPolygon, GeoJsonProperties>'. Type 'Point' is not assignable to type 'MultiPolygon'. Types of property 'type' are incompatible. Type '\"Point\"' is not assignable to type '\"MultiPolygon\"'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/api/measure.ts",
+      "code": 2345,
+      "message": "Argument of type 'AllGeoJSON' is not assignable to parameter of type 'GeometryCollection<Geometry> | Feature<any, GeoJsonProperties> | FeatureCollection<any, GeoJsonProperties>'. Type 'Point' is not assignable to type 'GeometryCollection<Geometry> | Feature<any, GeoJsonProperties> | FeatureCollection<any, GeoJsonProperties>'. Property 'features' is missing in type 'Point' but required in type 'FeatureCollection<any, GeoJsonProperties>'.",
+      "count": 5
+    },
+    {
+      "file": "src/features/geo-editor/api/mirror.test.ts",
+      "code": 2322,
+      "message": "Type 'Feature<Geometry, GeoJsonProperties> | undefined' is not assignable to type 'Feature<Geometry, GeoJsonProperties>'. Type 'undefined' is not assignable to type 'Feature<Geometry, GeoJsonProperties>'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/api/mirror.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'Feature<Geometry, GeoJsonProperties> | undefined' is not assignable to parameter of type 'Feature<Geometry, GeoJsonProperties>'. Type 'undefined' is not assignable to type 'Feature<Geometry, GeoJsonProperties>'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/geo-editor/api/predicate.test.ts",
+      "code": 2322,
+      "message": "Type 'null' is not assignable to type 'string | undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/api/primitives.test.ts",
+      "code": 18048,
+      "message": "'ring' is possibly 'undefined'.",
+      "count": 3
+    },
+    {
+      "file": "src/features/geo-editor/api/primitives.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'Position[] | undefined' is not assignable to parameter of type 'number[][]'. Type 'undefined' is not assignable to type 'number[][]'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/api/primitives.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'. Type 'undefined' is not assignable to type 'number'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/api/primitives.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string | Geometry | Feature<Geometry, GeoJsonProperties>'. Type 'undefined' is not assignable to type 'string | Geometry | Feature<Geometry, GeoJsonProperties>'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/api/primitives.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/api/primitives.test.ts",
+      "code": 2353,
+      "message": "Object literal may only specify known properties, and 'fill' does not exist in type 'MakeCircleOptions'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/api/primitives.ts",
+      "code": 2345,
+      "message": "Argument of type 'MakeBufferOptions' is not assignable to parameter of type 'Record<string, unknown>'. Index signature for type 'string' is missing in type 'MakeBufferOptions'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/api/primitives.ts",
+      "code": 2345,
+      "message": "Argument of type 'MakeCircleOptions' is not assignable to parameter of type 'Record<string, unknown>'. Index signature for type 'string' is missing in type 'MakeCircleOptions'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/authoringTaskBridge.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'Mock<() => void>' is not assignable to parameter of type 'DatasetDraftEnsurer'. Type 'void' is not assignable to type 'string | Promise<string | null | undefined> | null | undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/commands.test.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/components/ImportOsmDialog.tsx",
+      "code": 18046,
+      "message": "'f' is of type 'unknown'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/components/ImportOsmDialog.tsx",
+      "code": 2305,
+      "message": "Module '\"@/ctxcn\"' has no exported member 'OsmElementType'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/components/ImportOsmDialog.tsx",
+      "code": 2305,
+      "message": "Module '\"@/ctxcn\"' has no exported member 'OsmFilters'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/components/ImportOsmDialog.tsx",
+      "code": 2345,
+      "message": "Argument of type 'unknown' is not assignable to parameter of type 'Feature<Geometry, GeoJsonProperties>'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/geo-editor/components/ImportOsmDialog.tsx",
+      "code": 2345,
+      "message": "Argument of type '{ id: string; name: string; type: string; feature: unknown; selected: false; }[]' is not assignable to parameter of type 'SetStateAction<OsmFeatureResult[]>'. Type '{ id: string; name: string; type: string; feature: unknown; selected: false; }[]' is not assignable to type 'OsmFeatureResult[]'. Type '{ id: string; name: string; type: string; feature: unknown; selected: false; }' is not assignable to type 'OsmFeatureResult'. Types of property 'feature' are incompatible. Type 'unknown' is not assignable to type 'Feature<Geometry, GeoJsonProperties>'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/components/ImportOsmDialog.tsx",
+      "code": 2345,
+      "message": "Argument of type '{}' is not assignable to parameter of type 'Feature<Geometry, GeoJsonProperties>'. Type '{}' is missing the following properties from type 'Feature<Geometry, GeoJsonProperties>': type, geometry, properties",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/components/ImportOsmDialog.tsx",
+      "code": 2739,
+      "message": "Type '{}' is missing the following properties from type 'Feature<Geometry, GeoJsonProperties>': type, geometry, properties",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/components/UserLocationMarker.tsx",
+      "code": 2345,
+      "message": "Argument of type '[number, number] | undefined' is not assignable to parameter of type '[number, number]'. Type 'undefined' is not assignable to type '[number, number]'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/components/share/ShareExportPopover.tsx",
+      "code": 18048,
+      "message": "'bbox' is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/components/share/ShareExportPopover.tsx",
+      "code": 18048,
+      "message": "'line' is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/components/share/ShareExportPopover.tsx",
+      "code": 18048,
+      "message": "'selectedAspect' is possibly 'undefined'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/geo-editor/components/share/ShareExportPopover.tsx",
+      "code": 2345,
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/components/share/ShareExportPopover.tsx",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/geo-editor/core/GeoEditor.ts",
+      "code": 18048,
+      "message": "'vertex' is possibly 'undefined'.",
+      "count": 7
+    },
+    {
+      "file": "src/features/geo-editor/core/GeoEditor.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'. Type 'undefined' is not assignable to type 'number'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/geo-editor/core/GeoEditor.ts",
+      "code": 2345,
+      "message": "Argument of type 'this' is not assignable to parameter of type 'EditorOperationContext'. Type 'GeoEditor' is not assignable to type 'EditorOperationContext'. Property 'mode' is private in type 'GeoEditor' but not in type 'EditorOperationContext'.",
+      "count": 5
+    },
+    {
+      "file": "src/features/geo-editor/core/GeoEditor.ts",
+      "code": 2345,
+      "message": "Argument of type '{ x: number; y: number; }' is not assignable to parameter of type 'PointLike'. Type '{ x: number; y: number; }' is missing the following properties from type 'Point': clone, add, sub, multByPoint, and 29 more.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/core/GeoEditor.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/BooleanManager.ts",
+      "code": 18048,
+      "message": "'feature' is possibly 'undefined'.",
+      "count": 6
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/CombineManager.ts",
+      "code": 2345,
+      "message": "Argument of type 'EditorFeature | undefined' is not assignable to parameter of type 'EditorFeature'. Type 'undefined' is not assignable to type 'EditorFeature'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/CombineManager.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/HistoryManager.ts",
+      "code": 2322,
+      "message": "Type 'HistoryAction | undefined' is not assignable to type 'HistoryAction | null'. Type 'undefined' is not assignable to type 'HistoryAction | null'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/LayerManager.ts",
+      "code": 2322,
+      "message": "Type 'DataDrivenPropertyValueSpecification<number>' is not assignable to type 'ExpressionSpecification | ExpressionInputType | null'. Type '{ type: \"exponential\"; stops: [number, number][]; }' is not assignable to type 'ExpressionSpecification | ExpressionInputType | null'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/LayerManager.ts",
+      "code": 2345,
+      "message": "Argument of type '{ id: string; type: \"line\"; source: string; filter: [\"all\", [\"any\", [\"==\", [\"geometry-type\"], string], [\"==\", [\"geometry-type\"], string], [\"==\", [\"geometry-type\"], string], [...]], [...], FilterSpecification]; paint: { ...; }; }' is not assignable to parameter of type 'AddLayerObject'. Types of property 'filter' are incompatible. Type '[\"all\", [\"any\", [\"==\", [\"geometry-type\"], string], [\"==\", [\"geometry-type\"], string], [\"==\", [\"geometry-type\"], string], [\"==\", [\"geometry-type\"], string]], [\"any\", [...], [...]], FilterSpecification]' is not assignable to type 'FilterSpecification | undefined'. Type '[\"all\", [\"any\", [\"==\", [\"geometry-type\"], string], [\"==\", [\"geometry-type\"], string], [\"==\", [\"geometry-type\"], string], [\"==\", [\"geometry-type\"], string]], [\"any\", [...], [...]], FilterSpecification]' is not assignable to type '[\"all\", ...(boolean | ExpressionSpecification)[]]'. Type at positions 1 through 3 in source is not compatible with type at position 1 in target. Type 'FilterSpecification' is not assignable to type 'boolean | ExpressionSpecification'. Type '[\"!has\", string]' is not assignable to type 'boolean | ExpressionSpecification'. Type '[\"!has\", string]' is not assignable to type '[\"boolean\", unknown, ...unknown[]] | [\"format\", ...(string | ExpressionSpecification | [\"image\", ExpressionSpecification] | { 'font-scale'?: number | ... 1 more ... | undefined; 'text-font'?: ExpressionSpecification | undefined; 'text-color'?: string | ... 1 more ... | undefined; 'vertical-align'?: \"center\" | ... 2 ...'. Type '[\"!has\", string]' is not assignable to type '[\"image\", string | ExpressionSpecification]'. Type at position 0 in source is not compatible with type at position 0 in target. Type '\"!has\"' is not assignable to type '\"image\"'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/LineOperationsManager.ts",
+      "code": 2345,
+      "message": "Argument of type 'EditorFeature | undefined' is not assignable to parameter of type 'EditorFeature'. Type 'undefined' is not assignable to type 'EditorFeature'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/LineOperationsManager.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/SnapManager.ts",
+      "code": 2322,
+      "message": "Type 'Position | undefined' is not assignable to type 'Position'. Type 'undefined' is not assignable to type 'number[]'.",
+      "count": 9
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/SnapManager.ts",
+      "code": 2345,
+      "message": "Argument of type 'Position | undefined' is not assignable to parameter of type 'Position'. Type 'undefined' is not assignable to type 'number[]'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/TransformManager.ts",
+      "code": 2322,
+      "message": "Type 'EditorFeature | undefined' is not assignable to type 'EditorFeature | null'. Type 'undefined' is not assignable to type 'EditorFeature | null'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/TransformManager.ts",
+      "code": 2322,
+      "message": "Type 'EditorFeature | undefined' is not assignable to type 'Feature<Geometry, { [name: string]: any; } & { meta?: string | undefined; active?: boolean | undefined; mode?: string | undefined; parent?: string | undefined; coord_path?: string | undefined; ... 22 more ...; textHaloWidth?: number | undefined; }>'. Type 'undefined' is not assignable to type 'Feature<Geometry, { [name: string]: any; } & { meta?: string | undefined; active?: boolean | undefined; mode?: string | undefined; parent?: string | undefined; coord_path?: string | undefined; ... 22 more ...; textHaloWidth?: number | undefined; }>'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/TransformManager.ts",
+      "code": 2322,
+      "message": "Type '{ geometry: Polygon | MultiPolygon; id?: string | undefined; properties?: ({ [name: string]: any; } & { meta?: string; active?: boolean; mode?: string; parent?: string; ... 23 more ...; textHaloWidth?: number; }) | undefined; type?: \"Feature\" | undefined; bbox?: BBox | undefined; }' is not assignable to type 'EditorFeature'. Types of property 'id' are incompatible. Type 'string | undefined' is not assignable to type 'string'. Type 'undefined' is not assignable to type 'string'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/core/managers/TransformManager.ts",
+      "code": 2345,
+      "message": "Argument of type 'FeatureCollection<Geometry, { [name: string]: any; } & { meta?: string | undefined; active?: boolean | undefined; mode?: string | undefined; parent?: string | undefined; coord_path?: string | undefined; ... 22 more ...; textHaloWidth?: number | undefined; }>' is not assignable to parameter of type 'FeatureCollection<Polygon | MultiPolygon, GeoJsonProperties>'. Type 'Geometry' is not assignable to type 'Polygon | MultiPolygon'. Type 'Point' is not assignable to type 'Polygon | MultiPolygon'. Type 'Point' is not assignable to type 'MultiPolygon'. Types of property 'type' are incompatible. Type '\"Point\"' is not assignable to type '\"MultiPolygon\"'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/core/modes/DrawMode.ts",
+      "code": 18048,
+      "message": "'firstPoint' is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/core/modes/DrawMode.ts",
+      "code": 2322,
+      "message": "Type '(Position | undefined)[]' is not assignable to type 'Position[]'. Type 'Position | undefined' is not assignable to type 'Position'. Type 'undefined' is not assignable to type 'number[]'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/core/modes/DrawMode.ts",
+      "code": 2322,
+      "message": "Type 'Position | undefined' is not assignable to type 'Position'. Type 'undefined' is not assignable to type 'number[]'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/geo-editor/core/modes/DrawMode.ts",
+      "code": 2345,
+      "message": "Argument of type 'Position | undefined' is not assignable to parameter of type 'number[]'. Type 'undefined' is not assignable to type 'number[]'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/core/modes/DrawMode.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/geo-editor/core/utils/featureHelpers.ts",
+      "code": 2322,
+      "message": "Type 'Position | undefined' is not assignable to type 'Position'. Type 'undefined' is not assignable to type 'number[]'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/core/utils/featureHelpers.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/geo-editor/core/utils/geometry.ts",
+      "code": 2345,
+      "message": "Argument of type 'Position | undefined' is not assignable to parameter of type 'Position'. Type 'undefined' is not assignable to type 'number[]'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/hooks/useBeaconPublisher.test.ts",
+      "code": 2339,
+      "message": "Property 'getPublicKey' does not exist on type 'SignerLike'. Property 'getPublicKey' does not exist on type 'SignFunction'.",
+      "count": 3
+    },
+    {
+      "file": "src/features/geo-editor/hooks/useBeaconPublisher.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | Timeout' is not assignable to parameter of type 'Timeout'. Type 'number' is not assignable to type 'Timeout'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/hooks/useOsmQuery.ts",
+      "code": 2345,
+      "message": "Argument of type '{ addFeature: (f: EditorFeature) => void; }' is not assignable to parameter of type 'GeoEditor'. Type '{ addFeature: (f: EditorFeature) => void; }' is missing the following properties from type 'GeoEditor': map, options, mode, geometryVisible, and 180 more.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/hooks/useSightingEditor.inspect.test.tsx",
+      "code": 2339,
+      "message": "Property 'placementArmed' does not exist on type 'never'.",
+      "count": 3
+    },
+    {
+      "file": "src/features/geo-editor/icons/displayIcon.test.ts",
+      "code": 2769,
+      "message": "No overload matches this call. Overload 1 of 2, '(expected: DataDrivenPropertyValueSpecification<\"center\" | \"top\">): void', gave the following error. Type '(string | (string | string[])[])[]' is not assignable to type 'boolean | ExpressionSpecification'. Type '(string | (string | string[])[])[]' is not assignable to type '[\"boolean\", unknown, ...unknown[]] | [\"format\", ...(string | ExpressionSpecification | [\"image\", ExpressionSpecification] | { 'font-scale'?: number | ... 1 more ... | undefined; 'text-font'?: ExpressionSpecification | undefined; 'text-color'?: string | ... 1 more ... | undefined; 'vertical-align'?: \"center\" | ... 2 ...'. Type '(string | (string | string[])[])[]' is not assignable to type '[\"min\", number | ExpressionSpecification, ...(number | ExpressionSpecification)[]]'. Source provides no match for required element at position 0 in target. Overload 2 of 2, '(expected: NoInfer<DataDrivenPropertyValueSpecification<\"center\" | \"top\">>): void', gave the following error. Argument of type '[\"case\", (string | (string | string[])[])[], string, string]' is not assignable to parameter of type 'DataDrivenPropertyValueSpecification<\"center\" | \"top\">'. Type '[\"case\", (string | (string | string[])[])[], string, string]' is not assignable to type '[\"case\", boolean | ExpressionSpecification, ExpressionSpecification | ExpressionInputType | null, ...(ExpressionSpecification | ... 1 more ... | null)[], ExpressionSpecification | ... 1 more ... | null]'. Type at position 1 in source is not compatible with type at position 1 in target. Type '(string | (string | string[])[])[]' is not assignable to type 'boolean | ExpressionSpecification'. Type '(string | (string | string[])[])[]' is not assignable to type '[\"boolean\", unknown, ...unknown[]] | [\"format\", ...(string | ExpressionSpecification | [\"image\", ExpressionSpecification] | { 'font-scale'?: number | ... 1 more ... | undefined; 'text-font'?: ExpressionSpecification | undefined; 'text-color'?: string | ... 1 more ... | undefined; 'vertical-align'?: \"center\" | ... 2 ...'. Type '(string | (string | string[])[])[]' is not assignable to type '[\"min\", number | ExpressionSpecification, ...(number | ExpressionSpecification)[]]'. Source provides no match for required element at position 0 in target.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/icons/displayIcon.test.ts",
+      "code": 2769,
+      "message": "No overload matches this call. Overload 1 of 2, '(expected: DataDrivenPropertyValueSpecification<string>): void', gave the following error. Type 'DataDrivenPropertyValueSpecification<string>' is not assignable to type 'ExpressionSpecification | ExpressionInputType | null'. Type '{ type: \"exponential\"; stops: [number, string][]; }' is not assignable to type 'ExpressionSpecification | ExpressionInputType | null'. Overload 2 of 2, '(expected: NoInfer<DataDrivenPropertyValueSpecification<string>>): void', gave the following error. Argument of type '[\"case\", [\"==\", [\"get\", \"active\"], true], string, DataDrivenPropertyValueSpecification<string>]' is not assignable to parameter of type 'DataDrivenPropertyValueSpecification<string>'. Type '[\"case\", [\"==\", [\"get\", \"active\"], true], string, DataDrivenPropertyValueSpecification<string>]' is not assignable to type '[\"case\", boolean | ExpressionSpecification, ExpressionSpecification | ExpressionInputType | null, ...(ExpressionSpecification | ... 1 more ... | null)[], ExpressionSpecification | ... 1 more ... | null]'. Type at position 3 in source is not compatible with type at position 4 in target. Type 'DataDrivenPropertyValueSpecification<string>' is not assignable to type 'ExpressionSpecification | ExpressionInputType | null'. Type '{ type: \"exponential\"; stops: [number, string][]; }' is not assignable to type 'ExpressionSpecification | ExpressionInputType | null'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/icons/displayIcon.test.ts",
+      "code": 2769,
+      "message": "No overload matches this call. Overload 2 of 2, '(expected: NoInfer<DataDrivenPropertyValueSpecification<number>>): void', gave the following error. Argument of type '[\"case\", [\"==\", [\"get\", \"active\"], true], [\"*\", (string | number | (string | number | string[])[])[], number], (string | number | (string | number | string[])[])[]]' is not assignable to parameter of type 'DataDrivenPropertyValueSpecification<number>'. Type '[\"case\", [\"==\", [\"get\", \"active\"], true], [\"*\", (string | number | (string | number | string[])[])[], number], (string | number | (string | number | string[])[])[]]' is not assignable to type '[\"case\", boolean | ExpressionSpecification, ExpressionSpecification | ExpressionInputType | null, ...(ExpressionSpecification | ... 1 more ... | null)[], ExpressionSpecification | ... 1 more ... | null]'. Type at position 2 in source is not compatible with type at position 2 in target. Type '[\"*\", (string | number | (string | number | string[])[])[], number]' is not assignable to type 'ExpressionSpecification | ExpressionInputType | null'. Type '[\"*\", (string | number | (string | number | string[])[])[], number]' is not assignable to type '[\"*\", number | ExpressionSpecification, number | ExpressionSpecification, ...(number | ExpressionSpecification)[]]'. Type at position 1 in source is not compatible with type at position 1 in target. Type '(string | number | (string | number | string[])[])[]' is not assignable to type 'number | ExpressionSpecification'. Type '(string | number | (string | number | string[])[])[]' is not assignable to type '[\"boolean\", unknown, ...unknown[]] | [\"format\", ...(string | ExpressionSpecification | [\"image\", ExpressionSpecification] | { 'font-scale'?: number | ... 1 more ... | undefined; 'text-font'?: ExpressionSpecification | undefined; 'text-color'?: string | ... 1 more ... | undefined; 'vertical-align'?: \"center\" | ... 2 ...'. Type '(string | number | (string | number | string[])[])[]' is not assignable to type '[\"min\", number | ExpressionSpecification, ...(number | ExpressionSpecification)[]]'. Source provides no match for required element at position 0 in target.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/icons/displayIcon.test.ts",
+      "code": 2769,
+      "message": "No overload matches this call. Overload 2 of 2, '(expected: NoInfer<DataDrivenPropertyValueSpecification<number>>): void', gave the following error. Argument of type '[\"case\", [\"all\", (string | (string | string[])[])[], [\"has\", \"displayIcon\"]], [\"/\", [\"+\", [\"*\", (string | number | string[])[], number], number], number], (string | (string | string[])[])[], [...], number]' is not assignable to parameter of type 'DataDrivenPropertyValueSpecification<number>'. Type '[\"case\", [\"all\", (string | (string | string[])[])[], [\"has\", \"displayIcon\"]], [\"/\", [\"+\", [\"*\", (string | number | string[])[], number], number], number], (string | (string | string[])[])[], [...], number]' is not assignable to type '[\"case\", boolean | ExpressionSpecification, ExpressionSpecification | ExpressionInputType | null, ...(ExpressionSpecification | ... 1 more ... | null)[], ExpressionSpecification | ... 1 more ... | null]'. Type at position 1 in source is not compatible with type at position 1 in target. Type '[\"all\", (string | (string | string[])[])[], [\"has\", \"displayIcon\"]]' is not assignable to type 'boolean | ExpressionSpecification'. Type '[\"all\", (string | (string | string[])[])[], [\"has\", \"displayIcon\"]]' is not assignable to type '[\"all\", ...(boolean | ExpressionSpecification)[]]'. Type at positions 1 through 2 in source is not compatible with type at position 1 in target. Type '(string | (string | string[])[])[]' is not assignable to type 'boolean | ExpressionSpecification'. Type '(string | (string | string[])[])[]' is not assignable to type '[\"boolean\", unknown, ...unknown[]] | [\"format\", ...(string | ExpressionSpecification | [\"image\", ExpressionSpecification] | { 'font-scale'?: number | ... 1 more ... | undefined; 'text-font'?: ExpressionSpecification | undefined; 'text-color'?: string | ... 1 more ... | undefined; 'vertical-align'?: \"center\" | ... 2 ...'. Type '(string | (string | string[])[])[]' is not assignable to type '[\"min\", number | ExpressionSpecification, ...(number | ExpressionSpecification)[]]'. Source provides no match for required element at position 0 in target.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/icons/registerDisplayIconImages.ts",
+      "code": 2769,
+      "message": "No overload matches this call. Overload 1 of 2, '(sw: number, sh: number, settings?: ImageDataSettings | undefined): ImageData', gave the following error. Argument of type 'Uint8ClampedArray<ArrayBufferLike>' is not assignable to parameter of type 'number'. Overload 2 of 2, '(data: ImageDataArray, sw: number, sh?: number | undefined, settings?: ImageDataSettings | undefined): ImageData', gave the following error. Argument of type 'Uint8ClampedArray<ArrayBufferLike>' is not assignable to parameter of type 'ImageDataArray'. Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'. Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/icons/sdf.test.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'. Type 'undefined' is not assignable to type 'number'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/geo-editor/icons/sdf.ts",
+      "code": 18048,
+      "message": "'r' is possibly 'undefined'.",
+      "count": 5
+    },
+    {
+      "file": "src/features/geo-editor/icons/sdf.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'. Type 'undefined' is not assignable to type 'number'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/icons/sdf.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'. Type 'undefined' is not assignable to type 'number'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/icons/sdf.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/geo-editor/icons/sdf.ts",
+      "code": 2538,
+      "message": "Type 'undefined' cannot be used as an index type.",
+      "count": 2
+    },
+    {
+      "file": "src/features/geo-editor/shapefile.ts",
+      "code": 7016,
+      "message": "Could not find a declaration file for module 'shpjs'. '<workspace>/node_modules/shpjs/lib/index.js' implicitly has an 'any' type. Try `npm i --save-dev @types/shpjs` if it exists or add a new declaration (.d.ts) file containing `declare module 'shpjs';`",
+      "count": 1
+    },
+    {
+      "file": "src/features/groups/schemaBuilder.ts",
+      "code": 2345,
+      "message": "Argument of type '(this: undefined, [name, def]: [string, unknown]) => { name: string; type: SchemaFieldType; required: boolean; allowedValues: string[]; }[] | { name: string; type: \"number\" | \"boolean\" | \"text\" | \"integer\"; required: boolean; }[]' is not assignable to parameter of type '(this: undefined, value: [string, unknown], index: number, array: [string, unknown][]) => { name: string; type: SchemaFieldType; required: boolean; allowedValues: string[]; } | readonly { name: string; type: SchemaFieldType; required: boolean; allowedValues: string[]; }[]'. Type '{ name: string; type: SchemaFieldType; required: boolean; allowedValues: string[]; }[] | { name: string; type: \"number\" | \"boolean\" | \"text\" | \"integer\"; required: boolean; }[]' is not assignable to type '{ name: string; type: SchemaFieldType; required: boolean; allowedValues: string[]; } | readonly { name: string; type: SchemaFieldType; required: boolean; allowedValues: string[]; }[]'. Type '{ name: string; type: \"number\" | \"boolean\" | \"text\" | \"integer\"; required: boolean; }[]' is not assignable to type '{ name: string; type: SchemaFieldType; required: boolean; allowedValues: string[]; } | readonly { name: string; type: SchemaFieldType; required: boolean; allowedValues: string[]; }[]'. Type '{ name: string; type: \"number\" | \"boolean\" | \"text\" | \"integer\"; required: boolean; }[]' is not assignable to type 'readonly { name: string; type: SchemaFieldType; required: boolean; allowedValues: string[]; }[]'. Property 'allowedValues' is missing in type '{ name: string; type: \"number\" | \"boolean\" | \"text\" | \"integer\"; required: boolean; }' but required in type '{ name: string; type: SchemaFieldType; required: boolean; allowedValues: string[]; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/settings/UserRelayManager.tsx",
+      "code": 2339,
+      "message": "Property 'keys' does not exist on type '{}'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/settings/UserRelayManager.tsx",
+      "code": 2345,
+      "message": "Argument of type 'unknown[]' is not assignable to parameter of type '(string | null | undefined)[]'. Type 'unknown' is not assignable to type 'string | null | undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/settings/UserRelayManager.tsx",
+      "code": 2769,
+      "message": "No overload matches this call. Overload 1 of 3, '(observable?: BehaviorSubject<unknown> | undefined): unknown', gave the following error. Argument of type '() => BehaviorSubject<Map<string, Relay>>' is not assignable to parameter of type 'BehaviorSubject<unknown>'. Overload 2 of 3, '(observable?: Observable<unknown> | undefined): unknown', gave the following error. Argument of type '() => BehaviorSubject<Map<string, Relay>>' is not assignable to parameter of type 'Observable<unknown>'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/settings/UserRelayManager.tsx",
+      "code": 2769,
+      "message": "No overload matches this call. Overload 1 of 3, '(observable?: BehaviorSubject<unknown> | undefined): unknown', gave the following error. Argument of type '() => Observable<Record<string, RelayStatus>>' is not assignable to parameter of type 'BehaviorSubject<unknown>'. Overload 2 of 3, '(observable?: Observable<unknown> | undefined): unknown', gave the following error. Argument of type '() => Observable<Record<string, RelayStatus>>' is not assignable to parameter of type 'Observable<unknown>'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/geo/landWater.test.ts",
+      "code": 2353,
+      "message": "Object literal may only specify known properties, and 'type' does not exist in type 'FeatureLike'.",
+      "count": 3
+    },
+    {
+      "file": "src/lib/geo/landWater.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'. Type 'undefined' is not assignable to type 'number'.",
+      "count": 2
+    },
+    {
+      "file": "src/lib/geo/landWater.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'. Type 'undefined' is not assignable to type 'number'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/geo/normalizeGeoJSON.ts",
+      "code": 2322,
+      "message": "Type 'Geometry | null' is not assignable to type 'Geometry'. Type 'null' is not assignable to type 'Geometry'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/geo/normalizeGeoJSON.ts",
+      "code": 2352,
+      "message": "Conversion of type 'Record<string, unknown>' to type 'FeatureCollection<Geometry, GeoJsonProperties>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first. Type 'Record<string, unknown>' is missing the following properties from type 'FeatureCollection<Geometry, GeoJsonProperties>': type, features",
+      "count": 1
+    },
+    {
+      "file": "src/lib/group/schemaHash.test.ts",
+      "code": 18048,
+      "message": "'hash' is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/group/schemaHash.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.",
+      "count": 2
+    },
+    {
+      "file": "src/lib/hooks/useBeacons.test.ts",
+      "code": 2769,
+      "message": "No overload matches this call. Overload 1 of 2, '(expected: LiveBeaconEvent[]): void', gave the following error. Type 'NostrEvent' is not assignable to type 'LiveBeaconEvent'. Type 'NostrEvent' is not assignable to type '{ kind: 37521; }'. Types of property 'kind' are incompatible. Type 'number' is not assignable to type '37521'. Overload 2 of 2, '(expected: NoInfer<LiveBeaconEvent[]>): void', gave the following error. Type 'NostrEvent' is not assignable to type 'LiveBeaconEvent'. Type 'NostrEvent' is not assignable to type '{ kind: 37521; }'. Types of property 'kind' are incompatible. Type 'number' is not assignable to type '37521'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/mapnolia/MirrorPmtilesSource.ts",
+      "code": 2339,
+      "message": "Property 'url' does not exist on type 'never'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/article/cast.ts",
+      "code": 4114,
+      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<ArticleEvent>'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/entityFactory.ts",
+      "code": 2416,
+      "message": "Property 'sign' in type 'EntityFactory<K>' is not assignable to the same property in base type 'EventFactory<K, KnownEventTemplate<K>>'. Type '(signer?: SignerLike | undefined) => Promise<NostrEvent>' is not assignable to type '(signer?: EventSigner | undefined) => Promise<KnownEvent<K>>'. Type 'Promise<NostrEvent>' is not assignable to type 'Promise<KnownEvent<K>>'. Type 'NostrEvent' is not assignable to type 'KnownEvent<K>'. Type 'NostrEvent' is not assignable to type '{ kind: K; }'. Types of property 'kind' are incompatible. Type 'number' is not assignable to type 'K'. 'number' is assignable to the constraint of type 'K', but 'K' could be instantiated with a different subtype of constraint 'number'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/geo-comment/cast.ts",
+      "code": 4114,
+      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<GeoCommentEvent>'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/geo-event/cast.ts",
+      "code": 4114,
+      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<GeoDatasetEvent>'.",
+      "count": 2
+    },
+    {
+      "file": "src/lib/nostr/geo-proposal/cast.ts",
+      "code": 4114,
+      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<GeoProposalEvent>'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/geo-proposal/helpers.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/geo-proposal/storyProposal.test.ts",
+      "code": 2488,
+      "message": "Type '[existing: NostrEvent, _content: { content?: string | undefined; }, _signer: unknown] | undefined' must have a '[Symbol.iterator]()' method that returns an iterator.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/geo-proposal/storyProposal.test.ts",
+      "code": 7006,
+      "message": "Parameter 't' implicitly has an 'any' type.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/group/group.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'NostrEvent' is not assignable to parameter of type 'GroupEvent'. Type 'NostrEvent' is not assignable to type '{ kind: 37518; }'. Types of property 'kind' are incompatible. Type 'number' is not assignable to type '37518'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/group/group.test.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/live-beacon/cast.ts",
+      "code": 4114,
+      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<LiveBeaconEvent>'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/live-beacon/factory.ts",
+      "code": 4114,
+      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EntityFactory<37521>'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/map-context/cast.ts",
+      "code": 4114,
+      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<MapContextEvent>'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/temporal-sighting/cast.ts",
+      "code": 4114,
+      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<TemporalSightingEvent>'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/temporal-sighting/factory.ts",
+      "code": 4114,
+      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EntityFactory<37522>'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/temporal-sighting/lifecycle.ts",
+      "code": 2345,
+      "message": "Argument of type 'NostrEvent' is not assignable to parameter of type 'TemporalSightingEvent'. Type 'NostrEvent' is not assignable to type '{ kind: 37522; }'. Types of property 'kind' are incompatible. Type 'number' is not assignable to type '37522'.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/nostr/temporal-sighting/temporal-sighting.test.ts",
+      "code": 2345,
+      "message": "Argument of type 'NostrEvent' is not assignable to parameter of type 'TemporalSightingEvent'. Type 'NostrEvent' is not assignable to type '{ kind: 37522; }'. Types of property 'kind' are incompatible. Type 'number' is not assignable to type '37522'.",
+      "count": 2
+    },
+    {
+      "file": "src/lib/search/grammar.test.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 2
+    },
+    {
+      "file": "src/lib/search/viewport.ts",
+      "code": 2488,
+      "message": "Type 'readonly [number, number] | undefined' must have a '[Symbol.iterator]()' method that returns an iterator.",
+      "count": 1
+    },
+    {
+      "file": "src/lib/wallet/nutzapSend.test.ts",
+      "code": 2367,
+      "message": "This comparison appears to be unintentional because the types 'ActionBuilder<Args>' and '(minAmount: number, operation: (params: { selectedProofs: ProofLike[]; mint: string; cashuWallet: Wallet; }) => Promise<{ change?: Proof[] | undefined; }>, options: { ...; }) => Action' have no overlap.",
+      "count": 1
+    }
+  ]
+}

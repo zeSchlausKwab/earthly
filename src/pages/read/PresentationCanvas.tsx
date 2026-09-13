@@ -1,5 +1,5 @@
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { FeaturePopup, type FeaturePopupData } from '@/features/geo-editor/components/FeaturePopup'
 import {

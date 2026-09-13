@@ -43,6 +43,10 @@ export interface WorkerAsset {
  * `servedName` is the URL path segment; `sourcePath` is what the bundler compiles.
  */
 export const WORKER_ASSETS = {
+	maplibre: {
+		servedName: 'maplibre.worker.js',
+		sourcePath: 'node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs',
+	},
 	sandbox: {
 		servedName: 'sandbox.worker.js',
 		sourcePath: 'src/features/chat/sandbox/transport/sandbox.worker.ts',

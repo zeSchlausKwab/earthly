@@ -241,9 +241,18 @@ See [Tauri development](docs/TAURI-DEVELOPMENT.md) for toolchain setup, pairing,
 ```sh
 bun run test                # TypeScript/Bun tests
 bun run lint                # Biome checks
+bun run typecheck           # reject new TypeScript diagnostics against tracked debt
+bun run typecheck:strict    # full strict check (currently reports existing debt)
 cargo test --workspace      # native/local-node tests
 cd relay && go test ./...   # relay and search tests
 ```
+
+The TypeScript regression check also runs on pull requests. Its baseline tracks each
+file, diagnostic code, message and occurrence count, so fixing one error cannot hide
+a different new error. Line numbers are ignored to allow code to move. After fixing
+existing diagnostics, run `bun run typecheck:prune` to remove their allowances; this
+command refuses new diagnostics. Strict compiler settings remain enabled. Compiler
+upgrades require an explicit review of the baseline in `scripts/typecheck-baseline.json`.
 
 Browser journeys and audits run against an already-running loopback server:
 

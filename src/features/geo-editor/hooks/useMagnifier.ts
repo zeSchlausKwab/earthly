@@ -5,7 +5,7 @@ import {
 	useState,
 	type PointerEvent as ReactPointerEvent,
 } from 'react'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 
 const MAGNIFIER_SIZE = 140
 const MAGNIFIER_OFFSET = { x: 80, y: -80 }

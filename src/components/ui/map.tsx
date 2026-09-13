@@ -1,6 +1,7 @@
 "use client";
 
-import MapLibreGL, { type PopupOptions, type MarkerOptions } from "maplibre-gl";
+import * as MapLibreGL from "maplibre-gl";
+import type { PopupOptions, MarkerOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   createContext,
@@ -31,6 +32,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { configureMapLibreWorker } from "@/lib/maplibreWorker";
 import { attachBasemapLifecycle, type BasemapState } from "./mapLifecycle";
 import {
   Tooltip,
@@ -188,6 +190,7 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapInstance, setMapInstance] = useState<MapLibreGL.Map | null>(null);
+  const [initializationError, setInitializationError] = useState<string | null>(null);
   const [basemap, setBasemap] = useState<BasemapState>({ styleReady: false, status: 'loading' });
   const lifecycleRef = useRef<ReturnType<typeof attachBasemapLifecycle> | null>(null);
   const currentStyleRef = useRef<MapStyleOption | null>(null);
@@ -218,16 +221,28 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
       resolvedTheme === "dark" ? mapStyles.dark : mapStyles.light;
     currentStyleRef.current = initialStyle;
 
-    const map = new MapLibreGL.Map({
-      container: containerRef.current,
-      style: initialStyle,
-      renderWorldCopies: false,
-      attributionControl: {
-        compact: true,
-      },
-      ...props,
-      ...viewport,
-    });
+    configureMapLibreWorker();
+    let map: MapLibreGL.Map;
+    try {
+      map = new MapLibreGL.Map({
+        container: containerRef.current,
+        style: initialStyle,
+        renderWorldCopies: false,
+        attributionControl: {
+          compact: true,
+        },
+        ...props,
+        ...viewport,
+      });
+    } catch (error) {
+      console.error("Map initialization failed", error);
+      setInitializationError(
+        error instanceof Error && error.name === "GPUInitializationError"
+          ? "The map requires WebGL 2. Enable hardware acceleration or try another browser."
+          : "The map could not start. Reload Earthly to try again.",
+      );
+      return;
+    }
 
     const lifecycle = attachBasemapLifecycle(map, initialStyle, setBasemap);
     lifecycleRef.current = lifecycle;
@@ -317,7 +332,12 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
         ref={containerRef}
         className={cn("relative h-full w-full", className)}
       >
-        {(basemap.status !== 'ready' || loading) && (
+        {initializationError && (
+          <div role="alert" className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] border border-border bg-background/95 px-3 py-2 text-sm shadow-sm">
+            {initializationError}
+          </div>
+        )}
+        {!initializationError && (basemap.status !== 'ready' || loading) && (
           <div className="earthly-basemap-status pointer-events-auto absolute bottom-2 left-2 z-10 max-w-[calc(100%-4rem)] border border-border bg-background/95 px-2 py-1 text-xs shadow-sm" aria-label="Basemap status">
             <span role="status">
               {basemap.status === 'error' ? 'Basemap unavailable. Your work is safe.' :

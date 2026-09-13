@@ -1,4 +1,4 @@
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import { type RefObject, useEffect, useState } from 'react'
 import { useBasemapStyle } from '@/lib/basemap'
 import { pool } from '@/lib/nostr'

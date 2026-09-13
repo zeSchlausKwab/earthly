@@ -47,8 +47,9 @@ export function attachBasemapLifecycle(
 		// A tile error must not disappear merely because the map became idle.
 		if (state.status === 'loading') update({ ...state, status: 'ready' })
 	}
-	const onError = (event: { sourceId?: string }) => {
-		if (fallback || (event.sourceId && state.styleReady && !basemapSources.has(event.sourceId))) return
+	const onError = (event: object) => {
+		const sourceId = 'sourceId' in event && typeof event.sourceId === 'string' ? event.sourceId : undefined
+		if (fallback || (sourceId && state.styleReady && !basemapSources.has(sourceId))) return
 		clearDeadline()
 		update({ ...state, status: 'error' })
 	}

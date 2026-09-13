@@ -18,9 +18,14 @@ async function savedStory(page: Page) {
 	return page.evaluate((key) => {
 		const drafts = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<
 			string,
-			{ title?: string; content?: string; presentation?: unknown }
+			{ title?: string; content?: string; presentation?: unknown; updatedAt?: number }
 		>
-		return drafts['new-story'] ?? null
+		const draft = drafts['new-story']
+		if (!draft) return null
+		// Resuming an editor may flush its retained draft again. Compare authored
+		// state, including its view, rather than the save operation's timestamp.
+		const { updatedAt: _updatedAt, ...snapshot } = draft
+		return snapshot
 	}, draftKey)
 }
 

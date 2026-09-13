@@ -23,18 +23,7 @@
  */
 
 import { useActiveAccount } from 'applesauce-react/hooks'
-import {
-	ArrowDown,
-	ArrowUp,
-	Camera,
-	Eye,
-	EyeOff,
-	Layers3,
-	MessageSquare,
-	Plus,
-	RotateCcw,
-	Trash2,
-} from 'lucide-react'
+import { Camera, Layers3, MessageSquare, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { publishFailureMessage } from '@/features/geo-editor/hooks/publishFailure'
@@ -62,6 +51,13 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import {
+	MapPresentationCameraControl,
+	MapPresentationFormatNotice,
+	useMapPresentationEditor,
+} from '@/components/map-presentation/MapPresentationControls'
+import { MapPresentationLayersEditor } from '@/components/map-presentation/MapPresentationLayersEditor'
+import { emptyPresentation, type PresentationSourceOption } from '@/lib/map-presentation/authoring'
 import { AspectRatio } from '@/components/ui/aspect-ratio'
 import { Button } from '@/components/ui/button'
 import {
@@ -80,23 +76,34 @@ import {
 import { addTargetToActiveThread } from '@/features/chat/store'
 import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import { useDraftPublishReview } from '@/features/geo-editor/hooks/useDraftPublishReview'
-import { clearDraftReview, getDraftReviewRequest, subscribeDraftReview, registerStoryDraftDiscard, removeDraftEditingAccess } from '@/features/geo-editor/draftActions'
+import {
+	clearDraftReview,
+	getDraftReviewRequest,
+	subscribeDraftReview,
+	registerStoryDraftDiscard,
+	removeDraftEditingAccess,
+} from '@/features/geo-editor/draftActions'
 import { resolveLocalStoryDependencies } from '@/features/chat/referencePublishing/localStoryDependencies'
 import { flushSync } from 'react-dom'
-import { publishSavedStory, registerStoryPublicationEditor } from '@/features/geo-editor/storyPublication'
+import {
+	publishSavedStory,
+	registerStoryPublicationEditor,
+} from '@/features/geo-editor/storyPublication'
 import { useRetainedEditorDraft } from '@/hooks/useRetainedEditorDraft'
 import type { StoryViewDraftContext } from '@/components/editor/StoryViewDraftContext'
 import { accounts } from '@/lib/nostr'
-import { Article, type ArticleContent, getArticleContent, isArticle } from '@/lib/nostr/article'
 import {
-	authorizePresentationLayer,
+	type Article,
+	type ArticleContent,
+	getArticleContent,
+	isArticle,
+} from '@/lib/nostr/article'
+import {
 	deriveStoryPresentationAuthorization,
 	getUsableMapPresentation,
 	parseMapPresentation,
 	parseMapPresentationSource,
 	type MapPresentationAuthorization,
-	type MapPresentationLayerV1,
-	type MapPresentationStyleOverrideV1,
 	type MapPresentationV1,
 	type StoryViewBlockV1,
 	type StoryViewSnapshotV1,
@@ -223,33 +230,10 @@ function persistStoryEditorDraft(identity: string, snapshot: StoryEditorDraftSna
 	writeStoryDraft(identity, snapshot)
 }
 
-interface AuthorizedStorySourceOption {
-	source: MapPresentationLayerV1['source']
-	label: string
-	featureIds?: readonly string[]
-}
-
-function stableLayerId(source: string, usedIds: ReadonlySet<string>): string {
-	const parsed = parseMapPresentationSource(source)
-	const stem =
-		(parsed?.identifier ?? 'map')
-			.toLowerCase()
-			.replace(/[^a-z0-9._:-]+/gu, '-')
-			.replace(/^[^a-z0-9]+/u, '')
-			.slice(0, 80) || 'map'
-	let candidate = stem
-	let suffix = 2
-	while (usedIds.has(candidate)) {
-		candidate = `${stem}-${suffix}`
-		suffix += 1
-	}
-	return candidate
-}
-
 function storySourceOptions(
 	body: string,
 	availableFeatures: GeoFeatureItem[],
-): AuthorizedStorySourceOption[] {
+): PresentationSourceOption[] {
 	const authorization = deriveStoryPresentationAuthorization(body)
 	const labels = new Map<string, string>()
 	for (const item of availableFeatures) {
@@ -263,37 +247,8 @@ function storySourceOptions(
 		return {
 			source: grant.source,
 			label: labels.get(grant.source) ?? parsed?.identifier ?? grant.source,
-			...(grant.scope === 'features' ? { featureIds: grant.featureIds } : {}),
 		}
 	})
-}
-
-function withoutLayerStyle(layer: MapPresentationLayerV1): MapPresentationLayerV1 {
-	const { style: _style, ...rest } = layer
-	return rest
-}
-
-function withoutLayerFeatureIds(layer: MapPresentationLayerV1): MapPresentationLayerV1 {
-	const { featureIds: _featureIds, ...rest } = layer
-	return rest
-}
-
-function withoutInitialView(presentation: MapPresentationV1): MapPresentationV1 {
-	const { initialView: _initialView, ...rest } = presentation
-	return rest
-}
-
-function updateLayerStyle(
-	layer: MapPresentationLayerV1,
-	key: keyof MapPresentationStyleOverrideV1,
-	value: string | number | boolean | undefined,
-): MapPresentationLayerV1 {
-	const style: Record<string, unknown> = { ...layer.style }
-	if (value === undefined || value === '') delete style[key]
-	else style[key] = value
-	return Object.keys(style).length > 0
-		? { ...layer, style: style as MapPresentationStyleOverrideV1 }
-		: withoutLayerStyle(layer)
 }
 
 function StoryPresentationEditor({
@@ -309,58 +264,28 @@ function StoryPresentationEditor({
 	onChange: (value: unknown) => void
 	captureMapPresentation?: StoryEditorPanelProps['captureMapPresentation']
 }) {
-	const [selectedSource, setSelectedSource] = useState('')
-	const [captureError, setCaptureError] = useState<string | null>(null)
-	const parsed = useMemo(() => parseMapPresentation(value), [value])
-	const presentation = getUsableMapPresentation(parsed)
 	const authorization = useMemo(() => deriveStoryPresentationAuthorization(body), [body])
 	const options = useMemo(
 		() => storySourceOptions(body, availableFeatures),
 		[body, availableFeatures],
 	)
-
-	const acceptCaptured = (mode: 'all' | 'camera') => {
-		const captured = captureMapPresentation?.(authorization)
-		const result = parseMapPresentation(captured)
-		const usable = getUsableMapPresentation(result)
-		if (!usable || (result.status === 'valid' && result.issues.length > 0)) {
-			setCaptureError('The current map could not be captured as a valid opening view.')
-			return
-		}
-		if (mode === 'camera' && !usable.initialView) {
-			setCaptureError('The map did not provide a camera position.')
-			return
-		}
-		setCaptureError(null)
-		if (mode === 'all') {
-			onChange(usable)
-			return
-		}
-		onChange({
-			...(presentation ?? { version: 1 as const, layers: [] }),
-			initialView: usable.initialView,
+	const { parsed, presentation, future, invalid, captureError, capturePresentation } =
+		useMapPresentationEditor({
+			value,
+			onChange,
+			capture: captureMapPresentation ? () => captureMapPresentation(authorization) : undefined,
+			invalidCaptureMessage: 'The current map could not be captured as a valid opening view.',
 		})
-	}
 
 	if (!presentation) {
-		const future = parsed.status === 'unsupported'
-		const invalid =
-			parsed.status === 'invalid' ||
-			(parsed.status === 'valid' && parsed.issues.some((issue) => issue.path === '$.layers'))
 		return (
 			<div className="space-y-3">
-				{future && (
-					<p className="border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
-						This Story uses a newer opening-view format. It will be preserved unchanged unless you
-						replace or remove it here.
-					</p>
-				)}
-				{invalid && (
-					<p className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-						The stored opening view is malformed. Readers will use normal map framing until it is
-						replaced.
-					</p>
-				)}
+				<MapPresentationFormatNotice
+					future={future}
+					invalid={invalid}
+					futureMessage="This Story uses a newer opening-view format. It will be preserved unchanged unless you replace or remove it here."
+					invalidMessage="The stored opening view is malformed. Readers will use normal map framing until it is replaced."
+				/>
 				{!future && !invalid && (
 					<p className="text-xs text-muted-foreground">
 						No authored opening view. Readers start with the referenced Maps framed normally.
@@ -371,7 +296,7 @@ function StoryPresentationEditor({
 						type="button"
 						variant="outline"
 						className="gap-1 rounded-none"
-						onClick={() => onChange({ version: 1 as const, layers: [] })}
+						onClick={() => onChange(emptyPresentation())}
 					>
 						<Layers3 className="h-3.5 w-3.5" />
 						Start empty
@@ -380,7 +305,7 @@ function StoryPresentationEditor({
 						type="button"
 						variant="outline"
 						className="gap-1 rounded-none"
-						onClick={() => acceptCaptured('all')}
+						onClick={() => capturePresentation('all')}
 						disabled={!captureMapPresentation}
 					>
 						<Camera className="h-3.5 w-3.5" />
@@ -403,406 +328,35 @@ function StoryPresentationEditor({
 		)
 	}
 
-	const updateLayer = (index: number, layer: MapPresentationLayerV1) => {
-		onChange({
-			...presentation,
-			layers: presentation.layers.map((entry, layerIndex) =>
-				layerIndex === index ? layer : entry,
-			),
-		})
-	}
-	const addLayer = () => {
-		const option = options.find((entry) => entry.source === selectedSource)
-		if (!option) return
-		const usedIds = new Set(presentation.layers.map((layer) => layer.id))
-		onChange({
-			...presentation,
-			layers: [
-				...presentation.layers,
-				{
-					id: stableLayerId(option.source, usedIds),
-					source: option.source,
-					...(option.featureIds ? { featureIds: [...option.featureIds] } : {}),
-					visible: true,
-					opacityMultiplier: 1,
-				},
-			],
-		})
-		setSelectedSource('')
-	}
-
 	return (
 		<div className="space-y-4">
-			<div className="flex flex-wrap items-center justify-between gap-2 border border-border bg-muted/30 px-3 py-2">
-				<div className="min-w-0">
-					<div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-						<Camera className="h-3.5 w-3.5 text-primary" />
-						{presentation.initialView
-							? `${presentation.initialView.center[1].toFixed(4)}, ${presentation.initialView.center[0].toFixed(4)} · zoom ${presentation.initialView.zoom.toFixed(1)}`
-							: 'Opening camera not set'}
-					</div>
-					<p className="mt-1 text-[10px] text-muted-foreground">
-						The camera changes only when you capture it explicitly.
-					</p>
-				</div>
-				<div className="flex flex-wrap gap-1">
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						className="h-7 gap-1 rounded-none px-2 text-[10px]"
-						onClick={() => acceptCaptured('camera')}
-						disabled={!captureMapPresentation}
-					>
-						<Camera className="h-3 w-3" />
-						Capture camera
-					</Button>
-					{presentation.initialView && (
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							className="h-7 rounded-none px-2 text-[10px]"
-							onClick={() => onChange(withoutInitialView(presentation))}
-						>
-							Clear
-						</Button>
-					)}
-				</div>
-			</div>
-
-			<div className="space-y-2">
-				<div className="flex items-center gap-2">
-					<select
-						value={selectedSource}
-						onChange={(event) => setSelectedSource(event.target.value)}
-						className="h-8 min-w-0 flex-1 border border-border bg-background px-2 text-xs text-foreground"
-					>
-						<option value="">Add a Map referenced in the body…</option>
-						{options.map((option) => (
-							<option key={option.source} value={option.source}>
-								{option.label}
-								{option.featureIds ? ` · ${option.featureIds.length} cited features` : ''}
-							</option>
-						))}
-					</select>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						className="h-8 gap-1 rounded-none px-2 text-xs"
-						onClick={addLayer}
-						disabled={!selectedSource}
-					>
-						<Plus className="h-3.5 w-3.5" />
-						Add layer
-					</Button>
-				</div>
-				<p className="text-[10px] text-muted-foreground">
-					The same Map may be added more than once with different features and styling.
-				</p>
-			</div>
-
-			<div className="space-y-2">
-				{presentation.layers.length === 0 && (
-					<p className="border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
-						No opening layers yet. Add one after referencing its Map in the narrative.
-					</p>
-				)}
-				{presentation.layers.map((layer, index) => {
-					const grant = authorization.get(layer.source)
-					const authorizationResult = authorizePresentationLayer(layer, authorization)
-					const controlPrefix = `story-presentation-${index}`
-					return (
-						<div key={layer.id} className="space-y-3 border border-border bg-background px-3 py-2">
-							<div className="flex items-start gap-2">
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon-sm"
-									className="h-7 w-7 flex-shrink-0 rounded-none"
-									onClick={() => updateLayer(index, { ...layer, visible: !layer.visible })}
-									aria-label={layer.visible ? 'Hide layer at open' : 'Show layer at open'}
-								>
-									{layer.visible ? (
-										<Eye className="h-3.5 w-3.5" />
-									) : (
-										<EyeOff className="h-3.5 w-3.5" />
-									)}
-								</Button>
-								<div className="min-w-0 flex-1">
-									<Input
-										value={layer.id}
-										onChange={(event) => updateLayer(index, { ...layer, id: event.target.value })}
-										className="h-7 rounded-none font-mono text-xs"
-										aria-label="Stable presentation layer id"
-									/>
-									<p
-										className="mt-1 truncate font-mono text-[9px] text-muted-foreground"
-										title={layer.source}
-									>
-										{layer.source}
-									</p>
-								</div>
-								<div className="flex flex-shrink-0 items-center gap-0.5">
-									<Button
-										type="button"
-										variant="ghost"
-										size="icon-sm"
-										className="h-7 w-7 rounded-none"
-										disabled={index === 0}
-										onClick={() => {
-											const layers = [...presentation.layers]
-											const current = layers[index]
-											const previous = layers[index - 1]
-											if (!current || !previous) return
-											layers[index - 1] = current
-											layers[index] = previous
-											onChange({ ...presentation, layers })
-										}}
-										aria-label="Move layer down"
-									>
-										<ArrowUp className="h-3.5 w-3.5" />
-									</Button>
-									<Button
-										type="button"
-										variant="ghost"
-										size="icon-sm"
-										className="h-7 w-7 rounded-none"
-										disabled={index === presentation.layers.length - 1}
-										onClick={() => {
-											const layers = [...presentation.layers]
-											const current = layers[index]
-											const next = layers[index + 1]
-											if (!current || !next) return
-											layers[index] = next
-											layers[index + 1] = current
-											onChange({ ...presentation, layers })
-										}}
-										aria-label="Move layer up"
-									>
-										<ArrowDown className="h-3.5 w-3.5" />
-									</Button>
-									<Button
-										type="button"
-										variant="ghost"
-										size="icon-sm"
-										className="h-7 w-7 rounded-none text-muted-foreground hover:text-destructive"
-										onClick={() =>
-											onChange({
-												...presentation,
-												layers: presentation.layers.filter((_, layerIndex) => layerIndex !== index),
-											})
-										}
-										aria-label="Remove layer"
-									>
-										<Trash2 className="h-3.5 w-3.5" />
-									</Button>
-								</div>
-							</div>
-
-							{authorizationResult.status !== 'authorized' && (
-								<p className="border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] text-foreground">
-									This layer is outside the Story body's current reference scope and cannot be
-									published.
-								</p>
-							)}
-
-							<div className="grid gap-3 sm:grid-cols-2">
-								<label className="space-y-1 text-[10px] text-muted-foreground">
-									<span className="flex items-center justify-between">
-										Opacity <span className="font-mono">{layer.opacityMultiplier.toFixed(2)}</span>
-									</span>
-									<input
-										type="range"
-										min="0"
-										max="1"
-										step="0.05"
-										value={layer.opacityMultiplier}
-										onChange={(event) =>
-											updateLayer(index, {
-												...layer,
-												opacityMultiplier: Number(event.target.value),
-											})
-										}
-										className="w-full"
-									/>
-								</label>
-								<label className="space-y-1 text-[10px] text-muted-foreground">
-									<span>Feature scope</span>
-									<select
-										value={layer.featureIds === undefined ? 'whole' : 'features'}
-										disabled={grant?.scope === 'features'}
-										onChange={(event) =>
-											updateLayer(
-												index,
-												event.target.value === 'whole'
-													? withoutLayerFeatureIds(layer)
-													: { ...layer, featureIds: [] },
-											)
-										}
-										className="h-8 w-full border border-border bg-background px-2 text-xs text-foreground"
-									>
-										<option value="whole">Whole Map</option>
-										<option value="features">Selected features</option>
-									</select>
-								</label>
-							</div>
-							{layer.featureIds !== undefined && (
-								<Label
-									htmlFor={`${controlPrefix}-features`}
-									className="block space-y-1 text-[10px] font-normal text-muted-foreground"
-								>
-									<span>Feature ids, separated by commas or new lines</span>
-									<Textarea
-										id={`${controlPrefix}-features`}
-										value={layer.featureIds.join(', ')}
-										onChange={(event) =>
-											updateLayer(index, {
-												...layer,
-												featureIds: event.target.value
-													.split(/[\n,]/u)
-													.map((id) => id.trim())
-													.filter(Boolean),
-											})
-										}
-										rows={2}
-										className="rounded-none font-mono text-xs"
-									/>
-								</Label>
-							)}
-
-							<details className="border-t border-border pt-2">
-								<summary className="flex cursor-pointer list-none items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-									<Layers3 className="h-3 w-3" /> Style override
-								</summary>
-								<div className="mt-2 grid gap-2 sm:grid-cols-3">
-									{(['color', 'fillColor', 'strokeColor'] as const).map((key) => (
-										<Label
-											key={key}
-											htmlFor={`${controlPrefix}-${key}`}
-											className="space-y-1 text-[9px] font-normal text-muted-foreground"
-										>
-											<span>{key}</span>
-											<Input
-												id={`${controlPrefix}-${key}`}
-												value={layer.style?.[key] ?? ''}
-												onChange={(event) =>
-													updateLayer(
-														index,
-														updateLayerStyle(layer, key, event.target.value || undefined),
-													)
-												}
-												placeholder="author style"
-												className="h-7 rounded-none px-2 text-[10px]"
-											/>
-										</Label>
-									))}
-									{(['fillOpacity', 'strokeOpacity', 'strokeWidth', 'radius'] as const).map(
-										(key) => (
-											<Label
-												key={key}
-												htmlFor={`${controlPrefix}-${key}`}
-												className="space-y-1 text-[9px] font-normal text-muted-foreground"
-											>
-												<span>{key}</span>
-												<Input
-													id={`${controlPrefix}-${key}`}
-													type="number"
-													step={key.includes('Opacity') ? '0.05' : '0.5'}
-													min={key.includes('Opacity') ? '0' : '0.1'}
-													max={key.includes('Opacity') ? '1' : undefined}
-													value={layer.style?.[key] ?? ''}
-													onChange={(event) =>
-														updateLayer(
-															index,
-															updateLayerStyle(
-																layer,
-																key,
-																event.target.value === '' ? undefined : Number(event.target.value),
-															),
-														)
-													}
-													className="h-7 rounded-none px-2 text-[10px]"
-												/>
-											</Label>
-										),
-									)}
-									<label className="space-y-1 text-[9px] text-muted-foreground">
-										<span>lineDash</span>
-										<select
-											value={layer.style?.lineDash ?? ''}
-											onChange={(event) =>
-												updateLayer(
-													index,
-													updateLayerStyle(layer, 'lineDash', event.target.value || undefined),
-												)
-											}
-											className="h-7 w-full border border-border bg-background px-2 text-[10px] text-foreground"
-										>
-											<option value="">author style</option>
-											<option value="solid">solid</option>
-											<option value="dashed">dashed</option>
-											<option value="dotted">dotted</option>
-										</select>
-									</label>
-									{(['arrowStart', 'arrowEnd'] as const).map((key) => (
-										<label key={key} className="space-y-1 text-[9px] text-muted-foreground">
-											<span>{key}</span>
-											<select
-												value={layer.style?.[key] === undefined ? '' : String(layer.style[key])}
-												onChange={(event) =>
-													updateLayer(
-														index,
-														updateLayerStyle(
-															layer,
-															key,
-															event.target.value === '' ? undefined : event.target.value === 'true',
-														),
-													)
-												}
-												className="h-7 w-full border border-border bg-background px-2 text-[10px] text-foreground"
-											>
-												<option value="">author style</option>
-												<option value="true">on</option>
-												<option value="false">off</option>
-											</select>
-										</label>
-									))}
-									<Label
-										htmlFor={`${controlPrefix}-displayIcon`}
-										className="space-y-1 text-[9px] font-normal text-muted-foreground sm:col-span-2"
-									>
-										<span>displayIcon</span>
-										<Input
-											id={`${controlPrefix}-displayIcon`}
-											value={layer.style?.displayIcon ?? ''}
-											onChange={(event) =>
-												updateLayer(
-													index,
-													updateLayerStyle(layer, 'displayIcon', event.target.value || undefined),
-												)
-											}
-											placeholder="lucide:map-pin"
-											className="h-7 rounded-none px-2 font-mono text-[10px]"
-										/>
-									</Label>
-									<Button
-										type="button"
-										variant="ghost"
-										size="sm"
-										className="h-7 gap-1 self-end rounded-none text-[10px]"
-										onClick={() => updateLayer(index, withoutLayerStyle(layer))}
-										disabled={!layer.style}
-									>
-										<RotateCcw className="h-3 w-3" /> Use author styling
-									</Button>
-								</div>
-							</details>
-						</div>
-					)
-				})}
-			</div>
+			<MapPresentationCameraControl
+				presentation={presentation}
+				onChange={onChange}
+				onCapture={captureMapPresentation ? () => capturePresentation('camera') : undefined}
+				emptyLabel="Opening camera not set"
+				clearLabel="Clear"
+			/>
+			<MapPresentationLayersEditor
+				presentation={presentation}
+				authorization={authorization}
+				options={options}
+				onChange={onChange}
+				idPrefix="story-presentation"
+				labels={{
+					sourcePlaceholder: 'Add a Map referenced in the body…',
+					sourceSelect: 'Map referenced in the Story body',
+					help: 'The same Map may be added more than once with different features and styling.',
+					empty: 'No opening layers yet. Add one after referencing its Map in the narrative.',
+					unauthorized:
+						"This layer is outside the Story body's current reference scope and cannot be published.",
+					hide: 'Hide layer at open',
+					show: 'Show layer at open',
+					moveDown: 'Move layer down',
+					moveUp: 'Move layer up',
+					featureIds: 'Feature ids, separated by commas or new lines',
+				}}
+			/>
 
 			{parsed.status === 'valid' && parsed.issues.length > 0 && (
 				<div className="border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[10px] text-foreground">
@@ -816,7 +370,7 @@ function StoryPresentationEditor({
 					variant="outline"
 					size="sm"
 					className="gap-1 rounded-none"
-					onClick={() => acceptCaptured('all')}
+					onClick={() => capturePresentation('all')}
 					disabled={!captureMapPresentation}
 				>
 					<Camera className="h-3.5 w-3.5" /> Replace from current map
@@ -851,7 +405,11 @@ export function StoryEditorPanel({
 	const mobileHeaderActionTarget = useMobilePanelHeaderActionTarget()
 	const bodyEditorRef = useRef<GeoRichTextEditorRef>(null)
 
-	const selectedDraftKey = useSyncExternalStore(subscribeStoryEditorOpenRequests, () => getStoryEditorTarget()?.draftKey ?? null, () => null)
+	const selectedDraftKey = useSyncExternalStore(
+		subscribeStoryEditorOpenRequests,
+		() => getStoryEditorTarget()?.draftKey ?? null,
+		() => null,
+	)
 	const initial = useMemo(() => readInitialContent(initialStory), [initialStory, selectedDraftKey])
 	// Editing a *published* Article switches the submit to "Save changes" and the
 	// edit code path; a draft-backed create stays in publish mode.
@@ -1031,25 +589,38 @@ export function StoryEditorPanel({
 		setBodyTab('write')
 		setPresentation(discarded.presentation)
 	}
-	useEffect(() => registerStoryDraftDiscard(draftKey, () => {
-		handleDiscardDraft()
-		onClose()
-	}), [draftKey, handleDiscardDraft, onClose])
+	useEffect(
+		() =>
+			registerStoryDraftDiscard(draftKey, () => {
+				handleDiscardDraft()
+				onClose()
+			}),
+		[draftKey, handleDiscardDraft, onClose],
+	)
 	const publishRef = useDraftPublishReview(`story:${draftKey}`)
-	useEffect(() => registerStoryPublicationEditor(draftKey, {
-		flush: persistNow,
-		published: clearRetainedDraft,
-		resolvedBody: (resolved) => {
-			// The publisher validates again before signing. Commit the resolved
-			// body now so its flush callback cannot overwrite it with stale state.
-			flushSync(() => setBody(resolved))
-			bodyEditorRef.current?.setContent(resolved)
-		},
-	}), [draftKey, persistNow, clearRetainedDraft])
+	useEffect(
+		() =>
+			registerStoryPublicationEditor(draftKey, {
+				flush: persistNow,
+				published: clearRetainedDraft,
+				resolvedBody: (resolved) => {
+					// The publisher validates again before signing. Commit the resolved
+					// body now so its flush callback cannot overwrite it with stale state.
+					flushSync(() => setBody(resolved))
+					bodyEditorRef.current?.setContent(resolved)
+				},
+			}),
+		[draftKey, persistNow, clearRetainedDraft],
+	)
 	useEffect(() => {
 		const preview = () => {
 			const request = getDraftReviewRequest()
-			if (request?.key !== `story:${draftKey}` || request.action !== 'preview' || request.owner !== accounts.active?.pubkey) return
+			if (
+				request?.key !== `story:${draftKey}` ||
+				request.action !== 'preview' ||
+				request.owner !== accounts.active?.pubkey
+			)
+				return
 			clearDraftReview(request)
 			setBodyTab('preview')
 		}
@@ -1092,7 +663,11 @@ export function StoryEditorPanel({
 		setIsSaving(true)
 		try {
 			if (!isProposal) {
-				const storyReference = initialStory?.dTag ? coordinateToNaddrReference(`${initialStory.kind}:${initialStory.pubkey}:${initialStory.dTag}`) ?? undefined : undefined
+				const storyReference = initialStory?.dTag
+					? (coordinateToNaddrReference(
+							`${initialStory.kind}:${initialStory.pubkey}:${initialStory.dTag}`,
+						) ?? undefined)
+					: undefined
 				await publishSavedStory({ kind: 'story', draftKey, title, storyReference })
 				toast.success('Story published. Further edits stay in your draft.')
 				return
@@ -1111,14 +686,23 @@ export function StoryEditorPanel({
 				storyDraftKey: draftKey,
 				storyTitle: title,
 				onProgress: (resolvedBody) => {
-					if (JSON.stringify(readStoryDraft(draftKey, ownerPubkey)) !== expectedDraft) throw new Error('This Story draft changed while publishing its Maps. The published Maps remain available; review your draft before retrying.')
+					if (JSON.stringify(readStoryDraft(draftKey, ownerPubkey)) !== expectedDraft)
+						throw new Error(
+							'This Story draft changed while publishing its Maps. The published Maps remain available; review your draft before retrying.',
+						)
 					writeStoryDraft(draftKey, { ...draftSnapshot, content: resolvedBody }, ownerPubkey)
 					expectedDraft = JSON.stringify(readStoryDraft(draftKey, ownerPubkey))
 					setBody(resolvedBody)
 					bodyEditorRef.current?.setContent(resolvedBody)
 				},
 			})
-			if (accounts.active?.pubkey !== ownerPubkey || JSON.stringify(readStoryDraft(draftKey, ownerPubkey)) !== expectedDraft) throw new Error('The account or Story draft changed. Nothing further was published; review and retry.')
+			if (
+				accounts.active?.pubkey !== ownerPubkey ||
+				JSON.stringify(readStoryDraft(draftKey, ownerPubkey)) !== expectedDraft
+			)
+				throw new Error(
+					'The account or Story draft changed. Nothing further was published; review and retry.',
+				)
 
 			const editedEvent = initialStory?.rawEvent()
 			if (isProposal && initialStory && editedEvent && isArticle(editedEvent)) {
@@ -1133,7 +717,11 @@ export function StoryEditorPanel({
 			}
 			throw new Error('The original Story is unavailable. Reopen it before proposing changes.')
 		} catch (error) {
-			const message = publishFailureMessage(isProposal ? 'send this Story proposal' : 'publish this Story', error, submitLabel)
+			const message = publishFailureMessage(
+				isProposal ? 'send this Story proposal' : 'publish this Story',
+				error,
+				submitLabel,
+			)
 			setSaveError(message)
 			toast.error(message, { id: 'story-publish-error', duration: 10_000 })
 		} finally {
@@ -1143,35 +731,93 @@ export function StoryEditorPanel({
 
 	const coverDetails = (
 		<EntityPanelSurface tone="context" className="space-y-3">
-			<EntityPanelSectionHeader eyebrow="Story" title="Cover details" description="Title and summary appear on the story card and social previews." />
+			<EntityPanelSectionHeader
+				eyebrow="Story"
+				title="Cover details"
+				description="Title and summary appear on the story card and social previews."
+			/>
 			<div className="space-y-2">
 				<Label htmlFor="story-title">Title</Label>
-				<Input id="story-title" value={title} readOnly={isProposal} onChange={event => setTitle(event.target.value)} placeholder="Roman ruins in Carinthia" className="rounded-none" />
+				<Input
+					id="story-title"
+					value={title}
+					readOnly={isProposal}
+					onChange={(event) => setTitle(event.target.value)}
+					placeholder="Roman ruins in Carinthia"
+					className="rounded-none"
+				/>
 			</div>
 			<div className="space-y-2">
 				<Label htmlFor="story-summary">Summary</Label>
-				<Textarea id="story-summary" value={summary} readOnly={isProposal} onChange={event => setSummary(event.target.value)} placeholder="A one-line summary readers see on the story card." rows={2} className="rounded-none" />
+				<Textarea
+					id="story-summary"
+					value={summary}
+					readOnly={isProposal}
+					onChange={(event) => setSummary(event.target.value)}
+					placeholder="A one-line summary readers see on the story card."
+					rows={2}
+					className="rounded-none"
+				/>
 			</div>
 			<div className="space-y-2">
 				<Label>Cover image</Label>
-				<p className="text-[11px] text-muted-foreground">Optional — shown on the story card and social previews.</p>
-				{image.trim() ? <AspectRatio ratio={16 / 9} className="overflow-hidden border border-border bg-muted">
-					<img src={image} alt="Story cover" className="h-full w-full object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
-				</AspectRatio> : null}
+				<p className="text-[11px] text-muted-foreground">
+					Optional — shown on the story card and social previews.
+				</p>
+				{image.trim() ? (
+					<AspectRatio ratio={16 / 9} className="overflow-hidden border border-border bg-muted">
+						<img
+							src={image}
+							alt="Story cover"
+							className="h-full w-full object-cover"
+							onError={(event) => {
+								event.currentTarget.style.display = 'none'
+							}}
+						/>
+					</AspectRatio>
+				) : null}
 				<div className="flex items-center gap-2">
-					<Input value={image} aria-label="Cover image URL" readOnly={isProposal} onChange={event => setImage(event.target.value)} placeholder="https://..." className="rounded-none" />
-					<BlossomUploaderButton currentUrl={image} disabled={isProposal} onUploaded={({url}) => setImage(url)} buttonLabel="Blossom" className="rounded-none" />
+					<Input
+						value={image}
+						aria-label="Cover image URL"
+						readOnly={isProposal}
+						onChange={(event) => setImage(event.target.value)}
+						placeholder="https://..."
+						className="rounded-none"
+					/>
+					<BlossomUploaderButton
+						currentUrl={image}
+						disabled={isProposal}
+						onUploaded={({ url }) => setImage(url)}
+						buttonLabel="Blossom"
+						className="rounded-none"
+					/>
 				</div>
 			</div>
 		</EntityPanelSurface>
 	)
 	const openingView = (
 		<EntityPanelSurface tone="neutral" className="space-y-3">
-			<EntityPanelSectionHeader eyebrow="Map presentation" title="Opening view" description="Choose ordered Map instances, feature subsets, styling, and the camera readers see first. View blocks in the narrative change this state later." />
-			{isProposal && <p className="text-xs text-muted-foreground">Opening view is read-only in proposals. You can change its existing layers and camera within the narrative's inline views.</p>}
+			<EntityPanelSectionHeader
+				eyebrow="Map presentation"
+				title="Opening view"
+				description="Choose ordered Map instances, feature subsets, styling, and the camera readers see first. View blocks in the narrative change this state later."
+			/>
+			{isProposal && (
+				<p className="text-xs text-muted-foreground">
+					Opening view is read-only in proposals. You can change its existing layers and camera
+					within the narrative's inline views.
+				</p>
+			)}
 			<fieldset disabled={isProposal} className="min-w-0">
 				<legend className="sr-only">Opening view settings</legend>
-				<StoryPresentationEditor value={presentation} body={body} availableFeatures={availableFeatures} onChange={setPresentation} captureMapPresentation={captureMapPresentation} />
+				<StoryPresentationEditor
+					value={presentation}
+					body={body}
+					availableFeatures={availableFeatures}
+					onChange={setPresentation}
+					captureMapPresentation={captureMapPresentation}
+				/>
 			</fieldset>
 		</EntityPanelSurface>
 	)
@@ -1185,175 +831,212 @@ export function StoryEditorPanel({
 					<Button type="button" variant="ghost" size="sm" onClick={onClose}>
 						Cancel
 					</Button>
-					<Button ref={mobileHeaderActionTarget ? publishRef : undefined} type="button" size="sm" onClick={handleSave} disabled={isSaving || !currentUser}>
+					<Button
+						ref={mobileHeaderActionTarget ? publishRef : undefined}
+						type="button"
+						size="sm"
+						onClick={handleSave}
+						disabled={isSaving || !currentUser}
+					>
 						{submitLabel}
 					</Button>
 				</div>
 			</MobilePanelHeaderActions>
 			<fieldset disabled={isSaving} className="min-w-0 space-y-3">
-			<Button type="button" size="sm" variant="outline" onClick={() => {
-				persistNow()
-				const storyReference = initialStory?.dTag ? coordinateToNaddrReference(`${initialStory.kind}:${initialStory.pubkey}:${initialStory.dTag}`) ?? undefined : undefined
-				addTargetToActiveThread({ id: `story:${draftKey}`, kind: 'story', draftKey, title: title.trim() || 'Untitled Story', intent: isProposal ? 'propose' : isEditing ? 'edit' : 'create', storyReference })
-				navigateToRoute('/ask')
-			}}><MessageSquare className="size-3.5" /> Edit this Story with AI</Button>
-			{isProposal ? (
-				<div className="space-y-2 border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-					<p>
-						Suggest changes to the narrative and inline map views. The author can accept or decline
-						your proposal. Cover details and the opening view are read-only because proposals carry
-						only the narrative.
-					</p>
-					{!currentUser ? (
-						<p>Sign in to send a proposal. You can still save a local draft.</p>
-					) : null}
-					{proposalMetadataChanged ? (
-						<div className="space-y-2 text-destructive">
-							<p>
-								This saved draft contains cover or opening-view changes that cannot be proposed.
-								They are preserved here until you explicitly restore the original; your narrative
-								will stay.
-							</p>
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								className="h-auto whitespace-normal rounded-none text-left"
-								onClick={restoreProposalMetadata}
-							>
-								Restore original cover and opening view
-							</Button>
-						</div>
-					) : null}
-				</div>
-			) : null}
-			{!isProposal && coverDetails}
-
-			<EntityPanelSurface tone="neutral" className="space-y-3">
-				<EntityPanelSectionHeader
-					eyebrow="Narrative"
-					title="Write your story"
-					description="Type $ to reference a Map or feature. Place the cursor in your prose, then use View in the toolbar to insert a map cue or figure."
-				/>
-				{body.includes('earthly-draft:') && (
-					<p className="text-xs text-muted-foreground">
-						This story includes local Map references. When you publish, you’ll be asked to publish
-						each required Map and replace its draft reference with a public link. Cancelling keeps
-						your Story draft and any completed links. Inline map views currently require published Maps.
-					</p>
-				)}
-				<Tabs
-					value={bodyTab}
-					onValueChange={(value) => setBodyTab(value as 'write' | 'preview')}
-					className="space-y-3"
+				<Button
+					type="button"
+					size="sm"
+					variant="outline"
+					onClick={() => {
+						persistNow()
+						const storyReference = initialStory?.dTag
+							? (coordinateToNaddrReference(
+									`${initialStory.kind}:${initialStory.pubkey}:${initialStory.dTag}`,
+								) ?? undefined)
+							: undefined
+						addTargetToActiveThread({
+							id: `story:${draftKey}`,
+							kind: 'story',
+							draftKey,
+							title: title.trim() || 'Untitled Story',
+							intent: isProposal ? 'propose' : isEditing ? 'edit' : 'create',
+							storyReference,
+						})
+						navigateToRoute('/ask')
+					}}
 				>
-					<TabsList className="h-8 w-full justify-start rounded-none border-b border-border bg-transparent p-0">
-						<TabsTrigger
-							value="write"
-							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-						>
-							Write
-						</TabsTrigger>
-						<TabsTrigger
-							value="preview"
-							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-						>
-							Preview
-						</TabsTrigger>
-					</TabsList>
-
-					<TabsContent value="write" className="mt-0">
-						<GeoRichTextEditor
-							ref={bodyEditorRef}
-							autoFocus={isProposal}
-							initialValue={body}
-							disabled={isSaving}
-							onChange={setBody}
-							availableFeatures={availableFeatures}
-							placeholder={`Start writing…
-Type $ to reference a Map, feature, OSM element, or coordinate.`}
-							rows={12}
-							className="min-h-[320px] w-full"
-							enableStoryViews
-							storyViewLayers={openingPresentation?.layers}
-							captureStoryView={captureStoryView}
-							onStoryViewActivate={(view) => activateStoryView(view)}
-						/>
-					</TabsContent>
-
-					<TabsContent value="preview" className="mt-0">
-						{/* Preview renders ONLY through the sanitized RichContentRenderer,
-						    exactly as readers see it — never raw HTML (T-10-04). */}
-						<RichContentRenderer
-							content={body}
-							availableFeatures={availableFeatures}
-							emptyState="Nothing to preview yet — switch to Write and add some narrative."
-							className="min-h-[160px]"
-							onStoryViewActivate={(view, index) => activateStoryView(view, index)}
-							renderStoryViewFigure={
-								renderStoryViewFigure
-									? (_view, index) => {
-											const snapshot = viewReduction.snapshots[index]
-											return snapshot
-												? renderStoryViewFigure(snapshot, index, { body, draftKey })
-												: null
-										}
-									: undefined
-							}
-						/>
-					</TabsContent>
-				</Tabs>
-			</EntityPanelSurface>
-
-			{isProposal ? <details className="border border-border p-3 text-xs text-muted-foreground"><summary className="cursor-pointer font-medium">Cover and opening view · read-only</summary><div className="mt-3 space-y-3">{coverDetails}{openingView}</div></details> : openingView}
-
-			<EntityPanelSurface tone="neutral" className="space-y-2">
-				{saveError && <p className="text-xs text-destructive">{saveError}</p>}
-				<div className="flex flex-wrap items-center justify-end gap-2">
-					<AlertDialog>
-						<AlertDialogTrigger asChild>
-							<Button variant="ghost" className="rounded-none text-destructive">
-								Discard draft
-							</Button>
-						</AlertDialogTrigger>
-						<AlertDialogContent>
-							<AlertDialogHeader>
-								<AlertDialogTitle>Discard this draft?</AlertDialogTitle>
-								<AlertDialogDescription>
-									Your unpublished changes will be lost. This can't be undone.
-								</AlertDialogDescription>
-							</AlertDialogHeader>
-							<AlertDialogFooter>
-								<AlertDialogCancel>Keep editing</AlertDialogCancel>
-								<AlertDialogAction
-									onClick={handleDiscardDraft}
-									className="bg-destructive text-destructive-foreground"
+					<MessageSquare className="size-3.5" /> Edit this Story with AI
+				</Button>
+				{isProposal ? (
+					<div className="space-y-2 border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+						<p>
+							Suggest changes to the narrative and inline map views. The author can accept or
+							decline your proposal. Cover details and the opening view are read-only because
+							proposals carry only the narrative.
+						</p>
+						{!currentUser ? (
+							<p>Sign in to send a proposal. You can still save a local draft.</p>
+						) : null}
+						{proposalMetadataChanged ? (
+							<div className="space-y-2 text-destructive">
+								<p>
+									This saved draft contains cover or opening-view changes that cannot be proposed.
+									They are preserved here until you explicitly restore the original; your narrative
+									will stay.
+								</p>
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									className="h-auto whitespace-normal rounded-none text-left"
+									onClick={restoreProposalMetadata}
 								>
-									Discard
-								</AlertDialogAction>
-							</AlertDialogFooter>
-						</AlertDialogContent>
-					</AlertDialog>
-					<Button variant="outline" onClick={handleSaveDraft} className="rounded-none">
-						Save draft
-					</Button>
-					{!mobileHeaderActionTarget ? (
-						<>
-							<Button variant="outline" onClick={onClose} className="rounded-none">
-								Cancel
-							</Button>
-							<Button
-								onClick={handleSave}
-								ref={publishRef}
-								disabled={isSaving || !currentUser}
-								className="rounded-none bg-primary text-primary-foreground"
+									Restore original cover and opening view
+								</Button>
+							</div>
+						) : null}
+					</div>
+				) : null}
+				{!isProposal && coverDetails}
+
+				<EntityPanelSurface tone="neutral" className="space-y-3">
+					<EntityPanelSectionHeader
+						eyebrow="Narrative"
+						title="Write your story"
+						description="Type $ to reference a Map or feature. Place the cursor in your prose, then use View in the toolbar to insert a map cue or figure."
+					/>
+					{body.includes('earthly-draft:') && (
+						<p className="text-xs text-muted-foreground">
+							This story includes local Map references. When you publish, you’ll be asked to publish
+							each required Map and replace its draft reference with a public link. Cancelling keeps
+							your Story draft and any completed links. Inline map views currently require published
+							Maps.
+						</p>
+					)}
+					<Tabs
+						value={bodyTab}
+						onValueChange={(value) => setBodyTab(value as 'write' | 'preview')}
+						className="space-y-3"
+					>
+						<TabsList className="h-8 w-full justify-start rounded-none border-b border-border bg-transparent p-0">
+							<TabsTrigger
+								value="write"
+								className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 							>
-								{submitLabel}
-							</Button>
-						</>
-					) : null}
-				</div>
-			</EntityPanelSurface>
+								Write
+							</TabsTrigger>
+							<TabsTrigger
+								value="preview"
+								className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							>
+								Preview
+							</TabsTrigger>
+						</TabsList>
+
+						<TabsContent value="write" className="mt-0">
+							<GeoRichTextEditor
+								ref={bodyEditorRef}
+								autoFocus={isProposal}
+								initialValue={body}
+								disabled={isSaving}
+								onChange={setBody}
+								availableFeatures={availableFeatures}
+								placeholder={`Start writing…
+Type $ to reference a Map, feature, OSM element, or coordinate.`}
+								rows={12}
+								className="min-h-[320px] w-full"
+								enableStoryViews
+								storyViewLayers={openingPresentation?.layers}
+								captureStoryView={captureStoryView}
+								onStoryViewActivate={(view) => activateStoryView(view)}
+							/>
+						</TabsContent>
+
+						<TabsContent value="preview" className="mt-0">
+							{/* Preview renders ONLY through the sanitized RichContentRenderer,
+						    exactly as readers see it — never raw HTML (T-10-04). */}
+							<RichContentRenderer
+								content={body}
+								availableFeatures={availableFeatures}
+								emptyState="Nothing to preview yet — switch to Write and add some narrative."
+								className="min-h-[160px]"
+								onStoryViewActivate={(view, index) => activateStoryView(view, index)}
+								renderStoryViewFigure={
+									renderStoryViewFigure
+										? (_view, index) => {
+												const snapshot = viewReduction.snapshots[index]
+												return snapshot
+													? renderStoryViewFigure(snapshot, index, { body, draftKey })
+													: null
+											}
+										: undefined
+								}
+							/>
+						</TabsContent>
+					</Tabs>
+				</EntityPanelSurface>
+
+				{isProposal ? (
+					<details className="border border-border p-3 text-xs text-muted-foreground">
+						<summary className="cursor-pointer font-medium">
+							Cover and opening view · read-only
+						</summary>
+						<div className="mt-3 space-y-3">
+							{coverDetails}
+							{openingView}
+						</div>
+					</details>
+				) : (
+					openingView
+				)}
+
+				<EntityPanelSurface tone="neutral" className="space-y-2">
+					{saveError && <p className="text-xs text-destructive">{saveError}</p>}
+					<div className="flex flex-wrap items-center justify-end gap-2">
+						<AlertDialog>
+							<AlertDialogTrigger asChild>
+								<Button variant="ghost" className="rounded-none text-destructive">
+									Discard draft
+								</Button>
+							</AlertDialogTrigger>
+							<AlertDialogContent>
+								<AlertDialogHeader>
+									<AlertDialogTitle>Discard this draft?</AlertDialogTitle>
+									<AlertDialogDescription>
+										Your unpublished changes will be lost. This can't be undone.
+									</AlertDialogDescription>
+								</AlertDialogHeader>
+								<AlertDialogFooter>
+									<AlertDialogCancel>Keep editing</AlertDialogCancel>
+									<AlertDialogAction
+										onClick={handleDiscardDraft}
+										className="bg-destructive text-destructive-foreground"
+									>
+										Discard
+									</AlertDialogAction>
+								</AlertDialogFooter>
+							</AlertDialogContent>
+						</AlertDialog>
+						<Button variant="outline" onClick={handleSaveDraft} className="rounded-none">
+							Save draft
+						</Button>
+						{!mobileHeaderActionTarget ? (
+							<>
+								<Button variant="outline" onClick={onClose} className="rounded-none">
+									Cancel
+								</Button>
+								<Button
+									onClick={handleSave}
+									ref={publishRef}
+									disabled={isSaving || !currentUser}
+									className="rounded-none bg-primary text-primary-foreground"
+								>
+									{submitLabel}
+								</Button>
+							</>
+						) : null}
+					</div>
+				</EntityPanelSurface>
 			</fieldset>
 		</EntityPanelShell>
 	)

@@ -268,6 +268,9 @@ function addOrReplaceImage(map: MapLibreMap, id: string, data: ImageData, own: b
 			if (owned.has(id)) return
 			map.removeImage(id)
 		}
+		// A style reset removes the bitmap but leaves our map-level ownership set.
+		// Forget it before installing a temporary dot, so the glyph can replace it.
+		owned.delete(id)
 		map.addImage(id, data, { pixelRatio: ICON_PIXEL_RATIO, sdf: true })
 		if (own) owned.add(id)
 	} catch {
@@ -323,13 +326,17 @@ export function registerDisplayIconImages(map: MapLibreMap): void {
 }
 
 /**
- * Handle a `styleimagemissing` event for icon-namespace ids. Registers a
+ * Resolve a missing image for icon-namespace ids. Registers a
  * VISIBLE fallback dot under the requested id right away (never a transparent
  * pixel — that is how points vanish) and, for bundled ids, kicks off the real
  * rasterization which replaces the dot once ready. Returns true when the id
  * was handled, false when the generic handler should take over.
  */
-export function handleMissingDisplayIconImage(map: MapLibreMap, id: string): boolean {
+export function handleMissingDisplayIconImage(
+	map: MapLibreMap,
+	id: string,
+	signal?: AbortSignal,
+): boolean {
 	if (id === LINE_ARROW_IMAGE_ID) {
 		const arrowData = getLineArrowImageData()
 		if (arrowData) addOrReplaceImage(map, id, arrowData, true)
@@ -349,7 +356,7 @@ export function handleMissingDisplayIconImage(map: MapLibreMap, id: string): boo
 	}
 	if (id !== FALLBACK_ICON_IMAGE_ID && getDisplayIconSvg(id)) {
 		void rasterizeBundledIcon(id).then((iconData) => {
-			if (!iconData) return
+			if (!iconData || signal?.aborted) return
 			addOrReplaceImage(map, id, iconData, true)
 		})
 	}
