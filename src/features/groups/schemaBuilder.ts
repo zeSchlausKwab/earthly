@@ -4,9 +4,7 @@
  * The visual field-rule builder (stacked property rows + a geometry-type
  * checkbox set) and the raw-JSON "Advanced" tab both compile to the SAME
  * draft-2020-12 schema that the Phase-8 hardened off-thread worker validates.
- * This module is the slimmed successor to `MapContextEditorPanel`'s inline
- * `SchemaBuilderField` block (`schemaFromBuilder`/`builderFromSchema`) extended
- * with:
+ * The builder supports:
  *   - an `enum` field type (`allowedValues`),
  *   - an `allowedGeometryTypes` argument (encoded as a non-required
  *     `properties.geometry.properties.type.enum` so a conforming feature is

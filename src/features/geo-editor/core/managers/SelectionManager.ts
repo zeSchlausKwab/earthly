@@ -1,16 +1,13 @@
 import type { Position } from 'geojson'
 import type { Map as MaplibreMap } from 'maplibre-gl'
 import type { EditorFeature, IManager, SelectionBounds } from '../types'
-import { isPointInPolygon } from '../utils/geometry'
+import { isFinitePosition } from '../utils/coordinates'
 
 export class SelectionManager implements IManager {
-	private map?: MaplibreMap
 	private selectedFeatures: Set<string> = new Set()
 	private groups: Map<string, Set<string>> = new Map()
 
-	onAdd(map: MaplibreMap): void {
-		this.map = map
-	}
+	onAdd(_map: MaplibreMap): void {}
 
 	onRemove(): void {
 		this.clear()
@@ -18,12 +15,12 @@ export class SelectionManager implements IManager {
 
 	select(featureId: string | string[]): void {
 		const ids = Array.isArray(featureId) ? featureId : [featureId]
-		ids.forEach((id) => this.selectedFeatures.add(id))
+		for (const id of ids) this.selectedFeatures.add(id)
 	}
 
 	deselect(featureId: string | string[]): void {
 		const ids = Array.isArray(featureId) ? featureId : [featureId]
-		ids.forEach((id) => this.selectedFeatures.delete(id))
+		for (const id of ids) this.selectedFeatures.delete(id)
 	}
 
 	toggleSelect(featureId: string): void {
@@ -61,36 +58,29 @@ export class SelectionManager implements IManager {
 
 	private isFeatureInBounds(feature: EditorFeature, bounds: SelectionBounds): boolean {
 		const { north, south, east, west } = bounds
+		const inBounds = (position: Position): boolean =>
+			isFinitePosition(position) &&
+			position[0] >= west &&
+			position[0] <= east &&
+			position[1] >= south &&
+			position[1] <= north
 
-		if (feature.geometry.type === 'Point') {
-			const [lng, lat] = feature.geometry.coordinates as Position
-			return lng >= west && lng <= east && lat >= south && lat <= north
-		} else if (feature.geometry.type === 'MultiPoint') {
-			const coords = feature.geometry.coordinates as Position[]
-			return coords.some(([lng, lat]) => lng >= west && lng <= east && lat >= south && lat <= north)
-		} else if (feature.geometry.type === 'LineString') {
-			const coords = feature.geometry.coordinates as Position[]
-			return coords.some(([lng, lat]) => lng >= west && lng <= east && lat >= south && lat <= north)
-		} else if (feature.geometry.type === 'MultiLineString') {
-			const lines = feature.geometry.coordinates as Position[][]
-			return lines.some((line) =>
-				line.some(([lng, lat]) => lng >= west && lng <= east && lat >= south && lat <= north),
-			)
-		} else if (feature.geometry.type === 'Polygon') {
-			const coords = feature.geometry.coordinates as Position[][]
-			return coords[0].some(
-				([lng, lat]) => lng >= west && lng <= east && lat >= south && lat <= north,
-			)
-		} else if (feature.geometry.type === 'MultiPolygon') {
-			const polygons = feature.geometry.coordinates as Position[][][]
-			return polygons.some((polygon) =>
-				polygon[0]?.some(
-					([lng, lat]) => lng >= west && lng <= east && lat >= south && lat <= north,
-				),
-			)
+		const { geometry } = feature
+		switch (geometry.type) {
+			case 'Point':
+				return inBounds(geometry.coordinates)
+			case 'MultiPoint':
+			case 'LineString':
+				return geometry.coordinates.some(inBounds)
+			case 'MultiLineString':
+				return geometry.coordinates.some((line) => line.some(inBounds))
+			case 'Polygon':
+				return geometry.coordinates[0]?.some(inBounds) ?? false
+			case 'MultiPolygon':
+				return geometry.coordinates.some((polygon) => polygon[0]?.some(inBounds) ?? false)
+			default:
+				return false
 		}
-
-		return false
 	}
 
 	// Group management
@@ -99,13 +89,13 @@ export class SelectionManager implements IManager {
 	}
 
 	addToGroup(groupId: string, featureId: string | string[]): void {
-		if (!this.groups.has(groupId)) {
-			this.groups.set(groupId, new Set())
+		let group = this.groups.get(groupId)
+		if (!group) {
+			group = new Set()
+			this.groups.set(groupId, group)
 		}
-
-		const group = this.groups.get(groupId)!
 		const ids = Array.isArray(featureId) ? featureId : [featureId]
-		ids.forEach((id) => group.add(id))
+		for (const id of ids) group.add(id)
 	}
 
 	removeFromGroup(groupId: string, featureId: string | string[]): void {
@@ -113,7 +103,7 @@ export class SelectionManager implements IManager {
 		if (!group) return
 
 		const ids = Array.isArray(featureId) ? featureId : [featureId]
-		ids.forEach((id) => group.delete(id))
+		for (const id of ids) group.delete(id)
 
 		if (group.size === 0) {
 			this.groups.delete(groupId)
@@ -141,7 +131,7 @@ export class SelectionManager implements IManager {
 	selectGroup(groupId: string): void {
 		const group = this.groups.get(groupId)
 		if (group) {
-			group.forEach((id) => this.selectedFeatures.add(id))
+			for (const id of group) this.selectedFeatures.add(id)
 		}
 	}
 

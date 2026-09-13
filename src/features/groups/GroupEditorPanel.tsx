@@ -1,8 +1,6 @@
 /**
  * GroupEditorPanel — the owner-facing create/edit surface for a kind-37518 Group
- * (Phase 9, D-01 / D-04). The slimmed successor to `MapContextEditorPanel`,
- * refactored in place: the `contextUse`/`validationMode`/`Switch
- * allowForeignAttachments` triad is replaced by a single governance ladder of 3
+ * (Phase 9, D-01 / D-04). Map context settings are represented by a governance ladder of 3
  * plain-language radio cards (open · schema · closed), and the schema-authoring
  * section is conditionally mounted ONLY under `governance: 'schema'`.
  *
@@ -12,9 +10,8 @@
  * with a canonical `schema-hash` (`computeSchemaHash`); edits preserve the `d` tag.
  *
  * Accent (`--primary`) is reserved per the UI-SPEC: the selected governance card
- * and the submit button only. The legacy unlabeled-checkbox a11y gap
- * (`MapContextEditorPanel.tsx:900-913`) is fixed via shadcn `Checkbox` + `Label
- * htmlFor` pairing.
+ * and the submit button only. Schema options use shadcn `Checkbox` + `Label
+ * htmlFor` pairing for accessible names.
  *
  * NOTE (consumer migration, Plans 05/06): this panel still accepts/returns the
  * `MapContext` cast at its props boundary so the existing GeoEditorInfoPanel
@@ -28,17 +25,7 @@ import { toast } from 'sonner'
 import { publishFailureMessage } from '@/features/geo-editor/hooks/publishFailure'
 import { castEvent } from 'applesauce-core/casts'
 import { useActiveAccount } from 'applesauce-react/hooks'
-import {
-	ArrowDown,
-	ArrowUp,
-	Camera,
-	Eye,
-	EyeOff,
-	Layers3,
-	Plus,
-	RotateCcw,
-	Trash2,
-} from 'lucide-react'
+import { Camera, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
 	GeoRichTextEditor,
@@ -52,6 +39,12 @@ import {
 	EntityPanelShell,
 	EntityPanelSurface,
 } from '@/components/info-panel/EntityPanelShell'
+import {
+	MapPresentationCameraControl,
+	MapPresentationFormatNotice,
+	useMapPresentationEditor,
+} from '@/components/map-presentation/MapPresentationControls'
+import { MapPresentationLayersEditor } from '@/components/map-presentation/MapPresentationLayersEditor'
 import { Button } from '@/components/ui/button'
 import {
 	MobilePanelHeaderActions,
@@ -88,12 +81,8 @@ import {
 } from '@/lib/nostr/group'
 import { MapContext } from '@/lib/nostr/map-context'
 import {
-	authorizePresentationLayer,
 	deriveAtlasPresentationAuthorization,
-	getUsableMapPresentation,
-	parseMapPresentation,
 	parseMapPresentationSource,
-	type MapPresentationLayerV1,
 	type MapPresentationSource,
 	type MapPresentationV1,
 } from '@/lib/map-presentation'
@@ -110,7 +99,6 @@ import {
 import { validateSchema } from '@/lib/validation/schemaWorker'
 import {
 	NEW_GROUP_EDITOR_DRAFT_KEY,
-	AtlasPresentationValidationError,
 	clearGroupEditorDraft,
 	type GroupEditorDraftSnapshot,
 	type GroupSchemaAuthorMode,
@@ -126,19 +114,7 @@ import {
 	type SchemaFieldType,
 } from './schemaBuilder'
 import type { GroupCreationSeed } from './creationSeed'
-import {
-	addAtlasPresentationLayer,
-	atlasPresentationSourceOptions,
-	emptyAtlasPresentation,
-	moveAtlasPresentationLayer,
-	parseAtlasFeatureIds,
-	removeAtlasPresentationLayer,
-	updateAtlasLayerStyle,
-	updateAtlasPresentationLayer,
-	withoutAtlasInitialView,
-	withoutAtlasLayerFeatureIds,
-	withoutAtlasLayerStyle,
-} from './atlasPresentationAuthoring'
+import { atlasPresentationSourceOptions } from './atlasPresentationAuthoring'
 
 type SchemaAuthorMode = GroupSchemaAuthorMode
 
@@ -338,10 +314,6 @@ function AtlasDefaultViewEditor({
 	onChange: (value: unknown) => void
 	captureMapPresentation?: GroupEditorPanelProps['captureMapPresentation']
 }) {
-	const [selectedSource, setSelectedSource] = useState('')
-	const [captureError, setCaptureError] = useState<string | null>(null)
-	const parsed = useMemo(() => parseMapPresentation(value), [value])
-	const presentation = getUsableMapPresentation(parsed)
 	const authorization = useMemo(
 		() => deriveAtlasPresentationAuthorization(acceptedSources),
 		[acceptedSources],
@@ -358,112 +330,41 @@ function AtlasDefaultViewEditor({
 			return error instanceof Error ? error.message : 'The default view is invalid.'
 		}
 	}, [acceptedSources, value])
-
-	const capture = (mode: 'all' | 'camera') => {
-		const captured = captureMapPresentation?.(acceptedSources)
-		try {
-			const normalized = normalizeAtlasPresentationForPublish(captured, acceptedSources)
-			const result = parseMapPresentation(normalized)
-			const usable = getUsableMapPresentation(result)
-			if (!usable || (result.status === 'valid' && result.issues.length > 0)) {
-				throw new AtlasPresentationValidationError(
-					'The current map could not be captured as a valid Atlas default view.',
-				)
-			}
-			if (mode === 'camera' && !usable.initialView) {
-				throw new AtlasPresentationValidationError('The map did not provide a camera position.')
-			}
-			setCaptureError(null)
-			if (mode === 'all') {
-				onChange(usable)
-				return
-			}
-			onChange({
-				...(presentation ?? emptyAtlasPresentation()),
-				initialView: usable.initialView,
-			})
-		} catch (error) {
-			setCaptureError(
-				error instanceof Error
-					? error.message
-					: 'The current map could not be captured as a valid Atlas default view.',
-			)
-		}
-	}
-
-	const future = parsed.status === 'unsupported'
-	const invalid = parsed.status === 'invalid'
-
-	const updateLayer = (index: number, layer: MapPresentationLayerV1) => {
-		if (!presentation) return
-		onChange(updateAtlasPresentationLayer(presentation, index, layer))
-	}
-
-	const addLayer = () => {
-		if (!presentation) return
-		const source = parseMapPresentationSource(selectedSource)?.coordinate
-		if (!source || !authorization.has(source)) return
-		onChange(addAtlasPresentationLayer(presentation, source))
-		setSelectedSource('')
-	}
+	const { presentation, future, invalid, captureError, capturePresentation, clearCaptureError } =
+		useMapPresentationEditor({
+			value,
+			onChange,
+			capture: captureMapPresentation
+				? () =>
+						normalizeAtlasPresentationForPublish(
+							captureMapPresentation(acceptedSources),
+							acceptedSources,
+						)
+				: undefined,
+			invalidCaptureMessage: 'The current map could not be captured as a valid Atlas default view.',
+		})
 
 	return (
 		<div className="space-y-3">
-			{future && (
-				<p className="border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
-					This Atlas uses a newer default-view format. It stays unchanged through unrelated edits
-					unless you explicitly replace or remove it.
-				</p>
-			)}
-			{invalid && (
-				<p className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-					The stored default view is malformed. Readers will fall back to framing the Atlas Maps.
-				</p>
-			)}
+			<MapPresentationFormatNotice
+				future={future}
+				invalid={invalid}
+				futureMessage="This Atlas uses a newer default-view format. It stays unchanged through unrelated edits unless you explicitly replace or remove it."
+				invalidMessage="The stored default view is malformed. Readers will fall back to framing the Atlas Maps."
+			/>
 			{presentation ? (
-				<div className="flex flex-wrap items-center justify-between gap-2 border border-border bg-muted/30 px-3 py-2">
-					<div className="min-w-0">
-						<div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-							<Camera className="h-3.5 w-3.5 text-primary" />
-							{presentation.initialView
-								? `${presentation.initialView.center[1].toFixed(4)}, ${presentation.initialView.center[0].toFixed(4)} · zoom ${presentation.initialView.zoom.toFixed(1)}`
-								: 'Default camera not set'}
-						</div>
-						<p className="mt-1 text-[10px] text-muted-foreground">
-							The camera changes only when you capture it explicitly.
-						</p>
-					</div>
-					<div className="flex flex-wrap gap-1">
-						<Button
-							type="button"
-							variant="outline"
-							size="sm"
-							className="h-7 gap-1 rounded-none px-2 text-[10px]"
-							onClick={() => capture('camera')}
-							disabled={!captureMapPresentation}
-						>
-							<Camera className="h-3 w-3" />
-							Capture camera
-						</Button>
-						{presentation.initialView && (
-							<Button
-								type="button"
-								variant="ghost"
-								size="sm"
-								className="h-7 rounded-none px-2 text-[10px]"
-								onClick={() => onChange(withoutAtlasInitialView(presentation))}
-							>
-								Clear camera
-							</Button>
-						)}
-					</div>
-				</div>
+				<MapPresentationCameraControl
+					presentation={presentation}
+					onChange={onChange}
+					onCapture={captureMapPresentation ? () => capturePresentation('camera') : undefined}
+					emptyLabel="Default camera not set"
+					clearLabel="Clear camera"
+				/>
 			) : !future && !invalid ? (
 				<p className="text-xs text-muted-foreground">
 					No canonical default view. Showing the Atlas on the map uses normal framing.
 				</p>
 			) : null}
-
 			{validationError && presentation && (
 				<p className="border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
 					{validationError}
@@ -471,349 +372,42 @@ function AtlasDefaultViewEditor({
 			)}
 			{presentation && (
 				<div className="space-y-3">
-					<div className="space-y-2">
-						<div className="flex items-center gap-2">
-							<select
-								value={selectedSource}
-								onChange={(event) => setSelectedSource(event.target.value)}
-								className="h-8 min-w-0 flex-1 border border-border bg-background px-2 text-xs text-foreground"
-								aria-label="Accepted Map source"
-							>
-								<option value="">
-									{sourceOptions.length > 0
-										? 'Add an accepted Map…'
-										: 'Reference or curate a Map first…'}
-								</option>
-								{sourceOptions.map((option) => (
-									<option key={option.source} value={option.source}>
-										{option.label}
-									</option>
-								))}
-							</select>
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								className="h-8 gap-1 rounded-none px-2 text-xs"
-								onClick={addLayer}
-								disabled={!selectedSource}
-							>
-								<Plus className="h-3.5 w-3.5" />
-								Add layer
-							</Button>
-						</div>
-						<p className="text-[10px] text-muted-foreground">
-							Layers render bottom to top. Add the same Map repeatedly for different feature
-							selections or styling.
-						</p>
-					</div>
-
-					<div className="space-y-2">
-						{presentation.layers.length === 0 && (
-							<p className="border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
-								No default layers yet. Add one of the Maps accepted by this Atlas.
-							</p>
-						)}
-						{presentation.layers.map((layer, index) => {
-							const authorizationResult = authorizePresentationLayer(layer, authorization)
-							const controlPrefix = `atlas-presentation-${index}`
-							const sourceLabel =
+					<MapPresentationLayersEditor
+						presentation={presentation}
+						authorization={authorization}
+						options={sourceOptions}
+						onChange={onChange}
+						idPrefix="atlas-presentation"
+						labels={{
+							sourcePlaceholder:
+								sourceOptions.length > 0
+									? 'Add an accepted Map…'
+									: 'Reference or curate a Map first…',
+							sourceSelect: 'Accepted Map source',
+							help: 'Layers render bottom to top. Add the same Map repeatedly for different feature selections or styling.',
+							empty: 'No default layers yet. Add one of the Maps accepted by this Atlas.',
+							unauthorized:
+								'This layer no longer references a Map accepted by the Atlas owner and cannot be published.',
+							hide: 'Hide default layer',
+							show: 'Show default layer',
+							moveDown: 'Move layer toward bottom',
+							moveUp: 'Move layer toward top',
+							featureIds: 'Feature IDs, separated by commas or new lines',
+						}}
+						layerDescription={(layer, index) => {
+							const label =
 								sourceOptions.find((option) => option.source === layer.source)?.label ??
 								parseMapPresentationSource(layer.source)?.identifier ??
 								layer.source
-							return (
-								<div
-									key={layer.id}
-									className="space-y-3 border border-border bg-background px-3 py-2"
-								>
-									<div className="flex items-start gap-2">
-										<Button
-											type="button"
-											variant="ghost"
-											size="icon-sm"
-											className="h-7 w-7 flex-shrink-0 rounded-none"
-											onClick={() => updateLayer(index, { ...layer, visible: !layer.visible })}
-											aria-label={layer.visible ? 'Hide default layer' : 'Show default layer'}
-										>
-											{layer.visible ? (
-												<Eye className="h-3.5 w-3.5" />
-											) : (
-												<EyeOff className="h-3.5 w-3.5" />
-											)}
-										</Button>
-										<div className="min-w-0 flex-1">
-											<Input
-												value={layer.id}
-												onChange={(event) =>
-													updateLayer(index, { ...layer, id: event.target.value })
-												}
-												className="h-7 rounded-none font-mono text-xs"
-												aria-label="Stable presentation layer id"
-											/>
-											<p
-												className="mt-1 truncate text-[10px] text-muted-foreground"
-												title={layer.source}
-											>
-												{sourceLabel} ·{' '}
-												{index === 0
-													? 'bottom'
-													: index === presentation.layers.length - 1
-														? 'top'
-														: `level ${index + 1}`}
-											</p>
-										</div>
-										<div className="flex flex-shrink-0 items-center gap-0.5">
-											<Button
-												type="button"
-												variant="ghost"
-												size="icon-sm"
-												className="h-7 w-7 rounded-none"
-												disabled={index === 0}
-												onClick={() =>
-													onChange(moveAtlasPresentationLayer(presentation, index, index - 1))
-												}
-												aria-label="Move layer toward bottom"
-											>
-												<ArrowUp className="h-3.5 w-3.5" />
-											</Button>
-											<Button
-												type="button"
-												variant="ghost"
-												size="icon-sm"
-												className="h-7 w-7 rounded-none"
-												disabled={index === presentation.layers.length - 1}
-												onClick={() =>
-													onChange(moveAtlasPresentationLayer(presentation, index, index + 1))
-												}
-												aria-label="Move layer toward top"
-											>
-												<ArrowDown className="h-3.5 w-3.5" />
-											</Button>
-											<Button
-												type="button"
-												variant="ghost"
-												size="icon-sm"
-												className="h-7 w-7 rounded-none text-muted-foreground hover:text-destructive"
-												onClick={() => onChange(removeAtlasPresentationLayer(presentation, index))}
-												aria-label="Remove layer"
-											>
-												<Trash2 className="h-3.5 w-3.5" />
-											</Button>
-										</div>
-									</div>
-
-									{authorizationResult.status !== 'authorized' && (
-										<p className="border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] text-foreground">
-											This layer no longer references a Map accepted by the Atlas owner and cannot
-											be published.
-										</p>
-									)}
-
-									<div className="grid gap-3 sm:grid-cols-2">
-										<label className="space-y-1 text-[10px] text-muted-foreground">
-											<span className="flex items-center justify-between">
-												Opacity{' '}
-												<span className="font-mono">{layer.opacityMultiplier.toFixed(2)}</span>
-											</span>
-											<input
-												type="range"
-												min="0"
-												max="1"
-												step="0.05"
-												value={layer.opacityMultiplier}
-												onChange={(event) =>
-													updateLayer(index, {
-														...layer,
-														opacityMultiplier: Number(event.target.value),
-													})
-												}
-												className="w-full"
-												aria-label={`Opacity for ${layer.id}`}
-											/>
-										</label>
-										<label className="space-y-1 text-[10px] text-muted-foreground">
-											<span>Feature scope</span>
-											<select
-												value={layer.featureIds === undefined ? 'whole' : 'features'}
-												onChange={(event) =>
-													updateLayer(
-														index,
-														event.target.value === 'whole'
-															? withoutAtlasLayerFeatureIds(layer)
-															: { ...layer, featureIds: [] },
-													)
-												}
-												className="h-8 w-full border border-border bg-background px-2 text-xs text-foreground"
-											>
-												<option value="whole">Whole Map</option>
-												<option value="features">Selected features</option>
-											</select>
-										</label>
-									</div>
-									{layer.featureIds !== undefined && (
-										<Label
-											htmlFor={`${controlPrefix}-features`}
-											className="block space-y-1 text-[10px] font-normal text-muted-foreground"
-										>
-											<span>Feature IDs, separated by commas or new lines</span>
-											<Textarea
-												id={`${controlPrefix}-features`}
-												value={layer.featureIds.join(', ')}
-												onChange={(event) =>
-													updateLayer(index, {
-														...layer,
-														featureIds: parseAtlasFeatureIds(event.target.value),
-													})
-												}
-												rows={2}
-												className="rounded-none font-mono text-xs"
-											/>
-										</Label>
-									)}
-
-									<details className="border-t border-border pt-2">
-										<summary className="flex cursor-pointer list-none items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-											<Layers3 className="h-3 w-3" /> Style override
-										</summary>
-										<div className="mt-2 grid gap-2 sm:grid-cols-3">
-											{(['color', 'fillColor', 'strokeColor'] as const).map((key) => (
-												<Label
-													key={key}
-													htmlFor={`${controlPrefix}-${key}`}
-													className="space-y-1 text-[9px] font-normal text-muted-foreground"
-												>
-													<span>{key}</span>
-													<Input
-														id={`${controlPrefix}-${key}`}
-														value={layer.style?.[key] ?? ''}
-														onChange={(event) =>
-															updateLayer(
-																index,
-																updateAtlasLayerStyle(layer, key, event.target.value || undefined),
-															)
-														}
-														placeholder="author style"
-														className="h-7 rounded-none px-2 text-[10px]"
-													/>
-												</Label>
-											))}
-											{(['fillOpacity', 'strokeOpacity', 'strokeWidth', 'radius'] as const).map(
-												(key) => (
-													<Label
-														key={key}
-														htmlFor={`${controlPrefix}-${key}`}
-														className="space-y-1 text-[9px] font-normal text-muted-foreground"
-													>
-														<span>{key}</span>
-														<Input
-															id={`${controlPrefix}-${key}`}
-															type="number"
-															step={key.includes('Opacity') ? '0.05' : '0.5'}
-															min={key.includes('Opacity') ? '0' : '0.1'}
-															max={key.includes('Opacity') ? '1' : undefined}
-															value={layer.style?.[key] ?? ''}
-															onChange={(event) =>
-																updateLayer(
-																	index,
-																	updateAtlasLayerStyle(
-																		layer,
-																		key,
-																		event.target.value === ''
-																			? undefined
-																			: Number(event.target.value),
-																	),
-																)
-															}
-															className="h-7 rounded-none px-2 text-[10px]"
-														/>
-													</Label>
-												),
-											)}
-											<label className="space-y-1 text-[9px] text-muted-foreground">
-												<span>lineDash</span>
-												<select
-													value={layer.style?.lineDash ?? ''}
-													onChange={(event) =>
-														updateLayer(
-															index,
-															updateAtlasLayerStyle(
-																layer,
-																'lineDash',
-																event.target.value || undefined,
-															),
-														)
-													}
-													className="h-7 w-full border border-border bg-background px-2 text-[10px] text-foreground"
-												>
-													<option value="">author style</option>
-													<option value="solid">solid</option>
-													<option value="dashed">dashed</option>
-													<option value="dotted">dotted</option>
-												</select>
-											</label>
-											{(['arrowStart', 'arrowEnd'] as const).map((key) => (
-												<label key={key} className="space-y-1 text-[9px] text-muted-foreground">
-													<span>{key}</span>
-													<select
-														value={layer.style?.[key] === undefined ? '' : String(layer.style[key])}
-														onChange={(event) =>
-															updateLayer(
-																index,
-																updateAtlasLayerStyle(
-																	layer,
-																	key,
-																	event.target.value === ''
-																		? undefined
-																		: event.target.value === 'true',
-																),
-															)
-														}
-														className="h-7 w-full border border-border bg-background px-2 text-[10px] text-foreground"
-													>
-														<option value="">author style</option>
-														<option value="true">on</option>
-														<option value="false">off</option>
-													</select>
-												</label>
-											))}
-											<Label
-												htmlFor={`${controlPrefix}-displayIcon`}
-												className="space-y-1 text-[9px] font-normal text-muted-foreground sm:col-span-2"
-											>
-												<span>displayIcon</span>
-												<Input
-													id={`${controlPrefix}-displayIcon`}
-													value={layer.style?.displayIcon ?? ''}
-													onChange={(event) =>
-														updateLayer(
-															index,
-															updateAtlasLayerStyle(
-																layer,
-																'displayIcon',
-																event.target.value || undefined,
-															),
-														)
-													}
-													placeholder="lucide:map-pin"
-													className="h-7 rounded-none px-2 font-mono text-[10px]"
-												/>
-											</Label>
-											<Button
-												type="button"
-												variant="ghost"
-												size="sm"
-												className="h-7 gap-1 self-end rounded-none text-[10px]"
-												onClick={() => updateLayer(index, withoutAtlasLayerStyle(layer))}
-												disabled={!layer.style}
-											>
-												<RotateCcw className="h-3 w-3" /> Use author styling
-											</Button>
-										</div>
-									</details>
-								</div>
-							)
-						})}
-					</div>
+							const position =
+								index === 0
+									? 'bottom'
+									: index === presentation.layers.length - 1
+										? 'top'
+										: `level ${index + 1}`
+							return `${label} · ${position}`
+						}}
+					/>
 				</div>
 			)}
 			<p className="text-[10px] text-muted-foreground">
@@ -826,7 +420,7 @@ function AtlasDefaultViewEditor({
 					variant="outline"
 					size="sm"
 					className="gap-1 rounded-none"
-					onClick={() => capture('all')}
+					onClick={() => capturePresentation('all')}
 					disabled={!captureMapPresentation}
 				>
 					<Camera className="h-3.5 w-3.5" />
@@ -839,7 +433,7 @@ function AtlasDefaultViewEditor({
 						size="sm"
 						className="gap-1 rounded-none text-destructive"
 						onClick={() => {
-							setCaptureError(null)
+							clearCaptureError()
 							onChange(undefined)
 						}}
 					>
@@ -1201,7 +795,11 @@ export function GroupEditorPanel({
 			onSave(cast)
 			onClose()
 		} catch (error) {
-			const message = publishFailureMessage('publish this Atlas', error, isEditing ? 'Save Atlas' : 'Create Atlas')
+			const message = publishFailureMessage(
+				'publish this Atlas',
+				error,
+				isEditing ? 'Save Atlas' : 'Create Atlas',
+			)
 			setSaveError(message)
 			toast.error(message, { id: 'atlas-publish-error', duration: 10_000 })
 		} finally {

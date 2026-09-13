@@ -46,6 +46,9 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "bun test",
+    "typecheck": "bun run scripts/typecheck.ts",
+    "typecheck:strict": "tsc --noEmit --pretty false",
+    "typecheck:prune": "bun run scripts/typecheck.ts --prune-baseline",
     "test:private-maps": "bun build scripts/private-maps-mls-smoke.ts --target=node --outfile=.cache/private-maps-mls-smoke.mjs && node .cache/private-maps-mls-smoke.mjs && bun build scripts/private-maps-delayed-echo-smoke.ts --target=node --outfile=.cache/private-maps-delayed-echo-smoke.mjs && node .cache/private-maps-delayed-echo-smoke.mjs && bun build scripts/private-maps-established-join-smoke.ts --target=node --outfile=.cache/private-maps-established-join-smoke.mjs && node .cache/private-maps-established-join-smoke.mjs",
     "ai:list": "bun run ai-suite/catalog.ts",
     "demo:check": "bun run ai-suite/demos/record.ts --check",
@@ -186,6 +189,7 @@
     "@types/react-dom": "^19.2.3",
     "lucide-static": "^1.24.0",
     "tailwindcss": "^4.3.2",
+    "typescript": "5.9.3",
     "tw-animate-css": "^1.4.0"
   },
   "overrides": {

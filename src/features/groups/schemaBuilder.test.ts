@@ -4,7 +4,7 @@
  * SAME draft-2020-12 schema, fed to the Phase-8 hardened worker.
  *
  * RED-BASELINE: `@/features/groups/schemaBuilder` does not exist yet (extracted + extended
- * from `MapContextEditorPanel`'s SchemaBuilderField block — adds `enum` + geometry arg +
+ * from the legacy inline schema builder — adds `enum` + geometry arg +
  * the `$schema` draft-2020-12 declaration the existing builder lacked).
  *
  *   - a builder row set + allowed geometry [Point] compiles to a draft-2020-12 object with
