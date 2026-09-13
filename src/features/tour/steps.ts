@@ -72,7 +72,6 @@ export const desktopTourSteps: DriveStep[] = [
 				</p>
 				${mediaBlock({ video: '/tour/videos/intro.mp4' })}
 			`,
-			side: 'over',
 			align: 'center',
 		},
 	},
@@ -298,7 +297,6 @@ export const desktopTourSteps: DriveStep[] = [
 				</p>
 				${mediaBlock({ screenshot: '/tour/screenshots/social.png', alt: 'Social features' })}
 			`,
-			side: 'over',
 			align: 'center',
 		},
 	},
@@ -324,7 +322,6 @@ export const desktopTourSteps: DriveStep[] = [
 					You can replay this tour anytime from <strong>Help</strong>.
 				</p>
 			`,
-			side: 'over',
 			align: 'center',
 		},
 	},
@@ -354,7 +351,6 @@ export const mobileTourSteps: DriveStep[] = [
 					<strong>Help</strong> in the top bar.
 				</p>
 			`,
-			side: 'over',
 			align: 'center',
 		},
 	},
@@ -463,7 +459,6 @@ export const mobileTourSteps: DriveStep[] = [
 					Replay this tour anytime from <strong>Help</strong> in the panel switcher.
 				</p>
 			`,
-			side: 'over',
 			align: 'center',
 		},
 	},

@@ -268,9 +268,11 @@ export function initializeAccountPersistence(): Promise<void> {
  * IndexedDB-backed event cache. Only instantiated in browsers — seed scripts
  * (which import this module via NDK class wrappers) run in Bun where
  * `indexedDB` doesn't exist.
+ * All writers supply signed NostrEvent records; retain that contract now that
+ * nostr-idb also supports unsigned rumors through its default event type.
  */
 const hasIndexedDB = typeof indexedDB !== 'undefined'
-let cache: NostrIDB | null = null
+let cache: NostrIDB<NostrEvent> | null = null
 
 function getErrorName(error: unknown) {
 	return typeof error === 'object' && error !== null && 'name' in error ? String(error.name) : ''
@@ -296,7 +298,7 @@ function logCacheError(action: string, error: unknown) {
 	console.error(`[nostr] NostrIDB ${action} failed`, error)
 }
 
-function closeCacheDb(idb: NostrIDB) {
+function closeCacheDb(idb: NostrIDB<NostrEvent>) {
 	const db = (idb as unknown as { db?: { close?: () => void } | null }).db
 	try {
 		db?.close?.()
@@ -305,7 +307,7 @@ function closeCacheDb(idb: NostrIDB) {
 	}
 }
 
-function disableCache(idb: NostrIDB) {
+function disableCache(idb: NostrIDB<NostrEvent>) {
 	if (cache === idb) cache = null
 	void idb
 		.stop()
@@ -320,7 +322,7 @@ interface FlushableNostrIDB {
 }
 
 function createCache(db: ConstructorParameters<typeof NostrIDB>[0]) {
-	const idb = new NostrIDB(db, { cacheIndexes: 2000, maxEvents: 20_000 })
+	const idb = new NostrIDB<NostrEvent>(db, { cacheIndexes: 2000, maxEvents: 20_000 })
 	const flushable = idb as unknown as FlushableNostrIDB
 	const flush = flushable.flush.bind(idb)
 	let flushTail = Promise.resolve()
@@ -352,7 +354,7 @@ function createCache(db: ConstructorParameters<typeof NostrIDB>[0]) {
 	return idb
 }
 
-function deletionCacheFor(idb: NostrIDB): DeletionEventCache {
+function deletionCacheFor(idb: NostrIDB<NostrEvent>): DeletionEventCache {
 	const flushable = idb as unknown as FlushableNostrIDB
 	return {
 		add: (event) => idb.add(event),
