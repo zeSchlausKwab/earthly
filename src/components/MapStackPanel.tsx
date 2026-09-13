@@ -132,6 +132,8 @@ export function entityTypeLabel(entry: Pick<MapStackEntry, 'entityType' | 'title
  */
 export function entryTypeMetaLabel(entityType: MapStackEntry['entityType']): string {
 	switch (entityType) {
+		case 'maplet':
+			return 'Maplet'
 		case 'dataset':
 			return 'Map'
 		case 'context':

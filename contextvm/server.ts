@@ -76,6 +76,7 @@ import { wikipediaLookup } from "./tools/wikipedia.ts";
 import { wikipediaExtract } from "./tools/wikipedia-extract.ts";
 import { valhallaIsochrone, valhallaRoute } from "./tools/valhalla.ts";
 import { researchToolLimiter } from "./research-tool-limiter.ts";
+import { getMapletFeed, MapletFeedError, mapletFeedInputSchema, mapletFeedOutputSchema } from "./tools/maplet-feed.ts";
 
 // Configuration from validated environment
 const SERVER_PRIVATE_KEY =
@@ -1207,6 +1208,27 @@ async function main() {
           structuredContent: { error: error.message },
           isError: true,
         };
+      }
+    },
+  );
+
+  mcpServer.registerTool(
+    "get_maplet_feed",
+    {
+      title: "Get Maplet Feed",
+      description: "Fetch the complete JSON response from the fixed Liveuamap Yemen endpoint. Acquisition time is not the dataset timestamp. The connector uses no user credentials and never bypasses upstream browser challenges.",
+      inputSchema: mapletFeedInputSchema,
+      outputSchema: mapletFeedOutputSchema,
+    },
+    async ({ feed }, extra) => {
+      try {
+        const result = await researchToolLimiter.run(requestClientPubkey(extra), () => getMapletFeed({ feed }));
+        return { content: [], structuredContent: { result } };
+      } catch (error) {
+        const detail = error instanceof MapletFeedError
+          ? { code: error.code, message: error.message, retryable: error.retryable }
+          : { code: "unavailable", message: "The Maplet feed connector is unavailable.", retryable: true };
+        return { content: [], structuredContent: { error: detail }, isError: true };
       }
     },
   );

@@ -37,6 +37,7 @@ describe('phone drawing and Browse composition', () => {
 			stories: 'stories',
 			atlases: 'contexts',
 			sightings: 'sightings',
+			maplets: 'datasets',
 			people: 'profile',
 		})
 	})

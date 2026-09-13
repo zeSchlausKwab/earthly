@@ -58,6 +58,7 @@ import {
 import { eventStore, isEventDeleted } from './store'
 import { cacheQueryableFilters } from './filterGuards'
 import { requirePublishAcknowledgement } from './publishAcknowledgement'
+import { createPublishCommitGuard, type PublishCommitOptions } from './publishCommit'
 import { LIVE_BEACON_KIND } from './kinds'
 import { invalidateCachedMapLayerSetForDeletion } from './map-layer-set/cache'
 import {
@@ -547,7 +548,7 @@ NostrConnectSigner.pool = pool
  */
 export type PublishRouting = 'configured' | 'outbox' | 'inbox' | 'reply'
 
-export interface PublishOptions {
+export interface PublishOptions extends PublishCommitOptions {
 	/** Override relays explicitly. Wins over `routing`. */
 	relays?: string[]
 	/** Default 'configured'. */
@@ -664,6 +665,7 @@ export function startPublishOutbox(): Promise<void> {
  * public relays — even when `EXTRA_READ_RELAYS` opens up read-side discovery.
  */
 export async function publish(event: NostrEvent, options: PublishOptions = {}) {
+	const commitment = createPublishCommitGuard(options)
 	const { relays, routing = 'configured', target, mailboxTimeoutMs } = options
 
 	let targetRelays: string[]
@@ -676,46 +678,47 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 		// (relay-router) is explicitly enabled for authoring.
 		targetRelays = config.writeRelays
 	} else if (routing === 'outbox') {
-		const outboxes = await resolveRoutedRelays(
-			event.pubkey,
-			'outboxes',
-			mailboxTimeoutMs ?? MAILBOX_TIMEOUT_DEFAULT,
+		const outboxes = await commitment.prepare(() =>
+			resolveRoutedRelays(event.pubkey, 'outboxes', mailboxTimeoutMs ?? MAILBOX_TIMEOUT_DEFAULT),
 		)
 		targetRelays = withConfiguredBaseline(outboxes)
 	} else if (routing === 'reply') {
 		if (!target) throw new Error("publish({ routing: 'reply' }) requires a target pubkey")
 		const timeoutMs = mailboxTimeoutMs ?? MAILBOX_TIMEOUT_DEFAULT
-		const [outboxes, inboxes] = await Promise.all([
-			resolveRoutedRelays(event.pubkey, 'outboxes', timeoutMs),
-			resolveRoutedRelays(target, 'inboxes', timeoutMs),
-		])
+		const [outboxes, inboxes] = await commitment.prepare(() =>
+			Promise.all([
+				resolveRoutedRelays(event.pubkey, 'outboxes', timeoutMs),
+				resolveRoutedRelays(target, 'inboxes', timeoutMs),
+			]),
+		)
 		targetRelays = withConfiguredBaseline([...outboxes, ...inboxes])
 	} else {
 		// routing === 'inbox'
 		if (!target) throw new Error("publish({ routing: 'inbox' }) requires a target pubkey")
-		const inboxes = await resolveRoutedRelays(
-			target,
-			'inboxes',
-			mailboxTimeoutMs ?? MAILBOX_TIMEOUT_DEFAULT,
+		const inboxes = await commitment.prepare(() =>
+			resolveRoutedRelays(target, 'inboxes', mailboxTimeoutMs ?? MAILBOX_TIMEOUT_DEFAULT),
 		)
 		targetRelays = withConfiguredBaseline(inboxes)
 	}
 
-	const outbox = event.kind === LIVE_BEACON_KIND ? null : await getPublishOutboxService()
+	const outbox =
+		event.kind === LIVE_BEACON_KIND ? null : await commitment.prepare(getPublishOutboxService)
 	const durableRouting: PublishRouting = relays ? 'configured' : routing
 	const queued = outbox
-		? await enqueueDurablePublish(outbox, {
-				version: 1,
-				eventJson: JSON.stringify(event),
-				routing: durableRouting,
-				...(target && !relays && (routing === 'inbox' || routing === 'reply')
-					? { targetPubkey: target }
-					: {}),
-				relayUrls: targetRelays,
-				requiredRelayUrls: relays
-					? targetRelays
-					: requiredPublishRelays(targetRelays, config.writeRelays),
-			})
+		? await commitment.commit(() =>
+				enqueueDurablePublish(outbox, {
+					version: 1,
+					eventJson: JSON.stringify(event),
+					routing: durableRouting,
+					...(target && !relays && (routing === 'inbox' || routing === 'reply')
+						? { targetPubkey: target }
+						: {}),
+					relayUrls: targetRelays,
+					requiredRelayUrls: relays
+						? targetRelays
+						: requiredPublishRelays(targetRelays, config.writeRelays),
+				}),
+			)
 		: null
 	if (queued) notifyPublishOutboxChanged()
 	// A native queued event is already durable; a web event must first be
@@ -740,7 +743,7 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 		return []
 	}
 	try {
-		const responses = await pool.publish(deliveryRelays, event)
+		const responses = await commitment.commit(() => pool.publish(deliveryRelays, event))
 		// Explicit relay-management calls need every per-relay response, while
 		// normal web authoring must not report success when all relays refused it.
 		if (!outbox && !relays) requirePublishAcknowledgement(responses)

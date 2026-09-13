@@ -151,6 +151,8 @@ export type MobilePanelTab =
 	| 'help'
 
 export interface MobilePanelProps {
+	/** Runtime catalog shared with the desktop Margin. */
+	mapletsPanel?: ReactNode
 	/** Existing publish/audience control, composed into the map-edit peek. */
 	mapEditPublishAction?: ReactNode
 	onPublishNew?: () => void | Promise<void>
@@ -1811,7 +1813,7 @@ export function MobilePanel(props: MobilePanelProps) {
 															/>
 														</div>
 													) : null}
-													{mobilePanelTab === 'datasets' ? (
+													{browseKind === 'maplets' ? props.mapletsPanel : mobilePanelTab === 'datasets' ? (
 														<GeoDatasetsPanelContent
 															mode="datasets"
 															geoEvents={geoEvents}

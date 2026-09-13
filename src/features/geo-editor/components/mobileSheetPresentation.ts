@@ -6,6 +6,7 @@ export const MOBILE_BROWSE_PANEL_TABS = {
 	stories: 'stories',
 	atlases: 'contexts',
 	sightings: 'sightings',
+	maplets: 'datasets',
 	people: 'profile',
 } as const satisfies Record<EarthlyBrowseKind, string>
 

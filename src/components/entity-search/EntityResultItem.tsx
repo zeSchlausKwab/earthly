@@ -4,6 +4,8 @@ import type { EntitySearchResult, EntityType } from './types'
 import { Button } from '@/components/ui/button'
 import { EntityDragHandle } from '@/components/entity-list/EntityDragHandle'
 import { transferFromResult } from '@/components/entity-list/entityTransfer'
+import { FollowMapletCollectionButton } from '@/features/maplets/FollowMapletCollectionButton'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 
 const TYPE_ICONS: Record<EntityType, typeof Database> = {
 	dataset: Database,
@@ -69,6 +71,9 @@ export function EntityResultItem({
 					)}
 				</div>
 			</Button>
+			{result.type === 'dataset' ? (
+				<FollowMapletCollectionButton event={(result.entity as GeoDataset).event} compact />
+			) : null}
 		</div>
 	)
 }

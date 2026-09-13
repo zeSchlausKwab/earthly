@@ -247,6 +247,8 @@ export interface AppSidebarProps {
 	layout?: 'margin'
 	/** Detailed `/shelf` surface supplied by the canvas controller. */
 	shelfPanel?: ReactNode
+	/** Runtime Maplets catalog and instance controls supplied by the canvas controller. */
+	mapletsPanel?: ReactNode
 	/** @deprecated Global navigation owns Discover in the Margin shell. */
 	onOpenDiscover?: () => void
 	discoverOpen?: boolean
@@ -424,6 +426,7 @@ export interface AppSidebarProps {
 export function AppSidebar({
 	isMobile = false,
 	shelfPanel,
+	mapletsPanel,
 	onOpenDiscover,
 	geoEvents,
 	mapContextEvents,
@@ -1526,6 +1529,8 @@ export function AppSidebar({
 	}
 
 	const renderContent = () => {
+		if (browseKind === 'maplets') return mapletsPanel
+
 		if (splitWithEditor && !metaModeActive) {
 			return (
 				<ResizablePanelGroup orientation="vertical" className="h-full">

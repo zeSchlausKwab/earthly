@@ -1,4 +1,4 @@
-import { BookOpen, Eye, Globe, Plus, UserRound } from 'lucide-react'
+import { BookOpen, Eye, Globe, Layers2, Plus, UserRound } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 import type { EarthlyBrowseKind } from '@/router/routeContract'
 import { cn } from '@/lib/utils'
@@ -18,10 +18,11 @@ const FULL_BROWSE_TABS: readonly BrowseTabDefinition[] = [
 	{ kind: 'stories', label: 'Stories', icon: BookOpen },
 	{ kind: 'atlases', label: 'Atlases', icon: Globe },
 	{ kind: 'sightings', label: 'Sightings', icon: Eye },
+	{ kind: 'maplets', label: 'Maplets', icon: Layers2 },
 	{ kind: 'people', label: 'People', icon: UserRound },
 ]
 
-const CREATE_LABELS: Record<Exclude<EarthlyBrowseKind, 'people'>, string> = {
+const CREATE_LABELS: Record<Exclude<EarthlyBrowseKind, 'people' | 'maplets'>, string> = {
 	maps: 'New Map',
 	stories: 'New Story',
 	atlases: 'New Atlas',
@@ -41,6 +42,7 @@ export function getBrowseTabDefinitions(lensItemNoun?: string): readonly BrowseT
 	return [
 		{ kind: 'maps', label: pluralize(lensItemNoun), icon: DatasetGlyphIcon },
 		{ kind: 'stories', label: 'Stories', icon: BookOpen },
+		{ kind: 'maplets', label: 'Maplets', icon: Layers2 },
 		{ kind: 'people', label: 'People', icon: UserRound },
 	]
 }
@@ -50,9 +52,9 @@ export interface BrowseEntityTabsProps {
 	activeKind: EarthlyBrowseKind
 	onKindChange: (kind: EarthlyBrowseKind) => void
 	counts?: Partial<Record<EarthlyBrowseKind, number>>
-	/** When set, Browse becomes Spots/Stories/People and adopts this Atlas noun. */
+	/** When set, the Map tab adopts this Atlas noun. */
 	lensItemNoun?: string
-	onCreate?: (kind: Exclude<EarthlyBrowseKind, 'people'>) => void
+	onCreate?: (kind: Exclude<EarthlyBrowseKind, 'people' | 'maplets'>) => void
 	createLabel?: string
 	className?: string
 }
@@ -68,7 +70,7 @@ export function BrowseEntityTabs({
 	className,
 }: BrowseEntityTabsProps) {
 	const tabs = getBrowseTabDefinitions(lensItemNoun)
-	const createKind = activeKind === 'people' ? null : activeKind
+	const createKind = activeKind === 'people' || activeKind === 'maplets' ? null : activeKind
 
 	return (
 		<div className={cn('flex min-w-0 items-end border-b border-border', className)}>

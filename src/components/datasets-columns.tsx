@@ -27,6 +27,7 @@ import {
 } from './info-panel/mapProposalPresentation'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace'
 import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
+import { FollowMapletCollectionButton } from '@/features/maplets/FollowMapletCollectionButton'
 
 export interface DatasetRowData {
 	event: GeoDataset
@@ -176,7 +177,8 @@ export const createDatasetColumns = (
 			}
 
 			return (
-				<ListRow dragItem={transferFromResult(datasetToSearchResult(event, () => datasetName))}
+				<ListRow
+					dragItem={transferFromResult(datasetToSearchResult(event, () => datasetName))}
 					leading={
 						<GeometryThumb collection={event.featureCollection} fallbackIcon={DatasetGlyphIcon} />
 					}
@@ -261,6 +263,7 @@ export const createDatasetColumns = (
 					}
 					actions={
 						<>
+							<FollowMapletCollectionButton event={event.event} compact />
 							{/* Canonical order map-stack → zoom → inspect → load → favorite →
 							    debug → owned delete, using shared actions across entity rows. */}
 							{context.onAddDatasetToMap ? (

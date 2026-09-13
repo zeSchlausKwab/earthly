@@ -6,6 +6,7 @@ import { Button } from '../ui/button'
 import { UserProfile } from '../user-profile'
 import type { DatasetEditOptions } from './mapProposalPresentation'
 import { MapEditActions } from './MapEditActions'
+import { FollowMapletCollectionButton } from '@/features/maplets/FollowMapletCollectionButton'
 
 export interface DatasetActionCardProps {
 	event: GeoDataset
@@ -75,6 +76,7 @@ export function DatasetActionCard({
 				</div>
 			)}
 			<div className="flex flex-col gap-2">
+				<FollowMapletCollectionButton event={event.event} />
 				<MapEditActions
 					dataset={event}
 					isOwner={isOwned}
