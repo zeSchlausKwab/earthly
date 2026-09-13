@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.10] - 2026-09-13
+
+- Fixed the critical MapLibre attribution-sanitizer vulnerability
+  [GHSA-jrc7-96c5-q579](https://github.com/maplibre/maplibre-gl-js/security/advisories/GHSA-jrc7-96c5-q579)
+  by upgrading to MapLibre GL JS 6.9.0, with bundled map workers and updated icon loading.
+- Added a clear startup message when WebGL 2 is unavailable, and updated the mobile drawing
+  magnifier for the new map renderer.
+- Unified Story and Atlas map-presentation controls and tightened geometry editing and selection
+  checks, with regression coverage for authoring and map rendering.
+- Refreshed compatible application dependencies and added a TypeScript check that prevents new
+  diagnostics while existing issues are resolved.
+
+### Known limitations
+
+- Map rendering now requires WebGL 2. Devices or WebViews without it show an explanation instead
+  of a working map.
+- Adding the same Map through both chat search and Browse can still create duplicate read-only
+  references. Compact-phone chat settings and context panels still need spacing improvements.
+- Physical-device upgrade and keyboard smoke testing remain pending for this release.
+
 ## [0.1.9] - 2026-09-11
 
 - Rebuilt the interface around a persistent map, compact browsing and inspection panels, and a
