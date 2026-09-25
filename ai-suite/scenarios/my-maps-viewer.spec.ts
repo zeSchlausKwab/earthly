@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { type NostrEvent, verifyEvent } from 'nostr-tools'
+import type { WindowNostr } from 'nostr-tools/nip07'
 import { test, expect } from '../fixtures/earthly'
 import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
 import { installDeterministicMapStyle } from '../tasks/setup/deterministic-map-style'
@@ -9,6 +10,65 @@ import { expectGeometryFeatureCount } from '../tasks/create/geometry'
 
 const kml = readFileSync(new URL('../fixtures/data/maplet-layers.kml', import.meta.url), 'utf8')
 const url = 'https://www.google.com/maps/d/viewer?mid=publicMap123'
+
+test('a locked signer gives recovery guidance and keeps sources ready to retry @regression', async ({
+	earthly,
+}) => {
+	const events = await installIsolatedRelays(earthly)
+	await authorizeJourneyIdentity(earthly, 'owner')
+	await earthly.page.route('https://www.google.com/maps/d/kml?**', (route) =>
+		route.fulfill({ contentType: 'text/xml', body: kml }),
+	)
+	await earthly.open({ path: '/browse/maplets', tour: 'seen' })
+	await installDeterministicMapStyle(earthly)
+	await openMyMapsViewer(earthly)
+	const frame = await addMyMapsSource(earthly, url, 'Coastal survey')
+	await earthly.page.evaluate(() => {
+		// Replay Plebeian Signer 1.2.1's observed locked-session rejection at
+		// the actual NIP-07 boundary, while the Earthly account stays signed in.
+		const signer = (window as unknown as { nostr: WindowNostr }).nostr
+		const sign = signer.signEvent.bind(signer)
+		const nip44 = signer.nip44
+		if (!nip44) throw new Error('Missing test signer encryption')
+		const encrypt = nip44.encrypt.bind(nip44)
+		let locked = true
+		window.addEventListener('earthly-test-unlock-signer', () => {
+			locked = false
+		})
+		const check = () => {
+			if (locked)
+				throw new Error("Uncaught TypeError: Cannot read properties of undefined (reading 'find')")
+		}
+		signer.signEvent = async (event) => {
+			check()
+			return sign(event)
+		}
+		nip44.encrypt = async (pubkey, plaintext) => {
+			check()
+			return encrypt(pubkey, plaintext)
+		}
+	})
+	await frame.getByText('Name & publish source', { exact: true }).click()
+	await frame.getByRole('button', { name: 'Publish source', exact: true }).click()
+	await expect(frame.getByRole('alert')).toContainText(
+		'Your signer could not sign this request. Open your signer, unlock it if needed, and retry.',
+	)
+	await frame.getByText('Name & publish source', { exact: true }).click()
+	await expect(frame.getByRole('button', { name: 'Publish source', exact: true })).toBeEnabled()
+	expect([...events.values()]).not.toContain(37526)
+	await frame.getByRole('button', { name: 'Save for me', exact: true }).click()
+	await expect(frame.getByRole('alert')).toContainText('Your signer could not encrypt this request')
+	await expect(frame.getByRole('status').first()).toContainText('Saved on this device')
+	expect([...events.values()]).not.toContain(30078)
+	await earthly.page.evaluate(() => window.dispatchEvent(new Event('earthly-test-unlock-signer')))
+	await frame.getByText('Name & publish source', { exact: true }).click()
+	await frame.getByRole('button', { name: 'Publish source', exact: true }).click()
+	await expect(frame.getByRole('status').first()).toContainText('Source published')
+	await expect(frame.getByRole('alert')).toHaveCount(0)
+	await frame.getByRole('button', { name: 'Save for me', exact: true }).click()
+	await expect(frame.getByRole('status').first()).toContainText('Saved for your account')
+	expect([...events.values()]).toEqual(expect.arrayContaining([37526, 30078]))
+})
 
 test('My Maps Viewer fetches, toggles, remembers, refreshes and copies client geometry @regression', async ({
 	earthly,

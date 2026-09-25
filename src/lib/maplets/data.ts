@@ -38,6 +38,20 @@ export function createMapletDataServices(policy: MapletDataPolicy, deps: MapletD
 			signal.throwIfAborted()
 			if (deps.pubkey() !== pubkey) throw new Error('Account changed during the request')
 		}
+		const withSigner = async <T>(operation: string, action: () => Promise<T>): Promise<T> => {
+			try {
+				return await action()
+			} catch (cause) {
+				check()
+				// Extension failures can be strings and may expose an internal exception
+				// when a remembered Earthly account outlives the signer's unlocked session.
+				const detail = (cause instanceof Error ? cause.message : String(cause)).slice(0, 500)
+				throw new Error(
+					`Your signer could not ${operation} this request. Open your signer, unlock it if needed, and retry. Signer error: ${detail}`,
+					{ cause },
+				)
+			}
+		}
 		check()
 		if (type.startsWith('storage.')) {
 			const prefix = `earthly:maplet-storage:${policy.namespace}:${pubkey || 'anonymous'}:`
@@ -79,7 +93,7 @@ export function createMapletDataServices(policy: MapletDataPolicy, deps: MapletD
 				if (!validateEvent(event) || !verifyEvent(event) || !matchFilters(filters, event)) continue
 				if (event.kind === policy.privateKind) {
 					if (!pubkey || event.pubkey !== pubkey) continue
-					event.content = await deps.decrypt(pubkey, event.content)
+					event.content = await withSigner('decrypt', () => deps.decrypt(pubkey, event.content))
 					check()
 				}
 				try {
@@ -111,10 +125,10 @@ export function createMapletDataServices(policy: MapletDataPolicy, deps: MapletD
 			if (template.created_at > Math.floor(Date.now() / 1000) + 30)
 				throw new Error('Please wait before updating this source again')
 			if (encrypted) {
-				template.content = await deps.encrypt(pubkey, template.content)
+				template.content = await withSigner('encrypt', () => deps.encrypt(pubkey, template.content))
 				check()
 			}
-			const event = await deps.sign(template)
+			const event = await withSigner('sign', () => deps.sign(template))
 			check()
 			if (
 				event.pubkey !== pubkey ||

@@ -12,6 +12,10 @@ function setup() {
 	const published: NostrEvent[] = []
 	let queried: NostrEvent[] = []
 	let afterSign = () => {}
+	const signerErrors: Partial<Record<'sign' | 'encrypt' | 'decrypt', unknown>> = {}
+	const checkSigner = (operation: keyof typeof signerErrors) => {
+		if (operation in signerErrors) throw signerErrors[operation]
+	}
 	const cipher = nip44.getConversationKey(key, pubkey)
 	const request = createMapletDataServices(myMapsDataPolicy, {
 		pubkey: () => current,
@@ -29,9 +33,16 @@ function setup() {
 			},
 		},
 		query: async () => queried,
-		encrypt: async (_, content) => nip44.encrypt(content, cipher),
-		decrypt: async (_, content) => nip44.decrypt(content, cipher),
+		encrypt: async (_, content) => {
+			checkSigner('encrypt')
+			return nip44.encrypt(content, cipher)
+		},
+		decrypt: async (_, content) => {
+			checkSigner('decrypt')
+			return nip44.decrypt(content, cipher)
+		},
 		sign: async (template) => {
+			checkSigner('sign')
 			const event = finalizeEvent(template, key)
 			afterSign()
 			return event
@@ -48,6 +59,7 @@ function setup() {
 		pubkey,
 		key,
 		cipher,
+		signerErrors,
 		switchAccount: (next: string) => {
 			current = next
 		},
@@ -62,6 +74,50 @@ function setup() {
 const source = myMapsModel.source({
 	url: 'https://www.google.com/maps/d/viewer?mid=publicMap123',
 	title: 'Coast',
+})
+
+test('signer failures explain recovery, preserve local sources, and allow an explicit retry', async () => {
+	const host = setup()
+	const failure = "Uncaught TypeError: Cannot read properties of undefined (reading 'find')"
+	const preferences = { version: 1, sources: [source] }
+	await host.request('storage.set', { key: 'saved', value: preferences })
+	host.signerErrors.sign = new Error(failure)
+	await expect(
+		host.request('relay.publish', { event: myMapsModel.announcement(source) }),
+	).rejects.toThrow(
+		`Your signer could not sign this request. Open your signer, unlock it if needed, and retry. Signer error: ${failure}`,
+	)
+	expect(host.published).toHaveLength(0)
+	delete host.signerErrors.sign
+	await host.request('relay.publish', { event: myMapsModel.announcement(source) })
+	expect(host.published).toHaveLength(1)
+
+	const encrypted = {
+		event: {
+			kind: 30078,
+			content: JSON.stringify(preferences),
+			tags: [['d', myMapsModel.preferencesId]],
+		},
+		recipient: host.pubkey,
+		encryption: 'nip44',
+	}
+	host.signerErrors.encrypt = failure
+	await expect(host.request('relay.publishEncrypted', encrypted)).rejects.toThrow(
+		'Your signer could not encrypt this request. Open your signer',
+	)
+	expect(host.published).toHaveLength(1)
+	expect(await host.request('storage.get', { key: 'saved' })).toEqual({ value: preferences })
+	delete host.signerErrors.encrypt
+	await host.request('relay.publishEncrypted', encrypted)
+	const saved = host.published[1]
+	if (!saved) throw new Error('Missing saved preferences')
+	host.setQuery([saved])
+	host.signerErrors.decrypt = new Error(failure)
+	await expect(
+		host.request('relay.query', {
+			filters: [{ kinds: [30078], authors: [host.pubkey], '#d': [myMapsModel.preferencesId] }],
+		}),
+	).rejects.toThrow('Your signer could not decrypt this request. Open your signer')
 })
 
 test('storage is scoped to the active account and bounded by quota', async () => {
