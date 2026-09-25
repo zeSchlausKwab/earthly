@@ -75,9 +75,12 @@ from the browser. No Earthly backend, CVM call, Google credentials, or proxy is
 involved. The iframe still has no ambient network access: it requests bytes via
 `napplet.resource.bytes`, then parses and converts them locally.
 
-Each nonempty KML folder is offered as a geographic candidate. **Preview entire
-KML map** shows every layer together for inspection/copying; to save a layer with
-its import recipe, choose that candidate and **Preview geometry**. Polygon holes,
+Each nonempty KML folder is offered as a geographic candidate. For a new import
+with multiple folders, **Entire map** is selected by default. **Preview entire
+map** shows every layer together for inspection/copying; to save a layer with
+its import recipe, choose that candidate and **Preview selected layer**. The UI
+explicitly states when other layers are excluded. Saved-layer updates retain
+their recipe’s layer selection rather than switching to the entire map. Polygon holes,
 points, lines, multi-geometries, names, descriptions, basic colors/opacity/width,
 ExtendedData, and source map/layer/URL attribution are retained. XML IDs are used
 when present; absent IDs receive the importer's content-based IDs with a warning.

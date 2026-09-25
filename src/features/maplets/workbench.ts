@@ -84,6 +84,7 @@ function runWorkbench(
 	let inputName = ''
 	let inputSourceUrl = ''
 	let inputIsSample = false
+	let inputIsKml = false
 	let inputWarnings: string[] = []
 	let wholeKmlPreview = false
 	let myMapsUrl = ''
@@ -191,6 +192,7 @@ function runWorkbench(
 		inputName = ''
 		inputSourceUrl = ''
 		inputIsSample = false
+		inputIsKml = false
 		inputWarnings = []
 		wholeKmlPreview = false
 		previewing = false
@@ -218,6 +220,7 @@ function runWorkbench(
 		recipe = undefined
 		previewing = false
 		inputWarnings = kml?.warnings ?? []
+		inputIsKml = !!kml
 		wholeKmlPreview = false
 		// KML exports are complete layer snapshots and often lack source IDs.
 		// Replacing avoids retaining deleted or moved features as duplicate records.
@@ -247,8 +250,11 @@ function runWorkbench(
 			)
 			message = 'Saved recipe applied. Review the update before saving.'
 		} else {
-			chooseCandidate(0)
-			message = `${found.length} geographic ${found.length === 1 ? 'candidate' : 'candidates'} found. Choose what to import.`
+			chooseCandidate(kml && found.length > 1 && !targetLayerId ? -2 : 0)
+			message =
+				candidateIndex === -2
+					? `${found.length} KML layers found. Entire map is selected, including every layer.`
+					: `${found.length} geographic ${found.length === 1 ? 'candidate' : 'candidates'} found. Choose what to import.`
 		}
 		await showOutput()
 		if (version !== importGeneration || account !== accountGeneration) return
@@ -256,6 +262,15 @@ function runWorkbench(
 		render()
 	}
 	function chooseCandidate(index: number) {
+		// -1 is reserved for a saved recipe whose path is no longer present.
+		if (index === -2 && inputIsKml) {
+			candidateIndex = index
+			recipe = undefined
+			result = undefined
+			wholeKmlPreview = false
+			splitLayers = false
+			return
+		}
 		const candidate = candidates[index]
 		if (!candidate) return
 		candidateIndex = index
@@ -313,6 +328,7 @@ function runWorkbench(
 	function renderImporter() {
 		const current = selected()
 		const candidate = candidates[candidateIndex]
+		const entireMap = inputIsKml && candidateIndex === -2
 		const propertyKeys = candidate?.propertyKeys ?? recipe?.retainProperties ?? []
 		return `<section class="importer" aria-label="Guided geographic import">
 			<div class="row"><h2>Import data</h2>${button('cancel-import', 'Cancel')}</div>
@@ -321,18 +337,30 @@ function runWorkbench(
 			<details ${pasted ? 'open' : ''}><summary>Paste a response</summary><label>JSON response<textarea id="json-paste" rows="5" placeholder="Paste the response body">${htmlEscape(pasted)}</textarea></label>${button('analyze-paste', 'Find geographic data')}</details>
 			<div class="actions">${button('sample', 'Try example data')}${button('connector', 'Try available connector')}</div>
 			<p class="muted small">GeoJSON, KML and supported source adapters. Request headers and cookies are not needed for file imports.</p></details>
-			${inputWarnings.length && candidates.length > 1 ? button('preview-kml-map', 'Preview entire KML map') : ''}
 			${inputWarnings.length ? `<ul class="muted small">${inputWarnings.map((warning) => `<li>${htmlEscape(warning)}</li>`).join('')}</ul>` : ''}
 			${
 				candidates.length
 					? `<div class="step"><span class="eyebrow">01 / Locate</span><label>Geographic data<select id="candidate" aria-label="Geographic data">${options(
-							candidates.map((item, index) => ({
-								value: String(index),
-								label: `${item.path.length ? item.path.join(' → ') : 'Root'} · ${item.adapter === 'geojson' ? 'GeoJSON' : 'Liveuamap adapter'} · ${item.count} geometries`,
-							})),
+							[
+								...(inputIsKml && candidates.length > 1
+									? [
+											{
+												value: '-2',
+												label: `Entire map · ${candidates.length} layers · ${candidates.reduce((total, item) => total + item.count, 0)} geometries`,
+											},
+										]
+									: []),
+								...candidates.map((item, index) => ({
+									value: String(index),
+									label: `${item.path.length ? item.path.join(' → ') : 'Root'} · ${item.adapter === 'geojson' ? 'GeoJSON' : 'Liveuamap adapter'} · ${item.count} geometries`,
+								})),
+							],
 							String(candidateIndex),
 						)}</select></label><p class="muted small">${htmlEscape(inputName)}${inputIsSample ? ' · Captured example; source time unknown' : ''}</p>${targetLayerId ? button('reset-recipe', 'Use detected mapping') : ''}</div>
-			<div class="step"><span class="eyebrow">02 / Interpret</span><div class="columns"><label>Feature name<select id="name-property" aria-label="Feature name">${options([{ value: '', label: 'Keep existing names' }, ...propertyKeys.map((key) => ({ value: key, label: key }))], recipe?.nameProperty ?? '')}</select></label><label>Stable identifier<select id="id-property" aria-label="Stable identifier">${options([{ value: '', label: 'Use source feature IDs' }, ...propertyKeys.map((key) => ({ value: key, label: key }))], recipe?.idProperty ?? '')}</select></label></div>
+			${
+				entireMap
+					? `<div class="step"><p>Preview all ${candidates.length} layers together. To save one layer with an import recipe, select it above.</p>${button('preview-kml-map', 'Preview entire map', 'class="primary"')}</div>`
+					: `<div class="step"><span class="eyebrow">02 / Interpret</span>${inputIsKml && candidates.length > 1 ? `<p class="notice">Only this layer will be previewed: ${htmlEscape(candidate?.path.at(-1)?.replace(/^Layer: /, '') ?? targetName)}. Other KML layers are excluded. Select Entire map above to include them.</p>` : ''}<div class="columns"><label>Feature name<select id="name-property" aria-label="Feature name">${options([{ value: '', label: 'Keep existing names' }, ...propertyKeys.map((key) => ({ value: key, label: key }))], recipe?.nameProperty ?? '')}</select></label><label>Stable identifier<select id="id-property" aria-label="Stable identifier">${options([{ value: '', label: 'Use source feature IDs' }, ...propertyKeys.map((key) => ({ value: key, label: key }))], recipe?.idProperty ?? '')}</select></label></div>
 			<details><summary>Properties to retain (${recipe?.retainProperties?.length ?? propertyKeys.length})</summary><div class="properties">${propertyKeys.map((key) => `<label class="check"><input type="checkbox" data-property="${htmlEscape(key)}" ${recipe?.retainProperties?.includes(key) !== false ? 'checked' : ''}>${htmlEscape(key)}</label>`).join('')}</div></details></div>
 			<div class="step"><span class="eyebrow">03 / Place</span>${current && owned() ? `<div class="columns"><label>Destination layer<select id="target-layer" aria-label="Destination layer">${options([{ value: '', label: 'Create a new layer' }, ...current.layers.map((layer) => ({ value: layer.id, label: layer.name }))], targetLayerId)}</select></label><label>Group<select id="target-group" aria-label="Group">${options([{ value: '', label: 'Ungrouped' }, ...current.groups.map((group) => ({ value: group.id, label: group.name }))], targetGroupId)}</select></label></div>` : '<p class="muted">Create a collection in Manage to save this import. Preview is available now.</p>'}
 			${!targetLayerId && candidate?.adapter === 'liveuamap' ? `<label class="check"><input id="split-layers" type="checkbox" ${splitLayers ? 'checked' : ''}>Create a named layer for each source overlay</label>` : ''}
@@ -348,7 +376,8 @@ function runWorkbench(
 						)}</select></label>`
 					: ''
 			}
-			${button('preview', 'Preview geometry', 'class="primary"')}</div>`
+			${button('preview', inputIsKml ? 'Preview selected layer' : 'Preview geometry', 'class="primary"')}</div>`
+			}`
 					: ''
 			}
 			${
@@ -706,6 +735,11 @@ function runWorkbench(
 						warnings: [
 							...inputWarnings,
 							...result.warnings,
+							...(inputIsKml && candidates.length > 1
+								? [
+										`Single KML layer preview: ${candidates[candidateIndex]?.path.at(-1)?.replace(/^Layer: /, '') ?? targetName}. Other layers are excluded.`,
+									]
+								: []),
 							'Import preview: these geometries have not been saved or published.',
 						],
 					})
