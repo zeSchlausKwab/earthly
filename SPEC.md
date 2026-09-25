@@ -631,4 +631,26 @@ field: spatial constraints (`bbox:`, `point:`, `rel:intersects|contains|within`,
 
 ---
 
-*Spec v2 — describes the implemented v1.2 split entity model. Foundation seams shipped Phase 8; per-kind authoring (Group/Story/Sighting/Beacon UIs, governance enum, naddr mirror) lands across Phases 9–13. §18 (relay search) shipped with the geo-search rewrite.*
+## 19 Experimental Maplet Source Announcement (kind 37526)
+
+An addressable public recommendation of a third-party geometry source. It carries
+the source URL and descriptive metadata, never the geometry or a viewer's private
+layer choices. Each viewer fetches the current geometry from the upstream source.
+This is an Earthly experimental kind, not an allocated NIP kind.
+
+The first profile is `my-maps-viewer`: canonical Google My Maps KML URLs, with
+`d=my-maps:<mid>`, `t=maplet-source`, a `maplet` profile tag, and an `r` source URL.
+Content uses `version: 1`, `maplet`, `url`, `title`, `description`, `tags`, and
+`deleted`. The newest signed version per `(kind, pubkey, d)` replaces the previous
+recommendation; `deleted: true` removes it from discovery. Equal timestamps choose
+the lexicographically lowest event ID. The event author is the recommending user,
+not necessarily the upstream map author.
+
+The complete profile, example event, capability limits, and separate encrypted
+NIP-78 preference address are documented in [Earthly Maplets](docs/maplets.md).
+Kinds 37523–37525 remain reserved for existing field-session/private-workspace
+records; source announcements do not share those protocols.
+
+---
+
+*Spec v2 — describes the implemented v1.2 split entity model. Foundation seams shipped Phase 8; per-kind authoring (Group/Story/Sighting/Beacon UIs, governance enum, naddr mirror) lands across Phases 9–13. §18 (relay search) shipped with the geo-search rewrite; §19 adds experimental Maplet source recommendations.*

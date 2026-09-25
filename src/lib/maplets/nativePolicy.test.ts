@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools'
 import { LIVE_MAPPER_HTML } from '@/features/maplets/liveMapper'
+import { MY_MAPS_VIEWER_HTML } from '@/features/maplets/myMapsViewer'
 import {
 	computeMapletAggregate,
 	prepareBundledMaplet,
@@ -32,6 +33,17 @@ function hostDocument(script?: string, style?: string): Document {
 }
 
 describe('native Maplet policy', () => {
+	test('the reviewed My Maps Viewer receives native nonces without granting downloaded code access', async () => {
+		nativeWindow()
+		const artifact = await prepareBundledMaplet({ id: 'my-maps-viewer', html: MY_MAPS_VIEWER_HTML })
+		const html = createMapletSrcdoc(
+			artifact,
+			['map', 'resource', 'identity', 'storage', 'relay'],
+			hostDocument('1234567', '7654321'),
+		)
+		expect(html.match(/<script nonce="1234567">/g)).toHaveLength(2)
+		expect(html).toContain("connect-src 'none'")
+	})
 	test('preserves the browser artifact bytes without needing native nonce metadata', async () => {
 		Reflect.deleteProperty(globalThis, 'window')
 		const html = '<style>body{color:red}</style><script>window.fixture = true</script>'

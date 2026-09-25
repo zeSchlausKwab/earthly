@@ -28,6 +28,48 @@ const artifact = () =>
 	})
 
 describe('maplet host boundary', () => {
+	test('data capabilities require an explicit grant and pending requests cancel on identity change', async () => {
+		const messages: Record<string, unknown>[] = []
+		const options = {
+			artifact: await artifact(),
+			config: {},
+			post: (value: Record<string, unknown>) => messages.push(value),
+			onCollection: () => {},
+			onError: () => {},
+		}
+		const denied = createMapletDispatcher(options)
+		denied.handle({ type: 'relay.publish', id: 'denied', event: {} })
+		await Promise.resolve()
+		expect(messages.at(-1)).toMatchObject({
+			type: 'relay.publish.error',
+			error: 'blocked-by-policy',
+		})
+		denied.dispose()
+		let requestSignal: AbortSignal | undefined
+		let resolve: (result: Record<string, unknown>) => void = () => {}
+		const allowed = createMapletDispatcher({
+			...options,
+			identityPubkey: 'a'.repeat(64),
+			onDataRequest: (_, __, signal) => {
+				requestSignal = signal
+				return new Promise((done) => {
+					resolve = done
+				})
+			},
+		})
+		allowed.handle({ type: 'storage.get', id: 'private', key: 'saved' })
+		allowed.updateIdentity('b'.repeat(64))
+		expect(requestSignal?.aborted).toBe(true)
+		expect(messages).toContainEqual({
+			type: 'storage.get.error',
+			id: 'private',
+			error: 'identity-changed',
+		})
+		resolve({ value: 'previous account data' })
+		await Promise.resolve()
+		expect(messages.some((entry) => entry.type === 'storage.get.result')).toBe(false)
+		allowed.dispose()
+	})
 	test('validates geometry/properties, rejects duplicate IDs including numeric/string collisions', () => {
 		expect(validateMapletCollection(collection).features).toHaveLength(1)
 		expect(() =>

@@ -22,6 +22,8 @@ import type { MapletCatalogItem, MapletInstanceView } from './MapletsPanel'
 import { LIVE_MAPPER_HTML, LIVE_MAPPER_CONFIG_SCHEMA, LIVE_MAPPER_DEFINITION } from './liveMapper'
 import { resolveMapletResource } from './sourceResource'
 import { useMapletWorkspace } from './useMapletWorkspace'
+import { MY_MAPS_VIEWER_DEFINITION, MY_MAPS_VIEWER_HTML } from './myMapsViewer'
+import { createMyMapsServices } from './myMapsServices'
 import {
 	supportsThirdPartyMaplets,
 	NATIVE_MAPLET_UNSUPPORTED_MESSAGE,
@@ -31,6 +33,7 @@ export interface RunningMaplet extends MapletInstanceView {
 	artifact: VerifiedMaplet
 	hostSchema?: MapletConfigSchema
 	generation: number
+	refreshRequest?: number
 }
 
 const EMPTY_COLLECTION: FeatureCollection = { type: 'FeatureCollection', features: [] }
@@ -42,10 +45,11 @@ const builtin: MapletCatalogItem = {
 	source: 'bundled',
 	schema: LIVE_MAPPER_CONFIG_SCHEMA,
 }
+const myMapsViewer: MapletCatalogItem = { ...MY_MAPS_VIEWER_DEFINITION, source: 'bundled' }
 
 /** Runtime instances are session-owned. Shelf membership is the sole visibility authority. */
 export function useMaplets() {
-	const [catalog, setCatalog] = useState<MapletCatalogItem[]>([builtin])
+	const [catalog, setCatalog] = useState<MapletCatalogItem[]>([myMapsViewer, builtin])
 	const [instances, setInstances] = useState<RunningMaplet[]>([])
 	// The trusted collection workspace is shared by the app's Follow actions and
 	// the bundled iframe. It survives opening/closing or replacing that runtime.
@@ -122,17 +126,21 @@ export function useMaplets() {
 			pending.current.add(definitionId)
 			const signal = controller.current.signal
 			try {
-				if (definitionId !== 'live-mapper' && !supportsThirdPartyMaplets())
+				const bundled = definitionId === 'live-mapper' || definitionId === 'my-maps-viewer'
+				if (!bundled && !supportsThirdPartyMaplets())
 					throw new Error(NATIVE_MAPLET_UNSUPPORTED_MESSAGE)
-				const artifact =
-					definitionId === 'live-mapper'
-						? await prepareBundledMaplet({
-								id: definitionId,
-								html: LIVE_MAPPER_HTML,
-								requires: LIVE_MAPPER_DEFINITION.requires,
-								configSchema: LIVE_MAPPER_CONFIG_SCHEMA,
-							})
-						: await verifyMapletManifest(manifests.current.get(definitionId)?.event, { signal })
+				const artifact = bundled
+					? await prepareBundledMaplet({
+							id: definitionId,
+							html: definitionId === 'my-maps-viewer' ? MY_MAPS_VIEWER_HTML : LIVE_MAPPER_HTML,
+							requires:
+								definitionId === 'my-maps-viewer'
+									? MY_MAPS_VIEWER_DEFINITION.requires
+									: LIVE_MAPPER_DEFINITION.requires,
+							configSchema:
+								definitionId === 'my-maps-viewer' ? undefined : LIVE_MAPPER_CONFIG_SCHEMA,
+						})
+					: await verifyMapletManifest(manifests.current.get(definitionId)?.event, { signal })
 				if (signal.aborted) return
 				const schema = artifact.configSchema
 				const stored = loadMapletConfig(artifact.identity, schema)
@@ -177,7 +185,7 @@ export function useMaplets() {
 						visible: true,
 					},
 				])
-				if (definitionId === 'live-mapper') setOpenWorkspaceId(id)
+				if (bundled) setOpenWorkspaceId(id)
 				return id
 			} catch (error) {
 				toast.error(error instanceof Error ? error.message : 'The Maplet could not be started.')
@@ -237,12 +245,14 @@ export function useMaplets() {
 			setInstances((current) =>
 				current.map((instance) =>
 					instance.id === id
-						? {
-								...instance,
-								generation: instance.generation + 1,
-								status: 'loading',
-								error: undefined,
-							}
+						? instance.definitionId === 'my-maps-viewer'
+							? { ...instance, refreshRequest: (instance.refreshRequest ?? 0) + 1 }
+							: {
+									...instance,
+									generation: instance.generation + 1,
+									status: 'loading',
+									error: undefined,
+								}
 						: instance,
 				),
 			),
@@ -442,6 +452,13 @@ function RuntimeFrame({
 	current.current = { workspace, pubkey }
 	const [height, setHeight] = useState(600)
 	const initial = useRef(instance)
+	const dataServices = useMemo(
+		() =>
+			instance.artifact.provenance === 'bundled' && instance.definitionId === 'my-maps-viewer'
+				? createMyMapsServices(instance.artifact.identity)
+				: undefined,
+		[instance.artifact, instance.definitionId],
+	)
 	// Set verified srcdoc before the element enters the document. Mounting an
 	// empty iframe first introduces a second about:blank load that is ambiguous
 	// with a real navigation from the opaque-origin sandbox.
@@ -449,9 +466,12 @@ function RuntimeFrame({
 		() =>
 			createMapletSrcdoc(
 				instance.artifact,
-				getMapletRuntimeDomains({ resolveResource: resolveMapletResource }),
+				getMapletRuntimeDomains({
+					resolveResource: resolveMapletResource,
+					onDataRequest: dataServices,
+				}),
 			),
-		[instance.artifact],
+		[instance.artifact, dataServices],
 	)
 	useLayoutEffect(() => {
 		if (!iframe.current) return
@@ -463,6 +483,7 @@ function RuntimeFrame({
 				artifact: instance.artifact,
 				config: instance.config,
 				resolveResource: resolveMapletResource,
+				onDataRequest: dataServices,
 				identityPubkey: current.current.pubkey,
 				onResize: setHeight,
 				...(current.current.workspace
@@ -491,7 +512,10 @@ function RuntimeFrame({
 			runtime.dispose()
 			runtimeRef.current = undefined
 		}
-	}, [onCollection, onError, onOpenSettings, onSchema, onViewMap])
+	}, [onCollection, onError, onOpenSettings, onSchema, onViewMap, dataServices])
+	useEffect(() => {
+		if (instance.refreshRequest) runtimeRef.current?.refresh()
+	}, [instance.refreshRequest])
 	const workspaceState = workspace?.state
 	useLayoutEffect(() => {
 		runtimeRef.current?.updateIdentity(pubkey)
@@ -528,7 +552,11 @@ function RuntimeFrame({
 				sandbox="allow-scripts"
 				referrerPolicy="no-referrer"
 				className="block w-full border-0"
-				style={{ height: Math.max(360, height), maxHeight: '78dvh' }}
+				style={
+					instance.artifact.provenance === 'bundled'
+						? { height: 'min(760px, 76dvh)' }
+						: { height: Math.max(360, height), maxHeight: '78dvh' }
+				}
 			/>
 		</dialog>
 	)

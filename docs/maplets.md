@@ -2,9 +2,9 @@
 
 Maplets are sandboxed Napplets that contribute GeoJSON layers to Earthly. A Maplet
 owns its interface and data conversion; Earthly owns discovery, verified execution,
-resource grants, rendering, and copying output into editable drafts. The bundled
-**Live Mapper** adds guided imports and a workspace for publishing and following
-collections.
+resource grants, rendering, and copying output into editable drafts. **My Maps
+Viewer** fetches third-party geometry in the browser and shares source links.
+**Live Mapper** remains available for guided imports and snapshot collections.
 
 The authority is the living specifications linked by [napplet.run](https://napplet.run/).
 The verified web-profile reference is
@@ -14,6 +14,101 @@ verified on 2026-09-13. This is a supported subset, not a complete NAP implement
 or conformance certification. The `map` domain, workspace/resize extensions,
 `maplet` role, discovery tag, collection manifest, and static configuration-schema
 tag below are Earthly's experimental profile.
+
+The upstream registry checked on 2026-09-25 now separates NIP-5A manifests
+(kind 35128) from the NIP-5D web projection. Earthly's executable discovery still
+uses the pinned prototype profile described below; this change does not claim
+full compatibility with the reorganized manifest format. The viewer uses a
+bounded subset of the current draft NAP-STORAGE and NAP-RELAY interfaces.
+
+## My Maps Viewer
+
+Open **Maplets → My Maps Viewer → Add to map**. Paste a public Google My Maps
+viewer, editor, embed, or KML export link containing a `mid`. The Maplet canonicalizes
+the link, requests the KML through Earthly's browser resource grant, and converts
+it inside its sandbox. No Earthly backend, CVM request, Google login, or geometry
+publication is involved. This supports My Maps (`/maps/d/…`), not arbitrary Google
+Maps places, routes, or saved lists.
+
+All nonempty KML folders appear as toggleable layers. Up to twelve sources can be
+displayed together, subject to the existing aggregate geometry limits. Each source
+has visibility, opacity, refresh, and last-fetch status. Refresh replaces that
+source's complete export; it retains the last successful geometry on failure.
+The timestamp records retrieval, not when Google’s author last changed the map.
+There is no background polling. The sidebar Refresh action refreshes visible
+sources without destroying the viewer or its unsaved choices.
+
+On fetch failure, a downloaded KML file can be chosen as a local preview for that
+source. The file is not uploaded or persisted; saved links continue to fetch Google.
+KMZ, external NetworkLinks, overlays, and 3D objects remain outside the supported
+vector subset. Source notes report unsupported elements. Copy to editor uses the
+existing independent-draft flow and retains source attribution.
+
+### Saving and publishing are separate
+
+- **Save for me** saves links and view preferences on this device. When signed in,
+  it also encrypts those preferences to the active pubkey with NIP-44 and publishes
+  one NIP-78 kind 30078 event with `d=earthly:maplet:my-maps-viewer:sources:v1`.
+  Signers without NIP-44 and relay failures are reported; the device copy remains.
+- **Restore from account** reads that exact owner address, verifies the signature,
+  decrypts through the host signer, and fetches the saved visible sources. It is
+  explicit on another device; opening the viewer restores the local saved copy.
+  Unsaved changes must be saved before a remote restore replaces them.
+- **Name & publish source** publishes a public source description under the active
+  pubkey. Neither geometry nor private layer/opacity choices are included.
+- **Discover sources** queries configured content/discovery relays, initially for
+  100 recent announcements, expandable to 500. Search filters loaded titles,
+  descriptions, tags, and hex publisher keys. Sources are fetched only after
+  **Add to my map**. Discovery is refreshed explicitly and is not a global index.
+- **Unpublish source** replaces the owner's announcement with a tombstone. It
+  removes that recommendation from discovery; existing users retain their links.
+
+The public format is Earthly experimental **kind 37526**, not an allocated NIP kind:
+
+```json
+{
+  "kind": 37526,
+  "tags": [
+    ["d", "my-maps:publicMap123"],
+    ["t", "maplet-source"],
+    ["maplet", "my-maps-viewer"],
+    ["r", "https://www.google.com/maps/d/kml?mid=publicMap123&forcekml=1"]
+  ],
+  "content": "{\"version\":1,\"maplet\":\"my-maps-viewer\",\"url\":\"https://www.google.com/maps/d/kml?mid=publicMap123&forcekml=1\",\"title\":\"Coastal survey\",\"description\":\"\",\"tags\":[\"coast\"],\"deleted\":false}"
+}
+```
+
+The identity is `(kind, pubkey, d)`. The newest valid announcement wins; equal
+timestamps use the lexicographically lowest event ID. A source publisher is a
+curator, not necessarily the Google map's original author. Data changes at Google
+do not require republishing the source announcement. The current NIP-78 reserves
+app-data events for owner-private storage, so public discovery uses its own kind.
+
+### Reusable host capabilities
+
+`window.napplet.storage.getItem/setItem/removeItem/keys` expose bounded JSON storage
+scoped to the verified applet identity `(dTag, aggregateHash)` and active pubkey
+(or the anonymous device session). Quotas are 128 KiB per value and 256 KiB per
+scope. A changed app build gets a new local namespace; account restore uses the
+stable private address above. Storage itself does not imply Nostr sync.
+
+`window.napplet.relay.query/publish/publishEncrypted` implement a bounded subset of
+the [draft NAP-RELAY](https://github.com/napplet/naps/pull/2). Queries return
+`{ event }[]`; signing and encryption stay in Earthly. Only this reviewed bundled
+viewer receives the source-event and owner-preference grant. Downloaded Maplets
+do not inherit signing or private-data access. Additional apps need explicit
+host policies; the shared broker is independent of this source format.
+
+The Maplet owns source validation, KML conversion, configuration UI, and source
+announcements. The host independently validates allowed event shapes, signatures,
+account ownership, size limits, and account continuity before signing/publishing.
+Account changes clear the viewer and cancel pending privileged requests.
+`map.onRefresh` is an Earthly extension for refreshing displayed sources.
+
+The two bundled Maplets are admitted by the native CSP policy; downloaded code
+remains blocked in Tauri. Responsive browser tests are not Android WebView tests.
+Browser CORS for Google's export works for the tested map but is not a guaranteed
+Google API contract.
 
 ## Run the local demo
 

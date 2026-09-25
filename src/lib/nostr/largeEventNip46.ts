@@ -11,6 +11,7 @@ import {
 	GEO_EVENT_KIND,
 	LIVE_BEACON_KIND,
 	MAP_CONTEXT_KIND,
+	MAPLET_SOURCE_KIND,
 	PROPOSAL_STATUS_APPLIED_KIND,
 	PROPOSAL_STATUS_CLOSED_KIND,
 	PROPOSAL_STATUS_DRAFT_KIND,
@@ -53,6 +54,7 @@ export const EARTHLY_NIP46_SIGNING_KINDS = [
 	24_242, // Blossom upload authorization
 	27_523, // private workspace envelope authorization
 	27_524, // private workspace invitations
+	30_078, // encrypted Maplet source preferences
 	GEO_EVENT_KIND,
 	GEO_COMMENT_KIND,
 	MAP_CONTEXT_KIND,
@@ -60,6 +62,7 @@ export const EARTHLY_NIP46_SIGNING_KINDS = [
 	ARTICLE_KIND,
 	LIVE_BEACON_KIND,
 	TEMPORAL_SIGHTING_KIND,
+	MAPLET_SOURCE_KIND,
 	37_523, // field-session records
 ] as const
 

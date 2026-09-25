@@ -56,6 +56,7 @@ import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-nat
 import { installDeterministicChatProviderTask } from './tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyleTask } from './tasks/setup/deterministic-map-style'
 import { installIsolatedRelaysTask } from './tasks/setup/isolated-relays'
+import { openMyMapsViewerTask, addMyMapsSourceTask } from './tasks/maplets/my-maps'
 import { installInMemoryContextFixtureTask } from './tasks/setup/in-memory-context-fixture'
 import { installInMemoryMapFixtureTask } from './tasks/setup/in-memory-map-fixture'
 import {
@@ -83,6 +84,8 @@ import {
 } from './tasks/social/story-proposals'
 
 const tasks = [
+	openMyMapsViewerTask,
+	addMyMapsSourceTask,
 	installIsolatedRelaysTask,
 	setThreadWorkingSetOpenTask,
 	createIdentityTask,

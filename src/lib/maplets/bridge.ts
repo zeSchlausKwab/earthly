@@ -15,6 +15,7 @@ export function installMapletBridge(available: string[], initialSchema: unknown)
 	const schemaListeners = new Set<(error: unknown) => void>()
 	const identityListeners = new Set<(pubkey: string) => void>()
 	const workspaceListeners = new Set<(value: unknown) => void>()
+	const refreshListeners = new Set<() => void>()
 	let schema = initialSchema
 	let sequence = 0
 	const send = (message: Payload) => window.parent.postMessage(message, '*')
@@ -56,6 +57,10 @@ export function installMapletBridge(available: string[], initialSchema: unknown)
 	window.addEventListener('message', (event) => {
 		if (event.source !== window.parent || !event.data || typeof event.data !== 'object') return
 		const message = event.data as Payload
+		if (message.type === 'map.refresh') {
+			for (const callback of refreshListeners) callback()
+			return
+		}
 		if (message.type === 'identity.changed' && typeof message.pubkey === 'string') {
 			for (const callback of identityListeners) callback(message.pubkey)
 			return
@@ -84,8 +89,36 @@ export function installMapletBridge(available: string[], initialSchema: unknown)
 	})
 	const subscription = (close: () => void) => Object.assign(close, { close })
 	const napplet: Payload = {}
+	napplet.shell = Object.freeze({ supports: (domain: string) => available.includes(domain) })
+	if (available.includes('storage'))
+		napplet.storage = Object.freeze({
+			getItem: (key: string) => request('storage.get', { key }).then((result) => result.value),
+			setItem: (key: string, value: unknown) =>
+				request('storage.set', { key, value }).then(() => undefined),
+			removeItem: (key: string) => request('storage.remove', { key }).then(() => undefined),
+			keys: () => request('storage.keys').then((result) => result.keys),
+		})
+	if (available.includes('relay'))
+		napplet.relay = Object.freeze({
+			query: (filters: unknown) =>
+				request('relay.query', { filters: Array.isArray(filters) ? filters : [filters] }).then(
+					(result) => result.events,
+				),
+			publish: (event: unknown) =>
+				request('relay.publish', { event }).then((result) => result.event),
+			publishEncrypted: (event: unknown, recipient: string, encryption = 'nip44') =>
+				request('relay.publishEncrypted', { event, recipient, encryption }).then(
+					(result) => result.event,
+				),
+		})
 	if (available.includes('map'))
 		napplet.map = Object.freeze({
+			onRefresh: (callback: () => void) => {
+				refreshListeners.add(callback)
+				return subscription(() => {
+					refreshListeners.delete(callback)
+				})
+			},
 			replace: (collection: unknown, options?: { warnings?: string[] }) =>
 				request('map.replace', { collection, warnings: options?.warnings ?? [] }).then(
 					() => undefined,

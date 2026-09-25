@@ -54,9 +54,16 @@ export interface MapletRuntimeOptions {
 	/** Earthly experimental broker. The host must check the signal before account-sensitive writes. */
 	onWorkspaceRequest?: (action: string, payload: unknown, signal: AbortSignal) => Promise<unknown>
 	onResize?: (height: number) => void
+	/** Explicit per-artifact grant; validates storage scope, event kinds and signing policy. */
+	onDataRequest?: (
+		type: string,
+		data: Record<string, unknown>,
+		signal: AbortSignal,
+	) => Promise<Record<string, unknown>>
 }
 
 export interface MapletRuntime {
+	refresh(): void
 	updateConfig(config: Record<string, unknown>): void
 	updateIdentity(pubkey: string): void
 	notifyWorkspaceChanged(value: unknown): void
@@ -71,6 +78,7 @@ export function getMapletRuntimeDomains(options: Partial<MapletRuntimeOptions> =
 		'identity',
 		...(options.resolveResource ? ['resource'] : []),
 		...(options.onOpenLink ? ['link'] : []),
+		...(options.onDataRequest ? ['storage', 'relay'] : []),
 	]
 }
 
@@ -119,7 +127,7 @@ export function createMapletDispatcher(
 	let nextHeight = 160
 	let resizeTimer: ReturnType<typeof setTimeout> | undefined
 	const requests = new Map<string, AbortController>()
-	const workspaceRequests = new Set<string>()
+	const workspaceRequests = new Map<string, string>()
 	const completed = new Set<string>()
 	const post = (message: Record<string, unknown>) => {
 		if (!disposed) options.post(message)
@@ -226,6 +234,13 @@ export function createMapletDispatcher(
 				'resource.bytesMany',
 				'resource.info',
 				'link.open',
+				'storage.get',
+				'storage.set',
+				'storage.remove',
+				'storage.keys',
+				'relay.query',
+				'relay.publish',
+				'relay.publishEncrypted',
 			].includes(type)
 		)
 			return
@@ -243,7 +258,8 @@ export function createMapletDispatcher(
 		}
 		const controller = new AbortController()
 		requests.set(id, controller)
-		if (type === 'map.workspace') workspaceRequests.add(id)
+		if (type === 'map.workspace' || type.startsWith('storage.') || type.startsWith('relay.'))
+			workspaceRequests.set(id, type)
 		const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
 		const respond = (message: Record<string, unknown>) => {
 			if (!signal.aborted && requests.get(id) === controller) post({ ...message, id })
@@ -251,6 +267,20 @@ export function createMapletDispatcher(
 		void (async () => {
 			try {
 				switch (type) {
+					case 'storage.get':
+					case 'storage.set':
+					case 'storage.remove':
+					case 'storage.keys':
+					case 'relay.query':
+					case 'relay.publish':
+					case 'relay.publishEncrypted': {
+						if (!options.onDataRequest) throw new Error('blocked-by-policy')
+						const payload = boundedJson(data, 200_000) as Record<string, unknown>
+						const result = await options.onDataRequest(type, payload, signal)
+						signal.throwIfAborted()
+						respond({ ...result, type: `${type}.result` })
+						break
+					}
 					case 'map.workspace': {
 						if (!options.onWorkspaceRequest) throw new Error('blocked-by-policy')
 						if (typeof data.action !== 'string' || !data.action || data.action.length > 128)
@@ -373,11 +403,11 @@ export function createMapletDispatcher(
 			const next = identityKey(value)
 			if (next === pubkey) return
 			pubkey = next
-			for (const id of workspaceRequests) {
+			for (const [id, type] of workspaceRequests) {
 				requests.get(id)?.abort()
 				requests.delete(id)
 				completed.add(id)
-				post({ type: 'map.workspace.error', id, error: 'identity-changed' })
+				post({ type: `${type}.error`, id, error: 'identity-changed' })
 			}
 			workspaceRequests.clear()
 			post({ type: 'identity.changed', pubkey })
@@ -458,6 +488,7 @@ export function startMapletRuntime(options: MapletRuntimeOptions): MapletRuntime
 	// initial about:blank navigation. Assigning it again would restart that load.
 	if (iframe.srcdoc !== srcdoc) iframe.srcdoc = srcdoc
 	return {
+		refresh: () => source.postMessage({ type: 'map.refresh' }, '*'),
 		updateConfig: dispatcher.updateConfig,
 		updateIdentity: dispatcher.updateIdentity,
 		notifyWorkspaceChanged: dispatcher.notifyWorkspaceChanged,

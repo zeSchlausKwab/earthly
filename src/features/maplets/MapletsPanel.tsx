@@ -698,12 +698,6 @@ export function MapletsPanel(props: MapletsPanelProps) {
 					))}
 				</div>
 			) : null}
-			{props.onFollowCollection ? (
-				<MapletCollectionDirectory
-					enabled={props.collectionDiscoveryEnabled}
-					onFollow={props.onFollowCollection}
-				/>
-			) : null}
 			<div className="pt-5">
 				<div className="mb-2 flex items-center justify-between gap-2 px-2">
 					<h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -811,6 +805,12 @@ export function MapletsPanel(props: MapletsPanelProps) {
 					Use the Shelf to arrange these layers alongside the rest of your map.
 				</p>
 			</div>
+			{props.onFollowCollection ? (
+				<MapletCollectionDirectory
+					enabled={props.collectionDiscoveryEnabled}
+					onFollow={props.onFollowCollection}
+				/>
+			) : null}
 		</section>
 	)
 }

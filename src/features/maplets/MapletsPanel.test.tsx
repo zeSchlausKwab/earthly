@@ -119,7 +119,7 @@ describe('Maplets panel source and copy affordances', () => {
 			collectionDiscoveryEnabled: false,
 		})
 		const text = document.querySelector('[role="tabpanel"]')?.textContent ?? ''
-		expect(text.indexOf('Published collections')).toBeLessThan(text.indexOf('Maplet apps'))
+		expect(text.indexOf('Maplet apps')).toBeLessThan(text.indexOf('Published collections'))
 		expect(text).toContain('configured relays')
 		expect(text).toContain('Earthly app')
 		expect(text).not.toContain('Earthly collection')

@@ -2,7 +2,7 @@ import { isTauri } from '@/config/platform'
 import { assertVerifiedMaplet, type VerifiedMaplet } from './artifact'
 
 export const NATIVE_MAPLET_UNSUPPORTED_MESSAGE =
-	'Third-party Maplet apps are not supported in the native app yet. Use Live Mapper to follow published collections, or open the web app.'
+	'Third-party Maplet apps are not supported in the native app yet. Use the bundled Maplets or open the web app.'
 
 /** Android's current Wry bridge is injected into subframes. Do not run downloaded code there. */
 export function supportsThirdPartyMaplets(): boolean {
@@ -13,7 +13,8 @@ export function assertMapletPlatformSupport(artifact: VerifiedMaplet): void {
 	assertVerifiedMaplet(artifact)
 	if (
 		!supportsThirdPartyMaplets() &&
-		(artifact.provenance !== 'bundled' || artifact.identity.dTag !== 'bundled:live-mapper')
+		(artifact.provenance !== 'bundled' ||
+			!['bundled:live-mapper', 'bundled:my-maps-viewer'].includes(artifact.identity.dTag))
 	)
 		throw new Error(NATIVE_MAPLET_UNSUPPORTED_MESSAGE)
 }
@@ -25,7 +26,7 @@ const NONCE = /^[A-Za-z0-9+/_-]+={0,2}$/
 /**
  * Tauri replaces these host-owned placeholders and adds their values to the
  * parent CSP. A srcdoc inherits that policy; its own meta CSP cannot relax it.
- * Only the bundled Live Mapper receives these values, after the native gate.
+ * Only explicitly reviewed bundled Maplets receive these values, after the native gate.
  */
 export function prepareMapletHtmlForPlatform(
 	artifact: VerifiedMaplet,
@@ -51,11 +52,13 @@ export function prepareMapletHtmlForPlatform(
 		!NONCE.test(script) ||
 		!NONCE.test(style)
 	)
-		throw new Error('Live Mapper needs the updated native app assets. Rebuild or update Earthly.')
-	// This is a checked transform of our one self-contained bundled program, not
+		throw new Error(
+			'Bundled Maplets need the updated native app assets. Rebuild or update Earthly.',
+		)
+	// This is a checked transform of our self-contained bundled programs, not
 	// an HTML rewriter which grants native execution to arbitrary downloaded tags.
 	if (artifact.html.split('<script>').length !== 2 || artifact.html.split('<style>').length !== 2)
-		throw new Error('The bundled Live Mapper document has an unsupported native layout.')
+		throw new Error('The bundled Maplet document has an unsupported native layout.')
 	const scriptNonceAttribute = ` nonce="${script}"`
 	return {
 		html: artifact.html
