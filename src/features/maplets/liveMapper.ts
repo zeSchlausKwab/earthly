@@ -28,7 +28,7 @@ export const LIVE_MAPPER_DEFINITION = {
 	id: 'live-mapper',
 	title: 'Live Mapper',
 	description:
-		'Import geographic JSON into named layers, publish collections and follow contributor snapshots.',
+		'Import My Maps, KML and geographic JSON into named layers, publish collections and follow contributor snapshots.',
 	requires: ['resource', 'config', 'map', 'identity'],
 	archetype: 'maplet',
 	attribution: 'Liveuamap',

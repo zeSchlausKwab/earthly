@@ -38,7 +38,7 @@ const builtin: MapletCatalogItem = {
 	id: 'live-mapper',
 	title: 'Live Mapper',
 	description:
-		'Import JSON into named layers, publish collections, and follow snapshots from other contributors.',
+		'Import My Maps, KML and JSON into named layers, publish collections, and follow snapshots from other contributors.',
 	source: 'bundled',
 	schema: LIVE_MAPPER_CONFIG_SCHEMA,
 }

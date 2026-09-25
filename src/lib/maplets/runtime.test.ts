@@ -133,8 +133,16 @@ describe('maplet host boundary', () => {
 	})
 	test('sniffs JSON without trusting upstream MIME and denies active SVG', async () => {
 		const artifactValue = await artifact()
-		for (const [bytes, mime, expected] of [
+		for (const [bytes, mime, expected, resultMime = 'application/json'] of [
 			['{}', 'text/html', 'resource.bytes.result'],
+			[
+				'<?xml version="1.0"?><kml/>',
+				'application/vnd.google-earth.kml+xml',
+				'resource.bytes.result',
+				'application/vnd.google-earth.kml+xml',
+			],
+			['<svg onload="alert(1)"/>', 'application/vnd.google-earth.kml+xml', 'resource.bytes.error'],
+			['<!DOCTYPE kml><kml/>', 'application/vnd.google-earth.kml+xml', 'resource.bytes.error'],
 			['<svg onload="alert(1)"/>', 'application/json', 'resource.bytes.error'],
 		]) {
 			let dispatcher: ReturnType<typeof createMapletDispatcher> | undefined
@@ -156,7 +164,7 @@ describe('maplet host boundary', () => {
 			const message = await response
 			expect(message.type).toBe(expected)
 			if (expected?.endsWith('result'))
-				expect((message.blob as Blob).type.split(';')[0]).toBe('application/json')
+				expect((message.blob as Blob).type.split(';')[0]).toBe(resultMime)
 			dispatcher?.dispose()
 		}
 	})

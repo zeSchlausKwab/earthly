@@ -208,9 +208,9 @@ test('directory Follow replaces an existing JSON preview with the subscribed col
 		frame.getByRole('heading', { name: 'Live survey updates', exact: true }),
 	).toBeVisible()
 	await expect(frame.getByRole('checkbox', { name: /Current stations/ })).toBeChecked()
-	await expect(frame.getByRole('region', { name: 'Guided JSON import', exact: true })).toHaveCount(
-		0,
-	)
+	await expect(
+		frame.getByRole('region', { name: 'Guided geographic import', exact: true }),
+	).toHaveCount(0)
 	await expect(frame.getByRole('heading', { name: 'Import data', exact: true })).toHaveCount(0)
 	await expect(earthly.page.locator('iframe[title="Live Mapper sandbox"]')).toHaveCount(1)
 	await expect.poll(() => renderedCount(earthly)).toBe(2)

@@ -145,10 +145,18 @@ export function createMapletDispatcher(
 		const blob = await options.resolveResource(url, signal)
 		signal.throwIfAborted()
 		if (blob.size > MAX_RESOURCE_BYTES) throw new Error('too-large')
-		// This first map-data profile permits JSON only. Do not trust upstream MIME or deliver SVG.
+		// The host grant can explicitly return KML. Deliver inert bytes; the sandbox
+		// parses/validates geometry. Other XML, HTML, and SVG remain unsupported.
 		const bytes = await blob.arrayBuffer()
 		try {
-			JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+			const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+			if (blob.type.split(';')[0] === 'application/vnd.google-earth.kml+xml') {
+				const root = text.trimStart().replace(/^<\?xml[\s\S]*?\?>\s*/, '')
+				if (!/^<kml(?:\s|\/?>)/.test(root) || /<!DOCTYPE|<!ENTITY/i.test(text))
+					throw new Error('decode-failed')
+				return new Blob([bytes], { type: 'application/vnd.google-earth.kml+xml' })
+			}
+			JSON.parse(text)
 		} catch {
 			throw new Error('decode-failed')
 		}

@@ -1,11 +1,21 @@
 import { LIVE_MAPPER_SOURCE_URL } from './liveMapper'
 import { isTauri } from '@/config/platform'
+import { fetchMyMapsKml, myMapsExportUrl } from './myMaps'
 
-/** Resource grant for the demo: one reviewed feed, acquired by our same-origin backend. */
+/** Narrow grants: browser-only My Maps exports and the fixed Liveuamap backend feed. */
 export async function resolveMapletResource(url: string, signal: AbortSignal): Promise<Blob> {
+	// This grant goes directly from the user's browser to Google's public export.
+	// It does not use the Liveuamap backend connector or weaken the iframe CSP.
+	let googleExport = false
+	try {
+		googleExport = url === myMapsExportUrl(url)
+	} catch {
+		/* Not a My Maps export. */
+	}
+	if (googleExport) return fetchMyMapsKml(url, signal)
 	if (url !== LIVE_MAPPER_SOURCE_URL)
 		throw new Error(
-			'Earthly has not enabled this resource. This demo grants access only to the reviewed Live Mapper feed.',
+			'Earthly has not enabled this resource. Use a supported My Maps export or the reviewed Live Mapper feed.',
 		)
 	if (isTauri())
 		throw new Error(

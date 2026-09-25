@@ -26,7 +26,7 @@ bun --hot src/index.ts
 Open [http://localhost:3000/browse/maplets](http://localhost:3000/browse/maplets)
 (or the configured `PORT`). The web server supplies the fixed source connector;
 a static frontend alone cannot acquire that source. Local file imports and the
-bundled example do not need it. Nostr discovery/following need configured relays;
+bundled example and public My Maps KML fetches do not need it. Nostr discovery/following need configured relays;
 use the existing local relay workflow for development publishing.
 
 1. Add **Live Mapper** from the Maplets tab. Its visible workspace opens empty.
@@ -65,6 +65,44 @@ the iframe session and is cleared on account changes or runtime destruction.
 The host persists normalized geometry, bounded recipes, and provenance.
 
 ## Guided imports and recipes
+
+### Browser-only My Maps and KML
+
+Choose **Import My Maps / KML**, paste a public Google My Maps viewer/export link,
+and select **Fetch KML in browser**. The host resource grant fetches Google's
+canonical `https://www.google.com/maps/d/kml?mid=…&forcekml=1` endpoint directly
+from the browser. No Earthly backend, CVM call, Google credentials, or proxy is
+involved. The iframe still has no ambient network access: it requests bytes via
+`napplet.resource.bytes`, then parses and converts them locally.
+
+Each nonempty KML folder is offered as a geographic candidate. **Preview entire
+KML map** shows every layer together for inspection/copying; to save a layer with
+its import recipe, choose that candidate and **Preview geometry**. Polygon holes,
+points, lines, multi-geometries, names, descriptions, basic colors/opacity/width,
+ExtendedData, and source map/layer/URL attribution are retained. XML IDs are used
+when present; absent IDs receive the importer's content-based IDs with a warning.
+KML layer updates default to **Replace this complete layer**, because full exports often
+lack stable IDs and changed/deleted geometry must not accumulate during updates.
+
+**Choose KML file** and file drop provide a fully local fallback. My Maps offers
+**Export to KML/KMZ** in its menu; choose uncompressed KML with actual geometry.
+KMZ archives, network links, external icons, overlays, and 3D KML behavior are not
+supported. Unsupported elements are reported; linked resources are never fetched.
+Malformed XML, invalid coordinates, entities/document types, and oversized data
+are rejected. Failed fetches or malformed input retain the previous preview.
+
+This is a snapshot import: fetching again requires another explicit review and
+does not automatically publish or update a saved layer. The request is credential
+free and redirects are denied. Private maps, disabled export, CORS changes, or
+Google errors lead to the file fallback. On 2026-09-25 a real Chromium request for
+the user-provided map succeeded with CORS: 1,741,940 bytes, 372 placemarks, nine
+nonempty folders, 38,508 positions; Earthly displayed all 372 geometries with zero
+backend resource requests. This verifies this public source today, not every map.
+
+See Google's [My Maps export instructions](https://support.google.com/mymaps/answer/3109452?hl=en)
+and [KML reference](https://developers.google.com/kml/documentation/kmlreference).
+
+### JSON and source adapters
 
 The importer discovers supported data nested inside JSON objects/arrays: GeoJSON
 FeatureCollections, Features, standalone geometries, arrays/maps of Features, and
@@ -272,15 +310,17 @@ const payload = JSON.parse(await blob.text());
 ```
 
 The resource bridge includes `info`, `bytes`, `bytesMany`, cancellation, and managed
-object URLs. This host grants only the exact reviewed Live Mapper URL, with JSON
-results. Unknown URLs are rejected before fetching. Applets cannot supply headers,
+object URLs. This host grants the exact reviewed Live Mapper feed with JSON results
+and canonical public My Maps exports with KML results. Unknown URLs are rejected
+before fetching. KML bytes are inert data and parsed in the sandbox; arbitrary XML,
+HTML and SVG responses are not granted. Applets cannot supply headers,
 credentials, alternate hosts, or redirects. The fixed source is:
 
 ```text
 https://yemen.liveuamap.com/ajax/do?act=acornice&time=1789297855&resid=53&lang=en&isUserReg=0
 ```
 
-Acquisition follows:
+The Liveuamap connector's acquisition follows:
 
 ```text
 Maplet resource.bytes(approved URL)

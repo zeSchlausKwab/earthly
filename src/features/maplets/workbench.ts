@@ -5,6 +5,8 @@ import {
 	type MapletImportRecipe,
 } from './importer'
 import type { mapLiveuamapPayload } from './liveMapper'
+import { parseMapletKml } from './kml'
+import { myMapsExportUrl } from './myMaps'
 
 type Layer = {
 	id: string
@@ -60,6 +62,8 @@ function runWorkbench(
 	sourceUrl: string,
 	importerFactory: typeof createMapletImporter,
 	mapPayload: typeof mapLiveuamapPayload,
+	parseKml: typeof parseMapletKml,
+	exportUrl: typeof myMapsExportUrl,
 ) {
 	const napplet = (window as unknown as Window & { napplet: Bridge }).napplet
 	const importer = importerFactory(mapPayload)
@@ -80,6 +84,9 @@ function runWorkbench(
 	let inputName = ''
 	let inputSourceUrl = ''
 	let inputIsSample = false
+	let inputWarnings: string[] = []
+	let wholeKmlPreview = false
+	let myMapsUrl = ''
 	let candidates: MapletImportCandidate[] = []
 	let candidateIndex = 0
 	let recipe: MapletImportRecipe | undefined
@@ -184,23 +191,22 @@ function runWorkbench(
 		inputName = ''
 		inputSourceUrl = ''
 		inputIsSample = false
+		inputWarnings = []
+		wholeKmlPreview = false
 		previewing = false
 		publishReview = false
 	}
 	async function readInput(text: string, name: string, url = '', isSample = false) {
 		const version = ++importGeneration
 		const account = accountGeneration
-		result = undefined
-		payload = undefined
-		rawHash = ''
-		candidates = []
-		recipe = undefined
-		previewing = false
-		await showOutput()
-		if (version !== importGeneration || account !== accountGeneration) return
+		if (/\.kmz$/i.test(name))
+			throw new Error(
+				'Compressed KMZ is not supported yet. Export an uncompressed KML file instead.',
+			)
 		if (new TextEncoder().encode(text).length > 5 * 1024 * 1024)
-			throw new Error('Choose a JSON response smaller than 5 MiB.')
-		const parsed = importer.parse(text)
+			throw new Error('Choose a JSON or KML response smaller than 5 MiB.')
+		const kml = text.trimStart().startsWith('<') ? parseKml(text, url) : undefined
+		const parsed = kml?.payload ?? importer.parse(text)
 		const found = importer.discover(parsed)
 		if (!found.length)
 			throw new Error(
@@ -208,10 +214,18 @@ function runWorkbench(
 			)
 		const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
 		if (version !== importGeneration || account !== accountGeneration) return
+		result = undefined
+		recipe = undefined
+		previewing = false
+		inputWarnings = kml?.warnings ?? []
+		wholeKmlPreview = false
+		// KML exports are complete layer snapshots and often lack source IDs.
+		// Replacing avoids retaining deleted or moved features as duplicate records.
+		if (kml) importMode = 'replace'
 		payload = parsed
 		candidates = found
 		candidateIndex = 0
-		inputName = name
+		inputName = kml ? `${kml.name}.kml` : name
 		inputSourceUrl = url
 		inputIsSample = isSample
 		rawHash = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join(
@@ -236,6 +250,8 @@ function runWorkbench(
 			chooseCandidate(0)
 			message = `${found.length} geographic ${found.length === 1 ? 'candidate' : 'candidates'} found. Choose what to import.`
 		}
+		await showOutput()
+		if (version !== importGeneration || account !== accountGeneration) return
 		importOpen = true
 		render()
 	}
@@ -243,6 +259,7 @@ function runWorkbench(
 		const candidate = candidates[index]
 		if (!candidate) return
 		candidateIndex = index
+		wholeKmlPreview = false
 		recipe = {
 			version: 1,
 			path: candidate.path,
@@ -253,7 +270,13 @@ function runWorkbench(
 		}
 		result = undefined
 		splitLayers = candidate.adapter === 'liveuamap' && !targetLayerId
-		if (!targetName) targetName = inputName.replace(/\.[^.]+$/, '') || 'Imported layer'
+		if (
+			!targetLayerId &&
+			candidate.path[0] === 'layers' &&
+			candidate.path[1]?.startsWith('Layer: ')
+		)
+			targetName = candidate.path[1].slice(7)
+		else if (!targetName) targetName = inputName.replace(/\.[^.]+$/, '') || 'Imported layer'
 	}
 	function diff() {
 		if (!result) return ''
@@ -291,12 +314,15 @@ function runWorkbench(
 		const current = selected()
 		const candidate = candidates[candidateIndex]
 		const propertyKeys = candidate?.propertyKeys ?? recipe?.retainProperties ?? []
-		return `<section class="importer" aria-label="Guided JSON import">
+		return `<section class="importer" aria-label="Guided geographic import">
 			<div class="row"><h2>Import data</h2>${button('cancel-import', 'Cancel')}</div>
-			<details ${candidates.length ? '' : 'open'}><summary>${candidates.length ? `Input: ${htmlEscape(inputName)}` : 'Choose an input'}</summary><div class="drop" id="drop-zone"><strong>Drop a JSON file</strong><span class="muted">or choose a response from your computer</span><label class="file-label">Choose JSON file<input id="json-file" type="file" accept=".json,.geojson,application/json,application/geo+json" ${busy ? 'disabled' : ''}></label></div>
+			<div class="step"><label>Google My Maps link<input id="my-maps-url" type="url" placeholder="https://www.google.com/maps/d/viewer?mid=…" value="${htmlEscape(myMapsUrl)}"></label>${button('fetch-kml', 'Fetch KML in browser', 'class="primary"')}<p class="muted small">Public maps only. Downloads directly from Google without an Earthly backend or Google sign-in. Fetch again to review a newer snapshot.</p><label class="file-label">Choose KML file<input id="kml-file" type="file" accept=".kml,application/vnd.google-earth.kml+xml,application/xml,text/xml" ${busy ? 'disabled' : ''}></label><p class="muted small">If fetching fails, use My Maps → menu → Export to KML/KMZ. Choose KML, with actual data rather than a network link, then select or drop the file here. Compressed KMZ is not supported yet.</p></div>
+			<details ${candidates.length ? '' : 'open'}><summary>${candidates.length ? `Input: ${htmlEscape(inputName)}` : 'Choose an input'}</summary><div class="drop" id="drop-zone"><strong>Drop a JSON or KML file</strong><span class="muted">or choose a response from your computer</span><label class="file-label">Choose JSON file<input id="json-file" type="file" accept=".json,.geojson,application/json,application/geo+json" ${busy ? 'disabled' : ''}></label></div>
 			<details ${pasted ? 'open' : ''}><summary>Paste a response</summary><label>JSON response<textarea id="json-paste" rows="5" placeholder="Paste the response body">${htmlEscape(pasted)}</textarea></label>${button('analyze-paste', 'Find geographic data')}</details>
 			<div class="actions">${button('sample', 'Try example data')}${button('connector', 'Try available connector')}</div>
-			<p class="muted small">GeoJSON and supported source adapters. Request headers and cookies are not needed for file imports.</p></details>
+			<p class="muted small">GeoJSON, KML and supported source adapters. Request headers and cookies are not needed for file imports.</p></details>
+			${inputWarnings.length && candidates.length > 1 ? button('preview-kml-map', 'Preview entire KML map') : ''}
+			${inputWarnings.length ? `<ul class="muted small">${inputWarnings.map((warning) => `<li>${htmlEscape(warning)}</li>`).join('')}</ul>` : ''}
 			${
 				candidates.length
 					? `<div class="step"><span class="eyebrow">01 / Locate</span><label>Geographic data<select id="candidate" aria-label="Geographic data">${options(
@@ -327,7 +353,7 @@ function runWorkbench(
 			}
 			${
 				result
-					? `<div class="step"><span class="eyebrow">04 / Review</span><h3>${result.featureCollection.features.length} geometries</h3><p>${htmlEscape(diff())}</p><div class="sample-rows">${result.featureCollection.features
+					? `<div class="step"><span class="eyebrow">04 / Review</span><h3>${result.featureCollection.features.length} geometries</h3><p>${wholeKmlPreview ? 'Entire KML map preview. Choose a geographic layer and preview it to save with its recipe.' : htmlEscape(diff())}</p><div class="sample-rows">${result.featureCollection.features
 							.slice(0, 4)
 							.map(
 								(feature) =>
@@ -335,7 +361,7 @@ function runWorkbench(
 							)
 							.join(
 								'',
-							)}</div>${result.warnings.length ? `<details><summary>Import notes (${result.warnings.length})</summary><ul>${result.warnings.map((warning) => `<li>${htmlEscape(warning)}</li>`).join('')}</ul></details>` : ''}<div class="actions">${button('view-map', 'View on map')}${owned() ? button('apply-import', targetLayerId ? 'Apply update & save recipe' : 'Add layers & save recipe', 'class="primary"') : ''}</div><p class="muted small">Saving updates your local collection. Publishing is a separate action.</p></div>`
+							)}</div>${result.warnings.length ? `<details><summary>Import notes (${result.warnings.length})</summary><ul>${result.warnings.map((warning) => `<li>${htmlEscape(warning)}</li>`).join('')}</ul></details>` : ''}<div class="actions">${button('view-map', 'View on map')}${owned() && !wholeKmlPreview ? button('apply-import', targetLayerId ? 'Apply update & save recipe' : 'Add layers & save recipe', 'class="primary"') : ''}</div><p class="muted small">Saving updates your local collection. Publishing is a separate action.</p></div>`
 					: ''
 			}
 		</section>`
@@ -343,7 +369,7 @@ function runWorkbench(
 	function renderLayers() {
 		const collection = selected()
 		if (!collection)
-			return `<section class="empty"><h2>Your next layer starts here</h2><p class="muted">Follow a contributor’s collection or turn a JSON response into layers of your own.</p><div class="actions">${button('open-import', 'Explore a JSON file', 'class="primary"')}${pubkey ? button('manage', 'Create a collection') : ''}</div></section>`
+			return `<section class="empty"><h2>Your next layer starts here</h2><p class="muted">Follow a contributor’s collection or bring a My Maps export or JSON response into layers of your own.</p><div class="actions">${button('open-import', 'Import My Maps / KML', 'class="primary"')}${button('open-import', 'Explore a JSON file')}${pubkey ? button('manage', 'Create a collection') : ''}</div></section>`
 		const grouped = [...collection.groups, { id: '', name: 'Ungrouped' }]
 		const subscription = workspace?.subscriptions.find(
 			(item) => item.address === workspace?.selectedCollectionId,
@@ -424,14 +450,15 @@ function runWorkbench(
 		if (field.id === 'collection-name') collectionName = field.value
 		if (field.id === 'group-name') groupName = field.value
 		if (field.id === 'follow-address') followAddress = field.value
+		if (field.id === 'my-maps-url') myMapsUrl = field.value
 	})
 	root.addEventListener('change', (event) => {
 		const field = event.target as HTMLInputElement
-		if (field.id === 'json-file' && field.files?.[0]) {
+		if ((field.id === 'json-file' || field.id === 'kml-file') && field.files?.[0]) {
 			const file = field.files[0]
 			void task(async (check) => {
 				if (file.size > 5 * 1024 * 1024)
-					throw new Error('Choose a JSON response smaller than 5 MiB.')
+					throw new Error('Choose a JSON or KML response smaller than 5 MiB.')
 				const text = await file.text()
 				check()
 				await readInput(text, file.name)
@@ -584,6 +611,15 @@ function runWorkbench(
 					await readInput(text, 'Source response.json', sourceUrl)
 					break
 				}
+				case 'fetch-kml': {
+					const url = exportUrl(myMapsUrl)
+					const text = await (await napplet.resource.bytes(url)).text()
+					check()
+					if (!text.trimStart().startsWith('<'))
+						throw new Error('The export did not contain KML. Choose a downloaded KML file.')
+					await readInput(text, 'My Maps.kml', url)
+					break
+				}
 				case 'analyze-paste':
 					await readInput(pasted, 'Pasted response.json')
 					break
@@ -627,7 +663,38 @@ function runWorkbench(
 				case 'unfollow':
 					await action('unfollow', { address: workspace?.selectedCollectionId })
 					break
+				case 'preview-kml-map': {
+					const mapped = candidates.map((candidate) =>
+						importer.apply(payload, {
+							version: 1,
+							path: candidate.path,
+							adapter: candidate.adapter,
+						}),
+					)
+					const combined = {
+						featureCollection: {
+							type: 'FeatureCollection' as const,
+							features: mapped.flatMap((item) => item.featureCollection.features),
+						},
+						warnings: [...new Set(mapped.flatMap((item) => item.warnings))],
+					}
+					await napplet.map.replace(combined.featureCollection, {
+						warnings: [
+							...inputWarnings,
+							...combined.warnings,
+							'Import preview: these geometries have not been saved or published.',
+						],
+					})
+					check()
+					result = combined
+					previewing = true
+					wholeKmlPreview = true
+					message =
+						'Entire KML map preview ready. View on map, or select one layer to save its import recipe.'
+					break
+				}
 				case 'preview': {
+					wholeKmlPreview = false
 					if (!recipe || payload === undefined) throw new Error('Choose geographic data first.')
 					result = importer.apply(
 						payload,
@@ -637,6 +704,7 @@ function runWorkbench(
 					previewing = true
 					await napplet.map.replace(result.featureCollection, {
 						warnings: [
+							...inputWarnings,
 							...result.warnings,
 							'Import preview: these geometries have not been saved or published.',
 						],
@@ -719,7 +787,8 @@ function runWorkbench(
 		const file = event.dataTransfer?.files[0]
 		if (!importOpen || !file || busy) return
 		void task(async (check) => {
-			if (file.size > 5 * 1024 * 1024) throw new Error('Choose a JSON response smaller than 5 MiB.')
+			if (file.size > 5 * 1024 * 1024)
+				throw new Error('Choose a JSON or KML response smaller than 5 MiB.')
 			const text = await file.text()
 			check()
 			await readInput(text, file.name)
@@ -743,6 +812,7 @@ function runWorkbench(
 		collectionName = ''
 		groupName = ''
 		followAddress = ''
+		myMapsUrl = ''
 		busy = false
 		void napplet.map.replace(empty)
 		const generation = accountGeneration
@@ -776,5 +846,5 @@ export function createLiveMapperWorkbenchHtml(
 	const literal = (value: unknown) => JSON.stringify(value).replaceAll('<', '\\u003c')
 	return `<html lang="en"><head><meta charset="utf-8"><title>Live Mapper</title><style>
 :root{color-scheme:light dark;--bg:light-dark(#fafaf7,#20231f);--fg:light-dark(#292f28,#e7ece2);--muted:light-dark(#626b5d,#aeb8a6);--line:light-dark(#d9dfd2,#424b3d);--soft:light-dark(#eef1e8,#2c3427);--accent:light-dark(#355235,#c3d7aa);--on-accent:light-dark(#fff,#25331e);--error:light-dark(#a33823,#ffb19e)}*{box-sizing:border-box}body{margin:0;padding:22px;color:var(--fg);background:var(--bg);font:14px/1.5 ui-sans-serif,system-ui,sans-serif}button,input,textarea,select{font:inherit;color:inherit}button{padding:8px 12px;border:1px solid var(--line);border-radius:5px;background:var(--bg);cursor:pointer}button:disabled{opacity:.5;cursor:default}button.primary,nav button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}button:hover:enabled{filter:brightness(.96)}input:not([type=checkbox]):not([type=file]),textarea,select{width:100%;padding:9px 10px;margin-top:6px;border:1px solid var(--line);border-radius:5px;background:var(--bg)}textarea{resize:vertical}label{display:block}input[type=checkbox]{accent-color:var(--accent);width:17px;height:17px;flex-shrink:0}h1{font-size:25px;letter-spacing:-.8px;margin:3px 0}h2{font-size:18px;letter-spacing:-.4px;margin:0 0 8px}h3{font-size:14px;margin:0}p{margin:8px 0 12px}.intro,.row{display:flex;align-items:center;justify-content:space-between;gap:12px}.eyebrow{text-transform:uppercase;font-size:10px;letter-spacing:1.8px;color:var(--muted);display:block;margin-bottom:8px}.account{font:12px ui-monospace,monospace;color:var(--muted)}.muted,footer{color:var(--muted)}.small{font-size:12px}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.collection-picker{margin:18px 0}.collection-heading{margin:20px 0}nav{display:flex;gap:7px;padding:15px 0;border-bottom:1px solid var(--line);margin-bottom:20px}nav button{border:0}.empty{padding:14px 0 20px}.step{border-top:1px solid var(--line);margin-top:22px;padding-top:22px}.step>label,.edit-layer>label{margin:14px 0}.columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}.notice{padding:12px;background:var(--soft);margin-bottom:16px;border-radius:5px}.error{color:var(--error)}.drop{display:grid;justify-items:center;gap:6px;padding:24px 12px;margin:16px 0;border:1px dashed var(--line);background:var(--soft);border-radius:5px;text-align:center}.file-label{margin-top:8px;max-width:100%}.file-label input{display:block;margin:8px auto 0;max-width:100%}.layer-group{margin:22px 0}.layer-group h3{color:var(--muted)}.layer-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}.check{display:flex;align-items:center;gap:9px;min-height:34px}.check small{display:block;font-size:12px}.edit-row{display:flex;align-items:end;gap:8px;margin:14px 0}.edit-row label{flex:1;min-width:0}.edit-layer{padding:14px 0;border-bottom:1px solid var(--line)}details{margin:16px 0}summary{cursor:pointer;padding:5px 0}.properties{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;margin:10px 0}.properties label{overflow-wrap:anywhere}.sample-rows{padding:8px 0}.sample-rows .row{padding:7px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.review{background:var(--soft);padding:16px;border-radius:5px}.share-label{margin-top:20px}footer{font-size:12px;border-top:1px solid var(--line);margin-top:24px;padding-top:16px}ul{padding-left:20px}li{margin:7px 0;overflow-wrap:anywhere}@media(max-width:480px){body{padding:16px}.columns,.properties{grid-template-columns:1fr}.edit-row{flex-wrap:wrap}.edit-row label{flex-basis:100%}button{min-height:44px}input,select,textarea{font-size:16px}.account{max-width:90px;overflow:hidden}}
-</style></head><body><main id="workbench"></main><script>(${runWorkbench.toString()})(${literal(sample)},${literal(sourceUrl)},${createMapletImporter.toString()},${mapper.toString()})</script></body></html>`
+</style></head><body><main id="workbench"></main><script>(${runWorkbench.toString()})(${literal(sample)},${literal(sourceUrl)},${createMapletImporter.toString()},${mapper.toString()},${parseMapletKml.toString()},${myMapsExportUrl.toString()})</script></body></html>`
 }
