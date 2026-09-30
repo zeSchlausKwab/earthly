@@ -9,7 +9,7 @@ import {
 describe('Earthly route state', () => {
 	test('distinguishes an explicit Browse catalog from the bare phone map', () => {
 		expect(parseEarthlyRoute('/').browseOpen).toBeUndefined()
-		for (const kind of ['maps', 'stories', 'atlases', 'sightings', 'people']) {
+		for (const kind of ['maps', 'stories', 'atlases', 'sightings', 'maplets', 'people']) {
 			expect(parseEarthlyRoute(`/browse/${kind}`)).toMatchObject({
 				kind: 'browse',
 				browseKind: kind,

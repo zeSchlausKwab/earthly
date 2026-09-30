@@ -6,6 +6,7 @@ import type { FeatureCollection } from 'geojson'
 import { nip19 } from 'nostr-tools'
 import { getPublicKey } from 'nostr-tools/pure'
 import { serverConfig } from './config/env.server'
+import { getMapletFeed, MapletFeedError } from '../contextvm/tools/maplet-feed'
 import {
 	getBuiltFileHeaders,
 	getMissingAssetHeaders,
@@ -668,6 +669,20 @@ async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
 
 // Define route handlers that work in both modes
 const apiRoutes: Record<string, BunRoute> = {
+	'/api/maplets/liveuamap-yemen': {
+		async GET() {
+			try {
+				return Response.json({ result: await getMapletFeed({ feed: 'liveuamap-yemen' }) }, {
+					headers: { 'Cache-Control': 'no-store' },
+				})
+			} catch (error) {
+				const message = error instanceof MapletFeedError ? error.message : 'The source connector is unavailable.'
+				return Response.json({ error: { code: error instanceof MapletFeedError ? error.code : 'connector_unavailable', message } }, {
+					status: 502, headers: { 'Cache-Control': 'no-store' },
+				})
+			}
+		},
+	},
 	// NIP-05 (§ "Allowing access from JavaScript apps") requires wildcard CORS.
 	// Keeping this as an exact route also guarantees that the well-known request
 	// never falls through to the SPA index or an HTTP redirect.

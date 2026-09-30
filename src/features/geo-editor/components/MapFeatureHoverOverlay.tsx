@@ -9,6 +9,9 @@ import { SightingPopup, type SightingPopupData } from './SightingPopup'
 import type { MapPopupPlacement } from './map-popup-positioning'
 
 interface MapFeatureHoverOverlayProps {
+	mapletLayerIds?: readonly string[]
+	mapletLayersReady?: boolean
+	onInspectMaplet?: (instanceId: string, featureId: string) => void
 	mapRef: React.RefObject<maplibregl.Map | null>
 	containerRef: React.RefObject<HTMLDivElement | null>
 	remoteLayersReady: boolean
@@ -28,6 +31,9 @@ interface MapFeatureHoverOverlayProps {
 }
 
 export function MapFeatureHoverOverlay({
+	mapletLayerIds,
+	mapletLayersReady,
+	onInspectMaplet,
 	mapRef,
 	containerRef,
 	remoteLayersReady,
@@ -38,7 +44,7 @@ export function MapFeatureHoverOverlay({
 	handleInspectDatasetWithoutFocus,
 	sightingsRef,
 	onInspectSighting,
-	popupsEnabled = true,
+	popupsEnabled = false,
 	placementMode = 'geometry',
 	toolbarOffset = 72,
 	suppressed = false,
@@ -120,6 +126,9 @@ export function MapFeatureHoverOverlay({
 	)
 
 	const { chooseRemoteGeometry } = useMapInteractions({
+		mapletLayerIds,
+		mapletLayersReady,
+		onInspectMaplet,
 		mapRef,
 		remoteLayersReady,
 		CLUSTERED_SOURCE_ID: clusteredSourceId,

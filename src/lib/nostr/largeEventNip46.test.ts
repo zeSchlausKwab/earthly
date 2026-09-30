@@ -152,6 +152,8 @@ describe('EarthlyNostrConnectSigner', () => {
 		expect(EARTHLY_NIP46_PERMISSIONS).toContain('sign_event:37515')
 		expect(EARTHLY_NIP46_PERMISSIONS).toContain('sign_event:22242')
 		expect(EARTHLY_NIP46_PERMISSIONS).toContain('sign_event:24242')
+		expect(EARTHLY_NIP46_PERMISSIONS).toContain('sign_event:37526')
+		expect(EARTHLY_NIP46_PERMISSIONS).toContain('sign_event:30078')
 		expect(EARTHLY_NIP46_PERMISSIONS).toContain('nip44_encrypt')
 		expect(EARTHLY_NIP46_PERMISSIONS).toContain('nip44_decrypt')
 		expect(EARTHLY_NIP46_PERMISSIONS).not.toContain('sign_event:34444')

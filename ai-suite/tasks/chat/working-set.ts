@@ -1,20 +1,20 @@
 import { expect } from '@playwright/test'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
+import { openChatView } from './navigation'
 
 export const setThreadWorkingSetOpenTask: AiTaskMetadata = {
 	id: 'chat.set-working-set-open',
 	summary: 'Open or close the AI editing menu, listing the maps and stories AI may change.',
 	preconditions: ['AI Thread is visible'],
-	sideEffects: ['Changes a local disclosure only'],
+	sideEffects: ['Changes the visible chat view only'],
 	viewports: 'both',
 }
 
 export async function setThreadWorkingSetOpen(earthly: EarthlySession, open = true) {
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
-	const trigger = panel.getByRole('button', { name: 'AI editing and references', exact: true })
-	if ((await trigger.getAttribute('aria-expanded')) !== String(open)) await trigger.click()
-	const working = earthly.page.getByRole('region', { name: 'AI editing and references', exact: true })
+	await openChatView(earthly, open ? 'edit' : 'chat')
+	const working = panel.getByRole('region', { name: 'AI can edit', exact: true })
 	if (open) await expect(working).toBeVisible()
 	else await expect(working).toBeHidden()
 	return working

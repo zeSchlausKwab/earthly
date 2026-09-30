@@ -1,3 +1,4 @@
+import { ConnectionSettings } from './ConnectionSettings'
 import { useEffect, useMemo, useState } from 'react'
 import {
 	AlertTriangle,
@@ -25,35 +26,11 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import type { ProviderType } from './routstr'
 import { serializeSnapshot, validateImportedSnapshot } from './settingsExport'
 import { chatActions, useChatStore } from './store'
 
-const PROVIDER_OPTIONS: { value: ProviderType; label: string }[] = [
-	{ value: 'routstr', label: 'Routstr (paid)' },
-	{ value: 'lmstudio', label: 'LM Studio' },
-	{ value: 'ollama', label: 'Ollama' },
-	{ value: 'custom', label: 'Custom endpoint' },
-]
-
 type ModelSortMode = 'relevance' | 'price_input_asc' | 'price_output_asc' | 'name_asc'
-
-function DangerIndicator() {
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<span className="inline-flex shrink-0 items-center justify-center text-orange-500 dark:text-orange-400">
-					<AlertTriangle className="h-3.5 w-3.5" />
-				</span>
-			</TooltipTrigger>
-			<TooltipContent side="top" sideOffset={6}>
-				danger
-			</TooltipContent>
-		</Tooltip>
-	)
-}
 
 export function ChatSettingsSection() {
 	const currentUser = useActiveAccount()
@@ -72,16 +49,14 @@ export function ChatSettingsSection() {
 		settingsStatus,
 		settingsError,
 		settingsOwnerPubkey,
-		setProvider,
-		setProviderOverride,
+		connections,
+		activeConnectionId,
 		loadModels,
 		setSelectedModel,
 		setToolsEnabled,
 		setPromptProfile,
 		requestSettingsReload,
-		cancelStream,
 	} = useChatStore()
-	const selectedProviderOption = PROVIDER_OPTIONS.find((option) => option.value === provider)
 	const [modelPickerOpen, setModelPickerOpen] = useState(false)
 	const [modelQuery, setModelQuery] = useState('')
 	const [modelSortMode, setModelSortMode] = useState<ModelSortMode>('relevance')
@@ -110,7 +85,9 @@ export function ChatSettingsSection() {
 					mapSnapshotsEnabled,
 					safetyLevel,
 					promptProfile,
-					version: 2,
+					version: 3,
+					connections,
+					activeConnectionId,
 				})
 				await navigator.clipboard.writeText(json)
 				setExported(true)
@@ -179,17 +156,17 @@ export function ChatSettingsSection() {
 	}, [models, modelQuery, modelSortMode, toolCallingOnly])
 
 	useEffect(() => {
-		if (provider === 'custom' && !providerOverrides.custom.baseUrl.trim()) return
+		if (!activeConnectionId || !settingsReadyForCurrentAccount) return
 		if (models.length === 0 && !modelsLoading && !modelsError) {
 			void loadModels()
 		}
 	}, [
-		providerOverrides.custom.baseUrl,
+		activeConnectionId,
+		settingsReadyForCurrentAccount,
 		loadModels,
 		models.length,
 		modelsError,
 		modelsLoading,
-		provider,
 	])
 
 	useEffect(() => {
@@ -206,126 +183,12 @@ export function ChatSettingsSection() {
 					<Label className="text-sm font-medium">AI Chat</Label>
 				</div>
 				<p className="text-xs text-muted-foreground">
-					Provider, model, tool access, and custom credentials are encrypted with the active Nostr
-					signer before they are stored locally.
+					Save named connections and switch between them. API keys and settings are encrypted for
+					your Nostr account before syncing to your relays.
 				</p>
 			</div>
 
-			<div className="space-y-2">
-				<Label htmlFor="chat-provider-select">Provider</Label>
-				{/* NOT disabled while streaming: a stuck isStreaming flag would lock the
-				    user out of their own settings with no visual cue (Radix disabled
-				    selects look normal but swallow clicks). Switching provider cancels
-				    any in-flight response instead — same recovery contract as New conversation. */}
-				<div className="flex min-w-0 flex-wrap items-center gap-2">
-					<NativeSelect
-						id="chat-provider-select"
-						className="min-w-0 max-w-full flex-1"
-						value={provider}
-						onChange={(event) => {
-							const value = event.target.value
-							if (isStreaming) cancelStream()
-							setProvider(value as ProviderType)
-						}}
-					>
-						{PROVIDER_OPTIONS.map((option) => (
-							<NativeSelectOption key={option.value} value={option.value}>
-								{option.label}
-							</NativeSelectOption>
-						))}
-					</NativeSelect>
-					{provider === 'routstr' ? <DangerIndicator /> : null}
-					{selectedProviderOption ? null : (
-						<span className="min-w-0 break-words text-xs text-muted-foreground">
-							Select provider
-						</span>
-					)}
-				</div>
-			</div>
-
-			{provider === 'lmstudio' && (
-				<div className="min-w-0 max-w-full space-y-3 rounded-lg border bg-muted/20 p-3">
-					<div className="space-y-2">
-						<Label>LM Studio endpoint</Label>
-						<Input
-							placeholder="http://localhost:1234/v1"
-							value={providerOverrides.lmstudio.baseUrl}
-							onChange={(event) => setProviderOverride('lmstudio', { baseUrl: event.target.value })}
-						/>
-						<p className="text-xs text-muted-foreground">
-							Leave empty to use the default http://localhost:1234/v1.
-						</p>
-					</div>
-
-					<div className="space-y-2">
-						<Label>API Key</Label>
-						<Input
-							placeholder="Optional bearer token"
-							type="password"
-							value={providerOverrides.lmstudio.apiKey}
-							onChange={(event) => setProviderOverride('lmstudio', { apiKey: event.target.value })}
-						/>
-					</div>
-				</div>
-			)}
-
-			{provider === 'ollama' && (
-				<div className="min-w-0 max-w-full space-y-3 rounded-lg border bg-muted/20 p-3">
-					<div className="space-y-2">
-						<Label>Ollama endpoint</Label>
-						<Input
-							placeholder="http://localhost:11434/v1"
-							value={providerOverrides.ollama.baseUrl}
-							onChange={(event) => setProviderOverride('ollama', { baseUrl: event.target.value })}
-						/>
-						<p className="text-xs text-muted-foreground">
-							Leave empty to use the default http://localhost:11434/v1.
-						</p>
-					</div>
-
-					<div className="space-y-2">
-						<Label>API Key</Label>
-						<Input
-							placeholder="Optional bearer token"
-							type="password"
-							value={providerOverrides.ollama.apiKey}
-							onChange={(event) => setProviderOverride('ollama', { apiKey: event.target.value })}
-						/>
-					</div>
-				</div>
-			)}
-
-			{provider === 'custom' && (
-				<div className="min-w-0 max-w-full space-y-3 rounded-lg border bg-muted/20 p-3">
-					<div className="space-y-2">
-						<Label>Endpoint</Label>
-						<Input
-							placeholder="http://localhost:8080/v1"
-							value={providerOverrides.custom.baseUrl}
-							onChange={(event) => setProviderOverride('custom', { baseUrl: event.target.value })}
-						/>
-					</div>
-
-					<div className="space-y-2">
-						<Label>API Key</Label>
-						<Input
-							placeholder="Optional bearer token"
-							type="password"
-							value={providerOverrides.custom.apiKey}
-							onChange={(event) => setProviderOverride('custom', { apiKey: event.target.value })}
-						/>
-					</div>
-
-					<Button
-						variant="outline"
-						onClick={() => void loadModels()}
-						disabled={!providerOverrides.custom.baseUrl || modelsLoading}
-						className="w-full min-w-0 max-w-full whitespace-normal"
-					>
-						{modelsLoading ? 'Connecting...' : 'Connect custom endpoint'}
-					</Button>
-				</div>
-			)}
+			<ConnectionSettings disabled={!settingsReadyForCurrentAccount} />
 
 			<div className="space-y-2">
 				<Label>Model</Label>
@@ -346,8 +209,8 @@ export function ChatSettingsSection() {
 										{(selectedModelData.pricing.input > 0 ||
 											selectedModelData.pricing.output > 0) && (
 											<span className="text-xs text-muted-foreground">
-												{selectedModelData.pricing.input}/{selectedModelData.pricing.output} sats/M
-												tokens
+												{selectedModelData.pricing.input}/{selectedModelData.pricing.output}{' '}
+												{selectedModelData.pricing.currency ?? 'sats'}/M tokens
 											</span>
 										)}
 									</span>
@@ -441,7 +304,8 @@ export function ChatSettingsSection() {
 												</span>
 												{(model.pricing.input > 0 || model.pricing.output > 0) && (
 													<span className="block text-xs text-muted-foreground">
-														{model.pricing.input}/{model.pricing.output} sats/M tokens
+														{model.pricing.input}/{model.pricing.output}{' '}
+														{model.pricing.currency ?? 'sats'}/M tokens
 													</span>
 												)}
 											</span>
@@ -456,6 +320,14 @@ export function ChatSettingsSection() {
 					</PopoverContent>
 				</Popover>
 				{modelsError ? <p className="text-xs text-destructive">{modelsError}</p> : null}
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={modelsLoading || !settingsReadyForCurrentAccount || !activeConnectionId}
+					onClick={() => void loadModels()}
+				>
+					Refresh models
+				</Button>
 			</div>
 
 			<div className="min-w-0 max-w-full rounded-lg border bg-card p-3">
@@ -525,7 +397,7 @@ export function ChatSettingsSection() {
 						<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
 						<div className="min-w-0 flex-1">
 							<p className="font-medium text-destructive">
-								Decryption failed — your saved settings could not be loaded.
+								Your saved settings could not be loaded.
 							</p>
 							{settingsError ? <p className="mt-1 text-destructive/90">{settingsError}</p> : null}
 							<Button
@@ -596,7 +468,9 @@ export function ChatSettingsSection() {
 				</div>
 
 				<div className="space-y-2">
-					<Label htmlFor="chat-settings-import" className="text-xs text-muted-foreground">Paste exported settings JSON</Label>
+					<Label htmlFor="chat-settings-import" className="text-xs text-muted-foreground">
+						Paste exported settings JSON
+					</Label>
 					<Textarea
 						id="chat-settings-import"
 						value={importText}

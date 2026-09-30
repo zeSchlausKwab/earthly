@@ -8,9 +8,9 @@ export type MobileEntitySurface = 'Map' | 'Story' | 'Atlas' | 'Inspect'
 
 export const switchMobileWorkspacePanelTask: AiTaskMetadata = {
 	id: 'navigation.switch-mobile-workspace-panel',
-	summary: 'Open Shelf or the current object’s Details/Thread through visible route controls.',
-	preconditions: ['Mobile Earthly session', 'The map workspace sheet is open'],
-	sideEffects: ['Navigates to Shelf, object Details, or the route-bound Thread'],
+	summary: 'Open Shelf, object Details/Thread, or Chat through visible route controls.',
+	preconditions: ['Mobile Earthly session', 'Earthly is ready'],
+	sideEffects: ['Navigates to Shelf, object Details, or a retained Thread'],
 	viewports: 'mobile',
 }
 
@@ -74,7 +74,13 @@ export async function switchMobileWorkspacePanel(
 		if (await tabs.isVisible()) {
 			await tabs.getByRole('tab', { name: 'Thread', exact: true }).click()
 		} else {
-			await page.getByRole('button', { name: 'Ask', exact: true }).click()
+			const drawingAsk = page.getByRole('button', { name: 'Ask', exact: true })
+			if (await drawingAsk.isVisible()) await drawingAsk.click()
+			else
+				await page
+					.getByRole('navigation', { name: 'Primary', exact: true })
+					.getByRole('button', { name: 'Chat', exact: true })
+					.click()
 		}
 		await expect(page.getByRole('region', { name: 'AI Thread', exact: true })).toBeVisible()
 		return
@@ -104,7 +110,10 @@ export async function selectMobileEntitySurface(
 ): Promise<void> {
 	requireMobile(earthly)
 	const page = earthly.page
-	const shelf = mobileWorkspaceSheet(earthly).getByRole('region', { name: 'On the map', exact: true })
+	const shelf = mobileWorkspaceSheet(earthly).getByRole('region', {
+		name: 'On the map',
+		exact: true,
+	})
 	if (surface === 'Map' && (await shelf.isVisible())) {
 		if (expectedName) await expect(shelf).toContainText(expectedName)
 		await shelf.getByRole('button', { name: 'Open editor panel', exact: true }).click()

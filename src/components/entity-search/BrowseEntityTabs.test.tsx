@@ -13,22 +13,36 @@ describe('BrowseEntityTabs', () => {
 		expect(activeTab?.textContent).toContain('Atlases')
 	})
 
-	test('uses the full five canonical Browse destinations outside a lens', () => {
+	test('includes Maplets in canonical Browse destinations outside a lens', () => {
 		expect(getBrowseTabDefinitions().map((tab) => tab.label)).toEqual([
 			'Maps',
 			'Stories',
 			'Atlases',
 			'Sightings',
+			'Maplets',
 			'People',
 		])
 	})
 
-	test('narrows a lens to its noun, Stories, and People', () => {
+	test('keeps Maplets accessible in a lens', () => {
 		expect(getBrowseTabDefinitions('spot').map((tab) => tab.label)).toEqual([
 			'Spots',
 			'Stories',
+			'Maplets',
 			'People',
 		])
+	})
+
+	test('selects Maplets without offering a map creation action', () => {
+		const { document } = parseHTML(
+			renderToStaticMarkup(
+				<BrowseEntityTabs activeKind="maplets" onKindChange={() => {}} onCreate={() => {}} />,
+			),
+		)
+		expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
+			'Maplets',
+		)
+		expect(document.querySelector('button:not([role="tab"])')).toBeNull()
 	})
 
 	test('uses canonical singular labels for the one tab-level create action', () => {

@@ -96,5 +96,17 @@ export function PendingDiffList() {
 	const entries = chatEntries.filter(
 		(entry) => !entry.toolCallId || !anchoredCallIds.has(entry.toolCallId),
 	)
-	return <DiffCardStack entries={entries} />
+	const pending = entries.filter((entry) => entry.status === 'pending')
+	const history = entries.filter((entry) => entry.status !== 'pending')
+	return (
+		<>
+			<DiffCardStack entries={pending} />
+			{history.length > 0 ? (
+				<details className="ml-8 text-xs text-muted-foreground">
+					<summary className="cursor-pointer py-2">Earlier map changes · {history.length}</summary>
+					<DiffCardStack entries={history} />
+				</details>
+			) : null}
+		</>
+	)
 }

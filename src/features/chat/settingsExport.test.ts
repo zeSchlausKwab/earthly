@@ -126,17 +126,23 @@ describe('validateImportedSnapshot — acceptance', () => {
 	})
 
 	test('preserves a valid imported safetyLevel and normalizes an invalid one to 2 (SAFE-04 / T-05-11)', () => {
-		for (const level of [1, 3] as const) {
+		for (const level of [1, 2, 3] as const) {
 			expect(
 				validateImportedSnapshot({ provider: 'routstr', providerOverrides: {}, safetyLevel: level })
 					.safetyLevel,
 			).toBe(level)
 		}
-		for (const bad of [0, 5, '1', 'high', null, undefined]) {
+		for (const bad of [0, 5, '1', 'high', null]) {
 			expect(
 				validateImportedSnapshot({ provider: 'routstr', providerOverrides: {}, safetyLevel: bad })
 					.safetyLevel,
 			).toBe(2)
+		}
+	})
+
+	test('uses automatic edits when an imported snapshot has no permission preference', () => {
+		for (const snapshot of [{}, { providerOverrides: {} }, { version: 3, connections: [] }]) {
+			expect(validateImportedSnapshot(snapshot).safetyLevel).toBe(3)
 		}
 	})
 })

@@ -150,6 +150,21 @@ async function call(
 }
 
 describe('explicit Thread working sets', () => {
+	test('retries creation of the same named Map without duplicating the output', async () => {
+		const identity = run([], true)
+		const first = await call(identity, 'create_map_draft', { title: 'One map' })
+		const retry = await call(identity, 'create_map_draft', { title: 'One map' })
+		expect(retry.workingTarget).toBe(first.workingTarget)
+		expect(Object.keys(useEditorStore.getState().geoEditDrafts)).toHaveLength(1)
+		expect(runWorkingSet(identity)).toHaveLength(1)
+		const separate = await call(identity, 'create_map_draft', {
+			title: 'One map',
+			createSeparate: true,
+		})
+		expect(separate.workingTarget).not.toBe(first.workingTarget)
+		expect(Object.keys(useEditorStore.getState().geoEditDrafts)).toHaveLength(2)
+	})
+
 	test('navigation and publication entry points keep the selected Thread, including an empty new Thread', () => {
 		const id = useChatStore.getState().activeChatId
 		expect(

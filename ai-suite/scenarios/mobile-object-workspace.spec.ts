@@ -233,8 +233,8 @@ test('embedded Map Thread has one compact header and reachable settings at 320 a
 		await expect(thread.getByText(fixture.title, { exact: true })).toHaveCount(0)
 		await expect(controls).toBeInViewport({ ratio: 1 })
 		const box = await controls.boundingBox()
-		expect(box?.height).toBe(44)
-		for (const name of ['AI edit safety: Auto apply', 'Thread settings', 'Conversations']) {
+		expect(box?.height).toBeLessThanOrEqual(52)
+		for (const name of ['Chat actions', 'Conversations', 'Close Thread']) {
 			const button = controls.getByRole('button', { name, exact: true })
 			await expect(button).toBeInViewport({ ratio: 1 })
 			const control = await button.boundingBox()
@@ -246,31 +246,25 @@ test('embedded Map Thread has one compact header and reachable settings at 320 a
 		await expect(thread.getByRole('combobox', { name: 'AI edit safety', exact: true })).toBeHidden()
 		await expect(
 			thread.getByRole('button', { name: 'Chat usage details', exact: true }),
-		).toBeHidden()
-		await setAiThreadSettingsOpen(earthly)
-		const safety = thread.getByRole('combobox', { name: 'AI edit safety', exact: true })
-		await safety.selectOption('1')
-		await expect(
-			controls.getByRole('button', { name: 'AI edit safety: Ask always', exact: true }),
 		).toBeVisible()
-		await safety.selectOption('3')
+		await setAiThreadSettingsOpen(earthly)
+		await expect(thread.getByRole('combobox', { name: 'AI edit safety', exact: true })).toHaveCount(0)
+		await expect(thread.getByText('This conversation can read sources but cannot change maps or stories.', { exact: true })).toBeVisible()
 		const model = thread.getByRole('combobox', { name: 'Select chat model', exact: true })
 		await model.scrollIntoViewIfNeeded()
 		await expect(model).toBeInViewport({ ratio: 1 })
 		await expect(model).toHaveValue(provider.settings.selectedModel)
 		const providerSettings = thread.getByRole('button', {
-			name: 'Open provider settings',
+			name: 'Manage connections',
 			exact: true,
 		})
 		await providerSettings.click({ trial: true })
-		const snapshots = thread.getByRole('switch', { name: 'Allow AI map screenshots', exact: true })
-		await snapshots.click()
-		await expect(snapshots).not.toBeChecked()
-		await snapshots.click()
-		await expect(snapshots).toBeChecked()
+
 		const usage = thread.getByRole('button', { name: 'Chat usage details', exact: true })
 		await usage.click()
-		await expect(usage).toHaveAttribute('aria-expanded', 'true')
+		await expect(
+			thread.getByRole('region', { name: 'Usage & diagnostics', exact: true }),
+		).toBeVisible()
 		const lastMetric = thread.getByText('System prompt', { exact: true })
 		await lastMetric.scrollIntoViewIfNeeded()
 		await expect(lastMetric).toBeInViewport({ ratio: 1 })

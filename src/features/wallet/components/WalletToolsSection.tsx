@@ -1,3 +1,10 @@
+import {
+	pendingRoutstrPaymentKeys,
+	recoverRoutstrPayments,
+	ROUTSTR_PAYMENTS_CHANGED,
+} from '@/features/chat/routstrPayments'
+import { recoverLegacyCouch } from '@/lib/wallet/actions'
+import { requirePublishAcknowledgement } from '@/lib/nostr/publishAcknowledgement'
 /**
  * Wallet maintenance tools, mirroring the applesauce wallet example's
  * Settings tab:
@@ -8,10 +15,10 @@
  *   - Recover:       sweep tokens stranded in the couch after a crash.
  */
 
-import { use$ } from 'applesauce-react/hooks'
+import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import type { Wallet } from 'applesauce-wallet/casts'
 import { Combine, LifeBuoy, Loader2, Plus, UploadCloud, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,6 +39,7 @@ export function WalletToolsSection({ wallet }: { wallet: Wallet }) {
 			<WalletRelaysTool wallet={wallet} />
 			<NutzapMintsTool />
 			<MaintenanceTool wallet={wallet} />
+			<RoutstrRecoveryTool />
 		</div>
 	)
 }
@@ -221,7 +229,7 @@ function MaintenanceTool({ wallet }: { wallet: Wallet }) {
 		setSyncing(true)
 		try {
 			for (const token of tokens) {
-				await pool.publish(relays, token.event)
+				requirePublishAcknowledgement(await pool.publish(relays, token.event))
 			}
 			toast.success(`Synced ${tokens.length} token event${tokens.length === 1 ? '' : 's'}`)
 		} catch (err) {
@@ -289,6 +297,79 @@ function MaintenanceTool({ wallet }: { wallet: Wallet }) {
 				mint. Sync re-publishes token events to your wallet relays. Recover sweeps tokens stranded
 				mid-operation back into the wallet.
 			</p>
+		</div>
+	)
+}
+
+function RoutstrRecoveryTool() {
+	const account = useActiveAccount()
+	const [count, setCount] = useState(0)
+	const [busy, setBusy] = useState(false)
+	useEffect(() => {
+		const update = () => setCount(account ? pendingRoutstrPaymentKeys(account.pubkey).length : 0)
+		update()
+		window.addEventListener(ROUTSTR_PAYMENTS_CHANGED, update)
+		window.addEventListener('storage', update)
+		return () => {
+			window.removeEventListener(ROUTSTR_PAYMENTS_CHANGED, update)
+			window.removeEventListener('storage', update)
+		}
+	}, [account])
+	return (
+		<div className="space-y-2">
+			{count > 0 && (
+				<>
+					<p className="text-sm">
+						{count} Routstr payment{count === 1 ? '' : 's'} awaiting recovery
+					</p>
+					<Button
+						variant="secondary"
+						disabled={busy}
+						onClick={async () => {
+							setBusy(true)
+							try {
+								const result = await recoverRoutstrPayments()
+								toast.info(`${result.recovered} recovered; ${result.pending} still pending.`)
+							} catch (error) {
+								toast.error(error instanceof Error ? error.message : 'Recovery failed')
+							} finally {
+								setBusy(false)
+							}
+						}}
+					>
+						Recover Routstr payments
+					</Button>
+					<p className="text-xs text-muted-foreground">
+						Checks delayed refunds and reclaims unsent tokens. Encrypted receipts stay on this
+						device until recovery succeeds.
+					</p>
+				</>
+			)}
+			<details className="text-xs text-muted-foreground">
+				<summary>Recovery from older Earthly versions</summary>
+				<p className="my-2">
+					Older recovery tokens have no account label. Recover them only when this is the wallet
+					that made the payment.
+				</p>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={busy}
+					onClick={async () => {
+						setBusy(true)
+						try {
+							await recoverLegacyCouch()
+							toast.success('Legacy recovery complete')
+						} catch {
+							toast.error('Legacy recovery failed; tokens have been kept')
+						} finally {
+							setBusy(false)
+						}
+					}}
+				>
+					Recover legacy tokens
+				</Button>
+			</details>
 		</div>
 	)
 }

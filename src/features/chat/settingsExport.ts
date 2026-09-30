@@ -1,5 +1,5 @@
 import { isProviderType } from './routstr'
-import { migrateV1ToV2 } from './settingsStorage'
+import { normalizeChatSettings, migrateV1ToV2, normalizeSafetyLevel } from './settingsStorage'
 import { DEFAULT_CHAT_SETTINGS } from './store'
 import type { ChatSettingsSnapshot, ProviderOverride } from './store'
 
@@ -47,6 +47,7 @@ export function validateImportedSnapshot(parsed: unknown): ChatSettingsSnapshot 
 		throw new Error(`Unknown provider: ${String(parsed.provider)}`)
 	}
 
+	if ('connections' in parsed) return normalizeChatSettings(parsed)
 	const defaults = DEFAULT_CHAT_SETTINGS
 
 	// Flat v1 payload (no providerOverrides): fold through the shared migration so the custom
@@ -93,9 +94,7 @@ export function validateImportedSnapshot(parsed: unknown): ChatSettingsSnapshot 
 			typeof parsed.mapSnapshotsEnabled === 'boolean'
 				? parsed.mapSnapshotsEnabled
 				: defaults.mapSnapshotsEnabled,
-		// SAFE-04 / T-05-11: membership-check the imported safety level; an out-of-range or
-		// wrong-type value falls back to the safe default 2 rather than weakening gating.
-		safetyLevel: parsed.safetyLevel === 1 || parsed.safetyLevel === 3 ? parsed.safetyLevel : 2,
+		safetyLevel: normalizeSafetyLevel(parsed.safetyLevel),
 		promptProfile: parsed.promptProfile === 'compact' ? 'compact' : 'legacy',
 		version: 2,
 	}

@@ -1,4 +1,6 @@
+import { openChatViewTask } from './tasks/chat/navigation'
 import { createIdentityTask } from './tasks/auth/create-identity'
+import { addChatConnectionTask } from './tasks/chat/connections'
 import { authorizeJourneyIdentityTask } from './tasks/auth/authorize-journey-identity'
 import { signInTask } from './tasks/auth/sign-in'
 import {
@@ -56,6 +58,12 @@ import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-nat
 import { installDeterministicChatProviderTask } from './tasks/setup/deterministic-chat-provider'
 import { installDeterministicMapStyleTask } from './tasks/setup/deterministic-map-style'
 import { installIsolatedRelaysTask } from './tasks/setup/isolated-relays'
+import {
+	openGMapperTask,
+	createGMapperConfigurationTask,
+	publishGMapperConfigurationTask,
+	openGMapperConfigurationTask,
+} from './tasks/maplets/my-maps'
 import { installInMemoryContextFixtureTask } from './tasks/setup/in-memory-context-fixture'
 import { installInMemoryMapFixtureTask } from './tasks/setup/in-memory-map-fixture'
 import {
@@ -83,8 +91,14 @@ import {
 } from './tasks/social/story-proposals'
 
 const tasks = [
+	addChatConnectionTask,
+	openGMapperTask,
+	createGMapperConfigurationTask,
+	publishGMapperConfigurationTask,
+	openGMapperConfigurationTask,
 	installIsolatedRelaysTask,
 	setThreadWorkingSetOpenTask,
+	openChatViewTask,
 	createIdentityTask,
 	authorizeJourneyIdentityTask,
 	signInTask,

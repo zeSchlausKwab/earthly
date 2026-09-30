@@ -29,6 +29,9 @@ import {
 } from './useMapLayers'
 
 interface UseMapInteractionsParams {
+	mapletLayerIds?: readonly string[]
+	mapletLayersReady?: boolean
+	onInspectMaplet?: (instanceId: string, featureId: string) => void
 	mapRef: React.RefObject<maplibregl.Map | null>
 	remoteLayersReady: boolean
 	CLUSTERED_SOURCE_ID: string
@@ -51,6 +54,7 @@ interface UseMapInteractionsParams {
 }
 
 export interface RemoteGeometryChoice {
+	maplet?: { instanceId: string; featureId: string }
 	id: string
 	dataset?: GeoDataset
 	datasetName: string
@@ -68,6 +72,9 @@ export interface RemoteGeometryChoiceRequest {
 }
 
 export function useMapInteractions({
+	mapletLayerIds = [],
+	mapletLayersReady = false,
+	onInspectMaplet,
 	mapRef,
 	remoteLayersReady,
 	CLUSTERED_SOURCE_ID,
@@ -93,6 +100,10 @@ export function useMapInteractions({
 	const chooseRemoteGeometry = useCallback(
 		(choice: RemoteGeometryChoice) => {
 			setGeometryChoiceData(null)
+			if (choice.maplet) {
+				onInspectMaplet?.(choice.maplet.instanceId, choice.maplet.featureId)
+				return
+			}
 			setFocusedMapGeometry({
 				bbox: choice.bbox,
 				datasetId: choice.datasetId ?? choice.dataset?.datasetId ?? choice.dataset?.id,
@@ -101,11 +112,11 @@ export function useMapInteractions({
 			})
 			if (viewMode !== 'edit' && choice.dataset) handleInspectDatasetWithoutFocus(choice.dataset)
 		},
-		[handleInspectDatasetWithoutFocus, setFocusedMapGeometry, setGeometryChoiceData, viewMode],
+		[handleInspectDatasetWithoutFocus, setFocusedMapGeometry, setGeometryChoiceData, viewMode, onInspectMaplet],
 	)
 
 	useEffect(() => {
-		if (!mapInstance || (!remoteLayersReady && !presentationLayersReady)) return
+		if (!mapInstance || (!remoteLayersReady && !presentationLayersReady && !mapletLayersReady)) return
 
 		const remoteLayers = [
 			...(remoteLayersReady
@@ -123,6 +134,7 @@ export function useMapInteractions({
 					]
 				: []),
 			...(presentationLayersReady ? presentationLayerIds : []),
+			...(mapletLayersReady ? mapletLayerIds : []),
 		].filter((layer, index, all) => all.indexOf(layer) === index)
 		if (remoteLayers.length === 0) return
 
@@ -173,6 +185,17 @@ export function useMapInteractions({
 			for (const renderedFeature of renderedFeatures) {
 				if (!renderedFeature.properties) continue
 				const props = renderedFeature.properties as Record<string, unknown>
+				if (renderedFeature.layer.id.startsWith('maplet:') && typeof props.earthlyMapletInstanceId === 'string' && typeof props.earthlyMapletFeatureId === 'string') {
+					const id = `maplet:${props.earthlyMapletInstanceId}:${props.earthlyMapletFeatureId}`
+					const bbox = bboxFromGeometry(renderedFeature.geometry)
+					if (seen.has(id) || !bbox) continue
+					seen.add(id)
+					choices.push({ id, feature: renderedFeature as unknown as Feature<Geometry>, featureId: props.earthlyMapletFeatureId, bbox,
+						datasetName: String(props.earthlyMapletTitle ?? 'Maplet'),
+						maplet: { instanceId: props.earthlyMapletInstanceId, featureId: props.earthlyMapletFeatureId },
+					})
+					continue
+				}
 				const presentation = isPresentationMapLayerId(renderedFeature.layer.id)
 					? readPresentationFeatureProvenance(props)
 					: null
@@ -436,6 +459,8 @@ export function useMapInteractions({
 		setSightingPopupData,
 		presentationLayerIds,
 		presentationLayersReady,
+		mapletLayerIds,
+		mapletLayersReady,
 	])
 
 	return { chooseRemoteGeometry }

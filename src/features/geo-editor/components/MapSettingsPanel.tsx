@@ -880,26 +880,25 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 			className="space-y-4"
 		>
 			<h2 className="sr-only">Settings</h2>
-			{/* One scrollable row: the base TabsList pins its height (h-8 via the
-			    orientation variant), so wrapped grid rows overflow it — never wrap;
-			    scroll horizontally instead when space runs out. */}
-			<TabsList className="flex w-full justify-start gap-1 overflow-x-auto rounded-none bg-muted p-1">
-				<TabsTrigger value="map" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+			{/* Let narrow sidebars wrap the tabs. Override the shared fixed height so
+			    every row remains inside the hit area and outside the scrollbars. */}
+			<TabsList className="flex h-auto! min-h-8 w-full shrink-0 flex-wrap justify-start gap-1 rounded-none bg-muted p-1">
+				<TabsTrigger value="map" className="h-7 flex-none rounded-none px-3 text-xs sm:text-sm">
 					Map
 				</TabsTrigger>
-				<TabsTrigger value="profile" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+				<TabsTrigger value="profile" className="h-7 flex-none rounded-none px-3 text-xs sm:text-sm">
 					Profile
 				</TabsTrigger>
-				<TabsTrigger value="relays" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+				<TabsTrigger value="relays" className="h-7 flex-none rounded-none px-3 text-xs sm:text-sm">
 					Relays
 				</TabsTrigger>
-				<TabsTrigger value="offline" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+				<TabsTrigger value="offline" className="h-7 flex-none rounded-none px-3 text-xs sm:text-sm">
 					Offline
 				</TabsTrigger>
-				<TabsTrigger value="chat" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+				<TabsTrigger value="chat" className="h-7 flex-none rounded-none px-3 text-xs sm:text-sm">
 					Chat
 				</TabsTrigger>
-				<TabsTrigger value="sessions" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+				<TabsTrigger value="sessions" className="h-7 flex-none rounded-none px-3 text-xs sm:text-sm">
 					Sessions
 				</TabsTrigger>
 			</TabsList>

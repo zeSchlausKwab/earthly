@@ -1,7 +1,10 @@
+import { openChatView } from '../tasks/chat/navigation'
+import { openPanel } from '../tasks/navigation/open-panel'
 import { expect, test } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import {
 	aiChatSurfaceSnapshot,
+	moveAiChat,
 	configureChatProvider,
 	openAiChat,
 	selectAiChatTarget,
@@ -9,7 +12,11 @@ import {
 	startNewAiChat,
 	switchAiChat,
 } from '../tasks/chat/conversation'
-import { localMapOutputCounts, setThreadWorkingSetOpen, threadWorkSnapshot } from '../tasks/chat/working-set'
+import {
+	localMapOutputCounts,
+	setThreadWorkingSetOpen,
+	threadWorkSnapshot,
+} from '../tasks/chat/working-set'
 import { startDataset } from '../tasks/create/dataset'
 import { clickEditorMap, expectGeometryFeatureCount } from '../tasks/create/geometry'
 import { editorLifecycleSnapshot } from '../tasks/editor/lifecycle'
@@ -84,35 +91,56 @@ test('opening a working-set Map restores its visible draft @regression', async (
 	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(bound.activeWorkspaceId)
 	expect((await threadWorkSnapshot(earthly)).id).toBe(originalThread.id)
 	await setThreadWorkingSetOpen(earthly)
-	await working.getByRole('button', { name: `Review & publish: ${datasetName}`, exact: true }).click()
-	await expect(earthly.page.getByRole('menuitem', { name: 'Publish new Map', exact: true })).toBeVisible()
-	expect([...publishedEvents.values()].filter(kind => kind === 37515)).toHaveLength(0)
+	await openPanel(earthly, 'Local drafts')
+	await earthly.page
+		.getByRole('region', { name: 'Local drafts', exact: true })
+		.getByRole('button', { name: `Review & publish: ${datasetName}`, exact: true })
+		.click()
+	await expect(
+		earthly.page.getByRole('menuitem', { name: 'Publish new Map', exact: true }),
+	).toBeVisible()
+	expect([...publishedEvents.values()].filter((kind) => kind === 37515)).toHaveLength(0)
 	await earthly.page.keyboard.press('Escape')
 	await setThreadWorkingSetOpen(earthly)
 	await working.getByRole('button', { name: `View on map: ${datasetName}`, exact: true }).click()
 	await expect(earthly.page.getByRole('region', { name: 'AI Thread', exact: true })).toBeVisible()
-	await earthly.page.getByRole('button', { name: 'Move chat left', exact: true }).click()
+	await moveAiChat(earthly, 'left')
 	await setThreadWorkingSetOpen(earthly)
 	await working.getByRole('button', { name: datasetName, exact: true }).click()
-	await expect(earthly.page.getByRole('button', { name: 'Move chat left', exact: true })).toBeVisible()
+	await moveAiChat(earthly, 'right')
 	expect((await threadWorkSnapshot(earthly)).id).toBe(originalThread.id)
 	await setThreadWorkingSetOpen(earthly)
 	await earthly.page.screenshot({ path: testInfo.outputPath('draft-actions.png') })
-	await working.getByRole('button', { name: `Discard draft: ${datasetName}`, exact: true }).click()
+	await openPanel(earthly, 'Local drafts')
+	await earthly.page
+		.getByRole('region', { name: 'Local drafts', exact: true })
+		.getByRole('button', { name: `Discard draft: ${datasetName}`, exact: true })
+		.click()
 	const discard = earthly.page.getByRole('alertdialog')
 	await expect(discard).toContainText('Published content is kept')
 	await discard.getByRole('button', { name: 'Keep draft', exact: true }).click()
 	expect((await threadWorkSnapshot(earthly)).outputs).toHaveLength(1)
-	await working.getByRole('button', { name: `Stop AI editing ${datasetName}`, exact: true }).click()
+	await setThreadWorkingSetOpen(earthly)
+	await working.getByRole('button', { name: `Actions for ${datasetName}`, exact: true }).click()
+	await earthly.page.getByRole('menuitem', { name: 'Remove editing access', exact: true }).click()
 	expect((await threadWorkSnapshot(earthly)).outputs).toHaveLength(0)
 	expect(await localMapOutputCounts(earthly)).toContainEqual({ title: datasetName, features: 1 })
+	await earthly.page.getByRole('button', { name: datasetName, exact: true }).first().click()
 	await selectAiChatTarget(earthly, 'current-dataset')
 	await setThreadWorkingSetOpen(earthly)
-	await working.getByRole('button', { name: `Discard draft: ${datasetName}`, exact: true }).click()
+	await openPanel(earthly, 'Local drafts')
+	await earthly.page
+		.getByRole('region', { name: 'Local drafts', exact: true })
+		.getByRole('button', { name: `Discard draft: ${datasetName}`, exact: true })
+		.click()
 	await discard.getByRole('button', { name: 'Discard draft', exact: true }).click()
 	await expect(discard).toBeHidden()
-	await expect.poll(() => threadWorkSnapshot(earthly)).toMatchObject({ id: originalThread.id, outputs: [] })
-	await expect.poll(() => localMapOutputCounts(earthly)).not.toContainEqual({ title: datasetName, features: 1 })
+	await expect
+		.poll(() => threadWorkSnapshot(earthly))
+		.toMatchObject({ id: originalThread.id, outputs: [] })
+	await expect
+		.poll(() => localMapOutputCounts(earthly))
+		.not.toContainEqual({ title: datasetName, features: 1 })
 	await expect(earthly.page.getByRole('region', { name: 'AI Thread', exact: true })).toBeVisible()
 })
 
@@ -132,10 +160,14 @@ test('read-only Threads can ask; references and navigation never grant Map write
 	const visible = await editorLifecycleSnapshot(earthly)
 	await openAiChat(earthly)
 	const chatA = await startNewAiChat(earthly)
+	const editing = await openChatView(earthly, 'edit')
+	await expect(editing.getByRole('checkbox', { name: 'Create new maps and stories' })).toBeChecked()
+	await editing.getByRole('checkbox', { name: 'Create new maps and stories' }).uncheck()
+	await openChatView(earthly, 'chat')
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
-	await expect(panel.getByRole('button', { name: 'AI editing and references', exact: true })).toHaveCount(1)
+	await expect(panel.getByRole('button', { name: 'AI can edit 0', exact: true })).toHaveCount(1)
 	await expect(panel).not.toContainText('working copy')
-	const context = await setThreadWorkingSetOpen(earthly)
+	const context = await openChatView(earthly, 'sources')
 	await context.getByRole('button', { name: 'Reference Map A', exact: true }).click()
 	expect(await threadWorkSnapshot(earthly)).toMatchObject({
 		id: chatA.newChatId,
@@ -182,7 +214,9 @@ test('read-only Threads can ask; references and navigation never grant Map write
 	})
 	// Promotion moved Map A out of references; navigation did not re-add it.
 	await setThreadWorkingSetOpen(earthly)
-	await expect(panel.getByRole('button', { name: 'Remove reference Map A', exact: true })).toHaveCount(0)
+	await expect(
+		panel.getByRole('button', { name: 'Remove reference Map A', exact: true }),
+	).toHaveCount(0)
 	expect(await threadWorkSnapshot(earthly)).toMatchObject({
 		referenceCount: 0,
 		outputs: [{ title: 'Map A' }],

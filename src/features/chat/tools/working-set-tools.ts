@@ -116,10 +116,17 @@ export function registerWorkingSetTools(register: (entry: ToolEntry) => void): v
 			function: {
 				name: 'create_map_draft',
 				description:
-					'Create a separate named local Map output in this Thread without publishing or switching the visible map. Requires new-draft permission. Then use its workingTarget id for geometry tools; do not overwrite another Map to represent a new dataset.',
+					'Create a named local Map output without publishing or switching the visible map. Reuses an allowed new Map with the same title on retries. Requires new-draft permission. Create once, then keep using its workingTarget for additions, corrections, and styling. Use createSeparate only when the user requested another distinct Map with the same title.',
 				parameters: {
 					type: 'object',
-					properties: { title: { type: 'string' } },
+					properties: {
+						title: { type: 'string' },
+						createSeparate: {
+							type: 'boolean',
+							description:
+								'Create a distinct output even when an allowed new Map already has this title. Default false.',
+						},
+					},
 					required: ['title'],
 				},
 			},
@@ -138,6 +145,30 @@ export function registerWorkingSetTools(register: (entry: ToolEntry) => void): v
 					'New Map audience is unresolved. Create the Map with the intended audience manually, then add its edit to this Thread.',
 				)
 			const state = useEditorStore.getState()
+			if (args.createSeparate !== true) {
+				const existing = runWorkingSet(run).find((item) => {
+					if (item.kind !== 'dataset' || item.intent !== 'create' || item.featureIds) return false
+					const current = mapWorkTarget(item.workspaceId)
+					const draft = state.geoEditDrafts[item.target.draftId ?? '']
+					return (
+						current?.title === title &&
+						draft &&
+						state.workspaces[item.workspaceId]?.activeDraftId === draft.id &&
+						JSON.stringify(draft.publishChannel) === JSON.stringify(audience)
+					)
+				})
+				if (existing?.kind === 'dataset')
+					return {
+						ok: true,
+						workingTarget: existing.id,
+						localReference: localMapReference(existing.workspaceId),
+						title,
+						status: 'local draft',
+						audience,
+						published: false,
+						reused: true,
+					}
+			}
 			const sourceId = `session:${crypto.randomUUID()}`
 			const draftId = state.createGeoEditDraft(
 				sourceId,

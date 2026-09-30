@@ -36,7 +36,7 @@ import type { MutationIntent } from '@/features/geo-editor/api/interceptor'
 import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
 import type { EditorFeature } from '@/features/geo-editor/core/types'
 
-/** The user's persisted safety posture (SAFE-04, default 2). */
+/** The user's persisted safety posture (SAFE-04, default 3: apply with undo). */
 export type SafetyLevel = 1 | 2 | 3
 
 /** The Apply/Cancel decision the chat resolves from the inline disclosure (Plan 05). */

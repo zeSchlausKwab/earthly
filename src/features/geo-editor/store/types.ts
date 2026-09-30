@@ -116,6 +116,7 @@ export interface MapLayerState {
  * gates that layer while the retained editor model stays intact.
  */
 export type MapStackEntryType =
+	| 'maplet'
 	| 'dataset'
 	| 'coordinate'
 	| 'context'

@@ -1,6 +1,10 @@
 import { expect, test } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
-import { configureChatProvider, sendAiChatMessage } from '../tasks/chat/conversation'
+import {
+	composeAiChatMessage,
+	configureChatProvider,
+	sendAiChatMessage,
+} from '../tasks/chat/conversation'
 import { startDataset } from '../tasks/create/dataset'
 import { editorLifecycleSnapshot } from '../tasks/editor/lifecycle'
 import { installDeterministicChatProvider } from '../tasks/setup/deterministic-chat-provider'
@@ -29,10 +33,8 @@ test('a work Thread creates independent Maps and a Story without publishing or r
 	await earthly.page.getByRole('button', { name: 'Edit this Map with AI', exact: true }).click()
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 	await expect(panel).toBeVisible()
-	await expect(
-		panel.getByRole('button', { name: 'AI editing and references', exact: true }),
-	).toBeVisible()
-	await expect(earthly.page.getByRole('region', { name: 'AI editing and references', exact: true })).toBeHidden()
+	await expect(panel.getByRole('button', { name: 'AI can edit 1', exact: true })).toBeVisible()
+	await expect(earthly.page.getByRole('region', { name: 'AI can edit', exact: true })).toBeHidden()
 	const working = await setThreadWorkingSetOpen(earthly)
 	await working.getByLabel('Create new maps and stories', { exact: true }).check()
 	await setThreadWorkingSetOpen(earthly, false)
@@ -63,10 +65,16 @@ test('a work Thread creates independent Maps and a Story without publishing or r
 		)
 	const originalThread = await threadWorkSnapshot(earthly)
 	await earthly.page.screenshot({ path: testInfo.outputPath('working-set.png') })
-	await working.getByRole('button', { name: 'A changing front', exact: true }).click()
+	await working
+		.getByRole('button', { name: 'Preview Story: A changing front', exact: true })
+		.click()
+	await expect(earthly.page.getByRole('tab', { name: 'Preview', exact: true })).toHaveAttribute(
+		'data-state',
+		'active',
+	)
 	await expect(earthly.page.getByLabel('Title', { exact: true })).toHaveValue('A changing front')
 	if (!earthly.isMobile) await expect(panel).toBeVisible()
-	await expect(earthly.page.locator('.ProseMirror[contenteditable="true"]').first()).toContainText(
+	await expect(earthly.page.getByRole('tabpanel', { name: 'Preview', exact: true })).toContainText(
 		'earthly-draft:',
 	)
 	await earthly.page.getByRole('button', { name: 'Edit this Story with AI', exact: true }).click()
@@ -74,46 +82,62 @@ test('a work Thread creates independent Maps and a Story without publishing or r
 	await earthly.page.reload({ waitUntil: 'domcontentloaded' })
 	await expect(panel).toBeVisible()
 	expect((await threadWorkSnapshot(earthly)).outputs).toHaveLength(4)
-	const restored = await setThreadWorkingSetOpen(earthly)
+	await composeAiChatMessage(earthly, 'Keep these unpublished follow-up notes.')
+	await setThreadWorkingSetOpen(earthly)
 	const beforePublishUrl = earthly.page.url()
- await restored.getByRole('button', { name: 'Publish Story: A changing front', exact: true }).click()
- const confirmation = earthly.page.getByRole('alertdialog')
- await expect(confirmation).toContainText('Front 1914')
- await expect(confirmation).toContainText('Front 1916')
- await confirmation.getByRole('button', { name: 'Keep drafts', exact: true }).click()
- await expect(confirmation).toBeHidden()
- expect([...publishedEvents.values()].filter(kind => kind === 37515 || kind === 37520)).toHaveLength(0)
- await restored.getByRole('button', { name: 'Publish Story: A changing front', exact: true }).click()
- await confirmation.getByRole('button', { name: 'Publish Story and 2 maps', exact: true }).click()
- await expect(confirmation).toBeHidden()
+	await working
+		.getByRole('button', { name: 'Publish Story: A changing front', exact: true })
+		.click()
+	const confirmation = earthly.page.getByRole('alertdialog')
+	await expect(confirmation).toContainText('Front 1914')
+	await expect(confirmation).toContainText('Front 1916')
+	await confirmation.getByRole('button', { name: 'Keep drafts', exact: true }).click()
+	await expect(confirmation).toBeHidden()
+	expect(
+		[...publishedEvents.values()].filter((kind) => kind === 37515 || kind === 37520),
+	).toHaveLength(0)
+	await working
+		.getByRole('button', { name: 'Publish Story: A changing front', exact: true })
+		.click()
+	await confirmation.getByRole('button', { name: 'Publish Story and 2 maps', exact: true }).click()
+	await expect(confirmation).toBeHidden()
 	await expect
 		.poll(() => [...publishedEvents.values()].filter((kind) => kind === 37520).length)
 		.toBe(1)
 	expect([...publishedEvents.values()].filter((kind) => kind === 37515)).toHaveLength(2)
- expect(earthly.page.url()).toBe(beforePublishUrl)
+	expect(earthly.page.url()).toBe(beforePublishUrl)
+	await expect(panel).toBeVisible()
+	expect((await threadWorkSnapshot(earthly)).id).toBe(originalThread.id)
+	await expect(working.getByText('Published', { exact: true })).toHaveCount(3)
+	await earthly.page.screenshot({ path: testInfo.outputPath('published-work.png') })
+	await setThreadWorkingSetOpen(earthly, false)
+	await expect(panel.locator('textarea')).toHaveValue('Keep these unpublished follow-up notes.')
 	if (!earthly.isMobile) {
+		await setThreadWorkingSetOpen(earthly)
+		await working.getByRole('button', { name: 'A changing front', exact: true }).click()
+		await earthly.page.getByLabel('Title', { exact: true }).fill('A changing front — updated')
+		await setThreadWorkingSetOpen(earthly)
+		await expect(working.getByText('Unpublished changes', { exact: true })).toBeVisible()
+		const beforeUpdateUrl = earthly.page.url()
+		await working
+			.getByRole('button', { name: 'Publish changes: A changing front — updated', exact: true })
+			.click()
+		await expect
+			.poll(() => [...publishedEvents.values()].filter((kind) => kind === 37520).length)
+			.toBe(2)
+		expect([...publishedEvents.values()].filter((kind) => kind === 37515)).toHaveLength(2)
+		await expect(working.getByText('Unpublished changes', { exact: true })).toHaveCount(0)
 		await expect(panel).toBeVisible()
 		expect((await threadWorkSnapshot(earthly)).id).toBe(originalThread.id)
-		await setThreadWorkingSetOpen(earthly)
-		await expect(working.getByText('Published', { exact: true })).toHaveCount(3)
-		await earthly.page.screenshot({ path: testInfo.outputPath('published-work.png') })
-  await working.getByRole('button', { name: 'A changing front', exact: true }).click()
-  await earthly.page.getByLabel('Title', { exact: true }).fill('A changing front — updated')
-  await setThreadWorkingSetOpen(earthly)
-  await expect(working.getByText('Unpublished changes', { exact: true })).toBeVisible()
-  const updateUrl = earthly.page.url()
-  await working.getByRole('button', { name: 'Publish changes: A changing front — updated', exact: true }).click()
-  await expect.poll(() => [...publishedEvents.values()].filter(kind => kind === 37520).length).toBe(2)
-  expect([...publishedEvents.values()].filter(kind => kind === 37515)).toHaveLength(2)
-  await expect(working.getByText('Unpublished changes', { exact: true })).toHaveCount(0)
-  await expect(panel).toBeVisible()
-  expect((await threadWorkSnapshot(earthly)).id).toBe(originalThread.id)
-  expect(earthly.page.url()).toBe(updateUrl)
-
+		expect(earthly.page.url()).toBe(beforeUpdateUrl)
+		await setThreadWorkingSetOpen(earthly, false)
+		await expect(panel.locator('textarea')).toHaveValue('Keep these unpublished follow-up notes.')
 	}
 })
 
-test('Story draft shortcuts share the global inventory and discard without resurrection @regression', async ({ earthly }, testInfo) => {
+test('Story draft shortcuts share the global inventory and discard without resurrection @regression', async ({
+	earthly,
+}, testInfo) => {
 	test.setTimeout(120_000)
 	const publishedEvents = await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly, 'working-set')
@@ -128,26 +152,62 @@ test('Story draft shortcuts share the global inventory and discard without resur
 	await working.getByLabel('Create new maps and stories', { exact: true }).check()
 	await setThreadWorkingSetOpen(earthly, false)
 	await sendAiChatMessage(earthly, 'Create two separate Maps and a Story that references both.')
-	await expect(panel.getByText('Created two separate local Maps and a Story. Nothing was published.', { exact: true })).toBeVisible({ timeout: 60_000 })
+	await expect(
+		panel.getByText('Created two separate local Maps and a Story. Nothing was published.', {
+			exact: true,
+		}),
+	).toBeVisible({ timeout: 60_000 })
 	const original = await threadWorkSnapshot(earthly)
 	await setThreadWorkingSetOpen(earthly)
 	await earthly.page.screenshot({ path: testInfo.outputPath('story-draft-actions.png') })
+	if (
+		await earthly.page
+			.getByRole('button', { name: 'Back to Local drafts', exact: true })
+			.isVisible()
+	)
+		await earthly.page.getByRole('button', { name: 'Back to Local drafts', exact: true }).click()
 	await working.getByRole('button', { name: 'All drafts', exact: true }).click()
 	const stories = earthly.page.getByRole('region', { name: 'New Story drafts', exact: true })
 	await expect(stories.getByRole('button', { name: 'A changing front', exact: true })).toBeVisible()
 	await earthly.page.screenshot({ path: testInfo.outputPath('all-drafts.png') })
 	if (!earthly.isMobile) await expect(panel).toBeVisible()
-	await stories.getByRole('button', { name: 'Preview Story: A changing front', exact: true }).click()
-	await expect(earthly.page.getByRole('tab', { name: 'Preview', exact: true })).toHaveAttribute('data-state', 'active')
+	await stories
+		.getByRole('button', { name: 'Preview Story: A changing front', exact: true })
+		.click()
+	await expect(earthly.page.getByRole('tab', { name: 'Preview', exact: true })).toHaveAttribute(
+		'data-state',
+		'active',
+	)
 	await earthly.page.getByRole('button', { name: 'Edit this Story with AI', exact: true }).click()
+	await composeAiChatMessage(earthly, 'Keep the remaining Maps for later.')
 	await setThreadWorkingSetOpen(earthly)
-	await working.getByRole('button', { name: 'Discard draft: A changing front', exact: true }).click()
-	await earthly.page.getByRole('alertdialog').getByRole('button', { name: 'Discard draft', exact: true }).click()
-	await expect(earthly.page.getByRole('alertdialog')).toBeHidden()
+	const discard = working.getByRole('button', {
+		name: 'Discard draft: A changing front',
+		exact: true,
+	})
+	await discard.click()
+	const confirmation = earthly.page.getByRole('alertdialog')
+	await expect(confirmation).toContainText('Discard “A changing front”?')
+	await expect(confirmation).toContainText('its AI editing access from all conversations')
+	await confirmation.getByRole('button', { name: 'Keep draft', exact: true }).click()
+	await expect(confirmation).toBeHidden()
+	await expect.poll(() => localStoryDraftTitles(earthly)).toContain('A changing front')
+	await discard.click()
+	await confirmation.getByRole('button', { name: 'Discard draft', exact: true }).click()
+	await expect(confirmation).toBeHidden()
 	await expect.poll(() => localStoryDraftTitles(earthly)).not.toContain('A changing front')
-	await expect.poll(() => threadWorkSnapshot(earthly)).toMatchObject({ id: original.id, outputs: expect.not.arrayContaining([expect.objectContaining({ title: 'A changing front' })]) })
-	if (!earthly.isMobile) await expect(panel).toBeVisible()
+	await expect
+		.poll(() => threadWorkSnapshot(earthly))
+		.toMatchObject({
+			id: original.id,
+			outputs: expect.not.arrayContaining([expect.objectContaining({ title: 'A changing front' })]),
+		})
+	await expect(panel).toBeVisible()
+	await setThreadWorkingSetOpen(earthly, false)
+	await expect(panel.locator('textarea')).toHaveValue('Keep the remaining Maps for later.')
 	await earthly.page.reload({ waitUntil: 'domcontentloaded' })
 	await expect.poll(() => localStoryDraftTitles(earthly)).not.toContain('A changing front')
-	expect([...publishedEvents.values()].filter(kind => kind === 37515 || kind === 37520)).toHaveLength(0)
+	expect(
+		[...publishedEvents.values()].filter((kind) => kind === 37515 || kind === 37520),
+	).toHaveLength(0)
 })

@@ -1,3 +1,4 @@
+import { getCurrentPubkey } from './currentUser'
 import type { WalletSnapshot } from './runtime'
 
 export const DEFAULT_MINT_KEY = 'nip60_default_mint'
@@ -22,16 +23,29 @@ export function normalizeDefaultMint(mint: string | null | undefined): string | 
 	return value ? value : null
 }
 
-export function getStoredDefaultMint(): string | null {
-	if (typeof localStorage === 'undefined') return null
-	return normalizeDefaultMint(localStorage.getItem(DEFAULT_MINT_KEY))
+export function defaultMintStorageKey(pubkey = getCurrentPubkey()): string {
+	return pubkey ? `${DEFAULT_MINT_KEY}.${pubkey}` : DEFAULT_MINT_KEY
 }
 
-export function setStoredDefaultMint(mint: string | null): void {
+export function getStoredDefaultMint(pubkey = getCurrentPubkey()): string | null {
+	if (typeof localStorage === 'undefined') return null
+	const scoped = normalizeDefaultMint(localStorage.getItem(defaultMintStorageKey(pubkey)))
+	if (scoped || !pubkey) return scoped
+	// Preserve the old browser-wide choice for the first account using it after
+	// upgrade, then retire the shared value so other accounts do not inherit it.
+	const legacy = normalizeDefaultMint(localStorage.getItem(DEFAULT_MINT_KEY))
+	if (legacy) {
+		localStorage.setItem(defaultMintStorageKey(pubkey), legacy)
+		localStorage.removeItem(DEFAULT_MINT_KEY)
+	}
+	return legacy
+}
+
+export function setStoredDefaultMint(mint: string | null, pubkey = getCurrentPubkey()): void {
 	const normalized = normalizeDefaultMint(mint)
 	if (typeof localStorage !== 'undefined') {
-		if (normalized) localStorage.setItem(DEFAULT_MINT_KEY, normalized)
-		else localStorage.removeItem(DEFAULT_MINT_KEY)
+		if (normalized) localStorage.setItem(defaultMintStorageKey(pubkey), normalized)
+		else localStorage.removeItem(defaultMintStorageKey(pubkey))
 	}
 	if (typeof window !== 'undefined') {
 		window.dispatchEvent(new CustomEvent(DEFAULT_MINT_CHANGE_EVENT, { detail: normalized }))

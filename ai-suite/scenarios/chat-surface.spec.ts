@@ -40,48 +40,62 @@ test('chat keeps advanced status compact and lets the model change in place', as
 	const settings = panel.getByRole('button', { name: 'Thread settings', exact: true })
 	const usage = panel.getByRole('button', { name: 'Chat usage details', exact: true })
 
-	await expect(settings).toHaveAttribute('aria-expanded', 'false')
-	await expect(usage).toBeHidden()
+	const composer = panel.locator('textarea')
+	await composer.fill('Keep this unsent message while I look around.')
+	await expect(usage).toBeVisible()
+	await expect(panel.getByRole('status', { name: 'Chat progress' })).toHaveText('No response yet')
 	await expect(panel.getByLabel('Select chat model', { exact: true })).toBeHidden()
 	await expect(
 		panel.getByRole('button', { name: 'AI edit safety: Ask first', exact: true }),
 	).toBeVisible()
 	await setAiThreadSettingsOpen(earthly)
-	await expect(usage).toHaveAttribute('aria-expanded', 'false')
-	await expect(usage).toContainText('Usage 16.4k')
-	await expect(usage).toContainText('0 requests')
+	await expect(panel.getByRole('button', { name: 'Back to chat', exact: true })).toBeFocused()
+	await expect(composer).toBeHidden()
 	const safety = panel.getByRole('combobox', { name: 'AI edit safety', exact: true })
 	await expect(safety).toHaveValue('2')
 	await safety.selectOption('1')
 	await expect(safety).toHaveValue('1')
 	await safety.selectOption('3')
-	await expect(safety).toHaveValue('3')
 	await setAiThreadSettingsOpen(earthly, false)
+	await expect(settings).toBeFocused()
 	await expect(
 		panel.getByRole('button', { name: 'AI edit safety: Auto apply', exact: true }),
 	).toBeVisible()
+	await expect(composer).toHaveValue('Keep this unsent message while I look around.')
 
-	await setAiThreadSettingsOpen(earthly)
-	await expect(panel.getByText('Custom endpoint', { exact: true })).toBeVisible()
-	await expect(panel.getByText('Local · free', { exact: true })).toBeVisible()
-	await expect(panel.getByText('Tools enabled', { exact: true })).toBeVisible()
-	await expect(
-		panel.getByText('Provider and credentials stay in Settings', { exact: true }),
-	).toBeVisible()
-
+	await panel.getByRole('button', { name: 'Chat actions', exact: true }).click()
+	await earthly.page.getByRole('menuitem', { name: 'Chat settings', exact: true }).click()
+	await expect(panel.getByRole('button', { name: 'Back to chat', exact: true })).toBeFocused()
+	await expect(panel.getByRole('combobox', { name: 'Chat connection', exact: true })).toBeVisible()
+	await expect(panel.getByRole('button', { name: 'Manage connections', exact: true })).toBeVisible()
 	const modelSelect = panel.getByLabel('Select chat model', { exact: true })
 	await expect(modelSelect).toHaveValue(DETERMINISTIC_CHAT_MODEL_ID)
 	await modelSelect.selectOption(DETERMINISTIC_CHAT_SECONDARY_MODEL_ID)
 	await expect(modelSelect).toHaveValue(DETERMINISTIC_CHAT_SECONDARY_MODEL_ID)
-	await expect(settings).toHaveAttribute('title', /Earthly compact fixture/)
-	await expect(panel.locator('#chat-provider-select')).toHaveCount(0)
-
+	await panel.getByRole('tab', { name: 'Sources', exact: true }).click()
+	await expect(panel.getByRole('region', { name: 'Read-only sources', exact: true })).toBeVisible()
+	await expect(modelSelect).toBeHidden()
+	await panel.getByRole('tab', { name: 'AI can edit', exact: true }).click()
+	await expect(panel.getByLabel('Create new maps and stories', { exact: true })).toBeVisible()
 	await usage.click()
-	await expect(usage).toHaveAttribute('aria-expanded', 'true')
+	await expect(
+		panel.getByRole('region', { name: 'Usage & diagnostics', exact: true }),
+	).toBeVisible()
 	await expect(panel.getByText('Prompt capacity', { exact: true })).toBeVisible()
 	await expect(panel.getByText('Prompt budget', { exact: true })).toBeVisible()
 	await expect(panel.getByText('Model requests', { exact: true })).toBeVisible()
 	await expect(panel.getByText('Tool work', { exact: true })).toBeVisible()
+	await earthly.page.keyboard.press('Escape')
+	await expect(composer).toBeVisible()
+	await expect(composer).toHaveValue('Keep this unsent message while I look around.')
+	await expect(settings).toHaveAttribute('title', /Earthly compact fixture/)
+	await panel.getByRole('button', { name: 'Attach to message', exact: true }).click()
+	await expect(
+		earthly.page.getByRole('menuitem', { name: 'File or image', exact: true }),
+	).toBeVisible()
+	await earthly.page.keyboard.press('Escape')
+	await expect(panel.getByRole('button', { name: 'Attach to message', exact: true })).toBeFocused()
+	await earthly.page.screenshot({ path: testInfo.outputPath('clean-chat.png') })
 })
 
 test('mobile compact Thread keeps model failure recovery in view at 320 and 390px @regression', async ({
@@ -100,7 +114,7 @@ test('mobile compact Thread keeps model failure recovery in view at 320 and 390p
 		})
 	})
 	await authorizeJourneyIdentity(earthly, 'owner')
-	await configureChatProvider(earthly, provider.settings)
+	await configureChatProvider(earthly, { ...provider.settings, selectedModel: null })
 	await earthly.open({ tour: 'seen' })
 	await startDataset(earthly)
 	await switchMobileWorkspacePanel(earthly, 'Chat')
@@ -122,8 +136,11 @@ test('mobile compact Thread keeps model failure recovery in view at 320 and 390p
 		expect(warningBox?.x).toBeGreaterThanOrEqual(0)
 		expect((warningBox?.x ?? width) + (warningBox?.width ?? width)).toBeLessThanOrEqual(width)
 		await setAiThreadSettingsOpen(earthly)
+		await panel
+			.getByRole('button', { name: 'Manage connections', exact: true })
+			.scrollIntoViewIfNeeded()
 		await expect(
-			panel.getByRole('button', { name: 'Open provider settings', exact: true }),
+			panel.getByRole('button', { name: 'Manage connections', exact: true }),
 		).toBeInViewport()
 		await setAiThreadSettingsOpen(earthly, false)
 	}
@@ -135,10 +152,7 @@ test('mobile compact Thread keeps model failure recovery in view at 320 and 390p
 		DETERMINISTIC_CHAT_MODEL_ID,
 	)
 	await setAiThreadSettingsOpen(earthly, false)
-	await expect(panel.getByRole('button', { name: 'Thread settings', exact: true })).toHaveAttribute(
-		'aria-expanded',
-		'false',
-	)
+	await expect(panel.getByLabel('Select chat model', { exact: true })).toBeHidden()
 	expect(provider.requests()).toHaveLength(0)
 })
 
@@ -156,9 +170,10 @@ test('reopening a routed Thread keeps one composer action set @regression', asyn
 	await earthly.open({ tour: 'seen' })
 	await startDataset(earthly)
 	await openAiChat(earthly)
+	await selectAiChatTarget(earthly, 'current-dataset')
 
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
-	const drawAction = panel.getByRole('button', { name: 'Sketch', exact: true })
+	const drawAction = panel.getByRole('button', { name: 'Attach to message', exact: true })
 	await expect(drawAction).toHaveCount(1)
 
 	for (let index = 0; index < 3; index += 1) {

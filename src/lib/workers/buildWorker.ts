@@ -41,6 +41,10 @@ export async function buildWorkerSource(sourcePath: string, minify = false): Pro
 		// No splitting: a worker entry must be one self-contained file at its served URL.
 		splitting: false,
 		define: buildDefine(),
+	}).catch((error: unknown) => {
+		const details =
+			error instanceof AggregateError ? error.errors.map(String).join('\n') : String(error)
+		throw new Error(`Worker build failed for ${sourcePath}:\n${details}`)
 	})
 
 	const [artifact] = result.outputs

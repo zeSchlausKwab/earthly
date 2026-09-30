@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+<name>Coastal survey</name>
+<Style id="area"><LineStyle><color>ff112233</color><width>3</width></LineStyle><PolyStyle><color>80332211</color></PolyStyle></Style>
+<StyleMap id="normal"><Pair><key>normal</key><styleUrl>#area</styleUrl></Pair></StyleMap>
+<Folder><name>Areas</name><Placemark id="a"><name>Habitat</name><description><![CDATA[Survey <b>area</b><br>Source note]]></description><styleUrl>#normal</styleUrl><ExtendedData><Data name="survey"><value>2026</value></Data></ExtendedData><Polygon>
+<outerBoundaryIs><LinearRing><coordinates>12,45,0 13,45,0 13,46,0 12,46,0 12,45,0</coordinates></LinearRing></outerBoundaryIs>
+<innerBoundaryIs><LinearRing><coordinates>12.2,45.2,0 12.4,45.2,0 12.4,45.4,0 12.2,45.2,0</coordinates></LinearRing></innerBoundaryIs>
+</Polygon></Placemark></Folder>
+<Folder><name>Observations</name><Placemark id="b"><name>Lookout</name><Point><coordinates>12.5,45.5</coordinates></Point></Placemark><Placemark id="c"><name>Path</name><LineString><coordinates>12,45 13,46</coordinates></LineString></Placemark></Folder>
+</Document></kml>

@@ -1,6 +1,14 @@
 import type { FeatureCollection } from 'geojson'
-import { Check, Edit3, MousePointer2, PencilRuler, Trash2, Type, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Check, Edit3, MousePointer2, PencilRuler, Trash2, X } from 'lucide-react'
+import {
+	useCallback,
+	useEffect,
+	useImperativeHandle,
+	useMemo,
+	useRef,
+	useState,
+	type Ref,
+} from 'react'
 import { Button } from '@/components/ui/button'
 import { DrawButtonGroup } from '@/features/geo-editor/components/toolbar/DrawButtonGroup'
 import type { EditorFeature, EditorMode } from '@/features/geo-editor/core'
@@ -9,16 +17,23 @@ import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 
 interface EditorSnapshot {
+	interactionEnabled: boolean
 	features: EditorFeature[]
 	selectedFeatureIds: string[]
 	mode: EditorMode
 }
 
 interface ChatGeometryAttachmentProps {
+	ref?: Ref<ChatGeometryAttachmentHandle>
+	hideTrigger?: boolean
 	value: FeatureCollection | null
 	onChange: (value: FeatureCollection | null) => void
 	layout?: 'inline' | 'detached'
 	panelClassName?: string
+}
+
+export interface ChatGeometryAttachmentHandle {
+	open: () => void
 }
 
 const DRAW_MODES: EditorMode[] = [
@@ -29,6 +44,8 @@ const DRAW_MODES: EditorMode[] = [
 ]
 
 export function ChatGeometryAttachment({
+	ref,
+	hideTrigger = false,
 	value,
 	onChange,
 	layout = 'inline',
@@ -45,6 +62,7 @@ export function ChatGeometryAttachment({
 	const setHistoryState = useEditorStore((state) => state.setHistoryState)
 
 	const [panelOpen, setPanelOpen] = useState(false)
+	useImperativeHandle(ref, () => ({ open: () => setPanelOpen(true) }), [])
 	const [isDraftActive, setIsDraftActive] = useState(false)
 	const snapshotRef = useRef<EditorSnapshot | null>(null)
 	const restoredRef = useRef(false)
@@ -82,6 +100,7 @@ export function ChatGeometryAttachment({
 			setFeatures(snapshot.features)
 			setSelectedFeatureIds(snapshot.selectedFeatureIds)
 			setMode(snapshot.mode)
+			editor?.setInteractionEnabled(snapshot.interactionEnabled)
 			setHistoryState(false, false)
 			restoredRef.current = true
 			snapshotRef.current = null
@@ -101,6 +120,7 @@ export function ChatGeometryAttachment({
 			if (!snapshotRef.current) {
 				const store = useEditorStore.getState()
 				snapshotRef.current = {
+					interactionEnabled: editor.isInteractionEnabled(),
 					features: editor.getAllFeatures(),
 					selectedFeatureIds: store.selectedFeatureIds,
 					mode: store.mode,
@@ -115,6 +135,9 @@ export function ChatGeometryAttachment({
 				setIsDraftActive(true)
 			}
 
+			// Chat normally disables map editing on phones. This explicit, temporary
+			// drawing session restores that interaction only until Attach or Cancel.
+			editor.setInteractionEnabled(true)
 			setMode(nextMode)
 		},
 		[editor, setFeatures, setHistoryState, setMode, setSelectedFeatureIds],
@@ -296,22 +319,25 @@ export function ChatGeometryAttachment({
 					panelClassName,
 				)}
 			>
-				<div className="flex flex-wrap items-center gap-1.5">
+				<div className="flex flex-wrap items-center gap-1.5 [&_button]:min-h-11 [&_button]:min-w-11 md:[&_button]:min-h-8 md:[&_button]:min-w-8">
+					{hideTrigger && (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							className="size-11 shrink-0"
+							aria-label="Cancel geometry attachment"
+							onClick={handleTogglePanel}
+						>
+							<X className="size-4" />
+						</Button>
+					)}
 					<DrawButtonGroup mode={mode} onModeChange={ensureDraftSession} small />
 					<Button
 						type="button"
 						size="icon"
-						variant={mode === 'draw_annotation' ? 'default' : 'outline'}
-						onClick={() => ensureDraftSession('draw_annotation')}
-						className="h-8 w-8 rounded-none"
-						title="Draw label annotation"
-					>
-						<Type className="h-3.5 w-3.5" />
-					</Button>
-					<Button
-						type="button"
-						size="icon"
 						variant={mode === 'select' ? 'default' : 'outline'}
+						aria-label="Select drawn geometry"
 						onClick={() => isDraftActive && setMode('select')}
 						disabled={!isDraftActive}
 						className="h-8 w-8"
@@ -322,6 +348,7 @@ export function ChatGeometryAttachment({
 						type="button"
 						size="icon"
 						variant={mode === 'edit' ? 'default' : 'outline'}
+						aria-label="Edit drawn geometry"
 						onClick={() => isDraftActive && setMode('edit')}
 						disabled={!isDraftActive || draftFeatureCount === 0}
 						className="h-8 w-8"
@@ -413,7 +440,7 @@ export function ChatGeometryAttachment({
 	if (layout === 'detached') {
 		return (
 			<>
-				{trigger}
+				{!hideTrigger && trigger}
 				{panel}
 			</>
 		)

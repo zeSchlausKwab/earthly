@@ -1,8 +1,10 @@
+import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
 import { expect, test } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import {
 	configureChatProvider,
 	openAiChat,
+	selectAiChatTarget,
 	sendAiChatMessage,
 	setAiThreadSettingsOpen,
 } from '../tasks/chat/conversation'
@@ -12,12 +14,14 @@ import { installDeterministicChatProvider } from '../tasks/setup/deterministic-c
 test('chat lets the model recover from repeated tool calls without a client-imposed cap', async ({
 	earthly,
 }) => {
+	await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly, 'repeated-tool-error')
 	await authorizeJourneyIdentity(earthly, 'owner')
 	await configureChatProvider(earthly, provider.settings)
 	await earthly.open({ tour: 'seen' })
 	await startDataset(earthly)
 	await openAiChat(earthly)
+	await selectAiChatTarget(earthly, 'current-dataset')
 
 	await sendAiChatMessage(earthly, 'Research the same missing fixture for me')
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })

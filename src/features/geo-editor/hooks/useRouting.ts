@@ -41,6 +41,8 @@ const BROWSE_VIEW_ALIASES: Record<string, SidebarViewMode> = {
 	stories: 'stories',
 	atlases: 'contexts',
 	sightings: 'sightings',
+	// Maplets uses the retained catalog surface; its route selects its own content.
+	maplets: 'datasets',
 	people: 'user',
 }
 

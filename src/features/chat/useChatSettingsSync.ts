@@ -1,3 +1,4 @@
+import { chatSettingsDirtyKey, loadRelayChatSettings, saveRelayChatSettings } from './settingsRelay'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
@@ -18,6 +19,8 @@ function buildSnapshot(
 	mapSnapshotsEnabled: boolean,
 	safetyLevel: ChatSettingsSnapshot['safetyLevel'],
 	promptProfile: ChatSettingsSnapshot['promptProfile'],
+	connections: ChatSettingsSnapshot['connections'],
+	activeConnectionId: ChatSettingsSnapshot['activeConnectionId'],
 ): ChatSettingsSnapshot {
 	return {
 		provider,
@@ -27,7 +30,9 @@ function buildSnapshot(
 		mapSnapshotsEnabled,
 		safetyLevel,
 		promptProfile,
-		version: 2,
+		version: 3,
+		connections,
+		activeConnectionId,
 	}
 }
 
@@ -42,6 +47,9 @@ export function useChatSettingsSync(): void {
 	const mapSnapshotsEnabled = useChatStore((state) => state.mapSnapshotsEnabled)
 	const safetyLevel = useChatStore((state) => state.safetyLevel)
 	const promptProfile = useChatStore((state) => state.promptProfile)
+	const settingsStatus = useChatStore((state) => state.settingsStatus)
+	const connections = useChatStore((state) => state.connections)
+	const activeConnectionId = useChatStore((state) => state.activeConnectionId)
 	const settingsLoadNonce = useChatStore((state) => state.settingsLoadNonce)
 	const settingsImportNonce = useChatStore((state) => state.settingsImportNonce)
 
@@ -67,8 +75,13 @@ export function useChatSettingsSync(): void {
 		mapSnapshotsEnabled,
 		safetyLevel,
 		promptProfile,
+		connections,
+		activeConnectionId,
 	)
 	const serializedSnapshot = JSON.stringify(snapshot)
+	const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
+	const latestSnapshotRef = useRef(serializedSnapshot)
+	latestSnapshotRef.current = serializedSnapshot
 
 	useEffect(() => {
 		if (scrubbedLegacyStorageRef.current || typeof window === 'undefined') return
@@ -92,6 +105,8 @@ export function useChatSettingsSync(): void {
 				'customApiKey',
 				// v2 secret-bearing key — partialize already prevents new writes; scrub defensively.
 				'providerOverrides',
+				'connections',
+				'activeConnectionId',
 				'selectedModel',
 				'toolsEnabled',
 				'mapSnapshotsEnabled',
@@ -152,7 +167,33 @@ export function useChatSettingsSync(): void {
 		void (async () => {
 			try {
 				if (!userPubkey) return
-				const settings = await loadEncryptedChatSettings(signer, userPubkey)
+				let settings = await loadEncryptedChatSettings(signer, userPubkey)
+				let needsPublish = Boolean(settings)
+				chatActions.setSettingsSyncStatus('syncing')
+				try {
+					const synced = await loadRelayChatSettings(signer, userPubkey)
+					if (hydrateGenerationRef.current !== generation || accounts.active?.pubkey !== userPubkey)
+						return
+					const dirty = Boolean(settings && localStorage.getItem(chatSettingsDirtyKey(userPubkey)))
+					if (synced.settings && !dirty) {
+						settings = synced.settings
+						await saveEncryptedChatSettings(signer, userPubkey, settings)
+					}
+					if (hydrateGenerationRef.current !== generation || accounts.active?.pubkey !== userPubkey)
+						return
+					needsPublish = dirty || synced.pending || (Boolean(settings) && !synced.settings)
+					chatActions.setSettingsSyncStatus(synced.settings && !synced.pending ? 'synced' : 'local')
+				} catch (error) {
+					if (hydrateGenerationRef.current !== generation || accounts.active?.pubkey !== userPubkey)
+						return
+					chatActions.setSettingsSyncStatus(
+						'error',
+						error instanceof Error ? error.message : 'Connection sync failed',
+					)
+					// Without a local copy, an offline relay is not evidence of an empty account.
+					if (!settings) throw error
+					needsPublish = false
+				}
 				if (hydrateGenerationRef.current !== generation) return
 				// Guard against an account swap that has not yet bumped `generation` at resolve time
 				// (CR-02): the generation counter is global and cannot distinguish "newer generation
@@ -166,7 +207,22 @@ export function useChatSettingsSync(): void {
 				chatActions.hydrateSettings(settings ?? DEFAULT_CHAT_SETTINGS)
 				loadedPubkeyRef.current = currentUser.pubkey
 				chatActions.setSettingsOwnerPubkey(currentUser.pubkey)
-				lastSavedSnapshotRef.current = JSON.stringify(settings ?? DEFAULT_CHAT_SETTINGS)
+				const hydrated = useChatStore.getState()
+				lastSavedSnapshotRef.current = needsPublish
+					? ''
+					: JSON.stringify(
+							buildSnapshot(
+								hydrated.provider,
+								hydrated.providerOverrides,
+								hydrated.selectedModel,
+								hydrated.toolsEnabled,
+								hydrated.mapSnapshotsEnabled,
+								hydrated.safetyLevel,
+								hydrated.promptProfile,
+								hydrated.connections,
+								hydrated.activeConnectionId,
+							),
+						)
 				loadErrorRef.current = false
 				loadFailedRef.current = false
 				chatActions.setSettingsStatus('loaded')
@@ -191,13 +247,14 @@ export function useChatSettingsSync(): void {
 					error instanceof Error ? error.message : 'Failed to decrypt saved chat settings',
 				)
 				if (!loadErrorRef.current) {
-					toast.error('Failed to decrypt saved chat settings.')
+					toast.error('Could not load saved chat settings. Retry in Settings → Chat.')
 					loadErrorRef.current = true
 				}
 			}
 		})()
 
 		return () => {
+			hydrateGenerationRef.current += 1
 			if (saveTimeoutRef.current !== null) {
 				window.clearTimeout(saveTimeoutRef.current)
 				saveTimeoutRef.current = null
@@ -236,35 +293,50 @@ export function useChatSettingsSync(): void {
 		// The import nonce intentionally retriggers this effect even when the
 		// imported snapshot serializes identically to the current in-memory value.
 		void settingsImportNonce
-		if (!signer || !currentUser) return
+		if (!signer || !currentUser || settingsStatus !== 'loaded') return
 		if (loadedPubkeyRef.current !== currentUser.pubkey) return
 		// Block saves while a decrypt failure is unresolved (CR-01): overwriting here would destroy
 		// the still-recoverable ciphertext. Reset happens on successful load or explicit import.
 		if (loadFailedRef.current) return
 		if (serializedSnapshot === lastSavedSnapshotRef.current) return
+		chatActions.setSettingsSyncStatus('syncing')
 
 		if (saveTimeoutRef.current !== null) {
 			window.clearTimeout(saveTimeoutRef.current)
 		}
 
 		saveTimeoutRef.current = window.setTimeout(() => {
-			void (async () => {
-				try {
-					// Reconstruct the snapshot from serializedSnapshot (the already-listed dep) instead
-					// of closing over the unstable per-render `snapshot` object (WR-05); the two are
-					// identical by construction (serializedSnapshot = JSON.stringify(snapshot)).
-					const toSave = JSON.parse(serializedSnapshot) as ChatSettingsSnapshot
-					await saveEncryptedChatSettings(signer, userPubkey ?? currentUser.pubkey, toSave)
-					lastSavedSnapshotRef.current = serializedSnapshot
-					saveErrorRef.current = false
-				} catch (error) {
-					console.warn('Failed to save encrypted chat settings', error)
-					if (!saveErrorRef.current) {
-						toast.error('Failed to save chat settings with your current signer.')
-						saveErrorRef.current = true
+			const savePubkey = currentUser.pubkey
+			const generation = hydrateGenerationRef.current
+			const isCurrent = () =>
+				accounts.active?.pubkey === savePubkey && hydrateGenerationRef.current === generation
+			saveQueueRef.current = saveQueueRef.current
+				.catch(() => undefined)
+				.then(async () => {
+					if (!isCurrent()) return
+					try {
+						const toSave = JSON.parse(serializedSnapshot) as ChatSettingsSnapshot
+						await saveEncryptedChatSettings(signer, savePubkey, toSave)
+						localStorage.setItem(chatSettingsDirtyKey(savePubkey), '1')
+						if (!isCurrent()) return
+						lastSavedSnapshotRef.current = serializedSnapshot
+						chatActions.setSettingsSyncStatus('syncing')
+						const acknowledged = await saveRelayChatSettings(signer, savePubkey, toSave, isCurrent)
+						if (isCurrent() && latestSnapshotRef.current === serializedSnapshot)
+							chatActions.setSettingsSyncStatus(acknowledged ? 'synced' : 'local')
+						saveErrorRef.current = false
+					} catch (error) {
+						if (!isCurrent()) return
+						chatActions.setSettingsSyncStatus(
+							'error',
+							error instanceof Error ? error.message : 'Could not sync connections',
+						)
+						if (!saveErrorRef.current) {
+							toast.error('Connection sync failed. Use Retry sync in chat settings.')
+							saveErrorRef.current = true
+						}
 					}
-				}
-			})()
+				})
 		}, 350)
 
 		return () => {
@@ -273,5 +345,5 @@ export function useChatSettingsSync(): void {
 				saveTimeoutRef.current = null
 			}
 		}
-	}, [currentUser, serializedSnapshot, settingsImportNonce, signer, userPubkey])
+	}, [currentUser, serializedSnapshot, settingsImportNonce, signer, settingsStatus])
 }

@@ -176,7 +176,8 @@ export const createDatasetColumns = (
 			}
 
 			return (
-				<ListRow dragItem={transferFromResult(datasetToSearchResult(event, () => datasetName))}
+				<ListRow
+					dragItem={transferFromResult(datasetToSearchResult(event, () => datasetName))}
 					leading={
 						<GeometryThumb collection={event.featureCollection} fallbackIcon={DatasetGlyphIcon} />
 					}

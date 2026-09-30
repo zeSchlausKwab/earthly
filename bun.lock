@@ -6,7 +6,7 @@
       "name": "earthly",
       "dependencies": {
         "@base-ui/react": "^1.8.0",
-        "@cashu/cashu-ts": "^4.10.1",
+        "@cashu/cashu-ts": "^4.11.0",
         "@contextvm/sdk": "^0.13.16",
         "@faker-js/faker": "^10.6.0",
         "@formkit/auto-animate": "^0.9.0",
@@ -156,7 +156,7 @@
 
     "@capacitor/core": ["@capacitor/core@7.6.2", "", { "dependencies": { "tslib": "^2.1.0" } }, "sha512-8HRKEUlYpCOeRec8bCHZwEA4o/E2q5dhHSd0v/Cr6+ume08fZY/gniF+ZCKF+6DO0T/nRaBeNRQn6Up+45J1mg=="],
 
-    "@cashu/cashu-ts": ["@cashu/cashu-ts@4.10.1", "", { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "@scure/base": "^2.4.0", "@scure/bip32": "^2.4.0" } }, "sha512-dBCWk0dwaYzeGbwcRW0aGwHI8qD8bkXKaCivgJTC9nO4o/PAfYeQYL8LNgi2DU+YUdJh54keJxKNa5aB+hhjxA=="],
+    "@cashu/cashu-ts": ["@cashu/cashu-ts@4.11.0", "", { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "@scure/base": "^2.4.0", "@scure/bip32": "^2.4.0" } }, "sha512-euNst5ZZCCAYDpIs9qXm0CElJYgvUargsODu+WvlI7SiRCVjTEPOIoeSsdBuEfj30qYfyufBopEDipVzS0d22Q=="],
 
     "@contextvm/ctxcn": ["@contextvm/ctxcn@1.1.0", "", { "dependencies": { "@contextvm/sdk": "^0.1.38", "json-schema-to-typescript": "^15.0.4" }, "peerDependencies": { "typescript": "^5" }, "bin": { "ctxcn": "dist/index.js" } }, "sha512-EVYFZATPy6oNghAbZgv1SiJKujkn3j7JcTkOpnVU9IQnel2catf4+m+wP+vV/sETdaUr7T/gsNUaCRoJ9bXzJA=="],
 
@@ -1738,7 +1738,7 @@
 
     "applesauce-common/@scure/base": ["@scure/base@2.2.0", "", {}, "sha512-b8XEupJibegiXV+tDUseI8oLQc8ei3d/4Jkb2RpbHh3MfE054ov3uIz2dhFkB3FI8iwYkEh0gGCApkrYggkPNg=="],
 
-    "applesauce-content/@cashu/cashu-ts": ["@cashu/cashu-ts@3.6.4", "", { "dependencies": { "@noble/curves": "^2.0.1", "@noble/hashes": "^2.0.1", "@scure/base": "^2.0.0", "@scure/bip32": "^2.0.1" } }, "sha512-a6Asqk+wPEk9a6BQmdLMeegngj0KHKicABUEtr1cUMLTAUYHVHfdfEuHDlU+bNUqXXyaTssG7yo/ZhfHrgbSkQ=="],
+    "applesauce-content/@cashu/cashu-ts": ["@cashu/cashu-ts@3.7.2", "", { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "@scure/base": "^2.4.0", "@scure/bip32": "^2.4.0" } }, "sha512-85Mkf0R0pWaK9XOiQY7pCmPDeqaNaRYe6/TclBU5Q7rW7Z4GuxuEVup+ounNG6RTDo/tcYthJmN+Mg2hKB4sYQ=="],
 
     "applesauce-content/applesauce-common": ["applesauce-common@6.0.1", "", { "dependencies": { "@scure/base": "^1.2.4", "applesauce-core": "^6.0.0", "hash-sum": "^2.0.0", "light-bolt11-decoder": "^3.2.0", "nanoid": "^5.0.9", "rxjs": "^7.8.1" } }, "sha512-eACXtr/m5WvmnA2gUOQ+phvA6t5CtB0oSRmBNaMqi+BN9siLMjkG3lER8LliFD9I7PmK7hB5xBSqiVSezk6sJw=="],
 
@@ -1849,14 +1849,6 @@
     "@tiptap/extension-bubble-menu/@floating-ui/dom/@floating-ui/core": ["@floating-ui/core@1.7.5", "", { "dependencies": { "@floating-ui/utils": "^0.2.11" } }, "sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ=="],
 
     "@tiptap/extension-bubble-menu/@floating-ui/dom/@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
-
-    "applesauce-content/@cashu/cashu-ts/@noble/curves": ["@noble/curves@2.0.1", "", { "dependencies": { "@noble/hashes": "2.0.1" } }, "sha512-vs1Az2OOTBiP4q0pwjW5aF0xp9n4MxVrmkFBxc6EKZc6ddYx5gaZiAsZoq0uRRXWbi3AT/sBqn05eRPtn1JCPw=="],
-
-    "applesauce-content/@cashu/cashu-ts/@noble/hashes": ["@noble/hashes@2.0.1", "", {}, "sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw=="],
-
-    "applesauce-content/@cashu/cashu-ts/@scure/base": ["@scure/base@2.0.0", "", {}, "sha512-3E1kpuZginKkek01ovG8krQ0Z44E3DHPjc5S2rjJw9lZn3KSQOs8S7wqikF/AH7iRanHypj85uGyxk0XAyC37w=="],
-
-    "applesauce-content/@cashu/cashu-ts/@scure/bip32": ["@scure/bip32@2.0.1", "", { "dependencies": { "@noble/curves": "2.0.1", "@noble/hashes": "2.0.1", "@scure/base": "2.0.0" } }, "sha512-4Md1NI5BzoVP+bhyJaY3K6yMesEFzNS1sE/cP+9nuvE7p/b0kx9XbpDHHFl8dHtufcbdHRUUQdRqLIPHN/s7yA=="],
 
     "applesauce-content/applesauce-common/@scure/base": ["@scure/base@1.2.6", "", {}, "sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg=="],
 

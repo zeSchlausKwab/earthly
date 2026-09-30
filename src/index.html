@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Tauri replaces these tokens and authorizes only bundled Maplet code in inherited CSP. -->
+    <meta name="earthly-maplet-script-nonce" content="__TAURI_SCRIPT_NONCE__" />
+    <meta name="earthly-maplet-style-nonce" content="__TAURI_STYLE_NONCE__" />
 
     <!-- Apply the saved theme before first paint (light is the default). -->
     <script>

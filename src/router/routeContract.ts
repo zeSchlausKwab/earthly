@@ -1,4 +1,4 @@
-export const EARTHLY_BROWSE_KINDS = ['maps', 'stories', 'atlases', 'sightings', 'people'] as const
+export const EARTHLY_BROWSE_KINDS = ['maps', 'stories', 'atlases', 'sightings', 'maplets', 'people'] as const
 
 export type EarthlyBrowseKind = (typeof EARTHLY_BROWSE_KINDS)[number]
 export type EarthlyObjectKind =

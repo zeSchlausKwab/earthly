@@ -1,3 +1,4 @@
+import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
 import { expect, test } from '../fixtures/earthly'
 import { openPanel } from '../tasks/navigation/open-panel'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
@@ -6,6 +7,7 @@ import { installDeterministicChatProvider } from '../tasks/setup/deterministic-c
 test('Chat settings import stays reachable by scrolling after a long paste @regression', async ({
 	earthly,
 }) => {
+	await installIsolatedRelays(earthly)
 	const provider = await installDeterministicChatProvider(earthly)
 	await authorizeJourneyIdentity(earthly, 'owner')
 	await openPanel(earthly, 'Settings')
@@ -35,12 +37,13 @@ test('Chat settings import stays reachable by scrolling after a long paste @regr
 	await importButton.click()
 	await expect(earthly.page.getByText('Settings imported', { exact: true })).toBeVisible()
 	await earthly.page.mouse.wheel(0, -10000)
-	await expect(panel.locator('#chat-provider-select')).toBeInViewport()
+	await expect(panel.getByLabel('Connection', { exact: true })).toBeInViewport()
 	expect(provider.requests()).toHaveLength(0)
 })
 
 test('Chat settings stay inside the desktop sidebar @regression', async ({ earthly }, testInfo) => {
 	test.skip(testInfo.project.name !== 'desktop', 'The reported overflow is desktop-specific')
+	await installIsolatedRelays(earthly)
 	await earthly.page.setViewportSize({ width: 768, height: 1024 })
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Settings')
@@ -48,8 +51,9 @@ test('Chat settings stay inside the desktop sidebar @regression', async ({ earth
 	await earthly.page.getByRole('tab', { name: 'Chat', exact: true }).click()
 	const panel = earthly.page.getByRole('tabpanel', { name: 'Chat', exact: true })
 	await expect(panel).toBeVisible()
-	await panel.locator('#chat-provider-select').selectOption('custom')
-	await expect(panel.getByRole('button', { name: 'Connect custom endpoint' })).toBeVisible()
+	await panel.getByRole('button', { name: 'New connection', exact: true }).click()
+	await panel.getByLabel('Provider', { exact: true }).selectOption('custom')
+	await expect(panel.getByRole('button', { name: 'Add connection' })).toBeVisible()
 
 	const toolsToggle = panel.getByRole('button', { name: /^Geo and web tools/ })
 	await expect(toolsToggle).toBeVisible()

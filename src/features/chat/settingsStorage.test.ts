@@ -81,8 +81,7 @@ describe('migrateV1ToV2', () => {
 })
 
 describe('migrateV1ToV2 — safetyLevel (SAFE-04 / D-09 / T-05-11)', () => {
-	// (a) a v2 envelope WITHOUT safetyLevel hydrates to the safe default 2, never a decrypt failure.
-	test('defaults a missing safetyLevel to 2 (v2 branch)', () => {
+	test('defaults a missing safetyLevel to automatic edits (v2 branch)', () => {
 		const result = migrateV1ToV2({
 			provider: 'ollama',
 			providerOverrides: {
@@ -94,11 +93,11 @@ describe('migrateV1ToV2 — safetyLevel (SAFE-04 / D-09 / T-05-11)', () => {
 			toolsEnabled: true,
 		})
 
-		expect(result.safetyLevel).toBe(2)
+		expect(result.safetyLevel).toBe(3)
 	})
 
 	// flat-v1 branch carries the default too.
-	test('defaults safetyLevel to 2 on a flat v1 payload', () => {
+	test('defaults safetyLevel to automatic edits on a flat v1 payload', () => {
 		const result = migrateV1ToV2({
 			provider: 'custom',
 			customEndpoint: 'http://x/v1',
@@ -107,13 +106,13 @@ describe('migrateV1ToV2 — safetyLevel (SAFE-04 / D-09 / T-05-11)', () => {
 			toolsEnabled: false,
 		})
 
-		expect(result.safetyLevel).toBe(2)
+		expect(result.safetyLevel).toBe(3)
 	})
 
 	// not-a-record branch carries the default too.
-	test('defaults safetyLevel to 2 on a garbage payload', () => {
+	test('uses the current default when no settings can be recovered', () => {
 		for (const garbage of [null, undefined, 42, 'nope', {}, []]) {
-			expect(migrateV1ToV2(garbage).safetyLevel).toBe(2)
+			expect(migrateV1ToV2(garbage).safetyLevel).toBe(3)
 		}
 	})
 
@@ -135,9 +134,8 @@ describe('migrateV1ToV2 — safetyLevel (SAFE-04 / D-09 / T-05-11)', () => {
 		}
 	})
 
-	// (c) a valid 1 or 3 is preserved through migration.
-	test('preserves a valid safetyLevel of 1 or 3', () => {
-		for (const level of [1, 3] as const) {
+	test('preserves every explicitly saved safetyLevel', () => {
+		for (const level of [1, 2, 3] as const) {
 			const result = migrateV1ToV2({
 				provider: 'routstr',
 				providerOverrides: {

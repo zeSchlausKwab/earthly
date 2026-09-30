@@ -41,8 +41,15 @@ import {
 } from 'applesauce-wallet/helpers'
 import { generateSecretKey } from 'nostr-tools'
 import type { NostrEvent } from 'nostr-tools'
-import { couch, getCashuWallet, getWalletSnapshot, walletActions } from './runtime'
-import { eventStore } from '@/lib/nostr'
+import {
+	couch as legacyCouch,
+	getWalletCouch,
+	createWalletActions,
+	getCashuWallet,
+	getWalletSnapshot,
+	walletActions,
+} from './runtime'
+import { accounts, eventStore } from '@/lib/nostr'
 
 /**
  * Default relays for newly created wallets. Wallet events are encrypted
@@ -122,6 +129,8 @@ export async function removeNutzapMint(url: string): Promise<void> {
  * to hydrate short-id tokens, so decoding goes through a loaded wallet).
  */
 export async function receiveCashuToken(tokenOrString: string | Token): Promise<void> {
+	const runner = createWalletActions()
+	const couch = getWalletCouch()
 	let token: Token
 	if (typeof tokenOrString === 'string') {
 		const meta = getTokenMetadata(tokenOrString.trim())
@@ -130,7 +139,7 @@ export async function receiveCashuToken(tokenOrString: string | Token): Promise<
 	} else {
 		token = tokenOrString
 	}
-	await walletActions.run(ReceiveToken, token, { couch, getCashuWallet })
+	await runner.run(ReceiveToken, token, { couch, getCashuWallet })
 }
 
 /**
@@ -147,7 +156,20 @@ let spendLock: Promise<unknown> = Promise.resolve()
 
 /** Exported for tests; treat as internal. */
 export function withSpendLock<T>(fn: () => Promise<T>): Promise<T> {
-	const next = spendLock.then(fn, fn)
+	const pubkey = accounts.active?.pubkey
+	const guarded = async (): Promise<T> => {
+		if (accounts.active?.pubkey !== pubkey)
+			throw new Error('Account changed while waiting for the wallet')
+		// Web Locks also serialize spends across tabs on this origin.
+		if (pubkey && typeof navigator !== 'undefined' && navigator.locks)
+			return navigator.locks.request(`earthly-wallet-spend-${pubkey}`, () => {
+				if (accounts.active?.pubkey !== pubkey)
+					throw new Error('Account changed while waiting for the wallet')
+				return fn()
+			})
+		return fn()
+	}
+	const next = spendLock.then(guarded, guarded)
 	// Keep the chain alive on failure — the next caller must still run.
 	spendLock = next.catch(() => undefined)
 	return next
@@ -180,7 +202,12 @@ function getProofKeysetId(proofs: Array<{ id?: string }>): string {
  * second immediate spend can choose an older token event whose proofs were
  * already consumed by the previous spend.
  */
-export const selectSpendableTokens: TokenSelectionFunction = (tokens, minAmount, mint) => {
+export function selectSpendableTokens(
+	tokens: Parameters<TokenSelectionFunction>[0],
+	minAmount: Parameters<TokenSelectionFunction>[1],
+	mint?: string,
+	includeReserve = false,
+): ReturnType<TokenSelectionFunction> {
 	const deleted = getDeletedTokenIds(tokens)
 	const unlockedTokens = tokens
 		.filter((token) => !deleted.has(token.id))
@@ -208,7 +235,7 @@ export const selectSpendableTokens: TokenSelectionFunction = (tokens, minAmount,
 			selectedEvents.push(token)
 			selectedProofs.push(...tokenProofs)
 			amount += tokenProofs.reduce((sum, proof) => sum + proofAmount(proof), 0)
-			if (amount >= minAmount) break
+			if (amount >= minAmount && !includeReserve) break
 		}
 
 		return { amount, events: selectedEvents, proofs: selectedProofs }
@@ -242,29 +269,47 @@ export const selectSpendableTokens: TokenSelectionFunction = (tokens, minAmount,
  */
 export async function sendCashuToken(
 	amountSats: number,
-	options?: { mint?: string },
+	options?: { mint?: string; onTokenCreated?: (token: string) => Promise<void> },
 ): Promise<string> {
+	if (!Number.isSafeInteger(amountSats) || amountSats <= 0)
+		throw new Error('Amount must be a positive whole number of sats')
 	return withSpendLock(async () => {
+		const couch = getWalletCouch()
+		let clearSwappedProofs: (() => void | Promise<void>) | undefined
 		let encoded: string | null = null
 
 		await walletActions.run(
 			TokensOperation,
 			amountSats,
 			async ({ selectedProofs, mint, cashuWallet }) => {
+				// Explicit output types force an online swap, rejecting stale inputs
+				// before sending upstream. Let Cashu choose the active output keyset.
 				const { keep, send } = await cashuWallet.ops
 					.send(amountSats, selectedProofs)
-					// Do not hand exact-match wallet proofs directly to Routstr. A forced
-					// online swap makes the outbound token fresh and lets the mint reject
-					// stale proofs before we send them upstream.
-					.keyset(getProofKeysetId(selectedProofs))
+					.asRandom()
+					.keepAsRandom()
 					.run()
+				// Protect BOTH change and outbound proofs before receipt encryption,
+				// signing, or publication can fail. The selected input proofs are now spent.
+				clearSwappedProofs = await couch.store({ mint, proofs: [...keep, ...send], unit: 'sat' })
 				encoded = getEncodedToken({ mint, proofs: send, unit: 'sat' })
+				if (options?.onTokenCreated) {
+					await options.onTokenCreated(encoded)
+				}
 				return { change: keep.length > 0 ? keep : undefined }
 			},
-			{ mint: options?.mint, couch, getCashuWallet, tokenSelection: selectSpendableTokens },
+			{
+				mint: options?.mint,
+				couch,
+				getCashuWallet,
+				// Give cashu-ts enough proofs to select inputs including mint fees.
+				// Its keep result includes every unused proof, so no reserves are lost.
+				tokenSelection: (tokens, amount, mint) => selectSpendableTokens(tokens, amount, mint, true),
+			},
 		)
 
 		if (!encoded) throw new Error('Failed to create token')
+		await clearSwappedProofs?.()
 		return encoded
 	})
 }
@@ -305,7 +350,8 @@ export function SendNutzapFromWallet(
 	amountSats: number,
 	options: { mint: string; p2pk: string; comment?: string },
 ): Action {
-	return async ({ run }) => {
+	return async ({ run, self }) => {
+		const couch = getWalletCouch(self)
 		await run(
 			TokensOperation,
 			amountSats,
@@ -352,6 +398,8 @@ async function payLightningInvoiceUnlocked(
 	invoice: string,
 	options?: { mint?: string },
 ): Promise<{ paid: boolean; preimage?: string }> {
+	const runner = createWalletActions()
+	const couch = getWalletCouch()
 	const snapshot = getWalletSnapshot()
 	const mint = options?.mint ?? Object.entries(snapshot.balance).sort((a, b) => b[1] - a[1])[0]?.[0]
 	if (!mint) throw new Error('No mint with a balance to pay from')
@@ -370,7 +418,7 @@ async function payLightningInvoiceUnlocked(
 
 	let result: { paid: boolean; preimage?: string } = { paid: false }
 
-	await walletActions.run(
+	await runner.run(
 		TokensOperation,
 		amount + fee,
 		async ({ selectedProofs, cashuWallet: opWallet }) => {
@@ -422,6 +470,8 @@ export async function startLightningDeposit(opts: {
 	mint: string
 	amount: number
 }): Promise<DepositSession> {
+	const runner = createWalletActions()
+	const couch = getWalletCouch()
 	const { mint, amount } = opts
 	if (!mint) throw new Error('Mint is required')
 	if (!amount || amount <= 0) throw new Error('Amount must be positive')
@@ -454,7 +504,7 @@ export async function startLightningDeposit(opts: {
 		},
 		async claim() {
 			// Mints the paid quote into proofs and records token + history events.
-			await walletActions.run(MintTokens, mint, amount, quote, { couch, getCashuWallet })
+			await runner.run(MintTokens, mint, amount, quote, { couch, getCashuWallet })
 			return { amount }
 		},
 	}
@@ -462,7 +512,7 @@ export async function startLightningDeposit(opts: {
 
 /** Pull P2PK-locked tokens out of one or more nutzap events into the wallet. */
 export async function receiveNutzaps(events: NostrEvent | NostrEvent[]): Promise<void> {
-	await walletActions.run(ReceiveNutzaps, events, couch, getCashuWallet)
+	await walletActions.run(ReceiveNutzaps, events, getWalletCouch(), getCashuWallet)
 }
 
 /**
@@ -478,5 +528,12 @@ export async function consolidateTokens(): Promise<void> {
 
 /** Sweep tokens stranded in the couch back into the wallet (after a crash). */
 export async function recoverFromCouch(): Promise<void> {
-	await walletActions.run(RecoverFromCouch, couch, { getCashuWallet })
+	await withSpendLock(() =>
+		walletActions.run(RecoverFromCouch, getWalletCouch(), { getCashuWallet }),
+	)
+}
+
+/** Old versions did not tag recovery tokens with their owner. Only recover explicitly. */
+export async function recoverLegacyCouch(): Promise<void> {
+	await withSpendLock(() => walletActions.run(RecoverFromCouch, legacyCouch, { getCashuWallet }))
 }

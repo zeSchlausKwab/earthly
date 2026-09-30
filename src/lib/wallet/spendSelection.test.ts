@@ -39,6 +39,13 @@ function tokenEvent(opts: {
 }
 
 describe('selectSpendableTokens', () => {
+	test('offers additional mint proofs to online swaps so exact matches can cover input fees', () => {
+		const exact = tokenEvent({ id: 'exact', createdAt: 2, amount: 10 })
+		const reserve = tokenEvent({ id: 'reserve', createdAt: 1, amount: 5 })
+		expect(selectSpendableTokens([exact, reserve], 10, MINT).events).toHaveLength(1)
+		expect(selectSpendableTokens([exact, reserve], 10, MINT, true).events).toEqual([exact, reserve])
+	})
+
 	test('ignores token events marked deleted by public del tags', () => {
 		const spent = tokenEvent({ id: 'spent', createdAt: 1, amount: 100 })
 		const change = tokenEvent({

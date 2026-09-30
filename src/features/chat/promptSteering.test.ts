@@ -51,6 +51,12 @@ describe('compact prompt profile', () => {
 		expect(compact).toMatch(/valhalla_route.+route_over_network/i)
 	})
 
+	it('defers restyle permission to the global app setting and reuses the same Map', () => {
+		for (const text of [compact, legacy]) {
+			expect(text).toContain('Do not ask for an extra conversational approval')
+			expect(text).toContain('Keep editing the same workingTarget')
+		}
+	})
 	it('grounds time-sensitive research in the current date', () => {
 		for (const text of [compact, legacy]) {
 			expect(text).toMatch(/CURRENT DATE[^\n]+\d{4}-\d{2}-\d{2}/i)
