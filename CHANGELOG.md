@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.11] - 2026-09-30
+## [0.1.12] - 2026-09-30
 
 - Added the Maplets directory and GMapper, a client-side viewer for public Google My Maps.
   Create configurations with selected layers, colours, and opacity; publish them for others
@@ -13,6 +13,8 @@
 - Simplified chat navigation and settings, added encrypted connection sharing and entity drops,
   kept chat edits on one map, and exposed Chat in mobile primary navigation.
 - Disabled map hover popups by default and strengthened wallet payment handling.
+- Fixed Android release setup to install supported SDK platform tools after Google removed
+  the legacy tools package. The unpublished 0.1.11 tag remains unchanged.
 
 ### Known limitations
 
