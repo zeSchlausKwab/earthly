@@ -445,7 +445,7 @@ export interface ChatSettingsSnapshot {
 	/** Allow the model to capture the rendered map for autonomous visual review. */
 	mapSnapshotsEnabled: boolean
 	// Edit-safety level (SAFE-04 / D-09 / D-12): 1 = preview + confirm all, 2 = confirm
-	// destructive only (default), 3 = trust + undo (the D-12 "just accept" toggle sets 3).
+	// destructive only, 3 = trust + undo (default; the D-12 "just accept" toggle sets 3).
 	// Rides the same encrypt-to-self envelope as the rest of the snapshot; never a bespoke key.
 	safetyLevel: 1 | 2 | 3
 	promptProfile: PromptProfile
@@ -490,7 +490,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
 	selectedModel: null,
 	toolsEnabled: true,
 	mapSnapshotsEnabled: true,
-	safetyLevel: 2,
+	safetyLevel: 3,
 	promptProfile: 'legacy',
 	version: 3,
 }
@@ -529,6 +529,7 @@ function createEmptyChatSession(options?: OpenChatThreadOptions): ChatSession {
 		title: threadKey ? normalizeThreadTitle(options?.title) : DEFAULT_CHAT_TITLE,
 		threadKey,
 		readOnly: threadKey ? options?.readOnly === true : false,
+		allowCreate: options?.readOnly !== true,
 		messages: [],
 		references: [],
 		targetWorkspaceId: null,
@@ -1401,7 +1402,7 @@ interface ChatState {
 	// Settings
 	toolsEnabled: boolean // Whether to send tools with requests
 	mapSnapshotsEnabled: boolean // Whether a vision model may autonomously capture the map
-	safetyLevel: 1 | 2 | 3 // Edit-safety level (SAFE-04): 1 preview-all / 2 confirm-destructive (default) / 3 trust+undo
+	safetyLevel: 1 | 2 | 3 // Edit-safety level (SAFE-04): 1 preview-all / 2 confirm-destructive / 3 trust+undo (default)
 	promptProfile: PromptProfile
 	// Chat state. `isStreaming` is a global execution lock, not an active-chat flag.
 	isStreaming: boolean

@@ -130,6 +130,53 @@ function bindActiveChatToEmptyDatasetTarget(label = 'Bound test Dataset'): void 
 	useChatStore.getState().setChatTargetWorkspace(chatId, workspaceId)
 }
 
+describe('chat permission defaults', () => {
+	beforeEach(() => {
+		useChatStore.getState().reset()
+	})
+
+	test('initial and new chats allow creation and default to automatic edits', () => {
+		expect(useChatStore.getState().safetyLevel).toBe(3)
+		expect(useChatStore.getState().chatSessions[0]).toMatchObject({
+			allowCreate: true,
+			readOnly: false,
+		})
+		useChatStore.getState().createChat()
+		const state = useChatStore.getState()
+		expect(state.chatSessions.find((chat) => chat.id === state.activeChatId)?.allowCreate).toBe(true)
+	})
+
+	test('new object chats allow creation unless explicitly read-only', () => {
+		const editableId = useChatStore.getState().openThread({ threadKey: 'map:editable' })
+		const readOnlyId = useChatStore.getState().openThread({
+			threadKey: 'map:read-only',
+			readOnly: true,
+		})
+		const sessions = useChatStore.getState().chatSessions
+		expect(sessions.find((chat) => chat.id === editableId)?.allowCreate).toBe(true)
+		expect(sessions.find((chat) => chat.id === readOnlyId)).toMatchObject({
+			allowCreate: false,
+			readOnly: true,
+		})
+	})
+
+	test('reopening and restoring a chat preserve its creation opt-out', () => {
+		const chatId = useChatStore.getState().openThread({ threadKey: 'map:opt-out' }) as string
+		useChatStore.getState().setAllowCreate(chatId, false)
+		useChatStore.getState().createChat()
+		useChatStore.getState().openThread({ threadKey: 'map:opt-out' })
+		const state = useChatStore.getState()
+		expect(state.chatSessions.find((chat) => chat.id === chatId)?.allowCreate).toBe(false)
+		const merge = useChatStore.persist.getOptions().merge
+		if (!merge) throw new Error('Expected persisted chat merging')
+		const restored = merge(chatStorePartialize(state), state)
+		expect(restored.chatSessions.find((chat) => chat.id === chatId)?.allowCreate).toBe(false)
+		expect(
+			restored.chatSessions.filter((chat) => chat.id !== chatId).every((chat) => chat.allowCreate),
+		).toBe(true)
+	})
+})
+
 describe('single global run remains owned across conversation navigation', () => {
 	beforeEach(() => {
 		useChatStore.getState().reset()
