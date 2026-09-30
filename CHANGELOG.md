@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.11] - 2026-09-30
+
+- Added the Maplets directory and GMapper, a client-side viewer for public Google My Maps.
+  Create configurations with selected layers, colours, and opacity; publish them for others
+  to discover, or keep them private on the device or encrypted in your account.
+- Gave each active configuration its own Shelf controls, personal viewing choices, and
+  editable geometry copies with source attribution. Publisher updates can be reviewed while
+  retaining personal choices; edit previews leave the active configuration unchanged.
+- Preserved existing My Maps preferences and publication addresses, added resumable drafts
+  and signer recovery, and retained downloaded KML as a local fallback.
+- Simplified chat navigation and settings, added encrypted connection sharing and entity drops,
+  kept chat edits on one map, and exposed Chat in mobile primary navigation.
+- Disabled map hover popups by default and strengthened wallet payment handling.
+
+### Known limitations
+
+- Google export availability and browser CORS still govern fetching. GMapper supports public
+  Google My Maps vector KML; ordinary Google Maps places, image overlays, and KMZ are outside
+  its supported input.
+- Downloaded executable Maplets remain unavailable in Tauri. The bundled GMapper is allowed;
+  physical Android upgrade, file-picker, and keyboard testing remain pending for this release.
+
 ## [0.1.10] - 2026-09-13
 
 - Fixed the critical MapLibre attribution-sanitizer vulnerability
