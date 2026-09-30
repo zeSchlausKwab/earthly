@@ -683,7 +683,7 @@ export function GeoEditorView() {
 	const [mapError, _setMapError] = useState<string | null>(null)
 	const [deletingKey, setDeletingKey] = useState<string | null>(null)
 	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)
-	const [mapPopupsEnabled, setMapPopupsEnabled] = useState(true)
+	const [mapPopupsEnabled, setMapPopupsEnabled] = useState(false)
 	const [calloutDisplayMode, setCalloutDisplayMode] = useState<CalloutDisplayMode>('full')
 	const cycleCalloutDisplayMode = useCallback(() => {
 		setCalloutDisplayMode(nextCalloutDisplayMode)

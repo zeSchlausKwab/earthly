@@ -44,7 +44,7 @@ export function MapFeatureHoverOverlay({
 	handleInspectDatasetWithoutFocus,
 	sightingsRef,
 	onInspectSighting,
-	popupsEnabled = true,
+	popupsEnabled = false,
 	placementMode = 'geometry',
 	toolbarOffset = 72,
 	suppressed = false,
