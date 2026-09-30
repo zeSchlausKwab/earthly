@@ -1403,8 +1403,9 @@ describe('persist partialize secret-exclusion (SC-1 / T-01-01)', () => {
 })
 
 describe('DEFAULT_CHAT_SETTINGS', () => {
-	test('seeds all three overrides empty and version 2', () => {
-		expect(DEFAULT_CHAT_SETTINGS.version).toBe(2)
+	test('seeds empty connections and legacy overrides in version 3', () => {
+		expect(DEFAULT_CHAT_SETTINGS.version).toBe(3)
+		expect(DEFAULT_CHAT_SETTINGS.connections).toEqual([])
 		expect(DEFAULT_CHAT_SETTINGS.providerOverrides).toEqual(emptyOverrides())
 	})
 })

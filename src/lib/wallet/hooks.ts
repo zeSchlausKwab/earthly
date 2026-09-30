@@ -229,35 +229,41 @@ export function useNutzapInfo(): NutzapInfo | undefined {
 }
 
 /**
- * Persisted "default mint" preference (per browser, not per account).
+ * Persisted "default mint" preference (per account on this browser).
  *
  * The wallet event itself doesn't have a notion of a default — it just lists
  * mints. This hook backs the user's preferred mint to localStorage so the
  * Send/Deposit/Withdraw modals open pre-selected.
  */
 export function useDefaultMint(): [string | null, (mint: string | null) => void] {
-	const [value, setValue] = useState<string | null>(() => getStoredDefaultMint())
+	const account = useActiveAccount()
+	const pubkey = account?.pubkey ?? null
+	const [value, setValue] = useState<string | null>(() => getStoredDefaultMint(pubkey))
 
 	useEffect(() => {
 		if (typeof window === 'undefined') return
-		const sync = () => setValue(getStoredDefaultMint())
+		const sync = () => setValue(getStoredDefaultMint(pubkey))
 		const onStorage = (e: StorageEvent) => {
-			if (e.key === DEFAULT_MINT_KEY) sync()
+			if (e.key?.startsWith(DEFAULT_MINT_KEY)) sync()
 		}
 		const onDefaultMintChange = () => sync()
+		sync()
 		window.addEventListener('storage', onStorage)
 		window.addEventListener(DEFAULT_MINT_CHANGE_EVENT, onDefaultMintChange)
 		return () => {
 			window.removeEventListener('storage', onStorage)
 			window.removeEventListener(DEFAULT_MINT_CHANGE_EVENT, onDefaultMintChange)
 		}
-	}, [])
+	}, [pubkey])
 
-	const setMint = useCallback((mint: string | null) => {
-		const normalized = normalizeDefaultMint(mint)
-		setStoredDefaultMint(normalized)
-		setValue(normalized)
-	}, [])
+	const setMint = useCallback(
+		(mint: string | null) => {
+			const normalized = normalizeDefaultMint(mint)
+			setStoredDefaultMint(normalized, pubkey)
+			setValue(normalized)
+		},
+		[pubkey],
+	)
 
 	return [value, setMint]
 }

@@ -1,3 +1,4 @@
+import { connectionProvider } from './connections'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import {
@@ -305,6 +306,8 @@ export function ChatPanel({
 		lastTurnRequest,
 		provider,
 		providerOverrides,
+		connections,
+		activeConnectionId,
 		loadModels,
 		setSelectedModel,
 		setMapSnapshotsEnabled,
@@ -319,6 +322,14 @@ export function ChatPanel({
 		references,
 		cancelStream,
 	} = useChatStore()
+	const activeConnection = connections.find((connection) => connection.id === activeConnectionId)
+	const providerConfig = useMemo(
+		() =>
+			activeConnection
+				? connectionProvider(activeConnection)
+				: resolveProvider(provider, providerOverrides),
+		[activeConnection, provider, providerOverrides],
+	)
 	const composerDrafts = useChatComposerStore((state) => state.drafts)
 	const setChatComposerDraft = useChatComposerStore((state) => state.setDraft)
 	const selectMobileSidebarDestination = useEditorStore(
@@ -441,19 +452,11 @@ export function ChatPanel({
 	// Load models on mount
 	useEffect(() => {
 		if (settingsStatus !== 'loaded' && settingsStatus !== 'no-signer') return
-		if (provider === 'custom' && !providerOverrides.custom.baseUrl.trim()) return
+		if (!activeConnectionId) return
 		if (models.length === 0 && !modelsLoading && !modelsError) {
 			void loadModels()
 		}
-	}, [
-		settingsStatus,
-		providerOverrides.custom.baseUrl,
-		loadModels,
-		models.length,
-		modelsError,
-		modelsLoading,
-		provider,
-	])
+	}, [settingsStatus, activeConnectionId, loadModels, models.length, modelsError, modelsLoading])
 
 	// Auto-scroll to bottom when messages change. Instant ('auto', not 'smooth')
 	// because during streaming this fires once per frame — stacked smooth-scroll
@@ -536,14 +539,13 @@ export function ChatPanel({
 			return
 		}
 		let cancelled = false
-		const providerConfig = resolveProvider(provider, providerOverrides)
 		void detectVisionSupport(providerConfig, selectedModel, selectedModelData).then((support) => {
 			if (!cancelled) setVisionSupport(support)
 		})
 		return () => {
 			cancelled = true
 		}
-	}, [provider, providerOverrides, selectedModel, selectedModelData])
+	}, [providerConfig, selectedModel, selectedModelData])
 
 	const visionTier: ImageVisionTier = visionSupport
 	const hasAttachedImage = useMemo(
@@ -728,13 +730,9 @@ export function ChatPanel({
 		[runningChatId, sortedChatSessions],
 	)
 	const selectedModelLabel = selectedModelData?.name ?? 'No model selected'
-	const providerLabel = PROVIDER_LABELS[provider]
-	const providerConfig = useMemo(
-		() => resolveProvider(provider, providerOverrides),
-		[provider, providerOverrides],
-	)
+	const providerLabel = activeConnection?.name ?? PROVIDER_LABELS[provider]
 	const providerEndpointLabel = formatProviderEndpoint(providerConfig.baseUrl)
-	const isWalletRequired = provider === 'routstr'
+	const isWalletRequired = providerConfig.requiresPayment
 	const canCompose = !!selectedModel && (!isWalletRequired || walletStatus === 'ready')
 	const imageSendBlocked = hasAttachedImage && !canSendImage(visionSupport, sendAnyway)
 	const sendState = resolveChatSendState({
@@ -1149,7 +1147,9 @@ export function ChatPanel({
 								) : (
 									<span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-1">
 										<Server className="h-3 w-3" />
-										Local · free
+										{provider === 'lmstudio' || provider === 'ollama'
+											? 'Local model'
+											: 'Provider billing'}
 									</span>
 								)}
 								<span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-1">

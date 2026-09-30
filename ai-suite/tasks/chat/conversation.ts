@@ -205,7 +205,7 @@ export async function aiChatSurfaceSnapshot(
 
 export async function configureChatProvider(
 	earthly: EarthlySession,
-	settings: AiSuiteChatSettings,
+	settings: Omit<AiSuiteChatSettings, 'selectedModel'> & { selectedModel: string | null },
 ): Promise<void> {
 	await openPanel(earthly, 'Settings')
 	const settingsSurface = earthly.isMobile
@@ -218,7 +218,7 @@ export async function configureChatProvider(
 	await settingsSurface.getByRole('button', { name: 'Import settings', exact: true }).click()
 	await expect(earthly.page.getByText('Settings imported', { exact: true })).toBeVisible()
 	await expect(importField).toHaveValue('')
-	await expect(settingsSurface.locator('#chat-provider-select')).toHaveValue(settings.provider)
+	await expect(settingsSurface.getByLabel('Connection', { exact: true })).toHaveValue(`legacy-${settings.provider}`)
 	await expect
 		.poll(() =>
 			earthly.page.evaluate(async (expected) => {
@@ -246,7 +246,7 @@ export async function configureChatProvider(
 						unknown
 					>
 					return Object.entries(expected).every(
-						([key, value]) => JSON.stringify(saved[key]) === JSON.stringify(value),
+						([key, value]) => key === 'version' || JSON.stringify(saved[key]) === JSON.stringify(value),
 					)
 				} catch {
 					return false

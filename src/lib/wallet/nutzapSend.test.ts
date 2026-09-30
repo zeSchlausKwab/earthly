@@ -56,7 +56,7 @@ describe('SendNutzapFromWallet', () => {
 			}
 		}
 
-		await action({ run } as unknown as ActionContext)
+		await action({ run, self: 'a'.repeat(64) } as unknown as ActionContext)
 
 		expect(lockedTo).toBe('02recipient')
 		expect(calls[0]?.builder).toBe(TokensOperation)

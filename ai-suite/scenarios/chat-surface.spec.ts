@@ -63,7 +63,7 @@ test('chat keeps advanced status compact and lets the model change in place', as
 
 	await setAiThreadSettingsOpen(earthly)
 	await expect(panel.getByText('Custom endpoint', { exact: true })).toBeVisible()
-	await expect(panel.getByText('Local · free', { exact: true })).toBeVisible()
+	await expect(panel.getByText('Provider billing', { exact: true })).toBeVisible()
 	await expect(panel.getByText('Tools enabled', { exact: true })).toBeVisible()
 	await expect(
 		panel.getByText('Provider and credentials stay in Settings', { exact: true }),
@@ -100,7 +100,7 @@ test('mobile compact Thread keeps model failure recovery in view at 320 and 390p
 		})
 	})
 	await authorizeJourneyIdentity(earthly, 'owner')
-	await configureChatProvider(earthly, provider.settings)
+	await configureChatProvider(earthly, { ...provider.settings, selectedModel: null })
 	await earthly.open({ tour: 'seen' })
 	await startDataset(earthly)
 	await switchMobileWorkspacePanel(earthly, 'Chat')
@@ -156,9 +156,10 @@ test('reopening a routed Thread keeps one composer action set @regression', asyn
 	await earthly.open({ tour: 'seen' })
 	await startDataset(earthly)
 	await openAiChat(earthly)
+	await selectAiChatTarget(earthly, 'current-dataset')
 
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
-	const drawAction = panel.getByRole('button', { name: 'Sketch', exact: true })
+	const drawAction = panel.getByText('Attach to message', { exact: true })
 	await expect(drawAction).toHaveCount(1)
 
 	for (let index = 0; index < 3; index += 1) {

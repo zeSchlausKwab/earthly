@@ -1,3 +1,4 @@
+import { requirePublishAcknowledgement } from '@/lib/nostr/publishAcknowledgement'
 /**
  * Wallet runtime singletons.
  *
@@ -14,12 +15,9 @@
 
 import 'applesauce-wallet/casts'
 import { Mint, Wallet as CashuWallet } from '@cashu/cashu-ts'
-import { ActionRunner } from 'applesauce-actions'
-import { ProxySigner } from 'applesauce-accounts'
-import { persistEncryptedContent } from 'applesauce-common/helpers'
+import { ActionRunner, type ActionBuilder } from 'applesauce-actions'
 import { defined } from 'applesauce-core'
 import { normalizeURL, relaySet } from 'applesauce-core/helpers'
-import type { ISigner } from 'applesauce-signers'
 import {
 	getWalletMints,
 	getWalletRelays,
@@ -36,7 +34,18 @@ import { accounts, allowRelays, eventStore, pool } from '@/lib/nostr'
  * Tokens-in-flight storage. ApplesauceWallet `TokensOperation` requires this
  * so that if a mint operation fails partway, the proofs aren't lost.
  */
+/** Legacy unscoped recovery storage; retained for explicit recovery only. */
 export const couch = new IndexedDBCouch()
+const accountCouches = new Map<string, IndexedDBCouch>()
+export function getWalletCouch(pubkey = accounts.active?.pubkey): IndexedDBCouch {
+	if (!pubkey) throw new Error('Sign in to use your wallet')
+	let storage = accountCouches.get(pubkey)
+	if (!storage) {
+		storage = new IndexedDBCouch(`earthly-wallet-couch-${pubkey}`)
+		accountCouches.set(pubkey, storage)
+	}
+	return storage
+}
 
 /**
  * Cache of cashu-ts Mint instances reused across mint/melt operations.
@@ -65,47 +74,13 @@ export async function getCashuWallet(mint: string): Promise<CashuWallet> {
 	return wallet
 }
 
-/**
- * Reactive view of the active account's signer. Wallet actions sign through
- * this proxy — no need to wire the signer through every call site.
- */
-const activeSigner$ = accounts.active$.pipe(
-	map((account) => account?.signer as ISigner | undefined),
-)
-
-/**
- * Encrypted-content cache keyed by event id. NIP-60 wallet/token/history
- * events stash their payloads in encrypted content; persisting decrypted
- * versions in localStorage avoids re-decrypting every reload.
- *
- * The cache is per-pubkey-prefixed so different accounts on the same browser
- * don't share decrypted state.
- */
-function makeEncryptedContentStorage(): {
-	getItem(key: string): Promise<string | null>
-	setItem(key: string, value: string): Promise<void>
-} {
-	const prefix = () => {
-		const pk = accounts.active?.pubkey
-		return pk ? `wallet:enc:${pk.slice(0, 16)}:` : null
-	}
-	return {
-		async getItem(key) {
-			if (typeof localStorage === 'undefined') return null
-			const p = prefix()
-			if (!p) return null
-			return localStorage.getItem(p + key)
-		},
-		async setItem(key, value) {
-			if (typeof localStorage === 'undefined') return
-			const p = prefix()
-			if (!p) return
-			localStorage.setItem(p + key, value)
-		},
+// The old decrypted-content cache contained spendable proofs in plaintext.
+// Relay ciphertext remains the source of truth; unlock through the signer after reload.
+if (typeof localStorage !== 'undefined') {
+	for (const key of Object.keys(localStorage)) {
+		if (key.startsWith('wallet:enc:')) localStorage.removeItem(key)
 	}
 }
-
-persistEncryptedContent(eventStore, of(makeEncryptedContentStorage()))
 
 /**
  * Resolve publish relays for a wallet event when the action didn't pick any:
@@ -135,19 +110,33 @@ async function resolveWalletPublishRelays(pubkey: string): Promise<string[]> {
  * clients would keep operating on stale token events). Action-chosen relays
  * win; otherwise wallet relays + outboxes; configured relays as last resort.
  */
-export const walletActions = new ActionRunner(
-	eventStore,
-	new ProxySigner<ISigner>(activeSigner$),
-	async (event: NostrEvent, relays?: string[]) => {
-		let targetRelays = relays?.length ? relays : await resolveWalletPublishRelays(event.pubkey)
-		if (targetRelays.length === 0) targetRelays = config.writeRelays
-		// Vouch for the wallet's relays with the dev pool guard — the wallet is
-		// the one sanctioned exception to dev relay isolation (see comment above).
-		allowRelays(targetRelays)
-		await pool.publish(targetRelays, event)
-		eventStore.add(event)
+/** Capture a real signer per operation. ActionRunner caches `self`, so a singleton
+ * runner backed by ProxySigner can mix the first account's proofs with a later signer. */
+export function createWalletActions(): ActionRunner {
+	const account = accounts.active
+	if (!account) throw new Error('Sign in to use your wallet')
+	const runner = new ActionRunner(
+		eventStore,
+		account.signer,
+		async (event: NostrEvent, relays?: string[]) => {
+			if (event.pubkey !== account.pubkey) throw new Error('Wallet signer changed account')
+			let targetRelays = relays?.length ? relays : await resolveWalletPublishRelays(event.pubkey)
+			if (targetRelays.length === 0) targetRelays = config.writeRelays
+			allowRelays(targetRelays)
+			requirePublishAcknowledgement(await pool.publish(targetRelays, event))
+			eventStore.add(event)
+		},
+	)
+	// A rejected publication must not look durable or clear recovery proofs.
+	runner.saveToStore = false
+	return runner
+}
+
+export const walletActions = {
+	run<Args extends unknown[]>(builder: ActionBuilder<Args>, ...args: Args): Promise<void> {
+		return createWalletActions().run(builder, ...args)
 	},
-)
+}
 
 // =====================================================================
 // Synchronous snapshot for non-React callers (e.g. the chat zustand store).

@@ -15,13 +15,16 @@ export interface RoutstrModel {
 	outputModalities?: string[]
 	supportsTools?: boolean
 	pricing: {
-		input: number // cost per 1M input tokens in sats
-		output: number // cost per 1M output tokens in sats
-		request: number // per-request fee in sats
+		currency?: 'sats' | 'USD'
+		input: number // cost per 1M input tokens in the stated currency
+		output: number // cost per 1M output tokens in the stated currency
+		request: number // per-request fee in the stated currency
 	}
 }
 
 export interface ToolCall {
+	/** Preserve opaque Gemini tool-call signatures for the following turn. */
+	extra_content?: Record<string, unknown>
 	id: string
 	type: 'function'
 	function: {
@@ -91,6 +94,7 @@ export interface ChatCompletionResponse {
 }
 
 export interface StreamToolCall {
+	extra_content?: Record<string, unknown>
 	index: number
 	id?: string
 	type?: 'function'
@@ -117,14 +121,6 @@ export interface StreamChunk {
 	}[]
 }
 
-export interface RoutstrConfig {
-	baseUrl: string
-}
-
-const DEFAULT_CONFIG: RoutstrConfig = {
-	baseUrl: 'https://api.routstr.com/v1',
-}
-
 // --- Multi-provider support ---
 
 export type ProviderType = 'routstr' | 'lmstudio' | 'ollama' | 'custom'
@@ -138,6 +134,7 @@ export function isProviderType(value: unknown): value is ProviderType {
 }
 
 export interface ProviderConfig {
+	presetId?: string
 	type: ProviderType
 	baseUrl: string
 	apiKey?: string
@@ -171,6 +168,11 @@ interface ApiModel {
 	name?: string
 	description?: string
 	context_length?: number
+	context_window?: number
+	max_output_tokens?: number
+	display_name?: string
+	supported_parameters?: string[]
+	pricing?: { prompt?: string | number; completion?: string | number; request?: string | number }
 	architecture?: {
 		input_modalities?: string[]
 		output_modalities?: string[]
@@ -220,52 +222,99 @@ function getApiModelMaxCompletionTokens(model: ApiModel): number | undefined {
 	return (
 		normalizePositiveInteger(model.top_provider?.max_completion_tokens) ??
 		normalizePositiveInteger(model.per_request_limits?.max_completion_tokens) ??
-		normalizePositiveInteger(model.per_request_limits?.max_output_tokens)
+		normalizePositiveInteger(model.per_request_limits?.max_output_tokens) ??
+		normalizePositiveInteger(model.max_output_tokens)
 	)
+}
+
+export function providerHeaders(provider: ProviderConfig): Record<string, string> {
+	const headers: Record<string, string> = {}
+	if (provider.apiKey) headers.Authorization = `Bearer ${provider.apiKey}`
+	if (provider.presetId === 'openrouter') headers['X-OpenRouter-Title'] = 'Earthly'
+	if (provider.presetId === 'anthropic')
+		headers['anthropic-dangerous-direct-browser-access'] = 'true'
+	return headers
 }
 
 /**
  * Fetch available models with pricing information
  */
 export async function fetchModels(provider: ProviderConfig): Promise<RoutstrModel[]> {
-	const headers: Record<string, string> = {}
-	if (provider.apiKey) {
-		headers.Authorization = `Bearer ${provider.apiKey}`
+	const headers = providerHeaders(provider)
+	if (provider.presetId === 'anthropic' && provider.apiKey) {
+		headers['x-api-key'] = provider.apiKey
+		headers['anthropic-version'] = '2023-06-01'
 	}
-
-	const response = await fetch(`${provider.baseUrl}/models`, { headers })
-	if (!response.ok) {
-		throw new Error(`Failed to fetch models: ${response.statusText}`)
+	let response: Response
+	try {
+		response = await fetch(`${provider.baseUrl.replace(/\/+$/, '')}/models`, {
+			headers,
+			signal: AbortSignal.timeout(15_000),
+		})
+	} catch {
+		throw new Error(
+			'Could not reach this endpoint. Check the URL, local server, and CORS permissions.',
+		)
 	}
+	if (!response.ok)
+		throw new Error(
+			response.status === 401 || response.status === 403
+				? 'API key rejected. Check the key and endpoint region.'
+				: `Model discovery failed (HTTP ${response.status}). You can enter a model ID when editing the connection.`,
+		)
 	const data = await response.json()
 
 	// Transform OpenAI-style model list to our format
 	// Pricing comes from sats_pricing.prompt/completion (per token)
 	// We convert to per-million tokens for display
-	return (data.data || []).map((model: ApiModel) => ({
-		id: model.id,
-		name: model.name || model.id,
-		description: model.description,
-		contextLength: model.context_length,
-		maxCompletionTokens: getApiModelMaxCompletionTokens(model),
-		inputModalities: getApiModelInputModalities(model),
-		outputModalities: getApiModelOutputModalities(model),
-		supportsTools:
-			typeof model.supports_tools === 'boolean'
-				? model.supports_tools
-				: typeof model.supports_tool_calling === 'boolean'
-					? model.supports_tool_calling
-					: typeof model.tool_calling === 'boolean'
-						? model.tool_calling
-						: undefined,
-		pricing: {
-			// sats_pricing is per-token, multiply by 1M for display
-			input: Math.round((model.sats_pricing?.prompt || 0) * 1_000_000),
-			output: Math.round((model.sats_pricing?.completion || 0) * 1_000_000),
-			// Per-request fee in sats
-			request: model.sats_pricing?.request || 0,
-		},
-	}))
+	if (!Array.isArray(data.data))
+		throw new Error('Endpoint did not return a model list. Enter a model ID in the connection.')
+	return data.data
+		.filter((model: ApiModel) => {
+			if (typeof model?.id !== 'string' || !model.id) return false
+			const output = getApiModelOutputModalities(model)
+			if (output?.length && !output.includes('text')) return false
+			// OpenAI's shared catalogue also contains non-chat endpoints.
+			return (
+				provider.presetId !== 'openai' ||
+				!/^(text-embedding|whisper|tts|dall-e|gpt-image|sora|omni-moderation)|realtime|transcribe/i.test(
+					model.id,
+				)
+			)
+		})
+		.map((model: ApiModel) => ({
+			id: model.id,
+			name: model.name || model.display_name || model.id,
+			description: model.description,
+			contextLength: model.context_length ?? model.context_window,
+			maxCompletionTokens: getApiModelMaxCompletionTokens(model),
+			inputModalities: getApiModelInputModalities(model),
+			outputModalities: getApiModelOutputModalities(model),
+			supportsTools:
+				typeof model.supports_tools === 'boolean'
+					? model.supports_tools
+					: typeof model.supports_tool_calling === 'boolean'
+						? model.supports_tool_calling
+						: typeof model.tool_calling === 'boolean'
+							? model.tool_calling
+							: Array.isArray(model.supported_parameters)
+								? model.supported_parameters.includes('tools')
+								: undefined,
+			pricing: {
+				// sats_pricing is per-token, multiply by 1M for display
+				currency: provider.presetId === 'openrouter' ? 'USD' : 'sats',
+				input:
+					provider.presetId === 'openrouter'
+						? Number(model.pricing?.prompt ?? 0) * 1_000_000
+						: Math.ceil((model.sats_pricing?.prompt || 0) * 1_000_000),
+				output:
+					provider.presetId === 'openrouter'
+						? Number(model.pricing?.completion ?? 0) * 1_000_000
+						: Math.ceil((model.sats_pricing?.completion || 0) * 1_000_000),
+				// Per-request fee in sats
+				request: model.sats_pricing?.request || 0,
+			},
+		}))
 }
 
 // Minimum prepayment to ensure request goes through
@@ -324,6 +373,7 @@ export async function chatCompletion(
 ): Promise<CompletionResult> {
 	const headers: Record<string, string> = {
 		'Content-Type': 'application/json',
+		...providerHeaders(provider),
 	}
 	if (cashuToken) {
 		headers['X-Cashu'] = cashuToken
@@ -332,7 +382,7 @@ export async function chatCompletion(
 		headers.Authorization = `Bearer ${provider.apiKey}`
 	}
 
-	const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+	const response = await fetch(`${provider.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
 		method: 'POST',
 		headers,
 		body: JSON.stringify({
@@ -351,7 +401,8 @@ export async function chatCompletion(
 	const data: ChatCompletionResponse = await response.json()
 
 	// Calculate actual cost from usage
-	const actualCost = data.usage?.total_tokens || 0
+	const costMsats = Number(response.headers.get('X-Routstr-Cost-Msats') ?? 0)
+	const actualCost = Number.isFinite(costMsats) ? costMsats / 1000 : 0
 
 	return {
 		response: data,
@@ -423,6 +474,7 @@ export async function streamChatCompletion(
 
 	const headers: Record<string, string> = {
 		'Content-Type': 'application/json',
+		...providerHeaders(provider),
 	}
 	if (cashuToken) {
 		headers['X-Cashu'] = cashuToken
@@ -433,7 +485,7 @@ export async function streamChatCompletion(
 
 	let response: Response
 	try {
-		response = await fetch(`${provider.baseUrl}/chat/completions`, {
+		response = await fetch(`${provider.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
 			method: 'POST',
 			headers,
 			body: JSON.stringify(requestBody),
@@ -445,7 +497,16 @@ export async function streamChatCompletion(
 	}
 
 	if (!response.ok) {
-		const errorText = await response.text()
+		let errorText: string
+		try {
+			errorText = await response.text()
+		} catch (error) {
+			callbacks.onError(
+				error instanceof Error ? error : new Error(String(error)),
+				response.headers.get('X-Cashu'),
+			)
+			return
+		}
 		let errorMessage = `Stream failed: ${errorText}`
 		const { message, refundToken } = readRoutstrError(errorText)
 
@@ -461,7 +522,7 @@ export async function streamChatCompletion(
 			}
 		}
 
-		callbacks.onError(new Error(errorMessage), refundToken)
+		callbacks.onError(new Error(errorMessage), response.headers.get('X-Cashu') || refundToken)
 		return
 	}
 
@@ -470,7 +531,7 @@ export async function streamChatCompletion(
 
 	const reader = response.body?.getReader()
 	if (!reader) {
-		callbacks.onError(new Error('No response body'))
+		callbacks.onError(new Error('No response body'), refundToken)
 		return
 	}
 
@@ -478,7 +539,10 @@ export async function streamChatCompletion(
 	let buffer = ''
 
 	// Accumulate tool calls as they stream in
-	const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>()
+	const toolCallsMap = new Map<
+		number,
+		{ id: string; name: string; arguments: string; extra_content?: Record<string, unknown> }
+	>()
 	let finishReason: string | undefined
 
 	const processSseDataLine = (data: string): 'done' | 'continue' | 'invalid' => {
@@ -487,6 +551,7 @@ export async function streamChatCompletion(
 			if (toolCallsMap.size > 0 && callbacks.onToolCall) {
 				const toolCalls: ToolCall[] = Array.from(toolCallsMap.values()).map((tc) => ({
 					id: tc.id,
+					...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
 					type: 'function' as const,
 					function: {
 						name: tc.name,
@@ -501,7 +566,15 @@ export async function streamChatCompletion(
 
 		try {
 			const chunk: StreamChunk = JSON.parse(data)
-			const choice = chunk.choices[0]
+			const errorPayload = chunk as StreamChunk & { error?: { message?: string }; message?: string }
+			if (errorPayload.error) {
+				const streamError = new Error(
+					errorPayload.error.message || 'Provider interrupted the stream',
+				)
+				callbacks.onError(streamError, refundToken)
+				return 'done'
+			}
+			const choice = chunk.choices?.[0]
 
 			// Handle regular content
 			const content = choice?.delta?.content
@@ -510,7 +583,9 @@ export async function streamChatCompletion(
 			}
 
 			// Some providers stream reasoning separately
-			const reasoningContent = choice?.delta?.reasoning_content
+			const reasoningContent =
+				choice?.delta?.reasoning_content ??
+				(choice?.delta as { reasoning?: string } | undefined)?.reasoning
 			if (reasoningContent && callbacks.onReasoningToken) {
 				callbacks.onReasoningToken(reasoningContent)
 			}
@@ -522,6 +597,7 @@ export async function streamChatCompletion(
 					const index = typeof tc.index === 'number' ? tc.index : 0
 					const existing = toolCallsMap.get(index)
 					if (existing) {
+						if (tc.extra_content) existing.extra_content = tc.extra_content
 						if (tc.id && !existing.id) {
 							existing.id = tc.id
 						}
@@ -534,6 +610,7 @@ export async function streamChatCompletion(
 					} else {
 						toolCallsMap.set(index, {
 							id: tc.id || `tool_${index}`,
+							extra_content: tc.extra_content,
 							name: tc.function?.name || '',
 							arguments: tc.function?.arguments || '',
 						})
@@ -626,12 +703,21 @@ export async function streamChatCompletion(
 			if (drainBufferedEvents() === 'done') return
 		}
 
+		buffer += decoder.decode()
 		if (drainBufferedEvents(true) === 'done') return
+		if (!finishReason) {
+			callbacks.onError(
+				new Error('The provider closed the stream before completing the response'),
+				refundToken,
+			)
+			return
+		}
 
 		// If we accumulated tool calls, emit them
 		if (toolCallsMap.size > 0 && callbacks.onToolCall) {
 			const toolCalls: ToolCall[] = Array.from(toolCallsMap.values()).map((tc) => ({
 				id: tc.id,
+				...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
 				type: 'function' as const,
 				function: {
 					name: tc.name,
@@ -643,63 +729,9 @@ export async function streamChatCompletion(
 
 		callbacks.onComplete(refundToken, finishReason)
 	} catch (error) {
-		callbacks.onError(error instanceof Error ? error : new Error(String(error)))
+		callbacks.onError(error instanceof Error ? error : new Error(String(error)), refundToken)
+	} finally {
+		await reader.cancel().catch(() => undefined)
+		reader.releaseLock()
 	}
-}
-
-/**
- * Create a balance (API key) from a Cashu token
- * Alternative to X-Cashu header for multiple requests
- */
-export async function createBalance(
-	cashuToken: string,
-	config: RoutstrConfig = DEFAULT_CONFIG,
-): Promise<{ apiKey: string; balance: number }> {
-	const response = await fetch(
-		`${config.baseUrl}/balance/create?token=${encodeURIComponent(cashuToken)}`,
-	)
-	if (!response.ok) {
-		const error = await response.text()
-		throw new Error(`Failed to create balance: ${error}`)
-	}
-	return response.json()
-}
-
-/**
- * Get remaining balance for an API key
- */
-export async function getBalance(
-	apiKey: string,
-	config: RoutstrConfig = DEFAULT_CONFIG,
-): Promise<{ balance: number }> {
-	const response = await fetch(`${config.baseUrl}/balance/info`, {
-		headers: {
-			Authorization: `Bearer ${apiKey}`,
-		},
-	})
-	if (!response.ok) {
-		const error = await response.text()
-		throw new Error(`Failed to get balance: ${error}`)
-	}
-	return response.json()
-}
-
-/**
- * Refund remaining balance as a Cashu token
- */
-export async function refundBalance(
-	apiKey: string,
-	config: RoutstrConfig = DEFAULT_CONFIG,
-): Promise<{ token: string }> {
-	const response = await fetch(`${config.baseUrl}/balance/refund`, {
-		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${apiKey}`,
-		},
-	})
-	if (!response.ok) {
-		const error = await response.text()
-		throw new Error(`Failed to refund balance: ${error}`)
-	}
-	return response.json()
 }

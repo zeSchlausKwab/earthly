@@ -1,3 +1,11 @@
+import { createRoutstrPayment } from './routstrPayments'
+import {
+	type ChatConnection,
+	connectionProvider,
+	legacyConnections,
+	validateConnection,
+	getConnectionPreset,
+} from './connections'
 /**
  * Chat Store - Zustand store for Routstr AI chat
  */
@@ -39,12 +47,7 @@ import { isToolError, type ToolError } from './tools/errors'
 import { appendRequestContextToLatestUserMessage } from './requestContext'
 import { ToolLoopRecovery } from './toolLoopRecovery'
 import { getTokenMetadata } from '@cashu/cashu-ts'
-import {
-	getWalletSnapshot,
-	receiveCashuToken,
-	resolveWalletPaymentMint,
-	sendCashuToken,
-} from '@/lib/wallet'
+import { getWalletSnapshot, resolveWalletPaymentMint, sendCashuToken } from '@/lib/wallet'
 import { detectVisionSupport } from './vision/detectVisionSupport'
 import { sanitizeDanglingToolCalls, syntheticCancelledToolResult } from './toolCallIntegrity'
 import { gateToolsForVision } from './vision/gateToolsForVision'
@@ -435,7 +438,9 @@ export interface ChatSettingsSnapshot {
 	// Rides the same encrypt-to-self envelope as the rest of the snapshot; never a bespoke key.
 	safetyLevel: 1 | 2 | 3
 	promptProfile: PromptProfile
-	version?: 2
+	connections?: ChatConnection[]
+	activeConnectionId?: string | null
+	version?: 2 | 3
 }
 
 /**
@@ -463,6 +468,8 @@ export function isMapSnapshotCaptureAuthorized(options: {
 }
 
 export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
+	connections: [],
+	activeConnectionId: null,
 	provider: 'routstr',
 	providerOverrides: {
 		lmstudio: { baseUrl: '', apiKey: '' },
@@ -474,7 +481,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
 	mapSnapshotsEnabled: true,
 	safetyLevel: 2,
 	promptProfile: 'legacy',
-	version: 2,
+	version: 3,
 }
 
 function createChatId(): string {
@@ -1329,6 +1336,10 @@ export function resolveProvider(
 }
 
 interface ChatState {
+	connections: ChatConnection[]
+	activeConnectionId: string | null
+	settingsSyncStatus: 'local' | 'syncing' | 'synced' | 'error'
+	settingsSyncError: string | null
 	// Provider
 	provider: ProviderType
 	providerOverrides: ProviderOverrideMap
@@ -1382,6 +1393,10 @@ interface ChatState {
 
 interface ChatActions {
 	// Provider
+	saveConnection: (connection: ChatConnection) => void
+	selectConnection: (id: string) => void
+	deleteConnection: (id: string) => void
+	setSettingsSyncStatus: (status: ChatState['settingsSyncStatus'], error?: string | null) => void
 	setProvider: (provider: ProviderType) => void
 	setProviderOverride: (type: ProviderType, patch: Partial<ProviderOverride>) => void
 	// Model management
@@ -1479,6 +1494,10 @@ function createInitialState(): ChatState {
 	const initialChat = createEmptyChatSession()
 	return {
 		...DEFAULT_CHAT_SETTINGS,
+		connections: [],
+		activeConnectionId: null,
+		settingsSyncStatus: 'local',
+		settingsSyncError: null,
 		chatSessions: [initialChat],
 		activeChatId: initialChat.id,
 		runningChatId: null,
@@ -1622,9 +1641,75 @@ export const useChatStore = create<ChatStore>()(
 		(set, get) => ({
 			...initialState,
 
+			setSettingsSyncStatus: (status, error) =>
+				set({ settingsSyncStatus: status, settingsSyncError: error ?? null }),
+			saveConnection: (input) => {
+				const connection = validateConnection(input)
+				set((state) => ({
+					connections: [
+						...state.connections.filter((item) => item.id !== connection.id),
+						connection,
+					],
+				}))
+				get().selectConnection(connection.id)
+			},
+			selectConnection: (id) => {
+				const connection = get().connections.find((item) => item.id === id)
+				if (!connection) return
+				get().cancelStream()
+				modelsLoadGeneration += 1
+				const type = getConnectionPreset(connection.presetId).provider
+				set((state) => ({
+					activeConnectionId: id,
+					provider: type,
+					providerOverrides:
+						type === 'routstr'
+							? state.providerOverrides
+							: {
+									...state.providerOverrides,
+									[type]: { baseUrl: connection.baseUrl, apiKey: connection.apiKey },
+								},
+					selectedModel: connection.selectedModel,
+					models: [],
+					modelsLoading: false,
+					modelsError: null,
+				}))
+				void get().loadModels()
+			},
+			deleteConnection: (id) => {
+				const wasActive = get().activeConnectionId === id
+				set((state) => ({
+					connections: state.connections.filter((item) => item.id !== id),
+					// Legacy compatibility fields must not retain deleted credentials.
+					providerOverrides: { ...DEFAULT_CHAT_SETTINGS.providerOverrides },
+				}))
+				if (!wasActive) return
+				get().cancelStream()
+				const next = get().connections[0]
+				if (next) get().selectConnection(next.id)
+				else {
+					modelsLoadGeneration += 1
+					set({
+						activeConnectionId: null,
+						provider: 'custom',
+						selectedModel: null,
+						models: [],
+						modelsLoading: false,
+						modelsError: 'Add a connection to start chatting.',
+					})
+				}
+			},
+
 			setProvider: (providerType: ProviderType) => {
 				modelsLoadGeneration += 1
-				set({ provider: providerType, models: [], selectedModel: null, modelsError: null })
+				set({
+					activeConnectionId: null,
+					provider: providerType,
+					models: [],
+					modelsLoading: false,
+					selectedModel: null,
+					modelsError: null,
+				})
 				get().loadModels()
 			},
 
@@ -1645,9 +1730,14 @@ export const useChatStore = create<ChatStore>()(
 				const generation = modelsLoadGeneration + 1
 				modelsLoadGeneration = generation
 				const { provider, providerOverrides } = get()
-				const providerConfig = resolveProvider(provider, providerOverrides)
+				const activeConnection = get().connections.find(
+					(item) => item.id === get().activeConnectionId,
+				)
+				const providerConfig = activeConnection
+					? connectionProvider(activeConnection)
+					: resolveProvider(provider, providerOverrides)
 
-				if (provider === 'custom' && !providerOverrides.custom.baseUrl) {
+				if (!providerConfig.baseUrl) {
 					set({ modelsError: 'Enter an endpoint URL first' })
 					return
 				}
@@ -1668,6 +1758,8 @@ export const useChatStore = create<ChatStore>()(
 							modelsLoading: false,
 							modelsError: 'No models available from this provider.',
 						})
+						if (get().selectedModel && !providerConfig.requiresPayment)
+							get().setSelectedModel(get().selectedModel!)
 						return
 					}
 					const selectedModel = get().selectedModel
@@ -1675,19 +1767,35 @@ export const useChatStore = create<ChatStore>()(
 						models,
 						modelsLoading: false,
 						selectedModel:
-							selectedModel && models.find((m) => m.id === selectedModel)
+							selectedModel &&
+							(!providerConfig.requiresPayment || models.find((m) => m.id === selectedModel))
 								? selectedModel
 								: (models[0]?.id ?? null),
 					})
+					const chosen = get().selectedModel
+					if (chosen) get().setSelectedModel(chosen)
 				} catch (err) {
 					if (modelsLoadGeneration !== generation) return
 					const message = err instanceof Error ? err.message : 'Failed to load models'
 					set({ modelsLoading: false, modelsError: message })
+					if (get().selectedModel && !providerConfig.requiresPayment)
+						get().setSelectedModel(get().selectedModel!)
 				}
 			},
 
 			setSelectedModel: (modelId: string) => {
-				set({ selectedModel: modelId })
+				set((state) => ({
+					selectedModel: modelId,
+					connections: state.connections.map((item) =>
+						item.id === state.activeConnectionId ? { ...item, selectedModel: modelId } : item,
+					),
+					models: state.models.some((model) => model.id === modelId)
+						? state.models
+						: [
+								...state.models,
+								{ id: modelId, name: modelId, pricing: { input: 0, output: 0, request: 0 } },
+							],
+				}))
 			},
 
 			setToolsEnabled: (enabled: boolean) => {
@@ -1713,7 +1821,16 @@ export const useChatStore = create<ChatStore>()(
 				// provider. Otherwise its late response can replace the imported model.
 				modelsLoadGeneration += 1
 				const incomingOverrides = settings.providerOverrides
+				const connections =
+					settings.connections ?? legacyConnections({ ...DEFAULT_CHAT_SETTINGS, ...settings })
+				const activeConnectionId =
+					settings.activeConnectionId ??
+					connections.find((item) => item.presetId === settings.provider)?.id ??
+					connections[0]?.id ??
+					null
 				set({
+					connections,
+					activeConnectionId,
 					provider: settings.provider ?? DEFAULT_CHAT_SETTINGS.provider,
 					providerOverrides: {
 						lmstudio:
@@ -2035,14 +2152,38 @@ export const useChatStore = create<ChatStore>()(
 					return
 				}
 				const continuingAfterAppliedChanges = options?.continueAfterAppliedChanges === true
-				const toolsEnabledForRun = (workScoped || !readOnlyRun) && toolsEnabled && !continuingAfterAppliedChanges
-				const toolsForRun = (canCapture: boolean) => getAdvertisedGeoTools(canCapture)
-					.filter((tool) => !readOnlyRun || READ_ONLY_TOOLS.has(tool.function.name))
-					.map((tool) => !workScoped ? tool : ({ ...tool, function: { ...tool.function, parameters: {
-						...tool.function.parameters, properties: { ...tool.function.parameters.properties,
-							workingTarget: { type: 'string', description: 'Exact writable output id from get_working_set. References never grant write permission.' } },
-					} } }))
-				const providerConfig = resolveProvider(provider, providerOverrides)
+				const toolsEnabledForRun =
+					(workScoped || !readOnlyRun) && toolsEnabled && !continuingAfterAppliedChanges
+				const toolsForRun = (canCapture: boolean) =>
+					getAdvertisedGeoTools(canCapture)
+						.filter((tool) => !readOnlyRun || READ_ONLY_TOOLS.has(tool.function.name))
+						.map((tool) =>
+							!workScoped
+								? tool
+								: {
+										...tool,
+										function: {
+											...tool.function,
+											parameters: {
+												...tool.function.parameters,
+												properties: {
+													...tool.function.parameters.properties,
+													workingTarget: {
+														type: 'string',
+														description:
+															'Exact writable output id from get_working_set. References never grant write permission.',
+													},
+												},
+											},
+										},
+									},
+						)
+				const activeConnection = get().connections.find(
+					(item) => item.id === get().activeConnectionId,
+				)
+				const providerConfig = activeConnection
+					? connectionProvider(activeConnection)
+					: resolveProvider(provider, providerOverrides)
 				// Hoisted so the request-builder closure can gate capture_map_snapshot on
 				// it; assigned once vision support resolves below. Default false fails
 				// closed (gates the vision-only tool OFF if ever read before assignment).
@@ -2175,34 +2316,6 @@ export const useChatStore = create<ChatStore>()(
 					)
 				}
 
-				// Helper to process refund (no-ops when refundToken is null).
-				// A refund is real money: on redeem failure the encoded token is
-				// surfaced to the user (toast + console) instead of being dropped —
-				// it can be pasted into the wallet's Receive panel to recover it.
-				const processRefund = async (refundToken: string | null) => {
-					if (!refundToken) return
-					console.log('[Chat] Received refund token, redeeming...')
-					try {
-						await receiveCashuToken(refundToken)
-						try {
-							const amount = getTokenMetadata(refundToken).amount.toNumber()
-							setOwnedRunState((current) => ({
-								...current,
-								totalRefunded: current.totalRefunded + amount,
-							}))
-						} catch {
-							// Amount accounting is best-effort; the redeem already succeeded.
-						}
-					} catch (err) {
-						console.error('[Chat] Failed to redeem refund token:', err, refundToken)
-						toast.error('Refund received but could not be redeemed automatically.', {
-							description:
-								'The token was logged to the console — paste it into Wallet → Receive to recover the sats.',
-							duration: 15_000,
-						})
-					}
-				}
-
 				// Helper to make a streaming request.
 				// `outputBudget` is derived per-round from the room left after the
 				// prompt: `.maxTokens` is what we send (undefined => omit, i.e. no cap),
@@ -2220,6 +2333,28 @@ export const useChatStore = create<ChatStore>()(
 					estimatedCompletionTokens: number
 				}> => {
 					let cashuToken: string | null | undefined
+					const payingAccount = accounts.active
+					const payment =
+						providerConfig.requiresPayment && payingAccount
+							? createRoutstrPayment(payingAccount, providerConfig.baseUrl)
+							: null
+					const processRefund = async (refund: string | null) => {
+						if (!payment) return
+						try {
+							const recovered = await payment.settle(refund)
+							if (recovered)
+								setOwnedRunState((current) => ({
+									...current,
+									totalRefunded:
+										current.totalRefunded + getTokenMetadata(recovered).amount.toNumber(),
+								}))
+						} catch {
+							toast.info('Routstr payment recovery is pending.', {
+								description:
+									'Your encrypted receipt is saved. Use Wallet tools → Recover Routstr payments.',
+							})
+						}
+					}
 
 					// Payment flow only for paid providers
 					if (providerConfig.requiresPayment) {
@@ -2236,6 +2371,13 @@ export const useChatStore = create<ChatStore>()(
 						})
 
 						const snap = getWalletSnapshot()
+						if (
+							!payment ||
+							!payingAccount?.signer.nip44 ||
+							snap.pubkey !== activeAccountPubkey ||
+							accounts.active?.pubkey !== activeAccountPubkey
+						)
+							throw new Error('The paying wallet account changed or does not support NIP-44')
 						if (snap.totalBalance < estimatedCost) {
 							throw new Error(
 								`Insufficient balance. Need ~${estimatedCost} sats, have ${snap.totalBalance}`,
@@ -2260,7 +2402,10 @@ export const useChatStore = create<ChatStore>()(
 							mintBalance: paymentMint.balance,
 						})
 						try {
-							cashuToken = await sendCashuToken(estimatedCost, { mint: paymentMint.mint })
+							cashuToken = await sendCashuToken(estimatedCost, {
+								mint: paymentMint.mint,
+								onTokenCreated: payment.prepare,
+							})
 						} catch (err) {
 							throw new Error(
 								`Failed to generate payment token: ${err instanceof Error ? err.message : String(err)}`,
@@ -2273,6 +2418,11 @@ export const useChatStore = create<ChatStore>()(
 						}))
 					}
 
+					if (
+						(accounts.active?.pubkey ?? null) !== activeAccountPubkey ||
+						currentStreamRunId !== streamRunId
+					)
+						throw new Error('Chat connection or account changed before the request')
 					return new Promise((resolve, reject) => {
 						let accumulatedContent = ''
 						let accumulatedReasoningContent = ''
@@ -2473,10 +2623,7 @@ export const useChatStore = create<ChatStore>()(
 									settled = true
 									clearTimers()
 									cancelStreamingFlush()
-									if (refundToken) {
-										console.log('[Chat] Processing refund from error response')
-										await processRefund(refundToken)
-									}
+									await processRefund(refundToken ?? null)
 									setOwnedRunState({
 										streamWarning: null,
 										lastProgressAt: Date.now(),
@@ -3436,6 +3583,8 @@ export function reconcileStoryThreadTarget(draftKey: string, published: { draftK
 
 // Action helpers for non-hook usage
 export const chatActions = {
+	setSettingsSyncStatus: (status: ChatState['settingsSyncStatus'], error?: string | null) =>
+		useChatStore.getState().setSettingsSyncStatus(status, error),
 	setProvider: (provider: ProviderType) => useChatStore.getState().setProvider(provider),
 	setProviderOverride: (type: ProviderType, patch: Partial<ProviderOverride>) =>
 		useChatStore.getState().setProviderOverride(type, patch),

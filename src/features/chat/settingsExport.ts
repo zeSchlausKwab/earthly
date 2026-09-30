@@ -1,5 +1,5 @@
 import { isProviderType } from './routstr'
-import { migrateV1ToV2 } from './settingsStorage'
+import { normalizeChatSettings, migrateV1ToV2 } from './settingsStorage'
 import { DEFAULT_CHAT_SETTINGS } from './store'
 import type { ChatSettingsSnapshot, ProviderOverride } from './store'
 
@@ -47,6 +47,7 @@ export function validateImportedSnapshot(parsed: unknown): ChatSettingsSnapshot 
 		throw new Error(`Unknown provider: ${String(parsed.provider)}`)
 	}
 
+	if ('connections' in parsed) return normalizeChatSettings(parsed)
 	const defaults = DEFAULT_CHAT_SETTINGS
 
 	// Flat v1 payload (no providerOverrides): fold through the shared migration so the custom

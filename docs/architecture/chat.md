@@ -49,6 +49,93 @@ sequenceDiagram
 | [`ingest/`](../../src/features/chat/ingest) | Worker-based parsing for CSV, GeoJSON, XLSX, and text attachments |
 | [`tools/mcp-sync.ts`](../../src/features/chat/tools/mcp-sync.ts) | Discovers and synchronizes ContextVM tool definitions |
 
+## Saved connections and provider compatibility
+
+Chat settings contain named connections with stable IDs, provider preset, editable API base URL,
+API key, and a model preference. The active connection determines inference, model discovery,
+vision detection, and wallet gating. Selecting another connection cancels the current run and
+invalidates pending model discovery. A manually supplied model ID remains usable when discovery
+is unavailable; wallet-funded Routstr requires discovered pricing before spending.
+
+`connections.ts` owns presets and validation; `ConnectionSettings.tsx` owns the draft editor.
+Keys enter the settings store only after Add/Save. Version 1 and 2 settings migrate each configured
+endpoint into a separate connection. Version 3 backups include all connections. Plaintext export
+remains an explicit recovery action; the ordinary `chat-store` persists no provider credentials.
+
+Endpoint defaults were checked against provider documentation on **2026-09-30**:
+
+| Provider | API base URL |
+| --- | --- |
+| Routstr | `https://api.routstr.com/v1` |
+| OpenRouter | `https://openrouter.ai/api/v1` |
+| Kimi / Moonshot | `https://api.moonshot.ai/v1` |
+| Z.ai / GLM | `https://api.z.ai/api/paas/v4` |
+| DeepSeek | `https://api.deepseek.com` |
+| OpenAI | `https://api.openai.com/v1` |
+| Anthropic / Claude compatibility API | `https://api.anthropic.com/v1` |
+| Gemini compatibility API | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| xAI / Grok | `https://api.x.ai/v1` |
+| Mistral | `https://api.mistral.ai/v1` |
+| Groq | `https://api.groq.com/openai/v1` |
+| Together AI | `https://api.together.xyz/v1` |
+| Fireworks AI | `https://api.fireworks.ai/inference/v1` |
+| Cerebras | `https://api.cerebras.ai/v1` |
+| LM Studio | `http://localhost:1234/v1` |
+| Ollama | `http://localhost:11434/v1` |
+
+The custom preset accepts any OpenAI-compatible endpoint. Each preset links its official setup
+guide in the UI and source. Model lists are fetched live instead of freezing vendor inventories;
+GLM has an editable `glm-5.3` fallback. Regional credentials and subscription-specific endpoints
+can differ. Browser access still requires provider CORS support; local servers must allow Earthly's
+origin. Claude and Gemini use their documented OpenAI compatibility interfaces, not native SDKs.
+Gemini's opaque tool-call signatures survive streaming and subsequent tool rounds. OpenRouter
+prices display as USD, separately from Routstr sats.
+
+### Encrypted Nostr persistence
+
+`settingsRelay.ts` stores one signed, addressable kind **30078** event with
+`d=earthly:chat-settings`, authored by the account. Its entire JSON payload is NIP-44 encrypted to
+that same pubkey; tags contain no endpoints or keys. Loading checks the signature, author, address,
+and schema before decrypting. Relay queries include configured content/discovery relays and the
+account's cached NIP-65 write relays; publication uses normal outbox routing.
+
+Login, reload, and **Refresh connections** restore the latest snapshot. Writes are debounced and
+serialized, with encrypted local caching and visible pending/error/acknowledged states. Failed
+delivery retains a dirty local copy for Retry sync. Account changes clear credentials and invalidate
+in-flight operations. Unsupported or damaged envelopes are preserved rather than overwritten.
+NIP-04-only signers can use encrypted local storage but need NIP-44 to sync connections to relays.
+
+This is snapshot synchronization: concurrent device edits use Nostr's newest-event rule (lowest
+event ID wins equal timestamps), not a per-connection merge. Deletion publishes a replacement
+snapshot without the connection; it cannot erase historical ciphertext held by third parties or
+revoke an API key at its provider. Older clients understand only the active provider compatibility
+fields and should not be used to edit a v3 configuration.
+
+### Routstr payments and wallet recovery
+
+An empty Routstr API key selects NIP-60 funding; a supplied funded key uses bearer authentication
+without requiring a wallet. Each wallet-funded request swaps fresh Cashu proofs and saves a
+NIP-44 encrypted, account-scoped receipt before transmission. Refunds use the response token when
+available, otherwise `POST /v1/balance/refund` with the original `X-Cashu` header, following the
+[Routstr endpoint contract](https://docs.routstr.com/api/endpoints/#refund-balance).
+
+`routstrPayments.ts` persists a received refund before redeeming it. Delays, cancellation, account
+changes, and publication failures retain recovery state. **Wallet → Tools → Recover Routstr
+payments** retries for the paying account; a missing request can reclaim an unsent token. These
+receipts are local to the device, not included in connection backups, and must not be cleared while
+payments remain pending. Fully spent or swept payments can require operator investigation.
+
+Wallet actions capture one real signer per operation, including nested actions, instead of sharing
+a proxy-backed ActionRunner that caches the first account's identity. Recovery couches and default
+mint preferences are account-scoped. The old unowned couch is available only through explicit
+legacy recovery. Spends are serialized in-process and across browser tabs with Web Locks; relay
+acknowledgement is required before wallet events are considered durable. The old persistent
+plaintext decrypted-event cache is removed; reloads unlock relay ciphertext through the signer.
+
+The direct Cashu library is upgraded to `@cashu/cashu-ts` 4.11.0. Applesauce wallet/core 6.2.0
+and signers 6.2.2 were already current when checked. Independent transitive dependencies retain
+their compatible major versions.
+
 ## Tool kinds
 
 The registry supports several implementations behind one tool-call contract:

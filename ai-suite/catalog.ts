@@ -1,4 +1,5 @@
 import { createIdentityTask } from './tasks/auth/create-identity'
+import { addChatConnectionTask } from './tasks/chat/connections'
 import { authorizeJourneyIdentityTask } from './tasks/auth/authorize-journey-identity'
 import { signInTask } from './tasks/auth/sign-in'
 import {
@@ -84,6 +85,7 @@ import {
 } from './tasks/social/story-proposals'
 
 const tasks = [
+	addChatConnectionTask,
 	openMyMapsViewerTask,
 	addMyMapsSourceTask,
 	installIsolatedRelaysTask,

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { normalizeDefaultMint, resolveWalletPaymentMint } from './defaultMint'
+import {
+	DEFAULT_MINT_KEY,
+	getStoredDefaultMint,
+	normalizeDefaultMint,
+	resolveWalletPaymentMint,
+} from './defaultMint'
 
 const snapshot = {
 	mints: ['https://mint-a.example', 'https://mint-b.example', 'https://mint-c.example'],
@@ -9,6 +14,27 @@ const snapshot = {
 		'https://mint-c.example': 100,
 	},
 }
+
+test('migrates the old mint preference once without sharing it with another account', () => {
+	const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+	const entries = new Map([[DEFAULT_MINT_KEY, 'https://mint-b.example']])
+	Object.defineProperty(globalThis, 'localStorage', {
+		configurable: true,
+		value: {
+			getItem: (key: string) => entries.get(key) ?? null,
+			setItem: (key: string, value: string) => entries.set(key, value),
+			removeItem: (key: string) => entries.delete(key),
+		},
+	})
+	try {
+		expect(getStoredDefaultMint('account-a')).toBe('https://mint-b.example')
+		expect(getStoredDefaultMint('account-b')).toBeNull()
+		expect(getStoredDefaultMint('account-a')).toBe('https://mint-b.example')
+	} finally {
+		if (previous) Object.defineProperty(globalThis, 'localStorage', previous)
+		else Reflect.deleteProperty(globalThis, 'localStorage')
+	}
+})
 
 describe('normalizeDefaultMint', () => {
 	test('treats blank values as unset', () => {
