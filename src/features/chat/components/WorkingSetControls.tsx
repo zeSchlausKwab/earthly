@@ -1,9 +1,10 @@
 import { naddrToCoordinate } from '@/lib/nostr/references'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { useState, useSyncExternalStore } from 'react'
-import { ArrowUpRight, Ellipsis, Eye, Link2, Loader2, Pencil, Unlink, X } from 'lucide-react'
+import { Ellipsis, Link2, Loader2, Pencil, Unlink, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { DraftRowActions } from '@/components/DraftRowActions'
 import {
 	DropdownMenuContent,
 	DropdownMenuItem,
@@ -21,7 +22,8 @@ import {
 	transferFromTarget,
 	type EntityTransfer,
 } from '@/components/entity-list/entityTransfer'
-import { openSavedDraft, viewSavedDraft } from '@/features/geo-editor/draftActions'
+import { openSavedDraft } from '@/features/geo-editor/draftActions'
+import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { readStoryDraft, getStoryDraftRevision, subscribeStoryDrafts } from '@/lib/nostr/story'
 import { useChatStore } from '../store'
@@ -138,10 +140,21 @@ export function WorkingSetControls({
 				void apply(item, role)
 			}}
 		>
-			<h2 className="flex items-center gap-2 text-sm font-semibold">
-				{view === 'edit' ? 'AI can edit' : 'Sources'}
-				{pending && <Loader2 className="size-4 animate-spin" />}
-			</h2>
+			<div className="flex items-center justify-between gap-2">
+				<h2 className="flex items-center gap-2 text-sm font-semibold">
+					{view === 'edit' ? 'AI can edit' : 'Sources'}
+					{pending && <Loader2 className="size-4 animate-spin" />}
+				</h2>
+				{view === 'edit' && (
+					<Button
+						variant="ghost"
+						className="min-h-11 rounded-none px-2 text-xs md:min-h-8"
+						onClick={() => navigateToRoute('/drafts', { preserveThread: true })}
+					>
+						All drafts
+					</Button>
+				)}
+			</div>
 			<p className="mb-5 mt-1 text-xs text-muted-foreground">
 				{view === 'edit'
 					? 'Changes stay in drafts until you publish. Other people’s work becomes a proposal.'
@@ -160,9 +173,9 @@ export function WorkingSetControls({
 								sources.datasets,
 							)
 							return (
-								<li key={item.id} className="flex min-w-0 items-start gap-1 py-3">
+								<li key={item.id} className="flex min-w-0 flex-wrap items-start gap-1 py-3">
 									<EntityDragHandle item={transferFromTarget(item)} />
-									<div className="min-w-0 flex-1 py-1">
+									<div className="min-w-[min(100%,12rem)] flex-1 py-1">
 										<button
 											type="button"
 											className="block w-full break-words text-left text-xs font-medium hover:underline"
@@ -173,7 +186,23 @@ export function WorkingSetControls({
 										<p
 											className={`mt-1 text-[11px] ${publication.href ? (publication.modified ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400') : 'text-muted-foreground'}`}
 										>
-											<span>{publication.label}</span> · {item.kind === 'dataset' ? 'Map' : 'Story'}
+											{publication.href ? (
+												<button
+													type="button"
+													aria-label={`View published: ${item.title}`}
+													title={publication.description}
+													className="min-h-6 text-left hover:underline"
+													onClick={() => {
+														if (publication.href)
+															navigateToRoute(publication.href, { preserveThread: true })
+													}}
+												>
+													{publication.label}
+												</button>
+											) : (
+												<span>{publication.label}</span>
+											)}{' '}
+											· {item.kind === 'dataset' ? 'Map' : 'Story'}
 										</p>
 										{item.featureIds && (
 											<p className="mt-1 text-[11px] text-muted-foreground">
@@ -181,50 +210,37 @@ export function WorkingSetControls({
 											</p>
 										)}
 									</div>
-									<Button
-										variant="ghost"
-										size="icon"
-										className="size-11 shrink-0 rounded-none md:size-9"
-										aria-label={`Open ${item.title}`}
-										onClick={() => void runAction(() => openSavedDraft(item))}
-									>
-										<ArrowUpRight className="size-4" />
-									</Button>
-									<ChatMenu id={`target:${item.id}`}>
-										<DropdownMenuTrigger asChild>
-											<Button
-												variant="ghost"
-												size="icon"
-												className="size-11 shrink-0 rounded-none md:size-9"
-												aria-label={`Actions for ${item.title}`}
-											>
-												<Ellipsis className="size-4" />
-											</Button>
-										</DropdownMenuTrigger>
-										<DropdownMenuContent align="end" className="z-[80] w-60 rounded-none">
-											<DropdownMenuItem
-												className="min-h-11"
-												onSelect={() => void runAction(() => viewSavedDraft(item))}
-											>
-												<Eye />
-												{item.kind === 'dataset' ? 'Show on map' : 'Preview Story'}
-											</DropdownMenuItem>
-											<DropdownMenuItem
-												className="min-h-11"
-												disabled={busy || pending}
-												onSelect={() => {
-													if (chatId)
-														useChatStore.getState().setWorkingSet(
-															chatId,
-															targets.filter((other) => other.id !== item.id),
-														)
-												}}
-											>
-												<Unlink />
-												Remove editing access
-											</DropdownMenuItem>
-										</DropdownMenuContent>
-									</ChatMenu>
+									<div className="ml-auto flex shrink-0 items-center gap-1">
+										<DraftRowActions target={item} />
+										<ChatMenu id={`target:${item.id}`}>
+											<DropdownMenuTrigger asChild>
+												<Button
+													variant="ghost"
+													size="icon"
+													className="size-11 shrink-0 rounded-none md:size-9"
+													aria-label={`Actions for ${item.title}`}
+												>
+													<Ellipsis className="size-4" />
+												</Button>
+											</DropdownMenuTrigger>
+											<DropdownMenuContent align="end" className="z-[80] w-60 rounded-none">
+												<DropdownMenuItem
+													className="min-h-11"
+													disabled={busy || pending}
+													onSelect={() => {
+														if (chatId)
+															useChatStore.getState().setWorkingSet(
+																chatId,
+																targets.filter((other) => other.id !== item.id),
+															)
+													}}
+												>
+													<Unlink />
+													Remove editing access
+												</DropdownMenuItem>
+											</DropdownMenuContent>
+										</ChatMenu>
+									</div>
 								</li>
 							)
 						})}
@@ -351,8 +367,7 @@ export function WorkingSetControls({
 						</p>
 					)}
 					<p className="mt-5 border-t pt-3 text-xs text-muted-foreground">
-						Removing editing access keeps your work. Open a map or story to review, publish, or
-						delete its draft.
+						Removing editing access keeps your work.
 					</p>
 				</>
 			) : (

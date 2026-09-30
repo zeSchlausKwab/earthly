@@ -24,8 +24,8 @@ on-demand version for the narrow map sidebar and mobile.
 | Title dropdown containing a second select | Conversation switcher | One direct list; New conversation at the bottom. |
 | Move left/right, export, delete | Header actions menu | One level; deleting a conversation keeps maps and requires confirmation. |
 | Editable objects + references accordion | Separate AI can edit / Sources destinations | One list and one scroll owner per view. |
-| Map row's eye, publish, delete, unlink buttons | Open + one row menu | Menu: Show on map, Remove editing access. Publishing and deleting drafts remain in the map editor. |
-| All drafts | Existing app draft navigation | Do not duplicate the draft manager inside chat. |
+| Map row's eye, publish, delete, unlink buttons | Direct draft shortcuts + one row menu | Reuse View/Preview, Publish changes or Review & publish, and confirmed Discard. The title opens the editor; the menu removes editing access. Publication status opens the published version. |
+| All drafts | AI can edit destination | A shortcut opens the existing global draft inventory while retaining the conversation. |
 | Create new maps and stories | AI can edit destination | Conversation-scoped toggle beside editing access; preserve audience rules. |
 | Reference search and suggestions | Sources destination | Read-only label; an explicit Add source action. Do not suggest an object already in the editable set. |
 | Let AI edit a reference | Source row action | Explicitly grant access; retain ownership, proposal, and feature-scope checks. |
