@@ -60,6 +60,21 @@ function mapHarness() {
 }
 
 describe('Maplet map sources', () => {
+	test('configurations sharing source geometry remain independent when hidden or removed', () => {
+		const { map, layers, data } = mapHarness()
+		const sibling = { ...layer, id: 'sibling', title: 'Another view' }
+		let registry = reconcileMapletLayers(map, [layer, sibling], new Set())
+		registry = reconcileMapletLayers(map, [{ ...layer, visible: false }, sibling], registry)
+		expect(layers.get('maplet:instance:point')?.layout?.visibility).toBe('none')
+		expect(layers.get('maplet:sibling:point')?.layout?.visibility).toBe('visible')
+		reconcileMapletLayers(map, [sibling], registry)
+		expect(data.has('maplet:instance')).toBe(false)
+		expect(data.has('maplet:sibling')).toBe(true)
+		expect(layers.size).toBe(3)
+		expect(
+			(data.get('maplet:sibling') as GeoJSON.FeatureCollection).features[0]?.properties,
+		).toMatchObject({ earthlyMapletInstanceId: 'sibling', earthlyMapletFeatureId: 'source-id' })
+	})
 	test('host provenance wins over foreign render identity without changing the source', () => {
 		const result = mapletRenderCollection(layer)
 		expect(result.features[0]?.properties).toMatchObject({

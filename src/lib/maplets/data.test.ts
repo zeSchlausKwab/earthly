@@ -148,7 +148,9 @@ test('private preferences are self-encrypted, signed, and decrypted only for the
 	host.setQuery([saved])
 	const filters = [{ kinds: [30078], authors: [host.pubkey], '#d': [myMapsModel.preferencesId] }]
 	const result = await host.request('relay.query', { filters })
-	expect((result.events as { event: NostrEvent }[])[0]?.event.content).toBe(content)
+	expect((result.events as { event: NostrEvent }[])[0]?.event.content).toBe(
+		JSON.stringify(myMapsModel.preferences(JSON.parse(content))),
+	)
 	host.switchAccount('b'.repeat(64))
 	await expect(host.request('relay.query', { filters })).rejects.toThrow('signed-in account')
 })

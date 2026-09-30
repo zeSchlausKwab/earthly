@@ -2,6 +2,7 @@ import type { FeatureCollection } from 'geojson'
 import { safeHttpsUrl, type VerifiedMaplet } from './artifact'
 import { installMapletBridge } from './bridge'
 import { validateMapletCollection } from './collection'
+import { validateMapletOutputs, type MapletOutput } from './outputs'
 import {
 	boundedJson,
 	isRecord,
@@ -42,7 +43,10 @@ export interface MapletRuntimeOptions {
 	iframe: HTMLIFrameElement
 	artifact: VerifiedMaplet
 	config: Record<string, unknown>
-	onCollection: (collection: FeatureCollection, options: { warnings: string[] }) => void
+	onCollection: (
+		collection: FeatureCollection,
+		options: { warnings: string[]; entries?: MapletOutput[] },
+	) => void
 	onError: (error: Error) => void
 	/** Must enforce exact source grants and DNS/redirect policy; never a generic browser fetch. */
 	resolveResource?: (url: string, signal: AbortSignal) => Promise<Blob>
@@ -306,7 +310,9 @@ export function createMapletDispatcher(
 						const warnings = ((data.warnings ?? []) as string[])
 							.slice(0, 20)
 							.map((value) => value.slice(0, 500))
-						options.onCollection(collection, { warnings })
+						const entries =
+							data.entries === undefined ? undefined : validateMapletOutputs(data.entries)
+						options.onCollection(collection, { warnings, ...(entries ? { entries } : {}) })
 						respond({ type: 'map.replace.result', ok: true })
 						break
 					}

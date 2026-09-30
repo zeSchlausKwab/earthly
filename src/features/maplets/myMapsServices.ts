@@ -12,6 +12,7 @@ import {
 import { createMapletDataServices } from '@/lib/maplets/data'
 import { myMapsDataPolicy } from './myMapsPolicy'
 import type { MapletIdentity } from '@/lib/maplets/config'
+import { migrateMyMapsStorage } from './myMapsStorage'
 
 /** Bounded EOSE query. A failed relay is never presented as a successful empty catalog. */
 async function querySources(filters: Filter[], signal: AbortSignal): Promise<NostrEvent[]> {
@@ -75,8 +76,11 @@ async function querySources(filters: Filter[], signal: AbortSignal): Promise<Nos
 
 /** Granted only to the reviewed bundled viewer; downloaded code gets no signing authority. */
 export function createMyMapsServices(identity: MapletIdentity) {
-	return createMapletDataServices(
-		{ ...myMapsDataPolicy, namespace: `${identity.dTag}:${identity.aggregateHash}` },
+	if (identity.dTag !== 'bundled:my-maps-viewer')
+		throw new Error('GMapper data access is restricted to the reviewed bundled Maplet')
+	const migratedAccounts = new Set<string>()
+	const request = createMapletDataServices(
+		{ ...myMapsDataPolicy, namespace: identity.dTag },
 		{
 			pubkey: () => accounts.active?.pubkey ?? '',
 			storage: localStorage,
@@ -103,4 +107,15 @@ export function createMyMapsServices(identity: MapletIdentity) {
 			},
 		},
 	)
+	return (type: string, data: Record<string, unknown>, signal: AbortSignal) => {
+		if (type === 'storage.get' && data.key === 'saved') {
+			signal.throwIfAborted()
+			const pubkey = accounts.active?.pubkey ?? ''
+			if (!migratedAccounts.has(pubkey)) {
+				migrateMyMapsStorage(localStorage, identity, pubkey)
+				migratedAccounts.add(pubkey)
+			}
+		}
+		return request(type, data, signal)
+	}
 }

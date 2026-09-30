@@ -197,6 +197,8 @@ export interface MobilePanelProps {
 	onRemoveMapStackEntry: (entry: MapStackEntry) => void
 	onOpenDraftEditor?: (workspaceId?: string) => Promise<boolean>
 	onZoomToDraft?: () => void
+	onInspectMaplet?: (instanceId: string) => void
+	onZoomToMaplet?: (instanceId: string) => void
 	onClearMapStack: () => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
@@ -418,6 +420,8 @@ export function MobilePanel(props: MobilePanelProps) {
 		onRemoveMapStackEntry,
 		onOpenDraftEditor,
 		onZoomToDraft,
+		onInspectMaplet,
+		onZoomToMaplet,
 		onClearMapStack,
 		onDeleteDataset,
 		onDeleteContext,
@@ -621,6 +625,14 @@ export function MobilePanel(props: MobilePanelProps) {
 	const handleMobileZoomToDataset = (event: GeoDataset) => {
 		leaveSidebar()
 		onZoomToDataset(event)
+	}
+	const handleMobileInspectMaplet = (instanceId: string) => {
+		leaveSidebar()
+		onInspectMaplet?.(instanceId)
+	}
+	const handleMobileZoomToMaplet = (instanceId: string) => {
+		leaveSidebar()
+		onZoomToMaplet?.(instanceId)
 	}
 	const handleMobileZoomToBounds = (bounds: [number, number, number, number]) => {
 		leaveSidebar()
@@ -1072,7 +1084,8 @@ export function MobilePanel(props: MobilePanelProps) {
 		(mobilePanelTab === 'edit' && editPresentation.intent === 'inspect') ||
 		(mobilePanelTab === 'chat' && routedObjectThreadOpen)
 	const integratedObjectHeader =
-		objectInspectorVisible && ['dataset', 'story', 'context'].includes(inspectionSubject?.kind ?? '')
+		objectInspectorVisible &&
+		['dataset', 'story', 'context'].includes(inspectionSubject?.kind ?? '')
 	const objectNavigation = mobileObjectNavigationState(
 		objectInspectorVisible,
 		mobilePanelTab,
@@ -1813,7 +1826,9 @@ export function MobilePanel(props: MobilePanelProps) {
 															/>
 														</div>
 													) : null}
-													{browseKind === 'maplets' ? props.mapletsPanel : mobilePanelTab === 'datasets' ? (
+													{browseKind === 'maplets' ? (
+														props.mapletsPanel
+													) : mobilePanelTab === 'datasets' ? (
 														<GeoDatasetsPanelContent
 															mode="datasets"
 															geoEvents={geoEvents}
@@ -1869,6 +1884,12 @@ export function MobilePanel(props: MobilePanelProps) {
 																	onOpenDraftEditor ? () => void onOpenDraftEditor() : undefined
 																}
 																onZoomToDraft={onZoomToDraft}
+																onInspectMaplet={
+																	onInspectMaplet ? handleMobileInspectMaplet : undefined
+																}
+																onZoomToMaplet={
+																	onZoomToMaplet ? handleMobileZoomToMaplet : undefined
+																}
 																onClear={onClearMapStack}
 																translucent={panelTranslucent}
 															/>

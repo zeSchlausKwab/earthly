@@ -31,7 +31,6 @@ import { ObjectTabs, ThreadTabNotice } from './ObjectTabs'
 import { useObjectContentTab } from './ObjectThreadPlacement'
 import type { DatasetEditOptions } from './mapProposalPresentation'
 import { MapEditActions } from './MapEditActions'
-import { FollowMapletCollectionButton } from '@/features/maplets/FollowMapletCollectionButton'
 
 export interface ViewModePanelProps {
 	currentUserPubkey?: string
@@ -376,7 +375,6 @@ export function ViewModePanel({
 			onBack={onExitViewMode}
 			actions={
 				<>
-					<FollowMapletCollectionButton event={viewDataset.event} />
 					<MapEditActions
 						dataset={viewDataset}
 						isOwner={currentUserPubkey === viewDataset.pubkey}

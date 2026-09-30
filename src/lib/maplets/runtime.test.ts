@@ -28,6 +28,31 @@ const artifact = () =>
 	})
 
 describe('maplet host boundary', () => {
+	test('configuration outputs validate atomically and an empty list clears every output', async () => {
+		const messages: Record<string, unknown>[] = []
+		const received: unknown[] = []
+		const dispatcher = createMapletDispatcher({
+			artifact: await artifact(),
+			config: {},
+			post: (value) => messages.push(value),
+			onCollection: (_, options) => received.push(options.entries),
+			onError: () => {},
+		})
+		const entry = { id: 'one', title: 'One', collection, visible: true }
+		dispatcher.handle({ type: 'map.replace', id: 'valid', collection, entries: [entry] })
+		expect(received).toHaveLength(1)
+		dispatcher.handle({ type: 'map.replace', id: 'invalid', collection, entries: [entry, entry] })
+		expect(received).toHaveLength(1)
+		expect(messages.at(-1)).toMatchObject({ type: 'map.replace.error', id: 'invalid' })
+		dispatcher.handle({
+			type: 'map.replace',
+			id: 'clear',
+			collection: { type: 'FeatureCollection', features: [] },
+			entries: [],
+		})
+		expect(received.at(-1)).toEqual([])
+		dispatcher.dispose()
+	})
 	test('data capabilities require an explicit grant and pending requests cancel on identity change', async () => {
 		const messages: Record<string, unknown>[] = []
 		const options = {

@@ -119,10 +119,12 @@ export function installMapletBridge(available: string[], initialSchema: unknown)
 					refreshListeners.delete(callback)
 				})
 			},
-			replace: (collection: unknown, options?: { warnings?: string[] }) =>
-				request('map.replace', { collection, warnings: options?.warnings ?? [] }).then(
-					() => undefined,
-				),
+			replace: (collection: unknown, options?: { warnings?: string[]; entries?: unknown[] }) =>
+				request('map.replace', {
+					collection,
+					warnings: options?.warnings ?? [],
+					...(options?.entries ? { entries: options.entries } : {}),
+				}).then(() => undefined),
 			/** Earthly experimental host broker; not a Nostr signing API. */
 			workspace: (action: string, payload?: unknown) =>
 				request('map.workspace', { action, ...(payload === undefined ? {} : { payload }) }).then(

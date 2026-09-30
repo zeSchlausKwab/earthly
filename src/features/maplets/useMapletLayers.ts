@@ -61,8 +61,10 @@ export function mapletLayerSpecifications(
 			filter: ['==', ['geometry-type'], 'Point'],
 			paint: {
 				'circle-color': ['to-color', ['get', 'fillColor'], '#38bdf8'],
+				'circle-opacity': ['min', 1, ['max', 0, ['to-number', ['get', 'fillOpacity'], 1]]],
 				'circle-radius': 6,
 				'circle-stroke-color': '#fff',
+				'circle-stroke-opacity': ['min', 1, ['max', 0, ['to-number', ['get', 'strokeOpacity'], 1]]],
 				'circle-stroke-width': 1.5,
 			},
 		},

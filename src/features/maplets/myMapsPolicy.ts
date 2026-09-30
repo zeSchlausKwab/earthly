@@ -7,7 +7,7 @@ export const myMapsDataPolicy: MapletDataPolicy = {
 	privateKind: 30078,
 	filters(value, pubkey) {
 		if (!Array.isArray(value) || value.length !== 1)
-			throw new Error('One source filter is required')
+			throw new Error('One configuration filter is required')
 		const filter = value[0] as Filter
 		if (
 			!filter ||
@@ -16,7 +16,7 @@ export const myMapsDataPolicy: MapletDataPolicy = {
 			!Array.isArray(filter.kinds) ||
 			filter.kinds.length !== 1
 		)
-			throw new Error('Invalid source filter')
+			throw new Error('Invalid configuration filter')
 		if (filter.kinds[0] === 30078) {
 			if (
 				!pubkey ||
@@ -30,14 +30,14 @@ export const myMapsDataPolicy: MapletDataPolicy = {
 			filter.kinds[0] !== MAPLET_SOURCE_KIND ||
 			JSON.stringify(filter['#t']) !== '["maplet-source"]'
 		)
-			throw new Error('Only Maplet source discovery is permitted')
+			throw new Error('Only GMapper configuration discovery is permitted')
 		if (
 			filter.authors &&
 			(!Array.isArray(filter.authors) ||
 				filter.authors.length !== 1 ||
 				!/^[a-f0-9]{64}$/.test(filter.authors[0] ?? ''))
 		)
-			throw new Error('Invalid source author')
+			throw new Error('Invalid configuration author')
 		return [
 			{
 				kinds: [MAPLET_SOURCE_KIND],
@@ -62,7 +62,7 @@ export const myMapsDataPolicy: MapletDataPolicy = {
 			template.content.length > 60_000 ||
 			!Array.isArray(template.tags)
 		)
-			throw new Error('Invalid source event')
+			throw new Error('Invalid configuration event')
 		if (encrypted) {
 			if (
 				template.kind !== 30078 ||

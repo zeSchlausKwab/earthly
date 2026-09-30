@@ -43,7 +43,6 @@ import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
 import { MapletsPanel } from '@/features/maplets/MapletsPanel'
 import { useMaplets } from '@/features/maplets/useMaplets'
-import { MapletFollowContext } from '@/features/maplets/FollowMapletCollectionButton'
 import { useMapletLayers } from '@/features/maplets/useMapletLayers'
 import { copyMapletSnapshot } from '@/features/maplets/snapshot'
 import {
@@ -3784,70 +3783,125 @@ export function GeoEditorView() {
 	)
 
 	// OSM Query hook
-	const handleCopyMaplet = useCallback((instanceId: string, featureIds?: string[]) => {
-		if (!editor) { toast.error('The map editor is still loading.'); return }
-		const instance = maplets.instances.find((candidate) => candidate.id === instanceId)
-		if (!instance) return
-		const collection = copyMapletSnapshot(instance.collection, {
-			instanceId, title: instance.title, ...instance.artifact.identity,
-			publisher: instance.artifact.manifest?.event.pubkey,
-			manifestId: instance.artifact.manifest?.event.id,
-			updatedAt: instance.updatedAt,
-		}, featureIds)
-		if (collection.features.length === 0) { toast.error('Select geometry to copy.'); return }
-		const workspaceId = startNewDatasetWithOptions({ publishChannel: routePublishChannel })
-		if (!workspaceId) return
-		createAuthoring(editor).writeGeoJSON(collection.features.map((feature) => toEditorFeature(feature, 'maplet')), { replace: false })
-		setCollectionMeta({
-			...useEditorStore.getState().collectionMeta,
-			name: `${instance.title} — snapshot`,
-			description: 'Independent geometry copied from a Maplet. Source attribution is retained on each feature. Review and edit before publishing.',
-		})
-		if (isMobile) surfaceDraftEditorOnMobile()
-		else navigateToDraftEditor(routePublishChannel)
-		toast.success(`Copied ${collection.features.length} feature(s) into a new draft.`)
-	}, [editor, maplets.instances, startNewDatasetWithOptions, routePublishChannel, setCollectionMeta, isMobile, surfaceDraftEditorOnMobile, navigateToDraftEditor])
-	const handleFitMaplet = useCallback((instanceId: string) => {
-		const instance = maplets.instances.find((candidate) => candidate.id === instanceId)
-		if (!instance) return
-		const bounds = instance.collection.features.flatMap((feature) => {
-			const bounds = feature.geometry ? bboxFromGeometry(feature.geometry) : null
-			return bounds ? [bounds] : []
-		})
-		if (bounds.length) handleZoomToBounds([
-			Math.min(...bounds.map((b) => b[0])), Math.min(...bounds.map((b) => b[1])),
-			Math.max(...bounds.map((b) => b[2])), Math.max(...bounds.map((b) => b[3])),
-		])
-	}, [maplets.instances, handleZoomToBounds])
-	const handledMapletViewRequest = useRef<string | undefined>(undefined)
+	const handleCopyMaplet = useCallback(
+		(instanceId: string, featureIds?: string[]) => {
+			if (!editor) {
+				toast.error('The map editor is still loading.')
+				return
+			}
+			const instance = maplets.instances.find((candidate) => candidate.id === instanceId)
+			if (!instance) return
+			const collection = copyMapletSnapshot(
+				instance.collection,
+				{
+					instanceId,
+					title: instance.title,
+					...instance.artifact.identity,
+					publisher: instance.artifact.manifest?.event.pubkey,
+					manifestId: instance.artifact.manifest?.event.id,
+					updatedAt: instance.updatedAt,
+				},
+				featureIds,
+			)
+			if (collection.features.length === 0) {
+				toast.error('Select geometry to copy.')
+				return
+			}
+			const workspaceId = startNewDatasetWithOptions({ publishChannel: routePublishChannel })
+			if (!workspaceId) return
+			createAuthoring(editor).writeGeoJSON(
+				collection.features.map((feature) => toEditorFeature(feature, 'maplet')),
+				{ replace: false },
+			)
+			setCollectionMeta({
+				...useEditorStore.getState().collectionMeta,
+				name: `${instance.title} — snapshot`,
+				description:
+					'Independent geometry copied from a Maplet. Source attribution is retained on each feature. Review and edit before publishing.',
+			})
+			if (isMobile) surfaceDraftEditorOnMobile()
+			else navigateToDraftEditor(routePublishChannel)
+			toast.success(`Copied ${collection.features.length} feature(s) into a new draft.`)
+		},
+		[
+			editor,
+			maplets.instances,
+			startNewDatasetWithOptions,
+			routePublishChannel,
+			setCollectionMeta,
+			isMobile,
+			surfaceDraftEditorOnMobile,
+			navigateToDraftEditor,
+		],
+	)
+	const handleFitMaplet = useCallback(
+		(instanceId: string) => {
+			const instance = maplets.instances.find((candidate) => candidate.id === instanceId)
+			if (!instance) return
+			const bounds = instance.collection.features.flatMap((feature) => {
+				const bounds = feature.geometry ? bboxFromGeometry(feature.geometry) : null
+				return bounds ? [bounds] : []
+			})
+			if (bounds.length)
+				handleZoomToBounds([
+					Math.min(...bounds.map((b) => b[0])),
+					Math.min(...bounds.map((b) => b[1])),
+					Math.max(...bounds.map((b) => b[2])),
+					Math.max(...bounds.map((b) => b[3])),
+				])
+		},
+		[maplets.instances, handleZoomToBounds],
+	)
+	const handleSelectMapletFeature = useCallback(
+		(instanceId: string, featureId: string) => {
+			maplets.selectFeature(instanceId, featureId)
+			const feature = maplets.instances
+				.find((instance) => instance.id === instanceId)
+				?.collection.features.find((feature) => String(feature.id) === featureId)
+			const bbox = feature?.geometry ? bboxFromGeometry(feature.geometry) : null
+			if (bbox) setFocusedMapGeometry({ bbox })
+			navigateToRoute('/browse/maplets')
+			if (isMobile) setMobilePanelOpen(true)
+		},
+		[maplets.selectFeature, maplets.instances, setFocusedMapGeometry, isMobile, setMobilePanelOpen],
+	)
+	const handleInspectMaplet = useCallback(
+		(id: string) => {
+			maplets.openWorkspace(id)
+			navigateToRoute('/browse/maplets')
+			if (isMobile) setMobilePanelOpen(true)
+		},
+		[maplets.openWorkspace, isMobile, setMobilePanelOpen],
+	)
 	useEffect(() => {
-		const request = maplets.viewRequest
-		if (!request || handledMapletViewRequest.current === request.nonce) return
-		handledMapletViewRequest.current = request.nonce
-		handleFitMaplet(request.instanceId)
-	}, [maplets.viewRequest, handleFitMaplet])
-	const handleSelectMapletFeature = useCallback((instanceId: string, featureId: string) => {
-		maplets.selectFeature(instanceId, featureId)
-		const feature = maplets.instances.find((instance) => instance.id === instanceId)?.collection.features.find((feature) => String(feature.id) === featureId)
-		const bbox = feature?.geometry ? bboxFromGeometry(feature.geometry) : null
-		if (bbox) setFocusedMapGeometry({ bbox })
-		navigateToRoute('/browse/maplets')
-	}, [maplets.selectFeature, maplets.instances, setFocusedMapGeometry])
-	const handleFollowMapletCollection = useCallback(async (address: string) => {
-		setMobileSearchOpen(false)
-		navigateToRoute('/browse/maplets')
-		await maplets.followCollection(address)
-	}, [maplets.followCollection])
-	const mapletsPanel = <MapletsPanel
-		catalog={maplets.catalog} instances={maplets.instances} onAdd={maplets.add}
-		onRemove={maplets.remove} onToggleVisibility={maplets.toggleVisibility} onRefresh={maplets.refresh}
-		onConfigure={maplets.configure} onCopy={handleCopyMaplet} onFit={handleFitMaplet}
-		onOpenWorkspace={maplets.openWorkspace}
-		onFollowCollection={handleFollowMapletCollection}
-		onDiscover={maplets.discover} discovering={maplets.discovering} discoveryError={maplets.discoveryError}
-		selectedFeature={maplets.selectedFeature} onSelectFeature={handleSelectMapletFeature}
-		settingsRequest={maplets.settingsRequest}
-	/>
+		maplets.setHostActions({
+			copy: handleCopyMaplet,
+			fit: handleFitMaplet,
+			select: handleSelectMapletFeature,
+		})
+	}, [maplets.setHostActions, handleCopyMaplet, handleFitMaplet, handleSelectMapletFeature])
+	const mapletsPanel = (
+		<MapletsPanel
+			catalog={maplets.catalog}
+			instances={maplets.instances}
+			onAdd={maplets.add}
+			onRemove={maplets.remove}
+			onToggleVisibility={maplets.toggleVisibility}
+			onRefresh={maplets.refresh}
+			onConfigure={maplets.configure}
+			onCopy={handleCopyMaplet}
+			onFit={handleFitMaplet}
+			onOpenWorkspace={maplets.openWorkspace}
+			appOpen={maplets.appOpen}
+			onSurface={maplets.surfaceMounted}
+			onDiscover={maplets.discover}
+			discovering={maplets.discovering}
+			discoveryError={maplets.discoveryError}
+			selectedFeature={maplets.selectedFeature}
+			onSelectFeature={handleSelectMapletFeature}
+			settingsRequest={maplets.settingsRequest}
+		/>
+	)
 
 	const { handleOsmQueryClick, handleOsmQueryView, handleOsmImport, clearOsmQuery } = useOsmQuery(
 		map,
@@ -5675,7 +5729,7 @@ export function GeoEditorView() {
 					void openDraftEditor()
 					break
 				case 'maplet':
-					navigateToRoute('/browse/maplets')
+					handleInspectMaplet(entry.entityKey)
 					break
 				case 'sighting': {
 					const sighting = sightingLookupSuperset.find(
@@ -5705,6 +5759,7 @@ export function GeoEditorView() {
 			handleInspectContext,
 			handleInspectDatasetWithModeSwitch,
 			handleInspectSighting,
+			handleInspectMaplet,
 			handleMentionZoomTo,
 			mapContextEvents,
 			mapGeoEvents,
@@ -6098,6 +6153,8 @@ export function GeoEditorView() {
 			onZoomToDataset={zoomToDataset}
 			onLoadDataset={handleDatasetSelect}
 			onInspectContext={handleInspectContext}
+			onInspectMaplet={handleInspectMaplet}
+			onZoomToMaplet={handleFitMaplet}
 			onSetEntryVisible={setMapStackVisibility}
 			onSetEntryIsolated={setMapStackIsolation}
 			onRemoveEntry={removeFromMapStack}
@@ -6364,7 +6421,6 @@ export function GeoEditorView() {
 		navigateToRoute(href)
 	}
 	return (
-		<MapletFollowContext.Provider value={handleFollowMapletCollection}>
 		<StudioShell
 			mapContainerRef={mapContainerRef}
 			topBar={topBarSlot}
@@ -6935,6 +6991,8 @@ export function GeoEditorView() {
 					onZoomToDataset={zoomToDataset}
 					onAddDatasetToMap={addDatasetToMapStack}
 					onRemoveDatasetFromMap={removeDatasetFromMapStack}
+					onInspectMaplet={handleInspectMaplet}
+					onZoomToMaplet={handleFitMaplet}
 					onSetMapStackEntryVisible={setMapStackVisibility}
 					onSetMapStackEntryIsolated={setMapStackIsolation}
 					onRemoveMapStackEntry={removeFromMapStack}
@@ -7267,6 +7325,5 @@ export function GeoEditorView() {
 			<OsmResultsPanel onImport={handleOsmImport} onClose={clearOsmQuery} />
 			{maplets.runtimes}
 		</StudioShell>
-		</MapletFollowContext.Provider>
 	)
 }

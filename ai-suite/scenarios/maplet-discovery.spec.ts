@@ -5,6 +5,7 @@ import { finalizeEvent, type NostrEvent } from 'nostr-tools'
 import type { EarthlySession } from '../core/session'
 import { expect, test } from '../fixtures/earthly'
 import { editorLifecycleSnapshot } from '../tasks/editor/lifecycle'
+import { openPanel } from '../tasks/navigation/open-panel'
 import { installDeterministicMapStyle } from '../tasks/setup/deterministic-map-style'
 import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
 import { testIdentities } from '../test-identities'
@@ -123,10 +124,15 @@ test('a signed third-party Maplet is discovered, verified and rendered @regressi
 	await installDeterministicMapStyle(earthly)
 	await seedManifest(earthly, fixture.event)
 	const panel = earthly.page.getByRole('tabpanel', { name: 'Maplets', exact: true })
-	await panel.getByRole('button', { name: 'Discover Nostr Maplets', exact: true }).click()
-	await panel.getByRole('button', { name: `Add ${title} to map`, exact: true }).click()
-	const instance = panel.getByRole('article', { name: `${title} Maplet`, exact: true })
-	await expect(instance.getByRole('status')).toContainText(/1 geometr/)
+	await panel.getByRole('button', { name: 'Discover Maplets', exact: true }).click()
+	await panel.getByRole('button', { name: `Open ${title}`, exact: true }).click()
+	await expect
+		.poll(async () =>
+			(await editorLifecycleSnapshot(earthly)).mapStack.filter(
+				(entry) => entry.entityType === 'maplet',
+			),
+		)
+		.toMatchObject([{ title, visible: true }])
 	await expect
 		.poll(() =>
 			earthly.page.evaluate(() => [
@@ -137,7 +143,8 @@ test('a signed third-party Maplet is discovered, verified and rendered @regressi
 		)
 		.toEqual(['ai-suite-signed-maplet'])
 	expect(requests).toEqual([`${fixtureOrigin}/${fixture.hash}`])
-	await instance.getByRole('button', { name: `Fit ${title} on map`, exact: true }).click()
+	await openPanel(earthly, 'Shelf')
+	await earthly.page.getByRole('button', { name: 'Fit configuration', exact: true }).click()
 	await expect
 		.poll(() =>
 			earthly.page.evaluate(async () => {
@@ -196,13 +203,12 @@ test('tampered third-party artifact bytes are rejected before sandbox execution 
 	await installDeterministicMapStyle(earthly)
 	await seedManifest(earthly, fixture.event)
 	const panel = earthly.page.getByRole('tabpanel', { name: 'Maplets', exact: true })
-	await panel.getByRole('button', { name: 'Discover Nostr Maplets', exact: true }).click()
-	await panel.getByRole('button', { name: `Add ${title} to map`, exact: true }).click()
+	await panel.getByRole('button', { name: 'Discover Maplets', exact: true }).click()
+	await panel.getByRole('button', { name: `Open ${title}`, exact: true }).click()
 	await expect(
 		earthly.page.getByText(/Could not retrieve a verified maplet|Maplet file hash mismatch/),
 	).toBeVisible()
 	expect(requests).toEqual([`${fixtureOrigin}/${fixture.hash}`])
-	await expect(panel.getByRole('article', { name: `${title} Maplet`, exact: true })).toHaveCount(0)
 	await expect(
 		earthly.page.locator('iframe[title="Tampered Polygon Fixture sandbox"]'),
 	).toHaveCount(0)

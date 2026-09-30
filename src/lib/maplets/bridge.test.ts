@@ -11,6 +11,10 @@ type Bridge = {
 		onChanged(callback: (pubkey: string) => void): Subscription
 	}
 	map: {
+		replace(
+			collection: unknown,
+			options?: { entries?: unknown[]; warnings?: string[] },
+		): Promise<void>
 		workspace(action: string, payload?: unknown): Promise<unknown>
 		onWorkspaceChanged(callback: (value: unknown) => void): Subscription
 		resize(height: number): void
@@ -88,4 +92,9 @@ test('production-serialized bridge correlates identity/workspace replies and sco
 	expect(updates).toEqual([{ revision: 2 }])
 	api.map.resize(600)
 	expect(sent.at(-1)).toEqual({ type: 'map.resize', height: 600 })
+	const clear = api.map.replace({ type: 'FeatureCollection', features: [] }, { entries: [] })
+	const clearRequest = sent.at(-1)
+	expect(clearRequest).toMatchObject({ type: 'map.replace', entries: [], warnings: [] })
+	receive({ type: 'map.replace.result', id: clearRequest?.id, ok: true })
+	await clear
 })

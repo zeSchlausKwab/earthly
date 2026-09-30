@@ -1,22 +1,23 @@
 import type { FeatureCollection } from 'geojson'
-import { createLiveMapperWorkbenchHtml } from '../../src/features/maplets/workbench'
 import { prepareBundledMaplet } from '../../src/lib/maplets/artifact'
 import { createMapletSrcdoc } from '../../src/lib/maplets/runtime'
 import { test, expect } from '../fixtures/earthly'
 
 /** Browser contract for packaged CSP inheritance; this is not an Android WebView smoke. */
-test('bundled Live Mapper imports under native CSP while its iframe stays isolated @regression', async ({
+test('bundled Maplet code runs under native CSP while its iframe stays isolated @regression', async ({
 	page,
 	baseURL,
 }) => {
-	const html = createLiveMapperWorkbenchHtml(
-		{ type: 'FeatureCollection', features: [] },
-		'https://example.invalid/feed',
-		() => {
-			throw new Error('This CSP fixture exercises the native GeoJSON importer only')
-		},
-	)
-	const artifact = await prepareBundledMaplet({ id: 'live-mapper', html })
+	const html = `<!doctype html><html><head><style>h1{font-size:25px}</style></head><body>
+<script>(async () => {
+  await window.napplet.identity.getPublicKey();
+  const h = document.createElement('h1'); h.textContent = 'Native Maplet'; document.body.append(h);
+  await window.napplet.map.replace({type:'FeatureCollection',features:[{
+    type:'Feature',id:'native-point',geometry:{type:'Point',coordinates:[16,48]},
+    properties:{name:'Native CSP output'}
+  }]});
+})()</script></body></html>`
+	const artifact = await prepareBundledMaplet({ id: 'my-maps-viewer', html })
 	const baseline = createMapletSrcdoc(artifact, ['map', 'config', 'identity', 'resource'])
 	const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
 	let srcdoc: string
@@ -66,43 +67,30 @@ test('bundled Live Mapper imports under native CSP while its iframe stays isolat
 		baseline,
 	)
 	await expect(
-		page.frameLocator('iframe').getByRole('heading', { name: 'Live Mapper' }),
+		page.frameLocator('iframe').getByRole('heading', { name: 'Native Maplet' }),
 	).toHaveCount(0)
 	await page.evaluate(
 		(html) =>
 			new Promise<void>((resolve) => {
 				document.body.replaceChildren()
 				const frame = document.createElement('iframe')
-				frame.title = 'Native CSP Live Mapper'
+				frame.title = 'Native CSP Maplet'
 				frame.setAttribute('sandbox', 'allow-scripts')
 				frame.style.width = '100%'
 				frame.style.height = '760px'
 				frame.addEventListener('load', () => resolve(), { once: true })
-				const state = {
-					pubkey: null,
-					collections: [],
-					selectedCollectionId: null,
-					subscriptions: [],
-					visibility: {},
-					renderCollection: { type: 'FeatureCollection', features: [] },
-					warnings: [],
-				}
 				const recorded = {
 					identityReads: 0,
-					workspaceReads: 0,
 					collection: null as FeatureCollection | null,
 				}
 				Object.assign(window, { __mapletCspFixture: recorded })
 				window.addEventListener('message', (event) => {
 					if (event.source !== frame.contentWindow) return
-					const { type, id, action, collection } = event.data
+					const { type, id, collection } = event.data
 					const respond = (data: object) => frame.contentWindow?.postMessage({ id, ...data }, '*')
 					if (type === 'identity.getPublicKey') {
 						recorded.identityReads++
 						respond({ type: 'identity.getPublicKey.result', pubkey: '' })
-					} else if (type === 'map.workspace' && action === 'state') {
-						recorded.workspaceReads++
-						respond({ type: 'map.workspace.result', value: state })
 					} else if (type === 'map.replace') {
 						recorded.collection = collection
 						respond({ type: 'map.replace.result', ok: true })
@@ -113,46 +101,33 @@ test('bundled Live Mapper imports under native CSP while its iframe stays isolat
 			}),
 		srcdoc,
 	)
-	const frame = page.frameLocator('iframe[title="Native CSP Live Mapper"]')
-	await expect(frame.getByRole('heading', { name: 'Live Mapper', exact: true })).toBeVisible()
-	await expect(frame.getByRole('heading', { name: 'Live Mapper', exact: true })).toHaveCSS(
+	const frame = page.frameLocator('iframe[title="Native CSP Maplet"]')
+	await expect(frame.getByRole('heading', { name: 'Native Maplet', exact: true })).toBeVisible()
+	await expect(frame.getByRole('heading', { name: 'Native Maplet', exact: true })).toHaveCSS(
 		'font-size',
 		'25px',
 	)
-	await frame.getByRole('button', { name: 'Explore a JSON file', exact: true }).click()
-	await frame.getByLabel('Choose JSON file', { exact: true }).setInputFiles({
-		name: 'native-csp.geojson',
-		mimeType: 'application/geo+json',
-		buffer: Buffer.from(
-			JSON.stringify({
-				type: 'FeatureCollection',
-				features: [
-					{
-						type: 'Feature',
-						id: 'native-point',
-						geometry: { type: 'Point', coordinates: [16, 48] },
-						properties: { name: 'Native CSP import' },
-					},
-				],
-			}),
-		),
-	})
-	await frame.getByRole('button', { name: 'Preview geometry', exact: true }).click()
-	await expect(frame.getByText('Native CSP import', { exact: true })).toBeVisible()
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() =>
+					(window as unknown as { __mapletCspFixture: { collection: FeatureCollection | null } })
+						.__mapletCspFixture.collection?.features.length,
+			),
+		)
+		.toBe(1)
 	const recorded = await page.evaluate(
 		() =>
 			(
 				window as unknown as {
 					__mapletCspFixture: {
 						identityReads: number
-						workspaceReads: number
 						collection: FeatureCollection
 					}
 				}
 			).__mapletCspFixture,
 	)
 	expect(recorded.identityReads).toBe(1)
-	expect(recorded.workspaceReads).toBe(1)
 	expect(recorded.collection.features).toHaveLength(1)
 	expect(recorded.collection.features[0]?.geometry).toEqual({
 		type: 'Point',

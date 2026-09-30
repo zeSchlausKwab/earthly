@@ -1,25 +1,8 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
-import type { Feature, FeatureCollection } from 'geojson'
-import {
-	ArrowDownToLine,
-	Check,
-	ChevronRight,
-	Copy,
-	Crosshair,
-	Eye,
-	EyeOff,
-	Layers2,
-	LoaderCircle,
-	Plus,
-	Radio,
-	RefreshCw,
-	Settings2,
-	X,
-} from 'lucide-react'
+import type { FeatureCollection } from 'geojson'
+import { ArrowLeft, Check, ChevronRight, Layers2, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
-import { MapletCollectionDirectory } from './MapletCollectionDirectory'
 
 export interface MapletCatalogItem {
 	id: string
@@ -57,8 +40,8 @@ export interface MapletsPanelProps {
 	onCopy: (id: string, featureIds?: string[]) => void
 	onFit: (id: string) => void
 	onOpenWorkspace?: (id: string) => void
-	onFollowCollection?: (address: string) => Promise<void>
-	collectionDiscoveryEnabled?: boolean
+	appOpen?: boolean
+	onSurface?: (id: string, element: HTMLElement | null) => void
 	onDiscover: () => void
 	discovering?: boolean
 	discoveryError?: string
@@ -327,490 +310,189 @@ function MapletSettings({
 	)
 }
 
-function featureName(feature: Feature, index: number): string {
-	const properties = feature.properties ?? {}
-	for (const value of [properties.name, properties.title, properties.label]) {
-		if (typeof value === 'string' && value.trim()) return value
-	}
-	return `Geometry ${index + 1}`
-}
-
-function InstanceCard({
-	instance,
-	definition,
-	panel,
-}: {
-	instance: MapletInstanceView
-	definition?: MapletCatalogItem
-	panel: MapletsPanelProps
-}) {
-	const [settingsOpen, setSettingsOpen] = useState(false)
-	const [featuresOpen, setFeaturesOpen] = useState(true)
-	const [selection, setSelection] = useState<Set<string>>(() => new Set())
-	const features = instance.collection.features
-	const selectableIds = useMemo(
-		() => features.flatMap((feature) => (feature.id === undefined ? [] : [String(feature.id)])),
-		[features],
-	)
-	const selectedIds = selectableIds.filter((id) => selection.has(id))
-	const outputSource =
-		features.length > 0 ? (instance.outputSource ?? instance.config.source) : instance.config.source
-	const sample = outputSource === 'sample'
-	const statusLabel =
-		instance.status === 'loading'
-			? 'Refreshing'
-			: instance.status === 'stale'
-				? 'Last saved result'
-				: instance.status === 'error'
-					? 'Source unavailable'
-					: sample
-						? 'Captured sample'
-						: outputSource === 'live'
-							? 'Live source'
-							: 'Layer ready'
-	useEffect(() => {
-		if (panel.settingsRequest?.instanceId === instance.id) setSettingsOpen(true)
-	}, [panel.settingsRequest, instance.id])
-	useEffect(() => {
-		if (panel.selectedFeature?.instanceId !== instance.id) return
-		const featureId = panel.selectedFeature.featureId
-		setFeaturesOpen(true)
-		setSelection((previous) => new Set([...previous, featureId]))
-	}, [panel.selectedFeature?.instanceId, panel.selectedFeature?.featureId, instance.id])
-	return (
-		<article
-			aria-label={`${instance.title} Maplet`}
-			className="overflow-hidden rounded-sm border border-border bg-card/60"
-		>
-			<header className="px-3 pt-3">
-				<div className="flex items-start justify-between gap-2">
-					<div className="min-w-0">
-						<h3 className="text-sm font-semibold tracking-tight">{instance.title}</h3>
-						<p
-							role="status"
-							className={cn(
-								'mt-1.5 flex items-center gap-1.5 text-[10px]',
-								instance.status === 'error' || instance.status === 'stale'
-									? 'text-amber-700 dark:text-amber-400'
-									: 'text-muted-foreground',
-							)}
-						>
-							{instance.status === 'loading' ? (
-								<LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
-							) : (
-								<span
-									className={cn(
-										'size-1.5 rounded-full',
-										instance.status === 'ready' && !sample
-											? 'bg-ok'
-											: instance.status === 'error' || instance.status === 'stale'
-												? 'bg-amber-500'
-												: 'bg-muted-foreground/60',
-									)}
-								/>
-							)}
-							{statusLabel}
-							{features.length > 0 ? (
-								<span className="font-mono">· {features.length} geometries</span>
-							) : null}
-						</p>
-					</div>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon"
-						className="size-10 shrink-0 md:size-7"
-						onClick={() => panel.onRemove(instance.id)}
-						aria-label={`Remove ${instance.title}`}
-						title="Remove Maplet"
-					>
-						<X aria-hidden="true" />
-					</Button>
-				</div>
-				{sample ? (
-					<p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-						{instance.config.source === 'live'
-							? 'This is the captured sample. A live result has not arrived yet.'
-							: 'Preview from a captured dataset. Switch the data source in settings to request updates.'}
-					</p>
-				) : null}
-				{instance.error ? (
-					<div
-						role="alert"
-						className="mt-3 border-l-2 border-amber-500 bg-amber-500/5 px-2.5 py-2 text-xs leading-relaxed"
-					>
-						<p>{instance.error}</p>
-						{features.length > 0 ? (
-							<p className="mt-1 text-muted-foreground">Your last result is still on the map.</p>
-						) : null}
-					</div>
-				) : null}
-				<div className="my-2 flex flex-wrap items-center gap-0.5">
-					{panel.onOpenWorkspace ? (
-						<Button
-							type="button"
-							variant="outline"
-							className={smallActionClass}
-							onClick={() => panel.onOpenWorkspace?.(instance.id)}
-							aria-label={`Open ${instance.title} workspace`}
-						>
-							<Layers2 aria-hidden="true" />
-							Open workspace
-						</Button>
-					) : null}
-					<Button
-						type="button"
-						variant="ghost"
-						className={smallActionClass}
-						aria-pressed={instance.visible}
-						aria-label={`${instance.visible ? 'Hide' : 'Show'} ${instance.title} on map`}
-						onClick={() => panel.onToggleVisibility(instance.id)}
-					>
-						{instance.visible ? <Eye aria-hidden="true" /> : <EyeOff aria-hidden="true" />}
-						{instance.visible ? 'Visible' : 'Hidden'}
-					</Button>
-					<Button
-						type="button"
-						variant="ghost"
-						className={smallActionClass}
-						disabled={!features.length}
-						onClick={() => panel.onFit(instance.id)}
-						aria-label={`Fit ${instance.title} on map`}
-					>
-						<Crosshair aria-hidden="true" />
-						Fit
-					</Button>
-					<Button
-						type="button"
-						variant="ghost"
-						className={smallActionClass}
-						disabled={instance.status === 'loading'}
-						onClick={() => panel.onRefresh(instance.id)}
-						aria-label={`Refresh ${instance.title}`}
-					>
-						<RefreshCw aria-hidden="true" />
-						Refresh
-					</Button>
-					{Object.keys(record(definition?.schema?.properties)).length > 0 ? (
-						<Button
-							type="button"
-							variant="ghost"
-							className={smallActionClass}
-							aria-expanded={settingsOpen}
-							onClick={() => setSettingsOpen((open) => !open)}
-							aria-label={`${instance.title} settings`}
-						>
-							<Settings2 aria-hidden="true" />
-							Settings
-						</Button>
-					) : null}
-				</div>
-			</header>
-			{settingsOpen ? (
-				<MapletSettings
-					instance={instance}
-					definition={definition}
-					onConfigure={panel.onConfigure}
-					onClose={() => setSettingsOpen(false)}
-				/>
-			) : null}
-			{features.length > 0 ? (
-				<div className="border-t border-border">
-					<button
-						type="button"
-						className="flex min-h-10 w-full items-center justify-between px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground"
-						aria-expanded={featuresOpen}
-						onClick={() => setFeaturesOpen((open) => !open)}
-					>
-						<span>Take geometry into your map</span>
-						<ChevronRight
-							className={cn('size-3 transition-transform', featuresOpen && 'rotate-90')}
-							aria-hidden="true"
-						/>
-					</button>
-					{featuresOpen ? (
-						<div>
-							<div className="flex items-center justify-between gap-2 px-3 pb-2 text-[10px] text-muted-foreground">
-								<label className="flex min-h-8 cursor-pointer items-center gap-2">
-									<input
-										type="checkbox"
-										aria-label={`Select all ${instance.title} geometry`}
-										className="size-3.5 accent-primary"
-										checked={
-											selectableIds.length > 0 && selectedIds.length === selectableIds.length
-										}
-										onChange={(event) =>
-											setSelection(new Set(event.target.checked ? selectableIds : []))
-										}
-									/>
-									Select all
-								</label>
-								<span className="font-mono">{selectedIds.length} selected</span>
-							</div>
-							<ul className="max-h-60 overflow-y-auto border-y border-border/70">
-								{features.slice(0, 200).map((feature, index) => {
-									const id = feature.id === undefined ? undefined : String(feature.id)
-									const name = featureName(feature, index)
-									const selected = id !== undefined && selection.has(id)
-									return (
-										<li
-											key={id ?? index}
-											className={cn(
-												'flex min-h-10 items-center gap-2.5 border-b border-border/50 px-3 last:border-0',
-												selected && 'bg-primary/5',
-											)}
-										>
-											<input
-												type="checkbox"
-												className="size-3.5 shrink-0 accent-primary"
-												aria-label={`Select ${name}`}
-												checked={selected}
-												disabled={id === undefined}
-												onChange={() => {
-													if (id === undefined) return
-													setSelection((previous) => {
-														const next = new Set(previous)
-														if (next.has(id)) next.delete(id)
-														else next.add(id)
-														return next
-													})
-												}}
-											/>
-											<button
-												type="button"
-												className="min-w-0 flex-1 py-2 text-left text-xs hover:text-primary disabled:cursor-default"
-												disabled={!id || !panel.onSelectFeature}
-												onClick={() => {
-													if (id) panel.onSelectFeature?.(instance.id, id)
-												}}
-											>
-												<span className="block truncate">{name}</span>
-												<span className="mt-0.5 block font-mono text-[9px] text-muted-foreground">
-													{feature.geometry?.type ?? 'No geometry'}
-												</span>
-											</button>
-										</li>
-									)
-								})}
-							</ul>
-							{features.length > 200 ? (
-								<p className="px-3 pt-2 text-[10px] text-muted-foreground">
-									Showing the first 200 geometries. Select all includes all {features.length}.
-								</p>
-							) : null}
-							<div className="p-3">
-								<Button
-									type="button"
-									variant="outline"
-									className={cn(smallActionClass, 'w-full justify-center')}
-									disabled={!selectedIds.length}
-									onClick={() => panel.onCopy(instance.id, selectedIds)}
-								>
-									<Copy aria-hidden="true" />
-									Copy {selectedIds.length > 0 ? `${selectedIds.length} selected` : 'selected'} to
-									editor
-								</Button>
-								<p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-									An independent draft, ready to reshape and publish to Nostr. Source attribution
-									stays with your copy.
-								</p>
-							</div>
-						</div>
-					) : null}
-				</div>
-			) : null}
-			{instance.warnings.length > 0 ? (
-				<details className="border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
-					<summary className="cursor-pointer py-1">
-						{instance.warnings.length} source {instance.warnings.length === 1 ? 'note' : 'notes'}
-					</summary>
-					<ul className="mt-2 space-y-1.5 break-words leading-relaxed">
-						{[...new Set(instance.warnings)].map((warning) => (
-							<li key={warning}>{warning}</li>
-						))}
-					</ul>
-				</details>
-			) : null}
-			{instance.updatedAt ? (
-				<p className="border-t border-border/60 px-3 py-2 font-mono text-[9px] text-muted-foreground">
-					{sample ? 'Sample loaded' : 'Last received'}{' '}
-					{new Date(instance.updatedAt).toLocaleTimeString([], {
-						hour: '2-digit',
-						minute: '2-digit',
-					})}
-				</p>
-			) : null}
-		</article>
-	)
-}
-
+/** Tool discovery lives here; configurations belong inside the selected Maplet. */
 export function MapletsPanel(props: MapletsPanelProps) {
 	const { catalog, instances, onAdd, onDiscover, discovering, discoveryError } = props
 	const native = isTauri()
-	const [adding, setAdding] = useState<string>()
-	const [addError, setAddError] = useState<{ definitionId: string; message: string }>()
-	const addMaplet = async (definitionId: string) => {
-		setAdding(definitionId)
-		setAddError(undefined)
+	const surfaceId = useId()
+	const [query, setQuery] = useState('')
+	const [opening, setOpening] = useState<string>()
+	const [error, setError] = useState<string>()
+	const [settingsId, setSettingsId] = useState<string>()
+	const surface = useCallback(
+		(element: HTMLElement | null) => {
+			props.onSurface?.(surfaceId, element)
+		},
+		[props.onSurface, surfaceId],
+	)
+	useEffect(() => {
+		if (props.settingsRequest) setSettingsId(props.settingsRequest.instanceId)
+	}, [props.settingsRequest])
+	const settings = instances.find((instance) => instance.id === settingsId)
+	const visibleCatalog = catalog.filter((item) =>
+		`${item.title} ${item.description} ${item.author ?? ''}`
+			.toLowerCase()
+			.includes(query.toLowerCase()),
+	)
+	const open = async (id: string) => {
+		setOpening(id)
+		setError(undefined)
 		try {
-			await onAdd(definitionId)
-		} catch (error) {
-			setAddError({
-				definitionId,
-				message: error instanceof Error ? error.message : 'Could not add this Maplet.',
-			})
+			await onAdd(id)
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : 'Could not open this Maplet.')
 		} finally {
-			setAdding(undefined)
+			setOpening(undefined)
 		}
 	}
 	return (
 		<section
+			ref={surface}
 			id="browse-maplets-panel"
 			role="tabpanel"
 			aria-label="Maplets"
-			className="h-full min-h-0 overflow-y-auto pb-4 [scrollbar-gutter:stable]"
+			className="relative h-full min-h-0 min-w-0 overflow-hidden"
 		>
-			<header className="border-b border-border px-2 pb-4 pt-2">
-				<div className="flex items-center justify-between">
-					<span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-						Composable map data
-					</span>
-					<Layers2 className="size-4 text-primary" aria-hidden="true" />
-				</div>
-				<h2 className="mt-2 text-xl font-medium tracking-tight">A map that keeps moving.</h2>
-				<p className="mt-2 max-w-sm text-xs leading-relaxed text-muted-foreground">
-					Add a source, explore its layers, and make any geometry your own.
-				</p>
-			</header>
-			{instances.length > 0 ? (
-				<div className="space-y-3 pt-4">
-					<div className="flex items-center justify-between px-2 text-[10px] text-muted-foreground">
-						<h3 className="font-semibold uppercase tracking-[0.14em]">On your map</h3>
-						<span className="font-mono">{instances.length.toString().padStart(2, '0')}</span>
-					</div>
-					{instances.map((instance) => (
-						<InstanceCard
-							key={instance.id}
-							instance={instance}
-							definition={catalog.find((item) => item.id === instance.definitionId)}
-							panel={props}
-						/>
-					))}
-				</div>
-			) : null}
-			<div className="pt-5">
-				<div className="mb-2 flex items-center justify-between gap-2 px-2">
-					<h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-						Maplet apps
-					</h3>
-					<Button
-						type="button"
-						variant="ghost"
-						className={smallActionClass}
-						disabled={discovering}
-						onClick={onDiscover}
-						aria-label="Discover Nostr Maplets"
-					>
-						{discovering ? (
-							<LoaderCircle className="animate-spin" aria-hidden="true" />
-						) : (
-							<Radio aria-hidden="true" />
-						)}
-						Discover
-					</Button>
-				</div>
-				{discoveryError ? (
-					<p
-						role="alert"
-						className="mb-3 border-l-2 border-amber-500 px-3 py-2 text-xs leading-relaxed"
-					>
-						{discoveryError}
-					</p>
-				) : null}
-				<div className="divide-y divide-border border-y border-border">
-					{catalog.map((item) => {
-						const added = instances.some((instance) => instance.definitionId === item.id)
-						const unavailable = native && item.source === 'nostr'
-						return (
-							<article
-								key={item.id}
-								aria-label={`${item.title} catalog entry`}
-								className="px-2 py-4"
+			{props.appOpen ? (
+				<div className="h-full" />
+			) : (
+				<div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
+					{settings ? (
+						<>
+							<Button
+								type="button"
+								variant="ghost"
+								className={smallActionClass}
+								onClick={() => setSettingsId(undefined)}
 							>
-								<div className="flex items-start gap-3">
-									<div className="flex size-9 shrink-0 items-center justify-center border border-border bg-primary/5 text-primary">
-										<Layers2 className="size-4" aria-hidden="true" />
-									</div>
-									<div className="min-w-0 flex-1">
-										<h4 className="text-sm font-semibold">{item.title}</h4>
-										<p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
-											{item.source === 'bundled' ? 'Earthly app' : 'Published on Nostr'}
-										</p>
-									</div>
+								<ArrowLeft aria-hidden="true" /> Maplets
+							</Button>
+							<MapletSettings
+								instance={settings}
+								definition={catalog.find((item) => item.id === settings.definitionId)}
+								onConfigure={props.onConfigure}
+								onClose={() => setSettingsId(undefined)}
+							/>
+						</>
+					) : (
+						<>
+							<header className="border-b border-border px-3 pb-4 pt-3">
+								<div className="flex items-center justify-between">
+									<span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+										Browse
+									</span>
+									<Layers2 className="size-4 text-primary" aria-hidden="true" />
 								</div>
-								<p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-									{item.description}
+								<h2 className="mt-2 text-lg font-semibold tracking-tight">Maplets</h2>
+								<p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+									Tools that bring outside data onto your map.
 								</p>
-								{unavailable ? (
-									<p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-										Third-party Maplet apps are currently available in the web app.
-									</p>
-								) : null}
-								<div className="mt-3 flex items-center justify-between gap-2">
+							</header>
+							<div className="px-3 py-3">
+								<input
+									type="search"
+									aria-label="Find a Maplet"
+									placeholder="Find a Maplet"
+									value={query}
+									onChange={(event) => setQuery(event.target.value)}
+									className={inputClass}
+								/>
+							</div>
+							{visibleCatalog.map((item) => {
+								const unavailable = native && item.source === 'nostr'
+								return (
+									<button
+										key={item.id}
+										type="button"
+										aria-label={`Open ${item.title}`}
+										disabled={!!opening || unavailable}
+										onClick={() => void open(item.id)}
+										className="block w-full border-b border-border px-3 py-4 text-left hover:bg-muted/50 disabled:cursor-default disabled:opacity-60"
+									>
+										<div className="flex min-w-0 items-center gap-3">
+											<div className="flex size-9 shrink-0 items-center justify-center border border-border bg-muted/40">
+												<Layers2 className="size-4" />
+											</div>
+											<div className="min-w-0 flex-1">
+												<h3 className="truncate text-sm font-semibold">{item.title}</h3>
+												<p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+													By{' '}
+													{item.source === 'bundled'
+														? 'Earthly'
+														: item.author
+															? `${item.author.slice(0, 12)}…`
+															: 'Unknown developer'}
+												</p>
+											</div>
+											{opening === item.id ? (
+												<LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+											) : (
+												<ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+											)}
+										</div>
+										<p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+											{item.description}
+										</p>
+										<div className="mt-3 flex items-center justify-between text-[9px] text-muted-foreground">
+											<span>
+												{item.id === 'my-maps-viewer'
+													? 'Explore or create configurations'
+													: 'Open Maplet'}
+											</span>
+											<span className="border border-border px-1.5 py-0.5">
+												{item.source === 'bundled' ? 'Bundled' : 'Published'}
+											</span>
+										</div>
+										{item.releaseHash ? (
+											<span className="mt-2 block font-mono text-[9px] text-muted-foreground">
+												Release {item.releaseHash.slice(0, 12)}
+											</span>
+										) : null}
+									</button>
+								)
+							})}
+							{!visibleCatalog.length ? (
+								<p className="px-3 py-5 text-xs text-muted-foreground">No matching Maplets.</p>
+							) : null}
+							<div className="space-y-2 px-3 py-4">
+								<div className="flex items-center justify-between">
+									<span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+										Maplet discovery
+									</span>
 									<Button
 										type="button"
-										variant={added ? 'ghost' : 'outline'}
+										variant="ghost"
 										className={smallActionClass}
-										disabled={unavailable || added || adding !== undefined}
-										onClick={() => void addMaplet(item.id)}
-										aria-label={`Add ${item.title} to map`}
+										onClick={onDiscover}
+										disabled={discovering}
 									>
-										{adding === item.id ? (
+										{discovering ? (
 											<LoaderCircle className="animate-spin" aria-hidden="true" />
-										) : added ? (
-											<Check aria-hidden="true" />
 										) : (
-											<Plus aria-hidden="true" />
-										)}
-										{adding === item.id ? 'Adding…' : added ? 'Added to map' : 'Add to map'}
+											<RefreshCw aria-hidden="true" />
+										)}{' '}
+										{discovering ? 'Discovering…' : 'Discover Maplets'}
 									</Button>
-									{item.author || item.releaseHash ? (
-										<details className="min-w-0 text-right text-[10px] text-muted-foreground">
-											<summary className="cursor-pointer py-2">Provenance</summary>
-											<div className="max-w-52 break-all text-left font-mono text-[9px] leading-relaxed">
-												{item.author ? <p>Author: {item.author}</p> : null}
-												{item.releaseHash ? (
-													<p className="mt-1">Release: {item.releaseHash}</p>
-												) : null}
-											</div>
-										</details>
-									) : null}
 								</div>
-								{addError?.definitionId === item.id ? (
-									<p role="alert" className="mt-3 text-xs leading-relaxed text-destructive">
-										{addError.message}
+								<p className="text-[11px] leading-relaxed text-muted-foreground">
+									Find tools published by other developers through your configured relays. Open a
+									Maplet to explore its configurations.
+								</p>
+								{native ? (
+									<p className="text-[11px] leading-relaxed text-muted-foreground">
+										Third-party Maplets are currently available in the web app. GMapper works here.
 									</p>
 								) : null}
-							</article>
-						)
-					})}
+							</div>
+						</>
+					)}
+					{error || discoveryError ? (
+						<p role="alert" className="px-3 py-2 text-xs text-destructive">
+							{error || discoveryError}
+						</p>
+					) : null}
 				</div>
-				{!catalog.length ? (
-					<p className="px-2 py-4 text-xs text-muted-foreground">
-						Discover Maplets published to your Nostr relays.
-					</p>
-				) : null}
-				<p className="mt-4 flex items-start gap-2 px-2 text-[10px] leading-relaxed text-muted-foreground">
-					<ArrowDownToLine className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
-					Use the Shelf to arrange these layers alongside the rest of your map.
-				</p>
-			</div>
-			{props.onFollowCollection ? (
-				<MapletCollectionDirectory
-					enabled={props.collectionDiscoveryEnabled}
-					onFollow={props.onFollowCollection}
-				/>
-			) : null}
+			)}
 		</section>
 	)
 }

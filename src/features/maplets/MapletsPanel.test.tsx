@@ -1,28 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { parseHTML } from 'linkedom'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { MapletsPanel, type MapletInstanceView, type MapletsPanelProps } from './MapletsPanel'
-
-const instance: MapletInstanceView = {
-	id: 'live-mapper:one',
-	definitionId: 'live-mapper',
-	title: 'Live Mapper',
-	status: 'ready',
-	warnings: [],
-	visible: true,
-	config: { source: 'sample', refreshSeconds: 120, includeLines: false },
-	collection: {
-		type: 'FeatureCollection',
-		features: [
-			{
-				id: 'area:1',
-				type: 'Feature',
-				geometry: { type: 'Point', coordinates: [44, 15] },
-				properties: { name: 'Source area' },
-			},
-		],
-	},
-}
+import { MapletsPanel, type MapletsPanelProps } from './MapletsPanel'
 
 function render(overrides: Partial<MapletsPanelProps> = {}) {
 	return parseHTML(
@@ -30,13 +9,13 @@ function render(overrides: Partial<MapletsPanelProps> = {}) {
 			<MapletsPanel
 				catalog={[
 					{
-						id: 'live-mapper',
-						title: 'Live Mapper',
-						description: 'Yemen area overlays from Liveuamap.',
+						id: 'my-maps-viewer',
+						title: 'GMapper',
+						description: 'View public Google My Maps.',
 						source: 'bundled',
 					},
 				]}
-				instances={[instance]}
+				instances={[]}
 				onAdd={() => {}}
 				onRemove={() => {}}
 				onToggleVisibility={() => {}}
@@ -51,113 +30,67 @@ function render(overrides: Partial<MapletsPanelProps> = {}) {
 	).document
 }
 
-describe('Maplets panel source and copy affordances', () => {
-	test('clearly identifies captured data and requires geometry selection before copying', () => {
+describe('Maplet tool directory', () => {
+	test('opens tools and scopes configuration discovery inside their Maplet', () => {
 		const document = render()
-		expect(document.querySelector('[role="status"]')?.textContent).toContain('Captured sample')
-		expect(document.querySelector('[role="status"]')?.textContent).not.toContain('Live source')
-		expect(document.querySelector('input[aria-label="Select Source area"]')).not.toBeNull()
-		const copy = Array.from(document.querySelectorAll('button')).find((button) =>
-			button.textContent?.includes('Copy selected to editor'),
-		)
-		expect(copy?.hasAttribute('disabled')).toBe(true)
-		expect(
-			document
-				.querySelector('button[aria-label="Add Live Mapper to map"]')
-				?.hasAttribute('disabled'),
-		).toBe(true)
+		const text = document.querySelector('[role="tabpanel"]')?.textContent ?? ''
+		expect(text).toContain('Tools that bring outside data onto your map.')
+		expect(text).toContain('Explore or create configurations')
+		expect(text).toContain('configured relays')
+		expect(text).not.toContain('Published collections')
+		expect(text).not.toContain('On your map')
+		expect(document.querySelector('button[aria-label="Open GMapper"]')).not.toBeNull()
+		expect(document.querySelector('input[aria-label="Find a Maplet"]')).not.toBeNull()
 	})
-
-	test('keeps the previous geometry available when a live source is challenged', () => {
+	test('leaves a measured sidebar surface for the persistent sandbox', () => {
+		const document = render({ appOpen: true })
+		expect(document.querySelector('#browse-maplets-panel')).not.toBeNull()
+		expect(document.querySelector('button[aria-label="Open GMapper"]')).toBeNull()
+		expect(document.querySelector('dialog')).toBeNull()
+	})
+	test('renders third-party metadata as text and retains publisher identity', () => {
 		const document = render({
-			instances: [
+			catalog: [
 				{
-					...instance,
-					config: { source: 'live' },
-					status: 'stale',
-					error: 'Liveuamap requires a browser verification.',
+					id: 'foreign',
+					title: '<img src=x>',
+					description: '<script>run()</script>',
+					author: 'a'.repeat(64),
+					source: 'nostr',
 				},
 			],
 		})
-		expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-			'Liveuamap requires a browser verification.',
-		)
-		expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-			'Your last result is still on the map.',
-		)
-		expect(document.querySelector('[role="status"]')?.textContent).toContain('Last saved result')
-		expect(document.querySelector('input[aria-label="Select Source area"]')).not.toBeNull()
+		expect(document.querySelector('img')).toBeNull()
+		expect(document.querySelector('script')).toBeNull()
+		expect(document.querySelector('[role="tabpanel"]')?.textContent).toContain('aaaaaaaaaaaa…')
+		expect(document.querySelector('button[aria-label="Open <img src=x>"]')).not.toBeNull()
 	})
-
-	test('renders foreign metadata as text and does not claim every ready layer is live', () => {
-		const document = render({
-			instances: [{ ...instance, config: {}, error: '<img src=x onerror=alert(1)>' }],
-		})
-		expect(document.querySelector('[role="status"]')?.textContent).toContain('Layer ready')
-		expect(document.querySelector('[role="alert"] img')).toBeNull()
-		expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-			'<img src=x onerror=alert(1)>',
-		)
-	})
-
-	test('keeps sample provenance when a requested live refresh fails', () => {
-		const document = render({
-			instances: [
-				{ ...instance, config: { source: 'live' }, outputSource: 'sample', status: 'stale' },
-			],
-		})
-		expect(document.querySelector('[role="tabpanel"]')?.textContent).toContain(
-			'This is the captured sample. A live result has not arrived yet.',
-		)
-		expect(document.querySelector('[role="status"]')?.textContent).not.toContain('Live source')
-	})
-
-	test('separates published data discovery from Maplet apps and explains the relay scope', () => {
-		const document = render({
-			instances: [],
-			onFollowCollection: async () => {},
-			collectionDiscoveryEnabled: false,
-		})
-		const text = document.querySelector('[role="tabpanel"]')?.textContent ?? ''
-		expect(text.indexOf('Maplet apps')).toBeLessThan(text.indexOf('Published collections'))
-		expect(text).toContain('configured relays')
-		expect(text).toContain('Earthly app')
-		expect(text).not.toContain('Earthly collection')
-		expect(document.querySelector('input[type="search"]')).not.toBeNull()
-	})
-
-	test('native mode keeps bundled Maplets and collection discovery available while disabling third-party apps', () => {
+	test('native users can open bundled GMapper and see unavailable downloaded tools', () => {
 		const previous = Object.getOwnPropertyDescriptor(globalThis, 'isTauri')
 		Object.defineProperty(globalThis, 'isTauri', { configurable: true, value: true })
 		try {
 			const document = render({
-				instances: [],
 				catalog: [
 					{
-						id: 'live-mapper',
-						title: 'Live Mapper',
-						description: 'Collection workspace.',
+						id: 'my-maps-viewer',
+						title: 'GMapper',
+						description: 'Public My Maps.',
 						source: 'bundled',
 					},
-					{ id: 'foreign', title: 'Foreign app', description: 'A published app.', source: 'nostr' },
+					{
+						id: 'foreign',
+						title: 'Foreign app',
+						description: 'A published tool.',
+						source: 'nostr',
+					},
 				],
-				onFollowCollection: async () => {},
-				collectionDiscoveryEnabled: false,
 			})
 			expect(
-				document
-					.querySelector('button[aria-label="Add Live Mapper to map"]')
-					?.hasAttribute('disabled'),
+				document.querySelector('button[aria-label="Open GMapper"]')?.hasAttribute('disabled'),
 			).toBe(false)
 			expect(
-				document
-					.querySelector('button[aria-label="Add Foreign app to map"]')
-					?.hasAttribute('disabled'),
+				document.querySelector('button[aria-label="Open Foreign app"]')?.hasAttribute('disabled'),
 			).toBe(true)
-			expect(document.querySelector('section[aria-label="Published collections"]')).not.toBeNull()
-			expect(document.querySelector('[role="tabpanel"]')?.textContent).toContain(
-				'Third-party Maplet apps are currently available in the web app.',
-			)
 		} finally {
 			if (previous) Object.defineProperty(globalThis, 'isTauri', previous)
 			else Reflect.deleteProperty(globalThis, 'isTauri')

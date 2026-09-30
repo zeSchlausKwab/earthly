@@ -51,6 +51,8 @@ interface MapStackPanelProps {
 	onZoomToDataset: (event: GeoDataset) => void
 	onLoadDataset: (event: GeoDataset) => void
 	onInspectContext: (context: MapContext) => void
+	onInspectMaplet?: (instanceId: string) => void
+	onZoomToMaplet?: (instanceId: string) => void
 	/** Hide a layer without removing it from the canvas list. */
 	onSetEntryVisible?: (entry: MapStackEntry, visible: boolean) => void
 	onSetEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
@@ -356,6 +358,8 @@ interface EntryRowProps {
 	onInspectDataset: (dataset: GeoDataset) => void
 	onLoadDataset: (dataset: GeoDataset) => void
 	onInspectContext: (context: MapContext) => void
+	onInspectMaplet?: (instanceId: string) => void
+	onZoomToMaplet?: (instanceId: string) => void
 	onRemoveEntry: (entry: MapStackEntry) => void
 	onToggleEntryExclusion: (entryId: string, datasetKey: string) => void
 	onTogglePinned: (entryId: string) => void
@@ -383,6 +387,8 @@ function EntryRow({
 	onInspectDataset,
 	onLoadDataset,
 	onInspectContext,
+	onInspectMaplet,
+	onZoomToMaplet,
 	onRemoveEntry,
 	onToggleEntryExclusion,
 	onTogglePinned,
@@ -640,6 +646,28 @@ function EntryRow({
 							label="Open Atlas details"
 							tooltip="Open this Atlas in the Margin"
 						/>
+					) : null}
+					{entry.entityType === 'maplet' ? (
+						<>
+							{onZoomToMaplet ? (
+								<RowAction
+									icon={<ZoomActionIcon className={actionIconClassName} />}
+									className={cn(actionButtonClassName, 'hover:text-info')}
+									onClick={() => onZoomToMaplet(entry.entityKey)}
+									label="Fit configuration"
+									tooltip="Fit this configuration's geometry on the map"
+								/>
+							) : null}
+							{onInspectMaplet ? (
+								<RowAction
+									icon={<InspectActionIcon className={actionIconClassName} />}
+									className={cn(actionButtonClassName, 'hover:text-ok')}
+									onClick={() => onInspectMaplet(entry.entityKey)}
+									label="View configuration"
+									tooltip="Open this configuration in the Margin"
+								/>
+							) : null}
+						</>
 					) : null}
 					{entry.entityType === 'draft' ? (
 						<>
@@ -982,6 +1010,8 @@ interface EntryGroupListProps {
 	onInspectDataset: (dataset: GeoDataset) => void
 	onLoadDataset: (dataset: GeoDataset) => void
 	onInspectContext: (context: MapContext) => void
+	onInspectMaplet?: (instanceId: string) => void
+	onZoomToMaplet?: (instanceId: string) => void
 	onRemoveEntry: (entry: MapStackEntry) => void
 	onToggleEntryExclusion: (entryId: string, datasetKey: string) => void
 	onTogglePinned: (entryId: string) => void
@@ -1016,6 +1046,8 @@ function EntryGroupList({
 	onInspectDataset,
 	onLoadDataset,
 	onInspectContext,
+	onInspectMaplet,
+	onZoomToMaplet,
 	onRemoveEntry,
 	onToggleEntryExclusion,
 	onTogglePinned,
@@ -1060,6 +1092,8 @@ function EntryGroupList({
 				onInspectDataset={onInspectDataset}
 				onLoadDataset={onLoadDataset}
 				onInspectContext={onInspectContext}
+				onInspectMaplet={onInspectMaplet}
+				onZoomToMaplet={onZoomToMaplet}
 				onRemoveEntry={onRemoveEntry}
 				onToggleEntryExclusion={onToggleEntryExclusion}
 				onTogglePinned={onTogglePinned}
@@ -1234,6 +1268,8 @@ export function MapStackPanel({
 	onZoomToDataset,
 	onLoadDataset,
 	onInspectContext,
+	onInspectMaplet,
+	onZoomToMaplet,
 	onSetEntryVisible,
 	onSetEntryIsolated,
 	onRemoveEntry,
@@ -1516,6 +1552,8 @@ export function MapStackPanel({
 							onInspectDataset={onInspectDataset}
 							onLoadDataset={onLoadDataset}
 							onInspectContext={onInspectContext}
+							onInspectMaplet={onInspectMaplet}
+							onZoomToMaplet={onZoomToMaplet}
 							onRemoveEntry={onRemoveEntry}
 							onToggleEntryExclusion={toggleEntryExclusion}
 							onTogglePinned={toggleEntryPinned}
@@ -1556,6 +1594,8 @@ export function MapStackPanel({
 						onInspectDataset={onInspectDataset}
 						onLoadDataset={onLoadDataset}
 						onInspectContext={onInspectContext}
+						onInspectMaplet={onInspectMaplet}
+						onZoomToMaplet={onZoomToMaplet}
 						onRemoveEntry={onRemoveEntry}
 						onToggleEntryExclusion={toggleEntryExclusion}
 						onTogglePinned={toggleEntryPinned}
