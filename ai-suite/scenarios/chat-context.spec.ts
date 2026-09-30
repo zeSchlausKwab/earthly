@@ -31,6 +31,37 @@ test('entity drag and touch search share explicit read-only and editable roles @
 	const working = await setThreadWorkingSetOpen(earthly)
 	await openChatView(earthly, 'sources')
 	const refs = chat.getByRole('region', { name: 'Read-only sources', exact: true })
+	const dropOnSummary = async (role: 'edit' | 'reference') => {
+		await openChatView(earthly, 'chat')
+		const handle = earthly.page.getByRole('button', {
+			name: 'Drag or add Foreign survey source to chat',
+			exact: true,
+		})
+		await expect(handle).toBeVisible()
+		const box = await handle.boundingBox()
+		if (!box) throw new Error('Expected a visible entity drag handle')
+		await earthly.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+		await earthly.page.mouse.down()
+		await earthly.page.mouse.move(box.x + 25, box.y + 25, { steps: 8 })
+		const target = chat.getByRole('button', {
+			name: role === 'edit' ? /^AI can edit / : /^Sources /,
+		})
+		await expect(target).toHaveText(role === 'edit' ? 'Drop to edit' : 'Drop reference')
+		const destination = await target.boundingBox()
+		if (!destination) throw new Error('Expected a visible chat drop target')
+		await earthly.page.mouse.move(
+			destination.x + destination.width / 2,
+			destination.y + destination.height / 2,
+			{ steps: 10 },
+		)
+		await expect(chat.getByRole('button', { name: 'Back to chat', exact: true })).toBeHidden()
+		await expect(chat.locator('textarea')).toBeVisible()
+		await earthly.page.screenshot({ path: testInfo.outputPath(`chat-drop-${role}.png`) })
+		await earthly.page.mouse.up()
+		await expect(target).toHaveAttribute('aria-busy', 'false')
+		await expect(chat.locator('textarea')).toBeVisible()
+		await expect(chat.locator('textarea')).toHaveValue('Do not lose this message.')
+	}
 	if (earthly.isMobile) {
 		await refs.getByPlaceholder('Search maps, stories, atlases…').fill('Foreign survey')
 		await earthly.page
@@ -41,37 +72,24 @@ test('entity drag and touch search share explicit read-only and editable roles @
 			.click()
 	} else {
 		await openPanel(earthly, 'Maps')
-		await setThreadWorkingSetOpen(earthly, false)
-		const handle = earthly.page.getByRole('button', {
-			name: 'Drag or add Foreign survey source to chat',
-			exact: true,
-		})
-		await expect(handle).toBeVisible()
-		const box = (await handle.boundingBox())!
-		await earthly.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-		await earthly.page.mouse.down()
-		await earthly.page.mouse.move(box.x + 25, box.y + 25, { steps: 8 })
-		const sources = (await chat.getByRole('button', { name: /^Sources / }).boundingBox())!
-		await earthly.page.mouse.move(sources.x + sources.width / 2, sources.y + sources.height / 2, {
-			steps: 10,
-		})
-		await expect(refs).toBeVisible()
-		const dropHeading = refs.getByRole('heading')
-		await dropHeading.scrollIntoViewIfNeeded()
-		const destination = (await dropHeading.boundingBox())!
-		await earthly.page.mouse.move(destination.x + destination.width / 2, destination.y + 12, {
-			steps: 12,
-		})
-		await earthly.page.mouse.up()
+		await dropOnSummary('reference')
+		// Repeated drops stay idempotent and keep the default conversation view visible.
+		await dropOnSummary('reference')
 	}
 	await expect
 		.poll(() => threadWorkSnapshot(earthly))
 		.toMatchObject({ id: original.id, referenceCount: 1, outputs: original.outputs })
+	await openChatView(earthly, 'sources')
 	await expect(refs.getByText('Foreign survey source', { exact: true })).toBeVisible()
-	await refs
-		.getByRole('button', { name: 'Actions for source Foreign survey source', exact: true })
-		.click()
-	await earthly.page.getByRole('menuitem', { name: 'Let AI edit', exact: true }).click()
+	if (earthly.isMobile) {
+		await refs
+			.getByRole('button', { name: 'Actions for source Foreign survey source', exact: true })
+			.click()
+		await earthly.page.getByRole('menuitem', { name: 'Let AI edit', exact: true }).click()
+	} else {
+		await dropOnSummary('edit')
+		await openChatView(earthly, 'edit')
+	}
 	await expect
 		.poll(async () => (await threadWorkSnapshot(earthly)).outputs.length)
 		.toBe(original.outputs.length + 1)

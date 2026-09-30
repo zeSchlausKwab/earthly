@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react'
+import { useRef, useState, useSyncExternalStore, type DragEvent } from 'react'
 import {
 	Check,
 	ChevronDown,
@@ -6,6 +6,7 @@ import {
 	Ellipsis,
 	Gauge,
 	Link2,
+	Loader2,
 	LockKeyhole,
 	MessageSquarePlus,
 	PanelLeft,
@@ -32,8 +33,16 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { getEntityDrag, subscribeEntityDrag } from '@/components/entity-list/entityTransfer'
-import type { ChatRunState, ChatSession } from '../store'
+import {
+	endEntityDrag,
+	getEntityDrag,
+	readEntityDrop,
+	subscribeEntityDrag,
+} from '@/components/entity-list/entityTransfer'
+import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
+import { useChatStore, type ChatRunState, type ChatSession } from '../store'
+import { setConversationEntityRole } from '../entityContext'
 import { ChatSafetyIndicator, chatSafetyPresentation } from './ChatHeaderPresentation'
 import { ChatMenu, useChatNavigation } from './ChatPanelNavigation'
 
@@ -72,12 +81,61 @@ export function ChatPanelHeader({
 }) {
 	const { view, openView, menu, setMenu } = useChatNavigation()
 	const dragging = useSyncExternalStore(subscribeEntityDrag, getEntityDrag, getEntityDrag)
+	const runningChatId = useChatStore((state) => state.runningChatId)
+	const [dropOver, setDropOver] = useState<'edit' | 'reference' | null>(null)
+	const [pendingDrop, setPendingDrop] = useState<'edit' | 'reference' | null>(null)
+	const dropInFlight = useRef(false)
 	const active = sessions.find((chat) => chat.id === activeId)
 	const [deleteId, setDeleteId] = useState<string | null>(null)
 	const deleting = sessions.find((chat) => chat.id === deleteId)
 	const running = (id: string | null) =>
 		!!id && ['working', 'awaiting_approval'].includes(runStates[id]?.status ?? '')
 	const itemClass = 'min-h-11 rounded-none text-xs md:min-h-8'
+	const canDrop = (role: 'edit' | 'reference') =>
+		!!dragging &&
+		!!activeId &&
+		runningChatId !== activeId &&
+		!pendingDrop &&
+		(role === 'reference' || ['dataset', 'feature', 'story'].includes(dragging.item.type))
+	const dropHandlers = (role: 'edit' | 'reference') => ({
+		onDragOver: (event: DragEvent<HTMLButtonElement>) => {
+			if (!dragging) return
+			event.stopPropagation()
+			event.dataTransfer.dropEffect = canDrop(role) ? 'copy' : 'none'
+			if (!canDrop(role)) return
+			event.preventDefault()
+			setDropOver(role)
+		},
+		onDragLeave: (event: DragEvent<HTMLButtonElement>) => {
+			if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropOver(null)
+		},
+		onDrop: async (event: DragEvent<HTMLButtonElement>) => {
+			const item = readEntityDrop(event.dataTransfer)
+			if (!item) return
+			event.preventDefault()
+			event.stopPropagation()
+			setDropOver(null)
+			const allowed = canDrop(role)
+			endEntityDrag()
+			if (!allowed || !activeId || dropInFlight.current) return
+			dropInFlight.current = true
+			setPendingDrop(role)
+			try {
+				await setConversationEntityRole(activeId, item, role)
+			} catch (error) {
+				toast.error(error instanceof Error ? error.message : 'Could not add this item.')
+			} finally {
+				dropInFlight.current = false
+				setPendingDrop(null)
+			}
+		},
+	})
+	const dropClass = (role: 'edit' | 'reference') =>
+		cn(
+			'h-11 gap-1.5 rounded-none px-1.5 text-xs md:h-9',
+			dragging && (canDrop(role) ? 'border-dashed border-primary bg-primary/5' : 'opacity-50'),
+			dragging && canDrop(role) && dropOver === role && 'bg-primary/15 ring-2 ring-primary',
+		)
 	return (
 		<>
 			<header className="shrink-0 border-b bg-background">
@@ -210,26 +268,34 @@ export function ChatPanelHeader({
 						<Button
 							variant="ghost"
 							onClick={() => openView('edit')}
-							onDragEnter={() => {
-								if (getEntityDrag()) openView('edit')
-							}}
+							{...dropHandlers('edit')}
+							title="Drop maps or stories here to let AI edit, or click to manage editing access"
 							aria-label={`AI can edit ${editableCount}`}
-							className="h-11 gap-1.5 rounded-none px-1.5 text-xs md:h-9"
+							aria-busy={pendingDrop === 'edit'}
+							className={dropClass('edit')}
 						>
-							<Pencil className="size-3.5 shrink-0" />
-							AI can edit {editableCount}
+							{pendingDrop === 'edit' ? (
+								<Loader2 className="size-3.5 shrink-0 animate-spin" />
+							) : (
+								<Pencil className="size-3.5 shrink-0" />
+							)}
+							{canDrop('edit') ? 'Drop to edit' : `AI can edit ${editableCount}`}
 						</Button>
 						<Button
 							variant="ghost"
 							onClick={() => openView('sources')}
-							onDragEnter={() => {
-								if (getEntityDrag()) openView('sources')
-							}}
+							{...dropHandlers('reference')}
+							title="Drop here to add a read-only reference, or click to manage sources"
 							aria-label={`Sources ${sourceCount}`}
-							className="h-11 gap-1.5 rounded-none px-1.5 text-xs md:h-9"
+							aria-busy={pendingDrop === 'reference'}
+							className={dropClass('reference')}
 						>
-							<Link2 className="size-3.5 shrink-0" />
-							Sources {sourceCount}
+							{pendingDrop === 'reference' ? (
+								<Loader2 className="size-3.5 shrink-0 animate-spin" />
+							) : (
+								<Link2 className="size-3.5 shrink-0" />
+							)}
+							{canDrop('reference') ? 'Drop reference' : `Sources ${sourceCount}`}
 						</Button>
 						<Button
 							variant="ghost"
