@@ -1,15 +1,15 @@
 import { ChatRunStatusBar } from './components/ChatRunStatusBar'
 import { connectionProvider } from './connections'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import {
 	captureActiveToolExecutionTarget,
 	resolveProvider,
 	useChatStore,
 	type ChatErrorRecovery,
-	type ChatRunStatus,
 } from './store'
 import { canSendImage, composeOutboundContent } from './composeOutboundContent'
+import { getEntityDrag } from '@/components/entity-list/entityTransfer'
 import { WorkingSetControls } from './components/WorkingSetControls'
 import { FileChipStrip, type FileChipStripHandle } from './components/FileChipStrip'
 import { extractPastedImageFiles } from './components/fileAttachHandler'
@@ -21,63 +21,56 @@ import { getMintHostname, resolveWalletPaymentMint, useDefaultMint, useWallet } 
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
-import {
-	type EntitySearchResult,
-	type EntityType,
-} from '@/components/entity-search'
+import type { EntitySearchResult } from '@/components/entity-search'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
-import { nip19 } from 'nostr-tools'
-import {
-	ARTICLE_KIND,
-	GEO_EVENT_KIND,
-	LIVE_BEACON_KIND,
-	MAP_CONTEXT_KIND,
-	TEMPORAL_SIGHTING_KIND,
-} from '@/lib/nostr/kinds'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Switch } from '@/components/ui/switch'
-import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { ChatPanelHeader } from './components/ChatPanelHeader'
+import { ChatSettingsView } from './components/ChatSettingsView'
+import { ChatUsageView } from './components/ChatUsageView'
+import {
+	ChatMenu,
+	ChatNavigationProvider,
+	useChatPanelNavigation,
+	type ChatPanelView,
+} from './components/ChatPanelNavigation'
+import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import {
+	ArrowLeft,
+	Plus,
+	Paperclip,
+	PencilRuler,
+	MousePointer2,
 	AlertTriangle,
 	Loader2,
 	Send,
-	Trash2,
-	Settings2,
 	Wallet,
 	Bot,
 	User,
 	AlertCircle,
 	Wrench,
 	MapPin,
-	ToggleLeft,
-	ToggleRight,
-	Server,
 	Check,
 	Copy,
 	ArrowDownToLine,
 	Code2,
 	ChevronDown,
-	Download,
-	Gauge,
 	MessageSquarePlus,
 	RefreshCw,
-	Camera,
-	LockKeyhole,
-	PanelLeft,
-	PanelRight,
 	X,
 } from 'lucide-react'
 import { preloadWorldData } from '@/lib/geo/worldData'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
 import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from './tools'
 import { isToolError, type ToolError } from './tools/errors'
-import { ChatGeometryAttachment } from './ChatGeometryAttachment'
+import { ChatGeometryAttachment, type ChatGeometryAttachmentHandle } from './ChatGeometryAttachment'
 import { CodeRunDisclosure, parseRunCodeResult } from './CodeRunDisclosure'
 import { InlineDiffCards, PendingDiffList } from './safeEditing/PendingDiffList'
 import { AttachmentCard, parseIngestHandlePart } from './components/AttachmentCard'
@@ -99,23 +92,12 @@ import {
 import { buildLiveAssistantMessage } from './liveAssistantMessage'
 import { EMPTY_STATE_PROMPTS } from './examplePrompts'
 import { useChatComposerStore } from './composerState'
-import { chatSafetyPresentation, ChatSafetyIndicator } from './components/ChatHeaderPresentation'
 
 const PROVIDER_LABELS: Record<ProviderType, string> = {
 	routstr: 'Routstr (paid)',
 	lmstudio: 'LM Studio',
 	ollama: 'Ollama',
 	custom: 'Custom endpoint',
-}
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}m`
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1).replace(/\.0$/, '')}k`
-	}
-	return value.toLocaleString()
 }
 
 function formatProviderEndpoint(baseUrl: string): string {
@@ -127,32 +109,6 @@ function formatProviderEndpoint(baseUrl: string): string {
 	} catch {
 		return normalized
 	}
-}
-
-function ChatMetric({ label, title, value }: { label: string; title?: string; value: string }) {
-	return (
-		<div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-2" title={title}>
-			<dt className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-				{label}
-			</dt>
-			<dd className="mt-0.5 truncate text-xs font-medium text-foreground">{value}</dd>
-		</div>
-	)
-}
-
-function formatChatSessionOption(
-	chat: { title: string; updatedAt: number },
-	status: ChatRunStatus = 'idle',
-): string {
-	const statusLabel: Partial<Record<ChatRunStatus, string>> = {
-		working: 'Working',
-		awaiting_approval: 'Awaiting approval',
-		completed: 'Completed',
-		error: 'Needs attention',
-		stopped: 'Stopped',
-	}
-	const suffix = statusLabel[status]
-	return `${chat.title}${suffix ? ` · ${suffix}` : ''} · ${new Date(chat.updatedAt).toLocaleTimeString()}`
 }
 
 export function resolveChatSendState(input: {
@@ -206,17 +162,6 @@ export function resolveChatErrorPresentation(
 	return { message: error, actionLabel: 'Retry', changesApplied: false }
 }
 
-export function resolveChatHeaderControlSizing(
-	isMobile: boolean,
-	control: 'new-conversation' | 'conversation-select' | 'icon',
-): string {
-	if (control === 'new-conversation') return isMobile ? 'h-11 min-h-11 px-2' : 'h-8 px-2.5'
-	if (control === 'conversation-select') {
-		return isMobile ? '[&>select]:h-11 [&>select]:min-h-11' : ''
-	}
-	return isMobile ? 'h-11 min-h-11 w-11 min-w-11' : 'h-8 w-8'
-}
-
 export interface ChatPanelProps {
 	geoEvents?: GeoDataset[]
 	mapContextEvents?: MapContext[]
@@ -246,21 +191,6 @@ export interface ChatPanelProps {
 const defaultGetDatasetName = (event: GeoDataset): string =>
 	event.datasetId ?? event.dTag ?? event.id ?? 'Untitled'
 
-function DangerIndicator() {
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<span className="inline-flex shrink-0 items-center justify-center text-orange-500 dark:text-orange-400">
-					<AlertTriangle className="h-3.5 w-3.5" />
-				</span>
-			</TooltipTrigger>
-			<TooltipContent side="top" sideOffset={6}>
-				danger
-			</TooltipContent>
-		</Tooltip>
-	)
-}
-
 export function ChatPanel({
 	geoEvents = [],
 	mapContextEvents = [],
@@ -270,7 +200,6 @@ export function ChatPanel({
 	onClose,
 	onMoveThread,
 	threadDock,
-	onEnsureAuthoringTarget,
 	authoringActionLabel = 'Edit & send',
 	threadKey,
 	threadTitle,
@@ -302,7 +231,6 @@ export function ChatPanel({
 		promptProfile,
 		error,
 		errorRecovery,
-		totalSpent,
 		diagnostics,
 		lastTurnRequest,
 		provider,
@@ -310,9 +238,6 @@ export function ChatPanel({
 		connections,
 		activeConnectionId,
 		loadModels,
-		setSelectedModel,
-		setMapSnapshotsEnabled,
-		setSafetyLevel,
 		sendMessage,
 		retryLastMessage,
 		finishLastResponse,
@@ -407,11 +332,14 @@ export function ChatPanel({
 	}
 	const [visionSupport, setVisionSupport] = useState<VisionSupport>('no-vision')
 	const [nowMs, setNowMs] = useState(Date.now())
-	const [connectionDetailsOpen, setConnectionDetailsOpen] = useState(false)
-	const [conversationsOpen, setConversationsOpen] = useState(false)
-	const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+	const navigation = useChatPanelNavigation(activeChatId)
+	const { view, openView } = navigation
+	const transcriptRef = useRef<HTMLElement>(null)
+	const transcriptScroll = useRef(0)
+	const pendingReviewRef = useRef<HTMLDivElement>(null)
+	const geometryAttachmentRef = useRef<ChatGeometryAttachmentHandle>(null)
 	const messagesEndRef = useRef<HTMLDivElement>(null)
-	const textareaRef = useRef<HTMLTextAreaElement>(null)
+	const textareaRef = navigation.composerRef
 	const fileChipStripRef = useRef<FileChipStripHandle>(null)
 	const initialPromptAttemptsRef = useRef<Set<string>>(new Set())
 
@@ -470,7 +398,8 @@ export function ChatPanel({
 		const anchor = messagesEndRef.current
 		if (!anchor) return
 		const container = anchor.parentElement
-		if (container) {
+		if (!container || container.hidden) return
+		{
 			const distanceFromBottom =
 				container.scrollHeight - container.scrollTop - container.clientHeight
 			if (distanceFromBottom > 120) return
@@ -478,15 +407,19 @@ export function ChatPanel({
 		anchor.scrollIntoView({ behavior: 'auto' })
 	}, [scrollTrigger])
 
+	useLayoutEffect(() => {
+		if (view === 'chat' && transcriptRef.current)
+			transcriptRef.current.scrollTop = transcriptScroll.current
+	}, [view])
+
 	// Auto-resize textarea
 	const inputLength = input.length
 	useEffect(() => {
-		if (inputLength < 0) return
-		if (textareaRef.current) {
-			textareaRef.current.style.height = 'auto'
-			textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`
-		}
-	}, [inputLength])
+		const textarea = textareaRef.current
+		if (inputLength < 0 || !textarea || view !== 'chat') return
+		textarea.style.height = 'auto'
+		textarea.style.height = `${Math.min(textarea.scrollHeight, 150)}px`
+	}, [inputLength, textareaRef, view])
 
 	const activeChatIsRunning = isStreaming && runningChatId === activeChatId
 	const anotherChatIsRunning = isStreaming && Boolean(runningChatId) && !activeChatIsRunning
@@ -607,18 +540,20 @@ export function ChatPanel({
 	// cancels the globally-owned run; Stop remains the only ordinary cancellation.
 	const handleCreateChat = () => {
 		createChat()
-		setConversationsOpen(false)
+		navigation.setMenu(null)
+		openView('chat')
 	}
 
 	const handleSwitchChat = (chatId: string) => {
 		switchChat(chatId)
-		setConversationsOpen(false)
+		navigation.setMenu(null)
+		openView('chat')
 	}
 
-	const handleDeleteChat = () => {
-		if (!activeChatId) return
-		deleteChat(activeChatId)
-		setConversationsOpen(false)
+	const handleDeleteChat = (id: string) => {
+		deleteChat(id)
+		navigation.setMenu(null)
+		openView('chat')
 	}
 
 	const handleExportConversation = async () => {
@@ -705,13 +640,7 @@ export function ChatPanel({
 	}
 
 	const viewedReference = referenceForViewedObject(threadKey, threadTitle)
-	const suggestedReferences =
-		viewedReference &&
-		!references.some(
-			(reference) => getChatReferenceKey(reference) === getChatReferenceKey(viewedReference),
-		)
-			? [chatReferenceToSearchResult(viewedReference)]
-			: []
+	const suggestedReferences = viewedReference ? [chatReferenceToSearchResult(viewedReference)] : []
 
 	const sortedChatSessions = useMemo(
 		() => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -782,21 +711,6 @@ export function ChatPanel({
 		() => buildLiveAssistantMessage(streamingContent, streamingReasoningContent),
 		[streamingContent, streamingReasoningContent],
 	)
-	const contextTokenDisplay =
-		diagnostics.effectiveContextTokens ?? selectedModelData?.contextLength ?? null
-	const contextUsageSummary = contextTokenDisplay
-		? diagnostics.estimatedPromptTokens
-			? `${formatCompactNumber(diagnostics.estimatedPromptTokens)} / ${formatCompactNumber(contextTokenDisplay)}`
-			: formatCompactNumber(contextTokenDisplay)
-		: 'Unknown'
-	const requestSummary = `${diagnostics.modelRequestCount} ${
-		diagnostics.modelRequestCount === 1 ? 'request' : 'requests'
-	}`
-	const activitySummary = activeChatIsRunning
-		? `${phaseLabel}${stalledSeconds > 0 ? ` · ${stalledSeconds}s` : ''}`
-		: diagnostics.toolCallCount > 0
-			? `${diagnostics.toolCallCount} tool ${diagnostics.toolCallCount === 1 ? 'call' : 'calls'}`
-			: 'Idle'
 	// Pair each run_code tool call (which carries the source `code` argument) with
 	// its later role:'tool' result message by tool_call_id, so MessageBubble can
 	// render the source + output together as a single CodeRunDisclosure block
@@ -822,768 +736,481 @@ export function ChatPanel({
 	const timelineItems = useMemo(() => buildChatTimeline(messages), [messages])
 
 	return (
-		<section
-			className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
-			aria-label="AI Thread"
-		>
-			<Collapsible
-				open={connectionDetailsOpen}
-				onOpenChange={setConnectionDetailsOpen}
-				className={cn(
-					'flex max-h-[50%] min-h-0 shrink-0 flex-col border-b bg-background/95',
-					isMobile ? 'px-2' : 'px-3 py-1',
-				)}
+		<ChatNavigationProvider value={navigation}>
+			<section
+				className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+				aria-label="AI Thread"
+				onKeyDown={(event) => {
+					if (
+						event.key === 'Escape' &&
+						view !== 'chat' &&
+						!navigation.menu &&
+						!event.defaultPrevented
+					) {
+						event.preventDefault()
+						openView('chat')
+					}
+				}}
 			>
-				<fieldset
-					className="m-0 flex min-w-0 shrink-0 flex-wrap items-center gap-x-1 border-0 p-0"
-					aria-label="Thread controls"
-				>
-					<Popover open={conversationsOpen} onOpenChange={setConversationsOpen}>
-						<PopoverTrigger asChild>
-							<button
-								type="button"
-								aria-label="Conversations"
-								title={activeChatSession?.title}
-								className="flex min-h-11 min-w-0 flex-1 items-center gap-1 text-left text-xs font-semibold md:min-h-8"
-							>
-								<span className="truncate">
-									{embeddedInObject ? 'Chat' : (activeChatSession?.title ?? 'Chat')}
-								</span>
-								<ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-							</button>
-						</PopoverTrigger>
-						<PopoverContent
-							align="start"
-							aria-label="Conversations"
-							className="z-[80] w-[min(360px,calc(100vw-24px))] gap-2 rounded-none p-3"
-						>
-							<label className="text-xs font-semibold" htmlFor="chat-conversation-select">
-								Conversations
-							</label>
-							<NativeSelect
-								id="chat-conversation-select"
-								aria-label="Select Thread"
-								value={activeChatSession ? (activeChatId ?? '') : ''}
-								onChange={(event) => {
-									if (event.target.value) handleSwitchChat(event.target.value)
-								}}
-							>
-								{!activeChatSession && (
-									<NativeSelectOption value="" disabled>
-										Select a conversation
-									</NativeSelectOption>
-								)}
-								{sortedChatSessions.map((chat) => (
-									<NativeSelectOption key={chat.id} value={chat.id}>
-										{formatChatSessionOption(chat, chatRunStates[chat.id]?.status)}
-									</NativeSelectOption>
-								))}
-							</NativeSelect>
+				<ChatPanelHeader
+					sessions={sortedChatSessions}
+					activeId={activeChatId}
+					runStates={chatRunStates}
+					readOnly={isReadOnlyThread}
+					editableCount={
+						activeChatSession?.workingSet?.length ?? (activeChatSession?.targetWorkspaceId ? 1 : 0)
+					}
+					sourceCount={references.length}
+					safetyLevel={safetyLevel}
+					embedded={embeddedInObject}
+					onCreate={handleCreateChat}
+					onSwitch={handleSwitchChat}
+					onDelete={handleDeleteChat}
+					onExport={() => void handleExportConversation()}
+					onMove={!isMobile ? onMoveThread : undefined}
+					dock={threadDock}
+					onClose={onClose}
+				/>
+				{view !== 'chat' && (
+					<>
+						<div className="shrink-0 px-2 py-1">
 							<Button
-								type="button"
-								variant="outline"
-								className="justify-start"
-								onClick={handleCreateChat}
-								aria-label="New Thread"
-							>
-								<MessageSquarePlus className="size-4" />
-								New conversation
-							</Button>
-							<Button
+								ref={navigation.backRef}
 								type="button"
 								variant="ghost"
-								className="justify-start"
-								onClick={handleExportConversation}
-								disabled={!messages.length}
-								aria-label="Export Thread"
+								onClick={() => openView('chat')}
+								className="h-11 gap-2 rounded-none px-2 text-xs"
 							>
-								<Download className="size-4" />
-								Export conversation
-							</Button>
-							<Button
-								type="button"
-								variant="ghost"
-								className="justify-start text-destructive"
-								onClick={handleDeleteChat}
-								disabled={!activeChatId}
-								aria-label="Delete Thread"
-							>
-								<Trash2 className="size-4" />
-								Delete conversation
-							</Button>
-						</PopoverContent>
-					</Popover>
-					<CollapsibleTrigger asChild>
-						<Button
-							variant="ghost"
-							size="sm"
-							className={cn('shrink-0 rounded-none px-2', isMobile ? 'h-11' : 'h-8')}
-							aria-label={`AI edit safety: ${chatSafetyPresentation(isReadOnlyThread, safetyLevel).label}`}
-						>
-							<ChatSafetyIndicator readOnly={isReadOnlyThread} safetyLevel={safetyLevel} />
-						</Button>
-					</CollapsibleTrigger>
-					<CollapsibleTrigger asChild>
-						<Button
-							variant="ghost"
-							size="icon"
-							className={cn(
-								'shrink-0 rounded-none',
-								embeddedInObject && 'ml-auto',
-								resolveChatHeaderControlSizing(isMobile, 'icon'),
-								(!selectedModel || modelsError) && 'text-amber-700 dark:text-amber-400',
-							)}
-							aria-label="Thread settings"
-							title={
-								!selectedModel
-									? 'Choose a model in Thread settings'
-									: `Thread settings · ${selectedModelLabel} · ${providerLabel}`
-							}
-						>
-							{!selectedModel || modelsError ? (
-								<AlertCircle className="size-4" />
-							) : (
-								<Settings2 className="size-4" />
-							)}
-						</Button>
-					</CollapsibleTrigger>
-					{onMoveThread && !isMobile ? (
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							className="h-8 shrink-0 gap-1.5 rounded-none px-2 text-xs"
-							onClick={onMoveThread}
-							aria-label={
-								threadDock === 'right' ? 'Move chat left' : 'Move chat right'
-							}
-							title={
-								threadDock === 'right' ? 'Move chat to the left panel' : 'Move chat to the right panel'
-							}
-						>
-							{threadDock === 'right' ? (
-								<PanelLeft className="size-4" />
-							) : (
-								<PanelRight className="size-4" />
-							)}
-							{threadDock === 'right' ? 'Move left' : 'Move right'}
-						</Button>
-					) : null}
-					{onClose ? (
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon"
-							className={cn('shrink-0', resolveChatHeaderControlSizing(isMobile, 'icon'))}
-							onClick={onClose}
-							title="Close Thread"
-							aria-label="Close Thread"
-						>
-							<X className="h-4 w-4" />
-						</Button>
-					) : null}
-				</fieldset>
-				<WorkingSetControls
-     chatId={activeChatId}
-     sources={{ datasets: geoEvents, contexts: mapContextEvents, features: availableFeatures }}
-     getDatasetName={getDatasetName}
-     suggestedReferences={suggestedReferences}
-    />
-
-				<CollapsibleContent className="min-h-0 overflow-y-auto overscroll-contain border-t pb-2 pt-2">
-					<p className="mb-3 text-xs text-muted-foreground">
-						Messages and references are sent to your AI provider. References are read-only,
-						including other people’s maps. Removing one affects future messages, not earlier
-						messages or Story citations.
-					</p>
-					{!isReadOnlyThread ? (
-						<div className="flex min-w-0 items-center gap-2">
-							<span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-								Safety
-							</span>
-							<NativeSelect
-								aria-label="AI edit safety"
-								value={safetyLevel}
-								onChange={(event) => {
-									const level = Number(event.target.value)
-									if (level === 1 || level === 2 || level === 3) setSafetyLevel(level)
-								}}
-								disabled={
-									Boolean(runningChatId) ||
-									settingsStatus === 'loading' ||
-									settingsStatus === 'failed'
-								}
-								className={cn('min-w-0 flex-1', isMobile && '[&>select]:min-h-11')}
-							>
-								<NativeSelectOption value="2">Ask before changing</NativeSelectOption>
-								<NativeSelectOption value="1">Ask before every change</NativeSelectOption>
-								<NativeSelectOption value="3">Apply automatically</NativeSelectOption>
-							</NativeSelect>
-						</div>
-					) : null}
-
-					<div className="my-2 border-t pt-2">
-						<div className="mb-2 flex min-w-0 items-center justify-between gap-2">
-							<span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-								Model & provider
-							</span>
-							<Button
-								type="button"
-								variant="ghost"
-								size="sm"
-								className={cn('shrink-0 gap-1.5 rounded-none text-xs', isMobile && 'min-h-11')}
-								onClick={handleOpenSettings}
-								title="Open provider settings"
-								aria-label="Open provider settings"
-							>
-								<Settings2 className="h-3.5 w-3.5" />
-								Provider settings
+								<ArrowLeft className="size-4" />
+								Back to chat
 							</Button>
 						</div>
-
-						<div>
-							<div className="grid grid-cols-[4.25rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2">
-								<label
-									htmlFor="chat-inline-model-select"
-									className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
-								>
-									Model
-								</label>
-								<NativeSelect
-									id="chat-inline-model-select"
-									aria-label="Select chat model"
-									value={selectedModel ?? ''}
-									onChange={(event) => setSelectedModel(event.target.value)}
-									disabled={modelsLoading || isStreaming || models.length === 0}
-									className={cn('w-full', isMobile && '[&>select]:min-h-11')}
-								>
-									{selectedModel ? null : (
-										<NativeSelectOption value="" disabled>
-											{modelsLoading ? 'Loading models…' : 'Select model'}
-										</NativeSelectOption>
-									)}
-									{models.map((model) => (
-										<NativeSelectOption key={model.id} value={model.id}>
-											{model.name}
-										</NativeSelectOption>
-									))}
-								</NativeSelect>
-
-								<span className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-									Provider
-								</span>
-								<div className="min-w-0">
-									<p className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
-										<span className="truncate">{providerLabel}</span>
-										{provider === 'routstr' ? <DangerIndicator /> : null}
-									</p>
-									<p
-										className="truncate text-[10px] text-muted-foreground"
-										title={providerConfig.baseUrl}
-									>
-										{providerEndpointLabel}
-									</p>
-								</div>
+						{view === 'usage' ? (
+							<div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+								<ChatUsageView
+									phase={
+										activeChatIsRunning
+											? phaseLabel
+											: (chatRunStates[activeChatId ?? '']?.status ?? 'idle')
+									}
+									stalledSeconds={stalledSeconds}
+									wallet={
+										isWalletRequired
+											? {
+													ready: walletStatus === 'ready',
+													balance: walletBalance,
+													mint: paymentMintDisplay,
+													tooltip: paymentMintTooltip,
+												}
+											: undefined
+									}
+									onExport={() => void handleExportConversation()}
+								/>
 							</div>
-
-							{!isReadOnlyThread ? (
-								<div className="mt-2.5 flex min-w-0 items-center justify-between gap-3 border-t pt-2.5">
-									<div className="flex min-w-0 items-start gap-2">
-										<Camera className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-										<div className="min-w-0">
-											<label
-												htmlFor="chat-map-snapshots-toggle"
-												className="block text-xs font-medium text-foreground"
-											>
-												AI map screenshots
-											</label>
-											<p className="text-[10px] leading-snug text-muted-foreground">
-												Let the model capture the map for visual review. Uploaded images are
-												unaffected.
-											</p>
-										</div>
-									</div>
-									<Switch
-										id="chat-map-snapshots-toggle"
-										checked={mapSnapshotsEnabled}
-										onCheckedChange={setMapSnapshotsEnabled}
-										disabled={
-											isStreaming || settingsStatus === 'loading' || settingsStatus === 'failed'
-										}
-										aria-label="Allow AI map screenshots"
-										className="shrink-0"
-									/>
-								</div>
-							) : (
-								<p className="mt-2.5 flex items-center gap-1.5 border-t pt-2.5 text-xs text-muted-foreground">
-									<LockKeyhole className="h-3.5 w-3.5" />
-									This Thread returns text only and cannot change the map.
-								</p>
-							)}
-
-							<div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2.5 text-[10px] text-muted-foreground">
-								{isWalletRequired ? (
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<span className="inline-flex max-w-full items-center gap-1 rounded-full border bg-background px-2 py-1">
-												<Wallet className="h-3 w-3 shrink-0" />
-												<span className="truncate">
-													{walletStatus === 'ready'
-														? `${walletBalance.toLocaleString()} sats${totalSpent > 0 ? ` · ${totalSpent} spent` : ''}`
-														: 'Wallet not connected'}
-												</span>
-											</span>
-										</TooltipTrigger>
-										{paymentMintTooltip ? (
-											<TooltipContent side="top" sideOffset={6} className="max-w-xs">
-												{paymentMintDisplay ? (
-													<p className="mb-1 font-medium">{paymentMintDisplay}</p>
-												) : null}
-												<p>{paymentMintTooltip}</p>
-											</TooltipContent>
-										) : null}
-									</Tooltip>
-								) : (
-									<span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-1">
-										<Server className="h-3 w-3" />
-										{provider === 'lmstudio' || provider === 'ollama'
-											? 'Local model'
-											: 'Provider billing'}
-									</span>
-								)}
-								<span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-1">
-									{isReadOnlyThread ? (
-										<LockKeyhole className="h-3 w-3" />
-									) : (
-										<MapPin className="h-3 w-3" />
-									)}
-									{isReadOnlyThread
-										? 'Read-only · no tools'
-										: `Tools ${toolsEnabled ? 'enabled' : 'disabled'}`}
-								</span>
-								<span className="ml-auto text-[10px]">
-									Provider and credentials stay in Settings
-								</span>
-							</div>
-						</div>
-					</div>
-
-					<Collapsible open={diagnosticsOpen} onOpenChange={setDiagnosticsOpen}>
-						<div className="overflow-hidden rounded-md border">
-							<CollapsibleTrigger asChild>
-								<button
-									type="button"
-									className={cn(
-										'flex w-full min-w-0 items-center gap-1.5 text-left text-[10px] text-muted-foreground outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-										isMobile ? 'min-h-11 px-2 py-1' : 'min-h-8 px-2.5 py-1.5',
-									)}
-									aria-label="Chat usage details"
-								>
-									<Gauge className="h-3.5 w-3.5 shrink-0" />
-									<span className="shrink-0 font-medium text-foreground">
-										Usage {contextUsageSummary}
-									</span>
-									<span aria-hidden="true" className="text-border">
-										/
-									</span>
-									<span className="shrink-0">{requestSummary}</span>
-									<span aria-hidden="true" className="hidden text-border sm:inline">
-										/
-									</span>
-									<span className="hidden min-w-0 truncate sm:inline">{activitySummary}</span>
-									<ChevronDown
-										className={cn(
-											'ml-auto h-3.5 w-3.5 shrink-0 transition-transform',
-											diagnosticsOpen && 'rotate-180',
-										)}
-									/>
-								</button>
-							</CollapsibleTrigger>
-							<CollapsibleContent className="border-t bg-muted/10 p-2">
-								<dl className="grid grid-cols-2 gap-1.5">
-									<ChatMetric
-										label="Prompt capacity"
-										value={contextTokenDisplay ? contextTokenDisplay.toLocaleString() : 'Unknown'}
-									/>
-									<ChatMetric
-										label="Prompt budget"
-										value={
-											diagnostics.promptBudgetTokens
-												? diagnostics.promptBudgetTokens.toLocaleString()
-												: 'Not calculated'
-										}
-									/>
-									<ChatMetric
-										label="Current prompt"
-										value={
-											diagnostics.estimatedPromptTokens
-												? `~${diagnostics.estimatedPromptTokens.toLocaleString()} tokens`
-												: 'No request yet'
-										}
-									/>
-									<ChatMetric
-										label="Expected reply"
-										value={
-											diagnostics.estimatedCompletionTokens
-												? `~${diagnostics.estimatedCompletionTokens.toLocaleString()} tokens`
-												: 'Not estimated'
-										}
-									/>
-									<ChatMetric label="Model requests" value={requestSummary} />
-									<ChatMetric
-										label="Current phase"
-										value={activitySummary}
-										title={
-											activeChatIsRunning && stalledSeconds > 0
-												? `${phaseLabel}; ${stalledSeconds}s since the last model or tool progress`
-												: undefined
-										}
-									/>
-									<ChatMetric
-										label="Cumulative input"
-										value={`~${diagnostics.cumulativeEstimatedPromptTokens.toLocaleString()} tokens`}
-									/>
-									<ChatMetric
-										label="Cumulative output"
-										value={`~${diagnostics.cumulativeEstimatedCompletionTokens.toLocaleString()} tokens`}
-									/>
-									<ChatMetric
-										label="Tool work"
-										value={
-											diagnostics.toolCallCount > 0
-												? `${diagnostics.toolCallCount} calls · ${Math.ceil(diagnostics.toolResultBytes / 1024)} KiB · ${(diagnostics.totalToolDurationMs / 1000).toFixed(1)}s`
-												: 'No tool calls'
-										}
-										title={Object.entries(diagnostics.toolStats)
-											.map(
-												([name, stats]) =>
-													`${name}: ${stats.calls} calls, ${(stats.durationMs / 1000).toFixed(1)}s, ${Math.ceil(stats.resultBytes / 1024)} KiB, ${stats.errors} errors`,
-											)
-											.join('\n')}
-									/>
-									<ChatMetric
-										label="Map progress"
-										value={
-											diagnostics.mapChangingToolResultCount > 0
-												? `${diagnostics.mapChangingToolResultCount} map-changing result${diagnostics.mapChangingToolResultCount === 1 ? '' : 's'}`
-												: 'No map change yet'
-										}
-									/>
-									<ChatMetric label="Finish reason" value={diagnostics.finishReason ?? 'Pending'} />
-									<ChatMetric label="Prompt profile" value={diagnostics.promptProfile} />
-									<ChatMetric
-										label="Advertised tools"
-										value={`${diagnostics.advertisedToolCount} · ${Math.ceil(diagnostics.advertisedToolSchemaChars / 1024)} KiB schema`}
-									/>
-									<ChatMetric
-										label="System prompt"
-										value={`${diagnostics.systemPromptChars.toLocaleString()} chars`}
-									/>
-								</dl>
-							</CollapsibleContent>
-						</div>
-					</Collapsible>
-				</CollapsibleContent>
-
-				{/* Errors */}
-				{modelsError && (
-					<div
-						role="alert"
-						className="flex min-w-0 shrink-0 items-center gap-1.5 text-xs text-destructive"
-					>
-						<AlertCircle className="h-3.5 w-3.5 shrink-0" />
-						<span className="min-w-0 flex-1 break-words">{modelsError}</span>
-						<Button
-							variant="link"
-							size="sm"
-							className={cn('shrink-0 px-1 text-xs', isMobile && 'min-h-11 min-w-11')}
-							onClick={loadModels}
-						>
-							Retry
-						</Button>
-					</div>
-				)}
-				{!selectedModel ? (
-					<button
-						type="button"
-						onClick={() => {
-							if (modelsError && onOpenSettings) onOpenSettings()
-							else setConnectionDetailsOpen(true)
-						}}
-						className={cn(
-							'flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 border border-primary bg-primary/10 px-3 py-2 text-left text-xs font-semibold text-foreground',
-							isMobile && 'min-h-11',
-						)}
-					>
-						{modelsLoading ? (
-							<Loader2 className="size-3.5 animate-spin" />
 						) : (
-							<AlertCircle className="size-3.5" />
+							<Tabs
+								value={view}
+								onValueChange={(value) => openView(value as ChatPanelView)}
+								className="min-h-0 flex-1 gap-0"
+							>
+								<TabsList
+									aria-label="Chat details"
+									variant="line"
+									className="h-11! w-full shrink-0 justify-start rounded-none border-b px-2"
+								>
+									<TabsTrigger
+										onDragEnter={() => {
+											if (getEntityDrag()) openView('edit')
+										}}
+										value="edit"
+										className="h-11! flex-none rounded-none border-0 border-b-2 border-transparent px-3 after:hidden data-[state=active]:border-primary data-[state=active]:text-foreground"
+									>
+										AI can edit
+									</TabsTrigger>
+									<TabsTrigger
+										onDragEnter={() => {
+											if (getEntityDrag()) openView('sources')
+										}}
+										value="sources"
+										className="h-11! flex-none rounded-none border-0 border-b-2 border-transparent px-3 after:hidden data-[state=active]:border-primary data-[state=active]:text-foreground"
+									>
+										Sources
+									</TabsTrigger>
+									<TabsTrigger
+										value="settings"
+										className="h-11! flex-none rounded-none border-0 border-b-2 border-transparent px-3 after:hidden data-[state=active]:border-primary data-[state=active]:text-foreground"
+									>
+										Settings
+									</TabsTrigger>
+								</TabsList>
+								{(['edit', 'sources'] as const).map((destination) => (
+									<TabsContent
+										key={destination}
+										value={destination}
+										className="min-h-0 overflow-y-auto overscroll-contain p-4"
+									>
+										<WorkingSetControls
+											chatId={activeChatId}
+											view={destination}
+											sources={{
+												datasets: geoEvents,
+												contexts: mapContextEvents,
+												features: availableFeatures,
+											}}
+											getDatasetName={getDatasetName}
+											suggestedReferences={suggestedReferences}
+										/>
+									</TabsContent>
+								))}
+								<TabsContent
+									value="settings"
+									className="min-h-0 overflow-y-auto overscroll-contain p-4"
+								>
+									<ChatSettingsView
+										readOnly={isReadOnlyThread}
+										providerLabel={providerLabel}
+										endpointLabel={providerEndpointLabel}
+										onManageConnections={handleOpenSettings}
+									/>
+								</TabsContent>
+							</Tabs>
 						)}
-						{modelsLoading
-							? 'Loading models…'
-							: modelsError
-								? 'Configure AI'
-								: 'Choose a model to start'}
-					</button>
-				) : null}
-			</Collapsible>
+					</>
+				)}
 
-			{/* Messages */}
-			<div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-3">
-				{messages.length === 0 && !activeChatIsRunning ? (
-					<div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-4">
-						<Bot className="h-12 w-12 mb-4 opacity-50" />
-						<p className="text-sm font-medium">Your AI conversation</p>
-						<p className="mt-1 text-xs">
-							This is not the shared Comments discussion. Messages go to your configured AI
-							provider.
-						</p>
-						<p className="text-xs mt-1">
-							{isReadOnlyThread
-								? 'Ask questions and search sources without changing your maps or stories.'
-								: isWalletRequired
-									? 'Pay per message with eCash. Unused funds are refunded automatically.'
-									: 'No in-app payment required; your provider’s terms apply.'}
-						</p>
-						{selectedModelData && <p className="text-xs mt-2">Using {selectedModelData.name}</p>}
-						{toolsEnabled && !isReadOnlyThread && (
-							<p className="text-xs mt-2 text-orange-600 dark:text-orange-400">
-								<MapPin className="inline h-3 w-3 mr-1" />
-								Tools enabled (geo search, OSM queries, web search, and Wikipedia)
+				{/* Messages */}
+				<section
+					aria-label="Conversation"
+					ref={transcriptRef}
+					hidden={view !== 'chat'}
+					onScroll={(event) => {
+						if (view === 'chat') transcriptScroll.current = event.currentTarget.scrollTop
+					}}
+					className={cn(
+						'min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-3',
+						view !== 'chat' && 'hidden',
+					)}
+				>
+					{messages.length === 0 && !activeChatIsRunning ? (
+						<div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-4">
+							<Bot className="h-12 w-12 mb-4 opacity-50" />
+							<p className="text-sm font-medium">Your AI conversation</p>
+							<p className="mt-1 text-xs">
+								This is not the shared Comments discussion. Messages go to your configured AI
+								provider.
 							</p>
-						)}
-						{!isReadOnlyThread ? (
-							<div className="mt-4 w-full max-w-xl rounded-lg border bg-muted/30 p-3 text-left">
-								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-									Try an example prompt
+							<p className="text-xs mt-1">
+								{isReadOnlyThread
+									? 'Ask questions and search sources without changing your maps or stories.'
+									: isWalletRequired
+										? 'Pay per message with eCash. Unused funds are refunded automatically.'
+										: 'No in-app payment required; your provider’s terms apply.'}
+							</p>
+							{selectedModelData && <p className="text-xs mt-2">Using {selectedModelData.name}</p>}
+							{toolsEnabled && !isReadOnlyThread && (
+								<p className="text-xs mt-2 text-orange-600 dark:text-orange-400">
+									<MapPin className="inline h-3 w-3 mr-1" />
+									Tools enabled (geo search, OSM queries, web search, and Wikipedia)
 								</p>
-								<div className="grid gap-2 sm:grid-cols-2">
-									{[
-										'Summarize this Map and suggest ways to make it easier to understand.',
-										'Check the selected features for missing names or inconsistent styles.',
-										'Create a timeline Story from these Maps, with inline views and camera changes.',
-									].map((prompt) => (
-										<button
-											key={prompt}
-											type="button"
-											onClick={() => handleExamplePromptClick(prompt)}
-											className="rounded-md border bg-background px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-muted"
-										>
-											{prompt}
-										</button>
-									))}
-								</div>
-								<details className="mt-2 text-xs">
-									<summary className="cursor-pointer py-2">More mapping examples</summary>
-									<div className="grid gap-2">
-										{EMPTY_STATE_PROMPTS.map((prompt) => (
+							)}
+							{!isReadOnlyThread ? (
+								<div className="mt-4 w-full max-w-xl rounded-lg border bg-muted/30 p-3 text-left">
+									<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+										Try an example prompt
+									</p>
+									<div className="grid gap-2 sm:grid-cols-2">
+										{[
+											'Summarize this Map and suggest ways to make it easier to understand.',
+											'Check the selected features for missing names or inconsistent styles.',
+											'Create a timeline Story from these Maps, with inline views and camera changes.',
+										].map((prompt) => (
 											<button
 												key={prompt}
 												type="button"
-												className="min-h-11 border bg-muted/20 p-2 text-left"
 												onClick={() => handleExamplePromptClick(prompt)}
+												className="rounded-md border bg-background px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-muted"
 											>
 												{prompt}
 											</button>
 										))}
 									</div>
-								</details>
-							</div>
-						) : null}
-					</div>
-				) : (
-					<>
-						{timelineItems.map((item) =>
-							item.type === 'tool-operation-group' ? (
-								<ToolOperationDisclosure
-									key={item.key}
-									group={item}
-									runCodeSourceByCallId={runCodeSourceByCallId}
-								/>
-							) : (
-								<div key={item.key} className="space-y-2">
-									<MessageBubble
-										message={item.message}
+									<details className="mt-2 text-xs">
+										<summary className="cursor-pointer py-2">More mapping examples</summary>
+										<div className="grid gap-2">
+											{EMPTY_STATE_PROMPTS.map((prompt) => (
+												<button
+													key={prompt}
+													type="button"
+													className="min-h-11 border bg-muted/20 p-2 text-left"
+													onClick={() => handleExamplePromptClick(prompt)}
+												>
+													{prompt}
+												</button>
+											))}
+										</div>
+									</details>
+								</div>
+							) : null}
+						</div>
+					) : (
+						<>
+							{timelineItems.map((item) =>
+								item.type === 'tool-operation-group' ? (
+									<ToolOperationDisclosure
+										key={item.key}
+										group={item}
 										runCodeSourceByCallId={runCodeSourceByCallId}
 									/>
-									{item.message.role === 'tool' && typeof item.message.tool_call_id === 'string' ? (
-										<InlineDiffCards toolCallId={item.message.tool_call_id} />
-									) : null}
-								</div>
-							),
-						)}
+								) : (
+									<div key={item.key} className="space-y-2">
+										<MessageBubble
+											message={item.message}
+											runCodeSourceByCallId={runCodeSourceByCallId}
+										/>
+										{item.message.role === 'tool' &&
+										typeof item.message.tool_call_id === 'string' ? (
+											<InlineDiffCards toolCallId={item.message.tool_call_id} />
+										) : null}
+									</div>
+								),
+							)}
 
-						{/* Streaming message */}
-						{activeChatIsRunning && liveAssistantMessage && (
-							<MessageBubble message={liveAssistantMessage} isStreaming />
-						)}
+							{/* Streaming message */}
+							{activeChatIsRunning && liveAssistantMessage && (
+								<MessageBubble message={liveAssistantMessage} isStreaming />
+							)}
 
-						{/* Streaming/executing indicator */}
-						{activeChatIsRunning && !liveAssistantMessage && (
-							<div className="flex gap-2">
-								<div
-									className={cn(
-										'flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center',
-										executingTools ? 'bg-orange-100 dark:bg-orange-900' : 'bg-muted',
-									)}
-								>
-									{executingTools ? (
-										<Wrench className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
-									) : (
-										<Bot className="h-3.5 w-3.5" />
-									)}
-								</div>
-								<div
-									className={cn(
-										'rounded-lg px-3 py-2 text-sm flex items-center gap-2',
-										executingTools
-											? 'bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800'
-											: 'bg-muted',
-									)}
-								>
-									<span className="animate-pulse">{phaseLabel}...</span>
-									<Loader2 className="h-4 w-4 animate-spin" />
-								</div>
-							</div>
-						)}
-
-						{activeChatIsRunning && streamWarning && (
-							<div className="flex gap-2">
-								<div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-primary/10">
-									<AlertCircle className="h-3.5 w-3.5 text-primary" />
-								</div>
-								<div className="rounded-lg px-3 py-2 text-xs bg-primary/10 border border-primary/40 text-primary">
-									<div>{streamWarning}</div>
-									<div className="mt-1 flex items-center gap-2">
-										<span className="opacity-80">last update {stalledSeconds}s ago</span>
-										<Button type="button" size="sm" variant="outline" onClick={cancelStream}>
-											Stop
-										</Button>
+							{/* Streaming/executing indicator */}
+							{activeChatIsRunning && !liveAssistantMessage && (
+								<div className="flex gap-2">
+									<div
+										className={cn(
+											'flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center',
+											executingTools ? 'bg-orange-100 dark:bg-orange-900' : 'bg-muted',
+										)}
+									>
+										{executingTools ? (
+											<Wrench className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+										) : (
+											<Bot className="h-3.5 w-3.5" />
+										)}
+									</div>
+									<div
+										className={cn(
+											'rounded-lg px-3 py-2 text-sm flex items-center gap-2',
+											executingTools
+												? 'bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800'
+												: 'bg-muted',
+										)}
+									>
+										<span className="animate-pulse">{phaseLabel}...</span>
+										<Loader2 className="h-4 w-4 animate-spin" />
 									</div>
 								</div>
-							</div>
-						)}
+							)}
 
-						{/* Safe-editing diff blocks (SAFE-03 / SAFE-04 / D-12): pending Apply/Cancel
+							{activeChatIsRunning && streamWarning && (
+								<div className="flex gap-2">
+									<div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-primary/10">
+										<AlertCircle className="h-3.5 w-3.5 text-primary" />
+									</div>
+									<div className="rounded-lg px-3 py-2 text-xs bg-primary/10 border border-primary/40 text-primary">
+										<div>{streamWarning}</div>
+										<div className="mt-1 flex items-center gap-2">
+											<span className="opacity-80">last update {stalledSeconds}s ago</span>
+											<Button type="button" size="sm" variant="outline" onClick={cancelStream}>
+												Stop
+											</Button>
+										</div>
+									</div>
+								</div>
+							)}
+
+							{/* Safe-editing diff blocks (SAFE-03 / SAFE-04 / D-12): pending Apply/Cancel
 						    + resolved/applied outcomes with the "Undo last AI edit" affordance. */}
-						<PendingDiffList />
+							<div ref={pendingReviewRef}>
+								<PendingDiffList />
+							</div>
 
-						<div ref={messagesEndRef} />
-					</>
-				)}
-			</div>
-
-			{/* Error display */}
-			{errorPresentation && (
-				<div
-					role="alert"
-					className={cn(
-						'flex items-center justify-between gap-3 border-t px-3 py-2 text-xs',
-						errorPresentation.changesApplied
-							? 'border-primary/30 bg-primary/10 text-foreground'
-							: 'bg-destructive/10 text-destructive',
+							<div ref={messagesEndRef} />
+						</>
 					)}
-				>
-					<span>{errorPresentation.message}</span>
-					{lastTurnRequest && !isStreaming ? (
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							className="h-7 shrink-0 gap-1.5"
-							title={errorPresentation.actionLabel}
-							onClick={() =>
-								void (errorPresentation.changesApplied ? finishLastResponse() : retryLastMessage())
-							}
-						>
-							{errorPresentation.changesApplied ? (
-								<MessageSquarePlus className="h-3.5 w-3.5" />
-							) : (
-								<RefreshCw className="h-3.5 w-3.5" />
-							)}
-							{errorPresentation.actionLabel}
-						</Button>
-					) : null}
-				</div>
-			)}
-			{anotherChatIsRunning && runningChatId ? (
-				<div
-					role="status"
-					className="flex shrink-0 items-center gap-2 border-t bg-primary/5 px-3 py-2 text-xs"
-				>
-					<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-					<span className="min-w-0 flex-1 truncate">
-						Working in {runningChatSession?.title ?? 'another Thread'}. You can compose here, but
-						only one AI run can work at a time.
-					</span>
-					{!isBoundThread ? (
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							className="h-7 shrink-0 px-2 text-xs"
-							onClick={() => switchChat(runningChatId)}
-						>
-							Jump
-						</Button>
-					) : null}
-					<Button
-						type="button"
-						size="sm"
-						variant="destructive"
-						className="h-7 shrink-0 px-2 text-xs"
-						onClick={cancelStream}
+				</section>
+
+				{modelsError && (
+					<div
+						role="alert"
+						className="flex shrink-0 items-center gap-2 border-t px-3 py-2 text-xs text-destructive"
 					>
-						Stop
+						<AlertCircle className="size-4 shrink-0" />
+						<span className="min-w-0 flex-1 break-words">{modelsError}</span>
+						<Button
+							variant="link"
+							className="min-h-11 min-w-11 shrink-0 px-1 text-xs"
+							onClick={() => void loadModels()}
+						>
+							Retry
+						</Button>
+					</div>
+				)}
+				{!selectedModel && (
+					<Button
+						variant="outline"
+						className="min-h-11 shrink-0 whitespace-normal rounded-none text-xs"
+						onClick={() => openView('settings')}
+					>
+						{modelsLoading ? 'Loading models…' : 'Choose a model to start'}
 					</Button>
-				</div>
-			) : null}
-			<ChatRunStatusBar
-				status={activeChatId ? (chatRunStates[activeChatId]?.status ?? 'idle') : 'idle'}
-				phase={phaseLabel}
-			/>
-			{/* Input */}
-			<form onSubmit={handleSubmit} className={cn('shrink-0 border-t', isMobile ? 'p-2' : 'p-3')}>
-				<div className="space-y-2">
-					<details className="group/attachments"><summary className="cursor-pointer text-xs text-muted-foreground">Attach to message{displayedFiles.length + attachedSelection.length + (attachedGeometry?.features.length ?? 0) > 0 ? ' · attachments added' : ''}</summary><div className="mt-2 flex flex-wrap items-start gap-2">
+				)}
+				{settingsStatus === 'loaded' && isWalletRequired && walletStatus !== 'ready' && (
+					<div role="alert" className="flex shrink-0 items-center gap-2 border-t px-3 py-2 text-xs">
+						<Wallet className="size-4 shrink-0" />
+						<span>Connect your NIP-60 wallet to use Routstr.</span>
+						<Button
+							variant="link"
+							className="min-h-11 min-w-11 shrink-0 px-1 text-xs"
+							onClick={() => navigateToRoute('/wallet')}
+						>
+							Open wallet
+						</Button>
+					</div>
+				)}
+
+				{/* Error display */}
+				{errorPresentation && (
+					<div
+						role="alert"
+						className={cn(
+							'flex items-center justify-between gap-3 border-t px-3 py-2 text-xs',
+							errorPresentation.changesApplied
+								? 'border-primary/30 bg-primary/10 text-foreground'
+								: 'bg-destructive/10 text-destructive',
+						)}
+					>
+						<span>{errorPresentation.message}</span>
+						{lastTurnRequest && !isStreaming ? (
+							<Button
+								type="button"
+								size="sm"
+								variant="outline"
+								className="h-7 shrink-0 gap-1.5"
+								title={errorPresentation.actionLabel}
+								onClick={() =>
+									void (errorPresentation.changesApplied
+										? finishLastResponse()
+										: retryLastMessage())
+								}
+							>
+								{errorPresentation.changesApplied ? (
+									<MessageSquarePlus className="h-3.5 w-3.5" />
+								) : (
+									<RefreshCw className="h-3.5 w-3.5" />
+								)}
+								{errorPresentation.actionLabel}
+							</Button>
+						) : null}
+					</div>
+				)}
+				{anotherChatIsRunning && runningChatId && (
+					<div
+						role="status"
+						className="flex shrink-0 items-center gap-2 border-t bg-primary/5 px-3 py-2 text-xs"
+					>
+						<Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+						<span className="min-w-0 flex-1 truncate">
+							Working in {runningChatSession?.title ?? 'another Thread'}. You can compose here, but
+							only one AI run can work at a time.
+						</span>
+						{!isBoundThread && (
+							<Button
+								type="button"
+								variant="outline"
+								className="min-h-11 shrink-0 px-2 text-xs"
+								onClick={() => switchChat(runningChatId)}
+							>
+								Jump
+							</Button>
+						)}
 						<Button
 							type="button"
-							variant={selectionContextEnabled ? 'default' : 'outline'}
-							size="sm"
-							className="h-11 shrink-0 gap-1.5 text-xs md:h-9"
-							onClick={handleToggleSelectionContext}
-							disabled={!selectionContextEnabled && selectedEditorFeatures.length === 0}
-							title={
-								!selectionContextEnabled && selectedEditorFeatures.length === 0
-									? 'Select one or more map features first'
-									: selectionContextEnabled
-										? 'Remove the attached spatial selection'
-										: 'Attach current selection as a spatial reference'
-							}
+							variant="destructive"
+							className="min-h-11 shrink-0 px-2 text-xs"
+							onClick={cancelStream}
 						>
-							{selectionContextEnabled ? (
-								<ToggleRight className="h-3.5 w-3.5" />
-							) : (
-								<ToggleLeft className="h-3.5 w-3.5" />
-							)}
-							Selection
+							Stop
 						</Button>
-						<ChatGeometryAttachment
-							key={`chat-geometry-${activeChatId ?? 'default'}`}
-							value={attachedGeometry}
-							onChange={setAttachedGeometry}
-							layout="detached"
-							panelClassName="w-full"
-						/>
-						<div className="flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5">
+					</div>
+				)}
+				<ChatRunStatusBar
+					status={activeChatId ? (chatRunStates[activeChatId]?.status ?? 'idle') : 'idle'}
+					phase={phaseLabel}
+					onUsage={() => openView('usage')}
+					onStop={activeChatIsRunning && view !== 'chat' ? cancelStream : undefined}
+					onReview={
+						view !== 'chat'
+							? () => {
+									openView('chat')
+									requestAnimationFrame(() =>
+										pendingReviewRef.current?.scrollIntoView({ block: 'end' }),
+									)
+								}
+							: undefined
+					}
+				/>
+				{/* Keep the composer mounted so detail navigation retains attachments and input. */}
+				<form
+					hidden={view !== 'chat'}
+					onSubmit={handleSubmit}
+					className={cn('shrink-0 border-t', isMobile ? 'p-2' : 'p-3', view !== 'chat' && 'hidden')}
+					onDragOver={(event) => {
+						if (event.dataTransfer.types.includes('Files')) event.preventDefault()
+					}}
+					onDrop={(event) => {
+						if (event.dataTransfer.files.length) {
+							event.preventDefault()
+							void fileChipStripRef.current?.attachFiles(event.dataTransfer.files)
+						}
+					}}
+				>
+					<div className="space-y-2">
+						<div className="flex min-w-0 flex-wrap items-center gap-2">
+							{selectionContextEnabled && (
+								<Button
+									type="button"
+									variant="outline"
+									className="h-auto min-h-11 max-w-full gap-2 whitespace-normal rounded-none text-xs"
+									onClick={handleToggleSelectionContext}
+									aria-label="Remove attached selection"
+								>
+									<MousePointer2 className="size-3.5 shrink-0" />
+									{attachedSelection.length} selected
+									{attachedSelectionPolygonCount
+										? ` · ${attachedSelectionPolygonCount} polygons`
+										: ''}
+									<X className="size-3.5 shrink-0" />
+								</Button>
+							)}
+							{attachedGeometry && (
+								<Button
+									type="button"
+									variant="outline"
+									className="min-h-11 gap-2 rounded-none text-xs"
+									onClick={() => setAttachedGeometry(null)}
+									aria-label="Remove drawn attachment"
+								>
+									<PencilRuler className="size-3.5" />
+									{attachedGeometry.features.length} drawn
+									<X className="size-3.5" />
+								</Button>
+							)}
 							<FileChipStrip
 								ref={fileChipStripRef}
 								key={`chat-files-${activeChatId ?? 'default'}`}
 								files={displayedFiles}
 								onChange={setAttachedFiles}
 								visionTier={visionTier}
-								className="shrink"
+								hideTrigger
+								className="flex-wrap overflow-x-visible"
 							/>
 							<VisionGateControl
 								support={visionSupport}
@@ -1593,70 +1220,118 @@ export function ChatPanel({
 								onSendAnywayChange={setSendAnyway}
 							/>
 						</div>
-						{(attachedSelection.length > 0 || attachedGeometry) && (
-							<div className="basis-full text-[11px] text-muted-foreground">
-								{attachedSelection.length > 0 && (
-									<span>
-										{attachedSelection.length} selected
-										{attachedSelectionPolygonCount > 0
-											? ` · ${attachedSelectionPolygonCount} polygon${attachedSelectionPolygonCount === 1 ? '' : 's'}`
-											: ''}
-									</span>
-								)}
-								{attachedSelection.length > 0 && attachedGeometry ? <span> · </span> : null}
-								{attachedGeometry ? (
-									<span>{attachedGeometry.features.length} drawn attached</span>
-								) : null}
-							</div>
-						)}
-					</div></details>
-					<div className="flex gap-2">
-						<textarea
-							ref={textareaRef}
-							value={input}
-							onChange={(e) => setInput(e.target.value)}
-							onKeyDown={handleKeyDown}
-							onPaste={handlePaste}
-							placeholder={
-								!selectedModel
-									? 'Select a model...'
-									: isWalletRequired && walletStatus !== 'ready'
-										? 'Connect wallet to chat...'
-										: anotherChatIsRunning
-											? 'Compose while the other Thread works...'
-											: isReadOnlyThread
-												? 'Ask Earthly...'
-												: 'Type a message...'
-							}
-							disabled={!canCompose}
-							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-[150px]"
-							rows={1}
+						<ChatGeometryAttachment
+							ref={geometryAttachmentRef}
+							key={`chat-geometry-${activeChatId ?? 'default'}`}
+							value={attachedGeometry}
+							onChange={setAttachedGeometry}
+							layout="detached"
+							hideTrigger
+							panelClassName="w-full"
 						/>
-						{activeChatIsRunning ? (
+						<div className="flex gap-2">
+							<textarea
+								ref={textareaRef}
+								value={input}
+								onChange={(e) => setInput(e.target.value)}
+								onKeyDown={handleKeyDown}
+								onPaste={handlePaste}
+								placeholder={
+									!selectedModel
+										? 'Select a model...'
+										: isWalletRequired && walletStatus !== 'ready'
+											? 'Connect wallet to chat...'
+											: anotherChatIsRunning
+												? 'Compose while the other Thread works...'
+												: isReadOnlyThread
+													? 'Ask Earthly...'
+													: 'Type a message...'
+								}
+								disabled={!canCompose}
+								className="min-w-0 flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-11 max-h-[150px]"
+								rows={1}
+							/>
+							{activeChatIsRunning ? (
+								<Button
+									type="button"
+									variant="destructive"
+									size="icon"
+									className="size-11 shrink-0"
+									onClick={cancelStream}
+									title="Stop"
+									aria-label="Stop"
+								>
+									<span className="size-3 bg-current" />
+								</Button>
+							) : (
+								<Button
+									type="submit"
+									size="icon"
+									className="size-11 shrink-0"
+									aria-label="Send to this Thread"
+									disabled={isStreaming || !input.trim() || !canSend}
+									title={sendState.title}
+								>
+									<Send className="size-4" />
+								</Button>
+							)}
+						</div>
+						<div className="flex min-w-0 items-center gap-1">
+							<ChatMenu id="attachments">
+								<DropdownMenuTrigger asChild>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										className="size-11 shrink-0 rounded-none"
+										aria-label="Attach to message"
+									>
+										<Plus className="size-4" />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent side="top" align="start" className="z-[80] w-60 rounded-none">
+									<DropdownMenuItem
+										className="min-h-11"
+										onSelect={() => fileChipStripRef.current?.openPicker()}
+									>
+										<Paperclip />
+										File or image
+									</DropdownMenuItem>
+									<DropdownMenuItem
+										className="min-h-11"
+										disabled={!selectionContextEnabled && !selectedEditorFeatures.length}
+										onSelect={handleToggleSelectionContext}
+									>
+										<MousePointer2 />
+										{selectionContextEnabled ? 'Remove current selection' : 'Current map selection'}
+									</DropdownMenuItem>
+									<DropdownMenuItem
+										className="min-h-11"
+										onSelect={() => geometryAttachmentRef.current?.open()}
+									>
+										<PencilRuler />
+										Draw geometry
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</ChatMenu>
 							<Button
 								type="button"
-								variant="destructive"
-								size="icon"
-								onClick={cancelStream}
-								title="Stop"
+								variant="ghost"
+								aria-label="Thread settings"
+								title={`${providerLabel} · ${selectedModelLabel}`}
+								onClick={() => openView('settings')}
+								className="h-11 min-w-0 justify-start gap-1.5 rounded-none px-1 text-xs text-muted-foreground"
 							>
-								<span className="h-3 w-3 bg-current" />
+								<span className="truncate">
+									{providerLabel} · {selectedModelLabel}
+								</span>
+								<ChevronDown className="size-3.5 shrink-0" />
 							</Button>
-						) : (
-							<Button
-								type="submit"
-								size="icon"
-								aria-label="Send to this Thread"
-								disabled={isStreaming || !input.trim() || !canSend}
-								title={sendState.title}
-							>
-								<Send className="h-4 w-4" />
-							</Button>
-						)}
+						</div>
 					</div>
-				</div>
-			</form>
-		</section>
+				</form>
+			</section>
+		</ChatNavigationProvider>
 	)
 }
 

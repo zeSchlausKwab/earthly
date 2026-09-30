@@ -1,3 +1,4 @@
+import { openChatViewTask } from './tasks/chat/navigation'
 import { createIdentityTask } from './tasks/auth/create-identity'
 import { addChatConnectionTask } from './tasks/chat/connections'
 import { authorizeJourneyIdentityTask } from './tasks/auth/authorize-journey-identity'
@@ -90,6 +91,7 @@ const tasks = [
 	addMyMapsSourceTask,
 	installIsolatedRelaysTask,
 	setThreadWorkingSetOpenTask,
+	openChatViewTask,
 	createIdentityTask,
 	authorizeJourneyIdentityTask,
 	signInTask,

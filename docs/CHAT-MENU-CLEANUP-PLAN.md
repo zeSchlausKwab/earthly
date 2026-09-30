@@ -1,6 +1,6 @@
 # Chat menu cleanup
 
-Design proposal · 2026-09-30 · not yet implemented
+Implemented · 2026-09-30
 
 ## Recommended structure
 
@@ -22,7 +22,7 @@ on-demand version for the narrow map sidebar and mobile.
 | Current control | Proposed home | Behavior |
 | --- | --- | --- |
 | Title dropdown containing a second select | Conversation switcher | One direct list; New conversation at the bottom. |
-| Move left/right, export, delete | Header actions menu | One level; deleting a conversation keeps maps and requires its existing confirmation. |
+| Move left/right, export, delete | Header actions menu | One level; deleting a conversation keeps maps and requires confirmation. |
 | Editable objects + references accordion | Separate AI can edit / Sources destinations | One list and one scroll owner per view. |
 | Map row's eye, publish, delete, unlink buttons | Open + one row menu | Menu: Show on map, Remove editing access. Publishing and deleting drafts remain in the map editor. |
 | All drafts | Existing app draft navigation | Do not duplicate the draft manager inside chat. |
@@ -79,3 +79,34 @@ objects or references, and with a long-running model response.
 
 The accompanying interactive sketch is illustrative: it demonstrates navigation and grouping,
 not a live provider, a publication action, or a change to stored maps.
+
+
+## Delivered
+
+- `ChatPanelNavigation` owns the active view, transient menu, and return focus. Header,
+  settings, and usage are separate components. The composer and transcript stay mounted.
+- Conversation switching is a direct list. Header actions contain placement, export, and
+  confirmed conversation deletion. Removing a conversation retains its maps and stories.
+- Editable objects and read-only sources have separate flat lists. Object menus expose
+  access actions; the regular editors and global Drafts retain publication and deletion.
+- The composer has a single attachment menu, persistent removable chips, and a model shortcut.
+  Drawing an attachment temporarily enables map interaction, then restores the prior state.
+- Status, Usage, connection recovery, Stop, and Review changes remain accessible in details.
+  Returning through Review changes scrolls to the pending proposal.
+- AI-suite navigation tasks now select views. Browser regression coverage includes desktop,
+  320/390px mobile layouts, focus and Escape, file/drawing attachments, unsent drafts, scroll,
+  conversation switching/deletion, drag/drop, editing grants, read-only sources, active runs,
+  pending approvals, Story publication and discard, and retained map targets.
+
+The implementation uses the existing chat and draft stores; this UI change adds no new
+persistence format, provider contract, or permission model.
+
+## Verification
+
+- `bun run typecheck`: no new diagnostics; the existing baseline contains 326 diagnostics.
+- `bun run ai:typecheck`: passes.
+- Chat panel, composer, attachment UI, working-set, and entity-context unit tests: 40 pass.
+- Chat context, surface, working-set, target-binding, reliability, and navigation browser
+  scenarios: 21 pass across desktop/mobile, with 3 intentional viewport skips.
+- Embedded mobile Thread controls at 320/390px and active-run desktop docking also pass.
+- Biome lint on the changed chat components and `git diff --check`: pass.

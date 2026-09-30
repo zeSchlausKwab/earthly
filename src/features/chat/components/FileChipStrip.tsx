@@ -15,9 +15,11 @@ interface FileChipStripProps {
 	/** Injected for testability; defaults to the real pipeline. */
 	deps?: AttachDeps
 	className?: string
+	hideTrigger?: boolean
 }
 
 export interface FileChipStripHandle {
+	openPicker: () => void
 	/** Attach files supplied by a non-picker source, such as a clipboard paste. */
 	attachFiles: (files: FileList | File[]) => Promise<void>
 }
@@ -45,7 +47,10 @@ function makeId(): string {
  * the user can attach the first file.
  */
 export const FileChipStrip = forwardRef<FileChipStripHandle, FileChipStripProps>(
-	function FileChipStrip({ files, onChange, visionTier, deps, className }, ref) {
+	function FileChipStrip(
+		{ files, onChange, visionTier, deps, className, hideTrigger = false },
+		ref,
+	) {
 		const inputRef = useRef<HTMLInputElement>(null)
 		const [dragActive, setDragActive] = useState(false)
 		// `files` is the controlled source of truth; keep a ref so async parse
@@ -108,7 +113,11 @@ export const FileChipStrip = forwardRef<FileChipStripHandle, FileChipStripProps>
 			[deps, onChange, visionTier],
 		)
 
-		useImperativeHandle(ref, () => ({ attachFiles: processFiles }), [processFiles])
+		useImperativeHandle(
+			ref,
+			() => ({ attachFiles: processFiles, openPicker: () => inputRef.current?.click() }),
+			[processFiles],
+		)
 
 		const handleRemove = useCallback(
 			(id: string) => {
@@ -127,6 +136,7 @@ export const FileChipStrip = forwardRef<FileChipStripHandle, FileChipStripProps>
 		const handleDrop = useCallback(
 			(event: React.DragEvent) => {
 				event.preventDefault()
+				event.stopPropagation()
 				setDragActive(false)
 				if (event.dataTransfer?.files?.length) {
 					void processFiles(event.dataTransfer.files)
@@ -152,18 +162,20 @@ export const FileChipStrip = forwardRef<FileChipStripHandle, FileChipStripProps>
 				onDragLeave={() => setDragActive(false)}
 				onDrop={handleDrop}
 			>
-				<Button
-					type="button"
-					variant={dragActive ? 'default' : 'outline'}
-					size="sm"
-					className="h-11 gap-1.5 text-xs md:h-9"
-					onClick={() => inputRef.current?.click()}
-					title="Attach files"
-					aria-label="Attach files"
-				>
-					<Paperclip className="h-3.5 w-3.5" />
-					Files
-				</Button>
+				{!hideTrigger && (
+					<Button
+						type="button"
+						variant={dragActive ? 'default' : 'outline'}
+						size="sm"
+						className="h-11 gap-1.5 text-xs md:h-9"
+						onClick={() => inputRef.current?.click()}
+						title="Attach files"
+						aria-label="Attach files"
+					>
+						<Paperclip className="h-3.5 w-3.5" />
+						Files
+					</Button>
+				)}
 				<input
 					ref={inputRef}
 					type="file"

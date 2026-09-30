@@ -1,3 +1,4 @@
+import { moveAiChat } from '../tasks/chat/conversation'
 import { expect, test } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import {
@@ -158,9 +159,7 @@ test('the same Thread can move left and right without changing its draft, compos
 	const thread = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 	await thread.locator('textarea').fill('Keep this prompt when moving the Thread')
 	const before = await persistedThreadSnapshot(earthly)
-	const moveLeft = thread.getByRole('button', { name: 'Move chat left', exact: true })
-	await expect(moveLeft).toBeVisible()
-	await moveLeft.click()
+	await moveAiChat(earthly, 'left')
 	await expect(thread).toBeVisible()
 	await expect(
 		earthly.page.getByRole('complementary', { name: 'Margin', exact: true }),
@@ -172,7 +171,7 @@ test('the same Thread can move left and right without changing its draft, compos
 		.toBe(true)
 	await expect(thread.locator('textarea')).toHaveValue('Keep this prompt when moving the Thread')
 	expect(await persistedThreadSnapshot(earthly)).toEqual(before)
-	await thread.getByRole('button', { name: 'Move chat right', exact: true }).click()
+	await moveAiChat(earthly, 'right')
 	await expect(
 		earthly.page.getByRole('complementary', { name: 'Margin', exact: true }),
 	).toBeVisible()
@@ -189,19 +188,23 @@ test('the same Thread can move left and right without changing its draft, compos
 	await dispatchComposedAiChatMessage(earthly)
 	await expect.poll(() => provider.requests().length).toBe(1)
 	const running = await persistedThreadSnapshot(earthly)
-	await moveLeft.click()
+	await moveAiChat(earthly, 'left')
 	// The toolbar's Move action must move, not close, an already-open left Thread.
 	await canvas.getByRole('button', { name: 'Move Thread to the right', exact: true }).click()
-	await expect(
-		thread.getByRole('button', { name: 'Move chat left', exact: true }),
-	).toBeVisible()
+	await expect
+		.poll(
+			async () =>
+				(await thread.boundingBox())!.x >=
+				(await canvas.boundingBox())!.x + (await canvas.boundingBox())!.width,
+		)
+		.toBe(true)
 	expect(await persistedThreadSnapshot(earthly)).toEqual(running)
 	provider.releaseCompletionResponses()
 	await waitForAiChatCompletion(earthly, 0, { timeoutMs: 20_000 })
 	await expect(thread.getByTitle('Copy user message')).toHaveCount(1)
 	await expect(thread.getByTitle('Copy assistant message')).toHaveCount(1)
 	expect(provider.requests()).toHaveLength(1)
-	await moveLeft.click()
+	await moveAiChat(earthly, 'left')
 	await thread.getByRole('button', { name: 'Close Thread', exact: true }).click()
 	await expect(
 		earthly.page.getByRole('complementary', { name: 'Margin', exact: true }),

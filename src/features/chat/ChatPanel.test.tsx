@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
 	resolveChatErrorPresentation,
-	resolveChatHeaderControlSizing,
 	resolveInitialThreadPrompt,
 	resolveChatSendState,
 	getChatReferenceKey,
@@ -12,20 +11,9 @@ import {
 } from './ChatPanel'
 import { useChatComposerStore } from './composerState'
 import { useChatStore } from './store'
-import {
-	chatSafetyPresentation,
-	ChatSafetyIndicator,
-	ChatThreadIdentity,
-} from './components/ChatHeaderPresentation'
+import { chatSafetyPresentation, ChatSafetyIndicator } from './components/ChatHeaderPresentation'
 
 describe('compact Thread header', () => {
-	test('omits an embedded object title but preserves standalone Thread identity', () => {
-		expect(renderToStaticMarkup(<ChatThreadIdentity title="Western Front" embedded />)).toBe('')
-		expect(
-			renderToStaticMarkup(<ChatThreadIdentity title="Western Front" embedded={false} />),
-		).toContain('Western Front')
-	})
-
 	test('keeps permissive editing explicit while settings are collapsed', () => {
 		const markup = renderToStaticMarkup(<ChatSafetyIndicator readOnly={false} safetyLevel={3} />)
 		expect(markup).toContain('Auto apply')
@@ -177,20 +165,6 @@ describe('ChatPanel initial Thread prompt', () => {
 		expect(resolveInitialThreadPrompt('  Where was this made?  ', '')).toBe('Where was this made?')
 		expect(resolveInitialThreadPrompt('Where was this made?', 'Keep my draft')).toBeNull()
 		expect(resolveInitialThreadPrompt('   ', '')).toBeNull()
-	})
-})
-
-describe('ChatPanel mobile control sizing', () => {
-	test('gives all conversation header controls 44px mobile hit areas only', () => {
-		expect(resolveChatHeaderControlSizing(true, 'new-conversation')).toContain('min-h-11')
-		expect(resolveChatHeaderControlSizing(true, 'conversation-select')).toContain(
-			'[&>select]:min-h-11',
-		)
-		expect(resolveChatHeaderControlSizing(true, 'icon')).toContain('min-w-11')
-
-		expect(resolveChatHeaderControlSizing(false, 'new-conversation')).toBe('h-8 px-2.5')
-		expect(resolveChatHeaderControlSizing(false, 'conversation-select')).toBe('')
-		expect(resolveChatHeaderControlSizing(false, 'icon')).toBe('h-8 w-8')
 	})
 })
 

@@ -1,3 +1,4 @@
+import { openChatView } from './navigation'
 import { expect } from '@playwright/test'
 import type { AiSuiteChatSettings } from '../../core/chat-provider-settings'
 import type { EarthlySession } from '../../core/session'
@@ -36,23 +37,25 @@ export const moveAiChatTask: AiTaskMetadata = {
 
 export async function moveAiChat(earthly: EarthlySession, side: 'left' | 'right'): Promise<void> {
 	const panel = chatRegion(earthly)
-	const button = panel.getByRole('button', { name: `Move chat ${side}`, exact: true })
-	await expect(button).toBeVisible()
-	await button.click()
-	await expect(panel.getByRole('button', { name: `Move chat ${side === 'left' ? 'right' : 'left'}`, exact: true })).toBeVisible()
+	await panel.getByRole('button', { name: 'Chat actions', exact: true }).click()
+	const item = earthly.page.getByRole('menuitem', { name: `Move chat ${side}`, exact: true })
+	if (await item.count()) await item.click()
+	else await earthly.page.keyboard.press('Escape')
 	const canvas = earthly.page.getByRole('main', { name: 'Map canvas', exact: true })
-	await expect.poll(async () => {
-		const chat = await panel.boundingBox()
-		const map = await canvas.boundingBox()
-		return Boolean(chat && map && (side === 'left' ? chat.x < map.x : chat.x >= map.x + map.width - 1))
-	}).toBe(true)
+	await expect
+		.poll(async () => {
+			const chat = await panel.boundingBox()
+			const map = await canvas.boundingBox()
+			return !!chat && !!map && (side === 'left' ? chat.x < map.x : chat.x >= map.x + map.width)
+		})
+		.toBe(true)
 }
 
 export const setAiThreadSettingsOpenTask: AiTaskMetadata = {
 	id: 'chat.set-settings-open',
-	summary: 'Expand or collapse Thread settings without changing its conversation or composer.',
+	summary: 'Open or leave Thread settings without changing its conversation or composer.',
 	preconditions: ['AI Thread is visible'],
-	sideEffects: ['Changes only the local settings disclosure'],
+	sideEffects: ['Changes only the visible chat view'],
 	viewports: 'both',
 }
 
@@ -150,15 +153,6 @@ export function persistedThreadSnapshot(earthly: EarthlySession) {
 
 function chatComposer(earthly: EarthlySession) {
 	return chatRegion(earthly).locator('textarea')
-}
-
-function chatSelector(earthly: EarthlySession) {
-	return earthly.page
-		.getByRole('dialog', { name: 'Conversations', exact: true })
-		.getByRole('combobox', {
-			name: 'Select Thread',
-			exact: true,
-		})
 }
 
 function chatSendButton(earthly: EarthlySession) {
@@ -273,15 +267,13 @@ export async function openAiChat(earthly: EarthlySession): Promise<void> {
 		}
 	}
 	await expect(panel).toBeVisible()
+	await openChatView(earthly, 'chat')
 	await expect(composer).toBeEnabled({ timeout: 15_000 })
 }
 
 export async function setAiThreadSettingsOpen(earthly: EarthlySession, open = true): Promise<void> {
 	const panel = chatRegion(earthly)
-	const trigger = panel.getByRole('button', { name: 'Thread settings', exact: true })
-	await expect(trigger).toBeVisible()
-	if ((await trigger.getAttribute('aria-expanded')) !== String(open)) await trigger.click()
-	await expect(trigger).toHaveAttribute('aria-expanded', String(open))
+	await openChatView(earthly, open ? 'settings' : 'chat')
 	const model = panel.getByRole('combobox', { name: 'Select chat model', exact: true })
 	if (open) await expect(model).toBeVisible()
 	else await expect(model).toBeHidden()
@@ -304,9 +296,10 @@ export async function selectAiChatTarget(
 	await openAiChat(earthly)
 	const working = await setThreadWorkingSetOpen(earthly)
 	if (!(await threadWorkSnapshot(earthly)).outputs.length) {
-		const reference = working.getByRole('button', { name: /^Reference / }).first()
-		if (await reference.isVisible()) await reference.click()
-		await working.getByRole('button', { name: /^Let AI edit / }).first().click()
+		await working
+			.getByRole('button', { name: /^Let AI edit / })
+			.first()
+			.click()
 	}
 	await expect
 		.poll(async () => (await threadWorkSnapshot(earthly)).outputs.length)
@@ -330,17 +323,14 @@ export async function startNewAiChat(earthly: EarthlySession): Promise<NewAiChat
 		.click()
 	await expect.poll(async () => (await threadWorkSnapshot(earthly)).id).not.toBe(previousChatId)
 	await expect(composer).toHaveValue('')
-	await expect(
-		panel.getByRole('button', { name: 'AI editing and references', exact: true }),
-	).toHaveText('AI can edit 0 · References 0')
+	await expect(panel.getByRole('button', { name: 'AI can edit 0', exact: true })).toBeVisible()
 	return { previousChatId, newChatId: (await threadWorkSnapshot(earthly)).id }
 }
 
 export async function switchAiChat(earthly: EarthlySession, chatId: string): Promise<void> {
 	await chatRegion(earthly).getByRole('button', { name: 'Conversations', exact: true }).click()
-	const selector = chatSelector(earthly)
-	await expect(selector).toBeEnabled()
-	await selector.selectOption(chatId)
+	const dialog = earthly.page.getByRole('dialog', { name: 'Conversations', exact: true })
+	await dialog.locator(`button[value="${chatId}"]`).click()
 	await expect.poll(async () => (await threadWorkSnapshot(earthly)).id).toBe(chatId)
 }
 
@@ -349,6 +339,7 @@ export async function composeAiChatMessage(
 	prompt: string,
 	options: { typingDelayMs?: number } = {},
 ): Promise<void> {
+	await openChatView(earthly, 'chat')
 	const composer = chatComposer(earthly)
 	if (options.typingDelayMs && options.typingDelayMs > 0) {
 		await composer.fill('')

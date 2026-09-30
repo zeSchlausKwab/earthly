@@ -23,16 +23,6 @@ export function chatSafetyPresentation(readOnly: boolean, safetyLevel: number) {
 	}
 }
 
-/** The surrounding object header already identifies an embedded conversation. */
-export function ChatThreadIdentity({ title, embedded }: { title: string; embedded: boolean }) {
-	if (embedded) return null
-	return (
-		<p className="min-w-0 flex-1 truncate text-xs font-semibold" title={title}>
-			{title}
-		</p>
-	)
-}
-
 export function ChatSafetyIndicator({
 	readOnly,
 	safetyLevel,

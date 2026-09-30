@@ -41,6 +41,7 @@ export const openDatasetEditorTask: AiTaskMetadata = {
 }
 
 export interface EditorLifecycleSnapshot {
+	interactionEnabled: boolean
 	featureCount: number
 	mode: string
 	panLocked: boolean
@@ -73,6 +74,7 @@ export async function editorLifecycleSnapshot(
 			window as typeof window & {
 				__earthlyEditorStore?: {
 					getState(): {
+						editor?: { isInteractionEnabled(): boolean }
 						features: unknown[]
 						mode: string
 						panLocked: boolean
@@ -102,6 +104,7 @@ export async function editorLifecycleSnapshot(
 			? state.workspaces[state.activeWorkspaceId]
 			: null
 		return {
+			interactionEnabled: state.editor?.isInteractionEnabled() ?? false,
 			featureCount: state.features.length,
 			mode: state.mode,
 			panLocked: state.panLocked,
