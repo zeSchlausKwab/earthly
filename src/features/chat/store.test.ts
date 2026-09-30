@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { finalizeEvent } from 'nostr-tools'
 import { BUILTIN_PROVIDERS, estimateMaxCost } from './routstr'
 import type { ProviderConfig, RoutstrModel } from './routstr'
@@ -20,6 +20,11 @@ import {
 	isMapSnapshotCaptureAuthorized,
 	resolveProvider,
 	resolveChatErrorRecovery,
+	restoreChatRunState,
+	resilientChatStorage,
+	trimMessagesToPromptBudget,
+	providerMayRequireReasoningContent,
+	ensureProviderReasoningContent,
 	sanitizeMessageForPrompt,
 	terminalDatasetTargetError,
 	useChatStore,
@@ -1670,5 +1675,125 @@ describe('getPromptBudgetTokens — prompt + completion fit the window (inverted
 		const small = getPromptBudgetTokens(makeModel({ contextLength: 16_000 }), PAID_PROVIDER)
 		const big = getPromptBudgetTokens(makeModel({ contextLength: 262_144 }), PAID_PROVIDER)
 		expect(big).toBeGreaterThan(small)
+	})
+})
+
+describe('thinking provider history', () => {
+	test('a quota failure retains the previous saved chat instead of deleting it', () => {
+		const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+		let saved: string | null = 'previous complete snapshot'
+		const warning = spyOn(console, 'warn').mockImplementation(() => {})
+		Object.defineProperty(globalThis, 'window', {
+			configurable: true,
+			value: {
+				localStorage: {
+					getItem: () => saved,
+					setItem: () => {
+						throw new DOMException('Full', 'QuotaExceededError')
+					},
+					removeItem: () => {
+						saved = null
+					},
+				},
+			},
+		})
+		try {
+			resilientChatStorage.setItem('chat-store', 'larger thinking transcript')
+			expect(resilientChatStorage.getItem('chat-store')).toBe('previous complete snapshot')
+		} finally {
+			warning.mockRestore()
+			if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+			else Reflect.deleteProperty(globalThis, 'window')
+		}
+	})
+
+	test('preserves complete reasoning in the request and saved transcript', () => {
+		const reasoning = '  ' + 'reasoning segment '.repeat(1000) + '\n'
+		const message = {
+			role: 'assistant' as const,
+			content: 'I will update the map.',
+			reasoning_content: reasoning,
+		}
+		expect(sanitizeMessageForPrompt(message).reasoning_content).toBe(reasoning)
+		const state = useChatStore.getState()
+		const saved = chatStorePartialize({
+			...state,
+			chatSessions: [{ ...state.chatSessions[0]!, messages: [message] }],
+		})
+		expect(saved.chatSessions[0]!.messages[0]!.reasoning_content).toBe(reasoning)
+	})
+})
+
+describe('saved chat progress', () => {
+	test('restores completion and errors, and marks interrupted runs stopped', () => {
+		const session = useChatStore.getState().chatSessions[0]!
+		for (const status of ['completed', 'error', 'working', 'awaiting_approval'] as const) {
+			const saved = {
+				...session,
+				lastRun: { status, error: status === 'error' ? 'Provider returned no answer' : null },
+			}
+			const restored = restoreChatRunState(saved)
+			expect(restored.status).toBe(
+				status === 'working' || status === 'awaiting_approval' ? 'stopped' : status,
+			)
+			expect(restored.error).toBe(saved.lastRun.error)
+		}
+	})
+	test('a legacy transcript ending on a tool result is not labelled finished', () => {
+		const session = useChatStore.getState().chatSessions[0]!
+		expect(
+			restoreChatRunState({
+				...session,
+				lastRun: undefined,
+				messages: [{ role: 'tool', content: '{"cancelled":true}', tool_call_id: 'one' }],
+			}).status,
+		).toBe('stopped')
+	})
+})
+
+describe('thinking API contracts', () => {
+	test('DeepSeek and Kimi keep reasoning for every assistant turn when using tools', () => {
+		for (const model of ['deepseek-flash', 'kimi-k3']) {
+			expect(
+				providerMayRequireReasoningContent(
+					{
+						type: 'custom',
+						name: 'Fixture',
+						requiresPayment: false,
+						baseUrl: 'https://fixture.example/v1',
+					},
+					model,
+				),
+			).toBe(true)
+		}
+		const messages = [
+			{ role: 'assistant' as const, content: 'Prior answer', reasoning_content: '  original\n' },
+			{ role: 'assistant' as const, content: 'Legacy answer' },
+		]
+		expect(ensureProviderReasoningContent(messages, true)).toEqual([
+			messages[0]!,
+			{ ...messages[1]!, reasoning_content: '' },
+		])
+	})
+	test('drops old tool exchanges atomically when trimming and rejects an oversized current exchange', () => {
+		const unit = [
+			{
+				role: 'assistant' as const,
+				content: null,
+				reasoning_content: 'r'.repeat(500),
+				tool_calls: [
+					{
+						id: 'one',
+						type: 'function' as const,
+						function: { name: 'get_working_set', arguments: '{}' },
+					},
+				],
+			},
+			{ role: 'tool' as const, tool_call_id: 'one', content: '{}' },
+		]
+		expect(
+			trimMessagesToPromptBudget([...unit, { role: 'user', content: 'Next question' }], 100),
+		).toEqual([{ role: 'user', content: 'Next question' }])
+		expect(() => trimMessagesToPromptBudget(unit, 100)).toThrow('latest model/tool round')
 	})
 })

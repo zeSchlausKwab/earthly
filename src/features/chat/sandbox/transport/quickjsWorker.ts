@@ -101,7 +101,7 @@ function getWarmWorker(): Worker {
 		const message =
 			event instanceof ErrorEvent && event.message
 				? event.message
-				: 'Sandbox worker failed to load or threw.'
+				: 'Sandbox worker could not start. Reload the app; in local development, restart the frontend server after dependency updates. This is a worker infrastructure failure, not a JavaScript error: do not retry with different code; use other authoring tools.'
 		disposeWarmWorker(message)
 	}
 	warmWorker = worker

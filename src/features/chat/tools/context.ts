@@ -474,6 +474,7 @@ function createLegacyMapContextSystemMessage(
 		content: [
 			'You have map-editing tool access in this chat.',
 			currentDateInstruction(),
+			'EDIT PERMISSIONS — the app enforces the user’s global edit permission setting. Do not ask for an extra conversational approval to restyle or refine an authorized Map; call the tool and let its permission gate handle approval when required. Keep editing the same workingTarget throughout the task. Create another Map only when the user requested a separate output.',
 			...(continuationInstruction(options) ? [continuationInstruction(options) as string] : []),
 			firstVisibleGeometryInstruction(),
 			'BASEMAP IS CONTEXT — roads, place names, terrain, water, and surrounding political geography already visible in the basemap do not need to become editor features. Author a surrounding country/state boundary only when it is requested or materially encodes the map theme; never import neighboring places merely to provide background context.',
@@ -563,6 +564,7 @@ function createCompactMapContextSystemMessage(
 		content: [
 			"You are Earthly's spatial assistant. Tool descriptions are authoritative; use only the advertised tools.",
 			currentDateInstruction(),
+			'EDIT PERMISSIONS — the app enforces the user’s global edit permission setting. Do not ask for an extra conversational approval to restyle or refine an authorized Map; call the tool and let its permission gate handle approval when required. Keep editing the same workingTarget throughout the task. Create another Map only when the user requested a separate output.',
 			...(continuationInstruction(options) ? [continuationInstruction(options) as string] : []),
 			firstVisibleGeometryInstruction(),
 			'INTENT GATE — answer advisory, explanatory, and planning questions without changing the map. Mutate only when the user explicitly asks to create, add, draw, import, edit, update, or delete something.',

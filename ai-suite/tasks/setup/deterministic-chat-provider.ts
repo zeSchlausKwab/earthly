@@ -24,6 +24,8 @@ export const DETERMINISTIC_STORY_TARGET_BODY =
 export const DETERMINISTIC_STORY_TARGET_FINAL_ANSWER = 'The Story creation attempt has finished.'
 
 export type DeterministicChatScenario =
+	| 'chat-reliability'
+	| 'empty-reasoning'
 	| 'spatial-research'
 	| 'target-binding'
 	| 'metadata-then-geometry'
@@ -35,6 +37,8 @@ export type DeterministicChatScenario =
 	| 'repeated-tool-error'
 
 const scenarioModels: Record<DeterministicChatScenario, { id: string; name: string }> = {
+	'chat-reliability': { id: 'deepseek-flash', name: 'DeepSeek contract fixture' },
+	'empty-reasoning': { id: 'kimi-k3', name: 'Kimi empty response fixture' },
 	'working-set': { id: 'earthly-working-set-fixture', name: 'Earthly working set fixture' },
 	'spatial-research': {
 		id: DETERMINISTIC_CHAT_MODEL_ID,
@@ -78,6 +82,9 @@ export interface DeterministicChatRequestSummary {
 	systemPromptChars: number
 	toolSchemaChars: number
 	hasLoopRecoveryInstruction: boolean
+	reasoningIntact?: boolean
+	toolErrors?: number
+	workingTargetRetained?: boolean
 }
 
 export interface DeterministicChatProviderHarness {
@@ -95,6 +102,9 @@ export interface DeterministicChatProviderOptions {
 	 */
 	holdCompletionResponses?: boolean
 }
+
+const RELIABILITY_REASONING =
+	'  ' + 'Preserve this provider reasoning verbatim. '.repeat(120) + '\n'
 
 const syntheticSpatialDraft = {
 	type: 'FeatureCollection',
@@ -229,7 +239,7 @@ async function fulfillModelRoute(
 					{
 						id: model.id,
 						name: model.name,
-						context_length: 16_384,
+						context_length: scenario === 'chat-reliability' ? 131_072 : 16_384,
 						supports_tools: true,
 						architecture: { input_modalities: ['text'], output_modalities: ['text'] },
 					},
@@ -247,7 +257,12 @@ async function fulfillModelRoute(
 	}
 
 	const body = (request.postDataJSON() ?? {}) as {
-		messages?: Array<{ role?: string; content?: unknown; tool_call_id?: string }>
+		messages?: Array<{
+			role?: string
+			content?: unknown
+			tool_call_id?: string
+			reasoning_content?: string
+		}>
 		tools?: Array<{ function?: { name?: string } }>
 	}
 	const messages = Array.isArray(body.messages) ? body.messages : []
@@ -256,6 +271,19 @@ async function fulfillModelRoute(
 		: []
 	requests.push({
 		round: requests.length + 1,
+		workingTargetRetained: messages.some(
+			(m) =>
+				m.role === 'system' &&
+				typeof m.content === 'string' &&
+				m.content.includes('One evolving map') &&
+				m.content.includes('map:'),
+		),
+		reasoningIntact: messages
+			.filter((m) => m.role === 'assistant')
+			.every((m) => m.reasoning_content === RELIABILITY_REASONING),
+		toolErrors: messages.filter(
+			(m) => m.role === 'tool' && typeof m.content === 'string' && m.content.includes('"ok":false'),
+		).length,
 		messageRoles: messages.flatMap((message) => (message.role ? [message.role] : [])),
 		toolNames,
 		userMessageCount: messages.filter((message) => message.role === 'user').length,
@@ -277,6 +305,74 @@ async function fulfillModelRoute(
 		.slice(lastUserIndex + 1)
 		.some((message) => message.role === 'tool')
 	const userMessageCount = messages.filter((message) => message.role === 'user').length
+
+	if (scenario === 'empty-reasoning') {
+		if (completionGate) await completionGate
+		await route.fulfill({
+			status: 200,
+			headers: corsHeaders('text/event-stream'),
+			body: streamBody(
+				{ reasoning_content: 'Thinking without an answer', content: ' \n' },
+				'stop',
+				model.id,
+			),
+		})
+		return
+	}
+	if (scenario === 'chat-reliability') {
+		const results = messages
+			.filter((m) => m.role === 'tool')
+			.map((m) => JSON.parse(String(m.content)))
+		const workingTarget = results.find((r) => r.workingTarget)?.workingTarget
+		const step = requests.length - 1
+		const steps = [
+			{ name: 'create_map_draft', args: { title: 'One evolving map' } },
+			{ name: 'run_code', args: { workingTarget, code: 'return 1 + 1;' } },
+			{ name: 'create_map_draft', args: { title: 'One evolving map' } },
+			{
+				name: 'write_geojson_to_editor',
+				args: {
+					workingTarget,
+					geojson: { type: 'FeatureCollection', features: [syntheticSpatialDraft.features[0]] },
+				},
+			},
+			{
+				name: 'write_geojson_to_editor',
+				args: {
+					workingTarget,
+					geojson: { type: 'FeatureCollection', features: [syntheticSpatialDraft.features[1]] },
+				},
+			},
+			{
+				name: 'style_by_attribute',
+				args: { workingTarget, buckets: [{ predicate: { all: [] }, style: { color: '#1199aa' } }] },
+			},
+		]
+		const call = steps[step]
+		const delta = call
+			? {
+					reasoning_content: RELIABILITY_REASONING,
+					tool_calls: [
+						{
+							index: 0,
+							id: `reliability-${step}`,
+							type: 'function',
+							function: { name: call.name, arguments: JSON.stringify(call.args) },
+						},
+					],
+				}
+			: {
+					reasoning_content: RELIABILITY_REASONING,
+					content: 'Finished the same map, including its styling.',
+				}
+		if (completionGate) await completionGate
+		await route.fulfill({
+			status: 200,
+			headers: corsHeaders('text/event-stream'),
+			body: streamBody(delta, call ? 'tool_calls' : 'stop', model.id),
+		})
+		return
+	}
 	if (scenario === 'working-set') {
 		const results = messages
 			.filter((message) => message.role === 'tool')

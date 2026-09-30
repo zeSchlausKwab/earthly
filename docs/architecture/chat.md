@@ -181,9 +181,34 @@ This is stronger than a sequence of `writeGeoJSON` plus `setDatasetMetadata` cal
 
 `find_features` is an explicitly read-only predicate preview. `select_features` applies the same host-evaluated predicate to the full bound dataset and replaces the editor's actual selection in one UI update. This naming matters because later `$selected` operations must reflect a visible, real selection rather than an invisible list of matching IDs.
 
+### Thinking APIs and run continuity
+
+The OpenAI-compatible tool schema is shared by DeepSeek and Kimi. Their thinking modes require
+verbatim `reasoning_content` on subsequent requests, including previous plain assistant replies.
+Earthly preserves that field in saved history and request construction, and trims old tool exchanges
+as complete assistant/result units. Provider-specific limits come from model discovery (including
+DeepSeek’s `context_window` and `max_output_tokens`), rather than assuming Kimi’s limits apply.
+See [DeepSeek thinking mode](https://api-docs.deepseek.com/guides/thinking_mode/) and
+[Kimi thinking models](https://platform.kimi.ai/docs/guide/use-thinking-models), checked 2026-09-30.
+
+Every model round includes the run’s current allowed outputs, including Maps created during the run.
+Those identifiers must survive history trimming. `create_map_draft` reuses an allowed new Map with
+an identical title and audience; `createSeparate: true` explicitly creates another distinct output.
+Refinements and restyling reuse the existing `workingTarget`. The host applies the global edit
+permission setting; the assistant must not request an additional conversational restyle approval.
+
+A progress strip beside the composer remains visible during waiting, reasoning, tools, approval,
+completion, failure, and stop. Saved sessions retain the latest outcome and error. Reloading an
+unfinished run marks it stopped and never automatically repeats its mutations.
+
+The browser regression in `ai-suite/scenarios/chat-reliability.spec.ts` uses deterministic thinking
+responses with the real tool dispatcher and QuickJS worker. After dependency upgrades, restart the
+frontend development server: a running Bun bundler can retain stale dependency resolution and return
+HTTP 500 for `/workers/sandbox.worker.js`. Restarting only the frontend avoids resetting relay data.
+
 ### Transcript compression and diagnostics
 
-Consecutive multi-tool activity is presented as one collapsible **Working on your map** operation, grouped into research, build, refine, and inspect phases. The underlying assistant messages, tool calls, results, call IDs, errors, and pending approval cards remain intact; this is presentation compression, not conversation-history compression.
+Consecutive multi-tool activity is presented as one collapsible **Thread actions** operation, grouped into research, build, refine, and inspect phases. Completed edits stay inside that disclosure; older unanchored edit cards sit under **Earlier map changes**. Pending approval cards remain visible. The underlying assistant messages, tool calls, results, call IDs, and errors remain intact; this is presentation compression, not conversation-history compression.
 
 Per-turn diagnostics are cumulative across retries and tool rounds. They report model request count, estimated aggregate input/output tokens, total tool-result bytes, total tool duration, and per-tool calls/duration/bytes/errors. The existing model-loop limits and sandbox safety budgets are deliberately separate policy decisions and are unchanged by this observability work.
 

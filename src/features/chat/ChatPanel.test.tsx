@@ -1,3 +1,4 @@
+import { ChatRunStatusBar } from './components/ChatRunStatusBar'
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
@@ -208,5 +209,21 @@ describe('ChatPanel error recovery presentation', () => {
 			actionLabel: 'Retry',
 			changesApplied: false,
 		})
+	})
+})
+
+describe('persistent composer progress', () => {
+	test('shows working, approval and terminal states independently of transcript content', () => {
+		for (const [status, label] of [
+			['working', 'Thinking'],
+			['awaiting_approval', 'Waiting for your approval'],
+			['completed', 'Finished'],
+			['stopped', 'Stopped'],
+			['error', 'Response failed'],
+		] as const) {
+			const html = renderToStaticMarkup(<ChatRunStatusBar status={status} phase="Thinking" />)
+			expect(html).toContain('role="status"')
+			expect(html).toContain(label)
+		}
 	})
 })

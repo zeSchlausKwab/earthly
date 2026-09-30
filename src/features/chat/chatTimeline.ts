@@ -28,6 +28,10 @@ const RESEARCH_TOOLS = new Set([
 	'reverse_lookup',
 ])
 const BUILD_TOOLS = new Set([
+	'create_map_draft',
+	'write_geojson_to_editor',
+	'add_feature_to_editor',
+	'route_over_network',
 	'run_code',
 	'query_geography',
 	'place_dataset_features',
@@ -55,6 +59,7 @@ const INSPECT_TOOLS = new Set([
 	'find_features',
 	'select_features',
 	'validate_geometry',
+	'measure',
 	'capture_map_snapshot',
 ])
 

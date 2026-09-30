@@ -42,7 +42,18 @@ import {
 } from './tools'
 import type { ToolExecutionRunIdentity, ToolExecutionTarget } from './tools/types'
 import { prepareToolExecutionRun, releaseToolExecutionRun } from './tools/executionTarget'
-import { mapWorkTarget, workTargetIdentity, captureThreadReferences, captureThreadView, newDraftAudience, normalizeWorkingSet, READ_ONLY_TOOLS, WORKING_SET_INSTRUCTION, type ThreadWorkTarget } from './workingSet'
+import {
+	mapWorkTarget,
+	workTargetIdentity,
+	runWorkingSet,
+	captureThreadReferences,
+	captureThreadView,
+	newDraftAudience,
+	normalizeWorkingSet,
+	READ_ONLY_TOOLS,
+	WORKING_SET_INSTRUCTION,
+	type ThreadWorkTarget,
+} from './workingSet'
 import { isToolError, type ToolError } from './tools/errors'
 import { appendRequestContextToLatestUserMessage } from './requestContext'
 import { ToolLoopRecovery } from './toolLoopRecovery'
@@ -115,7 +126,6 @@ const MAX_TOOL_MESSAGE_CHARS = 12000
 // below is the authoritative context limit; this per-message ceiling only
 // prevents pathological inputs and must not silently discard normal policy.
 const MAX_SYSTEM_MESSAGE_CHARS = 64_000
-const MAX_REASONING_CONTENT_CHARS = 4000
 const BUDGET_ESTIMATE_CHARS_PER_TOKEN = 2
 const MESSAGE_TOKEN_OVERHEAD = 24
 // Provider image tokenization varies by model and detail level. This is a
@@ -336,6 +346,7 @@ export interface OpenChatThreadOptions {
 }
 
 export interface ChatSession {
+	lastRun?: { status: ChatRunStatus; error: string | null }
 	workingSet?: import('./workingSet').ThreadWorkTarget[]
 	allowCreate?: boolean
 	id: string
@@ -528,6 +539,27 @@ function createEmptyChatSession(options?: OpenChatThreadOptions): ChatSession {
 
 function cloneEmptyDiagnostics(): ChatDiagnostics {
 	return { ...EMPTY_CHAT_DIAGNOSTICS, toolStats: {} }
+}
+
+/** Restore an outcome, never restart a request or replay edits after a reload. */
+export function restoreChatRunState(session: ChatSession): ChatRunState {
+	const state = createEmptyChatRunState()
+	const saved = session.lastRun
+	if (
+		saved &&
+		['working', 'awaiting_approval', 'stopped', 'completed', 'error'].includes(saved.status)
+	) {
+		state.status =
+			saved.status === 'working' || saved.status === 'awaiting_approval' ? 'stopped' : saved.status
+		state.error = saved.status === 'error' && typeof saved.error === 'string' ? saved.error : null
+	} else if (session.messages.length) {
+		const last = session.messages.at(-1)
+		state.status =
+			last?.role === 'assistant' && !last.tool_calls?.length && last.content
+				? 'completed'
+				: 'stopped'
+	}
+	return state
 }
 
 function createEmptyChatRunState(): ChatRunState {
@@ -912,10 +944,8 @@ function getMessageCharLimit(role: ChatMessage['role']): number {
 export function sanitizeMessageForPrompt(message: ChatMessage): ChatMessage {
 	const maxChars = getMessageCharLimit(message.role)
 	const { content } = message
-	const reasoning_content =
-		typeof message.reasoning_content === 'string'
-			? truncateTextForPrompt(message.reasoning_content, MAX_REASONING_CONTENT_CHARS)
-			: message.reasoning_content
+	// Thinking providers require their original reasoning verbatim on later rounds.
+	const reasoning_content = message.reasoning_content
 
 	if (typeof content === 'string') {
 		const normalizedContent =
@@ -986,10 +1016,7 @@ function estimateMessagesTokensForBudget(messages: ChatMessage[]): number {
 function truncateMessageToTokenBudget(message: ChatMessage, budgetTokens: number): ChatMessage {
 	const maxChars = Math.max(128, budgetTokens * BUDGET_ESTIMATE_CHARS_PER_TOKEN)
 	const { content } = message
-	const reasoning_content =
-		typeof message.reasoning_content === 'string'
-			? truncateTextForPrompt(message.reasoning_content, maxChars)
-			: message.reasoning_content
+	const reasoning_content = message.reasoning_content
 
 	if (typeof content === 'string') {
 		const normalizedContent =
@@ -1134,63 +1161,68 @@ export function deriveOutputBudget(
 	return { maxTokens: capped, costTokens: capped }
 }
 
-function trimMessagesToPromptBudget(messages: ChatMessage[], budgetTokens: number): ChatMessage[] {
-	if (messages.length === 0) return messages
-	const sanitized = messages.map(sanitizeMessageForPrompt)
+export function trimMessagesToPromptBudget(
+	messages: ChatMessage[],
+	budgetTokens: number,
+): ChatMessage[] {
+	if (!messages.length) return messages
+	const units: ChatMessage[][] = []
+	for (const message of messages.map(sanitizeMessageForPrompt)) {
+		// A tool-call assistant and ALL of its results are one protocol unit.
+		const previous = units.at(-1)
+		if (
+			message.role === 'tool' &&
+			previous?.[0]?.role === 'assistant' &&
+			previous[0].tool_calls?.length
+		) {
+			previous.push(message)
+		} else if (message.role !== 'tool') {
+			units.push([message])
+		}
+	}
 	const selected: ChatMessage[] = []
 	let usedTokens = 0
-
-	for (let i = sanitized.length - 1; i >= 0; i--) {
-		let candidate = sanitized[i]
-		if (!candidate) continue
-		let candidateTokens = estimateMessageTokensForBudget(candidate)
-
-		if (usedTokens + candidateTokens > budgetTokens) {
-			if (selected.length === 0) {
-				candidate = truncateMessageToTokenBudget(candidate, budgetTokens)
-				candidateTokens = estimateMessageTokensForBudget(candidate)
-				if (candidateTokens > budgetTokens) {
-					candidate = {
-						...candidate,
-						content: '[message truncated for context window]',
-					}
+	for (let index = units.length - 1; index >= 0; index--) {
+		const unit = units[index]!
+		const tokens = estimateMessagesTokensForBudget(unit)
+		if (usedTokens + tokens > budgetTokens) {
+			if (!selected.length) {
+				const message = unit[0]!
+				// Never cut tool arguments or provider reasoning into invalid partial history.
+				if (unit.length > 1 || message.tool_calls?.length || message.reasoning_content) {
+					throw new Error(
+						'The latest model/tool round exceeds this model’s context window. Choose a model with a larger context window or start a new Thread with this map.',
+					)
 				}
-				selected.unshift(candidate)
+				selected.push(truncateMessageToTokenBudget(message, budgetTokens))
 			}
 			break
 		}
-
-		usedTokens += candidateTokens
-		selected.unshift(candidate)
+		selected.unshift(...unit)
+		usedTokens += tokens
 	}
-
-	while (selected.length > 1 && selected[0]?.role === 'tool') {
-		selected.shift()
-	}
-
-	if (selected.length > 0) {
-		return selected
-	}
-
-	const fallback = sanitized.at(-1)
-	if (!fallback) return []
-	return [truncateMessageToTokenBudget(fallback, budgetTokens)]
+	return selected
 }
 
-function providerMayRequireReasoningContent(provider: ProviderConfig, modelId: string): boolean {
+export function providerMayRequireReasoningContent(
+	provider: ProviderConfig,
+	modelId: string,
+): boolean {
 	if (provider.type !== 'custom') return false
 	const lowerModel = modelId.toLowerCase()
 	const lowerBaseUrl = provider.baseUrl.toLowerCase()
-	return lowerModel.includes('kimi') || lowerBaseUrl.includes('moonshot.ai')
+	return (
+		/kimi|deepseek/.test(lowerModel) || /moonshot\.ai|kimi\.ai|deepseek\.com/.test(lowerBaseUrl)
+	)
 }
 
-function ensureReasoningContentForToolMessages(
+export function ensureProviderReasoningContent(
 	messages: ChatMessage[],
 	required: boolean,
 ): ChatMessage[] {
 	if (!required) return messages
 	return messages.map((message) => {
-		if (message.role !== 'assistant' || !message.tool_calls?.length) {
+		if (message.role !== 'assistant') {
 			return message
 		}
 		return {
@@ -1547,10 +1579,9 @@ const initialState: ChatState = createInitialState()
 // accumulate across sessions and overflow the ~5MB localStorage quota — after
 // which every subsequent write throws QuotaExceededError. We persist a slimmed
 // copy of history: image data URLs are dropped (they are only needed for the
-// live model round, not for restoring a readable transcript) and oversized text
+// live model round, not for restoring a readable transcript) and oversized visible text
 // is truncated. The in-memory store still holds the full content for the session.
 const PERSIST_MAX_TEXT_CHARS = 16_000
-const PERSIST_MAX_REASONING_CHARS = 4_000
 const PERSIST_OMITTED_IMAGE = '[image omitted from saved history]'
 
 function truncateForPersist(text: string, max: number): string {
@@ -1569,11 +1600,8 @@ function sanitizeContentForPersist(content: ChatMessageContent | null): ChatMess
 }
 
 function sanitizeMessageForPersist(message: ChatMessage): ChatMessage {
-	const next: ChatMessage = { ...message, content: sanitizeContentForPersist(message.content) }
-	if (typeof next.reasoning_content === 'string') {
-		next.reasoning_content = truncateForPersist(next.reasoning_content, PERSIST_MAX_REASONING_CHARS)
-	}
-	return next
+	// Keep provider reasoning verbatim so saved thinking/tool conversations can resume.
+	return { ...message, content: sanitizeContentForPersist(message.content) }
 }
 
 function sanitizeSessionForPersist(session: ChatSession): ChatSession {
@@ -1584,17 +1612,24 @@ export function chatStorePartialize(
 	state: ChatStore,
 ): Pick<ChatState, 'chatSessions' | 'activeChatId'> {
 	return {
-		chatSessions: state.chatSessions.map(sanitizeSessionForPersist),
+		chatSessions: state.chatSessions.map((session) => {
+			const run = state.chatRunStates[session.id]
+			return sanitizeSessionForPersist({
+				...session,
+				...(run && run.status !== 'idle'
+					? { lastRun: { status: run.status, error: run.error } }
+					: {}),
+			})
+		}),
 		activeChatId: state.activeChatId,
 	}
 }
 
 // A localStorage wrapper that never lets a persistence failure (quota overflow,
 // storage disabled in private mode) bubble up as an unhandled promise rejection
-// that breaks the chat UI. On quota overflow it drops the stale oversized blob
-// and retries once — which self-heals an already-overflowed store on the next
-// write now that partialize emits a slimmed payload.
-const resilientChatStorage = {
+// that breaks the chat UI. A failed write must preserve the last saved snapshot:
+// removing it cannot make a replacement fit, and would lose all saved history.
+export const resilientChatStorage = {
 	getItem: (name: string): string | null => {
 		if (typeof window === 'undefined') return null
 		try {
@@ -1607,16 +1642,11 @@ const resilientChatStorage = {
 		if (typeof window === 'undefined') return
 		try {
 			window.localStorage.setItem(name, value)
-		} catch {
-			try {
-				window.localStorage.removeItem(name)
-				window.localStorage.setItem(name, value)
-			} catch (err) {
-				console.warn(
-					'[chat-store] Skipped persisting chat history:',
-					err instanceof Error ? err.message : err,
-				)
-			}
+		} catch (err) {
+			console.warn(
+				'[chat-store] Skipped persisting chat history; previous snapshot retained:',
+				err instanceof Error ? err.message : err,
+			)
 		}
 	},
 	removeItem: (name: string): void => {
@@ -2781,18 +2811,22 @@ export const useChatStore = create<ChatStore>()(
 						const systemSections = continuingAfterAppliedChanges
 							? [FINISH_APPLIED_CHANGES_INSTRUCTION]
 							: [
-									workScoped ? `${WORKING_SET_INSTRUCTION}\nWorking set: ${JSON.stringify(capturedWorkingSet)}\nReferences: ${JSON.stringify(capturedReferences.map(({ localSnapshot: _snapshot, localStorySnapshot: _story, profileSnapshot: _profile, ...reference }) => reference))}\nNew local drafts: ${runIdentity.allowCreate ? 'allowed' : 'not allowed'}` : readOnlyRun
-										? READ_ONLY_THREAD_INSTRUCTION
-										: toolsEnabledForRun
-											? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
-													mapSnapshot: capturedMapSnapshot,
-													sessionPublishContextMessage: capturedSessionPublishContext,
-												})?.content
-											: null,
-									workScoped && toolsEnabledForRun ? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
-										mapSnapshot: capturedMapSnapshot,
-										sessionPublishContextMessage: capturedSessionPublishContext,
-									})?.content : null,
+									workScoped
+										? `${WORKING_SET_INSTRUCTION}\nWorking set: ${JSON.stringify(runWorkingSet(runIdentity))}\nReferences: ${JSON.stringify(capturedReferences.map(({ localSnapshot: _snapshot, localStorySnapshot: _story, profileSnapshot: _profile, ...reference }) => reference))}\nNew local drafts: ${runIdentity.allowCreate ? 'allowed' : 'not allowed'}`
+										: readOnlyRun
+											? READ_ONLY_THREAD_INSTRUCTION
+											: toolsEnabledForRun
+												? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
+														mapSnapshot: capturedMapSnapshot,
+														sessionPublishContextMessage: capturedSessionPublishContext,
+													})?.content
+												: null,
+									workScoped && toolsEnabledForRun
+										? createMapContextSystemMessage(promptProfile, advertisedToolNames, {
+												mapSnapshot: capturedMapSnapshot,
+												sessionPublishContextMessage: capturedSessionPublishContext,
+											})?.content
+										: null,
 									referenceContextMessage || null,
 									selectionContextMessage || null,
 									oneShotGeometryContextMessage || null,
@@ -2833,7 +2867,7 @@ export const useChatStore = create<ChatStore>()(
 								capturedSessionPublishContext ?? undefined,
 							])
 						}
-						requestMessages = ensureReasoningContentForToolMessages(
+						requestMessages = ensureProviderReasoningContent(
 							requestMessages,
 							requiresReasoningContent,
 						)
@@ -2977,7 +3011,7 @@ export const useChatStore = create<ChatStore>()(
 								},
 							}))
 
-							const normalizedReasoningContent = result.reasoningContent.trim()
+							const normalizedReasoningContent = result.reasoningContent
 
 							// Add assistant message with tool calls
 							const assistantMessage: ChatMessage = {
@@ -3230,11 +3264,11 @@ export const useChatStore = create<ChatStore>()(
 						}
 
 						// No tool calls - we're done
-						if (result.content) {
+						if (result.content.trim()) {
 							if (!isStreamRunActive()) {
 								throw new Error(DETACHED_STREAM_ERROR)
 							}
-							const normalizedReasoningContent = result.reasoningContent.trim()
+							const normalizedReasoningContent = result.reasoningContent
 							// Truncation visibility even when content WAS produced: append a
 							// subtle marker so the user knows the answer is incomplete.
 							const truncatedWithContent = result.finishReason === 'length'
@@ -3244,7 +3278,8 @@ export const useChatStore = create<ChatStore>()(
 							const assistantMessage: ChatMessage = {
 								role: 'assistant',
 								content: assistantContent,
-								reasoning_content: normalizedReasoningContent || undefined,
+								reasoning_content:
+									normalizedReasoningContent || (requiresReasoningContent ? '' : undefined),
 							}
 							conversationMessages = [...conversationMessages, assistantMessage]
 							set((state) => ({
@@ -3499,7 +3534,7 @@ export const useChatStore = create<ChatStore>()(
 					: (chatSessions[0]?.id ?? null)
 				const activeChat = chatSessions.find((session) => session.id === activeChatId)
 				const chatRunStates = Object.fromEntries(
-					chatSessions.map((session) => [session.id, createEmptyChatRunState()]),
+					chatSessions.map((session) => [session.id, restoreChatRunState(session)]),
 				)
 				const activeRunState = activeChatId
 					? (chatRunStates[activeChatId] ?? createEmptyChatRunState())

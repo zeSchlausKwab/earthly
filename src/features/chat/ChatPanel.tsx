@@ -1,3 +1,4 @@
+import { ChatRunStatusBar } from './components/ChatRunStatusBar'
 import { connectionProvider } from './connections'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
@@ -764,13 +765,11 @@ export function ChatPanel({
 	const phaseLabel = useMemo(() => {
 		switch (streamPhase) {
 			case 'requesting':
-				return 'Waiting for first response'
+				return 'Waiting for model response'
 			case 'streaming':
-				return streamingReasoningContent && !streamingContent
-					? 'Streaming reasoning'
-					: 'Streaming response'
+				return streamingReasoningContent && !streamingContent ? 'Thinking' : 'Writing response'
 			case 'executing_tools':
-				return 'Executing tools'
+				return 'Working on tools'
 			case 'recovering_context':
 				return 'Recovering Thread'
 			case 'finalizing':
@@ -1540,6 +1539,10 @@ export function ChatPanel({
 					</Button>
 				</div>
 			) : null}
+			<ChatRunStatusBar
+				status={activeChatId ? (chatRunStates[activeChatId]?.status ?? 'idle') : 'idle'}
+				phase={phaseLabel}
+			/>
 			{/* Input */}
 			<form onSubmit={handleSubmit} className={cn('shrink-0 border-t', isMobile ? 'p-2' : 'p-3')}>
 				<div className="space-y-2">
