@@ -1,18 +1,100 @@
 import { expect, test } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import {
+	aiChatSurfaceSnapshot,
 	configureChatProvider,
 	openAiChat,
 	composeAiChatMessage,
 	moveAiChat,
 	selectAiChatTarget,
+	sendAiChatMessage,
+	waitForAiChatCompletion,
 } from '../tasks/chat/conversation'
-import { threadWorkSnapshot, setThreadWorkingSetOpen } from '../tasks/chat/working-set'
+import {
+	localMapOutputCounts,
+	threadWorkSnapshot,
+	setThreadWorkingSetOpen,
+} from '../tasks/chat/working-set'
 import { startDataset } from '../tasks/create/dataset'
 import { addPointToGeometryDraft } from '../tasks/create/geometry'
+import { editorLifecycleSnapshot } from '../tasks/editor/lifecycle'
+import { switchMobileWorkspacePanel } from '../tasks/navigation/mobile-workspace'
 import { openPanel } from '../tasks/navigation/open-panel'
 import { installDeterministicChatProvider } from '../tasks/setup/deterministic-chat-provider'
 import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
+
+test('mobile Chat opens before a geometry edit and retains its composer @regression', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(!earthly.isMobile, 'Mobile primary navigation')
+	test.setTimeout(120_000)
+	await installIsolatedRelays(earthly)
+	const provider = await installDeterministicChatProvider(earthly, 'target-binding')
+	await authorizeJourneyIdentity(earthly, 'owner')
+	await configureChatProvider(earthly, provider.settings)
+	await earthly.open()
+	const editorBefore = await editorLifecycleSnapshot(earthly)
+	expect(editorBefore).toMatchObject({
+		activeDraftId: null,
+		activeWorkspaceId: null,
+		workspaceCount: 0,
+		featureCount: 0,
+	})
+	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
+	const primary = earthly.page.getByRole('navigation', { name: 'Primary', exact: true })
+	const message = 'Keep these notes while I look at the map.'
+	let originalThread: Awaited<ReturnType<typeof threadWorkSnapshot>> | null = null
+	for (const width of [390, 320]) {
+		await earthly.page.setViewportSize({ width, height: 844 })
+		await expect(panel).toBeHidden()
+		const chat = primary.getByRole('button', { name: 'Chat', exact: true })
+		await expect(chat).toBeVisible()
+		const hitTarget = await chat.boundingBox()
+		if (!hitTarget) throw new Error('The mobile Chat button has no visible hit target.')
+		expect(hitTarget.width).toBeGreaterThanOrEqual(44)
+		expect(hitTarget.height).toBeGreaterThanOrEqual(44)
+		expect(hitTarget.x).toBeGreaterThanOrEqual(0)
+		expect(hitTarget.x + hitTarget.width).toBeLessThanOrEqual(width)
+		await earthly.page.screenshot({
+			path: testInfo.outputPath(`mobile-map-chat-entry-${width}.png`),
+		})
+		await switchMobileWorkspacePanel(earthly, 'Chat')
+		await expect.poll(() => new URL(earthly.page.url()).pathname).toBe('/ask')
+		await expect(panel.locator('textarea')).toBeEnabled()
+		if (originalThread) {
+			await expect(panel.locator('textarea')).toHaveValue(message)
+			expect(await threadWorkSnapshot(earthly)).toEqual(originalThread)
+		} else {
+			await sendAiChatMessage(earthly, 'What can you help me explore on a map?')
+			await waitForAiChatCompletion(earthly, 0)
+			await expect(
+				panel.getByText('The work Thread received this prompt.', { exact: true }),
+			).toBeVisible()
+			await composeAiChatMessage(earthly, message)
+			originalThread = await threadWorkSnapshot(earthly)
+			expect(originalThread.outputs).toEqual([])
+			expect(originalThread.referenceCount).toBe(0)
+		}
+		expect(await aiChatSurfaceSnapshot(earthly)).toMatchObject({
+			prompt: message,
+			sendEnabled: true,
+			targetName: null,
+		})
+		expect(await localMapOutputCounts(earthly)).toEqual([])
+		expect(await editorLifecycleSnapshot(earthly)).toMatchObject({
+			activeDraftId: editorBefore.activeDraftId,
+			activeWorkspaceId: editorBefore.activeWorkspaceId,
+			workspaceCount: editorBefore.workspaceCount,
+			featureCount: editorBefore.featureCount,
+		})
+		await earthly.page.screenshot({
+			path: testInfo.outputPath(`mobile-chat-before-edit-${width}.png`),
+		})
+		await primary.getByRole('button', { name: /^(Just map|Map)$/, exact: true }).click()
+		await expect(panel).toBeHidden()
+	}
+	expect(provider.requests()).toHaveLength(1)
+})
 
 test('Ask can move right and back without losing the conversation or composer @regression', async ({
 	earthly,
@@ -114,7 +196,11 @@ test('publishing a Map keeps the conversation open and marks its publication @re
 	await expect(working.getByText('Unpublished changes', { exact: true })).toBeVisible()
 	await setThreadWorkingSetOpen(earthly, false)
 	await openPanel(earthly, 'Local drafts')
-	await expect(earthly.page.getByRole('region', { name: 'Local drafts', exact: true }).getByText('Unpublished changes', { exact: true })).toBeVisible()
+	await expect(
+		earthly.page
+			.getByRole('region', { name: 'Local drafts', exact: true })
+			.getByText('Unpublished changes', { exact: true }),
+	).toBeVisible()
 	await expect(earthly.page.getByRole('button', { name: /saved alternatives/ })).toHaveCount(0)
 	await earthly.page.screenshot({ path: testInfo.outputPath('draft-changes.png') })
 	await setThreadWorkingSetOpen(earthly)
@@ -134,7 +220,11 @@ test('publishing a Map keeps the conversation open and marks its publication @re
 	await working.getByRole('button', { name: 'Publication with local changes', exact: true }).click()
 	await draft.nameInput.fill('Further changes after publication')
 	await openPanel(earthly, 'Local drafts')
-	await expect(earthly.page.getByRole('region', { name: 'Local drafts', exact: true }).getByText('Unpublished changes', { exact: true })).toBeVisible()
+	await expect(
+		earthly.page
+			.getByRole('region', { name: 'Local drafts', exact: true })
+			.getByText('Unpublished changes', { exact: true }),
+	).toBeVisible()
 	// The global inventory uses the same one-click action as the AI editing menu.
 	const inventory = earthly.page.getByRole('region', { name: 'Local drafts', exact: true })
 	await inventory
@@ -148,16 +238,18 @@ test('publishing a Map keeps the conversation open and marks its publication @re
 	await expect(panel).toBeVisible()
 	await expect(panel.locator('textarea')).toHaveValue('What should we improve next?')
 	await expect(earthly.page).toHaveURL(/\/drafts(?:\?|$)/)
-	await inventory
-		.getByRole('button', { name: /^Further changes after publication\b/ })
-		.click()
+	await inventory.getByRole('button', { name: /^Further changes after publication\b/ }).click()
 	await draft.nameInput.fill('Changes kept after reload')
 	await openPanel(earthly, 'Local drafts')
 	// The isolated relay does not replay events: this also verifies that the
 	// persisted baseline works offline, without a source event or active editor.
 	await earthly.page.reload()
 	await expect(panel).toBeVisible()
-	await expect(earthly.page.getByRole('region', { name: 'Local drafts', exact: true }).getByText('Unpublished changes', { exact: true })).toBeVisible()
+	await expect(
+		earthly.page
+			.getByRole('region', { name: 'Local drafts', exact: true })
+			.getByText('Unpublished changes', { exact: true }),
+	).toBeVisible()
 	await setThreadWorkingSetOpen(earthly)
 	await expect(working.getByText('Unpublished changes', { exact: true })).toBeVisible()
 	expect((await threadWorkSnapshot(earthly)).id).toBe(before.id)

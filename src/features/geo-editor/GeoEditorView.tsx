@@ -7066,7 +7066,7 @@ export function GeoEditorView() {
 					}
 				/>
 			)}
-			{/* Map-first phone dock: Browse opens the sheet; Me opens an anchored menu. */}
+			{/* Map-first phone dock: Browse and Chat open sheets; Me opens an anchored menu. */}
 			{isMobile && !mobileMapEditing && (
 				<nav
 					aria-label="Primary"
@@ -7177,6 +7177,24 @@ export function GeoEditorView() {
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
+					<button
+						type="button"
+						onClick={() => {
+							closeMobileSidebar()
+							setMobileSearchOpen(false)
+							handleToggleThread()
+						}}
+						aria-pressed={threadVisible && mobilePanelOpen}
+						className={cn(
+							'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
+							threadVisible && mobilePanelOpen
+								? 'text-primary'
+								: 'text-muted-foreground hover:text-foreground',
+						)}
+					>
+						<MessageSquare className="h-5 w-5" />
+						Chat
+					</button>
 					<MeMenu
 						mobile
 						currentUserPubkey={currentUserPubkey}
