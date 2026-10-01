@@ -273,3 +273,56 @@ describe('RichContentRenderer Story views', () => {
 		expect(html).toContain('Example only')
 	})
 })
+
+describe('draft Map reference rendering', () => {
+	const localFeatures: GeoFeatureItem[] = [
+		{
+			id: 'local-map',
+			name: 'Regional overview',
+			address: 'earthly-draft:workspace',
+			entityType: 'dataset',
+		},
+		{
+			id: 'local-feature',
+			name: 'A named region',
+			address: 'earthly-draft:workspace',
+			featureId: 'region/one',
+			entityType: 'feature',
+		},
+	]
+	test('resolves Map and percent-decoded feature names while preserving punctuation', () => {
+		const tokens = parseInlineTokens(
+			'See earthly-draft:workspace and earthly-draft:workspace#region%2Fone.',
+			localFeatures,
+		)
+		expect(mentions(tokens).map((token) => token.displayName)).toEqual([
+			'Regional overview',
+			'A named region',
+		])
+		expect(mentions(tokens)[1]?.featureId).toBe('region/one')
+		expect(textOf(tokens)).toBe('See  and .')
+	})
+	test('supports authored display labels without turning draft references into external links', () => {
+		const tokens = parseInlineTokens('[Read the overview](earthly-draft:workspace)', localFeatures)
+		expect(mentions(tokens)[0]?.displayName).toBe('Read the overview')
+		expect(tokens.some((token) => token.type === 'link')).toBe(false)
+	})
+	test('keeps code examples and escaped references literal', () => {
+		expect(mentions(parseInlineTokens('`earthly-draft:workspace`', localFeatures))).toHaveLength(0)
+		expect(mentions(parseInlineTokens('\\earthly-draft:workspace', localFeatures))).toHaveLength(0)
+	})
+	test('unknown draft mentions use a useful label and no published geometry controls', () => {
+		const html = renderToStaticMarkup(
+			createElement(RichContentRenderer, {
+				content: 'earthly-draft:unknown',
+				onMentionZoomTo: () => {},
+				onMentionVisibilityToggle: () => {},
+			}),
+		)
+		expect(html).toContain('Local Map draft')
+		expect(html).toContain('Saved on this device')
+		expect(html).not.toContain('Zoom to referenced geometry')
+		expect(html).not.toContain('Show referenced geometry')
+		expect(html).not.toContain('earthly-draft:unknown')
+	})
+})

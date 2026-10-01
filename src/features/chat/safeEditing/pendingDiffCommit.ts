@@ -1,4 +1,4 @@
-import type { DatasetDiff } from '@/features/geo-editor/api/diff'
+import { projectDurableFeatures, type DatasetDiff } from '@/features/geo-editor/api/diff'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import type { GeoCollectionEditDraft } from '@/features/geo-editor/store'
 import type { CollectionMeta } from '@/features/geo-editor/types'
@@ -326,10 +326,13 @@ export function planPendingDatasetUndo(
 	const featureCommit = commit.fields.features
 	if (featureCommit) {
 		if (!hasUniqueIds(draft.features)) return { ok: false, reason: 'duplicate feature ids' }
-		const currentById = new Map(draft.features.map((feature) => [feature.id, feature]))
+		const currentById = new Map(
+			projectDurableFeatures(draft.features).map((feature) => [feature.id, feature]),
+		)
 		const budget = freshBudget()
 		for (const id of featureCommit.addedIds) {
-			const expected = findFeature(diff, 'added', id)
+			const found = findFeature(diff, 'added', id)
+			const expected = found ? projectDurableFeatures([found])[0] : null
 			const current = currentById.get(id)
 			if (!expected || !current || boundedEqual(current, expected, budget) !== true) {
 				return { ok: false, reason: 'an added feature changed' }
@@ -338,7 +341,11 @@ export function planPendingDatasetUndo(
 		for (const id of featureCommit.modifiedIds) {
 			const expected = findModifiedFeature(diff, id)
 			const current = currentById.get(id)
-			if (!expected || !current || boundedEqual(current, expected.after, budget) !== true) {
+			if (
+				!expected ||
+				!current ||
+				boundedEqual(current, projectDurableFeatures([expected.after])[0], budget) !== true
+			) {
 				return { ok: false, reason: 'a modified feature changed' }
 			}
 		}

@@ -11,6 +11,7 @@ import {
 	requestConfirm,
 	resolvePendingDiff,
 	clearPendingDiffs,
+	clearPendingDiffsForChat,
 	setPendingDiffChatContext,
 	setPendingDiffRunTarget,
 	setPendingDiffRunContext,
@@ -55,6 +56,17 @@ beforeEach(() => {
 })
 
 describe('emitDiffBlock registration', () => {
+	test('account-scoped cleanup cancels its review and removes history without touching another chat', async () => {
+		setPendingDiffChatContext('webmcp-desktop')
+		const own = emitDiffBlock(DIFF)
+		const pending = requestConfirm(own.id)
+		setPendingDiffChatContext('other-chat')
+		const other = emitDiffBlock(DIFF)
+		clearPendingDiffsForChat('webmcp-desktop')
+		expect(await pending).toBe('cancel')
+		expect(getPendingDiff(own.id)).toBeNull()
+		expect(getPendingDiff(other.id)?.status).toBe('pending')
+	})
 	test('registers a retrievable pending diff carrying the DatasetDiff', () => {
 		const handle = emitDiffBlock(DIFF)
 		const entry = getPendingDiff(handle.id)

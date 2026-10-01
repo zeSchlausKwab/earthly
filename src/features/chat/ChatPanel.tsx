@@ -1337,7 +1337,7 @@ export function ChatPanel({
 
 export function getChatReferenceKey(reference: ChatReference): string {
 	const stableId = reference.id || reference.name || 'unknown'
-	return `${reference.type}:${stableId}:${reference.pubkey ?? ''}:${reference.featureId ?? ''}:${reference.localWorkspaceId ?? ''}:${reference.localStoryDraftKey ?? ''}`
+	return `${reference.type}:${stableId}:${reference.pubkey ?? ''}:${reference.featureId ?? ''}:${reference.localWorkspaceId ?? ''}:${reference.localStoryDraftKey ?? ''}:${reference.localAtlasDraftKey ?? ''}`
 }
 
 export function chatReferenceToSearchResult(reference: ChatReference): EntitySearchResult {
@@ -1350,6 +1350,7 @@ export function chatReferenceToSearchResult(reference: ChatReference): EntitySea
 		featureId: reference.featureId,
 		localWorkspaceId: reference.localWorkspaceId,
 		localStoryDraftKey: reference.localStoryDraftKey,
+		localAtlasDraftKey: reference.localAtlasDraftKey,
 		pubkey: reference.pubkey,
 		createdAt: reference.createdAt,
 		entity: reference as unknown as GeoFeatureItem,

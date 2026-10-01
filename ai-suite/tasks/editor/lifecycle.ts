@@ -16,6 +16,14 @@ export const cancelDrawingTask: AiTaskMetadata = {
 	viewports: 'both',
 }
 
+export const selectEditorModeTask: AiTaskMetadata = {
+	id: 'editor.select-mode',
+	summary: 'Return to Select mode through desktop or mobile drawing controls.',
+	preconditions: ['An editable Map is open', 'Any intended drawing has been committed'],
+	sideEffects: ['Cancels unfinished drawing and exits drawing mode'],
+	viewports: 'both',
+}
+
 export const undoRedoGeometryTask: AiTaskMetadata = {
 	id: 'editor.undo-redo-geometry',
 	summary: 'Undo and redo a geometry through the controls available in the current viewport.',
@@ -137,6 +145,18 @@ async function openMobileTools(earthly: EarthlySession): Promise<void> {
 	const trigger = earthly.page.getByRole('button', { name: /^More tools/ })
 	await expect(trigger).toBeVisible()
 	await trigger.click()
+}
+
+export async function selectEditorMode(earthly: EarthlySession): Promise<void> {
+	if (earthly.isMobile) {
+		await openMobileTools(earthly)
+		await earthly.page
+			.getByRole('menuitem', { name: /^(Cancel drawing|Return to select)$/ })
+			.click()
+	} else {
+		await earthly.page.getByRole('button', { name: 'Select mode', exact: true }).click()
+	}
+	await expect.poll(async () => (await editorLifecycleSnapshot(earthly)).mode).toBe('select')
 }
 
 async function clickHistoryAction(earthly: EarthlySession, action: 'Undo' | 'Redo'): Promise<void> {

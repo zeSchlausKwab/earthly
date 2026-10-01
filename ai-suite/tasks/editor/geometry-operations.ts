@@ -17,7 +17,64 @@ export const geometryOperationsTask: AiTaskMetadata = {
 	viewports: 'desktop',
 }
 
-async function selectLastLine(earthly: EarthlySession): Promise<void> {
+export const extrudeLineTask: AiTaskMetadata = {
+	id: 'editor.extrude-line',
+	summary:
+		'Extrude the selected line into a filled fat line or fat arrow through the width dialog.',
+	preconditions: ['Earthly is open', 'Exactly one line is selected in an unsaved Dataset draft'],
+	sideEffects: ['Creates a derived polygon, optionally replacing its source line'],
+	viewports: 'both',
+}
+
+export interface ExtrudeLineOptions {
+	shape: 'line' | 'arrow'
+	width: number
+	endWidth: number
+	units?: 'Meters' | 'Kilometers' | 'Miles'
+	side?: 'Centered on line' | 'Left of line direction' | 'Right of line direction'
+	resultMode?: 'Create derived copy' | 'Replace selected feature'
+	arrowHeadLength?: number
+	arrowHeadWidth?: number
+}
+
+export async function extrudeSelectedLine(earthly: EarthlySession, options: ExtrudeLineOptions) {
+	const before = (await geometryDraftSnapshot(earthly)).featureCount
+	await openGeometryOperations(earthly)
+	await earthly.page
+		.getByRole('menuitem', { name: `Line → Fat ${options.shape}`, exact: true })
+		.click()
+	const dialog = earthly.page.getByRole('dialog', {
+		name: `Create fat ${options.shape}`,
+		exact: true,
+	})
+	await expect(dialog).toBeVisible()
+	await dialog.getByLabel('Start width', { exact: true }).fill(String(options.width))
+	await dialog.getByLabel('End width', { exact: true }).fill(String(options.endWidth))
+	for (const [label, value] of [
+		['Units', options.units],
+		['Extrusion side', options.side],
+		['Result', options.resultMode],
+	]) {
+		if (!value) continue
+		await dialog.getByLabel(label!, { exact: true }).click()
+		await earthly.page.getByRole('option', { name: value, exact: true }).click()
+	}
+	if (options.arrowHeadLength !== undefined)
+		await dialog
+			.getByLabel('Arrowhead length', { exact: true })
+			.fill(String(options.arrowHeadLength))
+	if (options.arrowHeadWidth !== undefined)
+		await dialog.getByLabel('Arrowhead width', { exact: true }).fill(String(options.arrowHeadWidth))
+	await dialog.getByRole('button', { name: 'Apply', exact: true }).click()
+	await expect(dialog).toBeHidden()
+	await expectGeometryFeatureCount(
+		earthly,
+		before + (options.resultMode === 'Replace selected feature' ? 0 : 1),
+	)
+	return geometryDraftSnapshot(earthly)
+}
+
+export async function selectLastLine(earthly: EarthlySession): Promise<void> {
 	await earthly.page.evaluate(() => {
 		const store = (
 			window as typeof window & {
@@ -63,20 +120,31 @@ async function selectLastPolygon(earthly: EarthlySession): Promise<void> {
 	})
 }
 
-async function openGeometryOperations(earthly: EarthlySession): Promise<void> {
+export async function openGeometryOperations(earthly: EarthlySession): Promise<void> {
+	if (earthly.isMobile) {
+		await earthly.page.getByRole('button', { name: 'More tools', exact: true }).click()
+		await earthly.page.getByRole('menuitem', { name: 'Geometry operations', exact: true }).click()
+		return
+	}
 	const button = earthly.page.getByRole('button', { name: 'Geometry operations', exact: true })
 	if (await button.isVisible()) {
 		await button.click()
 		return
 	}
 	await earthly.page.getByRole('menuitem', { name: 'Edit', exact: true }).click()
-	await earthly.page.getByRole('menuitem', { name: 'Geometry operations', exact: true }).hover()
+	await earthly.page
+		.getByRole('menuitem', { name: 'Geometry operations', exact: true })
+		.press('ArrowRight')
 }
 
 async function openParallelLineChoices(earthly: EarthlySession): Promise<void> {
 	await openGeometryOperations(earthly)
-	await earthly.page.getByRole('menuitem', { name: 'Offset / Corridor', exact: true }).hover()
-	await earthly.page.getByRole('menuitem', { name: 'Line → Parallel line', exact: true }).hover()
+	await earthly.page
+		.getByRole('menuitem', { name: 'Offset / Corridor', exact: true })
+		.press('ArrowRight')
+	await earthly.page
+		.getByRole('menuitem', { name: 'Line → Parallel line', exact: true })
+		.press('ArrowRight')
 }
 
 async function selectedLineScreenPoint(earthly: EarthlySession): Promise<{ x: number; y: number }> {
@@ -127,7 +195,7 @@ export async function exerciseGeometryOperations(
 	await selectLastLine(earthly)
 
 	await openParallelLineChoices(earthly)
-	await earthly.page.getByRole('menuitem', { name: 'Enter distance…', exact: true }).click()
+	await earthly.page.getByRole('menuitem', { name: 'Enter distance…', exact: true }).press('Enter')
 	const dialog = earthly.page.getByRole('dialog', { name: 'Create parallel line' })
 	await expect(dialog).toBeVisible()
 	await expect(dialog.getByText('Perpendicular distance', { exact: true })).toBeVisible()
@@ -137,7 +205,7 @@ export async function exerciseGeometryOperations(
 	await expectGeometryFeatureCount(earthly, 2)
 
 	await openParallelLineChoices(earthly)
-	await earthly.page.getByRole('menuitem', { name: 'Drag on map', exact: true }).click()
+	await earthly.page.getByRole('menuitem', { name: 'Drag on map', exact: true }).press('Enter')
 	await expect(earthly.page.getByText('Geometry operation · Drag', { exact: true })).toBeVisible()
 	const dragGuidanceVisible = true
 	const canvas = earthly.page.locator('.maplibregl-canvas')
@@ -155,8 +223,8 @@ export async function exerciseGeometryOperations(
 	await selectLastLine(earthly)
 	const splitPoint = await selectedLineScreenPoint(earthly)
 	await openGeometryOperations(earthly)
-	await earthly.page.getByRole('menuitem', { name: 'Cut / Split', exact: true }).hover()
-	await earthly.page.getByRole('menuitem', { name: /Line at placed point/ }).click()
+	await earthly.page.getByRole('menuitem', { name: 'Cut / Split', exact: true }).press('ArrowRight')
+	await earthly.page.getByRole('menuitem', { name: /Line at placed point/ }).press('Enter')
 	await expect(earthly.page.getByText('Geometry operation · Draw', { exact: true })).toBeVisible()
 	const splitGuidanceVisible = true
 	await earthly.page.mouse.click(box.x + splitPoint.x, box.y + splitPoint.y)
@@ -183,8 +251,8 @@ export async function exercisePolygonSplit(
 	await selectLastPolygon(earthly)
 
 	await openGeometryOperations(earthly)
-	await earthly.page.getByRole('menuitem', { name: 'Cut / Split', exact: true }).hover()
-	await earthly.page.getByRole('menuitem', { name: /Polygon by drawn line/ }).click()
+	await earthly.page.getByRole('menuitem', { name: 'Cut / Split', exact: true }).press('ArrowRight')
+	await earthly.page.getByRole('menuitem', { name: /Polygon by drawn line/ }).press('Enter')
 	await expect(earthly.page.getByText('Geometry operation · Draw', { exact: true })).toBeVisible()
 
 	// Both clicks are deliberately just inside the polygon. The cutter is valid

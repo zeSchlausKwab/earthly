@@ -23,6 +23,11 @@ This page describes the current implementation. Refactoring candidates are label
 
 ## State topology
 
+Map callouts store image/video attachments in `earthly:callouts[].media`. Their editor previews,
+full-card thumbnails, and compact-card thumbnails fit within the existing callout sizing rules.
+The editor accepts image URLs alongside Blossom uploads. Single, batch, and update AI callout
+tools expose the same structured media fields; publishing mirrors attachments to NIP-92 tags.
+
 `EditorState` is one Zustand store composed from these slices:
 
 - editor core;
@@ -57,6 +62,12 @@ flowchart LR
 ```
 
 `Authoring` is the security and locality boundary for non-UI geometry changes. It normalizes GeoJSON, preserves deduplication behavior, runs interceptors, and exposes dataset metadata without exposing the rest of the application.
+
+### Fat lines and arrows
+
+Select one line and choose **Geometry operations → Line → Fat line** or **Line → Fat arrow**. The same choices appear in the desktop Edit menu and the mobile More tools menu. The dialog accepts start/end widths, meters/kilometers/miles, centered or left/right extrusion, and copy/replace. Equal widths make a uniform band; a zero start or end width makes a pointed band taper. Arrows follow coordinate order and end at the last coordinate; their head length and width can be automatic or explicit.
+
+`performGeometryOperation` handles `fat-line` and `fat-arrow` through `api/lineBand.ts`. It extrudes rendered Web Mercator segments with latitude-adjusted geographic widths and unions the planar pieces to resolve overlapping bends. The result is ordinary editable GeoJSON Polygon/MultiPolygon geometry, retaining source properties and derivation IDs. Widths interpolate by approximate ground path length. Antimeridian crossings must be split first; coordinates and output must fit Web Mercator bounds. Copy keeps the source by default, and either mode is one undoable operation.
 
 ## Destination and publish flow
 

@@ -40,6 +40,7 @@ function DiffCardStack({ entries }: { entries: PendingDiffEntry[] }) {
 							diff={entry.diff}
 							status={entry.status}
 							headline={entry.headline}
+							metadataChanges={entry.metadataChanges}
 							onApply={() => resolvePendingDiff(entry.id, 'applied')}
 							onCancel={() => resolvePendingDiff(entry.id, 'cancelled')}
 						/>

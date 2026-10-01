@@ -19,6 +19,9 @@ import type { PrimitiveUnits } from '@/features/geo-editor/api'
 import { createExecutionAuthoring, getExecutionEditor } from './executionTarget'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
+import { gateBulkApply } from '../safeEditing/gateBulkEdit'
+import { getSafetyLevel } from '../safeEditing/safetyAccess'
+import type { MutationResult } from '@/features/geo-editor/api/results'
 
 const UNITS_ENUM: PrimitiveUnits[] = ['meters', 'kilometers', 'miles']
 
@@ -119,7 +122,7 @@ export function registerPrimitiveTools(register: (entry: ToolEntry) => void): vo
 		name: 'draw_circle',
 		kind: 'authoring-primitive',
 		schema: drawCircleSchema,
-		handler: (args) => {
+		handler: async (args) => {
 			const center = args.center
 			if (
 				!Array.isArray(center) ||
@@ -136,17 +139,27 @@ export function registerPrimitiveTools(register: (entry: ToolEntry) => void): vo
 			const authoring = resolveAuthoring()
 			// authoring.circle validates radius (V5) and throws on a bad value, which
 			// the registry wraps into a structured ToolError (D-16).
-			const result = authoring.circle([center[0], center[1]], radius, {
-				units: parseUnits(args.units),
-			})
-			if (!result.ok) {
-				throw new Error('Failed to draw circle (invalid input).')
-			}
+			let result: MutationResult | undefined
+			const editor = getExecutionEditor()
+			if (!editor) throw new Error('Map editor is not ready.')
+			const gate = await gateBulkApply(
+				editor,
+				{ getSafetyLevel, label: 'Draw circle' },
+				'add',
+				() => {
+					result = authoring.circle([center[0], center[1]], radius, {
+						units: parseUnits(args.units),
+					})
+					if (!result.ok) throw new Error('Failed to draw circle (invalid input).')
+				},
+			)
+			if (!result || gate.status === 'cancelled') return { ok: true, cancelled: true }
 			return {
 				ok: true,
 				featureId: result.featureIds[0],
 				featureIds: result.featureIds,
 				counts: result.counts,
+				cancelled: false,
 			}
 		},
 	})
@@ -155,7 +168,7 @@ export function registerPrimitiveTools(register: (entry: ToolEntry) => void): vo
 		name: 'buffer_feature',
 		kind: 'authoring-primitive',
 		schema: bufferFeatureSchema,
-		handler: (args) => {
+		handler: async (args) => {
 			const distance = args.distance
 			if (typeof distance !== 'number') {
 				throw new Error('distance must be a number.')
@@ -173,14 +186,25 @@ export function registerPrimitiveTools(register: (entry: ToolEntry) => void): vo
 			// authoring.buffer validates distance (throws on a bad value) and returns
 			// { ok:false } for an unknown id (T-02-16) or a degenerate buffer (T-02-15);
 			// surface that as a structured tool error (D-16).
-			const result = authoring.buffer(target, distance, { units: parseUnits(args.units) })
-			if (!result.ok) {
-				throw new Error(
-					typeof featureId === 'string'
-						? `Could not buffer feature '${featureId}' — it does not exist or the buffer is degenerate.`
-						: 'Could not buffer the provided geometry — the buffer is degenerate.',
-				)
-			}
+			let result: MutationResult | undefined
+			const editor = getExecutionEditor()
+			if (!editor) throw new Error('Map editor is not ready.')
+			const gate = await gateBulkApply(
+				editor,
+				{ getSafetyLevel, label: 'Buffer feature' },
+				'add',
+				() => {
+					result = authoring.buffer(target, distance, { units: parseUnits(args.units) })
+					if (!result.ok) {
+						throw new Error(
+							typeof featureId === 'string'
+								? `Could not buffer feature '${featureId}' — it does not exist or the buffer is degenerate.`
+								: 'Could not buffer the provided geometry — the buffer is degenerate.',
+						)
+					}
+				},
+			)
+			if (!result || gate.status === 'cancelled') return { ok: true, cancelled: true }
 			const sourceId = typeof featureId === 'string' && featureId ? featureId : null
 			return {
 				ok: true,
@@ -189,6 +213,7 @@ export function registerPrimitiveTools(register: (entry: ToolEntry) => void): vo
 				bufferedFeatureId: sourceId ? result.featureIds[1] : result.featureIds[0],
 				featureIds: result.featureIds,
 				counts: result.counts,
+				cancelled: false,
 			}
 		},
 	})

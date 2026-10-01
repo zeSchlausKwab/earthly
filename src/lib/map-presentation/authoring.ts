@@ -1,14 +1,19 @@
 import { getUsableMapPresentation, type MapPresentationAuthorization } from './authorization'
-import { MAP_PRESENTATION_LIMITS, parseMapPresentation, parseMapPresentationSource } from './codec'
+import {
+	MAP_PRESENTATION_LIMITS,
+	mapPresentationSourceKey,
+	parseMapPresentation,
+	parseMapPresentationSource,
+} from './codec'
 import type {
 	MapPresentationLayerV1,
-	MapPresentationSource,
+	MapPresentationLayerSource,
 	MapPresentationStyleOverrideV1,
 	MapPresentationV1,
 } from './types'
 
 export interface PresentationSourceOption {
-	source: MapPresentationSource
+	source: MapPresentationLayerSource
 	label: string
 }
 
@@ -16,10 +21,13 @@ export function emptyPresentation(): MapPresentationV1 {
 	return { version: 1, layers: [] }
 }
 
-export function stableLayerId(source: MapPresentationSource, usedIds: ReadonlySet<string>): string {
+export function stableLayerId(
+	source: MapPresentationLayerSource,
+	usedIds: ReadonlySet<string>,
+): string {
 	const parsed = parseMapPresentationSource(source)
 	const stem =
-		(parsed?.identifier ?? 'map')
+		(parsed?.identifier ?? (typeof source === 'string' ? 'map' : source.workspaceId))
 			.toLowerCase()
 			.replace(/[^a-z0-9._:-]+/gu, '-')
 			.replace(/^[^a-z0-9]+/u, '')
@@ -36,10 +44,10 @@ export function stableLayerId(source: MapPresentationSource, usedIds: ReadonlySe
 
 export function addPresentationLayer(
 	presentation: MapPresentationV1,
-	source: MapPresentationSource,
+	source: MapPresentationLayerSource,
 	authorization: MapPresentationAuthorization,
 ): MapPresentationV1 {
-	const grant = authorization.get(source)
+	const grant = authorization.get(mapPresentationSourceKey(source))
 	if (!grant) return presentation
 	const usedIds = new Set(presentation.layers.map((layer) => layer.id))
 	return {

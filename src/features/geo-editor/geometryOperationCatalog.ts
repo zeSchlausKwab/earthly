@@ -1,8 +1,19 @@
 import type { GeometryInteractionKind } from './core/types'
 
-export type NumericGeometryOperation = 'offset-polygon' | 'offset-line' | 'corridor'
+export type NumericGeometryOperation =
+	| 'offset-polygon'
+	| 'offset-line'
+	| 'corridor'
+	| 'fat-line'
+	| 'fat-arrow'
 export type GeometryOperationTarget = 'line' | 'polygon'
-export type GeometryOperationIcon = 'split' | 'branch' | 'polygon-offset' | 'parallel' | 'corridor'
+export type GeometryOperationIcon =
+	| 'split'
+	| 'branch'
+	| 'polygon-offset'
+	| 'parallel'
+	| 'corridor'
+	| 'arrow'
 
 export interface SplitGeometryOperationChoice {
 	kind: GeometryInteractionKind
@@ -14,7 +25,7 @@ export interface SplitGeometryOperationChoice {
 
 export interface DerivedGeometryOperationChoice {
 	numericKind: NumericGeometryOperation
-	dragKind: GeometryInteractionKind
+	dragKind?: GeometryInteractionKind
 	typeFlow: string
 	target: GeometryOperationTarget
 	icon: GeometryOperationIcon
@@ -50,6 +61,28 @@ export const splitGeometryOperationChoices: readonly SplitGeometryOperationChoic
 ]
 
 export const derivedGeometryOperationChoices: readonly DerivedGeometryOperationChoice[] = [
+	{
+		numericKind: 'fat-line',
+		typeFlow: 'Line → Fat line',
+		target: 'line',
+		icon: 'corridor',
+		numericMenuLabel: 'Set widths…',
+		title: 'Create fat line',
+		description:
+			'Extrude the selected line into a filled band. Use different start and end widths to taper it.',
+		distanceLabel: 'Start width',
+	},
+	{
+		numericKind: 'fat-arrow',
+		typeFlow: 'Line → Fat arrow',
+		target: 'line',
+		icon: 'arrow',
+		numericMenuLabel: 'Set widths…',
+		title: 'Create fat arrow',
+		description:
+			'Extrude the selected line into a filled arrow pointing toward its last coordinate.',
+		distanceLabel: 'Start width',
+	},
 	{
 		numericKind: 'offset-polygon',
 		dragKind: 'offset-polygon-drag',

@@ -2,12 +2,16 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { useChatStore } from '@/features/chat/store'
 import { accounts } from '@/lib/nostr'
 import { readStoryDraft, writeStoryDraft } from '@/lib/nostr/story/draft'
+import { readGroupEditorDraft, writeGroupEditorDraft } from '@/features/groups/editorDraft'
+import { getAtlasEditorTarget, resetAtlasEditorOpenRequests } from '@/features/groups/atlasEditorBridge'
 import { createDefaultCollectionMeta } from './utils'
 import { useEditorStore } from './store'
 import {
 	discardSavedDraft,
 	registerMapDraftActions,
 	registerStoryDraftDiscard,
+	registerAtlasDraftDiscard,
+	openSavedDraft,
 } from './draftActions'
 
 const originalChat = useChatStore.getState()
@@ -35,12 +39,33 @@ beforeEach(() => {
 	useEditorStore.setState({ workspaces: {}, geoEditDrafts: {}, editor: null })
 })
 afterEach(() => {
+	resetAtlasEditorOpenRequests()
 	unregister?.()
 	unregister = undefined
 	useChatStore.setState(originalChat, true)
 	useEditorStore.setState(originalEditor, true)
 	if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window
 	else Object.assign(globalThis, { window: previousWindow })
+})
+
+test('independent Atlas drafts open and discard only their exact slot and grants', async () => {
+	const draft = { name: 'Atlas', description: '', curatedReferences: [], image: '', governance: 'closed' as const, schemaMode: 'builder' as const, allowedGeometryTypes: [], rows: [], advancedJson: '{}', sampleJson: '{}' }
+	const target = { id: 'atlas:thread-atlas:one', kind: 'atlas' as const, draftKey: 'thread-atlas:one', title: 'Atlas', intent: 'create' as const }
+	writeGroupEditorDraft(target.draftKey, draft)
+	writeGroupEditorDraft('thread-atlas:two', { ...draft, name: 'Keep sibling' })
+	useChatStore.getState().createChat()
+	const chatId = useChatStore.getState().activeChatId!
+	useChatStore.getState().setWorkingSet(chatId, [target])
+	await openSavedDraft(target)
+	expect(getAtlasEditorTarget()?.draftKey).toBe(target.draftKey)
+	let suppressed = false
+	unregister = registerAtlasDraftDiscard(target.draftKey, () => { suppressed = true })
+	await discardSavedDraft(target, accounts.active?.pubkey)
+	expect(suppressed).toBe(true)
+	expect(readGroupEditorDraft(target.draftKey)).toBeNull()
+	expect(readGroupEditorDraft('thread-atlas:two')?.name).toBe('Keep sibling')
+	expect(getAtlasEditorTarget()).toBeNull()
+	expect(useChatStore.getState().chatSessions.find((chat) => chat.id === chatId)?.workingSet).toEqual([])
 })
 
 test('discarding a Story suppresses its mounted form and revokes every grant, not references', async () => {

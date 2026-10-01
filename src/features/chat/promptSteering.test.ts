@@ -38,6 +38,22 @@ describe('compact prompt profile', () => {
 	const compact = compactMapContextText()
 	const legacy = mapContextText()
 
+	it('guides flow-map authoring when line extrusion is advertised', () => {
+		const message = createMapContextSystemMessage('compact', [
+			'extrude_line',
+			'create_line_corridor',
+		])
+		const content = typeof message?.content === 'string' ? message.content : ''
+		for (const text of [content, legacy]) {
+			expect(text).toContain('FLOW MAPS')
+			expect(text).toContain('extrude_line')
+			expect(text).toContain('endWidth=0')
+			expect(text).toContain('last coordinate')
+		}
+		expect(content).toContain('AUTHORING')
+		expect(compact).not.toContain('FLOW MAPS')
+	})
+
 	it('retains core intent, source, precision, completion, and story invariants', () => {
 		for (const phrase of ['INTENT GATE', 'SOURCE ORDER', 'PRECISION', 'EXECUTION', 'STORIES']) {
 			expect(compact).toContain(phrase)

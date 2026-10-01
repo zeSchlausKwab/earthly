@@ -7,10 +7,29 @@
  * circular import between `registry.ts` and `definitions.ts`.
  */
 
-import type { Tool } from './types'
+import type { Tool, ToolJsonSchema } from './types'
 
 const PREDICATE_FIELD_DESCRIPTION =
 	'The feature property key to test (read directly from properties; no nesting), or a host field: "$id" for the GeoJSON feature id, "$geometryType" for the geometry type, and "$selected" for current map-selection membership.'
+
+const CALLOUT_MEDIA_SCHEMA: ToolJsonSchema = {
+	type: 'array',
+	description:
+		'Optional image/video attachments in authored order. Images render within the existing callout size. Use media for image URLs, including URLs without a file extension; provide alt text when available.',
+	items: {
+		type: 'object',
+		properties: {
+			url: { type: 'string' },
+			mimeType: { type: 'string' },
+			sha256: { type: 'string' },
+			size: { type: 'number' },
+			dimensions: { type: 'string' },
+			alt: { type: 'string' },
+			thumbnailUrl: { type: 'string' },
+		},
+		required: ['url'],
+	},
+}
 
 /**
  * Look up a hand-authored OpenAI function schema by tool name. Shared by the
@@ -1606,23 +1625,7 @@ export const geoStaticToolSchemas: Tool[] = [
 					featureId: { type: 'string', description: 'Existing editor feature id.' },
 					text: { type: 'string', description: 'Plain callout text.' },
 					title: { type: 'string', description: 'Optional short title.' },
-					media: {
-						type: 'array',
-						description: 'Optional image/video attachments in authored order.',
-						items: {
-							type: 'object',
-							properties: {
-								url: { type: 'string' },
-								mimeType: { type: 'string' },
-								sha256: { type: 'string' },
-								size: { type: 'number' },
-								dimensions: { type: 'string' },
-								alt: { type: 'string' },
-								thumbnailUrl: { type: 'string' },
-							},
-							required: ['url'],
-						},
-					},
+					media: CALLOUT_MEDIA_SCHEMA,
 					placementSide: {
 						type: 'string',
 						enum: ['auto', 'top', 'right', 'bottom', 'left'],
@@ -1658,6 +1661,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								featureId: { type: 'string', description: 'Existing owning feature id.' },
 								text: { type: 'string', description: 'Plain callout text.' },
 								title: { type: 'string', description: 'Optional short title.' },
+								media: CALLOUT_MEDIA_SCHEMA,
 								placementSide: {
 									type: 'string',
 									enum: ['auto', 'top', 'right', 'bottom', 'left'],
@@ -1692,21 +1696,9 @@ export const geoStaticToolSchemas: Tool[] = [
 					text: { type: 'string' },
 					title: { type: 'string', description: 'Use an empty string to remove the title.' },
 					media: {
-						type: 'array',
-						description: 'Replacement attachment list; an empty array removes all media.',
-						items: {
-							type: 'object',
-							properties: {
-								url: { type: 'string' },
-								mimeType: { type: 'string' },
-								sha256: { type: 'string' },
-								size: { type: 'number' },
-								dimensions: { type: 'string' },
-								alt: { type: 'string' },
-								thumbnailUrl: { type: 'string' },
-							},
-							required: ['url'],
-						},
+						...CALLOUT_MEDIA_SCHEMA,
+						description:
+							'Replacement image/video attachments rendered within the existing callout size; an empty array removes all media.',
 					},
 					placementSide: {
 						type: 'string',

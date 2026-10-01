@@ -23,7 +23,6 @@ import {
 	createMapCallout,
 	getFeatureCallouts,
 	type MapCallout,
-	type MapCalloutMedia,
 	type MapCalloutSide,
 } from '@/lib/geo/callouts'
 import type { EditorFeature } from '../core/types'
@@ -34,6 +33,7 @@ import {
 	type CalloutDisplayMode,
 	type ScreenPoint,
 } from './layout'
+import { CalloutImageUrlInput, CalloutMediaPreview } from './CalloutMediaPreview'
 
 export interface VisibleCalloutDataset {
 	key: string
@@ -164,42 +164,6 @@ function calloutNeedsExpansion(callout: MapCallout | null): boolean {
 		Boolean(callout.media?.length) ||
 		callout.text.length > 116 ||
 		callout.text.split('\n').length > 3
-	)
-}
-
-function isVideo(media: MapCalloutMedia): boolean {
-	return (
-		media.mimeType?.startsWith('video/') === true || /\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(media.url)
-	)
-}
-
-function CalloutMediaPreview({ media }: { media: MapCalloutMedia[] }) {
-	const first = media[0]
-	if (!first) return null
-	return (
-		<div className="relative mt-1.5 h-24 overflow-hidden rounded-[3px] border border-black/10 bg-muted">
-			{isVideo(first) ? (
-				<video
-					controls
-					muted
-					preload="metadata"
-					poster={first.thumbnailUrl}
-					className="h-full w-full object-cover"
-					onPointerDown={(event) => event.stopPropagation()}
-				>
-					<source src={first.url} type={first.mimeType} />
-				</video>
-			) : (
-				<a href={first.url} target="_blank" rel="noreferrer" className="block h-full w-full">
-					<img src={first.url} alt={first.alt ?? ''} className="h-full w-full object-cover" />
-				</a>
-			)}
-			{media.length > 1 ? (
-				<span className="absolute right-1.5 top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
-					+{media.length - 1}
-				</span>
-			) : null}
-		</div>
 	)
 }
 
@@ -541,7 +505,11 @@ export function MapCallouts({
 							data-callout-state="compact"
 							className="pointer-events-none absolute flex items-center gap-1.5 overflow-hidden rounded-[4px] border border-foreground/15 bg-background/95 px-2 text-left shadow-md backdrop-blur"
 						>
-							<MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+							{callout?.media?.length ? (
+								<CalloutMediaPreview media={callout.media} thumbnail className="size-8" />
+							) : (
+								<MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+							)}
 							<span className="min-w-0 flex-1">
 								{callout?.title ? (
 									<span className="block truncate text-[11px] font-semibold">{callout.title}</span>
@@ -565,6 +533,7 @@ export function MapCallouts({
 				return (
 					<article
 						key={layout.key}
+						aria-label={`Map callout${callout?.title ? `: ${callout.title}` : ''}`}
 						style={cardStyle}
 						data-callout-state="full"
 						data-callout-expanded={explicitlyExpanded ? 'true' : 'false'}
@@ -702,9 +671,20 @@ export function MapCallouts({
 												iconOnly
 											/>
 										</div>
+										<CalloutImageUrlInput
+											onAdd={(media) =>
+												updateCallout(entry, (item) => ({
+													...item,
+													media: item.media?.some((attachment) => attachment.url === media.url)
+														? item.media
+														: [...(item.media ?? []), media],
+												}))
+											}
+										/>
+										{callout.media?.length ? <CalloutMediaPreview media={callout.media} /> : null}
 										{callout.media?.length ? (
 											<div className="flex flex-wrap gap-1">
-												{callout.media.map((media) => (
+												{callout.media.map((media, mediaIndex) => (
 													<span
 														key={media.sha256 ?? media.url}
 														className="flex max-w-full items-center gap-1 rounded bg-muted px-1.5 py-1 text-[10px]"
@@ -715,7 +695,7 @@ export function MapCallouts({
 															onClick={() =>
 																updateCallout(entry, (item) => ({
 																	...item,
-																	media: item.media?.filter((candidate) => candidate !== media),
+																	media: item.media?.filter((_, index) => index !== mediaIndex),
 																}))
 															}
 															aria-label="Remove media"
@@ -771,20 +751,28 @@ export function MapCallouts({
 									className={cn(
 										'min-h-0 flex-1 text-[11px] leading-[1.35]',
 										explicitlyExpanded ? 'overflow-y-auto' : 'overflow-hidden',
+										!explicitlyExpanded && 'flex gap-2',
 									)}
 								>
+									{!explicitlyExpanded && callout?.media?.length ? (
+										<CalloutMediaPreview
+											media={callout.media}
+											thumbnail
+											className="h-full max-h-12"
+										/>
+									) : null}
 									<RichContentRenderer
 										content={callout?.text ?? ''}
 										availableFeatures={availableFeatures}
 										onMentionVisibilityToggle={onMentionVisibilityToggle}
 										onMentionZoomTo={onMentionZoomTo}
 										className={cn(
-											'pointer-events-none !space-y-1 !text-[11px] !leading-[1.35] [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_h1]:!text-xs [&_h2]:!text-xs [&_h3]:!text-xs [&_h4]:!text-xs',
+											'min-w-0 flex-1 pointer-events-none !space-y-1 !text-[11px] !leading-[1.35] [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_h1]:!text-xs [&_h2]:!text-xs [&_h3]:!text-xs [&_h4]:!text-xs [&_img]:max-h-24 [&_img]:object-contain',
 											!explicitlyExpanded && 'line-clamp-3',
 										)}
 									/>
 									{explicitlyExpanded && callout?.media?.length ? (
-										<CalloutMediaPreview media={callout.media} />
+										<CalloutMediaPreview media={callout.media} className="mt-1.5" />
 									) : null}
 								</div>
 								{callout?.media?.[0] ? (

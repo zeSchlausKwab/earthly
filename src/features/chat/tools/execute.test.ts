@@ -389,6 +389,7 @@ describe('tool-result geometry authoring lifecycle', () => {
 	})
 
 	it('keeps a Dataset write bound to its captured draft after visible navigation', async () => {
+		setSafetyLevelProvider(() => 3)
 		const targetEditor = createHeadlessEditor()
 		useEditorStore.setState({
 			editor: targetEditor,
@@ -900,6 +901,7 @@ describe('tool-result geometry authoring lifecycle', () => {
 	})
 
 	it('compares custom metadata properties canonically instead of by key insertion order', async () => {
+		setSafetyLevelProvider(() => 3)
 		const { draftId, run } = createActiveDatasetRun(108)
 		const firstResult = await executeToolCall(
 			{

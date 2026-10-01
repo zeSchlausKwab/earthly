@@ -26,7 +26,7 @@ import { publishFailureMessage } from '@/features/geo-editor/hooks/publishFailur
 import { castEvent } from 'applesauce-core/casts'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { Camera, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import {
 	GeoRichTextEditor,
 	type GeoFeatureItem,
@@ -67,6 +67,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { ensureDatasetReferencePublished } from '@/features/chat/referencePublishing'
 import { captureVisibleDatasetReferenceTarget } from '@/features/chat/store'
 import { useRetainedEditorDraft } from '@/hooks/useRetainedEditorDraft'
+import { useEditorStore } from '@/features/geo-editor/store'
+import { localMapPresentationLabel } from '@/features/geo-editor/map-presentation/localSources'
+import { localStoryReferences } from '@/lib/nostr/story/localReferences'
+import {
+	getStoryDraftRevision,
+	readStoryDraft,
+	subscribeStoryDrafts,
+} from '@/lib/nostr/story/draft'
 import { computeSchemaHash } from '@/lib/group/schemaHash'
 import { accounts, eventStore, publish } from '@/lib/nostr'
 import {
@@ -82,7 +90,10 @@ import {
 import { MapContext } from '@/lib/nostr/map-context'
 import {
 	deriveAtlasPresentationAuthorization,
+	mapPresentationSourceKey,
 	parseMapPresentationSource,
+	type MapPresentationLayerSource,
+	type MapPresentationAuthorization,
 	type MapPresentationSource,
 	type MapPresentationV1,
 } from '@/lib/map-presentation'
@@ -114,7 +125,17 @@ import {
 	type SchemaFieldType,
 } from './schemaBuilder'
 import type { GroupCreationSeed } from './creationSeed'
-import { atlasPresentationSourceOptions } from './atlasPresentationAuthoring'
+import {
+	atlasPresentationSourceOptions,
+	normalizeAtlasPresentationForDraft,
+} from './atlasPresentationAuthoring'
+import {
+	clearAtlasEditorPresentation,
+	retainAtlasEditorTarget,
+	setAtlasEditorPresentation,
+} from './atlasEditorBridge'
+import { registerAtlasDraftDiscard } from '@/features/geo-editor/draftActions'
+import { registerDocumentDraftForm } from '@/features/chat/tools/documentDraftForms'
 
 type SchemaAuthorMode = GroupSchemaAuthorMode
 
@@ -134,7 +155,7 @@ export interface GroupEditorPanelProps {
 	availableFeatures?: GeoFeatureItem[]
 	/** Explicit capture only. Final owner-authored `a` coordinates let the canvas omit foreign `c`. */
 	captureMapPresentation?: (
-		acceptedSources: readonly MapPresentationSource[],
+		acceptedSources: readonly MapPresentationSource[] | MapPresentationAuthorization,
 	) => MapPresentationV1 | null | undefined
 }
 
@@ -212,11 +233,12 @@ function readInitialGroupEditorState(
 	context?: MapContext | null,
 	creationSeed?: GroupCreationSeed | null,
 ): InitialGroupEditorState {
-	const draftKey = groupEditorDraftKey(context)
+	const draftKey = creationSeed?.draftKey ?? groupEditorDraftKey(context)
 	// An explicit creation intent is authoritative over a generic retained "new
 	// Atlas" form. It must not silently inherit stale references from an earlier
 	// abandoned draft.
-	const retained = creationSeed && !context ? null : readGroupEditorDraft(draftKey)
+	const retained =
+		creationSeed && !context && !creationSeed.draftKey ? null : readGroupEditorDraft(draftKey)
 	if (retained) {
 		return {
 			...retained,
@@ -286,11 +308,12 @@ function persistGroupEditorDraft(identity: string, snapshot: GroupEditorDraftSna
 	writeGroupEditorDraft(identity, snapshot)
 }
 
-function atlasAcceptedSources(addresses: readonly string[]): MapPresentationSource[] {
-	return addresses.flatMap((coordinate) => {
-		const parsed = parseMapPresentationSource(coordinate)
-		return parsed ? [parsed.coordinate] : []
-	})
+function atlasAcceptedSources(addresses: readonly string[]): MapPresentationLayerSource[] {
+	return [
+		...deriveAtlasPresentationAuthorization(addresses, {
+			allowLocalDraftReferences: true,
+		}).values(),
+	].map((grant) => grant.source)
 }
 
 function readPreservedCuratedCoordinates(context?: MapContext | null): string[] {
@@ -305,26 +328,31 @@ function AtlasDefaultViewEditor({
 	value,
 	acceptedSources,
 	availableFeatures,
+	localLabels,
 	onChange,
 	captureMapPresentation,
 }: {
 	value: unknown
-	acceptedSources: readonly MapPresentationSource[]
+	acceptedSources: readonly MapPresentationLayerSource[]
 	availableFeatures: readonly GeoFeatureItem[]
+	localLabels: ReadonlyMap<string, string>
 	onChange: (value: unknown) => void
 	captureMapPresentation?: GroupEditorPanelProps['captureMapPresentation']
 }) {
 	const authorization = useMemo(
-		() => deriveAtlasPresentationAuthorization(acceptedSources),
+		() =>
+			deriveAtlasPresentationAuthorization(acceptedSources.map(mapPresentationSourceKey), {
+				allowLocalDraftReferences: true,
+			}),
 		[acceptedSources],
 	)
 	const sourceOptions = useMemo(
-		() => atlasPresentationSourceOptions(acceptedSources, availableFeatures),
-		[acceptedSources, availableFeatures],
+		() => atlasPresentationSourceOptions(acceptedSources, availableFeatures, localLabels),
+		[acceptedSources, availableFeatures, localLabels],
 	)
 	const validationError = useMemo(() => {
 		try {
-			normalizeAtlasPresentationForPublish(value, acceptedSources)
+			normalizeAtlasPresentationForDraft(value, acceptedSources.map(mapPresentationSourceKey))
 			return null
 		} catch (error) {
 			return error instanceof Error ? error.message : 'The default view is invalid.'
@@ -336,9 +364,9 @@ function AtlasDefaultViewEditor({
 			onChange,
 			capture: captureMapPresentation
 				? () =>
-						normalizeAtlasPresentationForPublish(
-							captureMapPresentation(acceptedSources),
-							acceptedSources,
+						normalizeAtlasPresentationForDraft(
+							captureMapPresentation(authorization),
+							acceptedSources.map(mapPresentationSourceKey),
 						)
 				: undefined,
 			invalidCaptureMessage: 'The current map could not be captured as a valid Atlas default view.',
@@ -396,9 +424,13 @@ function AtlasDefaultViewEditor({
 						}}
 						layerDescription={(layer, index) => {
 							const label =
-								sourceOptions.find((option) => option.source === layer.source)?.label ??
+								sourceOptions.find(
+									(option) =>
+										mapPresentationSourceKey(option.source) ===
+										mapPresentationSourceKey(layer.source),
+								)?.label ??
 								parseMapPresentationSource(layer.source)?.identifier ??
-								layer.source
+								(typeof layer.source === 'string' ? layer.source : 'Local Map')
 							const position =
 								index === 0
 									? 'bottom'
@@ -456,11 +488,32 @@ export function GroupEditorPanel({
 	captureMapPresentation,
 }: GroupEditorPanelProps) {
 	const currentUser = useActiveAccount()
+	const workspaces = useEditorStore((state) => state.workspaces)
+	const mapDrafts = useEditorStore((state) => state.geoEditDrafts)
+	const storyDraftRevision = useSyncExternalStore(
+		subscribeStoryDrafts,
+		getStoryDraftRevision,
+		() => 0,
+	)
+	const presentationInstanceId = useRef(createRowId()).current
+	const localLabels = useMemo(
+		() =>
+			new Map(
+				Object.keys(workspaces).map((workspaceId) => [
+					mapPresentationSourceKey({ kind: 'local-map', workspaceId }),
+					localMapPresentationLabel({ workspaces, geoEditDrafts: mapDrafts }, workspaceId),
+				]),
+			),
+		[workspaces, mapDrafts],
+	)
 	const mobileHeaderActionTarget = useMobilePanelHeaderActionTarget()
 	const initial = useMemo(
 		() => readInitialGroupEditorState(initialContext, creationSeed),
 		[creationSeed, initialContext],
 	)
+	useEffect(() => {
+		retainAtlasEditorTarget(initial.draftKey, initialContext)
+	}, [initial.draftKey, initialContext])
 	const descriptionEditorRef = useRef<GeoRichTextEditorRef>(null)
 
 	const [name, setName] = useState(initial.name)
@@ -515,12 +568,58 @@ export function GroupEditorPanel({
 	)
 	const draftSignature = useMemo(() => JSON.stringify(draftSnapshot), [draftSnapshot])
 	const cleanDraftSignatureRef = useRef(JSON.stringify(groupDraftSnapshot(initial)))
-	const { setDirty, clearRetainedDraft } = useRetainedEditorDraft({
-		identity: initial.draftKey,
-		snapshot: draftSnapshot,
-		persist: persistGroupEditorDraft,
-		clear: clearGroupEditorDraft,
-	})
+	const { setDirty, clearRetainedDraft, flushRetainedDraft, suppressRetainedDraftSave } =
+		useRetainedEditorDraft({
+			identity: initial.draftKey,
+			snapshot: draftSnapshot,
+			persist: persistGroupEditorDraft,
+			clear: clearGroupEditorDraft,
+		})
+	const flushPendingForm = () => {
+		if (draftSignature === cleanDraftSignatureRef.current) return
+		const stored = readGroupEditorDraft(initial.draftKey, currentUser?.pubkey ?? null)
+		const storedSignature =
+			stored && JSON.stringify(groupDraftSnapshot({ ...stored, rows: rowsFromDraft(stored.rows) }))
+		if (storedSignature === draftSignature) {
+			cleanDraftSignatureRef.current = draftSignature
+			setDirty(false)
+			return
+		}
+		setDirty(true)
+		flushRetainedDraft()
+		const saved = readGroupEditorDraft(initial.draftKey, currentUser?.pubkey ?? null)
+		if (
+			!saved ||
+			JSON.stringify(groupDraftSnapshot({ ...saved, rows: rowsFromDraft(saved.rows) })) !==
+				draftSignature
+		) {
+			setDirty(true)
+			throw new Error('Pending Atlas input could not be saved. The AI edit was cancelled.')
+		}
+		cleanDraftSignatureRef.current = draftSignature
+	}
+	useEffect(
+		() =>
+			registerDocumentDraftForm({
+				kind: 'atlas',
+				draftKey: initial.draftKey,
+				ownerPubkey: currentUser?.pubkey ?? null,
+				flush: flushPendingForm,
+				suppress: () => {
+					suppressRetainedDraftSave()
+					if (!readGroupEditorDraft(initial.draftKey, currentUser?.pubkey ?? null)) onClose()
+				},
+			}),
+		[initial.draftKey, currentUser?.pubkey, flushPendingForm, suppressRetainedDraftSave],
+	)
+	useEffect(
+		() =>
+			registerAtlasDraftDiscard(initial.draftKey, () => {
+				clearRetainedDraft()
+				onClose()
+			}),
+		[initial.draftKey, clearRetainedDraft, onClose],
+	)
 
 	const isEditing = Boolean(readInitialGroupContent(initialContext))
 
@@ -592,27 +691,68 @@ export function GroupEditorPanel({
 	}, [availableFeatures, description])
 
 	const curatedReferenceEntities = useMemo(() => {
-		return dedupeNostrAddressReferences(
-			extractNostrAddressReferencesFromList(curatedReferences),
-		).map((reference) => ({
-			key: `${reference.address}#${reference.featureId ?? ''}`,
-			raw: stringifyNostrAddressReference(reference),
-			name: reference.address,
-		}))
-	}, [curatedReferences])
+		void storyDraftRevision
+		return [...new Set(curatedReferences)].map((raw) => {
+			if (raw.startsWith('earthly-draft:'))
+				return { key: raw, raw, name: localLabels.get(raw) ?? 'Unavailable local Map' }
+			if (raw.startsWith('earthly-story-draft:')) {
+				let title: string | undefined
+				try {
+					title = readStoryDraft(
+						decodeURIComponent(raw.slice('earthly-story-draft:'.length)),
+						currentUser?.pubkey ?? null,
+					)?.title
+				} catch {
+					/* Invalid retained reference remains visible for removal. */
+				}
+				return { key: raw, raw, name: title?.trim() || 'Unavailable local Story' }
+			}
+			const reference = extractNostrAddressReferences(raw)[0]
+			const matched = availableFeatures.find(
+				(item) => item.address === reference?.address && item.featureId === reference?.featureId,
+			)
+			return { key: raw, raw, name: matched?.name ?? reference?.address ?? raw }
+		})
+	}, [curatedReferences, currentUser?.pubkey, localLabels, availableFeatures, storyDraftRevision])
 
 	const availableCuratedReferenceFeatures = useMemo(
 		() => availableFeatures.filter((item) => item.entityType !== 'context'),
 		[availableFeatures],
 	)
-	const acceptedPresentationSources = useMemo(
-		() =>
-			atlasAcceptedSources([
-				...extractReferencedCoordinates(description),
-				...extractReferencedCoordinatesFromList(curatedReferences),
-				...readPreservedCuratedCoordinates(initialContext),
-			]),
+	const acceptedPresentationReferences = useMemo(
+		() => [
+			...extractReferencedCoordinates(description),
+			...extractReferencedCoordinatesFromList(curatedReferences),
+			...curatedReferences.filter((reference) => reference.startsWith('earthly-draft:')),
+			...localStoryReferences(description).map((reference) =>
+				mapPresentationSourceKey({ kind: 'local-map', workspaceId: reference.workspaceId }),
+			),
+			...readPreservedCuratedCoordinates(initialContext),
+		],
 		[curatedReferences, description, initialContext],
+	)
+	const acceptedPresentationSources = useMemo(
+		() => atlasAcceptedSources(acceptedPresentationReferences),
+		[acceptedPresentationReferences],
+	)
+	useEffect(() => {
+		setAtlasEditorPresentation({
+			instanceId: presentationInstanceId,
+			draftKey: initial.draftKey,
+			ownerPubkey: currentUser?.pubkey ?? null,
+			presentation,
+			acceptedReferences: acceptedPresentationReferences,
+		})
+	}, [
+		presentationInstanceId,
+		initial.draftKey,
+		currentUser?.pubkey,
+		presentation,
+		acceptedPresentationReferences,
+	])
+	useEffect(
+		() => () => clearAtlasEditorPresentation(presentationInstanceId),
+		[presentationInstanceId],
 	)
 
 	const toggleAllowedGeometryType = (type: GroupGeometryType, checked: boolean) => {
@@ -872,7 +1012,7 @@ Write in Markdown. Use $ to insert Maps, Atlases, or features.`}
 						</div>
 					)}
 				</div>
-				<div className="space-y-2">
+				<div className="space-y-2" role="region" aria-label="Curated references">
 					<div className="flex items-center justify-between gap-2">
 						<Label>Curated references</Label>
 						<span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -944,6 +1084,7 @@ Write in Markdown. Use $ to insert Maps, Atlases, or features.`}
 				<AtlasDefaultViewEditor
 					value={presentation}
 					acceptedSources={acceptedPresentationSources}
+					localLabels={localLabels}
 					availableFeatures={availableFeatures}
 					onChange={setPresentation}
 					captureMapPresentation={captureMapPresentation}

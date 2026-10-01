@@ -26,6 +26,8 @@ import {
 	parseToolCallArguments,
 	toEditorFromToolResultValue,
 	compactToolResultAfterBake,
+	extractGeoJsonFeaturesFromUnknown,
+	prepareMapToolFeaturesForEditor,
 } from './helpers'
 import { dispatch, registry } from './registry'
 import { isToolError, type ToolError } from './errors'
@@ -43,12 +45,16 @@ import {
 	ToolExecutionTargetPersistenceError,
 } from './executionTarget'
 import { getEditorDatasetMetadata } from './editorDatasetMetadata'
+import { gateEditorImport } from '../safeEditing/gateEditorImport'
 import { getMapContextSnapshotForTarget, getCompactMapContextForTool } from './context'
 
 function requiresDatasetTarget(toolName: string, args: Record<string, unknown>): boolean {
 	if (args.toEditor === true && TO_EDITOR_COMPATIBLE_TOOLS.has(toolName)) return true
 	if (
 		toolName === 'set_dataset_metadata' ||
+		toolName === 'set_map_view' ||
+		toolName === 'fit_map_view' ||
+		toolName === 'set_basemap_style' ||
 		toolName === 'select_features' ||
 		toolName === 'place_dataset_features' ||
 		toolName === 'batch_geocode' ||
@@ -263,6 +269,8 @@ async function executeToolCallBound(
 			}
 		}
 
+		context?.signal?.throwIfAborted()
+		context?.assertToolAllowed?.(toolCall.function.name, args)
 		let dispatched = await dispatch(toolCall.function.name, args, context)
 		// Structured redirects are host-side routing decisions, not failures the
 		// model should spend another round interpreting. Follow exactly once; a
@@ -275,6 +283,8 @@ async function executeToolCallBound(
 				argumentsPreview,
 			)
 			if (redirectPermissionError) return redirectPermissionError
+			context?.signal?.throwIfAborted()
+			context?.assertToolAllowed?.(dispatched.redirectTool, dispatched.redirectArguments)
 			dispatched = await dispatch(dispatched.redirectTool, dispatched.redirectArguments, context)
 		}
 
@@ -307,21 +317,32 @@ async function executeToolCallBound(
 				// geometry appears in Saved work, the Shelf, and the editor list.
 				await ensureExecutionTargetForMutation(context?.run)
 				const editorMetadata = getEditorDatasetMetadata(result)
-				if (editorMetadata) {
-					const editor = getExecutionEditor()
-					if (!editor) {
-						throw new Error('Map editor is not ready to preserve imported dataset metadata.')
-					}
-					createExecutionAuthoring(editor).setDatasetMetadata(editorMetadata)
-				}
-				const bakeResult = toEditorFromToolResultValue(
-					result,
-					Boolean(args.replaceExisting),
+				const features = prepareMapToolFeaturesForEditor(
 					toolCall.function.name,
+					extractGeoJsonFeaturesFromUnknown(result),
+				)
+				const bakeResult = await gateEditorImport(
+					features,
+					Boolean(args.replaceExisting),
+					(normalized) => {
+						if (editorMetadata) {
+							const editor = getExecutionEditor()
+							if (!editor) {
+								throw new Error('Map editor is not ready to preserve imported dataset metadata.')
+							}
+							createExecutionAuthoring(editor).setDatasetMetadata(editorMetadata)
+						}
+						return toEditorFromToolResultValue(
+							{ features: normalized },
+							Boolean(args.replaceExisting),
+							toolCall.function.name,
+						)
+					},
 				)
 				result = {
 					...compactToolResultAfterBake(result),
 					editorImport: bakeResult,
+					cancelled: bakeResult.status === 'cancelled',
 					toEditor: true,
 				}
 			}
@@ -369,6 +390,11 @@ export async function executeToolCall(
 		try {
 			const args = parseToolCallArguments(toolCall.function.arguments)
 			const name = toolCall.function.name
+			if (!boundContext.documentAuthoring &&
+				['read_story_draft', 'write_story_draft', 'read_atlas_draft', 'write_atlas_draft'].includes(name)) {
+				const { createChatDocumentAuthoringContext } = await import('./chatDocumentAuthoring')
+				boundContext.documentAuthoring = createChatDocumentAuthoringContext(boundContext, name, args)
+			}
 			const hasWrites = context.run.workingSet.length > 0 || context.run.allowCreate
 			if (!hasWrites && (!READ_ONLY_TOOLS.has(name) || args.toEditor === true))
 				throw new Error(
@@ -411,6 +437,8 @@ export async function executeToolCall(
 		return result
 	}
 	try {
+		boundContext.signal?.throwIfAborted()
+		boundContext.assertBeforeCommit?.()
 		const commit = persistToolExecutionRun(boundContext.run)
 		const run = boundContext.run
 		if (
@@ -467,7 +495,9 @@ export async function executeToolCall(
 		}
 		return result
 	} catch (error) {
+		rollbackToolExecutionRun(boundContext.run)
 		markToolCallDiffsNotApplied(toolCall, boundContext)
+		const policyError = error as { code?: unknown; retryable?: unknown }
 		const toolError: ToolError = {
 			ok: false,
 			kind: 'handler_error',
@@ -476,8 +506,11 @@ export async function executeToolCall(
 			code:
 				error instanceof ToolExecutionTargetPersistenceError
 					? error.code
-					: 'dataset_target_conflict',
-			retryable: true,
+					: typeof policyError.code === 'string'
+						? policyError.code
+						: 'dataset_target_conflict',
+			retryable:
+				error instanceof ToolExecutionTargetPersistenceError || policyError.retryable === true,
 			sideEffectsApplied: false,
 		}
 		return {

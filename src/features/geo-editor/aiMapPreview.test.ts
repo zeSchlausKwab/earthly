@@ -63,6 +63,39 @@ function harness() {
 }
 
 describe('first AI-created Map preview', () => {
+	test('foreground local presentations claim previews temporarily without changing saved canvas choices', () => {
+		const h = harness()
+		const first = h.add('first')
+		h.add('second', [point('other')])
+		h.reveal(h.get(), 'run-1', 'chat-1', 'first', first.draft.id)
+		h.reveal(h.get(), 'run-2', 'chat-1', 'second', 'draft-second')
+		const before = JSON.stringify({
+			entries: h.get().mapStackEntries,
+			order: h.get().mapStackOrder,
+			drafts: h.get().geoEditDrafts,
+		})
+		expect(
+			deriveAiMapPreviewFeatures(h.get(), new Set(['first'])).map(
+				(feature) => feature.properties?.localWorkspaceId,
+			),
+		).toEqual(['second'])
+		expect(
+			JSON.stringify({
+				entries: h.get().mapStackEntries,
+				order: h.get().mapStackOrder,
+				drafts: h.get().geoEditDrafts,
+			}),
+		).toBe(before)
+		expect(
+			deriveAiMapPreviewFeatures(h.get()).map((feature) => feature.properties?.localWorkspaceId),
+		).toEqual(['first', 'second'])
+		h.get().setMapStackEntryVisible('ai-result:first', false)
+		expect(
+			deriveAiMapPreviewFeatures(h.get(), new Set()).map(
+				(feature) => feature.properties?.localWorkspaceId,
+			),
+		).toEqual(['second'])
+	})
 	test('waits for real geometry, reveals only the first Map of a run, and leaves authoring unchanged', () => {
 		const h = harness()
 		const { draft } = h.add('first', [

@@ -339,6 +339,8 @@ interface UseMapLayersOptions {
 	datasetFeatureSelectors?: Record<string, string[] | null>
 	/** Visible RFC 5870 coordinate references rendered as standalone pins. */
 	coordinateReferences?: VisibleCoordinateReference[]
+	/** Foreground presentation owns these local Maps; keep their ordinary previews off the canvas. */
+	claimedLocalWorkspaceIds?: ReadonlySet<string>
 }
 
 export function useMapLayers({
@@ -351,6 +353,7 @@ export function useMapLayers({
 	resolvedCollectionsVersion,
 	datasetFeatureSelectors = {},
 	coordinateReferences = [],
+	claimedLocalWorkspaceIds,
 }: UseMapLayersOptions) {
 	const [remoteLayersReady, setRemoteLayersReady] = useState(false)
 	const [styleInitVersion, setStyleInitVersion] = useState(0)
@@ -365,14 +368,17 @@ export function useMapLayers({
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
 	const localPreviewFeatures = useMemo(
 		() =>
-			deriveAiMapPreviewFeatures({
-				mapStackEntries,
-				mapStackOrder,
-				workspaces,
-				geoEditDrafts,
-				activeWorkspaceId,
-				activeGeoEditDraftId,
-			}),
+			deriveAiMapPreviewFeatures(
+				{
+					mapStackEntries,
+					mapStackOrder,
+					workspaces,
+					geoEditDrafts,
+					activeWorkspaceId,
+					activeGeoEditDraftId,
+				},
+				claimedLocalWorkspaceIds,
+			),
 		[
 			mapStackEntries,
 			mapStackOrder,
@@ -380,6 +386,7 @@ export function useMapLayers({
 			geoEditDrafts,
 			activeWorkspaceId,
 			activeGeoEditDraftId,
+			claimedLocalWorkspaceIds,
 		],
 	)
 	useEffect(() => {

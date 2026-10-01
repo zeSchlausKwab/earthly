@@ -23,6 +23,8 @@
  */
 
 import { useActiveAccount } from 'applesauce-react/hooks'
+import { useEditorStore } from '@/features/geo-editor/store'
+import { localMapPresentationLabel } from '@/features/geo-editor/map-presentation/localSources'
 import { Camera, Layers3, MessageSquare, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { toast } from 'sonner'
@@ -90,6 +92,9 @@ import {
 	registerStoryPublicationEditor,
 } from '@/features/geo-editor/storyPublication'
 import { useRetainedEditorDraft } from '@/hooks/useRetainedEditorDraft'
+import { registerDocumentDraftForm } from '@/features/chat/tools/documentDraftForms'
+import { localMapReference, localStoryReferences } from '@/lib/nostr/story/localReferences'
+import { getCurrentPubkey } from '@/lib/wallet/currentUser'
 import type { StoryViewDraftContext } from '@/components/editor/StoryViewDraftContext'
 import { accounts } from '@/lib/nostr'
 import {
@@ -100,6 +105,8 @@ import {
 } from '@/lib/nostr/article'
 import {
 	deriveStoryPresentationAuthorization,
+	mapPresentationSourceKey,
+	resolveLocalMapPresentationSource,
 	getUsableMapPresentation,
 	parseMapPresentation,
 	parseMapPresentationSource,
@@ -233,8 +240,11 @@ function persistStoryEditorDraft(identity: string, snapshot: StoryEditorDraftSna
 function storySourceOptions(
 	body: string,
 	availableFeatures: GeoFeatureItem[],
+	localLabels: ReadonlyMap<string, string>,
 ): PresentationSourceOption[] {
-	const authorization = deriveStoryPresentationAuthorization(body)
+	const authorization = deriveStoryPresentationAuthorization(body, {
+		allowLocalDraftReferences: true,
+	})
 	const labels = new Map<string, string>()
 	for (const item of availableFeatures) {
 		if (!item.address.startsWith('naddr1')) continue
@@ -246,7 +256,12 @@ function storySourceOptions(
 		const parsed = parseMapPresentationSource(grant.source)
 		return {
 			source: grant.source,
-			label: labels.get(grant.source) ?? parsed?.identifier ?? grant.source,
+			label:
+				labels.get(mapPresentationSourceKey(grant.source)) ??
+				parsed?.identifier ??
+				(typeof grant.source === 'string'
+					? grant.source
+					: (localLabels.get(grant.source.workspaceId) ?? 'Local Map')),
 		}
 	})
 }
@@ -264,10 +279,25 @@ function StoryPresentationEditor({
 	onChange: (value: unknown) => void
 	captureMapPresentation?: StoryEditorPanelProps['captureMapPresentation']
 }) {
-	const authorization = useMemo(() => deriveStoryPresentationAuthorization(body), [body])
+	const workspaces = useEditorStore((state) => state.workspaces)
+	const drafts = useEditorStore((state) => state.geoEditDrafts)
+	const localLabels = useMemo(
+		() =>
+			new Map(
+				Object.keys(workspaces).map((workspaceId) => [
+					workspaceId,
+					localMapPresentationLabel({ workspaces, geoEditDrafts: drafts }, workspaceId),
+				]),
+			),
+		[workspaces, drafts],
+	)
+	const authorization = useMemo(
+		() => deriveStoryPresentationAuthorization(body, { allowLocalDraftReferences: true }),
+		[body],
+	)
 	const options = useMemo(
-		() => storySourceOptions(body, availableFeatures),
-		[body, availableFeatures],
+		() => storySourceOptions(body, availableFeatures, localLabels),
+		[body, availableFeatures, localLabels],
 	)
 	const { parsed, presentation, future, invalid, captureError, capturePresentation } =
 		useMapPresentationEditor({
@@ -429,6 +459,40 @@ export function StoryEditorPanel({
 	const [body, setBody] = useState(initial.body)
 	const [bodyTab, setBodyTab] = useState<'write' | 'preview'>(initial.bodyTab)
 	const [presentation, setPresentation] = useState<unknown>(initial.presentation)
+	const localWorkspaces = useEditorStore((state) => state.workspaces)
+	const localDrafts = useEditorStore((state) => state.geoEditDrafts)
+	const previewFeatures = useMemo(() => {
+		if ((currentUser?.pubkey ?? null) !== getCurrentPubkey()) return availableFeatures
+		const mentions: GeoFeatureItem[] = []
+		const seen = new Set<string>()
+		for (const reference of localStoryReferences(body)) {
+			const workspace = localWorkspaces[reference.workspaceId]
+			const draft = localDrafts[workspace?.activeDraftId ?? '']
+			if (!workspace || !draft || draft.sourceId !== workspace.sourceId) continue
+			const address = localMapReference(reference.workspaceId)
+			const id = `${address}${reference.featureId ? `#${reference.featureId}` : ''}`
+			if (seen.has(id)) continue
+			seen.add(id)
+			const label = localMapPresentationLabel(
+				{ workspaces: localWorkspaces, geoEditDrafts: localDrafts },
+				reference.workspaceId,
+			)
+			const feature = reference.featureId
+				? draft.features.find((item) => String(item.id) === reference.featureId)
+				: undefined
+			if (reference.featureId && !feature) continue
+			mentions.push({
+				id,
+				address,
+				name: feature ? String(feature.properties?.name ?? reference.featureId) : label,
+				entityType: feature ? 'feature' : 'dataset',
+				datasetName: label,
+				...(reference.featureId ? { featureId: reference.featureId } : {}),
+				...(feature?.geometry ? { geometryType: feature.geometry.type } : {}),
+			})
+		}
+		return [...availableFeatures, ...mentions]
+	}, [availableFeatures, body, currentUser?.pubkey, localDrafts, localWorkspaces])
 	const [isSaving, setIsSaving] = useState(false)
 	const [saveError, setSaveError] = useState<string | null>(null)
 	// Controlled inputs represent absent optional strings as ''. Map unchanged
@@ -491,12 +555,63 @@ export function StoryEditorPanel({
 	const cleanDraftSignatureRef = useRef(
 		JSON.stringify(storyDraftSnapshot({ ...initial, bodyTab: initial.bodyTab })),
 	)
-	const { setDirty, persistNow, clearRetainedDraft } = useRetainedEditorDraft({
+	const {
+		setDirty,
+		persistNow,
+		clearRetainedDraft,
+		flushRetainedDraft,
+		suppressRetainedDraftSave,
+	} = useRetainedEditorDraft({
 		identity: draftKey,
 		snapshot: draftSnapshot,
 		persist: persistStoryEditorDraft,
 		clear: clearStoryDraft,
 	})
+	const storedFormSignature = () => {
+		const stored = readStoryDraft(draftKey, currentUser?.pubkey ?? null)
+		return (
+			stored &&
+			JSON.stringify(
+				storyDraftSnapshot({
+					title: stored.title ?? '',
+					summary: stored.summary ?? '',
+					image: stored.image ?? '',
+					body: stored.content ?? '',
+					bodyTab: stored.bodyTab ?? 'write',
+					presentation: stored.presentation,
+				}),
+			)
+		)
+	}
+	const flushPendingForm = () => {
+		if (draftSignature === cleanDraftSignatureRef.current) return
+		if (storedFormSignature() === draftSignature) {
+			cleanDraftSignatureRef.current = draftSignature
+			setDirty(false)
+			return
+		}
+		setDirty(true)
+		flushRetainedDraft()
+		if (storedFormSignature() !== draftSignature) {
+			setDirty(true)
+			throw new Error('Pending Story input could not be saved. The AI edit was cancelled.')
+		}
+		cleanDraftSignatureRef.current = draftSignature
+	}
+	useEffect(
+		() =>
+			registerDocumentDraftForm({
+				kind: 'story',
+				draftKey,
+				ownerPubkey: currentUser?.pubkey ?? null,
+				flush: flushPendingForm,
+				suppress: () => {
+					suppressRetainedDraftSave()
+					if (!readStoryDraft(draftKey, currentUser?.pubkey ?? null)) onClose()
+				},
+			}),
+		[draftKey, currentUser?.pubkey, flushPendingForm, suppressRetainedDraftSave],
+	)
 
 	// Reset only for a genuinely replaced Story/revision, not a recreated Article
 	// wrapper or an unrelated parent render. The mounted create slot starts from state.
@@ -552,11 +667,17 @@ export function StoryEditorPanel({
 		setDirty(draftSignature !== cleanDraftSignatureRef.current)
 	}, [draftSignature, setDirty])
 	useEffect(() => {
-		if (draftSignature === cleanDraftSignatureRef.current && !readStoryDraft(draftKey)) return
+		if (draftSignature === cleanDraftSignatureRef.current) return
 		// Keep the chat's publication status in sync while this form is mounted.
-		const timer = setTimeout(persistNow, 250)
+		const timer = setTimeout(() => {
+			try {
+				flushPendingForm()
+			} catch {
+				setSaveError("Couldn't save your draft locally. Your text is still here.")
+			}
+		}, 250)
 		return () => clearTimeout(timer)
-	}, [draftKey, draftSignature, persistNow])
+	}, [draftKey, draftSignature, flushPendingForm])
 
 	const handleSaveDraft = () => {
 		setSaveError(null)
@@ -603,10 +724,13 @@ export function StoryEditorPanel({
 			registerStoryPublicationEditor(draftKey, {
 				flush: persistNow,
 				published: clearRetainedDraft,
-				resolvedBody: (resolved) => {
+				resolvedBody: (resolved, resolvedPresentation) => {
 					// The publisher validates again before signing. Commit the resolved
 					// body now so its flush callback cannot overwrite it with stale state.
-					flushSync(() => setBody(resolved))
+					flushSync(() => {
+						setBody(resolved)
+						setPresentation(resolvedPresentation)
+					})
 					bodyEditorRef.current?.setContent(resolved)
 				},
 			}),
@@ -685,13 +809,24 @@ export function StoryEditorPanel({
 			content.content = await resolveLocalStoryDependencies(content.content ?? '', {
 				storyDraftKey: draftKey,
 				storyTitle: title,
-				onProgress: (resolvedBody) => {
+				onProgress: (resolvedBody, _completed, _total, resolved) => {
+					if (resolved)
+						content.presentation = resolveLocalMapPresentationSource(
+							content.presentation,
+							resolved.workspaceId,
+							resolved.published.datasetCoordinate,
+						)
 					if (JSON.stringify(readStoryDraft(draftKey, ownerPubkey)) !== expectedDraft)
 						throw new Error(
 							'This Story draft changed while publishing its Maps. The published Maps remain available; review your draft before retrying.',
 						)
-					writeStoryDraft(draftKey, { ...draftSnapshot, content: resolvedBody }, ownerPubkey)
+					writeStoryDraft(
+						draftKey,
+						{ ...draftSnapshot, content: resolvedBody, presentation: content.presentation },
+						ownerPubkey,
+					)
 					expectedDraft = JSON.stringify(readStoryDraft(draftKey, ownerPubkey))
+					setPresentation(content.presentation)
 					setBody(resolvedBody)
 					bodyEditorRef.current?.setContent(resolvedBody)
 				},
@@ -909,8 +1044,8 @@ export function StoryEditorPanel({
 						<p className="text-xs text-muted-foreground">
 							This story includes local Map references. When you publish, you’ll be asked to publish
 							each required Map and replace its draft reference with a public link. Cancelling keeps
-							your Story draft and any completed links. Inline map views currently require published
-							Maps.
+							your Story draft and any completed links. Local Maps can also appear in opening views
+							and inline map figures while you author the Story.
 						</p>
 					)}
 					<Tabs
@@ -957,7 +1092,7 @@ Type $ to reference a Map, feature, OSM element, or coordinate.`}
 						    exactly as readers see it — never raw HTML (T-10-04). */}
 							<RichContentRenderer
 								content={body}
-								availableFeatures={availableFeatures}
+								availableFeatures={previewFeatures}
 								emptyState="Nothing to preview yet — switch to Write and add some narrative."
 								className="min-h-[160px]"
 								onStoryViewActivate={(view, index) => activateStoryView(view, index)}

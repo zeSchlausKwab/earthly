@@ -20,7 +20,7 @@ export type {
 export { TO_EDITOR_COMPATIBLE_TOOLS } from './types'
 
 // Tool definitions
-export { geoTools, getGeoTools } from './definitions'
+export { getGeoTools } from './definitions'
 
 // MCP hot-reload (D-05): poll-based live tool discovery
 export {

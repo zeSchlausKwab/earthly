@@ -13,7 +13,7 @@ export interface AiOutputNotice {
 }
 
 export function aiOutputKey(target: DraftActionTarget): string {
-	return target.kind === 'dataset' ? `map:${target.workspaceId}` : `story:${target.draftKey}`
+	return target.kind === 'dataset' ? `map:${target.workspaceId}` : `${target.kind}:${target.draftKey}`
 }
 
 /** Session-only attention, separate from durable drafts and AI permissions. */

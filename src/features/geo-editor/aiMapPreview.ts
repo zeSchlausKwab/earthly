@@ -104,11 +104,19 @@ export function revealFirstAiMapGeometry(
 }
 
 /** Local geometry joins the styled canvas source without manufacturing a Nostr event. */
-export function deriveAiMapPreviewFeatures(state: AiMapPreviewState): Feature[] {
+export function deriveAiMapPreviewFeatures(
+	state: AiMapPreviewState,
+	excludedWorkspaceIds?: ReadonlySet<string>,
+): Feature[] {
 	const isolatedId = state.mapStackOrder.find((id) => state.mapStackEntries[id]?.isolated)
 	return state.mapStackOrder.flatMap((id) => {
 		const entry = state.mapStackEntries[id]
-		if (!entry || (isolatedId ? isolatedId !== id : !entry.visible)) return []
+		if (
+			!entry ||
+			(isolatedId ? isolatedId !== id : !entry.visible) ||
+			excludedWorkspaceIds?.has(entry.entityKey)
+		)
+			return []
 		const draft = resolveAiMapPreviewDraft(state, entry)
 		if (!draft || hasManualDraftRow(state, entry)) return []
 		return draft.features.filter(hasGeometry).map((feature) => {

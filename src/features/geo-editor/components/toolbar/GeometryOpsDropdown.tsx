@@ -1,4 +1,5 @@
 import {
+	ArrowUpRight,
 	BetweenHorizontalStart,
 	Combine,
 	GitFork,
@@ -86,6 +87,7 @@ export function GeometryOpsDropdown({
 		'polygon-offset': BetweenHorizontalStart,
 		parallel: MoveHorizontal,
 		corridor: Route,
+		arrow: ArrowUpRight,
 	}
 
 	return (
@@ -172,41 +174,69 @@ export function GeometryOpsDropdown({
 							})}
 						</DropdownMenuSubContent>
 					</DropdownMenuSub>
+					{derivedGeometryOperationChoices
+						.filter((choice) => !choice.dragKind)
+						.map((choice) => {
+							const OperationIcon = operationIcons[choice.icon]
+							return (
+								<DropdownMenuItem
+									key={choice.numericKind}
+									disabled={
+										!canUseGeometryOperationTarget(
+											choice.target,
+											canOperateOnLine,
+											canOperateOnPolygon,
+										)
+									}
+									onSelect={() => onOpenNumericGeometryOperation(choice.numericKind)}
+								>
+									<OperationIcon className="h-4 w-4" /> {choice.typeFlow}
+								</DropdownMenuItem>
+							)
+						})}
 					<DropdownMenuSub>
 						<DropdownMenuSubTrigger>
 							<MoveHorizontal className="h-4 w-4" />
 							Offset / Corridor
 						</DropdownMenuSubTrigger>
 						<DropdownMenuSubContent className="w-64">
-							{derivedGeometryOperationChoices.map((choice) => {
-								const OperationIcon = operationIcons[choice.icon]
-								return (
-									<DropdownMenuSub key={choice.numericKind}>
-										<DropdownMenuSubTrigger
-											disabled={
-												!canUseGeometryOperationTarget(
-													choice.target,
-													canOperateOnLine,
-													canOperateOnPolygon,
-												)
-											}
-										>
-											<OperationIcon className="h-4 w-4" />
-											{choice.typeFlow}
-										</DropdownMenuSubTrigger>
-										<DropdownMenuSubContent>
-											<DropdownMenuItem
-												onSelect={() => onOpenNumericGeometryOperation(choice.numericKind)}
+							{derivedGeometryOperationChoices
+								.filter((choice) => choice.dragKind)
+								.map((choice) => {
+									const OperationIcon = operationIcons[choice.icon]
+									return (
+										<DropdownMenuSub key={choice.numericKind}>
+											<DropdownMenuSubTrigger
+												disabled={
+													!canUseGeometryOperationTarget(
+														choice.target,
+														canOperateOnLine,
+														canOperateOnPolygon,
+													)
+												}
 											>
-												{choice.numericMenuLabel}
-											</DropdownMenuItem>
-											<DropdownMenuItem onSelect={() => onStartGeometryOperation(choice.dragKind)}>
-												<MousePointer2 className="h-4 w-4" /> Drag on map
-											</DropdownMenuItem>
-										</DropdownMenuSubContent>
-									</DropdownMenuSub>
-								)
-							})}
+												<OperationIcon className="h-4 w-4" />
+												{choice.typeFlow}
+											</DropdownMenuSubTrigger>
+											<DropdownMenuSubContent>
+												<DropdownMenuItem
+													onSelect={() => onOpenNumericGeometryOperation(choice.numericKind)}
+												>
+													{choice.numericMenuLabel}
+												</DropdownMenuItem>
+												{choice.dragKind ? (
+													<DropdownMenuItem
+														onSelect={() =>
+															choice.dragKind && onStartGeometryOperation(choice.dragKind)
+														}
+													>
+														<MousePointer2 className="h-4 w-4" /> Drag on map
+													</DropdownMenuItem>
+												) : null}
+											</DropdownMenuSubContent>
+										</DropdownMenuSub>
+									)
+								})}
 						</DropdownMenuSubContent>
 					</DropdownMenuSub>
 					<DropdownMenuSeparator />

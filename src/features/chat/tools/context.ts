@@ -448,6 +448,9 @@ function continuationInstruction(options: MapContextPromptOptions): string | nul
 	].join('\n')
 }
 
+const FLOW_MAP_PROMPT_HINT =
+	'FLOW MAPS — use extrude_line to turn an existing line into a filled fat line or fat arrow, with start/end widths, geographic units, and centered or left/right extrusion. For a pointed taper use shape="band" and endWidth=0; for a distinct arrowhead use shape="arrow". Arrows point toward the last coordinate. Use create_line_corridor for uniform round-ended buffers. Preserve source data and style derived polygons with fill and stroke as appropriate.'
+
 function firstVisibleGeometryInstruction(): string {
 	return [
 		'FIRST VISIBLE GEOMETRY — authoring requests are judged by map progress, not the amount researched.',
@@ -482,6 +485,7 @@ function createLegacyMapContextSystemMessage(
 			'REFERENCE BOUNDARIES — query the local catalog with kinds=["admin"] first, choose area results, then request their geometry by stable id. Country and admin-1 results can be batched by ids in one query. If the snapshot reports missing coverage, use get_reference_boundaries as the generalized compatibility fallback. Low-level OSM boundary calls are a last resort, never a verification step after a catalog hit. Do not author boundaries that only duplicate basemap context.',
 			'ROUTE ALIGNMENT — use valhalla_route for a road, bus, bicycle, pedestrian, or truck journey through 2–25 coordinate waypoints. Valhalla is not road-name search or full-relation retrieval and does not route rail. For rail, use route_over_network only when an actual LineString network was supplied by the user, attached as source data, or is already in the editor; otherwise report rail routing as unsupported. Default to route_over_network automatically for maritime lanes or an actual supplied/editor rail, river, canal, or custom LineString network, without waiting for the user to ask for routing, and prefer the dedicated host tool over sandbox pathfinder. Optional catalog transport packs may provide named corridors; their absence never authorizes an OSM fallback. Air links and explicitly schematic/historical corridors may be stylized, but mark mappingBasis and geometryPrecision="schematic". Never silently substitute coarse hand-drawn or nearly straight lines for available routing.',
 			'MAP CALLOUTS — an Earthly map callout is authored contextual content that belongs to and is stored on an existing geometry. It is always visible without hover or selection. Use add_feature_callout or one atomic add_feature_callouts batch. Never simulate a map callout by creating a Point, label, icon, popup, annotation, or a feature with type="callout".',
+			FLOW_MAP_PROMPT_HINT,
 			'SOURCE-PROVIDED SPATIAL DATA — before geocoding, inspect structured source rows, files, and API results for usable spatial fields such as latitude/longitude, coordinate pairs, GeoJSON, WKT, or geohashes. Normalize those values and preserve their source precision and provenance. Geocode only rows whose source genuinely lacks usable spatial data.',
 			'RESEARCH BUDGET — keep research proportional to the requested map. Batch independent lookups when a tool supports it, reuse facts and coordinates already returned, and stop researching once authoritative sources are sufficient to build the requested result. Do not repeatedly verify the same settled fact through different search tools.',
 			'WORKFLOW COMPLETION — carry an agreed multi-step request through to its final artifact unless a real blocker requires user input. Do not pause after an intermediate map write merely to ask whether to continue. If the user asked for both a dataset and a Story, finish the dataset first and then write or update the Story draft in the same workflow.',
@@ -549,7 +553,9 @@ function createCompactMapContextSystemMessage(
 		['web_search', 'wikipedia_lookup', 'wikipedia_extract', 'fetch_url'].includes(name),
 	)
 	const hasAuthoringTools = toolNames.some((name) =>
-		/^(write_|add_|set_|batch_|style_|draw_|buffer_|offset_|split_|create_|import_)/.test(name),
+		/^(write_|add_|set_|batch_|style_|draw_|buffer_|offset_|split_|create_|import_|extrude_)/.test(
+			name,
+		),
 	)
 	const hasAdministrativeBoundaryTools = toolNames.some((name) =>
 		['query_geography', 'get_reference_boundaries'].includes(name),
@@ -569,6 +575,7 @@ function createCompactMapContextSystemMessage(
 			firstVisibleGeometryInstruction(),
 			'INTENT GATE — answer advisory, explanatory, and planning questions without changing the map. Mutate only when the user explicitly asks to create, add, draw, import, edit, update, or delete something.',
 			'BASEMAP IS CONTEXT — do not author surrounding countries, regions, roads, labels, terrain, or water merely as background. Add a boundary only when requested or thematically meaningful.',
+			...(toolNames.includes('extrude_line') ? [FLOW_MAP_PROMPT_HINT] : []),
 			"SOURCE ORDER — use query_geography first for administrative areas, localities, places, waterways, and infrastructure from Earthly's fast baseline catalog. Road and rail are optional coverage packs; kind_unavailable for either is intentional and MUST NOT trigger remote OSM. Categories are exact filters: start with name and kind, and only add a category already observed in results or category suggestions; use adminLevels for hierarchy. Discover human-readable queries first, then import selected results by their returned stable ids; known stable ids may be imported directly. Use bundled world layers for generalized global coastline/major-river/world-city computation. Use remote OSM only as a last resort when those sources genuinely lack required local detail in a baseline kind; an exact user-supplied OSM element or relation id remains valid for its exact-id tool. Use web/Wikipedia for facts, never geometry. Inspect source-provided coordinates/GeoJSON/WKT before geocoding, and do not repeatedly verify an authoritative result.",
 			'PRECISION — preserve provenance and coordinate precision. Label geometry as schematic, generalized, network-derived, or exact as appropriate; never imply remembered or hand-drawn geometry follows a real network. Historical maps must state whether modern boundaries are proxies.',
 			'EXECUTION — complete the requested artifact unless genuinely blocked. Prefer one atomic batch write. Trust a successful authoring result; do not re-read the editor merely to verify it. If a tool fails, change approach instead of repeating identical calls.',

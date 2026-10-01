@@ -6,6 +6,8 @@ import {
 import { coordinateToNaddrReference } from '@/lib/nostr/references'
 
 export interface GroupCreationSeed {
+	/** Explicit independent retained Atlas identity; metadata is hydrated from this slot. */
+	draftKey?: string
 	name?: string
 	description?: string
 	curatedReferences?: readonly string[]

@@ -25,6 +25,7 @@ import {
 	getStoryEditorTarget,
 	subscribeStoryEditorOpenRequests,
 } from '@/features/geo-editor/storyEditorBridge'
+import { getAtlasEditorOpenRequest, subscribeAtlasEditorOpenRequests } from '@/features/groups/atlasEditorBridge'
 import { acknowledgeAiOutput, useAiOutputAttention } from '@/features/chat/outputAttention'
 import {
 	AI_OUTPUT_ATTENTION_CLASS,
@@ -1080,6 +1081,20 @@ export function AppSidebar({
 		}
 		reveal()
 		return subscribeStoryEditorOpenRequests(reveal)
+	}, [chatOpen, chatDock])
+	const consumedAtlasReveal = useRef(0)
+	useEffect(() => {
+		const reveal = () => {
+			const request = getAtlasEditorOpenRequest()
+			if (!request?.reveal || request.nonce === consumedAtlasReveal.current) return
+			consumedAtlasReveal.current = request.nonce
+			if (chatOpen && chatDock === 'left') useEditorStore.getState().setChatDock('right')
+			setActiveEntity('context')
+			setSelectedEntitySurface('context')
+			setShowEntityAsFullPanel(true)
+		}
+		reveal()
+		return subscribeAtlasEditorOpenRequests(reveal)
 	}, [chatOpen, chatDock])
 
 	const returnToContextEditor = () => {

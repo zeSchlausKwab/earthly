@@ -25,6 +25,7 @@ export function workPublication(
 		}
 	let address: string | undefined
 	if (target.kind === 'story') address = target.storyReference?.replace(/^nostr:/, '')
+	else if (target.kind === 'atlas') address = target.atlasReference?.replace(/^nostr:/, '')
 	else if (
 		workspace?.kind === 'dataset' &&
 		workspace.sourceId.startsWith('dataset:') &&
@@ -52,7 +53,7 @@ export function workPublication(
 				: modified === false
 					? 'This draft matches its last publication. Open the published version.'
 					: 'Open the published item. Further draft edits stay local until you publish again. Changes have not been compared with the published content.',
-			href: `/${target.kind === 'story' ? 'story' : 'map'}/${address}`,
+			href: `/${target.kind === 'story' ? 'story' : target.kind === 'atlas' ? 'atlas' : 'map'}/${address}`,
 		}
 	}
 	return {

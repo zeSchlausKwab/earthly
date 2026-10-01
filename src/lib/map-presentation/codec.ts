@@ -1,3 +1,4 @@
+import { encodeNostrFeatureId } from '@/lib/nostr/references'
 import { LUCIDE_ICON_NAMES } from '@/features/geo-editor/icons/lucideIcons'
 import {
 	MAP_PRESENTATION_SOURCE_KIND,
@@ -6,6 +7,8 @@ import {
 	type MapPresentationIssue,
 	type MapPresentationIssueCode,
 	type MapPresentationLayerV1,
+	type LocalMapPresentationSource,
+	type MapPresentationLayerSource,
 	type MapPresentationParseResult,
 	type MapPresentationSource,
 	type MapPresentationStyleOverrideV1,
@@ -151,6 +154,85 @@ export function parseMapPresentationSource(value: unknown): {
 		identifier,
 		coordinate,
 	})
+}
+
+/** Parse the explicit draft-only source. Unknown fields cannot silently retarget it. */
+export function parseLocalMapPresentationSource(value: unknown): LocalMapPresentationSource | null {
+	if (!isRecord(value) || value.kind !== 'local-map') return null
+	if (Object.keys(value).some((key) => key !== 'kind' && key !== 'workspaceId')) return null
+	if (
+		typeof value.workspaceId !== 'string' ||
+		!value.workspaceId ||
+		value.workspaceId.trim() !== value.workspaceId ||
+		value.workspaceId.length > MAP_PRESENTATION_LIMITS.dTagLength ||
+		hasControlCharacter(value.workspaceId)
+	)
+		return null
+	return Object.freeze({ kind: 'local-map', workspaceId: value.workspaceId })
+}
+
+export function parseMapPresentationLayerSource(value: unknown): MapPresentationLayerSource | null {
+	return parseMapPresentationSource(value)?.coordinate ?? parseLocalMapPresentationSource(value)
+}
+
+/** Canonical lookup key: separate object instances identify the same local Map. */
+export function mapPresentationSourceKey(source: MapPresentationLayerSource): string {
+	return typeof source === 'string'
+		? source
+		: `earthly-draft:${encodeNostrFeatureId(source.workspaceId)}`
+}
+
+export function parseLocalMapPresentationReference(
+	value: unknown,
+): LocalMapPresentationSource | null {
+	if (typeof value !== 'string' || !/^earthly-draft:[a-zA-Z0-9_%~.\-]+$/u.test(value)) return null
+	try {
+		return parseLocalMapPresentationSource({
+			kind: 'local-map',
+			workspaceId: decodeURIComponent(value.slice('earthly-draft:'.length)),
+		})
+	} catch {
+		return null
+	}
+}
+
+/** Reject recognizable local sources even in opaque future schemas before signing. */
+export function assertPublishedMapPresentationSources(value: unknown): void {
+	if (!isRecord(value) || !Array.isArray(value.layers)) return
+	if (
+		value.layers.some(
+			(layer) =>
+				isRecord(layer) &&
+				((isRecord(layer.source) && layer.source.kind === 'local-map') ||
+					(typeof layer.source === 'string' && layer.source.startsWith('earthly-draft:'))),
+		)
+	) {
+		throw new Error(
+			'This presentation still references local Map drafts. Publish the referenced Maps explicitly and replace their local presentation sources before publishing the Story or Atlas.',
+		)
+	}
+}
+
+/** Explicitly resolve a published draft without publishing any dependent Map. */
+export function resolveLocalMapPresentationSource(
+	value: unknown,
+	workspaceId: string,
+	coordinate: unknown,
+): unknown {
+	const source = parseMapPresentationSource(coordinate)?.coordinate
+	if (!source)
+		throw new Error(
+			'A published Map coordinate is required to resolve a local presentation source.',
+		)
+	if (!isRecord(value) || !Array.isArray(value.layers)) return value
+	return {
+		...value,
+		layers: value.layers.map((layer) => {
+			if (!isRecord(layer)) return layer
+			const local = parseLocalMapPresentationSource(layer.source)
+			return local?.workspaceId === workspaceId ? { ...layer, source } : layer
+		}),
+	}
 }
 
 interface ParsedValue<T> {
@@ -423,14 +505,14 @@ function parseLayer(value: unknown, path: string): ParsedValue<MapPresentationLa
 			],
 		}
 	}
-	const source = parseMapPresentationSource(value.source)
+	const source = parseMapPresentationLayerSource(value.source)
 	if (!source) {
 		return {
 			issues: [
 				issue(
 					'invalid-source',
 					`${path}.source`,
-					'Layer source must be an exact kind-37515 coordinate with a 64-hex pubkey and non-empty d-tag.',
+					'Layer source must be an exact kind-37515 coordinate or an explicit local-map workspace source.',
 				),
 			],
 		}
@@ -470,7 +552,7 @@ function parseLayer(value: unknown, path: string): ParsedValue<MapPresentationLa
 
 	const layer: MapPresentationLayerV1 = {
 		id: value.id,
-		source: source.coordinate,
+		source,
 		...(hasOwn(value, 'featureIds') ? { featureIds: featureIds ?? Object.freeze([]) } : {}),
 		visible: hasOwn(value, 'visible') ? (value.visible as boolean) : true,
 		opacityMultiplier: hasOwn(value, 'opacityMultiplier') ? (value.opacityMultiplier as number) : 1,

@@ -1,4 +1,10 @@
-import { accounts } from '@/lib/nostr'
+import { accounts, eventStore } from '@/lib/nostr'
+import { castEvent } from 'applesauce-core/casts'
+import { MapContext } from '@/lib/nostr/map-context'
+import { isGroup } from '@/lib/nostr/group'
+import { naddrToCoordinate } from '@/lib/nostr/references'
+import { readGroupEditorDraft, clearGroupEditorDraft } from '@/features/groups/editorDraft'
+import { requestOpenAtlasEditor, clearAtlasEditorTarget, getAtlasEditorTarget } from '@/features/groups/atlasEditorBridge'
 import { clearStoryDraft, readStoryDraft } from '@/lib/nostr/story/draft'
 import { openChatWorkspace } from './authoringTaskBridge'
 import { navigateToRoute } from './hooks/useRouting'
@@ -9,9 +15,10 @@ import { useEditorStore } from './store'
 export type DraftActionTarget =
 	| { kind: 'dataset'; workspaceId: string; title: string; draftId?: string }
 	| { kind: 'story'; draftKey: string; storyReference?: string; title: string }
+	| { kind: 'atlas'; draftKey: string; atlasReference?: string; title: string }
 
 export function draftActionKey(target: DraftActionTarget): string {
-	return target.kind === 'dataset' ? `map:${target.workspaceId}` : `story:${target.draftKey}`
+	return target.kind === 'dataset' ? `map:${target.workspaceId}` : `${target.kind}:${target.draftKey}`
 }
 
 type MapDraftActions = {
@@ -35,8 +42,30 @@ export function registerStoryDraftDiscard(key: string, discard: () => void) {
 	}
 }
 
+const atlasDiscarders = new Map<string, () => void>()
+/** Prevent a mounted Atlas form from restoring its discarded slot on unmount. */
+export function registerAtlasDraftDiscard(key: string, discard: () => void) {
+	atlasDiscarders.set(key, discard)
+	return () => {
+		if (atlasDiscarders.get(key) === discard) atlasDiscarders.delete(key)
+	}
+}
+
 export async function openSavedDraft(target: DraftActionTarget): Promise<void> {
 	if (target.kind === 'dataset') return openChatWorkspace(target.workspaceId)
+	if (target.kind === 'atlas') {
+		if (!readGroupEditorDraft(target.draftKey)) throw new Error('This Atlas draft is unavailable.')
+		let context: MapContext | undefined
+		if (target.atlasReference) {
+			const coordinate = naddrToCoordinate(target.atlasReference.replace(/^nostr:/, ''))
+			const [kind, pubkey, ...identifier] = coordinate?.split(':') ?? []
+			const event = coordinate ? eventStore.getReplaceable(Number(kind), pubkey!, identifier.join(':')) : undefined
+			if (!event || !isGroup(event)) throw new Error('This Atlas source is not loaded. Open its published version first.')
+			context = castEvent(event, MapContext, eventStore)
+		}
+		requestOpenAtlasEditor(target.draftKey, context, { reveal: true })
+		return
+	}
 	if (target.storyReference) {
 		navigateToRoute(`/story/${target.storyReference.replace(/^nostr:/, '')}/edit`, {
 			preserveThread: true,
@@ -53,14 +82,14 @@ export async function viewSavedDraft(target: DraftActionTarget): Promise<void> {
 		await mapActions.view(target.workspaceId)
 	} else {
 		await openSavedDraft(target)
-		requestDraftReview(target, 'preview')
+		if (target.kind === 'story') requestDraftReview(target, 'preview')
 	}
 }
 
 /** No network publication here: the author reviews the normal publishing controls. */
 export async function reviewSavedDraft(target: DraftActionTarget): Promise<void> {
 	await openSavedDraft(target)
-	requestDraftReview(target, 'publish')
+	if (target.kind !== 'atlas') requestDraftReview(target, 'publish')
 }
 
 export async function discardSavedDraft(
@@ -84,6 +113,10 @@ export async function discardSavedDraft(
 				'A different draft is now selected. Reopen the draft actions before discarding.',
 			)
 		mapActions.discard(target.workspaceId, workspace.activeDraftId)
+	} else if (target.kind === 'atlas') {
+		atlasDiscarders.get(target.draftKey)?.()
+		clearGroupEditorDraft(target.draftKey, owner)
+		if (getAtlasEditorTarget()?.draftKey === target.draftKey) clearAtlasEditorTarget()
 	} else {
 		storyDiscarders.get(target.draftKey)?.()
 		clearStoryDraft(target.draftKey, owner)

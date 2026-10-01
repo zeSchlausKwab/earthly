@@ -7,6 +7,7 @@ import {
 	subscribeStoryDrafts,
 	listNewStoryDrafts,
 } from '@/lib/nostr/story/draft'
+import { getGroupEditorDraftRevision, subscribeGroupEditorDrafts, listNewGroupEditorDrafts } from '@/features/groups/editorDraft'
 import { openSavedDraft } from '@/features/geo-editor/draftActions'
 import { toast } from 'sonner'
 import { DraftRowActions } from './DraftRowActions'
@@ -366,6 +367,7 @@ export function WorkspaceDraftNavigator({
 		return (
 			<div className="space-y-2">
 				<NewStoryDrafts />
+				<NewAtlasDrafts />
 				{proposalWorkspaces.length > 0 ? (
 					<div className="space-y-1.5">
 						<div className="px-1 text-[10px] font-medium uppercase tracking-[0.16em] text-primary">
@@ -818,6 +820,31 @@ function NewStoryDrafts() {
 							}
 						>
 							<FileText className="size-3.5 shrink-0" />
+							<span className="truncate">{target.title}</span>
+						</Button>
+						<DraftRowActions target={target} />
+					</div>
+				)
+			})}
+		</section>
+	)
+}
+
+function NewAtlasDrafts() {
+	const account = useActiveAccount()
+	useSyncExternalStore(subscribeGroupEditorDrafts, getGroupEditorDraftRevision, () => 0)
+	const drafts = listNewGroupEditorDrafts(account?.pubkey ?? null)
+	if (!drafts.length) return null
+	return (
+		<section aria-label="New Atlas drafts" className="space-y-1.5 pb-2">
+			<h3 className="px-1 text-xs font-medium">Atlas drafts · {drafts.length}</h3>
+			{drafts.map((draft) => {
+				const target = { kind: 'atlas' as const, draftKey: draft.draftKey, title: draft.name || 'Untitled Atlas' }
+				return (
+					<div key={draft.draftKey} className="flex min-w-0 items-center border border-border p-1">
+						<EntityDragHandle item={transferFromTarget({ ...target, id: `atlas:${draft.draftKey}`, intent: 'create' })} />
+						<Button variant="ghost" className="min-w-0 flex-1 justify-start" onClick={() => void openSavedDraft(target).catch((error) => toast.error(error.message))}>
+							<Layers className="size-3.5 shrink-0" />
 							<span className="truncate">{target.title}</span>
 						</Button>
 						<DraftRowActions target={target} />

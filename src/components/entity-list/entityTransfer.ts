@@ -44,6 +44,7 @@ export function transferFromResult(result: EntitySearchResult): EntityTransfer {
 		featureId: result.featureId ?? (result.type === 'feature' ? entity?.featureId : undefined),
 		localWorkspaceId: result.localWorkspaceId,
 		localStoryDraftKey: result.localStoryDraftKey,
+		localAtlasDraftKey: result.localAtlasDraftKey,
 		pubkey: result.pubkey,
 		createdAt: result.createdAt,
 	}
@@ -53,10 +54,11 @@ export function transferFromTarget(target: ThreadWorkTarget): EntityTransfer {
 	return {
 		id: target.id,
 		name: target.title,
-		type: target.kind,
+		type: target.kind === 'atlas' ? 'context' : target.kind,
 		localWorkspaceId: target.kind === 'dataset' ? target.workspaceId : undefined,
 		localStoryDraftKey: target.kind === 'story' ? target.draftKey : undefined,
-		address: target.kind === 'story' ? target.storyReference?.replace(/^nostr:/, '') : undefined,
+		localAtlasDraftKey: target.kind === 'atlas' ? target.draftKey : undefined,
+		address: (target.kind === 'story' ? target.storyReference : target.kind === 'atlas' ? target.atlasReference : undefined)?.replace(/^nostr:/, ''),
 		workTarget: target,
 	}
 }

@@ -42,6 +42,14 @@ export interface ToolResult {
 }
 
 export interface ToolExecutionContext {
+	/** Explicit, transport-scoped Story/Atlas authoring permission and review. */
+	documentAuthoring?: import('./document-authoring').DocumentAuthoringContext
+	/** External transports can cancel before a detached change becomes durable. */
+	signal?: AbortSignal
+	/** Revalidate transport permission and the visible target immediately before persistence. */
+	assertBeforeCommit?: () => void
+	/** Transport policy also applies to host-side redirects, before a handler starts. */
+	assertToolAllowed?: (name: string, args: Record<string, unknown>) => void
 	attachedGeometry?: GeoJSON.FeatureCollection | null
 	/** Whether this run is allowed to capture and forward autonomous map screenshots. */
 	allowMapSnapshotCapture?: boolean

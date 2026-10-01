@@ -33,7 +33,10 @@
 import { type DatasetDiff, classifyMutation } from '@/features/geo-editor/api/diff'
 import type { MutationIntent } from '@/features/geo-editor/api/interceptor'
 import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
-import { ensureExecutionTargetForMutation } from '@/features/chat/tools/executionTarget'
+import {
+	ensureExecutionTargetForMutation,
+	projectDurableFeatures,
+} from '@/features/chat/tools/executionTarget'
 import type { SafetyLevel } from './AuthoringGate'
 import { emitDiffBlock, requestConfirm } from './pendingDiffStore'
 
@@ -83,7 +86,7 @@ export async function gateBulkApply(
 	apply: () => void,
 ): Promise<GateBulkResult> {
 	await ensureExecutionTargetForMutation()
-	const before = editor.getAllFeatures()
+	const before = projectDurableFeatures(editor.getAllFeatures())
 
 	// One snapshot per batch (D-11) — taken BEFORE the apply so Cancel restores it.
 	editor.pushDatasetSnapshot(deps.label)
@@ -101,7 +104,7 @@ export async function gateBulkApply(
 		throw err
 	}
 
-	const after = editor.getAllFeatures()
+	const after = projectDurableFeatures(editor.getAllFeatures())
 	// Classify with the CALLER'S intent (not hardcoded 'add') so dedup's dropped
 	// ids bucket as deletions and an attribute/style edit buckets as modifies.
 	const diff = classifyMutation(before, after, intent)

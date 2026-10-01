@@ -2,7 +2,7 @@ export { ChatPanel } from './ChatPanel'
 export { ChatSettingsSection } from './ChatSettingsSection'
 export { useChatSettingsSync } from './useChatSettingsSync'
 export { useChatStore, chatActions } from './store'
-export { geoTools, executeToolCall } from './tools'
+export { getGeoTools, executeToolCall } from './tools'
 export type {
 	ChatMessage,
 	RoutstrModel,

@@ -6,6 +6,7 @@ import { ZapDialogHost } from './features/social/comments/GeoSocialActions'
 import { CurrentUserReactionSync } from './features/social/reactions/CurrentUserReactionSync'
 import { TourManager } from './features/tour'
 import { useIsMobile } from './lib/hooks/useIsMobile'
+import { WebMcpRuntimeHost } from './features/webmcp/WebMcpRuntimeHost'
 
 export function App() {
 	const isMobile = useIsMobile()
@@ -14,6 +15,7 @@ export function App() {
 		<TooltipProvider>
 			<GeoEditorView />
 			<ChatRuntimeHost />
+			<WebMcpRuntimeHost />
 			<CurrentUserReactionSync />
 			<ZapDialogHost />
 			<Toaster

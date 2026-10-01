@@ -2,12 +2,12 @@ import { useCallback, useEffect } from 'react'
 import type * as maplibregl from 'maplibre-gl'
 import { earthlyGeoServer } from '@/ctxcn'
 import { createAuthoring } from '../api'
-import type { EditorFeature } from '../core'
+import type { GeoEditor } from '../core'
 import { useEditorStore } from '../store'
 
 export function useOsmQuery(
 	mapRef: React.RefObject<maplibregl.Map | null>,
-	editor: { addFeature: (f: EditorFeature) => void } | null,
+	editor: GeoEditor | null,
 ) {
 	const osmQueryMode = useEditorStore((state) => state.osmQueryMode)
 	const osmQueryFilter = useEditorStore((state) => state.osmQueryFilter)

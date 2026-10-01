@@ -2,6 +2,16 @@
 
 Earthly's chat is a client-side agent runtime coupled to the map through narrow tools. It streams an OpenAI-compatible model response, executes typed tool calls, and returns tool results until the conversation completes. Geometry writes pass through safety gates and the editor's `Authoring` facade.
 
+Scoped Threads can work on Maps, Stories and Atlases independently of the visible panel. References
+are read-only; the working set supplies explicit edit targets, with separate permission to create
+new local outputs. Story/Atlas handlers share a document service for partial edits, reference and
+presentation validation, prepared review, account-scoped persistence and revision-safe Undo.
+Mounted human input is flushed before reads and commit checks, and only matching forms refresh.
+
+Desktop agents can use a session-enabled subset of the same authoring tools through native WebMCP.
+The [desktop-agent integration guide](./webmcp.md) describes connection setup, GeoJSON and image
+delivery, revision tokens, execution ownership, and the shared review/Undo flow.
+
 ## Structural view
 
 ![Earthly chat architecture](./diagrams/chat.svg)
@@ -180,6 +190,10 @@ This is stronger than a sequence of `writeGeoJSON` plus `setDatasetMetadata` cal
 ### Search and selection semantics
 
 `find_features` is an explicitly read-only predicate preview. `select_features` applies the same host-evaluated predicate to the full bound dataset and replaces the editor's actual selection in one UI update. This naming matters because later `$selected` operations must reflect a visible, real selection rather than an invisible list of matching IDs.
+
+### Flow-map geometry
+
+`extrude_line` turns an existing line identified by `featureId` into a filled band or arrow through the Authoring facade and the shared geometry-operation kernel. Its schema exposes `shape` (`band`/`arrow`), total start `width`, optional `endWidth`, geographic `units`, `side` (`center`/`left`/`right`), optional `arrowHeadLength`/`arrowHeadWidth`, and `resultMode` (`copy`/`replace`). The default preserves the source. It uses the normal diff approval and undo flow, including rollback on cancellation or invalid geometry. `create_line_corridor` remains the uniform round-ended buffer operation.
 
 ### Thinking APIs and run continuity
 

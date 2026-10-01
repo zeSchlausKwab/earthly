@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DatasetEditOptions } from '@/components/info-panel/mapProposalPresentation'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
@@ -13,6 +13,10 @@ import {
 	type MobileWorkspaceOpenOptions,
 } from '../components/mobileEditPanelPresentation'
 import type { GroupCreationSeed } from '@/features/groups/creationSeed'
+import {
+	clearAtlasEditorTarget, getAtlasEditorOpenRequest, subscribeAtlasEditorOpenRequests,
+} from '@/features/groups/atlasEditorBridge'
+import { getStoryEditorOpenRequest, subscribeStoryEditorOpenRequests } from '../storyEditorBridge'
 
 interface UseContextEditorParams {
 	isMobile: boolean
@@ -60,6 +64,7 @@ export function useContextEditor({
 	const [contextEditorMode, setContextEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingContext, setEditingContext] = useState<MapContext | null>(null)
 	const [contextCreationSeed, setContextCreationSeed] = useState<GroupCreationSeed | null>(null)
+	const consumedAtlasOpenNonce = useRef(0)
 
 	const prepareNonGeometryEditorWorkspace = useCallback(
 		({ clearRoute = true }: { clearRoute?: boolean } = {}) => {
@@ -73,10 +78,14 @@ export function useContextEditor({
 	)
 
 	const clearEditorModes = useCallback(() => {
+		clearAtlasEditorTarget()
 		setContextEditorMode('none')
 		setEditingContext(null)
 		setContextCreationSeed(null)
 	}, [])
+	useEffect(() => subscribeStoryEditorOpenRequests(() => {
+		if (getStoryEditorOpenRequest()?.reveal) clearEditorModes()
+	}), [clearEditorModes])
 
 	const handleLoadDatasetForEditing = useCallback(
 		(event: GeoDataset, options?: DatasetEditOptions) => {
@@ -144,6 +153,27 @@ export function useContextEditor({
 		],
 	)
 
+	useEffect(() => {
+		const synchronize = () => {
+			const request = getAtlasEditorOpenRequest()
+			if (!request || request.nonce === consumedAtlasOpenNonce.current) return
+			consumedAtlasOpenNonce.current = request.nonce
+			setEditingContext(request.context ?? null)
+			setContextCreationSeed({ draftKey: request.draftKey })
+			setContextEditorMode(request.context ? 'edit' : 'create')
+			// AI persistence refreshes the retained form; only explicit navigation reveals it.
+			if (request.reveal) {
+				selectMobileEntitySurface('context')
+				prepareNonGeometryEditorWorkspace()
+				navigateToView('context-editor')
+				if (isMobile) ensureInfoPanelVisible()
+				else setShowInfoPanel(true)
+			}
+		}
+		synchronize()
+		return subscribeAtlasEditorOpenRequests(synchronize)
+	}, [ensureInfoPanelVisible, isMobile, navigateToView, prepareNonGeometryEditorWorkspace, selectMobileEntitySurface, setShowInfoPanel])
+
 	const handleEditContext = useCallback(
 		(context: MapContext) => {
 			selectMobileEntitySurface('context')
@@ -175,6 +205,7 @@ export function useContextEditor({
 
 	const handleSaveContext = useCallback(
 		(_context: MapContext) => {
+			clearAtlasEditorTarget()
 			setContextEditorMode('none')
 			setEditingContext(null)
 			setContextCreationSeed(null)
@@ -184,6 +215,7 @@ export function useContextEditor({
 	)
 
 	const handleCloseContextEditor = useCallback(() => {
+		clearAtlasEditorTarget()
 		// Navigation-safe close: only reroute when the editor was actually open —
 		// `startCreate` calls this as blanket cleanup for unrelated create flows.
 		const wasOpen = contextEditorMode !== 'none'

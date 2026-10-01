@@ -11,7 +11,7 @@ import { validateStoryPresentation } from '@/lib/nostr/story/lifecycle'
 import type { ToolJsonSchema } from './types'
 
 export const STORY_PRESENTATION_PROMPT_HINT =
-	'Story maps use write_story_draft.presentation for the opening MapPresentationV1 and physical ```earthly-view JSON fences in markdown for inline views, not scenes/anchors or URL overlays. Views patch stable opening-layer ids cumulatively; cue/both advance the main map, figure renders inline without changing later cues. Only semantic body Map/feature references authorize layers; never publish automatically.'
+	'Story maps use write_story_draft.presentation for the opening MapPresentationV1 and physical ```earthly-view JSON fences in markdown for inline views, not scenes/anchors or URL overlays. Views patch stable opening-layer ids cumulatively; cue/both advance the main map, figure renders inline without changing later cues. Only semantic body Map/feature references authorize layers. Draft-only local layers use {kind:"local-map",workspaceId:"..."} and semantic earthly-draft:<encoded workspaceId> mentions (optionally #featureId), scoped to current-account retained Maps. Local references and sources must be explicitly resolved before publication; never publish automatically.'
 
 export const STORY_VIEW_AUTHORING_HINT = [
 	STORY_PRESENTATION_PROMPT_HINT,
@@ -76,8 +76,20 @@ export const storyPresentationSchema: ToolJsonSchema = {
 							'Stable unique local layer id; preserve across edits. ASCII letters/digits plus . _ : -.',
 					},
 					source: {
-						type: 'string',
-						description: 'Exact latest Map coordinate: 37515:<64-hex-pubkey>:<d-tag>.',
+						anyOf: [
+							{ type: 'string' },
+							{
+								type: 'object',
+								additionalProperties: false,
+								properties: {
+									kind: { type: 'string', enum: ['local-map'] },
+									workspaceId: { type: 'string', minLength: 1, maxLength: limits.dTagLength },
+								},
+								required: ['kind', 'workspaceId'],
+							},
+						],
+						description:
+							'Exact published Map coordinate (37515:<64-hex-pubkey>:<d-tag>) or draft-only {kind:"local-map",workspaceId:"..."}. Local Maps must be mentioned as earthly-draft:<encoded workspaceId> in semantic body prose.',
 					},
 					featureIds: {
 						type: 'array',

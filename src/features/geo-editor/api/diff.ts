@@ -34,6 +34,16 @@ export interface DatasetDiff {
 	deleted: EditorFeature[]
 }
 
+/** Selection materializes properties.active for rendering; it is not authored map content. */
+export function projectDurableFeatures(features: readonly EditorFeature[]): EditorFeature[] {
+	return features.map((feature) => {
+		if (!feature.properties || !Object.hasOwn(feature.properties, 'active')) return feature
+		const properties = { ...feature.properties }
+		delete properties.active
+		return { ...feature, properties }
+	})
+}
+
 /** Structural deep-equality for plain JSON values (geometry / properties). */
 function deepEqual(a: unknown, b: unknown): boolean {
 	if (a === b) return true

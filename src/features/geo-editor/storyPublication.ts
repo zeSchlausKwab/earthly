@@ -1,3 +1,4 @@
+import { resolveLocalMapPresentationSource } from '@/lib/map-presentation'
 import { castEvent } from 'applesauce-core/casts'
 import { accounts, eventStore } from '@/lib/nostr'
 import { Article, getArticleContent, isArticle } from '@/lib/nostr/article'
@@ -19,7 +20,7 @@ type StoryTarget = Extract<DraftActionTarget, { kind: 'story' }>
 type MountedStory = {
 	flush: () => void
 	published: () => void
-	resolvedBody: (body: string) => void
+	resolvedBody: (body: string, presentation?: unknown) => void
 }
 const mounted = new Map<string, MountedStory>()
 export function registerStoryPublicationEditor(key: string, editor: MountedStory) {
@@ -117,11 +118,21 @@ export async function publishSavedStory(target: StoryTarget): Promise<Article> {
 			storyDraftKey: target.draftKey,
 			storyTitle: content.title,
 			validate,
-			onProgress: (body) => {
+			onProgress: (body, _completed, _total, resolved) => {
+				if (resolved)
+					content.presentation = resolveLocalMapPresentationSource(
+						content.presentation,
+						resolved.workspaceId,
+						resolved.published.datasetCoordinate,
+					)
 				const latest = readStoryDraft(target.draftKey) ?? captured
-				writeStoryDraft(target.draftKey, { ...latest, content: body }, account.pubkey)
+				writeStoryDraft(
+					target.draftKey,
+					{ ...latest, content: body, presentation: content.presentation },
+					account.pubkey,
+				)
 				expected = storyContentFingerprint({ ...content, content: body })
-				mounted.get(target.draftKey)?.resolvedBody(body)
+				mounted.get(target.draftKey)?.resolvedBody(body, content.presentation)
 			},
 		})
 		validate()

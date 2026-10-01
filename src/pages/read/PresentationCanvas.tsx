@@ -82,7 +82,7 @@ function datasetName(entry: PresentationLayerMaterializationInput): string {
 		collection?.name ??
 		collection?.properties?.name ??
 		entry.sourceEvent?.datasetId ??
-		entry.layer.source.split(':').at(-1) ??
+		(typeof entry.layer.source === 'string' ? entry.layer.source.split(':').at(-1) : 'Local Map') ??
 		'Map'
 	)
 }

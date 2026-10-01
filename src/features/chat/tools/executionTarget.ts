@@ -8,6 +8,8 @@ import { createAuthoring, type Authoring } from '@/features/geo-editor/api'
 import { GeoEditor, type EditorFeature } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
 import type { CollectionMeta } from '@/features/geo-editor/types'
+import { projectDurableFeatures } from '@/features/geo-editor/api/diff'
+export { projectDurableFeatures } from '@/features/geo-editor/api/diff'
 import type { ToolExecutionRunIdentity } from './types'
 import { runWorkingSet, releaseRunOutputs } from '../workingSet'
 
@@ -81,15 +83,6 @@ function serialize(value: unknown): string {
  * content changed. Keep every other GeoJSON property intact: only this known
  * presentation flag is outside the authoring/CAS boundary.
  */
-function projectDurableFeatures(features: readonly EditorFeature[]): EditorFeature[] {
-	return features.map((feature) => {
-		if (!feature.properties || !Object.hasOwn(feature.properties, 'active')) return feature
-		const properties = { ...feature.properties }
-		delete properties.active
-		return { ...feature, properties }
-	})
-}
-
 function serializeFeatures(features: readonly EditorFeature[]): string {
 	return serialize(projectDurableFeatures(features))
 }
@@ -283,7 +276,7 @@ export function prepareToolExecutionRun(run: ToolExecutionRunIdentity): void {
 	let editor: GeoEditor | null = null
 	try {
 		ensureBrowserTimerSurface()
-		editor = new GeoEditor(createDetachedMap(getFeatureBounds(draft.features)))
+		editor = new GeoEditor(createDetachedMap(run.view?.bbox ?? getFeatureBounds(draft.features)))
 		// GeoEditor installs global keyboard listeners in its constructor. A
 		// renderless background editor must become inert before any state is loaded
 		// into it so shortcuts can only ever affect the visible editor.
@@ -338,6 +331,10 @@ export function getExecutionEditor(): GeoEditor | null {
 export function getExecutionFeatures(): EditorFeature[] {
 	if (runtime) return runtime.editor.getAllFeatures()
 	return activeExecutionRun ? [] : useEditorStore.getState().features
+}
+
+export function getExecutionCollectionMeta(): CollectionMeta {
+	return clone(runtime?.collectionMeta ?? useEditorStore.getState().collectionMeta)
 }
 
 export function getExecutionSelectedFeatureIds(): string[] {

@@ -28,10 +28,18 @@ import type {
 } from 'geojson'
 import { MAX_DISTANCE_METERS, type PrimitiveUnits } from './primitives'
 import { nearestPointOnRenderedSegment } from './webMercator'
+import { makeLineBand, type LineBandOptions } from './lineBand'
 
-export type GeometryOperationKind = 'split' | 'offset-polygon' | 'offset-line' | 'corridor'
+export type GeometryOperationKind =
+	| 'split'
+	| 'offset-polygon'
+	| 'offset-line'
+	| 'corridor'
+	| 'fat-line'
+	| 'fat-arrow'
 
 export type GeometryOperationRequest =
+	| ({ kind: 'fat-line' | 'fat-arrow' } & LineBandOptions)
 	| {
 			kind: 'split'
 			cutter: Feature<Point | LineString | MultiLineString> | Point | LineString | MultiLineString
@@ -486,6 +494,17 @@ export function performGeometryOperation(
 			request.units ?? 'meters',
 			request.side,
 		)
+	} else if (request.kind === 'fat-line' || request.kind === 'fat-arrow') {
+		if (target.geometry.type !== 'LineString' && target.geometry.type !== 'MultiLineString') {
+			throw new GeometryOperationError('Line extrusion requires a LineString or MultiLineString.')
+		}
+		try {
+			geometries = [makeLineBand(target.geometry, request, request.kind === 'fat-arrow')]
+		} catch (error) {
+			throw new GeometryOperationError(
+				error instanceof Error ? error.message : 'Line extrusion failed.',
+			)
+		}
 	} else {
 		if (target.geometry.type !== 'LineString' && target.geometry.type !== 'MultiLineString') {
 			throw new GeometryOperationError('A corridor requires a LineString or MultiLineString.')

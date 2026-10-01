@@ -5,6 +5,14 @@ const map = { kind: 'dataset' as const, workspaceId: 'map-a', title: 'New Map' }
 const story = { kind: 'story' as const, draftKey: 'story-a', title: 'New Story' }
 
 describe('AI output attention', () => {
+	test('Atlas and Story notices with the same draft key stay independent', () => {
+		const store = new AiOutputAttentionStore()
+		const atlas = { kind: 'atlas' as const, draftKey: story.draftKey, title: 'Atlas' }
+		store.record('chat-a', story, 'owner')
+		store.record('chat-a', atlas, 'owner')
+		store.acknowledgeTarget(atlas)
+		expect(store.getSnapshot().map((notice) => notice.key)).toEqual([`story:${story.draftKey}`])
+	})
 	test('keeps new output notices after opening the editing list until the draft is viewed', () => {
 		const store = new AiOutputAttentionStore()
 		store.record('chat-a', map, 'owner')

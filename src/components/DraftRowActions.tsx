@@ -97,8 +97,8 @@ export function DraftRowActions({
 					size="icon"
 					className={cn('size-11 md:size-8', hasNewOutput && AI_OUTPUT_ATTENTION_CLASS)}
 					disabled={pending}
-					title={target.kind === 'dataset' ? 'View on map' : 'Preview Story'}
-					aria-label={`${target.kind === 'dataset' ? 'View on map' : 'Preview Story'}: ${target.title}`}
+						title={target.kind === 'dataset' ? 'View on map' : target.kind === 'atlas' ? 'Open Atlas draft' : 'Preview Story'}
+						aria-label={`${target.kind === 'dataset' ? 'View on map' : target.kind === 'atlas' ? 'Open Atlas draft' : 'Preview Story'}: ${target.title}`}
 					aria-description={hasNewOutput ? 'New AI changes are ready to view.' : undefined}
 					data-ai-attention={hasNewOutput || undefined}
 					onClick={() =>

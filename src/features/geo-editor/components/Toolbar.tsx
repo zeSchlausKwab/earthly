@@ -134,6 +134,7 @@ const geometryOperationIcons: Record<GeometryOperationIcon, typeof Scissors> = {
 	'polygon-offset': BetweenHorizontalStart,
 	parallel: MoveHorizontal,
 	corridor: Route,
+	arrow: ArrowUpRight,
 }
 
 interface DatasetActionsProps {
@@ -1191,41 +1192,66 @@ export function Toolbar({
 										))}
 									</MenubarSubContent>
 								</MenubarSub>
+								{derivedGeometryOperationChoices
+									.filter((choice) => !choice.dragKind)
+									.map((choice) => (
+										<ToolbarMenuItem
+											key={choice.numericKind}
+											icon={geometryOperationIcons[choice.icon]}
+											label={choice.typeFlow}
+											onSelect={() => setNumericGeometryOperation(choice.numericKind)}
+											disabled={
+												!canUseGeometryOperationTarget(
+													choice.target,
+													canOperateOnLine,
+													canOperateOnPolygon,
+												)
+											}
+										/>
+									))}
 								<MenubarSub>
 									<MenubarSubTrigger className="gap-2">
 										<MoveHorizontal className="h-4 w-4 text-muted-foreground" />
 										Offset / Corridor
 									</MenubarSubTrigger>
 									<MenubarSubContent className="min-w-64">
-										{derivedGeometryOperationChoices.map((choice) => {
-											const OperationIcon = geometryOperationIcons[choice.icon]
-											return (
-												<MenubarSub key={choice.numericKind}>
-													<MenubarSubTrigger
-														disabled={
-															!canUseGeometryOperationTarget(
-																choice.target,
-																canOperateOnLine,
-																canOperateOnPolygon,
-															)
-														}
-														className="gap-2"
-													>
-														<OperationIcon className="h-4 w-4" /> {choice.typeFlow}
-													</MenubarSubTrigger>
-													<MenubarSubContent>
-														<MenubarItem
-															onSelect={() => setNumericGeometryOperation(choice.numericKind)}
+										{derivedGeometryOperationChoices
+											.filter((choice) => choice.dragKind)
+											.map((choice) => {
+												const OperationIcon = geometryOperationIcons[choice.icon]
+												return (
+													<MenubarSub key={choice.numericKind}>
+														<MenubarSubTrigger
+															disabled={
+																!canUseGeometryOperationTarget(
+																	choice.target,
+																	canOperateOnLine,
+																	canOperateOnPolygon,
+																)
+															}
+															className="gap-2"
 														>
-															{choice.numericMenuLabel}
-														</MenubarItem>
-														<MenubarItem onSelect={() => startGeometryOperation(choice.dragKind)}>
-															Drag on map
-														</MenubarItem>
-													</MenubarSubContent>
-												</MenubarSub>
-											)
-										})}
+															<OperationIcon className="h-4 w-4" /> {choice.typeFlow}
+														</MenubarSubTrigger>
+														<MenubarSubContent>
+															<MenubarItem
+																onSelect={() => setNumericGeometryOperation(choice.numericKind)}
+															>
+																{choice.numericMenuLabel}
+															</MenubarItem>
+															{choice.dragKind ? (
+																<MenubarItem
+																	onSelect={() =>
+																		choice.dragKind && startGeometryOperation(choice.dragKind)
+																	}
+																>
+																	Drag on map
+																</MenubarItem>
+															) : null}
+														</MenubarSubContent>
+													</MenubarSub>
+												)
+											})}
 									</MenubarSubContent>
 								</MenubarSub>
 								<MenubarSeparator />

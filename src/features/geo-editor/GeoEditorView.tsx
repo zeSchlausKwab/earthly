@@ -53,7 +53,10 @@ import {
 import { ReferencePublishDialog } from '@/features/chat/referencePublishing'
 import { StoryTargetDialog } from '@/features/chat/storyTargeting'
 import { getStoryEditorTarget, subscribeStoryEditorOpenRequests } from './storyEditorBridge'
+import { getAtlasEditorPresentation, subscribeAtlasEditorPresentation } from '@/features/groups/atlasEditorBridge'
+import { localMapPresentationLabel } from './map-presentation/localSources'
 import { getStoryDraftRevision, subscribeStoryDrafts, listNewStoryDrafts } from '@/lib/nostr/story/draft'
+import { getGroupEditorDraftRevision, subscribeGroupEditorDrafts, listNewGroupEditorDrafts } from '@/features/groups/editorDraft'
 import { config } from '@/config/env.client'
 import { EARTHLY_ZAPSTORE_URL } from '@/config/app-downloads'
 import type { LocalDraftDestinationOption } from '@/components/WorkspaceDraftNavigator'
@@ -250,10 +253,13 @@ import {
 	buildFallbackStoryPresentation,
 	deriveAtlasPresentationAuthorization,
 	deriveStoryPresentationAuthorization,
+	mapPresentationSourceKey,
 	getPresentationDatasetSource,
 	getUsableMapPresentation,
 	MAP_PRESENTATION_VERSION,
 	parseAmbientOn,
+	parseLocalMapPresentationReference,
+	parseMapPresentation,
 	resolveAmbientOn,
 	type EffectiveStoryViewStateV1,
 	type MapPresentationAuthorization,
@@ -551,7 +557,7 @@ function DraftStoryPresentationFigure({
 	context: StoryViewDraftContext
 }) {
 	const authorization = useMemo(
-		() => deriveStoryPresentationAuthorization(context.body),
+		() => deriveStoryPresentationAuthorization(context.body, { allowLocalDraftReferences: true }),
 		[context.body],
 	)
 	const presentation = useMemo<MapPresentationParseResult>(
@@ -867,6 +873,7 @@ export function GeoEditorView() {
 	const activeMapDraft = useEditorStore((state) =>
 		state.activeGeoEditDraftId ? state.geoEditDrafts[state.activeGeoEditDraftId] : undefined,
 	)
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
 	const pendingHydratedDraftId = useEditorStore((state) => state.pendingHydratedDraftId)
 	const activeWorkspaceDatasetKey = useEditorStore((state) => {
@@ -883,6 +890,7 @@ export function GeoEditorView() {
 	useCatalogStackPriority(mapStackEntries, mapStackOrder)
 	const retainedMapDraftCount = useEditorStore((state) => Object.keys(state.geoEditDrafts).length)
 	useSyncExternalStore(subscribeStoryDrafts, getStoryDraftRevision, () => 0)
+	useSyncExternalStore(subscribeGroupEditorDrafts, getGroupEditorDraftRevision, () => 0)
 	const draftGeometryVisible = useMemo(
 		() => isDraftGeometryVisible(mapStackEntries, mapStackOrder),
 		[mapStackEntries, mapStackOrder],
@@ -1137,7 +1145,7 @@ export function GeoEditorView() {
 	)
 	const currentUser = useActiveAccount()
 	const currentUserPubkey = currentUser?.pubkey ?? null
-	const retainedDraftCount = retainedMapDraftCount + listNewStoryDrafts(currentUserPubkey).length
+	const retainedDraftCount = retainedMapDraftCount + listNewStoryDrafts(currentUserPubkey).length + listNewGroupEditorDrafts(currentUserPubkey).length
 	const mapPopupToolbarOffset = 112
 
 	useEffect(() => {
@@ -4093,8 +4101,18 @@ export function GeoEditorView() {
 	// Story presentation is the foreground narrative whenever one is open. The
 	// Atlas lens remains visible as route context, but its canonical layers do not
 	// compete with the Story's authored composition.
-	const presentationAtlas = presentationCarrierId ? null : routedLensAtlas
-	const atlasPresentationCarrierId = presentationAtlas?.groupCoordinate ?? null
+	const foregroundAtlasPresentation = useSyncExternalStore(subscribeAtlasEditorPresentation, getAtlasEditorPresentation, () => null)
+	const atlasDraftPresentation = !presentationCarrierId && foregroundAtlasPresentation?.ownerPubkey === (currentUserPubkey ?? null)
+		? foregroundAtlasPresentation : null
+	const presentationAtlas = presentationCarrierId || atlasDraftPresentation ? null : routedLensAtlas
+	const atlasPresentationCarrierId = atlasDraftPresentation
+		? `draft-atlas:${currentUserPubkey ?? 'anonymous'}:${atlasDraftPresentation.draftKey}`
+		: presentationAtlas?.groupCoordinate ?? null
+	const atlasPresentationAuthor = atlasDraftPresentation ? currentUserPubkey ?? undefined : presentationAtlas?.pubkey
+	const atlasAcceptedReferences = useMemo(() => atlasDraftPresentation?.acceptedReferences ?? presentationAtlas?.referencedAddresses ?? [], [atlasDraftPresentation, presentationAtlas])
+	const atlasPresentationRevisionId = atlasDraftPresentation
+		? `${atlasDraftPresentation.instanceId}:${JSON.stringify(atlasDraftPresentation.presentation)}`
+		: presentationAtlas?.id
 	const { isMentionVisible, presentationAuthorization: publishedStoryAuthorization } =
 		useStoryMapRefs(presentationStory)
 	const storedStoryPresentation = useMemo(
@@ -4112,14 +4130,16 @@ export function GeoEditorView() {
 	)
 	const storedAtlasPresentation = useMemo(
 		() =>
-			presentationAtlas
+			atlasDraftPresentation
+				? parseMapPresentation(atlasDraftPresentation.presentation)
+				: presentationAtlas
 				? getGroupMapPresentation(presentationAtlas.rawEvent())
 				: ABSENT_MAP_PRESENTATION,
-		[presentationAtlas],
+		[atlasDraftPresentation, presentationAtlas],
 	)
 	const atlasPresentationAuthorization = useMemo(
-		() => deriveAtlasPresentationAuthorization(presentationAtlas?.referencedAddresses ?? []),
-		[presentationAtlas],
+		() => deriveAtlasPresentationAuthorization(atlasAcceptedReferences, { allowLocalDraftReferences: Boolean(atlasDraftPresentation) }),
+		[atlasAcceptedReferences, atlasDraftPresentation],
 	)
 	const [activeStoryView, setActiveStoryView] = useState<{
 		carrierId: string
@@ -4137,14 +4157,14 @@ export function GeoEditorView() {
 	const storyPresentationAuthorization = useMemo(
 		() =>
 			activeDraftContext
-				? deriveStoryPresentationAuthorization(activeDraftContext.body)
+				? deriveStoryPresentationAuthorization(activeDraftContext.body, { allowLocalDraftReferences: true })
 				: publishedStoryAuthorization,
 		[activeDraftContext, publishedStoryAuthorization],
 	)
 	const [presentationVisibilityOverrides, setPresentationVisibilityOverrides] = useState<
 		Readonly<Record<string, boolean>>
 	>({})
-	const presentationResetKey = `${presentationCarrierId ?? ''}:${presentationRevisionId ?? ''}:${atlasPresentationCarrierId ?? ''}:${presentationAtlas?.id ?? ''}`
+	const presentationResetKey = `${presentationCarrierId ?? ''}:${presentationRevisionId ?? ''}:${atlasPresentationCarrierId ?? ''}:${atlasPresentationRevisionId ?? ''}`
 	useEffect(() => {
 		void presentationResetKey
 		setActiveStoryView(null)
@@ -4287,21 +4307,21 @@ export function GeoEditorView() {
 		],
 	)
 	const runtimeStoryAuthorization = useMemo<MapPresentationAuthorization>(() => {
-		const authorization = new Map<MapPresentationSource, PresentationSourceAuthorization>(
+		const authorization = new Map<string, PresentationSourceAuthorization>(
 			storyPresentationAuthorization,
 		)
 		for (const source of effectiveAmbientSources) {
 			authorization.set(source, Object.freeze({ source, scope: 'whole' as const }))
 		}
 		for (const layer of selectiveShelfLayers) {
-			const previous = authorization.get(layer.source)
+			const previous = authorization.get(mapPresentationSourceKey(layer.source))
 			if (previous?.scope === 'whole') continue
 			const featureIds = [
 				...(previous?.scope === 'features' ? previous.featureIds : []),
 				...(layer.featureIds ?? []),
 			]
 			authorization.set(
-				layer.source,
+				mapPresentationSourceKey(layer.source),
 				Object.freeze({
 					source: layer.source,
 					scope: 'features' as const,
@@ -4332,13 +4352,13 @@ export function GeoEditorView() {
 		)
 	}, [atlasPresentationAuthorization, usableStoredAtlasPresentation])
 	const runtimeAtlasPresentation = useMemo<MapPresentationParseResult>(() => {
-		if (!presentationAtlas) return ABSENT_MAP_PRESENTATION
+		if (!atlasPresentationCarrierId) return ABSENT_MAP_PRESENTATION
 		// A missing, malformed, or future default view falls back to the Atlas's
 		// owner-curated lane. This is route-local rendering only: it neither rewrites
 		// the stored value nor attributes the fallback styling to the Atlas author.
 		const baseLayers = usableStoredAtlasPresentation
 			? usableStoredAtlasPresentation.layers
-			: buildFallbackAtlasPresentation(presentationAtlas.referencedAddresses).layers
+			: buildFallbackAtlasPresentation(atlasAcceptedReferences, { allowLocalDraftReferences: Boolean(atlasDraftPresentation) }).layers
 		return Object.freeze({
 			status: 'valid' as const,
 			value: Object.freeze({
@@ -4356,7 +4376,9 @@ export function GeoEditorView() {
 			issues: storedAtlasPresentation.issues,
 		})
 	}, [
-		presentationAtlas,
+		atlasPresentationCarrierId,
+		atlasAcceptedReferences,
+		atlasDraftPresentation,
 		presentationVisibilityOverrides,
 		storedAtlasPresentation.issues,
 		usableStoredAtlasPresentation,
@@ -4413,7 +4435,7 @@ export function GeoEditorView() {
 			atlasPresentationCarrierId
 				? presentationMaterializationInputs(
 						atlasPresentationCarrierId,
-						presentationAtlas?.pubkey,
+						atlasPresentationAuthor,
 						atlasPresentationRuntime.layers.filter((resolution) =>
 							authorizedAtlasLayerIds.has(resolution.layer.id),
 						),
@@ -4425,7 +4447,7 @@ export function GeoEditorView() {
 			atlasPresentationRuntime.layers,
 			authorizedAtlasLayerIds,
 			canonicalAtlasLayerIds,
-			presentationAtlas?.pubkey,
+			atlasPresentationAuthor,
 		],
 	)
 	const activePresentationLayers = useMemo(
@@ -4435,13 +4457,21 @@ export function GeoEditorView() {
 	const presentationClaimedSources = useMemo(
 		() =>
 			new Set([
-				...composedStoryLayers.map((layer) => layer.source),
+				...composedStoryLayers.map((layer) => mapPresentationSourceKey(layer.source)),
 				...(usableRuntimeAtlasPresentation?.layers ?? [])
 					.filter((layer) => authorizedAtlasLayerIds.has(layer.id))
-					.map((layer) => layer.source),
+					.map((layer) => mapPresentationSourceKey(layer.source)),
 			]),
 		[authorizedAtlasLayerIds, composedStoryLayers, usableRuntimeAtlasPresentation?.layers],
 	)
+	const presentationClaimedLocalWorkspaces = useMemo(() => new Set(
+		[...presentationClaimedSources].flatMap((key) => {
+			const source = parseLocalMapPresentationReference(key)
+			return source ? [source.workspaceId] : []
+		}),
+	), [presentationClaimedSources])
+	const ordinaryDraftGeometryVisible = draftGeometryVisible &&
+		(activeWorkspaceId === null || !presentationClaimedLocalWorkspaces.has(activeWorkspaceId))
 	const ordinaryVisibleGeoEvents = useMemo(
 		() =>
 			presentationClaimedSources.size > 0
@@ -4465,6 +4495,7 @@ export function GeoEditorView() {
 		resolvedCollectionsVersion,
 		datasetFeatureSelectors: referenceMapRenderState.datasetFeatureSelectors,
 		coordinateReferences: referenceMapRenderState.coordinates,
+		claimedLocalWorkspaceIds: presentationClaimedLocalWorkspaces,
 	})
 	const { ready: presentationLayersReady, interactiveLayerIds: presentationLayerIds } =
 		usePresentationMapLayers({
@@ -4492,10 +4523,10 @@ export function GeoEditorView() {
 							? { camera: effectiveStoryState.camera }
 							: { fitFeatureCollection: presentationFitFeatureCollection }),
 					}
-				: presentationAtlas && atlasPresentationCarrierId
+				: atlasPresentationCarrierId
 					? {
 							carrierId: atlasPresentationCarrierId,
-							intentId: `opening:${presentationAtlas.id}`,
+							intentId: `opening:${atlasPresentationRevisionId ?? atlasPresentationCarrierId}`,
 							...(usableRuntimeAtlasPresentation?.initialView
 								? {
 										camera: usableRuntimeAtlasPresentation.initialView,
@@ -4560,7 +4591,7 @@ export function GeoEditorView() {
 				})
 			const sourceLayers: readonly MapPresentationLayerV1[] = presentationCarrierId
 				? composedStoryLayers
-				: presentationAtlas && usableRuntimeAtlasPresentation
+				: atlasPresentationCarrierId && usableRuntimeAtlasPresentation
 					? [
 							...usableRuntimeAtlasPresentation.layers.filter((layer) =>
 								authorizedAtlasLayerIds.has(layer.id),
@@ -4570,8 +4601,8 @@ export function GeoEditorView() {
 					: captureOrdinaryLayers(visibleGeoEvents)
 			const layers = sourceLayers.flatMap((layer, index) => {
 				if (!layer.visible) return []
-				if (acceptedSources && !acceptedSources.has(layer.source)) return []
-				const grant = authorization?.get(layer.source)
+				if (acceptedSources && (typeof layer.source !== 'string' || !acceptedSources.has(layer.source))) return []
+				const grant = authorization?.get(mapPresentationSourceKey(layer.source))
 				if (authorization && !grant) return []
 				let featureIds = layer.featureIds
 				if (grant?.scope === 'features') {
@@ -4601,7 +4632,7 @@ export function GeoEditorView() {
 			composedStoryLayers,
 			getDatasetKey,
 			ordinaryVisibleGeoEvents,
-			presentationAtlas,
+			atlasPresentationCarrierId,
 			presentationCarrierId,
 			referenceMapRenderState.datasetFeatureSelectors,
 			usableRuntimeAtlasPresentation,
@@ -4815,9 +4846,10 @@ export function GeoEditorView() {
 	// authoring is active, the invariant repair above keeps this materialization
 	// visible; outside authoring, no stale editor geometry remains behind.
 	useEffect(() => {
-		editor?.setGeometryVisible(draftGeometryVisible)
+		editor?.setGeometryVisible(ordinaryDraftGeometryVisible)
+		if (!ordinaryDraftGeometryVisible) editor?.dismissSelectionCandidates()
 		editor?.setTransientDrawingVisible(sightingPlacementArmed)
-	}, [draftGeometryVisible, editor, sightingPlacementArmed])
+	}, [ordinaryDraftGeometryVisible, editor, sightingPlacementArmed])
 
 	// The responsive shell can become interactive a moment before the GeoEditor
 	// instance finishes mounting. If Sighting creation is armed during that gap,
@@ -5600,10 +5632,13 @@ export function GeoEditorView() {
 			effectiveStoryState.layers
 				.filter((layer) => authorizedStoryLayerIds.has(layer.id))
 				.map((layer) => {
-					const sourceEvent = eventBySource.get(layer.source)
+					const sourceEvent =
+						typeof layer.source === 'string' ? eventBySource.get(layer.source) : undefined
 					const sourceName = sourceEvent
 						? getDatasetName(sourceEvent)
-						: (layer.source.split(':').at(-1) ?? 'Referenced map')
+						: typeof layer.source === 'string'
+							? layer.source.split(':').at(-1) ?? 'Referenced map'
+							: localMapPresentationLabel(useEditorStore.getState(), layer.source.workspaceId)
 					const title = layer.featureIds?.length
 						? `${sourceName} · ${layer.featureIds.length} selected`
 						: sourceName
@@ -5628,7 +5663,7 @@ export function GeoEditorView() {
 		storyPresentationRuntime.sourceEvents,
 	])
 	const atlasPresentationShelfItems = useMemo<readonly ShelfStripItem[]>(() => {
-		if (!presentationAtlas || !atlasPresentationCarrierId || !usableRuntimeAtlasPresentation) {
+		if (!atlasPresentationCarrierId || !usableRuntimeAtlasPresentation) {
 			return Object.freeze([])
 		}
 		const eventBySource = new Map(
@@ -5641,10 +5676,13 @@ export function GeoEditorView() {
 			usableRuntimeAtlasPresentation.layers
 				.filter((layer) => authorizedAtlasLayerIds.has(layer.id))
 				.map((layer) => {
-					const sourceEvent = eventBySource.get(layer.source)
+					const sourceEvent =
+						typeof layer.source === 'string' ? eventBySource.get(layer.source) : undefined
 					const sourceName = sourceEvent
 						? getDatasetName(sourceEvent)
-						: (layer.source.split(':').at(-1) ?? 'Referenced map')
+						: typeof layer.source === 'string'
+							? layer.source.split(':').at(-1) ?? 'Referenced map'
+							: localMapPresentationLabel(useEditorStore.getState(), layer.source.workspaceId)
 					return Object.freeze({
 						id: `presentation:atlas:${atlasPresentationCarrierId}:${layer.id}`,
 						title: layer.featureIds?.length
@@ -5660,7 +5698,6 @@ export function GeoEditorView() {
 		atlasPresentationRuntime.sourceEvents,
 		authorizedAtlasLayerIds,
 		getDatasetName,
-		presentationAtlas,
 		usableRuntimeAtlasPresentation,
 	])
 	const presentationShelfItems = useMemo(
@@ -5668,8 +5705,12 @@ export function GeoEditorView() {
 		[atlasPresentationShelfItems, storyPresentationShelfItems],
 	)
 	const shelfItems = useMemo(
-		() => Object.freeze([...presentationShelfItems, ...stackShelfItems]),
-		[presentationShelfItems, stackShelfItems],
+		() => Object.freeze([...presentationShelfItems, ...stackShelfItems.filter((item) => {
+			const entry = shelfEntryById.get(item.id)
+			const workspaceId = entry?.entityType === 'draft' ? activeWorkspaceId : entry?.entityType === 'ai-result' ? entry.entityKey : null
+			return workspaceId === null || !presentationClaimedLocalWorkspaces.has(workspaceId)
+		})]),
+		[presentationShelfItems, stackShelfItems, shelfEntryById, activeWorkspaceId, presentationClaimedLocalWorkspaces],
 	)
 	const presentationShelfTargets = useMemo(() => {
 		const targets = new Map<
@@ -6810,7 +6851,7 @@ export function GeoEditorView() {
 				enabled={calloutsEnabled}
 				displayMode={calloutDisplayMode}
 				draftFeatures={features}
-				draftVisible={draftGeometryVisible}
+				draftVisible={ordinaryDraftGeometryVisible}
 				selectedFeatureIds={selectedFeatureIds}
 				authoringFeatureId={calloutAuthoringFeatureId}
 				canAuthor={datasetMapInteractionEnabled}

@@ -54,6 +54,32 @@ function draft(features: EditorFeature[]): GeoCollectionEditDraft {
 }
 
 describe('bounded pending Dataset commit', () => {
+	test('Undo ignores selection rendering flags but still rejects authored property changes', () => {
+		const after = feature('added')
+		const input = buildPendingDatasetFeatureCommitInput([], [after])
+		if (!input) throw new Error('Expected commit')
+		const attached = buildAttachedPendingDatasetCommit(
+			{ target: TARGET, fields: { features: input } },
+			input.diff,
+		)
+		if (!attached) throw new Error('Expected attached commit')
+		expect(
+			planPendingDatasetUndo(
+				attached,
+				input.diff,
+				draft([{ ...after, properties: { ...after.properties, active: true } }]),
+			).ok,
+		).toBe(true)
+		expect(
+			planPendingDatasetUndo(
+				attached,
+				input.diff,
+				draft([
+					{ ...after, properties: { ...after.properties, name: 'User changed', active: true } },
+				]),
+			).ok,
+		).toBe(false)
+	})
 	test('inverts add/modify/delete while retaining a later disjoint feature', () => {
 		const before = [feature('a', 'Before'), feature('b'), feature('c')]
 		const after = [feature('a', 'After'), feature('c'), feature('d')]
