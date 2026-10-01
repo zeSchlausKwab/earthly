@@ -6,10 +6,11 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
 	authorizePresentationLayer,
+	mapPresentationSourceKey,
 	type MapPresentationAuthorization,
 	type MapPresentationLayerV1,
 	type MapPresentationLineDashV1,
-	type MapPresentationSource,
+	type MapPresentationLayerSource,
 	type MapPresentationV1,
 } from '@/lib/map-presentation'
 import {
@@ -63,13 +64,15 @@ export function MapPresentationLayersEditor({
 		onChange(updatePresentationLayer(presentation, index, layer))
 	}
 	const addLayer = () => {
-		const option = options.find((entry) => entry.source === selectedSource)
+		const option = options.find(
+			(entry) => mapPresentationSourceKey(entry.source) === selectedSource,
+		)
 		if (!option) return
 		onChange(addPresentationLayer(presentation, option.source, authorization))
 		setSelectedSource('')
 	}
-	const featureCount = (source: MapPresentationSource) => {
-		const grant = authorization.get(source)
+	const featureCount = (source: MapPresentationLayerSource) => {
+		const grant = authorization.get(mapPresentationSourceKey(source))
 		return grant?.scope === 'features' ? grant.featureIds.length : 0
 	}
 	return (
@@ -84,9 +87,12 @@ export function MapPresentationLayersEditor({
 					>
 						<option value="">{labels.sourcePlaceholder}</option>
 						{options.map((option) => (
-							<option key={option.source} value={option.source}>
+							<option
+								key={mapPresentationSourceKey(option.source)}
+								value={mapPresentationSourceKey(option.source)}
+							>
 								{option.label}
-								{authorization.get(option.source)?.scope === 'features'
+								{authorization.get(mapPresentationSourceKey(option.source))?.scope === 'features'
 									? ` · ${featureCount(option.source)} cited features`
 									: ''}
 							</option>
@@ -114,7 +120,7 @@ export function MapPresentationLayersEditor({
 					</p>
 				)}
 				{presentation.layers.map((layer, index) => {
-					const grant = authorization.get(layer.source)
+					const grant = authorization.get(mapPresentationSourceKey(layer.source))
 					const authorizationResult = authorizePresentationLayer(layer, authorization)
 					const controlPrefix = `${idPrefix}-${index}`
 					return (
@@ -147,9 +153,15 @@ export function MapPresentationLayersEditor({
 												? 'mt-1 truncate text-[10px] text-muted-foreground'
 												: 'mt-1 truncate font-mono text-[9px] text-muted-foreground'
 										}
-										title={layer.source}
+										title={mapPresentationSourceKey(layer.source)}
 									>
-										{layerDescription?.(layer, index) ?? layer.source}
+										{layerDescription?.(layer, index) ??
+											options.find(
+												(option) =>
+													mapPresentationSourceKey(option.source) ===
+													mapPresentationSourceKey(layer.source),
+											)?.label ??
+											mapPresentationSourceKey(layer.source)}
 									</p>
 								</div>
 								<div className="flex flex-shrink-0 items-center gap-0.5">

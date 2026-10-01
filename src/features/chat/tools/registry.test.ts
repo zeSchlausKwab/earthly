@@ -6,6 +6,7 @@ import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { isToolError } from './errors'
 import { getEditorDatasetMetadata } from './editorDatasetMetadata'
+import { setSafetyLevelProvider } from '../safeEditing/safetyAccess'
 import { advertise, dispatch, type ToolEntry, register, registry, unregister } from './registry'
 
 const TEST_TOOL: ToolEntry = {
@@ -808,6 +809,7 @@ describe('set_dataset_metadata host-builtin + get_editor_state datasetMetadata (
 	})
 
 	it('dispatch sets dataset name/description and merges properties into collectionMeta', async () => {
+		setSafetyLevelProvider(() => 3)
 		useEditorStore.getState().setEditor(createHeadlessEditor())
 		useEditorStore.setState({
 			collectionMeta: { name: '', description: '', color: '#1d4ed8', customProperties: {} },
@@ -819,6 +821,7 @@ describe('set_dataset_metadata host-builtin + get_editor_state datasetMetadata (
 			description: 'desc',
 			properties: { source: 'osm', n: 3, bad: { nested: true } },
 		})
+		setSafetyLevelProvider(() => 2)
 		expect(isToolError(result)).toBe(false)
 		expect((result as { ok: boolean }).ok).toBe(true)
 

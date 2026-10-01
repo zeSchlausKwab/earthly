@@ -18,6 +18,10 @@ import {
 	type GeoBlobResolutionResult,
 } from '@/lib/geo/resolveBlobReferences'
 import { eventStore } from '@/lib/nostr'
+import { useActiveAccount } from 'applesauce-react/hooks'
+import { getCurrentPubkey } from '@/lib/wallet/currentUser'
+import { useEditorStore } from '../store'
+import { resolveLocalPresentationSources } from '../map-presentation/localSources'
 import { GeoDataset, isGeoDataset } from '@/lib/nostr/geo-event'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import {
@@ -50,6 +54,16 @@ export function usePresentationSources({
 	authorization,
 	resolveBlobs = resolveGeoEventFeatureCollectionDetailed,
 }: UsePresentationSourcesParams) {
+	const activeAccount = useActiveAccount()
+	const hydratedAccount = getCurrentPubkey()
+	const localWorkspaces = useEditorStore((state) => state.workspaces)
+	const localDrafts = useEditorStore((state) => state.geoEditDrafts)
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
+	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
+	const pendingHydratedDraftId = useEditorStore((state) => state.pendingHydratedDraftId)
+	const localFeatures = useEditorStore((state) => state.features)
+	const localCollectionMeta = useEditorStore((state) => state.collectionMeta)
+	const localViewMode = useEditorStore((state) => state.viewMode)
 	const requests = useMemo(
 		() => buildPresentationSourceRequests(presentation, authorization),
 		[presentation, authorization],
@@ -116,7 +130,24 @@ export function usePresentationSources({
 	}, [blobResults, indexedEvents, localBlobRevision, resolveBlobs])
 
 	const sourceStates = useMemo(() => {
-		const states = new Map<MapPresentationSource, PresentationSourceResolution>()
+		const states = new Map<string, PresentationSourceResolution>(
+			resolveLocalPresentationSources({
+				presentation,
+				authorization,
+				activeAccount: activeAccount?.pubkey ?? null,
+				hydratedAccount,
+				state: {
+					workspaces: localWorkspaces,
+					geoEditDrafts: localDrafts,
+					activeWorkspaceId,
+					activeGeoEditDraftId,
+					pendingHydratedDraftId,
+					features: localFeatures,
+					collectionMeta: localCollectionMeta,
+					viewMode: localViewMode,
+				},
+			}),
+		)
 		for (const request of requests) {
 			const event = indexedEvents.get(request.source)
 			if (!event) {
@@ -164,7 +195,25 @@ export function usePresentationSources({
 			})
 		}
 		return states
-	}, [blobResults, eose, indexedEvents, localBlobRevision, requests])
+	}, [
+		blobResults,
+		eose,
+		indexedEvents,
+		localBlobRevision,
+		requests,
+		presentation,
+		authorization,
+		localWorkspaces,
+		localDrafts,
+		activeWorkspaceId,
+		activeGeoEditDraftId,
+		pendingHydratedDraftId,
+		localFeatures,
+		localCollectionMeta,
+		localViewMode,
+		activeAccount,
+		hydratedAccount,
+	])
 
 	const runtime = useMemo(
 		() => resolvePresentationLayers(presentation, authorization, sourceStates),

@@ -94,6 +94,19 @@ export async function addPointToGeometryDraft(
 	return before + 1
 }
 
+export async function addLineToGeometryDraft(
+	earthly: EarthlySession,
+	points: ReadonlyArray<readonly [xRatio: number, yRatio: number]>,
+): Promise<number> {
+	if (points.length < 2) throw new Error('A line draft requires at least two points')
+	const before = (await geometryDraftSnapshot(earthly)).featureCount
+	await earthly.page.getByRole('button', { name: 'Draw line', exact: true }).first().click()
+	for (const [xRatio, yRatio] of points) await clickEditorMap(earthly, xRatio, yRatio)
+	await earthly.page.keyboard.press('Enter')
+	await expectGeometryFeatureCount(earthly, before + 1)
+	return before + 1
+}
+
 export async function addPolygonToGeometryDraft(
 	earthly: EarthlySession,
 	points: ReadonlyArray<readonly [xRatio: number, yRatio: number]>,
@@ -148,12 +161,11 @@ export async function createGeometryDraft(
 	await clickEditorMap(earthly, 0.62, 0.42)
 	await expectGeometryFeatureCount(earthly, 1)
 
-	await earthly.page.getByRole('button', { name: 'Draw line', exact: true }).first().click()
-	await clickEditorMap(earthly, 0.56, 0.48)
-	await clickEditorMap(earthly, 0.62, 0.5)
-	await clickEditorMap(earthly, 0.68, 0.47)
-	await earthly.page.keyboard.press('Enter')
-	await expectGeometryFeatureCount(earthly, 2)
+	await addLineToGeometryDraft(earthly, [
+		[0.56, 0.48],
+		[0.62, 0.5],
+		[0.68, 0.47],
+	])
 
 	await earthly.page.getByRole('button', { name: 'Draw polygon', exact: true }).first().click()
 	await clickEditorMap(earthly, 0.56, 0.56)

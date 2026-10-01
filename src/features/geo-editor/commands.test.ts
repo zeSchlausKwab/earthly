@@ -90,6 +90,38 @@ describe('editor commands (characterization, post-registration)', () => {
 		expect(result.message).toBe('The cutting line must cross the polygon completely.')
 	})
 
+	it('applies numeric fat-line and fat-arrow commands to the selected line', () => {
+		const editor = useEditorStore.getState().editor!
+		for (const kind of ['fat-line', 'fat-arrow']) {
+			editor.setFeatures([
+				{
+					type: 'Feature',
+					id: 'flow',
+					properties: { meta: 'feature' },
+					geometry: {
+						type: 'LineString',
+						coordinates: [
+							[0, 0],
+							[0.01, 0],
+						],
+					},
+				},
+			])
+			editor.selectFeature('flow')
+			const result = executeEditorCommand('apply_geometry_operation', {
+				kind,
+				distance: 200,
+				endWidth: 100,
+				units: 'meters',
+				side: 'center',
+				resultMode: 'copy',
+			})
+			expect(result.ok).toBe(true)
+			expect(editor.getAllFeatures()).toHaveLength(2)
+			expect(editor.getSelectedFeatures()[0]?.geometry.type).toBe('Polygon')
+		}
+	})
+
 	it('every editor command exposes an AI tool definition consumed by the registry', () => {
 		const commands = getEditorCommands()
 		const defs = getEditorAiToolDefinitions()

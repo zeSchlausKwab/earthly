@@ -26,6 +26,10 @@ export interface RetainedEditorDraftControls {
 	persistNow: () => void
 	/** Clear and suppress the unmount write until the form becomes dirty again. */
 	clearRetainedDraft: () => void
+	/** Flush pending input only when dirty; clean hydration does not advance a revision. */
+	flushRetainedDraft: () => void
+	/** Suppress a stale mounted form without deleting its saved draft. */
+	suppressRetainedDraftSave: () => void
 }
 
 /**
@@ -104,6 +108,18 @@ export function useRetainedEditorDraft<T>({
 		current.suppressed = true
 		current.clear(identity)
 	}, [identity])
+	const flushRetainedDraft = useCallback(() => {
+		const current = sessionsRef.current.get(identity)
+		if (!current?.dirty || current.suppressed) return
+		current.persist(identity, current.snapshot)
+		current.dirty = false
+	}, [identity])
+	const suppressRetainedDraftSave = useCallback(() => {
+		const current = sessionsRef.current.get(identity)
+		if (!current) return
+		current.dirty = false
+		current.suppressed = true
+	}, [identity])
 
-	return { setDirty, persistNow, clearRetainedDraft }
+	return { setDirty, persistNow, clearRetainedDraft, flushRetainedDraft, suppressRetainedDraftSave }
 }

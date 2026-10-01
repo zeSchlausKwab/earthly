@@ -58,6 +58,61 @@ import { parsePredicate, resolveSelectionScope } from './bulk-tools'
 
 const GEOMETRY_UNITS: PrimitiveUnits[] = ['meters', 'kilometers', 'miles']
 
+const createLineBandSchema: Tool = {
+	type: 'function',
+	function: {
+		name: 'extrude_line',
+		description:
+			'Extrude an existing LineString or MultiLineString into a filled GeoJSON fat line or fat arrow for flow maps. Supports uniform or tapered widths and centered or one-sided offsets. The arrow points to the last coordinate of each part. Preserves source properties and keeps the line by default. Widths are geographic distances, not screen pixels.',
+		parameters: {
+			type: 'object',
+			properties: {
+				featureId: { type: 'string', description: 'Id of the existing source line or polyline.' },
+				shape: {
+					type: 'string',
+					enum: ['band', 'arrow'],
+					description: 'Filled band or filled arrow. Default band.',
+				},
+				width: {
+					type: 'number',
+					description:
+						'Total start width in the chosen units. Non-negative; at least one width must be positive.',
+				},
+				endWidth: {
+					type: 'number',
+					description:
+						'Total end width. Defaults to width. May be zero for a pointed band taper; arrows need a positive end width.',
+				},
+				units: {
+					type: 'string',
+					enum: GEOMETRY_UNITS,
+					description: 'Units for all widths and lengths. Default meters.',
+				},
+				side: {
+					type: 'string',
+					enum: ['center', 'left', 'right'],
+					description: 'Extrusion relative to line direction. Default center.',
+				},
+				arrowHeadLength: {
+					type: 'number',
+					description:
+						'Optional arrowhead length, shorter than each line part. Default the smaller of 3×endWidth or 25% of the line length.',
+				},
+				arrowHeadWidth: {
+					type: 'number',
+					description: 'Optional total arrowhead width, at least endWidth. Default 2×endWidth.',
+				},
+				resultMode: {
+					type: 'string',
+					enum: ['copy', 'replace'],
+					description: 'Copy keeps the source; replace removes it. Default copy.',
+				},
+			},
+			required: ['featureId', 'width'],
+		},
+	},
+}
+
 const splitFeatureSchema: Tool = {
 	type: 'function',
 	function: {
@@ -338,6 +393,45 @@ export function applyOptimizedCollection(
  * circular-init crash (Pitfall 6 / mirrors `registerBulkTools`).
  */
 export function registerGeometryTools(register: (entry: ToolEntry) => void): void {
+	register({
+		name: 'extrude_line',
+		kind: 'authoring-primitive',
+		schema: createLineBandSchema,
+		handler: async (args) => {
+			const editor = requireEditor()
+			const featureId = requiredFeatureId(args)
+			if (args.shape !== undefined && args.shape !== 'band' && args.shape !== 'arrow')
+				throw new Error('shape must be band or arrow.')
+			if (
+				args.side !== undefined &&
+				args.side !== 'center' &&
+				args.side !== 'left' &&
+				args.side !== 'right'
+			)
+				throw new Error('side must be center, left, or right.')
+			if (args.units !== undefined && !GEOMETRY_UNITS.includes(args.units as PrimitiveUnits))
+				throw new Error('units must be meters, kilometers, or miles.')
+			return gateGeometryOperation(
+				editor,
+				args.shape === 'arrow' ? 'Create fat arrow' : 'Create fat line',
+				featureId,
+				{
+					kind: args.shape === 'arrow' ? 'fat-arrow' : 'fat-line',
+					width: numericArg(args, 'width'),
+					units: parseUnits(args.units),
+					side: args.side as 'center' | 'left' | 'right' | undefined,
+					...(args.endWidth !== undefined ? { endWidth: numericArg(args, 'endWidth') } : {}),
+					...(args.arrowHeadLength !== undefined
+						? { arrowHeadLength: numericArg(args, 'arrowHeadLength') }
+						: {}),
+					...(args.arrowHeadWidth !== undefined
+						? { arrowHeadWidth: numericArg(args, 'arrowHeadWidth') }
+						: {}),
+				},
+				parseResultMode(args.resultMode, 'copy'),
+			)
+		},
+	})
 	register({
 		name: 'split_feature',
 		kind: 'authoring-primitive',

@@ -27,10 +27,13 @@ import { isToolError, type ToolError } from './errors'
 import { registerSandboxTools } from '@/features/chat/sandbox/runCode'
 import { buildPostWriteValidation } from '@/features/chat/safeEditing/autoValidate'
 import { gateEditorImport } from '@/features/chat/safeEditing/gateEditorImport'
+import { gateDatasetMetadata } from '@/features/chat/safeEditing/gateDatasetMetadata'
+import { registerMapViewTools } from './map-view-tools'
 import { registerBulkTools } from './bulk-tools'
 import { registerEntityTools } from './entity-tools'
 import { registerGeoAwarenessTools } from './geo-awareness-tools'
 import { registerStoryTools } from './story-tools'
+import { registerAtlasTools } from './atlas-tools'
 import { registerWorkingSetTools } from './working-set-tools'
 import { registerGeometryTools } from './geometry-tools'
 import { registerCalloutTools } from './callout-tools'
@@ -80,7 +83,6 @@ import {
 	type ToolExecutionContext,
 } from './types'
 import {
-	createExecutionAuthoring,
 	ensureExecutionTargetForMutation,
 	getExecutionEditor,
 	getExecutionFeatures,
@@ -736,12 +738,13 @@ function registerHostBuiltins(): void {
 				}
 				meta.properties = props
 			}
-			const result = createExecutionAuthoring(editor).setDatasetMetadata(meta)
+			const result = await gateDatasetMetadata(meta)
 			return {
 				ok: result.ok,
 				name: result.name,
 				description: result.description,
 				customPropertyCount: result.customPropertyCount,
+				cancelled: result.cancelled,
 			}
 		},
 	})
@@ -908,8 +911,8 @@ function registerEditorWriters(): void {
 			const replaceExisting = Boolean(args.replaceExisting)
 			// SAFE-03/04: route the AI write through the safe-editing gate (preview +
 			// confirm per safety level) before the real interceptor-routed apply.
-			const outcome = await gateEditorImport(features, replaceExisting, () =>
-				importFeaturesToEditor(features, replaceExisting),
+			const outcome = await gateEditorImport(features, replaceExisting, (normalized) =>
+				importFeaturesToEditor(normalized, replaceExisting),
 			)
 			return {
 				importedCount: outcome.importedCount,
@@ -934,8 +937,8 @@ function registerEditorWriters(): void {
 			const feature = parseSingleFeatureArg(args)
 			const replaceExisting = Boolean(args.replaceExisting)
 			// SAFE-03/04: gate the single-feature AI write the same way.
-			const outcome = await gateEditorImport([feature], replaceExisting, () =>
-				importFeaturesToEditor([feature], replaceExisting),
+			const outcome = await gateEditorImport([feature], replaceExisting, (normalized) =>
+				importFeaturesToEditor(normalized, replaceExisting),
 			)
 			return {
 				geometryType: feature.geometry.type,
@@ -1860,7 +1863,9 @@ function registerRemoteMcpTools(): void {
 			const selected = prepareMapToolFeaturesForEditor('import_osm_to_editor', matchedByName)
 
 			if (context?.run) await ensureExecutionTargetForMutation(context.run)
-			const importResult = importFeaturesToEditor(selected, replaceExisting)
+			const importResult = await gateEditorImport(selected, replaceExisting, (normalized) =>
+				importFeaturesToEditor(normalized, replaceExisting),
+			)
 
 			return {
 				source,
@@ -1876,6 +1881,7 @@ function registerRemoteMcpTools(): void {
 				totalFeaturesInEditor: importResult.totalFeaturesInEditor,
 				replaceExisting,
 				usedSearchFallback,
+				cancelled: importResult.status === 'cancelled',
 				includeRelations,
 				warning: null,
 			}
@@ -2031,6 +2037,7 @@ function registerEditorCommands(): void {
 /** Populate the registry once, on module load. */
 function bootstrapRegistry(): void {
 	registerHostBuiltins()
+	registerMapViewTools(register)
 	registerEditorWriters()
 	registerRemoteMcpTools()
 	registerEditorCommands()
@@ -2075,6 +2082,7 @@ function bootstrapRegistry(): void {
 	// composition pair read_story_draft + write_story_draft. Publishing a story
 	// remains a user action in the StoryEditorPanel — no publish tool exists.
 	registerStoryTools(register)
+	registerAtlasTools(register)
 	registerWorkingSetTools(register)
 }
 

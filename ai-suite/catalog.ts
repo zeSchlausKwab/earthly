@@ -1,4 +1,10 @@
 import { openChatViewTask } from './tasks/chat/navigation'
+import {
+	setDesktopAgentAccessTask,
+	setDesktopAgentSafetyTask,
+	setDesktopExternalQueriesTask,
+	executeWebMcpToolTask,
+} from './tasks/chat/webmcp'
 import { createIdentityTask } from './tasks/auth/create-identity'
 import { addChatConnectionTask } from './tasks/chat/connections'
 import { authorizeJourneyIdentityTask } from './tasks/auth/authorize-journey-identity'
@@ -29,13 +35,19 @@ import {
 import { createSightingTask } from './tasks/create/sighting'
 import {
 	cancelDrawingTask,
+	selectEditorModeTask,
 	mapStackDraftLifecycleTask,
 	openDatasetEditorTask,
 	undoRedoGeometryTask,
 } from './tasks/editor/lifecycle'
 import { placeMobilePrecisionPointTask } from './tasks/editor/mobile-precision-drawing'
-import { geometryOperationsTask } from './tasks/editor/geometry-operations'
+import { extrudeLineTask, geometryOperationsTask } from './tasks/editor/geometry-operations'
 import { geometryWorkbenchTask } from './tasks/editor/geometry-workbench'
+import {
+	addMapCalloutTask,
+	attachCalloutImageTask,
+	setCalloutDisplayModeTask,
+} from './tasks/editor/callouts'
 import { monitorBrowserHealthTask } from './tasks/diagnostics/browser-health'
 import { inspectSurfaceTask } from './tasks/diagnostics/inspect-surface'
 import { observeJourneyStepTask } from './tasks/diagnostics/journey-observation'
@@ -91,6 +103,9 @@ import {
 } from './tasks/social/story-proposals'
 
 const tasks = [
+	addMapCalloutTask,
+	attachCalloutImageTask,
+	setCalloutDisplayModeTask,
 	addChatConnectionTask,
 	openGMapperTask,
 	createGMapperConfigurationTask,
@@ -99,6 +114,11 @@ const tasks = [
 	installIsolatedRelaysTask,
 	setThreadWorkingSetOpenTask,
 	openChatViewTask,
+	selectEditorModeTask,
+	setDesktopAgentAccessTask,
+	setDesktopAgentSafetyTask,
+	setDesktopExternalQueriesTask,
+	executeWebMcpToolTask,
 	createIdentityTask,
 	authorizeJourneyIdentityTask,
 	signInTask,
@@ -152,6 +172,7 @@ const tasks = [
 	openDatasetEditorTask,
 	placeMobilePrecisionPointTask,
 	geometryOperationsTask,
+	extrudeLineTask,
 	geometryWorkbenchTask,
 	createContextTask,
 	createGeometryDraftTask,

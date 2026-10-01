@@ -7,11 +7,33 @@ function sourceLine(): EditorFeature {
 		type: 'Feature',
 		id: 'source-line',
 		properties: { meta: 'feature', featureId: 'source-line', name: 'Road' },
-		geometry: { type: 'LineString', coordinates: [[0, 0], [0.01, 0]] },
+		geometry: {
+			type: 'LineString',
+			coordinates: [
+				[0, 0],
+				[0.01, 0],
+			],
+		},
 	}
 }
 
 describe('GeometryOperationsManager', () => {
+	it('extrudes an arrow as one undoable replacement and preserves its source on undo', () => {
+		const editor = createHeadlessEditor()
+		editor.setFeatures([sourceLine()])
+		editor.clearHistory()
+		const result = editor.applyGeometryOperation(
+			'source-line',
+			{ kind: 'fat-arrow', width: 100, endWidth: 50 },
+			'replace',
+		)
+		expect(editor.getFeature('source-line')).toBeUndefined()
+		expect(result.features[0]?.geometry.type).toBe('Polygon')
+		editor.undo()
+		expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(['source-line'])
+		editor.redo()
+		expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(result.resultFeatureIds)
+	})
 	it('replaces a source with split parts as one undo/redo action', () => {
 		const editor = createHeadlessEditor()
 		editor.setFeatures([sourceLine()])

@@ -3,8 +3,10 @@ import { toast } from 'sonner'
 import { accounts, eventStore } from '@/lib/nostr'
 import { Article, getArticleContent, isArticle } from '@/lib/nostr/article'
 import { GeoDataset } from '@/lib/nostr/geo-event'
-import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
-import { naddrToCoordinate, parseNostrAddressReference } from '@/lib/nostr/references'
+import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
+import { naddrToCoordinate, parseNostrAddressReference, coordinateToNaddrReference } from '@/lib/nostr/references'
+import { getGroupContent, getGroupReferencedAddresses, isGroup } from '@/lib/nostr/group'
+import { readGroupEditorDraft, writeGroupEditorDraft } from '@/features/groups/editorDraft'
 import { readStoryDraft, writeStoryDraft, storyContentFingerprint } from '@/lib/nostr/story/draft'
 import { prepareChatMap } from '@/features/geo-editor/authoringTaskBridge'
 import { useEditorStore } from '@/features/geo-editor/store'
@@ -35,15 +37,35 @@ export function referenceFromTransfer(item: EntityTransfer): ChatReference {
 	}
 	if (reference.type === 'feature' && !reference.featureId)
 		throw new Error('This feature has no stable identifier. Add its map explicitly instead.')
+	if (reference.localAtlasDraftKey && (reference.type !== 'context' || reference.featureId))
+		throw new Error('An Atlas draft is a document source and cannot grant feature-only access.')
 	if (reference.type === 'person') {
 		if (!reference.pubkey || !/^[a-f0-9]{64}$/i.test(reference.pubkey))
 			throw new Error('This person has no valid profile identity.')
-	} else if (!reference.address && !reference.localWorkspaceId && !reference.localStoryDraftKey)
+	} else if (!reference.address && !reference.localWorkspaceId && !reference.localStoryDraftKey && !reference.localAtlasDraftKey)
 		throw new Error('This item has no readable source yet.')
 	return reference
 }
 
 async function prepareTarget(reference: ChatReference, fork: boolean): Promise<ThreadWorkTarget> {
+	if (reference.localAtlasDraftKey) {
+		const draft = readGroupEditorDraft(reference.localAtlasDraftKey)
+		if (!draft) throw new Error('This Atlas draft is unavailable.')
+		const coordinate = reference.address ? naddrToCoordinate(reference.address.replace(/^nostr:/, '')) : null
+		if (reference.address && (!coordinate || !coordinate.startsWith(`${MAP_CONTEXT_KIND}:`) || reference.localAtlasDraftKey !== `edit:${coordinate.slice(coordinate.indexOf(':') + 1)}`))
+			throw new Error('This Atlas reference does not match its local edit draft.')
+		const author = coordinate?.split(':')[1] ?? (reference.localAtlasDraftKey.startsWith('edit:') ? reference.localAtlasDraftKey.split(':')[1] : null)
+		if (author && author !== accounts.active?.pubkey)
+			throw new Error('Keep another author’s Atlas as a read-only source. Atlas proposals are not supported.')
+		return {
+			id: `atlas:${reference.localAtlasDraftKey}`,
+			kind: 'atlas',
+			draftKey: reference.localAtlasDraftKey,
+			title: draft.name || reference.name,
+			atlasReference: reference.address ? `nostr:${reference.address.replace(/^nostr:/, '')}` : undefined,
+			intent: author ? 'edit' : 'create',
+		}
+	}
 	if (reference.localWorkspaceId) {
 		const target = mapWorkTarget(reference.localWorkspaceId)
 		if (!target) throw new Error('This map draft is unavailable.')
@@ -78,6 +100,29 @@ async function prepareTarget(reference: ChatReference, fork: boolean): Promise<T
 	const [kind, pubkey, ...identifier] = coordinate.split(':')
 	const event = eventStore.getReplaceable(Number(kind), pubkey!, identifier.join(':'))
 	if (!event) throw new Error('This item is not loaded. Open it once, then try again.')
+	if (reference.type === 'context' && event.kind === MAP_CONTEXT_KIND && isGroup(event)) {
+		if (event.pubkey !== accounts.active?.pubkey)
+			throw new Error('Keep another author’s Atlas as a read-only source. Atlas proposals are not supported.')
+		if (fork) throw new Error('Create an independent Atlas draft explicitly before copying its content.')
+		const draftKey = `edit:${event.pubkey}:${identifier.join(':')}`
+		const content = getGroupContent(event)
+		if (!readGroupEditorDraft(draftKey)) {
+			writeGroupEditorDraft(draftKey, {
+				name: content.name,
+				description: content.description ?? '',
+				curatedReferences: getGroupReferencedAddresses(event).map(coordinateToNaddrReference).filter((value): value is string => !!value),
+				image: content.image ?? '',
+				governance: content.governance,
+				schemaMode: content.schema ? 'advanced' : 'builder',
+				allowedGeometryTypes: content.geometryConstraints?.allowedTypes ?? [],
+				rows: [],
+				advancedJson: JSON.stringify(content.schema ?? {}, null, 2),
+				sampleJson: '{}',
+				presentation: content.presentation,
+			})
+		}
+		return { id: `atlas:${draftKey}`, kind: 'atlas', draftKey, title: content.name || reference.name, atlasReference: `nostr:${reference.address}`, intent: 'edit' }
+	}
 	if (['dataset', 'feature'].includes(reference.type) && event.kind === GEO_EVENT_KIND) {
 		const dataset = castEvent(event, GeoDataset, eventStore)
 		const workspaceId = await prepareChatMap(dataset, fork)
@@ -135,7 +180,7 @@ async function prepareTarget(reference: ChatReference, fork: boolean): Promise<T
 			intent: event.pubkey === accounts.active?.pubkey ? 'edit' : 'propose',
 		}
 	}
-	throw new Error('AI can edit Maps and Stories. Keep this item as a read-only reference.')
+	throw new Error('AI can edit Maps, Stories, and your Atlases. Keep this item as a read-only reference.')
 }
 
 /** A role change never navigates, publishes, or deletes saved work. */

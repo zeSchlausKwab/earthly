@@ -126,7 +126,7 @@ const LABELED_MEDIA_PATTERN = /^(image|video|media)\s*:\s*(https?:\/\/[^\s<>"{}|
 const MEDIA_LABEL_ONLY_PATTERN = /^(image|video|media)\s*:\s*$/i
 const MARKDOWN_IMAGE_PATTERN = /^!\[([^\]]*)\]\((https?:\/\/[^\s<>"{}|\\^`()[\]]+)\)\s*$/i
 const TOKEN_PATTERN =
-	/(?<mentionLink>\[(?<mentionLinkLabel>[^\]]+)\]\(nostr:(?<mentionLinkAddress>naddr1[a-z0-9]+)(?:#(?<mentionLinkFeatureId>[a-zA-Z0-9_%~-]+))?\))|(?<spatial>geo:[+-]?(?:\d+(?:\.\d+)?|\.\d+),[+-]?(?:\d+(?:\.\d+)?|\.\d+)|https?:\/\/(?:www\.)?openstreetmap\.org\/(?:node|way|relation)\/\d+\/?)|(?<link>\[(?<linkLabel>[^\]]+)\]\((?<linkUrl>https?:\/\/[^\s)]+)\))|(?<mention>nostr:(?<mentionAddress>naddr1[a-z0-9]+)(?:#(?<mentionFeatureId>[a-zA-Z0-9_%~-]+))?)|(?<url>https?:\/\/[^\s<>"{}|\\^`[\]]+)|(?<code>`[^`]+`)|(?<strong>\*\*[^*]+\*\*)|(?<emphasis>\*[^*\n]+\*)/gi
+	/(?<localLink>\[(?<localLabel>[^\]]+)\]\((?<localLinkAddress>earthly-draft:[a-zA-Z0-9_%~-]+)(?:#(?<localLinkFeatureId>[a-zA-Z0-9_%~-]+))?\))|(?<localMention>(?<localAddress>earthly-draft:[a-zA-Z0-9_%~-]+)(?:#(?<localFeatureId>[a-zA-Z0-9_%~-]+))?)|(?<mentionLink>\[(?<mentionLinkLabel>[^\]]+)\]\(nostr:(?<mentionLinkAddress>naddr1[a-z0-9]+)(?:#(?<mentionLinkFeatureId>[a-zA-Z0-9_%~-]+))?\))|(?<spatial>geo:[+-]?(?:\d+(?:\.\d+)?|\.\d+),[+-]?(?:\d+(?:\.\d+)?|\.\d+)|https?:\/\/(?:www\.)?openstreetmap\.org\/(?:node|way|relation)\/\d+\/?)|(?<link>\[(?<linkLabel>[^\]]+)\]\((?<linkUrl>https?:\/\/[^\s)]+)\))|(?<mention>nostr:(?<mentionAddress>naddr1[a-z0-9]+)(?:#(?<mentionFeatureId>[a-zA-Z0-9_%~-]+))?)|(?<url>https?:\/\/[^\s<>"{}|\\^`[\]]+)|(?<code>`[^`]+`)|(?<strong>\*\*[^*]+\*\*)|(?<emphasis>\*[^*\n]+\*)/gi
 
 function detectMediaType(url: string): 'image' | 'video' | 'youtube' | 'link' {
 	for (const pattern of YOUTUBE_PATTERNS) {
@@ -196,7 +196,28 @@ export function parseInlineTokens(
 			})
 		}
 
-		if (groups.mentionLink && groups.mentionLinkAddress) {
+		if (groups.localLink || groups.localMention) {
+			const address = groups.localLinkAddress ?? groups.localAddress!
+			const rawFeatureId = groups.localLinkFeatureId ?? groups.localFeatureId
+			const featureId = rawFeatureId ? (decodeNostrFeatureId(rawFeatureId) ?? undefined) : undefined
+			const workspaceId = decodeNostrFeatureId(address.slice('earthly-draft:'.length))
+			if (
+				!workspaceId ||
+				(rawFeatureId && !featureId) ||
+				(match.index > 0 && text[match.index - 1] === '\\')
+			) {
+				tokens.push({ type: 'text', value: matchedValue })
+			} else {
+				const label = resolveMentionLabel(address, featureId, availableFeatures)
+				tokens.push({
+					type: 'mention',
+					value: matchedValue,
+					address,
+					featureId,
+					displayName: groups.localLabel ?? (label === 'Reference' ? 'Local Map draft' : label),
+				})
+			}
+		} else if (groups.mentionLink && groups.mentionLinkAddress) {
 			// Markdown link targeting a nostr reference: [Anchorage lanes](nostr:naddr1…#feat)
 			const address = groups.mentionLinkAddress
 			const featureId = groups.mentionLinkFeatureId
@@ -624,6 +645,7 @@ function GeoMentionChip({
 	const reference = parseGeoReference(
 		address.startsWith('naddr1') ? stringifyNostrAddressReference({ address, featureId }) : address,
 	)
+	const isLocalDraft = address.startsWith('earthly-draft:')
 	const isOsmReference = reference?.kind === 'osm'
 	const isCoordinateReference = reference?.kind === 'coordinate'
 	const isVisible = isMentionVisible?.(address, featureId) ?? localVisible
@@ -641,10 +663,13 @@ function GeoMentionChip({
 			) : (
 				<MapPin className="h-3 w-3 flex-shrink-0" />
 			)}
-			<span className="max-w-[180px] truncate" title={address}>
+			<span
+				className="max-w-[180px] truncate"
+				title={isLocalDraft ? 'Saved on this device' : address}
+			>
 				{token.displayName ?? 'Reference'}
 			</span>
-			{onMentionVisibilityToggle && !isOsmReference && (
+			{onMentionVisibilityToggle && !isOsmReference && !isLocalDraft && (
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
@@ -663,7 +688,7 @@ function GeoMentionChip({
 					<TooltipContent>{isVisible ? 'Hide on map' : 'Show on map'}</TooltipContent>
 				</Tooltip>
 			)}
-			{onMentionZoomTo && !isOsmReference && (
+			{onMentionZoomTo && !isOsmReference && !isLocalDraft && (
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button

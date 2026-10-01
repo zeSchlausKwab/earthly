@@ -57,7 +57,12 @@ export async function resolveLocalStoryDependencies(
 		storyDraftKey: string
 		storyTitle?: string
 		validate?: () => void
-		onProgress: (markdown: string, completed: number, total: number) => void
+		onProgress: (
+			markdown: string,
+			completed: number,
+			total: number,
+			resolved?: { workspaceId: string; published: PublishedDatasetReference },
+		) => void
 		/** Injected in tests; production always uses the explicit publish confirmation. */
 		publishDependency?: (captured: CapturedDatasetPublication) => Promise<PublishedDatasetReference>
 	},
@@ -66,11 +71,15 @@ export async function resolveLocalStoryDependencies(
 	const owner = accounts.active?.pubkey
 	let current = markdown
 	if (dependencies.length && !options.publishDependency) {
-		const confirmed = await requestStoryPublicationApproval(options.storyTitle || 'Story', dependencies.map(item => item.title))
+		const confirmed = await requestStoryPublicationApproval(
+			options.storyTitle || 'Story',
+			dependencies.map((item) => item.title),
+		)
 		if (!confirmed) throw new Error('Story publication cancelled. Your drafts are kept.')
 	}
 	const validate = () => {
-		if (accounts.active?.pubkey !== owner) throw new Error('The account changed. Nothing further was published.')
+		if (accounts.active?.pubkey !== owner)
+			throw new Error('The account changed. Nothing further was published.')
 		options.validate?.()
 	}
 	for (const [index, captured] of dependencies.entries()) {
@@ -85,7 +94,10 @@ export async function resolveLocalStoryDependencies(
 			published.datasetMention,
 		)
 		// Save each completed address immediately; retry does not republish earlier dependencies.
-		options.onProgress(current, index + 1, dependencies.length)
+		options.onProgress(current, index + 1, dependencies.length, {
+			workspaceId: captured.binding.workspaceId,
+			published,
+		})
 	}
 	return current
 }

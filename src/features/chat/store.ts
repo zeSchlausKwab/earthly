@@ -77,6 +77,7 @@ import {
 	type GeoEditorWorkspace,
 } from '@/features/geo-editor/store'
 import { accounts, eventStore } from '@/lib/nostr'
+import { isExternalToolExecutionActive, retainChatToolExecution } from './tools/externalExecution'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import {
 	cancelPendingReferencePublishes,
@@ -304,7 +305,7 @@ function serializedToolResultChangedMap(content: string, toolName?: string): boo
 		const value = JSON.parse(content) as Record<string, unknown>
 		// Dataset metadata is a real persisted edit, but its compact result predates
 		// the shared mutation-count envelope used by geometry/callout tools.
-		if (['set_dataset_metadata', 'create_map_draft', 'write_story_draft'].includes(toolName ?? '') && value.ok === true) return true
+		if (['set_dataset_metadata', 'create_map_draft', 'write_story_draft', 'write_atlas_draft'].includes(toolName ?? '') && value.ok === true && value.status !== 'unchanged') return true
 		const editorImport = value.editorImport as Record<string, unknown> | undefined
 		if (typeof editorImport?.importedCount === 'number' && editorImport.importedCount > 0)
 			return true
@@ -367,6 +368,7 @@ export interface ChatReference {
 	/** A read-only local source; never a write grant or an implicit publication. */
 	localWorkspaceId?: string
 	localStoryDraftKey?: string
+	localAtlasDraftKey?: string
 	id: string
 	name: string
 	type: EntityType
@@ -2102,12 +2104,12 @@ export const useChatStore = create<ChatStore>()(
 				set((state) => {
 					const target = state.chatSessions.find((chat) => chat.id === chatId)
 					if (!target) return {}
-					const key = `${reference.type}:${reference.id || reference.name}:${reference.pubkey ?? ''}:${reference.featureId ?? ''}:${reference.localWorkspaceId ?? ''}:${reference.localStoryDraftKey ?? ''}`
+					const key = `${reference.type}:${reference.id || reference.name}:${reference.pubkey ?? ''}:${reference.featureId ?? ''}:${reference.localWorkspaceId ?? ''}:${reference.localStoryDraftKey ?? ''}:${reference.localAtlasDraftKey ?? ''}`
 					const currentReferences = target.references ?? []
 					if (
 						currentReferences.some(
 							(candidate) =>
-								`${candidate.type}:${candidate.id || candidate.name}:${candidate.pubkey ?? ''}:${candidate.featureId ?? ''}:${candidate.localWorkspaceId ?? ''}:${candidate.localStoryDraftKey ?? ''}` ===
+								`${candidate.type}:${candidate.id || candidate.name}:${candidate.pubkey ?? ''}:${candidate.featureId ?? ''}:${candidate.localWorkspaceId ?? ''}:${candidate.localStoryDraftKey ?? ''}:${candidate.localAtlasDraftKey ?? ''}` ===
 								key,
 						)
 					) {
@@ -2126,6 +2128,10 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			sendMessage: async (content: string, options?: SendMessageOptions) => {
+				if (isExternalToolExecutionActive()) {
+					toast.info('The desktop agent is working. Finish or cancel its edit before sending.')
+					return
+				}
 				// Atomic turn acquisition: Zustand writes synchronously, so a second
 				// rapid submission cannot append another user turn while this one owns
 				// the stream — including when a connection makes the UI feel unresponsive.
@@ -2683,6 +2689,7 @@ export const useChatStore = create<ChatStore>()(
 				}
 
 				let mapChangingToolResultCount = 0
+				const releaseChatExecution = retainChatToolExecution()
 				try {
 					streamAbortController = new AbortController()
 					// Repair any assistant tool_calls left unanswered by a stopped run
@@ -2813,7 +2820,7 @@ export const useChatStore = create<ChatStore>()(
 							? [FINISH_APPLIED_CHANGES_INSTRUCTION]
 							: [
 									workScoped
-										? `${WORKING_SET_INSTRUCTION}\nWorking set: ${JSON.stringify(runWorkingSet(runIdentity))}\nReferences: ${JSON.stringify(capturedReferences.map(({ localSnapshot: _snapshot, localStorySnapshot: _story, profileSnapshot: _profile, ...reference }) => reference))}\nNew local drafts: ${runIdentity.allowCreate ? 'allowed' : 'not allowed'}`
+										? `${WORKING_SET_INSTRUCTION}\nWorking set: ${JSON.stringify(runWorkingSet(runIdentity))}\nReferences: ${JSON.stringify(capturedReferences.map(({ localSnapshot: _snapshot, localStorySnapshot: _story, localAtlasSnapshot: _atlas, profileSnapshot: _profile, ...reference }) => reference))}\nNew local drafts: ${runIdentity.allowCreate ? 'allowed' : 'not allowed'}`
 										: readOnlyRun
 											? READ_ONLY_THREAD_INSTRUCTION
 											: toolsEnabledForRun
@@ -3140,7 +3147,7 @@ export const useChatStore = create<ChatStore>()(
 								// stream is running (a new run's own pending gates must not be
 								// collateral damage).
 								if (!isStreamRunActive()) {
-									if (!get().isStreaming) {
+									if (!get().isStreaming && !isExternalToolExecutionActive()) {
 										cancelPendingDiffs()
 										cancelPendingReferencePublishes()
 										cancelPendingStoryTargetRequests()
@@ -3400,6 +3407,7 @@ export const useChatStore = create<ChatStore>()(
 						toast.error(message)
 					}
 				} finally {
+					releaseChatExecution()
 					releaseToolExecutionRun(streamRunId)
 					if (currentStreamRunId === streamRunId) {
 						streamAbortController = null
@@ -3440,6 +3448,7 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			cancelStream: () => {
+				if (isExternalToolExecutionActive()) return
 				const ownedChatId = currentStreamingChatId ?? get().runningChatId
 				const stoppedRunId = get().activeRun?.runId
 				if (ownedChatId) {
@@ -3483,6 +3492,10 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			reset: () => {
+				if (isExternalToolExecutionActive()) {
+					toast.info('Finish or cancel the desktop agent operation before resetting chat.')
+					return
+				}
 				chatComposerActions.reset()
 				const stoppedRunId = get().activeRun?.runId
 				if (streamAbortController || currentStreamingChatId) {

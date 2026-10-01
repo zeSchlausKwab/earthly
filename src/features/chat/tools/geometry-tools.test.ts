@@ -80,6 +80,14 @@ describe('registerGeometryTools — optimize_geometry registered + advertised', 
 })
 
 describe('registerGeometryTools — fine-grained geometry operations', () => {
+	it('advertises line extrusion with taper, side, and arrowhead controls', () => {
+		const tool = advertise().find((candidate) => candidate.function.name === 'extrude_line')
+		expect(tool?.function.parameters.required).toEqual(['featureId', 'width'])
+		expect(tool?.function.parameters.properties.shape?.enum).toEqual(['band', 'arrow'])
+		expect(tool?.function.parameters.properties.side?.enum).toEqual(['center', 'left', 'right'])
+		expect(tool?.function.parameters.properties).toHaveProperty('endWidth')
+		expect(tool?.function.parameters.properties).toHaveProperty('arrowHeadLength')
+	})
 	it('advertises split, offset, and corridor tools with explicit operation choices', () => {
 		const tools = new Map(advertise().map((tool) => [tool.function.name, tool.function]))
 		expect(registry.has('split_feature')).toBe(true)
@@ -120,6 +128,88 @@ describe('registerGeometryTools — fine-grained geometry operations', () => {
 		expect(parameters.properties).toHaveProperty('tolerance')
 		expect(parameters.properties).not.toHaveProperty('selected')
 		expect(parameters.properties).not.toHaveProperty('featureIds')
+	})
+})
+
+describe('extrude_line — real editor authoring and approval', () => {
+	it('creates a tapered arrow copy and preserves properties in one undoable edit', async () => {
+		setLevel(3)
+		seedFeatures([
+			lineFeature('flow', [
+				[0, 0],
+				[0.01, 0],
+			]),
+		])
+		const editor = useEditorStore.getState().editor!
+		const result = await dispatch('extrude_line', {
+			featureId: 'flow',
+			shape: 'arrow',
+			width: 200,
+			endWidth: 100,
+			units: 'meters',
+			side: 'left',
+		})
+		expect(isToolError(result)).toBe(false)
+		expect(result).toMatchObject({ cancelled: false, sourceFeatureId: 'flow' })
+		expect(editor.getAllFeatures()).toHaveLength(2)
+		const derived = editor.getAllFeatures().find((feature) => feature.id !== 'flow')!
+		expect(derived.geometry.type).toBe('Polygon')
+		expect(derived.properties).toMatchObject({
+			name: 'seg',
+			'earthly:geometryOperation': 'fat-arrow',
+			'earthly:derivedFrom': 'flow',
+		})
+		editor.undoLastDatasetSnapshot()
+		expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(['flow'])
+	})
+	it('restores the source when a replacement is cancelled at the approval gate', async () => {
+		seedFeatures([
+			lineFeature('flow', [
+				[0, 0],
+				[0.01, 0],
+			]),
+		])
+		const pending = dispatch('extrude_line', {
+			featureId: 'flow',
+			width: 200,
+			endWidth: 0,
+			resultMode: 'replace',
+		})
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		const diffs = getAllPendingDiffs().filter((diff) => diff.status === 'pending')
+		expect(diffs).toHaveLength(1)
+		expect(diffs[0]?.intent).toBe('modify')
+		resolvePendingDiff(diffs[0]!.id, 'cancelled')
+		expect(await pending).toMatchObject({ cancelled: true, resultFeatureIds: [] })
+		expect(
+			useEditorStore
+				.getState()
+				.editor?.getAllFeatures()
+				.map((feature) => feature.id),
+		).toEqual(['flow'])
+	})
+	it('returns a self-correctable error without changing the dataset for invalid dimensions', async () => {
+		setLevel(3)
+		seedFeatures([
+			lineFeature('flow', [
+				[0, 0],
+				[0.01, 0],
+			]),
+		])
+		const result = await dispatch('extrude_line', {
+			featureId: 'flow',
+			shape: 'arrow',
+			width: 100,
+			endWidth: 0,
+			resultMode: 'replace',
+		})
+		expect(isToolError(result)).toBe(true)
+		expect(
+			useEditorStore
+				.getState()
+				.editor?.getAllFeatures()
+				.map((feature) => feature.id),
+		).toEqual(['flow'])
 	})
 })
 

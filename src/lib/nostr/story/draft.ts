@@ -48,8 +48,14 @@ function notifyDraftsChanged() {
 
 /** Unpublished Stories remain discoverable even if their originating Thread is deleted. */
 export function listNewStoryDrafts(pubkey?: string | null) {
+	return listAllStoryDrafts(pubkey)
+		.filter(({ draftKey }) => draftKey === NEW_STORY_DRAFT_KEY || draftKey.startsWith('thread-story:'))
+		.sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+/** Account-local retained edit slots as well as independent unpublished Story outputs. */
+export function listAllStoryDrafts(pubkey?: string | null) {
 	return Object.entries(readDraftMap(pubkey))
-		.filter(([key]) => key === NEW_STORY_DRAFT_KEY || key.startsWith('thread-story:'))
 		.map(([draftKey, draft]) => ({ draftKey, ...draft }))
 		.sort((a, b) => b.updatedAt - a.updatedAt)
 }

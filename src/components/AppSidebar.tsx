@@ -20,7 +20,18 @@ import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoProposal } from '@/lib/nostr/geo-proposal'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { DEFAULT_WORK_VIEW } from '@/features/geo-editor/defaults'
-import { getStoryEditorOpenRequest, subscribeStoryEditorOpenRequests } from '@/features/geo-editor/storyEditorBridge'
+import {
+	getStoryEditorOpenRequest,
+	getStoryEditorTarget,
+	subscribeStoryEditorOpenRequests,
+} from '@/features/geo-editor/storyEditorBridge'
+import { getAtlasEditorOpenRequest, subscribeAtlasEditorOpenRequests } from '@/features/groups/atlasEditorBridge'
+import { acknowledgeAiOutput, useAiOutputAttention } from '@/features/chat/outputAttention'
+import {
+	AI_OUTPUT_ATTENTION_CLASS,
+	AiOutputAttentionDot,
+} from '@/features/chat/components/AiOutputAttentionPresentation'
+import { cn } from '@/lib/utils'
 import { ShoutboxPanel } from './optionalSurfaces.tsx'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
 import { EmbeddedListPanelContext } from './entity-list'
@@ -577,6 +588,19 @@ export function AppSidebar({
 	const datasetEditorResumable = useEditorStore(
 		(state) => getRetainedDatasetSurfaceTarget(state) !== null,
 	)
+	const retainedWorkspaceId = useEditorStore(
+		(state) => getRetainedDatasetSurfaceTarget(state)?.workspace.id,
+	)
+	const outputNotices = useAiOutputAttention()
+	const mapOutputNotice = outputNotices.find(
+		(notice) =>
+			notice.target.kind === 'dataset' && notice.target.workspaceId === retainedWorkspaceId,
+	)
+	const retainedStoryDraftKey =
+		storyEditorMode !== 'none' ? getStoryEditorTarget()?.draftKey : undefined
+	const storyOutputNotice = outputNotices.find(
+		(notice) => notice.target.kind === 'story' && notice.target.draftKey === retainedStoryDraftKey,
+	)
 	const inbox = useInboxFeed({
 		currentUserPubkey,
 		geoEvents,
@@ -1033,6 +1057,7 @@ export function AppSidebar({
 		setActiveEntity('geometry')
 		setSelectedEntitySurface('dataset')
 		setShowEntityAsFullPanel(true)
+		if (mapOutputNotice) acknowledgeAiOutput(mapOutputNotice.target)
 	}
 
 	const returnToStoryEditor = () => {
@@ -1041,6 +1066,7 @@ export function AppSidebar({
 		setActiveEntity('story')
 		setSelectedEntitySurface('story')
 		setShowEntityAsFullPanel(true)
+		if (storyOutputNotice) acknowledgeAiOutput(storyOutputNotice.target)
 	}
 	const consumedStoryReveal = useRef(0)
 	useEffect(() => {
@@ -1055,6 +1081,20 @@ export function AppSidebar({
 		}
 		reveal()
 		return subscribeStoryEditorOpenRequests(reveal)
+	}, [chatOpen, chatDock])
+	const consumedAtlasReveal = useRef(0)
+	useEffect(() => {
+		const reveal = () => {
+			const request = getAtlasEditorOpenRequest()
+			if (!request?.reveal || request.nonce === consumedAtlasReveal.current) return
+			consumedAtlasReveal.current = request.nonce
+			if (chatOpen && chatDock === 'left') useEditorStore.getState().setChatDock('right')
+			setActiveEntity('context')
+			setSelectedEntitySurface('context')
+			setShowEntityAsFullPanel(true)
+		}
+		reveal()
+		return subscribeAtlasEditorOpenRequests(reveal)
 	}, [chatOpen, chatDock])
 
 	const returnToContextEditor = () => {
@@ -1670,11 +1710,19 @@ export function AppSidebar({
 									variant={datasetEditorSelected ? 'secondary' : 'ghost'}
 									size="sm"
 									onClick={returnToDatasetEditor}
-									className="h-7 shrink-0 rounded-none border border-border px-2 text-[10px]"
+									className={cn(
+										'h-7 shrink-0 rounded-none border border-border px-2 text-[10px]',
+										mapOutputNotice && AI_OUTPUT_ATTENTION_CLASS,
+									)}
 									aria-current={datasetEditorSelected ? 'page' : undefined}
+									aria-description={
+										mapOutputNotice ? 'New AI changes are ready to view.' : undefined
+									}
+									data-ai-attention={Boolean(mapOutputNotice) || undefined}
 								>
 									<Database className="h-3 w-3" aria-hidden="true" />
 									Map edit
+									{mapOutputNotice && <AiOutputAttentionDot />}
 								</Button>
 							) : null}
 							{storyEditorMode !== 'none' ? (
@@ -1683,11 +1731,19 @@ export function AppSidebar({
 									variant={storyEditorSelected ? 'secondary' : 'ghost'}
 									size="sm"
 									onClick={returnToStoryEditor}
-									className="h-7 shrink-0 rounded-none border border-border px-2 text-[10px]"
+									className={cn(
+										'h-7 shrink-0 rounded-none border border-border px-2 text-[10px]',
+										storyOutputNotice && AI_OUTPUT_ATTENTION_CLASS,
+									)}
 									aria-current={storyEditorSelected ? 'page' : undefined}
+									aria-description={
+										storyOutputNotice ? 'New AI changes are ready to view.' : undefined
+									}
+									data-ai-attention={Boolean(storyOutputNotice) || undefined}
 								>
 									<BookOpen className="h-3 w-3" aria-hidden="true" />
 									Story edit
+									{storyOutputNotice && <AiOutputAttentionDot />}
 								</Button>
 							) : null}
 							{contextEditorMode !== 'none' ? (

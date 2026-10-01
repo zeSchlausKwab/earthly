@@ -1,6 +1,7 @@
 export type StoryTargetRequestStatus = 'awaiting-confirmation'
 
 export interface StoryTargetRequestInput {
+	documentKind?: 'story' | 'atlas'
 	review?: { before: string; after: string }
 	chatId: string
 	toolCallId: string
@@ -65,6 +66,7 @@ export function requestStoryTarget(
 				chatId: input.chatId,
 				toolCallId: input.toolCallId,
 				storyTitle: input.storyTitle,
+				documentKind: input.documentKind,
 				review: input.review,
 				status: 'awaiting-confirmation',
 			},

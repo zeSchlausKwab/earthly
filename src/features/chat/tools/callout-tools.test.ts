@@ -72,6 +72,47 @@ describe('map callout AI tools', () => {
 		expect(properties).not.toHaveProperty('feature')
 	})
 
+	test('advertises image attachments for single, batch, and update operations', () => {
+		for (const name of ['add_feature_callout', 'update_feature_callout']) {
+			const schema = advertise().find((tool) => tool.function.name === name)
+			expect(schema?.function.parameters.properties.media?.items?.required).toContain('url')
+		}
+		const batch = advertise().find((tool) => tool.function.name === 'add_feature_callouts')
+		const media = batch?.function.parameters.properties.callouts?.items?.properties?.media
+		expect(media?.items?.required).toContain('url')
+		expect(media?.description).toContain('existing callout size')
+	})
+
+	test('stores batch images, replaces them, and removes them without changing geometry', async () => {
+		const media = [{ url: 'https://images.test/river', mimeType: 'image/jpeg', alt: 'River' }]
+		await dispatch('add_feature_callouts', {
+			callouts: [{ featureId: 'route-a', text: 'River crossing', media }],
+		})
+		const editor = useEditorStore.getState().editor
+		const feature = editor?.getFeature('route-a')
+		if (!feature) throw new Error('Expected route')
+		const [callout] = getFeatureCallouts(feature)
+		if (!callout) throw new Error('Expected callout')
+		expect(callout.media).toEqual(media)
+		const replacement = [{ url: 'https://images.test/bridge.jpg', alt: 'Bridge' }]
+		await dispatch('update_feature_callout', {
+			featureId: 'route-a',
+			calloutId: callout.id,
+			media: replacement,
+		})
+		expect(
+			getFeatureCallouts(editor?.getFeature('route-a') ?? { properties: {} })[0]?.media,
+		).toEqual(replacement)
+		await dispatch('update_feature_callout', {
+			featureId: 'route-a',
+			calloutId: callout.id,
+			media: [],
+		})
+		const updated = editor?.getFeature('route-a')
+		expect(getFeatureCallouts(updated ?? { properties: {} })[0]?.media).toBeUndefined()
+		expect(updated?.geometry).toEqual(feature.geometry)
+	})
+
 	test('atomically stores authored callouts on their owning geometries', async () => {
 		const result = (await dispatch('add_feature_callouts', {
 			callouts: [

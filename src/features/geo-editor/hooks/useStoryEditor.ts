@@ -7,6 +7,7 @@ import {
 	retainStoryEditorTarget,
 	subscribeStoryEditorOpenRequests,
 } from '../storyEditorBridge'
+import { getAtlasEditorOpenRequest, subscribeAtlasEditorOpenRequests } from '@/features/groups/atlasEditorBridge'
 
 interface UseStoryEditorParams {
 	isMobile: boolean
@@ -61,6 +62,9 @@ export function useStoryEditor({
 		setEditingStory(null)
 		clearStoryEditorTarget()
 	}, [])
+	useEffect(() => subscribeAtlasEditorOpenRequests(() => {
+		if (getAtlasEditorOpenRequest()?.reveal) clearStoryEditorModes()
+	}), [clearStoryEditorModes])
 
 	const prepareNonGeometryWorkspace = useCallback(
 		({ clearRoute = true }: { clearRoute?: boolean } = {}) => {

@@ -38,6 +38,7 @@ import { inspectPmtiles } from '@/lib/localPmtiles'
 import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
 import { ChatSettingsSection } from '@/features/chat/ChatSettingsSection'
+import { WebMcpSettings } from '@/features/webmcp/WebMcpSettings'
 import { OfflineSharingSection } from '@/features/offline/OfflineSharingSection'
 import { OfflineDiagnosticsSection } from '@/features/offline/OfflineDiagnosticsSection'
 import { SavedRegionsSection } from '@/features/offline/saved-regions/SavedRegionsSection'
@@ -944,6 +945,7 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 					description="Choose providers, models, tools, and local chat behavior."
 				>
 					<ChatSettingsSection />
+					<WebMcpSettings />
 				</SettingsShell>
 			</TabsContent>
 

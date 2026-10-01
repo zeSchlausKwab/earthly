@@ -8,6 +8,15 @@ export const MAP_PRESENTATION_SOURCE_KIND = GEO_EVENT_KIND
 /** A validated parameterized-replaceable Map address. */
 export type MapPresentationSource = `37515:${string}:${string}`
 
+/** Local authoring only; never serialized into a signed Story or Atlas. */
+export interface LocalMapPresentationSource {
+	readonly kind: 'local-map'
+	/** Stable workspace identity, resolved against the active account's draft store. */
+	readonly workspaceId: string
+}
+
+export type MapPresentationLayerSource = MapPresentationSource | LocalMapPresentationSource
+
 export interface MapPresentationCameraV1 {
 	readonly center: readonly [longitude: number, latitude: number]
 	readonly zoom: number
@@ -44,7 +53,7 @@ export type PresentationStyleOverrideV1 = MapPresentationStyleOverrideV1
 /** One render instance. Layers are ordered bottom-to-top by their array order. */
 export interface MapPresentationLayerV1 {
 	readonly id: string
-	readonly source: MapPresentationSource
+	readonly source: MapPresentationLayerSource
 	/** Absent means the complete source Map; an empty array means no features. */
 	readonly featureIds?: readonly string[]
 	readonly visible: boolean

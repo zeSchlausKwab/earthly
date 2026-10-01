@@ -48,6 +48,7 @@ export type {
 	GeometryOperationRequest,
 	GeometryOperationResult,
 } from './geometryOperations'
+export type { LineBandOptions } from './lineBand'
 export {
 	GeometryOperationError,
 	performGeometryOperation,

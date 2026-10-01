@@ -45,6 +45,7 @@ export type PendingDiffStatus =
 	| 'undo-unavailable'
 
 export interface PendingDiffEntry {
+	metadataChanges?: MetadataChange[]
 	/** Stable id keying the transcript marker + the resolver. */
 	id: string
 	/** The classified diff to render. */
@@ -94,6 +95,7 @@ export interface EmitDiffBlockHandle {
 }
 
 export interface EmitDiffBlockOptions {
+	metadataChanges?: MetadataChange[]
 	/**
 	 * Register the entry already resolved (Level-3 auto-apply / immediate apply):
 	 * the diff renders with this status and no confirm is awaited (D-12).
@@ -110,6 +112,12 @@ export interface EmitDiffBlockOptions {
 	 * every existing caller — additive, backward-compatible.
 	 */
 	intent?: MutationIntent
+}
+
+export interface MetadataChange {
+	field: string
+	before: string
+	after: string
 }
 
 /**
@@ -181,6 +189,7 @@ export function emitDiffBlock(diff: DatasetDiff, opts?: EmitDiffBlockOptions): E
 		status: opts?.status ?? 'pending',
 		headline: opts?.headline,
 		intent: opts?.intent,
+		metadataChanges: opts?.metadataChanges,
 		chatId: currentDiffChatId ?? undefined,
 		runId: currentDiffRunId ?? undefined,
 		toolCallId: currentDiffToolCallId ?? undefined,
@@ -367,6 +376,19 @@ export function subscribePendingDiffs(fn: () => void): () => void {
 	return () => {
 		subscribers.delete(fn)
 	}
+}
+
+/** Remove one scope's reviews and Undo history when an external session's account changes. */
+export function clearPendingDiffsForChat(chatId: string): void {
+	let changed = false
+	for (const entry of pendingDiffs.values()) {
+		if (entry.chatId !== chatId) continue
+		resolvers.get(entry.id)?.('cancel')
+		resolvers.delete(entry.id)
+		pendingDiffs.delete(entry.id)
+		changed = true
+	}
+	if (changed) notify()
 }
 
 /** Test/reset helper — clears all entries + resolvers. */

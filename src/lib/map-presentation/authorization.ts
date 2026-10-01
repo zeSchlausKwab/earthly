@@ -1,10 +1,16 @@
 import type { Filter } from 'nostr-tools'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { naddrToCoordinate } from '@/lib/nostr/references'
-import { parseMapPresentationSource } from './codec'
+import {
+	mapPresentationSourceKey,
+	parseLocalMapPresentationReference,
+	parseMapPresentationSource,
+} from './codec'
+import { localStoryReferences } from '@/lib/nostr/story/localReferences'
 import { extractSemanticStoryMapReferences } from './storyMarkdown'
 import type {
 	MapPresentationLayerV1,
+	MapPresentationLayerSource,
 	MapPresentationParseResult,
 	MapPresentationSource,
 	MapPresentationV1,
@@ -12,19 +18,16 @@ import type {
 
 export type PresentationSourceAuthorization =
 	| {
-			readonly source: MapPresentationSource
+			readonly source: MapPresentationLayerSource
 			readonly scope: 'whole'
 	  }
 	| {
-			readonly source: MapPresentationSource
+			readonly source: MapPresentationLayerSource
 			readonly scope: 'features'
 			readonly featureIds: readonly string[]
 	  }
 
-export type MapPresentationAuthorization = ReadonlyMap<
-	MapPresentationSource,
-	PresentationSourceAuthorization
->
+export type MapPresentationAuthorization = ReadonlyMap<string, PresentationSourceAuthorization>
 
 export type PresentationLayerAuthorization =
 	| { readonly status: 'authorized' }
@@ -64,6 +67,7 @@ export function getUsableMapPresentation(
  */
 export function deriveStoryPresentationAuthorization(
 	markdown: string | null | undefined,
+	options: { allowLocalDraftReferences?: boolean } = {},
 ): MapPresentationAuthorization {
 	const grants = new Map<
 		MapPresentationSource,
@@ -89,7 +93,7 @@ export function deriveStoryPresentationAuthorization(
 		grants.set(source, grant)
 	}
 
-	const authorization = new Map<MapPresentationSource, PresentationSourceAuthorization>()
+	const authorization = new Map<string, PresentationSourceAuthorization>()
 	for (const [source, grant] of grants) {
 		authorization.set(
 			source,
@@ -99,6 +103,29 @@ export function deriveStoryPresentationAuthorization(
 						source,
 						scope: 'features' as const,
 						featureIds: Object.freeze(grant.featureIds),
+					}),
+		)
+	}
+	for (const reference of options.allowLocalDraftReferences
+		? localStoryReferences(markdown ?? '')
+		: []) {
+		const source = Object.freeze({ kind: 'local-map' as const, workspaceId: reference.workspaceId })
+		const key = mapPresentationSourceKey(source)
+		const previous = authorization.get(key)
+		if (previous?.scope === 'whole') continue
+		authorization.set(
+			key,
+			reference.featureId === undefined
+				? Object.freeze({ source, scope: 'whole' as const })
+				: Object.freeze({
+						source,
+						scope: 'features' as const,
+						featureIds: Object.freeze([
+							...new Set([
+								...(previous?.scope === 'features' ? previous.featureIds : []),
+								reference.featureId,
+							]),
+						]),
 					}),
 		)
 	}
@@ -135,14 +162,17 @@ export function buildFallbackStoryPresentation(
 /** Atlas presentation grants come only from the owner's accepted/curated `a` lane. */
 export function deriveAtlasPresentationAuthorization(
 	acceptedAddresses: readonly string[],
+	options: { allowLocalDraftReferences?: boolean } = {},
 ): MapPresentationAuthorization {
-	const authorization = new Map<MapPresentationSource, PresentationSourceAuthorization>()
+	const authorization = new Map<string, PresentationSourceAuthorization>()
 	for (const address of acceptedAddresses) {
-		const parsed = parseMapPresentationSource(address)
-		if (!parsed || authorization.has(parsed.coordinate)) continue
+		const source =
+			parseMapPresentationSource(address)?.coordinate ??
+			(options.allowLocalDraftReferences ? parseLocalMapPresentationReference(address) : null)
+		if (!source || authorization.has(mapPresentationSourceKey(source))) continue
 		authorization.set(
-			parsed.coordinate,
-			Object.freeze({ source: parsed.coordinate, scope: 'whole' as const }),
+			mapPresentationSourceKey(source),
+			Object.freeze({ source, scope: 'whole' as const }),
 		)
 	}
 	return authorization
@@ -155,12 +185,13 @@ export function deriveAtlasPresentationAuthorization(
  */
 export function buildFallbackAtlasPresentation(
 	acceptedAddresses: readonly string[],
+	options: { allowLocalDraftReferences?: boolean } = {},
 ): MapPresentationV1 {
-	const authorization = deriveAtlasPresentationAuthorization(acceptedAddresses)
+	const authorization = deriveAtlasPresentationAuthorization(acceptedAddresses, options)
 	return Object.freeze({
 		version: 1,
 		layers: Object.freeze(
-			[...authorization.keys()].map((source, index) =>
+			[...authorization.values()].map(({ source }, index) =>
 				Object.freeze({
 					id: `atlas-map-${index + 1}`,
 					source,
@@ -177,7 +208,7 @@ export function authorizePresentationLayer(
 	layer: MapPresentationLayerV1,
 	authorization: MapPresentationAuthorization,
 ): PresentationLayerAuthorization {
-	const grant = authorization.get(layer.source)
+	const grant = authorization.get(mapPresentationSourceKey(layer.source))
 	if (!grant) return Object.freeze({ status: 'unauthorized-source' as const })
 	if (grant.scope === 'whole') return Object.freeze({ status: 'authorized' as const })
 
@@ -215,9 +246,8 @@ export function buildPresentationSourceRequests(
 	const requests: PresentationSourceRequest[] = []
 	for (const layer of presentation.layers) {
 		if (authorizePresentationLayer(layer, authorization).status !== 'authorized') continue
-		if (seen.has(layer.source)) continue
 		const source = parseMapPresentationSource(layer.source)
-		if (!source) continue
+		if (!source || seen.has(source.coordinate)) continue
 		seen.add(source.coordinate)
 		requests.push(
 			Object.freeze({

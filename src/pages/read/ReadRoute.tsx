@@ -288,7 +288,7 @@ export function ReadRoute() {
 		[composedLayers, effectiveState.camera, storyPresentation.issues],
 	)
 	const authorization = useMemo<MapPresentationAuthorization>(() => {
-		const next = new Map<MapPresentationSource, PresentationSourceAuthorization>(
+		const next = new Map<string, PresentationSourceAuthorization>(
 			story ? storyAuthorization : [],
 		)
 		for (const source of ambient.sources) {

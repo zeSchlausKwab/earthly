@@ -180,7 +180,7 @@ const editorCommands: EditorCommandDefinition[] = [
 	{
 		id: 'apply_geometry_operation',
 		label: 'Apply geometry operation',
-		description: 'Apply a numeric polygon offset, line offset, or corridor operation.',
+		description: 'Apply a polygon offset, line offset, corridor, fat line, or fat arrow operation.',
 		canExecute: (state) => Boolean(state.editor && state.editor.getSelectedFeatures().length === 1),
 		execute: (state, args) => {
 			const editor = state.editor
@@ -219,10 +219,27 @@ const editorCommands: EditorCommandDefinition[] = [
 					}
 				} else if (args.kind === 'corridor') {
 					request = { kind: 'corridor', width: distance as number, units }
+				} else if (args.kind === 'fat-line' || args.kind === 'fat-arrow') {
+					if (args.side !== 'center' && args.side !== 'left' && args.side !== 'right') {
+						return failure('apply_geometry_operation', 'Choose center, left, or right.')
+					}
+					request = {
+						kind: args.kind,
+						width: distance as number,
+						endWidth: args.endWidth as number,
+						units,
+						side: args.side,
+						...(args.arrowHeadLength !== undefined
+							? { arrowHeadLength: args.arrowHeadLength as number }
+							: {}),
+						...(args.arrowHeadWidth !== undefined
+							? { arrowHeadWidth: args.arrowHeadWidth as number }
+							: {}),
+					}
 				} else {
 					return failure(
 						'apply_geometry_operation',
-						'kind must be offset-polygon, offset-line, or corridor.',
+						'kind must be offset-polygon, offset-line, corridor, fat-line, or fat-arrow.',
 					)
 				}
 				const applied = editor.applyGeometryOperation(target.id, request, resultMode)

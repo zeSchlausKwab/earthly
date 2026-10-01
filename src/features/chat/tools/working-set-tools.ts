@@ -5,6 +5,8 @@ import { localMapReference } from '@/lib/nostr/story/localReferences'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { createDefaultCollectionMeta } from '@/features/geo-editor/utils'
 import { registerEntityTools } from './entity-tools'
+import { accounts } from '@/lib/nostr'
+import { reportAiOutputChange } from '../outputAttention'
 
 export function registerWorkingSetTools(register: (entry: ToolEntry) => void): void {
 	register({
@@ -49,7 +51,11 @@ export function registerWorkingSetTools(register: (entry: ToolEntry) => void): v
 				(matches.length === 1 ? matches[0] : undefined)
 			if (!source)
 				throw new Error('Reference not attached to this run. Ask the user to attach it first.')
-			if (source.localStoryDraftKey) {
+				if (source.localAtlasDraftKey) {
+					if (!source.localAtlasSnapshot) throw new Error('This Atlas reference was not captured. Reattach it before sending.')
+					return { readOnly: true, published: false, ...source.localAtlasSnapshot }
+				}
+				if (source.localStoryDraftKey) {
 				if (!source.localStorySnapshot) throw new Error('This Story reference was not captured. Reattach it before sending.')
 				return { readOnly: true, published: false, ...source.localStorySnapshot }
 			}
@@ -97,7 +103,7 @@ export function registerWorkingSetTools(register: (entry: ToolEntry) => void): v
 					}))
 				: [],
 			references:
-				context?.run?.references?.map(({ localSnapshot: _snapshot, localStorySnapshot: _story, profileSnapshot: _profile, ...reference }) => ({
+					context?.run?.references?.map(({ localSnapshot: _snapshot, localStorySnapshot: _story, localAtlasSnapshot: _atlas, profileSnapshot: _profile, ...reference }) => ({
 					...reference,
 					referenceId: threadReferenceId(reference),
 					...(reference.localWorkspaceId
@@ -195,6 +201,11 @@ export function registerWorkingSetTools(register: (entry: ToolEntry) => void): v
 			const item = mapWorkTarget(workspaceId)!
 			registerRunOutput(run, item)
 			useChatStore.getState().setWorkingSet(chat.id, [...(chat.workingSet ?? []), item])
+			reportAiOutputChange(
+				run.chatId,
+				{ kind: 'dataset', workspaceId, draftId, title },
+				accounts.active?.pubkey ?? null,
+			)
 			return {
 				ok: true,
 				workingTarget: item.id,

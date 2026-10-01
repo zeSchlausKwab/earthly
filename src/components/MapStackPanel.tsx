@@ -40,6 +40,7 @@ import {
 import { Button } from './ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { cn } from '@/lib/utils'
+import { aiMapPreviewTitle, resolveAiMapPreviewDraft } from '@/features/geo-editor/aiMapPreview'
 
 interface MapStackPanelProps {
 	geoEvents: GeoDataset[]
@@ -58,7 +59,7 @@ interface MapStackPanelProps {
 	onSetEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
 	onRemoveEntry: (entry: MapStackEntry) => void
 	/** Round H.5: open the editor panel in the sidebar for the in-edit draft row. */
-	onOpenDraftEditor?: () => void
+	onOpenDraftEditor?: (workspaceId?: string) => void
 	/** Round H.5: zoom the map to the in-edit draft's geometry. */
 	onZoomToDraft?: () => void
 	onClear: () => void
@@ -141,6 +142,7 @@ export function entryTypeMetaLabel(entityType: MapStackEntry['entityType']): str
 		case 'context':
 			return 'Atlas'
 		case 'draft':
+		case 'ai-result':
 			return 'working Map'
 		case 'sighting':
 			return 'sighting'
@@ -236,6 +238,7 @@ export function bucketMapStackEntries(entries: MapStackEntry[]): MapStackBuckets
 				beaconLayerEntries.push(entry)
 				break
 			case 'draft':
+			case 'ai-result':
 				draftEntries.push(entry)
 				break
 			case 'context':
@@ -364,7 +367,7 @@ interface EntryRowProps {
 	onToggleEntryExclusion: (entryId: string, datasetKey: string) => void
 	onTogglePinned: (entryId: string) => void
 	onReorderEntry: (draggedId: string, targetId: string) => void
-	onOpenDraftEditor?: () => void
+	onOpenDraftEditor?: (workspaceId?: string) => void
 	onZoomToDraft?: () => void
 }
 
@@ -404,14 +407,15 @@ function EntryRow({
 	// Live draft name — reactive so the entry title updates on the fly as you type
 	// it in the editor. Returns a constant '' for non-draft rows so only the draft
 	// row re-renders on name changes (keeps the rest of the stack cheap).
-	const liveDraftName = useEditorStore((state) =>
-		entry.entityType === 'draft' ? (state.collectionMeta?.name ?? '') : '',
-	)
+	const liveDraftName = useEditorStore((state) => {
+		if (entry.entityType === 'draft') return state.collectionMeta?.name ?? ''
+		const draft = resolveAiMapPreviewDraft(state, entry)
+		return draft ? aiMapPreviewTitle(draft) : ''
+	})
 	const activeDraftAuthoring = useEditorStore(
 		(state) => entry.id === 'draft:active' && resolveActiveDraftMapPresentation(state) !== null,
 	)
-	const displayTitle =
-		entry.entityType === 'draft' && liveDraftName.trim() ? liveDraftName.trim() : title
+	const displayTitle = liveDraftName.trim() || title
 	const [expanded, setExpanded] = useState(false)
 	// Resolve curated datasets only when this is a context entry. We compute
 	// regardless of `expanded` (cheap; usually a handful) so the row can show
@@ -475,7 +479,7 @@ function EntryRow({
 					type="button"
 					className={cn(
 						'flex shrink-0 cursor-grab items-center justify-center rounded-md active:cursor-grabbing',
-						entry.entityType === 'draft'
+						entry.entityType === 'draft' || entry.entityType === 'ai-result'
 							? 'bg-ok/15 text-ok'
 							: isolated
 								? 'bg-primary/10 text-primary'
@@ -494,7 +498,7 @@ function EntryRow({
 						<Database className={actionIconClassName} />
 					) : entry.entityType === 'context' ? (
 						<Layers className={actionIconClassName} />
-					) : entry.entityType === 'draft' ? (
+					) : entry.entityType === 'draft' || entry.entityType === 'ai-result' ? (
 						<PencilLine className={actionIconClassName} />
 					) : entry.entityType === 'sighting' ? (
 						<MapPin className={actionIconClassName} />
@@ -669,9 +673,9 @@ function EntryRow({
 							) : null}
 						</>
 					) : null}
-					{entry.entityType === 'draft' ? (
+					{entry.entityType === 'draft' || entry.entityType === 'ai-result' ? (
 						<>
-							{onZoomToDraft ? (
+							{onZoomToDraft && entry.entityType === 'draft' ? (
 								<RowAction
 									icon={<ZoomActionIcon className={actionIconClassName} />}
 									className={cn(actionButtonClassName, 'hover:text-info')}
@@ -684,7 +688,11 @@ function EntryRow({
 								<RowAction
 									icon={<OpenPanelActionIcon className={actionIconClassName} />}
 									className={cn(actionButtonClassName, 'hover:text-ok')}
-									onClick={onOpenDraftEditor}
+									onClick={() =>
+										onOpenDraftEditor(
+											entry.entityType === 'ai-result' ? entry.entityKey : undefined,
+										)
+									}
 									label="Open editor panel"
 									tooltip="Show the working Map in the Margin"
 								/>
@@ -1016,7 +1024,7 @@ interface EntryGroupListProps {
 	onToggleEntryExclusion: (entryId: string, datasetKey: string) => void
 	onTogglePinned: (entryId: string) => void
 	onReorderEntry: (draggedId: string, targetId: string) => void
-	onOpenDraftEditor?: () => void
+	onOpenDraftEditor?: (workspaceId?: string) => void
 	onZoomToDraft?: () => void
 }
 

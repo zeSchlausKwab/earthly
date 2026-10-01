@@ -3,6 +3,7 @@ import { GitCompare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { classifyModifyKind, type DatasetDiff } from '@/features/geo-editor/api/diff'
 import type { EditorFeature } from '@/features/geo-editor/core'
+import type { MetadataChange } from './pendingDiffStore'
 
 /**
  * DatasetDiffDisclosure — the inline counts-headline diff block with Apply/Cancel
@@ -95,6 +96,7 @@ function DiffSection({ label, rows, tone }: DiffSectionProps) {
 }
 
 interface DatasetDiffDisclosureProps {
+	metadataChanges?: MetadataChange[]
 	/** The classified add/modify/delete diff (Plan 01 `DatasetDiff`). */
 	diff: DatasetDiff
 	/** Commit the buffered mutation (resolves the gate's confirm to apply). */
@@ -130,6 +132,7 @@ export function DatasetDiffDisclosure({
 	defaultOpen = false,
 	status = 'pending',
 	headline,
+	metadataChanges,
 }: DatasetDiffDisclosureProps) {
 	const [isOpen, setIsOpen] = useState(defaultOpen)
 	// Headline precedence (D-04b): when the optimizer supplies a metrics headline,
@@ -163,6 +166,15 @@ export function DatasetDiffDisclosure({
 
 			{isOpen && (
 				<div className="space-y-2">
+					{metadataChanges?.map((change) => (
+						<div key={change.field} className="space-y-1 break-words">
+							<p className="font-medium capitalize">{change.field}</p>
+							<p className="whitespace-pre-wrap text-muted-foreground">
+								Before: {change.before || '(empty)'}
+							</p>
+							<p className="whitespace-pre-wrap">After: {change.after || '(empty)'}</p>
+						</div>
+					))}
 					<DiffSection label="Added" rows={addedRows} tone="text-ok/90" />
 					<DiffSection label="Changed" rows={modifiedRows} tone="text-primary/90" />
 					<DiffSection label="Deleted" rows={deletedRows} tone="text-destructive/90" />

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { createDefaultCollectionMeta } from '@/features/geo-editor/utils'
 import { readStoryDraft, writeStoryDraft, NEW_STORY_DRAFT_KEY } from '@/lib/nostr/story'
+import { writeGroupEditorDraft } from '@/features/groups/editorDraft'
 import { useChatStore } from './store'
 import {
 	assertThreadStoryReferenceScope,
@@ -133,6 +134,24 @@ function run(targets: ThreadWorkTarget[] = [], allowCreate = false): ToolExecuti
 		},
 	}
 }
+
+test('Atlas references capture immutable local data without granting edit access', async () => {
+	const draftKey = 'thread-atlas:test'
+	const draft = { name: 'First Atlas', description: 'Original', curatedReferences: [], image: '', governance: 'closed' as const, schemaMode: 'builder' as const, allowedGeometryTypes: [], rows: [], advancedJson: '{}', sampleJson: '{}' }
+	writeGroupEditorDraft(draftKey, draft)
+	const reference = { id: 'atlas:local', type: 'context' as const, name: draft.name, localAtlasDraftKey: draftKey }
+	const captured = captureThreadReferences([reference])
+	writeGroupEditorDraft(draftKey, { ...draft, name: 'Changed Atlas' })
+	expect(captured[0]?.localAtlasSnapshot?.name).toBe('First Atlas')
+	const identity = run()
+	const result = await executeToolCall({ id: 'atlas-reference', type: 'function', function: { name: 'read_thread_reference', arguments: JSON.stringify({ referenceId: reference.id }) } }, { run: { ...identity, references: captured } })
+	expect(JSON.parse(result.content)).toMatchObject({ readOnly: true, published: false, name: 'First Atlas' })
+	expect(() => resolveRunWorkTarget(identity, reference.id, 'atlas')).toThrow('allowed workingTarget')
+	const target: ThreadWorkTarget = { id: `atlas:${draftKey}`, kind: 'atlas', draftKey, title: draft.name, intent: 'create' }
+	expect(workTargetIdentity(target)).toMatchObject({ entityType: 'context', draftId: draftKey, workspaceId: null })
+	expect(normalizeWorkingSet([{ ...target, featureIds: ['one'] }])).toEqual([])
+	expect(normalizeWorkingSet([target])).toEqual([target])
+})
 async function call(
 	identity: ToolExecutionRunIdentity,
 	name: string,

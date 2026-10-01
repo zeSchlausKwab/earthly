@@ -26,6 +26,16 @@ import {
 	publishSavedMapChanges,
 } from '@/features/geo-editor/draftPublication'
 import { canPublishSavedStory, publishSavedStory } from '@/features/geo-editor/storyPublication'
+import {
+	acknowledgeAiOutput,
+	aiOutputKey,
+	useAiOutputAttention,
+} from '@/features/chat/outputAttention'
+import {
+	AI_OUTPUT_ATTENTION_CLASS,
+	AiOutputAttentionDot,
+} from '@/features/chat/components/AiOutputAttentionPresentation'
+import { cn } from '@/lib/utils'
 
 /** Shared shortcuts, not a second draft store or a second publishing flow. */
 export function DraftRowActions({
@@ -43,6 +53,7 @@ export function DraftRowActions({
 	const [discardOwner, setDiscardOwner] = useState(accounts.active?.pubkey)
 	const { runningChatId } = useChatActivity()
 	const account = useActiveAccount()
+	const hasNewOutput = useAiOutputAttention().some((notice) => notice.key === aiOutputKey(target))
 	const isPublishing = useEditorStore((state) => state.isPublishing)
 	const directMapPublish = useEditorStore((state) => {
 		const workspace = target.kind === 'dataset' ? state.workspaces[target.workspaceId] : undefined
@@ -52,9 +63,14 @@ export function DraftRowActions({
 			account?.pubkey,
 		)
 	})
-	const directStoryPublish = target.kind === 'story' && canPublishSavedStory(target, account?.pubkey)
+	const directStoryPublish =
+		target.kind === 'story' && canPublishSavedStory(target, account?.pubkey)
 	const directPublish = directMapPublish || directStoryPublish
-	const publishLabel = directPublish ? target.kind === 'story' && !target.storyReference ? 'Publish Story' : 'Publish changes' : 'Review & publish'
+	const publishLabel = directPublish
+		? target.kind === 'story' && !target.storyReference
+			? 'Publish Story'
+			: 'Publish changes'
+		: 'Review & publish'
 	const run = async (action: () => Promise<void>, navigate = false) => {
 		if (pending) return
 		setPending(true)
@@ -79,13 +95,21 @@ export function DraftRowActions({
 				<Button
 					variant="ghost"
 					size="icon"
-					className="size-11 md:size-8"
+					className={cn('size-11 md:size-8', hasNewOutput && AI_OUTPUT_ATTENTION_CLASS)}
 					disabled={pending}
-					title={target.kind === 'dataset' ? 'View on map' : 'Preview Story'}
-					aria-label={`${target.kind === 'dataset' ? 'View on map' : 'Preview Story'}: ${target.title}`}
-					onClick={() => void run(() => viewSavedDraft(target), true)}
+						title={target.kind === 'dataset' ? 'View on map' : target.kind === 'atlas' ? 'Open Atlas draft' : 'Preview Story'}
+						aria-label={`${target.kind === 'dataset' ? 'View on map' : target.kind === 'atlas' ? 'Open Atlas draft' : 'Preview Story'}: ${target.title}`}
+					aria-description={hasNewOutput ? 'New AI changes are ready to view.' : undefined}
+					data-ai-attention={hasNewOutput || undefined}
+					onClick={() =>
+						void run(async () => {
+							await viewSavedDraft(target)
+							acknowledgeAiOutput(target)
+						}, true)
+					}
 				>
 					<Eye className="size-3.5" />
+					{hasNewOutput && <AiOutputAttentionDot />}
 				</Button>
 				<Button
 					variant="ghost"

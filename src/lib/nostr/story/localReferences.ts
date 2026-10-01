@@ -1,7 +1,7 @@
 import { semanticMarkdownText } from '@/lib/map-presentation/storyMarkdown'
 import { encodeNostrFeatureId } from '@/lib/nostr/references'
 
-/** Local authoring notation only. Never sent as an event or a presentation source. */
+/** Local authoring notation only. Never sent in a published event. */
 export function localMapReference(workspaceId: string, featureId?: string): string {
 	return `earthly-draft:${encodeNostrFeatureId(workspaceId)}${featureId ? `#${encodeNostrFeatureId(featureId)}` : ''}`
 }
@@ -10,12 +10,20 @@ export function localStoryReferences(markdown: string) {
 	const semantic = semanticMarkdownText(markdown)
 	return [...semantic.matchAll(/earthly-draft:([a-zA-Z0-9_%~-]+)(?:#([a-zA-Z0-9_%~-]+))?/g)]
 		.filter((match) => match.index === 0 || semantic[match.index - 1] !== '\\')
-		.map((match) => ({
-			start: match.index,
-			end: match.index + match[0].length,
-			workspaceId: decodeURIComponent(match[1]!),
-			featureId: match[2] ? decodeURIComponent(match[2]) : undefined,
-		}))
+		.flatMap((match) => {
+			try {
+				return [
+					{
+						start: match.index,
+						end: match.index + match[0].length,
+						workspaceId: decodeURIComponent(match[1]!),
+						featureId: match[2] ? decodeURIComponent(match[2]) : undefined,
+					},
+				]
+			} catch {
+				return []
+			}
+		})
 }
 
 export function resolveLocalStoryReference(
@@ -33,7 +41,7 @@ export function resolveLocalStoryReference(
 }
 
 export function assertPublishedStoryReferences(markdown: string): void {
-	if (localStoryReferences(markdown).length)
+	if (/earthly-draft:/u.test(semanticMarkdownText(markdown).replace(/\\earthly-draft:/gu, '')))
 		throw new Error(
 			'This Story still references local Map drafts. Publish its referenced Maps from the Story editor before publishing the Story.',
 		)

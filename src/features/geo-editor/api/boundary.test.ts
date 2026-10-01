@@ -40,20 +40,21 @@ describe('Authoring API import boundary (D-07 / INFRA-02)', () => {
 		)
 	})
 
-	it.each(
-		apiSourceFiles(),
-	)('%s imports nothing from chat/registry/Nostr/NDK/applesauce', (file) => {
-		const source = readFileSync(file, 'utf8')
-		const importLines = source
-			.split('\n')
-			.filter((line) => /^\s*import\b/.test(line) || /\bfrom\s+['"]/.test(line))
+	it.each(apiSourceFiles())(
+		'%s imports nothing from chat/registry/Nostr/NDK/applesauce',
+		(file) => {
+			const source = readFileSync(file, 'utf8')
+			const importLines = source
+				.split('\n')
+				.filter((line) => /^\s*import\b/.test(line) || /\bfrom\s+['"]/.test(line))
 
-		for (const line of importLines) {
-			for (const pattern of FORBIDDEN_IMPORT_PATTERNS) {
-				expect(line).not.toMatch(pattern)
+			for (const line of importLines) {
+				for (const pattern of FORBIDDEN_IMPORT_PATTERNS) {
+					expect(line).not.toMatch(pattern)
+				}
 			}
-		}
-	})
+		},
+	)
 })
 
 /**
@@ -100,6 +101,20 @@ const A3_ALLOW_LIST: Record<string, string> = {
 		'Manual annotation-draft composer (transient draft-canvas snapshot/restore), not an AI write path.',
 }
 
+/** Snapshot loading and CAS-backed mirroring are distinct from authoring a new change.
+ * Permit only setFeatures in these named functions; all other verbs remain scanned.
+ */
+const A3_RESTORE_HOMES: Record<string, string> = {
+	'features/chat/tools/executionTarget.ts:prepareToolExecutionRun':
+		'Loads an immutable owning-draft snapshot into an inert detached editor.',
+	'features/chat/tools/executionTarget.ts:rollbackToolExecutionRun':
+		'Restores the last committed detached snapshot after a failed tool.',
+	'features/chat/tools/executionTarget.ts:mirrorCommitToVisibleEditor':
+		'Mirrors an already persisted, target-checked commit into its visible editor.',
+	'features/chat/safeEditing/targetBoundUndo.ts:undoPendingDiff':
+		'Mirrors an exact inverse commit only after its per-field CAS and owning-draft persistence.',
+}
+
 function tsFilesRecursive(dir: string): string[] {
 	const out: string[] = []
 	for (const name of readdirSync(dir)) {
@@ -121,7 +136,7 @@ function tsFilesRecursive(dir: string): string[] {
 
 /** Is this repo-relative path inside the AI trust boundary the A3 scan covers? */
 function isAiWritePath(rel: string): boolean {
-	if (rel.startsWith('features/chat/')) return true
+	if (rel.startsWith('features/chat/') || rel.startsWith('features/webmcp/')) return true
 	// any **​/sandbox/** segment (run_code replay / sandbox host surface)
 	if (/(^|\/)sandbox\//.test(rel)) return true
 	return false
@@ -141,10 +156,15 @@ describe('AI write path never bypasses createAuthoring across all four verbs (A3
 			if (rel in A3_ALLOW_LIST) continue
 
 			const source = readFileSync(file, 'utf8')
+			let functionName = ''
 			source.split('\n').forEach((line, idx) => {
+				const declaration = /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/.exec(line)
+				if (declaration) functionName = declaration[1] ?? ''
 				// Strip line comments so doc-comments mentioning the methods don't trip it.
 				const code = line.replace(/\/\/.*$/, '')
-				if (WRITE_VERB_RE.test(code)) {
+				const verb = WRITE_VERB_RE.exec(code)?.[1]
+				if (verb === 'setFeatures' && `${rel}:${functionName}` in A3_RESTORE_HOMES) return
+				if (verb) {
 					offenders.push(`${rel}:${idx + 1}`)
 				}
 			})
@@ -162,6 +182,20 @@ describe('AI write path never bypasses createAuthoring across all four verbs (A3
 			const source = readFileSync(join(SRC_DIR, rel), 'utf8')
 			expect(WRITE_VERB_RE.test(source)).toBe(true)
 		}
+		for (const [home, rationale] of Object.entries(A3_RESTORE_HOMES)) {
+			const [rel, name] = home.split(':')
+			if (!rel || !name) throw new Error(`Invalid restore home: ${home}`)
+			expect(isAiWritePath(rel)).toBe(true)
+			expect(rationale.length).toBeGreaterThan(0)
+			const source = readFileSync(join(SRC_DIR, rel), 'utf8')
+			const body = source
+				.split(/\n(?=(?:export\s+)?(?:async\s+)?function\b)/)
+				.find((block) =>
+					new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\b`).test(block),
+				)
+			expect(body).toBeDefined()
+			expect(body).toMatch(/\.setFeatures\s*\(/)
+		}
 	})
 })
 
@@ -169,7 +203,7 @@ describe('chat importFeaturesToEditor no longer dual-writes the store (D-09)', (
 	it('routes through authoring and does not call the store setFeatures', () => {
 		const helpers = readFileSync(join(SRC_DIR, 'features/chat/tools/helpers.ts'), 'utf8')
 		// The refactored importFeaturesToEditor must reference the Authoring facade…
-		expect(helpers).toMatch(/createAuthoring/)
+		expect(helpers).toMatch(/create(?:Execution)?Authoring/)
 		// …and must NOT destructure setFeatures off the store for a direct dual-write.
 		expect(helpers).not.toMatch(/const\s*{\s*editor\s*,\s*setFeatures\s*}\s*=\s*useEditorStore/)
 	})
@@ -192,6 +226,7 @@ describe('Authoring surface is geometry-only (V4 access-control / T-02-03)', () 
 			'commitDataset',
 			'deleteFeatures',
 			'editorCommand',
+			'geometryOperation',
 			'getDatasetMetadata',
 			'modifyFeature',
 			'setDatasetMetadata',

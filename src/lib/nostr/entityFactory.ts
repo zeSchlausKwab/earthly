@@ -13,6 +13,9 @@
 import { EventFactory } from 'applesauce-core/factories'
 import type { EventSigner } from 'applesauce-core/factories/types'
 import type { EventTemplate, NostrEvent, UnsignedEvent } from 'applesauce-core/helpers/event'
+import { assertPublishedMapPresentationSources } from '@/lib/map-presentation/codec'
+import { assertPublishedStoryReferences } from '@/lib/nostr/story/localReferences'
+import { ARTICLE_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 
 /** A bare sign-function: takes an (unsigned) template, returns the signed event. */
 export type SignFunction = (
@@ -46,6 +49,34 @@ export class EntityFactory<K extends number> extends EventFactory<K> {
 	 */
 	override sign(signer?: SignerLike): Promise<NostrEvent> {
 		const resolved = signer !== undefined ? toEventSigner(signer) : this.signer
-		return super.sign(resolved) as Promise<NostrEvent>
+		// Every Story/Atlas factory path reaches this boundary, including direct
+		// factory callers. Local references require explicit publication/resolution.
+		const guarded = this.chain((template) => {
+			if (template.kind !== ARTICLE_KIND && template.kind !== MAP_CONTEXT_KIND) return template
+			let content: Record<string, unknown> = {}
+			try {
+				content = JSON.parse(template.content) as Record<string, unknown>
+			} catch {
+				/* Legacy malformed content is retained. */
+			}
+			if (content && typeof content === 'object') {
+				assertPublishedMapPresentationSources(content.presentation)
+				if (template.kind === ARTICLE_KIND && typeof content.content === 'string')
+					assertPublishedStoryReferences(content.content)
+			}
+			if (
+				template.tags.some(
+					(tag) =>
+						(tag[0] === 'a' || tag[0] === 'c') &&
+						/^earthly-(?:draft|story-draft):/u.test(tag[1] ?? ''),
+				)
+			) {
+				throw new Error(
+					'This Story or Atlas still references local drafts. Publish and resolve those references explicitly before publishing.',
+				)
+			}
+			return template
+		})
+		return super.sign.call(guarded, resolved) as Promise<NostrEvent>
 	}
 }

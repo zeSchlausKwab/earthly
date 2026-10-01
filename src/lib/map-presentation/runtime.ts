@@ -5,7 +5,7 @@ import {
 	getUsableMapPresentation,
 	type MapPresentationAuthorization,
 } from './authorization'
-import { parseMapPresentationSource } from './codec'
+import { mapPresentationSourceKey, parseMapPresentationSource } from './codec'
 import { selectPresentationFeatures } from './featureIdentity'
 import type {
 	MapPresentationIssue,
@@ -30,7 +30,7 @@ export type PresentationSourceResolution =
 	| { readonly status: 'missing-source' }
 	| {
 			readonly status: 'resolved'
-			readonly sourceEvent: GeoDataset
+			readonly sourceEvent?: GeoDataset
 			readonly featureCollection: FeatureCollection
 	  }
 	| {
@@ -121,7 +121,7 @@ export function indexPresentationSourceEvents(
 export function resolvePresentationLayers(
 	result: MapPresentationParseResult,
 	authorization: MapPresentationAuthorization,
-	sources: ReadonlyMap<MapPresentationSource, PresentationSourceResolution>,
+	sources: ReadonlyMap<string, PresentationSourceResolution>,
 ): PresentationRuntimeResolution {
 	const presentation = getUsableMapPresentation(result)
 	const issues = Object.freeze([...result.issues])
@@ -133,23 +133,25 @@ export function resolvePresentationLayers(
 		const authorized = authorizePresentationLayer(layer, authorization)
 		if (authorized.status === 'unauthorized-source') {
 			return emptyLayerResolution(layer, 'unauthorized-source', {
-				error: `Source ${layer.source} is not referenced by the containing object.`,
+				error: `Source ${mapPresentationSourceKey(layer.source)} is not referenced by the containing object.`,
 			})
 		}
 		if (authorized.status === 'unauthorized-features') {
 			return emptyLayerResolution(layer, 'unauthorized-features', {
 				unauthorizedFeatureIds: authorized.featureIds,
 				error: authorized.requestedWholeMap
-					? `The containing object authorizes only cited features from ${layer.source}.`
+					? `The containing object authorizes only cited features from ${mapPresentationSourceKey(layer.source)}.`
 					: `The layer selects features that the containing object does not reference.`,
 			})
 		}
 
-		const source = sources.get(layer.source) ?? ({ status: 'loading' } as const)
+		const source: PresentationSourceResolution =
+			sources.get(mapPresentationSourceKey(layer.source)) ??
+			(typeof layer.source === 'string' ? { status: 'loading' } : { status: 'missing-source' })
 		if (source.status === 'loading') return emptyLayerResolution(layer, 'loading')
 		if (source.status === 'missing-source') {
 			return emptyLayerResolution(layer, 'missing-source', {
-				error: `Referenced Map ${layer.source} could not be found.`,
+				error: `Referenced Map ${mapPresentationSourceKey(layer.source)} could not be found.`,
 			})
 		}
 		if (source.status === 'blob-error') {

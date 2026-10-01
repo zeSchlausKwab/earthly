@@ -196,6 +196,8 @@ export interface MapStackEntry {
 	title: string
 	/** Present on a dataset entry when it represents only these feature ids. */
 	featureIds?: string[]
+	/** Exact local revision shown by an AI-created Map preview; never a publication. */
+	draftId?: string
 	source: MapStackEntrySource
 	/** Set when a carrier entity auto-stacked this entry — see MapStackEntryVia. */
 	via?: MapStackEntryVia

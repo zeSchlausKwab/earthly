@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.13] - 2026-10-01
+
+- Added desktop-agent access through WebMCP, sharing Earthly's Map editing tools with
+  external AI clients. Agents can read full geometry, frame and capture Maps, edit styles
+  and metadata, and use existing remote geography and research tools when enabled.
+- Added fat lines and arrows from editable line geometry, with width, offset, and shape
+  controls available through the toolbar, chat, and WebMCP.
+- Added images to map callouts while preserving existing callout sizes and layouts.
+- Added shared Story and Atlas draft authoring in chat and WebMCP, including names,
+  descriptions, local Map and Story references, feature selections, cameras, and named views.
+- Kept agent changes reviewable with Apply, Cancel, and Undo; protected newer human edits
+  and account changes, and refreshed open forms after draft updates.
+- Fixed local Map layers rendering twice in Story and Atlas previews. Hidden layers,
+  feature selections, and opacity now apply while saved Maps return intact to editing.
+- Highlighted new AI work and previewed the first Map created by a conversation.
+
+### Known limitations
+
+- Desktop WebMCP requires a compatible Chrome build with the experimental feature enabled.
+  Access is enabled per tab session; publishing remains an explicit action in Earthly.
+- Physical-device Android upgrade and keyboard smoke testing remain pending for this release.
+
 ## [0.1.12] - 2026-09-30
 
 - Added the Maplets directory and GMapper, a client-side viewer for public Google My Maps.

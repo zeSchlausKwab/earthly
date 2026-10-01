@@ -17,6 +17,7 @@ import { nip19, finalizeEvent } from 'nostr-tools'
 import { featureToSearchResult } from '@/components/entity-search/types'
 import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
 import { readStoryDraft, writeStoryDraft } from '@/lib/nostr/story/draft'
+import { readGroupEditorDraft, writeGroupEditorDraft } from '@/features/groups/editorDraft'
 
 const initialEditor = useEditorStore.getState()
 const initialChat = useChatStore.getState()
@@ -163,6 +164,34 @@ test('local Story reference captures the narrative immutably without granting ed
 	expect(captured[0]!.localStorySnapshot!.content).toBe('Original text')
 	expect(chat().workingSet ?? []).toHaveLength(0)
 	expect(readStoryDraft('thread-story:source')!.content).toBe('Changed text')
+})
+
+test('Atlas promotion and demotion preserve its exact draft without granting referenced Map edits', async () => {
+	const draftKey = 'thread-atlas:source'
+	writeGroupEditorDraft(draftKey, { name: 'Atlas', description: 'Original', curatedReferences: [], image: '', governance: 'closed', schemaMode: 'builder', allowedGeometryTypes: [], rows: [], advancedJson: '{}', sampleJson: '{}' })
+	const source = { id: `atlas:${draftKey}`, type: 'context' as const, name: 'Atlas', localAtlasDraftKey: draftKey }
+	await setConversationEntityRole(chatId, source, 'reference')
+	expect(chat().workingSet ?? []).toEqual([])
+	await setConversationEntityRole(chatId, source, 'edit')
+	expect(chat().workingSet).toEqual([{ id: `atlas:${draftKey}`, kind: 'atlas', draftKey, title: 'Atlas', intent: 'create' }])
+	const transfer = transferFromTarget(chat().workingSet![0]!)
+	expect(transfer).toMatchObject({ type: 'context', localAtlasDraftKey: draftKey })
+	await setConversationEntityRole(chatId, transfer, 'reference')
+	expect(chat().workingSet).toEqual([])
+	expect(chat().references?.[0]?.localAtlasDraftKey).toBe(draftKey)
+	expect(readGroupEditorDraft(draftKey)?.description).toBe('Original')
+	expect(useEditorStore.getState().activeWorkspaceId).toBeNull()
+	await expect(setConversationEntityRole(chatId, { ...source, featureId: 'one' }, 'edit')).rejects.toThrow('feature-only')
+})
+
+test('another author’s Atlas stays read-only and never creates an edit draft', async () => {
+	const foreign = finalizeEvent({ kind: 37518, created_at: 1720000001, tags: [['d', 'foreign-atlas']], content: JSON.stringify({ modelVersion: MODEL_VERSION, name: 'Foreign Atlas', governance: 'closed' }) }, new Uint8Array(32).fill(7))
+	eventStore.add(foreign)
+	const source = { id: foreign.id, type: 'context' as const, name: 'Foreign Atlas', address: nip19.naddrEncode({ kind: foreign.kind, pubkey: foreign.pubkey, identifier: 'foreign-atlas' }) }
+	await setConversationEntityRole(chatId, source, 'reference')
+	await expect(setConversationEntityRole(chatId, source, 'edit')).rejects.toThrow('read-only')
+	expect(readGroupEditorDraft(`edit:${foreign.pubkey}:foreign-atlas`)).toBeNull()
+	expect(chat().workingSet ?? []).toEqual([])
 })
 
 test('profile references are immutable read-only snapshots', async () => {

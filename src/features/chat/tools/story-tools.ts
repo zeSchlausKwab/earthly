@@ -28,6 +28,8 @@ import {
 	clearStoryDraft,
 } from '@/lib/nostr/story'
 import { toast } from 'sonner'
+import { storyContentFingerprint } from '@/lib/nostr/story/draft'
+import { reportAiOutputChange } from '../outputAttention'
 import { localStoryReferences } from '@/lib/nostr/story/localReferences'
 import { isToolExecutionRunActive } from './executionTarget'
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
@@ -123,7 +125,7 @@ function explicitlyConfirmsOverwrite(message: string | undefined): boolean {
 }
 
 const MENTION_SYNTAX_HINT =
-	'Cite published Maps inline as bare nostr:naddr1… references. Preserve feature-only fragments returned by read_entity (for example #relation%2F62504). For a local Map, use the exact localReference from get_working_set or create_map_draft in the narrative; the Story editor resolves it with explicit confirmation at publication. Local references cannot yet be opening-presentation layer sources: use published sources for view layers. Never publish while authoring. Coordinates use bare RFC 5870 geo:latitude,longitude URIs; OSM elements use canonical https://www.openstreetmap.org/{node|way|relation}/{id} URLs. Never wrap references in code spans.'
+	'Cite published Maps inline as bare nostr:naddr1… references. Preserve feature-only fragments returned by read_entity (for example #relation%2F62504). For a local Map, use the exact localReference from get_working_set or create_map_draft in the narrative and {kind:"local-map",workspaceId:"exact-workspace-id"} for an opening layer. Local drafts render without publication; publication requires explicitly publishing and resolving their referenced Maps. Never publish while authoring. Coordinates use bare RFC 5870 geo:latitude,longitude URIs; OSM elements use canonical https://www.openstreetmap.org/{node|way|relation}/{id} URLs. Never wrap references in code spans.'
 
 const REVIEW_HINT =
 	'Draft saved. Tell the user to open the story by its title in the AI editing menu, review it, and publish when ready. Publishing is always their action. Use “draft” in user-facing explanations, not “working copy”.'
@@ -154,7 +156,7 @@ async function ensureNewStoryTarget(
 	return decision.decision === 'created'
 }
 
-const readStoryDraftSchema: Tool = {
+export const readStoryDraftSchema: Tool = {
 	type: 'function',
 	function: {
 		name: 'read_story_draft',
@@ -163,6 +165,7 @@ const readStoryDraftSchema: Tool = {
 		parameters: {
 			type: 'object',
 			properties: {
+				draftTarget: { type: 'string', description: 'Exact local Story draft key returned by list_local_drafts. Desktop agents must name this target.' },
 				storyReference: {
 					type: 'string',
 					description: 'Optional existing Story naddr (nostr:naddr1…) to read its edit draft.',
@@ -173,7 +176,7 @@ const readStoryDraftSchema: Tool = {
 	},
 }
 
-const writeStoryDraftSchema: Tool = {
+export const writeStoryDraftSchema: Tool = {
 	type: 'function',
 	function: {
 		name: 'write_story_draft',
@@ -181,19 +184,21 @@ const writeStoryDraftSchema: Tool = {
 		parameters: {
 			type: 'object',
 			properties: {
+				draftTarget: { type: 'string', description: 'Exact local Story draft key returned by list_local_drafts; omit when createNew=true.' },
 				storyReference: {
 					type: 'string',
 					description:
 						'Optional existing Story naddr. When present, the matching published Story opens in edit mode with this draft.',
 				},
-				title: { type: 'string', description: 'Story title (required, shown as the headline).' },
+				title: { type: 'string', description: 'Story headline; required for a new Story. Omit on a scoped existing local draft to preserve it.' },
 				summary: {
 					type: 'string',
 					description: 'Short teaser/abstract shown in story lists and link previews.',
 				},
+				description: { type: 'string', description: 'Alias for summary. Omit either field to preserve the existing description.' },
 				markdown: {
 					type: 'string',
-					description: `The full Markdown body. ${MENTION_SYNTAX_HINT} ${STORY_VIEW_AUTHORING_HINT}`,
+					description: `The full Markdown body; omit on a scoped existing local draft to preserve user prose and named views. ${MENTION_SYNTAX_HINT} ${STORY_VIEW_AUTHORING_HINT}`,
 				},
 				presentation: storyPresentationSchema,
 				createNew: {
@@ -216,7 +221,7 @@ const writeStoryDraftSchema: Tool = {
 						'Legacy option; do not use in work Threads. Use named localReference values from get_working_set instead. Authoring never publishes a reference.',
 				},
 			},
-			required: ['title', 'markdown'],
+			required: [],
 		},
 	},
 }
@@ -251,6 +256,10 @@ export function registerStoryTools(
 		kind: 'host-builtin',
 		schema: readStoryDraftSchema,
 		handler: async (args, context) => {
+			if (context?.documentAuthoring) {
+				const { readDocumentDraft } = await import('./document-authoring')
+				return readDocumentDraft('story', args, context.documentAuthoring)
+			}
 			const run = context?.run
 			const scoped =
 				run?.workingSet && (args.workingTarget || !args.storyReference)
@@ -313,10 +322,16 @@ export function registerStoryTools(
 		kind: 'host-builtin',
 		schema: writeStoryDraftSchema,
 		handler: async (args, context) => {
+			if (context?.documentAuthoring) {
+				const { writeDocumentDraft } = await import('./document-authoring')
+				return writeDocumentDraft('story', args, context.documentAuthoring)
+			}
 			const title = requireString(args.title, 'title', MAX_TITLE_CHARS)
 			const ownerPubkey = accounts.active?.pubkey ?? null
 			const markdown = requireString(args.markdown, 'markdown', MAX_BODY_CHARS)
-			let summary = optionalString(args.summary, 'summary', MAX_SUMMARY_CHARS)
+			if (args.summary !== undefined && args.description !== undefined && args.summary !== args.description)
+				throw new Error('summary and description name the same Story field; provide one value.')
+			let summary = optionalString(args.summary ?? args.description, 'summary', MAX_SUMMARY_CHARS)
 			let image = optionalString(args.image, 'image', MAX_TITLE_CHARS)
 
 			const run = context?.run
@@ -368,7 +383,7 @@ export function registerStoryTools(
 					'Read the latest local Story with read_story_draft and workingTarget before replacing it. The draft may contain new user edits.',
 				)
 			if (run?.workingSet) {
-				if (!Object.hasOwn(args, 'summary'))
+				if (!Object.hasOwn(args, 'summary') && !Object.hasOwn(args, 'description'))
 					summary = existing?.summary ?? target?.story.article.summary
 				if (!Object.hasOwn(args, 'image')) image = existing?.image ?? target?.story.article.image
 			}
@@ -509,6 +524,23 @@ export function registerStoryTools(
 				// existing target/reference approvals; omitted future data stays opaque.
 				...mapContent,
 			})
+			const savedStory = readStoryDraft(draftKey)
+			if (
+				run &&
+				savedStory &&
+				(!existing || storyContentFingerprint(existing) !== storyContentFingerprint(savedStory))
+			) {
+				reportAiOutputChange(
+					run.chatId,
+					{
+						kind: 'story',
+						draftKey,
+						title: title.trim(),
+						storyReference: scoped?.kind === 'story' ? scoped.storyReference : undefined,
+					},
+					ownerPubkey,
+				)
+			}
 			sessionOwnedDraftKeys.add(ownerKey)
 			sessionReadDraftRevisions.set(ownerKey, JSON.stringify(readStoryDraft(draftKey)))
 			if (run?.workingSet) {

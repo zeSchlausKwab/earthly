@@ -37,6 +37,10 @@ export function GeometryOperationDialog({
 	onOpenChange,
 }: GeometryOperationDialogProps) {
 	const [distance, setDistance] = useState('10')
+	const [endWidth, setEndWidth] = useState('20')
+	const [side, setSide] = useState<'center' | 'left' | 'right'>('center')
+	const [arrowHeadLength, setArrowHeadLength] = useState('')
+	const [arrowHeadWidth, setArrowHeadWidth] = useState('')
 	const [units, setUnits] = useState<'meters' | 'kilometers' | 'miles'>('meters')
 	const [direction, setDirection] = useState<'outward' | 'inward' | 'left' | 'right'>('outward')
 	const [resultMode, setResultMode] = useState<'copy' | 'replace'>('copy')
@@ -44,7 +48,16 @@ export function GeometryOperationDialog({
 
 	useEffect(() => {
 		if (!open || !operation) return
-		setDistance(operation === 'corridor' ? '20' : '10')
+		setDistance(
+			operation === 'corridor' || operation === 'fat-line' || operation === 'fat-arrow'
+				? '20'
+				: '10',
+		)
+		setEndWidth('20')
+		setSide('center')
+		setArrowHeadLength('')
+		setArrowHeadWidth('')
+		setUnits('meters')
 		setDirection(operation === 'offset-line' ? 'left' : 'outward')
 		setResultMode('copy')
 		setError(null)
@@ -52,10 +65,18 @@ export function GeometryOperationDialog({
 
 	if (!operation) return null
 	const copy = getDerivedGeometryOperationChoice(operation)
+	const isBand = operation === 'fat-line' || operation === 'fat-arrow'
 	const handleApply = () => {
 		const parsed = Number(distance)
-		if (!Number.isFinite(parsed) || parsed <= 0) {
-			setError('Enter a positive distance.')
+		if (!distance.trim() || !Number.isFinite(parsed) || (isBand ? parsed < 0 : parsed <= 0)) {
+			setError(isBand ? 'Enter a non-negative start width.' : 'Enter a positive distance.')
+			return
+		}
+		if (
+			isBand &&
+			(!endWidth.trim() || !Number.isFinite(Number(endWidth)) || Number(endWidth) < 0)
+		) {
+			setError('Enter a non-negative end width.')
 			return
 		}
 		const result = executeEditorCommand('apply_geometry_operation', {
@@ -64,6 +85,13 @@ export function GeometryOperationDialog({
 			units,
 			direction,
 			resultMode,
+			...(isBand ? { endWidth: Number(endWidth), side } : {}),
+			...(operation === 'fat-arrow' && arrowHeadLength.trim()
+				? { arrowHeadLength: Number(arrowHeadLength) }
+				: {}),
+			...(operation === 'fat-arrow' && arrowHeadWidth.trim()
+				? { arrowHeadWidth: Number(arrowHeadWidth) }
+				: {}),
 		})
 		if (!result.ok) {
 			setError(result.message)
@@ -74,7 +102,7 @@ export function GeometryOperationDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="sm:max-w-md max-h-[85dvh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>{copy.title}</DialogTitle>
 					<DialogDescription>{copy.description}</DialogDescription>
@@ -93,9 +121,9 @@ export function GeometryOperationDialog({
 							/>
 						</div>
 						<div className="grid gap-1.5">
-							<Label>Units</Label>
+							<Label htmlFor="geometry-operation-units">Units</Label>
 							<Select value={units} onValueChange={(value) => setUnits(value as typeof units)}>
-								<SelectTrigger>
+								<SelectTrigger id="geometry-operation-units">
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
@@ -106,7 +134,69 @@ export function GeometryOperationDialog({
 							</Select>
 						</div>
 					</div>
-					{operation !== 'corridor' ? (
+					{isBand ? (
+						<>
+							<div className="grid gap-1.5">
+								<Label htmlFor="geometry-operation-end-width">End width</Label>
+								<Input
+									id="geometry-operation-end-width"
+									type="number"
+									min="0"
+									step="any"
+									value={endWidth}
+									onChange={(event) => setEndWidth(event.target.value)}
+								/>
+								<p className="text-xs text-muted-foreground">
+									Widths use the units above. Equal widths make a uniform band.
+									{operation === 'fat-line'
+										? ' Set either width to zero for a pointed taper.'
+										: ' The arrowhead reaches the end of the line.'}
+								</p>
+							</div>
+							<div className="grid gap-1.5">
+								<Label htmlFor="geometry-operation-side">Extrusion side</Label>
+								<Select value={side} onValueChange={(value) => setSide(value as typeof side)}>
+									<SelectTrigger id="geometry-operation-side">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="center">Centered on line</SelectItem>
+										<SelectItem value="left">Left of line direction</SelectItem>
+										<SelectItem value="right">Right of line direction</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							{operation === 'fat-arrow' ? (
+								<div className="grid grid-cols-2 gap-2">
+									<div className="grid gap-1.5">
+										<Label htmlFor="geometry-operation-head-length">Arrowhead length</Label>
+										<Input
+											id="geometry-operation-head-length"
+											type="number"
+											min="0"
+											step="any"
+											placeholder="Automatic"
+											value={arrowHeadLength}
+											onChange={(event) => setArrowHeadLength(event.target.value)}
+										/>
+									</div>
+									<div className="grid gap-1.5">
+										<Label htmlFor="geometry-operation-head-width">Arrowhead width</Label>
+										<Input
+											id="geometry-operation-head-width"
+											type="number"
+											min="0"
+											step="any"
+											placeholder="Automatic"
+											value={arrowHeadWidth}
+											onChange={(event) => setArrowHeadWidth(event.target.value)}
+										/>
+									</div>
+								</div>
+							) : null}
+						</>
+					) : null}
+					{operation !== 'corridor' && !isBand ? (
 						<div className="grid gap-1.5">
 							<Label>{operation === 'offset-polygon' ? 'Direction' : 'Side'}</Label>
 							<Select
@@ -133,12 +223,12 @@ export function GeometryOperationDialog({
 						</div>
 					) : null}
 					<div className="grid gap-1.5">
-						<Label>Result</Label>
+						<Label htmlFor="geometry-operation-result">Result</Label>
 						<Select
 							value={resultMode}
 							onValueChange={(value) => setResultMode(value as typeof resultMode)}
 						>
-							<SelectTrigger>
+							<SelectTrigger id="geometry-operation-result">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -147,7 +237,11 @@ export function GeometryOperationDialog({
 							</SelectContent>
 						</Select>
 					</div>
-					{error ? <p className="text-sm text-destructive">{error}</p> : null}
+					{error ? (
+						<p role="alert" className="text-sm text-destructive">
+							{error}
+						</p>
+					) : null}
 				</div>
 				<DialogFooter>
 					<Button variant="outline" onClick={() => onOpenChange(false)}>

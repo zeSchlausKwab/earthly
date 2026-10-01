@@ -22,6 +22,7 @@ export function StoryTargetDialog() {
 		getStoryTargetRequest,
 		getStoryTargetRequest,
 	)
+	const documentName = request?.documentKind === 'atlas' ? 'Atlas' : 'Story'
 
 	return (
 		<AlertDialog
@@ -34,7 +35,7 @@ export function StoryTargetDialog() {
 				<AlertDialogHeader>
 					<AlertDialogTitle>{request?.review ? `Review changes · ${request.storyTitle}` : 'Create a Story draft to continue?'}</AlertDialogTitle>
 					<AlertDialogDescription>
-						{request?.review ? 'Apply to the local Story draft only. This does not publish or send a proposal to its author.' : request
+						{request?.review ? `Apply to the local ${documentName} draft only. Publishing remains a separate action.` : request
 							? `“${request.storyTitle}” needs a Story edit state. Nothing will be written until you confirm.`
 							: ''}
 					</AlertDialogDescription>

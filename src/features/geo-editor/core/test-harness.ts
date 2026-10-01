@@ -48,6 +48,7 @@ function ensureWindow(): void {
 export function createMockMap(): MapLibreMap {
 	const dragPanState = { enabled: true }
 	const doubleClickZoomState = { enabled: true }
+	const camera = { center: [13.4, 52.5], zoom: 12, bearing: 0, pitch: 0 }
 
 	const mockMap = {
 		// Source/layer mutation — no-ops
@@ -61,8 +62,16 @@ export function createMockMap(): MapLibreMap {
 		// Returning undefined keeps LayerManager.isStyleReady() false.
 		getStyle: () => undefined,
 		// Viewport getters
-		getZoom: () => 12,
-		getCenter: () => ({ lat: 52.5, lng: 13.4 }),
+		getZoom: () => camera.zoom,
+		getCenter: () => ({ lat: camera.center[1], lng: camera.center[0] }),
+		getBearing: () => camera.bearing,
+		getPitch: () => camera.pitch,
+		jumpTo: (next: Partial<typeof camera>) => Object.assign(camera, next),
+		cameraForBounds: (bounds: [[number, number], [number, number]]) => ({
+			center: [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2],
+			zoom: 8,
+			bearing: 0,
+		}),
 		getBounds: () => ({
 			getWest: () => 13.0,
 			getSouth: () => 52.0,

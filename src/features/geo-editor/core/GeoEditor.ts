@@ -1981,6 +1981,45 @@ export class GeoEditor {
 		return Number.isFinite(zoom) ? zoom : null
 	}
 
+	getMapCamera() {
+		const center = this.map.getCenter()
+		return {
+			center: [center.lng, center.lat] as [number, number],
+			zoom: this.map.getZoom(),
+			bearing: this.map.getBearing(),
+			pitch: this.map.getPitch(),
+			bbox: this.getMapBounds(),
+		}
+	}
+
+	/** Immediate camera changes leave authored geometry and draft history untouched. */
+	setMapCamera(camera: {
+		center?: [number, number]
+		zoom?: number
+		bearing?: number
+		pitch?: number
+	}): void {
+		this.map.jumpTo(camera)
+	}
+
+	fitMapBounds(bbox: [number, number, number, number], padding: number, maxZoom: number): void {
+		const [west, south, east, north] = bbox
+		const canvas = this.map.getCanvas()
+		const safePadding = Math.min(
+			padding,
+			Math.max(0, Math.min(canvas.clientWidth, canvas.clientHeight) / 2 - 1),
+		)
+		const camera = this.map.cameraForBounds(
+			[
+				[west, south],
+				[east < west ? east + 360 : east, north],
+			],
+			{ padding: safePadding, maxZoom, bearing: 0 },
+		)
+		if (!camera) throw new Error('The map could not fit these bounds.')
+		this.map.jumpTo({ ...camera, pitch: 0, padding: EMPTY_MAP_PADDING })
+	}
+
 	/**
 	 * Capture the current map viewport as an image data URL.
 	 */

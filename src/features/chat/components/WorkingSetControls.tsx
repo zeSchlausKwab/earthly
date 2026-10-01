@@ -26,6 +26,7 @@ import { openSavedDraft } from '@/features/geo-editor/draftActions'
 import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { readStoryDraft, getStoryDraftRevision, subscribeStoryDrafts } from '@/lib/nostr/story'
+import { readGroupEditorDraft, getGroupEditorDraftRevision, subscribeGroupEditorDrafts } from '@/features/groups/editorDraft'
 import { useChatStore } from '../store'
 import {
 	mapWorkTarget,
@@ -61,6 +62,7 @@ export function WorkingSetControls({
 	const drafts = useEditorStore((state) => state.geoEditDrafts)
 	const workspaces = useEditorStore((state) => state.workspaces)
 	useSyncExternalStore(subscribeStoryDrafts, getStoryDraftRevision, getStoryDraftRevision)
+	useSyncExternalStore(subscribeGroupEditorDrafts, getGroupEditorDraftRevision, getGroupEditorDraftRevision)
 	const targets = (
 		session?.workingSet ??
 		(session?.targetWorkspaceId
@@ -73,7 +75,9 @@ export function WorkingSetControls({
 		title:
 			(item.kind === 'dataset'
 				? mapWorkTarget(item.workspaceId)?.title
-				: readStoryDraft(item.draftKey)?.title) || item.title,
+				: item.kind === 'atlas'
+					? readGroupEditorDraft(item.draftKey)?.name
+					: readStoryDraft(item.draftKey)?.title) || item.title,
 	}))
 	const references = session?.references ?? []
 	const audience = newDraftAudience(targets)
@@ -91,10 +95,14 @@ export function WorkingSetControls({
 						(!!result.address &&
 							naddrToCoordinate(result.address.replace(/^nostr:/, '')) ===
 								`${GEO_EVENT_KIND}:${workspaces[target.workspaceId]?.datasetKey}`)
-					: target.draftKey === result.localStoryDraftKey ||
-						(!!result.address &&
-							target.storyReference?.replace(/^nostr:/, '') ===
-								result.address.replace(/^nostr:/, '')),
+					: target.kind === 'atlas'
+						? target.draftKey === result.localAtlasDraftKey ||
+							(!!result.address &&
+								target.atlasReference?.replace(/^nostr:/, '') === result.address.replace(/^nostr:/, ''))
+						: target.draftKey === result.localStoryDraftKey ||
+							(!!result.address &&
+								target.storyReference?.replace(/^nostr:/, '') ===
+									result.address.replace(/^nostr:/, '')),
 			),
 	)
 	const apply = async (item: EntityTransfer, nextRole: 'edit' | 'reference') => {
@@ -157,7 +165,7 @@ export function WorkingSetControls({
 			</div>
 			<p className="mb-5 mt-1 text-xs text-muted-foreground">
 				{view === 'edit'
-					? 'Changes stay in drafts until you publish. Other people’s work becomes a proposal.'
+						? 'Changes stay in drafts until you publish. Other people’s Maps and Stories become proposals; Atlas editing is for their owners.'
 					: 'Read-only information for this conversation. Sources do not grant editing access.'}
 			</p>
 			{view === 'edit' ? (
@@ -202,7 +210,7 @@ export function WorkingSetControls({
 											) : (
 												<span>{publication.label}</span>
 											)}{' '}
-											· {item.kind === 'dataset' ? 'Map' : 'Story'}
+											· {item.kind === 'dataset' ? 'Map' : item.kind === 'atlas' ? 'Atlas' : 'Story'}
 										</p>
 										{item.featureIds && (
 											<p className="mt-1 text-[11px] text-muted-foreground">
@@ -246,7 +254,7 @@ export function WorkingSetControls({
 						})}
 					</ul>
 					{!targets.length && (
-						<p className="mb-4 text-xs text-muted-foreground">No editable maps or stories yet.</p>
+							<p className="mb-4 text-xs text-muted-foreground">No editable maps, stories, or atlases yet.</p>
 					)}
 				</>
 			) : (
@@ -272,7 +280,7 @@ export function WorkingSetControls({
 									</Button>
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end" className="z-[80] w-60 rounded-none">
-									{['dataset', 'story', 'feature'].includes(reference.type) && (
+										{['dataset', 'story', 'context', 'feature'].includes(reference.type) && (
 										<DropdownMenuItem
 											disabled={busy || pending}
 											className="min-h-11"
@@ -307,7 +315,7 @@ export function WorkingSetControls({
 				className="my-4 min-w-0 space-y-2 disabled:opacity-60"
 			>
 				<legend className="mb-2 text-xs font-medium">
-					{view === 'edit' ? 'Add map or story' : 'Add source'}
+						{view === 'edit' ? 'Add map, story, or atlas' : 'Add source'}
 				</legend>
 				<EntitySearchPopover
 					key={view}
@@ -317,11 +325,11 @@ export function WorkingSetControls({
 					searchMode="both"
 					entityTypes={
 						view === 'edit'
-							? ['dataset', 'story', 'feature']
+								? ['dataset', 'story', 'context', 'feature']
 							: ['dataset', 'story', 'context', 'feature', 'beacon', 'sighting', 'person']
 					}
 					placeholder={
-						view === 'edit' ? 'Search maps and stories…' : 'Search maps, stories, atlases…'
+							'Search maps, stories, atlases…'
 					}
 					onSelect={(result) => void apply(transferFromResult(result), role)}
 				/>

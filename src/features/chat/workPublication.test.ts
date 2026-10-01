@@ -22,6 +22,14 @@ const workspace: GeoEditorWorkspace = {
 }
 
 describe('conversation publication labels', () => {
+	test('Atlas references use Atlas routing without claiming an unavailable publication comparison', () => {
+		const atlas = { id: 'atlas:one', kind: 'atlas' as const, draftKey: 'one', title: 'Atlas', intent: 'edit' as const }
+		expect(workPublication(atlas).label).toBe('Unpublished')
+		const published = workPublication({ ...atlas, atlasReference: 'nostr:naddr1atlas' })
+		expect(published.href).toBe('/atlas/naddr1atlas')
+		expect(published.modified).toBeUndefined()
+		expect(published.description).toContain('Changes have not been compared')
+	})
 	test('a local Map is not mistaken for a publication', () => {
 		expect(workPublication(target)).toMatchObject({ label: 'Unpublished' })
 		expect(workPublication(target).href).toBeUndefined()

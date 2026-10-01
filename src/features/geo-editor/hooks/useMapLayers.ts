@@ -2,7 +2,7 @@ import { unixNow } from 'applesauce-core/helpers/time'
 import type { Feature, FeatureCollection, Point } from 'geojson'
 import type { GeoJSONSource } from 'maplibre-gl'
 import type * as maplibregl from 'maplibre-gl'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { pointOnFeature } from '@turf/turf'
 import { isGeoJsonGeometry } from '@/lib/geo/normalizeGeoJSON'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
@@ -29,6 +29,7 @@ import {
 } from '../map-presentation/materialize'
 import { collectLineArrowFeatures } from '../utils/lineArrows'
 import { useEditorStore } from '../store'
+import { deriveAiMapPreviewFeatures, reconcileAiMapPreviews } from '../aiMapPreview'
 import { convertGeoEventsToFeatureCollection } from '../utils'
 import {
 	featureMatchesReferenceSelector,
@@ -338,6 +339,8 @@ interface UseMapLayersOptions {
 	datasetFeatureSelectors?: Record<string, string[] | null>
 	/** Visible RFC 5870 coordinate references rendered as standalone pins. */
 	coordinateReferences?: VisibleCoordinateReference[]
+	/** Foreground presentation owns these local Maps; keep their ordinary previews off the canvas. */
+	claimedLocalWorkspaceIds?: ReadonlySet<string>
 }
 
 export function useMapLayers({
@@ -350,12 +353,62 @@ export function useMapLayers({
 	resolvedCollectionsVersion,
 	datasetFeatureSelectors = {},
 	coordinateReferences = [],
+	claimedLocalWorkspaceIds,
 }: UseMapLayersOptions) {
 	const [remoteLayersReady, setRemoteLayersReady] = useState(false)
 	const [styleInitVersion, setStyleInitVersion] = useState(0)
 	const blobPreviewCollection = useEditorStore((state) => state.blobPreviewCollection)
 	const pointClusteringEnabled = useEditorStore((state) => state.pointClusteringEnabled)
 	const geometryPointProxyEnabled = useEditorStore((state) => state.geometryPointProxyEnabled)
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
+	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
+	const workspaces = useEditorStore((state) => state.workspaces)
+	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
+	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
+	const localPreviewFeatures = useMemo(
+		() =>
+			deriveAiMapPreviewFeatures(
+				{
+					mapStackEntries,
+					mapStackOrder,
+					workspaces,
+					geoEditDrafts,
+					activeWorkspaceId,
+					activeGeoEditDraftId,
+				},
+				claimedLocalWorkspaceIds,
+			),
+		[
+			mapStackEntries,
+			mapStackOrder,
+			workspaces,
+			geoEditDrafts,
+			activeWorkspaceId,
+			activeGeoEditDraftId,
+			claimedLocalWorkspaceIds,
+		],
+	)
+	useEffect(() => {
+		const state = useEditorStore.getState()
+		if (
+			state.mapStackEntries !== mapStackEntries ||
+			state.mapStackOrder !== mapStackOrder ||
+			state.workspaces !== workspaces ||
+			state.geoEditDrafts !== geoEditDrafts ||
+			state.activeWorkspaceId !== activeWorkspaceId ||
+			state.activeGeoEditDraftId !== activeGeoEditDraftId
+		)
+			return
+		reconcileAiMapPreviews(state)
+	}, [
+		mapStackEntries,
+		mapStackOrder,
+		workspaces,
+		geoEditDrafts,
+		activeWorkspaceId,
+		activeGeoEditDraftId,
+	])
 	const syncRemoteDatasetsRef = useRef<(() => void) | null>(null)
 	const zoomSyncFrameRef = useRef<number | null>(null)
 
@@ -908,6 +961,7 @@ export function useMapLayers({
 					}
 				})
 				collection.features.push(
+					...localPreviewFeatures,
 					...coordinateReferences.map((coordinate) => ({
 						type: 'Feature' as const,
 						id: coordinate.entryId,
@@ -1023,6 +1077,7 @@ export function useMapLayers({
 		resolvedCollectionsVersion,
 		datasetFeatureSelectors,
 		coordinateReferences,
+		localPreviewFeatures,
 		remoteLayersReady,
 		mapRef,
 		pointClusteringEnabled,

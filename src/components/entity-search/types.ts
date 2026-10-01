@@ -61,6 +61,7 @@ export interface EntitySearchResult {
 	featureId?: string
 	localWorkspaceId?: string
 	localStoryDraftKey?: string
+	localAtlasDraftKey?: string
 	pubkey?: string
 	createdAt?: number
 	/** Original entity reference for callbacks */

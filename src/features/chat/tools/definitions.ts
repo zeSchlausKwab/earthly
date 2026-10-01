@@ -14,8 +14,8 @@
  * hardcoded `search_location`/`reverse_lookup`/… entries bootstrapped on import,
  * so the fallback list is advertised instead — no crash, no empty list.
  *
- * `geoTools` is retained as the import-time snapshot (back-compat). Prefer
- * `getGeoTools()` at request time so live sync changes propagate to the model.
+ * Read `getGeoTools()` at request time so live sync changes propagate to the model.
+ * Advertising during module initialization would enter registry/store cycles.
  */
 
 import { advertise } from './registry'
@@ -29,6 +29,3 @@ import type { Tool } from './types'
 export function getGeoTools(): Tool[] {
 	return advertise()
 }
-
-/** Import-time snapshot of the advertised list (back-compat; prefer getGeoTools()). */
-export const geoTools: Tool[] = advertise()

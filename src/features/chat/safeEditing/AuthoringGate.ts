@@ -31,7 +31,11 @@
  */
 
 import { type Authoring, createAuthoring } from '@/features/geo-editor/api/authoring'
-import { type DatasetDiff, classifyMutation } from '@/features/geo-editor/api/diff'
+import {
+	type DatasetDiff,
+	classifyMutation,
+	projectDurableFeatures,
+} from '@/features/geo-editor/api/diff'
 import type { MutationIntent } from '@/features/geo-editor/api/interceptor'
 import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
 import type { EditorFeature } from '@/features/geo-editor/core/types'
@@ -146,8 +150,8 @@ export function createAuthoringGate(editor: GeoEditor, deps: AuthoringGateDeps) 
 		// (1) Dry-run against a CLONE of the current set — never the real editor
 		// (T-05-18). classifyMutation is pure and holds no editor reference, so the
 		// proposed set is computed without touching editor state.
-		const current = editor.getAllFeatures()
-		const proposed = proposal.computeProposed(current)
+		const current = projectDurableFeatures(editor.getAllFeatures())
+		const proposed = projectDurableFeatures(proposal.computeProposed(current))
 
 		// (2) Classify add/modify/delete by id against the live (un-compacted) set.
 		const diff = classifyMutation(current, proposed, proposal.intent)

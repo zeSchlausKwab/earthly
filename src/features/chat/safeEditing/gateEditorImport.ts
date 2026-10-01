@@ -50,7 +50,7 @@ export interface GatedImportOutcome {
 export async function gateEditorImport(
 	features: GeoJSON.Feature[],
 	replaceExisting: boolean,
-	applyReal: () => {
+	applyReal: (normalized: EditorFeature[]) => {
 		importedCount: number
 		skippedDuplicates: number
 		totalFeaturesInEditor: number
@@ -63,7 +63,7 @@ export async function gateEditorImport(
 
 	// Normalize the proposed features the same way the facade will (id-preserving).
 	const usable = features.filter((f) => f && f.type === 'Feature' && f.geometry != null)
-	const normalized: EditorFeature[] = usable.map((f) => toEditorFeature(f, 'ai-import'))
+	const normalized: EditorFeature[] = usable.map((f) => toEditorFeature(f, 'chat_tool'))
 
 	// A handle id shared between emitDiffBlock (gate step 4) and requestConfirm
 	// (the buffered path) for THIS apply unit. The gate always calls emitDiffBlock
@@ -102,7 +102,7 @@ export async function gateEditorImport(
 			return [...current, ...appended]
 		},
 		commit: () => {
-			applied = applyReal()
+			applied = applyReal(normalized)
 		},
 	})
 

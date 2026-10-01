@@ -2,6 +2,7 @@ import { bbox as turfBbox, pointOnFeature } from '@turf/turf'
 import type { Feature, FeatureCollection, Geometry, Point, Position } from 'geojson'
 import {
 	getPresentationFeatureId,
+	mapPresentationSourceKey,
 	parseMapPresentationSource,
 	selectPresentationFeatures,
 	type MapPresentationLayerV1,
@@ -222,7 +223,10 @@ function materializeFeature(
 		occurrence,
 	})
 	const dataAuthor = input.sourceEvent?.pubkey ?? parsedSource?.pubkey
-	const sourceDatasetId = input.sourceEvent?.datasetId ?? parsedSource?.identifier
+	const sourceDatasetId =
+		input.sourceEvent?.datasetId ??
+		parsedSource?.identifier ??
+		(typeof input.layer.source === 'string' ? undefined : input.layer.source.workspaceId)
 
 	return {
 		...feature,
@@ -238,7 +242,7 @@ function materializeFeature(
 			// Renderer-owned values are written last, so source data cannot spoof them.
 			[PRESENTATION_PROPERTY_KEYS.carrierId]: input.carrierId,
 			[PRESENTATION_PROPERTY_KEYS.layerId]: input.layer.id,
-			[PRESENTATION_PROPERTY_KEYS.source]: input.layer.source,
+			[PRESENTATION_PROPERTY_KEYS.source]: mapPresentationSourceKey(input.layer.source),
 			[PRESENTATION_PROPERTY_KEYS.sourceFeatureId]: sourceFeatureId,
 			[PRESENTATION_PROPERTY_KEYS.occurrence]: occurrence,
 			[PRESENTATION_PROPERTY_KEYS.renderId]: renderId,

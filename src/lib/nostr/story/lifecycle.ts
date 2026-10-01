@@ -30,6 +30,7 @@ import { ArticleFactory, getArticleContent, getArticleId, isArticle } from '@/li
 import type { ArticleContent } from '@/lib/nostr/article'
 import {
 	authorizePresentationLayer,
+	assertPublishedMapPresentationSources,
 	deriveStoryPresentationAuthorization,
 	extractSemanticStoryReferencedCoordinates,
 	getUsableMapPresentation,
@@ -103,9 +104,15 @@ function assertStoryViewTargets(
  * Absent, malformed, and future versions keep legacy fallback/preservation;
  * only a usable V1 is interpreted and therefore subject to strict grants.
  */
-export function validateStoryPresentation(content: Partial<ArticleContent>, options?: { allowLocalDraftReferences?: boolean }): ArticleContent {
+export function validateStoryPresentation(
+	content: Partial<ArticleContent>,
+	options?: { allowLocalDraftReferences?: boolean },
+): ArticleContent {
 	const markdown = content.content ?? ''
-	if (!options?.allowLocalDraftReferences) assertPublishedStoryReferences(markdown)
+	if (!options?.allowLocalDraftReferences) {
+		assertPublishedStoryReferences(markdown)
+		assertPublishedMapPresentationSources(content.presentation)
+	}
 	const parsed = parseMapPresentation(content.presentation)
 	if (parsed.status !== 'valid') {
 		if (parsed.status === 'absent') {
@@ -130,7 +137,7 @@ export function validateStoryPresentation(content: Partial<ArticleContent>, opti
 		})
 	}
 
-	const authorization = deriveStoryPresentationAuthorization(markdown)
+	const authorization = deriveStoryPresentationAuthorization(markdown, options)
 	for (const layer of presentation.layers) {
 		const result = authorizePresentationLayer(layer, authorization)
 		if (result.status === 'authorized') continue
