@@ -560,6 +560,8 @@ describe('single global run remains owned across conversation navigation', () =>
 		const targetContext = getMapContextSnapshotForTarget(firstTarget)
 		expect(targetContext.featureCount).toBe(1)
 		expect(targetContext.featureGeometryCounts).toEqual({ Point: 1 })
+		expect(targetContext.authoringGuidance).toMatch(/inventories.+default to Point/i)
+		expect(targetContext.authoringGuidance).toMatch(/retain a Point for the overview/i)
 		expect(targetContext.viewportBbox).toBeNull()
 		expect(JSON.stringify(targetContext)).not.toContain('b-feature')
 

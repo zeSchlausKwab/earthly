@@ -9,7 +9,12 @@
  */
 
 import { describe, expect, it } from 'bun:test'
-import { createMapContextSystemMessage } from './tools/context'
+import {
+	createMapContextSystemMessage,
+	getCompactMapContextForPrompt,
+	getCompactMapContextForTool,
+	getMapContextSnapshot,
+} from './tools/context'
 import { getGeoTools } from './tools/definitions'
 
 function mapContextText(): string {
@@ -37,6 +42,29 @@ function compactMapContextText(): string {
 describe('compact prompt profile', () => {
 	const compact = compactMapContextText()
 	const legacy = mapContextText()
+
+	it('preserves point-first facility guidance in both chat profiles and compact tool context', () => {
+		const snapshot = getMapContextSnapshot()
+		const promptContext = getCompactMapContextForPrompt(snapshot)
+		const toolContext = getCompactMapContextForTool(snapshot)
+		for (const guidance of [
+			snapshot.authoringGuidance,
+			promptContext.authoringGuidance,
+			toolContext.authoringGuidance,
+		]) {
+			expect(guidance).toMatch(/inventories.+default to Point/i)
+			expect(guidance).toMatch(/meaningful.+Lucide icons/i)
+			expect(guidance).toMatch(/screen-sized.+zoom levels/i)
+			expect(guidance).toMatch(/sourced footprint only when physical extent matters/i)
+			expect(guidance).toMatch(/retain a Point for the overview/i)
+			expect(guidance).toContain('locationPrecision')
+			expect(guidance).toContain('locationNote')
+			expect(guidance).toMatch(/never invent a parcel or footprint/i)
+		}
+		for (const text of [compact, legacy]) {
+			expect(text).toContain(JSON.stringify(snapshot.authoringGuidance))
+		}
+	})
 
 	it('guides flow-map authoring when line extrusion is advertised', () => {
 		const message = createMapContextSystemMessage('compact', [

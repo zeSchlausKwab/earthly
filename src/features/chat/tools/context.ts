@@ -24,6 +24,10 @@ import { STORY_PRESENTATION_PROMPT_HINT } from './story-presentation'
 
 export const mapSnapshotCache = new Map<string, CachedMapSnapshot>()
 
+/** Shared by chat context and the desktop agent's Map descriptions. */
+export const POINT_FIRST_AUTHORING_GUIDANCE =
+	'FACILITY AND LOCATION INVENTORIES — default to Points with meaningful bundled Lucide icons (displayIcon="lucide:<name>"). Screen-sized markers help legibility across zoom levels. Add a sourced footprint only when physical extent matters (e.g. an exceptionally large campus), and retain a Point for the overview. For approximate locations, use a Point and record precision and basis in locationPrecision and locationNote properties. Never invent a parcel or footprint from approximate coordinates.'
+
 /**
  * Passive-companion dataset totals (AI_GEO_AWARENESS §2): delivered in every
  * context message so the model usually needn't call `measure` at all. Cached
@@ -222,6 +226,7 @@ export function getMapContextSnapshot() {
 	return {
 		editorReady: Boolean(store.editor),
 		mode: store.mode,
+		authoringGuidance: POINT_FIRST_AUTHORING_GUIDANCE,
 		datasetMetadata,
 		activeDataset,
 		localDraftDirty: store.isDirty,
@@ -293,6 +298,7 @@ export function getMapContextSnapshotForTarget(
 	return {
 		editorReady: Boolean(draft),
 		mode: 'static',
+		authoringGuidance: POINT_FIRST_AUTHORING_GUIDANCE,
 		datasetMetadata: {
 			name: draft?.collectionMeta.name ?? '',
 			description: draft?.collectionMeta.description ?? '',
@@ -344,6 +350,7 @@ export function getCompactMapContextForPrompt(snapshot: ReturnType<typeof getMap
 	return {
 		editorReady: snapshot.editorReady,
 		mode: snapshot.mode,
+		authoringGuidance: snapshot.authoringGuidance,
 		activeDataset: snapshot.activeDataset,
 		localDraftDirty: snapshot.localDraftDirty,
 		featureCount: snapshot.featureCount,
@@ -400,6 +407,7 @@ export function getCompactMapContextForTool(snapshot: ReturnType<typeof getMapCo
 	return {
 		editorReady: snapshot.editorReady,
 		mode: snapshot.mode,
+		authoringGuidance: snapshot.authoringGuidance,
 		datasetMetadata: compactDatasetMetadataForTool(snapshot.datasetMetadata),
 		featureCount: snapshot.featureCount,
 		callouts: snapshot.callouts,
