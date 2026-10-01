@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.14] - 2026-10-01
+
+- Fixed long Stories turning the main map grey in Read mode on devices with limited
+  graphics resources. Off-screen inline map figures now release their resources and
+  restore their authored view when revisited.
+- Made WebMCP tool instructions self-contained for external agents, with supported
+  browser command names and explicit local Story targets.
+- Added ready-to-use published Map citations to WebMCP source discovery.
+
+### Known limitations
+
+- Reader verification covers desktop and mobile browser emulation; physical-device
+  Android upgrade and Read-mode smoke testing remain pending for this release.
+
 ## [0.1.13] - 2026-10-01
 
 - Added desktop-agent access through WebMCP, sharing Earthly's Map editing tools with
