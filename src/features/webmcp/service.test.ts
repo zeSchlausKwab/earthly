@@ -166,6 +166,17 @@ describe('desktop agent editor bridge', () => {
 		}
 		expect(JSON.stringify(registry.get('write_story_draft')?.schema)).toBe(sharedStorySchema)
 	})
+	test('Map reads give desktop agents point-first facility and coordinate precision guidance', async () => {
+		const map = await call('earthly_get_map')
+		expect(map.ok).toBe(true)
+		expect(map.authoringGuidance).toMatch(/inventories.+default to Point/i)
+		expect(map.authoringGuidance).toMatch(/Lucide icons.+screen-sized.+zoom levels/i)
+		expect(map.authoringGuidance).toMatch(/sourced footprint only when physical extent matters/i)
+		expect(map.authoringGuidance).toMatch(/retain a Point for the overview/i)
+		expect(map.authoringGuidance).toContain('locationPrecision')
+		expect(map.authoringGuidance).toContain('locationNote')
+		expect(map.authoringGuidance).toMatch(/never invent a parcel or footprint/i)
+	})
 	test('camera and framing are reversible view changes and reads keep activity closed', async () => {
 		const map = await call('earthly_get_map')
 		expect(useWebMcpStore.getState().panelOpen).toBe(false)
