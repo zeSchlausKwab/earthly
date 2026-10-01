@@ -45,6 +45,7 @@ import { featureCollection, union as turfUnion } from '@turf/turf'
 import type { Feature, MultiPolygon, Polygon } from 'geojson'
 import { countGeometryVertices, isSimplifiableGeometryType } from '@/lib/geo/geometry'
 import { serializedFeatureCollectionBytes } from '@/lib/geo/serializedSize'
+import { isGeoJsonGeometry } from '@/lib/geo/normalizeGeoJSON'
 // TYPE-ONLY import from the registry (never the value `register`) — Pitfall 6.
 import type { ToolEntry } from './registry'
 import {
@@ -57,6 +58,55 @@ import type { Tool } from './types'
 import { parsePredicate, resolveSelectionScope } from './bulk-tools'
 
 const GEOMETRY_UNITS: PrimitiveUnits[] = ['meters', 'kilometers', 'miles']
+
+const updateFeatureGeometrySchema: Tool = {
+	type: 'function',
+	function: {
+		name: 'update_feature_geometry',
+		description:
+			'Replace only the geometry of one existing feature by its explicit featureId. Preserves its id, styles, properties, image callouts, and all other features. Supply a bare GeoJSON Geometry with [longitude, latitude] coordinates, not a Feature or FeatureCollection. Uses the shared edit review and one Undo; does not publish.',
+		parameters: {
+			type: 'object',
+			properties: {
+				featureId: {
+					type: 'string',
+					minLength: 1,
+					description: 'Id of the existing feature to change.',
+				},
+				geometry: {
+					type: 'object',
+					additionalProperties: false,
+					properties: {
+						type: {
+							type: 'string',
+							enum: [
+								'Point',
+								'MultiPoint',
+								'LineString',
+								'MultiLineString',
+								'Polygon',
+								'MultiPolygon',
+								'GeometryCollection',
+							],
+						},
+						coordinates: {
+							type: 'array',
+							description:
+								'Coordinates nested according to the geometry type. Lines need at least two positions; polygon rings must have at least four and be closed.',
+						},
+						geometries: {
+							type: 'array',
+							items: { type: 'object' },
+							description: 'Child geometries for a GeometryCollection.',
+						},
+					},
+					required: ['type'],
+				},
+			},
+			required: ['featureId', 'geometry'],
+		},
+	},
+}
 
 const createLineBandSchema: Tool = {
 	type: 'function',
@@ -393,6 +443,37 @@ export function applyOptimizedCollection(
  * circular-init crash (Pitfall 6 / mirrors `registerBulkTools`).
  */
 export function registerGeometryTools(register: (entry: ToolEntry) => void): void {
+	register({
+		name: 'update_feature_geometry',
+		kind: 'authoring-primitive',
+		schema: updateFeatureGeometrySchema,
+		handler: async (args) => {
+			const editor = requireEditor()
+			const featureId = requiredFeatureId(args)
+			if (!editor.getFeature(featureId))
+				throw new Error(`Feature '${featureId}' was not found in the active Map.`)
+			const geometry = args.geometry
+			if (!isGeoJsonGeometry(geometry))
+				throw new Error('geometry must be a valid bare GeoJSON Geometry with finite coordinates.')
+			const outcome = await gateBulkApply(
+				editor,
+				{ getSafetyLevel, label: 'Update feature geometry' },
+				'modify',
+				() => {
+					const result = createExecutionAuthoring(editor).modifyFeatureGeometry(featureId, geometry)
+					if (!result.ok) throw new Error(`Feature '${featureId}' disappeared before apply.`)
+				},
+			)
+			const applied = outcome.status === 'applied'
+			const feature = applied ? editor.getFeature(featureId) : undefined
+			return {
+				cancelled: !applied,
+				featureId,
+				counts: { updated: applied ? outcome.diff.modified.length : 0 },
+				...(feature ? { validation: await buildPostWriteValidation([feature]) } : {}),
+			}
+		},
+	})
 	register({
 		name: 'extrude_line',
 		kind: 'authoring-primitive',

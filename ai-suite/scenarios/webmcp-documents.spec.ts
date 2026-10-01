@@ -313,7 +313,7 @@ test('native Story and Atlas drafts preserve local references, names, descriptio
 }, testInfo) => {
 	test.setTimeout(90_000)
 	const tools = await discoverWebMcpTools(earthly)
-	expect(tools).toHaveLength(37)
+	expect(tools).toHaveLength(46)
 	for (const name of [
 		'earthly_list_local_drafts',
 		'earthly_read_story_draft',

@@ -290,11 +290,14 @@ export function captureTargetDatasetPublication(
 		// retained fork rather than a different Map or working copy.
 		const sourceKey = `${forkSource.pubkey}:${forkSource.identifier}`
 		const sourceId = mapDraftSourceId(sourceKey, 'fork')
+		const independentFork = draft.authoringIntent === 'fork' &&
+			workspace.sourceId.startsWith(`${sourceId}:`) &&
+			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(workspace.sourceId.slice(sourceId.length + 1))
 		if (
 			forkSource.address !== `${GEO_EVENT_KIND}:${sourceKey}` ||
 			workspace.kind !== 'dataset' ||
 			workspace.datasetKey !== sourceKey ||
-			workspace.sourceId !== sourceId ||
+			(workspace.sourceId !== sourceId && !independentFork) ||
 			(target.entityId !== sourceKey && target.entityId !== forkSource.eventId) ||
 			(target.baseRevisionId !== null && target.baseRevisionId !== forkSource.eventId)
 		) {

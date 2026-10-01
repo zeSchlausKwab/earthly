@@ -9,7 +9,8 @@ import {
 	writeStoryDraft,
 	type StoryDraft,
 } from '@/lib/nostr/story/draft'
-import { editStory, publishStory, validateStoryPresentation } from '@/lib/nostr/story/lifecycle'
+import { editStory, publishStory, validateStoryPresentation, type StoryPublishOptions } from '@/lib/nostr/story/lifecycle'
+import type { CapturedDatasetPublication, PublishedDatasetReference } from '@/features/chat/referencePublishing/types'
 import { naddrToCoordinate, coordinateToNaddrReference } from '@/lib/nostr/references'
 import { resolveLocalStoryDependencies } from '@/features/chat/referencePublishing/localStoryDependencies'
 import { getStoryEditorTarget, requestOpenStoryEditor } from './storyEditorBridge'
@@ -23,6 +24,11 @@ type MountedStory = {
 	resolvedBody: (body: string, presentation?: unknown) => void
 }
 const mounted = new Map<string, MountedStory>()
+
+export function storyPublicationCoordinate(reference: string): string | null {
+	const raw = reference.replace(/^nostr:/u, '')
+	return /^37520:[0-9a-f]{64}:.+$/iu.test(raw) ? raw : naddrToCoordinate(raw)
+}
 export function registerStoryPublicationEditor(key: string, editor: MountedStory) {
 	mounted.set(key, editor)
 	return () => {
@@ -34,7 +40,7 @@ export function savedStorySource(target: StoryTarget) {
 	const draft = readStoryDraft(target.draftKey)
 	const reference = draft?.publication?.reference ?? target.storyReference
 	if (!reference) return null
-	const coordinate = naddrToCoordinate(reference.replace(/^nostr:/, ''))
+	const coordinate = storyPublicationCoordinate(reference)
 	if (!coordinate)
 		throw new Error('This Story’s published address is invalid. Reopen it before publishing.')
 	const [kind, pubkey, ...identifier] = coordinate.split(':')
@@ -57,7 +63,7 @@ export function canPublishSavedStory(target: StoryTarget, owner?: string): boole
 	if (!owner) return false
 	const reference = readStoryDraft(target.draftKey)?.publication?.reference ?? target.storyReference
 	if (!reference) return true
-	return naddrToCoordinate(reference.replace(/^nostr:/, ''))?.split(':')[1] === owner
+	return storyPublicationCoordinate(reference)?.split(':')[1] === owner
 }
 
 export function savedStoryHasChanges(target: StoryTarget): boolean | undefined {
@@ -76,7 +82,11 @@ export function savedStoryHasChanges(target: StoryTarget): boolean | undefined {
 }
 
 /** Publish the clicked Story, without navigation, chat closure, or editor activation. */
-export async function publishSavedStory(target: StoryTarget): Promise<Article> {
+export async function publishSavedStory(target: StoryTarget, options: StoryPublishOptions & {
+	validate?: () => void
+	publishDependency?: (captured: CapturedDatasetPublication) => Promise<PublishedDatasetReference>
+	onProgress?: () => void
+} = {}): Promise<Article> {
 	if (useEditorStore.getState().isPublishing)
 		throw new Error('Another publication is in progress. Please wait.')
 	const account = accounts.active
@@ -85,6 +95,7 @@ export async function publishSavedStory(target: StoryTarget): Promise<Article> {
 	if (!canPublishSavedStory(target, account.pubkey))
 		throw new Error('Use Send proposal for someone else’s Story.')
 	mounted.get(target.draftKey)?.flush()
+	options.validate?.()
 	const base = savedStorySource(target)
 	const captured =
 		readStoryDraft(target.draftKey) ?? (base ? { ...getArticleContent(base), updatedAt: 0 } : null)
@@ -104,6 +115,7 @@ export async function publishSavedStory(target: StoryTarget): Promise<Article> {
 		if (accounts.active !== account)
 			throw new Error('The account changed. Nothing further was published.')
 		mounted.get(target.draftKey)?.flush()
+		options.validate?.()
 		const latest = readStoryDraft(target.draftKey)
 		if (latest && storyContentFingerprint(latest) !== expected)
 			throw new Error(
@@ -118,6 +130,7 @@ export async function publishSavedStory(target: StoryTarget): Promise<Article> {
 			storyDraftKey: target.draftKey,
 			storyTitle: content.title,
 			validate,
+			publishDependency: options.publishDependency,
 			onProgress: (body, _completed, _total, resolved) => {
 				if (resolved)
 					content.presentation = resolveLocalMapPresentationSource(
@@ -133,12 +146,13 @@ export async function publishSavedStory(target: StoryTarget): Promise<Article> {
 				)
 				expected = storyContentFingerprint({ ...content, content: body })
 				mounted.get(target.draftKey)?.resolvedBody(body, content.presentation)
+				options.onProgress?.()
 			},
 		})
 		validate()
 		const signed = base
-			? await editStory(base, content, signer, validate)
-			: await publishStory(content, signer, validate)
+			? await editStory(base, content, signer, validate, options)
+			: await publishStory(content, signer, validate, options)
 		const story = castEvent(signed, Article, eventStore)
 		const reference = coordinateToNaddrReference(`${story.kind}:${story.pubkey}:${story.dTag}`)
 		if (!reference || !story.dTag)

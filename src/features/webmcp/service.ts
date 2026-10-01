@@ -1,5 +1,6 @@
 import Ajv from 'ajv'
-import { accounts } from '@/lib/nostr'
+import { accounts, eventStore, isEventDeleted } from '@/lib/nostr'
+import { isExpired } from '@/lib/nostr/expiry'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { useChatStore } from '@/features/chat/store'
 import { consumeMapSnapshot } from '@/features/chat/tools/context'
@@ -18,10 +19,13 @@ import {
 import { BrowserToolError, createMapReader, describeMap, featurePage } from './mapContext'
 import type { BrowserTool } from './platform'
 import { BROWSER_DOCUMENT_TOOLS, createDocumentTools } from './documentService'
+import { createLifecycleTools, type BrowserPublicDocumentSource } from './lifecycleService'
+import { createPublicationTools } from './publicationService'
 import { DESKTOP_AGENT_SCOPE, recordAgentActivity, useWebMcpStore } from './state'
 import { browserDescription, browserSchema } from './descriptions'
 import {
 	BROWSER_EDITOR_TOOLS,
+	BROWSER_ENTITY_TOOLS,
 	BROWSER_EXTERNAL_TOOLS,
 	READ_ONLY_TOOLS,
 	mutatesDraft,
@@ -58,11 +62,51 @@ export function createBrowserToolService(
 ): BrowserTool[] {
 	const sessionOwner = getOwner()
 	const readMap = createMapReader()
+	const publicSources = new Map<string, BrowserPublicDocumentSource>()
+	sessionSignal.addEventListener('abort', () => publicSources.clear(), { once: true })
+	function grantPublicSource(source: BrowserPublicDocumentSource) {
+		const previous = publicSources.get(source.reference)
+		const sameRevision = previous?.revisionId === source.revisionId
+		const wholeSource = source.wholeSource || (sameRevision && previous.wholeSource)
+		const featureIds = [
+			...new Set([
+				...(sameRevision ? (previous.featureIds ?? []) : []),
+				...(source.featureIds ?? []),
+			]),
+		]
+		if (publicSources.size >= 128 && !publicSources.has(source.reference)) {
+			const oldest = publicSources.keys().next().value
+			if (oldest) publicSources.delete(oldest)
+		}
+		publicSources.set(source.reference, {
+			...source,
+			wholeSource,
+			featureIds,
+			...(wholeSource && sameRevision && previous.wholeSource
+				? { citeReference: previous.citeReference }
+				: {}),
+		})
+	}
+	function grantedPublicSources() {
+		return [...publicSources.values()].filter((source) => {
+			const [kind, pubkey, ...identifier] = source.reference.split(':')
+			if (!pubkey) return false
+			const current = eventStore.getReplaceable(Number(kind), pubkey, identifier.join(':'))
+			return (
+				current?.id === source.revisionId &&
+				!isEventDeleted(current) &&
+				!isExpired(current, Math.floor(Date.now() / 1000))
+			)
+		})
+	}
 	const ajv = new Ajv({ strict: false, allowUnionTypes: true })
 	let nextRunId = -1 // Separate from chat's positive, monotonically increasing run ids.
 	const names = [...BROWSER_EDITOR_TOOLS, ...(externalQueriesEnabled ? BROWSER_EXTERNAL_TOOLS : [])]
 	const entries = new Map<string, ReturnType<typeof registry.get>>(
-		[...names, ...BROWSER_DOCUMENT_TOOLS].map((name) => [name, registry.get(name)]),
+		[...names, ...BROWSER_DOCUMENT_TOOLS, ...BROWSER_ENTITY_TOOLS].map((name) => [
+			name,
+			registry.get(name),
+		]),
 	)
 	function assertToolAllowed(name: string, args: Record<string, unknown>) {
 		if (needsExternalQueries(name, args) && !useWebMcpStore.getState().externalQueriesEnabled)
@@ -92,7 +136,11 @@ export function createBrowserToolService(
 			name,
 			description,
 			inputSchema,
-			annotations: { readOnlyHint: readOnly, untrustedContentHint: true, consequentialHint: false },
+			annotations: {
+				readOnlyHint: readOnly,
+				untrustedContentHint: true,
+				consequentialHint: name === 'earthly_publish_publication',
+			},
 			execute: async (input, context) => {
 				let release: (() => void) | null = null
 				const controller = new AbortController()
@@ -193,11 +241,27 @@ export function createBrowserToolService(
 	]
 
 	tools.push(
+		...createLifecycleTools({
+			tool,
+			owner: sessionOwner,
+			getOwner,
+			sessionSignal,
+			assertToolAllowed,
+			bindMap: () => describeMap(readMap()),
+			onPublicSource: grantPublicSource,
+		}),
+		...createPublicationTools({
+			tool,
+			owner: sessionOwner,
+			getOwner,
+			sessionSignal,
+		}),
 		...createDocumentTools({
 			tool,
 			sessionSignal,
 			owner: sessionOwner,
 			getOwner,
+			getPublicSources: grantedPublicSources,
 			assertToolAllowed,
 		}),
 	)

@@ -18,6 +18,9 @@ import {
 	undoDocumentReview,
 } from './documentReviews'
 import type { BrowserTool } from './platform'
+import { finalizeEvent } from 'nostr-tools'
+import { eventStore } from '@/lib/nostr'
+import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
 
 const backing = new Map<string, string>()
 const originalEditor = useEditorStore.getState()
@@ -109,15 +112,151 @@ test('discovers and creates distinct documents without requiring an open Map', a
 	})
 })
 
+test('verified public reads grant exact document sources without widening feature-only access', async () => {
+	const secret = new Uint8Array(32).fill(53) // Disposable fixture identity.
+	const identifier = crypto.randomUUID()
+	const map = finalizeEvent(
+		{
+			kind: 37515,
+			created_at: Math.floor(Date.now() / 1000),
+			tags: [['d', identifier]],
+			content: JSON.stringify({
+				modelVersion: MODEL_VERSION,
+				type: 'FeatureCollection',
+				name: 'Public source',
+				features: [
+					{
+						type: 'Feature',
+						id: 'one',
+						geometry: { type: 'Point', coordinates: [16, 48] },
+						properties: {},
+					},
+					{
+						type: 'Feature',
+						id: 'two',
+						geometry: { type: 'Point', coordinates: [17, 49] },
+						properties: {},
+					},
+				],
+			}),
+		},
+		secret,
+	)
+	eventStore.add(map)
+	const reference = `37515:${map.pubkey}:${identifier}`
+	const first = await call('read_entity', { reference, featureId: 'one' })
+	expect(first.ok).toBe(true)
+	let inventory = await call('list_local_drafts')
+	const scoped = inventory.sources.find(
+		(source: { reference: string }) => source.reference === reference,
+	)
+	expect(scoped.wholeSource).toBe(false)
+	expect(scoped.citeReference).toEndWith('#one')
+	const base = {
+		createNew: true,
+		creationToken: inventory.creationToken,
+		title: 'Source-bound Story',
+	}
+	expect((await call('write_story_draft', { ...base, markdown: scoped.citeReference })).ok).toBe(
+		true,
+	)
+	expect(
+		(
+			await call('write_story_draft', {
+				...base,
+				markdown: scoped.citeReference.replace('#one', ''),
+			})
+		).code,
+	).toBe('source_not_granted')
+	expect(
+		(
+			await call('write_story_draft', {
+				...base,
+				markdown: scoped.citeReference.replace('#one', '#two'),
+			})
+		).code,
+	).toBe('feature_not_granted')
+	expect((await call('read_entity', { reference })).ok).toBe(true)
+	inventory = await call('list_local_drafts')
+	const whole = inventory.sources.find(
+		(source: { reference: string }) => source.reference === reference,
+	)
+	expect(whole.wholeSource).toBe(true)
+	expect(whole.citeReference).not.toContain('#')
+	expect(
+		(
+			await call('write_story_draft', {
+				...base,
+				markdown: whole.citeReference,
+				presentation: {
+					version: 1,
+					layers: [{ id: 'places', source: reference, featureIds: ['two'] }],
+				},
+			})
+		).ok,
+	).toBe(true)
+	const storyId = crypto.randomUUID()
+	const story = finalizeEvent(
+		{
+			kind: 37520,
+			created_at: map.created_at,
+			tags: [['d', storyId]],
+			content: JSON.stringify({
+				modelVersion: MODEL_VERSION,
+				title: 'Public Story',
+				content: whole.citeReference,
+			}),
+		},
+		secret,
+	)
+	eventStore.add(story)
+	const storyRef = `37520:${story.pubkey}:${storyId}`
+	expect((await call('read_entity', { reference: storyRef })).ok).toBe(true)
+	expect(
+		(
+			await call('write_atlas_draft', {
+				createNew: true,
+				creationToken: inventory.creationToken,
+				name: 'Public source Atlas',
+				curatedReferences: [reference, storyRef],
+			})
+		).ok,
+	).toBe(true)
+	// Public grants are tied to the exact read revision, rather than silently adopting new content.
+	eventStore.add(
+		finalizeEvent(
+			{ kind: map.kind, created_at: map.created_at + 1, tags: map.tags, content: map.content },
+			secret,
+		),
+	)
+	expect((await call('write_story_draft', { ...base, markdown: whole.citeReference })).code).toBe(
+		'source_not_granted',
+	)
+})
+
 test('published source discovery supplies a citable Map without inventing published feature references', async () => {
-	const datasetKey = `${'a'.repeat(64)}:western:front`
-	const coordinate = `37515:${datasetKey}`
 	const feature = {
 		type: 'Feature' as const,
 		id: 'relation/62504.!',
 		geometry: { type: 'Point' as const, coordinates: [4, 50] },
 		properties: { name: 'A battlefield' },
 	}
+	const event = finalizeEvent(
+		{
+			kind: 37515,
+			created_at: Math.floor(Date.now() / 1000),
+			tags: [['d', `western:front:${crypto.randomUUID()}`]],
+			content: JSON.stringify({
+				modelVersion: MODEL_VERSION,
+				type: 'FeatureCollection',
+				features: [feature],
+			}),
+		},
+		new Uint8Array(32).fill(54),
+	)
+	eventStore.add(event)
+	const datasetKey = `${event.pubkey}:${event.tags[0]![1]}`
+	const coordinate = `37515:${datasetKey}`
 	useEditorStore.setState({
 		workspaces: {
 			map: {
@@ -157,14 +296,15 @@ test('published source discovery supplies a citable Map without inventing publis
 	)
 	expect(published.citeReference).toStartWith('nostr:naddr1')
 	expect(canonicalDocumentReference(published.citeReference)).toBe(coordinate)
-	expect(published.featureIds).toEqual([feature.id])
+	expect(published.featureIds).toEqual([])
+	expect(published.retainedFeatureIds).toEqual([feature.id])
 	expect(published.featureReferences).toBeUndefined()
 	expect(
 		inventory.sources.find(
 			(source: { reference: string }) => source.reference === 'earthly-draft:map',
 		).citeReference,
 	).toBeUndefined()
-	const created = await call('write_story_draft', {
+	const content = {
 		createNew: true,
 		creationToken: inventory.creationToken,
 		title: 'A source-led Story',
@@ -173,9 +313,26 @@ test('published source discovery supplies a citable Map without inventing publis
 			version: 1,
 			layers: [{ id: 'battle', source: coordinate, featureIds: [feature.id] }],
 		},
+	}
+	expect((await call('write_story_draft', content)).code).toBe('feature_not_granted')
+	// A dirty retained Map neither grants its unpublished IDs nor hides published features.
+	const draft = useEditorStore.getState().geoEditDrafts['map-draft']!
+	useEditorStore.setState({
+		geoEditDrafts: { 'map-draft': { ...draft, features: [{ ...feature, id: 'unpublished' }] } },
 	})
+	expect((await call('read_entity', { reference: coordinate })).ok).toBe(true)
+	const created = await call('write_story_draft', content)
 	expect(created.ok).toBe(true)
 	expect(created.draft.mapAuthoring.presentationStatus).toBe('valid')
+	expect(
+		(
+			await call('write_story_draft', {
+				...content,
+				markdown: `${published.citeReference}#unpublished`,
+				presentation: undefined,
+			})
+		).code,
+	).toBe('feature_not_granted')
 })
 
 test('updates require a kind-specific exact read token and preserve omitted fields', async () => {

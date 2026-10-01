@@ -100,6 +100,25 @@ function offset(node: BandNode, direction: XY, meters: number): XY {
 	]
 }
 
+function mergeBandPieces(
+	pieces: Array<Feature<Polygon | MultiPolygon>>,
+): Feature<Polygon | MultiPolygon> {
+	if (pieces.length === 1) return pieces[0]!
+	const middle = Math.floor(pieces.length / 2)
+	// A single sweep over every touching segment and corner can lose clipping
+	// faces on long paths. Pairwise unions resolve those joins locally without
+	// widening the shape or changing its coordinate precision. Balance the tree
+	// so long lines do not repeatedly clip against an ever-growing polygon.
+	const result = union(
+		featureCollection([
+			mergeBandPieces(pieces.slice(0, middle)),
+			mergeBandPieces(pieces.slice(middle)),
+		]),
+	)
+	if (!result) throw new Error('The line band polygons could not be joined.')
+	return result
+}
+
 /** Extrude rendered map segments, then union in projected space to resolve bends and overlaps. */
 export function makeLineBand(
 	geometry: LineString | MultiLineString,
@@ -239,8 +258,7 @@ export function makeLineBand(
 		}
 	}
 	if (pieces.length === 0) throw new Error('The line could not be extruded into a polygon.')
-	const merged = pieces.length === 1 ? pieces[0]! : union(featureCollection(pieces))
-	if (!merged) throw new Error('The line band polygons could not be joined.')
+	const merged = mergeBandPieces(pieces)
 	function ringToMap(ring: Position[]): Position[] {
 		const mapped = ring.map((position) => {
 			const result = unproject(position as XY)

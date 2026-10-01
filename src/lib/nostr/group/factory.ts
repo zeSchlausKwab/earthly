@@ -63,7 +63,12 @@ export class GroupFactory extends EntityFactory<typeof MAP_CONTEXT_KIND> {
 		if (!isGroup(event)) {
 			throw new Error('GroupFactory.modify: event is not a kind 37518 group')
 		}
-		return new GroupFactory((resolve) => resolve(toEventTemplate(event)))
+		return new GroupFactory((resolve) => {
+			const tpl = toEventTemplate(event)
+			// A rapid edit must replace its source instead of relying on a relay's id tie-break.
+			tpl.created_at = Math.max(tpl.created_at, event.created_at + 1)
+			resolve(tpl)
+		})
 	}
 
 	/** Replace the content payload (re-asserts modelVersion). */

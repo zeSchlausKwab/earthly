@@ -304,8 +304,11 @@ function groupDraftSnapshot(values: {
 	}
 }
 
-function persistGroupEditorDraft(identity: string, snapshot: GroupEditorDraftSnapshot): void {
-	writeGroupEditorDraft(identity, snapshot)
+function persistGroupEditorDraft(identity: string, snapshot: GroupEditorDraftSnapshot, sourceRevisionId?: string): void {
+	const retained = readGroupEditorDraft(identity)
+	writeGroupEditorDraft(identity, { ...snapshot,
+		...(!retained && sourceRevisionId ? { sourceRevisionId } : {}),
+	})
 }
 
 function atlasAcceptedSources(addresses: readonly string[]): MapPresentationLayerSource[] {
@@ -572,7 +575,7 @@ export function GroupEditorPanel({
 		useRetainedEditorDraft({
 			identity: initial.draftKey,
 			snapshot: draftSnapshot,
-			persist: persistGroupEditorDraft,
+			persist: (identity, snapshot) => persistGroupEditorDraft(identity, snapshot, initialContext?.rawEvent().id),
 			clear: clearGroupEditorDraft,
 		})
 	const flushPendingForm = () => {

@@ -13,7 +13,9 @@
  */
 
 import { describe, expect, test } from 'bun:test'
+import { EventStore } from 'applesauce-core'
 import type { NostrEvent } from 'applesauce-core/helpers/event'
+import { finalizeEvent, generateSecretKey } from 'nostr-tools'
 import { ARTICLE_KIND, Article, ArticleFactory, isArticle } from '@/lib/nostr/article'
 import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
 
@@ -88,6 +90,31 @@ describe('article — SPEC-02 ArticleFactory.create()', () => {
 		const content = JSON.parse(edited.content)
 		expect(content.publishedAt).toBe(42)
 		expect(content.title).toBe('B')
+	})
+
+	test('a rapid edit is strictly newer and becomes the latest replacement immediately', async () => {
+		const secret = generateSecretKey()
+		const previous = finalizeEvent(
+			{
+				...makeArticleEvent(),
+				// Ahead of the local clock makes same-second ordering deterministic without a sleep.
+				created_at: Math.floor(Date.now() / 1000) + 60,
+			},
+			secret,
+		)
+		if (!isArticle(previous)) throw new Error('Expected a valid Story source event.')
+		const updated = await ArticleFactory.modify(previous)
+			.article({ summary: 'Updated immediately' })
+			.sign((template) => Promise.resolve(finalizeEvent(template, secret)))
+		const store = new EventStore()
+		store.add(previous)
+		store.add(updated)
+		expect(updated.created_at).toBe(previous.created_at + 1)
+		expect(updated.tags).toContainEqual(['d', 'story-1'])
+		expect(store.getReplaceable(ARTICLE_KIND, previous.pubkey, 'story-1')?.id).toBe(updated.id)
+		expect(
+			JSON.parse(store.getReplaceable(ARTICLE_KIND, previous.pubkey, 'story-1')!.content).summary,
+		).toBe('Updated immediately')
 	})
 })
 
