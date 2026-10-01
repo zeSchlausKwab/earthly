@@ -5,6 +5,8 @@ import { localMapReference } from '@/lib/nostr/story/localReferences'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { createDefaultCollectionMeta } from '@/features/geo-editor/utils'
 import { registerEntityTools } from './entity-tools'
+import { accounts } from '@/lib/nostr'
+import { reportAiOutputChange } from '../outputAttention'
 
 export function registerWorkingSetTools(register: (entry: ToolEntry) => void): void {
 	register({
@@ -195,6 +197,11 @@ export function registerWorkingSetTools(register: (entry: ToolEntry) => void): v
 			const item = mapWorkTarget(workspaceId)!
 			registerRunOutput(run, item)
 			useChatStore.getState().setWorkingSet(chat.id, [...(chat.workingSet ?? []), item])
+			reportAiOutputChange(
+				run.chatId,
+				{ kind: 'dataset', workspaceId, draftId, title },
+				accounts.active?.pubkey ?? null,
+			)
 			return {
 				ok: true,
 				workingTarget: item.id,

@@ -28,6 +28,8 @@ import {
 	clearStoryDraft,
 } from '@/lib/nostr/story'
 import { toast } from 'sonner'
+import { storyContentFingerprint } from '@/lib/nostr/story/draft'
+import { reportAiOutputChange } from '../outputAttention'
 import { localStoryReferences } from '@/lib/nostr/story/localReferences'
 import { isToolExecutionRunActive } from './executionTarget'
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
@@ -509,6 +511,23 @@ export function registerStoryTools(
 				// existing target/reference approvals; omitted future data stays opaque.
 				...mapContent,
 			})
+			const savedStory = readStoryDraft(draftKey)
+			if (
+				run &&
+				savedStory &&
+				(!existing || storyContentFingerprint(existing) !== storyContentFingerprint(savedStory))
+			) {
+				reportAiOutputChange(
+					run.chatId,
+					{
+						kind: 'story',
+						draftKey,
+						title: title.trim(),
+						storyReference: scoped?.kind === 'story' ? scoped.storyReference : undefined,
+					},
+					ownerPubkey,
+				)
+			}
 			sessionOwnedDraftKeys.add(ownerKey)
 			sessionReadDraftRevisions.set(ownerKey, JSON.stringify(readStoryDraft(draftKey)))
 			if (run?.workingSet) {

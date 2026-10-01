@@ -61,6 +61,8 @@ A **Thread** is a durable conversation about a piece of work, with its own worki
 
 **AI changes**: Suggested or applied changes to local drafts. These are distinct from an **edit proposal** sent to another author and from **publication** to an audience.
 
+New AI draft creation and committed content changes highlight the Thread's editing-access control and the affected draft's View/Preview control. Opening the editing list acknowledges its cue; successfully viewing a draft acknowledges that draft. Attention is scoped to the active account and session, and respects reduced motion. The first geometry-bearing Map created during a run appears as a local Shelf preview without changing the camera, manual drawing target, or visible chat. Later writes refresh surviving previews but never undo Hide, Remove, or Clear. Opening its editor replaces the preview with the regular active draft row.
+
 ## Edit state
 
 An **edit state** is retained authoring work for a Dataset, Story, or Context. It owns its local draft and remains alive when another sidebar surface is selected.

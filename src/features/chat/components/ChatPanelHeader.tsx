@@ -45,6 +45,12 @@ import { useChatStore, type ChatRunState, type ChatSession } from '../store'
 import { setConversationEntityRole } from '../entityContext'
 import { ChatSafetyIndicator, chatSafetyPresentation } from './ChatHeaderPresentation'
 import { ChatMenu, useChatNavigation } from './ChatPanelNavigation'
+import { acknowledgeAiOutputList, useAiOutputAttention } from '../outputAttention'
+import {
+	AI_OUTPUT_ATTENTION_CLASS,
+	AiOutputAnnouncement,
+	AiOutputAttentionDot,
+} from './AiOutputAttentionPresentation'
 
 export function ChatPanelHeader({
 	sessions,
@@ -86,6 +92,8 @@ export function ChatPanelHeader({
 	const [pendingDrop, setPendingDrop] = useState<'edit' | 'reference' | null>(null)
 	const dropInFlight = useRef(false)
 	const active = sessions.find((chat) => chat.id === activeId)
+	const outputNotices = useAiOutputAttention(activeId ?? undefined)
+	const hasNewOutput = !!activeId && outputNotices.some((notice) => !notice.listSeen)
 	const [deleteId, setDeleteId] = useState<string | null>(null)
 	const deleting = sessions.find((chat) => chat.id === deleteId)
 	const running = (id: string | null) =>
@@ -139,6 +147,7 @@ export function ChatPanelHeader({
 	return (
 		<>
 			<header className="shrink-0 border-b bg-background">
+				<AiOutputAnnouncement chatId={activeId} notices={activeId ? outputNotices : []} />
 				<fieldset
 					aria-label="Thread controls"
 					className="flex min-w-0 items-center gap-1 px-2 py-1"
@@ -267,12 +276,17 @@ export function ChatPanelHeader({
 					<div className="flex min-w-0 items-center gap-0.5 border-t border-border/60 px-2 py-1">
 						<Button
 							variant="ghost"
-							onClick={() => openView('edit')}
+							onClick={() => {
+								if (activeId) acknowledgeAiOutputList(activeId)
+								openView('edit')
+							}}
 							{...dropHandlers('edit')}
 							title="Drop maps or stories here to let AI edit, or click to manage editing access"
 							aria-label={`AI can edit ${editableCount}`}
 							aria-busy={pendingDrop === 'edit'}
-							className={dropClass('edit')}
+							aria-description={hasNewOutput ? 'New AI changes are ready to view.' : undefined}
+							data-ai-attention={hasNewOutput || undefined}
+							className={cn(dropClass('edit'), hasNewOutput && AI_OUTPUT_ATTENTION_CLASS)}
 						>
 							{pendingDrop === 'edit' ? (
 								<Loader2 className="size-3.5 shrink-0 animate-spin" />
@@ -280,6 +294,7 @@ export function ChatPanelHeader({
 								<Pencil className="size-3.5 shrink-0" />
 							)}
 							{canDrop('edit') ? 'Drop to edit' : `AI can edit ${editableCount}`}
+							{hasNewOutput && <AiOutputAttentionDot />}
 						</Button>
 						<Button
 							variant="ghost"

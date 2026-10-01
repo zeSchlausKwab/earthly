@@ -10,7 +10,10 @@
  */
 
 import type { ToolCall, ToolExecutionContext, ToolResult } from './types'
-import { READ_ONLY_TOOLS, resolveRunWorkTarget } from '../workingSet'
+import { READ_ONLY_TOOLS, mapWorkTarget, resolveRunWorkTarget } from '../workingSet'
+import { reportAiOutputChange } from '../outputAttention'
+import { accounts } from '@/lib/nostr'
+import { revealFirstAiMapGeometry } from '@/features/geo-editor/aiMapPreview'
 import { setPendingDiffRunContext } from '../safeEditing/pendingDiffStore'
 import { TO_EDITOR_COMPATIBLE_TOOLS } from './types'
 import {
@@ -360,6 +363,7 @@ export async function executeToolCall(
 	toolCall: ToolCall,
 	context?: ToolExecutionContext,
 ): Promise<ToolResult> {
+	const ownerPubkey = accounts.active?.pubkey ?? null
 	const boundContext: ToolExecutionContext = { ...context, toolCallId: toolCall.id }
 	if (context?.run?.workingSet) {
 		try {
@@ -408,6 +412,49 @@ export async function executeToolCall(
 	}
 	try {
 		const commit = persistToolExecutionRun(boundContext.run)
+		const run = boundContext.run
+		if (
+			commit &&
+			run &&
+			(accounts.active?.pubkey ?? null) === ownerPubkey &&
+			(commit.fields.features || commit.fields.collectionMeta)
+		) {
+			// Attention and map preview are observers of a durable write. They must
+			// never turn an applied edit into a failed tool result or retry.
+			try {
+				const workspaceId = commit.target.workspaceId
+				const target = workspaceId ? mapWorkTarget(workspaceId) : null
+				if (target?.kind === 'dataset') {
+					reportAiOutputChange(
+						run.chatId,
+						{
+							kind: 'dataset',
+							workspaceId: target.workspaceId,
+							title: target.title,
+							draftId: commit.target.draftId ?? undefined,
+						},
+						ownerPubkey,
+					)
+					if (
+						commit.fields.features &&
+						run.workingSet &&
+						commit.target.draftId &&
+						!run.workingSet.some(
+							(item) => item.kind === 'dataset' && item.workspaceId === target.workspaceId,
+						)
+					) {
+						revealFirstAiMapGeometry(
+							String(run.runId),
+							run.chatId,
+							target.workspaceId,
+							commit.target.draftId,
+						)
+					}
+				}
+			} catch (error) {
+				console.error('[Chat] Could not show the committed AI Map update', error)
+			}
+		}
 		const scope = getPendingDiffScope(toolCall, boundContext)
 		if (commit && scope) {
 			try {

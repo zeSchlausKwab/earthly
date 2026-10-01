@@ -34,6 +34,9 @@ test('a work Thread creates independent Maps and a Story without publishing or r
 	const panel = earthly.page.getByRole('region', { name: 'AI Thread', exact: true })
 	await expect(panel).toBeVisible()
 	await expect(panel.getByRole('button', { name: 'AI can edit 1', exact: true })).toBeVisible()
+	await expect(
+		panel.getByRole('button', { name: 'AI can edit 1', exact: true }),
+	).not.toHaveAttribute('data-ai-attention', 'true')
 	await expect(earthly.page.getByRole('region', { name: 'AI can edit', exact: true })).toBeHidden()
 	const working = await setThreadWorkingSetOpen(earthly)
 	await working.getByLabel('Create new maps and stories', { exact: true }).check()
@@ -44,8 +47,56 @@ test('a work Thread creates independent Maps and a Story without publishing or r
 			exact: true,
 		}),
 	).toBeVisible({ timeout: 60_000 })
+	const editButton = panel.getByRole('button', { name: 'AI can edit 4', exact: true })
+	await expect(editButton).toHaveAttribute('data-ai-attention', 'true')
+	await expect(editButton).toHaveAttribute('aria-description', 'New AI changes are ready to view.')
+	await expect
+		.poll(async () => {
+			const state = await editorLifecycleSnapshot(earthly)
+			return state.mapStack
+				.filter((entry) => entry.entityType === 'ai-result')
+				.map((entry) => ({ title: entry.title, visible: entry.visible }))
+		})
+		.toEqual([{ title: 'Front 1914', visible: true }])
+	// The first output reaches the real styled map source, with chat and the
+	// user's original editing workspace retained.
+	await expect
+		.poll(() =>
+			earthly.page.evaluate(() => {
+				const map = (
+					window as typeof window & {
+						__earthlyUiMap?: {
+							getStyle(): {
+								sources: Record<
+									string,
+									{ data?: { features?: Array<{ properties?: { localWorkspaceId?: string } }> } }
+								>
+							}
+						}
+					}
+				).__earthlyUiMap
+				return (
+					map
+						?.getStyle()
+						.sources['geo-editor-remote-datasets']?.data?.features?.filter(
+							(feature) => feature.properties?.localWorkspaceId,
+						).length ?? 0
+				)
+			}),
+		)
+		.toBe(1)
+	expect((await editorLifecycleSnapshot(earthly)).activeWorkspaceId).toBe(viewedMap)
 	await earthly.page.screenshot({ path: testInfo.outputPath('compact-chat.png') })
 	await setThreadWorkingSetOpen(earthly)
+	await setThreadWorkingSetOpen(earthly, false)
+	await expect(editButton).not.toHaveAttribute('data-ai-attention', 'true')
+	await setThreadWorkingSetOpen(earthly)
+	await expect(
+		working.getByRole('button', { name: 'View on map: Front 1914', exact: true }),
+	).toHaveAttribute('data-ai-attention', 'true')
+	await expect(
+		working.getByRole('button', { name: 'Preview Story: A changing front', exact: true }),
+	).toHaveAttribute('data-ai-attention', 'true')
 	await expect(working.getByRole('button', { name: 'Front 1914', exact: true })).toBeVisible()
 	await expect(working.getByRole('button', { name: 'Front 1916', exact: true })).toBeVisible()
 	await expect(working.getByRole('button', { name: 'A changing front', exact: true })).toBeVisible()
@@ -79,6 +130,14 @@ test('a work Thread creates independent Maps and a Story without publishing or r
 	)
 	await earthly.page.getByRole('button', { name: 'Edit this Story with AI', exact: true }).click()
 	expect((await threadWorkSnapshot(earthly)).id).toBe(originalThread.id)
+	await setThreadWorkingSetOpen(earthly)
+	await expect(
+		working.getByRole('button', { name: 'Preview Story: A changing front', exact: true }),
+	).not.toHaveAttribute('data-ai-attention', 'true')
+	await expect(
+		working.getByRole('button', { name: 'View on map: Front 1914', exact: true }),
+	).toHaveAttribute('data-ai-attention', 'true')
+	await setThreadWorkingSetOpen(earthly, false)
 	await earthly.page.reload({ waitUntil: 'domcontentloaded' })
 	await expect(panel).toBeVisible()
 	expect((await threadWorkSnapshot(earthly)).outputs).toHaveLength(4)

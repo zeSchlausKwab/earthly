@@ -183,6 +183,7 @@ import {
 	markInAppInspectRoute,
 } from './inspectRouteOrigin'
 import { isDraftGeometryVisible } from './draftMapVisibility'
+import { aiMapPreviewTitle, resolveAiMapPreviewDraft } from './aiMapPreview'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
@@ -866,6 +867,7 @@ export function GeoEditorView() {
 	const activeMapDraft = useEditorStore((state) =>
 		state.activeGeoEditDraftId ? state.geoEditDrafts[state.activeGeoEditDraftId] : undefined,
 	)
+	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
 	const pendingHydratedDraftId = useEditorStore((state) => state.pendingHydratedDraftId)
 	const activeWorkspaceDatasetKey = useEditorStore((state) => {
 		const workspace = state.activeWorkspaceId ? state.workspaces[state.activeWorkspaceId] : null
@@ -5537,6 +5539,10 @@ export function GeoEditorView() {
 			if (entry.entityType === 'draft') {
 				return collectionMeta.name?.trim() || entry.title || 'Working map'
 			}
+			if (entry.entityType === 'ai-result' && entry.draftId) {
+				const draft = geoEditDrafts[entry.draftId]
+				return draft ? aiMapPreviewTitle(draft) : entry.title
+			}
 			return entry.title?.trim() || entry.entityKey
 		}
 
@@ -5546,8 +5552,14 @@ export function GeoEditorView() {
 					(entry) => entry.entityType !== 'sighting-layer' && entry.entityType !== 'beacon-layer',
 				)
 				.map((entry) => {
-					const isDraft = entry.entityType === 'draft'
-					const isPrivate = entry.source === 'private-group' || entry.source === 'field-session'
+					const isDraft = entry.entityType === 'draft' || entry.entityType === 'ai-result'
+					const previewChannel =
+						entry.entityType === 'ai-result' && entry.draftId
+							? geoEditDrafts[entry.draftId]?.publishChannel.kind
+							: null
+					const isPrivate =
+						entry.source === 'private-group' || entry.source === 'field-session' ||
+						previewChannel === 'private-group' || previewChannel === 'field-session'
 					return Object.freeze({
 						id: entry.id,
 						title: resolveTitle(entry),
@@ -5558,7 +5570,9 @@ export function GeoEditorView() {
 						...(isPrivate
 							? {
 									lockLabel:
-										entry.source === 'private-group' ? 'Private Circle map' : 'Nearby session map',
+										entry.source === 'private-group' || previewChannel === 'private-group'
+											? 'Private Circle map'
+											: 'Nearby session map',
 								}
 							: {}),
 					}) satisfies ShelfStripItem
@@ -5566,6 +5580,7 @@ export function GeoEditorView() {
 		)
 	}, [
 		collectionMeta.name,
+		geoEditDrafts,
 		getDatasetKey,
 		getDatasetName,
 		isolatedShelfEntry,
@@ -5727,6 +5742,11 @@ export function GeoEditorView() {
 				}
 				case 'draft':
 					void openDraftEditor()
+					break
+				case 'ai-result':
+					if (resolveAiMapPreviewDraft(useEditorStore.getState(), entry)) {
+						void openDraftEditor(entry.entityKey)
+					}
 					break
 				case 'maplet':
 					handleInspectMaplet(entry.entityKey)
@@ -6158,7 +6178,7 @@ export function GeoEditorView() {
 			onSetEntryVisible={setMapStackVisibility}
 			onSetEntryIsolated={setMapStackIsolation}
 			onRemoveEntry={removeFromMapStack}
-			onOpenDraftEditor={() => void openDraftEditor()}
+			onOpenDraftEditor={(workspaceId) => void openDraftEditor(workspaceId)}
 			onZoomToDraft={zoomToDraft}
 			onClear={clearMapStackAndVisibility}
 			onClose={() => navigateToView('datasets')}
