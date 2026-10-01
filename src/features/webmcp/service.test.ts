@@ -136,6 +136,29 @@ describe('desktop agent editor bridge', () => {
 		expect(tools.some((tool) => tool.name === 'earthly_add_feature_callout')).toBe(true)
 		expect(tools.some((tool) => /publish|run_code|query_osm|fetch_url/.test(tool.name))).toBe(false)
 	})
+	test('advertised contracts use native tools and supported document targets', () => {
+		const sharedStorySchema = JSON.stringify(registry.get('write_story_draft')?.schema)
+		for (const externalQueries of [false, true]) {
+			const catalog = createBrowserToolService(controller.signal, () => null, externalQueries)
+			for (const tool of catalog) {
+				const contract = JSON.stringify({ description: tool.description, schema: tool.inputSchema })
+				expect(contract).not.toMatch(
+					/\b(get_editor_state|get_working_set|create_map_draft|read_entity|run_code|workingTarget|storyReference)\b/,
+				)
+				for (const reference of contract.match(/\bearthly_[a-z_]+\b/g) ?? []) {
+					if (!catalog.some((candidate) => candidate.name === reference)) {
+						expect(BROWSER_EXTERNAL_TOOLS.map((name) => `earthly_${name}`)).toContain(reference)
+						expect(tool.description).toContain('External queries')
+					}
+				}
+			}
+			const readStory = catalog.find((tool) => tool.name === 'earthly_read_story_draft')
+			expect(readStory?.description).toContain('draftTarget')
+			expect(readStory?.description).toContain('earthly_list_local_drafts')
+			expect(readStory?.description).not.toContain('published Story')
+		}
+		expect(JSON.stringify(registry.get('write_story_draft')?.schema)).toBe(sharedStorySchema)
+	})
 	test('camera and framing are reversible view changes and reads keep activity closed', async () => {
 		const map = await call('earthly_get_map')
 		expect(useWebMcpStore.getState().panelOpen).toBe(false)

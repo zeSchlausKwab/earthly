@@ -5,6 +5,8 @@ import { setSafetyLevelProvider } from '@/features/chat/safeEditing/safetyAccess
 import { readStoryDraft, writeStoryDraft } from '@/lib/nostr/story/draft'
 import { registry } from '@/features/chat/tools/registry'
 import { readGroupEditorDraft } from '@/features/groups/editorDraft'
+import { createDefaultCollectionMeta } from '@/features/geo-editor/utils'
+import { canonicalDocumentReference } from '@/features/chat/tools/document-authoring'
 import { registerDocumentDraftForm } from '@/features/chat/tools/documentDraftForms'
 import { createBrowserToolService } from './service'
 import { useWebMcpStore } from './state'
@@ -105,6 +107,75 @@ test('discovers and creates distinct documents without requiring an open Map', a
 		ok: false,
 		code: 'creation_token_required',
 	})
+})
+
+test('published source discovery supplies a citable Map without inventing published feature references', async () => {
+	const datasetKey = `${'a'.repeat(64)}:western:front`
+	const coordinate = `37515:${datasetKey}`
+	const feature = {
+		type: 'Feature' as const,
+		id: 'relation/62504.!',
+		geometry: { type: 'Point' as const, coordinates: [4, 50] },
+		properties: { name: 'A battlefield' },
+	}
+	useEditorStore.setState({
+		workspaces: {
+			map: {
+				id: 'map',
+				sourceId: `dataset:${datasetKey}`,
+				label: 'Front',
+				kind: 'dataset',
+				datasetKey,
+				baseRevisionId: null,
+				activeDraftId: 'map-draft',
+				chatSessionId: null,
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		},
+		geoEditDrafts: {
+			'map-draft': {
+				persistenceVersion: 2,
+				id: 'map-draft',
+				sourceId: `dataset:${datasetKey}`,
+				name: 'Front',
+				description: '',
+				collectionMeta: createDefaultCollectionMeta(),
+				features: [feature],
+				selectedFeatureIds: [],
+				publishChannel: { kind: 'public' },
+				contextRefs: [],
+				blobReferences: [],
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		},
+	})
+	const inventory = await call('list_local_drafts')
+	const published = inventory.sources.find(
+		(source: { reference: string }) => source.reference === coordinate,
+	)
+	expect(published.citeReference).toStartWith('nostr:naddr1')
+	expect(canonicalDocumentReference(published.citeReference)).toBe(coordinate)
+	expect(published.featureIds).toEqual([feature.id])
+	expect(published.featureReferences).toBeUndefined()
+	expect(
+		inventory.sources.find(
+			(source: { reference: string }) => source.reference === 'earthly-draft:map',
+		).citeReference,
+	).toBeUndefined()
+	const created = await call('write_story_draft', {
+		createNew: true,
+		creationToken: inventory.creationToken,
+		title: 'A source-led Story',
+		markdown: published.citeReference,
+		presentation: {
+			version: 1,
+			layers: [{ id: 'battle', source: coordinate, featureIds: [feature.id] }],
+		},
+	})
+	expect(created.ok).toBe(true)
+	expect(created.draft.mapAuthoring.presentationStatus).toBe('valid')
 })
 
 test('updates require a kind-specific exact read token and preserve omitted fields', async () => {
