@@ -19,7 +19,9 @@
  */
 
 import { describe, expect, test } from 'bun:test'
+import { EventStore } from 'applesauce-core'
 import type { NostrEvent } from 'applesauce-core/helpers/event'
+import { finalizeEvent, generateSecretKey } from 'nostr-tools'
 import { MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import {
 	DEFAULT_GROUP_CONTENT,
@@ -112,6 +114,33 @@ describe('group — GROUP-01 d-tag lineage (Pitfall 4)', () => {
 		const dAfter = modified.tags.find((t) => t[0] === 'd')?.[1]
 		expect(dAfter).toBe(dBefore)
 		expect(dAfter).toBeTruthy()
+	})
+
+	test('a rapid edit is strictly newer and becomes the latest replacement immediately', async () => {
+		const secret = generateSecretKey()
+		const previous = finalizeEvent(
+			{
+				kind: MAP_CONTEXT_KIND,
+				tags: [['d', 'atlas-1']],
+				created_at: Math.floor(Date.now() / 1000) + 60,
+				content: JSON.stringify({ modelVersion: MODEL_VERSION, name: 'Atlas', governance: 'open' }),
+			},
+			secret,
+		)
+		if (!isGroup(previous)) throw new Error('Expected a valid Atlas source event.')
+		const updated = await GroupFactory.modify(previous)
+			.group({ description: 'Updated immediately' })
+			.sign((template) => Promise.resolve(finalizeEvent(template, secret)))
+		const store = new EventStore()
+		store.add(previous)
+		store.add(updated)
+		expect(updated.created_at).toBe(previous.created_at + 1)
+		expect(updated.tags).toContainEqual(['d', 'atlas-1'])
+		expect(store.getReplaceable(MAP_CONTEXT_KIND, previous.pubkey, 'atlas-1')?.id).toBe(updated.id)
+		expect(
+			JSON.parse(store.getReplaceable(MAP_CONTEXT_KIND, previous.pubkey, 'atlas-1')!.content)
+				.description,
+		).toBe('Updated immediately')
 	})
 })
 

@@ -1,6 +1,8 @@
 import { castEvent } from 'applesauce-core/casts'
 import type { FeatureCollection } from 'geojson'
+import type { NostrEvent } from 'nostr-tools'
 import { accounts, eventStore, publish } from '@/lib/nostr'
+import type { PublishCommitOptions } from '@/lib/nostr/publishCommit'
 import { GeoDataset, GeoDatasetFactory, type GeoBlobReference } from '@/lib/nostr/geo-event'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import {
@@ -109,6 +111,10 @@ export function capturedDatasetReferenceCoordinates(
 export async function publishCapturedPublicDataset(
 	captured: DatasetPublicationSnapshot,
 	validate: () => void = () => {},
+	options: PublishCommitOptions & {
+		onSigned?: (event: NostrEvent) => void
+		onDelivery?: (event: NostrEvent, responses: ReadonlyArray<{ ok: boolean; from: string; message?: string }>) => void
+	} = {},
 ): Promise<PublishedDatasetReference> {
 	validate()
 	if (captured.publishChannel.kind !== 'public') {
@@ -159,11 +165,26 @@ export async function publishCapturedPublicDataset(
 		.modifyPublicTags(setAddressReferenceTags(referencedCoordinates))
 	factory = applyBlobStrategy(factory, captured.featureCollection, captured.blobReferences)
 
-	const signed = await factory.sign(signer)
+	const signed = await factory.sign({
+		getPublicKey: () => signer.getPublicKey(),
+		signEvent: (event) => {
+			validate()
+			options.signal?.throwIfAborted()
+			if (accounts.active !== account)
+				throw new Error('The signing account changed. Nothing further was signed.')
+			return signer.signEvent(event)
+		},
+	})
+	options.onSigned?.(signed)
 	validate()
 	if (accounts.active !== account || signed.pubkey !== signerPubkey)
 		throw new Error('The signing account changed. Reopen the Map and try again.')
-	await publish(signed, { routing: 'outbox' })
+	const responses = await publish(signed, {
+		routing: 'outbox',
+		signal: options.signal,
+		beforeCommit: () => { validate(); options.beforeCommit?.() },
+	})
+	options.onDelivery?.(signed, responses)
 	const dataset = castEvent(signed, GeoDataset, eventStore)
 	const coordinate = `${GEO_EVENT_KIND}:${dataset.pubkey}:${dataset.dTag}`
 	const mention = coordinateToNaddrReference(coordinate)

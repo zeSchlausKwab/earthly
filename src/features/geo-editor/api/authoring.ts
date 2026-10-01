@@ -23,6 +23,8 @@
  */
 
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
+import { bbox as geometryBbox } from '@turf/turf'
+import { isGeoJsonGeometry } from '@/lib/geo/normalizeGeoJSON'
 import type { EditorCommandArgs, EditorCommandExecutionResult, EditorCommandId } from '../commands'
 import { executeEditorCommand } from '../commands'
 import type { GeoEditor } from '../core/GeoEditor'
@@ -50,6 +52,53 @@ import type { GeometryOperationResultMode } from '../core/managers/GeometryOpera
 /** Default import source recorded on features written through the facade. */
 const DEFAULT_SOURCE = 'chat_tool'
 const GEO_CATALOG_SOURCE_MANIFEST_PREFIX = 'earthly:geoCatalogSourceManifest:'
+
+function assertValidReplacementGeometry(geometry: Geometry): void {
+	if (!isGeoJsonGeometry(geometry)) throw new Error('Replacement geometry has invalid coordinates.')
+	validateDataset({
+		type: 'FeatureCollection',
+		features: [{ type: 'Feature', geometry, properties: {} }],
+	})
+	function line(positions: number[][]): boolean {
+		return positions.length >= 2
+	}
+	function polygon(rings: number[][][]): boolean {
+		return (
+			rings.length > 0 &&
+			rings.every((ring) => {
+				const first = ring[0]
+				const last = ring.at(-1)
+				return (
+					ring.length >= 4 &&
+					first !== undefined &&
+					last !== undefined &&
+					first.length === last.length &&
+					first.every((value, index) => value === last[index])
+				)
+			})
+		)
+	}
+	function complete(value: Geometry): boolean {
+		switch (value.type) {
+			case 'Point':
+				return true
+			case 'MultiPoint':
+				return value.coordinates.length > 0
+			case 'LineString':
+				return line(value.coordinates)
+			case 'MultiLineString':
+				return value.coordinates.length > 0 && value.coordinates.every(line)
+			case 'Polygon':
+				return polygon(value.coordinates)
+			case 'MultiPolygon':
+				return value.coordinates.length > 0 && value.coordinates.every(polygon)
+			case 'GeometryCollection':
+				return value.geometries.length > 0 && value.geometries.every(complete)
+		}
+	}
+	if (!complete(geometry))
+		throw new Error('Replacement geometry requires complete lines and closed polygon rings.')
+}
 
 function referencedGeoCatalogManifests(features: Feature[]): Set<string> {
 	const referenced = new Set<string>()
@@ -312,6 +361,8 @@ export interface Authoring {
 	 * synchronous `MutationResult` with `updated:1` on success.
 	 */
 	modifyFeature(featureId: string, feature: Feature, source?: string): MutationResult
+	/** Replace only an existing feature's geometry, preserving all properties and its id. */
+	modifyFeatureGeometry(featureId: string, geometry: Geometry): MutationResult
 	/**
 	 * Delete features by id (INFRA-02, intent:'delete'). Filters to the ids
 	 * actually present in the editor (unknown ids are dropped, never a crash —
@@ -584,6 +635,18 @@ export function createAuthoring(
 		}
 	}
 
+	function modifyFeatureGeometry(featureId: string, geometry: Geometry): MutationResult {
+		const existing = editor.getFeature(featureId)
+		if (!existing) return { ok: false, intent: 'modify', featureIds: [], counts: emptyCounts() }
+		assertValidReplacementGeometry(geometry)
+		const next = structuredClone(existing)
+		next.geometry = structuredClone(geometry)
+		if (next.bbox) next.bbox = geometryBbox(next, { recompute: true })
+		const { intent } = runInterceptors({ intent: 'modify', featureIds: [featureId] })
+		editor.updateFeature(featureId, next)
+		return { ok: true, intent, featureIds: [featureId], counts: { ...emptyCounts(), updated: 1 } }
+	}
+
 	function deleteFeatures(featureIds: string[]): MutationResult {
 		// Filter to ids actually present — unknown ids are dropped (no crash, T-05-03).
 		const present = featureIds.filter((id) => editor.getFeature(id) !== undefined)
@@ -667,6 +730,7 @@ export function createAuthoring(
 		buffer,
 		geometryOperation,
 		modifyFeature,
+		modifyFeatureGeometry,
 		deleteFeatures,
 		setDatasetMetadata,
 		getDatasetMetadata,

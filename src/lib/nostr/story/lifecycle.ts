@@ -26,6 +26,7 @@ import type { NostrEvent } from 'applesauce-core/helpers/event'
 import type { SignerLike } from '@/lib/nostr/entityFactory'
 import { assertCanDeleteOwnedEntity } from '@/lib/nostr/deletion'
 import { publish } from '@/lib/nostr'
+import type { PublishCommitOptions } from '@/lib/nostr/publishCommit'
 import { ArticleFactory, getArticleContent, getArticleId, isArticle } from '@/lib/nostr/article'
 import type { ArticleContent } from '@/lib/nostr/article'
 import {
@@ -58,6 +59,32 @@ export type StoryPresentationValidationCode =
 	| 'unauthorized-source'
 	| 'unauthorized-features'
 	| 'unknown-view-layer'
+
+export interface StoryPublishOptions extends PublishCommitOptions {
+	onSigned?: (event: NostrEvent) => void
+	onDelivery?: (event: NostrEvent, responses: ReadonlyArray<{ ok: boolean; from: string; message?: string }>) => void
+}
+
+/** Factories can await public-key resolution; recheck immediately before the signer call. */
+function publicationSigner(signer: SignerLike, validate: () => void, options: StoryPublishOptions): SignerLike {
+	const check = () => { options.signal?.throwIfAborted(); validate() }
+	if (typeof signer === 'function') return (event) => { check(); return signer(event) }
+	return {
+		getPublicKey: () => signer.getPublicKey(),
+		signEvent: (event) => { check(); return signer.signEvent(event) },
+	}
+}
+
+async function deliverStory(event: NostrEvent, validate: () => void, options: StoryPublishOptions) {
+	options.onSigned?.(event)
+	validate()
+	const responses = await publish(event, {
+		routing: 'outbox',
+		signal: options.signal,
+		beforeCommit: () => { validate(); options.beforeCommit?.() },
+	})
+	options.onDelivery?.(event, responses ?? [])
+}
 
 export class StoryPresentationValidationError extends Error {
 	readonly code: StoryPresentationValidationCode
@@ -171,6 +198,7 @@ export async function publishStory(
 	content: Partial<ArticleContent>,
 	signer: SignerLike,
 	validate: () => void = () => {},
+	options: StoryPublishOptions = {},
 ): Promise<NostrEvent> {
 	validate()
 	const effectiveContent = validateStoryPresentation(content)
@@ -181,10 +209,9 @@ export async function publishStory(
 		// truth (STORY-03). No prior `a` tags exist on a fresh create, but the same
 		// call keeps create/edit on one path.
 		.modifyPublicTags(setAddressReferenceTags(referencedCoords))
-		.sign(signer)
+		.sign(publicationSigner(signer, validate, options))
 
-	validate()
-	await publish(signed, { routing: 'outbox' })
+	await deliverStory(signed, validate, options)
 	noteStorySessionPublish(signed, effectiveContent)
 	return signed
 }
@@ -199,6 +226,7 @@ export async function editStory(
 	content: Partial<ArticleContent>,
 	signer: SignerLike,
 	validate: () => void = () => {},
+	options: StoryPublishOptions = {},
 ): Promise<NostrEvent> {
 	validate()
 	if (!isArticle(existingEvent)) {
@@ -211,10 +239,9 @@ export async function editStory(
 	const signed = await ArticleFactory.modify(existingEvent)
 		.article(effectiveContent)
 		.modifyPublicTags(setAddressReferenceTags(referencedCoords))
-		.sign(signer)
+		.sign(publicationSigner(signer, validate, options))
 
-	validate()
-	await publish(signed, { routing: 'outbox' })
+	await deliverStory(signed, validate, options)
 	noteStorySessionPublish(signed, effectiveContent)
 	return signed
 }

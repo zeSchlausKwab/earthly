@@ -30,6 +30,27 @@ beforeAll(async () => {
 	StoryPresentationValidationError = mod.StoryPresentationValidationError
 })
 
+test('optional publication hooks observe signed bytes and delivery without changing the returned event', async () => {
+	let observed: NostrEvent | undefined
+	let delivered: NostrEvent | undefined
+	const signed = await publishStory({ title: 'Receipts', content: 'Body' }, bareSign, () => {}, {
+		onSigned: event => { observed = event },
+		onDelivery: (event, responses) => { delivered = event; expect(responses).toEqual([]) },
+	})
+	expect(observed).toBe(signed)
+	expect(delivered).toBe(signed)
+})
+
+test('cancellation during public-key resolution prevents the immediate Story signer call', async () => {
+	const controller = new AbortController()
+	let signed = false
+	await expect(publishStory({ title: 'Cancelled', content: 'Body' }, {
+		getPublicKey: () => { controller.abort(); return PUBKEY },
+		signEvent: async event => { signed = true; return bareSign(event) },
+	}, () => {}, { signal: controller.signal })).rejects.toThrow()
+	expect(signed).toBe(false)
+})
+
 /** Bare sign-function (EntityFactory contract) — stamps a deterministic id/pubkey/sig. */
 async function bareSign(e: {
 	kind: number

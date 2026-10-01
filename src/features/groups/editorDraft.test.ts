@@ -83,6 +83,16 @@ describe('Context editor local drafts', () => {
 		writeGroupEditorDraft('future', completeDraft, PUBKEY)
 		expect(readGroupEditorDraft('future', PUBKEY)?.presentation).toEqual(completeDraft.presentation)
 	})
+
+	test('retains the exact source revision through metadata-only form writes without rebasing legacy drafts', () => {
+		const key = `edit:${PUBKEY}:existing`
+		writeGroupEditorDraft(key, { ...completeDraft, sourceRevisionId: 'original-event' }, PUBKEY)
+		writeGroupEditorDraft(key, { ...completeDraft, name: 'Human edit' }, PUBKEY)
+		expect(readGroupEditorDraft(key, PUBKEY)?.sourceRevisionId).toBe('original-event')
+		writeGroupEditorDraft('legacy', completeDraft, PUBKEY)
+		writeGroupEditorDraft('legacy', { ...completeDraft, name: 'Another edit' }, PUBKEY)
+		expect(readGroupEditorDraft('legacy', PUBKEY)?.sourceRevisionId).toBeUndefined()
+	})
 })
 
 describe('Atlas default-view publish validation', () => {

@@ -16,7 +16,9 @@ export const executeWebMcpToolTask: AiTaskMetadata = {
 	id: 'chat.execute-webmcp-tool',
 	summary: 'Discover and execute an Earthly tool through the browser’s native WebMCP API.',
 	preconditions: ['Desktop agent access is enabled', 'An editable Map is open for Map tools'],
-	sideEffects: ['Depends on the discovered tool; all writes stay in the loopback draft'],
+	sideEffects: [
+		'Local draft edits or isolated loopback publications, according to the discovered tool',
+	],
 	viewports: 'both',
 }
 
@@ -61,7 +63,7 @@ export async function setDesktopExternalQueries(
 	const toggle = section.getByRole('switch', { name: 'External queries', exact: true })
 	if ((await toggle.isChecked()) !== enabled) await toggle.click()
 	await expect(section.getByRole('status')).toHaveText(
-		`${enabled ? 53 : 37} Earthly tools available to your desktop agent.`,
+		`${enabled ? 62 : 46} Earthly tools available to your desktop agent.`,
 	)
 }
 
@@ -92,7 +94,11 @@ export async function discoverWebMcpTools(earthly: EarthlySession) {
 			document as Document & {
 				modelContext: {
 					getTools(): Promise<
-						Array<{ name: string; inputSchema: unknown; annotations: { readOnlyHint: boolean } }>
+						Array<{
+							name: string
+							inputSchema: unknown
+							annotations: { readOnlyHint: boolean; consequentialHint: boolean }
+						}>
 					>
 				}
 			}

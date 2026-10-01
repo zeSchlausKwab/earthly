@@ -45,7 +45,8 @@ export function WebMcpSettings() {
 			<p className="text-sm text-muted-foreground">
 				Let a connected desktop AI read and edit the open Map draft, including geometry, styles and
 				callout images, and compose local Stories and Atlases with references and saved views.
-				Document access includes retained drafts in the active account. Publishing stays in Earthly’s publishing flow.
+				Document access includes retained drafts in the active account. Publishing requires a
+				prepared preview and an explicit publish call.
 			</p>
 			<p role="status" className="text-xs text-muted-foreground">
 				{status === 'unsupported'

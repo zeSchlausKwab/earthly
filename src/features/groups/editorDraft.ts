@@ -17,6 +17,8 @@ export type GroupSchemaAuthorMode = 'builder' | 'advanced'
 
 /** Complete user-editable Context form state; transient validation/publish state is excluded. */
 export interface GroupEditorDraftSnapshot {
+	/** Exact public source used to seed an edit; never silently rebased by metadata/form writes. */
+	sourceRevisionId?: string
 	name: string
 	description: string
 	curatedReferences: string[]
@@ -155,6 +157,7 @@ function parseDraft(raw: unknown): GroupEditorDraft | null {
 		: 'builder'
 
 	return {
+		...(typeof value.sourceRevisionId === 'string' ? { sourceRevisionId: value.sourceRevisionId } : {}),
 		name: typeof value.name === 'string' ? value.name : '',
 		description: typeof value.description === 'string' ? value.description : '',
 		curatedReferences: stringList(value.curatedReferences),
@@ -197,7 +200,10 @@ export function writeGroupEditorDraft(
 	pubkey?: string | null,
 ): void {
 	const drafts = readDraftMap(pubkey)
-	drafts[identity] = { ...draft, updatedAt: draft.updatedAt ?? Date.now() }
+	drafts[identity] = { ...draft,
+		...(draft.sourceRevisionId ?? drafts[identity]?.sourceRevisionId
+			? { sourceRevisionId: draft.sourceRevisionId ?? drafts[identity]?.sourceRevisionId } : {}),
+		updatedAt: draft.updatedAt ?? Date.now() }
 	writeScopedStorage(GROUP_EDITOR_DRAFTS_STORAGE_KEY, drafts, pubkey)
 	notifyDraftsChanged()
 }

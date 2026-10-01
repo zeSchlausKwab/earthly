@@ -123,6 +123,7 @@ import {
 	getStoryProposalUnsupportedFields,
 	proposeStoryEdit,
 	readStoryDraft,
+	storyContentFingerprint,
 	writeStoryDraft,
 } from '@/lib/nostr/story'
 
@@ -564,7 +565,14 @@ export function StoryEditorPanel({
 	} = useRetainedEditorDraft({
 		identity: draftKey,
 		snapshot: draftSnapshot,
-		persist: persistStoryEditorDraft,
+		persist: (identity, snapshot) => {
+			const retained = readStoryDraft(identity)
+			const event = initialStory?.rawEvent()
+			const reference = event && coordinateToNaddrReference(`${event.kind}:${event.pubkey}:${initialStory?.dTag}`)
+			if (!retained && event && isArticle(event) && reference)
+				writeStoryDraft(identity, { ...snapshot, publication: { reference, eventId: event.id, fingerprint: storyContentFingerprint(getArticleContent(event)) } })
+			else persistStoryEditorDraft(identity, snapshot)
+		},
 		clear: clearStoryDraft,
 	})
 	const storedFormSignature = () => {
@@ -722,7 +730,7 @@ export function StoryEditorPanel({
 	useEffect(
 		() =>
 			registerStoryPublicationEditor(draftKey, {
-				flush: persistNow,
+				flush: flushPendingForm,
 				published: clearRetainedDraft,
 				resolvedBody: (resolved, resolvedPresentation) => {
 					// The publisher validates again before signing. Commit the resolved
@@ -734,7 +742,7 @@ export function StoryEditorPanel({
 					bodyEditorRef.current?.setContent(resolved)
 				},
 			}),
-		[draftKey, persistNow, clearRetainedDraft],
+		[draftKey, flushPendingForm, clearRetainedDraft],
 	)
 	useEffect(() => {
 		const preview = () => {

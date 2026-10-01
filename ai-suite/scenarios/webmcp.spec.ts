@@ -33,7 +33,7 @@ test('native discovery, full GeoJSON, fat arrows and image callouts work through
 	expect(await discoverWebMcpTools(earthly)).toEqual([])
 	await setDesktopAgentAccess(earthly, true)
 	const tools = await discoverWebMcpTools(earthly)
-	expect(tools).toHaveLength(37)
+	expect(tools).toHaveLength(46)
 	expect(
 		tools.find((item) => item.name === 'earthly_read_features')?.annotations.readOnlyHint,
 	).toBe(true)
@@ -164,12 +164,12 @@ test('agent controls camera, framing and basemap; external tools need their sess
 	).toBe('external_queries_disabled')
 	await setDesktopExternalQueries(earthly, true)
 	const external = await discoverWebMcpTools(earthly)
-	expect(external).toHaveLength(53)
+	expect(external).toHaveLength(62)
 	expect(external.some((tool) => tool.name === 'earthly_valhalla_route')).toBe(true)
-	expect(external.some((tool) => /run_code|publish|upload|editor_undo/.test(tool.name))).toBe(false)
+	expect(external.some((tool) => /run_code|upload|editor_undo/.test(tool.name))).toBe(false)
 	const current = await executeWebMcpTool(earthly, 'earthly_get_map')
 	await setDesktopExternalQueries(earthly, false)
-	expect(await discoverWebMcpTools(earthly)).toHaveLength(37)
+	expect(await discoverWebMcpTools(earthly)).toHaveLength(46)
 	expect(
 		(
 			await executeWebMcpTool(earthly, 'earthly_measure', {

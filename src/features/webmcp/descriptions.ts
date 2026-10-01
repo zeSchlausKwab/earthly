@@ -1,9 +1,15 @@
 import type { ToolJsonSchema } from '@/features/chat/tools/types'
-import { BROWSER_EDITOR_TOOLS, BROWSER_EXTERNAL_TOOLS } from './catalog'
+import { BROWSER_EDITOR_TOOLS, BROWSER_ENTITY_TOOLS, BROWSER_EXTERNAL_TOOLS } from './catalog'
 
 const toolNames = [
 	...BROWSER_EDITOR_TOOLS,
 	...BROWSER_EXTERNAL_TOOLS,
+	...BROWSER_ENTITY_TOOLS,
+	'create_map_draft',
+	'open_map_draft',
+	'edit_entity',
+	'prepare_publication',
+	'publish_publication',
 	'get_map',
 	'read_features',
 	'list_local_drafts',
@@ -26,8 +32,11 @@ export function browserDescription(description: string): string {
 			'Preserve existing feature-only fragments',
 		)
 		.replace(/\bget_editor_state\b/g, 'earthly_get_map')
-		.replace(/\bget_working_set or create_map_draft\b/g, 'earthly_list_local_drafts')
-		.replace(/\b(get_working_set|read_entity)\b/g, 'earthly_list_local_drafts')
+		.replace(
+			/\bget_working_set or create_map_draft\b/g,
+			'earthly_list_local_drafts or earthly_create_map_draft',
+		)
+		.replace(/\bget_working_set\b/g, 'earthly_list_local_drafts')
 		.replace(/\blocalReference\b/g, 'source.reference')
 		.replace(/\bworkingTarget\b/g, 'draftTarget')
 		.replace(' or spinning up run_code for a single number', '')

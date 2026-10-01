@@ -6,6 +6,7 @@ export const BROWSER_EDITOR_TOOLS = [
 	'select_features',
 	'write_geojson_to_editor',
 	'add_feature_to_editor',
+	'update_feature_geometry',
 	'batch_edit_features',
 	'dedup_features',
 	'style_by_attribute',
@@ -30,6 +31,13 @@ export const BROWSER_EDITOR_TOOLS = [
 	'set_map_view',
 	'fit_map_view',
 	'set_basemap_style',
+] as const
+
+/** Public Earthly discovery does not require an editable Map or an external-query grant. */
+export const BROWSER_ENTITY_TOOLS = [
+	'search_entities',
+	'query_entities_in_area',
+	'read_entity',
 ] as const
 
 export const BROWSER_EXTERNAL_TOOLS = [

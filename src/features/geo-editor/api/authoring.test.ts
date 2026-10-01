@@ -476,6 +476,95 @@ describe('createAuthoring — modifyFeature (INFRA-02, intent:modify)', () => {
 		authoring = createAuthoring(editor)
 	})
 
+	it('replaces only geometry while preserving properties, callouts and input immutability', () => {
+		authoring.addFeature(
+			{
+				type: 'Feature',
+				id: 'moving-route',
+				bbox: [0, 0, 1, 1],
+				geometry: {
+					type: 'LineString',
+					coordinates: [
+						[0, 0],
+						[1, 1],
+					],
+				},
+				properties: {
+					name: 'Route',
+					fillColor: '#abcdef',
+					arbitrary: { nested: ['keep'] },
+					'earthly:callouts': [
+						{
+							id: 'caption',
+							text: 'Keep the image',
+							media: [{ url: 'https://example.com/image.jpg' }],
+						},
+					],
+				},
+			},
+			'original-source',
+		)
+		const before = structuredClone(editor.getFeature('moving-route')!)
+		const geometry = {
+			type: 'LineString' as const,
+			coordinates: [
+				[40, -20],
+				[50, -10],
+			],
+		}
+		const result = authoring.modifyFeatureGeometry('moving-route', geometry)
+		expect(result).toMatchObject({
+			ok: true,
+			intent: 'modify',
+			featureIds: ['moving-route'],
+			counts: { updated: 1 },
+		})
+		const after = editor.getFeature('moving-route')!
+		expect(after.properties).toEqual(before.properties)
+		expect(after.bbox).toEqual([40, -20, 50, -10])
+		geometry.coordinates[0]![0] = 100
+		expect(after.geometry).toEqual({
+			type: 'LineString',
+			coordinates: [
+				[40, -20],
+				[50, -10],
+			],
+		})
+		expect(before.geometry).toEqual({
+			type: 'LineString',
+			coordinates: [
+				[0, 0],
+				[1, 1],
+			],
+		})
+	})
+
+	it('rejects malformed geometry before modifying the existing feature', () => {
+		authoring.addFeature(singlePointCollection.features[0]!)
+		const before = structuredClone(editor.getAllFeatures())
+		for (const geometry of [
+			{ type: 'Point', coordinates: [200, 0] },
+			{ type: 'Point', coordinates: [0, Number.NaN] },
+			{ type: 'LineString', coordinates: [[0, 0]] },
+			{
+				type: 'Polygon',
+				coordinates: [
+					[
+						[0, 0],
+						[1, 0],
+						[0, 1],
+						[1, 1],
+					],
+				],
+			},
+			{ type: 'Polygon', coordinates: [] },
+			{ type: 'GeometryCollection', geometries: [] },
+		]) {
+			expect(() => authoring.modifyFeatureGeometry('test-point-1', geometry as never)).toThrow()
+			expect(editor.getAllFeatures()).toEqual(before)
+		}
+	})
+
 	it('updates an existing feature in place (preserving id), returns intent:modify + updated:1', () => {
 		authoring.addFeature(singlePointCollection.features[0])
 		expect(editor.getFeature('test-point-1')).toBeDefined()

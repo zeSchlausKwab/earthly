@@ -118,11 +118,15 @@ export function parseEntityReference(value: unknown): ParsedEntityReference {
 
 // ── relay fetch ────────────────────────────────────────────────────────
 
-export function fetchLatestByCoordinate(ref: ParsedEntityReference): Promise<NostrEvent | null> {
+export function fetchLatestByCoordinate(
+	ref: ParsedEntityReference,
+	signal?: AbortSignal,
+): Promise<NostrEvent | null> {
+	signal?.throwIfAborted()
 	const cached = eventStore.getReplaceable(ref.kind, ref.pubkey, ref.identifier)
 	if (cached) return Promise.resolve(cached)
 
-	return new Promise((resolve) => {
+	return new Promise((resolve, reject) => {
 		let latest: NostrEvent | null = null
 		let settled = false
 		let timer: ReturnType<typeof setTimeout> | undefined
@@ -131,8 +135,17 @@ export function fetchLatestByCoordinate(ref: ParsedEntityReference): Promise<Nos
 			if (settled) return
 			settled = true
 			if (timer) clearTimeout(timer)
+			signal?.removeEventListener('abort', abort)
 			if (latest) eventStore.add(latest)
 			resolve(latest)
+		}
+		const abort = () => {
+			if (settled) return
+			settled = true
+			if (timer) clearTimeout(timer)
+			sub.unsubscribe()
+			signal?.removeEventListener('abort', abort)
+			reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
 		}
 
 		const sub = pool
@@ -149,11 +162,15 @@ export function fetchLatestByCoordinate(ref: ParsedEntityReference): Promise<Nos
 				error: settle,
 			})
 
-		timer = setTimeout(() => {
-			sub.unsubscribe()
-			settle()
-		}, RELAY_TIMEOUT_MS)
 		if (settled) sub.unsubscribe()
+		else {
+			timer = setTimeout(() => {
+				sub.unsubscribe()
+				settle()
+			}, RELAY_TIMEOUT_MS)
+			signal?.addEventListener('abort', abort, { once: true })
+			if (signal?.aborted) abort()
+		}
 	})
 }
 
@@ -445,7 +462,7 @@ export function registerEntityTools(register: (entry: ToolEntry) => void): void 
 		name: 'read_entity',
 		kind: 'host-builtin',
 		schema: readEntitySchema,
-		handler: async (args) => {
+		handler: async (args, context) => {
 			const ref = parseEntityReference(args.reference)
 			const type = KIND_TO_ENTITY_TYPE[ref.kind]
 			if (!type) {
@@ -456,7 +473,7 @@ export function registerEntityTools(register: (entry: ToolEntry) => void): void 
 				)
 			}
 
-			const event = await fetchLatestByCoordinate(ref)
+			const event = await fetchLatestByCoordinate(ref, context?.signal)
 			if (!event) {
 				return {
 					ok: false,
@@ -493,6 +510,7 @@ export function registerEntityTools(register: (entry: ToolEntry) => void): void 
 				mention,
 				author: event.pubkey,
 				updatedAt: event.created_at,
+				revisionId: event.id,
 				...(getBbox(event) ? { bbox: getBbox(event) } : {}),
 				...(getGeohash(event) ? { geohash: getGeohash(event) } : {}),
 				...(hashtags.length > 0 ? { hashtags } : {}),

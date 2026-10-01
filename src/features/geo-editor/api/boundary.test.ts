@@ -229,6 +229,7 @@ describe('Authoring surface is geometry-only (V4 access-control / T-02-03)', () 
 			'geometryOperation',
 			'getDatasetMetadata',
 			'modifyFeature',
+			'modifyFeatureGeometry',
 			'setDatasetMetadata',
 			'writeGeoJSON',
 		])

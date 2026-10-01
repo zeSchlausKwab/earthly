@@ -161,6 +161,61 @@ describe('line extrusion', () => {
 		expect(result.geometry.type).toBe('Polygon')
 		expect(kinks(result).features).toHaveLength(0)
 	})
+	it('extrudes long intercontinental paths into continuous bands and arrows', () => {
+		const source: Feature<LineString> = {
+			...line,
+			geometry: {
+				type: 'LineString',
+				coordinates: [
+					[56.55, 26.5],
+					[57.1, 25.5],
+					[59, 24],
+					[60.4, 22.7],
+					[60, 18],
+					[58, 12],
+					[55, 5],
+					[49, -4],
+					[44, -13],
+					[40, -21],
+					[36, -28],
+					[29, -35],
+					[20, -37],
+					[13, -35],
+					[5, -28],
+					[-2, -17],
+					[-7, -3],
+					[-13, 14],
+					[-16, 29],
+					[-12, 41],
+					[-7, 47],
+					[-3, 50],
+				],
+			},
+		}
+		for (const kind of ['fat-line', 'fat-arrow'] as const) {
+			const result = band(
+				{ width: 75, units: 'kilometers', arrowHeadWidth: 123.75, arrowHeadLength: 150 },
+				kind,
+				source,
+			)
+			expect(result.geometry.type).toBe('Polygon')
+			expect(area(result)).toBeGreaterThan(0)
+			expect(kinks(result).features).toHaveLength(0)
+			for (const coordinate of source.geometry.coordinates.slice(1, -1)) {
+				expect(booleanPointInPolygon(point(coordinate), result)).toBe(true)
+			}
+			if (kind === 'fat-arrow') {
+				const endpoint = source.geometry.coordinates.at(-1)!
+				expect(
+					(result.geometry as Polygon).coordinates[0]!.some(
+						(coordinate) =>
+							Math.abs(coordinate[0]! - endpoint[0]!) < 1e-9 &&
+							Math.abs(coordinate[1]! - endpoint[1]!) < 1e-9,
+					),
+				).toBe(true)
+			}
+		}
+	})
 
 	it('handles duplicate vertices and disconnected multipart lines', () => {
 		const source: Feature<MultiLineString> = {

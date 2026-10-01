@@ -130,11 +130,18 @@ function nextReview(): Promise<PendingDiffEntry> {
 }
 
 describe('desktop agent editor bridge', () => {
-	test('advertises local geometry, styling and image callouts, with no remote or publishing grants', () => {
-		expect(tools).toHaveLength(BROWSER_EDITOR_TOOLS.length + 7)
+	test('advertises authoring, lifecycle and explicit publication, with remote queries separately granted', () => {
+		expect(tools).toHaveLength(BROWSER_EDITOR_TOOLS.length + 15)
 		expect(tools.some((tool) => tool.name === 'earthly_extrude_line')).toBe(true)
 		expect(tools.some((tool) => tool.name === 'earthly_add_feature_callout')).toBe(true)
-		expect(tools.some((tool) => /publish|run_code|query_osm|fetch_url/.test(tool.name))).toBe(false)
+		expect(tools.some((tool) => /run_code|query_osm|fetch_url/.test(tool.name))).toBe(false)
+		expect(
+			tools.find((tool) => tool.name === 'earthly_prepare_publication')?.annotations.readOnlyHint,
+		).toBe(true)
+		expect(
+			tools.find((tool) => tool.name === 'earthly_publish_publication')?.annotations
+				.consequentialHint,
+		).toBe(true)
 	})
 	test('advertised contracts use native tools and supported document targets', () => {
 		const sharedStorySchema = JSON.stringify(registry.get('write_story_draft')?.schema)
@@ -259,7 +266,7 @@ describe('desktop agent editor bridge', () => {
 		).toBe('external_queries_disabled')
 		useWebMcpStore.setState({ externalQueriesEnabled: true })
 		tools = createBrowserToolService(controller.signal)
-		expect(tools).toHaveLength(BROWSER_EDITOR_TOOLS.length + BROWSER_EXTERNAL_TOOLS.length + 7)
+		expect(tools).toHaveLength(BROWSER_EDITOR_TOOLS.length + BROWSER_EXTERNAL_TOOLS.length + 15)
 		expect(tools.some((tool) => tool.name === 'earthly_valhalla_route')).toBe(true)
 		const next = await call('earthly_get_map')
 		useWebMcpStore.setState({ externalQueriesEnabled: false })
