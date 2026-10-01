@@ -156,6 +156,14 @@ or Undo entry. Source references come from the granted inventory, rather than ar
 An exact authorized read can preserve existing published citations on a metadata edit; this grants
 no new source reads, layer IDs or feature selectors.
 
+Discovery returns each source's exact `reference` for presentation layers. Published Maps also include
+a ready-to-cite `citeReference` (`nostr:naddr…`) for whole-Map citations, so an agent does not need to
+implement NIP-19 encoding. `featureIds` describe the retained local draft and may differ from its last
+publication; discovery does not invent published feature citations. Preserve existing encoded
+feature-only citations and their exact scopes. Native descriptions and nested schema guidance name
+the browser's `earthly_` tools: Map reads use `earthly_get_map`, while document targets and sources come
+from `earthly_list_local_drafts`. Document readers accept local `draftTarget` values.
+
 Local Map references use `earthly-draft:<encoded-workspace-id>` in Story prose or an Atlas's curated
 references. Opening layers use `{kind:"local-map",workspaceId:"..."}`. Local Story references in Atlases
 use `earthly-story-draft:<encoded-draft-key>`. These are draft notation, not fabricated Nostr events.

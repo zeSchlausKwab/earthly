@@ -19,6 +19,7 @@ import { BrowserToolError, createMapReader, describeMap, featurePage } from './m
 import type { BrowserTool } from './platform'
 import { BROWSER_DOCUMENT_TOOLS, createDocumentTools } from './documentService'
 import { DESKTOP_AGENT_SCOPE, recordAgentActivity, useWebMcpStore } from './state'
+import { browserDescription, browserSchema } from './descriptions'
 import {
 	BROWSER_EDITOR_TOOLS,
 	BROWSER_EXTERNAL_TOOLS,
@@ -208,7 +209,7 @@ export function createBrowserToolService(
 			(entry.kind === 'remote-mcp' && !(BROWSER_EXTERNAL_TOOLS as readonly string[]).includes(name))
 		)
 			throw new Error(`Expected a local editor tool: ${name}`)
-		const parameters = structuredClone(entry.schema.function.parameters)
+		const parameters = browserSchema(entry.schema.function.parameters)
 		delete parameters.properties.workingTarget // This bridge grants only the visible draft.
 		const inputSchema = {
 			...parameters,
@@ -219,7 +220,7 @@ export function createBrowserToolService(
 		tools.push(
 			tool(
 				`earthly_${name}`,
-				`${entry.schema.function.description} ${needsExternalQueries(name, {}) ? 'Uses Earthly’s remote MCP connection; external queries must remain enabled. ' : name === 'get_reference_boundaries' ? 'Administrative boundaries (level=admin1) require external queries to be enabled. ' : ''}Map writes affect only the open local draft and use Earthly’s edit-safety setting. Does not publish. Read earthly_get_map first and echo its mapToken.`,
+				`${browserDescription(entry.schema.function.description)} ${needsExternalQueries(name, {}) ? 'Uses Earthly’s remote MCP connection; external queries must remain enabled. ' : name === 'get_reference_boundaries' ? 'Administrative boundaries (level=admin1) require external queries to be enabled. ' : ''}Map writes affect only the open local draft and use Earthly’s edit-safety setting. Does not publish. Read earthly_get_map first and echo its mapToken.`,
 				inputSchema,
 				READ_ONLY_TOOLS.has(name),
 				async (args, signal, id) => {
