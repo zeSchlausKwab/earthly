@@ -55,6 +55,7 @@ import { StoryTargetDialog } from '@/features/chat/storyTargeting'
 import { getStoryEditorTarget, subscribeStoryEditorOpenRequests } from './storyEditorBridge'
 import { getAtlasEditorPresentation, subscribeAtlasEditorPresentation } from '@/features/groups/atlasEditorBridge'
 import { localMapPresentationLabel } from './map-presentation/localSources'
+import { resolveRoutedStoryPresentation } from './map-presentation/storySource'
 import { getStoryDraftRevision, subscribeStoryDrafts, listNewStoryDrafts } from '@/lib/nostr/story/draft'
 import { getGroupEditorDraftRevision, subscribeGroupEditorDrafts, listNewGroupEditorDrafts } from '@/features/groups/editorDraft'
 import { config } from '@/config/env.client'
@@ -2421,9 +2422,8 @@ export function GeoEditorView() {
 		}
 	}, [calloutAnchorDrawing, currentMode])
 
-	// The viewed Story is also the carrier for the shared presentation runtime.
-	// Semantic references are fetched later, once the retained Story editor state
-	// is available too, so browse and authoring use the exact same pipeline.
+	// Inspector state selects the Margin subject. The Story route independently
+	// owns its presentation, including while a clicked geometry's Map is inspected.
 	const viewStory = useEditorStore((state) => state.viewStory)
 	const viewContext = useEditorStore((state) => state.viewContext)
 
@@ -4079,8 +4079,11 @@ export function GeoEditorView() {
 	// A Story's authored presentation, inline views, and route-local `on=` Maps
 	// share one exact-source runtime on the main canvas. The ordinary map renderer
 	// remains active for every source not claimed by this composition.
-	const presentationStory =
-		storyAuthoringKey !== null ? editingStory : route.focusType === 'story' ? viewStory : null
+	const routedPresentationStory = useMemo(
+		() => resolveRoutedStoryPresentation(route, stories, viewStory),
+		[route.focusType, route.naddr, stories, viewStory],
+	)
+	const presentationStory = storyAuthoringKey !== null ? editingStory : routedPresentationStory
 	const presentationAuthor =
 		storyAuthoringKey !== null ? (currentUserPubkey ?? undefined) : presentationStory?.pubkey
 	const presentationCarrierId = useMemo(
@@ -5234,11 +5237,7 @@ export function GeoEditorView() {
 				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'story') {
-			const story = stories.find(
-				(s) =>
-					matchesRoute({ kind: s.kind, pubkey: s.pubkey, identifier: s.dTag }) ||
-					encodeStoryNaddr(s) === route.naddr,
-			)
+			const story = routedPresentationStory
 			if (story) {
 				const handledKey = `${routeKey}:${route.edit ? 'edit' : 'view'}:${story.id}`
 				if (focusHandledRef.current === handledKey) return
@@ -5332,6 +5331,7 @@ export function GeoEditorView() {
 		geoEvents,
 		mapContextEvents,
 		stories,
+		routedPresentationStory,
 		sightings,
 		beacons,
 		routedBeacons,
