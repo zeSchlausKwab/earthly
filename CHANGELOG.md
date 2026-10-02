@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.16] - 2026-10-02
+
+- Enlarged Map, Story, and Atlas previews across list rows, including mobile layouts.
+- Preserved Story image descriptions in rendered images and lightboxes, and aligned
+  timeline jumps with their map cues even when earlier images load afterward.
+- Made the Shelf count distinct Map sources separately from presentation layers,
+  while keeping each layer's visibility controls independent.
+- Kept desktop-agent tool registrations, session tokens, and source access stable
+  across editor and Reader navigation. Editor-only actions now report when the editor
+  must be opened before making changes.
+- Allowed independent public Map reads to run concurrently through WebMCP, while
+  keeping editing and publication serialized.
+
+### Known limitations
+
+- Desktop WebMCP requires a compatible browser with the experimental feature enabled.
+  Full-page reloads still start a new agent session.
+- Physical-device Android upgrade and map/Story smoke testing remain pending for this release.
+
 ## [0.1.15] - 2026-10-02
 
 - Enabled desktop-agent access and external queries by default, with saved preferences
