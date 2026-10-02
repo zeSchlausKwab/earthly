@@ -12,6 +12,8 @@
   must be opened before making changes.
 - Allowed independent public Map reads to run concurrently through WebMCP, while
   keeping editing and publication serialized.
+- Stopped relay restarts triggered by reclaimable database file cache, while retaining
+  automatic recovery and a limit on Go-managed memory.
 
 ### Known limitations
 

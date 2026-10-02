@@ -58,8 +58,9 @@ module.exports = {
 			name: 'earthly-relay',
 			script: 'relay/relay',
 			interpreter: 'none',
-			env: { PORT: 3334 },
-			max_memory_restart: '500M',
+			// Database mappings count toward RSS but are reclaimable file cache.
+			// Limit Go-managed memory without restarting on a warm database cache.
+			env: { PORT: 3334, GOMEMLIMIT: '256MiB' },
 			error_file: logFile('relay', 'error'),
 			out_file: logFile('relay', 'out'),
 		},

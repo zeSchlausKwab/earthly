@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { writeSqliteGeoCatalogSnapshot } from '../../contextvm/geocatalog/sqlite'
 import type {
@@ -131,6 +132,19 @@ describe('production deployment runtime', () => {
 		}
 		expect(config).not.toContain('earthly-cordn')
 		expect(config).toContain("exec_mode: 'fork'")
+	})
+
+	test('keeps relay database file cache outside the process restart budget', () => {
+		const config = createRequire(import.meta.url)('./services.config.cjs')
+		const relay = config.apps.find((app: { name: string }) => app.name === 'earthly-relay')
+		const otherServices = config.apps.filter((app: { name: string }) => app.name !== 'earthly-relay')
+		expect(relay.autorestart).toBe(true)
+		expect(relay.max_memory_restart ?? 0).toBe(0)
+		expect(relay.env.GOMEMLIMIT).toBe('256MiB')
+		expect(otherServices).toHaveLength(3)
+		for (const app of otherServices) {
+			expect(app.max_memory_restart).toBeTruthy()
+		}
 	})
 
 	test('verifies and stages releases before activation', async () => {
