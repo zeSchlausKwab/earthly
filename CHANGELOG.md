@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.15] - 2026-10-02
+
+- Enabled desktop-agent access and external queries by default, with saved preferences
+  that survive reloads while account changes revoke earlier agent permissions.
+- Added polygon union, intersection, and difference to chat and WebMCP, sharing the
+  editor's geometry processing and existing review, Cancel, and Undo controls.
+- Made road routing handle up to 100 ordered waypoints within the backend's actual limits.
+  Interrupted or disconnected routes report partial results and cannot be imported as complete.
+- Added recovery for publication timeouts using verified relay receipts, preserving later
+  edits and preventing duplicate Maps. Stories and Atlases can now explicitly rebase local
+  changes against newer published revisions with conflict choices and Undo.
+- Added fresh public-source reads, complete paginated feature inventories, direct Story
+  draft previews, and immediate feature citations after acknowledged publication.
+- Fixed switches across the app and reduced false self-intersection warnings for valid
+  point contacts between MultiPolygon parts.
+- Kept the main map working when viewing long Stories with many inline maps, and preserved
+  Story layers and visibility settings when inspecting a geometry on the map.
+
+### Known limitations
+
+- Desktop WebMCP requires a compatible Chrome build with the experimental browser feature enabled.
+- Physical-device Android upgrade and map/Story smoke testing remain pending for this release.
+
 ## [0.1.14] - 2026-10-01
 
 - Fixed long Stories turning the main map grey in Read mode on devices with limited
