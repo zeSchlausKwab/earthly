@@ -245,6 +245,7 @@ import { usePresentationMapLayers } from './hooks/usePresentationMapLayers'
 import { usePresentationCamera } from './hooks/usePresentationCamera'
 import type { PresentationLayerMaterializationInput } from './map-presentation/materialize'
 import { PresentationCanvas, presentationFitCollection } from '@/pages/read/PresentationCanvas'
+import { DeferredMapFigure } from '@/pages/read/DeferredMapFigure'
 import type { StoryViewDraftContext } from '@/components/editor/StoryViewDraftContext'
 import {
 	applyAmbientSourcesToLayers,
@@ -531,16 +532,18 @@ function StoryPresentationFigure({
 		[carrierId, resolved, snapshot.state, snapshot.view.id, presentationAuthor],
 	)
 	return (
-		<PresentationCanvas
-			carrierId={`${carrierId}:figure:${snapshot.view.id}`}
-			mapRef={figureMapRef}
-			layers={layers}
-			camera={snapshot.state.camera}
-			cameraIntentId={`figure:${JSON.stringify(snapshot.state)}`}
-			compact
-			interactive={false}
-			className="h-64 min-h-64 w-full border border-border"
-		/>
+		<DeferredMapFigure className="h-64 min-h-64 w-full">
+			<PresentationCanvas
+				carrierId={`${carrierId}:figure:${snapshot.view.id}`}
+				mapRef={figureMapRef}
+				layers={layers}
+				camera={snapshot.state.camera}
+				cameraIntentId={`figure:${JSON.stringify(snapshot.state)}`}
+				compact
+				interactive={false}
+				className="h-full w-full border border-border"
+			/>
+		</DeferredMapFigure>
 	)
 }
 

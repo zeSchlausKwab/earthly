@@ -1,14 +1,17 @@
 # Desktop agents through WebMCP
 
 Earthly registers native browser tools when **Settings → Chat → Desktop agent access** is enabled.
-Access is local to the tab session and turns off on reload or account change. There is no new
-backend, credential exchange, or standalone Earthly MCP daemon.
-Account changes also clear the previous account’s desktop-agent reviews and activity history.
+Desktop agent access and **External queries** are on by default in supported browsers. Both choices
+are saved in this browser and survive reloads and navigation; explicitly disabling either remains
+effective on the next visit. There is no new backend, credential exchange, or standalone Earthly MCP daemon.
+Account changes cancel pending operations, clear the previous account’s reviews and activity history,
+and register a fresh tool session. Preferences carry over, but account-bound tokens and source grants do not.
 
-**External queries** is a separate session switch in the same settings. With it off, Earthly exposes
-46 tools: 33 for the visible local Map, five for retained Story/Atlas drafts and discovery,
-six for public entity discovery and draft lifecycle, and two for explicit publication.
-With it on, 16 existing remote query tools join the catalog (62 total). Changing either grant
+**External queries** is a separate persisted switch in the same settings. With it off, the catalog
+contains local Map authoring, retained Story/Atlas discovery and editing, public entity discovery,
+draft lifecycle, rendered Story preview, and explicit publication. With it on, the existing remote
+query tools join the catalog. Discover the current tool list rather than assuming a fixed count.
+Changing either grant
 unregisters the previous tools, cancels pending operations and invalidates old Map/document tokens.
 Read the intended target again after changing access.
 
@@ -38,7 +41,8 @@ To attach to an existing debugging browser, replace the launch argument with
 `--browserUrl=http://127.0.0.1:9222`; that browser must have been launched with WebMCP enabled and a
 separate debugging profile. Keep the debugging endpoint on loopback.
 
-Open Earthly in that browser and enable Desktop agent access. Tools are registered across app routes.
+Open Earthly in that browser; Desktop agent access is enabled unless you previously turned it off.
+Tools are registered across app routes.
 An editable Map is required only for Map operations. Suggested prompt:
 
 > Use Chrome DevTools MCP to select my Earthly tab. Discover its native WebMCP tools using
@@ -162,6 +166,13 @@ field publication and proposal channels are outside this public workflow.
 Legacy retained document edits without a known original source revision require an explicit copy
 or review and reopening before native publication; preparation never guesses a newer base for them.
 
+Published Map inventories are paginated. `earthly_read_entity` returns `offset`, `limit`,
+`nextOffset` and `revisionId`, with at most 150 features per page. Continue with the same reference,
+the returned `nextOffset` and the first page’s exact `revisionId`; stop when `nextOffset` is null.
+A changed public revision fails instead of mixing inventories. Reduce `limit` if a page exceeds the
+512 KiB result budget, or read one exact `featureId`. Each successful page grants only the feature
+IDs it actually returns; later pages extend those grants for the same public revision.
+
 `earthly_update_feature_geometry` accepts one exact feature ID and replacement geometry with the
 current `mapToken`. It preserves the feature's ID, complete properties, styles, callouts and
 provenance, and leaves other geometries alone. It shares edit review, revision checks and Undo
@@ -192,6 +203,12 @@ reports completed dependencies and remaining failure; already signed work cannot
 Reusing a finished preview returns the recorded receipt instead of signing a second event. No
 publication Undo is promised. Ordinary geometry and document edits remain local drafts.
 
+A positive relay acknowledgement also grants the exact signed Map or Story as a document source
+for the current tool session. Newly published inline Map feature IDs can immediately be cited in
+a Story without rereading the Map. Grants come from the signed payload, never later retained edits;
+external-blob placeholder IDs are excluded. Uncertain delivery, cancelled sessions and account/access
+changes do not create these grants.
+
 ## Story and Atlas drafts
 
 `earthly_list_local_drafts` discovers account-scoped retained Stories/Atlases and readable Map/Story
@@ -203,6 +220,7 @@ no editable Map is open; document destinations never fall back to the visible ed
 | `earthly_read_story_draft` / `earthly_read_atlas_draft` | Exact `draftTarget` from discovery; returns content and opaque `draftToken` |
 | `earthly_write_story_draft` | Title, summary/description, Markdown, cover and opening presentation; omitted fields are preserved |
 | `earthly_write_atlas_draft` | Name, description, curated Map/Story references, cover and default presentation; schema/governance are preserved |
+| `earthly_preview_story_draft` | Exact `draftTarget` and latest `draftToken`; opens the normal rendered Story preview and map presentation |
 
 Creation requires `createNew:true` plus `creationToken`. Updating requires the exact `draftTarget` and
 `draftToken` from the most recent read/write. Tokens bind kind, slot, account, session and the privately
@@ -216,8 +234,9 @@ a ready-to-cite `citeReference` (`nostr:naddr…`) for whole-Map citations, so a
 implement NIP-19 encoding. Local `featureIds` describe the retained draft. Published aliases expose
 those IDs as `retainedFeatureIds` instead; they cannot prove that a feature has been published.
 Read the published Map with `earthly_read_entity` before adding published feature citations or
-selectors. Verified public reads take precedence over dirty retained aliases and grant only IDs
-present in the read revision. Preserve existing encoded
+selectors, unless this session already received an acknowledged native publication of those exact
+features. Verified public reads and acknowledged signed publications take precedence over dirty
+retained aliases and grant only IDs present in that public revision. Preserve existing encoded
 feature-only citations and their exact scopes. Native descriptions and nested schema guidance name
 the browser's `earthly_` tools: Map reads use `earthly_get_map`, while document targets and sources come
 from `earthly_list_local_drafts`. Document readers accept local `draftTarget` values.
@@ -241,6 +260,8 @@ unresolved local references/layers are rejected by the shared public signer. Nat
 captures and resolves public Map dependencies within the explicitly confirmed plan.
 Mounted form input is flushed before reads, final revision checks and Undo, so unsaved human edits
 cannot be overwritten. Commits refresh the matching form without navigation or timestamp-only saves.
+Story preview performs the same account, access and exact draft-revision checks. It is a reversible
+view action: no document content edit, approval, signature or publication occurs.
 
 `earthly_set_map_view` accepts center/zoom/bearing/pitch; `earthly_fit_map_view` frames the dataset,
 selection, feature ids or explicit bounds, with padding/maxZoom. `earthly_set_basemap_style` chooses
@@ -281,7 +302,8 @@ claims to make unsupported desktop agents discover native tools.
 Unit tests cover schemas, tokens, pagination/byte limits, cancellation, concurrent calls, stale approval,
 external grants/redirects, view controls, metadata review, remote import gates, revocation and exact Undo.
 Lifecycle/publication tests cover source revisions, independent forks, publication previews,
-relay receipts, partial failure, account changes and dependency publication. Document tests also cover partial edits, published-reference preservation, feature-scope restrictions,
+relay receipts, partial failure, account changes, acknowledged source grants and dependency publication.
+Document tests also cover rendered preview tokens, partial edits, published-reference preservation, feature-scope restrictions,
 mounted input, independent output identities, account isolation and shared chat dispatch.
 `ai-suite/scenarios/webmcp.spec.ts`, `webmcp-documents.spec.ts` and `webmcp-lifecycle.spec.ts`
 exercise the real native API in Chromium with `--enable-features=WebMCP`, loopback-only tasks and
@@ -289,6 +311,9 @@ isolated relay fixtures. Map/document regressions cover desktop and mobile; the 
 scenario uses the desktop NIP-07 fixture.
 Remote handlers are mocked in unit tests; browser scenarios verify remote-tool discovery and grants
 without sending mutating tasks to a public relay.
+
+See [the authoring friction review](./webmcp-authoring-friction.md) for remaining geometry,
+routing, ingestion and publication-recovery opportunities.
 
 - [Chrome WebMCP imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api)
 - [WebMCP community draft](https://webmachinelearning.github.io/webmcp/)

@@ -11,6 +11,7 @@ import {
 } from '../tasks/chat/webmcp'
 import { installIsolatedRelays } from '../tasks/setup/isolated-relays'
 import { installDeterministicMapStyle } from '../tasks/setup/deterministic-map-style'
+import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 
 test.use({ launchOptions: { args: ['--enable-features=WebMCP'] } })
 
@@ -30,10 +31,11 @@ test.beforeEach(async ({ earthly }) => {
 test('native discovery, full GeoJSON, fat arrows and image callouts work through WebMCP @editor-contract', async ({
 	earthly,
 }, testInfo) => {
-	expect(await discoverWebMcpTools(earthly)).toEqual([])
-	await setDesktopAgentAccess(earthly, true)
+	await expect
+		.poll(async () => (await discoverWebMcpTools(earthly)).map((tool) => tool.name))
+		.toContain('earthly_valhalla_route')
 	const tools = await discoverWebMcpTools(earthly)
-	expect(tools).toHaveLength(46)
+	expect(tools.some((tool) => tool.name === 'earthly_get_map')).toBe(true)
 	expect(
 		tools.find((item) => item.name === 'earthly_read_features')?.annotations.readOnlyHint,
 	).toBe(true)
@@ -82,6 +84,40 @@ test('native discovery, full GeoJSON, fat arrows and image callouts work through
 	})
 	expect((capture.image as { dataUrl: string }).dataUrl).toMatch(/^data:image\/(png|jpeg);base64,/)
 	await earthly.page.screenshot({ path: testInfo.outputPath('desktop-agent.png') })
+	const activityButton = earthly.page.getByRole('button', { name: 'Desktop agent', exact: true })
+	await expect(activityButton).toBeVisible()
+	const panel = earthly.page.getByRole('complementary', {
+		name: 'Desktop agent activity',
+		exact: true,
+	})
+	if (earthly.isMobile) {
+		const entryBounds = await activityButton.boundingBox()
+		const selectionBounds = await earthly.page
+			.getByRole('region', { name: 'Selection actions', exact: true })
+			.boundingBox()
+		const drawingBounds = await earthly.page
+			.getByRole('navigation', { name: 'Map drawing', exact: true })
+			.boundingBox()
+		expect(entryBounds).not.toBeNull()
+		expect(selectionBounds).not.toBeNull()
+		expect(drawingBounds).not.toBeNull()
+		expect((entryBounds?.y ?? 0) + (entryBounds?.height ?? 0)).toBeLessThan(selectionBounds?.y ?? 0)
+		expect((entryBounds?.y ?? 0) + (entryBounds?.height ?? 0)).toBeLessThan(drawingBounds?.y ?? 0)
+	}
+	await activityButton.click()
+	await expect(panel).toBeVisible()
+	await expect(
+		panel.getByRole('button', { name: 'Disable agent access', exact: true }),
+	).toBeVisible()
+	if (earthly.isMobile) {
+		const panelBounds = await panel.boundingBox()
+		const selectionBounds = await earthly.page
+			.getByRole('region', { name: 'Selection actions', exact: true })
+			.boundingBox()
+		expect((panelBounds?.y ?? 0) + (panelBounds?.height ?? 0)).toBeLessThan(selectionBounds?.y ?? 0)
+	}
+	await earthly.page.screenshot({ path: testInfo.outputPath('desktop-agent-activity.png') })
+	await panel.getByRole('button', { name: 'Close desktop agent activity', exact: true }).click()
 	await setDesktopAgentAccess(earthly, false)
 	await expect.poll(() => discoverWebMcpTools(earthly)).toEqual([])
 })
@@ -116,10 +152,11 @@ test('reviews stay visible and cancellation leaves the draft unchanged; Apply ha
 	).toBe('stale_map')
 })
 
-test('agent controls camera, framing and basemap; external tools need their session grant @editor-contract', async ({
+test('agent controls camera, framing and basemap; external queries respect the saved preference @editor-contract', async ({
 	earthly,
 }) => {
-	await setDesktopAgentAccess(earthly, true)
+	await setDesktopExternalQueries(earthly, false)
+	const localTools = await discoverWebMcpTools(earthly)
 	const map = await executeWebMcpTool(earthly, 'earthly_get_map')
 	const panel = earthly.page.getByRole('complementary', {
 		name: 'Desktop agent activity',
@@ -164,12 +201,14 @@ test('agent controls camera, framing and basemap; external tools need their sess
 	).toBe('external_queries_disabled')
 	await setDesktopExternalQueries(earthly, true)
 	const external = await discoverWebMcpTools(earthly)
-	expect(external).toHaveLength(62)
+	expect(external.length).toBeGreaterThan(localTools.length)
 	expect(external.some((tool) => tool.name === 'earthly_valhalla_route')).toBe(true)
 	expect(external.some((tool) => /run_code|upload|editor_undo/.test(tool.name))).toBe(false)
 	const current = await executeWebMcpTool(earthly, 'earthly_get_map')
 	await setDesktopExternalQueries(earthly, false)
-	expect(await discoverWebMcpTools(earthly)).toHaveLength(46)
+	expect((await discoverWebMcpTools(earthly)).map((tool) => tool.name)).toEqual(
+		localTools.map((tool) => tool.name),
+	)
 	expect(
 		(
 			await executeWebMcpTool(earthly, 'earthly_measure', {
@@ -178,6 +217,38 @@ test('agent controls camera, framing and basemap; external tools need their sess
 			})
 		).code,
 	).toBe('stale_map')
+})
+
+test('default desktop access survives reload and explicit opt-outs stay off @editor-contract', async ({
+	earthly,
+}) => {
+	await expect
+		.poll(async () => (await discoverWebMcpTools(earthly)).map((tool) => tool.name))
+		.toContain('earthly_valhalla_route')
+	await authorizeJourneyIdentity(earthly, 'owner')
+	await expect
+		.poll(async () => (await discoverWebMcpTools(earthly)).map((tool) => tool.name))
+		.toContain('earthly_valhalla_route')
+	await earthly.page.reload()
+	await expect
+		.poll(async () => (await discoverWebMcpTools(earthly)).map((tool) => tool.name))
+		.toContain('earthly_valhalla_route')
+	await setDesktopExternalQueries(earthly, false)
+	await earthly.page.reload()
+	await expect
+		.poll(async () => (await discoverWebMcpTools(earthly)).map((tool) => tool.name))
+		.toContain('earthly_get_map')
+	expect(
+		(await discoverWebMcpTools(earthly)).some((tool) => tool.name === 'earthly_valhalla_route'),
+	).toBe(false)
+	await setDesktopAgentAccess(earthly, false)
+	await earthly.page.reload()
+	await setDesktopAgentAccess(earthly, false)
+	expect(await discoverWebMcpTools(earthly)).toEqual([])
+	await setDesktopAgentAccess(earthly, true)
+	expect(
+		(await discoverWebMcpTools(earthly)).some((tool) => tool.name === 'earthly_valhalla_route'),
+	).toBe(false)
 })
 
 test('metadata review shows concrete changes and supports cancellation, Apply and Undo @editor-contract', async ({

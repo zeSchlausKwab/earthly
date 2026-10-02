@@ -30,7 +30,6 @@ export function WebMcpRuntimeHost() {
 	const previousAccount = useRef(account)
 	useEffect(() => {
 		if (previousAccount.current !== account) {
-			useWebMcpStore.getState().setEnabled(false)
 			cancelDesktopOperation()
 			clearPendingDiffsForChat(DESKTOP_AGENT_SCOPE)
 			clearDocumentReviews()
@@ -55,10 +54,10 @@ export function WebMcpRuntimeHost() {
 			try {
 				const tools = createBrowserToolService(controller.signal, undefined, externalQueriesEnabled)
 				await registerBrowserTools(context, tools, controller.signal)
-				if (!controller.signal.aborted)
+				if (!controller.signal.aborted && previousAccount.current === account)
 					useWebMcpStore.setState({ status: 'ready', toolCount: tools.length })
 			} catch (error) {
-				if (controller.signal.aborted) return
+				if (controller.signal.aborted || previousAccount.current !== account) return
 				controller.abort()
 				useWebMcpStore.setState({
 					status: 'error',
@@ -69,7 +68,7 @@ export function WebMcpRuntimeHost() {
 		}
 		void register()
 		return () => controller.abort()
-	}, [enabled, externalQueriesEnabled])
+	}, [enabled, externalQueriesEnabled, account])
 	return <DesktopAgentActivity />
 }
 
@@ -91,15 +90,15 @@ function DesktopAgentActivity() {
 			useWebMcpStore.setState({ panelOpen: true })
 	}, [diffs, documents])
 	const running = activities.find((item) => item.status === 'running')
-	if (!enabled && !panelOpen && !activities.length) return null
+	if ((!enabled || status === 'unsupported') && !panelOpen && !activities.length) return null
 	return (
-		<div className="fixed right-14 bottom-16 z-[90] max-w-[calc(100vw-80px)]">
+		<div className="fixed right-14 top-[calc(max(0.5rem,env(safe-area-inset-top))+4rem)] z-[90] max-w-[calc(100vw-80px)] md:top-auto md:bottom-16">
 			{panelOpen ? (
 				<aside
 					aria-label="Desktop agent activity"
-					className="w-96 max-w-full border border-border bg-background p-3 shadow-lg"
+					className="flex max-h-[calc(100dvh-8rem-var(--mobile-dock-height,64px)-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-96 max-w-full flex-col border border-border bg-background p-3 shadow-lg md:max-h-[calc(100dvh-8rem)]"
 				>
-					<div className="flex items-center justify-between gap-2">
+					<div className="flex shrink-0 items-center justify-between gap-2">
 						<h2 className="flex items-center gap-2 text-sm font-semibold">
 							<Bot className="size-4" />
 							Desktop agent activity
@@ -113,14 +112,14 @@ function DesktopAgentActivity() {
 							<X className="size-4" />
 						</Button>
 					</div>
-					<p className="mt-1 text-xs text-muted-foreground" role="status">
+					<p className="mt-1 shrink-0 text-xs text-muted-foreground" role="status">
 						{running
 							? `Running ${toolLabel(running.tool)}`
 							: enabled
 								? `Access ${status}`
 								: 'Access off'}
 					</p>
-					<div className="mt-3 max-h-[50vh] space-y-2 overflow-y-auto">
+					<div className="mt-3 min-h-0 max-h-[50vh] space-y-2 overflow-y-auto">
 						{activities.slice(-5).map((item) => (
 							<p key={item.id} className="break-words text-xs">
 								<span title={item.tool}>{toolLabel(item.tool)}</span> · {item.status}
@@ -153,7 +152,7 @@ function DesktopAgentActivity() {
 							</div>
 						))}
 						{documents.map((entry) => (
-							<div
+							<section
 								key={entry.id}
 								className="space-y-2 rounded border p-2 text-xs"
 								aria-label={`${entry.kind === 'story' ? 'Story' : 'Atlas'} draft changes`}
@@ -205,7 +204,7 @@ function DesktopAgentActivity() {
 										Undo desktop agent edit
 									</Button>
 								)}
-							</div>
+							</section>
 						))}
 						{!activities.length ? (
 							<p className="text-xs text-muted-foreground">
@@ -213,7 +212,7 @@ function DesktopAgentActivity() {
 							</p>
 						) : null}
 					</div>
-					<div className="mt-3 flex gap-2">
+					<div className="mt-3 flex shrink-0 gap-2">
 						{running ? (
 							<Button size="sm" variant="outline" onClick={cancelDesktopOperation}>
 								Cancel operation
@@ -234,9 +233,16 @@ function DesktopAgentActivity() {
 					</div>
 				</aside>
 			) : (
-				<Button variant="outline" onClick={() => useWebMcpStore.setState({ panelOpen: true })}>
+				<Button
+					variant="outline"
+					className="size-11 bg-background md:h-7 md:w-auto"
+					aria-label={running ? 'Desktop agent · Working' : 'Desktop agent'}
+					title={running ? 'Desktop agent · Working' : 'Desktop agent activity'}
+					onClick={() => useWebMcpStore.setState({ panelOpen: true })}
+				>
 					<Bot className="size-4" />
-					Desktop agent{running ? ' · Working' : ''}
+					<span className="hidden md:inline">Desktop agent{running ? ' · Working' : ''}</span>
+					{running ? <span className="size-1.5 rounded-full bg-primary md:hidden" /> : null}
 				</Button>
 			)}
 		</div>

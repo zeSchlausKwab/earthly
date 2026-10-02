@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 /** Keep the figure's space while releasing off-screen maps and their WebGL contexts. */
-export function DeferredMapFigure({ children }: { children: ReactNode }) {
+export function DeferredMapFigure({
+	children,
+	className = 'earthly-reader__figure-map',
+}: {
+	children: ReactNode
+	className?: string
+}) {
 	const ref = useRef<HTMLDivElement>(null)
 	const [visible, setVisible] = useState(false)
 	useEffect(() => {
@@ -22,7 +28,7 @@ export function DeferredMapFigure({ children }: { children: ReactNode }) {
 		return () => observer.disconnect()
 	}, [])
 	return (
-		<div ref={ref} className="earthly-reader__figure-map" data-figure-initialized={visible}>
+		<div ref={ref} className={className} data-figure-initialized={visible}>
 			{visible ? (
 				children
 			) : (

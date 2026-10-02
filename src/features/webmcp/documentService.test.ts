@@ -21,6 +21,12 @@ import type { BrowserTool } from './platform'
 import { finalizeEvent } from 'nostr-tools'
 import { eventStore } from '@/lib/nostr'
 import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
+import { getDraftReviewRequest, clearDraftReview } from '@/features/geo-editor/draftActions'
+import {
+	getStoryEditorOpenRequest,
+	resetStoryEditorOpenRequests,
+	subscribeStoryEditorOpenRequests,
+} from '@/features/geo-editor/storyEditorBridge'
 
 const backing = new Map<string, string>()
 const originalEditor = useEditorStore.getState()
@@ -54,6 +60,7 @@ beforeEach(() => {
 	useWebMcpStore.setState({ enabled: true, externalQueriesEnabled: false, activities: [] })
 	controller = new AbortController()
 	tools = createBrowserToolService(controller.signal)
+	resetStoryEditorOpenRequests()
 })
 afterEach(() => {
 	controller.abort()
@@ -61,6 +68,9 @@ afterEach(() => {
 	useEditorStore.setState(originalEditor, true)
 	useChatStore.setState(originalChat, true)
 	useWebMcpStore.setState(originalBridge, true)
+	const request = getDraftReviewRequest()
+	if (request) clearDraftReview(request)
+	resetStoryEditorOpenRequests()
 })
 async function call(name: string, args: Record<string, unknown> = {}) {
 	const tool = tools.find((tool) => tool.name === `earthly_${name}`)!
@@ -110,6 +120,131 @@ test('discovers and creates distinct documents without requiring an open Map', a
 		ok: false,
 		code: 'creation_token_required',
 	})
+})
+
+test('rendered Story preview is a token-bound view action without content changes or edit review', async () => {
+	const created = await createStory('Rendered Story')
+	const before = readStoryDraft(created.draftKey, null)
+	const reviewsBefore = getDocumentReviews().length
+	const result = await call('preview_story_draft', {
+		draftTarget: created.draftKey,
+		draftToken: created.draftToken,
+	})
+	expect(result).toMatchObject({
+		ok: true,
+		view: 'story-preview',
+		draftTarget: created.draftKey,
+		sideEffectsApplied: false,
+	})
+	expect(getStoryEditorOpenRequest()).toMatchObject({ draftKey: created.draftKey, reveal: true })
+	expect(getDraftReviewRequest()).toMatchObject({
+		key: `story:${created.draftKey}`,
+		action: 'preview',
+	})
+	expect(readStoryDraft(created.draftKey, null)).toEqual(before)
+	expect(getDocumentReviews()).toHaveLength(reviewsBefore)
+	expect(
+		tools.find((tool) => tool.name === 'earthly_preview_story_draft')?.annotations,
+	).toMatchObject({ readOnlyHint: true, consequentialHint: false })
+	const another = await createStory('Another Story')
+	expect(
+		await call('preview_story_draft', {
+			draftTarget: another.draftKey,
+			draftToken: created.draftToken,
+		}),
+	).toMatchObject({ ok: false, code: 'draft_token_required' })
+	writeStoryDraft(created.draftKey, { ...before, content: 'Changed by a human' }, null)
+	expect(
+		await call('preview_story_draft', {
+			draftTarget: created.draftKey,
+			draftToken: result.draftToken,
+		}),
+	).toMatchObject({ ok: false, code: 'stale_draft' })
+	useWebMcpStore.setState({ enabled: false })
+	expect(
+		await call('preview_story_draft', {
+			draftTarget: created.draftKey,
+			draftToken: result.draftToken,
+		}),
+	).toMatchObject({ ok: false, code: 'access_disabled' })
+})
+
+test('preview does not flush a form newly mounted by its view request', async () => {
+	const created = await createStory('A Story about to mount')
+	let newFormFlushes = 0
+	let unregisterForm: (() => void) | undefined
+	const unsubscribe = subscribeStoryEditorOpenRequests(() => {
+		unregisterForm = registerDocumentDraftForm({
+			kind: 'story',
+			draftKey: created.draftKey,
+			ownerPubkey: null,
+			flush: () => {
+				newFormFlushes++
+			},
+			suppress: () => {},
+		})
+	})
+	try {
+		expect(
+			await call('preview_story_draft', {
+				draftTarget: created.draftKey,
+				draftToken: created.draftToken,
+			}),
+		).toMatchObject({ ok: true, view: 'story-preview' })
+		expect(newFormFlushes).toBe(0)
+	} finally {
+		unsubscribe()
+		unregisterForm?.()
+	}
+})
+
+test('published Map inventory pagination grants all 165 feature citations without widening unread pages', async () => {
+	const event = finalizeEvent(
+		{
+			kind: 37515,
+			created_at: Math.floor(Date.now() / 1000),
+			tags: [['d', crypto.randomUUID()]],
+			content: JSON.stringify({
+				modelVersion: MODEL_VERSION,
+				type: 'FeatureCollection',
+				name: 'Large public Map',
+				features: Array.from({ length: 165 }, (_, index) => ({
+					type: 'Feature',
+					id: `place-${index}`,
+					properties: {},
+					geometry: { type: 'Point', coordinates: [16, 48] },
+				})),
+			}),
+		},
+		new Uint8Array(32).fill(54),
+	)
+	eventStore.add(event)
+	const reference = `37515:${event.pubkey}:${event.tags[0]![1]}`
+	const first = await call('read_entity', { reference })
+	expect(first.nextOffset).toBe(150)
+	const inventory = await call('list_local_drafts')
+	const source = inventory.sources.find(
+		(source: { reference: string }) => source.reference === reference,
+	)
+	const create = {
+		createNew: true,
+		creationToken: inventory.creationToken,
+		title: 'Last feature',
+		markdown: `${source.citeReference}#place-164`,
+	}
+	expect((await call('write_story_draft', create)).ok).toBe(false)
+	const second = await call('read_entity', {
+		reference,
+		offset: first.nextOffset,
+		revisionId: first.revisionId,
+	})
+	expect(second).toMatchObject({ ok: true, nextOffset: null, revisionId: first.revisionId })
+	expect(
+		(await call('list_local_drafts')).sources.find(
+			(source: { reference: string }) => source.reference === reference,
+		).featureIds,
+	).toHaveLength(165)
+	expect((await call('write_story_draft', create)).ok).toBe(true)
 })
 
 test('verified public reads grant exact document sources without widening feature-only access', async () => {

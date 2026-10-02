@@ -15,6 +15,7 @@ const toolNames = [
 	'list_local_drafts',
 	'read_story_draft',
 	'write_story_draft',
+	'preview_story_draft',
 	'read_atlas_draft',
 	'write_atlas_draft',
 ]

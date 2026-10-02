@@ -255,6 +255,7 @@ export function createBrowserToolService(
 			owner: sessionOwner,
 			getOwner,
 			sessionSignal,
+			onPublicSource: grantPublicSource,
 		}),
 		...createDocumentTools({
 			tool,

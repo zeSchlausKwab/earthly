@@ -17,6 +17,7 @@ import type { PublishedDatasetReference } from '@/features/chat/referencePublish
 import { useWebMcpStore } from './state'
 import { createPublicationTools } from './publicationService'
 import type { BrowserTool } from './platform'
+import type { BrowserPublicDocumentSource } from './lifecycleService'
 
 const secret = generateSecretKey(),
 	owner = getPublicKey(secret)
@@ -30,12 +31,15 @@ const storage = new Map<string, string>()
 let controller: AbortController,
 	tools: BrowserTool[],
 	sequence = 100
-let beforeSign: (() => void) | undefined, beforeDelivery: (() => void) | undefined
+let beforeSign: (() => void) | undefined,
+	beforeDelivery: (() => void) | undefined,
+	afterCommit: (() => void) | undefined
 let acknowledged: boolean,
 	storyAcknowledged: boolean,
 	failAfterSign: boolean,
 	datasetCalls: string[],
 	storyCalls: number
+let grantedSources: BrowserPublicDocumentSource[]
 beforeAll(() =>
 	Object.assign(globalThis, {
 		window: {
@@ -77,12 +81,15 @@ beforeEach(() => {
 	failAfterSign = false
 	beforeSign = undefined
 	beforeDelivery = undefined
+	afterCommit = undefined
 	datasetCalls = []
 	storyCalls = 0
+	grantedSources = []
 	tools = createPublicationTools({
 		owner,
 		getOwner: () => accounts.active?.pubkey ?? null,
 		sessionSignal: controller.signal,
+		onPublicSource: (source) => grantedSources.push(source),
 		tool: (name, description, inputSchema, readOnly, handler) => ({
 			name,
 			description,
@@ -117,6 +124,7 @@ beforeEach(() => {
 			if (failAfterSign) throw new Error('Connection lost after signing; delivery unknown.')
 			beforeDelivery?.()
 			hooks?.beforeCommit?.()
+			afterCommit?.()
 			hooks?.onDelivery?.(
 				event,
 				acknowledged
@@ -245,6 +253,7 @@ test('prepare captures an explicit inactive Map without signing or publication; 
 		dependencies: [],
 	})
 	expect(datasetCalls).toHaveLength(0)
+	expect(grantedSources).toHaveLength(0)
 	const result = await execute(prepared)
 	expect(result).toMatchObject({ ok: true, status: 'published', sideEffectsApplied: true })
 	expect(datasetCalls).toEqual(['requested'])
@@ -253,8 +262,17 @@ test('prepare captures an explicit inactive Map without signing or publication; 
 		relays: [{ ok: true }, { ok: false }],
 	})
 	expect(useEditorStore.getState().activeWorkspaceId).toBe('visible')
+	expect(grantedSources).toHaveLength(1)
+	expect(grantedSources[0]).toMatchObject({
+		kind: 'map',
+		reference: result.receipts[0].coordinate,
+		revisionId: result.receipts[0].eventId,
+		wholeSource: true,
+		featureIds: ['facility'],
+	})
 	expect(await execute(prepared)).toEqual(result)
 	expect(datasetCalls).toHaveLength(1)
+	expect(grantedSources).toHaveLength(1)
 })
 
 test('confirmation, unknown tokens, changed Map revisions and changed publication scope stop execution', async () => {
@@ -274,6 +292,41 @@ test('confirmation, unknown tokens, changed Map revisions and changed publicatio
 	expect(await execute(prepared)).toMatchObject({ ok: false, code: 'stale_map' })
 	expect(datasetCalls).toHaveLength(0)
 	expect((await preview({ kind: 'map', workspaceId: 'map' })).ok).toBe(false)
+})
+
+test('acknowledged source grants use the signed event, excluding later unpublished retained features', async () => {
+	const draft = map()
+	const prepared = await preview({ kind: 'map', workspaceId: 'map' })
+	afterCommit = () =>
+		useEditorStore.setState({
+			geoEditDrafts: {
+				[draft.id]: {
+					...draft,
+					features: [...draft.features, { ...draft.features[0]!, id: 'unpublished-after-signing' }],
+				},
+			},
+		})
+	const result = await execute(prepared)
+	expect(result).toMatchObject({ ok: true, status: 'published' })
+	expect(useEditorStore.getState().geoEditDrafts[draft.id]?.features).toHaveLength(2)
+	expect(grantedSources[0]).toMatchObject({
+		revisionId: result.receipts[0].eventId,
+		featureIds: ['facility'],
+	})
+	const changed = await preview({ kind: 'map', workspaceId: 'map' })
+	expect(changed.ok).toBe(true)
+	acknowledged = false
+	await execute(changed)
+	expect(grantedSources).toHaveLength(1)
+})
+
+test('acknowledgement after access revocation retains delivery evidence but cannot grant source access', async () => {
+	map()
+	const prepared = await preview({ kind: 'map', workspaceId: 'map' })
+	afterCommit = () => useWebMcpStore.setState({ enabled: false })
+	const result = await execute(prepared)
+	expect(result.receipts[0].delivery).toBe('acknowledged')
+	expect(grantedSources).toHaveLength(0)
 })
 
 test('revocation/account switch/session cancellation invalidate the publication capability', async () => {
@@ -313,6 +366,7 @@ test('routing-delay revocation preserves signed receipt and never claims no side
 	const result = await execute(prepared)
 	expect(result).toMatchObject({ ok: false, code: 'access_disabled', sideEffectsApplied: true })
 	expect(result.receipts[0].delivery).toBe('unknown')
+	expect(grantedSources).toHaveLength(0)
 })
 
 test('empty delivery responses and post-sign failure are uncertain, idempotent, and block a fresh identical attempt', async () => {
@@ -322,6 +376,7 @@ test('empty delivery responses and post-sign failure are uncertain, idempotent, 
 	const result = await execute(prepared)
 	expect(result).toMatchObject({ ok: false, code: 'delivery_uncertain', sideEffectsApplied: true })
 	expect(await execute(prepared)).toEqual(result)
+	expect(grantedSources).toHaveLength(0)
 	expect(datasetCalls).toHaveLength(1)
 	expect(await preview({ kind: 'map', workspaceId: 'map' })).toMatchObject({
 		ok: false,

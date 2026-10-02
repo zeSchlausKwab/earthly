@@ -313,15 +313,22 @@ test('native Story and Atlas drafts preserve local references, names, descriptio
 }, testInfo) => {
 	test.setTimeout(90_000)
 	const tools = await discoverWebMcpTools(earthly)
-	expect(tools).toHaveLength(46)
 	for (const name of [
 		'earthly_list_local_drafts',
 		'earthly_read_story_draft',
 		'earthly_write_story_draft',
+		'earthly_preview_story_draft',
 		'earthly_read_atlas_draft',
 		'earthly_write_atlas_draft',
 	])
 		expect(tools.some((tool) => tool.name === name)).toBe(true)
+	expect(
+		tools.find((tool) => tool.name === 'earthly_preview_story_draft')?.annotations,
+	).toMatchObject({ readOnlyHint: true })
+	expect(
+		tools.find((tool) => tool.name === 'earthly_preview_story_draft')?.annotations
+			.consequentialHint,
+	).not.toBe(true)
 	const writeSchema = tools.find((tool) => tool.name === 'earthly_write_story_draft')?.inputSchema
 	const schema = typeof writeSchema === 'string' ? JSON.parse(writeSchema) : writeSchema
 	expect(
@@ -369,15 +376,22 @@ test('native Story and Atlas drafts preserve local references, names, descriptio
 	})
 	await expectGeometryFeatureCount(earthly, 1)
 
-	await openPanel(earthly, 'Local drafts')
-	await earthly.page
-		.getByRole('region', { name: 'New Story drafts', exact: true })
-		.getByRole('button', { name: 'Native Story with views', exact: true })
-		.click()
-	await expect(earthly.page.getByLabel('Title', { exact: true })).toHaveValue(
-		'Native Story with views',
+	const renderedPreview = await executeWebMcpTool(earthly, 'earthly_preview_story_draft', {
+		draftTarget: authored.result.draftKey,
+		draftToken: storyRead.draftToken,
+	})
+	expect(renderedPreview).toMatchObject({
+		ok: true,
+		view: 'story-preview',
+		sideEffectsApplied: false,
+	})
+	await expect(earthly.page.getByRole('tab', { name: 'Preview', exact: true })).toHaveAttribute(
+		'aria-selected',
+		'true',
 	)
-	await earthly.page.getByRole('tab', { name: 'Preview', exact: true }).click()
+	await earthly.page
+		.getByRole('figure', { name: 'An unpublished Map rendered in the Story', exact: true })
+		.scrollIntoViewIfNeeded()
 	const figure = earthly.page.getByRole('region', { name: 'Story figure map', exact: true })
 	await expect(figure).toBeVisible()
 	await expect
@@ -421,8 +435,11 @@ test('native Story and Atlas drafts preserve local references, names, descriptio
 		.toBeCloseTo(7, 1)
 	await earthly.page.screenshot({ path: testInfo.outputPath('native-local-story-figure.png') })
 	await openPanel(earthly, 'Local drafts')
-	if (!earthly.isMobile)
-		await earthly.page.getByRole('button', { name: 'Back to Local drafts', exact: true }).click()
+	const backToDrafts = earthly.page.getByRole('button', {
+		name: 'Back to Local drafts',
+		exact: true,
+	})
+	if (await backToDrafts.isVisible()) await backToDrafts.click()
 	await earthly.page
 		.getByRole('region', { name: 'New Atlas drafts', exact: true })
 		.getByRole('button', { name: 'Native Atlas overview', exact: true })

@@ -142,6 +142,66 @@ describe('read_entity dataset callout inventory', () => {
 	})
 })
 
+describe('read_entity paginated published feature inventory', () => {
+	it('reads every feature in bounded pages bound to the same published revision', async () => {
+		const identifier = crypto.randomUUID()
+		const secret = generateSecretKey()
+		const event = finalizeEvent(
+			{
+				kind: GEO_EVENT_KIND,
+				created_at: Math.floor(Date.now() / 1000),
+				tags: [['d', identifier]],
+				content: JSON.stringify({
+					type: 'FeatureCollection',
+					features: Array.from({ length: 165 }, (_, index) => ({
+						type: 'Feature',
+						id: `place-${index}`,
+						properties: {},
+						geometry: { type: 'Point', coordinates: [16, 48] },
+					})),
+				}),
+			},
+			secret,
+		)
+		eventStore.add(event)
+		addedEventIds.push(event.id)
+		const reference = `${GEO_EVENT_KIND}:${event.pubkey}:${identifier}`
+		const first = (await dispatch('read_entity', { reference })) as any
+		expect(first).toMatchObject({
+			revisionId: event.id,
+			featureCount: 165,
+			offset: 0,
+			nextOffset: 150,
+			featuresTruncated: true,
+		})
+		expect(first.features).toHaveLength(150)
+		const second = (await dispatch('read_entity', {
+			reference,
+			offset: first.nextOffset,
+			revisionId: first.revisionId,
+		})) as any
+		expect(second).toMatchObject({ revisionId: event.id, offset: 150, nextOffset: null })
+		expect(second.features).toHaveLength(15)
+		expect(second.features.at(-1).id).toBe('place-164')
+		expect(new Set([...first.features, ...second.features].map((feature) => feature.id)).size).toBe(
+			165,
+		)
+		expect(await dispatch('read_entity', { reference, offset: 150 })).toMatchObject({
+			ok: false,
+			message: expect.stringContaining('revisionId'),
+		})
+		expect(await dispatch('read_entity', { reference, limit: 151 })).toMatchObject({
+			ok: false,
+			message: expect.stringContaining('between 1 and 150'),
+		})
+		const replacement = finalizeEvent({ ...event, created_at: event.created_at + 1 }, secret)
+		eventStore.add(replacement)
+		addedEventIds.push(replacement.id)
+		const stale = await dispatch('read_entity', { reference, revisionId: event.id, offset: 150 })
+		expect(stale).toMatchObject({ ok: false, error: 'stale_revision' })
+	})
+})
+
 describe('read_entity Story presentation inventory', () => {
 	it('returns opening presentation and physical view diagnostics alongside published Markdown', async () => {
 		const presentation = { version: 1, initialView: { center: [2, 49], zoom: 6 }, layers: [] }

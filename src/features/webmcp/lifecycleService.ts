@@ -129,7 +129,7 @@ function boundedResult(value: unknown) {
 	if (new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_RESULT_BYTES)
 		throw new BrowserToolError(
 			'result_too_large',
-			'The public result exceeds the 512 KiB budget. Narrow the search or read one feature.',
+			'The public result exceeds the 512 KiB budget. Narrow the search, reduce the inventory limit, or read one feature.',
 		)
 	return value
 }

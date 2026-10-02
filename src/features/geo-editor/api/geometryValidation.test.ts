@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'bun:test'
 import type { EditorFeature } from '../core/types'
-// RED (Wave 0): these symbols do not exist yet — they land in Plan 03. The import
-// itself must fail to resolve so this file is red on landing (intended W0 state).
 import { type GeometryValidationReport, validateGeometryFeatures } from './geometryValidation'
 
 /**
@@ -26,6 +24,25 @@ function polygonFeature(id: string, rings: [number, number][][]): EditorFeature 
 		geometry: { type: 'Polygon', coordinates: rings },
 		properties: {},
 	}
+}
+
+function multiPolygonFeature(id: string, polygons: [number, number][][][]): EditorFeature {
+	return {
+		type: 'Feature',
+		id,
+		geometry: { type: 'MultiPolygon', coordinates: polygons },
+		properties: {},
+	}
+}
+
+function square(minX: number, minY: number, maxX: number, maxY: number): [number, number][] {
+	return [
+		[minX, minY],
+		[maxX, minY],
+		[maxX, maxY],
+		[minX, maxY],
+		[minX, minY],
+	]
 }
 
 /** A clean, closed, non-degenerate square (first == last, positive area). */
@@ -110,5 +127,124 @@ describe('validateGeometryFeatures — read-only (no mutation, TOOLS-04 contract
 			polygonFeature('c', [sliver]),
 		])
 		expect(report.checked).toBe(3)
+	})
+})
+
+describe('MultiPolygon component contacts', () => {
+	it('allows separate polygon interiors to touch at one corner', () => {
+		const feature = multiPolygonFeature('corners', [[square(0, 0, 1, 1)], [square(1, 1, 2, 2)]])
+		expect(validateGeometryFeatures([feature]).issues).toEqual([])
+	})
+
+	it('allows an isolated vertex touching the middle of another component edge', () => {
+		const feature = multiPolygonFeature('edge-point', [
+			[square(0, 0, 2, 1)],
+			[
+				[
+					[1, 1],
+					[1.5, 2],
+					[0.5, 2],
+					[1, 1],
+				],
+			],
+		])
+		expect(validateGeometryFeatures([feature]).issues).toEqual([])
+	})
+
+	it('keeps bow-tie warnings inside one component', () => {
+		const report = validateGeometryFeatures([
+			multiPolygonFeature('bow-tie-part', [[bowtie], [square(3, 3, 4, 4)]]),
+		])
+		expect(report.withSelfIntersections).toBe(1)
+		expect(report.issues[0]?.issues).toContain('self-intersection')
+	})
+
+	it('does not let a malformed part hide a bow-tie in another component', () => {
+		const report = validateGeometryFeatures([
+			multiPolygonFeature('malformed-and-crossing', [
+				[
+					[
+						[3, 3],
+						[4, 4],
+					],
+				],
+				[bowtie],
+			]),
+		])
+		expect(report.invalidRings).toBe(1)
+		expect(report.withSelfIntersections).toBe(1)
+	})
+
+	it.each([
+		['crossing boundaries', square(0.5, 0.5, 1.5, 1.5)],
+		['contained overlapping interior', square(0.2, 0.2, 0.8, 0.8)],
+		['identical parts', square(0, 0, 1, 1)],
+		['shared edge', square(1, 0, 2, 1)],
+	] as const)('warns for %s between components', (_description, other) => {
+		const feature = multiPolygonFeature('overlap', [[square(0, 0, 1, 1)], [other]])
+		expect(validateGeometryFeatures([feature]).withSelfIntersections).toBe(1)
+	})
+
+	it('warns for a partial shared edge with neither full segment contained in the other', () => {
+		const feature = multiPolygonFeature('partial-edge', [
+			[square(0, 0, 2, 1)],
+			[square(1, 1, 3, 2)],
+		])
+		expect(validateGeometryFeatures([feature]).withSelfIntersections).toBe(1)
+	})
+
+	it('allows a separate part inside a hole, including a point contact with its boundary', () => {
+		const feature = multiPolygonFeature('hole-island', [
+			[square(0, 0, 5, 5), square(1, 1, 4, 4)],
+			[
+				[
+					[1, 1],
+					[2, 1.5],
+					[1.5, 2],
+					[1, 1],
+				],
+			],
+		])
+		const snapshot = JSON.stringify(feature)
+		expect(validateGeometryFeatures([feature]).issues).toEqual([])
+		expect(JSON.stringify(feature)).toBe(snapshot)
+	})
+
+	it('preserves hole/shell crossing warnings within a Polygon', () => {
+		const feature = polygonFeature('crossing-hole', [square(0, 0, 3, 3), square(2, 1, 4, 2)])
+		expect(validateGeometryFeatures([feature]).withSelfIntersections).toBe(1)
+	})
+
+	it('does not treat nearby parallel diagonal edges as a shared edge', () => {
+		const gap = 1e-12
+		const feature = multiPolygonFeature('nearby-edges', [
+			[
+				[
+					[0, 0],
+					[1, 0],
+					[0, 1],
+					[0, 0],
+				],
+			],
+			[
+				[
+					[1, 1],
+					[1, gap],
+					[gap, 1],
+					[1, 1],
+				],
+			],
+		])
+		expect(validateGeometryFeatures([feature]).issues).toEqual([])
+	})
+
+	it('does not mutate coordinates while checking component overlap', () => {
+		const feature = multiPolygonFeature('read-only-overlap', [
+			[square(0, 0, 2, 1)],
+			[square(1, 1, 3, 2)],
+		])
+		const snapshot = JSON.stringify(feature)
+		validateGeometryFeatures([feature])
+		expect(JSON.stringify(feature)).toBe(snapshot)
 	})
 })

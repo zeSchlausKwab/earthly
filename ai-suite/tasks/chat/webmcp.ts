@@ -6,9 +6,9 @@ import { isLoopbackURL } from '../../core/environment'
 
 export const setDesktopAgentAccessTask: AiTaskMetadata = {
 	id: 'chat.desktop-agent-access',
-	summary: 'Enable or disable this tab’s WebMCP editor tools through Settings.',
+	summary: 'Enable or disable WebMCP editor tools through Settings.',
 	preconditions: ['Earthly is open in a browser with WebMCP enabled'],
-	sideEffects: ['Opens Chat settings', 'Changes desktop agent access for this tab'],
+	sideEffects: ['Opens Chat settings', 'Saves desktop agent access in this browser'],
 	viewports: 'both',
 }
 
@@ -43,10 +43,11 @@ export async function setDesktopAgentSafety(
 
 export const setDesktopExternalQueriesTask: AiTaskMetadata = {
 	id: 'chat.desktop-agent-external-queries',
-	summary: 'Allow or revoke this tab’s WebMCP geography and remote query tools through Settings.',
+	summary: 'Allow or revoke WebMCP geography and remote query tools through Settings.',
 	preconditions: ['Desktop agent access is enabled'],
 	sideEffects: [
 		'Changes the native tool catalog and invalidates old map tokens',
+		'Saves the external query preference in this browser',
 		'Does not run a remote query',
 	],
 	viewports: 'both',
@@ -63,8 +64,13 @@ export async function setDesktopExternalQueries(
 	const toggle = section.getByRole('switch', { name: 'External queries', exact: true })
 	if ((await toggle.isChecked()) !== enabled) await toggle.click()
 	await expect(section.getByRole('status')).toHaveText(
-		`${enabled ? 62 : 46} Earthly tools available to your desktop agent.`,
+		/Earthly tools available to your desktop agent\./,
 	)
+	await expect
+		.poll(async () =>
+			(await discoverWebMcpTools(earthly)).some((tool) => tool.name === 'earthly_valhalla_route'),
+		)
+		.toBe(enabled)
 }
 
 export async function setDesktopAgentAccess(

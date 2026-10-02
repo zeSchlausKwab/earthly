@@ -265,6 +265,28 @@ test('native tools author, publish and reopen public Maps, Stories and Atlases w
 	).toEqual(publishedStory)
 	expect(contentPublications()).toHaveLength(2)
 
+	// Positive publication receipts refresh source grants without a public reread.
+	const acknowledgedInventory = await executeWebMcpTool(earthly, 'earthly_list_local_drafts')
+	const acknowledgedMap = (
+		acknowledgedInventory.sources as Array<{
+			reference: string
+			revisionId?: string
+			featureIds?: string[]
+		}>
+	).find((source) => source.reference === mapReceipt.coordinate)
+	expect(acknowledgedMap).toMatchObject({
+		revisionId: mapReceipt.eventId,
+		featureIds: after.map((feature) => String(feature.id)),
+	})
+	const featureCitation = await executeWebMcpTool(earthly, 'earthly_write_story_draft', {
+		createNew: true,
+		creationToken: acknowledgedInventory.creationToken,
+		title: 'An exact newly published feature',
+		markdown: `Source: ${mapReceipt.reference}#${encodeURIComponent(routeId)}`,
+	})
+	expect(featureCitation, JSON.stringify(featureCitation)).toMatchObject({ ok: true })
+	expect(contentPublications()).toHaveLength(2)
+
 	const readMap = await executeWebMcpTool(earthly, 'earthly_read_entity', {
 		reference: mapReceipt.reference,
 	})

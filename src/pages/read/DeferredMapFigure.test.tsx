@@ -118,6 +118,25 @@ async function intersect(wrapper: Element, isIntersecting: boolean) {
 }
 
 describe('deferred Story map figures', () => {
+	test('retains workspace-sized figure space across map teardown', async () => {
+		await act(() =>
+			root?.render(
+				<DeferredMapFigure className="h-64 min-h-64 w-full">
+					<MapResource />
+				</DeferredMapFigure>,
+			),
+		)
+		const wrapper = container.querySelector('[data-figure-initialized]')
+		if (!wrapper) throw new Error('Missing reserved workspace figure space')
+		expect(wrapper.getAttribute('class')).toBe('h-64 min-h-64 w-full')
+		await intersect(wrapper, true)
+		expect(mounts).toBe(1)
+		await intersect(wrapper, false)
+		expect(cleanups).toBe(1)
+		expect(container.querySelector('[data-figure-initialized]')).toBe(wrapper)
+		expect(wrapper.getAttribute('class')).toBe('h-64 min-h-64 w-full')
+	})
+
 	test('releases the offscreen map and recreates it on return without replacing its reserved space', async () => {
 		const wrapper = await renderFigure()
 		await intersect(wrapper, false)

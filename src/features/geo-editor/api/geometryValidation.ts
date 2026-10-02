@@ -8,7 +8,9 @@
  * this module never imports or touches the editor; the acceptance grep proves it.)
  *
  * Three per-feature checks, turf-driven where applicable:
- *   - self-intersection — `turf.kinks(feature).features.length > 0` → `withSelfIntersections`
+ *   - self-intersection — Turf kinks within each Polygon; shared edges or overlapping
+ *     interiors between MultiPolygon parts → `withSelfIntersections`.
+ *     Isolated point contacts between distinct parts are allowed.
  *   - near-zero-area sliver — `turf.area(feature) < ZERO_AREA_THRESHOLD_M2` → `withZeroArea`
  *     (only when the polygon is NOT self-intersecting — a self-intersecting ring makes
  *     turf report area 0, which is a self-intersection artifact, not a real sliver).
@@ -88,9 +90,106 @@ function hasInvalidRing(feature: EditorFeature): boolean {
 	return false
 }
 
-/** Whether the feature self-intersects (turf kinks). Never throws on bad input. */
+/**
+ * Collinearity tolerance covers arithmetic round-off only, not a geographic snap
+ * distance. Nearby parallel boundaries must not be mistaken for a shared edge.
+ */
+function collinear(dx: number, dy: number, x: number, y: number): boolean {
+	const cross = dx * y - dy * x
+	return Math.abs(cross) <= Number.EPSILON * 8 * (Math.abs(dx * y) + Math.abs(dy * x))
+}
+
+/** Positive-length collinear overlap; a shared endpoint alone is not an edge. */
+function segmentsShareEdge(
+	a: number[] | undefined,
+	b: number[] | undefined,
+	c: number[] | undefined,
+	d: number[] | undefined,
+): boolean {
+	const ax = a?.[0]
+	const ay = a?.[1]
+	const bx = b?.[0]
+	const by = b?.[1]
+	const cx = c?.[0]
+	const cy = c?.[1]
+	const ex = d?.[0]
+	const ey = d?.[1]
+	if (
+		ax === undefined ||
+		ay === undefined ||
+		bx === undefined ||
+		by === undefined ||
+		cx === undefined ||
+		cy === undefined ||
+		ex === undefined ||
+		ey === undefined
+	)
+		return false
+	const dx = bx - ax
+	const dy = by - ay
+	if (dx === 0 && dy === 0) return false
+	if (!collinear(dx, dy, cx - ax, cy - ay)) return false
+	if (!collinear(dx, dy, ex - ax, ey - ay)) return false
+	return Math.abs(dx) >= Math.abs(dy)
+		? Math.min(Math.max(ax, bx), Math.max(cx, ex)) > Math.max(Math.min(ax, bx), Math.min(cx, ex))
+		: Math.min(Math.max(ay, by), Math.max(cy, ey)) > Math.max(Math.min(ay, by), Math.min(cy, ey))
+}
+
+function boundariesShareEdge(a: number[][][], b: number[][][]): boolean {
+	for (const firstRing of a) {
+		for (const secondRing of b) {
+			for (let i = 0; i < firstRing.length - 1; i++) {
+				for (let j = 0; j < secondRing.length - 1; j++) {
+					if (segmentsShareEdge(firstRing[i], firstRing[i + 1], secondRing[j], secondRing[j + 1]))
+						return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+/**
+ * Advisory self-intersection checks, not a complete OGC validity certificate.
+ * Turf flattens MultiPolygon rings in kinks(), so valid contacts between distinct
+ * Polygon parts look like self-crossings. Keep its within-Polygon checks, and
+ * inspect part pairs for overlapping interiors or edges instead. Never throws.
+ */
 function hasSelfIntersection(feature: EditorFeature): boolean {
 	try {
+		if (feature.geometry?.type === 'MultiPolygon') {
+			const parts = feature.geometry.coordinates.map((coordinates) => {
+				// feature() deliberately accepts malformed rings so one structural
+				// defect does not hide a genuine crossing in another component.
+				const polygon = turf.feature({ type: 'Polygon', coordinates })
+				return { polygon, bounds: turf.bbox(polygon) }
+			})
+			for (const part of parts) {
+				if (turf.kinks(part.polygon).features.length > 0) return true
+			}
+			// Sorting the derived list allows an early stop for disjoint longitudes;
+			// no coordinates or other input data are reordered.
+			parts.sort((a, b) => a.bounds[0] - b.bounds[0])
+			for (let i = 0; i < parts.length; i++) {
+				const first = parts[i]
+				if (!first) continue
+				for (let j = i + 1; j < parts.length; j++) {
+					const second = parts[j]
+					if (!second) continue
+					if (second.bounds[0] > first.bounds[2]) break
+					if (second.bounds[1] > first.bounds[3] || second.bounds[3] < first.bounds[1]) continue
+					if (turf.intersect(turf.featureCollection([first.polygon, second.polygon]))) return true
+					if (
+						boundariesShareEdge(
+							first.polygon.geometry.coordinates,
+							second.polygon.geometry.coordinates,
+						)
+					)
+						return true
+				}
+			}
+			return false
+		}
 		return turf.kinks(feature as turf.AllGeoJSON).features.length > 0
 	} catch {
 		return false

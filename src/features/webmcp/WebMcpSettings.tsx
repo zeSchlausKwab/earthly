@@ -31,7 +31,7 @@ export function WebMcpSettings() {
 				<div>
 					<Label htmlFor={`${id}-access`}>Desktop agent access</Label>
 					<p className="text-xs text-muted-foreground">
-						Experimental WebMCP · enabled for this tab session
+						Experimental WebMCP · preferences saved in this browser
 					</p>
 				</div>
 				<Switch
@@ -51,13 +51,15 @@ export function WebMcpSettings() {
 			<p role="status" className="text-xs text-muted-foreground">
 				{status === 'unsupported'
 					? 'WebMCP is unavailable. Use Chrome with the WebMCP testing feature enabled.'
-					: status === 'ready'
-						? `${toolCount} Earthly tools available to your desktop agent.`
-						: status === 'starting'
-							? 'Registering Earthly tools…'
-							: status === 'error'
-								? `Could not register tools: ${error}`
-								: 'Desktop agent access is off.'}
+					: status === 'checking'
+						? 'Checking WebMCP availability…'
+						: status === 'ready'
+							? `${toolCount} Earthly tools available to your desktop agent.`
+							: status === 'starting'
+								? 'Registering Earthly tools…'
+								: status === 'error'
+									? `Could not register tools: ${error}`
+									: 'Desktop agent access is off.'}
 			</p>
 			<div className="flex items-center justify-between gap-3">
 				<div>

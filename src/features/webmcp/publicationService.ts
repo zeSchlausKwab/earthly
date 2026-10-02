@@ -4,7 +4,7 @@ import { bytesToHex } from '@noble/hashes/utils.js'
 import type { NostrEvent } from 'nostr-tools'
 import { accounts, eventStore, publish } from '@/lib/nostr'
 import { getCurrentPubkey } from '@/lib/wallet/currentUser'
-import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
+import { ARTICLE_KIND, GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import {
 	GroupFactory,
 	getGroupReferencedAddresses,
@@ -60,6 +60,7 @@ import { useEditorStore } from '@/features/geo-editor/store'
 import type { BrowserTool } from './platform'
 import { BrowserToolError } from './mapContext'
 import { useWebMcpStore } from './state'
+import type { BrowserPublicDocumentSource } from './lifecycleService'
 
 export const BROWSER_PUBLICATION_TOOLS = ['prepare_publication', 'publish_publication'] as const
 type ToolFactory = (
@@ -244,6 +245,8 @@ export function createPublicationTools(options: {
 	getOwner: () => string | null
 	sessionSignal: AbortSignal
 	assertToolAllowed?: (name: string, args: Record<string, unknown>) => void
+	/** A positive relay acknowledgement grants only the exact signed public source. */
+	onPublicSource?: (source: BrowserPublicDocumentSource) => void
 	/** Test seams use the same captured payload and validation contracts. */
 	publishDataset?: typeof publishCapturedPublicDataset
 	publishStory?: typeof publishSavedStory
@@ -319,6 +322,51 @@ export function createPublicationTools(options: {
 						...(message ? { message } : {}),
 					}))
 					receipt.delivery = responses.some((response) => response.ok) ? 'acknowledged' : 'unknown'
+					if (
+						options.onPublicSource &&
+						receipt.delivery === 'acknowledged' &&
+						!signal.aborted &&
+						!sessionSignal.aborted &&
+						useWebMcpStore.getState().enabled &&
+						getOwner() === owner &&
+						getCurrentPubkey() === owner &&
+						accounts.active === plan.account &&
+						accounts.signer === plan.signer &&
+						event.pubkey === owner &&
+						(event.kind === GEO_EVENT_KIND || event.kind === ARTICLE_KIND)
+					) {
+						// Never use the retained draft: it may already contain later, unpublished edits.
+						const content = JSON.parse(event.content) as Record<string, unknown>
+						const map = event.kind === GEO_EVENT_KIND
+						options.onPublicSource?.({
+							kind: map ? 'map' : 'story',
+							reference: receipt.coordinate,
+							revisionId: event.id,
+							wholeSource: true,
+							title:
+								typeof content[map ? 'name' : 'title'] === 'string'
+									? String(content[map ? 'name' : 'title'])
+									: plan.title,
+							...(receipt.reference ? { citeReference: receipt.reference } : {}),
+							...(map
+								? {
+										featureIds: Array.isArray(content.features)
+											? content.features.flatMap((feature) => {
+													if (
+														!feature ||
+														typeof feature !== 'object' ||
+														feature.properties?.externalPlaceholder === true
+													)
+														return []
+													return typeof feature.id === 'string' || typeof feature.id === 'number'
+														? [String(feature.id)]
+														: []
+												})
+											: [],
+									}
+								: {}),
+						})
+					}
 				}
 			},
 		}

@@ -54,7 +54,7 @@ const KIND_TO_ENTITY_TYPE: Record<number, string> = {
 const RELAY_TIMEOUT_MS = 10_000
 /** Cap on returned long-form body text (story Markdown, descriptions). */
 const MAX_BODY_CHARS = 20_000
-/** Cap on the dataset feature inventory. */
+/** Maximum dataset feature inventory page size. */
 const MAX_FEATURE_LIST = 150
 /** Cap on a single serialized feature returned via `featureId`. */
 const MAX_FEATURE_CHARS = 30_000
@@ -264,6 +264,7 @@ function shapeDataset(
 	event: NostrEvent,
 	featureId: string | undefined,
 	datasetMention: string | null,
+	page: { offset: number; limit: number },
 ): Record<string, unknown> {
 	let collection: { name?: unknown; description?: unknown; features?: unknown } = {}
 	try {
@@ -310,11 +311,11 @@ function shapeDataset(
 		calloutFeatureCount += 1
 	}
 	let returnedCalloutSummaries = 0
-	const inventory = features.slice(0, MAX_FEATURE_LIST).map((feature, index) => {
+	const inventory = features.slice(page.offset, page.offset + page.limit).map((feature, index) => {
 		const id =
 			typeof feature.id === 'string' || typeof feature.id === 'number'
 				? String(feature.id)
-				: String(index)
+				: String(page.offset + index)
 		const pointCoordinates =
 			feature.geometry?.type === 'Point' &&
 			Array.isArray((feature.geometry as { coordinates?: unknown }).coordinates)
@@ -365,7 +366,11 @@ function shapeDataset(
 		calloutCount,
 		calloutFeatureCount,
 		features: inventory,
-		featuresTruncated: features.length > MAX_FEATURE_LIST,
+		featuresTruncated: inventory.length < features.length,
+		offset: page.offset,
+		limit: page.limit,
+		nextOffset:
+			page.offset + inventory.length < features.length ? page.offset + inventory.length : null,
 		...(blobScopes.length > 0
 			? { externalBlobs: blobScopes, note: 'Some geometry lives in external blobs (not inline).' }
 			: {}),
@@ -435,7 +440,7 @@ const readEntitySchema: Tool = {
 	function: {
 		name: 'read_entity',
 		description:
-			"Fetch ONE Earthly entity's content by reference — use after search_entities (which only returns summaries) or when the user attaches/mentions an entity. Accepts an naddr (nostr:naddr1…), including an encoded #featureId selector, or a kind:pubkey:d coordinate. Returns Story Markdown, opening presentation, inline-view diagnostics and referenced mentions (read_story_draft provides a complete editable copy if truncated), a group/context's content and curated references, or a dataset's metadata and feature inventory. Dataset inventory rows include ready-to-cite fine-grained references, OSM references when present, Point coordinates, compact semantic properties, and bounded summaries of existing map callouts. An explicit featureId overrides the selector in reference.",
+			"Fetch ONE Earthly entity's content by reference — use after search_entities (which only returns summaries) or when the user attaches/mentions an entity. Accepts an naddr (nostr:naddr1…), including an encoded #featureId selector, or a kind:pubkey:d coordinate. Returns Story Markdown, opening presentation, inline-view diagnostics and referenced mentions (read_story_draft provides a complete editable copy if truncated), a group/context's content and curated references, or a dataset's metadata and feature inventory. Dataset inventory rows include ready-to-cite fine-grained references, OSM references when present, Point coordinates, compact semantic properties, and bounded summaries of existing map callouts. Page the inventory using nextOffset and the same reference plus revisionId; stop when nextOffset is null. Pages contain at most 150 features. An explicit featureId overrides the selector in reference.",
 		parameters: {
 			type: 'object',
 			properties: {
@@ -448,6 +453,24 @@ const readEntitySchema: Tool = {
 					type: 'string',
 					description:
 						'Datasets only: return this single feature (full geometry + properties) instead of the feature inventory.',
+				},
+				offset: {
+					type: 'integer',
+					minimum: 0,
+					description:
+						'Dataset inventory page offset (default 0). A nonzero offset requires revisionId from the first page.',
+				},
+				limit: {
+					type: 'integer',
+					minimum: 1,
+					maximum: MAX_FEATURE_LIST,
+					description: 'Dataset inventory page size (default and maximum 150).',
+				},
+				revisionId: {
+					type: 'string',
+					pattern: '^[0-9a-f]{64}$',
+					description:
+						'Exact revisionId returned by an earlier read. Required for later inventory pages; a changed revision fails instead of mixing inventories.',
 				},
 			},
 			required: ['reference'],
@@ -486,13 +509,39 @@ export function registerEntityTools(register: (entry: ToolEntry) => void): void 
 			if (isExpired(event, Math.floor(Date.now() / 1000))) {
 				return { ok: false, error: 'expired', message: 'This entity has expired.' }
 			}
+			if (args.revisionId !== undefined && args.revisionId !== event.id) {
+				return {
+					ok: false,
+					error: 'stale_revision',
+					message: 'The published entity changed. Read its first page again before continuing.',
+				}
+			}
 
 			const featureId = typeof args.featureId === 'string' ? args.featureId : ref.featureId
 			const coordinate = `${ref.kind}:${ref.pubkey}:${ref.identifier}`
 			const mention = coordinateToNaddrReference(coordinate)
 			let shaped: Record<string, unknown>
 			if (ref.kind === GEO_EVENT_KIND) {
-				shaped = shapeDataset(event, featureId, mention)
+				const offset = args.offset ?? 0
+				const limit = args.limit ?? MAX_FEATURE_LIST
+				if (
+					!Number.isSafeInteger(offset) ||
+					Number(offset) < 0 ||
+					!Number.isSafeInteger(limit) ||
+					Number(limit) < 1 ||
+					Number(limit) > MAX_FEATURE_LIST
+				)
+					throw new Error(
+						'Dataset inventory offset must be a nonnegative integer and limit must be between 1 and 150.',
+					)
+				if (!featureId && Number(offset) > 0 && args.revisionId === undefined)
+					throw new Error(
+						'Use revisionId from the first inventory page when reading a nonzero offset.',
+					)
+				shaped = shapeDataset(event, featureId, mention, {
+					offset: Number(offset),
+					limit: Number(limit),
+				})
 			} else if (ref.kind === ARTICLE_KIND) {
 				shaped = shapeStory(event)
 			} else if (ref.kind === MAP_CONTEXT_KIND) {
