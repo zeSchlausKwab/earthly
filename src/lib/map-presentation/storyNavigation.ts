@@ -50,7 +50,7 @@ export function scrollStoryViewIntoView(root: HTMLElement | null, index: number)
 		// A lazy image above the cue can acquire height after the jump. Mobile
 		// browsers do not consistently preserve that scroll anchor. Follow only
 		// these pending loads, and stop as soon as the reader interacts again.
-		for (const image of root.querySelectorAll<HTMLImageElement>('img')) {
+		for (const image of Array.from(root.querySelectorAll<HTMLImageElement>('img'))) {
 			if (
 				image.complete ||
 				!(image.compareDocumentPosition(target) & target.DOCUMENT_POSITION_FOLLOWING)
