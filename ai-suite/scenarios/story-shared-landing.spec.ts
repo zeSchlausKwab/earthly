@@ -96,7 +96,7 @@ test('a Story object reveals and fits its referenced Map', async ({ earthly }) =
 	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe(`/story/${naddr}`)
 
 	const presentationMap = earthly.page
-		.getByRole('list', { name: 'Maps on the canvas' })
+		.getByRole('list', { name: 'Layers on the canvas' })
 		.locator('[data-shelf-item^="presentation:story:"]')
 	await expect(presentationMap).toHaveCount(1, { timeout: 10_000 })
 	await expect(presentationMap.getByRole('button', { name: /^Hide / })).toHaveAttribute(
@@ -291,7 +291,7 @@ for (const openVia of ['title', 'looking-glass icon'] as const) {
 		).toBeVisible()
 		await expect.poll(() => new URL(earthly.page.url()).pathname).toMatch(/^\/story\//)
 		const presentationMap = earthly.page
-			.getByRole('list', { name: 'Maps on the canvas' })
+			.getByRole('list', { name: 'Layers on the canvas' })
 			.locator('[data-shelf-item^="presentation:story:"]')
 		await expect(presentationMap).toHaveCount(1, { timeout: 10_000 })
 

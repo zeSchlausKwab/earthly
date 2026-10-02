@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import {
 	canReorderShelfItem,
 	getShelfKeyboardReorderIntent,
+	getShelfCountLabel,
 	ShelfStrip,
 	type ShelfStripItem,
 } from './ShelfStrip'
@@ -10,6 +11,7 @@ import {
 function item(id: string, visible: boolean): ShelfStripItem {
 	return {
 		id,
+		mapSourceId: `map:${id}`,
 		title: 'Shared map',
 		visible,
 		color: '#5b8c72',
@@ -17,6 +19,36 @@ function item(id: string, visible: boolean): ShelfStripItem {
 }
 
 describe('ShelfStrip', () => {
+	it('counts one Map across 19 independently controlled presentation layers', () => {
+		const layers = Array.from({ length: 19 }, (_, index) => ({
+			...item(`story-view:${index}`, index % 2 === 0),
+			mapSourceId: '37515:owner:bri',
+		}))
+		const markup = renderToStaticMarkup(<ShelfStrip items={layers} />)
+		expect(markup).toContain('aria-label="On the map, 1 Map · 19 layers"')
+		expect(markup).toContain('aria-label="Layers on the canvas"')
+		expect(markup.match(/data-shelf-item=/g)).toHaveLength(19)
+	})
+
+	it('counts Map sources rather than titles, including local workspaces', () => {
+		const layers = [
+			{ ...item('presentation:one', true), mapSourceId: '37515:owner:one' },
+			{ ...item('stack:one', true), mapSourceId: '37515:owner:one' },
+			{ ...item('presentation:two', false), mapSourceId: '37515:owner:two' },
+			{ ...item('draft:active', true), mapSourceId: 'local-map:workspace' },
+			{ ...item('presentation:local', true), mapSourceId: 'local-map:workspace' },
+		]
+		expect(getShelfCountLabel(layers)).toBe('3 Maps · 5 layers')
+		expect(getShelfCountLabel([layers[0]!, layers[2]!])).toBe('2 Maps')
+	})
+
+	it('does not label other canvas entities or an empty shelf as Maps', () => {
+		const coordinate = { ...item('coordinate', true), mapSourceId: undefined }
+		expect(getShelfCountLabel([coordinate])).toBe('1 layer')
+		expect(getShelfCountLabel([item('map', true), coordinate])).toBe('1 Map · 2 layers')
+		expect(getShelfCountLabel([])).toBe('0 layers')
+	})
+
 	it('keeps duplicate map instances independently addressable', () => {
 		const markup = renderToStaticMarkup(
 			<ShelfStrip

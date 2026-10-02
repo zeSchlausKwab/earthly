@@ -122,7 +122,7 @@ import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import { formatExpiryCountdown } from '@/lib/nostr/temporal-sighting'
 import { nip19, type NostrEvent } from 'nostr-tools'
 import { getArticleMapPresentation, type Article } from '@/lib/nostr/article'
-import { ARTICLE_KIND, LIVE_BEACON_KIND } from '@/lib/nostr/kinds'
+import { ARTICLE_KIND, GEO_EVENT_KIND, LIVE_BEACON_KIND } from '@/lib/nostr/kinds'
 import { isExpired } from '@/lib/nostr/expiry'
 import { unixNow } from 'applesauce-core/helpers/time'
 import { deleteStory } from '@/lib/nostr/story'
@@ -5597,6 +5597,13 @@ export function GeoEditorView() {
 						previewChannel === 'private-group' || previewChannel === 'field-session'
 					return Object.freeze({
 						id: entry.id,
+						mapSourceId: entry.entityType === 'dataset'
+							? `${GEO_EVENT_KIND}:${entry.entityKey}`
+							: entry.entityType === 'draft' && activeWorkspaceId
+								? mapPresentationSourceKey({ kind: 'local-map', workspaceId: activeWorkspaceId })
+								: entry.entityType === 'ai-result'
+									? mapPresentationSourceKey({ kind: 'local-map', workspaceId: entry.entityKey })
+									: undefined,
 						title: resolveTitle(entry),
 						visible: isolatedShelfEntry ? isolatedShelfEntry.id === entry.id : entry.visible,
 						active: entry.isolated,
@@ -5614,6 +5621,7 @@ export function GeoEditorView() {
 				}),
 		)
 	}, [
+		activeWorkspaceId,
 		collectionMeta.name,
 		geoEditDrafts,
 		getDatasetKey,
@@ -5647,6 +5655,7 @@ export function GeoEditorView() {
 						: sourceName
 					return Object.freeze({
 						id: `presentation:story:${presentationCarrierId}:${layer.id}`,
+						mapSourceId: mapPresentationSourceKey(layer.source),
 						title,
 						visible: presentationVisibilityOverrides[layer.id] ?? layer.visible,
 						active: activeStoryView?.snapshot.state.layers.some(
@@ -5688,6 +5697,7 @@ export function GeoEditorView() {
 							: localMapPresentationLabel(useEditorStore.getState(), layer.source.workspaceId)
 					return Object.freeze({
 						id: `presentation:atlas:${atlasPresentationCarrierId}:${layer.id}`,
+						mapSourceId: mapPresentationSourceKey(layer.source),
 						title: layer.featureIds?.length
 							? `${sourceName} · ${layer.featureIds.length} selected`
 							: sourceName,

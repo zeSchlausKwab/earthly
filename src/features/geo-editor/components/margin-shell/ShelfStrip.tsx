@@ -17,6 +17,8 @@ import { cn } from '@/lib/utils'
 export interface ShelfStripItem {
 	/** Instance id, not entity address. Duplicate references remain independently addressable. */
 	id: string
+	/** Stable published Map or local workspace identity shared by its presentation layers. */
+	mapSourceId?: string
 	title: string
 	visible: boolean
 	color?: string
@@ -65,6 +67,14 @@ export interface ShelfStripProps {
 export type ShelfReorderPlacement = 'before' | 'after'
 
 const SHELF_DRAG_MIME = 'application/x-earthly-shelf-item'
+
+export function getShelfCountLabel(items: readonly ShelfStripItem[]): string {
+	const maps = new Set(items.flatMap((item) => (item.mapSourceId ? [item.mapSourceId] : []))).size
+	const layersLabel = `${items.length} ${items.length === 1 ? 'layer' : 'layers'}`
+	if (maps === 0) return layersLabel
+	const mapsLabel = `${maps} ${maps === 1 ? 'Map' : 'Maps'}`
+	return maps === items.length ? mapsLabel : `${mapsLabel} · ${layersLabel}`
+}
 
 /** Protected items divide the strip into independently reorderable segments. */
 export function canReorderShelfItem(
@@ -116,6 +126,7 @@ export function ShelfStrip({
 	className,
 }: ShelfStripProps) {
 	const [reorderAnnouncement, setReorderAnnouncement] = useState('')
+	const countLabel = getShelfCountLabel(items)
 	const moveItem = (item: ShelfStripItem, index: number, direction: 'left' | 'right') => {
 		const intent = getShelfKeyboardReorderIntent(items, index, direction)
 		if (!intent) return
@@ -130,13 +141,13 @@ export function ShelfStrip({
 				className="earthly-shelf__label"
 				onClick={onOpenShelf}
 				disabled={!onOpenShelf}
-				aria-label={`On the map, ${items.length} ${items.length === 1 ? 'map' : 'maps'} on the map`}
+				aria-label={`On the map, ${countLabel}`}
 			>
 				On the map
-				<span>{items.length}</span>
+				<span>{countLabel}</span>
 			</button>
 
-			<ul className="earthly-shelf__items" aria-label="Maps on the canvas">
+			<ul className="earthly-shelf__items" aria-label="Layers on the canvas">
 				{items.map((item, index) => {
 					const reorderable = Boolean(onReorderItem) && item.reorderable !== false
 					const moveLeftIntent = onReorderItem

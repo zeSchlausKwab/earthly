@@ -49,7 +49,7 @@ test('draft Hide and Remove affect geometry, not saved work or chat @regression'
 	const thread = earthly.isMobile ? null : await threadWorkSnapshot(earthly)
 	const controls = earthly.isMobile
 		? earthly.page.getByRole('region', { name: 'On the map', exact: true })
-		: earthly.page.getByRole('list', { name: 'Maps on the canvas', exact: true })
+		: earthly.page.getByRole('list', { name: 'Layers on the canvas', exact: true })
 	await controls.getByRole('button', { name: `Hide ${title}`, exact: true }).click()
 	await expect.poll(sourceFeatureCount).toBe(0)
 	await expectGeometryFeatureCount(earthly, 1)
