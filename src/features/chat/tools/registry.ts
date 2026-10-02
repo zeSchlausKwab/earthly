@@ -1,3 +1,4 @@
+import { executeValhallaRoute } from './valhalla-route'
 /**
  * Unified typed tool registry (D-01/D-02/D-03/D-04/D-06).
  *
@@ -1652,48 +1653,7 @@ function registerRemoteMcpTools(): void {
 		kind: 'remote-mcp',
 		origin: REMOTE_MCP_ORIGIN,
 		schema: schemaFor('valhalla_route'),
-		handler: async (args) => {
-			const client = getGeoClient()
-			const locations = Array.isArray(args.locations) ? args.locations : []
-			if (locations.length < 2) {
-				throw new Error('locations must contain at least two {lat, lon} points')
-			}
-			const normalizedLocations = locations
-				.map((location) => {
-					if (!location || typeof location !== 'object') return null
-					const lat = toFiniteNumber((location as Record<string, unknown>).lat)
-					const lon = toFiniteNumber((location as Record<string, unknown>).lon)
-					if (lat === undefined || lon === undefined) return null
-					return { lat, lon }
-				})
-				.filter((location): location is { lat: number; lon: number } => location !== null)
-			if (normalizedLocations.length < 2) {
-				throw new Error('locations must contain at least two valid {lat, lon} points')
-			}
-			const response = await client.ValhallaRoute(
-				normalizedLocations,
-				typeof args.profile === 'string' ? args.profile : undefined,
-				typeof args.units === 'string' ? args.units : undefined,
-				typeof args.baseUrl === 'string' ? args.baseUrl : undefined,
-			)
-			const result = extractMcpToolResult('valhalla_route', response)
-			const feature = asFeatureObject(result.feature)
-			return {
-				...result,
-				...(feature
-					? {
-							feature: {
-								...feature,
-								properties: {
-									...(feature.properties ?? {}),
-									geometryPrecision: 'network-derived',
-									mappingBasis: 'Valhalla route over the configured transport network',
-								},
-							},
-						}
-					: {}),
-			}
-		},
+		handler: async (args, context) => executeValhallaRoute(args, getGeoClient(), context?.signal),
 	})
 
 	register({

@@ -1,3 +1,4 @@
+import type { OrderedRouteResult } from '@/lib/geo/valhallaRoute'
 import { Client } from '@modelcontextprotocol/sdk/client'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import {
@@ -364,7 +365,7 @@ export interface ValhallaRouteInput {
 	 * Route waypoints in traversal order.
 	 *
 	 * @minItems 2
-	 * @maxItems 25
+	 * @maxItems 100
 	 */
 	locations: [
 		{
@@ -395,14 +396,7 @@ export interface ValhallaRouteInput {
 }
 
 export interface ValhallaRouteOutput {
-	result: {
-		feature: unknown
-		summary: {
-			lengthKm: number
-			durationMin: number
-			profile: string
-		}
-	}
+	result: OrderedRouteResult
 }
 
 export interface ValhallaIsochroneInput {
@@ -892,6 +886,7 @@ export type EarthlyGeoServer = {
 		profile?: string,
 		units?: string,
 		baseUrl?: string,
+		requestOptions?: { signal?: AbortSignal },
 	) => Promise<ValhallaRouteOutput>
 	ValhallaIsochrone: (
 		location: object,
@@ -1003,12 +998,33 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		return this.call<T>(name, args)
 	}
 
-	private async call<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {
-		await this.connectionPromise
-		const result = await this.client.callTool({
-			name,
-			arguments: { ...args },
-		})
+	private async call<T = unknown>(
+		name: string,
+		args: Record<string, unknown>,
+		requestOptions?: { signal?: AbortSignal; timeout?: number },
+	): Promise<T> {
+		const signal = requestOptions?.signal
+		signal?.throwIfAborted()
+		if (signal) {
+			let onAbort: (() => void) | undefined
+			const aborted = new Promise<never>((_resolve, reject) => {
+				onAbort = () => reject(signal.reason)
+				signal.addEventListener('abort', onAbort, { once: true })
+			})
+			try {
+				await Promise.race([this.connectionPromise, aborted])
+			} finally {
+				if (onAbort) signal.removeEventListener('abort', onAbort)
+			}
+		} else {
+			await this.connectionPromise
+		}
+		signal?.throwIfAborted()
+		const result = await this.client.callTool(
+			{ name, arguments: { ...args } },
+			undefined,
+			requestOptions,
+		)
 		if (result.isError) {
 			const structured = result.structuredContent as Record<string, unknown> | undefined
 			const errorText =
@@ -1237,8 +1253,17 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		profile?: string,
 		units?: string,
 		baseUrl?: string,
+		requestOptions?: { signal?: AbortSignal },
 	): Promise<ValhallaRouteOutput> {
-		return this.call('valhalla_route', { locations, profile, units, baseUrl })
+		const deadline = AbortSignal.timeout(35_000)
+		const signal = requestOptions?.signal
+			? AbortSignal.any([requestOptions.signal, deadline])
+			: deadline
+		return this.call(
+			'valhalla_route',
+			{ locations, profile, units, baseUrl },
+			{ signal, timeout: 35_000 },
+		)
 	}
 
 	/**

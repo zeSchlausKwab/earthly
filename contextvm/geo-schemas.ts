@@ -554,8 +554,8 @@ export const valhallaRouteInputSchema = {
 	locations: z
 		.array(valhallaLocationSchema)
 		.min(2)
-		.max(25)
-		.describe("Route waypoints in traversal order."),
+		.max(100)
+		.describe("2–100 route waypoints in traversal order. Requests are split into ordered batches according to the backend limit; adjacent batches share one waypoint."),
 	profile: z
 		.enum(["auto", "bicycle", "pedestrian", "bus", "truck"])
 		.optional()
@@ -566,7 +566,18 @@ export const valhallaRouteInputSchema = {
 
 export const valhallaRouteOutputSchema = {
 	result: z.object({
-		feature: z.any().nullable().describe("GeoJSON LineString feature for the route."),
+		feature: z.any().nullable().describe("A complete, continuous GeoJSON LineString; null for partial or failed routes."),
+		segments: z.any().describe("Individually routed batch features; partial segments are diagnostics, never a complete route."),
+		routing: z.object({
+			status: z.enum(["complete", "partial", "failed"]),
+			requestedWaypoints: z.number(),
+			completedWaypoints: z.number(),
+			backendWaypointLimit: z.number(),
+			batchCount: z.number(),
+			completedBatches: z.number(),
+			requestCount: z.number(),
+			failure: z.object({ fromIndex: z.number(), toIndex: z.number(), code: z.string(), message: z.string() }).optional(),
+		}),
 		summary: z.object({
 			lengthKm: z.number(),
 			durationMin: z.number(),

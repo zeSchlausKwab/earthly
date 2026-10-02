@@ -53,6 +53,9 @@ export const serverConfig = {
 	/** Valhalla API base URL for routing/isochrone tools */
 	valhallaUrl: serverEnv.VALHALLA_URL,
 
+	/** Backend route cap, independent of the ordered aggregate tool limit. */
+	valhallaMaxLocations: serverEnv.VALHALLA_MAX_LOCATIONS,
+
 	/** Read-only local geography catalog snapshot */
 	geoCatalogPath: serverEnv.GEOCATALOG_PATH,
 

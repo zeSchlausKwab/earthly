@@ -100,6 +100,9 @@ export function createBrowserToolService(
 		})
 	}
 	const ajv = new Ajv({ strict: false, allowUnionTypes: true })
+	let resolveRebasedPublication:
+		| ((kind: 'story' | 'atlas', draftKey: string, sourceRevisionId: string) => void)
+		| undefined
 	let nextRunId = -1 // Separate from chat's positive, monotonically increasing run ids.
 	const names = [...BROWSER_EDITOR_TOOLS, ...(externalQueriesEnabled ? BROWSER_EXTERNAL_TOOLS : [])]
 	const entries = new Map<string, ReturnType<typeof registry.get>>(
@@ -256,6 +259,9 @@ export function createBrowserToolService(
 			getOwner,
 			sessionSignal,
 			onPublicSource: grantPublicSource,
+			registerExplicitRebase: (handler) => {
+				resolveRebasedPublication = handler
+			},
 		}),
 		...createDocumentTools({
 			tool,
@@ -264,6 +270,7 @@ export function createBrowserToolService(
 			getOwner,
 			getPublicSources: grantedPublicSources,
 			assertToolAllowed,
+			onExplicitRebase: (kind, key, revision) => resolveRebasedPublication?.(kind, key, revision),
 		}),
 	)
 	for (const name of names) {

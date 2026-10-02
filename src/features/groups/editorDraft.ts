@@ -47,7 +47,9 @@ const draftSubscribers = new Set<() => void>()
 export const getGroupEditorDraftRevision = () => draftRevision
 export function subscribeGroupEditorDrafts(subscriber: () => void) {
 	draftSubscribers.add(subscriber)
-	return () => { draftSubscribers.delete(subscriber) }
+	return () => {
+		draftSubscribers.delete(subscriber)
+	}
 }
 function notifyDraftsChanged() {
 	draftRevision += 1
@@ -57,7 +59,10 @@ function notifyDraftsChanged() {
 /** Independent unpublished Atlases remain discoverable after their originating run closes. */
 export function listNewGroupEditorDrafts(pubkey?: string | null) {
 	return listAllGroupEditorDrafts(pubkey)
-		.filter(({ draftKey }) => draftKey === NEW_GROUP_EDITOR_DRAFT_KEY || draftKey.startsWith('thread-atlas:'))
+		.filter(
+			({ draftKey }) =>
+				draftKey === NEW_GROUP_EDITOR_DRAFT_KEY || draftKey.startsWith('thread-atlas:'),
+		)
 		.sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
@@ -157,7 +162,9 @@ function parseDraft(raw: unknown): GroupEditorDraft | null {
 		: 'builder'
 
 	return {
-		...(typeof value.sourceRevisionId === 'string' ? { sourceRevisionId: value.sourceRevisionId } : {}),
+		...(typeof value.sourceRevisionId === 'string'
+			? { sourceRevisionId: value.sourceRevisionId }
+			: {}),
 		name: typeof value.name === 'string' ? value.name : '',
 		description: typeof value.description === 'string' ? value.description : '',
 		curatedReferences: stringList(value.curatedReferences),
@@ -198,12 +205,18 @@ export function writeGroupEditorDraft(
 	identity: string,
 	draft: GroupEditorDraftSnapshot & Partial<Pick<GroupEditorDraft, 'updatedAt'>>,
 	pubkey?: string | null,
+	options: { preserveSourceRevision?: boolean } = {},
 ): void {
 	const drafts = readDraftMap(pubkey)
-	drafts[identity] = { ...draft,
-		...(draft.sourceRevisionId ?? drafts[identity]?.sourceRevisionId
-			? { sourceRevisionId: draft.sourceRevisionId ?? drafts[identity]?.sourceRevisionId } : {}),
-		updatedAt: draft.updatedAt ?? Date.now() }
+	const sourceRevisionId =
+		options.preserveSourceRevision === false
+			? draft.sourceRevisionId
+			: (draft.sourceRevisionId ?? drafts[identity]?.sourceRevisionId)
+	drafts[identity] = {
+		...draft,
+		...(sourceRevisionId ? { sourceRevisionId } : {}),
+		updatedAt: draft.updatedAt ?? Date.now(),
+	}
 	writeScopedStorage(GROUP_EDITOR_DRAFTS_STORAGE_KEY, drafts, pubkey)
 	notifyDraftsChanged()
 }

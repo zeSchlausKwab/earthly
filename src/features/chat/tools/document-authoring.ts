@@ -204,32 +204,37 @@ function isPublishedDocumentReference(reference: string): boolean {
 }
 
 /** A read preserves existing published bindings, never grants a new source or selector. */
-function assertReferenceScope(
+export function assertDocumentReferenceScope(
 	context: DocumentAuthoringContext,
 	kind: AuthoringDocumentKind,
 	draft: AuthoringDocumentDraft,
 	before: AuthoringDocumentDraft | null,
 	preservePublishedBindings: boolean,
+	/** Exact public snapshots read for a deliberate rebase, never arbitrary source grants. */
+	trustedPublishedDrafts: readonly AuthoringDocumentDraft[] = [],
 ) {
+	const retainedDrafts =
+		preservePublishedBindings && before ? [before, ...trustedPublishedDrafts] : []
 	const retainedReferences = new Set(
-		preservePublishedBindings && before
-			? documentReferences(kind, before).filter(isPublishedDocumentReference)
-			: [],
+		retainedDrafts.flatMap((draft) =>
+			documentReferences(kind, draft).filter(isPublishedDocumentReference),
+		),
 	)
 	for (const reference of documentReferences(kind, draft)) {
 		if (!retainedReferences.has(reference)) context.assertReferenceAllowed(reference)
 	}
-	const priorPresentation =
-		preservePublishedBindings && before ? parseMapPresentation(before.presentation) : null
 	const retainedLayers = new Set(
-		priorPresentation?.status === 'valid'
-			? priorPresentation.value.layers
-					.filter(
-						(layer) =>
-							typeof layer.source === 'string' && isPublishedDocumentReference(layer.source),
-					)
-					.map((layer) => JSON.stringify([layer.id, layer.source, layer.featureIds ?? null]))
-			: [],
+		retainedDrafts.flatMap((draft) => {
+			const priorPresentation = parseMapPresentation(draft.presentation)
+			return priorPresentation.status === 'valid'
+				? priorPresentation.value.layers
+						.filter(
+							(layer) =>
+								typeof layer.source === 'string' && isPublishedDocumentReference(layer.source),
+						)
+						.map((layer) => JSON.stringify([layer.id, layer.source, layer.featureIds ?? null]))
+				: []
+		}),
 	)
 	const presentation = parseMapPresentation(draft.presentation)
 	if (presentation.status !== 'valid') return
@@ -402,7 +407,7 @@ export async function writeDocumentDraft(
 		kind === 'story'
 			? prepareStoryDocument(args, before as StoryDraft | null)
 			: prepareAtlasDocument(args, before as GroupEditorDraft | null)
-	assertReferenceScope(context, kind, after, before, preservePublishedBindings)
+	assertDocumentReferenceScope(context, kind, after, before, preservePublishedBindings)
 	if (
 		before &&
 		documentDraftRevision({ ...before, updatedAt: 0 }) ===
@@ -424,6 +429,37 @@ export async function writeDocumentDraft(
 		before: structuredClone(before),
 		after: structuredClone(after),
 	}
+	return commitPreparedDocumentChange(change, context, { preservePublishedBindings })
+}
+
+/** One review, account/revision check, synchronous save and exact Undo for all document edits. */
+export async function commitPreparedDocumentChange(
+	change: PreparedDocumentChange,
+	context: DocumentAuthoringContext,
+	options: {
+		preservePublishedBindings?: boolean
+		trustedPublishedDrafts?: readonly AuthoringDocumentDraft[]
+	} = {},
+) {
+	const { kind, draftKey, before, after } = change
+	const revision = documentDraftRevision(before)
+	const checkReferences = () =>
+		assertDocumentReferenceScope(
+			context,
+			kind,
+			after,
+			before,
+			options.preservePublishedBindings ?? true,
+			options.trustedPublishedDrafts,
+		)
+	assertActive(context)
+	flushDocumentDraftForm(kind, draftKey, context.ownerPubkey)
+	assertActive(context)
+	if (documentDraftRevision(readDraft(kind, draftKey, context.ownerPubkey)) !== revision)
+		throw new Error(
+			'The document changed. Read its latest draft before editing; nothing was overwritten.',
+		)
+	checkReferences()
 	if (context.review && !(await context.review(change)))
 		return {
 			ok: false,
@@ -432,35 +468,38 @@ export async function writeDocumentDraft(
 		}
 	// No await may intervene between this permission/CAS check and synchronous persistence.
 	assertActive(context)
-	flushDocumentDraftForm(kind, target.draftKey, context.ownerPubkey)
+	flushDocumentDraftForm(kind, draftKey, context.ownerPubkey)
 	assertActive(context)
-	if (documentDraftRevision(readDraft(kind, target.draftKey, context.ownerPubkey)) !== revision)
+	if (documentDraftRevision(readDraft(kind, draftKey, context.ownerPubkey)) !== revision)
 		throw new Error('The document changed while the AI was working. Nothing was overwritten.')
-	assertReferenceScope(context, kind, after, before, preservePublishedBindings)
-	if (kind === 'story') writeStoryDraft(target.draftKey, after as StoryDraft, context.ownerPubkey)
-	else writeGroupEditorDraft(target.draftKey, after as GroupEditorDraft, context.ownerPubkey)
-	const saved = readDraft(kind, target.draftKey, context.ownerPubkey)
+	checkReferences()
+	if (kind === 'story') writeStoryDraft(draftKey, after as StoryDraft, context.ownerPubkey)
+	else writeGroupEditorDraft(draftKey, after as GroupEditorDraft, context.ownerPubkey)
+	const saved = readDraft(kind, draftKey, context.ownerPubkey)
 	if (!saved || documentDraftRevision(saved) !== documentDraftRevision(after))
 		throw new Error('The local draft could not be saved. Check browser storage and try again.')
 	const savedRevision = documentDraftRevision(saved)
 	const undo = () => {
 		if ((accounts.active?.pubkey ?? null) !== context.ownerPubkey) return false
 		try {
-			flushDocumentDraftForm(kind, target.draftKey, context.ownerPubkey)
+			flushDocumentDraftForm(kind, draftKey, context.ownerPubkey)
 		} catch {
 			return false
 		}
-		if (
-			documentDraftRevision(readDraft(kind, target.draftKey, context.ownerPubkey)) !== savedRevision
-		)
+		if (documentDraftRevision(readDraft(kind, draftKey, context.ownerPubkey)) !== savedRevision)
 			return false
 		if (kind === 'story') {
-			if (before) writeStoryDraft(target.draftKey, before as StoryDraft, context.ownerPubkey)
-			else clearStoryDraft(target.draftKey, context.ownerPubkey)
+			if (before)
+				writeStoryDraft(draftKey, before as StoryDraft, context.ownerPubkey, {
+					preservePublication: false,
+				})
+			else clearStoryDraft(draftKey, context.ownerPubkey)
 		} else if (before)
-			writeGroupEditorDraft(target.draftKey, before as GroupEditorDraft, context.ownerPubkey)
-		else clearGroupEditorDraft(target.draftKey, context.ownerPubkey)
-		return true
+			writeGroupEditorDraft(draftKey, before as GroupEditorDraft, context.ownerPubkey, {
+				preserveSourceRevision: false,
+			})
+		else clearGroupEditorDraft(draftKey, context.ownerPubkey)
+		return documentDraftRevision(readDraft(kind, draftKey, context.ownerPubkey)) === revision
 	}
 	try {
 		context.didCommit?.({ ...change, undo })
@@ -469,8 +508,8 @@ export async function writeDocumentDraft(
 	}
 	return {
 		ok: true,
-		draftKey: target.draftKey,
-		mode: target.created ? 'create' : 'edit',
+		draftKey,
+		mode: change.created ? 'create' : 'edit',
 		draft: kind === 'story' ? describeStoryDraft(saved as StoryDraft) : saved,
 		note: 'Saved a local draft. Publishing remains an explicit user action.',
 	}

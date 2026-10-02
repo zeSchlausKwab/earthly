@@ -34,6 +34,7 @@ import { BrowserToolError } from './mapContext'
 import { useWebMcpStore } from './state'
 import { failDocumentReview, recordDocumentCommit, reviewDocumentChange } from './documentReviews'
 import { browserDescription, browserSchema } from './descriptions'
+import { createDocumentRebaseTools } from './rebaseService'
 
 export const BROWSER_DOCUMENT_TOOLS = [
 	'read_story_draft',
@@ -67,6 +68,11 @@ export function createDocumentTools(options: {
 	getOwner: () => string | null
 	assertToolAllowed: (name: string, args: Record<string, unknown>) => void
 	getPublicSources?: () => readonly BrowserDocumentSource[]
+	onExplicitRebase?: (
+		kind: AuthoringDocumentKind,
+		draftKey: string,
+		sourceRevisionId: string,
+	) => void
 }): BrowserTool[] {
 	const { tool, owner, getOwner, sessionSignal, assertToolAllowed } = options
 	const leases = new Map<string, Lease>()
@@ -445,6 +451,21 @@ export function createDocumentTools(options: {
 				}
 			},
 		),
+	)
+	tools.push(
+		...createDocumentRebaseTools({
+			tool,
+			owner,
+			getOwner,
+			sessionSignal,
+			readLease: (kind, key, token) => {
+				const lease = typeof token === 'string' ? leases.get(token) : undefined
+				return lease?.kind === kind && lease.draftKey === key ? lease.revision : undefined
+			},
+			issueDraftToken: issue,
+			assertReferenceAllowed,
+			onExplicitRebase: options.onExplicitRebase,
+		}),
 	)
 	return tools
 }

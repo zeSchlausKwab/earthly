@@ -1,7 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { PrivateKeyAccount } from 'applesauce-accounts/accounts'
 import { castEvent } from 'applesauce-core/casts'
-import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools'
+import { finalizeEvent, generateSecretKey, getPublicKey, type NostrEvent } from 'nostr-tools'
+import { of } from 'rxjs'
 import { accounts, eventStore } from '@/lib/nostr'
 import { Article } from '@/lib/nostr/article'
 import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
@@ -12,12 +13,14 @@ import { readStoryDraft, writeStoryDraft } from '@/lib/nostr/story/draft'
 import { readGroupEditorDraft, writeGroupEditorDraft } from '@/features/groups/editorDraft'
 import { registerDocumentDraftForm } from '@/features/chat/tools/documentDraftForms'
 import { useEditorStore, type GeoCollectionEditDraft } from '@/features/geo-editor/store'
+import { storyPublicationCoordinate } from '@/features/geo-editor/storyPublication'
 import { resolveLocalStoryDependencies } from '@/features/chat/referencePublishing/localStoryDependencies'
 import type { PublishedDatasetReference } from '@/features/chat/referencePublishing/types'
 import { useWebMcpStore } from './state'
 import { createPublicationTools } from './publicationService'
 import type { BrowserTool } from './platform'
 import type { BrowserPublicDocumentSource } from './lifecycleService'
+import { observeSignedPublications } from './publicationObservation'
 
 const secret = generateSecretKey(),
 	owner = getPublicKey(secret)
@@ -28,6 +31,7 @@ const originalEditor = useEditorStore.getState(),
 	originalAccess = useWebMcpStore.getState()
 const priorWindow = globalThis.window
 const storage = new Map<string, string>()
+let storageUnavailable: boolean | string = false
 let controller: AbortController,
 	tools: BrowserTool[],
 	sequence = 100
@@ -36,16 +40,32 @@ let beforeSign: (() => void) | undefined,
 	afterCommit: (() => void) | undefined
 let acknowledged: boolean,
 	storyAcknowledged: boolean,
+	commitStoryBaseline: boolean,
 	failAfterSign: boolean,
+	failAtlasAfterSign: boolean,
 	datasetCalls: string[],
 	storyCalls: number
 let grantedSources: BrowserPublicDocumentSource[]
+let signedEvents: Map<string, NostrEvent>,
+	relayEvents: Map<string, NostrEvent>,
+	beforeObservation: (() => void) | undefined,
+	observationRequests: Array<{ relay: string; ids: string[] }>
+let recordExplicitRebase:
+	| ((kind: 'story' | 'atlas', draftKey: string, sourceRevisionId: string) => void)
+	| undefined
 beforeAll(() =>
 	Object.assign(globalThis, {
 		window: {
 			localStorage: {
 				getItem: (key: string) => storage.get(key) ?? null,
-				setItem: (key: string, value: string) => storage.set(key, value),
+				setItem: (key: string, value: string) => {
+					if (
+						storageUnavailable === true ||
+						(typeof storageUnavailable === 'string' && key.includes(storageUnavailable))
+					)
+						throw new Error('Browser storage quota exceeded')
+					storage.set(key, value)
+				},
 				removeItem: (key: string) => storage.delete(key),
 			},
 		},
@@ -63,6 +83,7 @@ function signed(kind: number, identifier: string, content: unknown) {
 }
 beforeEach(() => {
 	storage.clear()
+	storageUnavailable = false
 	accounts.active$.next(account)
 	setCurrentPubkey(owner)
 	useEditorStore.setState({
@@ -78,18 +99,38 @@ beforeEach(() => {
 	controller = new AbortController()
 	acknowledged = true
 	storyAcknowledged = true
+	commitStoryBaseline = false
 	failAfterSign = false
+	failAtlasAfterSign = false
 	beforeSign = undefined
 	beforeDelivery = undefined
 	afterCommit = undefined
 	datasetCalls = []
 	storyCalls = 0
 	grantedSources = []
+	signedEvents = new Map()
+	relayEvents = new Map()
+	beforeObservation = undefined
+	observationRequests = []
+	recordExplicitRebase = undefined
 	tools = createPublicationTools({
 		owner,
 		getOwner: () => accounts.active?.pubkey ?? null,
 		sessionSignal: controller.signal,
 		onPublicSource: (source) => grantedSources.push(source),
+		getObservationRelays: () => ['ws://localhost:3334', 'ws://localhost:3335'],
+		registerExplicitRebase: (handler) => {
+			recordExplicitRebase = handler
+		},
+		observeEvents: async (events, relays, signal) => {
+			beforeObservation?.()
+			return observeSignedPublications(events, relays, signal, {
+				request: (relay, ids) => {
+					observationRequests.push({ relay, ids })
+					return of(...[...relayEvents.values()].filter((event) => ids.includes(event.id)))
+				},
+			})
+		},
 		tool: (name, description, inputSchema, readOnly, handler) => ({
 			name,
 			description,
@@ -119,7 +160,13 @@ beforeEach(() => {
 			beforeSign?.()
 			validate?.()
 			datasetCalls.push(captured.binding.workspaceId)
-			const event = signed(GEO_EVENT_KIND, `published-map-${sequence}`, captured.featureCollection)
+			const identifier =
+				captured.authoringIntent !== 'fork' && captured.baseEvent
+					? captured.baseEvent.tags.find((tag) => tag[0] === 'd')?.[1]
+					: `published-map-${sequence}`
+			if (!identifier) throw new Error('The captured Map has no publication identity')
+			const event = signed(GEO_EVENT_KIND, identifier, captured.featureCollection)
+			signedEvents.set(event.id, event)
 			hooks?.onSigned?.(event)
 			if (failAfterSign) throw new Error('Connection lost after signing; delivery unknown.')
 			beforeDelivery?.()
@@ -157,11 +204,18 @@ beforeEach(() => {
 				},
 			})
 			hooks?.validate?.()
-			const event = signed(ARTICLE_KIND, `published-story-${sequence}`, {
+			const coordinate = target.storyReference
+				? storyPublicationCoordinate(target.storyReference)
+				: null
+			const identifier = coordinate
+				? coordinate.split(':').slice(2).join(':')
+				: `published-story-${sequence}`
+			const event = signed(ARTICLE_KIND, identifier, {
 				...captured,
 				content: body,
 				modelVersion: MODEL_VERSION,
 			})
+			signedEvents.set(event.id, event)
 			hooks?.onSigned?.(event)
 			beforeDelivery?.()
 			hooks?.beforeCommit?.()
@@ -169,9 +223,26 @@ beforeEach(() => {
 				event,
 				storyAcknowledged ? [{ from: 'ws://localhost:3334', ok: true }] : [],
 			)
+			if (commitStoryBaseline && storyAcknowledged) {
+				eventStore.add(event)
+				writeStoryDraft(
+					target.draftKey,
+					{
+						...readStoryDraft(target.draftKey, owner)!,
+						publication: {
+							eventId: event.id,
+							reference: coordinateToNaddrReference(`${ARTICLE_KIND}:${owner}:${identifier}`)!,
+							fingerprint: 'fixture-publication',
+						},
+					},
+					owner,
+				)
+			}
 			return castEvent(event, Article, eventStore)
 		},
 		publishEvent: async (event, options) => {
+			signedEvents.set(event.id, event)
+			if (failAtlasAfterSign) throw new Error('Atlas delivered without acknowledgement')
 			beforeDelivery?.()
 			options?.beforeCommit?.()
 			eventStore.add(event)
@@ -180,6 +251,7 @@ beforeEach(() => {
 	})
 })
 afterEach(() => {
+	storageUnavailable = false
 	controller.abort()
 	accounts.active$.next(originalAccount)
 	setCurrentPubkey(originalOwner)
@@ -240,6 +312,729 @@ async function preview(target: Record<string, unknown>) {
 async function execute(prepared: { previewToken: string }) {
 	return call('publish_publication', { previewToken: prepared.previewToken, confirm: true })
 }
+function deliver(receipt: { eventId: string }) {
+	const event = signedEvents.get(receipt.eventId)
+	if (!event) throw new Error('The fixture has no exact signed receipt event')
+	relayEvents.set(event.id, event)
+	return event
+}
+
+test('exact relay observation recovers a delivered Map without acknowledgement, preserving later edits and idempotence', async () => {
+	const draft = map()
+	acknowledged = false
+	const prepared = await preview({ kind: 'map', workspaceId: 'map' })
+	const failed = await execute(prepared)
+	const event = deliver(failed.receipts[0])
+	useEditorStore.setState({
+		geoEditDrafts: {
+			[draft.id]: {
+				...draft,
+				features: [...draft.features, { ...draft.features[0]!, id: 'later-unpublished' }],
+			},
+		},
+	})
+	const recovered = await call('reconcile_publication', { previewToken: prepared.previewToken })
+	expect(recovered).toMatchObject({
+		ok: true,
+		status: 'publication_observed',
+		publicationComplete: true,
+		targetObserved: true,
+		allSignedEventsObserved: true,
+		signedOrSent: false,
+		recoveryBlocked: false,
+		receipts: [{ delivery: 'unknown', observation: { status: 'verified' } }],
+		recoveries: [{ status: 'reconciled' }],
+	})
+	expect(observationRequests).toEqual([
+		{ relay: 'ws://localhost:3334', ids: [event.id] },
+		{ relay: 'ws://localhost:3335', ids: [event.id] },
+	])
+	expect(useEditorStore.getState().workspaces.map?.baseRevisionId).toBe(event.id)
+	expect(useEditorStore.getState().geoEditDrafts[draft.id]?.features).toHaveLength(2)
+	expect(grantedSources).toHaveLength(1)
+	expect(grantedSources[0]).toMatchObject({ revisionId: event.id, featureIds: ['facility'] })
+	expect(await execute(prepared)).toMatchObject({ ok: true, status: 'publication_observed' })
+	relayEvents.clear()
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		receipts: [{ delivery: 'unknown', observation: { status: 'verified' } }],
+		recoveries: [{ status: 'already_current' }],
+	})
+	expect(datasetCalls).toEqual(['map'])
+	const next = await preview({ kind: 'map', workspaceId: 'map' })
+	expect(next).toMatchObject({ ok: true, mode: 'update' })
+})
+
+test('cached, absent, wrong-source and forged events cannot resolve uncertain delivery or grant source access', async () => {
+	map()
+	acknowledged = false
+	const prepared = await preview({ kind: 'map', workspaceId: 'map' })
+	const failed = await execute(prepared)
+	const exact = signedEvents.get(failed.receipts[0].eventId)!
+	eventStore.add(exact)
+	const wrong = signed(GEO_EVENT_KIND, 'wrong-source', JSON.parse(exact.content))
+	relayEvents.set(wrong.id, wrong)
+	relayEvents.set(exact.id, { ...exact, sig: '0'.repeat(128) })
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: false,
+		status: 'delivery_uncertain',
+		publicationComplete: false,
+		receipts: [{ delivery: 'unknown', observation: { status: 'uncertain' } }],
+		recoveries: [],
+		signedOrSent: false,
+	})
+	expect(useEditorStore.getState().workspaces.map?.baseRevisionId).toBeNull()
+	expect(grantedSources).toHaveLength(0)
+	expect(await preview({ kind: 'map', workspaceId: 'map' })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	expect(datasetCalls).toEqual(['map'])
+})
+
+test('a verified dependency rewrites an unchanged unsigned Story, but never claims the parent was published', async () => {
+	map()
+	const draftKey = 'thread-story:observed-dependency'
+	writeStoryDraft(draftKey, { title: 'The Gulf', content: 'earthly-draft:map#facility' }, owner)
+	acknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey })
+	const failed = await execute(prepared)
+	deliver(failed.receipts[0])
+	const recovered = await call('reconcile_publication', { previewToken: prepared.previewToken })
+	expect(recovered).toMatchObject({
+		ok: false,
+		status: 'partial',
+		publicationComplete: false,
+		targetObserved: false,
+		allSignedEventsObserved: true,
+		recoveryBlocked: false,
+		signedOrSent: false,
+		recoveries: [{ status: 'reconciled' }, { status: 'references_resolved' }],
+	})
+	expect(readStoryDraft(draftKey, owner)?.content).toBe(`${failed.receipts[0].reference}#facility`)
+	expect(readStoryDraft(draftKey, owner)?.publication).toBeUndefined()
+	const next = await preview({ kind: 'story', draftKey })
+	expect(next).toMatchObject({ ok: true, dependencies: [] })
+	acknowledged = true
+	expect(await execute(next)).toMatchObject({ ok: true, receipts: [{ delivery: 'acknowledged' }] })
+	expect(datasetCalls).toEqual(['map'])
+	expect(storyCalls).toBe(2)
+})
+
+test('an uncertain signed Map dependency cannot acquire a duplicate identity through another parent', async () => {
+	map()
+	const first = 'thread-story:uncertain-shared-map',
+		second = 'thread-story:second-parent'
+	writeStoryDraft(first, { title: 'First Story', content: 'earthly-draft:map#facility' }, owner)
+	writeStoryDraft(second, { title: 'Second Story', content: 'earthly-draft:map#facility' }, owner)
+	acknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey: first })
+	const failed = await execute(prepared)
+	expect(await preview({ kind: 'story', draftKey: second })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	expect(await preview({ kind: 'map', workspaceId: 'map' })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	deliver(failed.receipts[0])
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({ ok: false, recoveryBlocked: false })
+	expect(await preview({ kind: 'map', workspaceId: 'map' })).toMatchObject({
+		ok: true,
+		mode: 'update',
+	})
+	expect(datasetCalls).toEqual(['map'])
+})
+
+test('already prepared Map or shared-parent previews cannot bypass uncertainty at their signing boundary', async () => {
+	map()
+	writeStoryDraft(
+		'thread-story:prepared-first',
+		{ title: 'First', content: 'earthly-draft:map#facility' },
+		owner,
+	)
+	writeStoryDraft(
+		'thread-story:prepared-second',
+		{ title: 'Second', content: 'earthly-draft:map#facility' },
+		owner,
+	)
+	const first = await preview({ kind: 'story', draftKey: 'thread-story:prepared-first' })
+	const second = await preview({ kind: 'story', draftKey: 'thread-story:prepared-second' })
+	const direct = await preview({ kind: 'map', workspaceId: 'map' })
+	acknowledged = false
+	const failed = await execute(first)
+	expect(failed).toMatchObject({ ok: false, receipts: [{ delivery: 'unknown' }] })
+	expect(await execute(second)).toMatchObject({ ok: false, code: 'publication_uncertain' })
+	expect(await execute(direct)).toMatchObject({ ok: false, code: 'publication_uncertain' })
+	expect(datasetCalls).toEqual(['map'])
+	expect(signedEvents.size).toBe(1)
+})
+
+test('observed Map dependencies cannot silently rewrite a changed retained Story', async () => {
+	map()
+	const draftKey = 'thread-story:dirty-dependency'
+	writeStoryDraft(draftKey, { title: 'The Gulf', content: 'earthly-draft:map#facility' }, owner)
+	acknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey })
+	const failed = await execute(prepared)
+	deliver(failed.receipts[0])
+	const content = 'My later edit: earthly-draft:map#facility'
+	writeStoryDraft(draftKey, { title: 'The Gulf', content }, owner)
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: false,
+		status: 'partial',
+		recoveryBlocked: false,
+		recoveries: [{ status: 'reconciled' }, { status: 'draft_changed' }],
+	})
+	expect(readStoryDraft(draftKey, owner)?.content).toBe(content)
+	const next = await preview({ kind: 'story', draftKey })
+	expect(next).toMatchObject({ ok: true, mode: 'new' })
+	acknowledged = true
+	const published = await execute(next)
+	expect(published).toMatchObject({ ok: true })
+	expect(published.receipts[0].coordinate).toBe(failed.receipts[0].coordinate)
+	expect(readStoryDraft(draftKey, owner)?.content).toContain('My later edit:')
+	expect(datasetCalls).toEqual(['map', 'map'])
+})
+
+test('signed Story observation attaches only the exact unchanged publication baseline', async () => {
+	const draftKey = 'thread-story:observed-story'
+	writeStoryDraft(
+		draftKey,
+		{ title: 'The Gulf', content: 'A narrative with no dependencies.' },
+		owner,
+	)
+	storyAcknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey })
+	const failed = await execute(prepared)
+	const event = deliver(failed.receipts[0])
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		publicationComplete: true,
+		recoveryBlocked: false,
+		recoveries: [{ status: 'reconciled', draftTarget: draftKey }],
+	})
+	expect(readStoryDraft(draftKey, owner)?.publication).toMatchObject({
+		eventId: event.id,
+		reference: failed.receipts[0].reference,
+	})
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({ ok: true, mode: 'update' })
+	expect(await execute(prepared)).toMatchObject({ ok: true, status: 'publication_observed' })
+	expect(storyCalls).toBe(1)
+})
+
+test('a delivered Story stays observed while changed content requires explicit recovery instead of a new identity', async () => {
+	const draftKey = 'thread-story:dirty-observed-story'
+	writeStoryDraft(draftKey, { title: 'The Gulf', content: 'Original narrative.' }, owner)
+	storyAcknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey })
+	const failed = await execute(prepared)
+	deliver(failed.receipts[0])
+	writeStoryDraft(draftKey, { title: 'The Gulf', content: 'Later human content.' }, owner)
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		publicationComplete: true,
+		recoveryBlocked: true,
+		recoveries: [{ status: 'draft_changed' }],
+	})
+	expect(readStoryDraft(draftKey, owner)).toMatchObject({ content: 'Later human content.' })
+	expect(readStoryDraft(draftKey, owner)?.publication).toBeUndefined()
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	expect(storyCalls).toBe(1)
+})
+
+test('only a current explicit rebase witness releases observed dirty Story recovery, and Undo restores its guard', async () => {
+	const draftKey = 'thread-story:explicit-recovery'
+	writeStoryDraft(draftKey, { title: 'Story', content: 'Original narrative.' }, owner)
+	storyAcknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey })
+	const failed = await execute(prepared)
+	const original = deliver(failed.receipts[0])
+	writeStoryDraft(draftKey, { title: 'Story', content: 'My later narrative.' }, owner)
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({ recoveryBlocked: true })
+	const identifier = original.tags.find((tag) => tag[0] === 'd')?.[1]
+	if (!identifier) throw new Error('Signed Story has no source')
+	const latest = signed(ARTICLE_KIND, identifier, {
+		title: 'Story',
+		content: 'New public narrative.',
+		modelVersion: MODEL_VERSION,
+	})
+	eventStore.add(latest)
+	const rebased = {
+		title: 'Story',
+		content: 'My resolved narrative.',
+		publication: {
+			eventId: latest.id,
+			reference: failed.receipts[0].reference,
+			fingerprint: 'resolved explicit public baseline',
+		},
+	}
+	writeStoryDraft(draftKey, rebased, owner)
+	// Merely changing the retained baseline is not an explicit native resolution.
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	recordExplicitRebase?.('story', draftKey, '0'.repeat(64))
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	useWebMcpStore.setState({ enabled: false })
+	recordExplicitRebase?.('story', draftKey, latest.id)
+	useWebMcpStore.setState({ enabled: true })
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	recordExplicitRebase?.('story', draftKey, latest.id)
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({ ok: true, mode: 'update' })
+	for (let index = 0; index < 25; index++) {
+		map(`witness-eviction-${index}`)
+		expect(await preview({ kind: 'map', workspaceId: `witness-eviction-${index}` })).toMatchObject({
+			ok: true,
+		})
+	}
+	writeStoryDraft(draftKey, { title: 'Story', content: 'My later narrative.' }, owner, {
+		preservePublication: false,
+	})
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	writeStoryDraft(draftKey, rebased, owner)
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({ ok: true, mode: 'update' })
+	storyAcknowledged = true
+	commitStoryBaseline = true
+	const update = await preview({ kind: 'story', draftKey })
+	expect(await execute(update)).toMatchObject({ ok: true })
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({ ok: true, mode: 'update' })
+	expect(storyCalls).toBe(2)
+})
+
+test('an explicit Story rebase cannot release an unsigned parent or an unobserved Map dependency', async () => {
+	map()
+	const draftKey = 'thread-story:unsigned-parent-rebase'
+	writeStoryDraft(draftKey, { title: 'Story', content: 'earthly-draft:map#facility' }, owner)
+	acknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey })
+	await execute(prepared)
+	const publicStory = signed(ARTICLE_KIND, 'other-public-story', {
+		title: 'Story',
+		content: 'Public content.',
+		modelVersion: MODEL_VERSION,
+	})
+	eventStore.add(publicStory)
+	writeStoryDraft(
+		draftKey,
+		{
+			title: 'Story',
+			content: 'earthly-draft:map#facility',
+			publication: {
+				eventId: publicStory.id,
+				reference: coordinateToNaddrReference(`${ARTICLE_KIND}:${owner}:other-public-story`)!,
+				fingerprint: 'base',
+			},
+		},
+		owner,
+	)
+	recordExplicitRebase?.('story', draftKey, publicStory.id)
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	expect(await preview({ kind: 'map', workspaceId: 'map' })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	expect(datasetCalls).toEqual(['map'])
+})
+
+test('observation refuses an older source baseline instead of rolling a Map back', async () => {
+	map()
+	acknowledged = false
+	const prepared = await preview({ kind: 'map', workspaceId: 'map' })
+	const failed = await execute(prepared)
+	const event = deliver(failed.receipts[0])
+	const identifier = event.tags.find((tag) => tag[0] === 'd')?.[1]
+	if (!identifier) throw new Error('The signed Map has no coordinate')
+	eventStore.add(signed(GEO_EVENT_KIND, identifier, JSON.parse(event.content)))
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		publicationComplete: true,
+		recoveryBlocked: true,
+		recoveries: [{ status: 'stale_source' }],
+	})
+	expect(useEditorStore.getState().workspaces.map?.baseRevisionId).toBeNull()
+	expect(await preview({ kind: 'map', workspaceId: 'map' })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+})
+
+test('receipt observation is scoped to the account, access, session and operation cancellation', async () => {
+	map()
+	acknowledged = false
+	const prepared = await preview({ kind: 'map', workspaceId: 'map' })
+	const failed = await execute(prepared)
+	deliver(failed.receipts[0])
+	useWebMcpStore.setState({ enabled: false })
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({ ok: false, code: 'access_disabled' })
+	expect(observationRequests).toHaveLength(0)
+	useWebMcpStore.setState({ enabled: true })
+	accounts.active$.next(undefined)
+	expect((await call('reconcile_publication', { previewToken: prepared.previewToken })).ok).toBe(
+		false,
+	)
+	expect(observationRequests).toHaveLength(0)
+	accounts.active$.next(account)
+	beforeObservation = () => useWebMcpStore.setState({ enabled: false })
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({ ok: false, code: 'access_disabled' })
+	expect(grantedSources).toHaveLength(0)
+	expect(useEditorStore.getState().workspaces.map?.baseRevisionId).toBeNull()
+	useWebMcpStore.setState({ enabled: true })
+	beforeObservation = () => controller.abort(new Error('cancelled during read'))
+	expect((await call('reconcile_publication', { previewToken: prepared.previewToken })).ok).toBe(
+		false,
+	)
+	expect(grantedSources).toHaveLength(0)
+	expect(useEditorStore.getState().workspaces.map?.baseRevisionId).toBeNull()
+	expect(datasetCalls).toEqual(['map'])
+})
+
+test('operation cancellation and a changed account after the relay read cannot commit receipt recovery', async () => {
+	map()
+	acknowledged = false
+	const prepared = await preview({ kind: 'map', workspaceId: 'map' })
+	const failed = await execute(prepared)
+	deliver(failed.receipts[0])
+	const operation = new AbortController()
+	beforeObservation = () => operation.abort(new Error('caller cancelled'))
+	const reconcile = tools.find((tool) => tool.name === 'earthly_reconcile_publication')
+	if (!reconcile) throw new Error('The read-only recovery tool was not registered')
+	expect(
+		await reconcile.execute({ previewToken: prepared.previewToken }, { signal: operation.signal }),
+	).toMatchObject({ ok: false })
+	expect(grantedSources).toHaveLength(0)
+	expect(useEditorStore.getState().workspaces.map?.baseRevisionId).toBeNull()
+	beforeObservation = () => accounts.active$.next(undefined)
+	expect((await call('reconcile_publication', { previewToken: prepared.previewToken })).ok).toBe(
+		false,
+	)
+	expect(grantedSources).toHaveLength(0)
+	expect(useEditorStore.getState().workspaces.map?.baseRevisionId).toBeNull()
+	expect(datasetCalls).toEqual(['map'])
+})
+
+test('a mounted form revoking access at the recovery write boundary cannot adopt a signed Story baseline', async () => {
+	const draftKey = 'thread-story:flush-revocation'
+	writeStoryDraft(draftKey, { title: 'The Gulf', content: 'Original content.' }, owner)
+	storyAcknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey })
+	const failed = await execute(prepared)
+	deliver(failed.receipts[0])
+	const unregister = registerDocumentDraftForm({
+		kind: 'story',
+		draftKey,
+		ownerPubkey: owner,
+		flush: () => useWebMcpStore.setState({ enabled: false }),
+		suppress: () => undefined,
+	})
+	try {
+		expect(
+			await call('reconcile_publication', { previewToken: prepared.previewToken }),
+		).toMatchObject({ ok: false, code: 'access_disabled' })
+		expect(readStoryDraft(draftKey, owner)?.publication).toBeUndefined()
+		expect(storyCalls).toBe(1)
+	} finally {
+		unregister()
+	}
+})
+
+test('an unsigned or unknown preview has no receipt to query', async () => {
+	map()
+	const prepared = await preview({ kind: 'map', workspaceId: 'map' })
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({ ok: false, code: 'nothing_signed', publicationComplete: false })
+	expect(
+		await call('reconcile_publication', { previewToken: 'wrong-session-token' }),
+	).toMatchObject({ ok: false, code: 'preview_required' })
+	expect(observationRequests).toHaveLength(0)
+	expect(datasetCalls).toHaveLength(0)
+})
+
+test('failed Map persistence retains the identity recovery guard until an exact durable retry succeeds', async () => {
+	map()
+	acknowledged = false
+	const prepared = await preview({ kind: 'map', workspaceId: 'map' })
+	const failed = await execute(prepared)
+	deliver(failed.receipts[0])
+	storageUnavailable = true
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		recoveryBlocked: true,
+		recoveries: [{ status: 'storage_failed' }],
+	})
+	expect(await preview({ kind: 'map', workspaceId: 'map' })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	storageUnavailable = false
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		recoveryBlocked: false,
+		recoveries: [{ status: 'already_current' }],
+	})
+	expect(await preview({ kind: 'map', workspaceId: 'map' })).toMatchObject({
+		ok: true,
+		mode: 'update',
+	})
+	expect(datasetCalls).toEqual(['map'])
+})
+
+test('failed Story reference persistence keeps the original content and prevents a duplicate dependency publication', async () => {
+	map()
+	const draftKey = 'thread-story:storage-dependency'
+	writeStoryDraft(draftKey, { title: 'The Gulf', content: 'earthly-draft:map#facility' }, owner)
+	acknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey })
+	const failed = await execute(prepared)
+	deliver(failed.receipts[0])
+	storageUnavailable = 'story:drafts'
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: false,
+		recoveryBlocked: true,
+		recoveries: [{ status: 'reconciled' }, { status: 'storage_failed' }],
+	})
+	expect(readStoryDraft(draftKey, owner)?.content).toBe('earthly-draft:map#facility')
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	storageUnavailable = false
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: false,
+		recoveryBlocked: false,
+		recoveries: [{ status: 'already_current' }, { status: 'references_resolved' }],
+	})
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({ ok: true, dependencies: [] })
+	expect(datasetCalls).toEqual(['map'])
+})
+
+test('failed signed Story baseline persistence retains the duplicate guard and can retry without signing', async () => {
+	const draftKey = 'thread-story:storage-baseline'
+	writeStoryDraft(draftKey, { title: 'The Gulf', content: 'The retained narrative.' }, owner)
+	storyAcknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey })
+	const failed = await execute(prepared)
+	deliver(failed.receipts[0])
+	storageUnavailable = 'story:drafts'
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		recoveryBlocked: true,
+		recoveries: [{ status: 'storage_failed' }],
+	})
+	expect(readStoryDraft(draftKey, owner)?.publication).toBeUndefined()
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	storageUnavailable = false
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		recoveryBlocked: false,
+		recoveries: [{ status: 'reconciled' }],
+	})
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({ ok: true, mode: 'update' })
+	expect(storyCalls).toBe(1)
+})
+
+test('a canonical published Story reports its actual key and cannot clear an unrelated dirty retained slot', async () => {
+	const draftKey = 'thread-story:canonical-baseline'
+	writeStoryDraft(draftKey, { title: 'The Gulf', content: 'The original narrative.' }, owner)
+	storyAcknowledged = false
+	const prepared = await preview({ kind: 'story', draftKey })
+	const failed = await execute(prepared)
+	const event = deliver(failed.receipts[0])
+	const identifier = event.tags.find((tag) => tag[0] === 'd')?.[1]
+	if (!identifier) throw new Error('The signed Story has no address')
+	writeStoryDraft(
+		identifier,
+		{
+			title: 'The Gulf',
+			content: 'The original narrative.',
+			publication: {
+				eventId: event.id,
+				reference: failed.receipts[0].reference,
+				fingerprint: 'published',
+			},
+		},
+		owner,
+	)
+	writeStoryDraft(draftKey, { title: 'My other retained edit', content: 'Later content.' }, owner)
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		recoveryBlocked: true,
+		recoveries: [{ status: 'draft_changed', draftTarget: identifier }],
+	})
+	expect(readStoryDraft(draftKey, owner)?.content).toBe('Later content.')
+	expect(await preview({ kind: 'story', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+})
+
+test('observed Atlas identity is durably written before the original retained draft is cleared', async () => {
+	const draftKey = 'thread-atlas:storage-baseline'
+	writeGroupEditorDraft(
+		draftKey,
+		{
+			name: 'Atlas',
+			description: 'Keep this description.',
+			curatedReferences: [],
+			image: '',
+			governance: 'closed',
+			schemaMode: 'builder',
+			rows: [],
+			allowedGeometryTypes: [],
+			advancedJson: '{}',
+			sampleJson: '{}',
+		},
+		owner,
+	)
+	failAtlasAfterSign = true
+	const prepared = await preview({ kind: 'atlas', draftKey })
+	const failed = await execute(prepared)
+	const event = deliver(failed.receipts[0])
+	const identifier = event.tags.find((tag) => tag[0] === 'd')?.[1]
+	const key = `edit:${owner}:${identifier}`
+	storageUnavailable = 'context:editor-drafts'
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		recoveryBlocked: true,
+		recoveries: [{ status: 'storage_failed' }],
+	})
+	expect(readGroupEditorDraft(draftKey, owner)?.description).toBe('Keep this description.')
+	expect(readGroupEditorDraft(key, owner)).toBeNull()
+	expect(await preview({ kind: 'atlas', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	storageUnavailable = false
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({
+		ok: true,
+		recoveryBlocked: false,
+		recoveries: [{ status: 'reconciled', draftTarget: key }],
+	})
+	expect(readGroupEditorDraft(draftKey, owner)).toBeNull()
+	expect(readGroupEditorDraft(key, owner)?.sourceRevisionId).toBe(event.id)
+	expect(await preview({ kind: 'atlas', draftKey: key })).toMatchObject({
+		ok: true,
+		mode: 'update',
+	})
+	expect(signedEvents.size).toBe(1)
+})
+
+test('observed dirty owned Atlas updates require a current explicit rebase witness and restore their guard on Undo', async () => {
+	const identifier = 'receipt-rebase-atlas'
+	const original = signed(MAP_CONTEXT_KIND, identifier, {
+		name: 'Atlas',
+		governance: 'closed',
+		modelVersion: MODEL_VERSION,
+	})
+	eventStore.add(original)
+	const draftKey = `edit:${owner}:${identifier}`
+	const draft = {
+		name: 'Atlas',
+		description: 'My retained description.',
+		curatedReferences: [],
+		image: '',
+		governance: 'closed' as const,
+		schemaMode: 'builder' as const,
+		rows: [],
+		allowedGeometryTypes: [],
+		advancedJson: '{}',
+		sampleJson: '{}',
+		sourceRevisionId: original.id,
+	}
+	writeGroupEditorDraft(draftKey, draft, owner)
+	failAtlasAfterSign = true
+	const prepared = await preview({ kind: 'atlas', draftKey })
+	const failed = await execute(prepared)
+	const publication = deliver(failed.receipts[0])
+	const later = { ...draft, description: 'Later human description.' }
+	writeGroupEditorDraft(draftKey, later, owner)
+	expect(
+		await call('reconcile_publication', { previewToken: prepared.previewToken }),
+	).toMatchObject({ recoveryBlocked: true })
+	const latest = finalizeEvent(
+		{
+			kind: MAP_CONTEXT_KIND,
+			tags: [['d', identifier]],
+			created_at: publication.created_at + 1,
+			content: JSON.stringify({ name: 'Atlas', governance: 'closed', modelVersion: MODEL_VERSION }),
+		},
+		secret,
+	)
+	eventStore.add(latest)
+	writeGroupEditorDraft(draftKey, { ...later, sourceRevisionId: latest.id }, owner)
+	expect(await preview({ kind: 'atlas', draftKey })).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	recordExplicitRebase?.('atlas', draftKey, latest.id)
+	expect(await preview({ kind: 'atlas', draftKey })).toMatchObject({ ok: true, mode: 'update' })
+	writeGroupEditorDraft(draftKey, { ...later, sourceRevisionId: undefined }, owner, {
+		preserveSourceRevision: false,
+	})
+	expect((await preview({ kind: 'atlas', draftKey })).ok).toBe(false)
+	writeGroupEditorDraft(draftKey, { ...later, sourceRevisionId: latest.id }, owner)
+	expect(await preview({ kind: 'atlas', draftKey })).toMatchObject({ ok: true, mode: 'update' })
+	expect(signedEvents.size).toBe(1)
+})
 
 test('prepare captures an explicit inactive Map without signing or publication; execution reports actual acknowledgements', async () => {
 	map('requested')

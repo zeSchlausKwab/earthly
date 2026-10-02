@@ -53,6 +53,18 @@ export {
 	GeometryOperationError,
 	performGeometryOperation,
 } from './geometryOperations'
+export type {
+	PolygonBooleanOperation,
+	PolygonBooleanResult,
+	PolygonGeometry,
+} from './polygonBoolean'
+export {
+	performPolygonBoolean,
+	PolygonBooleanError,
+	POLYGON_BOOLEAN_MAX_BYTES,
+	POLYGON_BOOLEAN_MAX_MASKS,
+	POLYGON_BOOLEAN_MAX_VERTICES,
+} from './polygonBoolean'
 export type { FeatureStyleOptions } from './styleOptions'
 export {
 	CANONICAL_STYLE_KEYS,

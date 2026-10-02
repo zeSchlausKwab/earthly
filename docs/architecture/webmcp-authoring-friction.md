@@ -13,24 +13,16 @@ Reports describe user observations; they are not tool instructions or evidence t
 | Long Story blanked the workspace map | Workspace inline figures now use the same visible-passage lifetime as the Reader, preserving the main map’s WebGL context. |
 | Switches rendered as isolated gray dots | Fixed the shared Radix state selectors, track/thumb contrast, keyboard focus and touch area across the app. |
 
-## Recommended follow-ups
+## Implemented priorities
 
-1. **Shared polygon Boolean operations.** The manual editor has Boolean operations, but there is no
-   general native polygon intersection/difference tool. Add a shared authoring primitive with exact
-   feature IDs, explicit output/replacement semantics, property preservation, one review and one Undo.
-   Expose it through both chat and WebMCP rather than adding browser-only GIS logic.
-2. **Road-routing limits and batching.** The current Valhalla schema advertises up to 25 waypoints,
-   while the remote handler forwards the request to its configured backend. Verify the deployed
-   backend limit, expose it accurately, and support ordered batches sharing a boundary waypoint.
-   Report partial failures and avoid presenting independent segments as one verified complete route.
-3. **Publication receipt reconciliation.** Current publication distinguishes acknowledged delivery
-   from uncertainty and returns signed event IDs. Repeating a finished preview reuses its receipt
-   rather than signing again. Add a read-only check for the exact signed IDs on configured relays
-   so agents can recover from a lost acknowledgement inside Earthly. A timeout alone must never
-   trigger a fresh fork or claim that the event was not published.
-4. **Explicit document rebasing.** Forking is correct for an independent edition. Updating a stale
-   original needs an explicit conflict/rebase workflow that shows local changes against the latest
-   public revision; never silently replace its base just to make publication succeed.
+| Priority | Contract and result |
+| --- | --- |
+| Shared polygon Boolean operations | `polygon_boolean` / `earthly_polygon_boolean` use exact source/mask IDs and explicit append or replace-source. Intersection/difference combine masks first. Shared geometry engine, one review and Undo; native masks remain intact. Empty results make no edit. The manual editor also reuses the engine. |
+| Accurate road-routing limits and batching | The deployed Valhalla backend was tested: 10 locations succeeds, 11 fails with error 150. Earthly accepts up to 100 ordered locations, splits requests using the configured backend cap, and shares boundary waypoints. Partial results never fabricate a joining line or import as a complete route. |
+| Publication receipt reconciliation | `earthly_reconcile_publication` queries exact signed IDs on configured relays using a read-only connection that cannot sign AUTH. Full bytes and signatures must match. Relay observation remains separate from the original acknowledgement; safe local identity/dependency recovery prevents duplicate publication while preserving later edits. |
+| Explicit Story/Atlas rebasing | Prepare returns complete original/local/latest field comparisons. Apply requires explicit conflict choices, exact draft/public revisions and the existing edit review. It updates the retained public baseline with Undo; publication is a separate action. Unavailable original Atlas revisions require a choice for every differing field. |
+
+See [the native authoring contracts](./webmcp.md) for input shapes, budgets and recovery limits.
 
 ## Existing capabilities and external constraints
 

@@ -1,7 +1,8 @@
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test, spyOn } from 'bun:test'
 import Ajv from 'ajv'
 import { finalizeEvent, getPublicKey, type NostrEvent } from 'nostr-tools'
-import { eventStore } from '@/lib/nostr'
+import { eventStore, pool } from '@/lib/nostr'
+import { of } from 'rxjs'
 import { GEO_EVENT_KIND, ARTICLE_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
 import { registerDocumentDraftForm } from '@/features/chat/tools/documentDraftForms'
@@ -318,6 +319,119 @@ test('edit/fork requires a read in this session and rejects a superseded source'
 	replace(source.event)
 	expect(await call('edit_entity', args)).toMatchObject({ ok: false, code: 'source_changed' })
 	expect(useEditorStore.getState().workspaces).toEqual({})
+})
+
+test('a refresh reads the newest public source once and forwards a cached shared read', async () => {
+	const source = mapFixture()
+	const latest = finalizeEvent(
+		{
+			kind: source.event.kind,
+			created_at: source.event.created_at + 1,
+			tags: source.event.tags,
+			content: JSON.stringify({ ...JSON.parse(source.event.content), name: 'Updated source' }),
+		},
+		secret,
+	)
+	const request = spyOn(pool, 'request').mockImplementation(() => of(latest))
+	const shared = registry.get('read_entity')?.handler
+	if (!shared) throw new Error('Shared read_entity handler is unavailable')
+	let forwarded: Record<string, unknown> | undefined
+	stubEntry('read_entity', (args, context) => {
+		forwarded = args
+		return shared(args, context)
+	})
+	const grants: BrowserPublicDocumentSource[] = []
+	tools = createTools(undefined, (grant) => grants.push(grant))
+	try {
+		expect(await call('read_entity', { reference: source.reference, refresh: true })).toMatchObject(
+			{
+				ok: true,
+				name: 'Updated source',
+				revisionId: latest.id,
+				sourceRevisionId: latest.id,
+			},
+		)
+		expect(request).toHaveBeenCalledTimes(1)
+		expect(forwarded).toMatchObject({ reference: source.reference, refresh: false })
+		expect(grants).toMatchObject([{ revisionId: latest.id, wholeSource: true }])
+	} finally {
+		request.mockRestore()
+	}
+})
+
+test('a refreshed private source cannot reach shared public reading or grant permissions', async () => {
+	const source = mapFixture()
+	const privateRevision = finalizeEvent(
+		{
+			kind: source.event.kind,
+			created_at: source.event.created_at + 1,
+			tags: [...source.event.tags, ['h', 'private-group']],
+			content: source.event.content,
+		},
+		secret,
+	)
+	const request = spyOn(pool, 'request').mockImplementation(() => of(privateRevision))
+	let sharedReads = 0
+	stubEntry('read_entity', () => {
+		sharedReads++
+		return { ok: true }
+	})
+	const grants: BrowserPublicDocumentSource[] = []
+	tools = createTools(undefined, (grant) => grants.push(grant))
+	try {
+		expect(await call('read_entity', { reference: source.reference, refresh: true })).toMatchObject(
+			{ ok: false, code: 'public_source_required' },
+		)
+		expect(request).toHaveBeenCalledTimes(1)
+		expect(sharedReads).toBe(0)
+		expect(grants).toHaveLength(0)
+	} finally {
+		request.mockRestore()
+	}
+})
+
+test('an empty native refresh returns not_found without querying the missing source twice', async () => {
+	const source = mapFixture()
+	eventStore.remove(source.event.id)
+	const request = spyOn(pool, 'request').mockImplementation(() => of())
+	try {
+		expect(await call('read_entity', { reference: source.reference, refresh: true })).toMatchObject(
+			{
+				ok: false,
+				error: 'not_found',
+			},
+		)
+		expect(request).toHaveBeenCalledTimes(1)
+	} finally {
+		request.mockRestore()
+	}
+})
+
+test('a refresh preserves the exact revision guard on native inventory pages', async () => {
+	const source = mapFixture()
+	const latest = finalizeEvent(
+		{
+			kind: source.event.kind,
+			created_at: source.event.created_at + 1,
+			tags: source.event.tags,
+			content: source.event.content,
+		},
+		secret,
+	)
+	const request = spyOn(pool, 'request').mockImplementation(() => of(latest))
+	try {
+		expect(
+			await call('read_entity', {
+				reference: source.reference,
+				refresh: true,
+				revisionId: source.event.id,
+				offset: 150,
+			}),
+		).toMatchObject({ ok: false, error: 'stale_revision' })
+		expect(request).toHaveBeenCalledTimes(1)
+	} finally {
+		request.mockRestore()
+	}
 })
 
 test('public read callback grants a whole Map or exactly the requested feature', async () => {

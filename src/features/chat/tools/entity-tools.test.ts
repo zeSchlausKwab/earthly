@@ -1,16 +1,208 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it, spyOn } from 'bun:test'
 import { finalizeEvent, generateSecretKey, nip19 } from 'nostr-tools'
-import { eventStore } from '@/lib/nostr'
+import type { NostrEvent } from 'nostr-tools'
+import { type Observable, Subject, of, throwError } from 'rxjs'
+import { eventStore, pool } from '@/lib/nostr'
 import { ARTICLE_KIND, GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { MAP_CALLOUTS_PROPERTY } from '@/lib/geo/callouts'
-import { parseEntityReference } from './entity-tools'
+import { fetchLatestByCoordinate, parseEntityReference } from './entity-tools'
 import { dispatch } from './registry'
 
 const PUBKEY = 'a'.repeat(64)
 const addedEventIds: string[] = []
+let restoreRequest: (() => void) | undefined
 
 afterEach(() => {
+	restoreRequest?.()
+	restoreRequest = undefined
 	for (const id of addedEventIds.splice(0)) eventStore.remove(id)
+})
+
+function requestFixture(source: Observable<NostrEvent>) {
+	const request = spyOn(pool, 'request').mockImplementation(() => source)
+	restoreRequest = () => request.mockRestore()
+	return request
+}
+
+function revisions(kind = ARTICLE_KIND) {
+	const secret = generateSecretKey()
+	const identifier = crypto.randomUUID()
+	const original = finalizeEvent(
+		{ kind, created_at: 100, tags: [['d', identifier]], content: '{}' },
+		secret,
+	)
+	const next = (created_at: number, content = '{}', tags = original.tags) => {
+		const event = finalizeEvent({ kind, created_at, tags, content }, secret)
+		addedEventIds.push(event.id)
+		return event
+	}
+	addedEventIds.push(original.id)
+	eventStore.add(original)
+	return {
+		original,
+		next,
+		ref: { kind, pubkey: original.pubkey, identifier },
+		reference: `${kind}:${original.pubkey}:${identifier}`,
+	}
+}
+
+describe('public coordinate refresh', () => {
+	it('keeps default cached reads instant without opening a relay query', async () => {
+		const fixture = revisions()
+		const request = requestFixture(new Subject())
+		expect(await fetchLatestByCoordinate(fixture.ref)).toBe(fixture.original)
+		expect(request).not.toHaveBeenCalled()
+	})
+
+	it('refreshes once and waits for the full query before selecting the newest signed source', async () => {
+		const fixture = revisions()
+		const updates = new Subject<NostrEvent>()
+		const request = requestFixture(updates)
+		const newer = fixture.next(102),
+			older = fixture.next(101)
+		let settled = false
+		const read = fetchLatestByCoordinate(fixture.ref, undefined, { refresh: true })
+		read.then(() => {
+			settled = true
+		})
+		updates.next(newer)
+		updates.next(older)
+		await Promise.resolve()
+		expect(settled).toBe(false)
+		expect(
+			eventStore.getReplaceable(fixture.ref.kind, fixture.ref.pubkey, fixture.ref.identifier)?.id,
+		).toBe(fixture.original.id)
+		updates.complete()
+		expect((await read)?.id).toBe(newer.id)
+		expect(request).toHaveBeenCalledTimes(1)
+		expect(request.mock.calls[0]?.[1]).toEqual({
+			kinds: [fixture.ref.kind],
+			authors: [fixture.ref.pubkey],
+			'#d': [fixture.ref.identifier],
+		})
+	})
+
+	it('rejects unrelated coordinates and forged signed bytes even with a copied verified marker', async () => {
+		const fixture = revisions()
+		const signed = fixture.next(105)
+		const wrongIdentifier = fixture.next(106, '{}', [['d', 'other']])
+		const wrongAuthor = finalizeEvent(
+			{ kind: ARTICLE_KIND, created_at: 107, tags: fixture.original.tags, content: '{}' },
+			generateSecretKey(),
+		)
+		requestFixture(
+			of(
+				wrongIdentifier,
+				wrongAuthor,
+				{ ...signed, kind: GEO_EVENT_KIND },
+				{ ...signed, content: 'forged' },
+			),
+		)
+		expect((await fetchLatestByCoordinate(fixture.ref, undefined, { refresh: true }))?.id).toBe(
+			fixture.original.id,
+		)
+		expect(eventStore.getEvent(signed.id)).toBeUndefined()
+	})
+
+	it('uses the NIP-01 lower event ID when valid revisions have equal timestamps', async () => {
+		const fixture = revisions()
+		const first = fixture.next(102, 'first'),
+			second = fixture.next(102, 'second')
+		const [winner, loser] = first.id < second.id ? [first, second] : [second, first]
+		requestFixture(of(winner, loser))
+		expect((await fetchLatestByCoordinate(fixture.ref, undefined, { refresh: true }))?.id).toBe(
+			winner.id,
+		)
+	})
+
+	it('retains a known source when EOSE or relay failure brings no newer result', async () => {
+		const fixture = revisions()
+		const request = requestFixture(of(fixture.next(99)))
+		expect((await fetchLatestByCoordinate(fixture.ref, undefined, { refresh: true }))?.id).toBe(
+			fixture.original.id,
+		)
+		request.mockImplementation(() => throwError(() => new Error('Relay disconnected')))
+		expect((await fetchLatestByCoordinate(fixture.ref, undefined, { refresh: true }))?.id).toBe(
+			fixture.original.id,
+		)
+	})
+
+	it('ingests a verified source when no cached revision exists', async () => {
+		const fixture = revisions()
+		eventStore.remove(fixture.original.id)
+		requestFixture(of(fixture.original))
+		expect((await fetchLatestByCoordinate(fixture.ref))?.id).toBe(fixture.original.id)
+		expect(
+			eventStore.getReplaceable(fixture.ref.kind, fixture.ref.pubkey, fixture.ref.identifier)?.id,
+		).toBe(fixture.original.id)
+	})
+
+	it('does not downgrade a newer cache revision ingested while the query is pending', async () => {
+		const fixture = revisions()
+		const updates = new Subject<NostrEvent>()
+		requestFixture(updates)
+		const read = fetchLatestByCoordinate(fixture.ref, undefined, { refresh: true })
+		updates.next(fixture.next(101))
+		const concurrent = fixture.next(103)
+		eventStore.add(concurrent)
+		updates.complete()
+		expect((await read)?.id).toBe(concurrent.id)
+	})
+
+	it('cancels pending refresh and closes its subscription without committing an intermediate result', async () => {
+		const fixture = revisions()
+		const updates = new Subject<NostrEvent>()
+		requestFixture(updates)
+		const controller = new AbortController()
+		const newer = fixture.next(101)
+		const read = fetchLatestByCoordinate(fixture.ref, controller.signal, { refresh: true })
+		updates.next(newer)
+		controller.abort(new Error('Read cancelled'))
+		await expect(read).rejects.toThrow('Read cancelled')
+		expect(updates.observed).toBe(false)
+		expect(eventStore.getEvent(newer.id)).toBeUndefined()
+		expect(() =>
+			fetchLatestByCoordinate(fixture.ref, controller.signal, { refresh: true }),
+		).toThrow('Read cancelled')
+	})
+
+	it('refresh never mixes a later dataset page with its earlier revision', async () => {
+		const fixture = revisions(GEO_EVENT_KIND)
+		const newer = fixture.next(101, JSON.stringify({ type: 'FeatureCollection', features: [] }))
+		const request = requestFixture(of(newer))
+		expect(
+			await dispatch('read_entity', {
+				reference: fixture.reference,
+				refresh: true,
+				revisionId: fixture.original.id,
+				offset: 150,
+			}),
+		).toMatchObject({ ok: false, error: 'stale_revision' })
+		expect(request).toHaveBeenCalledTimes(1)
+	})
+
+	it('bounds a silent relay query and closes its subscription while retaining the known source', async () => {
+		const fixture = revisions()
+		const updates = new Subject<NostrEvent>()
+		requestFixture(updates)
+		let deadline: (() => void) | undefined
+		const timeout = spyOn(globalThis, 'setTimeout').mockImplementation(((
+			handler: Parameters<typeof setTimeout>[0],
+		) => {
+			deadline = handler as () => void
+			return 0 as unknown as ReturnType<typeof setTimeout>
+		}) as typeof setTimeout)
+		try {
+			const read = fetchLatestByCoordinate(fixture.ref, undefined, { refresh: true })
+			expect(timeout.mock.calls[0]?.[1]).toBe(10_000)
+			if (!deadline) throw new Error('Refresh did not schedule its bounded deadline')
+			deadline()
+			expect((await read)?.id).toBe(fixture.original.id)
+			expect(updates.observed).toBe(false)
+		} finally {
+			timeout.mockRestore()
+		}
+	})
 })
 
 describe('parseEntityReference', () => {

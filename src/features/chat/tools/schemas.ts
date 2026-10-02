@@ -724,13 +724,16 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'valhalla_route',
 			description:
-				'Compute a network-following road, bus, bicycle, pedestrian, or truck journey through 2 to 25 coordinate waypoints using Valhalla. Prefer this over drawing coarse or straight transport lines. Valhalla is not a road-name search or full-relation retrieval tool and does not route rail. Rail routing requires an actual supplied or editor LineString network with route_over_network; otherwise report it as unsupported. Returns GeoJSON line geometry labeled network-derived plus a summary.',
+				'Compute a network-following road, bus, bicycle, pedestrian, or truck journey through 2 to 100 coordinate waypoints in ordered batches using Valhalla. Prefer this over drawing coarse or straight transport lines. Valhalla is not a road-name search or full-relation retrieval tool and does not route rail. Rail routing requires an actual supplied or editor LineString network with route_over_network; otherwise report it as unsupported. The backend normally accepts 10 waypoints per batch; adjacent batches share one waypoint, with at most 16 batches and a 25-second total budget. A complete continuous route returns one network-derived feature. Partial or failed routing returns batch diagnostics and no importable feature; never present partial geometry as a complete journey.',
 			parameters: {
 				type: 'object',
 				properties: {
 					locations: {
 						type: 'array',
-						description: 'Route points as [{lat, lon}, ...] with 2 to 25 coordinates.',
+						minItems: 2,
+						maxItems: 100,
+						description:
+							'Route points as [{lat, lon}, ...] with 2 to 100 coordinates in traversal order; every waypoint is retained.',
 					},
 					profile: {
 						type: 'string',
@@ -749,7 +752,7 @@ export const geoStaticToolSchemas: Tool[] = [
 					toEditor: {
 						type: 'boolean',
 						description:
-							'If true, import route geometry directly into editor and return a compact import summary.',
+							'If true, import only a complete, continuous route through normal edit permissions. Partial routes never modify the editor.',
 					},
 					replaceExisting: {
 						type: 'boolean',

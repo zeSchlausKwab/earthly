@@ -297,9 +297,20 @@ export function createLifecycleTools(options: {
 				let ref: ParsedEntityReference | undefined
 				if (name === 'read_entity') {
 					ref = publicReference(args.reference)
-					const event = await fetchLatestByCoordinate(ref, AbortSignal.any([signal, sessionSignal]))
+					const event = await fetchLatestByCoordinate(
+						ref,
+						AbortSignal.any([signal, sessionSignal]),
+						{ refresh: args.refresh === true },
+					)
 					assertActive(signal)
-					if (event) assertPublicEvent(event, ref)
+					if (!event)
+						return {
+							ok: false,
+							error: 'not_found',
+							message:
+								'No event found for this reference on the content relays (it may be unpublished, deleted, or on another relay).',
+						}
+					assertPublicEvent(event, ref)
 				} else if (name === 'query_entities_in_area' && !Array.isArray(args.bbox)) {
 					throw new BrowserToolError(
 						'bbox_required',
@@ -308,7 +319,7 @@ export function createLifecycleTools(options: {
 				}
 				const callArgs =
 					name === 'read_entity'
-						? args
+						? { ...args, refresh: false }
 						: {
 								...args,
 								entityTypes: args.entityTypes ?? ['dataset', 'story', 'group'],

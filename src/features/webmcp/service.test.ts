@@ -23,6 +23,9 @@ import type { BrowserTool } from './platform'
 import { featurePage } from './mapContext'
 import { useWebMcpStore } from './state'
 import { BROWSER_EDITOR_TOOLS, BROWSER_EXTERNAL_TOOLS } from './catalog'
+import { BROWSER_ENTITY_TOOLS } from './lifecycleService'
+import { BROWSER_DOCUMENT_TOOLS } from './documentService'
+import { BROWSER_PUBLICATION_TOOLS } from './publicationService'
 import { setSafetyLevelProvider } from '@/features/chat/safeEditing/safetyAccess'
 
 const initialEditor = useEditorStore.getState()
@@ -31,6 +34,20 @@ const initialBridge = useWebMcpStore.getState()
 let editor: GeoEditor
 let controller: AbortController
 let tools: BrowserTool[]
+const nativeOnlyNames = [
+	'get_map',
+	'read_features',
+	...BROWSER_ENTITY_TOOLS,
+	...BROWSER_DOCUMENT_TOOLS,
+	...BROWSER_PUBLICATION_TOOLS,
+	'list_local_drafts',
+	'preview_story_draft',
+	'open_map_draft',
+	'create_map_draft',
+	'edit_entity',
+	'prepare_document_rebase',
+	'apply_document_rebase',
+]
 const line: EditorFeature = {
 	type: 'Feature',
 	id: 'line',
@@ -131,7 +148,10 @@ function nextReview(): Promise<PendingDiffEntry> {
 
 describe('desktop agent editor bridge', () => {
 	test('advertises authoring, lifecycle and explicit publication, with remote queries separately granted', () => {
-		expect(tools).toHaveLength(BROWSER_EDITOR_TOOLS.length + 16)
+		expect(tools).toHaveLength(BROWSER_EDITOR_TOOLS.length + nativeOnlyNames.length)
+		expect(new Set(tools.map((tool) => tool.name)).size).toBe(tools.length)
+		for (const name of nativeOnlyNames)
+			expect(tools.some((tool) => tool.name === `earthly_${name}`)).toBe(true)
 		expect(tools.some((tool) => tool.name === 'earthly_extrude_line')).toBe(true)
 		expect(tools.some((tool) => tool.name === 'earthly_add_feature_callout')).toBe(true)
 		expect(tools.some((tool) => /run_code|query_osm|fetch_url/.test(tool.name))).toBe(false)
@@ -277,7 +297,9 @@ describe('desktop agent editor bridge', () => {
 		).toBe('external_queries_disabled')
 		useWebMcpStore.setState({ externalQueriesEnabled: true })
 		tools = createBrowserToolService(controller.signal)
-		expect(tools).toHaveLength(BROWSER_EDITOR_TOOLS.length + BROWSER_EXTERNAL_TOOLS.length + 16)
+		expect(tools).toHaveLength(
+			BROWSER_EDITOR_TOOLS.length + BROWSER_EXTERNAL_TOOLS.length + nativeOnlyNames.length,
+		)
 		expect(tools.some((tool) => tool.name === 'earthly_valhalla_route')).toBe(true)
 		const next = await call('earthly_get_map')
 		useWebMcpStore.setState({ externalQueriesEnabled: false })

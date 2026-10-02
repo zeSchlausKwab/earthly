@@ -13,9 +13,10 @@
  * content relays, keeping the newest replaceable version seen.
  */
 
-import { nip19 } from 'nostr-tools'
+import { nip19, verifyEvent } from 'nostr-tools'
 import type { NostrEvent } from 'nostr-tools'
-import { eventStore, pool, readRelaysFor } from '@/lib/nostr'
+import type { Subscription } from 'rxjs'
+import { eventStore, isEventDeleted, pool, readRelaysFor } from '@/lib/nostr'
 import { isExpired } from '@/lib/nostr/expiry'
 import {
 	ARTICLE_KIND,
@@ -121,56 +122,77 @@ export function parseEntityReference(value: unknown): ParsedEntityReference {
 export function fetchLatestByCoordinate(
 	ref: ParsedEntityReference,
 	signal?: AbortSignal,
+	options: { refresh?: boolean } = {},
 ): Promise<NostrEvent | null> {
 	signal?.throwIfAborted()
 	const cached = eventStore.getReplaceable(ref.kind, ref.pubkey, ref.identifier)
-	if (cached) return Promise.resolve(cached)
+	if (cached && !options.refresh) return Promise.resolve(cached)
 
 	return new Promise((resolve, reject) => {
-		let latest: NostrEvent | null = null
+		let latest: NostrEvent | null = cached ?? null
 		let settled = false
 		let timer: ReturnType<typeof setTimeout> | undefined
+		let sub: Subscription | undefined
+		const newer = (candidate: NostrEvent, prior: NostrEvent | null) =>
+			!prior ||
+			candidate.created_at > prior.created_at ||
+			(candidate.created_at === prior.created_at && candidate.id < prior.id)
+		const cleanup = () => {
+			if (timer) clearTimeout(timer)
+			sub?.unsubscribe()
+			signal?.removeEventListener('abort', abort)
+		}
 
 		const settle = () => {
 			if (settled) return
 			settled = true
-			if (timer) clearTimeout(timer)
-			signal?.removeEventListener('abort', abort)
-			if (latest) eventStore.add(latest)
-			resolve(latest)
+			cleanup()
+			// Another read may have ingested a newer source while this query was pending.
+			const current = eventStore.getReplaceable(ref.kind, ref.pubkey, ref.identifier)
+			if (current && newer(current, latest)) latest = current
+			if (latest && !isEventDeleted(latest)) eventStore.add(latest)
+			resolve(eventStore.getReplaceable(ref.kind, ref.pubkey, ref.identifier) ?? null)
 		}
 		const abort = () => {
 			if (settled) return
 			settled = true
-			if (timer) clearTimeout(timer)
-			sub.unsubscribe()
-			signal?.removeEventListener('abort', abort)
+			cleanup()
 			reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
 		}
 
-		const sub = pool
-			.request(readRelaysFor('content'), {
-				kinds: [ref.kind],
-				authors: [ref.pubkey],
-				'#d': [ref.identifier],
-			})
-			.subscribe({
-				next: (event: NostrEvent) => {
-					if (!latest || event.created_at > latest.created_at) latest = event
-				},
-				complete: settle,
-				error: settle,
-			})
-
-		if (settled) sub.unsubscribe()
-		else {
-			timer = setTimeout(() => {
-				sub.unsubscribe()
-				settle()
-			}, RELAY_TIMEOUT_MS)
-			signal?.addEventListener('abort', abort, { once: true })
-			if (signal?.aborted) abort()
+		signal?.addEventListener('abort', abort, { once: true })
+		try {
+			sub = pool
+				.request(readRelaysFor('content'), {
+					kinds: [ref.kind],
+					authors: [ref.pubkey],
+					'#d': [ref.identifier],
+				})
+				.subscribe({
+					next: (event: NostrEvent) => {
+						if (settled) return
+						try {
+							if (
+								event.kind === ref.kind &&
+								event.pubkey === ref.pubkey &&
+								event.tags.find((tag) => tag[0] === 'd')?.[1] === ref.identifier &&
+								verifyEvent(structuredClone(event)) &&
+								newer(event, latest)
+							)
+								latest = event
+						} catch {
+							// Malformed or unrelated relay results cannot replace a known source.
+						}
+					},
+					complete: settle,
+					error: settle,
+				})
+			if (settled) sub.unsubscribe()
+			else timer = setTimeout(settle, RELAY_TIMEOUT_MS)
+		} catch {
+			settle()
 		}
+		if (signal?.aborted) abort()
 	})
 }
 
@@ -454,6 +476,11 @@ const readEntitySchema: Tool = {
 					description:
 						'Datasets only: return this single feature (full geometry + properties) instead of the feature inventory.',
 				},
+				refresh: {
+					type: 'boolean',
+					description:
+						'Query the configured content relays for the newest signed revision even when cached (default false). Use before rebasing a retained edit; revisionId still guards inventory pages.',
+				},
 				offset: {
 					type: 'integer',
 					minimum: 0,
@@ -496,7 +523,9 @@ export function registerEntityTools(register: (entry: ToolEntry) => void): void 
 				)
 			}
 
-			const event = await fetchLatestByCoordinate(ref, context?.signal)
+			const event = await fetchLatestByCoordinate(ref, context?.signal, {
+				refresh: args.refresh === true,
+			})
 			if (!event) {
 				return {
 					ok: false,

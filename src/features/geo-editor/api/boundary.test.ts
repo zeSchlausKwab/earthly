@@ -79,6 +79,11 @@ describe('Authoring API import boundary (D-07 / INFRA-02)', () => {
  * deleteFeatures/deleteFeature.
  */
 const WRITE_VERB_RE = /\.(addFeature|setFeatures|updateFeature|deleteFeatures|deleteFeature)\s*\(/
+// An explicit factory invocation is the facade, never a direct editor write.
+// Keep this narrow: arbitrary aliases such as `authoring.addFeature` are still
+// scanned because this text-level check cannot prove where they came from.
+const EXPLICIT_FACADE_WRITE_RE =
+	/\bcreate(?:Execution)?Authoring\([^)]*\)\.(addFeature|setFeatures|updateFeature|deleteFeatures|deleteFeature)\s*\(/g
 
 /**
  * Documented allow-list of acknowledged NON-AI direct-write homes inside the scanned
@@ -143,6 +148,27 @@ function isAiWritePath(rel: string): boolean {
 }
 
 describe('AI write path never bypasses createAuthoring across all four verbs (A3 / INFRA-02)', () => {
+	it('recognizes only explicit facade factories without hiding direct writes on the same line', () => {
+		expect(
+			WRITE_VERB_RE.test(
+				'createExecutionAuthoring(editor).addFeature(feature)'.replace(
+					EXPLICIT_FACADE_WRITE_RE,
+					'',
+				),
+			),
+		).toBe(false)
+		expect(
+			WRITE_VERB_RE.test('authoring.addFeature(feature)'.replace(EXPLICIT_FACADE_WRITE_RE, '')),
+		).toBe(true)
+		expect(
+			WRITE_VERB_RE.test(
+				'createAuthoring(editor).addFeature(feature); editor.deleteFeatures(ids)'.replace(
+					EXPLICIT_FACADE_WRITE_RE,
+					'',
+				),
+			),
+		).toBe(true)
+	})
 	it('finds zero direct editor-write-verb sites in the AI/sandbox boundary', () => {
 		const offenders: string[] = []
 		for (const file of tsFilesRecursive(SRC_DIR)) {
@@ -161,7 +187,7 @@ describe('AI write path never bypasses createAuthoring across all four verbs (A3
 				const declaration = /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/.exec(line)
 				if (declaration) functionName = declaration[1] ?? ''
 				// Strip line comments so doc-comments mentioning the methods don't trip it.
-				const code = line.replace(/\/\/.*$/, '')
+				const code = line.replace(/\/\/.*$/, '').replace(EXPLICIT_FACADE_WRITE_RE, '')
 				const verb = WRITE_VERB_RE.exec(code)?.[1]
 				if (verb === 'setFeatures' && `${rel}:${functionName}` in A3_RESTORE_HOMES) return
 				if (verb) {

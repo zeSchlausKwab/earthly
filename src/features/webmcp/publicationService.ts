@@ -3,6 +3,9 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import type { NostrEvent } from 'nostr-tools'
 import { accounts, eventStore, publish } from '@/lib/nostr'
+import { config } from '@/config'
+import { readRelaysFor } from '@/lib/nostr/relay-router'
+import { GeoDataset } from '@/lib/nostr/geo-event'
 import { getCurrentPubkey } from '@/lib/wallet/currentUser'
 import { ARTICLE_KIND, GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import {
@@ -17,7 +20,7 @@ import {
 	extractReferencedCoordinates,
 	setAddressReferenceTags,
 } from '@/lib/nostr/references'
-import { readStoryDraft } from '@/lib/nostr/story/draft'
+import { readStoryDraft, storyContentFingerprint, writeStoryDraft } from '@/lib/nostr/story/draft'
 import { validateStoryPresentation } from '@/lib/nostr/story/lifecycle'
 import {
 	assertPublishedStoryReferences,
@@ -56,13 +59,32 @@ import {
 	storyPublicationCoordinate,
 } from '@/features/geo-editor/storyPublication'
 import { draftContentFingerprint } from '@/features/geo-editor/draftContent'
+import { reconcilePublishedDatasetIdentity } from '@/features/geo-editor/publicationIdentity'
 import { useEditorStore } from '@/features/geo-editor/store'
+import {
+	flushPersistedGeoCollectionDraftState,
+	writePersistedGeoCollectionDraftState,
+} from '@/features/geo-editor/store/editorCoreSlice'
+import { readPersistedGeoCollectionDraftState } from '@/features/geo-editor/store/draftSlice'
+import {
+	readPersistedWorkspaceState,
+	writePersistedWorkspaceState,
+} from '@/features/geo-editor/store/workspaceSlice'
 import type { BrowserTool } from './platform'
 import { BrowserToolError } from './mapContext'
 import { useWebMcpStore } from './state'
 import type { BrowserPublicDocumentSource } from './lifecycleService'
+import {
+	matchesSignedPublication,
+	observeSignedPublications,
+	type SignedPublicationObservation,
+} from './publicationObservation'
 
-export const BROWSER_PUBLICATION_TOOLS = ['prepare_publication', 'publish_publication'] as const
+export const BROWSER_PUBLICATION_TOOLS = [
+	'prepare_publication',
+	'publish_publication',
+	'reconcile_publication',
+] as const
 type ToolFactory = (
 	name: string,
 	description: string,
@@ -80,6 +102,10 @@ export interface PublicationReceipt {
 	reference: string | null
 	delivery: 'acknowledged' | 'unknown'
 	relays: RelayResponse[]
+	target: PublicationTarget
+	observation?: SignedPublicationObservation
+	/** Local identity recovery is separate from relay delivery evidence. */
+	localRecovery?: string
 }
 interface MapLease {
 	captured: CapturedDatasetPublication
@@ -100,6 +126,9 @@ interface Plan {
 	title: string
 	status: 'prepared' | 'executing' | 'finished'
 	receipts: PublicationReceipt[]
+	signedEvents: Map<string, NostrEvent>
+	recoveryBlocked?: boolean
+	explicitRebaseRevisionId?: string
 	result?: Record<string, unknown>
 }
 
@@ -245,12 +274,19 @@ export function createPublicationTools(options: {
 	getOwner: () => string | null
 	sessionSignal: AbortSignal
 	assertToolAllowed?: (name: string, args: Record<string, unknown>) => void
-	/** A positive relay acknowledgement grants only the exact signed public source. */
+	/** A positive acknowledgement or verified relay read grants only the exact signed source. */
 	onPublicSource?: (source: BrowserPublicDocumentSource) => void
 	/** Test seams use the same captured payload and validation contracts. */
 	publishDataset?: typeof publishCapturedPublicDataset
 	publishStory?: typeof publishSavedStory
 	publishEvent?: typeof publish
+	/** Read-only exact-ID relay observation; never substitutes local cached events. */
+	observeEvents?: typeof observeSignedPublications
+	getObservationRelays?: () => string[]
+	/** Private witness from a successful reviewed native rebase, scoped to this runtime. */
+	registerExplicitRebase?: (
+		handler: (kind: 'story' | 'atlas', draftKey: string, sourceRevisionId: string) => void,
+	) => void
 }): BrowserTool[] {
 	const { tool, owner, getOwner, sessionSignal } = options
 	const plans = new Map<string, Plan>()
@@ -280,12 +316,14 @@ export function createPublicationTools(options: {
 	}
 	function validate(plan: Plan, signal: AbortSignal) {
 		active(signal, plan)
+		assertNoUnresolvedPublication(plan)
 		if (plan.target.kind !== 'map' && documentRevision(plan.target, owner!) !== plan.revision)
 			throw new BrowserToolError(
 				'stale_draft',
 				'The document changed after preview. Nothing further will be signed; prepare its current revision again.',
 			)
 		active(signal, plan) // Form flush can synchronously change account/access state.
+		assertNoUnresolvedPublication(plan)
 		assertPublicBaseCurrent(plan.base)
 		for (const lease of plan.maps) {
 			if (lease.completed) continue
@@ -298,19 +336,61 @@ export function createPublicationTools(options: {
 				assertPublicBaseCurrent(lease.captured.baseEvent)
 		}
 	}
-	function receiptHooks(plan: Plan, signal: AbortSignal) {
+	function grantSignedSource(plan: Plan, event: NostrEvent, receipt: PublicationReceipt) {
+		if (
+			!options.onPublicSource ||
+			event.pubkey !== owner ||
+			(event.kind !== GEO_EVENT_KIND && event.kind !== ARTICLE_KIND)
+		)
+			return
+		const content = JSON.parse(event.content) as Record<string, unknown>
+		const map = event.kind === GEO_EVENT_KIND
+		options.onPublicSource({
+			kind: map ? 'map' : 'story',
+			reference: receipt.coordinate,
+			revisionId: event.id,
+			wholeSource: true,
+			title:
+				typeof content[map ? 'name' : 'title'] === 'string'
+					? String(content[map ? 'name' : 'title'])
+					: plan.title,
+			...(receipt.reference ? { citeReference: receipt.reference } : {}),
+			...(map
+				? {
+						featureIds: Array.isArray(content.features)
+							? content.features.flatMap((feature) => {
+									if (
+										!feature ||
+										typeof feature !== 'object' ||
+										feature.properties?.externalPlaceholder === true
+									)
+										return []
+									return typeof feature.id === 'string' || typeof feature.id === 'number'
+										? [String(feature.id)]
+										: []
+								})
+							: [],
+					}
+				: {}),
+		})
+	}
+	function receiptHooks(plan: Plan, signal: AbortSignal, map?: MapLease) {
 		return {
 			signal,
 			beforeCommit: () => validate(plan, signal),
 			onSigned: (event: NostrEvent) => {
 				const identifier = event.tags.find((tag) => tag[0] === 'd')?.[1]
 				const coordinate = `${event.kind}:${event.pubkey}:${identifier ?? ''}`
+				plan.signedEvents.set(event.id, structuredClone(event))
 				plan.receipts.push({
 					eventId: event.id,
 					coordinate,
 					reference: coordinateToNaddrReference(coordinate),
 					delivery: 'unknown',
 					relays: [],
+					target: map
+						? { kind: 'map', workspaceId: map.captured.binding.workspaceId }
+						: plan.target,
 				})
 			},
 			onDelivery: (event: NostrEvent, responses: ReadonlyArray<RelayResponse>) => {
@@ -335,37 +415,8 @@ export function createPublicationTools(options: {
 						event.pubkey === owner &&
 						(event.kind === GEO_EVENT_KIND || event.kind === ARTICLE_KIND)
 					) {
-						// Never use the retained draft: it may already contain later, unpublished edits.
-						const content = JSON.parse(event.content) as Record<string, unknown>
-						const map = event.kind === GEO_EVENT_KIND
-						options.onPublicSource?.({
-							kind: map ? 'map' : 'story',
-							reference: receipt.coordinate,
-							revisionId: event.id,
-							wholeSource: true,
-							title:
-								typeof content[map ? 'name' : 'title'] === 'string'
-									? String(content[map ? 'name' : 'title'])
-									: plan.title,
-							...(receipt.reference ? { citeReference: receipt.reference } : {}),
-							...(map
-								? {
-										featureIds: Array.isArray(content.features)
-											? content.features.flatMap((feature) => {
-													if (
-														!feature ||
-														typeof feature !== 'object' ||
-														feature.properties?.externalPlaceholder === true
-													)
-														return []
-													return typeof feature.id === 'string' || typeof feature.id === 'number'
-														? [String(feature.id)]
-														: []
-												})
-											: [],
-									}
-								: {}),
-						})
+						// Grants always come from signed bytes, never later retained edits.
+						grantSignedSource(plan, event, receipt)
 					}
 				}
 			},
@@ -384,7 +435,7 @@ export function createPublicationTools(options: {
 		const result = await (options.publishDataset ?? publishCapturedPublicDataset)(
 			lease.captured,
 			() => validate(plan, signal),
-			receiptHooks(plan, signal),
+			receiptHooks(plan, signal, lease),
 		)
 		if (
 			plan.target.kind !== 'map' &&
@@ -397,6 +448,295 @@ export function createPublicationTools(options: {
 			)
 		lease.completed = true // The shared publisher legitimately advances this Map's identity/baseline.
 		return result
+	}
+	function hasUnresolvedDelivery(plan: Plan) {
+		return (
+			((plan.recoveryBlocked || plan.explicitRebaseRevisionId) && !explicitRebaseIsCurrent(plan)) ||
+			plan.receipts.some(
+				(receipt) => receipt.delivery === 'unknown' && receipt.observation?.status !== 'verified',
+			)
+		)
+	}
+	function assertNoUnresolvedPublication(plan: Plan) {
+		for (const [token, earlier] of plans) {
+			if (earlier === plan) continue
+			const sharedUnresolvedMap = earlier.receipts.some(
+				(receipt) =>
+					receipt.target.kind === 'map' &&
+					plan.maps.some(
+						(lease) =>
+							lease.captured.binding.workspaceId ===
+							(receipt.target as { workspaceId: string }).workspaceId,
+					) &&
+					((receipt.delivery === 'unknown' && receipt.observation?.status !== 'verified') ||
+						(receipt.observation?.status === 'verified' &&
+							receipt.localRecovery !== 'reconciled' &&
+							receipt.localRecovery !== 'already_current')),
+			)
+			if (
+				sharedUnresolvedMap ||
+				(targetKey(earlier.target) === targetKey(plan.target) &&
+					(earlier.result?.ok === false ||
+						earlier.recoveryBlocked ||
+						earlier.explicitRebaseRevisionId) &&
+					hasUnresolvedDelivery(earlier))
+			)
+				throw new BrowserToolError(
+					'publication_uncertain',
+					`A prior attempt signed events with uncertain delivery or unresolved local identity. Inspect previewToken ${token}; resolve it before signing another publication identity.`,
+				)
+		}
+	}
+	function advanceExplicitRebaseLineage(completed: Plan) {
+		if (completed.target.kind === 'map' || !completed.base) return
+		const parent = completed.receipts.find(
+			(receipt) => targetKey(receipt.target) === targetKey(completed.target),
+		)
+		if (
+			!parent ||
+			(parent.delivery !== 'acknowledged' && parent.observation?.status !== 'verified')
+		)
+			return
+		for (const earlier of plans.values()) {
+			if (
+				earlier === completed ||
+				targetKey(earlier.target) !== targetKey(completed.target) ||
+				earlier.explicitRebaseRevisionId !== completed.base.id
+			)
+				continue
+			const prior = earlier.explicitRebaseRevisionId
+			earlier.explicitRebaseRevisionId = parent.eventId
+			if (!explicitRebaseIsCurrent(earlier)) earlier.explicitRebaseRevisionId = prior
+		}
+	}
+	function explicitRebaseIsCurrent(plan: Plan) {
+		if (plan.target.kind === 'map' || !plan.explicitRebaseRevisionId) return false
+		const event = eventStore.getEvent(plan.explicitRebaseRevisionId)
+		if (!event || event.pubkey !== owner || !matchesSignedPublication(event, event)) return false
+		const identifier = event.tags.find((tag) => tag[0] === 'd')?.[1]
+		if (
+			!identifier ||
+			eventStore.getReplaceable(event.kind, event.pubkey, identifier)?.id !== event.id
+		)
+			return false
+		if (plan.target.kind === 'story') {
+			const draft = readStoryDraft(plan.target.draftKey, owner)
+			return (
+				event.kind === ARTICLE_KIND &&
+				draft?.publication?.eventId === event.id &&
+				storyPublicationCoordinate(draft.publication.reference) ===
+					`${event.kind}:${owner}:${identifier}`
+			)
+		}
+		return (
+			event.kind === MAP_CONTEXT_KIND &&
+			plan.target.draftKey === `edit:${owner}:${identifier}` &&
+			readGroupEditorDraft(plan.target.draftKey, owner)?.sourceRevisionId === event.id
+		)
+	}
+	function persistRecoveredMap(lease: MapLease, event: NostrEvent) {
+		const state = useEditorStore.getState()
+		writePersistedGeoCollectionDraftState(state.geoEditDrafts, state.activeGeoEditDraftId)
+		flushPersistedGeoCollectionDraftState()
+		writePersistedWorkspaceState(state.workspaces, state.activeWorkspaceId, owner)
+		const persistedWorkspace =
+			readPersistedWorkspaceState(owner).workspaces[lease.captured.binding.workspaceId]
+		const persistedDraft =
+			readPersistedGeoCollectionDraftState(owner).drafts[lease.captured.binding.draftId]
+		const currentDraft = state.geoEditDrafts[lease.captured.binding.draftId]
+		return Boolean(
+			persistedWorkspace?.baseRevisionId === event.id &&
+				persistedWorkspace.sourceId === currentDraft?.sourceId &&
+				persistedDraft?.sourceId === currentDraft?.sourceId &&
+				currentDraft &&
+				persistedDraft &&
+				draftContentFingerprint(persistedDraft) === draftContentFingerprint(currentDraft) &&
+				persistedDraft.authoringIntent === currentDraft.authoringIntent,
+		)
+	}
+	function recoverObservedMap(
+		plan: Plan,
+		receipt: PublicationReceipt,
+		event: NostrEvent,
+		signal: AbortSignal,
+	) {
+		if (receipt.target.kind !== 'map') return { status: 'not_a_map' }
+		const workspaceId = receipt.target.workspaceId
+		const lease = plan.maps.find(
+			(candidate) => candidate.captured.binding.workspaceId === workspaceId,
+		)
+		if (!lease) return { status: 'stale_binding' }
+		const state = useEditorStore.getState()
+		const workspace = state.workspaces[workspaceId]
+		if (!workspace) return { status: 'stale_binding' }
+		if (
+			workspace.baseRevisionId === event.id &&
+			`${GEO_EVENT_KIND}:${workspace.datasetKey}` === receipt.coordinate
+		) {
+			active(signal, plan)
+			if (!persistRecoveredMap(lease, event)) return { status: 'storage_failed' }
+			lease.completed = true
+			return { status: 'already_current' }
+		}
+		if (workspace.baseRevisionId !== lease.captured.binding.baseRevisionId)
+			return { status: 'stale_source' }
+		const identifier = event.tags.find((tag) => tag[0] === 'd')?.[1]
+		const latest = identifier
+			? eventStore.getReplaceable(event.kind, event.pubkey, identifier)
+			: null
+		if (latest && latest.id !== event.id) return { status: 'stale_source' }
+		const result = reconcilePublishedDatasetIdentity(
+			lease.captured.binding,
+			castEvent(event, GeoDataset, eventStore),
+			lease.captured.title,
+		)
+		if (result.status !== 'reconciled') return { status: 'stale_binding' }
+		active(signal, plan)
+		if (lease.captured.authoringIntent === 'fork')
+			useEditorStore.getState().saveGeoEditDraft(lease.captured.binding.draftId, {
+				authoringIntent: 'edit',
+				sourceDataset: lease.captured.sourceDataset,
+			})
+		if (!persistRecoveredMap(lease, event)) return { status: 'storage_failed' }
+		lease.completed = true
+		return { status: 'reconciled' }
+	}
+	function recoverObservedDocument(
+		plan: Plan,
+		receipt: PublicationReceipt,
+		event: NostrEvent,
+		signal: AbortSignal,
+	) {
+		if (receipt.target.kind === 'map') return { status: 'not_a_document' }
+		const target = receipt.target
+		const identifier = event.tags.find((tag) => tag[0] === 'd')?.[1]
+		const latest = identifier
+			? eventStore.getReplaceable(event.kind, event.pubkey, identifier)
+			: null
+		if (latest && latest.id !== event.id) return { status: 'stale_source' }
+		if (target.kind === 'story') {
+			const retained = readStoryDraft(target.draftKey, owner)
+			const saved = identifier ? readStoryDraft(identifier, owner) : null
+			if (retained?.publication?.eventId === event.id)
+				return { status: 'already_current', draftTarget: target.draftKey }
+			if (saved?.publication?.eventId === event.id)
+				return {
+					status: retained ? 'draft_changed' : 'already_current',
+					draftTarget: identifier,
+				}
+			if (!retained || documentRevision(target, owner!) !== plan.revision)
+				return { status: 'draft_changed' }
+			active(signal, plan)
+			if (!receipt.reference) return { status: 'invalid_address' }
+			const content = JSON.parse(event.content) as Record<string, unknown>
+			const next = {
+				...retained,
+				publication: {
+					reference: receipt.reference,
+					eventId: event.id,
+					fingerprint: storyContentFingerprint(content),
+				},
+			}
+			writeStoryDraft(target.draftKey, next, owner)
+			if (
+				documentDraftRevision(readStoryDraft(target.draftKey, owner)) !==
+				documentDraftRevision(next)
+			)
+				return { status: 'storage_failed' }
+			return { status: 'reconciled', draftTarget: target.draftKey }
+		}
+		const key = `edit:${event.pubkey}:${identifier}`
+		const retained = readGroupEditorDraft(target.draftKey, owner)
+		if (readGroupEditorDraft(key, owner)?.sourceRevisionId === event.id) {
+			if (key !== target.draftKey && retained) {
+				if (documentRevision(target, owner!) !== plan.revision)
+					return { status: 'draft_changed', draftTarget: key }
+				active(signal, plan)
+				suppressDocumentDraftFormSave('atlas', target.draftKey, owner)
+				clearGroupEditorDraft(target.draftKey, owner)
+				if (readGroupEditorDraft(target.draftKey, owner))
+					return { status: 'storage_failed', draftTarget: key }
+			}
+			return { status: 'already_current', draftTarget: key }
+		}
+		if (!retained || documentRevision(target, owner!) !== plan.revision)
+			return { status: 'draft_changed' }
+		active(signal, plan)
+		const next = { ...retained, sourceRevisionId: event.id }
+		writeGroupEditorDraft(key, next, owner)
+		if (documentDraftRevision(readGroupEditorDraft(key, owner)) !== documentDraftRevision(next))
+			return { status: 'storage_failed' }
+		if (key !== target.draftKey) {
+			active(signal, plan)
+			suppressDocumentDraftFormSave('atlas', target.draftKey, owner)
+			clearGroupEditorDraft(target.draftKey, owner)
+			if (readGroupEditorDraft(target.draftKey, owner))
+				return { status: 'storage_failed', draftTarget: key }
+		}
+		if (getAtlasEditorTarget()?.draftKey === target.draftKey)
+			requestOpenAtlasEditor(key, castEvent(event, MapContext, eventStore))
+		return { status: 'reconciled', draftTarget: key }
+	}
+	function resolveObservedDependencies(plan: Plan, signal: AbortSignal) {
+		if (plan.target.kind === 'map') return { status: 'not_a_document' }
+		const target = plan.target
+		if (documentRevision(target, owner!) !== plan.revision) return { status: 'draft_changed' }
+		active(signal, plan)
+		const maps = plan.receipts.filter(
+			(receipt) =>
+				receipt.target.kind === 'map' &&
+				(receipt.delivery === 'acknowledged' || receipt.observation?.status === 'verified'),
+		)
+		if (!maps.length) return { status: 'no_observed_dependencies' }
+		if (target.kind === 'story') {
+			const retained = readStoryDraft(target.draftKey, owner)!
+			let content = retained.content ?? '',
+				presentation = retained.presentation
+			for (const receipt of maps) {
+				const workspaceId = (receipt.target as { workspaceId: string }).workspaceId
+				if (!receipt.reference) continue
+				content = resolveLocalStoryReference(content, workspaceId, receipt.reference)
+				presentation = resolveLocalMapPresentationSource(
+					presentation,
+					workspaceId,
+					receipt.coordinate,
+				)
+			}
+			const next = { ...retained, content, presentation }
+			writeStoryDraft(target.draftKey, next, owner)
+			if (
+				documentDraftRevision(readStoryDraft(target.draftKey, owner)) !==
+				documentDraftRevision(next)
+			)
+				return { status: 'storage_failed' }
+		} else {
+			const retained = readGroupEditorDraft(target.draftKey, owner)!
+			let description = retained.description,
+				presentation = retained.presentation
+			let curatedReferences = retained.curatedReferences
+			for (const receipt of maps) {
+				const workspaceId = (receipt.target as { workspaceId: string }).workspaceId
+				if (!receipt.reference) continue
+				description = resolveLocalStoryReference(description, workspaceId, receipt.reference)
+				curatedReferences = curatedReferences.map((value) =>
+					resolveLocalStoryReference(value, workspaceId, receipt.reference!),
+				)
+				presentation = resolveLocalMapPresentationSource(
+					presentation,
+					workspaceId,
+					receipt.coordinate,
+				)
+			}
+			const next = { ...retained, description, curatedReferences, presentation }
+			writeGroupEditorDraft(target.draftKey, next, owner)
+			if (
+				documentDraftRevision(readGroupEditorDraft(target.draftKey, owner)) !==
+				documentDraftRevision(next)
+			)
+				return { status: 'storage_failed' }
+		}
+		plan.revision = documentRevision(target, owner!)
+		return { status: 'references_resolved' }
 	}
 	async function prepare(target: PublicationTarget, signal: AbortSignal): Promise<Plan> {
 		active(signal)
@@ -545,6 +885,7 @@ export function createPublicationTools(options: {
 			title,
 			status: 'prepared',
 			receipts: [],
+			signedEvents: new Map(),
 		}
 		validate(plan, signal)
 		return plan
@@ -657,6 +998,39 @@ export function createPublicationTools(options: {
 		}
 		return {}
 	}
+	options.registerExplicitRebase?.((kind, draftKey, sourceRevisionId) => {
+		try {
+			active(sessionSignal)
+			for (const plan of plans.values()) {
+				if (plan.target.kind !== kind || plan.target.draftKey !== draftKey) continue
+				active(sessionSignal, plan)
+				const parent = plan.receipts.find(
+					(receipt) => targetKey(receipt.target) === targetKey(plan.target),
+				)
+				if (
+					parent?.observation?.status !== 'verified' ||
+					plan.receipts.some(
+						(receipt) =>
+							receipt.delivery === 'unknown' && receipt.observation?.status !== 'verified',
+					)
+				)
+					continue
+				const source = eventStore.getEvent(sourceRevisionId)
+				const identifier = source?.tags.find((tag) => tag[0] === 'd')?.[1]
+				if (!source || `${source.kind}:${source.pubkey}:${identifier}` !== parent.coordinate)
+					continue
+				const prior = plan.explicitRebaseRevisionId
+				plan.explicitRebaseRevisionId = sourceRevisionId
+				if (!explicitRebaseIsCurrent(plan)) {
+					plan.explicitRebaseRevisionId = prior
+					continue
+				}
+				plan.recoveryBlocked = false
+			}
+		} catch {
+			// A revoked or changed account cannot supply a resolution witness.
+		}
+	})
 	const targetSchema: ToolJsonSchema = {
 		oneOf: [
 			{
@@ -690,22 +1064,12 @@ export function createPublicationTools(options: {
 			async (args, signal) => {
 				options.assertToolAllowed?.('prepare_publication', args)
 				const plan = await prepare(args.target as PublicationTarget, signal)
-				for (const [token, earlier] of plans) {
-					if (
-						targetKey(earlier.target) === targetKey(plan.target) &&
-						earlier.result?.ok === false &&
-						earlier.receipts.some((receipt) => receipt.delivery === 'unknown')
-					)
-						throw new BrowserToolError(
-							'publication_uncertain',
-							`A prior attempt signed events with uncertain delivery. Inspect its result with previewToken ${token}; resolve delivery before creating another publication identity.`,
-						)
-				}
 				if (plans.size >= 16) {
 					const removable = [...plans].find(
 						([, candidate]) =>
-							candidate.status === 'prepared' ||
-							(candidate.status === 'finished' && candidate.result?.ok === true),
+							!candidate.explicitRebaseRevisionId &&
+							(candidate.status === 'prepared' ||
+								(candidate.status === 'finished' && !hasUnresolvedDelivery(candidate))),
 					)
 					if (!removable)
 						throw new BrowserToolError(
@@ -869,7 +1233,152 @@ export function createPublicationTools(options: {
 					plan.status = 'finished'
 					useEditorStore.getState().setIsPublishing(false)
 				}
+				if (plan.result?.ok === true) advanceExplicitRebaseLineage(plan)
 				return plan.result
+			},
+		),
+		tool(
+			'earthly_reconcile_publication',
+			'Read configured relays for the exact signed event IDs retained by a publication preview. Verifies full event bytes and signatures; never signs, sends events, uploads, or creates a fork. Original acknowledgements remain distinct from positive observation. Recovers unchanged local publication identities and local Map dependency references; changed drafts are preserved. Unknown or partial delivery stays explicit.',
+			{
+				type: 'object',
+				properties: { previewToken: { type: 'string', minLength: 1, maxLength: 100 } },
+				required: ['previewToken'],
+				additionalProperties: false,
+			},
+			true,
+			async (args, signal) => {
+				options.assertToolAllowed?.('reconcile_publication', args)
+				active(signal)
+				const plan = plans.get(String(args.previewToken))
+				if (!plan)
+					throw new BrowserToolError(
+						'preview_required',
+						'This preview is unavailable in this account/session.',
+					)
+				active(signal, plan)
+				if (plan.status === 'executing')
+					throw new BrowserToolError(
+						'publication_busy',
+						'Wait for the original publication attempt to finish.',
+					)
+				if (!plan.receipts.length)
+					return {
+						ok: false,
+						code: 'nothing_signed',
+						target: plan.target,
+						receipts: [],
+						publicationComplete: false,
+					}
+				const signed = plan.receipts.flatMap((receipt) => {
+					const event = plan.signedEvents.get(receipt.eventId)
+					return event && matchesSignedPublication(event, event) ? [event] : []
+				})
+				const relays = [
+					...new Set(
+						options.getObservationRelays?.() ?? [
+							...readRelaysFor('content'),
+							...config.writeRelays,
+						],
+					),
+				]
+				const operationSignal = AbortSignal.any([signal, sessionSignal])
+				const observations = await (options.observeEvents ?? observeSignedPublications)(
+					signed,
+					relays,
+					operationSignal,
+				)
+				active(signal, plan)
+				const recoveries: Array<Record<string, unknown>> = []
+				// Fail closed if a source grant or form flush interrupts identity recovery.
+				plan.recoveryBlocked = true
+				let recoveryBlocked = false
+				for (const receipt of plan.receipts) {
+					const observation = observations.find((item) => item.eventId === receipt.eventId)
+					// A later empty read cannot erase a previously verified relay observation.
+					if (
+						observation &&
+						(observation.status === 'verified' || receipt.observation?.status !== 'verified')
+					)
+						receipt.observation = observation
+					if (receipt.observation?.status !== 'verified') continue
+					active(signal, plan)
+					const event = plan.signedEvents.get(receipt.eventId)!
+					eventStore.add(event)
+					grantSignedSource(plan, event, receipt)
+					active(signal, plan)
+					let recovery: Record<string, unknown>
+					try {
+						recovery =
+							receipt.target.kind === 'map'
+								? recoverObservedMap(plan, receipt, event, signal)
+								: recoverObservedDocument(plan, receipt, event, signal)
+					} catch {
+						recovery = { status: 'draft_changed' }
+					}
+					receipt.localRecovery = String(recovery.status)
+					if (recovery.status !== 'reconciled' && recovery.status !== 'already_current')
+						recoveryBlocked = true
+					recoveries.push({ eventId: event.id, target: receipt.target, ...recovery })
+				}
+				const targetReceipt = plan.receipts.find(
+					(receipt) => targetKey(receipt.target) === targetKey(plan.target),
+				)
+				const targetObserved = targetReceipt?.observation?.status === 'verified'
+				if (!targetReceipt && !recoveryBlocked && plan.target.kind !== 'map') {
+					active(signal, plan)
+					let dependencies: Record<string, unknown>
+					try {
+						dependencies = resolveObservedDependencies(plan, signal)
+					} catch {
+						dependencies = { status: 'draft_changed' }
+					}
+					// No signed parent exists here. New prose can use a fresh plan once the
+					// exact dependency identities are safe; never force a fork just to keep it.
+					if (dependencies.status === 'storage_failed') recoveryBlocked = true
+					recoveries.push({ target: plan.target, ...dependencies })
+				}
+				const allSignedEventsObserved = plan.receipts.every(
+					(receipt) => receipt.observation?.status === 'verified',
+				)
+				const publicationComplete = targetObserved && allSignedEventsObserved
+				const anyObserved = plan.receipts.some(
+					(receipt) => receipt.observation?.status === 'verified',
+				)
+				active(signal, plan)
+				plan.recoveryBlocked = recoveryBlocked && !explicitRebaseIsCurrent(plan)
+				if (plan.result)
+					plan.result = {
+						...plan.result,
+						receipts: structuredClone(plan.receipts),
+						...(publicationComplete
+							? {
+									ok: true,
+									status: 'publication_observed',
+									code: undefined,
+									message:
+										'Configured relays returned the exact signed publication. Inspect recoveries for any retained draft that still needs explicit resolution.',
+								}
+							: {}),
+					}
+				if (publicationComplete && !plan.recoveryBlocked) advanceExplicitRebaseLineage(plan)
+				return {
+					ok: publicationComplete,
+					status: publicationComplete
+						? 'publication_observed'
+						: anyObserved
+							? 'partial'
+							: 'delivery_uncertain',
+					target: plan.target,
+					publicationComplete,
+					targetObserved,
+					allSignedEventsObserved,
+					receipts: structuredClone(plan.receipts),
+					recoveries,
+					recoveryBlocked: plan.recoveryBlocked,
+					signedOrSent: false,
+					note: 'Observation proves these exact events were returned by the listed relays; it is not an acknowledgement of the original publication request. Absence does not prove an event was never published.',
+				}
 			},
 		),
 	]

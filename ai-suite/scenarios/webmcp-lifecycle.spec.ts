@@ -16,7 +16,203 @@ interface Receipt {
 	reference: string
 	delivery: string
 	relays: Array<{ from: string; ok: boolean }>
+	observation?: { status: 'verified' | 'uncertain' }
 }
+
+test('native receipt recovery verifies delivered events without acknowledgement and never resends them @workflow-audit', async ({
+	earthly,
+}) => {
+	test.skip(earthly.isMobile, 'The reusable extension sign-in task supports desktop.')
+	test.setTimeout(180_000)
+	const events = new Map<string, NostrEvent>()
+	const attempts: NostrEvent[] = []
+	let acknowledgeMaps = false
+	await installIsolatedRelays(earthly, events, {
+		acknowledgeEvent: (event) => event.kind !== 37515 || acknowledgeMaps,
+		onPublish: (event) => attempts.push(event),
+	})
+	await signIn(earthly, 'owner')
+	await installDeterministicMapStyle(earthly)
+	await setDesktopAgentSafety(earthly, 'Apply with Undo')
+	const tools = await discoverWebMcpTools(earthly)
+	expect(tools).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				name: 'earthly_reconcile_publication',
+				annotations: expect.objectContaining({ readOnlyHint: true }),
+			}),
+		]),
+	)
+	const map = await executeWebMcpTool(earthly, 'earthly_create_map_draft', {
+		title: 'Receipt recovery Map',
+		audience: 'public',
+	})
+	const imported = await executeWebMcpTool(earthly, 'earthly_write_geojson_to_editor', {
+		mapToken: (map.map as { mapToken: string }).mapToken,
+		geojson: {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					id: 'facility',
+					geometry: { type: 'Point', coordinates: [4.5, 50.5] },
+					properties: { name: 'An exactly signed facility' },
+				},
+			],
+		},
+	})
+	expect(imported).toMatchObject({ importedCount: 1, cancelled: false })
+	const feature = (await readFeatures(earthly, imported.mapToken))[0]
+	if (!feature?.id) throw new Error('Native import did not retain its feature identity')
+	const listed = await executeWebMcpTool(earthly, 'earthly_list_local_drafts')
+	const localReference = (map.source as { reference: string }).reference
+	const story = await executeWebMcpTool(earthly, 'earthly_write_story_draft', {
+		createNew: true,
+		creationToken: listed.creationToken,
+		title: 'A recoverable Story',
+		markdown: `The facility: ${localReference}#${feature.id}`,
+	})
+	expect(story, JSON.stringify(story)).toMatchObject({ ok: true, draftKey: expect.any(String) })
+	const prepared = await executeWebMcpTool(earthly, 'earthly_prepare_publication', {
+		target: { kind: 'story', draftKey: story.draftKey },
+	})
+	expect(prepared).toMatchObject({ ok: true, dependencies: [{ workspaceId: map.workspaceId }] })
+	const siblingPreview = await executeWebMcpTool(earthly, 'earthly_prepare_publication', {
+		target: { kind: 'map', workspaceId: map.workspaceId },
+	})
+	expect(siblingPreview).toMatchObject({ ok: true })
+	const failed = await executeWebMcpTool(earthly, 'earthly_publish_publication', {
+		previewToken: prepared.previewToken,
+		confirm: true,
+	})
+	expect(failed, JSON.stringify(failed)).toMatchObject({
+		ok: false,
+		sideEffectsApplied: true,
+		receipts: [{ delivery: 'unknown' }],
+	})
+	const receipt = receiptFor(failed, 37515)
+	const signedMap = publishedEvent(events, receipt.eventId)
+	const beforeRecovery = attempts.length
+	const mapAttemptsBeforeRecovery = attempts.filter((event) => event.kind === 37515).length
+	expect(
+		await executeWebMcpTool(earthly, 'earthly_publish_publication', {
+			previewToken: siblingPreview.previewToken,
+			confirm: true,
+		}),
+	).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+		sideEffectsApplied: false,
+	})
+	expect(attempts).toHaveLength(beforeRecovery)
+	expect(attempts.filter((event) => event.kind === 37520)).toHaveLength(0)
+	const recovered = await executeWebMcpTool(earthly, 'earthly_reconcile_publication', {
+		previewToken: prepared.previewToken,
+	})
+	expect(recovered, JSON.stringify(recovered)).toMatchObject({
+		ok: false,
+		status: 'partial',
+		publicationComplete: false,
+		targetObserved: false,
+		allSignedEventsObserved: true,
+		recoveryBlocked: false,
+		signedOrSent: false,
+		receipts: [{ delivery: 'unknown', observation: { status: 'verified' } }],
+		recoveries: [{ status: 'reconciled' }, { status: 'references_resolved' }],
+	})
+	expect(attempts).toHaveLength(beforeRecovery)
+	const retained = await executeWebMcpTool(earthly, 'earthly_read_story_draft', {
+		draftTarget: story.draftKey,
+	})
+	expect((retained.draft as { markdown: string }).markdown).toContain(
+		`${receipt.reference}#${feature.id}`,
+	)
+	const next = await executeWebMcpTool(earthly, 'earthly_prepare_publication', {
+		target: { kind: 'story', draftKey: story.draftKey },
+	})
+	expect(next, JSON.stringify(next)).toMatchObject({ ok: true, dependencies: [] })
+	acknowledgeMaps = true
+	const published = await executeWebMcpTool(earthly, 'earthly_publish_publication', {
+		previewToken: next.previewToken,
+		confirm: true,
+	})
+	assertDelivered(published, events)
+	expect(attempts.filter((event) => event.kind === 37515)).toHaveLength(mapAttemptsBeforeRecovery)
+	expect(
+		new Set(attempts.filter((event) => event.kind === 37515).map((event) => event.id)),
+	).toEqual(new Set([signedMap.id]))
+	const afterPublication = attempts.length
+	await executeWebMcpTool(earthly, 'earthly_publish_publication', {
+		previewToken: prepared.previewToken,
+		confirm: true,
+	})
+	await executeWebMcpTool(earthly, 'earthly_publish_publication', {
+		previewToken: next.previewToken,
+		confirm: true,
+	})
+	expect(attempts).toHaveLength(afterPublication)
+
+	// An absent or forged relay response cannot release a second signed Map's guard.
+	acknowledgeMaps = false
+	const absentMap = await executeWebMcpTool(earthly, 'earthly_create_map_draft', {
+		title: 'Absent receipt Map',
+		audience: 'public',
+	})
+	await executeWebMcpTool(earthly, 'earthly_write_geojson_to_editor', {
+		mapToken: (absentMap.map as { mapToken: string }).mapToken,
+		geojson: {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					geometry: { type: 'Point', coordinates: [5, 51] },
+					properties: { name: 'A missing receipt facility' },
+				},
+			],
+		},
+	})
+	const absentPreview = await executeWebMcpTool(earthly, 'earthly_prepare_publication', {
+		target: { kind: 'map', workspaceId: absentMap.workspaceId },
+	})
+	const absentAttempt = await executeWebMcpTool(earthly, 'earthly_publish_publication', {
+		previewToken: absentPreview.previewToken,
+		confirm: true,
+	})
+	const absentReceipt = receiptFor(absentAttempt, 37515)
+	const exactAbsent = publishedEvent(events, absentReceipt.eventId)
+	events.delete(exactAbsent.id)
+	const beforeAbsentRead = attempts.length
+	expect(
+		await executeWebMcpTool(earthly, 'earthly_reconcile_publication', {
+			previewToken: absentPreview.previewToken,
+		}),
+	).toMatchObject({
+		ok: false,
+		status: 'delivery_uncertain',
+		publicationComplete: false,
+		receipts: [{ observation: { status: 'uncertain' } }],
+	})
+	events.set(exactAbsent.id, { ...exactAbsent, sig: '0'.repeat(128) })
+	expect(
+		await executeWebMcpTool(earthly, 'earthly_reconcile_publication', {
+			previewToken: absentPreview.previewToken,
+		}),
+	).toMatchObject({
+		ok: false,
+		status: 'delivery_uncertain',
+		publicationComplete: false,
+		recoveries: [],
+	})
+	expect(
+		await executeWebMcpTool(earthly, 'earthly_prepare_publication', {
+			target: { kind: 'map', workspaceId: absentMap.workspaceId },
+		}),
+	).toMatchObject({
+		ok: false,
+		code: 'publication_uncertain',
+	})
+	expect(attempts).toHaveLength(beforeAbsentRead)
+})
 
 async function readFeatures(earthly: EarthlySession, mapToken?: unknown) {
 	const current = mapToken ? { mapToken } : await executeWebMcpTool(earthly, 'earthly_get_map')

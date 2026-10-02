@@ -1,12 +1,6 @@
-import type { Feature, FeatureCollection, LineString } from "geojson";
+import type { Feature, FeatureCollection } from "geojson";
+import { appendRouteCoordinates, routeInOrder, ROUTE_TIMEOUT_MS, ValhallaRequestError, type OrderedRouteResult, type ValhallaLocation, type ValhallaProfile } from "../../src/lib/geo/valhallaRoute";
 import { serverConfig } from "../../src/config/env.server";
-
-type ValhallaProfile = "auto" | "bicycle" | "pedestrian" | "bus" | "truck";
-
-type ValhallaLocation = {
-  lat: number;
-  lon: number;
-};
 
 const DEFAULT_TIMEOUT_MS = 25_000;
 
@@ -30,6 +24,7 @@ async function postValhalla<T>(
   baseUrl: string,
   path: string,
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -40,13 +35,21 @@ async function postValhalla<T>(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
     });
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(
-        `Valhalla ${path} failed (${response.status}): ${text.slice(0, 200)}`,
+      let maxLocations: number | undefined;
+      try {
+        const failure = JSON.parse(text);
+        if (failure.error_code === 150 && typeof failure.error === "string") {
+          const match = failure.error.match(/Exceeded max locations:\s*(\d+)/i);
+          if (match) maxLocations = Number(match[1]);
+        }
+      } catch { /* An HTML or malformed error never proves a waypoint limit. */ }
+      throw new ValhallaRequestError(
+        `Valhalla ${path} failed (${response.status}): ${text.slice(0, 200)}`, maxLocations,
       );
     }
 
@@ -58,6 +61,8 @@ async function postValhalla<T>(
 
 type ValhallaRouteResponse = {
   trip?: {
+    status?: number;
+    units?: string;
     summary?: {
       length?: number;
       time?: number;
@@ -76,13 +81,17 @@ function asLineCoordinates(value: unknown): [number, number][] {
   if (typeof value === "string") {
     return decodePolyline(value, 6);
   }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const geometry = value as { type?: unknown; coordinates?: unknown };
+    if (geometry.type === "LineString") return asLineCoordinates(geometry.coordinates);
+  }
   if (!Array.isArray(value)) return [];
   return value
     .map((point) => {
-      if (!Array.isArray(point) || point.length < 2) return null;
-      const lon = Number(point[0]);
-      const lat = Number(point[1]);
-      if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+      if (!Array.isArray(point) || point.length < 2 || typeof point[0] !== "number" || typeof point[1] !== "number") throw new Error("Valhalla returned an invalid route vertex");
+      const lon = point[0];
+      const lat = point[1];
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) throw new Error("Valhalla returned an invalid route vertex");
       return [lon, lat] as [number, number];
     })
     .filter((point): point is [number, number] => Boolean(point));
@@ -103,8 +112,9 @@ function decodePolyline(
     let shift = 0;
     let byte = 0;
     do {
-      if (index >= encoded.length) return coordinates;
+      if (index >= encoded.length) throw new Error("Valhalla returned a truncated route polyline");
       byte = encoded.charCodeAt(index++) - 63;
+      if (byte < 0 || byte > 63 || shift > 30) throw new Error("Valhalla returned an invalid route polyline");
       result |= (byte & 0x1f) << shift;
       shift += 5;
     } while (byte >= 0x20);
@@ -114,8 +124,9 @@ function decodePolyline(
     result = 0;
     shift = 0;
     do {
-      if (index >= encoded.length) return coordinates;
+      if (index >= encoded.length) throw new Error("Valhalla returned a truncated route polyline");
       byte = encoded.charCodeAt(index++) - 63;
+      if (byte < 0 || byte > 63 || shift > 30) throw new Error("Valhalla returned an invalid route polyline");
       result |= (byte & 0x1f) << shift;
       shift += 5;
     } while (byte >= 0x20);
@@ -133,75 +144,41 @@ export async function valhallaRoute(params: {
   profile?: ValhallaProfile;
   units?: "kilometers" | "miles";
   baseUrl?: string;
-}): Promise<{
-  feature: Feature<LineString> | null;
-  summary: { lengthKm: number; durationMin: number; profile: ValhallaProfile };
-}> {
+  signal?: AbortSignal;
+}): Promise<OrderedRouteResult> {
   const profile = params.profile ?? "auto";
   const units = params.units ?? "kilometers";
   const baseUrl = resolveValhallaBaseUrl(params.baseUrl);
-
-  const payload = {
+  const deadline = AbortSignal.timeout(ROUTE_TIMEOUT_MS);
+  const signal = params.signal ? AbortSignal.any([params.signal, deadline]) : deadline;
+  return routeInOrder({
     locations: params.locations,
-    costing: profile,
-    units,
-    directions_options: { units },
-    shape_format: "geojson",
-    narrative: false,
-  };
-
-  const response = await postValhalla<ValhallaRouteResponse>(
-    baseUrl,
-    "/route",
-    payload,
-  );
-  const legs = Array.isArray(response.trip?.legs) ? response.trip.legs : [];
-  const coordinates = legs.reduce<[number, number][]>((acc, leg) => {
-    const segment = asLineCoordinates(leg?.shape);
-    if (segment.length === 0) return acc;
-    if (acc.length > 0) {
-      const [lastLon, lastLat] = acc[acc.length - 1];
-      const [firstLon, firstLat] = segment[0];
-      if (lastLon === firstLon && lastLat === firstLat) {
-        acc.push(...segment.slice(1));
-        return acc;
+    profile,
+    backendCap: serverConfig.valhallaMaxLocations,
+    signal,
+    request: async (locations, requestSignal) => {
+      const response = await postValhalla<ValhallaRouteResponse>(baseUrl, "/route", {
+        locations, costing: profile, units, directions_options: { units },
+        shape_format: "geojson", narrative: false,
+      }, requestSignal);
+      const legs = Array.isArray(response.trip?.legs) ? response.trip.legs : [];
+      if (response.trip?.status !== 0 || legs.length !== locations.length - 1)
+        throw new Error("Valhalla returned an unsuccessful route or missing waypoint legs");
+      const coordinates: [number, number][] = [];
+      for (const leg of legs) {
+        if (!appendRouteCoordinates(coordinates, asLineCoordinates(leg.shape)))
+          throw new Error("Valhalla returned missing or discontinuous leg geometry");
       }
-    }
-    acc.push(...segment);
-    return acc;
-  }, []);
-  const firstLeg = legs[0];
-  const lengthKm = Number(
-    response.trip?.summary?.length ?? firstLeg?.summary?.length ?? 0,
-  );
-  const durationMin =
-    Number(response.trip?.summary?.time ?? firstLeg?.summary?.time ?? 0) / 60;
-
-  const feature: Feature<LineString> | null =
-    coordinates.length >= 2
-      ? {
-          type: "Feature",
-          properties: {
-            source: "valhalla",
-            profile,
-            lengthKm,
-            durationMin,
-          },
-          geometry: {
-            type: "LineString",
-            coordinates,
-          },
-        }
-      : null;
-
-  return {
-    feature,
-    summary: {
-      lengthKm,
-      durationMin,
-      profile,
+      const summary = response.trip?.summary;
+      if (typeof summary?.length !== "number" || typeof summary.time !== "number")
+        throw new Error("Valhalla returned no route summary");
+      return {
+        coordinates,
+        lengthKm: summary.length * ((response.trip?.units ?? units) === "miles" ? 1.609344 : 1),
+        durationMin: summary.time / 60,
+      };
     },
-  };
+  });
 }
 
 type ValhallaIsochroneResponse = {

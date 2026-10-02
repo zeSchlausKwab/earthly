@@ -56,6 +56,7 @@ import {
 import { schemaFor } from './schemas'
 import type { Tool } from './types'
 import { parsePredicate, resolveSelectionScope } from './bulk-tools'
+import { registerPolygonBooleanTools } from './polygon-boolean-tools'
 
 const GEOMETRY_UNITS: PrimitiveUnits[] = ['meters', 'kilometers', 'miles']
 
@@ -443,6 +444,7 @@ export function applyOptimizedCollection(
  * circular-init crash (Pitfall 6 / mirrors `registerBulkTools`).
  */
 export function registerGeometryTools(register: (entry: ToolEntry) => void): void {
+	registerPolygonBooleanTools(register)
 	register({
 		name: 'update_feature_geometry',
 		kind: 'authoring-primitive',

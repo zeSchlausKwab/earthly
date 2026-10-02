@@ -126,6 +126,9 @@ export const envSchema = z.object({
 	/** Valhalla API base URL for routing/isochrone tools (backend only) */
 	VALHALLA_URL: z.string().url().optional(),
 
+	/** Maximum waypoints per backend route request; the public production backend allows 10. */
+	VALHALLA_MAX_LOCATIONS: z.coerce.number().int().min(2).max(100).default(10),
+
 	/** Read-only GeoCatalog SQLite snapshot used by the ContextVM server (backend only) */
 	GEOCATALOG_PATH: z.string().min(1).default('./data/geocatalog/current.sqlite'),
 

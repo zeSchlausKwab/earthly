@@ -14,6 +14,12 @@ export const installIsolatedRelaysTask: AiTaskMetadata = {
 export async function installIsolatedRelays(
 	earthly: EarthlySession,
 	events?: Map<string, NostrEvent>,
+	options: {
+		/** Store delivery normally but choose whether this fixture returns a positive ACK. */
+		acknowledgeEvent?: (event: NostrEvent) => boolean
+		/** Count every EVENT attempt, including repeat transmission of the same signed ID. */
+		onPublish?: (event: NostrEvent) => void
+	} = {},
 ) {
 	const publishedEvents = new Map<string, number>()
 	await earthly.page.routeWebSocket(/wss?:\/\//, (socket) => {
@@ -28,9 +34,17 @@ export async function installIsolatedRelays(
 					socket.send(JSON.stringify(['EOSE', frame[1]]))
 				}
 				if (frame[0] === 'EVENT') {
+					options.onPublish?.(frame[1])
 					publishedEvents.set(frame[1].id, frame[1].kind)
 					events?.set(frame[1].id, frame[1])
-					socket.send(JSON.stringify(['OK', frame[1].id, true, 'fixture']))
+					socket.send(
+						JSON.stringify([
+							'OK',
+							frame[1].id,
+							options.acknowledgeEvent?.(frame[1]) ?? true,
+							'fixture',
+						]),
+					)
 				}
 			} catch {
 				// Bun HMR is not a relay.

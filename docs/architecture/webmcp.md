@@ -163,8 +163,8 @@ requires the exact revision returned by `earthly_read_entity`; an intervening re
 before seeding local work. Existing retained edits are reopened without replacing their unsaved
 content. Forks retain source provenance and use a separate draft identity. Private contexts,
 field publication and proposal channels are outside this public workflow.
-Legacy retained document edits without a known original source revision require an explicit copy
-or review and reopening before native publication; preparation never guesses a newer base for them.
+Retained document edits with an outdated or unknown original source revision require explicit
+rebasing before native publication; preparation never guesses a newer base for them.
 
 Published Map inventories are paginated. `earthly_read_entity` returns `offset`, `limit`,
 `nextOffset` and `revisionId`, with at most 150 features per page. Continue with the same reference,
@@ -172,11 +172,39 @@ the returned `nextOffset` and the first page’s exact `revisionId`; stop when `
 A changed public revision fails instead of mixing inventories. Reduce `limit` if a page exceeds the
 512 KiB result budget, or read one exact `featureId`. Each successful page grants only the feature
 IDs it actually returns; later pages extend those grants for the same public revision.
+Use `refresh:true` on a public read to query configured relays for newer revisions even when the
+source is cached. The read retains a newer known revision if a relay returns older data or is
+unavailable. Read the first page again after a refresh; an old pagination `revisionId` cannot mix
+its inventory with a newly discovered revision. This read does not restart the tool session.
 
 `earthly_update_feature_geometry` accepts one exact feature ID and replacement geometry with the
 current `mapToken`. It preserves the feature's ID, complete properties, styles, callouts and
 provenance, and leaves other geometries alone. It shares edit review, revision checks and Undo
 with chat. Use this for moving or reshaping existing objects rather than replacing a full dataset.
+
+`polygon_boolean` in chat and `earthly_polygon_boolean` in the browser accept `operation`
+(`intersection`, `difference`, `union`), one `sourceFeatureId`, `maskFeatureIds`, and mandatory
+`resultMode` (`append` or `replace-source`). Read exact IDs first. Intersection and difference use
+the union of all masks. Replace preserves the source ID and all its properties; append assigns
+a fresh ID and preserves source properties with derivation metadata. Masks are retained. One
+result goes through the existing review and Undo; an empty result returns `emptyResult:true`
+without editing or review. The shared engine also serves the manual Boolean editor, whose existing
+two-input consumption behavior remains intact.
+
+The planar polygon engine accepts Polygon/MultiPolygon inputs with at most 50 masks, 10,000 total
+positions and 1 MiB geometry. Coordinates must be finite 2D WGS84; invalid topology and unsplit
+antimeridian crossings are rejected. Split such geometry or prepare it with a suitable GIS tool
+before import. These bounded operations do not add shapefile decoding or CRS conversion.
+
+`earthly_valhalla_route` and chat routing accept 2–100 ordered locations. Individual requests use
+`VALHALLA_MAX_LOCATIONS` (default 10), matching the verified limit of the deployed backend. Ordered
+batches share one boundary waypoint and run sequentially. The whole route is limited to 16 HTTP
+requests and 25 seconds; the frontend deadline is 35 seconds including connection setup.
+Only an explicit first-request Valhalla error 150 proving a smaller cap triggers a retry.
+`routing.status`, coverage, batch count and failed waypoint indices identify complete, partial
+and failed results. Incomplete routes return `feature:null` and separate successful `segments`;
+`toEditor:true` refuses them. Missing legs, invalid geometry and discontinuous seams never produce
+a fabricated joining line. Deploy the frontend and ContextVM together for the updated contract.
 
 ## Explicit public publication
 
@@ -206,8 +234,30 @@ publication Undo is promised. Ordinary geometry and document edits remain local 
 A positive relay acknowledgement also grants the exact signed Map or Story as a document source
 for the current tool session. Newly published inline Map feature IDs can immediately be cited in
 a Story without rereading the Map. Grants come from the signed payload, never later retained edits;
-external-blob placeholder IDs are excluded. Uncertain delivery, cancelled sessions and account/access
+external-blob placeholder IDs are excluded. Unverified delivery, cancelled sessions and account/access
 changes do not create these grants.
+
+`earthly_reconcile_publication` takes the original `{previewToken}` and reads only the exact signed
+event IDs retained in that tool session from configured public relays. It verifies complete signed
+payloads and signatures using a dedicated connection that sends REQ/CLOSE, never EVENT or AUTH.
+It does not sign, retry delivery, upload or fork. Receipts preserve `delivery:"unknown"` when the
+original acknowledgement was lost; `observation.status:"verified"` records independent relay
+evidence. Absence, authentication requirements and timeout remain uncertain, not proof of failure.
+`publicationComplete` requires observation of the target and all signed dependencies; observing
+only a dependent Map does not imply that its Story/Atlas was signed or published.
+
+Verified receipts can reconcile captured local Map identities while leaving later geometry edits
+dirty, and grant only exact signed source/feature bytes. Unchanged unsigned parent drafts can
+replace completed local Map references with public addresses. Signed document baselines recover
+only when their retained revision is unchanged; a changed draft returns an explicit recovery block
+instead of silently adopting a base or creating a new identity. A successful explicit rebase can
+resolve an observed older parent receipt at the same public address; Undo reactivates its guard.
+Uncertain Map receipts also block attempts to republish that workspace through a different parent.
+For an unsigned parent whose dependencies were safely recovered, later prose is preserved and a
+fresh publication preview remains available. Prepare a fresh parent publication after recovered
+dependencies, or explicitly rebase/fork when needed. Preview tokens and signed
+receipt evidence do not survive a tool-session reset. Repeating the finished publication token
+returns its recorded receipt without signing again.
 
 ## Story and Atlas drafts
 
@@ -263,6 +313,34 @@ cannot be overwritten. Commits refresh the matching form without navigation or t
 Story preview performs the same account, access and exact draft-revision checks. It is a reversible
 view action: no document content edit, approval, signature or publication occurs.
 
+### Explicit document rebasing
+
+For an owned retained Story or Atlas, read the local draft and the latest whole public document
+using `earthly_read_entity` with `refresh:true`.
+Call `earthly_prepare_document_rebase` with `{kind,draftTarget,draftToken,sourceRevisionId}`;
+`sourceRevisionId` is the exact `revisionId` returned by `earthly_read_entity`. The comparison returns
+a private `rebaseToken`, complete base/local/remote field values and named conflicts. Preparation
+does not change content, baselines or publication identity. It cannot rebase another author’s work
+or a new independent draft without a public base.
+
+Apply with `{rebaseToken,confirm:true,resolutions}`. Each conflicted field needs `{choice:"local"}`,
+`{choice:"remote"}`, or `{choice:"merged",value:completeFieldValue}`. Disjoint remote changes merge
+automatically; no line-level narrative or view merge is guessed. Story fields are title, summary,
+image, content and presentation. Atlas fields are name, description, image, curatedReferences,
+presentation and policy; governance, schema and geometry constraints form one policy field.
+Opaque future presentation snapshots can be retained unchanged; newly merged presentations must
+use supported valid fields and match the chosen body/curated references. New references and feature
+selectors still need the current source grants.
+
+The original Story semantics can be recovered from its retained publication fingerprint if the
+exact old event is unavailable. An Atlas without its exact original event, or a legacy Story without
+a known original, requires an explicit choice for every differing field. Comparisons are complete
+and limited to 512 KiB; values are never truncated. At most 16 preview leases are retained, expiring
+after 10 minutes. Account changes, revocation, mounted human input, or an intervening public/local
+revision invalidate application. Apply uses one existing edit review and exact Undo, refreshes the
+matching editor, and advances only the local public baseline. It never signs or publishes. Prepare
+publication separately after a successful rebase.
+
 `earthly_set_map_view` accepts center/zoom/bearing/pitch; `earthly_fit_map_view` frames the dataset,
 selection, feature ids or explicit bounds, with padding/maxZoom. `earthly_set_basemap_style` chooses
 one of the existing Map settings styles and applies only to the default source. Camera changes do
@@ -305,15 +383,16 @@ Lifecycle/publication tests cover source revisions, independent forks, publicati
 relay receipts, partial failure, account changes, acknowledged source grants and dependency publication.
 Document tests also cover rendered preview tokens, partial edits, published-reference preservation, feature-scope restrictions,
 mounted input, independent output identities, account isolation and shared chat dispatch.
-`ai-suite/scenarios/webmcp.spec.ts`, `webmcp-documents.spec.ts` and `webmcp-lifecycle.spec.ts`
+`ai-suite/scenarios/webmcp.spec.ts`, `webmcp-documents.spec.ts`, `webmcp-polygon-boolean.spec.ts`,
+`webmcp-rebase.spec.ts` and `webmcp-lifecycle.spec.ts`
 exercise the real native API in Chromium with `--enable-features=WebMCP`, loopback-only tasks and
 isolated relay fixtures. Map/document regressions cover desktop and mobile; the signed lifecycle
 scenario uses the desktop NIP-07 fixture.
 Remote handlers are mocked in unit tests; browser scenarios verify remote-tool discovery and grants
 without sending mutating tasks to a public relay.
 
-See [the authoring friction review](./webmcp-authoring-friction.md) for remaining geometry,
-routing, ingestion and publication-recovery opportunities.
+See [the authoring friction review](./webmcp-authoring-friction.md) for implementation outcomes and
+remaining ingestion/client constraints.
 
 - [Chrome WebMCP imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api)
 - [WebMCP community draft](https://webmachinelearning.github.io/webmcp/)

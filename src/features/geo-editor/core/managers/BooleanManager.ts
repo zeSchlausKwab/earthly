@@ -1,5 +1,4 @@
-import { polygon, union, difference, featureCollection } from '@turf/turf'
-import type { Geometry } from 'geojson'
+import { performPolygonBoolean } from '../../api/polygonBoolean'
 import type { EditorFeature, EditorOperationContext } from '../types'
 import { normalizeFeature } from '../utils/featureHelpers'
 
@@ -75,29 +74,24 @@ export class BooleanManager {
 		}
 
 		try {
-			let result: GeoJSON.Feature | null = null
-
-			const poly1 = polygon((firstFeature.geometry as any).coordinates)
-			const poly2 = polygon((secondFeature.geometry as any).coordinates)
-
-			if (this.booleanOperation.type === 'union') {
-				result = union(featureCollection([poly1, poly2]))
-			} else {
-				result = difference(featureCollection([poly1, poly2]))
-			}
-
-			if (!result || !result.geometry) {
+			const result = performPolygonBoolean(
+				firstFeature,
+				[secondFeature],
+				this.booleanOperation.type,
+			)
+			if (!result.geometry) {
 				this.cancel()
 				return false
 			}
 
+			const id = crypto.randomUUID()
 			const newFeature: EditorFeature = {
 				...firstFeature,
-				id: crypto.randomUUID(),
-				geometry: result.geometry as Geometry,
+				id,
+				geometry: result.geometry,
 				properties: {
 					...firstFeature.properties,
-					featureId: crypto.randomUUID(),
+					featureId: id,
 				},
 			}
 

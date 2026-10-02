@@ -7,6 +7,7 @@ export const BROWSER_EDITOR_TOOLS = [
 	'write_geojson_to_editor',
 	'add_feature_to_editor',
 	'update_feature_geometry',
+	'polygon_boolean',
 	'batch_edit_features',
 	'dedup_features',
 	'style_by_attribute',

@@ -49,7 +49,9 @@ function notifyDraftsChanged() {
 /** Unpublished Stories remain discoverable even if their originating Thread is deleted. */
 export function listNewStoryDrafts(pubkey?: string | null) {
 	return listAllStoryDrafts(pubkey)
-		.filter(({ draftKey }) => draftKey === NEW_STORY_DRAFT_KEY || draftKey.startsWith('thread-story:'))
+		.filter(
+			({ draftKey }) => draftKey === NEW_STORY_DRAFT_KEY || draftKey.startsWith('thread-story:'),
+		)
 		.sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
@@ -94,9 +96,17 @@ export function writeStoryDraft(
 	dTag: string,
 	draft: Omit<StoryDraft, 'updatedAt'> & Partial<Pick<StoryDraft, 'updatedAt'>>,
 	pubkey?: string | null,
+	options: { preservePublication?: boolean } = {},
 ): void {
 	const map = readDraftMap(pubkey)
-	map[dTag] = { ...draft, publication: draft.publication ?? map[dTag]?.publication, updatedAt: draft.updatedAt ?? Date.now() }
+	map[dTag] = {
+		...draft,
+		publication:
+			options.preservePublication === false
+				? draft.publication
+				: (draft.publication ?? map[dTag]?.publication),
+		updatedAt: draft.updatedAt ?? Date.now(),
+	}
 	writeScopedStorage(STORY_DRAFTS_STORAGE_KEY, map, pubkey)
 	notifyDraftsChanged()
 }
@@ -104,23 +114,30 @@ export function writeStoryDraft(
 function isStoryPublication(value: unknown): value is NonNullable<StoryDraft['publication']> {
 	if (!value || typeof value !== 'object') return false
 	const record = value as Record<string, unknown>
-	return ['reference', 'eventId', 'fingerprint'].every(key => typeof record[key] === 'string')
+	return ['reference', 'eventId', 'fingerprint'].every((key) => typeof record[key] === 'string')
 }
 
 /** Match published semantics, ignoring authoring tabs, timestamps, and object key order. */
 export function storyContentFingerprint(content: Partial<StoryDraft>): string {
 	const canonical = (value: unknown): unknown => {
 		if (Array.isArray(value)) return value.map(canonical)
-		if (value && typeof value === 'object') return Object.fromEntries(
-			Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)]),
-		)
+		if (value && typeof value === 'object')
+			return Object.fromEntries(
+				Object.entries(value)
+					.sort(([a], [b]) => a.localeCompare(b))
+					.map(([key, item]) => [key, canonical(item)]),
+			)
 		return value
 	}
-	return JSON.stringify(canonical({
-		title: content.title?.trim() || '', summary: content.summary?.trim() || '',
-		image: content.image?.trim() || '', content: content.content ?? '',
-		presentation: content.presentation,
-	}))
+	return JSON.stringify(
+		canonical({
+			title: content.title?.trim() || '',
+			summary: content.summary?.trim() || '',
+			image: content.image?.trim() || '',
+			content: content.content ?? '',
+			presentation: content.presentation,
+		}),
+	)
 }
 
 /** Remove a single Story draft (call on publish). No-op if absent. */

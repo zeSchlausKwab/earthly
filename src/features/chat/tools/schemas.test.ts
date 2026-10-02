@@ -83,14 +83,14 @@ describe('catalog-first geography tool descriptions', () => {
 	it('limits Valhalla to supported coordinate routing and keeps rail explicit', () => {
 		const tool = schemaFor('valhalla_route')
 		const description = tool.function.description.toLowerCase()
-		expect(description).toContain('2 to 25 coordinate waypoints')
+		expect(description).toContain('2 to 100 coordinate waypoints')
 		expect(description).toContain('not a road-name search')
 		expect(description).toContain('full-relation retrieval')
 		expect(description).toContain('does not route rail')
 		expect(description).toContain('route_over_network')
 		expect(description).toMatch(/otherwise report it as unsupported/)
 		expect(tool.function.parameters.properties.locations.description).toContain(
-			'2 to 25 coordinates',
+			'2 to 100 coordinates',
 		)
 	})
 

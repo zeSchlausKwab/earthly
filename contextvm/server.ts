@@ -992,24 +992,24 @@ async function main() {
     {
       title: "Valhalla Route",
       description:
-        "Compute a network-following road, bus, bicycle, pedestrian, or truck journey through 2 to 25 coordinate waypoints using Valhalla and return GeoJSON line geometry. Valhalla is not a road-name search or full-relation retrieval tool and does not route rail. Rail routing requires an actual supplied or editor LineString network with route_over_network; otherwise report it as unsupported.",
+        "Compute a network-following road, bus, bicycle, pedestrian, or truck journey through 2 to 100 coordinate waypoints in ordered batches (configured backend cap, normally 10; at most 16 batches and 25 seconds total) using Valhalla and return complete continuous GeoJSON line geometry, or explicit partial batch diagnostics without an importable route. Valhalla is not a road-name search or full-relation retrieval tool and does not route rail. Rail routing requires an actual supplied or editor LineString network with route_over_network; otherwise report it as unsupported.",
       inputSchema: valhallaRouteInputSchema,
       outputSchema: valhallaRouteOutputSchema,
     },
-    async ({ locations, profile, units, baseUrl }) => {
+    async ({ locations, profile, units, baseUrl }, extra) => {
       try {
         const result = await valhallaRoute({
           locations,
           profile,
           units,
           baseUrl,
+          signal: extra.signal,
         });
         return {
           content: [],
           structuredContent: {
             result: {
-              feature: result.feature,
-              summary: result.summary,
+              ...result,
             },
           },
         };
