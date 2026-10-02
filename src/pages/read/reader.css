@@ -230,6 +230,8 @@
 
 .earthly-reader__body section[data-story-view-id] {
 	margin-block: 1.45rem;
+	/* The article's scroll padding already accounts for both sticky controls. */
+	scroll-margin-top: 0;
 	font-family: var(--font-ui);
 }
 

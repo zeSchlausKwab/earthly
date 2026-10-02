@@ -89,6 +89,13 @@ interface MediaBlock {
 	type: 'image' | 'video' | 'youtube'
 	url: string
 	label?: string
+	/** Authored image description, independent of a visible media label. */
+	alt?: string
+}
+
+interface ImagePreview {
+	url: string
+	alt: string
 }
 
 interface TableBlock {
@@ -487,6 +494,7 @@ function parseContent(text: string, availableFeatures: GeoFeatureItem[]): Conten
 					type: mediaType,
 					url: markdownImageMatch[2],
 					label: mediaLabel ?? markdownImageMatch[1] ?? undefined,
+					alt: markdownImageMatch[1] ?? '',
 				})
 				continue
 			}
@@ -724,7 +732,11 @@ function GeoMentionChip({
 	)
 }
 
-function renderMediaBlock(block: MediaBlock, index: number, onImageOpen?: (url: string) => void) {
+function renderMediaBlock(
+	block: MediaBlock,
+	index: number,
+	onImageOpen?: (image: ImagePreview) => void,
+) {
 	const label = block.label ? `${block.label.charAt(0).toUpperCase()}${block.label.slice(1)}` : null
 
 	if (block.type === 'image') {
@@ -737,12 +749,13 @@ function renderMediaBlock(block: MediaBlock, index: number, onImageOpen?: (url: 
 				)}
 				<button
 					type="button"
-					onClick={() => onImageOpen?.(block.url)}
+					onClick={() => onImageOpen?.({ url: block.url, alt: block.alt ?? '' })}
+					aria-label={block.alt ? `Open image preview: ${block.alt}` : 'Open image preview'}
 					className="block w-full overflow-hidden rounded-xl border border-primary/40 bg-primary/10 text-left"
 				>
 					<img
 						src={block.url}
-						alt=""
+						alt={block.alt ?? ''}
 						loading="lazy"
 						className="block max-h-[320px] w-full object-contain"
 					/>
@@ -918,7 +931,7 @@ export function RichContentRenderer({
 		() => parseContent(content, availableFeatures),
 		[content, availableFeatures],
 	)
-	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+	const [lightboxImage, setLightboxImage] = useState<ImagePreview | null>(null)
 
 	if (blocks.length === 0) {
 		return emptyState ? <div className={className}>{emptyState}</div> : null
@@ -1076,9 +1089,9 @@ export function RichContentRenderer({
 					)
 				}
 
-				return renderMediaBlock(block, index, setLightboxUrl)
+				return renderMediaBlock(block, index, setLightboxImage)
 			})}
-			{lightboxUrl &&
+			{lightboxImage &&
 				typeof document !== 'undefined' &&
 				createPortal(
 					<div
@@ -1088,10 +1101,10 @@ export function RichContentRenderer({
 						tabIndex={-1}
 						className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
 						onClick={(event) => {
-							if (event.target === event.currentTarget) setLightboxUrl(null)
+							if (event.target === event.currentTarget) setLightboxImage(null)
 						}}
 						onKeyDown={(event) => {
-							if (event.key === 'Escape') setLightboxUrl(null)
+							if (event.key === 'Escape') setLightboxImage(null)
 						}}
 					>
 						<Button
@@ -1099,14 +1112,14 @@ export function RichContentRenderer({
 							variant="ghost"
 							size="icon-lg"
 							className="absolute right-4 top-4 rounded-full bg-card/10 text-white hover:bg-card/20 hover:text-white"
-							onClick={() => setLightboxUrl(null)}
+							onClick={() => setLightboxImage(null)}
 							aria-label="Close image preview"
 						>
 							<X className="h-5 w-5" />
 						</Button>
 						<img
-							src={lightboxUrl}
-							alt=""
+							src={lightboxImage.url}
+							alt={lightboxImage.alt}
 							className="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl"
 						/>
 					</div>,

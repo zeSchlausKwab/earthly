@@ -219,6 +219,36 @@ describe('RichContentRenderer tables', () => {
 	})
 })
 
+describe('RichContentRenderer image descriptions', () => {
+	function renderImage(content: string) {
+		return renderToStaticMarkup(createElement(RichContentRenderer, { content }))
+	}
+	test('preserves and escapes authored Markdown alt text in the image and preview control', () => {
+		const html = renderImage('![River crossing & "old" bridge](https://images.test/bridge.jpg)')
+		expect(html).toContain('alt="River crossing &amp; &quot;old&quot; bridge"')
+		expect(html).toContain(
+			'aria-label="Open image preview: River crossing &amp; &quot;old&quot; bridge"',
+		)
+	})
+
+	test('keeps authored alt text when a separate visible media label precedes it', () => {
+		const html = renderImage('Image:\n![A cargo ship at the quay](https://images.test/port.png)')
+		expect(html).toContain('alt="A cargo ship at the quay"')
+		expect(html).not.toContain('alt="Image"')
+	})
+
+	test('preserves intentionally empty descriptions without leaving an unnamed preview button', () => {
+		for (const content of [
+			'![](https://images.test/decorative.png)',
+			'https://images.test/photo.jpg',
+		]) {
+			const html = renderImage(content)
+			expect(html).toContain('alt=""')
+			expect(html).toContain('aria-label="Open image preview"')
+		}
+	})
+})
+
 describe('RichContentRenderer Story views', () => {
 	test('renders cue and figure blocks physically while leaving malformed blocks inert', () => {
 		const cue = stringifyStoryViewMarkdownBlock({

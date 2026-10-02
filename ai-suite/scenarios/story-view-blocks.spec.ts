@@ -32,18 +32,39 @@ interface Ww1StoryFixture {
 	story: { event: NostrEvent; readerPath: string }
 }
 
-async function buildWw1StoryFixture(): Promise<Ww1StoryFixture> {
+async function buildWw1StoryFixture(markdownPrefix = ''): Promise<Ww1StoryFixture> {
 	// Invoke the SAME production-codec builder in Bun without broadening the AI-suite
 	// TS graph to the application's pre-existing factory/cast diagnostics.
-	const result = await promisify(execFile)('bun', [resolve('scripts/fixtures/ww1-story.ts')], {
+	const fixturePath = resolve('scripts/fixtures/ww1-story.ts')
+	const args = markdownPrefix
+		? [
+				'--eval',
+				`
+			import { buildWw1StoryFixture } from ${JSON.stringify(fixturePath)};
+			import { devIdentities } from './src/lib/seeder/identities.ts';
+			const fixture = await buildWw1StoryFixture();
+			const source = fixture.story.event;
+			const content = JSON.parse(source.content);
+			const event = await devIdentities().owner.signer.signEvent({
+				kind: source.kind, tags: source.tags, created_at: source.created_at,
+				content: JSON.stringify({ ...content, content: process.env.EARTHLY_STORY_MARKDOWN_PREFIX + '\\n\\n' + content.content }),
+			});
+			fixture.events = fixture.events.map((entry) => entry.id === source.id ? event : entry);
+			fixture.story.event = event;
+			console.log(JSON.stringify(fixture));
+		`,
+			]
+		: [fixturePath]
+	const result = await promisify(execFile)('bun', args, {
 		maxBuffer: 2 * 1024 * 1024,
+		env: { ...process.env, EARTHLY_STORY_MARKDOWN_PREFIX: markdownPrefix },
 	})
 	return JSON.parse(result.stdout) as Ww1StoryFixture
 }
 
-async function openFixture(earthly: EarthlySession): Promise<Ww1StoryFixture> {
+async function openFixture(earthly: EarthlySession, markdownPrefix = ''): Promise<Ww1StoryFixture> {
 	await authorizeJourneyIdentity(earthly, 'owner')
-	const fixture = await buildWw1StoryFixture()
+	const fixture = await buildWw1StoryFixture(markdownPrefix)
 	await earthly.page.addInitScript((events) => {
 		const addWhenReady = () => {
 			const store = (
@@ -118,6 +139,28 @@ async function assertCuePresented(block: Locator) {
 			}),
 		)
 		.toBe(true)
+}
+
+async function cueAlignment(block: Locator) {
+	return block.evaluate((element) => {
+		const root = element.closest('.earthly-reader__article')
+		const controls = root?.querySelector('[aria-label="Story map presentation"]')
+		if (!root || !controls) throw new Error('Reader scroll surface and presenter are missing.')
+		const cue = element.getBoundingClientRect()
+		const sticky = controls.getBoundingClientRect()
+		return {
+			gap: cue.top - sticky.bottom,
+			cueTop: cue.top,
+			controlsBottom: sticky.bottom,
+			scrollPadding: getComputedStyle(root).scrollPaddingTop,
+			scrollMargin: getComputedStyle(element).scrollMarginTop,
+		}
+	})
+}
+
+async function assertCueAligned(block: Locator) {
+	await expect.poll(async () => (await cueAlignment(block)).gap).toBeGreaterThanOrEqual(0)
+	await expect.poll(async () => (await cueAlignment(block)).gap).toBeLessThanOrEqual(20)
 }
 
 async function camera(earthly: EarthlySession) {
@@ -441,4 +484,75 @@ test('WW1 Follow text changes only at driving cue crossings and preserves manual
 	await page.screenshot({
 		path: testInfo.outputPath(`ww1-follow-text-${earthly.isMobile ? 'mobile' : 'desktop'}.png`),
 	})
+})
+
+test('Reader timeline places the selected cue directly below its sticky controls', async ({
+	earthly,
+}, testInfo) => {
+	const fixture = await openFixture(earthly)
+	const page = earthly.page
+	const timeline = page.getByRole('list', { name: 'Story timeline', exact: true })
+	await timeline.getByRole('button').nth(1).click()
+	const target = viewBlock(earthly, 'ww1-1916')
+	const reduction = reduceStoryViewBlocks(fixture.presentation, fixture.views)
+	await assertCamera(earthly, reduction.snapshots[1]?.state.camera)
+	try {
+		await assertCueAligned(target)
+		await expect(timeline.getByRole('button').nth(1)).toHaveAttribute('aria-current', 'step')
+	} finally {
+		await testInfo.attach('Reader timeline alignment', {
+			body: JSON.stringify(await cueAlignment(target), null, 2),
+			contentType: 'application/json',
+		})
+	}
+})
+
+test('Reader preserves image descriptions in previews and keeps a timeline jump aligned after image load', async ({
+	earthly,
+}) => {
+	const page = earthly.page
+	const description = 'Cargo ship at the river harbour'
+	const imageURL = new URL('/reader-image-fixture/harbour.svg', earthly.environment.baseURL).href
+	let releaseImage!: () => void
+	let requested = false
+	const imageReady = new Promise<void>((resolve) => {
+		releaseImage = resolve
+	})
+	await page.route('**/reader-image-fixture/harbour.svg', async (route) => {
+		requested = true
+		await imageReady
+		await route.fulfill({
+			contentType: 'image/svg+xml',
+			body: '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="720"><rect width="960" height="720" fill="#47647b"/></svg>',
+		})
+	})
+	try {
+		const fixture = await openFixture(earthly, `Image:\n![${description}](${imageURL})`)
+		await expect.poll(() => requested).toBe(true)
+		const timeline = page.getByRole('list', { name: 'Story timeline', exact: true })
+		await timeline.getByRole('button').nth(1).click()
+		const target = viewBlock(earthly, 'ww1-1916')
+		const reduction = reduceStoryViewBlocks(fixture.presentation, fixture.views)
+		await assertCamera(earthly, reduction.snapshots[1]?.state.camera)
+		await assertCueAligned(target)
+		releaseImage()
+		const image = page.getByRole('img', { name: description, exact: true })
+		await expect
+			.poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth))
+			.toBe(960)
+		await assertCueAligned(target)
+		await expect(timeline.getByRole('button').nth(1)).toHaveAttribute('aria-current', 'step')
+		await page
+			.getByRole('button', { name: `Open image preview: ${description}`, exact: true })
+			.click()
+		const preview = page.getByRole('dialog', { name: 'Image preview', exact: true })
+		await expect(preview.getByRole('img', { name: description, exact: true })).toHaveAttribute(
+			'src',
+			imageURL,
+		)
+		await preview.getByRole('button', { name: 'Close image preview', exact: true }).click()
+		await expect(preview).toHaveCount(0)
+	} finally {
+		releaseImage()
+	}
 })
