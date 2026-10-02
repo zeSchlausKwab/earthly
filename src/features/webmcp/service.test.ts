@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { finalizeEvent } from 'nostr-tools'
+import { eventStore } from '@/lib/nostr'
+import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
 import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import type { GeoEditor, EditorFeature } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
@@ -9,7 +13,7 @@ import {
 	retainChatToolExecution,
 } from '@/features/chat/tools/externalExecution'
 import { releaseToolExecutionRun } from '@/features/chat/tools/executionTarget'
-import { registry } from '@/features/chat/tools/registry'
+import { registry, type ToolEntry } from '@/features/chat/tools/registry'
 import {
 	clearPendingDiffs,
 	getAllPendingDiffs,
@@ -34,6 +38,7 @@ const initialBridge = useWebMcpStore.getState()
 let editor: GeoEditor
 let controller: AbortController
 let tools: BrowserTool[]
+const changedEntries = new Map<string, ToolEntry>()
 const nativeOnlyNames = [
 	'get_map',
 	'read_features',
@@ -120,6 +125,8 @@ beforeEach(() => {
 
 afterEach(() => {
 	controller.abort()
+	for (const [name, entry] of changedEntries) registry.set(name, entry)
+	changedEntries.clear()
 	releaseToolExecutionRun()
 	clearPendingDiffs()
 	editor.destroy()
@@ -146,7 +153,212 @@ function nextReview(): Promise<PendingDiffEntry> {
 	})
 }
 
+function deferred<T>() {
+	let resolve!: (value: T) => void
+	const promise = new Promise<T>((finish) => {
+		resolve = finish
+	})
+	return { promise, resolve }
+}
+
+function stubEntry(name: string, handler: ToolEntry['handler']) {
+	const entry = registry.get(name)
+	if (!entry) throw new Error(`Missing shared tool ${name}`)
+	if (!changedEntries.has(name)) changedEntries.set(name, entry)
+	registry.set(name, { ...entry, handler })
+}
+
+function publicMapFixture() {
+	const event = finalizeEvent(
+		{
+			kind: GEO_EVENT_KIND,
+			created_at: Math.floor(Date.now() / 1000),
+			tags: [['d', crypto.randomUUID()]],
+			content: JSON.stringify({
+				modelVersion: MODEL_VERSION,
+				type: 'FeatureCollection',
+				features: [line],
+			}),
+		},
+		new Uint8Array(32).fill(37),
+	)
+	eventStore.add(event)
+	return { event, reference: `${event.kind}:${event.pubkey}:${event.tags[0]?.[1]}` }
+}
+
 describe('desktop agent editor bridge', () => {
+	test('public search, area query and entity read run together while authoring and view calls stay exclusive', async () => {
+		const source = publicMapFixture()
+		const pending = BROWSER_ENTITY_TOOLS.map((name) => ({
+			name,
+			started: deferred<void>(),
+			finished: deferred<unknown>(),
+		}))
+		for (const operation of pending)
+			stubEntry(operation.name, () => {
+				operation.started.resolve()
+				return operation.finished.promise
+			})
+		tools = createBrowserToolService(controller.signal)
+		const map = await call('earthly_get_map')
+		const operations = [
+			call('earthly_search_entities', { query: 'Belt and Road' }),
+			call('earthly_query_entities_in_area', { bbox: [10, 40, 12, 41] }),
+			call('earthly_read_entity', { reference: source.reference }),
+		]
+		const result = { ok: true, revisionId: source.event.id, features: [{ id: 'line' }] }
+		try {
+			await Promise.all(pending.map((operation) => operation.started.promise))
+			expect(isExternalToolExecutionActive()).toBe(true)
+			expect(
+				await call('earthly_extrude_line', {
+					mapToken: map.mapToken,
+					featureId: 'line',
+					width: 500,
+				}),
+			).toMatchObject({ ok: false, code: 'editor_busy' })
+			// A read-only hint alone never grants concurrent execution.
+			expect(await call('earthly_get_map')).toMatchObject({ code: 'editor_busy' })
+			expect(await call('earthly_list_local_drafts')).toMatchObject({ code: 'editor_busy' })
+			expect(editor.getAllFeatures()).toEqual([line])
+			expect(getAllPendingDiffs()).toEqual([])
+			const firstOperation = pending[0]
+			if (!firstOperation) throw new Error('Missing public search operation')
+			firstOperation.finished.resolve(result)
+			expect(await operations[0]).toMatchObject({ ok: true })
+			expect(isExternalToolExecutionActive()).toBe(true)
+			for (const operation of pending.slice(1)) operation.finished.resolve(result)
+			expect(await Promise.all(operations)).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ ok: true, sourceRevisionId: source.event.id }),
+				]),
+			)
+			expect(isExternalToolExecutionActive()).toBe(false)
+			expect((await call('earthly_get_map')).ok).toBe(true)
+		} finally {
+			for (const operation of pending) operation.finished.resolve(result)
+			await Promise.allSettled(operations)
+		}
+	})
+	test('cancelling one public read retains the other read lease and releases both without edits', async () => {
+		const firstStarted = deferred<void>(),
+			secondStarted = deferred<void>()
+		const firstFinished = deferred<unknown>(),
+			secondFinished = deferred<unknown>()
+		stubEntry('search_entities', (args) => {
+			const first = args.query === 'First'
+			;(first ? firstStarted : secondStarted).resolve()
+			return (first ? firstFinished : secondFinished).promise
+		})
+		tools = createBrowserToolService(controller.signal)
+		const abort = new AbortController()
+		const first = call('earthly_search_entities', { query: 'First' }, abort.signal)
+		const second = call('earthly_search_entities', { query: 'Second' })
+		try {
+			await Promise.all([firstStarted.promise, secondStarted.promise])
+			abort.abort()
+			expect(await first).toMatchObject({ ok: false, code: 'cancelled' })
+			expect(isExternalToolExecutionActive()).toBe(true)
+			expect((await call('earthly_get_map')).code).toBe('editor_busy')
+			secondFinished.resolve({ ok: true, results: [] })
+			expect(await second).toMatchObject({ ok: true })
+			expect(isExternalToolExecutionActive()).toBe(false)
+			expect(getAllPendingDiffs()).toEqual([])
+		} finally {
+			firstFinished.resolve({ ok: true, results: [] })
+			secondFinished.resolve({ ok: true, results: [] })
+			await Promise.allSettled([first, second])
+		}
+	})
+	test('session revocation cancels every concurrent public read and does not leave execution busy', async () => {
+		const started = [deferred<void>(), deferred<void>()]
+		const finished = [deferred<unknown>(), deferred<unknown>()]
+		let count = 0
+		stubEntry('search_entities', () => {
+			const index = count++
+			const began = started[index],
+				completed = finished[index]
+			if (!began || !completed) throw new Error('Unexpected public search')
+			began.resolve()
+			return completed.promise
+		})
+		tools = createBrowserToolService(controller.signal)
+		const operations = [
+			call('earthly_search_entities', { query: 'First' }),
+			call('earthly_search_entities', { query: 'Second' }),
+		]
+		try {
+			await Promise.all(started.map((entry) => entry.promise))
+			controller.abort()
+			for (const result of await Promise.all(operations))
+				expect(result).toMatchObject({ ok: false, code: 'cancelled' })
+			expect(isExternalToolExecutionActive()).toBe(false)
+			expect(getAllPendingDiffs()).toEqual([])
+		} finally {
+			for (const entry of finished) entry.resolve({ ok: true, results: [] })
+			await Promise.allSettled(operations)
+		}
+	})
+	test('an account change during concurrent public reads rejects their results without granting sources', async () => {
+		const source = publicMapFixture()
+		const started = [deferred<void>(), deferred<void>()]
+		const finished = [deferred<unknown>(), deferred<unknown>()]
+		let count = 0
+		stubEntry('read_entity', () => {
+			const index = count++
+			const began = started[index],
+				completed = finished[index]
+			if (!began || !completed) throw new Error('Unexpected public read')
+			began.resolve()
+			return completed.promise
+		})
+		let owner: string | null = null
+		tools = createBrowserToolService(controller.signal, () => owner)
+		const operations = [
+			call('earthly_read_entity', { reference: source.reference }),
+			call('earthly_read_entity', { reference: source.reference }),
+		]
+		const result = { ok: true, revisionId: source.event.id, features: [{ id: 'line' }] }
+		try {
+			await Promise.all(started.map((entry) => entry.promise))
+			owner = 'a'.repeat(64)
+			for (const entry of finished) entry.resolve(result)
+			for (const response of await Promise.all(operations))
+				expect(response).toMatchObject({ ok: false, code: 'access_disabled' })
+			expect(isExternalToolExecutionActive()).toBe(false)
+			owner = null
+			const drafts = await call('earthly_list_local_drafts')
+			expect(drafts.ok).toBe(true)
+			expect(JSON.stringify(drafts.sources)).not.toContain(source.reference)
+		} finally {
+			for (const entry of finished) entry.resolve(result)
+			await Promise.allSettled(operations)
+		}
+	})
+	test('public reads cannot redirect into a granted authoring tool while holding a shared lease', async () => {
+		let authored = false
+		stubEntry('extrude_line', () => {
+			authored = true
+			return { ok: true }
+		})
+		stubEntry('search_entities', () => ({
+			ok: false,
+			kind: 'tool_redirect',
+			toolName: 'search_entities',
+			message: 'Try another tool',
+			redirectTool: 'extrude_line',
+			redirectArguments: { featureId: 'line', width: 500 },
+		}))
+		tools = createBrowserToolService(controller.signal)
+		expect(await call('earthly_search_entities', { query: 'Belt and Road' })).toMatchObject({
+			ok: false,
+			code: 'tool_not_granted',
+			sideEffectsApplied: false,
+		})
+		expect(authored).toBe(false)
+		expect(editor.getAllFeatures()).toEqual([line])
+		expect(isExternalToolExecutionActive()).toBe(false)
+	})
 	test('advertises authoring, lifecycle and explicit publication, with remote queries separately granted', () => {
 		expect(tools).toHaveLength(BROWSER_EDITOR_TOOLS.length + nativeOnlyNames.length)
 		expect(new Set(tools.map((tool) => tool.name)).size).toBe(tools.length)
@@ -425,6 +637,9 @@ describe('desktop agent editor bridge', () => {
 		useChatStore.getState().reset()
 		expect(getAllPendingDiffs().find((item) => item.id === diff.id)?.status).toBe('pending')
 		expect((await call('earthly_get_map')).code).toBe('editor_busy')
+		expect((await call('earthly_search_entities', { query: 'Belt and Road' })).code).toBe(
+			'editor_busy',
+		)
 		abort.abort()
 		expect((await pending).code).toBe('cancelled')
 		expect(getAllPendingDiffs().find((item) => item.id === diff.id)?.status).toBe('cancelled')
@@ -452,6 +667,9 @@ describe('desktop agent editor bridge', () => {
 	test('revoking access before approval prevents persistence and streaming chat blocks calls', async () => {
 		useChatStore.setState({ isStreaming: true })
 		expect((await call('earthly_get_map')).code).toBe('editor_busy')
+		expect((await call('earthly_search_entities', { query: 'Belt and Road' })).code).toBe(
+			'editor_busy',
+		)
 		useChatStore.setState({ isStreaming: false, safetyLevel: 1 })
 		const map = await call('earthly_get_map')
 		const review = nextReview()
@@ -485,6 +703,9 @@ describe('desktop agent editor bridge', () => {
 		const release = retainChatToolExecution()
 		try {
 			expect((await call('earthly_get_map')).code).toBe('editor_busy')
+			expect((await call('earthly_search_entities', { query: 'Belt and Road' })).code).toBe(
+				'editor_busy',
+			)
 		} finally {
 			release()
 		}

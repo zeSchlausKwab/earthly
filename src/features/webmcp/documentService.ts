@@ -423,6 +423,11 @@ export function createDocumentTools(options: {
 							'draft_token_required',
 							'Read this exact Story and echo its draftTarget and draftToken before previewing.',
 						)
+					if (!useEditorStore.getState().editor)
+						throw new BrowserToolError(
+							'editor_required',
+							'Open the Earthly map workspace before previewing a retained Story draft.',
+						)
 					flushDocumentDraftForm('story', key, owner)
 					checkAccount()
 					const current = readStoryDraft(key, owner)

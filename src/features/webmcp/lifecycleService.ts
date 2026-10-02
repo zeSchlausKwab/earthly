@@ -188,6 +188,11 @@ export function createLifecycleTools(options: {
 	}
 	function assertNoTransientDrawing() {
 		const state = useEditorStore.getState()
+		if (!state.editor)
+			throw new BrowserToolError(
+				'map_required',
+				'Open the Earthly map editor before opening or creating a Map draft.',
+			)
 		if (
 			state.canFinishDrawing ||
 			state.geometryOperation ||
@@ -327,10 +332,22 @@ export function createLifecycleTools(options: {
 							}
 				assertSharedDefinition()
 				assertToolAllowed?.(name, callArgs)
+				const assertPublicReadAllowed = (
+					requestedName: string,
+					requestedArgs: Record<string, unknown>,
+				) => {
+					if (requestedName !== name)
+						throw new BrowserToolError(
+							'tool_not_granted',
+							'Public entity reads cannot dispatch another tool. Call it separately with its own target and permissions.',
+						)
+					assertSharedDefinition()
+					assertToolAllowed?.(requestedName, requestedArgs)
+				}
 				const response = await awaitActive(
 					executeToolCall(
 						{ id, type: 'function', function: { name, arguments: JSON.stringify(callArgs) } },
-						{ signal, assertToolAllowed },
+						{ signal, assertToolAllowed: assertPublicReadAllowed },
 					),
 					signal,
 				)
@@ -607,6 +624,11 @@ export function createLifecycleTools(options: {
 					}
 					return openMap(workspaceId, signal, published)
 				}
+				if (!useEditorStore.getState().editor)
+					throw new BrowserToolError(
+						'editor_required',
+						'Open the Earthly map workspace before entering a Story or Atlas draft.',
+					)
 				const draftKey = fork
 					? `thread-${ref.kind === ARTICLE_KIND ? 'story' : 'atlas'}:${crypto.randomUUID()}`
 					: ref.kind === ARTICLE_KIND

@@ -11,6 +11,7 @@ import {
 	type RouteComponent,
 } from '@tanstack/react-router'
 import { useEffect, useMemo } from 'react'
+import { WebMcpSessionHost } from '../features/webmcp/WebMcpSessionHost'
 import { normalizeEarthlySearch, parseEarthlyRoute } from './routeContract'
 import { EarthlyRouteStateProvider } from './routeState'
 
@@ -25,6 +26,8 @@ function RootLayout() {
 	)
 	return (
 		<EarthlyRouteStateProvider state={routeState}>
+			{/* A WebMCP session belongs to the tab, including editor/Reader navigation. */}
+			<WebMcpSessionHost />
 			<Outlet />
 		</EarthlyRouteStateProvider>
 	)

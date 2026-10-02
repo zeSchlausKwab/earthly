@@ -9,6 +9,7 @@ import { registerDocumentDraftForm } from '@/features/chat/tools/documentDraftFo
 import { getCurrentPubkey, setCurrentPubkey } from '@/lib/wallet/currentUser'
 import { registry, type ToolEntry } from '@/features/chat/tools/registry'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import {
 	registerChatMapPreparer,
 	registerChatWorkspaceOpener,
@@ -43,6 +44,7 @@ let tools: BrowserTool[]
 let cleanupOpener: () => void
 let cleanupPreparer: () => void
 let opened: string[]
+let mountedEditor: ReturnType<typeof createHeadlessEditor>
 const ajv = new Ajv({ strict: false })
 
 function createTools(
@@ -148,6 +150,10 @@ beforeAll(() => {
 	priorWindow = globalThis.window
 	Object.assign(globalThis, {
 		window: {
+			addEventListener: () => {},
+			removeEventListener: () => {},
+			setTimeout,
+			clearTimeout,
 			localStorage: {
 				getItem: (key: string) => storage.get(key) ?? null,
 				setItem: (key: string, value: string) => storage.set(key, value),
@@ -167,10 +173,11 @@ beforeEach(() => {
 	controller = new AbortController()
 	opened = []
 	useWebMcpStore.setState({ enabled: true })
+	mountedEditor = createHeadlessEditor()
 	useEditorStore.setState({
 		workspaces: {},
 		geoEditDrafts: {},
-		editor: null,
+		editor: mountedEditor,
 		mode: 'static',
 		features: [],
 		canFinishDrawing: false,
@@ -189,6 +196,7 @@ beforeEach(() => {
 })
 afterEach(() => {
 	controller.abort()
+	mountedEditor.destroy()
 	cleanupOpener()
 	cleanupPreparer()
 	resetStoryEditorOpenRequests()
@@ -262,7 +270,38 @@ test('opens only retained current-account public drafts and refuses transient dr
 	).toMatchObject({ ok: false, code: 'access_disabled' })
 })
 
+test('Reader Map entry calls require the mounted editor and leave retained drafts unchanged', async () => {
+	const created = await call('create_map_draft', { title: 'Retained Map', audience: 'public' })
+	const published = mapFixture()
+	const read = await call('read_entity', { reference: published.reference })
+	expect(read).toMatchObject({ ok: true, revisionId: published.event.id })
+	useEditorStore.setState({ editor: null })
+	const before = structuredClone({
+		workspaces: useEditorStore.getState().workspaces,
+		drafts: useEditorStore.getState().geoEditDrafts,
+	})
+	const beforeOpened = [...opened]
+	for (const [name, args] of [
+		['create_map_draft', { title: 'Reader Map', audience: 'public' }],
+		['open_map_draft', { workspaceId: created.workspaceId }],
+		[
+			'edit_entity',
+			{ reference: published.reference, revisionId: read.revisionId, intent: 'edit' },
+		],
+		[
+			'edit_entity',
+			{ reference: published.reference, revisionId: read.revisionId, intent: 'fork' },
+		],
+	] as const) {
+		expect(await call(name, args)).toMatchObject({ ok: false, code: 'map_required' })
+	}
+	expect(useEditorStore.getState().workspaces).toEqual(before.workspaces)
+	expect(useEditorStore.getState().geoEditDrafts).toEqual(before.drafts)
+	expect(opened).toEqual(beforeOpened)
+})
+
 test('public search is headless, bounded and never changes its shared schema', async () => {
+	useEditorStore.setState({ editor: null })
 	const originalSchema = JSON.stringify(registry.get('search_entities')!.schema)
 	let received: Record<string, unknown> | undefined
 	stubEntry('search_entities', (args) => {
@@ -635,6 +674,62 @@ test('Story entry retains dirty content, raw presentations and separate attribut
 	})
 	expect(readStoryDraft(forked.draftKey, owner)?.content).toContain(forked.source.citeReference)
 	expect(readStoryDraft(forked.draftKey, owner)?.publication).toBeUndefined()
+})
+
+test('Reader Story and Atlas entry refuses before form flushes, retained writes or UI requests', async () => {
+	const story = fixture(ARTICLE_KIND, { title: 'Reader Story', content: 'Published narrative' })
+	const atlas = fixture(MAP_CONTEXT_KIND, {
+		name: 'Reader Atlas',
+		description: 'Overview',
+		governance: 'closed',
+	})
+	for (const source of [story, atlas])
+		expect(await call('read_entity', { reference: source.reference })).toMatchObject({ ok: true })
+	useEditorStore.setState({ editor: null })
+	const before = new Map(storage)
+	const storyTargetBefore = getStoryEditorTarget()
+	const atlasTargetBefore = getAtlasEditorTarget()
+	let flushes = 0
+	const unregisterForms = [
+		registerDocumentDraftForm({
+			kind: 'story',
+			draftKey: story.identifier,
+			ownerPubkey: owner,
+			flush: () => {
+				flushes++
+			},
+			suppress: () => {},
+		}),
+		registerDocumentDraftForm({
+			kind: 'atlas',
+			draftKey: `edit:${owner}:${atlas.identifier}`,
+			ownerPubkey: owner,
+			flush: () => {
+				flushes++
+			},
+			suppress: () => {},
+		}),
+	]
+	try {
+		for (const source of [story, atlas]) {
+			for (const intent of ['edit', 'fork'])
+				expect(
+					await call('edit_entity', {
+						reference: source.reference,
+						revisionId: source.event.id,
+						intent,
+					}),
+				).toMatchObject({ ok: false, code: 'editor_required' })
+		}
+		expect(flushes).toBe(0)
+		expect(storage).toEqual(before)
+		expect(getStoryEditorTarget()).toEqual(storyTargetBefore)
+		expect(getAtlasEditorTarget()).toEqual(atlasTargetBefore)
+		expect(readStoryDraft(story.identifier, owner)).toBeNull()
+		expect(readGroupEditorDraft(`edit:${owner}:${atlas.identifier}`, owner)).toBeNull()
+	} finally {
+		for (const unregister of unregisterForms) unregister()
+	}
 })
 
 test('Atlas entry preserves dirty snapshots and makes independently attributed copies', async () => {

@@ -6,7 +6,10 @@ import { useChatStore } from '@/features/chat/store'
 import { consumeMapSnapshot } from '@/features/chat/tools/context'
 import { executeToolCall } from '@/features/chat/tools/execute'
 import { releaseToolExecutionRun } from '@/features/chat/tools/executionTarget'
-import { acquireExternalToolExecution } from '@/features/chat/tools/externalExecution'
+import {
+	acquireExternalPublicReadExecution,
+	acquireExternalToolExecution,
+} from '@/features/chat/tools/externalExecution'
 import { registry } from '@/features/chat/tools/registry'
 import type { ToolExecutionRunIdentity, ToolJsonSchema } from '@/features/chat/tools/types'
 import {
@@ -34,6 +37,9 @@ import {
 export { BROWSER_EDITOR_TOOLS, BROWSER_EXTERNAL_TOOLS } from './catalog'
 
 const activeControllers = new Set<AbortController>()
+// Read-only annotations also cover view actions and receipt recovery. Only
+// these headless public reads avoid the shared editor and authoring contexts.
+const CONCURRENT_PUBLIC_READ_TOOLS = new Set(BROWSER_ENTITY_TOOLS.map((name) => `earthly_${name}`))
 
 export function cancelDesktopOperation(): void {
 	for (const controller of activeControllers) controller.abort()
@@ -159,7 +165,10 @@ export function createBrowserToolService(
 						)
 					if (!validate(input))
 						throw new BrowserToolError('invalid_arguments', ajv.errorsText(validate.errors))
-					if (!useChatStore.getState().isStreaming) release = acquireExternalToolExecution()
+					if (!useChatStore.getState().isStreaming)
+						release = CONCURRENT_PUBLIC_READ_TOOLS.has(name)
+							? acquireExternalPublicReadExecution()
+							: acquireExternalToolExecution()
 					if (!release)
 						throw new BrowserToolError(
 							'editor_busy',

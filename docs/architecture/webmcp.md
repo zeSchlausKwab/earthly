@@ -42,8 +42,13 @@ To attach to an existing debugging browser, replace the launch argument with
 separate debugging profile. Keep the debugging endpoint on loopback.
 
 Open Earthly in that browser; Desktop agent access is enabled unless you previously turned it off.
-Tools are registered across app routes.
-An editable Map is required only for Map operations. Suggested prompt:
+The same tool session remains registered across editor and Reader SPA navigation, preserving public
+source grants and document/publication tokens. Account changes, access changes and full page reloads
+still create a new session. Discover tools again after those changes. Unsupported browsers do not
+load the authoring runtime. Map draft creation/opening and Map editing require the mounted map
+editor; invoking them in Reader returns `map_required` before changing a draft. Visible Story/Atlas
+editing entry and retained Story preview require the editor surface and return `editor_required`
+in Reader. Headless document reads, writes, rebase and publication remain available. Suggested prompt:
 
 > Use Chrome DevTools MCP to select my Earthly tab. Discover its native WebMCP tools using
 > document.modelContext.getTools(). Use earthly_list_local_drafts or earthly_search_entities to
@@ -353,9 +358,13 @@ Route/remote imports with `toEditor=true`, OSM imports, circles and buffers now 
 gate as well; a cancelled review has no durable effect.
 
 Calls validate the advertised JSON Schema and share the chat executor, authoring facade, detached
-draft runtime, edit-safety gates, persistence conflict checks and target-bound Undo. A shared execution
-guard prevents overlap between chat and desktop calls. Every operation checks access and the original
-Map again immediately before persistence. Cancellation or access revocation resolves outstanding
+draft runtime, edit-safety gates, persistence conflict checks and target-bound Undo. Public discovery
+and reads (`earthly_search_entities`, `earthly_query_entities_in_area`, `earthly_read_entity`) may run
+concurrently through shared read leases. They keep exact revision and source-grant checks and cannot
+redirect into another tool. Authoring, view actions, publication/recovery and chat remain exclusive;
+they cannot overlap those reads or each other. Native read-only annotations do not grant concurrency.
+Target-bound operations check access and the original Map again immediately before persistence.
+Cancellation or access revocation resolves outstanding
 reviews and prevents the detached change from committing.
 Host-side redirects also check the transport grant before calling another tool. Registry replacements
 cannot silently substitute a handler after a schema has been registered. Viewport queries capture the

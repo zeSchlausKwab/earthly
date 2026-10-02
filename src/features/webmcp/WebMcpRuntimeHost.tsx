@@ -2,6 +2,7 @@ import { useActiveAccount } from 'applesauce-react/hooks'
 import { Bot, X } from 'lucide-react'
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { Button } from '@/components/ui/button'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 import {
 	clearDocumentReviews,
@@ -69,7 +70,11 @@ export function WebMcpRuntimeHost() {
 		void register()
 		return () => controller.abort()
 	}, [enabled, externalQueriesEnabled, account])
-	return <DesktopAgentActivity />
+	return (
+		<TooltipProvider>
+			<DesktopAgentActivity />
+		</TooltipProvider>
+	)
 }
 
 function DesktopAgentActivity() {

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { useChatStore } from '@/features/chat/store'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { setSafetyLevelProvider } from '@/features/chat/safeEditing/safetyAccess'
 import { readStoryDraft, writeStoryDraft } from '@/lib/nostr/story/draft'
 import { registry } from '@/features/chat/tools/registry'
@@ -35,10 +36,15 @@ const originalBridge = useWebMcpStore.getState()
 let priorWindow: unknown
 let controller: AbortController
 let tools: BrowserTool[]
+let mountedEditor: ReturnType<typeof createHeadlessEditor> | undefined
 beforeAll(() => {
 	priorWindow = globalThis.window
 	Object.assign(globalThis, {
 		window: {
+			addEventListener: () => {},
+			removeEventListener: () => {},
+			setTimeout,
+			clearTimeout,
 			localStorage: {
 				getItem: (key: string) => backing.get(key) ?? null,
 				setItem: (key: string, value: string) => backing.set(key, value),
@@ -64,6 +70,8 @@ beforeEach(() => {
 })
 afterEach(() => {
 	controller.abort()
+	mountedEditor?.destroy()
+	mountedEditor = undefined
 	clearDocumentReviews()
 	useEditorStore.setState(originalEditor, true)
 	useChatStore.setState(originalChat, true)
@@ -84,6 +92,10 @@ async function createStory(title = 'A retained Story') {
 		title,
 		markdown: 'The narrative.',
 	})
+}
+function mountEditor() {
+	mountedEditor = createHeadlessEditor()
+	useEditorStore.setState({ editor: mountedEditor })
 }
 function pending() {
 	return new Promise<string>((resolve) => {
@@ -123,6 +135,7 @@ test('discovers and creates distinct documents without requiring an open Map', a
 })
 
 test('rendered Story preview is a token-bound view action without content changes or edit review', async () => {
+	mountEditor()
 	const created = await createStory('Rendered Story')
 	const before = readStoryDraft(created.draftKey, null)
 	const reviewsBefore = getDocumentReviews().length
@@ -170,6 +183,7 @@ test('rendered Story preview is a token-bound view action without content change
 })
 
 test('preview does not flush a form newly mounted by its view request', async () => {
+	mountEditor()
 	const created = await createStory('A Story about to mount')
 	let newFormFlushes = 0
 	let unregisterForm: (() => void) | undefined
@@ -195,6 +209,39 @@ test('preview does not flush a form newly mounted by its view request', async ()
 	} finally {
 		unsubscribe()
 		unregisterForm?.()
+	}
+})
+
+test('Reader preview refuses an unmounted editor before form flushes or queued UI requests', async () => {
+	const created = await createStory('A retained Reader Story')
+	const before = readStoryDraft(created.draftKey, null)
+	const reviewsBefore = getDocumentReviews().length
+	resetStoryEditorOpenRequests()
+	const reviewBefore = getDraftReviewRequest()
+	let flushes = 0
+	const unregisterForm = registerDocumentDraftForm({
+		kind: 'story',
+		draftKey: created.draftKey,
+		ownerPubkey: null,
+		flush: () => {
+			flushes++
+		},
+		suppress: () => {},
+	})
+	try {
+		expect(
+			await call('preview_story_draft', {
+				draftTarget: created.draftKey,
+				draftToken: created.draftToken,
+			}),
+		).toMatchObject({ ok: false, code: 'editor_required', sideEffectsApplied: false })
+		expect(flushes).toBe(0)
+		expect(getStoryEditorOpenRequest()).toBeNull()
+		expect(getDraftReviewRequest()).toEqual(reviewBefore)
+		expect(readStoryDraft(created.draftKey, null)).toEqual(before)
+		expect(getDocumentReviews()).toHaveLength(reviewsBefore)
+	} finally {
+		unregisterForm()
 	}
 })
 

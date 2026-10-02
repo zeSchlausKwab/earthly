@@ -20,18 +20,22 @@ test('Story layers count distinct Map sources and retain independent controls @e
 		presentation: { layers: Array<{ source: string; featureIds?: string[] }> }
 		story: { event: NostrEvent; path: string }
 	}
-	const source = fixture.presentation.layers[0]!
+	const source = fixture.presentation.layers[0]
+	if (!source) throw new Error('The Story fixture has no Map layers.')
 	const [kind, pubkey, ...identifier] = source.source.split(':')
+	const dTag = fixture.story.event.tags.find((tag) => tag[0] === 'd')
+	if (!pubkey || !identifier.length || !dTag)
+		throw new Error('The Story fixture has no source identity.')
 	const mapAddress = nip19.naddrEncode({
 		kind: Number(kind),
-		pubkey: pubkey!,
+		pubkey,
 		identifier: identifier.join(':'),
 	})
 	const story = finalizeEvent(
 		{
 			kind: fixture.story.event.kind,
 			created_at: fixture.story.event.created_at + 1,
-			tags: [fixture.story.event.tags.find((tag) => tag[0] === 'd')!, ['a', source.source]],
+			tags: [dTag, ['a', source.source]],
 			content: JSON.stringify({
 				modelVersion: 'earthly/2',
 				title: 'One Map, nineteen presentation layers',

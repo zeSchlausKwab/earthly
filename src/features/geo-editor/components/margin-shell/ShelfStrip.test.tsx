@@ -37,9 +37,9 @@ describe('ShelfStrip', () => {
 			{ ...item('presentation:two', false), mapSourceId: '37515:owner:two' },
 			{ ...item('draft:active', true), mapSourceId: 'local-map:workspace' },
 			{ ...item('presentation:local', true), mapSourceId: 'local-map:workspace' },
-		]
+		] as const
 		expect(getShelfCountLabel(layers)).toBe('3 Maps · 5 layers')
-		expect(getShelfCountLabel([layers[0]!, layers[2]!])).toBe('2 Maps')
+		expect(getShelfCountLabel([layers[0], layers[2]])).toBe('2 Maps')
 	})
 
 	it('does not label other canvas entities or an empty shelf as Maps', () => {
