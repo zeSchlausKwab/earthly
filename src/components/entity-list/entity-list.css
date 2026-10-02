@@ -4,8 +4,25 @@
 	gap: .5rem;
 	min-width: 0;
 }
-.entity-list-row-content { flex: 1; }
-.entity-list-row-leading > div { width: 40px; height: 28px; }
+.entity-list-row-content { flex: 1; align-self: stretch; }
+.entity-list-row-leading {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	align-self: stretch;
+	width: 80px;
+	min-height: 56px;
+}
+.entity-list-row-leading > .entity-list-thumbnail,
+.entity-list-row-leading > button {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+}
+.entity-list-row-leading > button .entity-list-thumbnail { width: 100%; height: 100%; }
+.entity-list-row-leading .entity-list-glyph > svg { width: 20px; height: 20px; }
 .entity-list-row-meta { overflow: hidden; white-space: nowrap; }
 .entity-list-row-meta > * { flex-shrink: 0; }
 .entity-list-row-meta > :first-child { min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
@@ -26,6 +43,7 @@
 }
 @media (max-width: 767px) {
 	.entity-list-row { min-height: 62px; }
+	.entity-list-row-leading { width: 64px; }
 	.entity-list-row-title { font-size: 15px; }
 	.entity-list-row-controls > button,
 	.entity-list-row-controls > [data-slot="popover-trigger"] { min-height: 38px; min-width: 30px; }

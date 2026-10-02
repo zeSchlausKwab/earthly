@@ -1,8 +1,8 @@
 /**
- * Leading elements for a ListRow — the 34×34 slot that opens every row. Redesign
+ * Leading elements for a ListRow — the preview slot that opens every row. Redesign
  * §11a: "only the leading element and the badges change per entity". A tinted
- * type-glyph tile for datasets/contexts/sightings, a square cover thumb for
- * stories, and a status-tinted avatar disc for beacons (built inline where the
+ * type-glyph fallback, geometry previews for Maps, cover images for Stories,
+ * Atlases and Sightings, and a status-tinted disc for beacons (built inline where the
  * presence dot is needed).
  */
 
@@ -23,7 +23,7 @@ export const GeometryThumb = memo(function GeometryThumb({
 	if (!shapes.length) return <GlyphTile icon={fallbackIcon} />
 	return (
 		<div
-			className="h-7 w-10 overflow-hidden border border-border bg-info/10 text-info"
+			className="entity-list-thumbnail h-7 w-10 overflow-hidden border border-border bg-info/10 text-info"
 			aria-hidden="true"
 		>
 			<svg viewBox="0 0 40 28" className="h-full w-full" aria-hidden="true">
@@ -59,7 +59,7 @@ export function GlyphTile({ icon: Icon, className }: { icon: LucideIcon; classNa
 	return (
 		<div
 			className={cn(
-				'flex h-[34px] w-[34px] items-center justify-center rounded-[2px] bg-info/15 text-info',
+				'entity-list-thumbnail entity-list-glyph flex h-[34px] w-[34px] items-center justify-center rounded-[2px] bg-info/15 text-info',
 				className,
 			)}
 		>
@@ -68,7 +68,7 @@ export function GlyphTile({ icon: Icon, className }: { icon: LucideIcon; classNa
 	)
 }
 
-/** A 34×34 square cover thumbnail, falling back to a tinted glyph tile. */
+/** A cover thumbnail that fills the list preview slot, with a tinted glyph fallback. */
 export function CoverThumb({
 	src,
 	alt,
@@ -84,7 +84,7 @@ export function CoverThumb({
 	const showImage = Boolean(src) && !broken
 	if (showImage) {
 		return (
-			<div className="h-[34px] w-[34px] overflow-hidden rounded-[2px] border border-border bg-muted">
+			<div className="entity-list-thumbnail h-[34px] w-[34px] overflow-hidden rounded-[2px] border border-border bg-muted">
 				<img
 					src={src}
 					alt={alt ?? ''}

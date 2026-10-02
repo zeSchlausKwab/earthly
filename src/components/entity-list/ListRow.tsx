@@ -1,6 +1,6 @@
 /**
  * ListRow — the single row grammar shared by every entity list rail (Datasets,
- * Contexts, Beacons, Sightings, Stories). Margin spec §5: compact thumbnail,
+ * Contexts, Beacons, Sightings, Stories). Margin spec §5: a full-height preview,
  * title and metadata, then one primary action and More. Social shortcuts reveal
  * on desktop hover; the same controls remain available in More on touch screens.
  *
@@ -84,7 +84,7 @@ export function RowBadge({ label, className }: { label: ReactNode; className?: s
 
 export interface ListRowProps {
 	dragItem?: EntityTransfer
-	/** 40×28 leading element — geometry preview, cover thumb, glyph, or avatar. */
+	/** Leading element — previews fill the row height; glyphs and presence icons stay centered. */
 	leading?: ReactNode
 	title: ReactNode
 	/** Title click (zoom / open). When omitted the title is inert text. */

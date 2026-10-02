@@ -23,7 +23,9 @@ export function PinnedReferenceRow({ coordinate, onInspect, onZoom }: {
 	const collectionName = (dataset?.featureCollection as { name?: unknown } | undefined)?.name
 	const title = (typeof collectionName === 'string' && collectionName) || event?.tags.find(t => t[0] === 'title' || t[0] === 'name')?.[1] || reference?.identifier || 'Unavailable reference'
 	return <div className="flex items-center gap-2 border-b border-border py-2">
-		{dataset ? <GeometryThumb collection={dataset.featureCollection} fallbackIcon={Database} /> : <GlyphTile icon={FileText} />}
+		<div className="entity-list-row-leading shrink-0">
+			{dataset ? <GeometryThumb collection={dataset.featureCollection} fallbackIcon={Database} /> : <GlyphTile icon={FileText} />}
+		</div>
 		<div className="min-w-0 flex-1">
 			<button type="button" className="block w-full truncate text-left text-sm font-semibold" disabled={!reference || !onInspect} onClick={() => onInspect?.(coordinate)}>{String(title)}</button>
 			{reference && <UserProfile pubkey={reference.pubkey} mode="name-only" size="xs" showNip05Badge={false} />}
