@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.17] - 2026-10-05
+
+- Added a visible Enter atlas button as the first action on Atlas list rows,
+  including Browse, profiles, and mobile layouts.
+- Reordered Browse tabs to Stories, Atlases, Maps, Sightings, Maplets, and People.
+  Atlas-specific browsing also shows Stories first.
+
+### Known limitations
+
+- Physical-device Android upgrade and map/Story smoke testing remain pending for this release.
+
 ## [0.1.16] - 2026-10-02
 
 - Enlarged Map, Story, and Atlas previews across list rows, including mobile layouts.
