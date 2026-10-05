@@ -14,9 +14,9 @@ export interface BrowseTabDefinition {
 }
 
 const FULL_BROWSE_TABS: readonly BrowseTabDefinition[] = [
-	{ kind: 'maps', label: 'Maps', icon: DatasetGlyphIcon },
 	{ kind: 'stories', label: 'Stories', icon: BookOpen },
 	{ kind: 'atlases', label: 'Atlases', icon: Globe },
+	{ kind: 'maps', label: 'Maps', icon: DatasetGlyphIcon },
 	{ kind: 'sightings', label: 'Sightings', icon: Eye },
 	{ kind: 'maplets', label: 'Maplets', icon: Layers2 },
 	{ kind: 'people', label: 'People', icon: UserRound },
@@ -36,12 +36,12 @@ function pluralize(noun: string): string {
 	return plural.charAt(0).toUpperCase() + plural.slice(1)
 }
 
-/** The lens deliberately narrows Browse; its first label adopts the Atlas noun. */
+/** The lens deliberately narrows Browse; the Map label adopts the Atlas noun. */
 export function getBrowseTabDefinitions(lensItemNoun?: string): readonly BrowseTabDefinition[] {
 	if (!lensItemNoun) return FULL_BROWSE_TABS
 	return [
-		{ kind: 'maps', label: pluralize(lensItemNoun), icon: DatasetGlyphIcon },
 		{ kind: 'stories', label: 'Stories', icon: BookOpen },
+		{ kind: 'maps', label: pluralize(lensItemNoun), icon: DatasetGlyphIcon },
 		{ kind: 'maplets', label: 'Maplets', icon: Layers2 },
 		{ kind: 'people', label: 'People', icon: UserRound },
 	]

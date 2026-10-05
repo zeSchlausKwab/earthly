@@ -1,7 +1,7 @@
 import { transferFromResult } from '@/components/entity-list/entityTransfer'
 import { contextToSearchResult } from '@/components/entity-search/types'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Globe } from 'lucide-react'
+import { Globe, LogIn } from 'lucide-react'
 import {
 	DebugActionIcon,
 	FavoriteActionIcon,
@@ -15,6 +15,8 @@ import { UserProfile } from '@/components/user-profile'
 import { cn } from '@/lib/utils'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { getGroupContent } from '@/lib/nostr/group'
+import { resolveEntityReference } from '@/lib/nostr/entityReference'
+import { buildRoutePath, navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import { GeoSocialActions } from '../social/comments/GeoSocialActions'
 
 export interface ContextRowData {
@@ -69,6 +71,7 @@ export const createContextColumns = (
 			const image = contextEvent.context.image
 			const governance = getGroupContent(contextEvent.rawEvent()).governance
 			const contextKey = contextEvent.contextId ?? contextEvent.dTag ?? contextEvent.id ?? ''
+			const atlasAddress = resolveEntityReference(contextEvent.contextCoordinate ?? '')?.naddr
 			const isOwner =
 				Boolean(context.currentUserPubkey) && contextEvent.pubkey === context.currentUserPubkey
 
@@ -97,15 +100,29 @@ export const createContextColumns = (
 					titleAriaLabel={`Open Atlas ${contextName}`}
 					titleTitle="Open Atlas"
 					primaryAction={
-						context.onToggleContextOnMap ? (
+						<>
 							<RowActionButton
-								icon={MapStackActionIcon}
-								label={isInMapStack ? 'Remove from map' : 'Show all on map'}
-								active={isInMapStack}
-								activeClassName="text-ok"
-								onClick={() => context.onToggleContextOnMap?.(contextEvent)}
+								icon={LogIn}
+								label="Enter atlas"
+								disabled={!atlasAddress}
+								onClick={() => {
+									if (atlasAddress) {
+										navigateToRoute(
+											buildRoutePath({ sidebarView: 'datasets', contextNaddr: atlasAddress }),
+										)
+									}
+								}}
 							/>
-						) : null
+							{context.onToggleContextOnMap ? (
+								<RowActionButton
+									icon={MapStackActionIcon}
+									label={isInMapStack ? 'Remove from map' : 'Show all on map'}
+									active={isInMapStack}
+									activeClassName="text-ok"
+									onClick={() => context.onToggleContextOnMap?.(contextEvent)}
+								/>
+							) : null}
+						</>
 					}
 					badges={
 						<>

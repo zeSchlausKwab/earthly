@@ -15,9 +15,9 @@ describe('BrowseEntityTabs', () => {
 
 	test('includes Maplets in canonical Browse destinations outside a lens', () => {
 		expect(getBrowseTabDefinitions().map((tab) => tab.label)).toEqual([
-			'Maps',
 			'Stories',
 			'Atlases',
+			'Maps',
 			'Sightings',
 			'Maplets',
 			'People',
@@ -26,8 +26,8 @@ describe('BrowseEntityTabs', () => {
 
 	test('keeps Maplets accessible in a lens', () => {
 		expect(getBrowseTabDefinitions('spot').map((tab) => tab.label)).toEqual([
-			'Spots',
 			'Stories',
+			'Spots',
 			'Maplets',
 			'People',
 		])
