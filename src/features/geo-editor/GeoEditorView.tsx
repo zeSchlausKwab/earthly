@@ -192,6 +192,7 @@ import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
+import type { PresentationFeatureProvenance } from './map-presentation/ids'
 import { mobilePanelHeightPx, MobilePanel, type MobilePanelProps } from './components/MobilePanel'
 import { MobileToolMenu } from './components/MobileToolMenu'
 import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
@@ -4460,6 +4461,20 @@ export function GeoEditorView() {
 		() => Object.freeze([...storyPresentationLayers, ...atlasPresentationLayers]),
 		[atlasPresentationLayers, storyPresentationLayers],
 	)
+	const resolveInspectedSourceCollection = useCallback(
+		(event: GeoDataset, presentation?: PresentationFeatureProvenance) =>
+			(presentation
+				? activePresentationLayers.find(
+						(entry) =>
+							entry.carrierId === presentation.carrierId &&
+							entry.layer.id === presentation.layerId &&
+							entry.sourceEvent?.id === event.id,
+						)?.featureCollection
+				: undefined) ??
+			resolvedCollectionResolver(event) ??
+			event.featureCollection,
+		[activePresentationLayers, resolvedCollectionResolver],
+	)
 	const presentationClaimedSources = useMemo(
 		() =>
 			new Set([
@@ -6723,7 +6738,7 @@ export function GeoEditorView() {
 							</ControlButton>
 							<ControlButton
 								onClick={() => setMapPopupsEnabled((current) => !current)}
-								label={mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'}
+								label={mapPopupsEnabled ? 'Disable hover previews' : 'Enable hover previews'}
 								pressed={mapPopupsEnabled}
 							>
 								{mapPopupsEnabled ? (
@@ -6741,7 +6756,6 @@ export function GeoEditorView() {
 										? 'Dock popups in the top-right corner'
 										: 'Show popups above geometry'
 								}
-								disabled={!mapPopupsEnabled}
 								pressed={mapPopupPlacement === 'dock'}
 							>
 								{mapPopupPlacement === 'geometry' ? (
@@ -6919,6 +6933,7 @@ export function GeoEditorView() {
 				currentUserPubkey={currentUser?.pubkey}
 				getDatasetName={getDatasetName}
 				handleInspectDatasetWithoutFocus={handleInspectDatasetWithoutFocus}
+				resolveSourceCollection={resolveInspectedSourceCollection}
 				sightingsRef={sightingsRef}
 				onInspectSighting={handleInspectSighting}
 				popupsEnabled={mapPopupsEnabled}

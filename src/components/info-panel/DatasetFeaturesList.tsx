@@ -7,7 +7,7 @@ import {
 	MessageCircle,
 	MoreHorizontal,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Feature, FeatureCollection, Geometry, GeoJsonProperties } from 'geojson'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { stringifyGeoReference } from '@/lib/geo/reference'
 import { ZoomActionIcon } from '../entity-action-icons'
+import { formatFeatureProperty } from '@/features/geo-editor/components/feature-details'
 import { GeometryBadge, GeometryDisplay } from './geometry/GeometryDisplay'
 
 async function copyFeatureText(value: string, message: string): Promise<void> {
@@ -70,6 +71,7 @@ interface ReadOnlyFeatureRowProps {
 	featureId: string
 	datasetAddress?: string
 	name: string
+	focusRequest?: { featureId?: string } | null
 	isExpanded: boolean
 	onToggleExpand: () => void
 	isExternal?: boolean
@@ -83,12 +85,19 @@ function ReadOnlyFeatureRow({
 	featureId,
 	datasetAddress,
 	name,
+	focusRequest,
 	isExpanded,
 	onToggleExpand,
 	isExternal,
 	onZoomToFeature,
 	onCommentOnFeature,
 }: ReadOnlyFeatureRowProps) {
+	const rowRef = useRef<HTMLDivElement>(null)
+	const isFocused = focusRequest?.featureId === featureId
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Reveal repeated map clicks and scroll again after the selected row expands.
+	useLayoutEffect(() => {
+		if (isFocused) rowRef.current?.scrollIntoView({ block: 'start', inline: 'nearest' })
+	}, [isFocused, focusRequest, isExpanded])
 	const isAnnotation = feature.properties?.featureType === 'annotation'
 	const isExternalPlaceholder = feature.properties?.externalPlaceholder === true
 	const hasGeometry = feature.geometry !== null
@@ -100,13 +109,15 @@ function ReadOnlyFeatureRow({
 
 	return (
 		<div
+			aria-current={isFocused ? 'true' : undefined}
 			className={cn(
 				'group/feature border-b last:border-b-0 text-xs',
 				isExternalPlaceholder ? 'border-info/40 bg-info/15' : 'border-border bg-card',
+				isFocused && 'bg-primary/10 ring-1 ring-inset ring-primary/40',
 			)}
 		>
 			{/* Row header */}
-			<div className="flex items-center gap-1 px-1.5 py-1">
+			<div ref={rowRef} className="flex items-center gap-1 px-1.5 py-1">
 				<Button
 					type="button"
 					variant="ghost"
@@ -277,7 +288,8 @@ function ReadOnlyFeatureRow({
 										key={key}
 										className="max-w-full break-words border border-border bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground"
 									>
-										<span className="text-muted-foreground">{key}:</span> {String(value)}
+										<span className="text-muted-foreground">{key}:</span>{' '}
+										{formatFeatureProperty(value)}
 									</div>
 								))}
 							</div>
@@ -296,6 +308,8 @@ interface DatasetFeaturesListProps {
 	featureCollection: FeatureCollection | null | undefined
 	hiddenFeatureIds?: Set<string>
 	className?: string
+	/** A map inspection request; a repeated click should reveal the row again. */
+	focusRequest?: { featureId?: string } | null
 	/** When provided, each geometry row gets a zoom-to button. */
 	onZoomToFeature?: (feature: Feature<Geometry | null, GeoJsonProperties>) => void
 	/** Canonical naddr of the containing Dataset, used for fine-grained feature refs. */
@@ -311,6 +325,7 @@ export function DatasetFeaturesList({
 	featureCollection,
 	hiddenFeatureIds,
 	className,
+	focusRequest,
 	onZoomToFeature,
 	datasetAddress,
 	onCommentOnFeature,
@@ -319,6 +334,20 @@ export function DatasetFeaturesList({
 	const [query, setQuery] = useState('')
 	const [typeFilter, setTypeFilter] = useState('All')
 	const [showAll, setShowAll] = useState(false)
+	useEffect(() => {
+		if (!focusRequest?.featureId) return
+		const index =
+			featureCollection?.features.findIndex(
+				(feature, index) =>
+					String(feature.id ?? feature.properties?.featureId ?? feature.properties?.id ?? index) ===
+					focusRequest.featureId,
+			) ?? -1
+		if (index < 0) return
+		setQuery('')
+		setTypeFilter('All')
+		if (index >= 12) setShowAll(true)
+		setExpandedIds((ids) => new Set(ids).add(index))
+	}, [focusRequest, featureCollection])
 
 	const toggleExpand = (index: number) => {
 		setExpandedIds((prev) => {
@@ -346,7 +375,7 @@ export function DatasetFeaturesList({
 		featureId:
 			typeof feature.id === 'string' || typeof feature.id === 'number'
 				? String(feature.id)
-				: String(originalIndex),
+				: String(feature.properties?.featureId ?? feature.properties?.id ?? originalIndex),
 	}))
 	const visibleFeatures = hiddenFeatureIds
 		? featuresWithIds.filter(({ featureId }) => {
@@ -424,6 +453,7 @@ export function DatasetFeaturesList({
 							featureId={featureId}
 							datasetAddress={datasetAddress}
 							name={name}
+							focusRequest={focusRequest}
 							isExpanded={expandedIds.has(originalIndex)}
 							onToggleExpand={() => toggleExpand(originalIndex)}
 							isExternal={isExternalPlaceholder}

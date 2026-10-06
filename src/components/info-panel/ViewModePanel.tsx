@@ -145,6 +145,22 @@ export function ViewModePanel({
 	const contextFilterMode = useEditorStore((state) => state.contextFilterMode)
 	const features = useEditorStore((state) => state.features)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
+	const focusedMapGeometry = useEditorStore((state) => state.focusedMapGeometry)
+	const featureFocusRequest =
+		viewDataset &&
+		focusedMapGeometry &&
+		(focusedMapGeometry.sourceEventId
+			? focusedMapGeometry.sourceEventId === viewDataset.id
+			: focusedMapGeometry.datasetId === (viewDataset.datasetId ?? viewDataset.id))
+			? focusedMapGeometry
+			: null
+	const lastFeatureFocusRef = useRef<typeof featureFocusRequest>(null)
+	useEffect(() => {
+		if (!featureFocusRequest?.featureId || lastFeatureFocusRef.current === featureFocusRequest)
+			return
+		lastFeatureFocusRef.current = featureFocusRequest
+		setActiveObjectTab('details')
+	}, [featureFocusRequest, setActiveObjectTab])
 
 	const viewedDatasetKey = viewDataset ? getDatasetKey(viewDataset) : null
 	const isDeletingDataset = viewedDatasetKey ? deletingKey === viewedDatasetKey : false
@@ -464,6 +480,7 @@ export function ViewModePanel({
 							key={viewedDatasetKey}
 							featureCollection={viewDataset.featureCollection}
 							datasetAddress={viewDataset.address}
+							focusRequest={featureFocusRequest}
 							hiddenFeatureIds={hiddenFeatureIds}
 							onZoomToFeature={handleZoomToFeature}
 							onCommentOnFeature={(feature) => {

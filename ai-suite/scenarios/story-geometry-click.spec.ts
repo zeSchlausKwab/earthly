@@ -177,6 +177,9 @@ for (const authored of [true, false]) {
 		const observations = []
 		for (let click = 0; click < 2; click += 1) {
 			await clickGeometry(earthly, fixture.map.address)
+			await expect(
+				earthly.page.getByRole('dialog', { name: 'Meeting point details', exact: true }),
+			).toBeVisible()
 			// Inspecting the geometry may replace the Margin's single subject with
 			// its source Map; the routed Story continues to own the canvas layers.
 			await expect(

@@ -72,6 +72,55 @@ function button(container: HTMLElement, text: string): HTMLButtonElement {
 }
 
 describe('Map inspect feature list', () => {
+	test('reveals repeated map inspection requests beyond the initial page and resets a stale filter', async () => {
+		const features = Array.from({ length: 20 }, (_, index) => point(String(index)))
+		features.push({
+			type: 'Feature',
+			id: 'route',
+			properties: { name: 'Route' },
+			geometry: {
+				type: 'LineString',
+				coordinates: [
+					[12, 47],
+					[13, 48],
+				],
+			},
+		})
+		const collection: FeatureCollection = { type: 'FeatureCollection', features }
+		const container = document.createElement('div')
+		document.body.append(container)
+		const root = createRoot(container)
+		roots.push(root)
+		const scrolled: HTMLElement[] = []
+		const prototype = HTMLElement.prototype as HTMLElement & { scrollIntoView(): void }
+		const originalScroll = prototype.scrollIntoView
+		prototype.scrollIntoView = function () {
+			scrolled.push(this)
+		}
+		try {
+			await act(async () => root.render(<DatasetFeaturesList featureCollection={collection} />))
+			await act(async () =>
+				root.render(
+					<DatasetFeaturesList featureCollection={collection} focusRequest={{ featureId: '19' }} />,
+				),
+			)
+			expect(button(container, 'Collapse Point 19').getAttribute('aria-expanded')).toBe('true')
+			expect(container.querySelector('[aria-current="true"]')?.textContent).toContain('Point 19')
+			expect(scrolled.some((el) => el.textContent?.includes('Point 19'))).toBe(true)
+			await act(async () => button(container, 'LineString 1').click())
+			expect(container.textContent).not.toContain('Point 19')
+			const previousCount = scrolled.length
+			await act(async () =>
+				root.render(
+					<DatasetFeaturesList featureCollection={collection} focusRequest={{ featureId: '19' }} />,
+				),
+			)
+			expect(button(container, 'Collapse Point 19')).toBeDefined()
+			expect(scrolled.length).toBeGreaterThan(previousCount)
+		} finally {
+			prototype.scrollIntoView = originalScroll
+		}
+	})
 	test('caps the initial list without losing access to the rest', async () => {
 		const container = await renderList(
 			Array.from({ length: 15 }, (_, index) => point(String(index))),

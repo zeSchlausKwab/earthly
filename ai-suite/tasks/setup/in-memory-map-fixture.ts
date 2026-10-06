@@ -4,6 +4,8 @@ import { finalizeEvent, nip19 } from 'nostr-tools'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
 import { testIdentities } from '../../test-identities'
+import type { Feature } from 'geojson'
+import { bbox } from '@turf/turf'
 
 export const installInMemoryMapFixtureTask: AiTaskMetadata = {
 	id: 'setup.in-memory-map-fixture',
@@ -20,32 +22,36 @@ export async function installInMemoryMapFixture(
 		author?: 'owner' | 'mara'
 		identifier?: string
 		commentCount?: number
+		features?: Feature[]
+		description?: string
 		/** Exercise reply, reaction sorting, and annotation controls without publishing. */
 		includeDiscussionFeatures?: boolean
 	},
 ) {
 	const identifier = input.identifier ?? 'ai-suite-in-memory-map'
 	const timestamp = Math.floor(Date.now() / 1000) - 100
+	const collection = {
+		type: 'FeatureCollection' as const,
+		name: input.title,
+		...(input.description ? { description: input.description } : {}),
+		features: input.features ?? [
+			{
+				type: 'Feature' as const,
+				id: 'meeting-point',
+				properties: { name: 'Meeting point' },
+				geometry: { type: 'Point' as const, coordinates: [13.98, 46.7] },
+			},
+		],
+	}
 	const event = finalizeEvent(
 		{
 			kind: 37515,
 			created_at: timestamp,
 			tags: [
 				['d', identifier],
-				['bbox', '13.98,46.7,13.98,46.7'],
+				['bbox', bbox(collection).join(',')],
 			],
-			content: JSON.stringify({
-				type: 'FeatureCollection',
-				name: input.title,
-				features: [
-					{
-						type: 'Feature',
-						id: 'meeting-point',
-						properties: { name: 'Meeting point' },
-						geometry: { type: 'Point', coordinates: [13.98, 46.7] },
-					},
-				],
-			}),
+			content: JSON.stringify(collection),
 		},
 		hexToBytes(testIdentities[input.author ?? 'owner'].secretKeyHex),
 	)

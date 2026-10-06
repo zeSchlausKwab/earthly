@@ -77,8 +77,7 @@ export function convertGeoEventsToFeatureCollection(
 		const collectionColor = getCollectionColor(collection)
 
 		return collection.features
-			.filter((feature) => Boolean(feature.geometry))
-			.map((feature) => {
+			.map((feature, index) => {
 				// Use feature-level color if present, otherwise use collection color
 				const featureColor = (feature.properties as any)?.color ?? collectionColor
 
@@ -86,12 +85,17 @@ export function convertGeoEventsToFeatureCollection(
 					...feature,
 					properties: {
 						...(feature.properties ?? {}),
+						// Preserve the source ID when MapLibre returns a numeric tile ID.
+						featureId: String(
+							feature.id ?? feature.properties?.featureId ?? feature.properties?.id ?? index,
+						),
 						datasetId,
 						sourceEventId: event.id,
 						...(featureColor ? { color: featureColor } : {}),
 					},
 				}
 			})
+			.filter((feature) => Boolean(feature.geometry))
 	})
 
 	return {

@@ -1,17 +1,28 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
-import type { Feature, Geometry } from 'geojson'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { Feature, FeatureCollection, Geometry } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { RichContentRenderer } from '@/components/editor'
-import { UserProfile } from '@/components/user-profile'
+import { X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import {
+	countGeometryVertices,
+	featureDetailDescription,
+	featureDetailName,
+	featureDetailProperties,
+	formatFeatureProperty,
+	resolveInspectedFeature,
+} from './feature-details'
 import type { PresentationFeatureProvenance } from '../map-presentation/ids'
 import { resolveMapPopupPosition, type MapPopupPlacement } from './map-popup-positioning'
 
 export interface FeaturePopupData {
-	/** The dataset containing the hovered feature */
+	/** The dataset containing the selected feature */
 	dataset: GeoDataset
-	/** The hovered feature */
+	/** The selected feature */
 	feature: Feature<Geometry>
-	/** Screen position where user hovered */
+	/** Complete data for externally stored or presentation-selected Maps. */
+	sourceCollection?: FeatureCollection
+	/** Screen position where the feature was selected */
 	clickPosition: { x: number; y: number }
 	/** Whether the current user owns this dataset */
 	isOwner: boolean
@@ -29,70 +40,11 @@ interface FeaturePopupProps {
 	toolbarOffset?: number
 	interactive?: boolean
 	onHoverChange?: (hovered: boolean) => void
+	onClose?: () => void
 }
 
 const POPUP_WIDTH = 320
 const POPUP_HEIGHT_ESTIMATE = 240
-
-function getDatasetDescription(dataset: GeoDataset): string | null {
-	const featureCollection = dataset.featureCollection as unknown as
-		| Record<string, unknown>
-		| undefined
-	if (!featureCollection) return null
-
-	const candidates = [
-		featureCollection.description,
-		featureCollection.summary,
-		(featureCollection.properties as Record<string, unknown> | undefined)?.description,
-		(featureCollection.properties as Record<string, unknown> | undefined)?.summary,
-	]
-
-	for (const value of candidates) {
-		if (typeof value === 'string' && value.trim().length > 0) {
-			return value.trim()
-		}
-	}
-
-	return null
-}
-
-function formatCreatedAt(createdAt?: number): string {
-	if (!createdAt || !Number.isFinite(createdAt)) return 'Unknown'
-	return new Date(createdAt * 1000).toLocaleString()
-}
-
-function getFeatureLabel(feature: Feature<Geometry>): string | null {
-	const props = (feature.properties ?? {}) as Record<string, unknown>
-	const labelCandidates = [
-		props.name,
-		props.title,
-		props.label,
-		props.text,
-		props.featureId,
-		props.id,
-		feature.id,
-	]
-	for (const value of labelCandidates) {
-		if (typeof value === 'string' && value.trim().length > 0) return value.trim()
-		if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-	}
-	return null
-}
-
-function countGeometryVertices(geometry: Geometry): number {
-	const walk = (coords: unknown): number => {
-		if (!Array.isArray(coords)) return 0
-		if (coords.length === 0) return 0
-		if (typeof coords[0] === 'number') return 1
-		let count = 0
-		for (const child of coords) count += walk(child)
-		return count
-	}
-	if (geometry.type === 'GeometryCollection') {
-		return geometry.geometries.reduce((count, child) => count + countGeometryVertices(child), 0)
-	}
-	return walk(geometry.coordinates)
-}
 
 export function FeaturePopup({
 	data,
@@ -101,19 +53,55 @@ export function FeaturePopup({
 	toolbarOffset = 72,
 	interactive = false,
 	onHoverChange,
+	onClose,
 }: FeaturePopupProps) {
+	const details = useMemo(() => {
+		if (!data) return null
+		const feature = resolveInspectedFeature(
+			data.feature,
+			data.sourceCollection ?? data.dataset.featureCollection,
+			data.presentation?.sourceFeatureId,
+		)
+		return {
+			feature,
+			name: featureDetailName(feature),
+			description: featureDetailDescription(feature),
+			properties: featureDetailProperties(feature),
+			vertexCount: countGeometryVertices(feature.geometry),
+		}
+	}, [data])
+	useEffect(() => {
+		if (!data || !onClose) return
+		const dismiss = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') onClose()
+		}
+		window.addEventListener('keydown', dismiss)
+		return () => window.removeEventListener('keydown', dismiss)
+	}, [data, onClose])
 	const popupRef = useRef<HTMLDivElement>(null)
+	const contentRef = useRef<HTMLElement>(null)
+	useLayoutEffect(() => {
+		if (data && contentRef.current) contentRef.current.scrollTop = 0
+	}, [data])
 	const [position, setPosition] = useState({ left: 12, top: 12, maxHeight: 280 })
 
 	const updatePosition = useCallback(() => {
 		if (!data || !containerRef.current || !popupRef.current) return
 		const containerRect = containerRef.current.getBoundingClientRect()
+		const bottomInset =
+			Number.parseFloat(
+				getComputedStyle(containerRef.current).getPropertyValue('--mobile-sheet-height'),
+			) || 0
+		const availableHeight = Math.max(0, containerRect.height - bottomInset)
 		const popupWidth = popupRef.current.offsetWidth || POPUP_WIDTH
-		const popupHeight = popupRef.current.offsetHeight || POPUP_HEIGHT_ESTIMATE
+		const popupHeight = Math.min(
+			popupRef.current.offsetHeight || POPUP_HEIGHT_ESTIMATE,
+			Math.max(120, availableHeight - 24),
+		)
 		setPosition(
 			resolveMapPopupPosition({
 				containerWidth: containerRect.width,
-				containerHeight: containerRect.height,
+				containerHeight: availableHeight,
 				popupWidth,
 				popupHeight,
 				anchorPoint: data.clickPosition,
@@ -134,6 +122,9 @@ export function FeaturePopup({
 
 		const handleResize = () => updatePosition()
 		window.addEventListener('resize', handleResize)
+		// The mobile sheet changes the exposed map area without resizing its canvas.
+		const insetObserver = new MutationObserver(updatePosition)
+		insetObserver.observe(containerEl, { attributes: true, attributeFilter: ['style'] })
 
 		if (typeof ResizeObserver !== 'undefined') {
 			const observer = new ResizeObserver(() => updatePosition())
@@ -142,94 +133,108 @@ export function FeaturePopup({
 			return () => {
 				window.removeEventListener('resize', handleResize)
 				observer.disconnect()
+				insetObserver.disconnect()
 			}
 		}
 
 		return () => {
 			window.removeEventListener('resize', handleResize)
+			insetObserver.disconnect()
 		}
 	}, [containerRef, data, updatePosition])
 
-	if (!data) return null
+	if (!data || !details) return null
 
-	const { dataset, datasetName, feature, presentation } = data
-	const description = getDatasetDescription(dataset)
-	const featureLabel = getFeatureLabel(feature)
-	const vertexCount = countGeometryVertices(feature.geometry)
+	const { datasetName } = data
+	const { feature, name, description, properties, vertexCount } = details
 
 	return (
 		<div
 			ref={popupRef}
 			role="dialog"
-			aria-label={`${datasetName} details`}
-			className={`absolute z-50 flex flex-col overflow-hidden rounded-xl bg-card/95 shadow-2xl backdrop-blur ring-1 ring-black/5 ${
+			aria-label={`${name} details`}
+			className={`absolute z-50 flex flex-col overflow-hidden border border-border bg-card/95 shadow-xl backdrop-blur ${
 				interactive ? 'pointer-events-auto' : 'pointer-events-none'
 			}`}
 			style={{
 				width: `min(${POPUP_WIDTH}px, calc(100% - 24px))`,
 				left: position.left,
 				top: position.top,
-				maxHeight: position.maxHeight,
+				maxHeight: Math.min(420, position.maxHeight),
 			}}
 			onMouseEnter={() => onHoverChange?.(true)}
 			onMouseLeave={() => onHoverChange?.(false)}
 		>
-			<div className="border-b border-border bg-muted/80 px-3 py-2">
-				<div className="font-semibold text-sm text-foreground truncate">{datasetName}</div>
-				<div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-					<span className="text-muted-foreground">{presentation ? 'Data:' : 'Author:'}</span>
-					<UserProfile
-						pubkey={dataset.pubkey}
-						mode="avatar-name"
-						size="xs"
-						showNip05Badge={false}
-						interactive={false}
-					/>
+			<div className="flex shrink-0 items-start gap-2 border-b border-border bg-muted/80 px-3 py-2">
+				<div className="min-w-0 flex-1">
+					<h3 className="break-words font-semibold text-sm text-foreground">{name}</h3>
+					<p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={datasetName}>
+						{datasetName}
+					</p>
 				</div>
-				{presentation ? (
-					<div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-						<span>Presentation:</span>
-						{presentation.presentationAuthor ? (
-							<UserProfile
-								pubkey={presentation.presentationAuthor}
-								mode="avatar-name"
-								size="xs"
-								showNip05Badge={false}
-								interactive={false}
-							/>
-						) : (
-							<span className="truncate">{presentation.carrierId}</span>
-						)}
-						<span className="truncate">· layer {presentation.layerId}</span>
-					</div>
-				) : null}
+				{onClose && (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						onClick={onClose}
+						aria-label="Close feature details"
+					>
+						<X className="size-4" aria-hidden="true" />
+					</Button>
+				)}
 			</div>
 
-			<div className="space-y-2 overflow-y-auto px-3 py-2">
+			<section
+				ref={contentRef}
+				tabIndex={interactive ? 0 : undefined}
+				className="min-h-0 space-y-3 overflow-y-auto overscroll-contain px-3 py-2"
+				aria-label="Feature information"
+			>
 				{description && (
 					<RichContentRenderer
 						content={description}
-						className="space-y-2 text-xs text-foreground"
+						className="space-y-2 break-words text-xs text-foreground"
 					/>
 				)}
-				<div className="rounded-md border border-border bg-muted px-2 py-1.5 text-[11px] text-foreground space-y-0.5">
-					<div>
-						<span className="text-muted-foreground">Geometry:</span> {feature.geometry.type}
-					</div>
-					{featureLabel && (
-						<div className="truncate">
-							<span className="text-muted-foreground">Feature:</span> {featureLabel}
-						</div>
+				<dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-y border-border py-2 text-[11px]">
+					<dt className="text-muted-foreground">Geometry</dt>
+					<dd>{feature.geometry?.type ?? 'External geometry'}</dd>
+					{feature.id != null && (
+						<>
+							<dt className="text-muted-foreground">Feature ID</dt>
+							<dd className="break-all font-mono">{String(feature.id)}</dd>
+						</>
 					)}
-					<div>
-						<span className="text-muted-foreground">Vertices:</span> {vertexCount}
-					</div>
-				</div>
-				<div className="text-[11px] text-muted-foreground">
-					<span className="text-muted-foreground">Created:</span>{' '}
-					{formatCreatedAt(dataset.created_at)}
-				</div>
-			</div>
+					<dt className="text-muted-foreground">Vertices</dt>
+					<dd>{vertexCount.toLocaleString()}</dd>
+					{feature.geometry?.type === 'Point' && (
+						<>
+							<dt className="text-muted-foreground">Coordinates</dt>
+							<dd>{feature.geometry.coordinates.map((value) => value.toFixed(5)).join(', ')}</dd>
+						</>
+					)}
+				</dl>
+				<section aria-label="Feature properties">
+					<h4 className="mb-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+						Properties · {properties.length}
+					</h4>
+					{properties.length ? (
+						<dl className="divide-y divide-border text-xs">
+							{properties.map(([key, value]) => (
+								<div key={key} className="py-1.5">
+									<dt className="break-words font-medium text-muted-foreground">{key}</dt>
+									<dd className="mt-0.5 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-foreground">
+										{formatFeatureProperty(value)}
+									</dd>
+								</div>
+							))}
+						</dl>
+					) : (
+						<p className="text-xs text-muted-foreground">No properties provided.</p>
+					)}
+				</section>
+			</section>
 		</div>
 	)
 }

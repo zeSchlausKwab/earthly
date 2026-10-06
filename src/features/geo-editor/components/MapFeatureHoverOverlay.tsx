@@ -7,6 +7,9 @@ import { FeaturePopup, type FeaturePopupData } from './FeaturePopup'
 import { GeometryChoiceMenu } from './GeometryChoiceMenu'
 import { SightingPopup, type SightingPopupData } from './SightingPopup'
 import type { MapPopupPlacement } from './map-popup-positioning'
+import { useEditorStore } from '../store'
+import type { FeatureCollection } from 'geojson'
+import type { PresentationFeatureProvenance } from '../map-presentation/ids'
 
 interface MapFeatureHoverOverlayProps {
 	mapletLayerIds?: readonly string[]
@@ -19,6 +22,10 @@ interface MapFeatureHoverOverlayProps {
 	geoEventsRef: React.RefObject<GeoDataset[]>
 	currentUserPubkey?: string
 	getDatasetName: (event: GeoDataset) => string
+	resolveSourceCollection?: (
+		event: GeoDataset,
+		presentation?: PresentationFeatureProvenance,
+	) => FeatureCollection | undefined
 	handleInspectDatasetWithoutFocus: (event: GeoDataset) => void
 	sightingsRef?: React.RefObject<TemporalSighting[]>
 	onInspectSighting?: (sighting: TemporalSighting) => void
@@ -41,6 +48,7 @@ export function MapFeatureHoverOverlay({
 	geoEventsRef,
 	currentUserPubkey,
 	getDatasetName,
+	resolveSourceCollection,
 	handleInspectDatasetWithoutFocus,
 	sightingsRef,
 	onInspectSighting,
@@ -52,6 +60,13 @@ export function MapFeatureHoverOverlay({
 	presentationLayersReady = false,
 }: MapFeatureHoverOverlayProps) {
 	const [featurePopupData, setFeaturePopupData] = useState<FeaturePopupData | null>(null)
+	const [clickedFeaturePopupData, setClickedFeaturePopupData] = useState<FeaturePopupData | null>(
+		null,
+	)
+	const viewMode = useEditorStore((state) => state.viewMode)
+	useEffect(() => {
+		if (viewMode === 'edit') setClickedFeaturePopupData(null)
+	}, [viewMode])
 	const [sightingPopupData, setSightingPopupData] = useState<SightingPopupData | null>(null)
 	const [geometryChoiceData, setGeometryChoiceData] = useState<RemoteGeometryChoiceRequest | null>(
 		null,
@@ -78,12 +93,20 @@ export function MapFeatureHoverOverlay({
 	}, [clearHideTimeout])
 
 	useEffect(() => {
-		if (!popupsEnabled || suppressed) {
+		if (!popupsEnabled || suppressed || viewMode === 'edit') {
 			setFeaturePopupData(null)
 			setDisplayedFeaturePopupData(null)
 			clearHideTimeout()
 		}
-	}, [clearHideTimeout, popupsEnabled, suppressed])
+	}, [clearHideTimeout, popupsEnabled, suppressed, viewMode])
+
+	const closeClickedFeaturePopup = useCallback(() => {
+		setClickedFeaturePopupData(null)
+		setFeaturePopupData(null)
+		setDisplayedFeaturePopupData(null)
+		popupHoverRef.current = false
+		clearHideTimeout()
+	}, [clearHideTimeout])
 
 	useEffect(() => {
 		if (!popupsEnabled || suppressed) return
@@ -92,7 +115,7 @@ export function MapFeatureHoverOverlay({
 			setDisplayedFeaturePopupData(featurePopupData)
 			return
 		}
-		if (placementMode === 'dock' && displayedFeaturePopupData) {
+		if (displayedFeaturePopupData) {
 			scheduleHide()
 			return
 		}
@@ -101,7 +124,6 @@ export function MapFeatureHoverOverlay({
 		clearHideTimeout,
 		displayedFeaturePopupData,
 		featurePopupData,
-		placementMode,
 		popupsEnabled,
 		scheduleHide,
 		suppressed,
@@ -118,11 +140,11 @@ export function MapFeatureHoverOverlay({
 				clearHideTimeout()
 				return
 			}
-			if (!featurePopupData && placementMode === 'dock' && displayedFeaturePopupData) {
+			if (!featurePopupData && displayedFeaturePopupData) {
 				scheduleHide()
 			}
 		},
-		[clearHideTimeout, displayedFeaturePopupData, featurePopupData, placementMode, scheduleHide],
+		[clearHideTimeout, displayedFeaturePopupData, featurePopupData, scheduleHide],
 	)
 
 	const { chooseRemoteGeometry } = useMapInteractions({
@@ -135,8 +157,10 @@ export function MapFeatureHoverOverlay({
 		geoEventsRef,
 		currentUserPubkey,
 		getDatasetName,
+		resolveSourceCollection,
 		handleInspectDatasetWithoutFocus,
 		setFeaturePopupData,
+		setClickedFeaturePopupData,
 		setGeometryChoiceData,
 		sightingsRef,
 		onInspectSighting,
@@ -154,7 +178,7 @@ export function MapFeatureHoverOverlay({
 		return () => window.removeEventListener('keydown', handleKeyDown)
 	}, [geometryChoiceData])
 
-	if ((!popupsEnabled || suppressed) && !geometryChoiceData) {
+	if ((!popupsEnabled || suppressed) && !geometryChoiceData && !clickedFeaturePopupData) {
 		return null
 	}
 
@@ -182,27 +206,32 @@ export function MapFeatureHoverOverlay({
 					title="Choose map geometry"
 					onChoose={(choiceId) => {
 						const choice = geometryChoiceData.choices.find((item) => item.id === choiceId)
-						if (choice) chooseRemoteGeometry(choice)
+						if (choice) chooseRemoteGeometry(choice, geometryChoiceData.point)
 					}}
 					onClose={() => setGeometryChoiceData(null)}
 				/>
 			) : null}
-			{popupsEnabled && !suppressed ? (
+			{!geometryChoiceData &&
+			viewMode !== 'edit' &&
+			(clickedFeaturePopupData || (popupsEnabled && !suppressed)) ? (
 				<>
 					<FeaturePopup
-						data={displayedFeaturePopupData}
+						data={clickedFeaturePopupData ?? displayedFeaturePopupData}
 						containerRef={containerRef}
 						placementMode={placementMode}
 						toolbarOffset={toolbarOffset}
-						interactive={placementMode === 'dock'}
+						interactive
+						onClose={clickedFeaturePopupData ? closeClickedFeaturePopup : undefined}
 						onHoverChange={handlePopupHoverChange}
 					/>
-					<SightingPopup
-						data={sightingPopupData}
-						containerRef={containerRef}
-						placementMode={placementMode}
-						toolbarOffset={toolbarOffset}
-					/>
+					{!clickedFeaturePopupData && popupsEnabled && !suppressed && (
+						<SightingPopup
+							data={sightingPopupData}
+							containerRef={containerRef}
+							placementMode={placementMode}
+							toolbarOffset={toolbarOffset}
+						/>
+					)}
 				</>
 			) : null}
 		</>

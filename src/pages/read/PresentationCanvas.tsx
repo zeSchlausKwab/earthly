@@ -202,6 +202,7 @@ export function PresentationCanvas({
 			setFeaturePopup({
 				dataset: selected.entry.sourceEvent as import('@/lib/nostr/geo-event').GeoDataset,
 				feature: selected.feature,
+				sourceCollection: selected.entry.featureCollection,
 				clickPosition: { x: event.point.x, y: event.point.y },
 				isOwner: false,
 				datasetName: datasetName(selected.entry),
@@ -260,6 +261,7 @@ export function PresentationCanvas({
 						placementMode="geometry"
 						toolbarOffset={12}
 						interactive
+						onClose={() => setFeaturePopup(null)}
 					/>
 					{geometryChoice ? (
 						<GeometryChoiceMenu
@@ -281,6 +283,7 @@ export function PresentationCanvas({
 								setFeaturePopup({
 									dataset: selected.entry.sourceEvent as import('@/lib/nostr/geo-event').GeoDataset,
 									feature: selected.feature,
+									sourceCollection: selected.entry.featureCollection,
 									clickPosition: geometryChoice.point,
 									isOwner: false,
 									datasetName: datasetName(selected.entry),

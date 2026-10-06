@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type * as maplibregl from 'maplibre-gl'
-import type { Feature, Geometry } from 'geojson'
+import type { Feature, FeatureCollection, Geometry } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { bboxFromGeometry } from '@/lib/geo/bbox'
@@ -38,8 +38,13 @@ interface UseMapInteractionsParams {
 	geoEventsRef: React.RefObject<GeoDataset[]>
 	currentUserPubkey: string | undefined
 	getDatasetName: (event: GeoDataset) => string
+	resolveSourceCollection?: (
+		event: GeoDataset,
+		presentation?: PresentationFeatureProvenance,
+	) => FeatureCollection | undefined
 	handleInspectDatasetWithoutFocus: (event: GeoDataset) => void
 	setFeaturePopupData: (data: FeaturePopupData | null) => void
+	setClickedFeaturePopupData: (data: FeaturePopupData | null) => void
 	setGeometryChoiceData: (data: RemoteGeometryChoiceRequest | null) => void
 	/** Live list of visible Sightings, kept in a ref so the click handler resolves a
 	 * clicked marker back to its cast without re-binding on every data change. */
@@ -81,8 +86,10 @@ export function useMapInteractions({
 	geoEventsRef,
 	currentUserPubkey,
 	getDatasetName,
+	resolveSourceCollection,
 	handleInspectDatasetWithoutFocus,
 	setFeaturePopupData,
+	setClickedFeaturePopupData,
 	setGeometryChoiceData,
 	sightingsRef,
 	onInspectSighting,
@@ -98,8 +105,9 @@ export function useMapInteractions({
 	const hoveredFeatureKeyRef = useRef<string | null>(null)
 
 	const chooseRemoteGeometry = useCallback(
-		(choice: RemoteGeometryChoice) => {
+		(choice: RemoteGeometryChoice, point?: { x: number; y: number }) => {
 			setGeometryChoiceData(null)
+			setClickedFeaturePopupData(null)
 			if (choice.maplet) {
 				onInspectMaplet?.(choice.maplet.instanceId, choice.maplet.featureId)
 				return
@@ -110,13 +118,36 @@ export function useMapInteractions({
 				sourceEventId: choice.sourceEventId ?? choice.dataset?.id,
 				featureId: choice.featureId,
 			})
-			if (viewMode !== 'edit' && choice.dataset) handleInspectDatasetWithoutFocus(choice.dataset)
+			if (viewMode !== 'edit' && choice.dataset) {
+				if (point) {
+					setClickedFeaturePopupData({
+						dataset: choice.dataset,
+						feature: choice.feature,
+						sourceCollection: resolveSourceCollection?.(choice.dataset, choice.presentation),
+						clickPosition: point,
+						isOwner: currentUserPubkey === choice.dataset.pubkey,
+						datasetName: choice.datasetName,
+						...(choice.presentation ? { presentation: choice.presentation } : {}),
+					})
+				}
+				handleInspectDatasetWithoutFocus(choice.dataset)
+			}
 		},
-		[handleInspectDatasetWithoutFocus, setFocusedMapGeometry, setGeometryChoiceData, viewMode, onInspectMaplet],
+		[
+			handleInspectDatasetWithoutFocus,
+			setFocusedMapGeometry,
+			setGeometryChoiceData,
+			setClickedFeaturePopupData,
+			viewMode,
+			onInspectMaplet,
+			currentUserPubkey,
+			resolveSourceCollection,
+		],
 	)
 
 	useEffect(() => {
-		if (!mapInstance || (!remoteLayersReady && !presentationLayersReady && !mapletLayersReady)) return
+		if (!mapInstance || (!remoteLayersReady && !presentationLayersReady && !mapletLayersReady))
+			return
 
 		const remoteLayers = [
 			...(remoteLayersReady
@@ -185,14 +216,25 @@ export function useMapInteractions({
 			for (const renderedFeature of renderedFeatures) {
 				if (!renderedFeature.properties) continue
 				const props = renderedFeature.properties as Record<string, unknown>
-				if (renderedFeature.layer.id.startsWith('maplet:') && typeof props.earthlyMapletInstanceId === 'string' && typeof props.earthlyMapletFeatureId === 'string') {
+				if (
+					renderedFeature.layer.id.startsWith('maplet:') &&
+					typeof props.earthlyMapletInstanceId === 'string' &&
+					typeof props.earthlyMapletFeatureId === 'string'
+				) {
 					const id = `maplet:${props.earthlyMapletInstanceId}:${props.earthlyMapletFeatureId}`
 					const bbox = bboxFromGeometry(renderedFeature.geometry)
 					if (seen.has(id) || !bbox) continue
 					seen.add(id)
-					choices.push({ id, feature: renderedFeature as unknown as Feature<Geometry>, featureId: props.earthlyMapletFeatureId, bbox,
+					choices.push({
+						id,
+						feature: renderedFeature as unknown as Feature<Geometry>,
+						featureId: props.earthlyMapletFeatureId,
+						bbox,
 						datasetName: String(props.earthlyMapletTitle ?? 'Maplet'),
-						maplet: { instanceId: props.earthlyMapletInstanceId, featureId: props.earthlyMapletFeatureId },
+						maplet: {
+							instanceId: props.earthlyMapletInstanceId,
+							featureId: props.earthlyMapletFeatureId,
+						},
 					})
 					continue
 				}
@@ -247,10 +289,13 @@ export function useMapInteractions({
 			}
 
 			if (choices.length > 1) {
+				setClickedFeaturePopupData(null)
 				setGeometryChoiceData({ point: { x: event.point.x, y: event.point.y }, choices })
 				return
 			}
-			if (choices[0]) chooseRemoteGeometry(choices[0])
+			setGeometryChoiceData(null)
+			if (choices[0]) chooseRemoteGeometry(choices[0], { x: event.point.x, y: event.point.y })
+			else setClickedFeaturePopupData(null)
 		}
 
 		const handleMapDatasetHover = (event: maplibregl.MapLayerMouseEvent) => {
@@ -303,6 +348,7 @@ export function useMapInteractions({
 			setFeaturePopupData({
 				dataset,
 				feature: feature as unknown as Feature<Geometry>,
+				sourceCollection: resolveSourceCollection?.(dataset, presentation ?? undefined),
 				clickPosition: { x: event.point.x, y: event.point.y },
 				isOwner: currentUserPubkey === dataset.pubkey,
 				datasetName: getDatasetName(dataset),
@@ -451,7 +497,9 @@ export function useMapInteractions({
 		viewMode,
 		currentUserPubkey,
 		getDatasetName,
+		resolveSourceCollection,
 		setFeaturePopupData,
+		setClickedFeaturePopupData,
 		setGeometryChoiceData,
 		chooseRemoteGeometry,
 		sightingsRef,
