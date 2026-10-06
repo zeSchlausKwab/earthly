@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.20] - 2026-10-06
+
+- Replaced the three-way map background switch with one compact icon button that
+  cycles OSM → Satellite → Combined. The icon shows the current mode; its tooltip
+  names the current and next modes. A 44-pixel touch target surrounds the smaller
+  32-pixel visual control on desktop and mobile.
+- Preserved the vector-only default and configurable Combined blend settings.
+
+### Known limitations
+
+- Physical-device Android upgrade and map/Story smoke testing remain pending for this release.
+
 ## [0.1.19] - 2026-10-06
 
 - Added optional EOX Sentinel-2 cloudless satellite imagery, with an OSM, Satellite,
