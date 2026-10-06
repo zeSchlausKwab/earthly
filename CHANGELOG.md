@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.18] - 2026-10-06
+
+- Geometry clicks now open feature details by default in Maps and Stories, showing
+  the selected feature's name, description, geometry data, and properties.
+- Long feature details scroll inside a popup with a capped height, positioned above
+  the mobile panel. Hover previews remain optional.
+- Map inspection reveals, expands, and highlights the clicked feature in the sidebar,
+  including features beyond the initial list and those hidden by list filters.
+- Preserved source feature identities and complete typed properties when inspecting
+  rendered geometry, including Story presentation layers and externally stored Maps.
+
+### Known limitations
+
+- Physical-device Android upgrade and map/Story smoke testing remain pending for this release.
+
 ## [0.1.17] - 2026-10-05
 
 - Added a visible Enter atlas button as the first action on Atlas list rows,
