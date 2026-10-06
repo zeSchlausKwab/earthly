@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.19] - 2026-10-06
+
+- Added optional EOX Sentinel-2 cloudless satellite imagery, with an OSM, Satellite,
+  and Combined switch directly on the map for desktop and mobile. New users start
+  with the vector OSM map; switching modes preserves the configured blend.
+- Added imagery opacity and OSM roads/labels controls under More → Map settings
+  (Settings → Map on mobile). Uses the free, attributed 2016/2017 mosaic without
+  an account or API key.
+- Stories is now the default Browse tab, including the home page and mobile Browse.
+
+### Known limitations
+
+- Physical-device Android upgrade and map/Story smoke testing remain pending for this release.
+
 ## [0.1.18] - 2026-10-06
 
 - Geometry clicks now open feature details by default in Maps and Stories, showing
