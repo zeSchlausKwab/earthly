@@ -30,10 +30,11 @@ import {
 } from 'lucide-react'
 import { FileSource } from 'pmtiles'
 import type React from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import { BASEMAP_STYLE_OPTIONS, useBasemapStyle } from '@/lib/basemap'
+import { useSatelliteSettings } from '@/lib/satellite'
 import { inspectPmtiles } from '@/lib/localPmtiles'
 import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
@@ -354,6 +355,8 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 	const setGeometryPointProxyEnabled = useEditorStore((state) => state.setGeometryPointProxyEnabled)
 	const mapLayers = useEditorStore((state) => state.mapLayers)
 	const [basemapStyle, setBasemapStyle] = useBasemapStyle()
+	const [satellite, setSatellite] = useSatelliteSettings()
+	const satelliteId = useId()
 	const announcementSource = useEditorStore((state) => state.announcementSource)
 	const updateMapLayerState = useEditorStore((state) => state.updateMapLayerState)
 	const reorderMapLayers = useEditorStore((state) => state.reorderMapLayers)
@@ -613,6 +616,66 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 							in dark. Pin a style to keep it regardless of theme.
 						</p>
 					</div>
+				)}
+
+				{mapSource.type === 'default' && (
+					<section
+						aria-label="Satellite imagery"
+						className="space-y-3 rounded-lg border bg-card p-3"
+					>
+						<div className="flex items-start justify-between gap-4">
+							<div className="space-y-1">
+								<Label htmlFor={`${satelliteId}-enabled`} className="text-sm font-medium">
+									Satellite imagery
+								</Label>
+								<p className="text-xs text-muted-foreground">
+									EOX Sentinel-2 cloudless · 2016/2017 · about 10 m detail
+								</p>
+							</div>
+							<Switch
+								id={`${satelliteId}-enabled`}
+								checked={satellite.enabled}
+								onCheckedChange={(enabled) => setSatellite({ enabled, mode: 'combined' })}
+								aria-label="Satellite imagery"
+							/>
+						</div>
+						{satellite.enabled && (
+							<>
+								<div className="space-y-2">
+									<div className="flex items-center justify-between gap-3 text-xs">
+										<span id={`${satelliteId}-opacity`}>Imagery opacity</span>
+										<span className="font-mono tabular-nums">
+											{Math.round(satellite.opacity * 100)}%
+										</span>
+									</div>
+									<Slider
+										aria-labelledby={`${satelliteId}-opacity`}
+										value={[Math.round(satellite.opacity * 100)]}
+										min={0}
+										max={100}
+										step={5}
+										onValueChange={([opacity]) =>
+											setSatellite({ opacity: (opacity ?? 75) / 100, mode: 'combined' })
+										}
+									/>
+									<p className="text-xs text-muted-foreground">
+										Configure Combined mode. Changes switch the map to Combined.
+									</p>
+								</div>
+								<div className="flex items-center justify-between gap-4">
+									<Label htmlFor={`${satelliteId}-osm-overlay`} className="text-xs">
+										Keep OSM roads and labels
+									</Label>
+									<Switch
+										id={`${satelliteId}-osm-overlay`}
+										checked={satellite.osmOverlay}
+										onCheckedChange={(osmOverlay) => setSatellite({ osmOverlay, mode: 'combined' })}
+										aria-label="Keep OSM roads and labels"
+									/>
+								</div>
+							</>
+						)}
+					</section>
 				)}
 
 				{mapSource.type === 'pmtiles' && (
@@ -899,7 +962,10 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 				<TabsTrigger value="chat" className="h-7 flex-none rounded-none px-3 text-xs sm:text-sm">
 					Chat
 				</TabsTrigger>
-				<TabsTrigger value="sessions" className="h-7 flex-none rounded-none px-3 text-xs sm:text-sm">
+				<TabsTrigger
+					value="sessions"
+					className="h-7 flex-none rounded-none px-3 text-xs sm:text-sm"
+				>
 					Sessions
 				</TabsTrigger>
 			</TabsList>

@@ -663,7 +663,7 @@ export function AppSidebar({
 
 	const contentMode = resolveContentMode(viewMode)
 	const metaModeActive = isMetaMode(contentMode)
-	const browseKind = publicRoute.kind === 'browse' ? (publicRoute.browseKind ?? 'maps') : null
+	const browseKind = publicRoute.kind === 'browse' ? (publicRoute.browseKind ?? 'stories') : null
 
 	useEffect(() => {
 		if (isWorkMode(contentMode)) {

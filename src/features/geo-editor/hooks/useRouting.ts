@@ -128,7 +128,7 @@ export function routeStateFromEarthlyRoute(route: EarthlyRouteState): RouteState
 	if (route.kind === 'browse') {
 		return {
 			focusType: 'none',
-			sidebarView: BROWSE_VIEW_ALIASES[route.browseKind ?? 'maps'] ?? DEFAULT_SIDEBAR_VIEW,
+			sidebarView: BROWSE_VIEW_ALIASES[route.browseKind ?? 'stories'] ?? DEFAULT_SIDEBAR_VIEW,
 			browseOpen: route.browseOpen,
 			...common,
 		}
@@ -284,7 +284,7 @@ export function parsePathSegments(segments: string[]): RouteState {
 	if (first === 'browse') {
 		return {
 			focusType: 'none',
-			sidebarView: BROWSE_VIEW_ALIASES[segments[1] ?? 'maps'] ?? DEFAULT_SIDEBAR_VIEW,
+			sidebarView: BROWSE_VIEW_ALIASES[segments[1] ?? 'stories'] ?? DEFAULT_SIDEBAR_VIEW,
 			tab: 'details',
 		}
 	}

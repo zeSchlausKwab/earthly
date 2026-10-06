@@ -313,7 +313,7 @@ describe('parsePathSegments — landing default', () => {
 		})
 	})
 
-	test('an empty landing path opens the default datasets catalog', () => {
+	test('an empty landing path opens the default Stories catalog', () => {
 		expect(parsePathSegments([])).toEqual({
 			focusType: 'none',
 			sidebarView: DEFAULT_SIDEBAR_VIEW,

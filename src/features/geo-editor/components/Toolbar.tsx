@@ -1676,7 +1676,7 @@ export function Toolbar({
 				<ToolPopoverAnchor anchorRef={moreToolsRef} />
 				<PopoverContent
 					aria-label="Map settings"
-					className="w-[28rem] max-w-[calc(100vw-2rem)]"
+					className="max-h-[var(--radix-popover-content-available-height)] w-[28rem] max-w-[calc(100vw-2rem)] overflow-y-auto"
 					side="bottom"
 					align="end"
 					{...settingsFocusProps}

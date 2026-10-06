@@ -53,6 +53,7 @@ import { inspectSurfaceTask } from './tasks/diagnostics/inspect-surface'
 import { observeJourneyStepTask } from './tasks/diagnostics/journey-observation'
 import { keyboardWalkTask } from './tasks/diagnostics/keyboard-walk'
 import { openPanelTask } from './tasks/navigation/open-panel'
+import { openMapSettingsTask } from './tasks/navigation/map-settings'
 import { openDiscoverTask } from './tasks/navigation/open-discover'
 import { copyCurrentShareLinkTask } from './tasks/navigation/share-current-view'
 import {
@@ -103,6 +104,7 @@ import {
 } from './tasks/social/story-proposals'
 
 const tasks = [
+	openMapSettingsTask,
 	addMapCalloutTask,
 	attachCalloutImageTask,
 	setCalloutDisplayModeTask,

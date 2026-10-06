@@ -12,6 +12,8 @@ import { useDisplayIconImages } from './useDisplayIconImages'
 import { useNostrMapLayerAnnouncements } from './useNostrMapLayerAnnouncements'
 import { usePmtilesBoundsLock } from './usePmtilesBoundsLock'
 import { useStyleImageMissingHandler } from './useStyleImageMissingHandler'
+import { useSatelliteLayer } from './useSatelliteLayer'
+import { MapBackgroundControl } from './MapBackgroundControl'
 import type { MapSource } from './types'
 
 // Register pmtiles + pmworld protocols once per module load. Both flags inside
@@ -196,6 +198,7 @@ export function GeoEditorMap({
 			canvasContextAttributes={{ preserveDrawingBuffer: true }}
 		>
 			<MapInternals mapSource={mapSource} onLoad={onLoad} attributionCompact={attributionCompact} />
+			{showControls && mapSource.type === 'default' && <MapBackgroundControl />}
 			{showControls ? (
 				<MapControls
 					position={controlsPosition}
@@ -239,6 +242,7 @@ function MapInternals({
 	useDisplayIconImages(map, isLoaded)
 	useMapLayerStateSync(map, isLoaded)
 	usePmtilesBoundsLock(map, isLoaded, mapSource)
+	useSatelliteLayer(map, isLoaded, mapSource.type === 'default')
 
 	// MapLibre briefly opens a compact AttributionControl when source credits
 	// arrive after the control was created empty. On mobile that late auto-open

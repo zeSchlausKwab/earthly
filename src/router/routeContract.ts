@@ -1,4 +1,11 @@
-export const EARTHLY_BROWSE_KINDS = ['maps', 'stories', 'atlases', 'sightings', 'maplets', 'people'] as const
+export const EARTHLY_BROWSE_KINDS = [
+	'maps',
+	'stories',
+	'atlases',
+	'sightings',
+	'maplets',
+	'people',
+] as const
 
 export type EarthlyBrowseKind = (typeof EARTHLY_BROWSE_KINDS)[number]
 export type EarthlyObjectKind =
@@ -127,7 +134,7 @@ export function parseEarthlyRoute(
 	const base = baseRouteState(search)
 	const segments = pathname.split('/').filter(Boolean)
 	if (segments.length === 0) {
-		return Object.freeze({ kind: 'browse', browseKind: 'maps', ...base })
+		return Object.freeze({ kind: 'browse', browseKind: 'stories', ...base })
 	}
 
 	const [first, rawSecond, third, fourth] = segments

@@ -6080,7 +6080,7 @@ export function GeoEditorView() {
 			active: ['datasets', 'stories', 'contexts', 'sightings', 'beacons'].includes(
 				route.sidebarView,
 			),
-			onActivate: () => navigateToView('datasets'),
+			onActivate: () => navigateToView('stories'),
 		},
 		{
 			id: 'drafts',
@@ -6176,7 +6176,7 @@ export function GeoEditorView() {
 					<TopBarActionControl key={action.id} action={action} />
 				),
 			)}
-			onBrandActivate={() => navigateToUnscopedView('datasets')}
+			onBrandActivate={() => navigateToUnscopedView('stories')}
 		/>
 	)
 	const lensBarSlot = routedLensAtlas ? (
@@ -6499,8 +6499,8 @@ export function GeoEditorView() {
 	const showMobileBrowse = () => {
 		closeMobileSidebar()
 		setMobileSearchOpen(false)
-		navigateToView('datasets')
-		openMobilePanel('datasets')
+		navigateToView('stories')
+		openMobilePanel('stories')
 		setMobilePanelSnap('half')
 	}
 	const navigateFromMobileMe = (href: string) => {
@@ -6657,7 +6657,7 @@ export function GeoEditorView() {
 			{discoverOpen && discoverOpenedAutomaticallyRef.current && <WelcomeCard
 				canCreate={Boolean(editor)}
 				onDismiss={() => handleDiscoverOpenChange(false)}
-				onBrowse={() => { handleDiscoverOpenChange(false); navigateToUnscopedView('datasets'); if (isMobile) selectMobileSidebarDestination('datasets') }}
+				onBrowse={() => { handleDiscoverOpenChange(false); navigateToUnscopedView('stories'); if (isMobile) selectMobileSidebarDestination('stories') }}
 				onCreate={() => { handleDiscoverOpenChange(false); startNewDataset() }}
 				onTour={() => { handleDiscoverOpenChange(false); handleTakeDiscoverTour() }}
 			/>}

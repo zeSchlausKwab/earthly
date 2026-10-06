@@ -65,6 +65,11 @@ describe('Earthly route state', () => {
 		})
 	})
 
+	test('opens Stories by default while preserving explicit Maps destinations', () => {
+		expect(parseEarthlyRoute('/')).toMatchObject({ kind: 'browse', browseKind: 'stories' })
+		expect(parseEarthlyRoute('/browse/maps')).toMatchObject({ kind: 'browse', browseKind: 'maps' })
+	})
+
 	test('bounds and deterministically serializes ambient overlays', () => {
 		expect(parseOnSearch(' a, b,a,, c ')).toEqual(['a', 'b', 'c'])
 		expect(serializeOnSearch(['a', 'b', 'a'])).toBe('a,b')
