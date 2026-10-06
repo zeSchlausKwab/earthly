@@ -71,11 +71,9 @@ test('satellite composition is optional, configurable, and survives reload and s
 	})
 	await earthly.open({ tour: 'seen' })
 	expect(tileRequests).toBe(0)
-	const background = page.getByRole('radiogroup', { name: 'Map background', exact: true })
-	await expect(background.getByRole('radio', { name: 'OSM', exact: true })).toHaveAttribute(
-		'aria-checked',
-		'true',
-	)
+	const background = page.getByRole('button', { name: /^Map background:/ })
+	await expect(background).toHaveCount(1)
+	await expect(background).toHaveAccessibleName('Map background: OSM. Switch to Satellite')
 	if (!earthly.isMobile) {
 		await expect(page.getByRole('tab', { name: /^Stories(?:\s|$)/ })).toHaveAttribute(
 			'aria-selected',
@@ -88,32 +86,30 @@ test('satellite composition is optional, configurable, and survives reload and s
 		'true',
 	)
 	if (earthly.isMobile) await page.getByRole('button', { name: 'Just map', exact: true }).click()
-	for (const name of ['OSM', 'Satellite', 'Combined']) {
-		const bounds = await background.getByRole('radio', { name, exact: true }).boundingBox()
-		expect(bounds?.height).toBeGreaterThanOrEqual(44)
-		expect(bounds?.x).toBeGreaterThanOrEqual(0)
-		expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(
-			page.viewportSize()?.width ?? 1440,
-		)
-	}
-	await background.getByRole('radio', { name: 'Satellite', exact: true }).click()
+	const bounds = await background.boundingBox()
+	expect(bounds?.height).toBe(44)
+	expect(bounds?.width).toBe(44)
+	await expect(background).toHaveText('')
+	await background.click()
+	await expect(background).toHaveAccessibleName('Map background: Satellite. Switch to Combined')
 	await expect.poll(async () => (await composition(page)).opacity).toBe(1)
 	await expect
 		.poll(async () => (await composition(page)).order)
 		.toEqual(['background', 'land', 'road', 'building', 'label', satelliteId, 'authored'])
-	await background.getByRole('radio', { name: 'Combined', exact: true }).click()
+	await background.press('Enter')
+	await expect(background).toHaveAccessibleName('Map background: Combined. Switch to OSM')
 	await expect.poll(async () => (await composition(page)).opacity).toBe(0.75)
-	await background.getByRole('radio', { name: 'OSM', exact: true }).click()
+	await background.press('Space')
 	await expect.poll(async () => (await composition(page)).source).toBeNull()
-	await expect(background.getByRole('radio', { name: 'OSM', exact: true })).toBeChecked()
-	await expect(background.getByRole('radio', { name: 'Combined', exact: true })).not.toBeChecked()
+	await expect(background).toHaveAccessibleName('Map background: OSM. Switch to Satellite')
 	await page.screenshot({
 		path: testInfo.outputPath('map-background-switch.png'),
 		animations: 'disabled',
 	})
 	if (earthly.isMobile) {
 		await page.setViewportSize({ width: 320, height: 568 })
-		await background.getByRole('radio', { name: 'Satellite', exact: true }).click()
+		await background.click()
+		await expect(background).toHaveAccessibleName('Map background: Satellite. Switch to Combined')
 		await expect.poll(async () => (await composition(page)).opacity).toBe(1)
 		const bounds = await background.boundingBox()
 		expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThan(270)
@@ -121,7 +117,9 @@ test('satellite composition is optional, configurable, and survives reload and s
 			path: testInfo.outputPath('map-background-narrow.png'),
 			animations: 'disabled',
 		})
-		await background.getByRole('radio', { name: 'OSM', exact: true }).click()
+		await background.click()
+		await expect(background).toHaveAccessibleName('Map background: Combined. Switch to OSM')
+		await background.click()
 		await expect.poll(async () => (await composition(page)).source).toBeNull()
 		await page.setViewportSize({ width: 390, height: 844 })
 	}
@@ -167,11 +165,12 @@ test('satellite composition is optional, configurable, and survives reload and s
 	await expect.poll(async () => (await composition(page)).order).toEqual(originalOrder)
 	if (!earthly.isMobile) await page.keyboard.press('Escape')
 	else await page.getByRole('button', { name: 'Just map', exact: true }).click()
-	await background.getByRole('radio', { name: 'Satellite', exact: true }).click()
+	await background.click()
+	await expect(background).toHaveAccessibleName('Map background: Satellite. Switch to Combined')
 	await expect.poll(async () => (await composition(page)).opacity).toBe(1)
-	await background.getByRole('radio', { name: 'Combined', exact: true }).click()
+	await background.press('Enter')
 	await expect.poll(async () => (await composition(page)).opacity).toBe(0.95)
-	await background.getByRole('radio', { name: 'OSM', exact: true }).click()
+	await background.press('Space')
 	await expect.poll(async () => (await composition(page)).source).toBeNull()
 	expect(errors).toEqual([])
 })
