@@ -61,7 +61,7 @@ Basic geometry styling, icons, line arrows, and labels reuse Earthly's existing 
 - Coordinate bounds, polygon closure, duplicate IDs, basic style values, and payload limits are validated. No automatic topology repair or guarantee that supplied geographic claims are true.
 - A small map can originate anywhere, but binary file ingestion is still the caller/host's responsibility. No upload tool, fleet optimizer, PDF renderer, private groups, web-component package, or Napplet runtime.
 - Guest signing policy is an initial implementation default, not a recovery promise. Connected user signers remain follow-up work.
-- No hosted ChatGPT connection has been verified. The local browser contract tests the MCP component in a sandbox; a real hosted handshake/resource-policy check remains necessary before release.
+- The hosted personal ChatGPT connection and core map flow were verified on 2026-10-11 with CSP enforcement enabled. Public directory distribution is separate. See [the production verification record](../../docs/PUBLIC-MAPS-PRODUCTION-VERIFICATION.md).
 
 ## Verification
 

@@ -52,9 +52,10 @@ Successful activation saves PM2 state and atomically advances `current`.
 Releases are retained for inspection and rollback; there is no automatic pruning.
 
 Every restart loses unpublished drafts and guest signing keys. Published maps
-remain readable from the relay. Use one fork-mode instance because MCP editing
-sessions are in memory. A new session can publish a copy of an old map but
-cannot recover its original signing key. `--check` builds without binding a port
+remain readable from the relay. Use one fork-mode instance because guest drafts
+and keys are in memory. Reconnecting with a draft's private editing capability
+resumes it until its fixed expiry; a new connection cannot recover a key lost
+to expiry or restart. `--check` builds without binding a port
 or publishing events. `EARTHLY_MAP_RELEASE` is included in `/health`.
 
 For a manual rollback on the VPS (substitute the configured root):

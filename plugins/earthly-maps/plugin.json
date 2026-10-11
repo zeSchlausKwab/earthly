@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "earthly-maps",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Preview geographic data, publish public Nostr maps, and generate configured website iframes.",
   "author": { "name": "Earthly" },
   "extensions": {
@@ -9,7 +9,7 @@
       "interface": {
         "displayName": "Earthly Maps",
         "shortDescription": "Create, share, and embed maps",
-        "longDescription": "Create interactive maps from supplied or conversation-generated GeoJSON. Find location candidates, preview maps in chat, publish publicly to Nostr, and generate configured iframes. Local pilot with temporary guest editing sessions and bounded inline datasets.",
+        "longDescription": "Create interactive maps from supplied or conversation-generated GeoJSON. Find location candidates, preview maps in chat, publish publicly to Nostr, and generate configured iframes. Public pilot with temporary guest editing sessions and bounded inline datasets.",
         "developerName": "Earthly",
         "category": "Productivity",
         "capabilities": ["Interactive"],
