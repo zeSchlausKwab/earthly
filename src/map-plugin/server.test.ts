@@ -21,6 +21,7 @@ test('real MCP client discovers UI, previews, publishes, reopens and embeds with
 		baseUrl: 'http://127.0.0.1:3337',
 		gateway,
 		assets: new Map(),
+		release: 'release-under-test',
 	})
 	const connect = async () => {
 		const client = new Client({ name: 'test-client', version: '1.0.0' })
@@ -36,6 +37,8 @@ test('real MCP client discovers UI, previews, publishes, reopens and embeds with
 		expect((await first.client.listTools()).tools.map((tool) => tool.name)).toContain(
 			'get_map_embed',
 		)
+		const health = await handler.fetch(new Request('http://127.0.0.1:3337/health'))
+		expect(await health.json()).toMatchObject({ service: 'earthly-public-maps', release: 'release-under-test' })
 		const resource = await first.client.readResource({ uri: MAP_RESOURCE_URI })
 		expect(resource.contents[0]!.mimeType).toBe('text/html;profile=mcp-app')
 		const preview = await first.client.callTool({

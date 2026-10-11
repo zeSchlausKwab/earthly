@@ -39,7 +39,18 @@ assets.set('/assets/maplibre-worker.js', {
 	type: 'text/javascript',
 })
 const gateway = new NostrMapGateway(relays)
-const handler = createMapHttpHandler({ baseUrl, gateway, assets })
+const handler = createMapHttpHandler({
+	baseUrl,
+	gateway,
+	assets,
+	release: process.env.EARTHLY_MAP_RELEASE,
+})
+if (process.argv.includes('--check')) {
+	await handler.close()
+	gateway.close()
+	console.log('Public map viewer, worker, and server configuration validated')
+	process.exit(0)
+}
 const server = Bun.serve({
 	hostname,
 	port,

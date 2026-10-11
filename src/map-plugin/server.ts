@@ -18,6 +18,7 @@ export interface MapServerOptions {
 	baseUrl: string
 	gateway: MapGateway
 	assets: Map<string, { body: Blob | string; type: string }>
+	release?: string
 }
 
 export function viewerHtml(
@@ -29,7 +30,12 @@ export function viewerHtml(
 	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Earthly map</title><link rel="stylesheet" href="${origin}/assets/viewer.css"></head><body data-mode="${mode}"><div id="root" data-server="${origin}" data-mode="${mode}" data-reference="${escapeHtml(reference)}"></div><script type="module" src="${origin}/assets/viewer.js"></script></body></html>`
 }
 
-export function createMapHttpHandler({ baseUrl, gateway, assets }: MapServerOptions) {
+export function createMapHttpHandler({
+	baseUrl,
+	gateway,
+	assets,
+	release = 'development',
+}: MapServerOptions) {
 	const sessions = new Map<string, SessionEntry>()
 	const origin = new URL(baseUrl).origin
 	if (origin !== baseUrl)
@@ -64,7 +70,7 @@ export function createMapHttpHandler({ baseUrl, gateway, assets }: MapServerOpti
 				})
 			if (url.pathname === '/health')
 				return Response.json(
-					{ status: 'ok', service: 'earthly-public-maps', relays: gateway.relays },
+					{ status: 'ok', service: 'earthly-public-maps', release, relays: gateway.relays },
 					{ headers: publicHeaders },
 				)
 			if (url.pathname === '/component')

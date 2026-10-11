@@ -21,9 +21,10 @@ The server defaults to `http://127.0.0.1:3337`, with MCP at `/mcp` and relay `ws
 | `EARTHLY_MAP_HOST` | `127.0.0.1` | Listening address |
 | `EARTHLY_MAP_PORT` | `3337` | HTTP port |
 | `EARTHLY_MAP_PUBLIC_URL` | `http://127.0.0.1:<port>` | Trusted origin for assets, links, and host validation; no path |
+| `EARTHLY_MAP_RELEASE` | `development` | Release identifier reported by `/health` |
 | `EARTHLY_MAP_RELAYS` | `ws://127.0.0.1:3334` | One to five comma-separated read/write relays |
 
-There is no automatic deployment, public relay selection, or plugin installation. For a hosted pilot, supply the actual HTTPS origin and explicit relay configuration. The initial unauthenticated guest service has bounded sessions/maps/request sizes, but has no account authentication, durable key recovery, distributed session store, or deployment-wide abuse controls. Run one process or use session affinity; this is a local/pilot implementation, not a production readiness claim.
+Production deployment is available through `bun run deploy:map-plugin`; see [PM2 and Caddy operations](../../ops/vps/map-plugin/README.md). It requires an explicit HTTPS origin and WSS relay configuration. Plugin installation in ChatGPT is a separate step. The initial unauthenticated guest service has bounded sessions/maps/request sizes, but has no account authentication, durable key recovery, distributed session store, or deployment-wide abuse controls. Run one process or use session affinity; these are the current limits of the hosted pilot.
 
 ## Tools and lifecycle
 
