@@ -1,4 +1,5 @@
 import { openChatViewTask } from './tasks/chat/navigation'
+import { openPublicMapTask } from './tasks/navigation/public-map'
 import {
 	setDesktopAgentAccessTask,
 	setDesktopAgentSafetyTask,
@@ -142,6 +143,7 @@ const tasks = [
 	startTourTask,
 	openDiscoverTask,
 	openPanelTask,
+	openPublicMapTask,
 	switchMobileWorkspacePanelTask,
 	selectMobileEntitySurfaceTask,
 	setMobileWorkspaceTransparencyTask,
