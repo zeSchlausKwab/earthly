@@ -35,7 +35,8 @@ export function runtimeArtifacts(settings: DeploymentSettings, releaseDir: strin
 		name: MAP_PROCESS, cwd: releaseDir, instances: 1, exec_mode: 'fork', autorestart: true, watch: false,
 		kill_timeout: 15000, restart_delay: 1000, max_restarts: 5, min_uptime: 10000,
 		merge_logs: true, log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-		script: join(releaseDir, 'src/map-plugin/index.ts'), interpreter: bunPath, interpreter_args: '--no-env-file',
+		// Launch Bun directly: PM2's Bun wrapper uses require(), which rejects top-level await.
+		script: bunPath, interpreter: 'none', args: ['--no-env-file', join(releaseDir, 'src/map-plugin/index.ts')],
 		max_memory_restart: '500M',
 		env: {
 			NODE_ENV: 'production', EARTHLY_MAP_HOST: '127.0.0.1', EARTHLY_MAP_PORT: String(settings.httpPort),
