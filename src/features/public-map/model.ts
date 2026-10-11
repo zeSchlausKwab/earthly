@@ -5,10 +5,16 @@ import { normalizeGeoJsonToFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
 export const MAX_MAP_BYTES = 48 * 1024
 export const MAX_MAP_FEATURES = 300
 
+// ChatGPT's tool-schema validator requires one items schema for an array.
+// The pipe keeps tuple semantics at runtime while advertising numeric arrays.
 const position = z
-	.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)])
-	.rest(z.number().finite())
-	.refine((value) => value.length <= 3, 'Use longitude, latitude, optional altitude')
+	.array(z.number().finite())
+	.min(2)
+	.max(3)
+	.describe('[longitude, latitude, optional altitude]')
+	.pipe(
+		z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]).rest(z.number().finite()),
+	)
 const line = z.array(position).min(2).max(5000)
 const ring = z
 	.array(position)
@@ -18,7 +24,7 @@ const ring = z
 		(value) => JSON.stringify(value[0]) === JSON.stringify(value[value.length - 1]),
 		'Polygon rings must be closed',
 	)
-const geometry = z.discriminatedUnion('type', [
+const geometry = z.union([
 	z.object({ type: z.literal('Point'), coordinates: position }),
 	z.object({ type: z.literal('MultiPoint'), coordinates: z.array(position).min(1).max(5000) }),
 	z.object({ type: z.literal('LineString'), coordinates: line }),
@@ -56,7 +62,12 @@ export const viewOptionsSchema = z
 		legend: z.boolean().default(true),
 		controls: z.boolean().default(true),
 		scrollZoom: z.boolean().default(false),
-		center: z.tuple([z.number().min(-180).max(180), z.number().min(-85).max(85)]).optional(),
+		center: z
+			.array(z.number().finite())
+			.length(2)
+			.describe('[longitude, latitude]')
+			.pipe(z.tuple([z.number().min(-180).max(180), z.number().min(-85).max(85)]))
+			.optional(),
 		zoom: z.number().min(0).max(20).optional(),
 	})
 	.strict()

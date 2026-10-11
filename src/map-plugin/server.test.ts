@@ -34,11 +34,43 @@ test('real MCP client discovers UI, previews, publishes, reopens and embeds with
 	const first = await connect()
 	const second = await connect()
 	try {
-		expect((await first.client.listTools()).tools.map((tool) => tool.name)).toContain(
-			'get_map_embed',
-		)
+		const tools = (await first.client.listTools()).tools
+		expect(tools.map((tool) => tool.name)).toContain('get_map_embed')
+		// Regression: ChatGPT rejects tuple-style items and oneOf in tool schemas.
+		const checkSchema = (value: unknown) => {
+			if (!value || typeof value !== 'object') return
+			const schema = value as Record<string, unknown>
+			if (schema.type === 'array') {
+				expect(schema.items).toBeDefined()
+				expect(Array.isArray(schema.items)).toBe(false)
+			}
+			expect(schema).not.toHaveProperty('oneOf')
+			for (const child of Object.values(schema)) checkSchema(child)
+		}
+		for (const tool of tools) checkSchema(tool.inputSchema)
+		const invalidPreview = await first.client.callTool({
+			name: 'preview_map',
+			arguments: {
+				title: 'Invalid point',
+				data: {
+					type: 'FeatureCollection',
+					features: [
+						{
+							type: 'Feature',
+							properties: {},
+							geometry: { type: 'Point', coordinates: [10, 100] },
+						},
+					],
+				},
+			},
+		})
+		expect(invalidPreview.isError).toBe(true)
+		expect(event).toBeNull()
 		const health = await handler.fetch(new Request('http://127.0.0.1:3337/health'))
-		expect(await health.json()).toMatchObject({ service: 'earthly-public-maps', release: 'release-under-test' })
+		expect(await health.json()).toMatchObject({
+			service: 'earthly-public-maps',
+			release: 'release-under-test',
+		})
 		const resource = await first.client.readResource({ uri: MAP_RESOURCE_URI })
 		expect(resource.contents[0]!.mimeType).toBe('text/html;profile=mcp-app')
 		const preview = await first.client.callTool({
