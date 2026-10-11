@@ -4,6 +4,10 @@ Source package for the public-map pilot. The MCP connection points to the hosted
 endpoint `https://maps.earthly.city/mcp` with no authentication. It exposes map
 preview, public Nostr publishing, reading, geocoding, and configurable iframes.
 
+The listing and composer reuse the existing 512 × 512 Earthly icon from
+`src-tauri/icons/icon.png`, copied into `assets/icon.png` so the package is
+self-contained. Keep that copy synchronized when the source icon changes.
+
 The package is not installed or uploaded automatically. For a personal ChatGPT
 connection, add that URL under Plugins → Add → Add custom MCP server, choose
 **No authentication**, then create/install the plugin.
