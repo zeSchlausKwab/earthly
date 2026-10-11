@@ -7,7 +7,7 @@ import { MAP_RESOURCE_URI } from './mcp'
 import { DEMO_MAP } from './fixtures'
 import type { MapGateway } from './service'
 
-test('real MCP client discovers UI, previews, publishes, reopens and embeds with isolated sessions', async () => {
+test('real MCP client resumes a draft across reconnects, publishes, reopens and embeds', async () => {
 	let event: NostrEvent | null = null
 	const gateway: MapGateway = {
 		relays: ['ws://127.0.0.1:3334'],
@@ -80,15 +80,27 @@ test('real MCP client discovers UI, previews, publishes, reopens and embeds with
 		expect(preview.isError).toBeUndefined()
 		expect(event).toBeNull()
 		const { draftId, revision } = preview.structuredContent as { draftId: string; revision: number }
-		const args = { draftId, revision, visibility: 'public' }
-		const forbidden = await second.client.callTool({ name: 'publish_map', arguments: args })
+		await first.transport.terminateSession()
+		const forbidden = await second.client.callTool({
+			name: 'publish_map',
+			arguments: { draftId: crypto.randomUUID(), revision, visibility: 'public' },
+		})
 		expect(forbidden.isError).toBe(true)
-		const result = await first.client.callTool({ name: 'publish_map', arguments: args })
+		const edited = await second.client.callTool({
+			name: 'preview_map',
+			arguments: { title: 'Edited after reconnect', data: DEMO_MAP, draftId, revision },
+		})
+		expect(edited.isError).toBeUndefined()
+		expect(edited.structuredContent).toMatchObject({ draftId, revision: 2 })
+		const result = await second.client.callTool({
+			name: 'publish_map',
+			arguments: { draftId, revision: 2, visibility: 'public' },
+		})
 		expect(result.isError).toBeUndefined()
 		const { reference } = result.structuredContent as { reference: string }
 		const reopened = await second.client.callTool({ name: 'read_map', arguments: { reference } })
 		expect(reopened.isError).toBeUndefined()
-		const embedded = await first.client.callTool({
+		const embedded = await second.client.callTool({
 			name: 'get_map_embed',
 			arguments: { reference, view: { theme: 'dark', legend: false } },
 		})
@@ -96,12 +108,15 @@ test('real MCP client discovers UI, previews, publishes, reopens and embeds with
 		expect(embedded.structuredContent).toHaveProperty('html')
 		const api = await handler.fetch(new Request(`http://127.0.0.1:3337/api/maps/${reference}`))
 		expect(api.status).toBe(200)
-		expect((await api.json()).data.features).toHaveLength(3)
+		const publicMap = await api.json()
+		expect(publicMap.data.features).toHaveLength(3)
+		expect(publicMap).not.toHaveProperty('draftId')
+		expect(publicMap).not.toHaveProperty('expiresAt')
 		const page = await handler.fetch(
 			new Request(`http://127.0.0.1:3337/embed/${reference}?legend=false`),
 		)
 		expect(await page.text()).toContain('data-mode="embed"')
-		await first.transport.terminateSession()
+		await second.transport.terminateSession()
 		expect(
 			(await handler.fetch(new Request(`http://127.0.0.1:3337/api/maps/${reference}`))).status,
 		).toBe(200)

@@ -92,7 +92,7 @@ export function createMapMcpServer(
 		{
 			title: 'Preview an Earthly map',
 			description:
-				'Visualize supplied GeoJSON in chat without publishing. Supports up to 300 features and 48 KiB inline GeoJSON. Use [longitude, latitude]. Use name, color, fillColor, strokeColor, radius and earthly:callouts properties. For edits supply draftId, current revision and the complete revised collection, preserving feature IDs. Input can come from any source; never invent geocoding results. The guest editing session lasts at most two hours and ends on server restart.',
+				'Visualize supplied GeoJSON in chat without publishing. Supports up to 300 features and 48 KiB inline GeoJSON. Use [longitude, latitude]. Use name, color, fillColor, strokeColor, radius and earthly:callouts properties. For edits supply draftId, current revision and the complete revised collection, preserving feature IDs. Input can come from any source; never invent geocoding results. The draftId is a private editing capability: keep it in this conversation, never put it in public links or map properties. It survives MCP reconnects until its fixed expiry (at most two hours) or server restart.',
 			inputSchema: {
 				title: z.string().trim().min(1).max(160),
 				description: z.string().max(2000).optional(),
@@ -111,7 +111,7 @@ export function createMapMcpServer(
 		{
 			title: 'Publish a public map',
 			description:
-				'Publish the exact preview revision publicly to Nostr under a temporary per-map guest identity. Only call when the user requests public publication or public sharing. Anyone may read and copy the data. Requires the preview draftId and revision. Repeating a call retries the same signed event. Editing authority lasts only for this MCP session; the key is never returned.',
+				'Publish the exact preview revision publicly to Nostr under a temporary per-map guest identity. Only call when the user requests public publication or public sharing. Anyone may read and copy the data. Requires the preview draftId editing capability and revision. Repeating a call retries the same signed event. Authority survives MCP reconnects until the draft expires or the server restarts; the signing key is never returned. Share only the public map link, never the draftId.',
 			inputSchema: {
 				draftId: z.string().uuid(),
 				revision: z.number().int().positive(),

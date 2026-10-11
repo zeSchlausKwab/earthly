@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import { verifyEvent, type NostrEvent } from 'nostr-tools'
-import { PublicMapSession, type MapGateway } from './service'
+import { PublicMapDraftStore, PublicMapSession, type MapGateway } from './service'
 import { decodeMapReference, createMapEmbed } from './references'
 import { readPublicMap } from './gateway'
 import { DEMO_MAP } from './fixtures'
@@ -102,6 +102,39 @@ describe('public map lifecycle', () => {
 		const { gateway } = memoryGateway()
 		const session = new PublicMapSession(gateway, 'https://maps.example', 0)
 		expect(() => session.preview({ title: 'Expired', data: DEMO_MAP })).toThrow('expired')
+	})
+	test('guest capabilities survive disconnect but cannot extend their fixed lifetime', async () => {
+		const { gateway } = memoryGateway()
+		const now = Date.now()
+		const store = new PublicMapDraftStore()
+		const first = new PublicMapSession(gateway, 'https://maps.example', now + 1000, store)
+		const second = new PublicMapSession(gateway, 'https://maps.example', now + 10000, store)
+		const preview = first.preview({ title: 'Reconnect', data: DEMO_MAP })
+		const published = await first.publish(preview.draftId!, 1)
+		first.dispose()
+		const edited = second.preview({ ...preview, title: 'Reconnected' })
+		expect(edited.expiresAt).toBe(preview.expiresAt)
+		const next = await second.publish(edited.draftId!, 2)
+		expect(next.reference).toBe(published.reference)
+		const clock = spyOn(Date, 'now').mockReturnValue(now + 1001)
+		try {
+			expect(() => second.publish(edited.draftId!, 2)).toThrow('expired')
+			expect(store.size).toBe(0)
+		} finally {
+			clock.mockRestore()
+			store.dispose()
+		}
+	})
+	test('shared guest storage stays bounded across connection churn', () => {
+		const { gateway } = memoryGateway()
+		const store = new PublicMapDraftStore(1)
+		const first = new PublicMapSession(gateway, 'https://maps.example', Date.now() + 10000, store)
+		const second = new PublicMapSession(gateway, 'https://maps.example', Date.now() + 10000, store)
+		const preview = first.preview({ title: 'First', data: DEMO_MAP })
+		first.dispose()
+		expect(() => second.preview({ title: 'Second', data: DEMO_MAP })).toThrow('capacity')
+		expect(second.preview({ ...preview, title: 'Update existing' }).revision).toBe(2)
+		store.dispose()
 	})
 })
 

@@ -1,7 +1,7 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { PublicMapSession, type MapGateway } from './service'
+import { PublicMapDraftStore, PublicMapSession, type MapGateway } from './service'
 import { createMapMcpServer } from './mcp'
 import { readPublicMap } from './gateway'
 import { decodeMapReference, escapeHtml } from './references'
@@ -37,6 +37,7 @@ export function createMapHttpHandler({
 	release = 'development',
 }: MapServerOptions) {
 	const sessions = new Map<string, SessionEntry>()
+	const drafts = new PublicMapDraftStore()
 	const origin = new URL(baseUrl).origin
 	if (origin !== baseUrl)
 		throw new Error('Map public URL must be an origin without a path or trailing slash')
@@ -48,6 +49,7 @@ export function createMapHttpHandler({
 		await session.server.close()
 	}
 	const sweep = setInterval(() => {
+		drafts.sweep()
 		for (const [id, session] of sessions) if (Date.now() >= session.maps.expiresAt) void destroy(id)
 	}, 60_000)
 	sweep.unref()
@@ -149,7 +151,7 @@ export function createMapHttpHandler({
 						status: 503,
 						headers: cors,
 					})
-				const maps = new PublicMapSession(gateway, baseUrl, Date.now() + SESSION_TTL_MS)
+				const maps = new PublicMapSession(gateway, baseUrl, Date.now() + SESSION_TTL_MS, drafts)
 				const server = createMapMcpServer(maps, gateway, baseUrl, viewerHtml(baseUrl, 'mcp'))
 				const transport = new WebStandardStreamableHTTPServerTransport({
 					sessionIdGenerator: () => crypto.randomUUID(),
@@ -181,6 +183,7 @@ export function createMapHttpHandler({
 		close: async () => {
 			clearInterval(sweep)
 			await Promise.all([...sessions.keys()].map(destroy))
+			drafts.dispose()
 		},
 	}
 }

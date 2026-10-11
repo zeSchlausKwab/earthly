@@ -24,14 +24,51 @@ interface Draft {
 	publishing?: Promise<MapSnapshot>
 }
 
-/** One instance belongs to one MCP session. No draft or key is shared between sessions. */
-export class PublicMapSession {
+/** Process-local guest editing capabilities; transport reconnects do not revoke them. */
+export class PublicMapDraftStore {
 	private drafts = new Map<string, Draft>()
+	constructor(private limit = 1280) {}
+	get size() {
+		this.sweep()
+		return this.drafts.size
+	}
+	get(id: string) {
+		this.sweep()
+		return this.drafts.get(id)
+	}
+	set(id: string, draft: Draft) {
+		this.sweep()
+		if (!this.drafts.has(id) && this.drafts.size >= this.limit)
+			throw new Error('Guest map capacity reached; try again later')
+		this.drafts.set(id, draft)
+	}
+	sweep() {
+		for (const [id, draft] of this.drafts) {
+			if (Date.now() < draft.snapshot.expiresAt) continue
+			draft.key?.fill(0)
+			this.drafts.delete(id)
+		}
+	}
+	dispose() {
+		for (const draft of this.drafts.values()) draft.key?.fill(0)
+		this.drafts.clear()
+	}
+}
+
+/** A connection may resume a draft only by presenting its unguessable draftId capability. */
+export class PublicMapSession {
+	private drafts: PublicMapDraftStore
+	private ownsStore: boolean
+	private created = 0
 	constructor(
 		private gateway: MapGateway,
 		private baseUrl: string,
 		readonly expiresAt: number,
-	) {}
+		store?: PublicMapDraftStore,
+	) {
+		this.ownsStore = !store
+		this.drafts = store ?? new PublicMapDraftStore()
+	}
 
 	private assertActive() {
 		if (Date.now() >= this.expiresAt) {
@@ -57,7 +94,7 @@ export class PublicMapSession {
 			throw new Error(
 				'The previous publication has an uncertain outcome. Retry that revision before editing.',
 			)
-		if (!existing && this.drafts.size >= 20)
+		if (!existing && this.created >= 20)
 			throw new Error('This session has reached its 20-map limit')
 		const data = validateMapData(input.data)
 		const snapshot = {
@@ -67,20 +104,21 @@ export class PublicMapSession {
 			view: viewOptionsSchema.parse(input.view ?? existing?.snapshot.view ?? DEFAULT_VIEW),
 			draftId: input.draftId ?? crypto.randomUUID(),
 			revision: (existing?.snapshot.revision ?? 0) + 1,
-			expiresAt: this.expiresAt,
+			expiresAt: existing?.snapshot.expiresAt ?? this.expiresAt,
 		}
 		this.drafts.set(snapshot.draftId, {
 			snapshot,
 			key: existing?.key,
 			previous: existing?.previous,
 		})
+		if (!existing) this.created++
 		return structuredClone(snapshot)
 	}
 
 	private getDraft(id: string, revision?: number): Draft {
 		this.assertActive()
 		const draft = this.drafts.get(id)
-		if (!draft) throw new Error('Draft not found in this editing session')
+		if (!draft) throw new Error('Draft not found or expired. Create a new preview to continue.')
 		if (draft.snapshot.revision !== revision)
 			throw new Error('Draft revision changed. Preview the current content before publishing.')
 		return draft
@@ -150,7 +188,6 @@ export class PublicMapSession {
 	}
 
 	dispose() {
-		for (const draft of this.drafts.values()) draft.key?.fill(0)
-		this.drafts.clear()
+		if (this.ownsStore) this.drafts.dispose()
 	}
 }
