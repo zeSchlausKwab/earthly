@@ -31,6 +31,7 @@ import { ObjectTabs, ThreadTabNotice } from './ObjectTabs'
 import { useObjectContentTab } from './ObjectThreadPlacement'
 import type { DatasetEditOptions } from './mapProposalPresentation'
 import { MapEditActions } from './MapEditActions'
+import { ShareExportPopover } from '@/features/geo-editor/components/share/ShareExportPopover'
 
 export interface ViewModePanelProps {
 	currentUserPubkey?: string
@@ -425,6 +426,7 @@ export function ViewModePanel({
 					compact
 					onReplyClick={() => setActiveObjectTab('comments')}
 					showShareButton
+					shareAction={audience === 'Everyone' ? <ShareExportPopover small /> : undefined}
 				/>
 			}
 			tabs={<ObjectTabs value={activeObjectTab} onValueChange={setActiveObjectTab} />}

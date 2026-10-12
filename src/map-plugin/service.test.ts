@@ -1,7 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test'
 import { verifyEvent, type NostrEvent } from 'nostr-tools'
 import { PublicMapDraftStore, PublicMapSession, type MapGateway } from './service'
-import { decodeMapReference, createMapEmbed } from './references'
+import { decodeMapReference, createMapEmbed } from '@/features/public-map/references'
 import { readPublicMap } from './gateway'
 import { DEMO_MAP } from './fixtures'
 import { parseViewOptions, validateMapData } from '@/features/public-map/model'

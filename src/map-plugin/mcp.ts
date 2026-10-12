@@ -3,7 +3,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { searchLocation } from '../../contextvm/tools/nominatim'
 import { mapDataSchema, viewOptionsSchema, type MapSnapshot } from '@/features/public-map/model'
-import { createMapEmbed } from './references'
+import { createMapEmbed } from '@/features/public-map/references'
 import { readPublicMap } from './gateway'
 import type { MapGateway, PublicMapSession } from './service'
 

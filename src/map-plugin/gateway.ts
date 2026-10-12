@@ -2,7 +2,7 @@ import { SimplePool } from 'nostr-tools/pool'
 import { verifyEvent, type NostrEvent } from 'nostr-tools'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { DEFAULT_VIEW, validateMapData, type MapSnapshot } from '@/features/public-map/model'
-import { decodeMapReference, mapUrl } from './references'
+import { decodeMapReference, mapUrl } from '@/features/public-map/references'
 import type { MapGateway } from './service'
 
 /** Only operator-configured relays are contacted, never arbitrary URLs from tool input. */

@@ -1,7 +1,23 @@
 import { describe, expect, test } from 'bun:test'
-import { FRONTEND_ENV_KEYS, parseEnv } from './env.schema'
+import { FRONTEND_ENV_KEYS, parseEnv, safeParseEnv } from './env.schema'
 
 describe('frontend environment allow-list', () => {
+	test('validates the public embed service as an origin without credentials', () => {
+		expect(FRONTEND_ENV_KEYS).toContain('PUBLIC_MAP_URL')
+		expect(parseEnv({}).PUBLIC_MAP_URL).toBe('https://maps.earthly.city')
+		expect(parseEnv({ PUBLIC_MAP_URL: 'http://127.0.0.1:3357' }).PUBLIC_MAP_URL).toBe(
+			'http://127.0.0.1:3357',
+		)
+		for (const value of [
+			'invalid',
+			'javascript:alert(1)',
+			'https://user:secret@example.com',
+			'https://example.com/path',
+			'https://example.com?token=secret',
+		]) {
+			expect(safeParseEnv({ PUBLIC_MAP_URL: value }).success).toBe(false)
+		}
+	})
 	test('contains no private signing credentials', () => {
 		expect(FRONTEND_ENV_KEYS).not.toContain('CLIENT_KEY' as never)
 		expect(FRONTEND_ENV_KEYS).not.toContain('SERVER_KEY' as never)

@@ -8,7 +8,7 @@ import {
 import { GeoDatasetFactory } from '@/lib/nostr/geo-event/datasetFactory'
 import { getDatasetId, type GeoDatasetEvent } from '@/lib/nostr/geo-event/helpers'
 import { requirePublishAcknowledgement } from '@/lib/nostr/publishAcknowledgement'
-import { mapUrl } from './references'
+import { mapUrl } from '@/features/public-map/references'
 
 export interface MapGateway {
 	read(reference: string): Promise<NostrEvent | null>

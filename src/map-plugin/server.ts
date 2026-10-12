@@ -4,7 +4,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { PublicMapDraftStore, PublicMapSession, type MapGateway } from './service'
 import { createMapMcpServer } from './mcp'
 import { readPublicMap } from './gateway'
-import { decodeMapReference, escapeHtml } from './references'
+import { decodeMapReference, escapeHtml } from '@/features/public-map/references'
 import { parseViewOptions } from '@/features/public-map/model'
 
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000
