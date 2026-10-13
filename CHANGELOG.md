@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.21] - 2026-10-13
+
+- Embed a published public dataset on a website from Share, with a live preview,
+  configurable theme, height, title, legend, controls, scroll zoom, and initial
+  camera. Copy ready-to-use iframe HTML on desktop and mobile.
+- Check viewer compatibility and relay availability before enabling the preview
+  or copy action. Private datasets and unpublished drafts remain excluded;
+  unsupported datasets offer a link-sharing alternative.
+- Added the Earthly Maps MCP integration for creating interactive maps in chat,
+  publishing them to Nostr, sharing public links, and generating website embeds.
+  Temporary guest editing survives MCP reconnects within its original expiry.
+- Added isolated PM2/Caddy deployment support for the public map service and
+  reused Earthly's icon for the plugin package.
+
+### Known limitations
+
+- The initial embed viewer supports inline datasets up to 300 features and 48 KiB
+  on its configured relays. Blob-backed datasets are not supported.
+- Physical-device Android upgrade and embed smoke testing remain pending.
+
 ## [0.1.20] - 2026-10-06
 
 - Replaced the three-way map background switch with one compact icon button that
