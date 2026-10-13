@@ -1,7 +1,7 @@
-import { Heart, Loader2, MessageCircle, PencilLine, Share2, Zap } from 'lucide-react'
+import { Heart, MessageCircle, PencilLine, Share2, Zap } from 'lucide-react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { nip19 } from 'nostr-tools'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -12,7 +12,10 @@ import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { useZapDialogStore } from '../zap/store'
 import { deferredSurface } from '../../../components/deferredSurface.tsx'
 
-const ZapDialog = deferredSurface(async () => ({default:(await import('./ZapDialog.tsx')).ZapDialog}), 'payment options')
+const ZapDialog = deferredSurface(
+	async () => ({ default: (await import('./ZapDialog.tsx')).ZapDialog }),
+	'payment options',
+)
 
 interface GeoSocialActionsProps {
 	/** Any Nostr event that can receive reactions */
@@ -25,6 +28,8 @@ interface GeoSocialActionsProps {
 	/** Whether to show the zap button (default: true for geo events) */
 	showZapButton?: boolean
 	showShareButton?: boolean
+	/** Optional entity-specific share surface in the same action position. */
+	shareAction?: ReactNode
 	className?: string
 	compact?: boolean
 	loadCounts?: boolean
@@ -101,6 +106,7 @@ export function GeoSocialActions({
 	onAnnotateClick,
 	showZapButton = true,
 	showShareButton = true,
+	shareAction,
 	className = '',
 	compact = false,
 	loadCounts = true,
@@ -214,24 +220,25 @@ export function GeoSocialActions({
 				</Tooltip>
 			)}
 
-			{showShareButton && sharePath && (
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<Button
-							type="button"
-							variant="ghost"
-							size={buttonSize}
-							onClick={handleShare}
-							aria-label="Share"
-							className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-info"
-						>
-							<Share2 className={iconSize} />
-							{!compact ? <span className="text-xs font-medium">Share</span> : null}
-						</Button>
-					</TooltipTrigger>
-					<TooltipContent>Copy share link</TooltipContent>
-				</Tooltip>
-			)}
+			{shareAction ??
+				(showShareButton && sharePath && (
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								type="button"
+								variant="ghost"
+								size={buttonSize}
+								onClick={handleShare}
+								aria-label="Share"
+								className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-info"
+							>
+								<Share2 className={iconSize} />
+								{!compact ? <span className="text-xs font-medium">Share</span> : null}
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent>Copy share link</TooltipContent>
+					</Tooltip>
+				))}
 
 			{showAnnotateButton && onAnnotateClick && (
 				<Tooltip>

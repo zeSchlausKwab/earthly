@@ -83,3 +83,10 @@ the persistent worker resolves it there. The source exports, staging databases,
 state, progress, and immutable snapshots all remain under persistent shared
 storage, so a release prune or interrupted SSH session does not discard
 completed checkpoints.
+
+## Public map service
+
+`bun run deploy:map-plugin` deploys the independent `earthly-maps` PM2 process.
+It reuses the production relay and has its own release and recovery boundary.
+See [map service deployment](map-plugin/README.md) for DNS, Caddy installation,
+ChatGPT connection, verification, and rollback.

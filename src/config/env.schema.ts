@@ -116,6 +116,27 @@ export const envSchema = z.object({
 	 */
 	DISCOVERY_FEATURED_PUBKEYS: optionalPublicKeyListSchema.default(''),
 
+	/** Public, read-only map viewer used by the dataset Embed panel. */
+	PUBLIC_MAP_URL: z
+		.string()
+		.url()
+		.refine((value) => {
+			try {
+				const url = new URL(value)
+				return (
+					['https:', 'http:'].includes(url.protocol) &&
+					!url.username &&
+					!url.password &&
+					url.pathname === '/' &&
+					!url.search &&
+					!url.hash
+				)
+			} catch {
+				return false
+			}
+		}, 'must be an HTTP(S) origin')
+		.default('https://maps.earthly.city'),
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// Web Search Configuration
 	// ─────────────────────────────────────────────────────────────────────────
@@ -151,6 +172,7 @@ export const FRONTEND_ENV_KEYS = [
 	'BLOSSOM_SERVER',
 	'MAPNOLIA_TRUSTED_PUBKEYS',
 	'DISCOVERY_FEATURED_PUBKEYS',
+	'PUBLIC_MAP_URL',
 	'NODE_ENV',
 ] as const
 

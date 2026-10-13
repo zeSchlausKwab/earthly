@@ -4,6 +4,10 @@ import type { FeatureCollection } from 'geojson'
 import { QRCodeCanvas } from 'qrcode.react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { privateWorkspaceIdForDataset } from '@/lib/private-workspace/projection'
+import { DatasetEmbedPanel } from './DatasetEmbedPanel'
+import { canEmbedDataset } from './datasetEmbed'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
 	ToolPopoverAnchor,
@@ -305,6 +309,30 @@ export function ShareExportPopover({ small = false, control }: ShareExportPopove
 	}, [focusedType, focusedNaddr, route.focusType, route.contextNaddr, route.naddr])
 
 	const [sharePopoverOpen, setSharePopoverOpen] = useToolPopoverControl(control)
+	const [shareMode, setShareMode] = useState('share')
+	const datasetReference = focusedNaddr ?? route.naddr
+	const canEmbed = useMemo(
+		() =>
+			(focusedType ?? route.focusType) === 'geoevent' &&
+			canEmbedDataset(
+				datasetReference,
+				viewDataset?.event,
+				Boolean(
+					route.privateGroupId ||
+						route.fieldSessionId ||
+						(viewDataset && privateWorkspaceIdForDataset(viewDataset)),
+				),
+			),
+		[
+			datasetReference,
+			focusedType,
+			route.focusType,
+			route.privateGroupId,
+			route.fieldSessionId,
+			viewDataset,
+		],
+	)
+	const activeShareMode = canEmbed ? shareMode : 'share'
 	const focusProps = useToolPopoverFocusProps(control)
 	const [copiedUrl, setCopiedUrl] = useState(false)
 	const [shareAspect, setShareAspect] = useState<ShareAspect>('16:9')
@@ -418,7 +446,7 @@ export function ShareExportPopover({ small = false, control }: ShareExportPopove
 	])
 
 	useEffect(() => {
-		if (!sharePopoverOpen) return
+		if (!sharePopoverOpen || activeShareMode !== 'share') return
 		let cancelled = false
 		const requestId = sharePreviewRequestRef.current + 1
 		sharePreviewRequestRef.current = requestId
@@ -443,7 +471,7 @@ export function ShareExportPopover({ small = false, control }: ShareExportPopove
 			cancelled = true
 			window.clearTimeout(timer)
 		}
-	}, [sharePopoverOpen, renderShareImage])
+	}, [sharePopoverOpen, activeShareMode, renderShareImage])
 
 	const handleCopyShareUrl = async () => {
 		try {
@@ -476,6 +504,7 @@ export function ShareExportPopover({ small = false, control }: ShareExportPopove
 
 	useEffect(() => {
 		if (sharePopoverOpen) {
+			setShareMode('share')
 			setCopiedUrl(false)
 			setSharePreviewError(null)
 			setShareCaptureMode(canUseEntityBounds ? 'entity-bounds' : 'viewport')
@@ -531,7 +560,7 @@ export function ShareExportPopover({ small = false, control }: ShareExportPopove
 				)}
 				<PopoverContent
 					aria-label="Share this view"
-					className="w-[32rem] max-w-[calc(100vw-2rem)]"
+					className="w-[32rem] max-w-[calc(100vw-2rem)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
 					side="bottom"
 					align="end"
 					{...focusProps}
@@ -540,141 +569,164 @@ export function ShareExportPopover({ small = false, control }: ShareExportPopove
 						<div>
 							<h4 className="text-sm font-semibold mb-1">Share this view</h4>
 							<p className="text-xs text-muted-foreground">
-								Share this {shareMeta.subjectLabel} as a link or export card.
+								Share this {shareMeta.subjectLabel} as a link, export card
+								{canEmbed ? ', or website embed' : ''}.
 							</p>
 						</div>
 
-						<div className="flex gap-2">
-							<Button
-								size="sm"
-								variant="outline"
-								className="flex-1 justify-start"
-								onClick={handleCopyShareUrl}
-							>
-								{copiedUrl ? (
-									<>
-										<Check className="h-4 w-4 mr-2 text-ok" />
-										Copied!
-									</>
-								) : (
-									<>
-										<Copy className="h-4 w-4 mr-2" />
-										Copy link
-									</>
-								)}
-							</Button>
-							<Button
-								size="sm"
-								variant="default"
-								className="min-w-32 justify-center"
-								disabled={!editor || shareExporting}
-								onClick={handleExportPng}
-							>
-								{shareExporting ? (
-									<>
-										<Loader2 className="h-4 w-4 mr-2 animate-spin" />
-										Exporting...
-									</>
-								) : (
-									<>
-										<ArrowDownToLine className="h-4 w-4 mr-2" />
-										Export PNG
-									</>
-								)}
-							</Button>
-						</div>
-
-						<div className="grid grid-cols-2 gap-3">
-							<div className="space-y-1.5">
-								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-									Capture
-								</p>
-								{canUseEntityBounds ? (
-									<div className="flex gap-1">
-										<Button
-											size="sm"
-											variant={shareCaptureMode === 'viewport' ? 'default' : 'outline'}
-											className="h-8 flex-1 text-xs"
-											onClick={() => setShareCaptureMode('viewport')}
-										>
-											Viewport
-										</Button>
-										<Button
-											size="sm"
-											variant={shareCaptureMode === 'entity-bounds' ? 'default' : 'outline'}
-											className="h-8 flex-1 text-xs"
-											onClick={() => setShareCaptureMode('entity-bounds')}
-										>
-											Entity bounds
-										</Button>
-									</div>
-								) : (
-									<div className="h-8 rounded-md border border-dashed border-border px-2 flex items-center text-xs text-muted-foreground">
-										Viewport only
-									</div>
-								)}
-							</div>
-
-							<div className="space-y-1.5">
-								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-									Aspect ratio
-								</p>
-								<div className="grid grid-cols-4 gap-1">
-									{SHARE_ASPECTS.map((aspect) => (
-										<Button
-											key={aspect.id}
-											size="sm"
-											variant={shareAspect === aspect.id ? 'default' : 'outline'}
-											className="h-8 px-0 text-xs"
-											onClick={() => setShareAspect(aspect.id)}
-										>
-											{aspect.label}
-										</Button>
-									))}
+						<Tabs value={activeShareMode} onValueChange={setShareMode}>
+							{canEmbed && (
+								<TabsList className="w-full" aria-label="Share format">
+									<TabsTrigger value="share">Link and image</TabsTrigger>
+									<TabsTrigger value="embed">Embed on a website</TabsTrigger>
+								</TabsList>
+							)}
+							<TabsContent value="share" className="space-y-3">
+								<div className="flex gap-2">
+									<Button
+										size="sm"
+										variant="outline"
+										className="flex-1 justify-start"
+										onClick={handleCopyShareUrl}
+									>
+										{copiedUrl ? (
+											<>
+												<Check className="h-4 w-4 mr-2 text-ok" />
+												Copied!
+											</>
+										) : (
+											<>
+												<Copy className="h-4 w-4 mr-2" />
+												Copy link
+											</>
+										)}
+									</Button>
+									<Button
+										size="sm"
+										variant="default"
+										className="min-w-32 justify-center"
+										disabled={!editor || shareExporting}
+										onClick={handleExportPng}
+									>
+										{shareExporting ? (
+											<>
+												<Loader2 className="h-4 w-4 mr-2 animate-spin" />
+												Exporting...
+											</>
+										) : (
+											<>
+												<ArrowDownToLine className="h-4 w-4 mr-2" />
+												Export PNG
+											</>
+										)}
+									</Button>
 								</div>
-								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-2">
-									Resolution
-								</p>
-								<div className="grid grid-cols-3 gap-1">
-									{([1, 2, 3] as const).map((multiplier) => (
-										<Button
-											key={multiplier}
-											size="sm"
-											variant={shareResolution === multiplier ? 'default' : 'outline'}
-											className="h-8 px-0 text-xs"
-											onClick={() => setShareResolution(multiplier)}
-										>
-											{multiplier}x
-										</Button>
-									))}
-								</div>
-							</div>
-						</div>
 
-						<div className="space-y-1.5">
-							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-								Preview
-							</p>
-							<div
-								className="relative w-full overflow-hidden rounded-md border border-border bg-muted"
-								style={{ aspectRatio: selectedAspect.ratio }}
-							>
-								{sharePreviewDataUrl && !sharePreviewLoading && (
-									<img
-										src={sharePreviewDataUrl}
-										alt="Share preview"
-										className="absolute inset-0 h-full w-full object-contain"
+								<div className="grid grid-cols-2 gap-3">
+									<div className="space-y-1.5">
+										<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+											Capture
+										</p>
+										{canUseEntityBounds ? (
+											<div className="flex gap-1">
+												<Button
+													size="sm"
+													variant={shareCaptureMode === 'viewport' ? 'default' : 'outline'}
+													className="h-8 flex-1 text-xs"
+													onClick={() => setShareCaptureMode('viewport')}
+												>
+													Viewport
+												</Button>
+												<Button
+													size="sm"
+													variant={shareCaptureMode === 'entity-bounds' ? 'default' : 'outline'}
+													className="h-8 flex-1 text-xs"
+													onClick={() => setShareCaptureMode('entity-bounds')}
+												>
+													Entity bounds
+												</Button>
+											</div>
+										) : (
+											<div className="h-8 rounded-md border border-dashed border-border px-2 flex items-center text-xs text-muted-foreground">
+												Viewport only
+											</div>
+										)}
+									</div>
+
+									<div className="space-y-1.5">
+										<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+											Aspect ratio
+										</p>
+										<div className="grid grid-cols-4 gap-1">
+											{SHARE_ASPECTS.map((aspect) => (
+												<Button
+													key={aspect.id}
+													size="sm"
+													variant={shareAspect === aspect.id ? 'default' : 'outline'}
+													className="h-8 px-0 text-xs"
+													onClick={() => setShareAspect(aspect.id)}
+												>
+													{aspect.label}
+												</Button>
+											))}
+										</div>
+										<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-2">
+											Resolution
+										</p>
+										<div className="grid grid-cols-3 gap-1">
+											{([1, 2, 3] as const).map((multiplier) => (
+												<Button
+													key={multiplier}
+													size="sm"
+													variant={shareResolution === multiplier ? 'default' : 'outline'}
+													className="h-8 px-0 text-xs"
+													onClick={() => setShareResolution(multiplier)}
+												>
+													{multiplier}x
+												</Button>
+											))}
+										</div>
+									</div>
+								</div>
+
+								<div className="space-y-1.5">
+									<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+										Preview
+									</p>
+									<div
+										className="relative w-full overflow-hidden rounded-md border border-border bg-muted"
+										style={{ aspectRatio: selectedAspect.ratio }}
+									>
+										{sharePreviewDataUrl && !sharePreviewLoading && (
+											<img
+												src={sharePreviewDataUrl}
+												alt="Share preview"
+												className="absolute inset-0 h-full w-full object-contain"
+											/>
+										)}
+										{sharePreviewLoading && (
+											<div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground bg-card/80">
+												<Loader2 className="h-4 w-4 mr-2 animate-spin" />
+												Rendering preview...
+											</div>
+										)}
+									</div>
+									{sharePreviewError && (
+										<p className="text-xs text-destructive">{sharePreviewError}</p>
+									)}
+								</div>
+							</TabsContent>
+							{canEmbed && datasetReference && viewDataset && (
+								<TabsContent value="embed">
+									<DatasetEmbedPanel
+										key={`${datasetReference}:${viewDataset.event.id}`}
+										reference={datasetReference}
+										event={viewDataset.event}
+										title={shareMeta.title}
 									/>
-								)}
-								{sharePreviewLoading && (
-									<div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground bg-card/80">
-										<Loader2 className="h-4 w-4 mr-2 animate-spin" />
-										Rendering preview...
-									</div>
-								)}
-							</div>
-							{sharePreviewError && <p className="text-xs text-destructive">{sharePreviewError}</p>}
-						</div>
+								</TabsContent>
+							)}
+						</Tabs>
 
 						{isFocused && (
 							<Button

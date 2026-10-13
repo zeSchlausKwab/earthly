@@ -212,6 +212,9 @@ const readRelays = buildReadRelays({ writeRelays, relayUrl, extraReadRelays })
 const seedRelays = writeRelays
 
 export const config = {
+	/** Hosted map viewer; override with a loopback origin for local embed testing. */
+	publicMapUrl: safeEnv(() => process.env.PUBLIC_MAP_URL as string, 'https://maps.earthly.city'),
+
 	/** The raw RELAY_URL value (comma-separated allowed). */
 	relayUrl,
 
