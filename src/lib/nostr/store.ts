@@ -12,21 +12,14 @@
  */
 
 import { EventStore } from 'applesauce-core'
+import { DeleteManager } from 'applesauce-core/event-store'
 import type { NostrEvent } from 'nostr-tools'
 
 /** Reactive event database. Single instance for the whole app. */
-export const eventStore = new EventStore()
+const deletes = new DeleteManager()
+export const eventStore = new EventStore({ deleteManager: deletes })
 
-/**
- * Public, typed read seam for Applesauce's internal DeleteManager.
- *
- * The runtime EventStore intentionally exposes the manager, while its declaration marks the
- * property private. Keeping that version-specific cast here prevents consumers from reaching
- * into the manager directly and gives us one place to adapt if Applesauce adds a public API.
- */
+/** Reuse the supported injected deletion manager; no private-store access. */
 export function isEventDeleted(event: NostrEvent): boolean {
-	const store = eventStore as unknown as {
-		deletes: { check(candidate: NostrEvent): boolean }
-	}
-	return store.deletes.check(event)
+	return deletes.check(event)
 }

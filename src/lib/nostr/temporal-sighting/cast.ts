@@ -35,7 +35,7 @@ export class TemporalSighting extends EventCast<TemporalSightingEvent> {
 	}
 
 	// Raw-event proxies (mirror MapContext).
-	get kind() {
+	override get kind() {
 		return this.event.kind
 	}
 	get pubkey() {

@@ -16,7 +16,7 @@
 import { nip19, verifyEvent } from 'nostr-tools'
 import type { NostrEvent } from 'nostr-tools'
 import type { Subscription } from 'rxjs'
-import { eventStore, isEventDeleted, pool, readRelaysFor } from '@/lib/nostr'
+import { eventStore, isEventDeleted, pool, readRelaysFor, relayAuthOptions } from '@/lib/nostr'
 import { isExpired } from '@/lib/nostr/expiry'
 import {
 	ARTICLE_KIND,
@@ -163,11 +163,15 @@ export function fetchLatestByCoordinate(
 		signal?.addEventListener('abort', abort, { once: true })
 		try {
 			sub = pool
-				.request(readRelaysFor('content'), {
-					kinds: [ref.kind],
-					authors: [ref.pubkey],
-					'#d': [ref.identifier],
-				})
+				.request(
+					readRelaysFor('content'),
+					{
+						kinds: [ref.kind],
+						authors: [ref.pubkey],
+						'#d': [ref.identifier],
+					},
+					{ ...relayAuthOptions(), timeout: 10_000 },
+				)
 				.subscribe({
 					next: (event: NostrEvent) => {
 						if (settled) return

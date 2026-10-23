@@ -5,11 +5,11 @@ import {
 	isGeoJsonFeature,
 	isGeoJsonFeatureCollection,
 	isGeoJsonGeometry,
-	normalizeGeoJsonToFeatureCollection,
+	normalizeRenderableFeatureCollection,
 } from './normalizeGeoJSON'
 import { parseJsonInWorker } from './workerJsonParse'
 
-type BlobPayload = FeatureCollection | Feature | Geometry
+type BlobPayload = FeatureCollection<Geometry | null> | Feature<Geometry | null> | Geometry
 
 /** Progress callback for tracking blob download */
 export type BlobProgressCallback = (loaded: number, total: number) => void
@@ -21,7 +21,7 @@ function cloneFeature(feature: Feature): Feature {
 }
 
 function normalizeToFeatureArray(payload: BlobPayload): Feature[] {
-	const normalized = normalizeGeoJsonToFeatureCollection(payload)
+	const normalized = normalizeRenderableFeatureCollection(payload)
 	return (normalized.features ?? []).filter((feature) => Boolean(feature.geometry)) as Feature[]
 }
 
@@ -332,7 +332,7 @@ export async function resolveGeoEventFeatureCollectionDetailed(
 		return Object.freeze({ featureCollection: baseCollection, failures: Object.freeze([]) })
 	}
 
-	let features = normalizeGeoJsonToFeatureCollection(baseCollection)
+	let features = normalizeRenderableFeatureCollection(baseCollection)
 		.features.filter((feature) => Boolean(feature.geometry))
 		.map((feature) => cloneFeature(feature as Feature))
 
@@ -391,7 +391,7 @@ export async function resolveGeoEventFeatureCollectionDetailed(
 	}
 
 	return Object.freeze({
-		featureCollection: normalizeGeoJsonToFeatureCollection({
+		featureCollection: normalizeRenderableFeatureCollection({
 			...baseCollection,
 			type: 'FeatureCollection',
 			features,

@@ -5,7 +5,8 @@
  * sites through the Authoring API. This gate proves the NEW `authoring.writeGeoJSON`
  * path produces a feature set BYTE-IDENTICAL to the OLD `importFeaturesToEditor`
  * normalization + dedup-by-id — ids, geometry, importSource, customProperties, and
- * skippedDuplicates counts all deep-equal.
+ * append counts all deep-equal. Replacement counts reflect the unique stored features
+ * (the original importer reported input counts even when setFeatures collapsed IDs).
  *
  * OLD-path reference construction: we reproduce the EXACT pre-refactor body of
  * `importFeaturesToEditor` (the `toEditorFeature(f, 'chat_tool')` normalization + the
@@ -104,8 +105,16 @@ describe('authoring golden gate — OLD vs NEW feature-set equality (criterion #
 		expect(skippedDuplicates).toBe(1)
 	})
 
-	it('dupIdCollection — replace keeps both (no dedup on replace), identical', () => {
-		assertPathsIdentical(dupIdCollection.features, true)
+	it('dupIdCollection — replace preserves the last-write-wins feature set and reports stored counts', () => {
+		const oldResult = oldImportPath(dupIdCollection.features, true)
+		const newResult = newAuthoringPath(dupIdCollection.features, true)
+		expect(newResult.features).toEqual(oldResult.features)
+		expect(newResult.features).toHaveLength(1)
+		expect(newResult.features[0]).toEqual(
+			toEditorFeature(dupIdCollection.features[1]!, 'chat_tool'),
+		)
+		expect(newResult.importedCount).toBe(1)
+		expect(newResult.skippedDuplicates).toBe(1)
 	})
 
 	it('empty collection — both paths yield an empty editor', () => {

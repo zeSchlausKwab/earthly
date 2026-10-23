@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.1.22] - 2026-10-23
+
+- Upgrade Applesauce to v7 with account-specific relay authentication, automatic
+  subscription recovery, and relay health, cooldown, and retry controls.
+- Show shared reaction and comment counts for visible rows without downloading
+  every reaction. Distinguish unavailable counts from zero and preserve totals
+  across map revisions. Calculate zap totals from actual receipt amounts.
+- Require completed wallet synchronization before spending, preserve recovery and
+  consumed-token safeguards, and bound wallet capability discovery.
+- Use upstream large-message and restored-session remote signing support, and
+  improve comment threading when parents arrive late or are deleted.
+- Fix validation debt: isolate unit-test files, align stale UI/routing/editor
+  assertions, reject invalid geometry at rendering boundaries, and prevent
+  uninterruptible schema regex validation when no worker is available.
+
+### Validation
+
+- All 418 unit-test files pass through the isolated test gate; the AI-suite
+  typecheck passes and the application typecheck reports no new diagnostics.
+- Desktop/mobile browser checks and Android emulator navigation, foreground
+  resume, and process restart passed.
+
+### Known limitations
+
+- Physical-device performance and live mint/NWC payments remain untested.
+- Android instrumentation dependency downloads returned HTTP 404; equivalent
+  navigation and lifecycle smoke checks used ADB and UI Automator.
+
 ## [0.1.21] - 2026-10-13
 
 - Embed a published public dataset on a website from Share, with a live preview,

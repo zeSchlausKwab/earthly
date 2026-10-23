@@ -4,6 +4,7 @@ import { test, expect } from '../fixtures/earthly'
 import { testIdentities } from '../test-identities'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import { createContext } from '../tasks/create/context'
+import { openEntityActions } from '../tasks/navigation/open-entity-actions'
 import { openPanel } from '../tasks/navigation/open-panel'
 
 const LOCAL_RELAY = 'ws://127.0.0.1:3334'
@@ -22,34 +23,39 @@ test('a Context like survives the entity panel remount @social-actions', async (
 		description: 'A local-only Context used to verify entity reactions.',
 	})
 
-	const getContextRow = () =>
-		earthly.page
-			.getByRole('button', { name: `Inspect context Social actions ${runId}`, exact: true })
-			.first()
-			.locator('xpath=ancestor::*[.//button[@aria-label="Zap"]][1]')
-	const contextRow = getContextRow()
+	const contextRow = await openEntityActions(earthly, `Social actions ${runId}`)
 	await contextRow.getByRole('button', { name: 'Like', exact: true }).click()
-	await expect(contextRow.getByRole('button', { name: 'Unlike', exact: true })).toBeVisible()
+	await expect(async () => {
+		if (!(await contextRow.isVisible())) await openEntityActions(earthly, `Social actions ${runId}`)
+		await expect(contextRow.getByRole('button', { name: 'Unlike', exact: true })).toBeVisible({
+			timeout: 1000,
+		})
+	}).toPass({ timeout: 10_000 })
 
+	await earthly.page.keyboard.press('Escape')
 	if (earthly.isMobile) {
-		await earthly.page.getByRole('button', { name: 'Close Atlases', exact: true }).click()
+		await earthly.page.getByRole('button', { name: 'Close Browse', exact: true }).click()
 		await openPanel(earthly, 'Atlases')
 	} else {
 		await openPanel(earthly, 'Maps')
 		await openPanel(earthly, 'Atlases')
 	}
 
-	const remountedContextRow = getContextRow()
+	const remountedContextRow = await openEntityActions(earthly, `Social actions ${runId}`)
 	await expect(
 		remountedContextRow.getByRole('button', { name: 'Unlike', exact: true }),
 	).toBeVisible()
 	await remountedContextRow.getByRole('button', { name: 'Unlike', exact: true }).click()
-	await expect(remountedContextRow.getByRole('button', { name: 'Like', exact: true })).toBeVisible()
+	await expect(async () => {
+		if (!(await remountedContextRow.isVisible()))
+			await openEntityActions(earthly, `Social actions ${runId}`)
+		await expect(
+			remountedContextRow.getByRole('button', { name: 'Like', exact: true }),
+		).toBeVisible({ timeout: 1000 })
+	}).toPass({ timeout: 10_000 })
 })
 
-test('a paid zap stays visible with confirmation instead of dismissing itself @social-actions', async ({
-	earthly,
-}) => {
+test('a paid zap confirms its receipt before closing @social-actions', async ({ earthly }) => {
 	const pool = new SimplePool()
 	const owner = testIdentities.owner
 	const secretKey = hexToBytes(owner.secretKeyHex)
@@ -117,10 +123,7 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 			name: `Zap lifecycle ${runId}`,
 			description: 'A local-only Context used to verify zap confirmation.',
 		})
-		const contextRow = earthly.page
-			.getByRole('button', { name: `Inspect context Zap lifecycle ${runId}`, exact: true })
-			.first()
-			.locator('xpath=ancestor::*[.//button[@aria-label="Zap"]][1]')
+		const contextRow = await openEntityActions(earthly, `Zap lifecycle ${runId}`)
 		await contextRow.getByRole('button', { name: 'Zap', exact: true }).click()
 		await earthly.page.getByRole('button', { name: 'Custom', exact: true }).click()
 		await earthly.page.getByLabel('Custom amount').fill('2000')
@@ -133,7 +136,7 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 		).toBeVisible()
 		expect(callbackCapture.zapRequest?.kind).toBe(9734)
 		expect(callbackCapture.zapRequest?.tags.find((tag) => tag[0] === 'relays')?.slice(1)).toContain(
-			'wss://relay.earthly.city',
+			'ws://localhost:3334',
 		)
 		await expect(
 			earthly.page.getByText(
@@ -152,11 +155,6 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 		const identifier = target?.tags.find((tag) => tag[0] === 'd')?.[1]
 		expect(identifier).toBeTruthy()
 
-		if (earthly.isMobile) {
-			await earthly.page.getByRole('button', { name: 'Just map', exact: true }).click()
-		} else {
-			await openPanel(earthly, 'Maps')
-		}
 		await expect(earthly.page.getByRole('heading', { name: 'Send a zap' })).toBeVisible()
 
 		await publishLocal(

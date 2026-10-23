@@ -9,6 +9,7 @@ import {
 import { createIdentityTask } from './tasks/auth/create-identity'
 import { addChatConnectionTask } from './tasks/chat/connections'
 import { authorizeJourneyIdentityTask } from './tasks/auth/authorize-journey-identity'
+import { openEntityActionsTask } from './tasks/navigation/open-entity-actions'
 import { signInTask } from './tasks/auth/sign-in'
 import {
 	approveAiEditTask,
@@ -128,6 +129,7 @@ const tasks = [
 	createIdentityTask,
 	authorizeJourneyIdentityTask,
 	signInTask,
+	openEntityActionsTask,
 	configureChatProviderTask,
 	openAiChatTask,
 	moveAiChatTask,

@@ -48,6 +48,7 @@ function attachStore<T extends NostrEvent>(event: T): T {
 	}
 	return event
 }
+import { isTemporalSighting } from './helpers'
 import { TemporalSightingFactory } from './factory'
 import { getTemporalSightingId, type TemporalSightingContent } from './helpers'
 
@@ -137,6 +138,7 @@ export async function editSighting(
 ): Promise<NostrEvent> {
 	const { content, expiration, groupCoords, images } = options
 
+	if (!isTemporalSighting(existingEvent)) throw new Error('Event is not a Temporal Sighting')
 	let factory = TemporalSightingFactory.modify(existingEvent)
 		.sighting(content)
 		.bbox(deriveBbox(content))

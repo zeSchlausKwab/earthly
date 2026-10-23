@@ -28,7 +28,7 @@ import { WalletBalanceModel } from 'applesauce-wallet/models'
 import type { NostrEvent } from 'nostr-tools'
 import { BehaviorSubject, firstValueFrom, map, of, switchMap, timeout } from 'rxjs'
 import { config } from '@/config'
-import { accounts, allowRelays, eventStore, pool } from '@/lib/nostr'
+import { accounts, allowRelays, eventStore, pool, relayAuthOptions } from '@/lib/nostr'
 
 /**
  * Tokens-in-flight storage. ApplesauceWallet `TokensOperation` requires this
@@ -123,7 +123,9 @@ export function createWalletActions(): ActionRunner {
 			let targetRelays = relays?.length ? relays : await resolveWalletPublishRelays(event.pubkey)
 			if (targetRelays.length === 0) targetRelays = config.writeRelays
 			allowRelays(targetRelays)
-			requirePublishAcknowledgement(await pool.publish(targetRelays, event))
+			requirePublishAcknowledgement(
+				await pool.publish(targetRelays, event, relayAuthOptions(account.pubkey)),
+			)
 			eventStore.add(event)
 		},
 	)

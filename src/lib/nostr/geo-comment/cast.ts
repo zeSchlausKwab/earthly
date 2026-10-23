@@ -28,7 +28,7 @@ export class GeoComment extends EventCast<GeoCommentEvent> {
 	}
 
 	// Raw-event proxies (same pattern as GeoDataset)
-	get kind() {
+	override get kind() {
 		return this.event.kind
 	}
 	get pubkey() {

@@ -78,7 +78,7 @@ export class LiveBeaconFactory extends EntityFactory<typeof LIVE_BEACON_KIND> {
 	}
 
 	/** Set the NIP-40 `expiration` timestamp (epoch seconds). Undefined removes it. */
-	expiration(timestamp: number | undefined): this {
+	override expiration(timestamp: number | undefined): this {
 		return this.modifyPublicTags((tags: string[][]) => {
 			const filtered = tags.filter((t) => t[0] !== 'expiration')
 			return timestamp !== undefined ? [...filtered, ['expiration', String(timestamp)]] : filtered

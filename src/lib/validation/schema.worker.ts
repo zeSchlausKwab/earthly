@@ -18,7 +18,7 @@
  *     validateSchema:true`). `$data` is OFF (the default — we never pass
  *     `$data:true`), so a `{ $data: '...' }` keyword value is an INVALID schema
  *     that fails closed rather than silently enabling cross-field validation.
- *   - A compile-once cache keyed by `schemaHash`: a cache miss runs the gate then
+ *   - A compile-once cache keyed by regex policy and `schemaHash`: a cache miss runs the gate then
  *     `ajv.compile` and stores the validator; a hit reuses it. A test-observable
  *     compile counter proves compile-once-per-`schemaHash`.
  *   - Every throw (gate rejection, compile error, ReDoS overrun) is caught and
@@ -128,13 +128,18 @@ export function __resetCompileCount(): void {
  * (`$ref`/`$dynamicRef`/`$recursiveRef`/`$recursiveAnchor`/`$dynamicAnchor`),
  * excessive depth, or excessive keyword count.
  */
-function rejectUnsafeSchema(schema: unknown): void {
+function rejectUnsafeSchema(schema: unknown, allowRegex: boolean): void {
 	const json = JSON.stringify(schema)
 	if (typeof json !== 'string') {
 		throw new Error('schema is not serializable')
 	}
 	if (json.length > MAX_SCHEMA_BYTES) {
 		throw new Error(`schema exceeds ${MAX_SCHEMA_BYTES} bytes`)
+	}
+	// Without a worker there is no way to interrupt a regular expression. Fail
+	// closed before compiling patterns or format validators in the SSR/test path.
+	if (!allowRegex && /"(?:pattern|patternProperties|format)"\s*:/.test(json)) {
+		throw new Error('regex validation requires an interruptible worker')
 	}
 	// Every reference/anchor keyword the pinned Ajv2020 `dynamic` vocabulary registers
 	// (`$ref`, `$dynamicRef`, `$recursiveRef`, `$recursiveAnchor`, `$dynamicAnchor` — see
@@ -175,16 +180,17 @@ function rejectUnsafeSchema(schema: unknown): void {
  * actual compile so `schemaWorker.test.ts` can assert compile-once-per-`schemaHash`
  * and `$ref`-rejected-before-compile (counter stays 0 when the gate throws).
  */
-function compileOnce(schema: unknown, schemaHash: string): ValidateFunction {
-	const cached = compiledCache.get(schemaHash)
+function compileOnce(schema: unknown, schemaHash: string, allowRegex: boolean): ValidateFunction {
+	const cacheKey = `${allowRegex ? 'worker' : 'sync'}:${schemaHash}`
+	const cached = compiledCache.get(cacheKey)
 	if (cached) return cached
 
 	// Gate FIRST — a rejection here means `ajv.compile` is never reached (counter stays 0).
-	rejectUnsafeSchema(schema)
+	rejectUnsafeSchema(schema, allowRegex)
 
 	const validate = ajv.compile(schema as object)
 	compileCount++
-	compiledCache.set(schemaHash, validate)
+	compiledCache.set(cacheKey, validate)
 	return validate
 }
 
@@ -195,9 +201,10 @@ function compileOnce(schema: unknown, schemaHash: string): ValidateFunction {
  */
 export async function runSchemaValidation(
 	request: SchemaValidationRequest,
+	options: { allowRegex?: boolean } = {},
 ): Promise<SchemaValidationVerdict> {
 	try {
-		const validate = compileOnce(request.schema, request.schemaHash)
+		const validate = compileOnce(request.schema, request.schemaHash, options.allowRegex ?? true)
 		const valid = validate(request.data)
 		if (valid) return { ok: true }
 		// Map Ajv's `allErrors` list into bounded, serializable per-rule errors (D-06).

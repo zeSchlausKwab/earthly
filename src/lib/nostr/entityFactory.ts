@@ -12,7 +12,12 @@
 
 import { EventFactory } from 'applesauce-core/factories'
 import type { EventSigner } from 'applesauce-core/factories/types'
-import type { EventTemplate, NostrEvent, UnsignedEvent } from 'applesauce-core/helpers/event'
+import type {
+	EventTemplate,
+	NostrEvent,
+	UnsignedEvent,
+	KnownEvent,
+} from 'applesauce-core/helpers/event'
 import { assertPublishedMapPresentationSources } from '@/lib/map-presentation/codec'
 import { assertPublishedStoryReferences } from '@/lib/nostr/story/localReferences'
 import { ARTICLE_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
@@ -47,7 +52,7 @@ export class EntityFactory<K extends number> extends EventFactory<K> {
 	 * Sign the built template. Accepts a full `EventSigner` OR a bare
 	 * sign-function `(template) => signedEvent`.
 	 */
-	override sign(signer?: SignerLike): Promise<NostrEvent> {
+	override sign(signer?: SignerLike): Promise<KnownEvent<K>> {
 		const resolved = signer !== undefined ? toEventSigner(signer) : this.signer
 		// Every Story/Atlas factory path reaches this boundary, including direct
 		// factory callers. Local references require explicit publication/resolution.
@@ -77,6 +82,6 @@ export class EntityFactory<K extends number> extends EventFactory<K> {
 			}
 			return template
 		})
-		return super.sign.call(guarded, resolved) as Promise<NostrEvent>
+		return super.sign.call(guarded, resolved) as Promise<KnownEvent<K>>
 	}
 }

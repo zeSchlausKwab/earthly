@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
+import { NEVER } from 'rxjs'
 import type { NostrEvent } from 'applesauce-core/helpers/event'
 import { NostrConnectSigner, PrivateKeySigner } from 'applesauce-signers'
 import {
 	EARTHLY_NIP46_PERMISSIONS,
 	EarthlyNostrConnectAccount,
 	EarthlyNostrConnectSigner,
-	ExtendedNip44PrivateKeySigner,
 } from './largeEventNip46'
 
 const EDITOR_INLINE_DATASET_BYTES = 1024 * 1024
@@ -34,8 +34,8 @@ function oneMiBFeatureCollection(): string {
 }
 
 describe('EarthlyNostrConnectSigner', () => {
-	test('signs a one-MiB dataset through the NIP-46 compatibility transport', async () => {
-		const remoteSigner = new ExtendedNip44PrivateKeySigner()
+	test('signs a one-MiB dataset through the upstream NIP-46 transport', async () => {
+		const remoteSigner = new PrivateKeySigner()
 		const remotePubkey = await remoteSigner.getPublicKey()
 		let requestEncryption: 'nip04' | 'nip44' | undefined
 		let requestContentBytes = 0
@@ -48,7 +48,7 @@ describe('EarthlyNostrConnectSigner', () => {
 			relays: ['ws://signer-relay.invalid'],
 			remote: remotePubkey,
 			pubkey: remotePubkey,
-			subscriptionMethod: () => [],
+			subscriptionMethod: () => NEVER,
 			publishMethod: async (_relays, requestEvent) => {
 				requestContentBytes = new TextEncoder().encode(requestEvent.content).byteLength
 				requestEncryption = requestEvent.content.includes('?iv=') ? 'nip04' : 'nip44'
@@ -81,7 +81,7 @@ describe('EarthlyNostrConnectSigner', () => {
 					content: responseContent,
 				})
 				await client.handleEvent(response as NostrEvent)
-				return []
+				return [{ from: 'ws://signer-relay.invalid', ok: true, message: '' }]
 			},
 		})
 		client.isConnected = true
@@ -115,16 +115,17 @@ describe('EarthlyNostrConnectSigner', () => {
 		expect(responsePlaintextBytes).toBeGreaterThan(4 * 1024 * 1024)
 		expect(responseContentBytes).toBeGreaterThan(6 * 1024 * 1024)
 		expect(responseContentBytes).toBeLessThanOrEqual(NIP46_RELAY_CONTENT_BYTES)
+		await client.close()
 	})
 
-	test('normalizes supplied and restored client keys onto extended NIP-44', async () => {
+	test('preserves the persisted account shape and client key with upstream signers', async () => {
 		const previousSubscriptionMethod = NostrConnectSigner.subscriptionMethod
 		const previousPublishMethod = NostrConnectSigner.publishMethod
-		NostrConnectSigner.subscriptionMethod = () => []
+		NostrConnectSigner.subscriptionMethod = () => NEVER
 		NostrConnectSigner.publishMethod = async () => []
 
 		try {
-			const remote = new ExtendedNip44PrivateKeySigner()
+			const remote = new PrivateKeySigner()
 			const remotePubkey = await remote.getPublicKey()
 			const legacyClientKey = new PrivateKeySigner()
 			const signer = new EarthlyNostrConnectSigner({
@@ -133,14 +134,14 @@ describe('EarthlyNostrConnectSigner', () => {
 				pubkey: remotePubkey,
 				signer: legacyClientKey,
 			})
-			expect(signer.signer).toBeInstanceOf(ExtendedNip44PrivateKeySigner)
+			expect(signer.signer).toBeInstanceOf(PrivateKeySigner)
 			expect(signer.signer.key).toEqual(legacyClientKey.key)
 
 			const restored = EarthlyNostrConnectAccount.fromJSON(
 				new EarthlyNostrConnectAccount(remotePubkey, signer).toJSON(),
 			)
 			expect(restored.signer).toBeInstanceOf(EarthlyNostrConnectSigner)
-			expect(restored.signer.signer).toBeInstanceOf(ExtendedNip44PrivateKeySigner)
+			expect(restored.signer.signer).toBeInstanceOf(PrivateKeySigner)
 			expect(restored.signer.signer.key).toEqual(legacyClientKey.key)
 		} finally {
 			NostrConnectSigner.subscriptionMethod = previousSubscriptionMethod
@@ -158,4 +159,29 @@ describe('EarthlyNostrConnectSigner', () => {
 		expect(EARTHLY_NIP46_PERMISSIONS).toContain('nip44_decrypt')
 		expect(EARTHLY_NIP46_PERMISSIONS).not.toContain('sign_event:34444')
 	})
+})
+
+test('restoring nbunksec does not re-send a used connect secret', async () => {
+	const remote = new PrivateKeySigner()
+	const signer = new PrivateKeySigner()
+	const client = new EarthlyNostrConnectSigner({
+		relays: ['wss://relay.example'],
+		remote: await remote.getPublicKey(),
+		signer,
+		bunkerSecret: 'already-used',
+		publishMethod: async () => [],
+		subscriptionMethod: () => NEVER,
+	})
+	let published = 0
+	const restored = await EarthlyNostrConnectSigner.fromNbunksec(client.getNbunksec(), {
+		subscriptionMethod: () => NEVER,
+		publishMethod: async () => {
+			published++
+			return []
+		},
+	})
+	expect(published).toBe(0)
+	expect(restored.signer.key).toEqual(signer.key)
+	await restored.close()
+	await client.close()
 })

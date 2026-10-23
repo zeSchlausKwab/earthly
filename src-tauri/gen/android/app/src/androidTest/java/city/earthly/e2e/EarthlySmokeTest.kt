@@ -13,12 +13,12 @@ class EarthlySmokeTest {
     @Test
     fun workspaceAppLinksRemainStableAcrossWarmNavigation() {
         earthly.openAppLink("/field-sessions")
-        earthly.awaitVisible("Field sessions")
-        earthly.assertContinuouslyVisible("Field sessions")
+        earthly.awaitVisible("Nearby")
+        earthly.assertContinuouslyVisible("Nearby")
 
         earthly.openAppLink("/private-groups")
-        earthly.awaitVisible("Private groups")
-        earthly.assertContinuouslyVisible("Private groups")
+        earthly.awaitVisible("Circles")
+        earthly.assertContinuouslyVisible("Circles")
 
         earthly.openAppLink("/drafts")
         earthly.awaitVisible("Local drafts")

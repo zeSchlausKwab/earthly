@@ -11,7 +11,7 @@ import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
 import { getTagValue, type KnownEvent, type NostrEvent } from 'applesauce-core/helpers/event'
 import type { FeatureCollection, Position } from 'geojson'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
-import { normalizeGeoJsonToFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
+import { normalizeRenderableFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
 import {
 	getBbox,
 	getContextRefs,
@@ -54,7 +54,7 @@ export function getFeatureCollection(event: NostrEvent): FeatureCollection {
 	return getOrComputeCachedValue(event, FeatureCollectionSymbol, () => {
 		if (!event.content) return DEFAULT_COLLECTION
 		try {
-			return normalizeGeoJsonToFeatureCollection(JSON.parse(event.content))
+			return normalizeRenderableFeatureCollection(JSON.parse(event.content))
 		} catch {
 			return DEFAULT_COLLECTION
 		}

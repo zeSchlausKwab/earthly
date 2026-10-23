@@ -21,15 +21,22 @@ const eventStoreAdd = mock((_event: NostrEvent) => true)
 const queryCache = mock(async (_filters: Filter[]): Promise<NostrEvent[]> => [])
 const stopSubscription = mock(() => {})
 let relayDone: ((relay: string) => void) | undefined
-const startLiveTimelineSubscription = mock((options: { onRelayDone?: (relay: string) => void }) => {
-	relayDone = options.onRelayDone
-	return stopSubscription
-})
+const startLiveTimelineSubscription = mock(
+	(options: { onRelayState?: (relay: string, outcome: { state: string }) => void }) => {
+		relayDone = (relay) => options.onRelayState?.(relay, { state: 'ready' })
+		return stopSubscription
+	},
+)
 
-mock.module('applesauce-react/hooks', () => ({ use$: () => undefined }))
+mock.module('applesauce-react/hooks', () => ({
+	use$: () => undefined,
+	useActiveAccount: () => undefined,
+}))
 mock.module('@/lib/nostr/index', () => ({
 	eventStore: { add: eventStoreAdd },
 	pool: {},
+	relayAuthOptions: () => ({}),
+	relayLiveness: {},
 	queryCache,
 }))
 mock.module('@/lib/nostr/liveTimeline', () => ({ startLiveTimelineSubscription }))

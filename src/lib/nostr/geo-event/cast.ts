@@ -6,6 +6,7 @@
  * `useTimeline` helper hook combined with `.map(e => castEvent(e, GeoDataset))`.
  */
 
+import 'applesauce-common/casts/user'
 import { EventCast, type CastRefEventStore } from 'applesauce-core/casts'
 import {
 	addRelayHintsToPointer,
@@ -42,7 +43,7 @@ export class GeoDataset extends EventCast<GeoDatasetEvent> {
 	// Proxies to the raw event so existing read-side consumers don't need to
 	// chase `cast.event.X` everywhere. These are read-only by definition;
 	// to mutate, build a new event with `GeoDatasetFactory`.
-	get kind() {
+	override get kind() {
 		return this.event.kind
 	}
 	get pubkey() {
@@ -107,7 +108,7 @@ export class GeoDataset extends EventCast<GeoDatasetEvent> {
 	}
 
 	/** Address pointer for this dataset (kind:pubkey:identifier). */
-	get pointer() {
+	override get pointer() {
 		return getAddressPointerForEvent(this.event)!
 	}
 

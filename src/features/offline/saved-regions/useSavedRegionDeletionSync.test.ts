@@ -46,8 +46,14 @@ const relayRequest = mock((_relays: string[], _filters: Filter[]) => ({
 mock.module('@/lib/nostr', () => ({
 	eventStore: { add: eventStoreAdd },
 	ingestDeletionEvent,
-	pool: { req: relayRequest },
+	pool: {},
+	relayAuthOptions: () => ({ waitForAuth: false }),
 	queryCacheStrict,
+}))
+mock.module('applesauce-react/hooks', () => ({ useActiveAccount: () => undefined }))
+mock.module('@/lib/nostr/requiredRelayStream', () => ({
+	requiredRelayStream: (_pool: unknown, relays: string[], filters: Filter[]) =>
+		relayRequest(relays, filters),
 }))
 mock.module('@/lib/nostr/relay-router', () => ({
 	readRelaysFor: () => ['wss://relay.test'],

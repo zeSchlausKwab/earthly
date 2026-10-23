@@ -1,6 +1,7 @@
 import { WalletConnect } from 'applesauce-wallet-connect'
 import { parseWalletConnectURI } from 'applesauce-wallet-connect/helpers'
 import { allowRelays, pool } from '@/lib/nostr'
+import { readWalletSupport } from './walletSupport'
 import { loadUserData, removeUserData, saveUserData } from './storage'
 
 const NWC_STORAGE_KEY = 'earthly:nwc-connection'
@@ -69,9 +70,10 @@ export async function getNwcWalletStatus(connection: NwcConnectionDetails): Prom
 	balanceSats?: number
 }> {
 	const wallet = createNwcClient(connection)
-	const canPay = await wallet.supportsMethod('pay_invoice')
+	const support = await readWalletSupport(wallet)
+	const canPay = support?.methods.includes('pay_invoice') ?? false
 	let balanceSats: number | undefined
-	if (await wallet.supportsMethod('get_balance')) {
+	if (support?.methods.includes('get_balance')) {
 		const result = await wallet.getBalance()
 		balanceSats = Math.floor(result.balance / 1000)
 	}
@@ -83,7 +85,7 @@ export async function payInvoiceWithNwc(
 	invoice: string,
 ): Promise<void> {
 	const wallet = createNwcClient(connection)
-	if (!(await wallet.supportsMethod('pay_invoice'))) {
+	if (!(await readWalletSupport(wallet))?.methods.includes('pay_invoice')) {
 		throw new Error('This NWC wallet does not allow invoice payments.')
 	}
 	await wallet.payInvoice(invoice)

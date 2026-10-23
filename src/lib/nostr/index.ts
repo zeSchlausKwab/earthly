@@ -1,17 +1,21 @@
 /**
  * Applesauce singletons for Earthly.
  *
- * One place owns the EventStore, RelayPool, AccountManager, and IDB cache.
- * Every other module imports from here — no other file constructs these.
+ * This composition root wires the store, transport, accounts, and cache.
+ * Store and transport modules own their single instances and lifecycle.
  *
  * Usage:
  *   import { eventStore, pool, accounts, publish } from '@/lib/nostr'
  */
 
+import type { PublishResponse } from 'applesauce-relay'
+import { createSocialCounts } from './socialCounts'
 import { persistEventsToCache } from 'applesauce-core/helpers'
 import { isEventPointer } from 'applesauce-core/helpers/pointers'
 import { MailboxesModel } from 'applesauce-core/models'
-import { RelayPool, type Relay } from 'applesauce-relay'
+import { createRelayAuthOptions } from './relayAuthentication'
+import { pool, relayLiveness } from './relayRuntime'
+export { pool, relayLiveness } from './relayRuntime'
 import { AccountManager } from 'applesauce-accounts'
 import { registerCommonAccountTypes } from 'applesauce-accounts/accounts'
 import { createUnifiedEventLoader, type UnifiedEventLoader } from 'applesauce-loaders/loaders'
@@ -38,7 +42,6 @@ import {
 	notifyPublishOutboxChanged,
 } from '@/platform/registry'
 import type { OutboxItem, OutboxRelayResult, PublishOutboxService } from '@/platform/contracts'
-import { EarthlyNostrConnectAccount } from './largeEventNip46'
 
 // Bun HMR bundler tree-shaking bug: rxjs/index.js re-exports some values via
 // source files that Bun's HMR runtime can stub without populating. Referencing
@@ -67,12 +70,7 @@ import {
 	pendingOutboxRelays,
 	requiredPublishRelays,
 } from './publishOutbox'
-import {
-	bucketForKind,
-	guardedWebSocketCtor,
-	readRelays$,
-	shouldCollapseWritesToLocal,
-} from './relay-router'
+import { bucketForKind, readRelays$, shouldCollapseWritesToLocal } from './relay-router'
 import { createAccountSessionSnapshot, reconcileAccountSession } from './accountPersistence'
 
 // The single EventStore singleton, constructed in ./store so service modules can
@@ -105,7 +103,7 @@ export * from './relay-router'
  * The guarded WebSocket ctor is the dev backstop: sockets to relays outside
  * the router allowlist never open, no matter which code path asked.
  */
-export const pool = new RelayPool({ WebSocket: guardedWebSocketCtor() })
+// The transport module owns pool lifecycle; this barrel preserves the public interface.
 
 // Dev-only debug handles: inspect open relay connections and the effective
 // relay config from the console to verify stage isolation (docs/RELAY_STAGES.md).
@@ -132,8 +130,6 @@ export interface EarthlyAccountMetadata {
 /** Multi-account signer manager. Common account types are registered eagerly. */
 export const accounts = new AccountManager<EarthlyAccountMetadata>()
 registerCommonAccountTypes(accounts)
-accounts.unregisterType(EarthlyNostrConnectAccount.type)
-accounts.registerType(EarthlyNostrConnectAccount)
 
 const ACCOUNTS_STORAGE_KEY = 'earthly:accounts'
 const ACTIVE_ACCOUNT_STORAGE_KEY = 'earthly:active-account'
@@ -159,48 +155,20 @@ function restoreAccounts() {
 
 restoreAccounts()
 
-/**
- * NIP-42: answer relay AUTH challenges with the active signer.
- *
- * Without this, relays that require AUTH silently reject publishes and
- * subscriptions (the settings UI showed the auth badges but nothing ever
- * answered). Policy: authenticate to any relay the pool talks to — the relay
- * router already constrains which relays that can be — whenever a challenge
- * is pending and an account is active. Re-runs on account switch so a login
- * answers challenges that arrived while logged out.
- */
-function setupNip42AuthResponder() {
-	const answered = new Map<string, string>()
-
-	const answerChallenge = (relay: Relay) => {
-		const challenge = relay.challenge
-		const signer = accounts.signer
-		if (!challenge || !signer) return
-		if (answered.get(relay.url) === challenge) return
-		answered.set(relay.url, challenge)
-		relay
-			.authenticate(signer)
-			.catch((err) => console.warn(`[nostr] NIP-42 auth failed for ${relay.url}`, err))
-	}
-
-	const watchRelay = (relay: Relay) => {
-		relay.challenge$.subscribe(() => answerChallenge(relay))
-	}
-
-	for (const relay of pool.relays.values()) watchRelay(relay)
-	pool.add$.subscribe(watchRelay)
-	// A login should answer challenges that arrived while logged out.
-	accounts.active$.subscribe(() => {
-		for (const relay of pool.relays.values()) answerChallenge(relay)
-	})
+/** Authentication is scoped to the operation's account, never the last account
+ * that happened to answer a challenge on a shared connection. */
+export function relayAuthOptions(pubkey = accounts.active?.pubkey) {
+	const account = pubkey === accounts.active?.pubkey ? accounts.active : undefined
+	return createRelayAuthOptions(
+		account ? { pubkey: account.pubkey, signer: account.signer } : undefined,
+		() => accounts.active === account,
+	)
 }
-
-setupNip42AuthResponder()
 
 // Persist on every change. BehaviorSubjects emit immediately so the first save
 // is essentially a no-op when storage is already in sync. Ephemeral accounts
 // (rememberMe=false) are filtered out so they only live in memory.
-accounts.accounts$.subscribe(() => {
+const accountListPersistence = accounts.accounts$.subscribe(() => {
 	if (typeof localStorage === 'undefined') return
 	try {
 		const persisted = accounts.toJSON(true).filter((acc) => !acc.metadata?.ephemeral)
@@ -210,7 +178,7 @@ accounts.accounts$.subscribe(() => {
 	}
 })
 
-accounts.active$.subscribe((account) => {
+const activeAccountPersistence = accounts.active$.subscribe((account) => {
 	if (typeof localStorage === 'undefined') return
 	if (account) localStorage.setItem(ACTIVE_ACCOUNT_STORAGE_KEY, account.id)
 	else localStorage.removeItem(ACTIVE_ACCOUNT_STORAGE_KEY)
@@ -489,14 +457,30 @@ export async function queryCache(filters: Filter[]): Promise<NostrEvent[]> {
  * hints embedded in tags/pointers must never open implicit sockets; the
  * router's relay sets are the only read paths.
  */
-const contentLoader = createUnifiedEventLoader(pool, {
+// Loader callbacks execute lazily, binding authentication to the current account.
+export const socialCounts = createSocialCounts({
+	pool,
+	relays$: readRelays$('content'),
+	scope$: accounts.active$,
+	auth: relayAuthOptions,
+})
+function invalidateSocialCounts(event: NostrEvent, responses: PublishResponse[]) {
+	if ([5, 7, 37517].includes(event.kind) && responses.some((response) => response.ok))
+		socialCounts.invalidate()
+}
+
+const loaderPool = {
+	request: (relays: string[], filters: Filter[], options?: Parameters<typeof pool.request>[2]) =>
+		pool.request(relayLiveness.filter(relays), filters, { ...relayAuthOptions(), ...options }),
+}
+const contentLoader = createUnifiedEventLoader(loaderPool, {
 	eventStore,
 	cacheRequest,
 	followRelayHints: false,
 	lookupRelays: readRelays$('content'),
 	extraRelays: readRelays$('content'),
 })
-const socialLoader = createUnifiedEventLoader(pool, {
+const socialLoader = createUnifiedEventLoader(loaderPool, {
 	eventStore,
 	cacheRequest,
 	followRelayHints: false,
@@ -616,7 +600,8 @@ async function deliverOutboxItem(service: PublishOutboxService, item: OutboxItem
 	if (event.kind === 5) await ingestDeletionEvent(event)
 	else eventStore.add(event)
 	try {
-		const responses = await pool.publish(targetRelays, event)
+		const responses = await pool.publish(targetRelays, event, relayAuthOptions(event.pubkey))
+		invalidateSocialCounts(event, responses)
 		await service.recordResults(item.id, relayResults(responses))
 		notifyPublishOutboxChanged()
 	} catch (error) {
@@ -627,6 +612,7 @@ async function deliverOutboxItem(service: PublishOutboxService, item: OutboxItem
 
 let outboxFlushPromise: Promise<void> | null = null
 let outboxReplayStarted = false
+let stopOutboxReplay: (() => void) | undefined
 
 /** Replay due native publishes without ever requesting or persisting a signing key. */
 export function flushPublishOutbox(): Promise<void> {
@@ -648,10 +634,16 @@ export function flushPublishOutbox(): Promise<void> {
 export function startPublishOutbox(): Promise<void> {
 	if (!outboxReplayStarted && typeof window !== 'undefined') {
 		outboxReplayStarted = true
-		window.addEventListener('online', () => void flushPublishOutbox())
-		document.addEventListener('visibilitychange', () => {
+		const online = () => void flushPublishOutbox()
+		const visible = () => {
 			if (document.visibilityState === 'visible') void flushPublishOutbox()
-		})
+		}
+		window.addEventListener('online', online)
+		document.addEventListener('visibilitychange', visible)
+		stopOutboxReplay = () => {
+			window.removeEventListener('online', online)
+			document.removeEventListener('visibilitychange', visible)
+		}
 	}
 	return flushPublishOutbox()
 }
@@ -743,7 +735,10 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 		return []
 	}
 	try {
-		const responses = await commitment.commit(() => pool.publish(deliveryRelays, event))
+		const responses = await commitment.commit(() =>
+			pool.publish(deliveryRelays, event, relayAuthOptions(event.pubkey)),
+		)
+		invalidateSocialCounts(event, responses)
 		// Explicit relay-management calls need every per-relay response, while
 		// normal web authoring must not report success when all relays refused it.
 		if (!outbox && !relays) requirePublishAcknowledgement(responses)
@@ -824,6 +819,11 @@ if (import.meta.hot) {
 	import.meta.hot.dispose(() => {
 		for (const subscription of nativeAccountSubscriptions) subscription.unsubscribe()
 		nativeAccountSubscriptions = []
+		accountListPersistence.unsubscribe()
+		activeAccountPersistence.unsubscribe()
+		routedLoader.stop()
+		socialCounts.stop()
+		stopOutboxReplay?.()
 		stopPersist()
 		const activeCache = cache
 		cache = null

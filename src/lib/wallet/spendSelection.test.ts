@@ -96,3 +96,9 @@ describe('selectSpendableTokens', () => {
 		expect(selected.proofs.map((proof) => proof.secret)).toEqual(['secret-same-proof'])
 	})
 })
+
+test('malformed replacement proofs still suppress the tokens they already consumed', () => {
+	const spent = tokenEvent({ id: 'spent', createdAt: 1, amount: 100 })
+	const malformed = tokenEvent({ id: 'bad', createdAt: 2, amount: 0, deleted: ['spent'] })
+	expect(() => selectSpendableTokens([spent, malformed], 1, MINT)).toThrow('Insufficient funds')
+})

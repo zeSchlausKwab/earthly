@@ -239,13 +239,18 @@ See [Tauri development](docs/TAURI-DEVELOPMENT.md) for toolchain setup, pairing,
 ## Tests and checks
 
 ```sh
-bun run test                # TypeScript/Bun tests
+bun run test                # Unit tests in isolated processes (src, scripts, ops)
 bun run lint                # Biome checks
 bun run typecheck           # reject new TypeScript diagnostics against tracked debt
 bun run typecheck:strict    # full strict check (currently reports existing debt)
 cargo test --workspace      # native/local-node tests
 cd relay && go test ./...   # relay and search tests
 ```
+
+`bun run test` runs each unit-test file in a fresh Bun process, with four workers and
+a one-minute file deadline. This prevents module mocks and DOM globals from leaking
+between files. Pass directories or exact test files to narrow the run; set
+`EARTHLY_TEST_WORKERS` to adjust concurrency. Playwright scenarios remain in the AI suite.
 
 The TypeScript regression check also runs on pull requests. Its baseline tracks each
 file, diagnostic code, message and occurrence count, so fixing one error cannot hide

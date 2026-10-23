@@ -1,4 +1,12 @@
-import type { Feature, FeatureCollection, Geometry, Position } from 'geojson'
+import type {
+	Feature as GeoJsonFeature,
+	FeatureCollection as GeoJsonFeatureCollection,
+	Geometry,
+	Position,
+} from 'geojson'
+
+type Feature = GeoJsonFeature<Geometry | null>
+type FeatureCollection = GeoJsonFeatureCollection<Geometry | null>
 
 const GEOMETRY_TYPES = new Set([
 	'Point',
@@ -76,9 +84,7 @@ export function isGeoJsonFeature(payload: unknown): payload is Feature {
 
 export function isGeoJsonFeatureCollection(payload: unknown): payload is FeatureCollection {
 	return (
-		isRecord(payload) &&
-		payload.type === 'FeatureCollection' &&
-		Array.isArray((payload as FeatureCollection).features)
+		isRecord(payload) && payload.type === 'FeatureCollection' && Array.isArray(payload.features)
 	)
 }
 
@@ -207,5 +213,17 @@ export function normalizeGeoJsonToFeatureCollection(payload: unknown): FeatureCo
 		...base,
 		type: 'FeatureCollection',
 		features,
-	} as FeatureCollection
+	}
+}
+
+/** Rendering/editor boundaries require actual geometries. Keep normalization's
+ * nullable records available to callers that need their IDs or properties. */
+export function normalizeRenderableFeatureCollection(payload: unknown): GeoJsonFeatureCollection {
+	const collection = normalizeGeoJsonToFeatureCollection(payload)
+	return {
+		...collection,
+		features: collection.features.filter(
+			(feature): feature is GeoJsonFeature => feature.geometry !== null,
+		),
+	}
 }

@@ -1,7 +1,16 @@
+import { useActiveAccount } from 'applesauce-react/hooks'
+import { requiredRelayStream } from '@/lib/nostr/requiredRelayStream'
 import type { GroupReqMessage } from 'applesauce-relay'
 import type { NostrEvent } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
-import { eventStore, ingestDeletionEvent, pool, queryCacheStrict } from '@/lib/nostr'
+import { Subscription } from 'rxjs'
+import {
+	eventStore,
+	ingestDeletionEvent,
+	pool,
+	queryCacheStrict,
+	relayAuthOptions,
+} from '@/lib/nostr'
 import {
 	deletionFiltersForTargets,
 	deletionTargetForEvent,
@@ -60,6 +69,7 @@ export function useSavedRegionDeletionSync(
 	enabled: boolean,
 	additionalTargets: readonly DeletionTarget[] = [],
 ): SavedRegionDeletionSyncState {
+	const account = useActiveAccount()
 	// Canonicalize through a primitive key. Callers frequently construct empty arrays
 	// inline; depending on their object identity would restart this effect after every
 	// state update and can create a self-sustaining request/render loop.
@@ -94,12 +104,18 @@ export function useSavedRegionDeletionSync(
 	useEffect(() => {
 		const activeFilters = JSON.parse(filterKey) as typeof filters
 		if (!enabled || activeFilters.length === 0) {
-			setResult({ key: targetKey, ready: true, localReady: true, deletions: [], error: null })
+			setResult({
+				key: `${targetKey}:${account?.id ?? ''}`,
+				ready: true,
+				localReady: true,
+				deletions: [],
+				error: null,
+			})
 			return undefined
 		}
 		if (inputError) {
 			setResult({
-				key: targetKey,
+				key: `${targetKey}:${account?.id ?? ''}`,
 				ready: false,
 				localReady: false,
 				deletions: [],
@@ -127,7 +143,7 @@ export function useSavedRegionDeletionSync(
 		const seenIds = new Set<string>()
 		const relays = readRelaysFor('content')
 		setResult({
-			key: targetKey,
+			key: `${targetKey}:${account?.id ?? ''}`,
 			ready: false,
 			localReady: false,
 			deletions: [],
@@ -141,7 +157,7 @@ export function useSavedRegionDeletionSync(
 		) => {
 			if (!active) return
 			setResult({
-				key: targetKey,
+				key: `${targetKey}:${account?.id ?? ''}`,
 				ready,
 				localReady,
 				deletions: oldestFirst(acceptedEvents.values()),
@@ -265,38 +281,40 @@ export function useSavedRegionDeletionSync(
 				const batch = filterBatches[nextRelayBatch++] as typeof activeFilters
 				const doneRelays = new Set<string>()
 				let batchDone = false
-				let subscription: { unsubscribe(): void } | null = null
+				const subscription = new Subscription()
+				subscriptions.push(subscription)
 				const finishBatch = () => {
 					if (batchDone) return
 					batchDone = true
 					startNextRelayBatch()
 				}
-				subscription = pool.req(relays, batch).subscribe({
-					next: (message) => {
-						if (message.type === 'EVENT') {
-							const verified = acceptIncoming(message.event)
-							if (!verified) return
-							if (localFlushed) enqueue(verified, true)
-							else initialEvents.set(verified.id, verified)
-							return
-						}
-						const failure = relayFailureMessage(message)
-						if (failure) {
-							fail(failure)
+				subscription.add(
+					requiredRelayStream(pool, relays, batch, relayAuthOptions()).subscribe({
+						next: (message) => {
+							if (message.type === 'EVENT') {
+								const verified = acceptIncoming(message.event)
+								if (!verified) return
+								if (localFlushed) enqueue(verified, true)
+								else initialEvents.set(verified.id, verified)
+								return
+							}
+							const failure = relayFailureMessage(message)
+							if (failure) {
+								fail(failure)
+								finishInitial()
+								return
+							}
+							if (message.type !== 'EOSE') return
+							doneRelays.add(message.from)
+							if (doneRelays.size >= relays.length) finishBatch()
+						},
+						error: (error) => {
+							console.warn('[nostr] targeted deletion relay check failed', error)
+							fail('A relay failed while checking deleted Earthly records')
 							finishInitial()
-							return
-						}
-						if (message.type !== 'EOSE') return
-						doneRelays.add(message.from)
-						if (doneRelays.size >= relays.length) finishBatch()
-					},
-					error: (error) => {
-						console.warn('[nostr] targeted deletion relay check failed', error)
-						fail('A relay failed while checking deleted Earthly records')
-						finishInitial()
-					},
-				})
-				if (subscription) subscriptions.push(subscription)
+						},
+					}),
+				)
 			}
 			startNextRelayBatch()
 		} else {
@@ -337,12 +355,18 @@ export function useSavedRegionDeletionSync(
 			clearTimeout(timeoutId)
 			for (const subscription of subscriptions) subscription.unsubscribe()
 		}
-	}, [enabled, filterKey, inputError, targetIndex, targetKey])
+	}, [enabled, filterKey, inputError, targetIndex, targetKey, account?.id])
 
 	return {
-		ready: !enabled || targets.length === 0 || (result.key === targetKey && result.ready),
-		localReady: !enabled || targets.length === 0 || (result.key === targetKey && result.localReady),
-		deletions: result.key === targetKey ? result.deletions : [],
-		error: result.key === targetKey ? result.error : null,
+		ready:
+			!enabled ||
+			targets.length === 0 ||
+			(result.key === `${targetKey}:${account?.id ?? ''}` && result.ready),
+		localReady:
+			!enabled ||
+			targets.length === 0 ||
+			(result.key === `${targetKey}:${account?.id ?? ''}` && result.localReady),
+		deletions: result.key === `${targetKey}:${account?.id ?? ''}` ? result.deletions : [],
+		error: result.key === `${targetKey}:${account?.id ?? ''}` ? result.error : null,
 	}
 }

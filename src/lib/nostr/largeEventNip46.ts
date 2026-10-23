@@ -1,9 +1,7 @@
-import { BaseAccount, type SerializedAccount } from 'applesauce-accounts'
-import { bytesToHex, hexToBytes } from 'applesauce-core/helpers/event'
-import { NostrConnectSigner, PrivateKeySigner } from 'applesauce-signers'
+import { NostrConnectSigner } from 'applesauce-signers'
 import { Permission } from 'applesauce-signers/helpers/nostr-connect'
-import type { NostrConnectSignerOptions } from 'applesauce-signers/signers/nostr-connect-signer'
-import { nip44 } from 'nostr-tools'
+export { NostrConnectSigner as EarthlyNostrConnectSigner } from 'applesauce-signers'
+export { NostrConnectAccount as EarthlyNostrConnectAccount } from 'applesauce-accounts/accounts'
 import {
 	ARTICLE_KIND,
 	GEO_COMMENT_KIND,
@@ -18,13 +16,6 @@ import {
 	PROPOSAL_STATUS_OPEN_KIND,
 	TEMPORAL_SIGHTING_KIND,
 } from './kinds'
-
-export interface EarthlyNostrConnectSignerData {
-	clientKey: string
-	remote: string
-	relays: string[]
-	bunkerSecret?: string
-}
 
 /**
  * The events Earthly's UI can ask an account to sign. Keep this explicit so
@@ -72,107 +63,3 @@ export const EARTHLY_NIP46_PERMISSIONS = [
 	Permission.Nip44Encrypt,
 	Permission.Nip44Decrypt,
 ]
-
-/**
- * NIP-44 added an extended length prefix for payloads at or above 64 KiB.
- * Applesauce currently resolves an older transitive nostr-tools build, so use
- * Earthly's current direct implementation for the NIP-46 client key only.
- */
-export class ExtendedNip44PrivateKeySigner extends PrivateKeySigner {
-	override nip44 = {
-		encrypt: async (pubkey: string, plaintext: string) =>
-			nip44.v2.encrypt(plaintext, nip44.v2.utils.getConversationKey(this.key, pubkey)),
-		decrypt: async (pubkey: string, ciphertext: string) =>
-			nip44.v2.decrypt(ciphertext, nip44.v2.utils.getConversationKey(this.key, pubkey)),
-	}
-}
-
-export class EarthlyNostrConnectSigner extends NostrConnectSigner {
-	constructor(options: NostrConnectSignerOptions) {
-		const signer =
-			options.signer instanceof ExtendedNip44PrivateKeySigner
-				? options.signer
-				: new ExtendedNip44PrivateKeySigner(options.signer?.key)
-		super({
-			...options,
-			signer,
-		})
-	}
-
-	static override async fromBunkerURI(
-		uri: string,
-		options: Omit<NostrConnectSignerOptions, 'relays'> & {
-			permissions?: string[]
-			signer?: PrivateKeySigner
-		} = {},
-	): Promise<EarthlyNostrConnectSigner> {
-		const { remote, relays, bunkerSecret } = NostrConnectSigner.parseBunkerURI(uri)
-		const { permissions, ...signerOptions } = options
-		const client = new EarthlyNostrConnectSigner({
-			...signerOptions,
-			relays,
-			remote,
-			bunkerSecret,
-		})
-		await client.connect(bunkerSecret, permissions)
-		return client
-	}
-
-	static override async fromNbunksec(
-		encoded: string,
-		options: Omit<NostrConnectSignerOptions, 'relays' | 'remote' | 'signer' | 'bunkerSecret'> & {
-			permissions?: string[]
-		} = {},
-	): Promise<EarthlyNostrConnectSigner> {
-		const { remote, clientKey, relays, bunkerSecret } = NostrConnectSigner.parseNbunksec(encoded)
-		const { permissions, ...signerOptions } = options
-		const client = new EarthlyNostrConnectSigner({
-			...signerOptions,
-			relays,
-			remote,
-			bunkerSecret,
-			signer: new ExtendedNip44PrivateKeySigner(hexToBytes(clientKey)),
-		})
-		await client.connect(bunkerSecret, permissions)
-		return client
-	}
-}
-
-/** Persisted shape stays byte-for-byte compatible with applesauce's account. */
-export class EarthlyNostrConnectAccount<Metadata = unknown> extends BaseAccount<
-	EarthlyNostrConnectSigner,
-	EarthlyNostrConnectSignerData,
-	Metadata
-> {
-	static readonly type = 'nostr-connect'
-
-	override toJSON(): SerializedAccount<EarthlyNostrConnectSignerData, Metadata> {
-		if (!this.signer.remote) {
-			throw new Error("Can't save a Nostr Connect account before it is initialized")
-		}
-		return this.saveCommonFields({
-			signer: {
-				clientKey: bytesToHex(this.signer.signer.key),
-				remote: this.signer.remote,
-				relays: this.signer.relays,
-				...(this.signer.bunkerSecret ? { bunkerSecret: this.signer.bunkerSecret } : {}),
-			},
-		})
-	}
-
-	static fromJSON<Metadata = unknown>(
-		json: SerializedAccount<EarthlyNostrConnectSignerData, Metadata>,
-	): EarthlyNostrConnectAccount<Metadata> {
-		const signer = new EarthlyNostrConnectSigner({
-			relays: json.signer.relays,
-			pubkey: json.pubkey,
-			remote: json.signer.remote,
-			bunkerSecret: json.signer.bunkerSecret,
-			signer: new ExtendedNip44PrivateKeySigner(hexToBytes(json.signer.clientKey)),
-		})
-		return BaseAccount.loadCommonFields(
-			new EarthlyNostrConnectAccount<Metadata>(json.pubkey, signer),
-			json,
-		)
-	}
-}

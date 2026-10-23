@@ -92,8 +92,18 @@ export function Nip60Wallet() {
 }
 
 function Nip60WalletContent() {
-	const { loading, syncing, exists, unlocked, ready, balance, totalBalance, mints, wallet } =
-		useWallet()
+	const {
+		loading,
+		syncing,
+		syncError,
+		exists,
+		unlocked,
+		ready,
+		balance,
+		totalBalance,
+		mints,
+		wallet,
+	} = useWallet()
 	const tokens = use$(() => wallet?.tokens$, [wallet])
 	const history = use$(() => wallet?.history$, [wallet])
 	const { unclaimed: unclaimedNutzaps } = useNutzaps()
@@ -187,9 +197,13 @@ function Nip60WalletContent() {
 			<div className="p-4 text-center bg-muted rounded-lg">
 				<h2 className="sr-only">Wallet</h2>
 				<p className="text-muted-foreground mb-4">
-					{loading ? 'Checking Cashu wallet…' : 'No Cashu wallet found'}
+					{loading ? 'Checking Cashu wallet…' : syncError || 'No Cashu wallet found'}
 				</p>
-				<Button onClick={handleCreateWallet} disabled={isCreating || loading} variant="secondary">
+				<Button
+					onClick={handleCreateWallet}
+					disabled={isCreating || loading || !!syncError}
+					variant="secondary"
+				>
 					{isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
 					Create Wallet
 				</Button>
@@ -223,7 +237,12 @@ function Nip60WalletContent() {
 			<h2 className="sr-only">Wallet</h2>
 			<div className="text-center mb-4">
 				<p className="text-sm text-muted-foreground mb-1">
-					{syncing ? 'Syncing wallet…' : 'Balance'}
+					{syncing ? 'Syncing wallet…' : syncError ? 'Cached balance' : 'Balance'}
+					{syncError ? (
+						<span role="status" className="block text-xs text-destructive">
+							{syncError}
+						</span>
+					) : null}
 				</p>
 				<p className="text-2xl font-bold">
 					{syncing ? (

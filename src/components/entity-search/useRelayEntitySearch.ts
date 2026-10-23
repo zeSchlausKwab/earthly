@@ -9,7 +9,7 @@ import {
 	MAP_CONTEXT_KIND,
 	TEMPORAL_SIGHTING_KIND,
 } from '@/lib/nostr/kinds'
-import { eventStore, pool, readRelaysFor } from '@/lib/nostr'
+import { eventStore, pool, readRelaysFor, relayAuthOptions } from '@/lib/nostr'
 import { Article } from '@/lib/nostr/article'
 import { isExpired } from '@/lib/nostr/expiry'
 import { GeoDataset } from '@/lib/nostr/geo-event'
@@ -67,7 +67,7 @@ interface UseRelayEntitySearchOptions {
 
 /**
  * NIP-50 (relay-side search) across the Earthly entity kinds. Uses
- * `pool.request` so the subscription completes on EOSE (one-shot search).
+ * `pool.request` for bounded group requests (one-shot search).
  *
  * The search string is built by the src/lib/search facade — free text plus
  * optional extension tokens (docs/GEO_SEARCH_REWRITE.md §4 Lane 2). Expired
@@ -134,20 +134,28 @@ export function useRelayEntitySearch({
 			const requests = [
 				...(contentKinds.length
 					? [
-							pool.request(readRelaysFor('content'), {
-								kinds: contentKinds,
-								search,
-								limit,
-							} as Filter & { search: string }),
+							pool.request(
+								readRelaysFor('content'),
+								{
+									kinds: contentKinds,
+									search,
+									limit,
+								} as Filter & { search: string },
+								{ ...relayAuthOptions(), timeout: 10_000 },
+							),
 						]
 					: []),
 				...(profileKinds.length
 					? [
-							pool.request(readRelaysFor('profile'), {
-								kinds: profileKinds,
-								search,
-								limit,
-							} as Filter & { search: string }),
+							pool.request(
+								readRelaysFor('profile'),
+								{
+									kinds: profileKinds,
+									search,
+									limit,
+								} as Filter & { search: string },
+								{ ...relayAuthOptions(), timeout: 10_000 },
+							),
 						]
 					: []),
 			]
