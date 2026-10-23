@@ -82,7 +82,8 @@ test('an approved nostrconnect QR completes remote-signer login', async ({ earth
 	})
 
 	await earthly.open({ tour: 'seen' })
-	await earthly.page.getByRole('button', { name: 'Sign in with remote signer' }).click()
+	await earthly.page.getByRole('button', { name: 'Sign in', exact: true }).click()
+	await earthly.page.getByRole('button', { name: 'Remote signer', exact: true }).click()
 	await expect(earthly.page.getByText('Waiting for approval...', { exact: true })).toBeVisible()
 	await expect.poll(() => approvalSent).toBe(true)
 	await expect(earthly.page.getByRole('button', { name: 'Account menu' })).toBeVisible({

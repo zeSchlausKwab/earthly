@@ -36,18 +36,20 @@ import {
  *
  * `exists` becomes `true` once the kind 17375 wallet event is in the store.
  * `unlocked` flips to `true` after an UnlockWallet action (or autoUnlock).
- * `ready` is the conjunction — almost every UI gate should use it.
+ * `ready` also requires all wallet relays to finish synchronization.
  */
 export interface WalletState {
 	/** `true` while the wallet event lookup is still waiting on relay responses. */
 	loading: boolean
 	/** `true` while wallet token/history/delete events are still syncing. */
 	syncing: boolean
+	/** Relay sync failed or is incomplete; balances remain available for inspection. */
+	syncError?: string
 	/** `true` once a kind 17375 event for the active pubkey is in the store. */
 	exists: boolean
 	/** `true` once content has been decrypted (UnlockWallet action). */
 	unlocked: boolean
-	/** Convenience: `exists && unlocked`. */
+	/** Unlocked and completely synchronized with all requested wallet relays. */
 	ready: boolean
 	/** Per-mint sat balances. `undefined` while loading or locked. */
 	balance: Record<string, number> | undefined
@@ -67,7 +69,7 @@ export function useWallet(): WalletState {
 		() => (active?.pubkey ? { kinds: [WALLET_KIND], authors: [active.pubkey], limit: 1 } : null),
 		[active?.pubkey],
 	)
-	const { eose: walletEose } = useTimelineWithEose(walletFilter)
+	const { eose: walletEose, status: walletStatus } = useTimelineWithEose(walletFilter)
 
 	const walletEvent = use$(
 		() => (active?.pubkey ? eventStore.replaceable(WALLET_KIND, active.pubkey) : undefined),
@@ -108,7 +110,10 @@ export function useWallet(): WalletState {
 				: null,
 		[active?.pubkey, wallet],
 	)
-	const { eose: walletDataEose } = useTimelineWithEose(walletDataFilters, walletDataRelays)
+	const { eose: walletDataEose, status: dataStatus } = useTimelineWithEose(
+		walletDataFilters,
+		walletDataRelays,
+	)
 
 	const totalBalance = useMemo(
 		() => (balance ? Object.values(balance).reduce((a, b) => a + b, 0) : 0),
@@ -121,7 +126,12 @@ export function useWallet(): WalletState {
 		syncing: Boolean(wallet && !walletDataEose),
 		exists: Boolean(wallet),
 		unlocked: Boolean(wallet?.unlocked),
-		ready: Boolean(wallet?.unlocked && walletDataEose),
+		ready: Boolean(wallet?.unlocked && walletStatus.complete && dataStatus.complete),
+		syncError:
+			(walletStatus.settled && !walletStatus.complete) ||
+			(wallet && dataStatus.settled && !dataStatus.complete)
+				? 'Wallet relays have not finished syncing. Reconnect before spending.'
+				: undefined,
 		balance,
 		totalBalance,
 		mints,

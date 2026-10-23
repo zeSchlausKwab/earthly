@@ -17,8 +17,8 @@
  *     'undefined'`) OR a non-browser harness like `bun test` (no http(s) document
  *     origin to serve `/workers/schema.worker.js` from; Bun's runner defines a
  *     `Worker` global but cannot resolve the served entrypoint) — the same pure
- *     engine (`runSchemaValidation`) is driven SYNCHRONOUSLY, so the hardening proofs
- *     stay automated with the identical verdict shape. This mirrors the sandbox
+ *     engine (`runSchemaValidation`) is driven synchronously with regex-based
+ *     keywords rejected before compilation because this path cannot be interrupted. This mirrors the sandbox
  *     boundary's `browserWasmLocation()` http(s)-origin gate (sandbox.worker.ts).
  *
  * Registration is the anti-fail-open touchpoint (T-08-04-SPOOF): the worker is
@@ -141,7 +141,7 @@ export async function validateSchema(
 	// Fallback path: no spawnable Worker (bun test / SSR — `typeof Worker === 'undefined'`
 	// or no http(s) origin) → drive the pure fail-closed engine directly.
 	if (!hasSpawnableWorker()) {
-		return runSchemaValidation(request)
+		return runSchemaValidation(request, { allowRegex: false })
 	}
 
 	return new Promise<SchemaValidationVerdict>((resolve) => {

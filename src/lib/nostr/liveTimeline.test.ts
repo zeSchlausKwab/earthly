@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { EventStore } from 'applesauce-core/event-store'
-import { Subject } from 'rxjs'
+import { BehaviorSubject, Subject } from 'rxjs'
 import {
 	finalizeEvent,
 	generateSecretKey,
@@ -8,9 +8,9 @@ import {
 	type Filter,
 	type NostrEvent,
 } from 'nostr-tools'
-import type { GroupReqMessage, GroupReqOptions } from 'applesauce-relay'
+import type { RelaySubscriptionResponse, RelaySubscriptionOptions } from 'applesauce-relay'
 import {
-	LIVE_TIMELINE_REQ_OPTIONS,
+	LIVE_TIMELINE_OPTIONS,
 	startLiveTimelineSubscription,
 	type LiveTimelineEnvironment,
 } from './liveTimeline'
@@ -59,20 +59,25 @@ function event(id: string): NostrEvent {
 
 describe('live Nostr timelines', () => {
 	test('use a persistent REQ and keep accepting events after EOSE', () => {
-		expect(LIVE_TIMELINE_REQ_OPTIONS).toEqual({ reconnect: true, resubscribe: true })
+		expect(LIVE_TIMELINE_OPTIONS).toEqual({ reconnect: true, resubscribe: true })
 
-		const streams: Subject<GroupReqMessage>[] = []
+		const streams: Subject<RelaySubscriptionResponse>[] = []
 		const calls: Array<{
 			relays: string[]
 			filters: Filter | Filter[]
-			options: GroupReqOptions | undefined
+			options: RelaySubscriptionOptions | undefined
 		}> = []
 		const pool = {
-			req(relays: string[], filters: Filter | Filter[], options?: GroupReqOptions) {
-				calls.push({ relays, filters, options })
-				const stream = new Subject<GroupReqMessage>()
-				streams.push(stream)
-				return stream
+			relay(url: string) {
+				return {
+					subscription(filters: Filter | Filter[], options?: RelaySubscriptionOptions) {
+						const relays = [url]
+						calls.push({ relays, filters, options })
+						const stream = new Subject<RelaySubscriptionResponse>()
+						streams.push(stream)
+						return stream
+					},
+				}
 			},
 		}
 		const ingested: NostrEvent[] = []
@@ -93,15 +98,10 @@ describe('live Nostr timelines', () => {
 		})
 
 		expect(calls).toHaveLength(1)
-		expect(calls[0]?.options).toEqual(LIVE_TIMELINE_REQ_OPTIONS)
+		expect(calls[0]?.options).toEqual(LIVE_TIMELINE_OPTIONS)
 
-		streams[0]?.next({ type: 'EOSE', from: 'wss://relay.example', id: 'req-1' })
-		streams[0]?.next({
-			type: 'EVENT',
-			from: 'wss://relay.example',
-			id: 'req-1',
-			event: event('a'.repeat(64)),
-		})
+		streams[0]?.next('EOSE')
+		streams[0]?.next(event('a'.repeat(64)))
 		expect(done).toEqual(['wss://relay.example'])
 		expect(ingested.map((next) => next.id)).toEqual(['a'.repeat(64)])
 
@@ -109,12 +109,16 @@ describe('live Nostr timelines', () => {
 	})
 
 	test('reopens the REQ on foreground resume and network return', () => {
-		const streams: Subject<GroupReqMessage>[] = []
+		const streams: Subject<RelaySubscriptionResponse>[] = []
 		const pool = {
-			req() {
-				const stream = new Subject<GroupReqMessage>()
-				streams.push(stream)
-				return stream
+			relay() {
+				return {
+					subscription() {
+						const stream = new Subject<RelaySubscriptionResponse>()
+						streams.push(stream)
+						return stream
+					},
+				}
 			},
 		}
 		const environment = makeEnvironment()
@@ -160,23 +164,75 @@ describe('live Nostr timelines', () => {
 		const store = new EventStore()
 		store.add(replaceable(1_900_000_000, 'before'))
 
-		const stream = new Subject<GroupReqMessage>()
+		const stream = new Subject<RelaySubscriptionResponse>()
 		const stop = startLiveTimelineSubscription({
-			pool: { req: () => stream },
+			pool: { relay: () => ({ subscription: () => stream }) },
 			store,
 			relays: ['wss://relay.example'],
 			filters: { kinds: [37_515] },
 			environment: makeEnvironment().value,
 		})
-		stream.next({ type: 'EOSE', from: 'wss://relay.example', id: 'req-1' })
-		stream.next({
-			type: 'EVENT',
-			from: 'wss://relay.example',
-			id: 'req-1',
-			event: replaceable(1_900_000_001, 'after'),
-		})
+		stream.next('EOSE')
+		stream.next(replaceable(1_900_000_001, 'after'))
 
 		expect(store.getReplaceable(37_515, pubkey, 'live-update-test')?.content).toBe('after')
 		stop()
 	})
+})
+
+test('liveness releases failed optional sources and lets them rejoin without losing candidates', () => {
+	const unhealthy$ = new BehaviorSubject<string[]>(['b'])
+	const streams: Array<{ url: string; stream: Subject<RelaySubscriptionResponse> }> = []
+	const states: Array<[string, string]> = []
+	const stop = startLiveTimelineSubscription({
+		pool: {
+			relay: (url) => ({
+				subscription: () => {
+					const stream = new Subject<RelaySubscriptionResponse>()
+					streams.push({ url, stream })
+					return stream
+				},
+			}),
+		},
+		store: { add: () => {} },
+		filters: { kinds: [1] },
+		relays: ['a', 'b'],
+		liveness: {
+			unhealthy$,
+			filter: (relays) => relays.filter((url) => !unhealthy$.value.includes(url)),
+		},
+		onRelayState: (url, state) => states.push([url, state.state]),
+		environment: makeEnvironment().value,
+	})
+	expect(streams.map((entry) => entry.url)).toEqual(['a'])
+	expect(states).toContainEqual(['b', 'skipped'])
+	unhealthy$.next([])
+	expect(streams.map((entry) => entry.url)).toEqual(['a', 'b'])
+	unhealthy$.next(['a'])
+	expect(streams[0]?.stream.observed).toBe(false)
+	stop()
+	expect(unhealthy$.observed).toBe(false)
+	expect(streams[1]?.stream.observed).toBe(false)
+})
+
+test('disconnect invalidates successful synchronization before reconnect EOSE', () => {
+	const connected$ = new BehaviorSubject(true)
+	const stream = new Subject<RelaySubscriptionResponse>()
+	const states: string[] = []
+	const stop = startLiveTimelineSubscription({
+		pool: { relay: () => ({ connected$, subscription: () => stream }) },
+		store: { add: () => {} },
+		filters: { kinds: [7375] },
+		relays: ['a'],
+		onRelayState: (_, state) => states.push(state.state),
+		environment: makeEnvironment().value,
+	})
+	stream.next('EOSE')
+	connected$.next(false)
+	expect(states.at(-1)).toBe('loading')
+	connected$.next(true)
+	expect(states.at(-1)).toBe('loading')
+	stream.next('EOSE')
+	expect(states.at(-1)).toBe('ready')
+	stop()
 })

@@ -1,5 +1,5 @@
 /**
- * Wave-0 Nyquist baseline — pins the off-thread schema-validation seam (`schemaWorker.ts`).
+ * Regression coverage — pins the off-thread schema-validation seam (`schemaWorker.ts`).
  *
  * SPEC-04 (T-8-04, untrusted-schema DoS): user-authored JSON Schemas are hostile
  * input. The validator runs off the main thread (Ajv-2020) with a hard timeout-kill,
@@ -17,11 +17,11 @@
  *       validator (compile invoked exactly once — observed via the module counter).
  *   (d) the `$data` keyword is OFF.
  *
- * RED-BASELINE: `@/lib/validation/schemaWorker` does not exist yet (lands in Plan 04).
  */
 
 import { describe, expect, test } from 'bun:test'
 import { __compileCount, __resetCompileCount, validateSchema } from '@/lib/validation/schemaWorker'
+import { runSchemaValidation } from './schema.worker'
 
 /** In-engine deadline (≤100ms) + watchdog slack (500ms, per quickjsWorker.ts:40). */
 const WALL_CLOCK_BUDGET_MS = 100 + 500
@@ -47,11 +47,39 @@ function buildDeepSchema(depth: number): Record<string, unknown> {
 
 describe('schemaWorker.ts — SPEC-04 fail-closed within timeout (sync fallback)', () => {
 	test('ReDoS pattern schema fails closed within the wall-clock budget', async () => {
+		__resetCompileCount()
 		const start = performance.now()
 		const verdict = await validateSchema(REDOS_SCHEMA, REDOS_INPUT, { schemaHash: 'redos-1' })
 		const elapsed = performance.now() - start
 		expect(verdict.ok).toBe(false)
+		expect(__compileCount()).toBe(0)
 		expect(elapsed).toBeLessThanOrEqual(WALL_CLOCK_BUDGET_MS)
+	})
+
+	test('pattern properties and format validators also require an interruptible worker', async () => {
+		__resetCompileCount()
+		for (const [index, schema] of [
+			{ type: 'object', patternProperties: { '^(a+)+$': { type: 'string' } } },
+			{ type: 'string', format: 'email' },
+		].entries()) {
+			expect((await validateSchema(schema, {}, { schemaHash: `unsafe-sync-${index}` })).ok).toBe(
+				false,
+			)
+		}
+		expect(__compileCount()).toBe(0)
+	})
+
+	test('worker regex validation remains available and its cache cannot bypass the fallback policy', async () => {
+		const request = {
+			schema: { type: 'string', pattern: '^a+$' },
+			data: 'aaa',
+			schemaHash: 'worker-regex',
+		}
+		expect((await runSchemaValidation(request)).ok).toBe(true)
+		expect((await runSchemaValidation({ ...request, data: 'b' })).ok).toBe(false)
+		expect(
+			(await validateSchema(request.schema, request.data, { schemaHash: request.schemaHash })).ok,
+		).toBe(false)
 	})
 
 	test('oversized/deep schema fails closed within the wall-clock budget', async () => {

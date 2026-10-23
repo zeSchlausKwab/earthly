@@ -1,3 +1,4 @@
+import { relayAuthOptions } from '@/lib/nostr'
 import {
 	pendingRoutstrPaymentKeys,
 	recoverRoutstrPayments,
@@ -229,7 +230,9 @@ function MaintenanceTool({ wallet }: { wallet: Wallet }) {
 		setSyncing(true)
 		try {
 			for (const token of tokens) {
-				requirePublishAcknowledgement(await pool.publish(relays, token.event))
+				requirePublishAcknowledgement(
+					await pool.publish(relays, token.event, relayAuthOptions(token.event.pubkey)),
+				)
 			}
 			toast.success(`Synced ${tokens.length} token event${tokens.length === 1 ? '' : 's'}`)
 		} catch (err) {

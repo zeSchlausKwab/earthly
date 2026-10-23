@@ -9,6 +9,7 @@ import { GEO_COMMENT_KIND } from '@/lib/nostr/kinds'
 import { earthlyPublicUrl } from '@/platform/publicUrl'
 import { getEntityShareRouteSegment } from '@/router/entityShareRoute'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
+import { useVisibleSocialCounts, describeCount } from '../hooks/useVisibleSocialCounts'
 import { useZapDialogStore } from '../zap/store'
 import { deferredSurface } from '../../../components/deferredSurface.tsx'
 
@@ -100,7 +101,7 @@ function buildSharePath(target: ReactableEvent): string | null {
 export function GeoSocialActions({
 	target,
 	onReplyClick,
-	commentCount = 0,
+	commentCount,
 	showCommentButton = true,
 	showAnnotateButton = false,
 	onAnnotateClick,
@@ -115,11 +116,18 @@ export function GeoSocialActions({
 	const currentUser = useActiveAccount()
 	const { reactionCount, zapCount, userHasReacted, userHasZapped, isLoading, toggleReaction } =
 		useGeoReactions({ target, loadCounts })
+	const counts = useVisibleSocialCounts(
+		target,
+		!loadCounts,
+		showCommentButton && commentCount === undefined,
+	)
+	const displayedReactions = loadCounts ? reactionCount : counts.reactions?.value
+	const displayedComments = commentCount ?? (!loadCounts ? counts.comments?.value : undefined)
 	const openZapDialog = useZapDialogStore((state) => state.open)
 	const sharePath = useMemo(() => buildSharePath(target), [target])
 	useEffect(() => {
-		onReactionCountChange?.(reactionCount)
-	}, [reactionCount, onReactionCountChange])
+		if (displayedReactions !== undefined) onReactionCountChange?.(displayedReactions)
+	}, [displayedReactions, onReactionCountChange])
 
 	const formatCount = (count: number): string => {
 		if (count === 0) return ''
@@ -167,7 +175,7 @@ export function GeoSocialActions({
 	const iconSize = compact ? 'h-3.5 w-3.5' : 'h-4 w-4'
 
 	return (
-		<div className={`flex items-center gap-1 ${className}`}>
+		<div ref={counts.ref} className={`flex items-center gap-1 ${className}`}>
 			{/* Heart/Reaction Button */}
 			<Tooltip>
 				<TooltipTrigger asChild>
@@ -184,13 +192,21 @@ export function GeoSocialActions({
 						} rounded-none px-2 text-xs`}
 					>
 						<Heart className={`${iconSize} ${userHasReacted ? 'fill-current' : ''}`} />
-						{reactionCount > 0 && (
-							<span className="text-xs font-medium">{formatCount(reactionCount)}</span>
-						)}
+						{displayedReactions === undefined ? (
+							<span role="img" aria-label="Reaction count unavailable">
+								—
+							</span>
+						) : displayedReactions > 0 ? (
+							<span className="text-xs font-medium">
+								{counts.reactions?.approximate ? '≈' : ''}
+								{formatCount(displayedReactions)}
+							</span>
+						) : null}
 					</Button>
 				</TooltipTrigger>
 				<TooltipContent>
 					{userHasReacted ? 'You liked this' : currentUser ? 'Like' : 'Log in to like'}
+					{!loadCounts ? ` · ${describeCount(counts.reactions)}` : ''}
 				</TooltipContent>
 			</Tooltip>
 
@@ -269,14 +285,23 @@ export function GeoSocialActions({
 							className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-ok"
 						>
 							<MessageCircle className={iconSize} />
-							{commentCount > 0 ? (
-								<span className="text-xs font-medium">{formatCount(commentCount)}</span>
+							{displayedComments === undefined ? (
+								<span role="img" aria-label="Comment count unavailable">
+									—
+								</span>
+							) : displayedComments > 0 ? (
+								<span className="text-xs font-medium">{formatCount(displayedComments)}</span>
 							) : !compact ? (
 								<span className="text-xs font-medium">Reply</span>
 							) : null}
 						</Button>
 					</TooltipTrigger>
-					<TooltipContent>Reply</TooltipContent>
+					<TooltipContent>
+						Reply
+						{!loadCounts && commentCount === undefined
+							? ` · ${describeCount(counts.comments)}`
+							: ''}
+					</TooltipContent>
 				</Tooltip>
 			)}
 		</div>

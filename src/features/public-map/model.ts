@@ -1,6 +1,6 @@
 import type { FeatureCollection } from 'geojson'
 import { z } from 'zod'
-import { normalizeGeoJsonToFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
+import { normalizeRenderableFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
 
 export const MAX_MAP_BYTES = 48 * 1024
 export const MAX_MAP_FEATURES = 300
@@ -127,7 +127,7 @@ export function validateMapData(input: unknown): FeatureCollection {
 			}
 		}
 	}
-	const normalized = normalizeGeoJsonToFeatureCollection(parsed)
+	const normalized = normalizeRenderableFeatureCollection(parsed)
 	if (new TextEncoder().encode(JSON.stringify(normalized)).length > MAX_MAP_BYTES) {
 		throw new Error('Map exceeds the inline size limit after assigning feature IDs. Simplify it.')
 	}

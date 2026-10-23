@@ -27,7 +27,7 @@ export class MapContext extends EventCast<MapContextEvent> {
 	}
 
 	// Raw-event proxies (mirror GeoDataset/GeoComment)
-	get kind() {
+	override get kind() {
 		return this.event.kind
 	}
 	get pubkey() {

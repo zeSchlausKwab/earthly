@@ -14,6 +14,7 @@
  * happy paths.
  */
 
+import { spendableTokenContent } from './tokenContent'
 import { getEncodedToken, getTokenMetadata, MintQuoteState, type Token } from '@cashu/cashu-ts'
 import type { Action } from 'applesauce-actions'
 import {
@@ -35,8 +36,8 @@ import {
 import {
 	getProofUID,
 	getNutzapInfoP2PKPubkey,
-	getTokenContent,
 	getTokenDeletedIds,
+	getTokenContent,
 	isTokenContentUnlocked,
 } from 'applesauce-wallet/helpers'
 import { generateSecretKey } from 'nostr-tools'
@@ -180,7 +181,11 @@ function getDeletedTokenIds(tokens: NostrEvent[]): Set<string> {
 	for (const token of tokens) {
 		for (const id of getTokenDeletedIds(token)) deleted.add(id)
 		if (isTokenContentUnlocked(token)) {
-			for (const id of getTokenContent(token).del) deleted.add(id)
+			const content = getTokenContent(token)
+			if (Array.isArray(content?.del))
+				for (const id of content.del) {
+					if (typeof id === 'string') deleted.add(id)
+				}
 		}
 	}
 	return deleted
@@ -212,6 +217,7 @@ export function selectSpendableTokens(
 	const unlockedTokens = tokens
 		.filter((token) => !deleted.has(token.id))
 		.filter(isTokenContentUnlocked)
+		.filter((token) => spendableTokenContent(token) !== undefined)
 		.sort((a, b) => b.created_at - a.created_at)
 
 	const selectFromMint = (targetMint: string) => {
@@ -221,8 +227,8 @@ export function selectSpendableTokens(
 		const selectedProofs = []
 
 		for (const token of unlockedTokens) {
-			const content = getTokenContent(token)
-			if (content.mint !== targetMint) continue
+			const content = spendableTokenContent(token)
+			if (!content || content.mint !== targetMint) continue
 
 			const tokenProofs = content.proofs.filter((proof) => {
 				const uid = getProofUID(proof)
@@ -247,7 +253,14 @@ export function selectSpendableTokens(
 		return { events: selected.events, proofs: selected.proofs }
 	}
 
-	const mints = Array.from(new Set(unlockedTokens.map((token) => getTokenContent(token).mint)))
+	const mints = Array.from(
+		new Set(
+			unlockedTokens.flatMap((token) => {
+				const content = spendableTokenContent(token)
+				return content ? [content.mint] : []
+			}),
+		),
+	)
 	for (const targetMint of mints) {
 		const selected = selectFromMint(targetMint)
 		if (selected.amount >= minAmount) return { events: selected.events, proofs: selected.proofs }

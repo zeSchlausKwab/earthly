@@ -1,7 +1,8 @@
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import { ReactionFactory } from 'applesauce-common/factories'
 import { DeleteFactory } from 'applesauce-core/factories'
-import { getNutzapAmount, NUTZAP_KIND } from 'applesauce-wallet/helpers'
+import { NUTZAP_KIND } from 'applesauce-wallet/helpers'
+import { zapTotals } from './zapTotals'
 import type { NostrEvent } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { accounts, eventStore, publish } from '@/lib/nostr'
@@ -34,7 +35,7 @@ export type ReactableEvent =
 	| ReactableEventCast
 	| NostrEvent
 
-function unwrapReactableEvent(target: ReactableEvent): NostrEvent {
+export function unwrapReactableEvent(target: ReactableEvent): NostrEvent {
 	const wrapped = (target as { event?: NostrEvent }).event
 	if (wrapped) return wrapped
 	const rawEvent = (target as { rawEvent?: () => NostrEvent }).rawEvent
@@ -202,38 +203,10 @@ export function useGeoReactions({
 		setSuppressedReactionId(null)
 	}, [currentUser?.pubkey, targetKey])
 
-	const { zapCount, zapAmount, userHasZapped } = useMemo(() => {
-		let total = 0
-		let hasZapped = false
-
-		for (const zap of zapEvents) {
-			if (zap.kind === NUTZAP_KIND) {
-				total += getNutzapAmount(zap) ?? 0
-				if (zap.pubkey === currentUser?.pubkey) hasZapped = true
-				continue
-			}
-			const bolt11 = zap.tags.find((t) => t[0] === 'bolt11')?.[1]
-			if (bolt11) {
-				// Placeholder amount; production code would decode the bolt11 invoice.
-				total += 1000
-			}
-			const descTag = zap.tags.find((t) => t[0] === 'description')?.[1]
-			if (descTag && currentUser?.pubkey) {
-				try {
-					const desc = JSON.parse(descTag)
-					if (desc.pubkey === currentUser.pubkey) hasZapped = true
-				} catch {
-					// ignore parse errors
-				}
-			}
-		}
-
-		return {
-			zapCount: zapEvents.length,
-			zapAmount: total,
-			userHasZapped: hasZapped,
-		}
-	}, [zapEvents, currentUser?.pubkey])
+	const { zapCount, zapAmount, userHasZapped } = useMemo(
+		() => zapTotals(zapEvents, currentUser?.pubkey),
+		[zapEvents, currentUser?.pubkey],
+	)
 
 	const toggleReaction = useCallback(async () => {
 		if (!target || !currentUser) {
@@ -257,7 +230,7 @@ export function useGeoReactions({
 				setSuppressedReactionId(existingReaction.id)
 				try {
 					const deletion = await DeleteFactory.fromEvents([existingReaction]).sign(signer)
-					await publish(deletion, { routing: 'outbox' })
+					await publish(deletion, { routing: 'reply', target: raw.pubkey })
 				} catch (error) {
 					setSuppressedReactionId(null)
 					if (existingReaction === optimisticReaction) setOptimisticReaction(existingReaction)
@@ -268,7 +241,7 @@ export function useGeoReactions({
 				setSuppressedReactionId(null)
 				setOptimisticReaction(signed)
 				try {
-					await publish(signed, { routing: 'outbox' })
+					await publish(signed, { routing: 'reply', target: raw.pubkey })
 				} catch (error) {
 					setOptimisticReaction(null)
 					throw error

@@ -1,6 +1,6 @@
 import type { ISigner } from 'applesauce-signers'
 import { type NostrEvent, verifyEvent } from 'nostr-tools'
-import type { Subscription } from 'rxjs'
+import { readRelayEvents } from '@/lib/nostr/finiteRead'
 import { normalizeChatSettings } from './settingsStorage'
 import type { ChatSettingsSnapshot } from './store'
 
@@ -33,7 +33,7 @@ function cached(pubkey: string): { event: NostrEvent; pending: boolean } | null 
 }
 
 export async function queryChatSettings(pubkey: string): Promise<NostrEvent | null> {
-	const { pool, readRelaysFor, eventStore } = await import('@/lib/nostr')
+	const { pool, readRelaysFor, eventStore, relayAuthOptions } = await import('@/lib/nostr')
 	const relays = [
 		...new Set([
 			...readRelaysFor('content'),
@@ -46,51 +46,28 @@ export async function queryChatSettings(pubkey: string): Promise<NostrEvent | nu
 		]),
 	]
 	if (!relays.length) throw new Error('No relays configured for connection sync')
-	return new Promise((resolve, reject) => {
-		let latest: NostrEvent | null = null
-		let subscription: Subscription | undefined
-		const completed = new Set<string>()
-		let successful = 0
-		let finished = false
-		const finish = () => {
-			if (finished) return
-			finished = true
-			clearTimeout(timer)
-			subscription?.unsubscribe()
-			if (!successful)
-				reject(
-					new Error('Relays could not be reached. Connections remain encrypted on this device.'),
-				)
-			else resolve(latest)
+	const results = await readRelayEvents(
+		pool,
+		relays,
+		[
+			{
+				kinds: [CHAT_SETTINGS_KIND],
+				authors: [pubkey],
+				'#d': [CHAT_SETTINGS_IDENTIFIER],
+				limit: 1,
+			},
+		],
+		{ timeoutMs: 8000, auth: relayAuthOptions(pubkey) },
+	)
+	if (!results.some((result) => result.ok))
+		throw new Error('Relays could not be reached. Connections remain encrypted on this device.')
+	let latest: NostrEvent | null = null
+	for (const result of results)
+		for (const event of result.events) {
+			if (isChatSettingsEvent(event, pubkey))
+				latest = latest ? newerSettingsEvent(latest, event) : event
 		}
-		const timer = setTimeout(finish, 8_000)
-		subscription = pool
-			.req(
-				relays,
-				[
-					{
-						kinds: [CHAT_SETTINGS_KIND],
-						authors: [pubkey],
-						'#d': [CHAT_SETTINGS_IDENTIFIER],
-						limit: 1,
-					},
-				],
-				{ reconnect: false, resubscribe: false },
-			)
-			.subscribe({
-				next(message) {
-					if (message.type === 'EVENT' && isChatSettingsEvent(message.event, pubkey))
-						latest = latest ? newerSettingsEvent(latest, message.event) : message.event
-					if (message.type === 'EOSE' || message.type === 'CLOSED' || message.type === 'ERROR') {
-						if (!completed.has(message.from) && message.type === 'EOSE') successful += 1
-						completed.add(message.from)
-						if (completed.size === relays.length) finish()
-					}
-				},
-				error: finish,
-			})
-		if (finished) subscription.unsubscribe()
-	})
+	return latest
 }
 
 export async function loadRelayChatSettings(

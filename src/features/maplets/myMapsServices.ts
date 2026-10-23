@@ -1,5 +1,5 @@
 import type { Filter, NostrEvent } from 'nostr-tools'
-import type { Subscription } from 'rxjs'
+import { readRelayEvents } from '@/lib/nostr/finiteRead'
 import {
 	accounts,
 	eventStore,
@@ -8,6 +8,7 @@ import {
 	publish,
 	queryCache,
 	readRelaysFor,
+	relayAuthOptions,
 } from '@/lib/nostr'
 import { createMapletDataServices } from '@/lib/maplets/data'
 import { myMapsDataPolicy } from './myMapsPolicy'
@@ -20,58 +21,24 @@ async function querySources(filters: Filter[], signal: AbortSignal): Promise<Nos
 	signal.throwIfAborted()
 	const relays = [...new Set([...readRelaysFor('content'), ...readRelaysFor('discovery')])]
 	if (!relays.length) throw new Error('No source discovery relays are configured')
-	return new Promise((resolve, reject) => {
-		const events = new Map(
-			cached.filter((event) => !isEventDeleted(event)).map((event) => [event.id, event]),
-		)
-		const done = new Set<string>()
-		let failed = false
-		let subscription: Subscription | undefined
-		let finished = false
-		const finish = (error?: Error) => {
-			if (finished) return
-			finished = true
-			clearTimeout(timeout)
-			signal.removeEventListener('abort', abort)
-			subscription?.unsubscribe()
-			if (error) reject(error)
-			else
-				resolve(
-					[...events.values()]
-						.sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))
-						.slice(0, filters[0]?.limit ?? 100),
-				)
-		}
-		const abort = () => finish(new Error('Source query cancelled'))
-		const timeout = setTimeout(
-			() => finish(new Error('Source relays did not finish responding. Try again.')),
-			12_000,
-		)
-		signal.addEventListener('abort', abort, { once: true })
-		subscription = pool.req(relays, filters, { reconnect: false, resubscribe: false }).subscribe({
-			next(message) {
-				if (
-					message.type === 'EVENT' &&
-					!isEventDeleted(message.event) &&
-					events.size < 2000 &&
-					message.event.content.length < 200_000
-				)
-					events.set(message.event.id, message.event)
-				else if (message.type === 'EOSE' || message.type === 'ERROR' || message.type === 'CLOSED') {
-					done.add(message.from)
-					if (message.type !== 'EOSE') failed = true
-					if (done.size >= relays.length)
-						finish(
-							failed
-								? new Error('Some source relays could not be read. Try discovery again.')
-								: undefined,
-						)
-				}
-			},
-			error: () => finish(new Error('Source relays could not be reached')),
-		})
-		if (finished) subscription.unsubscribe()
+	const results = await readRelayEvents(pool, relays, filters, {
+		signal,
+		timeoutMs: 12_000,
+		auth: relayAuthOptions(),
 	})
+	if (results.some((result) => !result.ok))
+		throw new Error('Some source relays could not be read. Try discovery again.')
+	const events = new Map(
+		cached.filter((event) => !isEventDeleted(event)).map((event) => [event.id, event]),
+	)
+	for (const result of results)
+		for (const event of result.events) {
+			if (!isEventDeleted(event) && events.size < 2000 && event.content.length < 200_000)
+				events.set(event.id, event)
+		}
+	return [...events.values()]
+		.sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))
+		.slice(0, filters[0]?.limit ?? 100)
 }
 
 /** Granted only to the reviewed bundled viewer; downloaded code gets no signing authority. */

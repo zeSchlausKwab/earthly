@@ -3,66 +3,6 @@
   "compilerVersion": "5.9.3",
   "diagnostics": [
     {
-      "file": "ai-suite/scratch/build-galapagos-evolution-geojson.ts",
-      "code": 2353,
-      "message": "Object literal may only specify known properties, and 'properties' does not exist in type 'FeatureCollection<Geometry, GeoJsonProperties>'.",
-      "count": 1
-    },
-    {
-      "file": "ai-suite/scratch/build-hormuz-global-geojson.ts",
-      "code": 2339,
-      "message": "Property 'properties' does not exist on type 'FeatureCollection<Geometry, GeoJsonProperties>'.",
-      "count": 1
-    },
-    {
-      "file": "ai-suite/scratch/build-hormuz-global-geojson.ts",
-      "code": 2353,
-      "message": "Object literal may only specify known properties, and 'properties' does not exist in type 'FeatureCollection<Geometry, GeoJsonProperties>'.",
-      "count": 1
-    },
-    {
-      "file": "ai-suite/scratch/build-woss-forestry-geojson.ts",
-      "code": 2353,
-      "message": "Object literal may only specify known properties, and 'properties' does not exist in type 'FeatureCollection<Geometry, GeoJsonProperties>'.",
-      "count": 1
-    },
-    {
-      "file": "ai-suite/scratch/record-beira-cyclone-tour.ts",
-      "code": 2345,
-      "message": "Argument of type 'LngLat | undefined' is not assignable to parameter of type 'LngLat'. Type 'undefined' is not assignable to type 'readonly [longitude: number, latitude: number]'.",
-      "count": 1
-    },
-    {
-      "file": "ai-suite/scratch/record-disaster-relief-tour.ts",
-      "code": 18048,
-      "message": "'raw' is possibly 'undefined'.",
-      "count": 1
-    },
-    {
-      "file": "ai-suite/scratch/record-disaster-relief-tour.ts",
-      "code": 2345,
-      "message": "Argument of type 'LngLat | undefined' is not assignable to parameter of type 'LngLat'. Type 'undefined' is not assignable to type 'readonly [longitude: number, latitude: number]'.",
-      "count": 3
-    },
-    {
-      "file": "ai-suite/scratch/record-disaster-relief-tour.ts",
-      "code": 2345,
-      "message": "Argument of type 'readonly [number | undefined, number | undefined]' is not assignable to parameter of type 'LngLat'. Type at position 0 in source is not compatible with type at position 0 in target. Type 'number | undefined' is not assignable to type 'number'. Type 'undefined' is not assignable to type 'number'.",
-      "count": 1
-    },
-    {
-      "file": "ai-suite/scratch/rerecord-ai-chat-segments.ts",
-      "code": 2345,
-      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.",
-      "count": 2
-    },
-    {
-      "file": "ai-suite/scratch/submarine-context-mobile-repro.ts",
-      "code": 2352,
-      "message": "Conversion of type '(string | { width: number; height: number; })[][]' to type 'readonly (readonly [\"desktop\" | \"mobile\", { width: number; height: number; }])[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first. Type '(string | { width: number; height: number; })[]' is not comparable to type 'readonly [\"desktop\" | \"mobile\", { width: number; height: number; }]'. Target requires 2 element(s) but source may have fewer.",
-      "count": 1
-    },
-    {
       "file": "build.ts",
       "code": 2532,
       "message": "Object is possibly 'undefined'.",
@@ -79,12 +19,6 @@
       "code": 7053,
       "message": "Element implicitly has an 'any' type because expression of type 'string' can't be used to index type 'Partial<BuildConfig>'. No index signature with a parameter of type 'string' was found on type 'Partial<BuildConfig>'.",
       "count": 3
-    },
-    {
-      "file": "contextvm/tools/valhalla.ts",
-      "code": 2488,
-      "message": "Type '[number, number] | undefined' must have a '[Symbol.iterator]()' method that returns an iterator.",
-      "count": 1
     },
     {
       "file": "scripts/generate-lucide-icons.ts",
@@ -681,12 +615,6 @@
       "count": 1
     },
     {
-      "file": "src/features/geo-editor/hooks/useOsmQuery.ts",
-      "code": 2345,
-      "message": "Argument of type '{ addFeature: (f: EditorFeature) => void; }' is not assignable to parameter of type 'GeoEditor'. Type '{ addFeature: (f: EditorFeature) => void; }' is missing the following properties from type 'GeoEditor': map, options, mode, geometryVisible, and 180 more.",
-      "count": 1
-    },
-    {
       "file": "src/features/geo-editor/hooks/useSightingEditor.inspect.test.tsx",
       "code": 2339,
       "message": "Property 'placementArmed' does not exist on type 'never'.",
@@ -771,30 +699,6 @@
       "count": 1
     },
     {
-      "file": "src/features/settings/UserRelayManager.tsx",
-      "code": 2339,
-      "message": "Property 'keys' does not exist on type '{}'.",
-      "count": 1
-    },
-    {
-      "file": "src/features/settings/UserRelayManager.tsx",
-      "code": 2345,
-      "message": "Argument of type 'unknown[]' is not assignable to parameter of type '(string | null | undefined)[]'. Type 'unknown' is not assignable to type 'string | null | undefined'.",
-      "count": 1
-    },
-    {
-      "file": "src/features/settings/UserRelayManager.tsx",
-      "code": 2769,
-      "message": "No overload matches this call. Overload 1 of 3, '(observable?: BehaviorSubject<unknown> | undefined): unknown', gave the following error. Argument of type '() => BehaviorSubject<Map<string, Relay>>' is not assignable to parameter of type 'BehaviorSubject<unknown>'. Overload 2 of 3, '(observable?: Observable<unknown> | undefined): unknown', gave the following error. Argument of type '() => BehaviorSubject<Map<string, Relay>>' is not assignable to parameter of type 'Observable<unknown>'.",
-      "count": 1
-    },
-    {
-      "file": "src/features/settings/UserRelayManager.tsx",
-      "code": 2769,
-      "message": "No overload matches this call. Overload 1 of 3, '(observable?: BehaviorSubject<unknown> | undefined): unknown', gave the following error. Argument of type '() => Observable<Record<string, RelayStatus>>' is not assignable to parameter of type 'BehaviorSubject<unknown>'. Overload 2 of 3, '(observable?: Observable<unknown> | undefined): unknown', gave the following error. Argument of type '() => Observable<Record<string, RelayStatus>>' is not assignable to parameter of type 'Observable<unknown>'.",
-      "count": 1
-    },
-    {
       "file": "src/lib/geo/landWater.test.ts",
       "code": 2353,
       "message": "Object literal may only specify known properties, and 'type' does not exist in type 'FeatureLike'.",
@@ -810,18 +714,6 @@
       "file": "src/lib/geo/landWater.ts",
       "code": 2345,
       "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'. Type 'undefined' is not assignable to type 'number'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/geo/normalizeGeoJSON.ts",
-      "code": 2322,
-      "message": "Type 'Geometry | null' is not assignable to type 'Geometry'. Type 'null' is not assignable to type 'Geometry'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/geo/normalizeGeoJSON.ts",
-      "code": 2352,
-      "message": "Conversion of type 'Record<string, unknown>' to type 'FeatureCollection<Geometry, GeoJsonProperties>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first. Type 'Record<string, unknown>' is missing the following properties from type 'FeatureCollection<Geometry, GeoJsonProperties>': type, features",
       "count": 1
     },
     {
@@ -849,36 +741,6 @@
       "count": 1
     },
     {
-      "file": "src/lib/nostr/article/cast.ts",
-      "code": 4114,
-      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<ArticleEvent>'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/nostr/entityFactory.ts",
-      "code": 2416,
-      "message": "Property 'sign' in type 'EntityFactory<K>' is not assignable to the same property in base type 'EventFactory<K, KnownEventTemplate<K>>'. Type '(signer?: SignerLike | undefined) => Promise<NostrEvent>' is not assignable to type '(signer?: EventSigner | undefined) => Promise<KnownEvent<K>>'. Type 'Promise<NostrEvent>' is not assignable to type 'Promise<KnownEvent<K>>'. Type 'NostrEvent' is not assignable to type 'KnownEvent<K>'. Type 'NostrEvent' is not assignable to type '{ kind: K; }'. Types of property 'kind' are incompatible. Type 'number' is not assignable to type 'K'. 'number' is assignable to the constraint of type 'K', but 'K' could be instantiated with a different subtype of constraint 'number'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/nostr/geo-comment/cast.ts",
-      "code": 4114,
-      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<GeoCommentEvent>'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/nostr/geo-event/cast.ts",
-      "code": 4114,
-      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<GeoDatasetEvent>'.",
-      "count": 2
-    },
-    {
-      "file": "src/lib/nostr/geo-proposal/cast.ts",
-      "code": 4114,
-      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<GeoProposalEvent>'.",
-      "count": 1
-    },
-    {
       "file": "src/lib/nostr/geo-proposal/helpers.ts",
       "code": 2345,
       "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.",
@@ -898,50 +760,8 @@
     },
     {
       "file": "src/lib/nostr/group/group.test.ts",
-      "code": 2345,
-      "message": "Argument of type 'NostrEvent' is not assignable to parameter of type 'GroupEvent'. Type 'NostrEvent' is not assignable to type '{ kind: 37518; }'. Types of property 'kind' are incompatible. Type 'number' is not assignable to type '37518'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/nostr/group/group.test.ts",
       "code": 2532,
       "message": "Object is possibly 'undefined'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/nostr/live-beacon/cast.ts",
-      "code": 4114,
-      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<LiveBeaconEvent>'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/nostr/live-beacon/factory.ts",
-      "code": 4114,
-      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EntityFactory<37521>'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/nostr/map-context/cast.ts",
-      "code": 4114,
-      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<MapContextEvent>'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/nostr/temporal-sighting/cast.ts",
-      "code": 4114,
-      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EventCast<TemporalSightingEvent>'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/nostr/temporal-sighting/factory.ts",
-      "code": 4114,
-      "message": "This member must have an 'override' modifier because it overrides a member in the base class 'EntityFactory<37522>'.",
-      "count": 1
-    },
-    {
-      "file": "src/lib/nostr/temporal-sighting/lifecycle.ts",
-      "code": 2345,
-      "message": "Argument of type 'NostrEvent' is not assignable to parameter of type 'TemporalSightingEvent'. Type 'NostrEvent' is not assignable to type '{ kind: 37522; }'. Types of property 'kind' are incompatible. Type 'number' is not assignable to type '37522'.",
       "count": 1
     },
     {

@@ -7,7 +7,7 @@ import {
 	normalizeRelayUrl,
 } from 'applesauce-core/helpers'
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
-import type { GroupReqMessage, PublishResponse } from 'applesauce-relay'
+import type { PublishResponse } from 'applesauce-relay'
 import type { NostrEvent } from 'nostr-tools'
 import {
 	Activity,
@@ -24,7 +24,6 @@ import {
 	XCircle,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { Subscription } from 'rxjs'
 import { toast } from 'sonner'
 import { config } from '@/config'
 import { Button } from '@/components/ui/button'
@@ -33,7 +32,18 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Switch } from '@/components/ui/switch'
-import { accounts, devRelayFlags$, eventStore, pool, publish, setDevRelayFlags } from '@/lib/nostr'
+import {
+	accounts,
+	devRelayFlags$,
+	eventStore,
+	pool,
+	publish,
+	relayAuthOptions,
+	relayLiveness,
+	setDevRelayFlags,
+} from '@/lib/nostr'
+
+import { readRelayEvents } from '@/lib/nostr/finiteRead'
 
 type RelayDraft = {
 	url: string
@@ -56,9 +66,6 @@ type ConnectionRole = {
 	className: string
 }
 
-type EventMessage = Extract<GroupReqMessage, { type: 'EVENT' }>
-type RelayDoneMessage = Extract<GroupReqMessage, { type: 'EOSE' | 'ERROR' | 'CLOSED' }>
-
 const DEFAULT_DISCOVERY_RELAYS = [
 	'wss://purplepag.es',
 	'wss://relay.nostr.net',
@@ -77,14 +84,6 @@ const EXAMPLE_RELAYS: Array<RelayDraft & { label: string }> = [
 	{ label: 'Profiles', url: 'wss://purplepag.es', read: true, write: false },
 	{ label: 'Relay monitor', url: 'wss://relay.nostr.watch', read: true, write: false },
 ]
-
-function isEventMessage(message: GroupReqMessage): message is EventMessage {
-	return message.type === 'EVENT'
-}
-
-function isRelayDoneMessage(message: GroupReqMessage): message is RelayDoneMessage {
-	return message.type === 'EOSE' || message.type === 'ERROR' || message.type === 'CLOSED'
-}
 
 function tryNormalizeRelayUrl(value: string): string | null {
 	const trimmed = value.trim()
@@ -217,55 +216,29 @@ async function discoverRelayLists({
 }): Promise<DiscoveryResult[]> {
 	if (relays.length === 0) return []
 
-	return new Promise((resolve) => {
-		const events = new Map<string, { event: NostrEvent; seenOn: Set<string> }>()
-		const doneRelays = new Set<string>()
-		let settled = false
-		let subscription: Subscription | null = null
-		let timeout: number | null = null
-
-		const finish = () => {
-			if (settled) return
-			settled = true
-			if (timeout !== null) window.clearTimeout(timeout)
-			subscription?.unsubscribe()
-			resolve(
-				Array.from(events.values())
-					.map(({ event, seenOn }) => ({ event, seenOn: Array.from(seenOn).sort() }))
-					.sort((a, b) => b.event.created_at - a.event.created_at),
-			)
+	const results = await readRelayEvents(
+		pool,
+		relays,
+		{ kinds: [kinds.RelayList], authors: [pubkey], limit: 1 },
+		{ timeoutMs, auth: relayAuthOptions(pubkey) },
+	)
+	if (!results.some((result) => result.ok))
+		throw new Error('No discovery relay completed the request. Try again when connected.')
+	const events = new Map<string, { event: NostrEvent; seenOn: Set<string> }>()
+	for (const result of results)
+		for (const event of result.events) {
+			try {
+				eventStore.add(event)
+			} catch {
+				continue
+			}
+			const existing = events.get(event.id)
+			if (existing) existing.seenOn.add(result.relay)
+			else events.set(event.id, { event, seenOn: new Set([result.relay]) })
 		}
-
-		timeout = window.setTimeout(finish, timeoutMs)
-		subscription = pool
-			.req(relays, { kinds: [kinds.RelayList], authors: [pubkey], limit: 1 })
-			.subscribe({
-				next(message) {
-					if (isEventMessage(message)) {
-						eventStore.add(message.event)
-						const existing = events.get(message.event.id)
-						if (existing) {
-							existing.seenOn.add(message.from)
-						} else {
-							events.set(message.event.id, {
-								event: message.event,
-								seenOn: new Set([message.from]),
-							})
-						}
-						return
-					}
-
-					if (!isRelayDoneMessage(message)) return
-					doneRelays.add(message.from)
-					if (doneRelays.size >= relays.length) finish()
-				},
-				error(error) {
-					console.error('Relay list discovery failed:', error)
-					finish()
-				},
-				complete: finish,
-			})
-	})
+	return Array.from(events.values())
+		.map(({ event, seenOn }) => ({ event, seenOn: [...seenOn].sort() }))
+		.sort((a, b) => b.event.created_at - a.event.created_at)
 }
 
 function RelayInfo({ url }: { url: string }) {
@@ -330,6 +303,9 @@ function ActiveConnectionRow({ url, roles }: { url: string; roles: ConnectionRol
 	const error = use$(() => relay.error$, [relay])
 	const reqs = use$(() => relay.reqs$, [relay])
 	const notices = use$(() => relay.notices$, [relay])
+	const health = use$(() => relayLiveness.state(url), [url])
+	const account = useActiveAccount()
+	const authentication = account ? status?.authentications[account.pubkey] : undefined
 	const reqCount = Object.keys(reqs ?? {}).length
 	const noticeCount = notices?.length ?? 0
 	const state = status?.connected ? (status.ready ? 'Ready' : 'Opening') : error ? 'Failed' : 'Idle'
@@ -353,9 +329,31 @@ function ActiveConnectionRow({ url, roles }: { url: string; roles: ConnectionRol
 							{role.label}
 						</span>
 					))}
-					{status?.authRequiredForRead || status?.authRequiredForPublish ? (
-						<span className="border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-primary">
-							Auth required
+					{status?.authenticatedPubkeys.map((pubkey) => (
+						<span
+							key={pubkey}
+							title={pubkey}
+							className="border border-primary/40 px-1.5 py-0.5 text-primary"
+						>
+							Authenticated: {pubkey === account?.pubkey ? 'you' : `${pubkey.slice(0, 8)}…`}
+						</span>
+					))}
+					{authentication && !authentication.response ? <span>Authenticating…</span> : null}
+					{authentication?.response?.ok === false ? (
+						<span className="text-destructive">
+							Authentication refused: {authentication.response.message}
+						</span>
+					) : null}
+					{health && health.failureCount > 0 ? (
+						<span
+							title={`Last connection failure: ${new Date(health.lastFailureTime).toLocaleString()}`}
+						>
+							{health.backoffUntil
+								? `Retry after ${new Date(health.backoffUntil).toLocaleTimeString()}`
+								: `${health.failureCount} connection failures`}
+							<Button size="sm" variant="ghost" onClick={() => relayLiveness.reset(url)}>
+								Retry relay
+							</Button>
 						</span>
 					) : null}
 					{noticeCount > 0 ? (
@@ -381,8 +379,8 @@ function ActiveConnectionsPanel({
 	discoveryRelayInput: string
 	signerRelays: string[]
 }) {
-	const relaysMap = use$(() => pool.relays$)
-	const statuses = use$(() => pool.status$)
+	const relaysMap = use$(pool.relays$)
+	const statuses = use$(pool.status$)
 	const relayUrls = useMemo(
 		() =>
 			dedupeRelayUrls([

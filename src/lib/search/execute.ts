@@ -1,6 +1,6 @@
 import type { NostrEvent } from 'nostr-tools'
 import { firstValueFrom, timeout, toArray } from 'rxjs'
-import { pool, readRelaysFor } from '@/lib/nostr'
+import { pool, readRelaysFor, relayAuthOptions } from '@/lib/nostr'
 import { isExpired } from '@/lib/nostr/expiry'
 import { buildSearchString } from './grammar'
 import type { SearchQuery } from './types'
@@ -10,7 +10,7 @@ import type { SearchQuery } from './types'
  * tool handlers, the mention picker's suggestion source, scripts).
  *
  * Serializes the query through the grammar facade, requests once from the
- * content relays (completes on EOSE), dedupes by event id, and drops
+ * content relays (bounded group request), dedupes by event id, and drops
  * NIP-40-expired events per SPEC §10.
  */
 export async function searchEntityEvents(
@@ -23,7 +23,10 @@ export async function searchEntityEvents(
 	const filter = { kinds: opts.kinds, search, limit: opts.limit ?? 20 }
 	const events = await firstValueFrom(
 		pool
-			.request(readRelaysFor('content'), filter)
+			.request(readRelaysFor('content'), filter, {
+				...relayAuthOptions(),
+				timeout: opts.timeoutMs ?? 10_000,
+			})
 			.pipe(toArray(), timeout(opts.timeoutMs ?? 10_000)),
 	)
 

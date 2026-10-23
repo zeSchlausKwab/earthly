@@ -66,7 +66,7 @@ describe('delivery ledger presentation', () => {
 	})
 
 	test('labels known Earthly kinds and relay acknowledgements', () => {
-		expect(outboxKindLabel(37_515)).toBe('Dataset')
+		expect(outboxKindLabel(37_515)).toBe('Map')
 		expect(outboxKindLabel(65_000)).toBe('Event kind 65000')
 		expect(
 			relayAcknowledgementCount(

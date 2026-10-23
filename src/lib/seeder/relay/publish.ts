@@ -112,7 +112,11 @@ export class SeedRelayClient {
 	/** Fetch all events matching `filters` (completes on EOSE). */
 	async fetch(filters: Filter | Filter[]): Promise<NostrEvent[]> {
 		const filterList = Array.isArray(filters) ? filters : [filters]
-		return firstValueFrom(this.pool.request([this.url], filterList).pipe(toArray()))
+		return firstValueFrom(
+			this.pool
+				.request([this.url], filterList, { waitForAuth: false, timeout: 10_000 })
+				.pipe(toArray()),
+		)
 	}
 
 	/** One-line run summary, e.g. `42 events (37515×30, 0×12)`. */

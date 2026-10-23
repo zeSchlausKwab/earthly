@@ -46,7 +46,7 @@ describe('DatasetSizeIndicator inline publish budget', () => {
 		const html = renderToStaticMarkup(
 			<DatasetSizeIndicator featureCollection={featureCollection} />,
 		)
-		expect(html).toContain('Dataset size OK')
+		expect(html).toContain('Map size OK')
 		expect(html).not.toContain('Upload required')
 	})
 })

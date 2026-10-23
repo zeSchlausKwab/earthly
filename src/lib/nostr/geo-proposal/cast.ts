@@ -29,7 +29,7 @@ export class GeoProposal extends EventCast<GeoProposalEvent> {
 		super(event, store)
 	}
 
-	get kind() {
+	override get kind() {
 		return this.event.kind
 	}
 	get pubkey() {

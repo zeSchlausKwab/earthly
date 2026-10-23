@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { Feature, FeatureCollection } from 'geojson'
-import { normalizeGeoJsonToFeatureCollection } from '../geo/normalizeGeoJSON'
+import { normalizeRenderableFeatureCollection } from '../geo/normalizeGeoJSON'
 import type { GeoBlobReference } from '../nostr/geo-event/helpers'
 import { assertPublicHttpUrl } from './publicRemote'
 
@@ -142,7 +142,7 @@ function parseGeoBlob(bytes: Uint8Array, expectedHash: string | undefined): Pars
 		return null
 	}
 
-	const featureCollection = normalizeGeoJsonToFeatureCollection(payload)
+	const featureCollection = normalizeRenderableFeatureCollection(payload)
 	const features = featureCollection.features.filter((feature) => Boolean(feature.geometry))
 	if (features.length === 0) return null
 
@@ -194,7 +194,7 @@ export async function resolveOGGeoBlobReferences(
 	references: GeoBlobReference[],
 	options: ResolveOGGeoBlobsOptions = {},
 ): Promise<ResolvedOGGeoBlobs> {
-	let features = normalizeGeoJsonToFeatureCollection(baseCollection).features.filter((feature) =>
+	let features = normalizeRenderableFeatureCollection(baseCollection).features.filter((feature) =>
 		Boolean(feature.geometry),
 	)
 	let resolvedReferenceCount = 0

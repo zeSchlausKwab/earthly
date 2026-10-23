@@ -16,6 +16,7 @@ import {
 	getMapContextSnapshot,
 } from './tools/context'
 import { getGeoTools } from './tools/definitions'
+import { MAX_ROUTE_WAYPOINTS } from '@/lib/geo/valhallaRoute'
 
 function mapContextText(): string {
 	const msg = createMapContextSystemMessage('legacy')
@@ -291,7 +292,9 @@ describe('fix #4 — agent map-context steering', () => {
 
 	it('defines supported Valhalla journeys and requires a real network for rail', () => {
 		for (const prompt of [text, compactMapContextText()]) {
-			expect(prompt).toMatch(/valhalla_route.+2–25 coordinate waypoints/i)
+			expect(prompt).toMatch(
+				new RegExp(`valhalla_route.+2–${MAX_ROUTE_WAYPOINTS} coordinate waypoints`, 'i'),
+			)
 			expect(prompt).toMatch(/not road-name search|not a road-name search/i)
 			expect(prompt).toMatch(/does not route rail/i)
 			expect(prompt).toMatch(/actual (?:supplied\/editor|LineString) network/i)

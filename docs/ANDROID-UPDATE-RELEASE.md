@@ -44,18 +44,18 @@ Run the focused regression tests, the normal suites appropriate to the change, t
 frontend build, and the release metadata check. For a Private-group hotfix this is:
 
 ```sh
-bun test scripts/android-release.test.ts src/lib/private-workspace \
+bun run test scripts/android-release.test.ts src/lib/private-workspace \
   src/features/private-maps/privateInviteClipboard.test.ts \
   src/features/private-maps/privateInviteLink.test.ts
 bun run build:production
 bun run release:android:check
 ```
 
-The unfiltered `bun test` command currently also collects Playwright scenarios and has unrelated
-module-order/test-environment failures; it is not a reliable all-in-one release gate. The repository
-also has legacy whole-project TypeScript diagnostics. A new release must not add failures in its
-changed surface; use focused Bun tests, the correctly configured AI suite when relevant, Biome, and
-the production build until those global baselines are clean.
+Use `bun run test` for the complete unit gate: it runs source, script, and operations tests in
+isolated processes. Bare `bun test` bypasses this runner and can collect Playwright scenarios or
+leak module mocks between files. Also run `bun run typecheck`, `bun run ai:typecheck`, and the
+relevant AI suite. The main compiler check still tracks legacy whole-project diagnostics and
+rejects new ones; do not expand that baseline to make a release pass.
 
 ## 3. Build and rehearse the same-key upgrade
 

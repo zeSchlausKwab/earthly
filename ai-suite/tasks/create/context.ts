@@ -32,5 +32,7 @@ export async function createContext(earthly: EarthlySession, input: ContextInput
 	if (earthly.isMobile) {
 		await openPanel(earthly, 'Atlases')
 	}
-	await expect(earthly.page.getByText(input.name, { exact: true }).first()).toBeVisible()
+	await expect(
+		earthly.page.getByRole('button', { name: `Open Atlas ${input.name}`, exact: true }).first(),
+	).toBeVisible()
 }

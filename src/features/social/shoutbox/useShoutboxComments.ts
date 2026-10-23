@@ -3,6 +3,7 @@ import type { NostrEvent } from 'nostr-tools'
 import { useCallback, useMemo, useState } from 'react'
 import { accounts, publish } from '@/lib/nostr'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
+import { buildShoutboxThread } from './thread'
 import type { CommentNode } from './types'
 
 interface UseShoutboxCommentsOptions {
@@ -44,40 +45,10 @@ export function useShoutboxComments({
 		[events],
 	)
 
-	const comments = useMemo(() => {
-		const nodeMap = new Map<string, CommentNode>()
-		const roots: CommentNode[] = []
-
-		for (const comment of allComments) {
-			nodeMap.set(comment.id, { event: comment, children: [], depth: 0 })
-		}
-
-		for (const comment of allComments) {
-			const node = nodeMap.get(comment.id)
-			if (!node) continue
-			// Reply if there's a lowercase `e` parent and `k` says 1111.
-			const parentTag = comment.tags.find((t) => t[0] === 'e' && t[3] !== 'root')
-			const parentKind = comment.tags.find((t) => t[0] === 'k')?.[1]
-			if (parentTag && parentKind === '1111') {
-				const parentNode = parentTag[1] ? nodeMap.get(parentTag[1]) : null
-				if (parentNode) {
-					node.depth = Math.min(parentNode.depth + 1, maxDepth)
-					parentNode.children.push(node)
-				} else {
-					roots.push(node)
-				}
-			} else {
-				roots.push(node)
-			}
-		}
-
-		const sortChildren = (nodes: CommentNode[]) => {
-			nodes.sort((a, b) => (a.event.created_at ?? 0) - (b.event.created_at ?? 0))
-			for (const n of nodes) sortChildren(n.children)
-		}
-		sortChildren(roots)
-		return roots
-	}, [allComments, maxDepth])
+	const comments = useMemo(
+		() => buildShoutboxThread(allComments, maxDepth),
+		[allComments, maxDepth],
+	)
 
 	const postComment = useCallback(
 		async (content: string) => {
@@ -87,7 +58,7 @@ export function useShoutboxComments({
 			setIsPosting(true)
 			try {
 				const signed = await CommentFactory.create(rootEvent, content).sign(signer)
-				await publish(signed, { routing: 'inbox', target: rootEvent.pubkey })
+				await publish(signed, { routing: 'reply', target: rootEvent.pubkey })
 			} finally {
 				setIsPosting(false)
 			}
@@ -103,7 +74,7 @@ export function useShoutboxComments({
 			setIsPosting(true)
 			try {
 				const signed = await CommentFactory.reply(parentComment, content).sign(signer)
-				await publish(signed, { routing: 'inbox', target: parentComment.pubkey })
+				await publish(signed, { routing: 'reply', target: parentComment.pubkey })
 			} finally {
 				setIsPosting(false)
 			}
@@ -115,7 +86,7 @@ export function useShoutboxComments({
 		const signer = accounts.signer
 		if (!signer) throw new Error('No active account')
 		const signed = await ReactionFactory.create(target, '❤️').sign(signer)
-		await publish(signed, { routing: 'outbox' })
+		await publish(signed, { routing: 'reply', target: target.pubkey })
 	}, [])
 
 	return {

@@ -4,7 +4,7 @@ import {
 	isGeoJsonFeature,
 	isGeoJsonFeatureCollection,
 	isGeoJsonGeometry,
-	normalizeGeoJsonToFeatureCollection,
+	normalizeRenderableFeatureCollection,
 } from '@/lib/geo/normalizeGeoJSON'
 import type { EditorFeature } from './core'
 import { NON_CUSTOM_EDITOR_PROPERTY_KEYS } from './constants'
@@ -125,7 +125,7 @@ export function ensureFeatureCollection(payload: any): FeatureCollection {
 		isGeoJsonGeometry(payload) ||
 		(typeof payload === 'object' && payload !== null && 'geometry' in (payload as any))
 	) {
-		return normalizeGeoJsonToFeatureCollection(payload)
+		return normalizeRenderableFeatureCollection(payload)
 	}
 
 	throw new Error(

@@ -11,7 +11,7 @@ import { getTagValue, type KnownEvent, type NostrEvent } from 'applesauce-core/h
 import type { FeatureCollection } from 'geojson'
 import { GEO_EDIT_PROPOSAL_KIND } from '@/lib/nostr/kinds'
 import { computeBboxFor, computeGeohashFor, type GeoBoundingBox } from '@/lib/nostr/geo-event'
-import { normalizeGeoJsonToFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
+import { normalizeRenderableFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
 
 export type GeoProposalEvent = KnownEvent<typeof GEO_EDIT_PROPOSAL_KIND>
 
@@ -36,7 +36,7 @@ export function getProposalFeatureCollection(event: NostrEvent): FeatureCollecti
 	return getOrComputeCachedValue(event, FeatureCollectionSymbol, () => {
 		if (!event.content) return DEFAULT_COLLECTION
 		try {
-			return normalizeGeoJsonToFeatureCollection(JSON.parse(event.content))
+			return normalizeRenderableFeatureCollection(JSON.parse(event.content))
 		} catch {
 			return DEFAULT_COLLECTION
 		}

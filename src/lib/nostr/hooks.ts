@@ -5,22 +5,25 @@
  * "subscribe-then-read-from-store" pattern that applesauce uses.
  */
 
-import { use$ } from 'applesauce-react/hooks'
+import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
-import { eventStore, pool, queryCache } from './index'
+import { eventStore, pool, queryCache, relayAuthOptions, relayLiveness } from './index'
 import { filterRequestKey } from './filterGuards'
 import { startLiveTimelineSubscription } from './liveTimeline'
-import { createSharedTimelines } from './sharedTimeline'
+import { createSharedTimelines, EMPTY_TIMELINE_STATUS, type TimelineStatus } from './sharedTimeline'
 import { bucketForKind, readRelaysFor } from './relay-router'
 
-/**
- * Upper bound for waiting on relay EOSE signals. A single dead or slow relay
- * must not hold "loading" states hostage — after this, we report eose anyway
- * and let late events stream in.
- */
+/** Shared cache hydration and live transport with explicit completeness. */
 const subscribeTimeline = createSharedTimelines({
-	start: (options) => startLiveTimelineSubscription({ ...options, pool, store: eventStore }),
+	start: (options) =>
+		startLiveTimelineSubscription({
+			...options,
+			pool,
+			store: eventStore,
+			liveness: relayLiveness,
+			auth: relayAuthOptions,
+		}),
 	hydrate: (filters) => queryCache(filters),
 	add: (event) => eventStore.add(event),
 })
@@ -53,7 +56,7 @@ function defaultRelaysForFilters(filters: Filter | Filter[] | null): string[] {
  * and return the live timeline matching that filter.
  *
  * Two-stage flow:
- *   1. Effect subscription via `pool.req` → events flow into the
+ *   1. Effect subscription via `high-level relay subscriptions` → events flow into the
  *      EventStore (deduplicated, replaceable handling automatic).
  *   2. Reactive read via `eventStore.timeline` → component re-renders on
  *      additions, replacements, or deletions.
@@ -66,6 +69,7 @@ function defaultRelaysForFilters(filters: Filter | Filter[] | null): string[] {
  * read from public relays (see relay-router.ts).
  */
 export function useTimeline(filters: Filter | Filter[] | null, relays?: string[]): NostrEvent[] {
+	const account = useActiveAccount()
 	const filterKey = useMemo(() => filterRequestKey(filters), [filters])
 	const relayKey = useMemo(
 		() => (relays ?? defaultRelaysForFilters(filtersFromKey(filterKey))).join(','),
@@ -77,8 +81,8 @@ export function useTimeline(filters: Filter | Filter[] | null, relays?: string[]
 		if (!activeFilters) return undefined
 
 		const activeRelays = relaysFromKey(relayKey)
-		return subscribeTimeline(activeFilters, activeRelays)
-	}, [filterKey, relayKey])
+		return subscribeTimeline(activeFilters, activeRelays, undefined, account?.id)
+	}, [filterKey, relayKey, account?.id])
 
 	const events = use$(() => {
 		// TimelineModel already emits a fresh array instance per change — no
@@ -91,38 +95,46 @@ export function useTimeline(filters: Filter | Filter[] | null, relays?: string[]
 	return events ?? []
 }
 
-/**
- * Like `useTimeline`, but also reports whether all subscribed relays have
- * signalled EOSE. Useful for "Loading…" indicators.
- *
- * Internally uses `pool.req` to receive typed REQ messages so we can count
- * EOSE per relay; this is more involved than `subscription` which only emits
- * NostrEvents.
- *
- * `relays` defaults to the router-derived set for the filter kinds (see
- * `useTimeline`).
- */
+/** Read events and explicit load status. `eose` is retained as the legacy
+ * presentation-settled flag. Use status.complete for synchronization gates. */
 export function useTimelineWithEose(
 	filters: Filter | Filter[] | null,
 	relays?: string[],
-): { events: NostrEvent[]; eose: boolean } {
+): { events: NostrEvent[]; eose: boolean; status: TimelineStatus } {
+	const account = useActiveAccount()
 	const filterKey = useMemo(() => filterRequestKey(filters), [filters])
 	const relayKey = useMemo(
 		() => (relays ?? defaultRelaysForFilters(filtersFromKey(filterKey))).join(','),
 		[relays, filterKey],
 	)
-	const [eose, setEose] = useState(() => filterKey === null)
+	const stateKey = JSON.stringify([filterKey, relayKey, account?.id])
+	const [snapshot, setSnapshot] = useState<{ key: string; status: TimelineStatus }>()
+	const status = !filterKey
+		? EMPTY_TIMELINE_STATUS
+		: snapshot?.key === stateKey
+			? snapshot.status
+			: {
+					state: 'loading' as const,
+					cache: 'loading' as const,
+					relays: {},
+					settled: false,
+					complete: false,
+				}
 
 	useEffect(() => {
 		const activeFilters = filtersFromKey(filterKey)
 		if (!activeFilters) {
-			setEose(true)
 			return undefined
 		}
 
 		const activeRelays = relaysFromKey(relayKey)
-		return subscribeTimeline(activeFilters, activeRelays, setEose)
-	}, [filterKey, relayKey])
+		return subscribeTimeline(
+			activeFilters,
+			activeRelays,
+			(status) => setSnapshot({ key: stateKey, status }),
+			account?.id,
+		)
+	}, [filterKey, relayKey, stateKey, account?.id])
 
 	const events = use$(() => {
 		// TimelineModel already emits a fresh array instance per change.
@@ -131,5 +143,7 @@ export function useTimelineWithEose(
 		return eventStore.timeline(activeFilters)
 	}, [filterKey])
 
-	return { events: events ?? [], eose }
+	return { events: events ?? [], eose: status.settled, status }
 }
+
+if (import.meta.hot) import.meta.hot.dispose(() => subscribeTimeline.stop())

@@ -1,11 +1,20 @@
+import { useActiveAccount } from 'applesauce-react/hooks'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
-import { tap } from 'rxjs'
-import { eventStore, isEventDeleted, pool, queryCache, readRelaysFor } from '@/lib/nostr'
+import {
+	eventStore,
+	isEventDeleted,
+	pool,
+	queryCache,
+	readRelaysFor,
+	relayAuthOptions,
+	relayLiveness,
+} from '@/lib/nostr'
 import { startLiveTimelineSubscription } from '@/lib/nostr/liveTimeline'
 import { createMapletCollectionDiscovery } from './collectionDiscovery'
 
 /** Public collection discovery is host-owned and respects Earthly's relay routing. */
 export function useMapletCollectionDiscovery(enabled = true) {
+	const account = useActiveAccount()
 	const controller = useMemo(
 		() =>
 			createMapletCollectionDiscovery({
@@ -29,25 +38,20 @@ export function useMapletCollectionDiscovery(enabled = true) {
 					startLiveTimelineSubscription({
 						filters: filter,
 						relays,
-						pool: {
-							req: (...args) =>
-								pool.req(...args).pipe(
-									tap({
-										next: (message) => {
-											if (message.type === 'EVENT') callbacks.event(message.event, message.from)
-											else if (message.type === 'EOSE') callbacks.done(message.from, false)
-											else if (message.type === 'ERROR' || message.type === 'CLOSED')
-												callbacks.done(message.from, true)
-										},
-										error: () => callbacks.error(),
-									}),
-								),
+						pool,
+						liveness: relayLiveness,
+						auth: () => relayAuthOptions(account?.pubkey),
+						onEvent: callbacks.event,
+						onRelayState: (url, outcome) => {
+							if (outcome.state === 'ready') callbacks.done(url, false)
+							else if (outcome.state === 'failed' || outcome.state === 'skipped')
+								callbacks.done(url, true)
 						},
 						// Only the controller's fully verified events may enter the shared store.
 						store: { add: () => null },
 					}),
 			}),
-		[],
+		[account],
 	)
 	const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState)
 	useEffect(() => {
