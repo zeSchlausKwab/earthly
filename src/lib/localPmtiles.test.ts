@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from 'bun:test'
-import { FileSource, TileType } from 'pmtiles'
+import { Compression, TileType } from 'pmtiles'
 import {
 	classifyPmtilesTileType,
 	inspectPmtiles,
@@ -27,12 +27,33 @@ describe('local PMTiles', () => {
 		expect(() => classifyPmtilesTileType(TileType.Unknown)).toThrow('unsupported tile format')
 	})
 
-	test('inspects the repository PMTiles fixture without loading the whole archive', async () => {
-		const source = new FileSource(Bun.file('base-assets/flowers.pmtiles') as unknown as File)
+	test('inspects a PMTiles header without requesting tile data', async () => {
+		// Minimal PMTiles v3 header plus an empty root directory. Keep this fixture
+		// independent of downloaded basemaps and inspect it through the real parser.
+		const bytes = new Uint8Array(128)
+		bytes.set(new TextEncoder().encode('PMTiles'))
+		const view = new DataView(bytes.buffer)
+		view.setUint8(7, 3)
+		view.setBigUint64(8, 127n, true)
+		view.setBigUint64(16, 1n, true)
+		view.setUint8(97, Compression.None)
+		view.setUint8(98, Compression.None)
+		view.setUint8(99, TileType.Png)
+		view.setUint8(101, 21)
+		view.setInt32(102, 1215237824, true)
+		const requests: Array<[number, number]> = []
+		const source = {
+			getKey: () => 'synthetic-header',
+			getBytes: async (offset: number, length: number) => {
+				requests.push([offset, length])
+				return { data: bytes.slice(offset, offset + length).buffer }
+			},
+		}
 		const inspected = await inspectPmtiles(source)
 		expect(inspected.kind).toBe('raster')
 		expect(inspected.maxZoom).toBe(21)
 		expect(inspected.bounds[0]).toBeCloseTo(121.5237824)
+		expect(requests).toEqual([[0, 16384]])
 	})
 
 	test('persists only exact native content-addressed URLs', () => {
