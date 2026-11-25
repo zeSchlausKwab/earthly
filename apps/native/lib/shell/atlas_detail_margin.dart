@@ -7,10 +7,13 @@ import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
+import 'social_actions_bar.dart';
 
 /// Non-blocking Atlas Detail Margin drawer displaying an Atlas (`kind 37518`):
-/// cover photo, governance badge, Markdown description, pinned + context-linked
-/// Maps & Stories, "Enter Atlas Lens" scoping toggle, and "Show All on Map".
+/// cover photo, governance badge, NIP-25 reactions, Markdown description,
+/// strict two-lane Curated (Canon) vs. Community Contributions governance,
+/// owner Bless ("Add to Curated") & "Lock Down" controls, contributor Mute,
+/// "Enter Atlas Lens" scoping toggle, and "Show All on Map".
 class AtlasDetailMargin extends StatefulWidget {
   const AtlasDetailMargin({
     required this.atlas,
@@ -28,8 +31,15 @@ class AtlasDetailMargin extends StatefulWidget {
     required this.onOpenDiscussion,
     required this.onClose,
     this.isOwned = false,
+    this.currentUserPubkey,
+    this.mutedPubkeys = const <String>{},
+    this.initialSocialCounts,
+    this.onToggleReaction,
     this.onEditAtlas,
     this.onDeleteAtlas,
+    this.onBlessContribution,
+    this.onLockDownAtlas,
+    this.onMuteAuthor,
     this.onOpenPerson,
     super.key,
   });
@@ -49,8 +59,16 @@ class AtlasDetailMargin extends StatefulWidget {
   final VoidCallback onOpenDiscussion;
   final VoidCallback onClose;
   final bool isOwned;
+  final String? currentUserPubkey;
+  final Set<String> mutedPubkeys;
+  final EntitySocialCountsDto? initialSocialCounts;
+  final Future<EntitySocialCountsDto?> Function(EntitySocialCountsDto? current)?
+      onToggleReaction;
   final VoidCallback? onEditAtlas;
   final Future<void> Function()? onDeleteAtlas;
+  final Future<void> Function(String entityAddress)? onBlessContribution;
+  final Future<void> Function()? onLockDownAtlas;
+  final ValueChanged<String>? onMuteAuthor;
   final ValueChanged<String>? onOpenPerson;
 
   @override
@@ -60,6 +78,8 @@ class AtlasDetailMargin extends StatefulWidget {
 class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
   final Map<String, MapSummaryDto> _fetchedMaps = <String, MapSummaryDto>{};
   bool _loadingMissing = false;
+  String? _blessingAddress;
+  bool _lockingDown = false;
 
   @override
   void initState() {
@@ -125,35 +145,255 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
     } catch (_) {}
   }
 
-  List<MapSummaryDto> _resolveMaps() {
-    final byAddr = <String, MapSummaryDto>{};
-    final pinnedSet = widget.atlas.pinnedAddresses.toSet();
-    for (final m in [...widget.catalogMaps, ..._fetchedMaps.values]) {
-      if (pinnedSet.contains(m.address) ||
-          m.contextRefs.contains(widget.atlas.address)) {
-        byAddr[m.address] = m;
-      }
+  Future<void> _handleBless(String entityAddress) async {
+    if (_blessingAddress != null || widget.onBlessContribution == null) return;
+    setState(() => _blessingAddress = entityAddress);
+    try {
+      await widget.onBlessContribution!(entityAddress);
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not curate item: $err')),
+      );
+    } finally {
+      if (mounted) setState(() => _blessingAddress = null);
     }
-    return byAddr.values.toList(growable: false);
   }
 
-  List<StorySummaryDto> _resolveStories() {
+  Future<void> _handleLockDown() async {
+    if (_lockingDown || widget.onLockDownAtlas == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Lock Down Atlas?'),
+        content: const Text(
+          'Switch this Atlas to Closed (Author Picks only) governance. Uncurated community arrivals will be hidden until you explicitly curate them.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Lock Down'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _lockingDown = true);
+    try {
+      await widget.onLockDownAtlas!();
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not lock down Atlas: $err')),
+      );
+    } finally {
+      if (mounted) setState(() => _lockingDown = false);
+    }
+  }
+
+  ({List<MapSummaryDto> curated, List<MapSummaryDto> community})
+      _partitionMaps() {
+    final allByAddr = <String, MapSummaryDto>{};
+    for (final m in [...widget.catalogMaps, ..._fetchedMaps.values]) {
+      allByAddr[m.address] = m;
+    }
     final pinnedSet = widget.atlas.pinnedAddresses.toSet();
-    return widget.catalogStories
-        .where(
-          (s) =>
-              pinnedSet.contains(s.address) ||
-              s.referencedAddresses.contains(widget.atlas.address),
-        )
-        .toList(growable: false);
+    final curated = <MapSummaryDto>[];
+    for (final addr in widget.atlas.pinnedAddresses) {
+      final found = allByAddr[addr];
+      if (found != null) curated.add(found);
+    }
+    final community = <MapSummaryDto>[];
+    if (widget.atlas.governance != 'closed') {
+      for (final m in allByAddr.values) {
+        if (pinnedSet.contains(m.address)) continue;
+        if (!m.contextRefs.contains(widget.atlas.address)) continue;
+        if (widget.mutedPubkeys.contains(m.pubkey)) continue;
+        community.add(m);
+      }
+      community.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    }
+    return (curated: curated, community: community);
+  }
+
+  ({List<StorySummaryDto> curated, List<StorySummaryDto> community})
+      _partitionStories() {
+    final pinnedSet = widget.atlas.pinnedAddresses.toSet();
+    final byAddr = {for (final s in widget.catalogStories) s.address: s};
+    final curated = <StorySummaryDto>[];
+    for (final addr in widget.atlas.pinnedAddresses) {
+      final found = byAddr[addr];
+      if (found != null) curated.add(found);
+    }
+    final community = <StorySummaryDto>[];
+    if (widget.atlas.governance != 'closed') {
+      for (final s in widget.catalogStories) {
+        if (pinnedSet.contains(s.address)) continue;
+        if (!s.referencedAddresses.contains(widget.atlas.address)) continue;
+        if (widget.mutedPubkeys.contains(s.pubkey)) continue;
+        community.add(s);
+      }
+      community.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+    }
+    return (curated: curated, community: community);
+  }
+
+  Widget _buildMapRow(MapSummaryDto map, {required bool isCommunity}) {
+    final onShelf = widget.shelfAddresses.contains(map.address);
+    final canBless =
+        isCommunity && widget.isOwned && widget.onBlessContribution != null;
+    final canMute = isCommunity &&
+        widget.onMuteAuthor != null &&
+        map.pubkey != widget.currentUserPubkey;
+    final blessing = _blessingAddress == map.address;
+
+    return EarthlyEntityListRow(
+      leading: EarthlyGeometryThumb(
+        cacheKey: map.eventId,
+        geojson: map.geojson,
+        width: 56,
+        height: 44,
+      ),
+      title: map.title,
+      meta:
+          '${_authorLabel(map.pubkey)} · ${map.featureCount} feat${map.sizeBytes > 0 ? ' · ${formatByteSize(map.sizeBytes)}' : ''}',
+      selected: onShelf,
+      onTap: () {
+        if (!onShelf) {
+          widget.onToggleMapOnShelf(map);
+        } else {
+          widget.onFocusMap(map);
+        }
+      },
+      primaryAction: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (canBless)
+            IconButton(
+              key: Key('bless-${map.address}'),
+              tooltip: 'Add to Curated',
+              visualDensity: VisualDensity.compact,
+              onPressed: blessing ? null : () => _handleBless(map.address),
+              icon: blessing
+                  ? const SizedBox(
+                      width: 15,
+                      height: 15,
+                      child: CircularProgressIndicator(strokeWidth: 1.8),
+                    )
+                  : const Icon(
+                      Icons.verified_outlined,
+                      size: 19,
+                      color: EarthlyColors.commentGreen,
+                    ),
+            ),
+          IconButton(
+            tooltip: onShelf ? 'Remove from map' : 'Show on map',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => widget.onToggleMapOnShelf(map),
+            icon: Icon(
+              onShelf ? Icons.layers : Icons.layers_outlined,
+              size: 19,
+              color: onShelf ? EarthlyColors.commentGreen : null,
+            ),
+          ),
+        ],
+      ),
+      menuActions: [
+        if (canBless)
+          EntityRowMenuAction(
+            label: 'Add to Curated',
+            icon: Icons.verified_outlined,
+            onSelected: () => _handleBless(map.address),
+          ),
+        if (widget.onOpenPerson != null)
+          EntityRowMenuAction(
+            label: 'View author',
+            icon: Icons.person_outline,
+            onSelected: () => widget.onOpenPerson!(map.pubkey),
+          ),
+        if (canMute)
+          EntityRowMenuAction(
+            label: 'Mute author',
+            icon: Icons.volume_off_outlined,
+            destructive: true,
+            onSelected: () => widget.onMuteAuthor!(map.pubkey),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStoryRow(StorySummaryDto story, {required bool isCommunity}) {
+    final canBless =
+        isCommunity && widget.isOwned && widget.onBlessContribution != null;
+    final canMute = isCommunity &&
+        widget.onMuteAuthor != null &&
+        story.pubkey != widget.currentUserPubkey;
+    final blessing = _blessingAddress == story.address;
+
+    return EarthlyEntityListRow(
+      leading: EarthlyCoverThumb(
+        imageUrl: story.image,
+        fallbackIcon: Icons.auto_stories_outlined,
+        width: 56,
+        height: 44,
+      ),
+      title: story.title,
+      subtitle: story.summary,
+      meta: _authorLabel(story.pubkey),
+      onTap: () => widget.onOpenStory(story),
+      primaryAction: canBless
+          ? IconButton(
+              key: Key('bless-${story.address}'),
+              tooltip: 'Add to Curated',
+              visualDensity: VisualDensity.compact,
+              onPressed: blessing ? null : () => _handleBless(story.address),
+              icon: blessing
+                  ? const SizedBox(
+                      width: 15,
+                      height: 15,
+                      child: CircularProgressIndicator(strokeWidth: 1.8),
+                    )
+                  : const Icon(
+                      Icons.verified_outlined,
+                      size: 19,
+                      color: EarthlyColors.commentGreen,
+                    ),
+            )
+          : const Icon(Icons.chevron_right, size: 19),
+      menuActions: [
+        if (canBless)
+          EntityRowMenuAction(
+            label: 'Add to Curated',
+            icon: Icons.verified_outlined,
+            onSelected: () => _handleBless(story.address),
+          ),
+        if (canMute)
+          EntityRowMenuAction(
+            label: 'Mute author',
+            icon: Icons.volume_off_outlined,
+            destructive: true,
+            onSelected: () => widget.onMuteAuthor!(story.pubkey),
+          ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final atlas = widget.atlas;
-    final maps = _resolveMaps();
-    final stories = _resolveStories();
+    final mapLanes = _partitionMaps();
+    final storyLanes = _partitionStories();
+    final totalVisibleMaps =
+        mapLanes.curated.length + mapLanes.community.length;
+    final totalCurated = mapLanes.curated.length + storyLanes.curated.length;
+    final totalCommunity =
+        mapLanes.community.length + storyLanes.community.length;
+
     final govLabel = switch (atlas.governance) {
       'closed' => 'AUTHOR PICKS',
       'schema' => 'SCHEMA GOVERNANCE',
@@ -263,6 +503,20 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
                 ),
             ],
           ),
+          if (widget.onToggleReaction != null ||
+              widget.initialSocialCounts != null) ...[
+            const SizedBox(height: 10),
+            EntityReactionBar(
+              targetAddress: atlas.address,
+              targetEventId: atlas.eventId,
+              targetPubkey: atlas.pubkey,
+              targetKind: 37518,
+              relayUrls: widget.relayUrls,
+              currentUserPubkey: widget.currentUserPubkey,
+              initialCounts: widget.initialSocialCounts,
+              onToggleReaction: widget.onToggleReaction,
+            ),
+          ],
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -281,15 +535,24 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
                 ),
               ),
               OutlinedButton.icon(
-                onPressed: maps.isEmpty ? null : widget.onShowAllOnMap,
+                onPressed: totalVisibleMaps == 0 ? null : widget.onShowAllOnMap,
                 icon: const Icon(Icons.layers, size: 16),
-                label: Text('Show All (${maps.length})'),
+                label: Text('Show All ($totalVisibleMaps)'),
               ),
               if (widget.isOwned && widget.onEditAtlas != null)
                 OutlinedButton.icon(
                   onPressed: widget.onEditAtlas,
                   icon: const Icon(Icons.edit_outlined, size: 16),
                   label: const Text('Edit Atlas'),
+                ),
+              if (widget.isOwned &&
+                  atlas.governance != 'closed' &&
+                  widget.onLockDownAtlas != null)
+                OutlinedButton.icon(
+                  key: const Key('atlas-lockdown-btn'),
+                  onPressed: _lockingDown ? null : _handleLockDown,
+                  icon: const Icon(Icons.lock_outline, size: 16),
+                  label: Text(_lockingDown ? 'Locking…' : 'Lock Down'),
                 ),
               if (widget.isOwned && widget.onDeleteAtlas != null)
                 OutlinedButton.icon(
@@ -332,14 +595,22 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
             const Divider(height: 22),
             EarthlyRichText(text: atlas.description!.trim()),
           ],
+
+          // LANE 1: CURATED (CANON — explicitly `a`-tagged by the Atlas owner)
           const Divider(height: 22),
           Row(
             children: [
+              const Icon(
+                Icons.verified_outlined,
+                size: 14,
+                color: EarthlyColors.commentGreen,
+              ),
+              const SizedBox(width: 6),
               Text(
-                'MAPS IN THIS ATLAS (${maps.length})',
+                'CURATED ($totalCurated)',
                 style: theme.textTheme.labelSmall?.copyWith(
                   fontFamily: 'monospace',
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
               if (_loadingMissing) ...[
@@ -353,77 +624,84 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
             ],
           ),
           const SizedBox(height: 6),
-          if (maps.isEmpty)
+          if (totalCurated == 0)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Text(
-                atlas.governance == 'open'
-                    ? 'No maps linked yet. Enter the Atlas Lens to publish a new map directly into this Atlas.'
-                    : 'No linked maps found on the connected relay yet.',
+                atlas.governance == 'closed'
+                    ? 'Closed Atlas — no author-curated picks pinned yet.'
+                    : 'No curated picks pinned yet.',
                 style: theme.textTheme.bodySmall,
               ),
             )
-          else
-            for (final map in maps)
-              EarthlyEntityListRow(
-                leading: EarthlyGeometryThumb(
-                  cacheKey: map.eventId,
-                  geojson: map.geojson,
-                  width: 56,
-                  height: 44,
+          else ...[
+            for (final map in mapLanes.curated)
+              _buildMapRow(map, isCommunity: false),
+            for (final story in storyLanes.curated)
+              _buildStoryRow(story, isCommunity: false),
+          ],
+
+          // LANE 2: COMMUNITY CONTRIBUTIONS (hidden on `closed` Atlases!)
+          if (atlas.governance != 'closed') ...[
+            const Divider(height: 22),
+            Row(
+              children: [
+                const Icon(
+                  Icons.groups_outlined,
+                  size: 14,
+                  color: EarthlyColors.infoCyan,
                 ),
-                title: map.title,
-                meta:
-                    '${_authorLabel(map.pubkey)} · ${map.featureCount} feat${map.sizeBytes > 0 ? ' · ${formatByteSize(map.sizeBytes)}' : ''}',
-                selected: widget.shelfAddresses.contains(map.address),
-                onTap: () {
-                  if (!widget.shelfAddresses.contains(map.address)) {
-                    widget.onToggleMapOnShelf(map);
-                  } else {
-                    widget.onFocusMap(map);
-                  }
-                },
-                primaryAction: IconButton(
-                  tooltip: widget.shelfAddresses.contains(map.address)
-                      ? 'Remove from map'
-                      : 'Show on map',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => widget.onToggleMapOnShelf(map),
-                  icon: Icon(
-                    widget.shelfAddresses.contains(map.address)
-                        ? Icons.layers
-                        : Icons.layers_outlined,
-                    size: 19,
-                    color: widget.shelfAddresses.contains(map.address)
-                        ? EarthlyColors.commentGreen
-                        : null,
+                const SizedBox(width: 6),
+                Text(
+                  'COMMUNITY CONTRIBUTIONS ($totalCommunity)',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              ),
-          if (stories.isNotEmpty) ...[
-            const Divider(height: 22),
-            Text(
-              'STORIES IN THIS ATLAS (${stories.length})',
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontFamily: 'monospace',
-                fontWeight: FontWeight.w700,
-              ),
+              ],
             ),
             const SizedBox(height: 6),
-            for (final story in stories)
-              EarthlyEntityListRow(
-                leading: EarthlyCoverThumb(
-                  imageUrl: story.image,
-                  fallbackIcon: Icons.auto_stories_outlined,
-                  width: 56,
-                  height: 44,
+            if (totalCommunity == 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  'No uncurated community arrivals yet. Enter the Atlas Lens to publish a Map directly into this Atlas.',
+                  style: theme.textTheme.bodySmall,
                 ),
-                title: story.title,
-                subtitle: story.summary,
-                meta: _authorLabel(story.pubkey),
-                onTap: () => widget.onOpenStory(story),
-                primaryAction: const Icon(Icons.chevron_right, size: 19),
+              )
+            else ...[
+              for (final map in mapLanes.community)
+                _buildMapRow(map, isCommunity: true),
+              for (final story in storyLanes.community)
+                _buildStoryRow(story, isCommunity: true),
+            ],
+          ] else ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: theme.dividerColor),
               ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.lock_outline,
+                    size: 15,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Closed Atlas — only author-curated picks are shown.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ],
       ),

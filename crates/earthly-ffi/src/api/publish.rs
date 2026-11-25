@@ -35,6 +35,13 @@ pub struct LocalDraftDto {
 }
 
 #[derive(Clone, Debug)]
+pub struct ExternalGeoBlobDto {
+    pub url: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug)]
 pub struct UnsignedMapEventDto {
     pub unsigned_event_json: String,
     pub d_tag: String,
@@ -141,7 +148,12 @@ pub fn list_local_drafts(database_path: String) -> Result<Vec<LocalDraftDto>, St
 
 /// Validates a FeatureCollection with `earthly-geo`, attaches canonical Earthly
 /// tags (`d`, `bbox`, multi-precision `g`, `crs`, `checksum`, `size`, `v`, `t`),
-/// and returns an unsigned kind-37515 event JSON ready for NIP-55 Amber signing.
+/// and returns an unsigned kind-37515 event JSON ready for signing.
+///
+/// When `external_blob` is supplied (for datasets exceeding the relay event size
+/// budget, SPEC §1.5), attaches the canonical `["blob", "collection", url, ...]`
+/// tag and keeps the event content as a lightweight metadata stub while
+/// preserving full-dataset `bbox`, `g`, `checksum`, and `size`.
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_unsigned_map_event(
     pubkey_or_npub: String,
@@ -152,6 +164,7 @@ pub fn prepare_unsigned_map_event(
     hashtags: Vec<String>,
     context_refs: Vec<String>,
     field_session_id: Option<String>,
+    external_blob: Option<ExternalGeoBlobDto>,
 ) -> Result<UnsignedMapEventDto, String> {
     let pubkey = PublicKey::parse(pubkey_or_npub.trim())
         .map_err(|err| format!("invalid Nostr public key: {err}"))?;
@@ -179,9 +192,9 @@ pub fn prepare_unsigned_map_event(
         }
     }
 
-    let content = serde_json::to_string(&fc).map_err(|e| e.to_string())?;
-    let checksum = format!("{:x}", Sha256::digest(content.as_bytes()));
-    let size = content.len().to_string();
+    let full_content = serde_json::to_string(&fc).map_err(|e| e.to_string())?;
+    let checksum = format!("{:x}", Sha256::digest(full_content.as_bytes()));
+    let size = full_content.len().to_string();
 
     let mut tags: Vec<Vec<String>> = vec![
         vec!["d".to_owned(), d_tag.clone()],
@@ -190,6 +203,38 @@ pub fn prepare_unsigned_map_event(
         vec!["size".to_owned(), size],
         vec!["v".to_owned(), "1".to_owned()],
     ];
+
+    let content = if let Some(blob) = external_blob {
+        tags.push(vec![
+            "blob".to_owned(),
+            "collection".to_owned(),
+            blob.url.trim().to_owned(),
+            format!("sha256={}", blob.sha256.trim().to_lowercase()),
+            format!("size={}", blob.size_bytes),
+            "mime=application/geo+json".to_owned(),
+        ]);
+        let mut stub = serde_json::Map::new();
+        stub.insert(
+            "type".to_owned(),
+            serde_json::Value::String("FeatureCollection".to_owned()),
+        );
+        if !title.trim().is_empty() {
+            stub.insert(
+                "name".to_owned(),
+                serde_json::Value::String(title.trim().to_owned()),
+            );
+        }
+        if let Some(desc) = description.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            stub.insert(
+                "description".to_owned(),
+                serde_json::Value::String(desc.to_owned()),
+            );
+        }
+        stub.insert("features".to_owned(), serde_json::Value::Array(Vec::new()));
+        serde_json::to_string(&serde_json::Value::Object(stub)).map_err(|e| e.to_string())?
+    } else {
+        full_content
+    };
     tags = set_bbox(&tags, summary.bounds);
     tags = set_geohash(&tags, summary.centroid.map(|c| (c[0], c[1])), 6);
     tags = set_hashtags(&tags, &hashtags);
@@ -440,8 +485,9 @@ pub struct UnsignedCommentEventDto {
 }
 
 /// Prepares a canonical NIP-22 Geo Comment (`kind 37517`) targeting an Earthly
-/// entity (`root_address` e.g. `37515:<pubkey>:<d>`), optionally carrying a
-/// GeoJSON FeatureCollection annotation with `bbox` and multi-precision `g`.
+/// entity (`root_address` e.g. `37515:<pubkey>:<d>`), or replying to an existing
+/// comment when `parent_address` / `parent_event_id` are supplied, optionally
+/// carrying a GeoJSON FeatureCollection annotation with `bbox` and `g`.
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_unsigned_comment_event(
     pubkey_or_npub: String,
@@ -451,6 +497,9 @@ pub fn prepare_unsigned_comment_event(
     root_pubkey: String,
     text: String,
     geojson: Option<String>,
+    parent_address: Option<String>,
+    parent_event_id: Option<String>,
+    parent_pubkey: Option<String>,
 ) -> Result<UnsignedCommentEventDto, String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -466,16 +515,56 @@ pub fn prepare_unsigned_comment_event(
         serde_json::Value::String(trimmed.to_owned()),
     );
 
+    let is_reply = parent_address
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
+        || parent_event_id
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|s| !s.is_empty());
+
     let mut tags: Vec<Vec<String>> = vec![
         vec!["d".to_owned(), d_tag.clone()],
         vec!["A".to_owned(), root_address.clone()],
         vec!["K".to_owned(), root_kind.to_string()],
-        vec!["a".to_owned(), root_address],
-        vec!["k".to_owned(), root_kind.to_string()],
     ];
     if !root_pubkey.trim().is_empty() {
         tags.push(vec!["P".to_owned(), root_pubkey.trim().to_owned()]);
-        tags.push(vec!["p".to_owned(), root_pubkey.trim().to_owned()]);
+    }
+
+    if is_reply {
+        if let Some(p_addr) = parent_address
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            tags.push(vec!["a".to_owned(), p_addr.to_owned()]);
+        } else {
+            tags.push(vec!["a".to_owned(), root_address]);
+        }
+        if let Some(p_ev) = parent_event_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            tags.push(vec!["e".to_owned(), p_ev.to_owned()]);
+        }
+        tags.push(vec!["k".to_owned(), GEO_COMMENT_KIND.to_string()]);
+        let target_p = parent_pubkey
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(root_pubkey.trim());
+        if !target_p.is_empty() {
+            tags.push(vec!["p".to_owned(), target_p.to_owned()]);
+        }
+    } else {
+        tags.push(vec!["a".to_owned(), root_address]);
+        tags.push(vec!["k".to_owned(), root_kind.to_string()]);
+        if !root_pubkey.trim().is_empty() {
+            tags.push(vec!["p".to_owned(), root_pubkey.trim().to_owned()]);
+        }
     }
 
     if let Some(raw_geo) = geojson.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -933,6 +1022,121 @@ pub fn prepare_unsigned_profile_event(
     })
 }
 
+/// Prepares a canonical Story Edit Proposal (`kind 37519`) targeting an existing
+/// `37520` Story (`SPEC.md` §17 / `STORY-06`) carrying the proposed replacement
+/// Markdown body as raw `content`.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_unsigned_story_proposal_event(
+    pubkey_or_npub: String,
+    d_tag: String,
+    target_address: String,
+    target_owner_pubkey: String,
+    base_event_id: Option<String>,
+    description: String,
+    proposed_markdown: String,
+) -> Result<UnsignedCommentEventDto, String> {
+    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let pubkey_hex = pubkey.to_hex();
+    if proposed_markdown.trim().is_empty() {
+        return Err("Proposed story content cannot be empty".to_owned());
+    }
+
+    let mut tags: Vec<Vec<String>> = vec![
+        vec!["d".to_owned(), d_tag.clone()],
+        vec!["a".to_owned(), target_address],
+        vec!["p".to_owned(), target_owner_pubkey],
+    ];
+    if let Some(base_id) = base_event_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        tags.push(vec!["base-version".to_owned(), base_id.to_owned()]);
+    }
+    if !description.trim().is_empty() {
+        tags.push(vec![
+            "description".to_owned(),
+            description.trim().to_owned(),
+        ]);
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let unsigned = serde_json::json!({
+        "kind": GEO_EDIT_PROPOSAL_KIND,
+        "pubkey": pubkey_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": proposed_markdown,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: d_tag.clone(),
+        address: format!("{GEO_EDIT_PROPOSAL_KIND}:{pubkey_hex}:{d_tag}"),
+    })
+}
+
+/// Prepares a canonical NIP-25 Reaction (`kind 7`) liking an Earthly entity
+/// (`37515` Map, `37520` Story, `37518` Atlas, `37517` Comment, etc.).
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_unsigned_reaction_event(
+    pubkey_or_npub: String,
+    target_address: String,
+    target_event_id: Option<String>,
+    target_pubkey: String,
+    target_kind: u16,
+    content: Option<String>,
+) -> Result<UnsignedCommentEventDto, String> {
+    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let pubkey_hex = pubkey.to_hex();
+
+    let mut tags: Vec<Vec<String>> = Vec::new();
+    if !target_address.trim().is_empty() {
+        tags.push(vec!["a".to_owned(), target_address.trim().to_owned()]);
+    }
+    tags.push(vec!["k".to_owned(), target_kind.to_string()]);
+    if let Some(ev_id) = target_event_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        tags.push(vec!["e".to_owned(), ev_id.to_owned()]);
+    }
+    if !target_pubkey.trim().is_empty() {
+        tags.push(vec!["p".to_owned(), target_pubkey.trim().to_owned()]);
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let reaction_content = content
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("+")
+        .to_owned();
+
+    let unsigned = serde_json::json!({
+        "kind": 7,
+        "pubkey": pubkey_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": reaction_content,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: target_address.clone(),
+        address: target_address,
+    })
+}
+
 /// Prepares a canonical NIP-09 deletion request (`kind 5`) targeting an owned
 /// Earthly entity (Map `37515`, Story `37520`, Atlas `37518`, etc.).
 pub fn prepare_unsigned_deletion_event(
@@ -946,10 +1150,11 @@ pub fn prepare_unsigned_deletion_event(
         .map_err(|err| format!("invalid Nostr public key: {err}"))?;
     let pubkey_hex = pubkey.to_hex();
 
-    let mut tags: Vec<Vec<String>> = vec![
-        vec!["a".to_owned(), target_address.clone()],
-        vec!["k".to_owned(), target_kind.to_string()],
-    ];
+    let mut tags: Vec<Vec<String>> = Vec::new();
+    if !target_address.trim().is_empty() {
+        tags.push(vec!["a".to_owned(), target_address.trim().to_owned()]);
+    }
+    tags.push(vec!["k".to_owned(), target_kind.to_string()]);
     if let Some(ev_id) = target_event_id
         .as_deref()
         .map(str::trim)
@@ -1234,6 +1439,7 @@ mod tests {
             vec!["vienna".to_owned()],
             vec!["37518:abc:alpine-atlas".to_owned()],
             Some("field-1".to_owned()),
+            None,
         )
         .unwrap();
 
@@ -1247,6 +1453,128 @@ mod tests {
         assert!(tags.iter().any(|t| t[0] == "c" && t[1] == "37518:abc:alpine-atlas"));
         assert!(tags.iter().any(|t| t[0] == "h" && t[1] == "field-1"));
         assert!(tags.iter().any(|t| t[0] == "checksum" && t[1] == prepared.checksum));
+    }
+
+    #[test]
+    fn prepares_externalized_blossom_map_event_with_blob_tag_and_stub_content() {
+        let keys = Keys::generate();
+        let fc = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"pt-1","geometry":{"type":"Point","coordinates":[16.3738,48.2082]},"properties":{"name":"Stephansdom"}}]}"#;
+        let sha = "a".repeat(64);
+        let prepared = prepare_unsigned_map_event(
+            keys.public_key().to_hex(),
+            "large-vienna".to_owned(),
+            "Large Vienna Dataset".to_owned(),
+            Some("Externalized via Blossom".to_owned()),
+            fc.to_owned(),
+            vec!["vienna".to_owned()],
+            vec![],
+            None,
+            Some(ExternalGeoBlobDto {
+                url: format!("https://blossom.earthly.city/{sha}.geojson"),
+                sha256: sha.clone(),
+                size_bytes: 120_000,
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(prepared.feature_count, 1);
+        let raw: serde_json::Value = serde_json::from_str(&prepared.unsigned_event_json).unwrap();
+        let content: serde_json::Value =
+            serde_json::from_str(raw["content"].as_str().unwrap()).unwrap();
+        assert_eq!(content["name"], "Large Vienna Dataset");
+        assert_eq!(content["features"].as_array().unwrap().len(), 0);
+        let tags = raw["tags"].as_array().unwrap();
+        assert!(tags.iter().any(|t| t[0] == "bbox"));
+        assert!(tags.iter().any(|t| t[0] == "checksum" && t[1] == prepared.checksum));
+        assert!(tags.iter().any(|t| {
+            t[0] == "blob"
+                && t[1] == "collection"
+                && t[2] == format!("https://blossom.earthly.city/{sha}.geojson")
+                && t[3] == format!("sha256={sha}")
+                && t[4] == "size=120000"
+                && t[5] == "mime=application/geo+json"
+        }));
+    }
+
+    #[test]
+    fn prepares_threaded_comment_story_proposal_and_reaction_events() {
+        let keys = Keys::generate();
+        let pk = keys.public_key().to_hex();
+        let root_addr = format!("37520:{pk}:alpine-story");
+
+        let reply = prepare_unsigned_comment_event(
+            pk.clone(),
+            "reply-1".to_owned(),
+            root_addr.clone(),
+            ARTICLE_KIND,
+            pk.clone(),
+            "Great trail notes!".to_owned(),
+            None,
+            Some(format!("37517:{pk}:parent-c1")),
+            Some("deadbeef".to_owned()),
+            Some("b".repeat(64)),
+        )
+        .unwrap();
+        let reply_raw: serde_json::Value =
+            serde_json::from_str(&reply.unsigned_event_json).unwrap();
+        let r_tags = reply_raw["tags"].as_array().unwrap();
+        assert!(r_tags.iter().any(|t| t[0] == "A" && t[1] == root_addr));
+        assert!(r_tags.iter().any(|t| t[0] == "K" && t[1] == "37520"));
+        assert!(r_tags.iter().any(|t| t[0] == "a" && t[1] == format!("37517:{pk}:parent-c1")));
+        assert!(r_tags.iter().any(|t| t[0] == "e" && t[1] == "deadbeef"));
+        assert!(r_tags.iter().any(|t| t[0] == "k" && t[1] == "37517"));
+        assert!(r_tags.iter().any(|t| t[0] == "p" && t[1] == "b".repeat(64)));
+
+        let story_pr = prepare_unsigned_story_proposal_event(
+            pk.clone(),
+            "story-pr-1".to_owned(),
+            root_addr.clone(),
+            pk.clone(),
+            Some("base123".to_owned()),
+            "Fix elevation typo".to_owned(),
+            "# Updated Heading\n\nNew paragraph.".to_owned(),
+        )
+        .unwrap();
+        let pr_raw: serde_json::Value =
+            serde_json::from_str(&story_pr.unsigned_event_json).unwrap();
+        assert_eq!(pr_raw["kind"], 37_519);
+        assert_eq!(pr_raw["content"], "# Updated Heading\n\nNew paragraph.");
+        let pr_tags = pr_raw["tags"].as_array().unwrap();
+        assert!(pr_tags.iter().any(|t| t[0] == "a" && t[1] == root_addr));
+        assert!(pr_tags.iter().any(|t| t[0] == "description" && t[1] == "Fix elevation typo"));
+
+        let reaction = prepare_unsigned_reaction_event(
+            pk.clone(),
+            root_addr.clone(),
+            Some("ev123".to_owned()),
+            pk.clone(),
+            ARTICLE_KIND,
+            None,
+        )
+        .unwrap();
+        let rx_raw: serde_json::Value =
+            serde_json::from_str(&reaction.unsigned_event_json).unwrap();
+        assert_eq!(rx_raw["kind"], 7);
+        assert_eq!(rx_raw["content"], "+");
+        let rx_tags = rx_raw["tags"].as_array().unwrap();
+        assert!(rx_tags.iter().any(|t| t[0] == "a" && t[1] == root_addr));
+        assert!(rx_tags.iter().any(|t| t[0] == "e" && t[1] == "ev123"));
+        assert!(rx_tags.iter().any(|t| t[0] == "k" && t[1] == "37520"));
+
+        let unlike = prepare_unsigned_deletion_event(
+            pk,
+            String::new(),
+            Some("rx-event-id".to_owned()),
+            7,
+            Some("Unliked".to_owned()),
+        )
+        .unwrap();
+        let unlike_raw: serde_json::Value =
+            serde_json::from_str(&unlike.unsigned_event_json).unwrap();
+        let u_tags = unlike_raw["tags"].as_array().unwrap();
+        assert!(!u_tags.iter().any(|t| t[0] == "a"));
+        assert!(u_tags.iter().any(|t| t[0] == "e" && t[1] == "rx-event-id"));
+        assert!(u_tags.iter().any(|t| t[0] == "k" && t[1] == "7"));
     }
 
     #[test]

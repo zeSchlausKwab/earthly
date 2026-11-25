@@ -9,6 +9,7 @@ import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
+import 'social_actions_bar.dart';
 
 enum _FeatureKindFilter { all, point, line, polygon }
 
@@ -31,6 +32,10 @@ class DatasetDetailMargin extends StatefulWidget {
     required this.onDeleteMap,
     required this.onClose,
     this.onOpenPerson,
+    this.currentUserPubkey,
+    this.initialSocialCounts,
+    this.onToggleReaction,
+    this.resolvingBlobs = false,
     super.key,
   });
 
@@ -46,6 +51,11 @@ class DatasetDetailMargin extends StatefulWidget {
   final VoidCallback onOpenDiscussion;
   final Future<PublishOutcomeDto> Function(MapSummaryDto map) onDeleteMap;
   final ValueChanged<String>? onOpenPerson;
+  final String? currentUserPubkey;
+  final EntitySocialCountsDto? initialSocialCounts;
+  final Future<EntitySocialCountsDto?> Function(EntitySocialCountsDto? current)?
+      onToggleReaction;
+  final bool resolvingBlobs;
   final VoidCallback onClose;
 
   @override
@@ -73,7 +83,8 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
   void didUpdateWidget(covariant DatasetDetailMargin oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.map.eventId != widget.map.eventId ||
-        oldWidget.map.address != widget.map.address) {
+        oldWidget.map.address != widget.map.address ||
+        oldWidget.map.geojson != widget.map.geojson) {
       _shapes = parseGeoJsonShapes(
         widget.map.geojson,
         datasetTitle: widget.map.title,
@@ -288,12 +299,19 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
                         ),
                       ],
                     ),
-                    if (map.hashtags.isNotEmpty) ...[
+                    if (map.hashtags.isNotEmpty || map.blobRefs.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 5,
                         runSpacing: 4,
                         children: [
+                          if (map.blobRefs.isNotEmpty)
+                            EarthlyBadge(
+                              label: map.blobRefs.length == 1
+                                  ? 'BLOSSOM BLOB'
+                                  : 'BLOSSOM (${map.blobRefs.length})',
+                              color: EarthlyColors.commentGreen,
+                            ),
                           for (final t in map.hashtags.take(5))
                             EarthlyBadge(
                               label: '#$t',
@@ -307,6 +325,37 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
               ),
             ],
           ),
+          if (widget.resolvingBlobs) ...[
+            const SizedBox(height: 8),
+            const Row(
+              children: [
+                SizedBox(
+                  width: 13,
+                  height: 13,
+                  child: CircularProgressIndicator(strokeWidth: 1.8),
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Resolving external Blossom GeoJSON…',
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 11),
+                ),
+              ],
+            ),
+          ],
+          if (widget.onToggleReaction != null ||
+              widget.initialSocialCounts != null) ...[
+            const SizedBox(height: 10),
+            EntityReactionBar(
+              targetAddress: map.address,
+              targetEventId: map.eventId,
+              targetPubkey: map.pubkey,
+              targetKind: 37515,
+              relayUrls: widget.relayUrls,
+              currentUserPubkey: widget.currentUserPubkey,
+              initialCounts: widget.initialSocialCounts,
+              onToggleReaction: widget.onToggleReaction,
+            ),
+          ],
           if (map.description != null && map.description!.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             EarthlyRichText(text: map.description!.trim()),

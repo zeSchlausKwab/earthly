@@ -208,6 +208,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   bool _inboxLoading = false;
   int _inboxReadAllBefore = 0;
   final Set<String> _inboxReadIds = <String>{};
+  final Set<String> _mutedPubkeys = <String>{};
+  final Set<String> _resolvingBlobAddresses = <String>{};
+  final Map<String, String> _resolvedBlobGeojsonByEventId = <String, String>{};
   String? _inspectedPersonPubkey;
   String? _hostedSessionId;
   RemotePeerDto? _acceptedRemotePeer;
@@ -439,6 +442,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         _inboxReadIds
           ..clear()
           ..addAll(loaded.inboxReadIds);
+        _mutedPubkeys
+          ..clear()
+          ..addAll(loaded.mutedPubkeys);
       });
       if (_savedAccounts.isNotEmpty) {
         unawaited(_resolveSessionProfiles());
@@ -601,9 +607,146 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           inboxReadIds: _inboxReadIds.take(500).toList(growable: false),
           savedAccounts: syncedSessions,
           activeAccountId: _activeAccountId,
+          mutedPubkeys: _mutedPubkeys.toList(growable: false),
         ),
       );
     } catch (_) {}
+  }
+
+  void _mutePubkey(String pubkey) {
+    final clean = pubkey.trim();
+    if (clean.isEmpty) return;
+    setState(() => _mutedPubkeys.add(clean));
+    unawaited(_persistAppSettings());
+    final prof = _profilesByPubkey[clean];
+    final label = prof?.displayName ??
+        prof?.name ??
+        (clean.length > 10 ? '${clean.substring(0, 8)}…' : clean);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 10),
+          content: Text('Muted $label on this device'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () => _unmutePubkey(clean),
+          ),
+        ),
+      );
+  }
+
+  void _unmutePubkey(String pubkey) {
+    setState(() => _mutedPubkeys.remove(pubkey));
+    unawaited(_persistAppSettings());
+  }
+
+  MapSummaryDto _withResolvedBlobGeojson(
+    MapSummaryDto map,
+    String resolvedGeojson,
+    int resolvedFeatureCount,
+  ) {
+    return MapSummaryDto(
+      address: map.address,
+      eventId: map.eventId,
+      pubkey: map.pubkey,
+      dTag: map.dTag,
+      title: map.title,
+      description: map.description,
+      featureCount: resolvedFeatureCount > map.featureCount
+          ? resolvedFeatureCount
+          : map.featureCount,
+      sizeBytes: map.sizeBytes > resolvedGeojson.length
+          ? map.sizeBytes
+          : resolvedGeojson.length,
+      geojson: resolvedGeojson,
+      blobRefs: map.blobRefs,
+      west: map.west,
+      south: map.south,
+      east: map.east,
+      north: map.north,
+      hashtags: map.hashtags,
+      labels: map.labels,
+      contextRefs: map.contextRefs,
+      createdAt: map.createdAt,
+    );
+  }
+
+  void _applyResolvedMapToState(MapSummaryDto updated) {
+    if (!mounted) return;
+    setState(() {
+      if (_catalog != null) {
+        final nextMaps = _catalog!.maps
+            .map((m) => m.address == updated.address ? updated : m)
+            .toList(growable: false);
+        _catalog = EarthlyCatalogSnapshot(
+          relayUrls: _catalog!.relayUrls,
+          maps: nextMaps,
+          stories: _catalog!.stories,
+          atlases: _catalog!.atlases,
+          sightings: _catalog!.sightings,
+          beacons: _catalog!.beacons,
+        );
+      }
+      for (var i = 0; i < _shelfMaps.length; i++) {
+        if (_shelfMaps[i].summary.address == updated.address) {
+          _shelfMaps[i] =
+              _entryFromSummary(updated).copyWith(visible: _shelfMaps[i].visible);
+        }
+      }
+      if (_storyDatasets.containsKey(updated.address)) {
+        _storyDatasets[updated.address] = _entryFromSummary(updated);
+      }
+      if (_inspectedMap?.address == updated.address) {
+        _inspectedMap = updated;
+      }
+    });
+  }
+
+  Future<MapSummaryDto> _ensureMapBlobsResolved(MapSummaryDto map) async {
+    if (map.blobRefs.isEmpty) return map;
+    final cached = _resolvedBlobGeojsonByEventId[map.eventId];
+    if (cached != null) {
+      if (map.geojson == cached) return map;
+      final shapes = parseGeoJsonShapes(
+        cached,
+        datasetTitle: map.title,
+        datasetAddress: map.address,
+      );
+      final updated = _withResolvedBlobGeojson(map, cached, shapes.length);
+      _applyResolvedMapToState(updated);
+      return updated;
+    }
+    if (_resolvingBlobAddresses.contains(map.address)) return map;
+    if (mounted) setState(() => _resolvingBlobAddresses.add(map.address));
+    try {
+      await RustBridge.ensureInitialized();
+      final resolved = await resolveMapBlobGeojson(
+        baseGeojson: map.geojson,
+        blobRefs: map.blobRefs,
+      );
+      _resolvedBlobGeojsonByEventId[map.eventId] = resolved;
+      final shapes = parseGeoJsonShapes(
+        resolved,
+        datasetTitle: map.title,
+        datasetAddress: map.address,
+      );
+      final updated = _withResolvedBlobGeojson(map, resolved, shapes.length);
+      _applyResolvedMapToState(updated);
+      return updated;
+    } catch (err) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Blossom blob fetch failed: $err')),
+        );
+      }
+      return map;
+    } finally {
+      if (mounted) {
+        setState(() => _resolvingBlobAddresses.remove(map.address));
+      }
+    }
   }
 
   void _toggleFavoriteEntity(String entityId) {
@@ -1024,9 +1167,131 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       setState(() {
         _deskAtlases.removeWhere((a) => a.address == created.address);
         _deskAtlases.insert(0, created);
+        if (_inspectedAtlas?.address == created.address) {
+          _inspectedAtlas = created;
+        }
+        if (_activeAtlasLens?.address == created.address) {
+          _activeAtlasLens = created;
+        }
+        if (_catalog != null) {
+          final others = _catalog!.atlases
+              .where((a) => a.address != created.address)
+              .toList(growable: false);
+          _catalog = EarthlyCatalogSnapshot(
+            relayUrls: _catalog!.relayUrls,
+            maps: _catalog!.maps,
+            stories: _catalog!.stories,
+            atlases: [created, ...others],
+            sightings: _catalog!.sightings,
+            beacons: _catalog!.beacons,
+          );
+        }
       });
     }
     return outcome;
+  }
+
+  Future<void> _blessAtlasContribution(
+    AtlasSummaryDto atlas,
+    String entityAddress,
+  ) async {
+    final updatedPins = <String>[
+      ...atlas.pinnedAddresses,
+      if (!atlas.pinnedAddresses.contains(entityAddress)) entityAddress,
+    ];
+    await _publishAtlas(
+      AtlasPublishRequest(
+        name: atlas.name,
+        description: atlas.description ?? '',
+        image: atlas.image,
+        governance: atlas.governance,
+        pinnedAddresses: updatedPins,
+        hashtags: atlas.hashtags,
+        audience: DraftAudienceChoice.publicRelay,
+        existingDTag: atlas.dTag,
+      ),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Added to Curated in "${atlas.name}"')),
+    );
+  }
+
+  Future<void> _lockDownAtlasToClosed(AtlasSummaryDto atlas) async {
+    await _publishAtlas(
+      AtlasPublishRequest(
+        name: atlas.name,
+        description: atlas.description ?? '',
+        image: atlas.image,
+        governance: 'closed',
+        pinnedAddresses: atlas.pinnedAddresses,
+        hashtags: atlas.hashtags,
+        audience: DraftAudienceChoice.publicRelay,
+        existingDTag: atlas.dTag,
+      ),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Locked down "${atlas.name}" to Author Picks only'),
+      ),
+    );
+  }
+
+  Future<EntitySocialCountsDto?> _toggleEntityReaction({
+    required String address,
+    required String? eventId,
+    required String pubkey,
+    required int kind,
+    required EntitySocialCountsDto? current,
+  }) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final prevCount = current?.reactionCount ?? 0;
+
+    if (current?.userHasReacted == true &&
+        current?.userReactionEventId != null &&
+        current!.userReactionEventId!.isNotEmpty) {
+      final del = await prepareUnsignedDeletionEvent(
+        pubkeyOrNpub: account.pubkey,
+        targetAddress: '',
+        targetEventId: current.userReactionEventId,
+        targetKind: 7,
+        reason: 'Removed reaction',
+      );
+      final signed =
+          await _signUnsignedEvent(account, del.unsignedEventJson);
+      await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+      return EntitySocialCountsDto(
+        address: address,
+        reactionCount: prevCount > 0 ? prevCount - 1 : 0,
+        userHasReacted: false,
+        userReactionEventId: null,
+        zapCount: current.zapCount,
+        zapSats: current.zapSats,
+      );
+    }
+
+    final prepared = await prepareUnsignedReactionEvent(
+      pubkeyOrNpub: account.pubkey,
+      targetAddress: address,
+      targetEventId: eventId,
+      targetPubkey: pubkey,
+      targetKind: kind,
+      content: '+',
+    );
+    final signed =
+        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+    final outcome =
+        await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+    return EntitySocialCountsDto(
+      address: address,
+      reactionCount: prevCount + 1,
+      userHasReacted: true,
+      userReactionEventId: outcome.eventId,
+      zapCount: current?.zapCount ?? 0,
+      zapSats: current?.zapSats ?? BigInt.zero,
+    );
   }
 
   Future<PublishOutcomeDto> _publishProfile(ProfileEditRequest req) async {
@@ -1072,18 +1337,107 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     final dTag = target.address.split(':').length >= 3
         ? target.address.split(':').sublist(2).join(':')
         : target.title;
-    // 1. Republish the updated kind-37515 map with the proposed FeatureCollection.
-    final preparedMap = await prepareUnsignedMapEvent(
-      pubkeyOrNpub: account.pubkey,
-      dTag: dTag,
-      title: target.title,
-      geojson: proposal.geojson,
-      hashtags: const ['earthly-native'],
-      contextRefs: const <String>[],
-    );
-    final signedMap =
-        await _signUnsignedEvent(account, preparedMap.unsignedEventJson);
-    await _deliverForAudience(DraftAudienceChoice.publicRelay, signedMap);
+
+    if (proposal.isStoryProposal || target.kind == 37520) {
+      final proposedMd = proposal.proposedMarkdown;
+      if (proposedMd == null || proposedMd.trim().isEmpty) {
+        throw StateError('Story proposal has no Markdown content');
+      }
+      final existingStory = _activeStory?.address == target.address
+          ? _activeStory
+          : (_catalog?.stories
+                  .where((s) => s.address == target.address)
+                  .firstOrNull ??
+              _deskStories
+                  .where((s) => s.address == target.address)
+                  .firstOrNull);
+      final preparedStory = await prepareUnsignedStoryEvent(
+        pubkeyOrNpub: account.pubkey,
+        dTag: existingStory?.dTag ?? dTag,
+        title: existingStory?.title ?? target.title,
+        summary: existingStory?.summary,
+        image: existingStory?.image,
+        markdownContent: proposedMd,
+        referencedMapAddresses:
+            existingStory?.referencedAddresses ?? const <String>[],
+        presentationJson: existingStory?.presentationJson,
+        hashtags: const ['earthly-story'],
+      );
+      final signedStory =
+          await _signUnsignedEvent(account, preparedStory.unsignedEventJson);
+      final storyOutcome =
+          await _deliverForAudience(DraftAudienceChoice.publicRelay, signedStory);
+
+      if (mounted) {
+        final updatedStory = StorySummaryDto(
+          address: target.address,
+          eventId: storyOutcome.eventId,
+          pubkey: account.pubkey,
+          dTag: existingStory?.dTag ?? dTag,
+          title: existingStory?.title ?? target.title,
+          summary: existingStory?.summary,
+          image: existingStory?.image,
+          content: proposedMd,
+          presentationJson: existingStory?.presentationJson,
+          referencedAddresses:
+              existingStory?.referencedAddresses ?? const <String>[],
+          publishedAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+        );
+        setState(() {
+          if (_activeStory?.address == updatedStory.address) {
+            _activeStory = updatedStory;
+            _parsedStory = parseStoryDocument(
+              markdown: updatedStory.content,
+              presentationJson: updatedStory.presentationJson,
+            );
+          }
+          _deskStories.removeWhere((s) => s.address == updatedStory.address);
+          _deskStories.insert(0, updatedStory);
+          if (_catalog != null) {
+            final others = _catalog!.stories
+                .where((s) => s.address != updatedStory.address)
+                .toList(growable: false);
+            _catalog = EarthlyCatalogSnapshot(
+              relayUrls: _catalog!.relayUrls,
+              maps: _catalog!.maps,
+              stories: [updatedStory, ...others],
+              atlases: _catalog!.atlases,
+              sightings: _catalog!.sightings,
+              beacons: _catalog!.beacons,
+            );
+          }
+        });
+      }
+    } else {
+      // 1. Republish the updated kind-37515 map with the proposed FeatureCollection
+      //    (auto-externalizing via Blossom if > 60 KiB).
+      ExternalGeoBlobDto? externalBlob;
+      final rawBytes = Uint8List.fromList(utf8.encode(proposal.geojson));
+      if (rawBytes.length > 60 * 1024) {
+        final uploaded = await _uploadBlossomBytes(
+          bytes: rawBytes,
+          mimeType: 'application/geo+json',
+          purpose: 'Externalize Earthly Map GeoJSON (${target.title})',
+        );
+        externalBlob = ExternalGeoBlobDto(
+          url: uploaded.url,
+          sha256: uploaded.sha256,
+          sizeBytes: uploaded.sizeBytes,
+        );
+      }
+      final preparedMap = await prepareUnsignedMapEvent(
+        pubkeyOrNpub: account.pubkey,
+        dTag: dTag,
+        title: target.title,
+        geojson: proposal.geojson,
+        hashtags: const ['earthly-native'],
+        contextRefs: const <String>[],
+        externalBlob: externalBlob,
+      );
+      final signedMap =
+          await _signUnsignedEvent(account, preparedMap.unsignedEventJson);
+      await _deliverForAudience(DraftAudienceChoice.publicRelay, signedMap);
+    }
 
     // 2. Publish NIP-34 kind-1631 Applied status referencing the proposal.
     final preparedStatus = await prepareUnsignedProposalStatusEvent(
@@ -1262,6 +1616,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     } else {
       entry = _entryFromSummary(map);
       setState(() => _shelfMaps.add(entry));
+    }
+    if (map.blobRefs.isNotEmpty) {
+      unawaited(_ensureMapBlobsResolved(map));
     }
     if (featureId != null && featureId.isNotEmpty) {
       final shape =
@@ -2512,6 +2869,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     }
     setState(() => _shelfMaps.add(_entryFromSummary(map)));
     _recordRecentEntity('map:${map.address}');
+    if (map.blobRefs.isNotEmpty) {
+      unawaited(_ensureMapBlobsResolved(map));
+    }
     _flyToMap(map);
   }
 
@@ -2526,6 +2886,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         added.add(entry);
       }
     });
+    for (final entry in added) {
+      if (entry.summary.blobRefs.isNotEmpty) {
+        unawaited(_ensureMapBlobsResolved(entry.summary));
+      }
+    }
     if (added.isNotEmpty) {
       final bounds = computeCombinedBounds(added);
       if (bounds != null) _flyToBounds(bounds);
@@ -2727,6 +3092,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ..addAll(initialDatasets);
         _loadingStoryMaps = false;
       });
+      for (final entry in initialDatasets.values) {
+        if (entry.summary.blobRefs.isNotEmpty) {
+          unawaited(_ensureMapBlobsResolved(entry.summary));
+        }
+      }
 
       if (parsed.initialView == null && initialDatasets.isNotEmpty) {
         final bounds = computeCombinedBounds(initialDatasets.values);
@@ -2848,11 +3218,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     _recordRecentEntity('map:${map.address}');
     setState(() => _inspectedMap = map);
     _openDrawer(_ActiveDrawer.datasetDetail);
+    if (map.blobRefs.isNotEmpty) {
+      unawaited(_ensureMapBlobsResolved(map));
+    }
   }
 
-  void _editOrForkMap(MapSummaryDto map) {
-    final isOwned = _account != null && _account!.pubkey == map.pubkey;
-    final cloned = parseDraftFeaturesFromGeoJson(map.geojson);
+  Future<void> _editOrForkMap(MapSummaryDto map) async {
+    final resolvedMap = map.blobRefs.isNotEmpty
+        ? await _ensureMapBlobsResolved(map)
+        : map;
+    if (!mounted) return;
+    final isOwned = _account != null && _account!.pubkey == resolvedMap.pubkey;
+    final cloned = parseDraftFeaturesFromGeoJson(resolvedMap.geojson);
     if (cloned.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No editable features found in map')),
@@ -2867,11 +3244,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _draftVertices.clear();
       _featureCounter = _features.length;
       if (isOwned) {
-        _draftDTag = map.dTag;
-        _draftTitle = map.title;
+        _draftDTag = resolvedMap.dTag;
+        _draftTitle = resolvedMap.title;
       } else {
         _draftDTag = 'field-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-        _draftTitle = '${map.title} (Fork)';
+        _draftTitle = '${resolvedMap.title} (Fork)';
       }
       _drawer = _ActiveDrawer.desk;
     });
@@ -2880,7 +3257,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       SnackBar(
         content: Text(
           isOwned
-              ? 'Loaded "${map.title}" for in-place edit (preserving d-tag)'
+              ? 'Loaded "${resolvedMap.title}" for in-place edit (preserving d-tag)'
               : 'Forked ${cloned.length} features into Working Draft',
         ),
       ),
@@ -3277,8 +3654,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     _recordRecentEntity('atlas:${atlas.address}');
     final mapAddresses = <String>{
       ...atlas.pinnedAddresses.where((a) => a.startsWith('37515:')),
-      for (final m in _catalog?.maps ?? const <MapSummaryDto>[])
-        if (m.contextRefs.contains(atlas.address)) m.address,
+      if (atlas.governance != 'closed')
+        for (final m in _catalog?.maps ?? const <MapSummaryDto>[])
+          if (m.contextRefs.contains(atlas.address) &&
+              !_mutedPubkeys.contains(m.pubkey))
+            m.address,
     }.toList(growable: false);
     if (mapAddresses.isEmpty) return;
 
@@ -3320,6 +3700,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         }
       }
     });
+    for (final entry in added) {
+      if (entry.summary.blobRefs.isNotEmpty) {
+        unawaited(_ensureMapBlobsResolved(entry.summary));
+      }
+    }
     final bounds = computeCombinedBounds(added);
     if (bounds != null) _flyToBounds(bounds);
   }
@@ -3405,8 +3790,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   Future<PublishOutcomeDto> _postComment(
     DiscussionTarget target,
     String text,
-    bool attachDraft,
-  ) async {
+    bool attachDraft, {
+    GeoCommentDto? replyTo,
+  }) async {
     await RustBridge.ensureInitialized();
     final account = await _ensureAccount();
     final dTag = 'comment-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
@@ -3421,6 +3807,36 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       rootPubkey: target.pubkey,
       text: text,
       geojson: geojson,
+      parentAddress: replyTo?.address,
+      parentEventId: replyTo?.eventId,
+      parentPubkey: replyTo?.pubkey,
+    );
+    final signedEventJson =
+        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+    final dbPath = await _databasePath();
+    return publishSignedEventViaOutbox(
+      databasePath: dbPath,
+      signedEventJson: signedEventJson,
+      relayUrls: _activeRelayUrls,
+    );
+  }
+
+  Future<PublishOutcomeDto> _submitStoryProposal(
+    DiscussionTarget target,
+    String description,
+    String proposedMarkdown,
+  ) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final dTag = 'story-pr-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+    final prepared = await prepareUnsignedStoryProposalEvent(
+      pubkeyOrNpub: account.pubkey,
+      dTag: dTag,
+      targetAddress: target.address,
+      targetOwnerPubkey: target.pubkey,
+      baseEventId: target.eventId,
+      description: description,
+      proposedMarkdown: proposedMarkdown,
     );
     final signedEventJson =
         await _signUnsignedEvent(account, prepared.unsignedEventJson);
@@ -3564,6 +3980,31 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     }
 
     final account = await _ensureAccount();
+    // SPEC §1.5: Auto-externalize large GeoJSON (> 60 KiB) via BUD-02 Blossom on public relays.
+    ExternalGeoBlobDto? externalBlob;
+    final rawBytes = Uint8List.fromList(utf8.encode(geojson));
+    if (audience == DraftAudienceChoice.publicRelay &&
+        rawBytes.length > 60 * 1024) {
+      final uploaded = await _uploadBlossomBytes(
+        bytes: rawBytes,
+        mimeType: 'application/geo+json',
+        purpose: 'Externalize large Earthly Map ($title)',
+      );
+      externalBlob = ExternalGeoBlobDto(
+        url: uploaded.url,
+        sha256: uploaded.sha256,
+        sizeBytes: uploaded.sizeBytes,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Uploaded ${(rawBytes.length / 1024).toStringAsFixed(0)} KB GeoJSON to Blossom blob',
+            ),
+          ),
+        );
+      }
+    }
     final prepared = await prepareUnsignedMapEvent(
       pubkeyOrNpub: account.pubkey,
       dTag: _draftDTag,
@@ -3576,6 +4017,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       fieldSessionId: audience == DraftAudienceChoice.nearbyLocalNode
           ? _activeNearbySessionId
           : null,
+      externalBlob: externalBlob,
     );
     final signedEventJson =
         await _signUnsignedEvent(account, prepared.unsignedEventJson);
@@ -3644,6 +4086,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       featureCount: ds.featureCount,
       sizeBytes: ds.geojsonJson.length,
       geojson: ds.geojsonJson,
+      blobRefs: const <BlobRefDto>[],
       hashtags: const ['circle-mls'],
       labels: const <String>[],
       contextRefs: [ws.workspaceId],
@@ -4066,14 +4509,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
     if (item.targetTab == 'comments' && kind != null) {
       final mapMatch = _catalog?.maps.where((m) => m.address == addr).firstOrNull;
+      final storyMatch =
+          _catalog?.stories.where((s) => s.address == addr).firstOrNull;
       _openDiscussion(
         DiscussionTarget(
           address: addr,
           kind: kind,
           pubkey: ownerPk,
-          title: mapMatch?.title ?? item.thingLabel,
-          eventId: mapMatch?.eventId,
+          title: mapMatch?.title ?? storyMatch?.title ?? item.thingLabel,
+          eventId: mapMatch?.eventId ?? storyMatch?.eventId,
           baseGeojson: mapMatch?.geojson,
+          baseMarkdown: storyMatch?.content,
         ),
       );
       return;
@@ -4615,6 +5061,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               pubkey: story.pubkey,
               title: story.title,
               eventId: story.eventId,
+              baseMarkdown: story.content,
             ),
           ),
           onInspectAtlas: _inspectAtlas,
@@ -4883,6 +5330,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           },
           onInspectAtlas: _inspectAtlas,
           onEnterAtlasLens: _enterAtlasLens,
+          isMuted: _mutedPubkeys.contains(personPk),
+          onToggleMute: () {
+            if (_mutedPubkeys.contains(personPk)) {
+              _unmutePubkey(personPk);
+            } else {
+              _mutePubkey(personPk);
+            }
+          },
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.account:
@@ -4896,6 +5351,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onSwitchSession: _switchSavedSession,
           onRemoveSession: _removeSavedSession,
           onAddReadOnlyNpub: _addReadOnlySession,
+          mutedPubkeys: _mutedPubkeys,
+          onUnmutePubkey: _unmutePubkey,
           blossomServerUrl: _blossomServerUrl,
           onBlossomServerChanged: (url) {
             setState(() => _blossomServerUrl = url);
@@ -5033,10 +5490,19 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               pubkey: _activeStory!.pubkey,
               title: _activeStory!.title,
               eventId: _activeStory!.eventId,
+              baseMarkdown: _activeStory!.content,
             ),
           ),
           onKeepOnShelf: _keepStoryMapsOnShelf,
           isOwned: _account != null && _account!.pubkey == _activeStory!.pubkey,
+          currentUserPubkey: _account?.pubkey,
+          onToggleReaction: (current) => _toggleEntityReaction(
+            address: _activeStory!.address,
+            eventId: _activeStory!.eventId,
+            pubkey: _activeStory!.pubkey,
+            kind: 37520,
+            current: current,
+          ),
           authorLabel: _profilesByPubkey[_activeStory!.pubkey]?.displayName ??
               _profilesByPubkey[_activeStory!.pubkey]?.name,
           onOpenPerson: _openPerson,
@@ -5086,6 +5552,19 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           profilesByPubkey: _profilesByPubkey,
           isActiveLens: _activeAtlasLens?.address == atlas.address,
           isOwned: _account != null && _account!.pubkey == atlas.pubkey,
+          currentUserPubkey: _account?.pubkey,
+          mutedPubkeys: _mutedPubkeys,
+          onToggleReaction: (current) => _toggleEntityReaction(
+            address: atlas.address,
+            eventId: atlas.eventId,
+            pubkey: atlas.pubkey,
+            kind: 37518,
+            current: current,
+          ),
+          onBlessContribution: (entityAddr) =>
+              _blessAtlasContribution(atlas, entityAddr),
+          onLockDownAtlas: () => _lockDownAtlasToClosed(atlas),
+          onMuteAuthor: _mutePubkey,
           onOpenPerson: _openPerson,
           onEditAtlas: () {
             setState(() => _editingAtlas = atlas);
@@ -5126,6 +5605,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onShelf: _shelfMaps.any((e) => e.summary.address == map.address),
           isOwned: _account != null && _account!.pubkey == map.pubkey,
           authorProfile: _profilesByPubkey[map.pubkey],
+          currentUserPubkey: _account?.pubkey,
+          resolvingBlobs: _resolvingBlobAddresses.contains(map.address),
+          onToggleReaction: (current) => _toggleEntityReaction(
+            address: map.address,
+            eventId: map.eventId,
+            pubkey: map.pubkey,
+            kind: 37515,
+            current: current,
+          ),
           onToggleOnShelf: () => _toggleMapOnShelf(map),
           onZoomToMap: () {
             if (!_shelfMaps.any((e) => e.summary.address == map.address)) {
@@ -5135,7 +5623,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             }
           },
           onJumpToFeature: (shape) => _jumpToMapFeature(map, shape),
-          onEditOrForkMap: () => _editOrForkMap(map),
+          onEditOrForkMap: () => unawaited(_editOrForkMap(map)),
           onOpenDiscussion: () => _openDiscussion(
             DiscussionTarget(
               address: map.address,
@@ -5340,9 +5828,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               _proposalOverlayShapes = shapes;
             });
           },
-          onPostComment: (text, attachDraft) =>
-              _postComment(target, text, attachDraft),
+          onPostComment: (text, attachDraft, {replyTo}) =>
+              _postComment(target, text, attachDraft, replyTo: replyTo),
           onSubmitProposal: (description) => _submitProposal(target, description),
+          onSubmitStoryProposal: target.kind == 37520
+              ? (description, proposedMarkdown) =>
+                  _submitStoryProposal(target, description, proposedMarkdown)
+              : null,
+          mutedPubkeys: _mutedPubkeys,
+          onMuteAuthor: _mutePubkey,
+          onOpenPerson: _openPerson,
           onLoadProposalToDraft: (proposal) => _cloneGeoJsonToDraft(
             '${target.title} (PR)',
             proposal.geojson,

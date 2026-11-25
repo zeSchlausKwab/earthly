@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `compact_preview`, `derive_inbox_items_from_events`, `event_to_raw`, `first_tag`, `hex_val`, `humanize_ident`, `inbox_entity_label`, `map_to_dto`, `parse_coord`, `parse_live_relay_event`, `percent_decode_fragment`, `sighting_to_dto`, `story_to_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `blossom_geo_cache`, `compact_preview`, `compute_markdown_line_diff_counts`, `derive_inbox_items_from_events`, `event_to_raw`, `first_tag`, `hex_val`, `humanize_ident`, `inbox_entity_label`, `map_to_dto`, `merge_blob_payload_into_features`, `parse_coord`, `parse_live_relay_event`, `percent_decode_fragment`, `sighting_to_dto`, `story_to_dto`, `verify_optional_sha256`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.
 Future<List<ProfileMetadataDto>> fetchProfiles({
@@ -96,20 +96,47 @@ Future<List<MapSummaryDto>> fetchMapsByAddresses({
   addresses: addresses,
 );
 
-/// Fetches NIP-22 Geo Comments (`kind 37517`), Geo Edit Proposals (`kind 37519`),
+/// Fetches NIP-22 Geo Comments (`kind 37517`), Map/Story Edit Proposals (`kind 37519`),
 /// and NIP-34 proposal status events (`1630`–`1633`) attached to a target Earthly
 /// entity address (e.g. `37515:<pubkey>:<d>` or `37520:<pubkey>:<d>`).
 ///
-/// When `base_geojson` is provided, computes deterministic `+added / ~modified / -removed`
-/// feature diffs via `earthly_domain::diff_feature_collections`.
+/// When `base_geojson` (or `base_markdown` for Stories) is provided, computes
+/// deterministic `+added / ~modified / -removed` diff counts.
 Future<EntityDiscussionSnapshot> fetchEntityDiscussion({
   required List<String> relayUrls,
   required String rootAddress,
   String? baseGeojson,
+  String? baseMarkdown,
 }) => EarthlyRustLib.instance.api.crateApiNostrClientFetchEntityDiscussion(
   relayUrls: relayUrls,
   rootAddress: rootAddress,
   baseGeojson: baseGeojson,
+  baseMarkdown: baseMarkdown,
+);
+
+/// Fetches NIP-25 reaction (`kind 7`) counts, whether `current_user_pubkey` has
+/// reacted, and NIP-57 zap (`kind 9735`) count & satoshi total for an Earthly entity.
+Future<EntitySocialCountsDto> fetchEntitySocialCounts({
+  required List<String> relayUrls,
+  required String targetAddress,
+  String? targetEventId,
+  String? currentUserPubkey,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientFetchEntitySocialCounts(
+  relayUrls: relayUrls,
+  targetAddress: targetAddress,
+  targetEventId: targetEventId,
+  currentUserPubkey: currentUserPubkey,
+);
+
+/// Resolves externalized Blossom GeoJSON `blob` references (`SPEC.md` §1.5),
+/// verifying optional `sha256` integrity and merging `collection` and
+/// `feature:<id>` payloads into a single renderable GeoJSON FeatureCollection.
+Future<String> resolveMapBlobGeojson({
+  required String baseGeojson,
+  required List<BlobRefDto> blobRefs,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientResolveMapBlobGeojson(
+  baseGeojson: baseGeojson,
+  blobRefs: blobRefs,
 );
 
 /// Encodes a 64-char hex pubkey (or normalizes an existing `npub1...`) to canonical `npub1...`.
@@ -249,6 +276,42 @@ class AuthorPortfolioDto {
           atlases == other.atlases;
 }
 
+class BlobRefDto {
+  /// `"collection"` or `"feature:<id>"`
+  final String scope;
+  final String url;
+  final String? sha256;
+  final BigInt? size;
+  final String? mime;
+
+  const BlobRefDto({
+    required this.scope,
+    required this.url,
+    this.sha256,
+    this.size,
+    this.mime,
+  });
+
+  @override
+  int get hashCode =>
+      scope.hashCode ^
+      url.hashCode ^
+      sha256.hashCode ^
+      size.hashCode ^
+      mime.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BlobRefDto &&
+          runtimeType == other.runtimeType &&
+          scope == other.scope &&
+          url == other.url &&
+          sha256 == other.sha256 &&
+          size == other.size &&
+          mime == other.mime;
+}
+
 class DecodedNaddrDto {
   final int kind;
   final String pubkey;
@@ -352,6 +415,45 @@ class EntityDiscussionSnapshot {
           proposals == other.proposals;
 }
 
+class EntitySocialCountsDto {
+  final String address;
+  final int reactionCount;
+  final bool userHasReacted;
+  final String? userReactionEventId;
+  final int zapCount;
+  final BigInt zapSats;
+
+  const EntitySocialCountsDto({
+    required this.address,
+    required this.reactionCount,
+    required this.userHasReacted,
+    this.userReactionEventId,
+    required this.zapCount,
+    required this.zapSats,
+  });
+
+  @override
+  int get hashCode =>
+      address.hashCode ^
+      reactionCount.hashCode ^
+      userHasReacted.hashCode ^
+      userReactionEventId.hashCode ^
+      zapCount.hashCode ^
+      zapSats.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EntitySocialCountsDto &&
+          runtimeType == other.runtimeType &&
+          address == other.address &&
+          reactionCount == other.reactionCount &&
+          userHasReacted == other.userHasReacted &&
+          userReactionEventId == other.userReactionEventId &&
+          zapCount == other.zapCount &&
+          zapSats == other.zapSats;
+}
+
 class GeoCommentDto {
   final String address;
   final String eventId;
@@ -361,6 +463,7 @@ class GeoCommentDto {
   final String? geojson;
   final String? rootAddress;
   final String? parentAddress;
+  final String? parentEventId;
   final BigInt createdAt;
 
   const GeoCommentDto({
@@ -372,6 +475,7 @@ class GeoCommentDto {
     this.geojson,
     this.rootAddress,
     this.parentAddress,
+    this.parentEventId,
     required this.createdAt,
   });
 
@@ -385,6 +489,7 @@ class GeoCommentDto {
       geojson.hashCode ^
       rootAddress.hashCode ^
       parentAddress.hashCode ^
+      parentEventId.hashCode ^
       createdAt.hashCode;
 
   @override
@@ -400,6 +505,7 @@ class GeoCommentDto {
           geojson == other.geojson &&
           rootAddress == other.rootAddress &&
           parentAddress == other.parentAddress &&
+          parentEventId == other.parentEventId &&
           createdAt == other.createdAt;
 }
 
@@ -412,6 +518,8 @@ class GeoProposalDto {
   final String? description;
   final String status;
   final String geojson;
+  final bool isStoryProposal;
+  final String? proposedMarkdown;
   final int addedCount;
   final int modifiedCount;
   final int removedCount;
@@ -426,6 +534,8 @@ class GeoProposalDto {
     this.description,
     required this.status,
     required this.geojson,
+    required this.isStoryProposal,
+    this.proposedMarkdown,
     required this.addedCount,
     required this.modifiedCount,
     required this.removedCount,
@@ -442,6 +552,8 @@ class GeoProposalDto {
       description.hashCode ^
       status.hashCode ^
       geojson.hashCode ^
+      isStoryProposal.hashCode ^
+      proposedMarkdown.hashCode ^
       addedCount.hashCode ^
       modifiedCount.hashCode ^
       removedCount.hashCode ^
@@ -460,6 +572,8 @@ class GeoProposalDto {
           description == other.description &&
           status == other.status &&
           geojson == other.geojson &&
+          isStoryProposal == other.isStoryProposal &&
+          proposedMarkdown == other.proposedMarkdown &&
           addedCount == other.addedCount &&
           modifiedCount == other.modifiedCount &&
           removedCount == other.removedCount &&
@@ -646,6 +760,7 @@ class MapSummaryDto {
   final int featureCount;
   final int sizeBytes;
   final String geojson;
+  final List<BlobRefDto> blobRefs;
   final double? west;
   final double? south;
   final double? east;
@@ -665,6 +780,7 @@ class MapSummaryDto {
     required this.featureCount,
     required this.sizeBytes,
     required this.geojson,
+    required this.blobRefs,
     this.west,
     this.south,
     this.east,
@@ -686,6 +802,7 @@ class MapSummaryDto {
       featureCount.hashCode ^
       sizeBytes.hashCode ^
       geojson.hashCode ^
+      blobRefs.hashCode ^
       west.hashCode ^
       south.hashCode ^
       east.hashCode ^
@@ -709,6 +826,7 @@ class MapSummaryDto {
           featureCount == other.featureCount &&
           sizeBytes == other.sizeBytes &&
           geojson == other.geojson &&
+          blobRefs == other.blobRefs &&
           west == other.west &&
           south == other.south &&
           east == other.east &&

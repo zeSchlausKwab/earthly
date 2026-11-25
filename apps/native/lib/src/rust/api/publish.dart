@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Save or update a local working draft in SQLite (`earthly-storage`).
 Future<LocalDraftDto> saveLocalDraft({
@@ -55,7 +55,12 @@ Future<List<LocalDraftDto>> listLocalDrafts({required String databasePath}) =>
 
 /// Validates a FeatureCollection with `earthly-geo`, attaches canonical Earthly
 /// tags (`d`, `bbox`, multi-precision `g`, `crs`, `checksum`, `size`, `v`, `t`),
-/// and returns an unsigned kind-37515 event JSON ready for NIP-55 Amber signing.
+/// and returns an unsigned kind-37515 event JSON ready for signing.
+///
+/// When `external_blob` is supplied (for datasets exceeding the relay event size
+/// budget, SPEC §1.5), attaches the canonical `["blob", "collection", url, ...]`
+/// tag and keeps the event content as a lightweight metadata stub while
+/// preserving full-dataset `bbox`, `g`, `checksum`, and `size`.
 Future<UnsignedMapEventDto> prepareUnsignedMapEvent({
   required String pubkeyOrNpub,
   required String dTag,
@@ -65,6 +70,7 @@ Future<UnsignedMapEventDto> prepareUnsignedMapEvent({
   required List<String> hashtags,
   required List<String> contextRefs,
   String? fieldSessionId,
+  ExternalGeoBlobDto? externalBlob,
 }) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedMapEvent(
   pubkeyOrNpub: pubkeyOrNpub,
   dTag: dTag,
@@ -74,6 +80,7 @@ Future<UnsignedMapEventDto> prepareUnsignedMapEvent({
   hashtags: hashtags,
   contextRefs: contextRefs,
   fieldSessionId: fieldSessionId,
+  externalBlob: externalBlob,
 );
 
 /// Prepares a canonical Earthly v2 Temporal Sighting (kind 37522) event with
@@ -130,8 +137,9 @@ Future<UnsignedSightingEventDto> prepareUnsignedBeaconEvent({
 );
 
 /// Prepares a canonical NIP-22 Geo Comment (`kind 37517`) targeting an Earthly
-/// entity (`root_address` e.g. `37515:<pubkey>:<d>`), optionally carrying a
-/// GeoJSON FeatureCollection annotation with `bbox` and multi-precision `g`.
+/// entity (`root_address` e.g. `37515:<pubkey>:<d>`), or replying to an existing
+/// comment when `parent_address` / `parent_event_id` are supplied, optionally
+/// carrying a GeoJSON FeatureCollection annotation with `bbox` and `g`.
 Future<UnsignedCommentEventDto> prepareUnsignedCommentEvent({
   required String pubkeyOrNpub,
   required String dTag,
@@ -140,6 +148,9 @@ Future<UnsignedCommentEventDto> prepareUnsignedCommentEvent({
   required String rootPubkey,
   required String text,
   String? geojson,
+  String? parentAddress,
+  String? parentEventId,
+  String? parentPubkey,
 }) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedCommentEvent(
   pubkeyOrNpub: pubkeyOrNpub,
   dTag: dTag,
@@ -148,6 +159,9 @@ Future<UnsignedCommentEventDto> prepareUnsignedCommentEvent({
   rootPubkey: rootPubkey,
   text: text,
   geojson: geojson,
+  parentAddress: parentAddress,
+  parentEventId: parentEventId,
+  parentPubkey: parentPubkey,
 );
 
 /// Prepares a canonical Geo Edit Proposal (`kind 37519`) proposing a full
@@ -282,6 +296,46 @@ Future<UnsignedCommentEventDto> prepareUnsignedProfileEvent({
   nip05: nip05,
 );
 
+/// Prepares a canonical Story Edit Proposal (`kind 37519`) targeting an existing
+/// `37520` Story (`SPEC.md` §17 / `STORY-06`) carrying the proposed replacement
+/// Markdown body as raw `content`.
+Future<UnsignedCommentEventDto> prepareUnsignedStoryProposalEvent({
+  required String pubkeyOrNpub,
+  required String dTag,
+  required String targetAddress,
+  required String targetOwnerPubkey,
+  String? baseEventId,
+  required String description,
+  required String proposedMarkdown,
+}) => EarthlyRustLib.instance.api
+    .crateApiPublishPrepareUnsignedStoryProposalEvent(
+      pubkeyOrNpub: pubkeyOrNpub,
+      dTag: dTag,
+      targetAddress: targetAddress,
+      targetOwnerPubkey: targetOwnerPubkey,
+      baseEventId: baseEventId,
+      description: description,
+      proposedMarkdown: proposedMarkdown,
+    );
+
+/// Prepares a canonical NIP-25 Reaction (`kind 7`) liking an Earthly entity
+/// (`37515` Map, `37520` Story, `37518` Atlas, `37517` Comment, etc.).
+Future<UnsignedCommentEventDto> prepareUnsignedReactionEvent({
+  required String pubkeyOrNpub,
+  required String targetAddress,
+  String? targetEventId,
+  required String targetPubkey,
+  required int targetKind,
+  String? content,
+}) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedReactionEvent(
+  pubkeyOrNpub: pubkeyOrNpub,
+  targetAddress: targetAddress,
+  targetEventId: targetEventId,
+  targetPubkey: targetPubkey,
+  targetKind: targetKind,
+  content: content,
+);
+
 /// Prepares a canonical NIP-09 deletion request (`kind 5`) targeting an owned
 /// Earthly entity (Map `37515`, Story `37520`, Atlas `37518`, etc.).
 Future<UnsignedCommentEventDto> prepareUnsignedDeletionEvent({
@@ -324,6 +378,30 @@ Future<PublishOutcomeDto> publishNearbyEventViaOutbox({
   signedEventJson: signedEventJson,
   remoteNodeIds: remoteNodeIds,
 );
+
+class ExternalGeoBlobDto {
+  final String url;
+  final String sha256;
+  final BigInt sizeBytes;
+
+  const ExternalGeoBlobDto({
+    required this.url,
+    required this.sha256,
+    required this.sizeBytes,
+  });
+
+  @override
+  int get hashCode => url.hashCode ^ sha256.hashCode ^ sizeBytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ExternalGeoBlobDto &&
+          runtimeType == other.runtimeType &&
+          url == other.url &&
+          sha256 == other.sha256 &&
+          sizeBytes == other.sizeBytes;
+}
 
 class LocalDraftDto {
   final String draftId;

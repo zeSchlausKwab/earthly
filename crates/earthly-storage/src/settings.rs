@@ -98,6 +98,8 @@ pub struct PersistedAppSettings {
     pub saved_accounts: Vec<SavedAccountSessionRecord>,
     #[serde(default)]
     pub active_account_id: Option<String>,
+    #[serde(default)]
+    pub muted_pubkeys: Vec<String>,
 }
 
 impl Default for PersistedAppSettings {
@@ -122,6 +124,7 @@ impl Default for PersistedAppSettings {
             inbox_read_ids: Vec::new(),
             saved_accounts: Vec::new(),
             active_account_id: None,
+            muted_pubkeys: Vec::new(),
         }
     }
 }

@@ -17,6 +17,7 @@ class DiscussionTarget {
     required this.title,
     this.eventId,
     this.baseGeojson,
+    this.baseMarkdown,
   });
 
   final String address;
@@ -25,11 +26,28 @@ class DiscussionTarget {
   final String title;
   final String? eventId;
   final String? baseGeojson;
+  final String? baseMarkdown;
 }
 
-/// Interactive Margin sheet for NIP-22 Geo Comments (`37517`) and Geo Edit
-/// Proposals (`37519`), with live Comment Green / Proposed Amber map previews
-/// and Amber NIP-55 signing via SQLite Outbox.
+class _CommentThreadNode {
+  const _CommentThreadNode({required this.comment, required this.depth});
+
+  final GeoCommentDto comment;
+  final int depth;
+}
+
+class _DiffLine {
+  const _DiffLine(this.prefix, this.text);
+
+  /// `'+'`, `'-'`, or `' '`
+  final String prefix;
+  final String text;
+}
+
+/// Interactive Margin sheet for NIP-22 Threaded Geo Comments (`37517`) and
+/// Map/Story Edit Proposals (`37519`), with live Comment Green / Proposed Amber
+/// map previews, line-by-line Story Markdown diff previews, contributor Mute,
+/// and multi-signer outbox publishing.
 class DiscussionMarginSheet extends StatefulWidget {
   const DiscussionMarginSheet({
     required this.target,
@@ -47,6 +65,11 @@ class DiscussionMarginSheet extends StatefulWidget {
     required this.onApplyProposal,
     required this.onCloseProposal,
     required this.onClose,
+    this.initialSnapshot,
+    this.mutedPubkeys = const <String>{},
+    this.onMuteAuthor,
+    this.onOpenPerson,
+    this.onSubmitStoryProposal,
     super.key,
   });
 
@@ -57,13 +80,22 @@ class DiscussionMarginSheet extends StatefulWidget {
   final String? activeProposalId;
   final Map<String, ProfileMetadataDto> profilesByPubkey;
   final String? currentUserPubkey;
+  final EntityDiscussionSnapshot? initialSnapshot;
+  final Set<String> mutedPubkeys;
+  final ValueChanged<String>? onMuteAuthor;
+  final ValueChanged<String>? onOpenPerson;
   final void Function(GeoCommentDto comment) onToggleCommentOverlay;
   final void Function(GeoProposalDto proposal) onToggleProposalOverlay;
   final Future<PublishOutcomeDto> Function(
     String text,
-    bool attachDraftGeometry,
-  ) onPostComment;
+    bool attachDraftGeometry, {
+    GeoCommentDto? replyTo,
+  }) onPostComment;
   final Future<PublishOutcomeDto> Function(String description) onSubmitProposal;
+  final Future<PublishOutcomeDto> Function(
+    String description,
+    String proposedMarkdown,
+  )? onSubmitStoryProposal;
   final ValueChanged<GeoProposalDto> onLoadProposalToDraft;
   final Future<PublishOutcomeDto> Function(GeoProposalDto proposal)
       onApplyProposal;
@@ -80,11 +112,15 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
   late final TabController _tabs;
   final _commentController = TextEditingController();
   final _proposalDescController = TextEditingController();
+  late final TextEditingController _storyProposalBodyController;
 
   EntityDiscussionSnapshot? _snapshot;
   bool _loading = true;
   bool _submitting = false;
   bool _attachDraft = false;
+  bool _showStoryProposalComposer = false;
+  GeoCommentDto? _replyingTo;
+  final Set<String> _expandedStoryDiffIds = <String>{};
   String? _error;
   String? _statusNote;
   late String? _activeCommentId = widget.activeCommentGeojsonId;
@@ -94,7 +130,14 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
   void initState() {
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
-    _refresh();
+    _storyProposalBodyController =
+        TextEditingController(text: widget.target.baseMarkdown ?? '');
+    if (widget.initialSnapshot != null) {
+      _snapshot = widget.initialSnapshot;
+      _loading = false;
+    } else {
+      _refresh();
+    }
   }
 
   @override
@@ -102,6 +145,7 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
     _tabs.dispose();
     _commentController.dispose();
     _proposalDescController.dispose();
+    _storyProposalBodyController.dispose();
     super.dispose();
   }
 
@@ -116,6 +160,7 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
         relayUrls: widget.relayUrls,
         rootAddress: widget.target.address,
         baseGeojson: widget.target.baseGeojson,
+        baseMarkdown: widget.target.baseMarkdown,
       );
       if (!mounted) return;
       setState(() => _snapshot = snap);
@@ -130,21 +175,33 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
   Future<void> _handlePostComment() async {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
+    final replyTarget = _replyingTo;
     setState(() {
       _submitting = true;
       _error = null;
       _statusNote = null;
     });
     try {
-      final outcome = await widget.onPostComment(text, _attachDraft);
+      final outcome = await widget.onPostComment(
+        text,
+        _attachDraft,
+        replyTo: replyTarget,
+      );
       if (!mounted) return;
       _commentController.clear();
+      final shortId = outcome.eventId.length > 10
+          ? '${outcome.eventId.substring(0, 10)}…'
+          : outcome.eventId;
       setState(() {
         _attachDraft = false;
-        _statusNote =
-            'Comment published (${outcome.outboxState}) · ${outcome.eventId.substring(0, 10)}…';
+        _replyingTo = null;
+        _statusNote = replyTarget != null
+            ? 'Reply published (${outcome.outboxState}) · $shortId'
+            : 'Comment published (${outcome.outboxState}) · $shortId';
       });
-      await _refresh();
+      if (widget.initialSnapshot == null) {
+        await _refresh();
+      }
     } catch (err) {
       if (!mounted) return;
       setState(() => _error = err.toString());
@@ -176,10 +233,14 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
       if (!mounted) return;
       setState(() {
         _statusNote = apply
-            ? 'Proposal applied & map republished (${outcome.outboxState})!'
+            ? (proposal.isStoryProposal
+                ? 'Proposal applied & Story republished (${outcome.outboxState})!'
+                : 'Proposal applied & map republished (${outcome.outboxState})!')
             : 'Proposal closed (${outcome.outboxState}).';
       });
-      await _refresh();
+      if (widget.initialSnapshot == null) {
+        await _refresh();
+      }
     } catch (err) {
       if (!mounted) return;
       setState(() => _error = err.toString());
@@ -201,11 +262,15 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
       );
       if (!mounted) return;
       _proposalDescController.clear();
+      final shortId = outcome.eventId.length > 10
+          ? '${outcome.eventId.substring(0, 10)}…'
+          : outcome.eventId;
       setState(() {
-        _statusNote =
-            'Proposal published (${outcome.outboxState}) · ${outcome.eventId.substring(0, 10)}…';
+        _statusNote = 'Proposal published (${outcome.outboxState}) · $shortId';
       });
-      await _refresh();
+      if (widget.initialSnapshot == null) {
+        await _refresh();
+      }
     } catch (err) {
       if (!mounted) return;
       setState(() => _error = err.toString());
@@ -214,14 +279,140 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
     }
   }
 
+  Future<void> _handleSubmitStoryProposal() async {
+    if (widget.onSubmitStoryProposal == null) return;
+    final body = _storyProposalBodyController.text;
+    if (body.trim().isEmpty) {
+      setState(() => _error = 'Proposed Story markdown cannot be empty.');
+      return;
+    }
+    final desc = _proposalDescController.text.trim();
+    setState(() {
+      _submitting = true;
+      _error = null;
+      _statusNote = null;
+    });
+    try {
+      final outcome = await widget.onSubmitStoryProposal!(
+        desc.isEmpty ? 'Suggested Story edit' : desc,
+        body,
+      );
+      if (!mounted) return;
+      _proposalDescController.clear();
+      final shortId = outcome.eventId.length > 10
+          ? '${outcome.eventId.substring(0, 10)}…'
+          : outcome.eventId;
+      setState(() {
+        _showStoryProposalComposer = false;
+        _statusNote =
+            'Story proposal published (${outcome.outboxState}) · $shortId';
+      });
+      if (widget.initialSnapshot == null) {
+        await _refresh();
+      }
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  List<_CommentThreadNode> _buildCommentTree(List<GeoCommentDto> rawComments) {
+    final visible = rawComments
+        .where((c) => !widget.mutedPubkeys.contains(c.pubkey))
+        .toList(growable: false);
+    final byEventId = <String, GeoCommentDto>{
+      for (final c in visible) c.eventId: c,
+    };
+    final byAddress = <String, GeoCommentDto>{
+      for (final c in visible) c.address: c,
+    };
+
+    final childrenByParent = <String, List<GeoCommentDto>>{};
+    final roots = <GeoCommentDto>[];
+
+    for (final c in visible) {
+      GeoCommentDto? parent;
+      if (c.parentEventId != null && c.parentEventId!.isNotEmpty) {
+        parent = byEventId[c.parentEventId!];
+      }
+      if (parent == null &&
+          c.parentAddress != null &&
+          c.parentAddress!.isNotEmpty &&
+          c.parentAddress != widget.target.address) {
+        parent = byAddress[c.parentAddress!];
+      }
+      if (parent != null && parent.eventId != c.eventId) {
+        childrenByParent
+            .putIfAbsent(parent.eventId, () => <GeoCommentDto>[])
+            .add(c);
+      } else {
+        roots.add(c);
+      }
+    }
+
+    final result = <_CommentThreadNode>[];
+    final visited = <String>{};
+    void visit(GeoCommentDto node, int depth) {
+      if (!visited.add(node.eventId)) return;
+      result.add(_CommentThreadNode(comment: node, depth: depth.clamp(0, 4)));
+      final kids = childrenByParent[node.eventId];
+      if (kids != null) {
+        for (final child in kids) {
+          visit(child, depth + 1);
+        }
+      }
+    }
+
+    for (final r in roots) {
+      visit(r, 0);
+    }
+    // Include any orphaned cyclic entries defensively
+    for (final c in visible) {
+      if (!visited.contains(c.eventId)) {
+        visit(c, 0);
+      }
+    }
+    return result;
+  }
+
+  List<_DiffLine> _computeStoryDiffLines(String base, String proposed) {
+    final baseLines = base.split('\n');
+    final propLines = proposed.split('\n');
+    final baseSet = baseLines.map((l) => l.trim()).toSet();
+    final propSet = propLines.map((l) => l.trim()).toSet();
+
+    final out = <_DiffLine>[];
+    for (final line in baseLines) {
+      final t = line.trim();
+      if (t.isNotEmpty && !propSet.contains(t)) {
+        out.add(_DiffLine('-', line));
+      }
+    }
+    for (final line in propLines) {
+      final t = line.trim();
+      if (t.isEmpty) continue;
+      if (!baseSet.contains(t)) {
+        out.add(_DiffLine('+', line));
+      } else {
+        out.add(_DiffLine(' ', line));
+      }
+    }
+    return out.take(80).toList(growable: false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final comments = _snapshot?.comments ?? const <GeoCommentDto>[];
-    final proposals = _snapshot?.proposals ?? const <GeoProposalDto>[];
+    final rawComments = _snapshot?.comments ?? const <GeoCommentDto>[];
+    final threadNodes = _buildCommentTree(rawComments);
+    final proposals = (_snapshot?.proposals ?? const <GeoProposalDto>[])
+        .where((p) => !widget.mutedPubkeys.contains(p.pubkey))
+        .toList(growable: false);
 
     return EarthlyMapDrawer(
-      initialFraction: 0.50,
+      initialFraction: 0.56,
       onClose: widget.onClose,
       header: Column(
         mainAxisSize: MainAxisSize.min,
@@ -275,7 +466,7 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
           TabBar(
             controller: _tabs,
             tabs: [
-              Tab(text: 'Comments (${comments.length})'),
+              Tab(text: 'Comments (${threadNodes.length})'),
               Tab(text: 'Proposals (${proposals.length})'),
             ],
           ),
@@ -316,7 +507,7 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
             child: TabBarView(
               controller: _tabs,
               children: [
-                _buildCommentsTab(comments),
+                _buildCommentsTab(threadNodes),
                 _buildProposalsTab(proposals),
               ],
             ),
@@ -326,14 +517,14 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
     );
   }
 
-  Widget _buildCommentsTab(List<GeoCommentDto> comments) {
+  Widget _buildCommentsTab(List<_CommentThreadNode> nodes) {
     final theme = Theme.of(context);
     return Column(
       children: [
         Expanded(
           child: _loading && _snapshot == null
               ? const Center(child: CircularProgressIndicator())
-              : comments.isEmpty
+              : nodes.isEmpty
                   ? const Center(
                       child: Padding(
                         padding: EdgeInsets.all(24),
@@ -345,49 +536,107 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                     )
                   : ListView.separated(
                       padding: const EdgeInsets.all(14),
-                      itemCount: comments.length,
-                      separatorBuilder: (_, _) => const Divider(height: 16),
+                      itemCount: nodes.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
-                        final c = comments[index];
+                        final node = nodes[index];
+                        final c = node.comment;
                         final hasGeo =
                             c.geojson != null && c.geojson!.isNotEmpty;
                         final showing = _activeCommentId == c.eventId;
-                        return Column(
+                        final canMute = widget.onMuteAuthor != null &&
+                            c.pubkey != widget.currentUserPubkey;
+
+                        Widget content = Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                CircleAvatar(
-                                  radius: 10,
-                                  backgroundColor: theme.colorScheme.primary
-                                      .withValues(alpha: 0.14),
-                                  backgroundImage: (widget
-                                              .profilesByPubkey[c.pubkey]
-                                              ?.picture
-                                              ?.startsWith('http') ??
-                                          false)
-                                      ? NetworkImage(
-                                          widget.profilesByPubkey[c.pubkey]!
-                                              .picture!,
-                                        )
-                                      : null,
-                                  child: (widget.profilesByPubkey[c.pubkey]
-                                              ?.picture
-                                              ?.startsWith('http') ??
-                                          false)
+                                InkWell(
+                                  onTap: widget.onOpenPerson == null
                                       ? null
-                                      : const Icon(Icons.person, size: 12),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  _authorLabel(c.pubkey),
-                                  style: const TextStyle(
-                                    fontFamily: 'monospace',
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
+                                      : () => widget.onOpenPerson!(c.pubkey),
+                                  borderRadius: BorderRadius.circular(999),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 10,
+                                        backgroundColor: theme
+                                            .colorScheme.primary
+                                            .withValues(alpha: 0.14),
+                                        backgroundImage: (widget
+                                                    .profilesByPubkey[c.pubkey]
+                                                    ?.picture
+                                                    ?.startsWith('http') ??
+                                                false)
+                                            ? NetworkImage(
+                                                widget
+                                                    .profilesByPubkey[
+                                                        c.pubkey]!
+                                                    .picture!,
+                                              )
+                                            : null,
+                                        child: (widget
+                                                    .profilesByPubkey[c.pubkey]
+                                                    ?.picture
+                                                    ?.startsWith('http') ??
+                                                false)
+                                            ? null
+                                            : const Icon(Icons.person,
+                                                size: 12),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        _authorLabel(c.pubkey),
+                                        style: TextStyle(
+                                          fontFamily: 'monospace',
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: widget.onOpenPerson != null
+                                              ? EarthlyColors.infoCyan
+                                              : null,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 const Spacer(),
+                                TextButton.icon(
+                                  key: Key('reply-btn-${c.eventId}'),
+                                  style: TextButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                    ),
+                                    minimumSize: const Size(0, 26),
+                                  ),
+                                  onPressed: () =>
+                                      setState(() => _replyingTo = c),
+                                  icon: const Icon(Icons.reply, size: 13),
+                                  label: const Text(
+                                    'Reply',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                                if (canMute)
+                                  IconButton(
+                                    tooltip: 'Mute author',
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 26,
+                                      minHeight: 26,
+                                    ),
+                                    onPressed: () =>
+                                        widget.onMuteAuthor!(c.pubkey),
+                                    icon: Icon(
+                                      Icons.volume_off_outlined,
+                                      size: 14,
+                                      color:
+                                          theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
                                 if (hasGeo)
                                   OutlinedButton.icon(
                                     onPressed: () {
@@ -415,6 +664,27 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                             EarthlyRichText(text: c.text, compact: true),
                           ],
                         );
+
+                        if (node.depth > 0) {
+                          content = Padding(
+                            key: Key('thread-indent-${c.eventId}'),
+                            padding: EdgeInsets.only(left: node.depth * 16.0),
+                            child: Container(
+                              padding: const EdgeInsets.only(left: 10),
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  left: BorderSide(
+                                    color: EarthlyColors.infoCyan
+                                        .withValues(alpha: 0.45),
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                              child: content,
+                            ),
+                          );
+                        }
+                        return content;
                       },
                     ),
         ),
@@ -424,6 +694,52 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (_replyingTo != null)
+                Container(
+                  key: const Key('reply-target-banner'),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: EarthlyColors.infoCyan.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: EarthlyColors.infoCyan.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.reply,
+                        size: 14,
+                        color: EarthlyColors.infoCyan,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Replying to ${_authorLabel(_replyingTo!.pubkey)}: ${_replyingTo!.text}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Cancel reply',
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 24,
+                          minHeight: 24,
+                        ),
+                        onPressed: () => setState(() => _replyingTo = null),
+                        icon: const Icon(Icons.close, size: 14),
+                      ),
+                    ],
+                  ),
+                ),
               if (widget.hasDraftGeometry)
                 CheckboxListTile(
                   dense: true,
@@ -440,15 +756,21 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                   Expanded(
                     child: TextField(
                       controller: _commentController,
-                      decoration: const InputDecoration(
-                        hintText: 'Write a geo comment (kind 37517)…',
+                      decoration: InputDecoration(
+                        hintText: _replyingTo != null
+                            ? 'Write a reply to ${_authorLabel(_replyingTo!.pubkey)}…'
+                            : 'Write a geo comment (kind 37517)…',
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
                     onPressed: _submitting ? null : _handlePostComment,
-                    child: Text(_submitting ? '…' : 'Post'),
+                    child: Text(
+                      _submitting
+                          ? '…'
+                          : (_replyingTo != null ? 'Reply' : 'Post'),
+                    ),
                   ),
                 ],
               ),
@@ -461,17 +783,21 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
 
   Widget _buildProposalsTab(List<GeoProposalDto> proposals) {
     final theme = Theme.of(context);
+    final isStory = widget.target.kind == 37520;
+
     return Column(
       children: [
         Expanded(
           child: _loading && _snapshot == null
               ? const Center(child: CircularProgressIndicator())
               : proposals.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Padding(
-                        padding: EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(24),
                         child: Text(
-                          'No edit proposals (kind 37519) for this map yet.',
+                          isStory
+                              ? 'No Story edit proposals (kind 37519) yet.'
+                              : 'No edit proposals (kind 37519) for this map yet.',
                           textAlign: TextAlign.center,
                         ),
                       ),
@@ -483,12 +809,16 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                       itemBuilder: (context, index) {
                         final p = proposals[index];
                         final showing = _activeProposalId == p.eventId;
+                        final showingDiff =
+                            _expandedStoryDiffIds.contains(p.eventId);
                         final badgeColor = switch (p.status) {
                           'applied' => EarthlyColors.commentGreen,
                           'closed' => EarthlyColors.destructive,
                           'draft' => EarthlyColors.published,
                           _ => EarthlyColors.proposedAmber,
                         };
+                        final isOwner =
+                            widget.currentUserPubkey == widget.target.pubkey;
                         return Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
@@ -522,7 +852,9 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
-                                    '+${p.addedCount}  ~${p.modifiedCount}  -${p.removedCount}',
+                                    p.isStoryProposal
+                                        ? '+${p.addedCount}  -${p.removedCount} lines'
+                                        : '+${p.addedCount}  ~${p.modifiedCount}  -${p.removedCount}',
                                     style: const TextStyle(
                                       fontFamily: 'monospace',
                                       fontSize: 11,
@@ -530,18 +862,35 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                     ),
                                   ),
                                   const Spacer(),
-                                  OutlinedButton(
-                                    onPressed: () {
-                                      setState(() {
-                                        _activeProposalId =
-                                            showing ? null : p.eventId;
-                                      });
-                                      widget.onToggleProposalOverlay(p);
-                                    },
-                                    child: Text(
-                                      showing ? 'Hide preview' : 'Preview',
+                                  if (p.isStoryProposal)
+                                    OutlinedButton(
+                                      key: Key('story-diff-btn-${p.eventId}'),
+                                      onPressed: () {
+                                        setState(() {
+                                          if (!_expandedStoryDiffIds
+                                              .add(p.eventId)) {
+                                            _expandedStoryDiffIds
+                                                .remove(p.eventId);
+                                          }
+                                        });
+                                      },
+                                      child: Text(
+                                        showingDiff ? 'Hide diff' : 'View diff',
+                                      ),
+                                    )
+                                  else
+                                    OutlinedButton(
+                                      onPressed: () {
+                                        setState(() {
+                                          _activeProposalId =
+                                              showing ? null : p.eventId;
+                                        });
+                                        widget.onToggleProposalOverlay(p);
+                                      },
+                                      child: Text(
+                                        showing ? 'Hide preview' : 'Preview',
+                                      ),
                                     ),
-                                  ),
                                 ],
                               ),
                               const SizedBox(height: 6),
@@ -550,26 +899,77 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                     '**${_authorLabel(p.pubkey)}** · ${p.description ?? 'Proposed edit (${p.dTag})'}',
                                 compact: true,
                               ),
+                              if (p.isStoryProposal && showingDiff) ...[
+                                const SizedBox(height: 8),
+                                Container(
+                                  key: Key('story-diff-view-${p.eventId}'),
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: theme
+                                        .colorScheme.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border:
+                                        Border.all(color: theme.dividerColor),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      for (final line in _computeStoryDiffLines(
+                                        widget.target.baseMarkdown ?? '',
+                                        p.proposedMarkdown ?? '',
+                                      ))
+                                        Container(
+                                          color: line.prefix == '+'
+                                              ? EarthlyColors.commentGreen
+                                                  .withValues(alpha: 0.14)
+                                              : line.prefix == '-'
+                                                  ? EarthlyColors.destructive
+                                                      .withValues(alpha: 0.14)
+                                                  : null,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                            vertical: 1,
+                                          ),
+                                          child: Text(
+                                            '${line.prefix} ${line.text}',
+                                            style: TextStyle(
+                                              fontFamily: 'monospace',
+                                              fontSize: 10.5,
+                                              color: line.prefix == '+'
+                                                  ? EarthlyColors.commentGreen
+                                                  : line.prefix == '-'
+                                                      ? EarthlyColors
+                                                          .destructive
+                                                      : theme.colorScheme
+                                                          .onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 8),
                               Wrap(
                                 spacing: 6,
                                 runSpacing: 6,
                                 children: [
-                                  OutlinedButton.icon(
-                                    onPressed: () =>
-                                        widget.onLoadProposalToDraft(p),
-                                    icon: const Icon(
-                                      Icons.copy_all_outlined,
-                                      size: 14,
+                                  if (!p.isStoryProposal)
+                                    OutlinedButton.icon(
+                                      onPressed: () =>
+                                          widget.onLoadProposalToDraft(p),
+                                      icon: const Icon(
+                                        Icons.copy_all_outlined,
+                                        size: 14,
+                                      ),
+                                      label: const Text(
+                                        'Load to Draft',
+                                        style: TextStyle(fontSize: 11),
+                                      ),
                                     ),
-                                    label: const Text(
-                                      'Load to Draft',
-                                      style: TextStyle(fontSize: 11),
-                                    ),
-                                  ),
-                                  if (p.status == 'open' &&
-                                      widget.currentUserPubkey ==
-                                          widget.target.pubkey) ...[
+                                  if (p.status == 'open' && isOwner) ...[
                                     FilledButton.icon(
                                       onPressed: _submitting
                                           ? null
@@ -578,9 +978,11 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                                 apply: true,
                                               ),
                                       icon: const Icon(Icons.check, size: 14),
-                                      label: const Text(
-                                        'Accept & Apply',
-                                        style: TextStyle(fontSize: 11),
+                                      label: Text(
+                                        p.isStoryProposal
+                                            ? 'Accept & Update Story'
+                                            : 'Accept & Apply',
+                                        style: const TextStyle(fontSize: 11),
                                       ),
                                     ),
                                     OutlinedButton(
@@ -626,10 +1028,70 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                   icon: const Icon(Icons.call_merge, size: 16),
                   label: Text(
                     _submitting
-                        ? 'Signing with Amber…'
+                        ? 'Signing & publishing…'
                         : 'Propose Local Draft as Edit (37519)',
                   ),
                 ),
+              ],
+            ),
+          ),
+        ],
+        if (isStory && widget.onSubmitStoryProposal != null) ...[
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (!_showStoryProposalComposer)
+                  OutlinedButton.icon(
+                    key: const Key('open-story-proposal-composer'),
+                    onPressed: () =>
+                        setState(() => _showStoryProposalComposer = true),
+                    icon: const Icon(Icons.edit_note, size: 17),
+                    label: const Text('Propose Story Edit (37519)'),
+                  )
+                else ...[
+                  TextField(
+                    controller: _proposalDescController,
+                    decoration: const InputDecoration(
+                      hintText: 'Summary of your suggested Story edit…',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _storyProposalBodyController,
+                    minLines: 4,
+                    maxLines: 8,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11.5),
+                    decoration: const InputDecoration(
+                      labelText: 'Proposed Story Markdown',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: _submitting
+                            ? null
+                            : () => setState(
+                                () => _showStoryProposalComposer = false),
+                        child: const Text('Cancel'),
+                      ),
+                      const Spacer(),
+                      FilledButton.icon(
+                        onPressed:
+                            _submitting ? null : _handleSubmitStoryProposal,
+                        icon: const Icon(Icons.call_merge, size: 16),
+                        label: Text(
+                          _submitting
+                              ? 'Publishing…'
+                              : 'Submit Story Proposal',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),

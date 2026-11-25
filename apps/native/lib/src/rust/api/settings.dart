@@ -43,6 +43,7 @@ class AppSettingsDto {
   final List<String> inboxReadIds;
   final List<SavedAccountSessionDto> savedAccounts;
   final String? activeAccountId;
+  final List<String> mutedPubkeys;
 
   const AppSettingsDto({
     required this.relayUrls,
@@ -64,6 +65,7 @@ class AppSettingsDto {
     required this.inboxReadIds,
     required this.savedAccounts,
     this.activeAccountId,
+    required this.mutedPubkeys,
   });
 
   @override
@@ -86,7 +88,8 @@ class AppSettingsDto {
       inboxReadAllBefore.hashCode ^
       inboxReadIds.hashCode ^
       savedAccounts.hashCode ^
-      activeAccountId.hashCode;
+      activeAccountId.hashCode ^
+      mutedPubkeys.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -111,7 +114,8 @@ class AppSettingsDto {
           inboxReadAllBefore == other.inboxReadAllBefore &&
           inboxReadIds == other.inboxReadIds &&
           savedAccounts == other.savedAccounts &&
-          activeAccountId == other.activeAccountId;
+          activeAccountId == other.activeAccountId &&
+          mutedPubkeys == other.mutedPubkeys;
 }
 
 class MountedAtlasWorkspaceDto {

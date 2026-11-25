@@ -67,6 +67,7 @@ pub struct AppSettingsDto {
     pub inbox_read_ids: Vec<String>,
     pub saved_accounts: Vec<SavedAccountSessionDto>,
     pub active_account_id: Option<String>,
+    pub muted_pubkeys: Vec<String>,
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
@@ -148,6 +149,7 @@ fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
             })
             .collect(),
         active_account_id: r.active_account_id,
+        muted_pubkeys: r.muted_pubkeys,
     }
 }
 
@@ -213,6 +215,7 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
             })
             .collect(),
         active_account_id: d.active_account_id,
+        muted_pubkeys: d.muted_pubkeys,
     }
 }
 
@@ -230,10 +233,13 @@ mod tests {
         s.blossom_server_url = "https://blossom.primal.net".to_owned();
         s.inbox_read_all_before = 1_790_000_000;
         s.inbox_read_ids = vec!["reply:abc".to_owned()];
+        s.muted_pubkeys = vec!["f".repeat(64)];
         let saved = save_app_settings(db.clone(), s).unwrap();
         assert_eq!(saved.blossom_server_url, "https://blossom.primal.net");
+        assert_eq!(saved.muted_pubkeys, vec!["f".repeat(64)]);
         let reloaded = load_app_settings(db).unwrap();
         assert_eq!(reloaded.inbox_read_all_before, 1_790_000_000);
         assert_eq!(reloaded.inbox_read_ids, vec!["reply:abc".to_owned()]);
+        assert_eq!(reloaded.muted_pubkeys, vec!["f".repeat(64)]);
     }
 }

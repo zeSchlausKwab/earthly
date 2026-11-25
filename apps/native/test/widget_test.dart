@@ -11,6 +11,7 @@ import 'package:earthly_native/shell/basemap_switcher_sheet.dart';
 import 'package:earthly_native/shell/circles_sheet.dart';
 import 'package:earthly_native/shell/dataset_detail_margin.dart';
 import 'package:earthly_native/shell/desk_sheet.dart';
+import 'package:earthly_native/shell/discussion_margin_sheet.dart';
 import 'package:earthly_native/shell/earthly_rich_text.dart';
 import 'package:earthly_native/shell/entity_list_row.dart';
 import 'package:earthly_native/shell/explore_sheet.dart';
@@ -18,6 +19,7 @@ import 'package:earthly_native/shell/inbox_sheet.dart';
 import 'package:earthly_native/shell/map_drawer.dart';
 import 'package:earthly_native/shell/person_margin.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
+import 'package:earthly_native/shell/social_actions_bar.dart';
 import 'package:earthly_native/shell/story_composer_sheet.dart';
 import 'package:earthly_native/src/rust/api/agent.dart';
 import 'package:earthly_native/src/rust/api/blossom.dart';
@@ -400,6 +402,7 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
       featureCount: 5,
       sizeBytes: 2048,
       geojson: '{"type":"FeatureCollection","features":[]}',
+      blobRefs: const [],
       hashtags: const ['hiking'],
       labels: const [],
       contextRefs: const ['37518:aaa:alps'],
@@ -414,6 +417,7 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
       featureCount: 12,
       sizeBytes: 4096,
       geojson: '{"type":"FeatureCollection","features":[]}',
+      blobRefs: const [],
       hashtags: const ['coffee'],
       labels: const [],
       contextRefs: const [],
@@ -545,6 +549,7 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
         ]
       }
       ''',
+      blobRefs: const [],
       hashtags: const ['river'],
       labels: const [],
       contextRefs: const [],
@@ -1038,6 +1043,7 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
           featureCount: 4,
           sizeBytes: 1200,
           geojson: '{"type":"FeatureCollection","features":[]}',
+          blobRefs: const [],
           hashtags: const ['cycling'],
           labels: const [],
           contextRefs: const [],
@@ -1704,5 +1710,424 @@ Start at geo:48.2764,16.3338 and check $naddr
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('ADD ANOTHER ACCOUNT'), findsOneWidget);
+  });
+
+  testWidgets(
+      'AtlasDetailMargin enforces two-lane Curated vs Community governance, owner Bless/Lockdown, and muted contributor filtering',
+      (WidgetTester tester) async {
+    const ownerPk =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const contribPk =
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const mutedPk =
+        'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+
+    final curatedMap = MapSummaryDto(
+      address: '37515:$ownerPk:canon-trail',
+      eventId: 'ev-canon',
+      pubkey: ownerPk,
+      dTag: 'canon-trail',
+      title: 'Curated Alpine Spine',
+      featureCount: 3,
+      sizeBytes: 512,
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      blobRefs: const [],
+      hashtags: const ['alps'],
+      labels: const [],
+      contextRefs: const ['37518:$ownerPk:alps'],
+      createdAt: BigInt.from(1791000100),
+    );
+    final communityMap = MapSummaryDto(
+      address: '37515:$contribPk:side-valley',
+      eventId: 'ev-comm',
+      pubkey: contribPk,
+      dTag: 'side-valley',
+      title: 'Community Side Valley',
+      featureCount: 2,
+      sizeBytes: 400,
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      blobRefs: const [],
+      hashtags: const ['alps'],
+      labels: const [],
+      contextRefs: const ['37518:$ownerPk:alps'],
+      createdAt: BigInt.from(1791000200),
+    );
+    final mutedMap = MapSummaryDto(
+      address: '37515:$mutedPk:spam-map',
+      eventId: 'ev-spam',
+      pubkey: mutedPk,
+      dTag: 'spam-map',
+      title: 'Muted Spam Route',
+      featureCount: 1,
+      sizeBytes: 200,
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      blobRefs: const [],
+      hashtags: const [],
+      labels: const [],
+      contextRefs: const ['37518:$ownerPk:alps'],
+      createdAt: BigInt.from(1791000300),
+    );
+    final openAtlas = AtlasSummaryDto(
+      address: '37518:$ownerPk:alps',
+      eventId: 'ev-atlas-open',
+      pubkey: ownerPk,
+      dTag: 'alps',
+      name: 'Alpine Atlas',
+      governance: 'open',
+      pinnedAddresses: ['37515:$ownerPk:canon-trail'],
+      hashtags: const ['alps'],
+      createdAt: BigInt.from(1791000000),
+    );
+
+    String? blessedAddress;
+    var lockedDown = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AtlasDetailMargin(
+                atlas: openAtlas,
+                relayUrls: const ['wss://relay.earthly.city'],
+                catalogMaps: [curatedMap, communityMap, mutedMap],
+                catalogStories: const [],
+                shelfAddresses: const {},
+                profilesByPubkey: const {},
+                isActiveLens: false,
+                isOwned: true,
+                currentUserPubkey: ownerPk,
+                mutedPubkeys: const {mutedPk},
+                onBlessContribution: (addr) async => blessedAddress = addr,
+                onLockDownAtlas: () async => lockedDown = true,
+                onToggleLens: () {},
+                onShowAllOnMap: () {},
+                onToggleMapOnShelf: (_) {},
+                onFocusMap: (_) {},
+                onOpenStory: (_) {},
+                onOpenDiscussion: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('CURATED (1)'), findsOneWidget);
+    expect(find.text('Curated Alpine Spine'), findsOneWidget);
+    expect(find.text('COMMUNITY CONTRIBUTIONS (1)'), findsOneWidget);
+    expect(find.text('Community Side Valley'), findsOneWidget);
+    // Muted contributor is strictly filtered out!
+    expect(find.text('Muted Spam Route'), findsNothing);
+
+    // Owner 1-tap Bless ("Add to Curated")
+    final blessFinder = find.byKey(Key('bless-${communityMap.address}'));
+    await tester.ensureVisible(blessFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(blessFinder);
+    await tester.pumpAndSettle();
+    expect(blessedAddress, communityMap.address);
+
+    // Owner Lock Down -> Closed dialog
+    final lockFinder = find.byKey(const Key('atlas-lockdown-btn'));
+    await tester.ensureVisible(lockFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(lockFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Lock Down').last);
+    await tester.pumpAndSettle();
+    expect(lockedDown, isTrue);
+
+    // When Atlas is `closed`, Community Contributions lane is completely hidden!
+    final closedAtlas = AtlasSummaryDto(
+      address: openAtlas.address,
+      eventId: 'ev-atlas-closed',
+      pubkey: ownerPk,
+      dTag: 'alps',
+      name: 'Alpine Atlas',
+      governance: 'closed',
+      pinnedAddresses: ['37515:$ownerPk:canon-trail'],
+      hashtags: const ['alps'],
+      createdAt: BigInt.from(1791000500),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AtlasDetailMargin(
+                atlas: closedAtlas,
+                relayUrls: const ['wss://relay.earthly.city'],
+                catalogMaps: [curatedMap, communityMap],
+                catalogStories: const [],
+                shelfAddresses: const {},
+                profilesByPubkey: const {},
+                isActiveLens: false,
+                isOwned: true,
+                onToggleLens: () {},
+                onShowAllOnMap: () {},
+                onToggleMapOnShelf: (_) {},
+                onFocusMap: (_) {},
+                onOpenStory: (_) {},
+                onOpenDiscussion: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Curated Alpine Spine'), findsOneWidget);
+    expect(find.text('Community Side Valley'), findsNothing);
+    expect(
+      find.text('Closed Atlas — only author-curated picks are shown.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'DiscussionMarginSheet renders nested NIP-22 replies, Reply target banner, and Story Markdown diff proposals',
+      (WidgetTester tester) async {
+    const ownerPk =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const bobPk =
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const mutedPk =
+        'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+    const storyAddr = '37520:$ownerPk:danube-journal';
+
+    final rootComment = GeoCommentDto(
+      address: '37517:$bobPk:c1',
+      eventId: 'ev-c1',
+      pubkey: bobPk,
+      dTag: 'c1',
+      text: 'Is the northern towpath paved?',
+      rootAddress: storyAddr,
+      parentAddress: storyAddr,
+      createdAt: BigInt.from(1791000100),
+    );
+    final childReply = GeoCommentDto(
+      address: '37517:$ownerPk:c2',
+      eventId: 'ev-c2',
+      pubkey: ownerPk,
+      dTag: 'c2',
+      text: 'Yes, fresh gravel near kilometer 12.',
+      rootAddress: storyAddr,
+      parentAddress: rootComment.address,
+      parentEventId: rootComment.eventId,
+      createdAt: BigInt.from(1791000200),
+    );
+    final mutedComment = GeoCommentDto(
+      address: '37517:$mutedPk:c3',
+      eventId: 'ev-c3',
+      pubkey: mutedPk,
+      dTag: 'c3',
+      text: 'Hidden muted comment',
+      rootAddress: storyAddr,
+      parentAddress: storyAddr,
+      createdAt: BigInt.from(1791000300),
+    );
+    final storyProposal = GeoProposalDto(
+      address: '37519:$bobPk:pr-story-1',
+      eventId: 'ev-pr1',
+      pubkey: bobPk,
+      dTag: 'pr-story-1',
+      targetAddress: storyAddr,
+      description: 'Add ferry schedule note',
+      status: 'open',
+      geojson: '',
+      isStoryProposal: true,
+      proposedMarkdown: '# Danube Journal\n\nFerry runs every 30 min.',
+      addedCount: 1,
+      modifiedCount: 0,
+      removedCount: 1,
+      createdAt: BigInt.from(1791000400),
+    );
+
+    GeoCommentDto? repliedToTarget;
+    GeoProposalDto? appliedProposal;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DiscussionMarginSheet(
+                target: const DiscussionTarget(
+                  address: storyAddr,
+                  kind: 37520,
+                  pubkey: ownerPk,
+                  title: 'Danube Journal',
+                  baseMarkdown: '# Danube Journal\n\nOld ferry line.',
+                ),
+                initialSnapshot: EntityDiscussionSnapshot(
+                  rootAddress: storyAddr,
+                  comments: [rootComment, childReply, mutedComment],
+                  proposals: [storyProposal],
+                ),
+                relayUrls: const ['wss://relay.earthly.city'],
+                hasDraftGeometry: false,
+                activeCommentGeojsonId: null,
+                activeProposalId: null,
+                profilesByPubkey: const {
+                  ownerPk: ProfileMetadataDto(pubkey: ownerPk, name: 'alice'),
+                  bobPk: ProfileMetadataDto(pubkey: bobPk, name: 'bob'),
+                },
+                currentUserPubkey: ownerPk,
+                mutedPubkeys: const {mutedPk},
+                onToggleCommentOverlay: (_) {},
+                onToggleProposalOverlay: (_) {},
+                onPostComment: (text, attach, {replyTo}) async {
+                  repliedToTarget = replyTo;
+                  return const PublishOutcomeDto(
+                    eventId: '0123456789abcdef',
+                    outboxState: 'sent',
+                    relays: [],
+                  );
+                },
+                onSubmitProposal: (_) async => const PublishOutcomeDto(
+                  eventId: '0123456789abcdef',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onSubmitStoryProposal: (_, _) async => const PublishOutcomeDto(
+                  eventId: '0123456789abcdef',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onLoadProposalToDraft: (_) {},
+                onApplyProposal: (p) async {
+                  appliedProposal = p;
+                  return const PublishOutcomeDto(
+                    eventId: '0123456789abcdef',
+                    outboxState: 'sent',
+                    relays: [],
+                  );
+                },
+                onCloseProposal: (_) async => const PublishOutcomeDto(
+                  eventId: '0123456789abcdef',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    // Muted author comment is hidden; nested reply is indented!
+    expect(find.text('Hidden muted comment'), findsNothing);
+    expect(find.byKey(const Key('thread-indent-ev-c2')), findsOneWidget);
+
+    // Tap Reply on root comment -> shows reply target banner & sends replyTo!
+    await tester.tap(find.byKey(const Key('reply-btn-ev-c1')));
+    await tester.pump();
+    expect(find.byKey(const Key('reply-target-banner')), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'Thanks for confirming!');
+    await tester.tap(find.widgetWithText(FilledButton, 'Reply'));
+    await tester.pumpAndSettle();
+    expect(repliedToTarget?.eventId, 'ev-c1');
+
+    // Switch to Proposals tab -> Story Markdown diff & Accept & Update Story!
+    await tester.tap(find.text('Proposals (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('+1  -1 lines'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('story-diff-btn-ev-pr1')));
+    await tester.pump();
+    expect(find.byKey(const Key('story-diff-view-ev-pr1')), findsOneWidget);
+    expect(find.text('+ Ferry runs every 30 min.'), findsOneWidget);
+    expect(find.text('- Old ferry line.'), findsOneWidget);
+
+    final acceptBtn = find.text('Accept & Update Story');
+    await tester.ensureVisible(acceptBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(acceptBtn);
+    await tester.pumpAndSettle();
+    expect(appliedProposal?.eventId, 'ev-pr1');
+  });
+
+  testWidgets(
+      'EntityReactionBar toggles NIP-25 Like & shows Zap sats, and DatasetDetailMargin displays BLOSSOM BLOB badge',
+      (WidgetTester tester) async {
+    var toggled = false;
+    final blobMap = MapSummaryDto(
+      address: '37515:aaa:huge-country',
+      eventId: 'ev-huge',
+      pubkey: 'aaa',
+      dTag: 'huge-country',
+      title: 'Austria Bike Network',
+      featureCount: 420,
+      sizeBytes: 340000,
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      blobRefs: [
+        BlobRefDto(
+          scope: 'collection',
+          url: 'https://blossom.earthly.city/abc.geojson',
+          sha256: 'a' * 64,
+          size: BigInt.from(340000),
+          mime: 'application/geo+json',
+        ),
+      ],
+      hashtags: const ['cycling'],
+      labels: const [],
+      contextRefs: const [],
+      createdAt: BigInt.from(1791000100),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DatasetDetailMargin(
+                map: blobMap,
+                relayUrls: const ['wss://relay.earthly.city'],
+                onShelf: false,
+                isOwned: false,
+                authorProfile: null,
+                initialSocialCounts: EntitySocialCountsDto(
+                  address: blobMap.address,
+                  reactionCount: 7,
+                  userHasReacted: false,
+                  zapCount: 2,
+                  zapSats: BigInt.from(2100),
+                ),
+                onToggleReaction: (cur) async {
+                  toggled = true;
+                  return EntitySocialCountsDto(
+                    address: blobMap.address,
+                    reactionCount: 8,
+                    userHasReacted: true,
+                    userReactionEventId: 'rx-1',
+                    zapCount: 2,
+                    zapSats: BigInt.from(2100),
+                  );
+                },
+                onToggleOnShelf: () {},
+                onZoomToMap: () {},
+                onJumpToFeature: (_) {},
+                onEditOrForkMap: () {},
+                onOpenDiscussion: () {},
+                onDeleteMap: (_) => throw UnimplementedError(),
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('BLOSSOM BLOB'), findsOneWidget);
+    expect(find.byType(EntityReactionBar), findsOneWidget);
+    expect(find.text('7'), findsOneWidget);
+    expect(find.text('2100 sats'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('entity-reaction-btn')));
+    await tester.pumpAndSettle();
+    expect(toggled, isTrue);
+    expect(find.text('8'), findsOneWidget);
   });
 }

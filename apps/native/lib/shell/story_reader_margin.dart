@@ -9,6 +9,7 @@ import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
+import 'social_actions_bar.dart';
 
 /// Non-blocking draggable Margin sheet that sits over the live MapLibre canvas
 /// while reading a Story (`kind 37520`).
@@ -38,6 +39,9 @@ class StoryReaderMargin extends StatelessWidget {
     this.onDeleteStory,
     this.authorLabel,
     this.onOpenPerson,
+    this.currentUserPubkey,
+    this.initialSocialCounts,
+    this.onToggleReaction,
     super.key,
   });
 
@@ -62,6 +66,10 @@ class StoryReaderMargin extends StatelessWidget {
   final Future<void> Function()? onDeleteStory;
   final String? authorLabel;
   final ValueChanged<String>? onOpenPerson;
+  final String? currentUserPubkey;
+  final EntitySocialCountsDto? initialSocialCounts;
+  final Future<EntitySocialCountsDto?> Function(EntitySocialCountsDto? current)?
+      onToggleReaction;
 
   @override
   Widget build(BuildContext context) {
@@ -371,6 +379,17 @@ class StoryReaderMargin extends StatelessWidget {
                       style: TextStyle(fontFamily: 'monospace', fontSize: 11),
                     ),
                   ),
+                ),
+              if (onToggleReaction != null || initialSocialCounts != null)
+                EntityReactionBar(
+                  targetAddress: story.address,
+                  targetEventId: story.eventId,
+                  targetPubkey: story.pubkey,
+                  targetKind: 37520,
+                  relayUrls: relayUrls,
+                  currentUserPubkey: currentUserPubkey,
+                  initialCounts: initialSocialCounts,
+                  onToggleReaction: onToggleReaction,
                 ),
             ],
           ),

@@ -2,22 +2,35 @@
 //! Atlases 37518, Stories 37520, Live Beacons 37521, Sightings 37522) and
 //! parsing them through `earthly-domain`.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_domain::{
-    ARTICLE_KIND, AtlasGroup, GEO_COMMENT_KIND, GEO_EDIT_PROPOSAL_KIND, GEO_EVENT_KIND,
+    ARTICLE_KIND, AtlasGroup, BlobScope, GEO_COMMENT_KIND, GEO_EDIT_PROPOSAL_KIND, GEO_EVENT_KIND,
     GeoComment, GeoEditProposal, LIVE_BEACON_KIND, LiveBeacon, MAP_CONTEXT_KIND, MapDataset,
     PROPOSAL_STATUS_APPLIED_KIND, PROPOSAL_STATUS_CLOSED_KIND, PROPOSAL_STATUS_DRAFT_KIND,
-    PROPOSAL_STATUS_OPEN_KIND, ProposalStatus, RawNostrEvent, StoryArticle,
-    TEMPORAL_SIGHTING_KIND, TemporalSighting, diff_feature_collections, is_expired,
+    PROPOSAL_STATUS_OPEN_KIND, ProposalStatus, RawNostrEvent, StoryArticle, TEMPORAL_SIGHTING_KIND,
+    TemporalSighting, diff_feature_collections, is_expired,
 };
 use nostr::nips::nip01::Coordinate;
 use nostr::nips::nip19::{FromBech32, Nip19, Nip19Coordinate, ToBech32};
 use nostr::{Alphabet, Event, Filter, Kind, PublicKey, RelayUrl, SingleLetterTag, Timestamp};
 use nostr_sdk::{Client, RelayPoolNotification};
+use sha2::{Digest, Sha256};
 
 pub const DEFAULT_EARTHLY_RELAY: &str = "wss://relay.earthly.city";
+const MAX_EXTERNAL_BLOB_BYTES: u64 = 50 * 1024 * 1024;
+
+#[derive(Clone, Debug)]
+pub struct BlobRefDto {
+    /// `"collection"` or `"feature:<id>"`
+    pub scope: String,
+    pub url: String,
+    pub sha256: Option<String>,
+    pub size: Option<u64>,
+    pub mime: Option<String>,
+}
 
 #[derive(Clone, Debug)]
 pub struct MapSummaryDto {
@@ -30,6 +43,7 @@ pub struct MapSummaryDto {
     pub feature_count: u32,
     pub size_bytes: u32,
     pub geojson: String,
+    pub blob_refs: Vec<BlobRefDto>,
     pub west: Option<f64>,
     pub south: Option<f64>,
     pub east: Option<f64>,
@@ -269,6 +283,7 @@ pub struct GeoCommentDto {
     pub geojson: Option<String>,
     pub root_address: Option<String>,
     pub parent_address: Option<String>,
+    pub parent_event_id: Option<String>,
     pub created_at: u64,
 }
 
@@ -282,10 +297,22 @@ pub struct GeoProposalDto {
     pub description: Option<String>,
     pub status: String,
     pub geojson: String,
+    pub is_story_proposal: bool,
+    pub proposed_markdown: Option<String>,
     pub added_count: u32,
     pub modified_count: u32,
     pub removed_count: u32,
     pub created_at: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct EntitySocialCountsDto {
+    pub address: String,
+    pub reaction_count: u32,
+    pub user_has_reacted: bool,
+    pub user_reaction_event_id: Option<String>,
+    pub zap_count: u32,
+    pub zap_sats: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -935,16 +962,17 @@ pub async fn fetch_maps_by_addresses(
     Ok(out)
 }
 
-/// Fetches NIP-22 Geo Comments (`kind 37517`), Geo Edit Proposals (`kind 37519`),
+/// Fetches NIP-22 Geo Comments (`kind 37517`), Map/Story Edit Proposals (`kind 37519`),
 /// and NIP-34 proposal status events (`1630`–`1633`) attached to a target Earthly
 /// entity address (e.g. `37515:<pubkey>:<d>` or `37520:<pubkey>:<d>`).
 ///
-/// When `base_geojson` is provided, computes deterministic `+added / ~modified / -removed`
-/// feature diffs via `earthly_domain::diff_feature_collections`.
+/// When `base_geojson` (or `base_markdown` for Stories) is provided, computes
+/// deterministic `+added / ~modified / -removed` diff counts.
 pub async fn fetch_entity_discussion(
     relay_urls: Vec<String>,
     root_address: String,
     base_geojson: Option<String>,
+    base_markdown: Option<String>,
 ) -> Result<EntityDiscussionSnapshot, String> {
     let urls = if relay_urls.is_empty() {
         vec![DEFAULT_EARTHLY_RELAY.to_owned()]
@@ -1052,6 +1080,7 @@ pub async fn fetch_entity_discussion(
                 .geojson
                 .as_ref()
                 .and_then(|v| serde_json::to_string(v).ok());
+            let parent_event_id = earthly_domain::get_tag_value(&raw.tags, "e").map(str::to_owned);
             comments.push(GeoCommentDto {
                 address,
                 event_id: c.event_id,
@@ -1061,6 +1090,7 @@ pub async fn fetch_entity_discussion(
                 geojson,
                 root_address: c.root_address,
                 parent_address: c.parent_address,
+                parent_event_id,
                 created_at: c.created_at,
             });
         }
@@ -1070,20 +1100,21 @@ pub async fn fetch_entity_discussion(
     let base_fc: Option<serde_json::Value> = base_geojson
         .as_deref()
         .and_then(|raw| serde_json::from_str(raw).ok());
+    let is_story_target = root_address.starts_with("37520:");
 
     let mut proposals = Vec::new();
     for (address, raw) in latest_proposals {
+        let status_enum = status_by_proposal
+            .get(&address)
+            .map(|(_, s)| *s)
+            .unwrap_or(ProposalStatus::Open);
+        let status = match status_enum {
+            ProposalStatus::Open => "open",
+            ProposalStatus::Applied => "applied",
+            ProposalStatus::Closed => "closed",
+            ProposalStatus::Draft => "draft",
+        };
         if let Ok(p) = GeoEditProposal::parse(&raw) {
-            let status_enum = status_by_proposal
-                .get(&address)
-                .map(|(_, s)| *s)
-                .unwrap_or(ProposalStatus::Open);
-            let status = match status_enum {
-                ProposalStatus::Open => "open",
-                ProposalStatus::Applied => "applied",
-                ProposalStatus::Closed => "closed",
-                ProposalStatus::Draft => "draft",
-            };
             let diff = base_fc
                 .as_ref()
                 .map(|base| diff_feature_collections(base, &p.feature_collection))
@@ -1098,10 +1129,39 @@ pub async fn fetch_entity_discussion(
                 description: p.description,
                 status: status.to_owned(),
                 geojson,
+                is_story_proposal: false,
+                proposed_markdown: None,
                 added_count: diff.added.len() as u32,
                 modified_count: diff.modified.len() as u32,
                 removed_count: diff.removed.len() as u32,
                 created_at: p.created_at,
+            });
+        } else if is_story_target && !raw.content.trim().is_empty() {
+            let d_tag = raw.d_tag().unwrap_or("story-pr").to_owned();
+            let target_addr = earthly_domain::get_tag_value(&raw.tags, "a")
+                .unwrap_or(&root_address)
+                .to_owned();
+            let description =
+                earthly_domain::get_tag_value(&raw.tags, "description").map(str::to_owned);
+            let (added, removed) = compute_markdown_line_diff_counts(
+                base_markdown.as_deref().unwrap_or(""),
+                &raw.content,
+            );
+            proposals.push(GeoProposalDto {
+                address,
+                event_id: raw.id.clone(),
+                pubkey: raw.pubkey.clone(),
+                d_tag,
+                target_address: target_addr,
+                description,
+                status: status.to_owned(),
+                geojson: String::new(),
+                is_story_proposal: true,
+                proposed_markdown: Some(raw.content.clone()),
+                added_count: added,
+                modified_count: 0,
+                removed_count: removed,
+                created_at: raw.created_at,
             });
         }
     }
@@ -1112,6 +1172,286 @@ pub async fn fetch_entity_discussion(
         comments,
         proposals,
     })
+}
+
+fn compute_markdown_line_diff_counts(base: &str, proposed: &str) -> (u32, u32) {
+    let base_lines: HashSet<&str> = base.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let prop_lines: HashSet<&str> = proposed
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let added = prop_lines.difference(&base_lines).count() as u32;
+    let removed = base_lines.difference(&prop_lines).count() as u32;
+    (added, removed)
+}
+
+/// Fetches NIP-25 reaction (`kind 7`) counts, whether `current_user_pubkey` has
+/// reacted, and NIP-57 zap (`kind 9735`) count & satoshi total for an Earthly entity.
+pub async fn fetch_entity_social_counts(
+    relay_urls: Vec<String>,
+    target_address: String,
+    target_event_id: Option<String>,
+    current_user_pubkey: Option<String>,
+) -> Result<EntitySocialCountsDto, String> {
+    let urls = if relay_urls.is_empty() {
+        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
+    } else {
+        relay_urls
+    };
+    let client = Client::default();
+    for url in &urls {
+        let _ = client.add_relay(url).await;
+    }
+    client.connect().await;
+
+    let reactions_filter = Filter::new()
+        .kind(Kind::Reaction)
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::A), target_address.clone())
+        .limit(200);
+    let zaps_filter = Filter::new()
+        .kind(Kind::Custom(9735))
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::A), target_address.clone())
+        .limit(100);
+    let reactions_e_filter = target_event_id
+        .as_deref()
+        .and_then(|id| nostr::EventId::from_hex(id).ok())
+        .map(|eid| Filter::new().kind(Kind::Reaction).event(eid).limit(200));
+
+    let (r_a, z_a) = tokio::join!(
+        client.fetch_events(reactions_filter, Duration::from_secs(5)),
+        client.fetch_events(zaps_filter, Duration::from_secs(5)),
+    );
+    let r_e = if let Some(f) = reactions_e_filter {
+        client.fetch_events(f, Duration::from_secs(4)).await.ok()
+    } else {
+        None
+    };
+    client.disconnect().await;
+
+    let me = current_user_pubkey
+        .as_deref()
+        .map(|s| s.trim().to_lowercase());
+    let mut reactors: HashMap<String, String> = HashMap::new();
+    for set in [r_a.ok(), r_e].into_iter().flatten() {
+        for ev in set.into_iter() {
+            if ev.content.trim() == "-" {
+                continue;
+            }
+            let pk = ev.pubkey.to_hex();
+            reactors.entry(pk).or_insert_with(|| ev.id.to_hex());
+        }
+    }
+    let user_reaction_event_id = me.as_deref().and_then(|pk| reactors.get(pk).cloned());
+    let user_has_reacted = user_reaction_event_id.is_some();
+
+    let mut zap_count = 0u32;
+    let mut zap_sats = 0u64;
+    if let Ok(zaps) = z_a {
+        let mut seen_zaps = HashSet::new();
+        for ev in zaps.into_iter() {
+            if !seen_zaps.insert(ev.id.to_hex()) {
+                continue;
+            }
+            zap_count += 1;
+            let raw = event_to_raw(&ev);
+            if let Some(desc_json) = earthly_domain::get_tag_value(&raw.tags, "description") {
+                if let Ok(req) = serde_json::from_str::<serde_json::Value>(desc_json) {
+                    if let Some(tags) = req.get("tags").and_then(|v| v.as_array()) {
+                        for t in tags {
+                            if t.get(0).and_then(|v| v.as_str()) == Some("amount") {
+                                if let Some(msats) =
+                                    t.get(1).and_then(|v| v.as_str()).and_then(|s| s.parse::<u64>().ok())
+                                {
+                                    zap_sats = zap_sats.saturating_add(msats / 1000);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(EntitySocialCountsDto {
+        address: target_address,
+        reaction_count: reactors.len() as u32,
+        user_has_reacted,
+        user_reaction_event_id,
+        zap_count,
+        zap_sats,
+    })
+}
+
+static BLOSSOM_GEO_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+fn blossom_geo_cache() -> &'static Mutex<HashMap<String, String>> {
+    BLOSSOM_GEO_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Resolves externalized Blossom GeoJSON `blob` references (`SPEC.md` §1.5),
+/// verifying optional `sha256` integrity and merging `collection` and
+/// `feature:<id>` payloads into a single renderable GeoJSON FeatureCollection.
+pub async fn resolve_map_blob_geojson(
+    base_geojson: String,
+    blob_refs: Vec<BlobRefDto>,
+) -> Result<String, String> {
+    if blob_refs.is_empty() {
+        return Ok(base_geojson);
+    }
+
+    let mut base_fc: serde_json::Value = serde_json::from_str(&base_geojson).unwrap_or_else(|_| {
+        serde_json::json!({ "type": "FeatureCollection", "features": [] })
+    });
+    let mut merged_features: Vec<serde_json::Value> = base_fc
+        .get("features")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|f| f.get("geometry").is_some_and(|g| !g.is_null()))
+        .collect();
+
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .user_agent("EarthlyNative/1.0 (+https://earthly.city)")
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+    let mut fetched_any = false;
+    for blob in &blob_refs {
+        let cache_key = blob
+            .sha256
+            .as_deref()
+            .map(|s| format!("sha256:{}", s.to_lowercase()))
+            .unwrap_or_else(|| blob.url.clone());
+
+        let raw_text = if let Some(cached) = blossom_geo_cache()
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&cache_key).cloned())
+        {
+            cached
+        } else {
+            let mut fetched: Option<String> = None;
+            // Try embedded local Blossom copy first when sha256 is known.
+            if let Some(sha) = blob.sha256.as_deref().filter(|s| s.len() == 64) {
+                if let Some(node) = crate::api::spike::current_node() {
+                    let local_url = format!("{}/{sha}", node.descriptor().blossom_url);
+                    if let Ok(resp) = http.get(&local_url).send().await {
+                        if resp.status().is_success() {
+                            if let Ok(bytes) = resp.bytes().await {
+                                if (bytes.len() as u64) <= MAX_EXTERNAL_BLOB_BYTES {
+                                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                                        if verify_optional_sha256(&text, Some(sha)) {
+                                            fetched = Some(text);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if fetched.is_none() {
+                if let Ok(resp) = http.get(blob.url.trim()).send().await {
+                    if resp.status().is_success() {
+                        if let Ok(bytes) = resp.bytes().await {
+                            if (bytes.len() as u64) <= MAX_EXTERNAL_BLOB_BYTES {
+                                if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                                    if verify_optional_sha256(&text, blob.sha256.as_deref()) {
+                                        fetched = Some(text);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let Some(text) = fetched else {
+                continue;
+            };
+            if let Ok(mut guard) = blossom_geo_cache().lock() {
+                if guard.len() > 64 {
+                    guard.clear();
+                }
+                guard.insert(cache_key, text.clone());
+            }
+            text
+        };
+
+        fetched_any = true;
+        merge_blob_payload_into_features(&mut merged_features, &blob.scope, &raw_text);
+    }
+
+    if !fetched_any && merged_features.is_empty() {
+        return Err("Unable to fetch external Blossom GeoJSON blob".to_owned());
+    }
+
+    if let Some(obj) = base_fc.as_object_mut() {
+        obj.insert(
+            "type".to_owned(),
+            serde_json::Value::String("FeatureCollection".to_owned()),
+        );
+        obj.insert(
+            "features".to_owned(),
+            serde_json::Value::Array(merged_features),
+        );
+    }
+    serde_json::to_string(&base_fc).map_err(|e| e.to_string())
+}
+
+fn verify_optional_sha256(text: &str, expected: Option<&str>) -> bool {
+    let Some(exp) = expected.map(str::trim).filter(|s| s.len() == 64) else {
+        return true;
+    };
+    let actual = format!("{:x}", Sha256::digest(text.as_bytes()));
+    actual.eq_ignore_ascii_case(exp)
+}
+
+fn merge_blob_payload_into_features(
+    target_features: &mut Vec<serde_json::Value>,
+    scope: &str,
+    payload_text: &str,
+) {
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(payload_text) else {
+        return;
+    };
+    let incoming: Vec<serde_json::Value> = match parsed.get("type").and_then(|v| v.as_str()) {
+        Some("FeatureCollection") => parsed
+            .get("features")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default(),
+        Some("Feature") => vec![parsed],
+        Some(
+            "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon"
+            | "GeometryCollection",
+        ) => vec![serde_json::json!({
+            "type": "Feature",
+            "geometry": parsed,
+            "properties": {},
+        })],
+        _ => return,
+    };
+    let valid_incoming: Vec<serde_json::Value> = incoming
+        .into_iter()
+        .filter(|f| f.get("geometry").is_some_and(|g| !g.is_null()))
+        .collect();
+    if valid_incoming.is_empty() {
+        return;
+    }
+    if let Some(feature_id) = scope.strip_prefix("feature:") {
+        target_features.retain(|f| {
+            let cur_id = f.get("id").and_then(|v| {
+                v.as_str()
+                    .map(str::to_owned)
+                    .or_else(|| v.as_i64().map(|n| n.to_string()))
+            });
+            cur_id.as_deref() != Some(feature_id)
+        });
+    }
+    target_features.extend(valid_incoming);
 }
 
 fn percent_decode_fragment(input: &str) -> String {
@@ -1167,7 +1507,26 @@ fn map_to_dto(address: String, dataset: MapDataset) -> MapSummaryDto {
         .name
         .unwrap_or_else(|| format!("Map {}", &dataset.d_tag));
     let geojson = serde_json::to_string(&dataset.feature_collection).unwrap_or_default();
-    let size_bytes = geojson.len() as u32;
+    let blob_refs: Vec<BlobRefDto> = dataset
+        .blobs
+        .into_iter()
+        .map(|b| BlobRefDto {
+            scope: match b.scope {
+                BlobScope::Collection => "collection".to_owned(),
+                BlobScope::Feature(fid) => format!("feature:{fid}"),
+            },
+            url: b.url,
+            sha256: b.sha256,
+            size: b.size,
+            mime: b.mime,
+        })
+        .collect();
+    let blob_size: u32 = blob_refs
+        .iter()
+        .filter_map(|b| b.size)
+        .sum::<u64>()
+        .min(u32::MAX as u64) as u32;
+    let size_bytes = (geojson.len() as u32).max(blob_size);
 
     MapSummaryDto {
         address,
@@ -1179,6 +1538,7 @@ fn map_to_dto(address: String, dataset: MapDataset) -> MapSummaryDto {
         feature_count,
         size_bytes,
         geojson,
+        blob_refs,
         west: dataset.bbox.map(|b| b.west),
         south: dataset.bbox.map(|b| b.south),
         east: dataset.bbox.map(|b| b.east),
@@ -2078,5 +2438,39 @@ mod tests {
         assert_eq!(items[1].category, "proposals");
         assert_eq!(items[2].kind, "atlas_arrival");
         assert_eq!(items[2].thing_label, "Vienna Atlas");
+    }
+
+    #[test]
+    fn merges_collection_and_feature_scoped_blossom_blobs_and_verifies_sha256() {
+        let mut features = vec![serde_json::json!({
+            "type": "Feature",
+            "id": "f1",
+            "geometry": { "type": "Point", "coordinates": [16.0, 48.0] },
+            "properties": { "name": "Old F1" }
+        })];
+
+        let collection_blob = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"f2","geometry":{"type":"Point","coordinates":[16.5,48.5]},"properties":{"name":"From Collection"}}]}"#;
+        let expected_sha = format!("{:x}", Sha256::digest(collection_blob.as_bytes()));
+        assert!(verify_optional_sha256(collection_blob, Some(&expected_sha)));
+        assert!(!verify_optional_sha256(collection_blob, Some(&"0".repeat(64))));
+
+        merge_blob_payload_into_features(&mut features, "collection", collection_blob);
+        assert_eq!(features.len(), 2);
+
+        let replacement_blob = r#"{"type":"Feature","id":"f1","geometry":{"type":"Point","coordinates":[16.37,48.21]},"properties":{"name":"Replaced F1"}}"#;
+        merge_blob_payload_into_features(&mut features, "feature:f1", replacement_blob);
+        assert_eq!(features.len(), 2);
+        let f1 = features
+            .iter()
+            .find(|f| f.get("id").and_then(|v| v.as_str()) == Some("f1"))
+            .unwrap();
+        assert_eq!(f1["properties"]["name"], "Replaced F1");
+
+        let (added, removed) = compute_markdown_line_diff_counts(
+            "# Title\nOld line\nShared line",
+            "# Title\nNew line A\nNew line B\nShared line",
+        );
+        assert_eq!(added, 2);
+        assert_eq!(removed, 1);
     }
 }

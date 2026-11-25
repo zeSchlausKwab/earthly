@@ -36,6 +36,8 @@ class PersonMarginSheet extends StatefulWidget {
     required this.onClose,
     this.initialPortfolio,
     this.onProfileResolved,
+    this.isMuted = false,
+    this.onToggleMute,
     super.key,
   });
 
@@ -56,6 +58,8 @@ class PersonMarginSheet extends StatefulWidget {
   final VoidCallback onClose;
   final AuthorPortfolioDto? initialPortfolio;
   final ValueChanged<ProfileMetadataDto>? onProfileResolved;
+  final bool isMuted;
+  final VoidCallback? onToggleMute;
 
   @override
   State<PersonMarginSheet> createState() => _PersonMarginSheetState();
@@ -204,6 +208,12 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                               label: 'YOU',
                               color: EarthlyColors.amber,
                             ),
+                          ] else if (widget.isMuted) ...[
+                            const SizedBox(width: 6),
+                            const EarthlyBadge(
+                              label: 'MUTED',
+                              color: EarthlyColors.destructive,
+                            ),
                           ],
                         ],
                       ),
@@ -231,6 +241,19 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                     ],
                   ),
                 ),
+                if (!widget.isCurrentUser && widget.onToggleMute != null)
+                  IconButton(
+                    tooltip: widget.isMuted ? 'Unmute author' : 'Mute author',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.onToggleMute,
+                    icon: Icon(
+                      widget.isMuted
+                          ? Icons.volume_up_outlined
+                          : Icons.volume_off_outlined,
+                      size: 18,
+                      color: widget.isMuted ? EarthlyColors.destructive : null,
+                    ),
+                  ),
                 IconButton(
                   tooltip: 'Copy npub',
                   visualDensity: VisualDensity.compact,

@@ -70,6 +70,9 @@ abstract class EarthlyRustLibApiImplPlatform
   AuthorPortfolioDto dco_decode_author_portfolio_dto(dynamic raw);
 
   @protected
+  BlobRefDto dco_decode_blob_ref_dto(dynamic raw);
+
+  @protected
   BlossomUploadDto dco_decode_blossom_upload_dto(dynamic raw);
 
   @protected
@@ -88,6 +91,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   DecodedNaddrDto dco_decode_box_autoadd_decoded_naddr_dto(dynamic raw);
+
+  @protected
+  ExternalGeoBlobDto dco_decode_box_autoadd_external_geo_blob_dto(dynamic raw);
 
   @protected
   double dco_decode_box_autoadd_f_64(dynamic raw);
@@ -158,6 +164,12 @@ abstract class EarthlyRustLibApiImplPlatform
   EntityDiscussionSnapshot dco_decode_entity_discussion_snapshot(dynamic raw);
 
   @protected
+  EntitySocialCountsDto dco_decode_entity_social_counts_dto(dynamic raw);
+
+  @protected
+  ExternalGeoBlobDto dco_decode_external_geo_blob_dto(dynamic raw);
+
+  @protected
   double dco_decode_f_64(dynamic raw);
 
   @protected
@@ -194,6 +206,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<AtlasSummaryDto> dco_decode_list_atlas_summary_dto(dynamic raw);
+
+  @protected
+  List<BlobRefDto> dco_decode_list_blob_ref_dto(dynamic raw);
 
   @protected
   List<CircleDatasetDto> dco_decode_list_circle_dataset_dto(dynamic raw);
@@ -328,6 +343,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   DecodedNaddrDto? dco_decode_opt_box_autoadd_decoded_naddr_dto(dynamic raw);
+
+  @protected
+  ExternalGeoBlobDto? dco_decode_opt_box_autoadd_external_geo_blob_dto(
+    dynamic raw,
+  );
 
   @protected
   double? dco_decode_opt_box_autoadd_f_64(dynamic raw);
@@ -482,6 +502,9 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  BlobRefDto sse_decode_blob_ref_dto(SseDeserializer deserializer);
+
+  @protected
   BlossomUploadDto sse_decode_blossom_upload_dto(SseDeserializer deserializer);
 
   @protected
@@ -504,6 +527,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   DecodedNaddrDto sse_decode_box_autoadd_decoded_naddr_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ExternalGeoBlobDto sse_decode_box_autoadd_external_geo_blob_dto(
     SseDeserializer deserializer,
   );
 
@@ -606,6 +634,16 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  EntitySocialCountsDto sse_decode_entity_social_counts_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ExternalGeoBlobDto sse_decode_external_geo_blob_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
@@ -654,6 +692,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<AtlasSummaryDto> sse_decode_list_atlas_summary_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  List<BlobRefDto> sse_decode_list_blob_ref_dto(SseDeserializer deserializer);
 
   @protected
   List<CircleDatasetDto> sse_decode_list_circle_dataset_dto(
@@ -834,6 +875,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   DecodedNaddrDto? sse_decode_opt_box_autoadd_decoded_naddr_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ExternalGeoBlobDto? sse_decode_opt_box_autoadd_external_geo_blob_dto(
     SseDeserializer deserializer,
   );
 
@@ -1049,6 +1095,9 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_blob_ref_dto(BlobRefDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_blossom_upload_dto(
     BlossomUploadDto self,
     SseSerializer serializer,
@@ -1078,6 +1127,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_box_autoadd_decoded_naddr_dto(
     DecodedNaddrDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_external_geo_blob_dto(
+    ExternalGeoBlobDto self,
     SseSerializer serializer,
   );
 
@@ -1205,6 +1260,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_entity_social_counts_dto(
+    EntitySocialCountsDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_external_geo_blob_dto(
+    ExternalGeoBlobDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
@@ -1261,6 +1328,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_atlas_summary_dto(
     List<AtlasSummaryDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_blob_ref_dto(
+    List<BlobRefDto> self,
     SseSerializer serializer,
   );
 
@@ -1483,6 +1556,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_opt_box_autoadd_decoded_naddr_dto(
     DecodedNaddrDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_external_geo_blob_dto(
+    ExternalGeoBlobDto? self,
     SseSerializer serializer,
   );
 

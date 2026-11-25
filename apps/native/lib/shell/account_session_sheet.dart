@@ -58,6 +58,8 @@ class AccountSessionSheet extends StatefulWidget {
     this.blossomServerUrl = 'https://blossom.earthly.city',
     this.onBlossomServerChanged,
     this.onUploadBlossomImage,
+    this.mutedPubkeys = const <String>{},
+    this.onUnmutePubkey,
     super.key,
   });
 
@@ -79,6 +81,8 @@ class AccountSessionSheet extends StatefulWidget {
   final ValueChanged<String>? onBlossomServerChanged;
   final Future<BlossomUploadDto?> Function(String purpose)?
       onUploadBlossomImage;
+  final Set<String> mutedPubkeys;
+  final ValueChanged<String>? onUnmutePubkey;
   final Future<PublishOutcomeDto> Function(ProfileEditRequest req)
       onSaveProfile;
   final VoidCallback onOpenSpaces;
@@ -1073,6 +1077,62 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                 ),
               ],
             ),
+            const Divider(height: 24),
+          ],
+          if (widget.mutedPubkeys.isNotEmpty) ...[
+            Text(
+              'MUTED CONTRIBUTORS (${widget.mutedPubkeys.length})',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            for (final pk in widget.mutedPubkeys)
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: theme.dividerColor),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.volume_off_outlined,
+                      size: 15,
+                      color: EarthlyColors.destructive,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.profilesByPubkey[pk]?.displayName ??
+                            widget.profilesByPubkey[pk]?.name ??
+                            (pk.length > 14
+                                ? '${pk.substring(0, 8)}…${pk.substring(pk.length - 4)}'
+                                : pk),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (widget.onUnmutePubkey != null)
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () => widget.onUnmutePubkey!(pk),
+                        child: const Text('Unmute'),
+                      ),
+                  ],
+                ),
+              ),
             const Divider(height: 24),
           ],
           Text(
