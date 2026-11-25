@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `event_to_raw`, `hex_val`, `map_to_dto`, `percent_decode_fragment`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `event_to_raw`, `hex_val`, `map_to_dto`, `parse_live_relay_event`, `percent_decode_fragment`, `sighting_to_dto`, `story_to_dto`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Fetches the latest Earthly Maps, Stories, Atlases, and non-expired Sightings
 /// from the specified relay URLs (defaulting to `wss://relay.earthly.city`).
@@ -22,9 +22,18 @@ Future<EarthlyCatalogSnapshot> fetchEarthlyCatalog({
 
 /// Fast (~1 ms) local-only catalog read from the running embedded `LocalNode`
 /// LMDB database — powers real-time live listening for incoming Nearby Field
-/// Session Maps, Stories, Atlases, and Sightings without hitting public relays.
+/// Session Maps, Stories, Atlases, Sightings, and Live Beacons without hitting
+/// public relays.
 Future<EarthlyCatalogSnapshot> fetchLocalNodeCatalog() =>
     EarthlyRustLib.instance.api.crateApiNostrClientFetchLocalNodeCatalog();
+
+/// Opens a persistent Nostr WebSocket subscription to the configured relays for
+/// live Earthly v2 entities (`37515`, `37518`, `37520`, `37521`, `37522`) arriving
+/// after connect, pushing parsed events directly into Flutter via `StreamSink`.
+Stream<LiveRelayEventDto> subscribeEarthlyRelayStream({
+  required List<String> relayUrls,
+}) => EarthlyRustLib.instance.api
+    .crateApiNostrClientSubscribeEarthlyRelayStream(relayUrls: relayUrls);
 
 /// Decodes a `nostr:naddr1...` (with optional `#featureId` fragment) or bare
 /// `naddr1...` into its canonical `<kind>:<pubkey>:<d>` coordinate and optional
@@ -157,6 +166,7 @@ class EarthlyCatalogSnapshot {
   final List<StorySummaryDto> stories;
   final List<AtlasSummaryDto> atlases;
   final List<SightingSummaryDto> sightings;
+  final List<LiveBeaconDto> beacons;
 
   const EarthlyCatalogSnapshot({
     required this.relayUrls,
@@ -164,6 +174,7 @@ class EarthlyCatalogSnapshot {
     required this.stories,
     required this.atlases,
     required this.sightings,
+    required this.beacons,
   });
 
   @override
@@ -172,7 +183,8 @@ class EarthlyCatalogSnapshot {
       maps.hashCode ^
       stories.hashCode ^
       atlases.hashCode ^
-      sightings.hashCode;
+      sightings.hashCode ^
+      beacons.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -183,7 +195,8 @@ class EarthlyCatalogSnapshot {
           maps == other.maps &&
           stories == other.stories &&
           atlases == other.atlases &&
-          sightings == other.sightings;
+          sightings == other.sightings &&
+          beacons == other.beacons;
 }
 
 class EntityDiscussionSnapshot {
@@ -323,6 +336,106 @@ class GeoProposalDto {
           modifiedCount == other.modifiedCount &&
           removedCount == other.removedCount &&
           createdAt == other.createdAt;
+}
+
+class LiveBeaconDto {
+  final String address;
+  final String eventId;
+  final String pubkey;
+  final String dTag;
+  final double lon;
+  final double lat;
+  final String? status;
+  final String? imageUrl;
+  final BigInt? expiresAt;
+  final BigInt createdAt;
+
+  const LiveBeaconDto({
+    required this.address,
+    required this.eventId,
+    required this.pubkey,
+    required this.dTag,
+    required this.lon,
+    required this.lat,
+    this.status,
+    this.imageUrl,
+    this.expiresAt,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      address.hashCode ^
+      eventId.hashCode ^
+      pubkey.hashCode ^
+      dTag.hashCode ^
+      lon.hashCode ^
+      lat.hashCode ^
+      status.hashCode ^
+      imageUrl.hashCode ^
+      expiresAt.hashCode ^
+      createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LiveBeaconDto &&
+          runtimeType == other.runtimeType &&
+          address == other.address &&
+          eventId == other.eventId &&
+          pubkey == other.pubkey &&
+          dTag == other.dTag &&
+          lon == other.lon &&
+          lat == other.lat &&
+          status == other.status &&
+          imageUrl == other.imageUrl &&
+          expiresAt == other.expiresAt &&
+          createdAt == other.createdAt;
+}
+
+/// Real-time parsed Earthly event pushed over a persistent relay WebSocket
+/// subscription (`StreamSink<LiveRelayEventDto>`).
+class LiveRelayEventDto {
+  final String relayUrl;
+  final int kind;
+  final MapSummaryDto? map;
+  final StorySummaryDto? story;
+  final AtlasSummaryDto? atlas;
+  final SightingSummaryDto? sighting;
+  final LiveBeaconDto? beacon;
+
+  const LiveRelayEventDto({
+    required this.relayUrl,
+    required this.kind,
+    this.map,
+    this.story,
+    this.atlas,
+    this.sighting,
+    this.beacon,
+  });
+
+  @override
+  int get hashCode =>
+      relayUrl.hashCode ^
+      kind.hashCode ^
+      map.hashCode ^
+      story.hashCode ^
+      atlas.hashCode ^
+      sighting.hashCode ^
+      beacon.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LiveRelayEventDto &&
+          runtimeType == other.runtimeType &&
+          relayUrl == other.relayUrl &&
+          kind == other.kind &&
+          map == other.map &&
+          story == other.story &&
+          atlas == other.atlas &&
+          sighting == other.sighting &&
+          beacon == other.beacon;
 }
 
 class MapSummaryDto {

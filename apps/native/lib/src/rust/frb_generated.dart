@@ -79,7 +79,7 @@ class EarthlyRustLib
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -1770141817;
+  int get rustContentHash => 1882986962;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -208,6 +208,16 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String databasePath,
   });
 
+  Future<UnsignedSightingEventDto> crateApiPublishPrepareUnsignedBeaconEvent({
+    required String pubkeyOrNpub,
+    required String dTag,
+    required double lon,
+    required double lat,
+    String? status,
+    required int durationMinutes,
+    String? fieldSessionId,
+  });
+
   Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedCommentEvent({
     required String pubkeyOrNpub,
     required String dTag,
@@ -326,6 +336,10 @@ abstract class EarthlyRustLibApi extends BaseApi {
 
   Future<LocalNodeSnapshot> crateApiSpikeStartLocalNodeLan({
     required String dataDir,
+  });
+
+  Stream<LiveRelayEventDto> crateApiNostrClientSubscribeEarthlyRelayStream({
+    required List<String> relayUrls,
   });
 
   Future<int> crateApiSpikeSyncNearbyPeer({required String nodeId});
@@ -1269,6 +1283,67 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   );
 
   @override
+  Future<UnsignedSightingEventDto> crateApiPublishPrepareUnsignedBeaconEvent({
+    required String pubkeyOrNpub,
+    required String dTag,
+    required double lon,
+    required double lat,
+    String? status,
+    required int durationMinutes,
+    String? fieldSessionId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(pubkeyOrNpub, serializer);
+          sse_encode_String(dTag, serializer);
+          sse_encode_f_64(lon, serializer);
+          sse_encode_f_64(lat, serializer);
+          sse_encode_opt_String(status, serializer);
+          sse_encode_u_32(durationMinutes, serializer);
+          sse_encode_opt_String(fieldSessionId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 29,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unsigned_sighting_event_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiPublishPrepareUnsignedBeaconEventConstMeta,
+        argValues: [
+          pubkeyOrNpub,
+          dTag,
+          lon,
+          lat,
+          status,
+          durationMinutes,
+          fieldSessionId,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiPublishPrepareUnsignedBeaconEventConstMeta =>
+      const TaskConstMeta(
+        debugName: "prepare_unsigned_beacon_event",
+        argNames: [
+          "pubkeyOrNpub",
+          "dTag",
+          "lon",
+          "lat",
+          "status",
+          "durationMinutes",
+          "fieldSessionId",
+        ],
+      );
+
+  @override
   Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedCommentEvent({
     required String pubkeyOrNpub,
     required String dTag,
@@ -1292,7 +1367,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1353,7 +1428,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1414,7 +1489,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1485,7 +1560,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1560,7 +1635,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 34,
             port: port_,
           );
         },
@@ -1617,7 +1692,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 35,
             port: port_,
           );
         },
@@ -1654,7 +1729,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1687,7 +1762,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 37,
             port: port_,
           );
         },
@@ -1722,7 +1797,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1753,7 +1828,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 39,
             port: port_,
           );
         },
@@ -1806,7 +1881,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 40,
             port: port_,
           );
         },
@@ -1877,7 +1952,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 41,
             port: port_,
           );
         },
@@ -1925,7 +2000,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 41,
+            funcId: 42,
             port: port_,
           );
         },
@@ -1957,7 +2032,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 42,
+            funcId: 43,
             port: port_,
           );
         },
@@ -1990,7 +2065,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 43,
+            funcId: 44,
             port: port_,
           );
         },
@@ -2020,7 +2095,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 44,
+            funcId: 45,
             port: port_,
           );
         },
@@ -2042,6 +2117,44 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Stream<LiveRelayEventDto> crateApiNostrClientSubscribeEarthlyRelayStream({
+    required List<String> relayUrls,
+  }) {
+    final sink = RustStreamSink<LiveRelayEventDto>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_list_String(relayUrls, serializer);
+            sse_encode_StreamSink_live_relay_event_dto_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 46,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: sse_decode_String,
+          ),
+          constMeta: kCrateApiNostrClientSubscribeEarthlyRelayStreamConstMeta,
+          argValues: [relayUrls, sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiNostrClientSubscribeEarthlyRelayStreamConstMeta =>
+      const TaskConstMeta(
+        debugName: "subscribe_earthly_relay_stream",
+        argNames: ["relayUrls", "sink"],
+      );
+
+  @override
   Future<int> crateApiSpikeSyncNearbyPeer({required String nodeId}) {
     return handler.executeNormal(
       NormalTask(
@@ -2051,7 +2164,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 45,
+            funcId: 47,
             port: port_,
           );
         },
@@ -2068,6 +2181,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
 
   TaskConstMeta get kCrateApiSpikeSyncNearbyPeerConstMeta =>
       const TaskConstMeta(debugName: "sync_nearby_peer", argNames: ["nodeId"]);
+
+  @protected
+  AnyhowException dco_decode_AnyhowException(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return AnyhowException(raw as String);
+  }
+
+  @protected
+  RustStreamSink<LiveRelayEventDto>
+  dco_decode_StreamSink_live_relay_event_dto_Sse(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
 
   @protected
   String dco_decode_String(dynamic raw) {
@@ -2175,6 +2301,12 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  AtlasSummaryDto dco_decode_box_autoadd_atlas_summary_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_atlas_summary_dto(raw);
+  }
+
+  @protected
   DecodedNaddrDto dco_decode_box_autoadd_decoded_naddr_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_decoded_naddr_dto(raw);
@@ -2187,9 +2319,33 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  LiveBeaconDto dco_decode_box_autoadd_live_beacon_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_live_beacon_dto(raw);
+  }
+
+  @protected
   LocalDraftDto dco_decode_box_autoadd_local_draft_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_local_draft_dto(raw);
+  }
+
+  @protected
+  MapSummaryDto dco_decode_box_autoadd_map_summary_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_map_summary_dto(raw);
+  }
+
+  @protected
+  SightingSummaryDto dco_decode_box_autoadd_sighting_summary_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_sighting_summary_dto(raw);
+  }
+
+  @protected
+  StorySummaryDto dco_decode_box_autoadd_story_summary_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_story_summary_dto(raw);
   }
 
   @protected
@@ -2238,14 +2394,15 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   EarthlyCatalogSnapshot dco_decode_earthly_catalog_snapshot(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return EarthlyCatalogSnapshot(
       relayUrls: dco_decode_list_String(arr[0]),
       maps: dco_decode_list_map_summary_dto(arr[1]),
       stories: dco_decode_list_story_summary_dto(arr[2]),
       atlases: dco_decode_list_atlas_summary_dto(arr[3]),
       sightings: dco_decode_list_sighting_summary_dto(arr[4]),
+      beacons: dco_decode_list_live_beacon_dto(arr[5]),
     );
   }
 
@@ -2391,6 +2548,12 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  List<LiveBeaconDto> dco_decode_list_live_beacon_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_live_beacon_dto).toList();
+  }
+
+  @protected
   List<LonLatPoint> dco_decode_list_lon_lat_point(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_lon_lat_point).toList();
@@ -2446,6 +2609,43 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   List<StorySummaryDto> dco_decode_list_story_summary_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_story_summary_dto).toList();
+  }
+
+  @protected
+  LiveBeaconDto dco_decode_live_beacon_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    return LiveBeaconDto(
+      address: dco_decode_String(arr[0]),
+      eventId: dco_decode_String(arr[1]),
+      pubkey: dco_decode_String(arr[2]),
+      dTag: dco_decode_String(arr[3]),
+      lon: dco_decode_f_64(arr[4]),
+      lat: dco_decode_f_64(arr[5]),
+      status: dco_decode_opt_String(arr[6]),
+      imageUrl: dco_decode_opt_String(arr[7]),
+      expiresAt: dco_decode_opt_box_autoadd_u_64(arr[8]),
+      createdAt: dco_decode_u_64(arr[9]),
+    );
+  }
+
+  @protected
+  LiveRelayEventDto dco_decode_live_relay_event_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return LiveRelayEventDto(
+      relayUrl: dco_decode_String(arr[0]),
+      kind: dco_decode_u_16(arr[1]),
+      map: dco_decode_opt_box_autoadd_map_summary_dto(arr[2]),
+      story: dco_decode_opt_box_autoadd_story_summary_dto(arr[3]),
+      atlas: dco_decode_opt_box_autoadd_atlas_summary_dto(arr[4]),
+      sighting: dco_decode_opt_box_autoadd_sighting_summary_dto(arr[5]),
+      beacon: dco_decode_opt_box_autoadd_live_beacon_dto(arr[6]),
+    );
   }
 
   @protected
@@ -2563,6 +2763,12 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  AtlasSummaryDto? dco_decode_opt_box_autoadd_atlas_summary_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_atlas_summary_dto(raw);
+  }
+
+  @protected
   DecodedNaddrDto? dco_decode_opt_box_autoadd_decoded_naddr_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_decoded_naddr_dto(raw);
@@ -2575,9 +2781,37 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  LiveBeaconDto? dco_decode_opt_box_autoadd_live_beacon_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_live_beacon_dto(raw);
+  }
+
+  @protected
   LocalDraftDto? dco_decode_opt_box_autoadd_local_draft_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_local_draft_dto(raw);
+  }
+
+  @protected
+  MapSummaryDto? dco_decode_opt_box_autoadd_map_summary_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_map_summary_dto(raw);
+  }
+
+  @protected
+  SightingSummaryDto? dco_decode_opt_box_autoadd_sighting_summary_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_sighting_summary_dto(raw);
+  }
+
+  @protected
+  StorySummaryDto? dco_decode_opt_box_autoadd_story_summary_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_story_summary_dto(raw);
   }
 
   @protected
@@ -2798,6 +3032,20 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_String(deserializer);
+    return AnyhowException(inner);
+  }
+
+  @protected
+  RustStreamSink<LiveRelayEventDto>
+  sse_decode_StreamSink_live_relay_event_dto_Sse(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
@@ -2908,6 +3156,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  AtlasSummaryDto sse_decode_box_autoadd_atlas_summary_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_atlas_summary_dto(deserializer));
+  }
+
+  @protected
   DecodedNaddrDto sse_decode_box_autoadd_decoded_naddr_dto(
     SseDeserializer deserializer,
   ) {
@@ -2922,11 +3178,43 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  LiveBeaconDto sse_decode_box_autoadd_live_beacon_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_live_beacon_dto(deserializer));
+  }
+
+  @protected
   LocalDraftDto sse_decode_box_autoadd_local_draft_dto(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_local_draft_dto(deserializer));
+  }
+
+  @protected
+  MapSummaryDto sse_decode_box_autoadd_map_summary_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_map_summary_dto(deserializer));
+  }
+
+  @protected
+  SightingSummaryDto sse_decode_box_autoadd_sighting_summary_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_sighting_summary_dto(deserializer));
+  }
+
+  @protected
+  StorySummaryDto sse_decode_box_autoadd_story_summary_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_story_summary_dto(deserializer));
   }
 
   @protected
@@ -2989,12 +3277,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     var var_stories = sse_decode_list_story_summary_dto(deserializer);
     var var_atlases = sse_decode_list_atlas_summary_dto(deserializer);
     var var_sightings = sse_decode_list_sighting_summary_dto(deserializer);
+    var var_beacons = sse_decode_list_live_beacon_dto(deserializer);
     return EarthlyCatalogSnapshot(
       relayUrls: var_relayUrls,
       maps: var_maps,
       stories: var_stories,
       atlases: var_atlases,
       sightings: var_sightings,
+      beacons: var_beacons,
     );
   }
 
@@ -3226,6 +3516,20 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  List<LiveBeaconDto> sse_decode_list_live_beacon_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <LiveBeaconDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_live_beacon_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<LonLatPoint> sse_decode_list_lon_lat_point(
     SseDeserializer deserializer,
   ) {
@@ -3335,6 +3639,58 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       ans_.add(sse_decode_story_summary_dto(deserializer));
     }
     return ans_;
+  }
+
+  @protected
+  LiveBeaconDto sse_decode_live_beacon_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_address = sse_decode_String(deserializer);
+    var var_eventId = sse_decode_String(deserializer);
+    var var_pubkey = sse_decode_String(deserializer);
+    var var_dTag = sse_decode_String(deserializer);
+    var var_lon = sse_decode_f_64(deserializer);
+    var var_lat = sse_decode_f_64(deserializer);
+    var var_status = sse_decode_opt_String(deserializer);
+    var var_imageUrl = sse_decode_opt_String(deserializer);
+    var var_expiresAt = sse_decode_opt_box_autoadd_u_64(deserializer);
+    var var_createdAt = sse_decode_u_64(deserializer);
+    return LiveBeaconDto(
+      address: var_address,
+      eventId: var_eventId,
+      pubkey: var_pubkey,
+      dTag: var_dTag,
+      lon: var_lon,
+      lat: var_lat,
+      status: var_status,
+      imageUrl: var_imageUrl,
+      expiresAt: var_expiresAt,
+      createdAt: var_createdAt,
+    );
+  }
+
+  @protected
+  LiveRelayEventDto sse_decode_live_relay_event_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_relayUrl = sse_decode_String(deserializer);
+    var var_kind = sse_decode_u_16(deserializer);
+    var var_map = sse_decode_opt_box_autoadd_map_summary_dto(deserializer);
+    var var_story = sse_decode_opt_box_autoadd_story_summary_dto(deserializer);
+    var var_atlas = sse_decode_opt_box_autoadd_atlas_summary_dto(deserializer);
+    var var_sighting = sse_decode_opt_box_autoadd_sighting_summary_dto(
+      deserializer,
+    );
+    var var_beacon = sse_decode_opt_box_autoadd_live_beacon_dto(deserializer);
+    return LiveRelayEventDto(
+      relayUrl: var_relayUrl,
+      kind: var_kind,
+      map: var_map,
+      story: var_story,
+      atlas: var_atlas,
+      sighting: var_sighting,
+      beacon: var_beacon,
+    );
   }
 
   @protected
@@ -3481,6 +3837,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  AtlasSummaryDto? sse_decode_opt_box_autoadd_atlas_summary_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_atlas_summary_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   DecodedNaddrDto? sse_decode_opt_box_autoadd_decoded_naddr_dto(
     SseDeserializer deserializer,
   ) {
@@ -3505,6 +3874,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  LiveBeaconDto? sse_decode_opt_box_autoadd_live_beacon_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_live_beacon_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   LocalDraftDto? sse_decode_opt_box_autoadd_local_draft_dto(
     SseDeserializer deserializer,
   ) {
@@ -3512,6 +3894,45 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_local_draft_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  MapSummaryDto? sse_decode_opt_box_autoadd_map_summary_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_map_summary_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  SightingSummaryDto? sse_decode_opt_box_autoadd_sighting_summary_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_sighting_summary_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  StorySummaryDto? sse_decode_opt_box_autoadd_story_summary_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_story_summary_dto(deserializer));
     } else {
       return null;
     }
@@ -3799,6 +4220,32 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_AnyhowException(
+    AnyhowException self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.message, serializer);
+  }
+
+  @protected
+  void sse_encode_StreamSink_live_relay_event_dto_Sse(
+    RustStreamSink<LiveRelayEventDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+      self.setupAndSerialize(
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_live_relay_event_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+      ),
+      serializer,
+    );
+  }
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
@@ -3896,6 +4343,15 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_atlas_summary_dto(
+    AtlasSummaryDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_atlas_summary_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_decoded_naddr_dto(
     DecodedNaddrDto self,
     SseSerializer serializer,
@@ -3911,12 +4367,48 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_live_beacon_dto(
+    LiveBeaconDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_live_beacon_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_local_draft_dto(
     LocalDraftDto self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_local_draft_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_map_summary_dto(
+    MapSummaryDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_map_summary_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_sighting_summary_dto(
+    SightingSummaryDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_sighting_summary_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_story_summary_dto(
+    StorySummaryDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_story_summary_dto(self, serializer);
   }
 
   @protected
@@ -3966,6 +4458,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_list_story_summary_dto(self.stories, serializer);
     sse_encode_list_atlas_summary_dto(self.atlases, serializer);
     sse_encode_list_sighting_summary_dto(self.sightings, serializer);
+    sse_encode_list_live_beacon_dto(self.beacons, serializer);
   }
 
   @protected
@@ -4143,6 +4636,18 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_live_beacon_dto(
+    List<LiveBeaconDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_live_beacon_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_lon_lat_point(
     List<LonLatPoint> self,
     SseSerializer serializer,
@@ -4246,6 +4751,39 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     for (final item in self) {
       sse_encode_story_summary_dto(item, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_live_beacon_dto(
+    LiveBeaconDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.address, serializer);
+    sse_encode_String(self.eventId, serializer);
+    sse_encode_String(self.pubkey, serializer);
+    sse_encode_String(self.dTag, serializer);
+    sse_encode_f_64(self.lon, serializer);
+    sse_encode_f_64(self.lat, serializer);
+    sse_encode_opt_String(self.status, serializer);
+    sse_encode_opt_String(self.imageUrl, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.expiresAt, serializer);
+    sse_encode_u_64(self.createdAt, serializer);
+  }
+
+  @protected
+  void sse_encode_live_relay_event_dto(
+    LiveRelayEventDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.relayUrl, serializer);
+    sse_encode_u_16(self.kind, serializer);
+    sse_encode_opt_box_autoadd_map_summary_dto(self.map, serializer);
+    sse_encode_opt_box_autoadd_story_summary_dto(self.story, serializer);
+    sse_encode_opt_box_autoadd_atlas_summary_dto(self.atlas, serializer);
+    sse_encode_opt_box_autoadd_sighting_summary_dto(self.sighting, serializer);
+    sse_encode_opt_box_autoadd_live_beacon_dto(self.beacon, serializer);
   }
 
   @protected
@@ -4355,6 +4893,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_atlas_summary_dto(
+    AtlasSummaryDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_atlas_summary_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_decoded_naddr_dto(
     DecodedNaddrDto? self,
     SseSerializer serializer,
@@ -4378,6 +4929,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_live_beacon_dto(
+    LiveBeaconDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_live_beacon_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_local_draft_dto(
     LocalDraftDto? self,
     SseSerializer serializer,
@@ -4387,6 +4951,45 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_local_draft_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_map_summary_dto(
+    MapSummaryDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_map_summary_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_sighting_summary_dto(
+    SightingSummaryDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_sighting_summary_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_story_summary_dto(
+    StorySummaryDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_story_summary_dto(self, serializer);
     }
   }
 

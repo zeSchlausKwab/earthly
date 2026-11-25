@@ -216,5 +216,16 @@ pub fn earthly_tool_definitions() -> Vec<ToolDefinition> {
             description: "Inspect Atlas spatial workspace availability and honest coverage status (complete vs partial) for the current viewport.".to_owned(),
             parameters: json!({ "type": "object", "properties": {} }),
         },
+        ToolDefinition {
+            name: "fetch_webpage".to_owned(),
+            description: "Fetch a public HTTP/HTTPS webpage, extract its title, clean readable text, geographic coordinates (lat/lon or geo: URIs), and OpenStreetMap/GeoJSON links so you can plot facts directly onto the user's draft.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                    "url": { "type": "string", "description": "HTTP or HTTPS URL to fetch and analyze." }
+                }
+            }),
+        },
     ]
 }

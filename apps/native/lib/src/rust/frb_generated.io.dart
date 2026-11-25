@@ -27,6 +27,13 @@ abstract class EarthlyRustLibApiImplPlatform
   });
 
   @protected
+  AnyhowException dco_decode_AnyhowException(dynamic raw);
+
+  @protected
+  RustStreamSink<LiveRelayEventDto>
+  dco_decode_StreamSink_live_relay_event_dto_Sse(dynamic raw);
+
+  @protected
   String dco_decode_String(dynamic raw);
 
   @protected
@@ -56,13 +63,28 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  AtlasSummaryDto dco_decode_box_autoadd_atlas_summary_dto(dynamic raw);
+
+  @protected
   DecodedNaddrDto dco_decode_box_autoadd_decoded_naddr_dto(dynamic raw);
 
   @protected
   double dco_decode_box_autoadd_f_64(dynamic raw);
 
   @protected
+  LiveBeaconDto dco_decode_box_autoadd_live_beacon_dto(dynamic raw);
+
+  @protected
   LocalDraftDto dco_decode_box_autoadd_local_draft_dto(dynamic raw);
+
+  @protected
+  MapSummaryDto dco_decode_box_autoadd_map_summary_dto(dynamic raw);
+
+  @protected
+  SightingSummaryDto dco_decode_box_autoadd_sighting_summary_dto(dynamic raw);
+
+  @protected
+  StorySummaryDto dco_decode_box_autoadd_story_summary_dto(dynamic raw);
 
   @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
@@ -121,6 +143,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<List<LonLatPoint>> dco_decode_list_list_lon_lat_point(dynamic raw);
 
   @protected
+  List<LiveBeaconDto> dco_decode_list_live_beacon_dto(dynamic raw);
+
+  @protected
   List<LonLatPoint> dco_decode_list_lon_lat_point(dynamic raw);
 
   @protected
@@ -150,6 +175,12 @@ abstract class EarthlyRustLibApiImplPlatform
   List<StorySummaryDto> dco_decode_list_story_summary_dto(dynamic raw);
 
   @protected
+  LiveBeaconDto dco_decode_live_beacon_dto(dynamic raw);
+
+  @protected
+  LiveRelayEventDto dco_decode_live_relay_event_dto(dynamic raw);
+
+  @protected
   LocalDraftDto dco_decode_local_draft_dto(dynamic raw);
 
   @protected
@@ -176,13 +207,30 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  AtlasSummaryDto? dco_decode_opt_box_autoadd_atlas_summary_dto(dynamic raw);
+
+  @protected
   DecodedNaddrDto? dco_decode_opt_box_autoadd_decoded_naddr_dto(dynamic raw);
 
   @protected
   double? dco_decode_opt_box_autoadd_f_64(dynamic raw);
 
   @protected
+  LiveBeaconDto? dco_decode_opt_box_autoadd_live_beacon_dto(dynamic raw);
+
+  @protected
   LocalDraftDto? dco_decode_opt_box_autoadd_local_draft_dto(dynamic raw);
+
+  @protected
+  MapSummaryDto? dco_decode_opt_box_autoadd_map_summary_dto(dynamic raw);
+
+  @protected
+  SightingSummaryDto? dco_decode_opt_box_autoadd_sighting_summary_dto(
+    dynamic raw,
+  );
+
+  @protected
+  StorySummaryDto? dco_decode_opt_box_autoadd_story_summary_dto(dynamic raw);
 
   @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
@@ -236,6 +284,13 @@ abstract class EarthlyRustLibApiImplPlatform
   UnsignedSightingEventDto dco_decode_unsigned_sighting_event_dto(dynamic raw);
 
   @protected
+  AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+
+  @protected
+  RustStreamSink<LiveRelayEventDto>
+  sse_decode_StreamSink_live_relay_event_dto_Sse(SseDeserializer deserializer);
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
@@ -271,6 +326,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  AtlasSummaryDto sse_decode_box_autoadd_atlas_summary_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   DecodedNaddrDto sse_decode_box_autoadd_decoded_naddr_dto(
     SseDeserializer deserializer,
   );
@@ -279,7 +339,27 @@ abstract class EarthlyRustLibApiImplPlatform
   double sse_decode_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
+  LiveBeaconDto sse_decode_box_autoadd_live_beacon_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   LocalDraftDto sse_decode_box_autoadd_local_draft_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MapSummaryDto sse_decode_box_autoadd_map_summary_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  SightingSummaryDto sse_decode_box_autoadd_sighting_summary_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  StorySummaryDto sse_decode_box_autoadd_story_summary_dto(
     SseDeserializer deserializer,
   );
 
@@ -362,6 +442,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<LiveBeaconDto> sse_decode_list_live_beacon_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<LonLatPoint> sse_decode_list_lon_lat_point(SseDeserializer deserializer);
 
   @protected
@@ -401,6 +486,14 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  LiveBeaconDto sse_decode_live_beacon_dto(SseDeserializer deserializer);
+
+  @protected
+  LiveRelayEventDto sse_decode_live_relay_event_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   LocalDraftDto sse_decode_local_draft_dto(SseDeserializer deserializer);
 
   @protected
@@ -431,6 +524,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  AtlasSummaryDto? sse_decode_opt_box_autoadd_atlas_summary_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   DecodedNaddrDto? sse_decode_opt_box_autoadd_decoded_naddr_dto(
     SseDeserializer deserializer,
   );
@@ -439,7 +537,27 @@ abstract class EarthlyRustLibApiImplPlatform
   double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
+  LiveBeaconDto? sse_decode_opt_box_autoadd_live_beacon_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   LocalDraftDto? sse_decode_opt_box_autoadd_local_draft_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MapSummaryDto? sse_decode_opt_box_autoadd_map_summary_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  SightingSummaryDto? sse_decode_opt_box_autoadd_sighting_summary_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  StorySummaryDto? sse_decode_opt_box_autoadd_story_summary_dto(
     SseDeserializer deserializer,
   );
 
@@ -514,6 +632,18 @@ abstract class EarthlyRustLibApiImplPlatform
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
+  void sse_encode_AnyhowException(
+    AnyhowException self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_StreamSink_live_relay_event_dto_Sse(
+    RustStreamSink<LiveRelayEventDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
@@ -562,6 +692,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_box_autoadd_atlas_summary_dto(
+    AtlasSummaryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_decoded_naddr_dto(
     DecodedNaddrDto self,
     SseSerializer serializer,
@@ -571,8 +707,32 @@ abstract class EarthlyRustLibApiImplPlatform
   void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_live_beacon_dto(
+    LiveBeaconDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_local_draft_dto(
     LocalDraftDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_map_summary_dto(
+    MapSummaryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_sighting_summary_dto(
+    SightingSummaryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_story_summary_dto(
+    StorySummaryDto self,
     SseSerializer serializer,
   );
 
@@ -673,6 +833,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_live_beacon_dto(
+    List<LiveBeaconDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_lon_lat_point(
     List<LonLatPoint> self,
     SseSerializer serializer,
@@ -724,6 +890,15 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_live_beacon_dto(LiveBeaconDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_live_relay_event_dto(
+    LiveRelayEventDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_local_draft_dto(LocalDraftDto self, SseSerializer serializer);
 
   @protected
@@ -760,6 +935,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_atlas_summary_dto(
+    AtlasSummaryDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_decoded_naddr_dto(
     DecodedNaddrDto? self,
     SseSerializer serializer,
@@ -769,8 +950,32 @@ abstract class EarthlyRustLibApiImplPlatform
   void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_live_beacon_dto(
+    LiveBeaconDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_local_draft_dto(
     LocalDraftDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_map_summary_dto(
+    MapSummaryDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_sighting_summary_dto(
+    SightingSummaryDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_story_summary_dto(
+    StorySummaryDto? self,
     SseSerializer serializer,
   );
 

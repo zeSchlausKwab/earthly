@@ -1,20 +1,20 @@
 //! Native Nostr relay client fetching real Earthly v2 entities (Maps 37515,
-//! Atlases 37518, Stories 37520, Sightings 37522) and parsing them through
-//! `earthly-domain`.
+//! Atlases 37518, Stories 37520, Live Beacons 37521, Sightings 37522) and
+//! parsing them through `earthly-domain`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_domain::{
     ARTICLE_KIND, AtlasGroup, GEO_COMMENT_KIND, GEO_EDIT_PROPOSAL_KIND, GEO_EVENT_KIND,
-    GeoComment, GeoEditProposal, MAP_CONTEXT_KIND, MapDataset, PROPOSAL_STATUS_APPLIED_KIND,
-    PROPOSAL_STATUS_CLOSED_KIND, PROPOSAL_STATUS_DRAFT_KIND, PROPOSAL_STATUS_OPEN_KIND,
-    ProposalStatus, RawNostrEvent, StoryArticle, TEMPORAL_SIGHTING_KIND, TemporalSighting,
-    diff_feature_collections, is_expired,
+    GeoComment, GeoEditProposal, LIVE_BEACON_KIND, LiveBeacon, MAP_CONTEXT_KIND, MapDataset,
+    PROPOSAL_STATUS_APPLIED_KIND, PROPOSAL_STATUS_CLOSED_KIND, PROPOSAL_STATUS_DRAFT_KIND,
+    PROPOSAL_STATUS_OPEN_KIND, ProposalStatus, RawNostrEvent, StoryArticle,
+    TEMPORAL_SIGHTING_KIND, TemporalSighting, diff_feature_collections, is_expired,
 };
 use nostr::nips::nip19::{FromBech32, Nip19Coordinate};
-use nostr::{Alphabet, Event, Filter, Kind, PublicKey, SingleLetterTag};
-use nostr_sdk::Client;
+use nostr::{Alphabet, Event, Filter, Kind, PublicKey, SingleLetterTag, Timestamp};
+use nostr_sdk::{Client, RelayPoolNotification};
 
 pub const DEFAULT_EARTHLY_RELAY: &str = "wss://relay.earthly.city";
 
@@ -127,12 +127,40 @@ pub struct SightingSummaryDto {
 }
 
 #[derive(Clone, Debug)]
+pub struct LiveBeaconDto {
+    pub address: String,
+    pub event_id: String,
+    pub pubkey: String,
+    pub d_tag: String,
+    pub lon: f64,
+    pub lat: f64,
+    pub status: Option<String>,
+    pub image_url: Option<String>,
+    pub expires_at: Option<u64>,
+    pub created_at: u64,
+}
+
+#[derive(Clone, Debug)]
 pub struct EarthlyCatalogSnapshot {
     pub relay_urls: Vec<String>,
     pub maps: Vec<MapSummaryDto>,
     pub stories: Vec<StorySummaryDto>,
     pub atlases: Vec<AtlasSummaryDto>,
     pub sightings: Vec<SightingSummaryDto>,
+    pub beacons: Vec<LiveBeaconDto>,
+}
+
+/// Real-time parsed Earthly event pushed over a persistent relay WebSocket
+/// subscription (`StreamSink<LiveRelayEventDto>`).
+#[derive(Clone, Debug)]
+pub struct LiveRelayEventDto {
+    pub relay_url: String,
+    pub kind: u16,
+    pub map: Option<MapSummaryDto>,
+    pub story: Option<StorySummaryDto>,
+    pub atlas: Option<AtlasSummaryDto>,
+    pub sighting: Option<SightingSummaryDto>,
+    pub beacon: Option<LiveBeaconDto>,
 }
 
 /// Fetches the latest Earthly Maps, Stories, Atlases, and non-expired Sightings
@@ -162,9 +190,10 @@ pub async fn fetch_earthly_catalog(
             Kind::Custom(GEO_EVENT_KIND),
             Kind::Custom(MAP_CONTEXT_KIND),
             Kind::Custom(ARTICLE_KIND),
+            Kind::Custom(LIVE_BEACON_KIND),
             Kind::Custom(TEMPORAL_SIGHTING_KIND),
         ])
-        .limit(limit * 4);
+        .limit(limit * 5);
 
     let events = client
         .fetch_events(filter, Duration::from_secs(8))
@@ -224,6 +253,7 @@ pub async fn fetch_earthly_catalog(
     let mut stories = Vec::new();
     let mut atlases = Vec::new();
     let mut sightings = Vec::new();
+    let mut beacons = Vec::new();
 
     for (address, raw) in latest_by_addr {
         match raw.kind {
@@ -234,43 +264,20 @@ pub async fn fetch_earthly_catalog(
             }
             ARTICLE_KIND => {
                 if let Ok(story) = StoryArticle::parse(&raw) {
-                    let presentation_json = story
-                        .presentation
-                        .as_ref()
-                        .and_then(|v| serde_json::to_string(v).ok());
-                    stories.push(StorySummaryDto {
-                        address,
-                        event_id: story.event_id,
-                        pubkey: story.pubkey,
-                        d_tag: story.d_tag,
-                        title: story.title,
-                        summary: story.summary,
-                        image: story.image,
-                        content: story.content,
-                        presentation_json,
-                        referenced_addresses: story.referenced_addresses,
-                        published_at: story.published_at,
-                    });
+                    stories.push(story_to_dto(address, story));
                 }
             }
             MAP_CONTEXT_KIND => {
                 if let Ok(group) = AtlasGroup::parse(&raw) {
-                    let governance = match group.governance {
-                        earthly_domain::GovernanceMode::Open => "open",
-                        earthly_domain::GovernanceMode::Schema => "schema",
-                        earthly_domain::GovernanceMode::Closed => "closed",
-                    };
-                    atlases.push(AtlasSummaryDto {
-                        address,
-                        event_id: group.event_id,
-                        pubkey: group.pubkey,
-                        d_tag: group.d_tag,
-                        name: group.name,
-                        description: group.description,
-                        governance: governance.to_owned(),
-                        pinned_addresses: group.pinned_addresses,
-                        created_at: group.created_at,
-                    });
+                    atlases.push(atlas_to_dto(address, group));
+                }
+            }
+            LIVE_BEACON_KIND => {
+                if is_expired(&raw.tags, now) {
+                    continue;
+                }
+                if let Ok(beacon) = LiveBeacon::parse(&raw) {
+                    beacons.push(beacon_to_dto(address, beacon));
                 }
             }
             TEMPORAL_SIGHTING_KIND => {
@@ -278,19 +285,7 @@ pub async fn fetch_earthly_catalog(
                     continue;
                 }
                 if let Ok(sighting) = TemporalSighting::parse(&raw) {
-                    sightings.push(SightingSummaryDto {
-                        address,
-                        event_id: sighting.event_id,
-                        pubkey: sighting.pubkey,
-                        d_tag: sighting.d_tag,
-                        title: sighting.title,
-                        note: sighting.note,
-                        lon: sighting.lon,
-                        lat: sighting.lat,
-                        image_url: sighting.images.first().map(|img| img.url.clone()),
-                        start: sighting.start,
-                        expires_at: sighting.expires_at,
-                    });
+                    sightings.push(sighting_to_dto(address, sighting));
                 }
             }
             _ => {}
@@ -301,6 +296,7 @@ pub async fn fetch_earthly_catalog(
     stories.sort_by(|a, b| b.published_at.cmp(&a.published_at));
     atlases.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     sightings.sort_by(|a, b| b.start.cmp(&a.start));
+    beacons.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     Ok(EarthlyCatalogSnapshot {
         relay_urls: urls,
@@ -308,12 +304,14 @@ pub async fn fetch_earthly_catalog(
         stories,
         atlases,
         sightings,
+        beacons,
     })
 }
 
 /// Fast (~1 ms) local-only catalog read from the running embedded `LocalNode`
 /// LMDB database — powers real-time live listening for incoming Nearby Field
-/// Session Maps, Stories, Atlases, and Sightings without hitting public relays.
+/// Session Maps, Stories, Atlases, Sightings, and Live Beacons without hitting
+/// public relays.
 pub async fn fetch_local_node_catalog() -> Result<EarthlyCatalogSnapshot, String> {
     let Some(node) = crate::api::spike::current_node() else {
         return Ok(EarthlyCatalogSnapshot {
@@ -322,6 +320,7 @@ pub async fn fetch_local_node_catalog() -> Result<EarthlyCatalogSnapshot, String
             stories: Vec::new(),
             atlases: Vec::new(),
             sightings: Vec::new(),
+            beacons: Vec::new(),
         });
     };
     let local_events = node
@@ -356,6 +355,7 @@ pub async fn fetch_local_node_catalog() -> Result<EarthlyCatalogSnapshot, String
     let mut stories = Vec::new();
     let mut atlases = Vec::new();
     let mut sightings = Vec::new();
+    let mut beacons = Vec::new();
 
     for (address, raw) in latest_by_addr {
         match raw.kind {
@@ -366,43 +366,20 @@ pub async fn fetch_local_node_catalog() -> Result<EarthlyCatalogSnapshot, String
             }
             ARTICLE_KIND => {
                 if let Ok(story) = StoryArticle::parse(&raw) {
-                    let presentation_json = story
-                        .presentation
-                        .as_ref()
-                        .and_then(|v| serde_json::to_string(v).ok());
-                    stories.push(StorySummaryDto {
-                        address,
-                        event_id: story.event_id,
-                        pubkey: story.pubkey,
-                        d_tag: story.d_tag,
-                        title: story.title,
-                        summary: story.summary,
-                        image: story.image,
-                        content: story.content,
-                        presentation_json,
-                        referenced_addresses: story.referenced_addresses,
-                        published_at: story.published_at,
-                    });
+                    stories.push(story_to_dto(address, story));
                 }
             }
             MAP_CONTEXT_KIND => {
                 if let Ok(group) = AtlasGroup::parse(&raw) {
-                    let governance = match group.governance {
-                        earthly_domain::GovernanceMode::Open => "open",
-                        earthly_domain::GovernanceMode::Schema => "schema",
-                        earthly_domain::GovernanceMode::Closed => "closed",
-                    };
-                    atlases.push(AtlasSummaryDto {
-                        address,
-                        event_id: group.event_id,
-                        pubkey: group.pubkey,
-                        d_tag: group.d_tag,
-                        name: group.name,
-                        description: group.description,
-                        governance: governance.to_owned(),
-                        pinned_addresses: group.pinned_addresses,
-                        created_at: group.created_at,
-                    });
+                    atlases.push(atlas_to_dto(address, group));
+                }
+            }
+            LIVE_BEACON_KIND => {
+                if is_expired(&raw.tags, now) {
+                    continue;
+                }
+                if let Ok(beacon) = LiveBeacon::parse(&raw) {
+                    beacons.push(beacon_to_dto(address, beacon));
                 }
             }
             TEMPORAL_SIGHTING_KIND => {
@@ -410,19 +387,7 @@ pub async fn fetch_local_node_catalog() -> Result<EarthlyCatalogSnapshot, String
                     continue;
                 }
                 if let Ok(sighting) = TemporalSighting::parse(&raw) {
-                    sightings.push(SightingSummaryDto {
-                        address,
-                        event_id: sighting.event_id,
-                        pubkey: sighting.pubkey,
-                        d_tag: sighting.d_tag,
-                        title: sighting.title,
-                        note: sighting.note,
-                        lon: sighting.lon,
-                        lat: sighting.lat,
-                        image_url: sighting.images.first().map(|img| img.url.clone()),
-                        start: sighting.start,
-                        expires_at: sighting.expires_at,
-                    });
+                    sightings.push(sighting_to_dto(address, sighting));
                 }
             }
             _ => {}
@@ -433,6 +398,7 @@ pub async fn fetch_local_node_catalog() -> Result<EarthlyCatalogSnapshot, String
     stories.sort_by(|a, b| b.published_at.cmp(&a.published_at));
     atlases.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     sightings.sort_by(|a, b| b.start.cmp(&a.start));
+    beacons.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     Ok(EarthlyCatalogSnapshot {
         relay_urls: vec![node.descriptor().relay_url.to_string()],
@@ -440,7 +406,81 @@ pub async fn fetch_local_node_catalog() -> Result<EarthlyCatalogSnapshot, String
         stories,
         atlases,
         sightings,
+        beacons,
     })
+}
+
+/// Opens a persistent Nostr WebSocket subscription to the configured relays for
+/// live Earthly v2 entities (`37515`, `37518`, `37520`, `37521`, `37522`) arriving
+/// after connect, pushing parsed events directly into Flutter via `StreamSink`.
+pub async fn subscribe_earthly_relay_stream(
+    relay_urls: Vec<String>,
+    sink: crate::frb_generated::StreamSink<LiveRelayEventDto>,
+) -> Result<(), String> {
+    let urls = if relay_urls.is_empty() {
+        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
+    } else {
+        relay_urls
+    };
+
+    let client = Client::default();
+    for url in &urls {
+        client
+            .add_relay(url)
+            .await
+            .map_err(|err| format!("invalid relay URL {url}: {err}"))?;
+    }
+    client.connect().await;
+
+    let filter = Filter::new()
+        .kinds([
+            Kind::Custom(GEO_EVENT_KIND),
+            Kind::Custom(MAP_CONTEXT_KIND),
+            Kind::Custom(ARTICLE_KIND),
+            Kind::Custom(LIVE_BEACON_KIND),
+            Kind::Custom(TEMPORAL_SIGHTING_KIND),
+        ])
+        .since(Timestamp::now());
+
+    client
+        .subscribe(filter, None)
+        .await
+        .map_err(|err| format!("failed to subscribe to Earthly relays: {err}"))?;
+
+    let mut notifications = client.notifications();
+    let mut seen_ids: HashSet<String> = HashSet::new();
+
+    loop {
+        match notifications.recv().await {
+            Ok(RelayPoolNotification::Event {
+                relay_url, event, ..
+            }) => {
+                let raw = event_to_raw(&event);
+                if !seen_ids.insert(raw.id.clone()) {
+                    continue;
+                }
+                if seen_ids.len() > 2048 {
+                    seen_ids.clear();
+                }
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                if let Some(dto) = parse_live_relay_event(relay_url.to_string(), &raw, now) {
+                    if sink.add(dto).is_err() {
+                        break;
+                    }
+                }
+            }
+            Ok(RelayPoolNotification::Shutdown) => break,
+            Ok(_) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+        }
+    }
+
+    client.disconnect().await;
+    Ok(())
 }
 
 /// Decodes a `nostr:naddr1...` (with optional `#featureId` fragment) or bare
@@ -826,5 +866,141 @@ fn map_to_dto(address: String, dataset: MapDataset) -> MapSummaryDto {
         hashtags: dataset.hashtags,
         labels: dataset.labels,
         created_at: dataset.created_at,
+    }
+}
+
+fn story_to_dto(address: String, story: StoryArticle) -> StorySummaryDto {
+    let presentation_json = story
+        .presentation
+        .as_ref()
+        .and_then(|v| serde_json::to_string(v).ok());
+    StorySummaryDto {
+        address,
+        event_id: story.event_id,
+        pubkey: story.pubkey,
+        d_tag: story.d_tag,
+        title: story.title,
+        summary: story.summary,
+        image: story.image,
+        content: story.content,
+        presentation_json,
+        referenced_addresses: story.referenced_addresses,
+        published_at: story.published_at,
+    }
+}
+
+fn atlas_to_dto(address: String, group: AtlasGroup) -> AtlasSummaryDto {
+    let governance = match group.governance {
+        earthly_domain::GovernanceMode::Open => "open",
+        earthly_domain::GovernanceMode::Schema => "schema",
+        earthly_domain::GovernanceMode::Closed => "closed",
+    };
+    AtlasSummaryDto {
+        address,
+        event_id: group.event_id,
+        pubkey: group.pubkey,
+        d_tag: group.d_tag,
+        name: group.name,
+        description: group.description,
+        governance: governance.to_owned(),
+        pinned_addresses: group.pinned_addresses,
+        created_at: group.created_at,
+    }
+}
+
+fn sighting_to_dto(address: String, sighting: TemporalSighting) -> SightingSummaryDto {
+    SightingSummaryDto {
+        address,
+        event_id: sighting.event_id,
+        pubkey: sighting.pubkey,
+        d_tag: sighting.d_tag,
+        title: sighting.title,
+        note: sighting.note,
+        lon: sighting.lon,
+        lat: sighting.lat,
+        image_url: sighting.images.first().map(|img| img.url.clone()),
+        start: sighting.start,
+        expires_at: sighting.expires_at,
+    }
+}
+
+fn beacon_to_dto(address: String, beacon: LiveBeacon) -> LiveBeaconDto {
+    LiveBeaconDto {
+        address,
+        event_id: beacon.event_id,
+        pubkey: beacon.pubkey,
+        d_tag: beacon.d_tag,
+        lon: beacon.lon,
+        lat: beacon.lat,
+        status: beacon.status,
+        image_url: beacon.images.first().map(|img| img.url.clone()),
+        expires_at: beacon.expires_at,
+        created_at: beacon.created_at,
+    }
+}
+
+fn parse_live_relay_event(
+    relay_url: String,
+    raw: &RawNostrEvent,
+    now: u64,
+) -> Option<LiveRelayEventDto> {
+    let address = raw.address_coordinate()?;
+    match raw.kind {
+        GEO_EVENT_KIND => MapDataset::parse(raw).ok().map(|d| LiveRelayEventDto {
+            relay_url,
+            kind: raw.kind,
+            map: Some(map_to_dto(address, d)),
+            story: None,
+            atlas: None,
+            sighting: None,
+            beacon: None,
+        }),
+        ARTICLE_KIND => StoryArticle::parse(raw).ok().map(|s| LiveRelayEventDto {
+            relay_url,
+            kind: raw.kind,
+            map: None,
+            story: Some(story_to_dto(address, s)),
+            atlas: None,
+            sighting: None,
+            beacon: None,
+        }),
+        MAP_CONTEXT_KIND => AtlasGroup::parse(raw).ok().map(|g| LiveRelayEventDto {
+            relay_url,
+            kind: raw.kind,
+            map: None,
+            story: None,
+            atlas: Some(atlas_to_dto(address, g)),
+            sighting: None,
+            beacon: None,
+        }),
+        LIVE_BEACON_KIND => {
+            if is_expired(&raw.tags, now) {
+                return None;
+            }
+            LiveBeacon::parse(raw).ok().map(|b| LiveRelayEventDto {
+                relay_url,
+                kind: raw.kind,
+                map: None,
+                story: None,
+                atlas: None,
+                sighting: None,
+                beacon: Some(beacon_to_dto(address, b)),
+            })
+        }
+        TEMPORAL_SIGHTING_KIND => {
+            if is_expired(&raw.tags, now) {
+                return None;
+            }
+            TemporalSighting::parse(raw).ok().map(|s| LiveRelayEventDto {
+                relay_url,
+                kind: raw.kind,
+                map: None,
+                story: None,
+                atlas: None,
+                sighting: Some(sighting_to_dto(address, s)),
+                beacon: None,
+            })
+        }
+        _ => None,
     }
 }

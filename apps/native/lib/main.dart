@@ -127,12 +127,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   EarthlyCatalogSnapshot? _catalog;
   final List<ShelfMapEntry> _shelfMaps = <ShelfMapEntry>[];
   final List<SightingSummaryDto> _localSightings = <SightingSummaryDto>[];
+  final List<LiveBeaconDto> _localBeacons = <LiveBeaconDto>[];
   Nip55Account? _account;
   String? _localNsec;
   String? _hostedSessionId;
   RemotePeerDto? _acceptedRemotePeer;
 
-  // Live Nearby / Local-Node background listener state
+  // Live public relay WebSocket stream + Nearby / Local-Node background listener state
+  StreamSubscription<LiveRelayEventDto>? _relayStreamSub;
+  bool _relayStreamLive = false;
   Timer? _liveListenerTimer;
   int _liveTickCount = 0;
   int _pendingClaimCount = 0;
@@ -175,6 +178,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     super.initState();
     if (widget.mapBuilder == null) {
       unawaited(_restoreSavedDraft());
+      unawaited(_startLiveRelayStream());
       _liveListenerTimer = Timer.periodic(
         const Duration(seconds: 2),
         (_) => unawaited(_pollLiveNearbyUpdates()),
@@ -184,8 +188,113 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   @override
   void dispose() {
+    unawaited(_relayStreamSub?.cancel());
     _liveListenerTimer?.cancel();
     super.dispose();
+  }
+
+  /// Opens a persistent Rust `nostr-sdk` WebSocket subscription (`StreamSink`)
+  /// to `wss://relay.earthly.city` so new Maps, Stories, Atlases, Sightings,
+  /// and Live Beacons appear live on the map without manual refresh.
+  Future<void> _startLiveRelayStream() async {
+    try {
+      await RustBridge.ensureInitialized();
+      if (!mounted) return;
+      await _relayStreamSub?.cancel();
+      final stream = subscribeEarthlyRelayStream(relayUrls: _activeRelayUrls);
+      if (mounted) setState(() => _relayStreamLive = true);
+      _relayStreamSub = stream.listen(
+        _handleLiveRelayEvent,
+        onError: (_) {
+          if (mounted) setState(() => _relayStreamLive = false);
+        },
+        onDone: () {
+          if (mounted) setState(() => _relayStreamLive = false);
+        },
+      );
+    } catch (_) {
+      if (mounted) setState(() => _relayStreamLive = false);
+    }
+  }
+
+  void _handleLiveRelayEvent(LiveRelayEventDto event) {
+    if (!mounted) return;
+    setState(() {
+      final base = _catalog;
+      final mapsByAddr = <String, MapSummaryDto>{
+        for (final m in base?.maps ?? const <MapSummaryDto>[]) m.address: m,
+      };
+      final storiesByAddr = <String, StorySummaryDto>{
+        for (final s in base?.stories ?? const <StorySummaryDto>[])
+          s.address: s,
+      };
+      final atlasesByAddr = <String, AtlasSummaryDto>{
+        for (final a in base?.atlases ?? const <AtlasSummaryDto>[])
+          a.address: a,
+      };
+      final sightingsByAddr = <String, SightingSummaryDto>{
+        for (final s in base?.sightings ?? const <SightingSummaryDto>[])
+          s.address: s,
+      };
+      final beaconsByAddr = <String, LiveBeaconDto>{
+        for (final b in base?.beacons ?? const <LiveBeaconDto>[]) b.address: b,
+      };
+
+      if (event.map != null) {
+        final m = event.map!;
+        mapsByAddr[m.address] = m;
+        for (var i = 0; i < _shelfMaps.length; i++) {
+          if (_shelfMaps[i].summary.address == m.address &&
+              _shelfMaps[i].summary.eventId != m.eventId) {
+            _shelfMaps[i] = _entryFromSummary(m)
+                .copyWith(visible: _shelfMaps[i].visible);
+          }
+        }
+      }
+      if (event.story != null) storiesByAddr[event.story!.address] = event.story!;
+      if (event.atlas != null) atlasesByAddr[event.atlas!.address] = event.atlas!;
+      if (event.sighting != null) {
+        sightingsByAddr[event.sighting!.address] = event.sighting!;
+      }
+      if (event.beacon != null) {
+        beaconsByAddr[event.beacon!.address] = event.beacon!;
+      }
+
+      final mergedMaps = mapsByAddr.values.toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final mergedStories = storiesByAddr.values.toList()
+        ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+      final mergedAtlases = atlasesByAddr.values.toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final mergedSightings = sightingsByAddr.values.toList()
+        ..sort((a, b) => b.start.compareTo(a.start));
+      final mergedBeacons = beaconsByAddr.values.toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      _catalog = EarthlyCatalogSnapshot(
+        relayUrls: base?.relayUrls ?? _activeRelayUrls,
+        maps: mergedMaps,
+        stories: mergedStories,
+        atlases: mergedAtlases,
+        sightings: mergedSightings,
+        beacons: mergedBeacons,
+      );
+    });
+
+    if (event.beacon != null) {
+      final b = event.beacon!;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Live Beacon: ${b.status?.isNotEmpty == true ? b.status : b.dTag}',
+          ),
+          action: SnackBarAction(
+            label: 'Locate',
+            onPressed: () => _focusBeacon(b),
+          ),
+        ),
+      );
+    }
   }
 
   /// Actively listens for incoming Nearby Field Session data (both local host
@@ -246,6 +355,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           anyChange = true;
         }
       }
+      for (final b in localSnap.beacons) {
+        if (_seenLocalEventIds[b.address] != b.eventId) {
+          _seenLocalEventIds[b.address] = b.eventId;
+          anyChange = true;
+        }
+      }
       _initialLocalBaselineCaptured = true;
 
       if (!anyChange) return;
@@ -272,6 +387,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             s.address: s,
           for (final s in localSnap.sightings) s.address: s,
         };
+        final beaconsByAddr = <String, LiveBeaconDto>{
+          for (final b in base?.beacons ?? const <LiveBeaconDto>[])
+            b.address: b,
+          for (final b in localSnap.beacons) b.address: b,
+        };
 
         final mergedMaps = mapsByAddr.values.toList()
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -281,6 +401,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
         final mergedSightings = sightingsByAddr.values.toList()
           ..sort((a, b) => b.start.compareTo(a.start));
+        final mergedBeacons = beaconsByAddr.values.toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
         _catalog = EarthlyCatalogSnapshot(
           relayUrls: base?.relayUrls ?? localSnap.relayUrls,
@@ -288,6 +410,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           stories: mergedStories,
           atlases: mergedAtlases,
           sightings: mergedSightings,
+          beacons: mergedBeacons,
         );
 
         // Live-refresh any Map already mounted on the Shelf!
@@ -542,6 +665,87 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       byAddr[s.address] = s;
     }
     return byAddr.values.toList(growable: false);
+  }
+
+  List<LiveBeaconDto> get _allBeacons {
+    final nowSec = BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000);
+    final byAddr = <String, LiveBeaconDto>{};
+    for (final b in _catalog?.beacons ?? const <LiveBeaconDto>[]) {
+      if (b.expiresAt == null || b.expiresAt! > nowSec) {
+        byAddr[b.address] = b;
+      }
+    }
+    for (final b in _localBeacons) {
+      if (b.expiresAt == null || b.expiresAt! > nowSec) {
+        byAddr[b.address] = b;
+      }
+    }
+    return byAddr.values.toList(growable: false);
+  }
+
+  void _focusBeacon(LiveBeaconDto beacon) {
+    _controller?.animateCamera(
+      CameraUpdate.position(
+        center: Geographic(lon: beacon.lon, lat: beacon.lat),
+        zoom: 15.5,
+      ),
+    );
+  }
+
+  Future<PublishOutcomeDto> _broadcastLiveBeacon(
+    String status,
+    int durationMinutes,
+    bool nearby,
+  ) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+
+    Geographic loc = _controller?.camera?.center ??
+        const Geographic(lon: 16.3738, lat: 48.2082);
+    if (Platform.isAndroid) {
+      try {
+        final gps = await DeviceBridge.getCurrentLocation();
+        loc = Geographic(lon: gps.lon, lat: gps.lat);
+      } catch (_) {}
+    }
+
+    final prepared = await prepareUnsignedBeaconEvent(
+      pubkeyOrNpub: account.pubkey,
+      dTag: 'live-beacon',
+      lon: loc.lon,
+      lat: loc.lat,
+      status: status.isEmpty ? null : status,
+      durationMinutes: durationMinutes,
+      fieldSessionId: nearby ? _activeNearbySessionId : null,
+    );
+    final signedJson =
+        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+    final outcome = await _deliverForAudience(
+      nearby
+          ? DraftAudienceChoice.nearbyLocalNode
+          : DraftAudienceChoice.publicRelay,
+      signedJson,
+    );
+
+    final liveDto = LiveBeaconDto(
+      address: prepared.address,
+      eventId: outcome.eventId,
+      pubkey: account.pubkey,
+      dTag: prepared.dTag,
+      lon: loc.lon,
+      lat: loc.lat,
+      status: status.isEmpty ? 'Live here' : status,
+      expiresAt: prepared.expiresAt,
+      createdAt: prepared.start,
+    );
+    if (mounted) {
+      setState(() {
+        _localBeacons.removeWhere((b) => b.address == liveDto.address);
+        _localBeacons.add(liveDto);
+      });
+      _focusBeacon(liveDto);
+    }
+    return outcome;
   }
 
   MapGestures get _activeMapGestures {
@@ -1417,9 +1621,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onOpenStory: (story) => unawaited(_openStory(story)),
           onOpenAtlas: (atlas) => unawaited(_openAtlas(atlas)),
           onFocusSighting: _focusSighting,
+          onFocusBeacon: _focusBeacon,
           onCreateSighting: _openSightingComposer,
           onComposeStory: () =>
               setState(() => _drawer = _ActiveDrawer.storyComposer),
+          onOpenBeaconBroadcaster: () =>
+              setState(() => _drawer = _ActiveDrawer.spaces),
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
         );
       case _ActiveDrawer.desk:
@@ -1501,6 +1708,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             // Invalidate cached Explore snapshot so newly synced maps appear immediately.
             setState(() => _catalog = null);
           },
+          onBroadcastBeacon: _broadcastLiveBeacon,
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
         );
       case _ActiveDrawer.agent:
@@ -1720,6 +1928,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     }
 
     final visibleSightings = _allSightings;
+    final visibleBeacons = _allBeacons;
     final visibleCallouts = collectVisibleCallouts(
       shelfMaps: _shelfMaps,
       draftFeatures: _features,
@@ -1729,6 +1938,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     final gpuLayers = buildEarthlyGpuLayers(
       shelfMaps: _shelfMaps,
       sightings: visibleSightings,
+      beacons: visibleBeacons,
       draftFeatures: _features,
       accentColor: theme.colorScheme.primary,
       isDarkMap: isDarkMap,
@@ -1841,6 +2051,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           if (!_isDrawingMode) ...[
+                            if (_relayStreamLive) ...[
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: const BoxDecoration(
+                                  color: EarthlyColors.commentGreen,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                            ],
                             Text(
                               'EARTHLY',
                               style: theme.textTheme.labelMedium?.copyWith(
@@ -1851,7 +2072,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             const SizedBox(width: 8),
                           ],
                           Text(
-                            '${_shelfMaps.length} shelf · ${_features.length} draft',
+                            '${_shelfMaps.length} shelf · ${_features.length} draft${visibleBeacons.isNotEmpty ? ' · ${visibleBeacons.length} live' : ''}',
                             style: const TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 11,

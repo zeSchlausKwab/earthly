@@ -17,8 +17,10 @@ class ExploreSheet extends StatefulWidget {
     required this.onOpenStory,
     required this.onOpenAtlas,
     required this.onFocusSighting,
+    required this.onFocusBeacon,
     required this.onCreateSighting,
     required this.onComposeStory,
+    required this.onOpenBeaconBroadcaster,
     required this.onClose,
     super.key,
   });
@@ -31,8 +33,10 @@ class ExploreSheet extends StatefulWidget {
   final ValueChanged<StorySummaryDto> onOpenStory;
   final ValueChanged<AtlasSummaryDto> onOpenAtlas;
   final ValueChanged<SightingSummaryDto> onFocusSighting;
+  final ValueChanged<LiveBeaconDto> onFocusBeacon;
   final VoidCallback onCreateSighting;
   final VoidCallback onComposeStory;
+  final VoidCallback onOpenBeaconBroadcaster;
   final VoidCallback onClose;
 
   @override
@@ -49,7 +53,7 @@ class _ExploreSheetState extends State<ExploreSheet>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
+    _tabs = TabController(length: 5, vsync: this);
     _catalog = widget.initialCatalog;
     if (_catalog == null) {
       _refresh();
@@ -152,6 +156,7 @@ class _ExploreSheetState extends State<ExploreSheet>
               Tab(text: 'Stories (${catalog?.stories.length ?? 0})'),
               Tab(text: 'Atlases (${catalog?.atlases.length ?? 0})'),
               Tab(text: 'Sightings (${catalog?.sightings.length ?? 0})'),
+              Tab(text: 'Live (${catalog?.beacons.length ?? 0})'),
             ],
           ),
         ],
@@ -182,6 +187,7 @@ class _ExploreSheetState extends State<ExploreSheet>
                       _buildStoriesList(catalog?.stories ?? const []),
                       _buildAtlasesList(catalog?.atlases ?? const []),
                       _buildSightingsList(catalog?.sightings ?? const []),
+                      _buildBeaconsList(catalog?.beacons ?? const []),
                     ],
                   ),
           ),
@@ -371,6 +377,66 @@ class _ExploreSheetState extends State<ExploreSheet>
                         ),
                       ),
                       onTap: () => widget.onFocusSighting(s),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBeaconsList(List<LiveBeaconDto> beacons) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: widget.onOpenBeaconBroadcaster,
+              icon: const Icon(
+                Icons.sensors,
+                size: 16,
+                color: Color(0xFF0891B2),
+              ),
+              label: const Text('Broadcast Live Beacon (37521)'),
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: beacons.isEmpty
+              ? const Center(child: Text('No active live beacons right now.'))
+              : ListView.separated(
+                  itemCount: beacons.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final b = beacons[index];
+                    final shortKey = b.pubkey.length > 10
+                        ? '${b.pubkey.substring(0, 10)}…'
+                        : b.pubkey;
+                    return ListTile(
+                      leading: const Icon(
+                        Icons.sensors,
+                        color: Color(0xFF0891B2),
+                      ),
+                      title: Text(
+                        (b.status != null && b.status!.trim().isNotEmpty)
+                            ? b.status!
+                            : 'Live Beacon · $shortKey',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        '${b.lat.toStringAsFixed(4)}, ${b.lon.toStringAsFixed(4)} · $shortKey',
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.my_location, size: 17),
+                      onTap: () => widget.onFocusBeacon(b),
                     );
                   },
                 ),

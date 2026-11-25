@@ -26,6 +26,7 @@ class SpacesSheet extends StatefulWidget {
     required this.onLocalKeyChanged,
     required this.onSessionStateChanged,
     required this.onNearbySynced,
+    required this.onBroadcastBeacon,
     required this.onClose,
     super.key,
   });
@@ -37,6 +38,11 @@ class SpacesSheet extends StatefulWidget {
   final void Function(String? hostedSessionId, RemotePeerDto? acceptedPeer)
       onSessionStateChanged;
   final VoidCallback onNearbySynced;
+  final Future<PublishOutcomeDto> Function(
+    String status,
+    int durationMinutes,
+    bool nearby,
+  ) onBroadcastBeacon;
   final VoidCallback onClose;
 
   @override
@@ -45,11 +51,14 @@ class SpacesSheet extends StatefulWidget {
 
 class _SpacesSheetState extends State<SpacesSheet> {
   final _inviteInputController = TextEditingController();
+  final _beaconStatusController = TextEditingController();
   Timer? _pollTimer;
 
   bool _amberInstalled = false;
   bool _busy = false;
   bool _bindLan = true;
+  int _beaconDurationMinutes = 60;
+  bool _beaconNearby = false;
   String? _error;
   String? _infoBanner;
   LocalNodeSnapshot? _node;
@@ -71,7 +80,34 @@ class _SpacesSheetState extends State<SpacesSheet> {
   void dispose() {
     _pollTimer?.cancel();
     _inviteInputController.dispose();
+    _beaconStatusController.dispose();
     super.dispose();
+  }
+
+  Future<void> _broadcastBeacon() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+      _infoBanner = null;
+    });
+    try {
+      final outcome = await widget.onBroadcastBeacon(
+        _beaconStatusController.text.trim(),
+        _beaconDurationMinutes,
+        _beaconNearby,
+      );
+      if (!mounted) return;
+      final okCount = outcome.relays.where((r) => r.ok).length;
+      setState(() {
+        _infoBanner =
+            'Live Beacon broadcast ($okCount/${outcome.relays.length} relay ok · ${_beaconDurationMinutes}m expiry)';
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _checkEnvironment() async {
@@ -506,6 +542,61 @@ class _SpacesSheetState extends State<SpacesSheet> {
                 ),
               ],
             ),
+
+          const Divider(height: 22),
+
+          // Live Beacon broadcaster (kind 37521, NIP-40 expiration)
+          Text(
+            'LIVE BEACON (KIND 37521)',
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF0891B2),
+            ),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _beaconStatusController,
+            decoration: const InputDecoration(
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.zero),
+              hintText: 'Status note (e.g. Surveying north ridge)',
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final mins in const [15, 60, 240])
+                ChoiceChip(
+                  label: Text(mins < 60 ? '${mins}m' : '${mins ~/ 60}h'),
+                  selected: _beaconDurationMinutes == mins,
+                  onSelected: (_) =>
+                      setState(() => _beaconDurationMinutes = mins),
+                ),
+              ChoiceChip(
+                label: const Text('Public'),
+                selected: !_beaconNearby,
+                onSelected: (_) => setState(() => _beaconNearby = false),
+              ),
+              ChoiceChip(
+                label: const Text('Nearby'),
+                selected: _beaconNearby,
+                onSelected: (_) => setState(() => _beaconNearby = true),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: _busy ? null : _broadcastBeacon,
+            icon: const Icon(Icons.sensors, size: 18),
+            label: Text(
+              Platform.isAndroid
+                  ? 'Broadcast Live GPS Beacon'
+                  : 'Broadcast Map Center Beacon',
+            ),
+          ),
 
           const Divider(height: 22),
 

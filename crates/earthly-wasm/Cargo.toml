@@ -11,6 +11,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+earthly-agent = { path = "../earthly-agent" }
 earthly-domain = { path = "../earthly-domain" }
 earthly-geo = { path = "../earthly-geo" }
 earthly-spatial = { path = "../earthly-spatial" }

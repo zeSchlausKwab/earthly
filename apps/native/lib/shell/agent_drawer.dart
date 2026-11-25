@@ -80,6 +80,7 @@ class AgentDrawer extends StatefulWidget {
 
 class _AgentDrawerState extends State<AgentDrawer> {
   final _promptController = TextEditingController();
+  final _urlController = TextEditingController();
   late final TextEditingController _baseUrlController =
       TextEditingController(text: widget.settings.baseUrl);
   late final TextEditingController _modelController =
@@ -87,14 +88,29 @@ class _AgentDrawerState extends State<AgentDrawer> {
   late final TextEditingController _apiKeyController =
       TextEditingController(text: widget.settings.apiKey);
   bool _showSettings = false;
+  bool _showUrlResearch = false;
 
   @override
   void dispose() {
     _promptController.dispose();
+    _urlController.dispose();
     _baseUrlController.dispose();
     _modelController.dispose();
     _apiKeyController.dispose();
     super.dispose();
+  }
+
+  void _submitResearchUrl() {
+    final raw = _urlController.text.trim();
+    if (raw.isEmpty || widget.busy) return;
+    final url = (raw.startsWith('http://') || raw.startsWith('https://'))
+        ? raw
+        : 'https://$raw';
+    _urlController.clear();
+    setState(() => _showUrlResearch = false);
+    widget.onSendPrompt(
+      'Research this URL and plot any geographic locations found onto my working draft: $url',
+    );
   }
 
   void _applyPreset(CopilotProviderSettings preset) {
@@ -170,6 +186,17 @@ class _AgentDrawerState extends State<AgentDrawer> {
                     style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
                   ),
                 ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Research webpage URL',
+              visualDensity: VisualDensity.compact,
+              onPressed: () =>
+                  setState(() => _showUrlResearch = !_showUrlResearch),
+              icon: Icon(
+                Icons.travel_explore,
+                size: 18,
+                color: _showUrlResearch ? theme.colorScheme.primary : null,
               ),
             ),
             IconButton(
@@ -286,12 +313,60 @@ class _AgentDrawerState extends State<AgentDrawer> {
               ),
             ),
 
+          if (_showUrlResearch)
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.06),
+                border: Border(bottom: BorderSide(color: theme.dividerColor)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _urlController,
+                      onSubmitted: (_) => _submitResearchUrl(),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.zero,
+                        ),
+                        hintText: 'Paste webpage URL to extract & plot coords…',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: widget.busy ? null : _submitResearchUrl,
+                    icon: const Icon(Icons.travel_explore, size: 15),
+                    label: const Text('Fetch'),
+                  ),
+                ],
+              ),
+            ),
+
           // Quick spatial prompts
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
             child: Row(
               children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ActionChip(
+                    avatar: const Icon(Icons.travel_explore, size: 14),
+                    label: const Text(
+                      'Research URL',
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    onPressed: () =>
+                        setState(() => _showUrlResearch = !_showUrlResearch),
+                  ),
+                ),
                 for (final chip in const [
                   'Measure my draft',
                   'Create 120m corridor',

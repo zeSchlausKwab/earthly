@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1770141817;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1882986962;
 
 // Section: executor
 
@@ -1062,6 +1062,53 @@ fn wire__crate__api__spike__outbox_summary_impl(
         },
     )
 }
+fn wire__crate__api__publish__prepare_unsigned_beacon_event_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "prepare_unsigned_beacon_event",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_pubkey_or_npub = <String>::sse_decode(&mut deserializer);
+            let api_d_tag = <String>::sse_decode(&mut deserializer);
+            let api_lon = <f64>::sse_decode(&mut deserializer);
+            let api_lat = <f64>::sse_decode(&mut deserializer);
+            let api_status = <Option<String>>::sse_decode(&mut deserializer);
+            let api_duration_minutes = <u32>::sse_decode(&mut deserializer);
+            let api_field_session_id = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::publish::prepare_unsigned_beacon_event(
+                        api_pubkey_or_npub,
+                        api_d_tag,
+                        api_lon,
+                        api_lat,
+                        api_status,
+                        api_duration_minutes,
+                        api_field_session_id,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__publish__prepare_unsigned_comment_event_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1764,6 +1811,50 @@ fn wire__crate__api__spike__start_local_node_lan_impl(
         },
     )
 }
+fn wire__crate__api__nostr_client__subscribe_earthly_relay_stream_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "subscribe_earthly_relay_stream",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_relay_urls = <Vec<String>>::sse_decode(&mut deserializer);
+            let api_sink = <StreamSink<
+                crate::api::nostr_client::LiveRelayEventDto,
+                flutter_rust_bridge::for_generated::SseCodec,
+            >>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok = crate::api::nostr_client::subscribe_earthly_relay_stream(
+                            api_relay_urls,
+                            api_sink,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__spike__sync_nearby_peer_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1802,6 +1893,27 @@ fn wire__crate__api__spike__sync_nearby_peer_impl(
 }
 
 // Section: dart2rust
+
+impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return flutter_rust_bridge::for_generated::anyhow::anyhow!("{}", inner);
+    }
+}
+
+impl SseDecode
+    for StreamSink<
+        crate::api::nostr_client::LiveRelayEventDto,
+        flutter_rust_bridge::for_generated::SseCodec,
+    >
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return StreamSink::deserialize(inner);
+    }
+}
 
 impl SseDecode for String {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1973,12 +2085,15 @@ impl SseDecode for crate::api::nostr_client::EarthlyCatalogSnapshot {
             <Vec<crate::api::nostr_client::AtlasSummaryDto>>::sse_decode(deserializer);
         let mut var_sightings =
             <Vec<crate::api::nostr_client::SightingSummaryDto>>::sse_decode(deserializer);
+        let mut var_beacons =
+            <Vec<crate::api::nostr_client::LiveBeaconDto>>::sse_decode(deserializer);
         return crate::api::nostr_client::EarthlyCatalogSnapshot {
             relay_urls: var_relayUrls,
             maps: var_maps,
             stories: var_stories,
             atlases: var_atlases,
             sightings: var_sightings,
+            beacons: var_beacons,
         };
     }
 }
@@ -2212,6 +2327,20 @@ impl SseDecode for Vec<Vec<crate::api::geo::LonLatPoint>> {
     }
 }
 
+impl SseDecode for Vec<crate::api::nostr_client::LiveBeaconDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::nostr_client::LiveBeaconDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::geo::LonLatPoint> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -2315,6 +2444,61 @@ impl SseDecode for Vec<crate::api::nostr_client::StorySummaryDto> {
             ));
         }
         return ans_;
+    }
+}
+
+impl SseDecode for crate::api::nostr_client::LiveBeaconDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_address = <String>::sse_decode(deserializer);
+        let mut var_eventId = <String>::sse_decode(deserializer);
+        let mut var_pubkey = <String>::sse_decode(deserializer);
+        let mut var_dTag = <String>::sse_decode(deserializer);
+        let mut var_lon = <f64>::sse_decode(deserializer);
+        let mut var_lat = <f64>::sse_decode(deserializer);
+        let mut var_status = <Option<String>>::sse_decode(deserializer);
+        let mut var_imageUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_expiresAt = <Option<u64>>::sse_decode(deserializer);
+        let mut var_createdAt = <u64>::sse_decode(deserializer);
+        return crate::api::nostr_client::LiveBeaconDto {
+            address: var_address,
+            event_id: var_eventId,
+            pubkey: var_pubkey,
+            d_tag: var_dTag,
+            lon: var_lon,
+            lat: var_lat,
+            status: var_status,
+            image_url: var_imageUrl,
+            expires_at: var_expiresAt,
+            created_at: var_createdAt,
+        };
+    }
+}
+
+impl SseDecode for crate::api::nostr_client::LiveRelayEventDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_relayUrl = <String>::sse_decode(deserializer);
+        let mut var_kind = <u16>::sse_decode(deserializer);
+        let mut var_map =
+            <Option<crate::api::nostr_client::MapSummaryDto>>::sse_decode(deserializer);
+        let mut var_story =
+            <Option<crate::api::nostr_client::StorySummaryDto>>::sse_decode(deserializer);
+        let mut var_atlas =
+            <Option<crate::api::nostr_client::AtlasSummaryDto>>::sse_decode(deserializer);
+        let mut var_sighting =
+            <Option<crate::api::nostr_client::SightingSummaryDto>>::sse_decode(deserializer);
+        let mut var_beacon =
+            <Option<crate::api::nostr_client::LiveBeaconDto>>::sse_decode(deserializer);
+        return crate::api::nostr_client::LiveRelayEventDto {
+            relay_url: var_relayUrl,
+            kind: var_kind,
+            map: var_map,
+            story: var_story,
+            atlas: var_atlas,
+            sighting: var_sighting,
+            beacon: var_beacon,
+        };
     }
 }
 
@@ -2468,6 +2652,19 @@ impl SseDecode for Option<crate::api::agent::AgentCameraActionDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::nostr_client::AtlasSummaryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::nostr_client::AtlasSummaryDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::nostr_client::DecodedNaddrDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -2492,11 +2689,63 @@ impl SseDecode for Option<f64> {
     }
 }
 
+impl SseDecode for Option<crate::api::nostr_client::LiveBeaconDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::nostr_client::LiveBeaconDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::publish::LocalDraftDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<crate::api::publish::LocalDraftDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::nostr_client::MapSummaryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::nostr_client::MapSummaryDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::nostr_client::SightingSummaryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::nostr_client::SightingSummaryDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::nostr_client::StorySummaryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::nostr_client::StorySummaryDto>::sse_decode(
                 deserializer,
             ));
         } else {
@@ -2873,62 +3122,74 @@ fn pde_ffi_dispatcher_primary_impl(
         26 => wire__crate__api__spike__local_node_status_impl(port, ptr, rust_vec_len, data_len),
         27 => wire__crate__api__spike__nearby_peers_status_impl(port, ptr, rust_vec_len, data_len),
         28 => wire__crate__api__spike__outbox_summary_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__publish__prepare_unsigned_comment_event_impl(
+        29 => wire__crate__api__publish__prepare_unsigned_beacon_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        30 => wire__crate__api__publish__prepare_unsigned_map_event_impl(
+        30 => wire__crate__api__publish__prepare_unsigned_comment_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        31 => wire__crate__api__publish__prepare_unsigned_proposal_event_impl(
+        31 => wire__crate__api__publish__prepare_unsigned_map_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        32 => wire__crate__api__publish__prepare_unsigned_sighting_event_impl(
+        32 => wire__crate__api__publish__prepare_unsigned_proposal_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        33 => wire__crate__api__publish__prepare_unsigned_story_event_impl(
+        33 => wire__crate__api__publish__prepare_unsigned_sighting_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        34 => wire__crate__api__publish__publish_nearby_event_via_outbox_impl(
+        34 => wire__crate__api__publish__prepare_unsigned_story_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        35 => wire__crate__api__publish__publish_signed_event_via_outbox_impl(
+        35 => wire__crate__api__publish__publish_nearby_event_via_outbox_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        36 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        39 => {
+        36 => wire__crate__api__publish__publish_signed_event_via_outbox_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        37 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        40 => {
             wire__crate__api__agent__run_earthly_agent_turn_impl(port, ptr, rust_vec_len, data_len)
         }
-        40 => wire__crate__api__publish__save_local_draft_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
-        42 => {
+        41 => wire__crate__api__publish__save_local_draft_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
+        43 => {
             wire__crate__api__publish__sign_event_with_nsec_impl(port, ptr, rust_vec_len, data_len)
         }
-        43 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__nostr_client__subscribe_earthly_relay_stream_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        47 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -3147,6 +3408,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::nostr_client::EarthlyCatalogS
             self.stories.into_into_dart().into_dart(),
             self.atlases.into_into_dart().into_dart(),
             self.sightings.into_into_dart().into_dart(),
+            self.beacons.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -3289,6 +3551,61 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::spike::IngestedPmtilesSnapsho
     for crate::api::spike::IngestedPmtilesSnapshot
 {
     fn into_into_dart(self) -> crate::api::spike::IngestedPmtilesSnapshot {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::nostr_client::LiveBeaconDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.address.into_into_dart().into_dart(),
+            self.event_id.into_into_dart().into_dart(),
+            self.pubkey.into_into_dart().into_dart(),
+            self.d_tag.into_into_dart().into_dart(),
+            self.lon.into_into_dart().into_dart(),
+            self.lat.into_into_dart().into_dart(),
+            self.status.into_into_dart().into_dart(),
+            self.image_url.into_into_dart().into_dart(),
+            self.expires_at.into_into_dart().into_dart(),
+            self.created_at.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::nostr_client::LiveBeaconDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::nostr_client::LiveBeaconDto>
+    for crate::api::nostr_client::LiveBeaconDto
+{
+    fn into_into_dart(self) -> crate::api::nostr_client::LiveBeaconDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::nostr_client::LiveRelayEventDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.relay_url.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.map.into_into_dart().into_dart(),
+            self.story.into_into_dart().into_dart(),
+            self.atlas.into_into_dart().into_dart(),
+            self.sighting.into_into_dart().into_dart(),
+            self.beacon.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::nostr_client::LiveRelayEventDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::nostr_client::LiveRelayEventDto>
+    for crate::api::nostr_client::LiveRelayEventDto
+{
+    fn into_into_dart(self) -> crate::api::nostr_client::LiveRelayEventDto {
         self
     }
 }
@@ -3722,6 +4039,25 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::publish::UnsignedSightingEven
     }
 }
 
+impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(format!("{:?}", self), serializer);
+    }
+}
+
+impl SseEncode
+    for StreamSink<
+        crate::api::nostr_client::LiveRelayEventDto,
+        flutter_rust_bridge::for_generated::SseCodec,
+    >
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        unimplemented!("")
+    }
+}
+
 impl SseEncode for String {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3834,6 +4170,7 @@ impl SseEncode for crate::api::nostr_client::EarthlyCatalogSnapshot {
         <Vec<crate::api::nostr_client::StorySummaryDto>>::sse_encode(self.stories, serializer);
         <Vec<crate::api::nostr_client::AtlasSummaryDto>>::sse_encode(self.atlases, serializer);
         <Vec<crate::api::nostr_client::SightingSummaryDto>>::sse_encode(self.sightings, serializer);
+        <Vec<crate::api::nostr_client::LiveBeaconDto>>::sse_encode(self.beacons, serializer);
     }
 }
 
@@ -3989,6 +4326,16 @@ impl SseEncode for Vec<Vec<crate::api::geo::LonLatPoint>> {
     }
 }
 
+impl SseEncode for Vec<crate::api::nostr_client::LiveBeaconDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::nostr_client::LiveBeaconDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::geo::LonLatPoint> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -4066,6 +4413,38 @@ impl SseEncode for Vec<crate::api::nostr_client::StorySummaryDto> {
         for item in self {
             <crate::api::nostr_client::StorySummaryDto>::sse_encode(item, serializer);
         }
+    }
+}
+
+impl SseEncode for crate::api::nostr_client::LiveBeaconDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.address, serializer);
+        <String>::sse_encode(self.event_id, serializer);
+        <String>::sse_encode(self.pubkey, serializer);
+        <String>::sse_encode(self.d_tag, serializer);
+        <f64>::sse_encode(self.lon, serializer);
+        <f64>::sse_encode(self.lat, serializer);
+        <Option<String>>::sse_encode(self.status, serializer);
+        <Option<String>>::sse_encode(self.image_url, serializer);
+        <Option<u64>>::sse_encode(self.expires_at, serializer);
+        <u64>::sse_encode(self.created_at, serializer);
+    }
+}
+
+impl SseEncode for crate::api::nostr_client::LiveRelayEventDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.relay_url, serializer);
+        <u16>::sse_encode(self.kind, serializer);
+        <Option<crate::api::nostr_client::MapSummaryDto>>::sse_encode(self.map, serializer);
+        <Option<crate::api::nostr_client::StorySummaryDto>>::sse_encode(self.story, serializer);
+        <Option<crate::api::nostr_client::AtlasSummaryDto>>::sse_encode(self.atlas, serializer);
+        <Option<crate::api::nostr_client::SightingSummaryDto>>::sse_encode(
+            self.sighting,
+            serializer,
+        );
+        <Option<crate::api::nostr_client::LiveBeaconDto>>::sse_encode(self.beacon, serializer);
     }
 }
 
@@ -4163,6 +4542,16 @@ impl SseEncode for Option<crate::api::agent::AgentCameraActionDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::nostr_client::AtlasSummaryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::nostr_client::AtlasSummaryDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::nostr_client::DecodedNaddrDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -4183,12 +4572,52 @@ impl SseEncode for Option<f64> {
     }
 }
 
+impl SseEncode for Option<crate::api::nostr_client::LiveBeaconDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::nostr_client::LiveBeaconDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::publish::LocalDraftDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <crate::api::publish::LocalDraftDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::nostr_client::MapSummaryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::nostr_client::MapSummaryDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::nostr_client::SightingSummaryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::nostr_client::SightingSummaryDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::nostr_client::StorySummaryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::nostr_client::StorySummaryDto>::sse_encode(value, serializer);
         }
     }
 }

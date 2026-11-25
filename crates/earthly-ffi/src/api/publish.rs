@@ -5,8 +5,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_domain::{
     ARTICLE_KIND, GEO_COMMENT_KIND, GEO_EDIT_PROPOSAL_KIND, GEO_EVENT_KIND, ImetaAttachment,
-    MODEL_VERSION, TEMPORAL_SIGHTING_KIND, set_bbox, set_geohash, set_hashtags, set_images,
-    set_referenced_addresses,
+    LIVE_BEACON_KIND, MODEL_VERSION, TEMPORAL_SIGHTING_KIND, set_bbox, set_geohash, set_hashtags,
+    set_images, set_referenced_addresses,
 };
 use earthly_geo::validate_feature_collection;
 use earthly_spatial::Bounds;
@@ -309,6 +309,84 @@ pub fn prepare_unsigned_sighting_event(
         unsigned_event_json,
         d_tag: d_tag.clone(),
         address: format!("{TEMPORAL_SIGHTING_KIND}:{pubkey_hex}:{d_tag}"),
+        start: now,
+        expires_at,
+    })
+}
+
+/// Prepares a canonical Earthly v2 Live Beacon (`kind 37521`) event with
+/// `modelVersion: "earthly/2"`, live coordinates (`lon`/`lat`), optional short
+/// status message, `bbox`, multi-precision `g`, NIP-40 `expiration`, and
+/// optional Nearby Field Session `h` tag.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_unsigned_beacon_event(
+    pubkey_or_npub: String,
+    d_tag: String,
+    lon: f64,
+    lat: f64,
+    status: Option<String>,
+    duration_minutes: u32,
+    field_session_id: Option<String>,
+) -> Result<UnsignedSightingEventDto, String> {
+    if !lon.is_finite()
+        || !lat.is_finite()
+        || !(-180.0..=180.0).contains(&lon)
+        || !(-90.0..=90.0).contains(&lat)
+    {
+        return Err("beacon coordinates out of WGS-84 range".to_owned());
+    }
+    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let pubkey_hex = pubkey.to_hex();
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let minutes = duration_minutes.clamp(5, 24 * 60) as u64;
+    let expires_at = now.saturating_add(minutes * 60);
+
+    let mut content_obj = serde_json::Map::new();
+    content_obj.insert(
+        "modelVersion".to_owned(),
+        serde_json::Value::String(MODEL_VERSION.to_owned()),
+    );
+    content_obj.insert("lon".to_owned(), serde_json::json!(lon));
+    content_obj.insert("lat".to_owned(), serde_json::json!(lat));
+    if let Some(st) = status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        content_obj.insert("status".to_owned(), serde_json::Value::String(st.to_owned()));
+    }
+    let content = serde_json::to_string(&serde_json::Value::Object(content_obj))
+        .map_err(|e| e.to_string())?;
+
+    let mut tags: Vec<Vec<String>> = vec![
+        vec!["d".to_owned(), d_tag.clone()],
+        vec!["expiration".to_owned(), expires_at.to_string()],
+    ];
+    let bounds = Bounds::new(lon, lat, lon, lat).ok();
+    tags = set_bbox(&tags, bounds);
+    tags = set_geohash(&tags, Some((lon, lat)), 7);
+    if let Some(session_id) = field_session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        tags.push(vec!["h".to_owned(), session_id.to_owned()]);
+    }
+
+    let unsigned = serde_json::json!({
+        "kind": LIVE_BEACON_KIND,
+        "pubkey": pubkey_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": content,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+
+    Ok(UnsignedSightingEventDto {
+        unsigned_event_json,
+        d_tag: d_tag.clone(),
+        address: format!("{LIVE_BEACON_KIND}:{pubkey_hex}:{d_tag}"),
         start: now,
         expires_at,
     })
@@ -878,6 +956,34 @@ mod tests {
         let tags = raw["tags"].as_array().unwrap();
         assert!(tags.iter().any(|t| t[0] == "expiration"));
         assert!(tags.iter().any(|t| t[0] == "imeta"));
+        assert!(tags.iter().any(|t| t[0] == "g"));
+    }
+
+    #[test]
+    fn prepares_canonical_unsigned_live_beacon_event() {
+        let keys = Keys::generate();
+        let prepared = prepare_unsigned_beacon_event(
+            keys.public_key().to_hex(),
+            "live-field-beacon".to_owned(),
+            16.3738,
+            48.2082,
+            Some("Surveying Danube bridge".to_owned()),
+            60,
+            Some("field-session-9".to_owned()),
+        )
+        .unwrap();
+
+        assert!(prepared.address.starts_with("37521:"));
+        assert_eq!(prepared.expires_at, prepared.start + 3600);
+        let raw: serde_json::Value = serde_json::from_str(&prepared.unsigned_event_json).unwrap();
+        assert_eq!(raw["kind"], 37_521);
+        let content: serde_json::Value =
+            serde_json::from_str(raw["content"].as_str().unwrap()).unwrap();
+        assert_eq!(content["modelVersion"], "earthly/2");
+        assert_eq!(content["status"], "Surveying Danube bridge");
+        let tags = raw["tags"].as_array().unwrap();
+        assert!(tags.iter().any(|t| t[0] == "expiration"));
+        assert!(tags.iter().any(|t| t[0] == "h" && t[1] == "field-session-9"));
         assert!(tags.iter().any(|t| t[0] == "g"));
     }
 }

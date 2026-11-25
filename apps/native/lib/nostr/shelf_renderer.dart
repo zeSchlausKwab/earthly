@@ -599,6 +599,7 @@ List<Layer> buildEarthlyGpuLayers({
   required bool isDarkMap,
   required bool showLabels,
   required ValueChanged<InspectedFeature> onInspectFeature,
+  List<LiveBeaconDto> beacons = const [],
   ActiveStoryRenderContext? activeStory,
   List<ShelfShape> commentOverlayShapes = const [],
   List<ShelfShape> proposalOverlayShapes = const [],
@@ -916,6 +917,36 @@ List<Layer> buildEarthlyGpuLayers({
     ));
   }
 
+  // 4b. Live Beacons (kind 37521)
+  final beaconPoints = <Feature<Point>>[];
+  final beaconMeta = <InspectedFeature>[];
+  for (final b in beacons) {
+    final pos = Geographic(lon: b.lon, lat: b.lat);
+    beaconPoints.add(Feature(geometry: Point(pos)));
+    final label = (b.status != null && b.status!.trim().isNotEmpty)
+        ? b.status!.trim()
+        : 'Live Beacon';
+    if (showLabels) {
+      labelPoints.add(
+        Feature(geometry: Point(pos), properties: {'label': label}),
+      );
+    }
+    beaconMeta.add(InspectedFeature(
+      sourceLabel: 'Live Beacon (37521)',
+      isDraft: false,
+      geometryType: 'Point',
+      title: label,
+      imageUrl: b.imageUrl,
+      properties: {
+        'pubkey': b.pubkey.length > 14 ? '${b.pubkey.substring(0, 14)}…' : b.pubkey,
+        if (b.status != null && b.status!.isNotEmpty) 'status': b.status!,
+        'lat': b.lat.toStringAsFixed(5),
+        'lon': b.lon.toStringAsFixed(5),
+        if (b.expiresAt != null) 'expiresAt': b.expiresAt.toString(),
+      },
+    ));
+  }
+
   // 5. Story inline `geo:` pins
   final geoPinPoints = <Feature<Point>>[];
   if (activeStory != null) {
@@ -1055,6 +1086,29 @@ List<Layer> buildEarthlyGpuLayers({
           }
         },
       ),
+
+    // Live Beacons (kind 37521) — cyan halo + crisp live dot
+    if (beaconPoints.isNotEmpty) ...[
+      CircleLayer(
+        id: 'earthly-live-beacons-halo',
+        points: beaconPoints,
+        color: const Expression.literal(Color(0x400891B2)),
+        radius: const Expression.literal(14.0),
+      ),
+      CircleLayer(
+        id: 'earthly-live-beacons',
+        points: beaconPoints,
+        color: const Expression.literal(Color(0xFF0891B2)),
+        radius: const Expression.literal(7.5),
+        strokeColor: const Expression.literal(Colors.white),
+        strokeWidth: const Expression.literal(2.4),
+        onClick: (event) {
+          if (event.index < beaconMeta.length) {
+            onInspectFeature(beaconMeta[event.index]);
+          }
+        },
+      ),
+    ],
 
     // Story `geo:` pins
     if (geoPinPoints.isNotEmpty)

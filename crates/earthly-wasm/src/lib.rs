@@ -2,8 +2,11 @@
 //! the exact same Rust validation, domain parsing, PMTiles header parsing, and
 //! geometry kernel (`earthly-geo`) as the native Flutter app.
 
+use earthly_agent::{
+    AgentTurnInput, earthly_system_prompt, earthly_tool_definitions, execute_local_offline_turn,
+};
 use earthly_domain::{
-    AtlasGroup, MapDataset, RawNostrEvent, StoryArticle, TemporalSighting,
+    AtlasGroup, LiveBeacon, MapDataset, RawNostrEvent, StoryArticle, TemporalSighting,
     diff_feature_collections, encode_geohash,
 };
 use earthly_geo::{
@@ -42,6 +45,9 @@ pub fn parse_earthly_entity_json(raw_event_json: &str) -> Result<String, JsValue
         ),
         earthly_domain::ARTICLE_KIND => serde_json::to_value(
             StoryArticle::parse(&event).map_err(|err| JsValue::from_str(&err.to_string()))?,
+        ),
+        earthly_domain::LIVE_BEACON_KIND => serde_json::to_value(
+            LiveBeacon::parse(&event).map_err(|err| JsValue::from_str(&err.to_string()))?,
         ),
         earthly_domain::TEMPORAL_SIGHTING_KIND => serde_json::to_value(
             TemporalSighting::parse(&event).map_err(|err| JsValue::from_str(&err.to_string()))?,
@@ -134,4 +140,23 @@ pub fn measure_polygon_area_square_meters(ring_json: &str) -> Result<f64, JsValu
         vec![],
     );
     Ok(geodesic_area_m2(&poly))
+}
+
+#[wasm_bindgen]
+pub fn earthly_agent_system_prompt() -> String {
+    earthly_system_prompt().to_owned()
+}
+
+#[wasm_bindgen]
+pub fn earthly_agent_tools_json() -> Result<String, JsValue> {
+    serde_json::to_string(&earthly_tool_definitions())
+        .map_err(|err| JsValue::from_str(&err.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn earthly_agent_offline_turn_json(input_json: &str) -> Result<String, JsValue> {
+    let input: AgentTurnInput =
+        serde_json::from_str(input_json).map_err(|err| JsValue::from_str(&err.to_string()))?;
+    let output = execute_local_offline_turn(&input);
+    serde_json::to_string(&output).map_err(|err| JsValue::from_str(&err.to_string()))
 }

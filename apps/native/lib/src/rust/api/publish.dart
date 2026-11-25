@@ -99,6 +99,28 @@ Future<UnsignedSightingEventDto> prepareUnsignedSightingEvent({
   fieldSessionId: fieldSessionId,
 );
 
+/// Prepares a canonical Earthly v2 Live Beacon (`kind 37521`) event with
+/// `modelVersion: "earthly/2"`, live coordinates (`lon`/`lat`), optional short
+/// status message, `bbox`, multi-precision `g`, NIP-40 `expiration`, and
+/// optional Nearby Field Session `h` tag.
+Future<UnsignedSightingEventDto> prepareUnsignedBeaconEvent({
+  required String pubkeyOrNpub,
+  required String dTag,
+  required double lon,
+  required double lat,
+  String? status,
+  required int durationMinutes,
+  String? fieldSessionId,
+}) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedBeaconEvent(
+  pubkeyOrNpub: pubkeyOrNpub,
+  dTag: dTag,
+  lon: lon,
+  lat: lat,
+  status: status,
+  durationMinutes: durationMinutes,
+  fieldSessionId: fieldSessionId,
+);
+
 /// Prepares a canonical NIP-22 Geo Comment (`kind 37517`) targeting an Earthly
 /// entity (`root_address` e.g. `37515:<pubkey>:<d>`), optionally carrying a
 /// GeoJSON FeatureCollection annotation with `bbox` and multi-precision `g`.
