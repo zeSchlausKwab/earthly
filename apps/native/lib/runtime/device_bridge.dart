@@ -54,6 +54,23 @@ class DeviceBridge {
   static Future<PickedBinaryFile> pickPmtilesFile() =>
       _invokeFile('pickPmtilesFile');
 
+  static Future<PickedBinaryFile> pickGeoJsonFile() =>
+      _invokeFile('pickGeoJsonFile');
+
+  static Future<String> saveGeoJsonFile({
+    required String filename,
+    required String content,
+  }) async {
+    final savedName = await _channel.invokeMethod<String>(
+      'saveGeoJsonFile',
+      <String, Object>{
+        'filename': filename,
+        'content': content,
+      },
+    );
+    return savedName ?? filename;
+  }
+
   static Future<String> scanQrCode() async {
     final raw = await _channel.invokeMethod<String>('scanQrCode');
     if (raw == null || raw.isEmpty) {

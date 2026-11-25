@@ -40,6 +40,9 @@ class DeskSheet extends StatefulWidget {
     required this.onRunGeoAction,
     required this.onPublishDraft,
     required this.onComposeStory,
+    required this.onImportGeoJson,
+    required this.onExportGeoJsonFile,
+    required this.onCopyGeoJson,
     required this.onClearDraftFeatures,
     required this.onClose,
     super.key,
@@ -62,6 +65,9 @@ class DeskSheet extends StatefulWidget {
     DraftAudienceChoice audience,
   ) onPublishDraft;
   final VoidCallback onComposeStory;
+  final VoidCallback onImportGeoJson;
+  final VoidCallback onExportGeoJsonFile;
+  final VoidCallback onCopyGeoJson;
   final VoidCallback onClearDraftFeatures;
   final VoidCallback onClose;
 
@@ -252,6 +258,32 @@ class _DeskSheetState extends State<DeskSheet> {
                   labelText: 'Map title (auto-saved to SQLite)',
                   border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                 ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: widget.onImportGeoJson,
+                    icon: const Icon(Icons.file_upload_outlined, size: 15),
+                    label: const Text('Import .geojson'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: widget.drawnFeatures.isEmpty
+                        ? null
+                        : widget.onExportGeoJsonFile,
+                    icon: const Icon(Icons.file_download_outlined, size: 15),
+                    label: const Text('Save .geojson'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: widget.drawnFeatures.isEmpty
+                        ? null
+                        : widget.onCopyGeoJson,
+                    icon: const Icon(Icons.copy_outlined, size: 15),
+                    label: const Text('Copy JSON'),
+                  ),
+                ],
               ),
               const SizedBox(height: 10),
 

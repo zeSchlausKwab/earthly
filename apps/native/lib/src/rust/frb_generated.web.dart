@@ -10,6 +10,7 @@ import 'api/agent.dart';
 import 'api/geo.dart';
 import 'api/nostr_client.dart';
 import 'api/publish.dart';
+import 'api/settings.dart';
 import 'api/spike.dart';
 
 import 'dart:async';
@@ -51,6 +52,9 @@ abstract class EarthlyRustLibApiImplPlatform
   AgentTurnResultDto dco_decode_agent_turn_result_dto(dynamic raw);
 
   @protected
+  AppSettingsDto dco_decode_app_settings_dto(dynamic raw);
+
+  @protected
   ApprovedPeerDto dco_decode_approved_peer_dto(dynamic raw);
 
   @protected
@@ -63,6 +67,9 @@ abstract class EarthlyRustLibApiImplPlatform
   AgentCameraActionDto dco_decode_box_autoadd_agent_camera_action_dto(
     dynamic raw,
   );
+
+  @protected
+  AppSettingsDto dco_decode_box_autoadd_app_settings_dto(dynamic raw);
 
   @protected
   AtlasSummaryDto dco_decode_box_autoadd_atlas_summary_dto(dynamic raw);
@@ -171,6 +178,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<RemotePeerDto> dco_decode_list_remote_peer_dto(dynamic raw);
 
   @protected
+  List<SavedOfflinePackDto> dco_decode_list_saved_offline_pack_dto(dynamic raw);
+
+  @protected
   List<SightingSummaryDto> dco_decode_list_sighting_summary_dto(dynamic raw);
 
   @protected
@@ -256,6 +266,9 @@ abstract class EarthlyRustLibApiImplPlatform
   RemotePeerDto dco_decode_remote_peer_dto(dynamic raw);
 
   @protected
+  SavedOfflinePackDto dco_decode_saved_offline_pack_dto(dynamic raw);
+
+  @protected
   SightingSummaryDto dco_decode_sighting_summary_dto(dynamic raw);
 
   @protected
@@ -314,6 +327,9 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  AppSettingsDto sse_decode_app_settings_dto(SseDeserializer deserializer);
+
+  @protected
   ApprovedPeerDto sse_decode_approved_peer_dto(SseDeserializer deserializer);
 
   @protected
@@ -324,6 +340,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   AgentCameraActionDto sse_decode_box_autoadd_agent_camera_action_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AppSettingsDto sse_decode_box_autoadd_app_settings_dto(
     SseDeserializer deserializer,
   );
 
@@ -478,6 +499,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<SavedOfflinePackDto> sse_decode_list_saved_offline_pack_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<SightingSummaryDto> sse_decode_list_sighting_summary_dto(
     SseDeserializer deserializer,
   );
@@ -593,6 +619,11 @@ abstract class EarthlyRustLibApiImplPlatform
   RemotePeerDto sse_decode_remote_peer_dto(SseDeserializer deserializer);
 
   @protected
+  SavedOfflinePackDto sse_decode_saved_offline_pack_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SightingSummaryDto sse_decode_sighting_summary_dto(
     SseDeserializer deserializer,
   );
@@ -673,6 +704,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_app_settings_dto(
+    AppSettingsDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_approved_peer_dto(
     ApprovedPeerDto self,
     SseSerializer serializer,
@@ -690,6 +727,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_box_autoadd_agent_camera_action_dto(
     AgentCameraActionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_app_settings_dto(
+    AppSettingsDto self,
     SseSerializer serializer,
   );
 
@@ -880,6 +923,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_saved_offline_pack_dto(
+    List<SavedOfflinePackDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_sighting_summary_dto(
     List<SightingSummaryDto> self,
     SseSerializer serializer,
@@ -1016,6 +1065,12 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   void sse_encode_remote_peer_dto(RemotePeerDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_saved_offline_pack_dto(
+    SavedOfflinePackDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_sighting_summary_dto(

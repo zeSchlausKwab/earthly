@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `current_node`, `detect_private_lan_ip`, `header_to_snapshot`, `node_slot`, `remote_record_to_dto`, `snapshot_from_node`
+// These functions are ignored because they are not marked as `pub`: `current_node`, `detect_fips_ula_v6`, `detect_private_lan_ip`, `header_to_snapshot`, `node_slot`, `remote_record_to_dto`, `snapshot_from_node`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Start (or reuse) Earthly's embedded Nostr relay + Blossom node on loopback.
@@ -20,6 +20,24 @@ Future<LocalNodeSnapshot> startLocalNodeLan({required String dataDir}) =>
     EarthlyRustLib.instance.api.crateApiSpikeStartLocalNodeLan(
       dataDir: dataDir,
     );
+
+/// Start (or restart) Earthly's embedded relay + Blossom node bound to a FIPS
+/// mesh IPv6 ULA (`fd00::/8`) interface so peers across a FIPS overlay network
+/// can pair and sync directly.
+Future<LocalNodeSnapshot> startLocalNodeFips({
+  required String dataDir,
+  String? fipsIpv6,
+}) => EarthlyRustLib.instance.api.crateApiSpikeStartLocalNodeFips(
+  dataDir: dataDir,
+  fipsIpv6: fipsIpv6,
+);
+
+/// Resolves the live local Blossom URL (`http://.../<sha256>`) for an already
+/// ingested `.pmtiles` archive persisted on disk inside the LocalNode data dir.
+Future<String?> resolveLocalBlobUrl({required String sha256}) => EarthlyRustLib
+    .instance
+    .api
+    .crateApiSpikeResolveLocalBlobUrl(sha256: sha256);
 
 /// Decodes and cryptographically verifies an Earthly Field Session pairing link
 /// (`earthly://pair?invitation=earthly-pair-v1:...` or bare `earthly-pair-v1:...`).

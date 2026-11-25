@@ -1,4 +1,4 @@
-use std::net::{IpAddr, UdpSocket};
+use std::net::{IpAddr, Ipv6Addr, UdpSocket};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
@@ -179,6 +179,64 @@ pub async fn start_local_node_lan(data_dir: String) -> Result<LocalNodeSnapshot,
     Ok(snapshot)
 }
 
+/// Start (or restart) Earthly's embedded relay + Blossom node bound to a FIPS
+/// mesh IPv6 ULA (`fd00::/8`) interface so peers across a FIPS overlay network
+/// can pair and sync directly.
+pub async fn start_local_node_fips(
+    data_dir: String,
+    fips_ipv6: Option<String>,
+) -> Result<LocalNodeSnapshot, String> {
+    let v6: Ipv6Addr = match fips_ipv6.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(raw) => raw
+            .parse::<Ipv6Addr>()
+            .map_err(|err| format!("invalid FIPS IPv6 address \"{raw}\": {err}"))?,
+        None => detect_fips_ula_v6().ok_or_else(|| {
+            "No FIPS fd00::/8 IPv6 interface detected. Start your FIPS daemon or enter your fd00:: address manually."
+                .to_owned()
+        })?,
+    };
+    if v6.octets()[0] != 0xfd {
+        return Err(format!(
+            "Address {v6} is not in the FIPS ULA range (fd00::/8)"
+        ));
+    }
+
+    if let Some(existing) = current_node() {
+        if existing.descriptor().scope == EndpointScope::FipsMesh {
+            return Ok(snapshot_from_node(&existing));
+        }
+        shutdown_local_node();
+    }
+
+    let mut config =
+        NodeConfig::loopback(data_dir, NodeAvailability::Foreground).with_ephemeral_ports();
+    config.bind = NodeBind::FipsMesh(v6);
+
+    let node = LocalNode::start(config)
+        .await
+        .map_err(|error| format!("failed to start FIPS mesh node on [{v6}]: {error}"))?;
+    let node = Arc::new(node);
+    let snapshot = snapshot_from_node(&node);
+
+    let mut guard = node_slot()
+        .write()
+        .map_err(|_| "local node lock poisoned".to_owned())?;
+    *guard = Some(node);
+    Ok(snapshot)
+}
+
+/// Resolves the live local Blossom URL (`http://.../<sha256>`) for an already
+/// ingested `.pmtiles` archive persisted on disk inside the LocalNode data dir.
+pub fn resolve_local_blob_url(sha256: String) -> Option<String> {
+    let node = current_node()?;
+    let trimmed = sha256.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let base = node.descriptor().blossom_url.to_string();
+    Some(format!("{}/{trimmed}", base.trim_end_matches('/')))
+}
+
 /// Decodes and cryptographically verifies an Earthly Field Session pairing link
 /// (`earthly://pair?invitation=earthly-pair-v1:...` or bare `earthly-pair-v1:...`).
 pub fn decode_field_session_invite(
@@ -217,6 +275,15 @@ fn detect_private_lan_ip() -> Option<IpAddr> {
     let addr = socket.local_addr().ok()?.ip();
     match addr {
         IpAddr::V4(v4) if v4.is_private() || v4.is_link_local() => Some(IpAddr::V4(v4)),
+        _ => None,
+    }
+}
+
+fn detect_fips_ula_v6() -> Option<Ipv6Addr> {
+    let socket = UdpSocket::bind("[::]:0").ok()?;
+    socket.connect("[fd00::1]:80").ok()?;
+    match socket.local_addr().ok()?.ip() {
+        IpAddr::V6(v6) if v6.octets()[0] == 0xfd => Some(v6),
         _ => None,
     }
 }

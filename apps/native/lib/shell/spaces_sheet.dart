@@ -15,13 +15,18 @@ import '../theme/earthly_theme.dart';
 import 'map_drawer.dart';
 import 'qr_code_view.dart';
 
-/// Spaces drawer: Identity (Android NIP-55 Amber OR Desktop/Local keypair) +
-/// Nearby Field Sessions (LAN Wi-Fi hosting with QR code, live Pending Claims &
+enum _LocalBindChoice { lanWifi, fipsMesh, loopback }
+
+/// Spaces drawer: Identity (Android NIP-55 Amber OR Persisted Local Keypair) +
+/// Custom Nostr Relays + Live Beacon (37521) + Nearby Field Sessions (LAN Wi-Fi,
+/// FIPS Mesh fd00::/8, or Loopback hosting with QR code, live Pending Claims &
 /// Approved Peers list, Android ZXing QR scanner, and NIP-42 peer sync).
 class SpacesSheet extends StatefulWidget {
   const SpacesSheet({
     required this.account,
     required this.localNsec,
+    required this.relayUrls,
+    required this.onRelayUrlsChanged,
     required this.onAccountChanged,
     required this.onLocalKeyChanged,
     required this.onSessionStateChanged,
@@ -33,6 +38,8 @@ class SpacesSheet extends StatefulWidget {
 
   final Nip55Account? account;
   final String? localNsec;
+  final List<String> relayUrls;
+  final ValueChanged<List<String>> onRelayUrlsChanged;
   final ValueChanged<Nip55Account?> onAccountChanged;
   final ValueChanged<LocalKeypairDto?> onLocalKeyChanged;
   final void Function(String? hostedSessionId, RemotePeerDto? acceptedPeer)
@@ -52,11 +59,13 @@ class SpacesSheet extends StatefulWidget {
 class _SpacesSheetState extends State<SpacesSheet> {
   final _inviteInputController = TextEditingController();
   final _beaconStatusController = TextEditingController();
+  final _relayInputController = TextEditingController();
+  final _fipsAddressController = TextEditingController();
   Timer? _pollTimer;
 
   bool _amberInstalled = false;
   bool _busy = false;
-  bool _bindLan = true;
+  _LocalBindChoice _bindChoice = _LocalBindChoice.lanWifi;
   int _beaconDurationMinutes = 60;
   bool _beaconNearby = false;
   String? _error;
@@ -81,7 +90,32 @@ class _SpacesSheetState extends State<SpacesSheet> {
     _pollTimer?.cancel();
     _inviteInputController.dispose();
     _beaconStatusController.dispose();
+    _relayInputController.dispose();
+    _fipsAddressController.dispose();
     super.dispose();
+  }
+
+  void _addCustomRelay() {
+    final raw = _relayInputController.text.trim();
+    if (raw.isEmpty) return;
+    final normalized = (raw.startsWith('wss://') || raw.startsWith('ws://'))
+        ? raw
+        : 'wss://$raw';
+    if (widget.relayUrls.contains(normalized)) {
+      _relayInputController.clear();
+      return;
+    }
+    _relayInputController.clear();
+    widget.onRelayUrlsChanged([...widget.relayUrls, normalized]);
+    setState(() => _infoBanner = 'Added relay $normalized (saved to SQLite)');
+  }
+
+  void _removeRelay(String url) {
+    final next = widget.relayUrls.where((r) => r != url).toList();
+    if (next.isEmpty) {
+      next.add('wss://relay.earthly.city');
+    }
+    widget.onRelayUrlsChanged(next);
   }
 
   Future<void> _broadcastBeacon() async {
@@ -121,7 +155,11 @@ class _SpacesSheetState extends State<SpacesSheet> {
       if (mounted && status.running) {
         setState(() {
           _node = status;
-          _bindLan = status.scope == 'local-network';
+          _bindChoice = switch (status.scope) {
+            'fips-mesh' => _LocalBindChoice.fipsMesh,
+            'local-network' => _LocalBindChoice.lanWifi,
+            _ => _LocalBindChoice.loopback,
+          };
         });
       }
       await _pollPeers();
@@ -204,16 +242,32 @@ class _SpacesSheetState extends State<SpacesSheet> {
       await RustBridge.ensureInitialized();
       final appDir = await getApplicationSupportDirectory();
       final dataDir = '${appDir.path}/local-node';
-      final node = _bindLan
-          ? await startLocalNodeLan(dataDir: dataDir)
-          : await startLocalNode(dataDir: dataDir);
+      final LocalNodeSnapshot node;
+      final String sessionName;
+      final String sessionDesc;
+      switch (_bindChoice) {
+        case _LocalBindChoice.lanWifi:
+          node = await startLocalNodeLan(dataDir: dataDir);
+          sessionName = 'LAN Field Survey';
+          sessionDesc = 'Nearby Wi-Fi Field Session hosted on this device';
+        case _LocalBindChoice.fipsMesh:
+          final manualV6 = _fipsAddressController.text.trim();
+          node = await startLocalNodeFips(
+            dataDir: dataDir,
+            fipsIpv6: manualV6.isEmpty ? null : manualV6,
+          );
+          sessionName = 'FIPS Mesh Survey';
+          sessionDesc = 'FIPS fd00::/8 IPv6 mesh Field Session';
+        case _LocalBindChoice.loopback:
+          node = await startLocalNode(dataDir: dataDir);
+          sessionName = 'Local Field Survey';
+          sessionDesc = 'Loopback Field Session on this device';
+      }
       final sessionId = 'field-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
       final invite = await createFieldSessionInvite(
         sessionId: sessionId,
-        sessionName: _bindLan ? 'LAN Field Survey' : 'Local Field Survey',
-        description: _bindLan
-            ? 'Nearby Wi-Fi Field Session hosted on this device'
-            : 'Loopback Field Session on this device',
+        sessionName: sessionName,
+        description: sessionDesc,
         allowPeerWrites: true,
       );
       if (!mounted) return;
@@ -502,7 +556,7 @@ class _SpacesSheetState extends State<SpacesSheet> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '${account.shortLabel} (${widget.localNsec != null ? "Local key" : "Amber"})',
+                    '${account.shortLabel} (${widget.localNsec != null ? "Persisted local key" : "Amber"})',
                     style: const TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 12,
@@ -610,28 +664,51 @@ class _SpacesSheetState extends State<SpacesSheet> {
           ),
           const SizedBox(height: 6),
           Wrap(
-            spacing: 8,
+            spacing: 6,
+            runSpacing: 6,
             children: [
               ChoiceChip(
-                label: const Text('LAN Wi-Fi (Nearby Peers)'),
-                selected: _bindLan,
-                onSelected: (_) => setState(() => _bindLan = true),
+                label: const Text('LAN Wi-Fi'),
+                selected: _bindChoice == _LocalBindChoice.lanWifi,
+                onSelected: (_) =>
+                    setState(() => _bindChoice = _LocalBindChoice.lanWifi),
               ),
               ChoiceChip(
-                label: const Text('Loopback Only'),
-                selected: !_bindLan,
-                onSelected: (_) => setState(() => _bindLan = false),
+                label: const Text('FIPS Mesh (fd00::)'),
+                selected: _bindChoice == _LocalBindChoice.fipsMesh,
+                onSelected: (_) =>
+                    setState(() => _bindChoice = _LocalBindChoice.fipsMesh),
+              ),
+              ChoiceChip(
+                label: const Text('Loopback'),
+                selected: _bindChoice == _LocalBindChoice.loopback,
+                onSelected: (_) =>
+                    setState(() => _bindChoice = _LocalBindChoice.loopback),
               ),
             ],
           ),
+          if (_bindChoice == _LocalBindChoice.fipsMesh) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _fipsAddressController,
+              decoration: const InputDecoration(
+                isDense: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.zero),
+                hintText: 'FIPS fd00::/8 IPv6 (leave blank to auto-detect)',
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           FilledButton.icon(
             onPressed: _busy ? null : _hostFieldSession,
             icon: const Icon(Icons.qr_code_2, size: 18),
             label: Text(
-              _bindLan
-                  ? 'Start LAN Node & Show Pairing QR'
-                  : 'Start Loopback Node & Show QR',
+              switch (_bindChoice) {
+                _LocalBindChoice.lanWifi => 'Start LAN Node & Show Pairing QR',
+                _LocalBindChoice.fipsMesh =>
+                  'Start FIPS Mesh Node & Show Pairing QR',
+                _LocalBindChoice.loopback => 'Start Loopback Node & Show QR',
+              },
             ),
           ),
           if (_node != null) ...[
@@ -884,6 +961,69 @@ class _SpacesSheetState extends State<SpacesSheet> {
                 ),
               ),
           ],
+
+          const Divider(height: 22),
+
+          // Multi-Relay Configuration (persisted in SQLite)
+          Text(
+            'NOSTR RELAYS (${widget.relayUrls.length} · PERSISTED)',
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final url in widget.relayUrls)
+            Container(
+              margin: const EdgeInsets.only(bottom: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                border: Border.all(color: theme.dividerColor),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      url,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                  if (widget.relayUrls.length > 1)
+                    IconButton(
+                      tooltip: 'Remove relay',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _removeRelay(url),
+                      icon: const Icon(Icons.close, size: 15),
+                    ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _relayInputController,
+                  onSubmitted: (_) => _addCustomRelay(),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.zero),
+                    hintText: 'Add relay wss://relay.example.org',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: _addCustomRelay,
+                child: const Text('Add'),
+              ),
+            ],
+          ),
 
           const Divider(height: 22),
 

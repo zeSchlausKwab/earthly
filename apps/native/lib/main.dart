@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -28,6 +29,7 @@ import 'src/rust/api/agent.dart';
 import 'src/rust/api/geo.dart';
 import 'src/rust/api/nostr_client.dart';
 import 'src/rust/api/publish.dart';
+import 'src/rust/api/settings.dart';
 import 'src/rust/api/spike.dart';
 import 'theme/earthly_theme.dart';
 
@@ -107,6 +109,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   // Map presentation & basemap state
   BasemapKind? _selectedBasemap;
   OfflinePmtilesBasemap? _offlineBasemap;
+  final List<SavedOfflinePackDto> _savedOfflinePacks = <SavedOfflinePackDto>[];
   bool _showLabels = true;
   CalloutDisplayMode _calloutMode = CalloutDisplayMode.full;
 
@@ -116,6 +119,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   DraftAudienceChoice _draftAudience = DraftAudienceChoice.publicRelay;
   final List<DrawnFeature> _features = <DrawnFeature>[];
   final List<Geographic> _draftVertices = <Geographic>[];
+  DrawnFeature? _editingDraftFeature;
   int _featureCounter = 0;
 
   // Live preview state synced into MapGeometryLayer
@@ -124,6 +128,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   bool _previewLoupeActive = false;
 
   // Nostr Explore / Shelf / Account (Amber or Local Desktop Key) / Nearby Peer state
+  List<String> _relayUrls = <String>['wss://relay.earthly.city'];
   EarthlyCatalogSnapshot? _catalog;
   final List<ShelfMapEntry> _shelfMaps = <ShelfMapEntry>[];
   final List<SightingSummaryDto> _localSightings = <SightingSummaryDto>[];
@@ -166,9 +171,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   String? _focusedStoryFeatureId;
   final List<GeoPinOverlayItem> _storyGeoPins = <GeoPinOverlayItem>[];
 
-  List<String> get _activeRelayUrls => const <String>[
-        'wss://relay.earthly.city',
-      ];
+  List<String> get _activeRelayUrls => _relayUrls;
 
   String? get _activeNearbySessionId =>
       _acceptedRemotePeer?.sessionId ?? _hostedSessionId;
@@ -177,13 +180,280 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   void initState() {
     super.initState();
     if (widget.mapBuilder == null) {
-      unawaited(_restoreSavedDraft());
-      unawaited(_startLiveRelayStream());
+      unawaited(_bootstrapPersistentState());
       _liveListenerTimer = Timer.periodic(
         const Duration(seconds: 2),
         (_) => unawaited(_pollLiveNearbyUpdates()),
       );
     }
+  }
+
+  Future<void> _bootstrapPersistentState() async {
+    await _restoreAppSettings();
+    await _restoreSavedDraft();
+    unawaited(_startLiveRelayStream());
+  }
+
+  Future<void> _restoreAppSettings() async {
+    try {
+      await RustBridge.ensureInitialized();
+      final dbPath = await _databasePath();
+      final loaded = await loadAppSettings(databasePath: dbPath);
+      if (!mounted) return;
+      setState(() {
+        if (loaded.relayUrls.isNotEmpty) {
+          _relayUrls = List<String>.from(loaded.relayUrls);
+        }
+        if (loaded.localPubkeyHex != null &&
+            loaded.localPubkeyHex!.isNotEmpty &&
+            loaded.localNsec != null &&
+            loaded.localNsec!.isNotEmpty) {
+          _account = Nip55Account(pubkey: loaded.localPubkeyHex!);
+          _localNsec = loaded.localNsec;
+        }
+        _agentSettings = CopilotProviderSettings(
+          presetName: loaded.agentPreset,
+          baseUrl: loaded.agentBaseUrl,
+          model: loaded.agentModel,
+          apiKey: loaded.agentApiKey,
+        );
+        _savedOfflinePacks
+          ..clear()
+          ..addAll(loaded.offlinePacks);
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _persistAppSettings() async {
+    if (widget.mapBuilder != null) return;
+    try {
+      await RustBridge.ensureInitialized();
+      final dbPath = await _databasePath();
+      await saveAppSettings(
+        databasePath: dbPath,
+        settings: AppSettingsDto(
+          relayUrls: _relayUrls,
+          localPubkeyHex: _localNsec != null ? _account?.pubkey : null,
+          localNsec: _localNsec,
+          agentPreset: _agentSettings.presetName,
+          agentBaseUrl: _agentSettings.baseUrl,
+          agentModel: _agentSettings.model,
+          agentApiKey: _agentSettings.apiKey,
+          offlinePacks: List<SavedOfflinePackDto>.from(_savedOfflinePacks),
+        ),
+      );
+    } catch (_) {}
+  }
+
+  void _updateRelayUrls(List<String> next) {
+    setState(() {
+      _relayUrls = next;
+      _catalog = null;
+    });
+    unawaited(_persistAppSettings());
+    unawaited(_startLiveRelayStream());
+  }
+
+  Future<void> _mountSavedOfflinePack(SavedOfflinePackDto pack) async {
+    try {
+      await RustBridge.ensureInitialized();
+      final dir = await getApplicationSupportDirectory();
+      await startLocalNode(dataDir: '${dir.path}/local-node');
+      final blobUrl = await resolveLocalBlobUrl(sha256: pack.sha256);
+      if (blobUrl == null) return;
+      final snap = IngestedPmtilesSnapshot(
+        label: pack.label,
+        sha256: pack.sha256,
+        sizeBytes: pack.sizeBytes,
+        blobUrl: blobUrl,
+        authorization: '',
+        header: PmtilesHeaderSnapshot(
+          format: pack.format,
+          minZoom: pack.minZoom,
+          maxZoom: pack.maxZoom,
+          west: pack.west,
+          south: pack.south,
+          east: pack.east,
+          north: pack.north,
+          centerLon: pack.centerLon,
+          centerLat: pack.centerLat,
+          centerZoom: pack.centerZoom,
+          clustered: true,
+        ),
+      );
+      final offline = OfflinePmtilesBasemap(
+        snapshot: snap,
+        styleJson: buildPmtilesStyleJson(snap),
+      );
+      if (!mounted) return;
+      setState(() {
+        _offlineBasemap = offline;
+        _selectedBasemap = BasemapKind.offlinePmtiles;
+      });
+      _controller?.animateCamera(
+        CameraUpdate.position(
+          center: Geographic(lon: pack.centerLon, lat: pack.centerLat),
+          zoom: pack.centerZoom.toDouble().clamp(2.0, 18.0),
+        ),
+      );
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not mount offline pack: $err')),
+      );
+    }
+  }
+
+  Future<void> _importGeoJsonFile() async {
+    try {
+      final picked = await DeviceBridge.pickGeoJsonFile();
+      final text = utf8.decode(picked.bytes);
+      final imported = parseDraftFeaturesFromGeoJson(text);
+      if (imported.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No Point, LineString, or Polygon features found in file'),
+          ),
+        );
+        return;
+      }
+      setState(() {
+        for (final feat in imported) {
+          _featureCounter += 1;
+          _features.add(
+            DrawnFeature(
+              id: 'imp-$_featureCounter',
+              kind: feat.kind,
+              vertices: feat.vertices,
+              name: feat.name,
+              colorHex: feat.colorHex,
+              callouts: feat.callouts,
+            ),
+          );
+        }
+        if (_draftTitle == 'Field Map') {
+          _draftTitle = picked.name
+              .replaceAll('.geojson', '')
+              .replaceAll('.json', '');
+        }
+      });
+      unawaited(_persistWorkingDraft());
+
+      // Frame the imported geometry on the live map!
+      final allVerts = imported.expand((f) => f.vertices).toList();
+      if (allVerts.isNotEmpty) {
+        double west = allVerts.first.lon;
+        double east = allVerts.first.lon;
+        double south = allVerts.first.lat;
+        double north = allVerts.first.lat;
+        for (final v in allVerts) {
+          if (v.lon < west) west = v.lon;
+          if (v.lon > east) east = v.lon;
+          if (v.lat < south) south = v.lat;
+          if (v.lat > north) north = v.lat;
+        }
+        const pad = 0.002;
+        _flyToBounds(
+          GeoBox(
+            west: (west - pad).clamp(-180.0, 180.0),
+            south: (south - pad).clamp(-85.0, 85.0),
+            east: (east + pad).clamp(-180.0, 180.0),
+            north: (north + pad).clamp(-85.0, 85.0),
+          ),
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Imported ${imported.length} feature${imported.length == 1 ? '' : 's'} from ${picked.name}',
+          ),
+        ),
+      );
+    } catch (err) {
+      if (!mounted || err.toString().contains('cancelled')) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Import failed: $err')),
+      );
+    }
+  }
+
+  Future<void> _exportGeoJsonFile() async {
+    if (_features.isEmpty) return;
+    try {
+      final geojson = draftFeaturesToGeoJson(
+        title: _draftTitle,
+        features: _features,
+      );
+      final safeName = _draftTitle
+          .trim()
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+          .replaceAll(RegExp(r'^-|-$'), '');
+      final filename = '${safeName.isEmpty ? 'earthly-map' : safeName}.geojson';
+      final savedName = await DeviceBridge.saveGeoJsonFile(
+        filename: filename,
+        content: geojson,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exported $savedName')),
+      );
+    } catch (err) {
+      if (!mounted || err.toString().contains('cancelled')) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $err')),
+      );
+    }
+  }
+
+  void _copyGeoJsonToClipboard() {
+    if (_features.isEmpty) return;
+    final geojson = draftFeaturesToGeoJson(
+      title: _draftTitle,
+      features: _features,
+    );
+    Clipboard.setData(ClipboardData(text: geojson));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Copied GeoJSON (${_features.length} features) to clipboard',
+        ),
+      ),
+    );
+  }
+
+  void _startEditingDraftFeature(String featureId) {
+    final idx = _features.indexWhere((f) => f.id == featureId);
+    if (idx < 0) return;
+    final target = _features[idx];
+    setState(() {
+      _editingDraftFeature = target;
+      _features.removeAt(idx);
+      _draftVertices
+        ..clear()
+        ..addAll(target.vertices);
+      _mode = target.kind;
+      _drawer = _ActiveDrawer.none;
+    });
+  }
+
+  void _cancelEditingDraftFeature() {
+    if (_editingDraftFeature == null) {
+      setState(() {
+        _draftVertices.clear();
+        _mode = DrawToolMode.browse;
+      });
+      return;
+    }
+    setState(() {
+      _features.add(_editingDraftFeature!);
+      _editingDraftFeature = null;
+      _draftVertices.clear();
+      _mode = DrawToolMode.browse;
+    });
   }
 
   @override
@@ -596,6 +866,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         _account = acct;
         _localNsec = kp.nsec;
       });
+      unawaited(_persistAppSettings());
     }
     return acct;
   }
@@ -778,19 +1049,28 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   void _commitVertex(Geographic point) {
     setState(() {
       if (_mode == DrawToolMode.point) {
-        _featureCounter += 1;
-        _features.add(
-          DrawnFeature(
-            id: 'pt-$_featureCounter',
-            kind: DrawToolMode.point,
-            vertices: <Geographic>[point],
-          ),
-        );
+        if (_editingDraftFeature != null) {
+          _features.add(
+            _editingDraftFeature!.copyWith(vertices: <Geographic>[point]),
+          );
+          _editingDraftFeature = null;
+          _draftVertices.clear();
+          _mode = DrawToolMode.browse;
+        } else {
+          _featureCounter += 1;
+          _features.add(
+            DrawnFeature(
+              id: 'pt-$_featureCounter',
+              kind: DrawToolMode.point,
+              vertices: <Geographic>[point],
+            ),
+          );
+        }
       } else if (_mode == DrawToolMode.line || _mode == DrawToolMode.polygon) {
         _draftVertices.add(point);
       }
     });
-    if (_mode == DrawToolMode.point) {
+    if (_mode == DrawToolMode.point || _mode == DrawToolMode.browse) {
       unawaited(_persistWorkingDraft());
     }
   }
@@ -806,15 +1086,26 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     if (!_canFinishDraft) return;
     HapticFeedback.mediumImpact();
     setState(() {
-      _featureCounter += 1;
-      _features.add(
-        DrawnFeature(
-          id: 'feat-$_featureCounter',
-          kind: _mode,
-          vertices: List<Geographic>.unmodifiable(_draftVertices),
-        ),
-      );
-      _draftVertices.clear();
+      if (_editingDraftFeature != null) {
+        _features.add(
+          _editingDraftFeature!.copyWith(
+            vertices: List<Geographic>.unmodifiable(_draftVertices),
+          ),
+        );
+        _editingDraftFeature = null;
+        _draftVertices.clear();
+        _mode = DrawToolMode.browse;
+      } else {
+        _featureCounter += 1;
+        _features.add(
+          DrawnFeature(
+            id: 'feat-$_featureCounter',
+            kind: _mode,
+            vertices: List<Geographic>.unmodifiable(_draftVertices),
+          ),
+        );
+        _draftVertices.clear();
+      }
     });
     unawaited(_persistWorkingDraft());
   }
@@ -1586,19 +1877,50 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         offlineBasemap: _offlineBasemap,
         showLabels: _showLabels,
         calloutMode: _calloutMode,
+        savedOfflinePacks: _savedOfflinePacks,
         onSelectBasemap: (kind) => setState(() => _selectedBasemap = kind),
         onLoadedOfflinePmtiles: (offline) {
+          final s = offline.snapshot;
+          final h = s.header;
+          final record = SavedOfflinePackDto(
+            label: s.label,
+            sha256: s.sha256,
+            sizeBytes: s.sizeBytes,
+            format: h.format,
+            minZoom: h.minZoom,
+            maxZoom: h.maxZoom,
+            west: h.west,
+            south: h.south,
+            east: h.east,
+            north: h.north,
+            centerLon: h.centerLon,
+            centerLat: h.centerLat,
+            centerZoom: h.centerZoom,
+          );
           setState(() {
             _offlineBasemap = offline;
             _selectedBasemap = BasemapKind.offlinePmtiles;
+            _savedOfflinePacks.removeWhere((p) => p.sha256 == record.sha256);
+            _savedOfflinePacks.insert(0, record);
           });
-          final h = offline.snapshot.header;
+          unawaited(_persistAppSettings());
           _controller?.animateCamera(
             CameraUpdate.position(
               center: Geographic(lon: h.centerLon, lat: h.centerLat),
               zoom: h.centerZoom.toDouble().clamp(2.0, 18.0),
             ),
           );
+        },
+        onMountSavedPack: _mountSavedOfflinePack,
+        onRemoveSavedPack: (sha) {
+          setState(() {
+            _savedOfflinePacks.removeWhere((p) => p.sha256 == sha);
+            if (_offlineBasemap?.snapshot.sha256 == sha) {
+              _offlineBasemap = null;
+              _selectedBasemap = BasemapKind.openFreeMapLiberty;
+            }
+          });
+          unawaited(_persistAppSettings());
         },
         onToggleLabels: (val) => setState(() => _showLabels = val),
         onChangeCalloutMode: (mode) => setState(() => _calloutMode = mode),
@@ -1674,6 +1996,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onPublishDraft: _publishDraft,
           onComposeStory: () =>
               setState(() => _drawer = _ActiveDrawer.storyComposer),
+          onImportGeoJson: () => unawaited(_importGeoJsonFile()),
+          onExportGeoJsonFile: () => unawaited(_exportGeoJsonFile()),
+          onCopyGeoJson: _copyGeoJsonToClipboard,
           onClearDraftFeatures: () {
             setState(() {
               _features.clear();
@@ -1687,7 +2012,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         return SpacesSheet(
           account: _account,
           localNsec: _localNsec,
-          onAccountChanged: (account) => setState(() => _account = account),
+          relayUrls: _relayUrls,
+          onRelayUrlsChanged: _updateRelayUrls,
+          onAccountChanged: (account) {
+            setState(() => _account = account);
+            unawaited(_persistAppSettings());
+          },
           onLocalKeyChanged: (kp) {
             setState(() {
               if (kp == null) {
@@ -1697,6 +2027,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 _localNsec = kp.nsec;
               }
             });
+            unawaited(_persistAppSettings());
           },
           onSessionStateChanged: (hostedId, acceptedPeer) {
             setState(() {
@@ -1716,7 +2047,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           messages: _agentMessages,
           settings: _agentSettings,
           busy: _agentBusy,
-          onSettingsChanged: (s) => setState(() => _agentSettings = s),
+          onSettingsChanged: (s) {
+            setState(() => _agentSettings = s);
+            unawaited(_persistAppSettings());
+          },
           onSendPrompt: (p) => unawaited(_sendAgentPrompt(p)),
           onClearChat: () => setState(() => _agentMessages.clear()),
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
@@ -1790,6 +2124,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             _refreshInspectedDraftFeature(featureId);
             unawaited(_persistWorkingDraft());
           },
+          onEditDraftGeometry: _startEditingDraftFeature,
           onDeleteDraftFeature: (featureId) {
             setState(() => _features.removeWhere((f) => f.id == featureId));
             unawaited(_persistWorkingDraft());
@@ -2325,7 +2660,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             if (_canFinishDraft) ...[
                               FilledButton(
                                 onPressed: _finishDraft,
-                                child: Text('Finish · ${_draftVertices.length}'),
+                                child: Text(
+                                  _editingDraftFeature != null
+                                      ? 'Save · ${_draftVertices.length}'
+                                      : 'Finish · ${_draftVertices.length}',
+                                ),
                               ),
                               const SizedBox(width: 4),
                             ],
@@ -2338,9 +2677,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                               icon: const Icon(Icons.undo, size: 20),
                             ),
                             OutlinedButton(
-                              onPressed: () =>
-                                  setState(() => _mode = DrawToolMode.browse),
-                              child: const Text('Done'),
+                              onPressed: _cancelEditingDraftFeature,
+                              child: Text(
+                                _editingDraftFeature != null ? 'Cancel' : 'Done',
+                              ),
                             ),
                           ],
                         )

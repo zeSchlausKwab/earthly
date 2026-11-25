@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import '../nostr/callout_overlay.dart';
 import '../runtime/device_bridge.dart';
 import '../runtime/rust_bridge.dart';
+import '../src/rust/api/settings.dart';
 import '../src/rust/api/spike.dart';
 import '../theme/earthly_theme.dart';
 
@@ -119,7 +120,7 @@ String buildPmtilesStyleJson(IngestedPmtilesSnapshot ingested) {
   });
 }
 
-/// Map Display & Offline PMTiles Basemap Switcher sheet.
+/// Map Display, Offline PMTiles Pack Manager & Atlas Coverage Switcher sheet.
 class BasemapSwitcherSheet extends StatefulWidget {
   const BasemapSwitcherSheet({
     required this.activeBasemap,
@@ -130,6 +131,9 @@ class BasemapSwitcherSheet extends StatefulWidget {
     required this.onLoadedOfflinePmtiles,
     required this.onToggleLabels,
     required this.onChangeCalloutMode,
+    this.savedOfflinePacks = const <SavedOfflinePackDto>[],
+    this.onMountSavedPack,
+    this.onRemoveSavedPack,
     super.key,
   });
 
@@ -141,6 +145,9 @@ class BasemapSwitcherSheet extends StatefulWidget {
   final ValueChanged<OfflinePmtilesBasemap> onLoadedOfflinePmtiles;
   final ValueChanged<bool> onToggleLabels;
   final ValueChanged<CalloutDisplayMode> onChangeCalloutMode;
+  final List<SavedOfflinePackDto> savedOfflinePacks;
+  final Future<void> Function(SavedOfflinePackDto pack)? onMountSavedPack;
+  final ValueChanged<String>? onRemoveSavedPack;
 
   @override
   State<BasemapSwitcherSheet> createState() => _BasemapSwitcherSheetState();
@@ -277,6 +284,85 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
                 ),
               ),
+            if (widget.savedOfflinePacks.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                'SAVED OFFLINE PACKS (${widget.savedOfflinePacks.length})',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              for (final pack in widget.savedOfflinePacks)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: offline?.snapshot.sha256 == pack.sha256
+                          ? theme.colorScheme.primary
+                          : theme.dividerColor,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              pack.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              '${pack.format.toUpperCase()} · z${pack.minZoom}–${pack.maxZoom} · ${(pack.sizeBytes.toInt() / 1024).toStringAsFixed(0)} KB',
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (widget.onMountSavedPack != null)
+                        TextButton(
+                          onPressed: _loadingPmtiles
+                              ? null
+                              : () async {
+                                  final nav = Navigator.of(context);
+                                  await widget.onMountSavedPack!(pack);
+                                  if (mounted) nav.pop();
+                                },
+                          child: const Text('Mount'),
+                        ),
+                      if (widget.onRemoveSavedPack != null)
+                        IconButton(
+                          tooltip: 'Forget pack',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () =>
+                              widget.onRemoveSavedPack!(pack.sha256),
+                          icon: const Icon(Icons.close, size: 15),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+            const SizedBox(height: 6),
+            Text(
+              _activeBasemap == BasemapKind.offlinePmtiles
+                  ? 'Atlas coverage: COMPLETE (local Blossom PMTiles active)'
+                  : 'Atlas coverage: PARTIAL (online OpenFreeMap · mount .pmtiles/.atlas for full offline)',
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+            ),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 6),

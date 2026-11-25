@@ -30,11 +30,14 @@ class MainActivity : FlutterActivity() {
         private const val REQUEST_CAPTURE_PHOTO = 5601
         private const val REQUEST_PICK_IMAGE = 5602
         private const val REQUEST_PICK_PMTILES = 5603
+        private const val REQUEST_PICK_GEOJSON = 5604
+        private const val REQUEST_SAVE_GEOJSON = 5605
         private const val REQUEST_LOCATION_PERMISSION = 5701
     }
 
     private var pendingResult: MethodChannel.Result? = null
     private var pendingRequestCode: Int = 0
+    private var pendingSaveContent: String? = null
     private var pendingLocationResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -155,6 +158,40 @@ class MainActivity : FlutterActivity() {
                         pendingRequestCode = REQUEST_PICK_PMTILES
                         @Suppress("DEPRECATION")
                         startActivityForResult(intent, REQUEST_PICK_PMTILES)
+                    }
+
+                    "pickGeoJsonFile" -> {
+                        if (pendingResult != null) {
+                            result.error("busy", "Another picker/capture request is pending", null)
+                            return@setMethodCallHandler
+                        }
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                        }
+                        pendingResult = result
+                        pendingRequestCode = REQUEST_PICK_GEOJSON
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQUEST_PICK_GEOJSON)
+                    }
+
+                    "saveGeoJsonFile" -> {
+                        if (pendingResult != null) {
+                            result.error("busy", "Another picker/capture request is pending", null)
+                            return@setMethodCallHandler
+                        }
+                        val filename = call.argument<String>("filename") ?: "earthly-map.geojson"
+                        val content = call.argument<String>("content") ?: ""
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "application/geo+json"
+                            putExtra(Intent.EXTRA_TITLE, filename)
+                        }
+                        pendingResult = result
+                        pendingRequestCode = REQUEST_SAVE_GEOJSON
+                        pendingSaveContent = content
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQUEST_SAVE_GEOJSON)
                     }
 
                     "scanQrCode" -> {
@@ -357,7 +394,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                REQUEST_PICK_IMAGE, REQUEST_PICK_PMTILES -> {
+                REQUEST_PICK_IMAGE, REQUEST_PICK_PMTILES, REQUEST_PICK_GEOJSON -> {
                     val uri = data.data
                     if (uri == null) {
                         callback.error("empty_file", "No file URI returned", null)
@@ -369,10 +406,10 @@ class MainActivity : FlutterActivity() {
                             callback.error("empty_file", "Selected file was empty", null)
                         } else {
                             val mime = contentResolver.getType(uri)
-                                ?: if (requestCode == REQUEST_PICK_PMTILES) {
-                                    "application/vnd.pmtiles"
-                                } else {
-                                    "image/jpeg"
+                                ?: when (requestCode) {
+                                    REQUEST_PICK_PMTILES -> "application/vnd.pmtiles"
+                                    REQUEST_PICK_GEOJSON -> "application/geo+json"
+                                    else -> "image/jpeg"
                                 }
                             callback.success(
                                 mapOf(
@@ -384,6 +421,25 @@ class MainActivity : FlutterActivity() {
                         }
                     } catch (err: Exception) {
                         callback.error("read_failed", err.message ?: "Failed to read file", null)
+                    }
+                }
+
+                REQUEST_SAVE_GEOJSON -> {
+                    val uri = data.data
+                    val content = pendingSaveContent ?: ""
+                    pendingSaveContent = null
+                    if (uri == null) {
+                        callback.error("empty_file", "No destination URI returned", null)
+                        return
+                    }
+                    try {
+                        contentResolver.openOutputStream(uri)?.use { stream ->
+                            stream.write(content.toByteArray(Charsets.UTF_8))
+                            stream.flush()
+                        }
+                        callback.success(queryDisplayName(uri))
+                    } catch (err: Exception) {
+                        callback.error("write_failed", err.message ?: "Failed to save GeoJSON", null)
                     }
                 }
             }

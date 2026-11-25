@@ -6,6 +6,7 @@
 pub mod account_session;
 pub mod drafts;
 pub mod outbox;
+pub mod settings;
 
 pub use account_session::{
     AccountSession, AccountSessionError, AccountSessionInput, AccountSessionStore,
@@ -16,4 +17,7 @@ pub use outbox::{
     OutboxDiagnosticSummary, OutboxEnqueueInput, OutboxError, OutboxItemState,
     OutboxItemSummaryView, OutboxItemView, OutboxRelayResultInput, OutboxRelayState,
     OutboxRelayView, OutboxRouting, OutboxStore, OUTBOX_PROTOCOL_VERSION,
+};
+pub use settings::{
+    AppSettingsStore, PersistedAppSettings, SavedOfflinePackRecord, SettingsStoreError,
 };

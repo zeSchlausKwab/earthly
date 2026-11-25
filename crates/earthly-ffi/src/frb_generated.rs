@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1882986962;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -808658512;
 
 // Section: executor
 
@@ -927,6 +927,39 @@ fn wire__crate__api__spike__join_nearby_session_impl(
         },
     )
 }
+fn wire__crate__api__settings__load_app_settings_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "load_app_settings",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::settings::load_app_settings(api_database_path)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__publish__load_local_draft_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1519,6 +1552,40 @@ fn wire__crate__api__spike__reject_nearby_claim_impl(
         },
     )
 }
+fn wire__crate__api__spike__resolve_local_blob_url_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "resolve_local_blob_url",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_sha256 = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Ok::<_, ()>(crate::api::spike::resolve_local_blob_url(api_sha256))?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__spike__revoke_nearby_peer_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1612,6 +1679,42 @@ fn wire__crate__api__agent__run_earthly_agent_turn_impl(
                     })()
                     .await,
                 )
+            }
+        },
+    )
+}
+fn wire__crate__api__settings__save_app_settings_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "save_app_settings",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_settings =
+                <crate::api::settings::AppSettingsDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok =
+                        crate::api::settings::save_app_settings(api_database_path, api_settings)?;
+                    std::result::Result::Ok(output_ok)
+                })())
             }
         },
     )
@@ -1766,6 +1869,45 @@ fn wire__crate__api__spike__start_local_node_impl(
                 transform_result_sse::<_, String>(
                     (move || async move {
                         let output_ok = crate::api::spike::start_local_node(api_data_dir).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__spike__start_local_node_fips_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "start_local_node_fips",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_data_dir = <String>::sse_decode(&mut deserializer);
+            let api_fips_ipv6 = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::spike::start_local_node_fips(api_data_dir, api_fips_ipv6)
+                                .await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1979,6 +2121,31 @@ impl SseDecode for crate::api::agent::AgentTurnResultDto {
             camera_action: var_cameraAction,
             tool_calls: var_toolCalls,
             used_offline_mode: var_usedOfflineMode,
+        };
+    }
+}
+
+impl SseDecode for crate::api::settings::AppSettingsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_relayUrls = <Vec<String>>::sse_decode(deserializer);
+        let mut var_localPubkeyHex = <Option<String>>::sse_decode(deserializer);
+        let mut var_localNsec = <Option<String>>::sse_decode(deserializer);
+        let mut var_agentPreset = <String>::sse_decode(deserializer);
+        let mut var_agentBaseUrl = <String>::sse_decode(deserializer);
+        let mut var_agentModel = <String>::sse_decode(deserializer);
+        let mut var_agentApiKey = <String>::sse_decode(deserializer);
+        let mut var_offlinePacks =
+            <Vec<crate::api::settings::SavedOfflinePackDto>>::sse_decode(deserializer);
+        return crate::api::settings::AppSettingsDto {
+            relay_urls: var_relayUrls,
+            local_pubkey_hex: var_localPubkeyHex,
+            local_nsec: var_localNsec,
+            agent_preset: var_agentPreset,
+            agent_base_url: var_agentBaseUrl,
+            agent_model: var_agentModel,
+            agent_api_key: var_agentApiKey,
+            offline_packs: var_offlinePacks,
         };
     }
 }
@@ -2414,6 +2581,20 @@ impl SseDecode for Vec<crate::api::spike::RemotePeerDto> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::spike::RemotePeerDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::settings::SavedOfflinePackDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::settings::SavedOfflinePackDto>::sse_decode(
+                deserializer,
+            ));
         }
         return ans_;
     }
@@ -2886,6 +3067,40 @@ impl SseDecode for crate::api::spike::RemotePeerDto {
     }
 }
 
+impl SseDecode for crate::api::settings::SavedOfflinePackDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_label = <String>::sse_decode(deserializer);
+        let mut var_sha256 = <String>::sse_decode(deserializer);
+        let mut var_sizeBytes = <u64>::sse_decode(deserializer);
+        let mut var_format = <String>::sse_decode(deserializer);
+        let mut var_minZoom = <u8>::sse_decode(deserializer);
+        let mut var_maxZoom = <u8>::sse_decode(deserializer);
+        let mut var_west = <f64>::sse_decode(deserializer);
+        let mut var_south = <f64>::sse_decode(deserializer);
+        let mut var_east = <f64>::sse_decode(deserializer);
+        let mut var_north = <f64>::sse_decode(deserializer);
+        let mut var_centerLon = <f64>::sse_decode(deserializer);
+        let mut var_centerLat = <f64>::sse_decode(deserializer);
+        let mut var_centerZoom = <u8>::sse_decode(deserializer);
+        return crate::api::settings::SavedOfflinePackDto {
+            label: var_label,
+            sha256: var_sha256,
+            size_bytes: var_sizeBytes,
+            format: var_format,
+            min_zoom: var_minZoom,
+            max_zoom: var_maxZoom,
+            west: var_west,
+            south: var_south,
+            east: var_east,
+            north: var_north,
+            center_lon: var_centerLon,
+            center_lat: var_centerLat,
+            center_zoom: var_centerZoom,
+        };
+    }
+}
+
 impl SseDecode for crate::api::nostr_client::SightingSummaryDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -3118,78 +3333,86 @@ fn pde_ffi_dispatcher_primary_impl(
             wire__crate__api__spike__inspect_pmtiles_header_impl(port, ptr, rust_vec_len, data_len)
         }
         24 => wire__crate__api__spike__join_nearby_session_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__publish__load_local_draft_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__spike__local_node_status_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__spike__nearby_peers_status_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__spike__outbox_summary_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__publish__prepare_unsigned_beacon_event_impl(
+        25 => wire__crate__api__settings__load_app_settings_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__publish__load_local_draft_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__spike__local_node_status_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__spike__nearby_peers_status_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__spike__outbox_summary_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__publish__prepare_unsigned_beacon_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        30 => wire__crate__api__publish__prepare_unsigned_comment_event_impl(
+        31 => wire__crate__api__publish__prepare_unsigned_comment_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        31 => wire__crate__api__publish__prepare_unsigned_map_event_impl(
+        32 => wire__crate__api__publish__prepare_unsigned_map_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        32 => wire__crate__api__publish__prepare_unsigned_proposal_event_impl(
+        33 => wire__crate__api__publish__prepare_unsigned_proposal_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        33 => wire__crate__api__publish__prepare_unsigned_sighting_event_impl(
+        34 => wire__crate__api__publish__prepare_unsigned_sighting_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        34 => wire__crate__api__publish__prepare_unsigned_story_event_impl(
+        35 => wire__crate__api__publish__prepare_unsigned_story_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        35 => wire__crate__api__publish__publish_nearby_event_via_outbox_impl(
+        36 => wire__crate__api__publish__publish_nearby_event_via_outbox_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        36 => wire__crate__api__publish__publish_signed_event_via_outbox_impl(
+        37 => wire__crate__api__publish__publish_signed_event_via_outbox_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        37 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
         40 => {
+            wire__crate__api__spike__resolve_local_blob_url_impl(port, ptr, rust_vec_len, data_len)
+        }
+        41 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        42 => {
             wire__crate__api__agent__run_earthly_agent_turn_impl(port, ptr, rust_vec_len, data_len)
         }
-        41 => wire__crate__api__publish__save_local_draft_impl(port, ptr, rust_vec_len, data_len),
-        42 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
-        43 => {
+        43 => wire__crate__api__settings__save_app_settings_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__publish__save_local_draft_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
+        46 => {
             wire__crate__api__publish__sign_event_with_nsec_impl(port, ptr, rust_vec_len, data_len)
         }
-        44 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__nostr_client__subscribe_earthly_relay_stream_impl(
+        47 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
+        48 => {
+            wire__crate__api__spike__start_local_node_fips_impl(port, ptr, rust_vec_len, data_len)
+        }
+        49 => wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__nostr_client__subscribe_earthly_relay_stream_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        47 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -3294,6 +3517,33 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::agent::AgentTurnResultDto>
     for crate::api::agent::AgentTurnResultDto
 {
     fn into_into_dart(self) -> crate::api::agent::AgentTurnResultDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::settings::AppSettingsDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.relay_urls.into_into_dart().into_dart(),
+            self.local_pubkey_hex.into_into_dart().into_dart(),
+            self.local_nsec.into_into_dart().into_dart(),
+            self.agent_preset.into_into_dart().into_dart(),
+            self.agent_base_url.into_into_dart().into_dart(),
+            self.agent_model.into_into_dart().into_dart(),
+            self.agent_api_key.into_into_dart().into_dart(),
+            self.offline_packs.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::settings::AppSettingsDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::settings::AppSettingsDto>
+    for crate::api::settings::AppSettingsDto
+{
+    fn into_into_dart(self) -> crate::api::settings::AppSettingsDto {
         self
     }
 }
@@ -3909,6 +4159,38 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::spike::RemotePeerDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::settings::SavedOfflinePackDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.label.into_into_dart().into_dart(),
+            self.sha256.into_into_dart().into_dart(),
+            self.size_bytes.into_into_dart().into_dart(),
+            self.format.into_into_dart().into_dart(),
+            self.min_zoom.into_into_dart().into_dart(),
+            self.max_zoom.into_into_dart().into_dart(),
+            self.west.into_into_dart().into_dart(),
+            self.south.into_into_dart().into_dart(),
+            self.east.into_into_dart().into_dart(),
+            self.north.into_into_dart().into_dart(),
+            self.center_lon.into_into_dart().into_dart(),
+            self.center_lat.into_into_dart().into_dart(),
+            self.center_zoom.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::settings::SavedOfflinePackDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::settings::SavedOfflinePackDto>
+    for crate::api::settings::SavedOfflinePackDto
+{
+    fn into_into_dart(self) -> crate::api::settings::SavedOfflinePackDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::nostr_client::SightingSummaryDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -4102,6 +4384,23 @@ impl SseEncode for crate::api::agent::AgentTurnResultDto {
         );
         <Vec<crate::api::agent::AgentToolRecordDto>>::sse_encode(self.tool_calls, serializer);
         <bool>::sse_encode(self.used_offline_mode, serializer);
+    }
+}
+
+impl SseEncode for crate::api::settings::AppSettingsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<String>>::sse_encode(self.relay_urls, serializer);
+        <Option<String>>::sse_encode(self.local_pubkey_hex, serializer);
+        <Option<String>>::sse_encode(self.local_nsec, serializer);
+        <String>::sse_encode(self.agent_preset, serializer);
+        <String>::sse_encode(self.agent_base_url, serializer);
+        <String>::sse_encode(self.agent_model, serializer);
+        <String>::sse_encode(self.agent_api_key, serializer);
+        <Vec<crate::api::settings::SavedOfflinePackDto>>::sse_encode(
+            self.offline_packs,
+            serializer,
+        );
     }
 }
 
@@ -4392,6 +4691,16 @@ impl SseEncode for Vec<crate::api::spike::RemotePeerDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::spike::RemotePeerDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::settings::SavedOfflinePackDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::settings::SavedOfflinePackDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -4701,6 +5010,25 @@ impl SseEncode for crate::api::spike::RemotePeerDto {
         <String>::sse_encode(self.blossom_url, serializer);
         <String>::sse_encode(self.status, serializer);
         <Option<String>>::sse_encode(self.rejection_reason, serializer);
+    }
+}
+
+impl SseEncode for crate::api::settings::SavedOfflinePackDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.label, serializer);
+        <String>::sse_encode(self.sha256, serializer);
+        <u64>::sse_encode(self.size_bytes, serializer);
+        <String>::sse_encode(self.format, serializer);
+        <u8>::sse_encode(self.min_zoom, serializer);
+        <u8>::sse_encode(self.max_zoom, serializer);
+        <f64>::sse_encode(self.west, serializer);
+        <f64>::sse_encode(self.south, serializer);
+        <f64>::sse_encode(self.east, serializer);
+        <f64>::sse_encode(self.north, serializer);
+        <f64>::sse_encode(self.center_lon, serializer);
+        <f64>::sse_encode(self.center_lat, serializer);
+        <u8>::sse_encode(self.center_zoom, serializer);
     }
 }
 

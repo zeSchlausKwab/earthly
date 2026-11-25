@@ -22,6 +22,7 @@ class FeatureInspectorSheet extends StatefulWidget {
     required this.onClose,
     this.onRenameDraftFeature,
     this.onRecolorDraftFeature,
+    this.onEditDraftGeometry,
     this.onDeleteDraftFeature,
     this.onAddDraftCallout,
     this.onRemoveDraftCallout,
@@ -33,6 +34,7 @@ class FeatureInspectorSheet extends StatefulWidget {
   final VoidCallback onClose;
   final void Function(String featureId, String newName)? onRenameDraftFeature;
   final void Function(String featureId, String colorHex)? onRecolorDraftFeature;
+  final ValueChanged<String>? onEditDraftGeometry;
   final ValueChanged<String>? onDeleteDraftFeature;
   final void Function(String featureId, DraftCallout callout)? onAddDraftCallout;
   final void Function(String featureId, String calloutId)? onRemoveDraftCallout;
@@ -404,6 +406,17 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
+                  if (widget.onEditDraftGeometry != null)
+                    FilledButton.icon(
+                      onPressed: () =>
+                          widget.onEditDraftGeometry!(f.draftFeatureId!),
+                      icon: const Icon(Icons.polyline, size: 16),
+                      label: Text(
+                        f.geometryType == 'Point'
+                            ? 'Move Point'
+                            : 'Edit Vertices',
+                      ),
+                    ),
                   OutlinedButton.icon(
                     onPressed: () => setState(() => _editingName = true),
                     icon: const Icon(Icons.edit, size: 16),
