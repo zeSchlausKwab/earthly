@@ -77,6 +77,8 @@ class DiscussionMarginSheet extends StatefulWidget {
     this.onRequestChangesProposal,
     this.catalogMaps = const <MapSummaryDto>[],
     this.catalogAtlases = const <AtlasSummaryDto>[],
+    this.showingAllCommentPins = false,
+    this.onToggleAllCommentPins,
     this.onEncodeNaddr,
     this.onEncodeNpub,
     super.key,
@@ -95,6 +97,9 @@ class DiscussionMarginSheet extends StatefulWidget {
   final ValueChanged<String>? onOpenPerson;
   final List<MapSummaryDto> catalogMaps;
   final List<AtlasSummaryDto> catalogAtlases;
+  final bool showingAllCommentPins;
+  final void Function(List<GeoCommentDto> commentsWithGeo)?
+      onToggleAllCommentPins;
   final Future<String> Function({
     required int kind,
     required String pubkeyHex,
@@ -638,8 +643,41 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
 
   Widget _buildCommentsTab(List<_CommentThreadNode> nodes) {
     final theme = Theme.of(context);
+    final commentsWithGeo = nodes
+        .map((n) => n.comment)
+        .where((c) => c.geojson != null && c.geojson!.isNotEmpty)
+        .toList(growable: false);
     return Column(
       children: [
+        if (commentsWithGeo.isNotEmpty && widget.onToggleAllCommentPins != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+            decoration: BoxDecoration(
+              color: EarthlyColors.commentGreen.withValues(alpha: 0.08),
+              border: Border(bottom: BorderSide(color: theme.dividerColor)),
+            ),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                key: const Key('discussion-toggle-all-pins-btn'),
+                onPressed: () => widget.onToggleAllCommentPins!(commentsWithGeo),
+                icon: Icon(
+                  widget.showingAllCommentPins
+                      ? Icons.layers_clear_outlined
+                      : Icons.pin_drop_outlined,
+                  size: 15,
+                  color: EarthlyColors.commentGreen,
+                ),
+                label: Text(
+                  widget.showingAllCommentPins
+                      ? 'Hide All Comment Pins'
+                      : 'Show All Comment Pins (${commentsWithGeo.length})',
+                  style: const TextStyle(fontSize: 11.5),
+                ),
+              ),
+            ),
+          ),
         Expanded(
           child: _loading && _snapshot == null
               ? const Center(child: CircularProgressIndicator())

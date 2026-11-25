@@ -158,6 +158,9 @@ pub async fn run_agent_turn(
     messages.push(json!({ "role": "user", "content": input.prompt }));
 
     let mut executed: Vec<ExecutedToolRecord> = Vec::new();
+    let mut sum_prompt_tokens: u32 = 0;
+    let mut sum_completion_tokens: u32 = 0;
+    let mut sum_total_tokens: u32 = 0;
     let max_steps = provider.max_tool_steps.clamp(1, 10);
 
     for _step in 0..max_steps {
@@ -196,6 +199,15 @@ pub async fn run_agent_turn(
             return Err(format!("LLM error ({status}): {err_msg}"));
         }
 
+        if let Some(usage) = body.get("usage") {
+            let pt = usage.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0) as u32;
+            let ct = usage.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0) as u32;
+            let tt = usage.get("total_tokens").and_then(Value::as_u64).unwrap_or((pt + ct) as u64) as u32;
+            sum_prompt_tokens = sum_prompt_tokens.saturating_add(pt);
+            sum_completion_tokens = sum_completion_tokens.saturating_add(ct);
+            sum_total_tokens = sum_total_tokens.saturating_add(tt);
+        }
+
         let choice_msg = body
             .get("choices")
             .and_then(Value::as_array)
@@ -225,6 +237,9 @@ pub async fn run_agent_turn(
                 camera_action: state.camera_action,
                 tool_calls: executed,
                 used_offline_mode: false,
+                prompt_tokens: (sum_total_tokens > 0).then_some(sum_prompt_tokens),
+                completion_tokens: (sum_total_tokens > 0).then_some(sum_completion_tokens),
+                total_tokens: (sum_total_tokens > 0).then_some(sum_total_tokens),
             });
         }
 
@@ -288,6 +303,9 @@ pub async fn run_agent_turn(
                 "valhalla_isochrone" => {
                     run_agent_valhalla_isochrone(&client, &parsed_args, &mut state).await
                 }
+                "lookup_admin_boundary" => {
+                    run_agent_admin_boundary(&client, &parsed_args, &mut state).await
+                }
                 _ => execute_tool_call(fn_name, &parsed_args, &input.workspace, &mut state),
             };
             executed.push(record);
@@ -309,6 +327,9 @@ pub async fn run_agent_turn(
         camera_action: state.camera_action,
         tool_calls: executed,
         used_offline_mode: false,
+        prompt_tokens: (sum_total_tokens > 0).then_some(sum_prompt_tokens),
+        completion_tokens: (sum_total_tokens > 0).then_some(sum_completion_tokens),
+        total_tokens: (sum_total_tokens > 0).then_some(sum_total_tokens),
     })
 }
 
@@ -418,6 +439,9 @@ async fn run_offline_url_research(
                 camera_action: state.camera_action,
                 tool_calls,
                 used_offline_mode: true,
+                prompt_tokens: None,
+                completion_tokens: None,
+                total_tokens: None,
             })
         }
         Err(err) => {
@@ -432,9 +456,104 @@ async fn run_offline_url_research(
                 camera_action: None,
                 tool_calls,
                 used_offline_mode: true,
+                prompt_tokens: None,
+                completion_tokens: None,
+                total_tokens: None,
             })
         }
     }
+}
+
+async fn run_agent_admin_boundary(
+    client: &reqwest::Client,
+    args: &Value,
+    state: &mut MutableDraftState,
+) -> (ExecutedToolRecord, Value) {
+    let query = args.get("query").and_then(Value::as_str).unwrap_or("").trim();
+    if query.is_empty() {
+        return agent_err("lookup_admin_boundary", "query is required");
+    }
+    let tolerance = args
+        .get("toleranceMeters")
+        .and_then(Value::as_f64)
+        .unwrap_or(50.0)
+        .max(5.0);
+    let Ok(url) = reqwest::Url::parse_with_params(
+        "https://nominatim.openstreetmap.org/search",
+        &[
+            ("format", "geojson"),
+            ("polygon_geojson", "1"),
+            ("limit", "1"),
+            ("q", query),
+        ],
+    ) else {
+        return agent_err("lookup_admin_boundary", "Invalid Nominatim URL");
+    };
+    let Ok(resp) = client.get(url).send().await else {
+        return agent_err("lookup_admin_boundary", "Nominatim boundary request failed");
+    };
+    if !resp.status().is_success() {
+        return agent_err("lookup_admin_boundary", &format!("Nominatim HTTP {}", resp.status()));
+    }
+    let Ok(body) = resp.json::<Value>().await else {
+        return agent_err("lookup_admin_boundary", "Invalid Nominatim GeoJSON");
+    };
+    let Some(feat) = body.get("features").and_then(Value::as_array).and_then(|a| a.first()) else {
+        return agent_err("lookup_admin_boundary", "No matching boundary found");
+    };
+    let title = feat
+        .get("properties")
+        .and_then(|p| p.get("display_name"))
+        .and_then(Value::as_str)
+        .unwrap_or(query);
+    let geom = &feat["geometry"];
+    let gtype = geom.get("type").and_then(Value::as_str).unwrap_or("");
+    let outer_coords = if gtype == "Polygon" {
+        geom.get("coordinates").and_then(Value::as_array).and_then(|a| a.first())
+    } else if gtype == "MultiPolygon" {
+        geom.get("coordinates")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+    } else {
+        None
+    };
+    let Some(ring_vals) = outer_coords.and_then(Value::as_array) else {
+        return agent_err("lookup_admin_boundary", "Nominatim result has no boundary polygon");
+    };
+    let pts: Vec<geo::Coord<f64>> = ring_vals
+        .iter()
+        .filter_map(|p| {
+            let a = p.as_array()?;
+            Some(geo::Coord { x: a.first()?.as_f64()?, y: a.get(1)?.as_f64()? })
+        })
+        .collect();
+    if pts.len() < 4 {
+        return agent_err("lookup_admin_boundary", "Boundary ring has too few points");
+    }
+    let poly = geo::Polygon::new(geo::LineString::new(pts), vec![]);
+    let simplified = earthly_geo::simplify_polygon(&poly, tolerance).unwrap_or(poly);
+    let ring: Vec<[f64; 2]> = simplified.exterior().0.iter().map(|c| [c.x, c.y]).collect();
+    let cx = ring.iter().map(|p| p[0]).sum::<f64>() / (ring.len() as f64);
+    let cy = ring.iter().map(|p| p[1]).sum::<f64>() / (ring.len() as f64);
+    state.append_geojson_features(&json!({
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": { "type": "Polygon", "coordinates": [ring] },
+            "properties": { "name": title, "source": "osm-nominatim", "strokeColor": "#0F766E", "fillColor": "#14B8A6", "fillOpacity": 0.16 }
+        }]
+    }));
+    state.camera_action = Some(crate::executor::AgentCameraAction { lon: cx, lat: cy, zoom: 11.5 });
+    (
+        ExecutedToolRecord {
+            name: "lookup_admin_boundary".to_owned(),
+            ok: true,
+            summary: format!("Imported boundary for \"{title}\" ({} vertices)", simplified.exterior().0.len()),
+        },
+        json!({ "name": title, "vertices": simplified.exterior().0.len() }),
+    )
 }
 
 async fn fetch_and_extract_webpage(client: &reqwest::Client, raw_url: &str) -> Result<Value, String> {

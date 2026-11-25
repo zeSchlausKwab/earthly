@@ -132,6 +132,9 @@ class AgentTurnResultDto {
   final AgentCameraActionDto? cameraAction;
   final List<AgentToolRecordDto> toolCalls;
   final bool usedOfflineMode;
+  final int? promptTokens;
+  final int? completionTokens;
+  final int? totalTokens;
 
   const AgentTurnResultDto({
     required this.reply,
@@ -142,6 +145,9 @@ class AgentTurnResultDto {
     this.cameraAction,
     required this.toolCalls,
     required this.usedOfflineMode,
+    this.promptTokens,
+    this.completionTokens,
+    this.totalTokens,
   });
 
   @override
@@ -153,7 +159,10 @@ class AgentTurnResultDto {
       diffRemoved.hashCode ^
       cameraAction.hashCode ^
       toolCalls.hashCode ^
-      usedOfflineMode.hashCode;
+      usedOfflineMode.hashCode ^
+      promptTokens.hashCode ^
+      completionTokens.hashCode ^
+      totalTokens.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -167,7 +176,10 @@ class AgentTurnResultDto {
           diffRemoved == other.diffRemoved &&
           cameraAction == other.cameraAction &&
           toolCalls == other.toolCalls &&
-          usedOfflineMode == other.usedOfflineMode;
+          usedOfflineMode == other.usedOfflineMode &&
+          promptTokens == other.promptTokens &&
+          completionTokens == other.completionTokens &&
+          totalTokens == other.totalTokens;
 }
 
 class ResearchCoordDto {

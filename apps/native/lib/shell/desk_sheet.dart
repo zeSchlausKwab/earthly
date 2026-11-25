@@ -85,6 +85,7 @@ class DeskSheet extends StatefulWidget {
     required this.onExportGeoJsonFile,
     this.onExportGpxFile,
     this.onExportKmlFile,
+    this.onExportShapefileZip,
     this.onExportPosterPng,
     required this.onCopyGeoJson,
     this.onPasteGeoJsonFromClipboard,
@@ -154,6 +155,7 @@ class DeskSheet extends StatefulWidget {
   final VoidCallback onExportGeoJsonFile;
   final VoidCallback? onExportGpxFile;
   final VoidCallback? onExportKmlFile;
+  final VoidCallback? onExportShapefileZip;
   final VoidCallback? onExportPosterPng;
   final VoidCallback onCopyGeoJson;
   final VoidCallback? onPasteGeoJsonFromClipboard;
@@ -655,7 +657,7 @@ class _DeskSheetState extends State<DeskSheet> {
               OutlinedButton.icon(
                 onPressed: widget.onImportGeoJson,
                 icon: const Icon(Icons.file_upload_outlined, size: 15),
-                label: const Text('Import GeoJSON / GPX / KML / SHP'),
+                label: const Text('Import GeoJSON / GPX / KML / SHP / CSV'),
               ),
               if (widget.onImportOsm != null)
                 OutlinedButton.icon(
@@ -690,6 +692,8 @@ class _DeskSheetState extends State<DeskSheet> {
                       widget.onExportGpxFile?.call();
                     case 'kml':
                       widget.onExportKmlFile?.call();
+                    case 'shp':
+                      widget.onExportShapefileZip?.call();
                     case 'poster':
                       widget.onExportPosterPng?.call();
                     case 'copy':
@@ -710,6 +714,12 @@ class _DeskSheetState extends State<DeskSheet> {
                     const PopupMenuItem(
                       value: 'kml',
                       child: Text('Export Google Earth KML (.kml)'),
+                    ),
+                  if (widget.onExportShapefileZip != null)
+                    const PopupMenuItem(
+                      key: Key('desk-export-shapefile-zip'),
+                      value: 'shp',
+                      child: Text('Export Shapefile Bundle (.zip)'),
                     ),
                   if (widget.onExportPosterPng != null)
                     const PopupMenuItem(

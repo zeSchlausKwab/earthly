@@ -22,7 +22,7 @@ earthly-spatial = { path = "../earthly-spatial" }
 earthly-storage = { path = "../earthly-storage" }
 flutter_rust_bridge = "=2.13.0"
 geo = "0.29"
-nostr = "0.44.1"
+nostr = { version = "0.44.1", features = ["nip47"] }
 nostr-connect = "0.44.1"
 nostr-sdk = "0.44.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

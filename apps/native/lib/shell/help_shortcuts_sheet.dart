@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/earthly_theme.dart';
+import 'guided_tour_dialog.dart';
 import 'map_drawer.dart';
 
 /// Quick field guide covering desktop keyboard shortcuts, touch drawing
@@ -48,6 +49,13 @@ class HelpShortcutsSheet extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
         children: [
+          FilledButton.icon(
+            key: const Key('help-start-tour-btn'),
+            onPressed: () => showEarthlyGuidedTourDialog(context),
+            icon: const Icon(Icons.explore_outlined, size: 17),
+            label: const Text('Start 5-Step Guided Tour'),
+          ),
+          const SizedBox(height: 14),
           _sectionTitle(theme, 'KEYBOARD SHORTCUTS (DESKTOP)'),
           const SizedBox(height: 6),
           for (final entry in const [

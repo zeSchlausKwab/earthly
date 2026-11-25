@@ -74,6 +74,7 @@ pub struct AppSettingsDto {
     pub satellite_opacity: f64,
     pub story_draft_json: Option<String>,
     pub agent_messages_json: Option<String>,
+    pub nwc_uri: Option<String>,
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
@@ -162,6 +163,7 @@ fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
         satellite_opacity: r.satellite_opacity,
         story_draft_json: r.story_draft_json,
         agent_messages_json: r.agent_messages_json,
+        nwc_uri: r.nwc_uri,
     }
 }
 
@@ -234,6 +236,7 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
         satellite_opacity: d.satellite_opacity,
         story_draft_json: d.story_draft_json,
         agent_messages_json: d.agent_messages_json,
+        nwc_uri: d.nwc_uri,
     }
 }
 
@@ -261,6 +264,7 @@ mod tests {
         s.satellite_opacity = 0.6;
         s.story_draft_json = Some(r#"{"title":"Field Log"}"#.to_owned());
         s.agent_messages_json = Some(r#"[{"role":"user","content":"Measure draft"}]"#.to_owned());
+        s.nwc_uri = Some("nostr+walletconnect://abc?relay=wss%3A%2F%2Frelay.earthly.city&secret=def".to_owned());
         let saved = save_app_settings(db.clone(), s).unwrap();
         assert_eq!(saved.blossom_server_url, "https://blossom.primal.net");
         assert_eq!(saved.muted_pubkeys, vec!["f".repeat(64)]);
@@ -279,6 +283,10 @@ mod tests {
         assert_eq!(
             reloaded.agent_messages_json.as_deref(),
             Some(r#"[{"role":"user","content":"Measure draft"}]"#)
+        );
+        assert_eq!(
+            reloaded.nwc_uri.as_deref(),
+            Some("nostr+walletconnect://abc?relay=wss%3A%2F%2Frelay.earthly.city&secret=def")
         );
     }
 }

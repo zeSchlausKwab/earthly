@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import '../runtime/rust_bridge.dart';
 import '../src/rust/api/blossom.dart';
 import '../src/rust/api/nip46.dart';
 import '../src/rust/api/nostr_client.dart';
+import '../src/rust/api/nwc.dart';
 import '../src/rust/api/publish.dart';
 import '../src/rust/api/settings.dart';
 import '../theme/earthly_theme.dart';
@@ -67,11 +69,17 @@ class AccountSessionSheet extends StatefulWidget {
     this.onUploadBlossomImage,
     this.mutedPubkeys = const <String>{},
     this.onUnmutePubkey,
+    this.nwcUri,
+    this.onNwcUriChanged,
+    this.onCheckNwcStatus,
     this.relayUrls = const <String>['wss://relay.earthly.city'],
     super.key,
   });
 
   final List<String> relayUrls;
+  final String? nwcUri;
+  final ValueChanged<String?>? onNwcUriChanged;
+  final Future<NwcWalletStatusDto> Function(String uri)? onCheckNwcStatus;
 
   final Nip55Account? account;
   final String? localNsec;
@@ -116,7 +124,11 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
   late final TextEditingController _websiteController;
   late final TextEditingController _bannerController;
   late final TextEditingController _lud16Controller;
+  final TextEditingController _nwcController = TextEditingController();
 
+  bool _checkingNwc = false;
+  NwcWalletStatusDto? _nwcStatus;
+  String? _nwcError;
   bool _amberInstalled = false;
   bool _busy = false;
   bool _uploadingAvatar = false;
@@ -178,7 +190,62 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
     _websiteController.dispose();
     _bannerController.dispose();
     _lud16Controller.dispose();
+    _nwcController.dispose();
     super.dispose();
+  }
+
+  Future<void> _connectNwcUri([String? rawOverride]) async {
+    final raw = (rawOverride ?? _nwcController.text).trim();
+    if (raw.isEmpty) return;
+    setState(() {
+      _checkingNwc = true;
+      _nwcError = null;
+    });
+    try {
+      String validatedUri = raw;
+      if (widget.onCheckNwcStatus == null) {
+        await RustBridge.ensureInitialized();
+        await parseNwcUri(uri: raw);
+      } else if (!raw.toLowerCase().startsWith('nostr+walletconnect://')) {
+        throw StateError('URI must start with nostr+walletconnect://');
+      }
+      widget.onNwcUriChanged?.call(validatedUri);
+      _nwcController.clear();
+      final status = widget.onCheckNwcStatus != null
+          ? await widget.onCheckNwcStatus!(validatedUri)
+          : await fetchNwcWalletStatus(nwcUri: validatedUri);
+      if (!mounted) return;
+      setState(() => _nwcStatus = status);
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _nwcError = err.toString());
+    } finally {
+      if (mounted) setState(() => _checkingNwc = false);
+    }
+  }
+
+  Future<void> _refreshNwcStatus() async {
+    final uri = widget.nwcUri?.trim() ?? '';
+    if (uri.isEmpty || _checkingNwc) return;
+    setState(() {
+      _checkingNwc = true;
+      _nwcError = null;
+    });
+    try {
+      final status = widget.onCheckNwcStatus != null
+          ? await widget.onCheckNwcStatus!(uri)
+          : await (() async {
+              await RustBridge.ensureInitialized();
+              return fetchNwcWalletStatus(nwcUri: uri);
+            })();
+      if (!mounted) return;
+      setState(() => _nwcStatus = status);
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _nwcError = err.toString());
+    } finally {
+      if (mounted) setState(() => _checkingNwc = false);
+    }
   }
 
   Future<void> _checkAmber() async {
@@ -1316,6 +1383,155 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
           ],
 
           const Divider(height: 24),
+          if (widget.onNwcUriChanged != null) ...[
+            Text(
+              'NOSTR WALLET CONNECT (NIP-47)',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            if (widget.nwcUri == null || widget.nwcUri!.trim().isEmpty) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const Key('nwc-uri-input'),
+                      controller: _nwcController,
+                      obscureText: true,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: 'nostr+walletconnect://…',
+                      ),
+                    ),
+                  ),
+                  if (Platform.isAndroid) ...[
+                    const SizedBox(width: 6),
+                    IconButton(
+                      tooltip: 'Scan NWC QR',
+                      onPressed: _checkingNwc
+                          ? null
+                          : () async {
+                              try {
+                                final scanned = await DeviceBridge.scanQrCode();
+                                await _connectNwcUri(scanned);
+                              } catch (err) {
+                                if (mounted) {
+                                  setState(() => _nwcError = err.toString());
+                                }
+                              }
+                            },
+                      icon: const Icon(Icons.qr_code_scanner, size: 19),
+                    ),
+                  ],
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    key: const Key('nwc-connect-btn'),
+                    onPressed:
+                        _checkingNwc ? null : () => unawaited(_connectNwcUri()),
+                    child: Text(_checkingNwc ? '…' : 'Connect NWC'),
+                  ),
+                ],
+              ),
+            ] else ...[
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: EarthlyColors.commentGreen.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: EarthlyColors.commentGreen.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.bolt,
+                          size: 16,
+                          color: EarthlyColors.amber,
+                        ),
+                        const SizedBox(width: 6),
+                        const Expanded(
+                          child: Text(
+                            'NWC Connected',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ),
+                        if (_nwcStatus?.balanceSats != null)
+                          Text(
+                            '${_nwcStatus!.balanceSats} sats',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: EarthlyColors.commentGreen,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        OutlinedButton.icon(
+                          key: const Key('nwc-check-btn'),
+                          onPressed: _checkingNwc ? null : _refreshNwcStatus,
+                          icon: const Icon(Icons.refresh, size: 14),
+                          label: Text(
+                            _checkingNwc ? 'Checking…' : 'Check Balance',
+                          ),
+                        ),
+                        TextButton.icon(
+                          key: const Key('nwc-disconnect-btn'),
+                          onPressed: _checkingNwc
+                              ? null
+                              : () {
+                                  widget.onNwcUriChanged!(null);
+                                  setState(() {
+                                    _nwcStatus = null;
+                                    _nwcError = null;
+                                  });
+                                },
+                          icon: const Icon(
+                            Icons.link_off,
+                            size: 14,
+                            color: EarthlyColors.destructive,
+                          ),
+                          label: const Text(
+                            'Disconnect',
+                            style: TextStyle(color: EarthlyColors.destructive),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (_nwcError != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                _nwcError!,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 10.5,
+                  color: EarthlyColors.destructive,
+                ),
+              ),
+            ],
+            const Divider(height: 24),
+          ],
           if (widget.onBlossomServerChanged != null) ...[
             Text(
               'BLOSSOM MEDIA SERVER (BUD-02)',

@@ -806,4 +806,496 @@ mod tests {
         // Invalid binary rejected cleanly
         assert!(parse_shapefile_bytes(Some("bad.zip"), b"not-a-shapefile").is_err());
     }
+
+    #[test]
+    fn exports_and_reimports_mixed_geojson_shapefile_zip() {
+        let fc = json!({
+            "type": "FeatureCollection",
+            "name": "Danube Survey",
+            "features": [
+                {
+                    "type": "Feature",
+                    "id": "pt-1",
+                    "geometry": { "type": "Point", "coordinates": [16.3738, 48.2082] },
+                    "properties": { "name": "Stephansplatz", "description": "Center" }
+                },
+                {
+                    "type": "Feature",
+                    "id": "line-1",
+                    "geometry": { "type": "LineString", "coordinates": [[16.36, 48.20], [16.38, 48.21]] },
+                    "properties": { "name": "Ring Walk" }
+                },
+                {
+                    "type": "Feature",
+                    "id": "poly-1",
+                    "geometry": { "type": "Polygon", "coordinates": [[[16.30, 48.20], [16.32, 48.20], [16.32, 48.22], [16.30, 48.20]]] },
+                    "properties": { "name": "Park Zone" }
+                }
+            ]
+        });
+
+        let zip_bytes = export_geojson_to_shapefile_zip(&fc, Some("Danube Survey")).unwrap();
+        let entries = extract_zip_entries(&zip_bytes).unwrap();
+        assert!(entries.iter().any(|(n, _)| n.ends_with("_points.shp")));
+        assert!(entries.iter().any(|(n, _)| n.ends_with("_lines.shp")));
+        assert!(entries.iter().any(|(n, _)| n.ends_with("_polygons.shp")));
+
+        // Verify polygon layer round-trips through parse_shapefile_bytes cleanly.
+        let poly_shp = entries
+            .iter()
+            .find(|(n, _)| n.ends_with("_polygons.shp"))
+            .unwrap()
+            .1
+            .clone();
+        let poly_dbf = entries
+            .iter()
+            .find(|(n, _)| n.ends_with("_polygons.dbf"))
+            .unwrap()
+            .1
+            .clone();
+        let poly_zip = build_zip(
+            &[("poly.shp", &poly_shp), ("poly.dbf", &poly_dbf)],
+            true,
+        );
+        let reimported = parse_shapefile_bytes(Some("poly.zip"), &poly_zip).unwrap();
+        assert_eq!(reimported.feature_count, 1);
+        assert_eq!(reimported.geojson["features"][0]["geometry"]["type"], "Polygon");
+        assert_eq!(reimported.geojson["features"][0]["properties"]["name"], "Park Zone");
+    }
+}
+
+const WGS84_PRJ_WKT: &str = r#"GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]"#;
+
+fn sanitize_shp_stem(raw: &str) -> String {
+    let cleaned: String = raw
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim_matches('_');
+    if trimmed.is_empty() {
+        "earthly_export".to_owned()
+    } else {
+        trimmed.chars().take(48).collect()
+    }
+}
+
+fn sanitize_dbf_field_name(raw: &str, idx: usize) -> String {
+    let mut up: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .map(|c| c.to_ascii_uppercase())
+        .take(10)
+        .collect();
+    if up.is_empty() {
+        up = format!("FIELD{idx}");
+    }
+    up
+}
+
+fn write_shp_header(shape_type: i32, file_words: u32, bbox: [f64; 4]) -> Vec<u8> {
+    let mut hdr = vec![0u8; 100];
+    hdr[0..4].copy_from_slice(&9994u32.to_be_bytes());
+    hdr[24..28].copy_from_slice(&file_words.to_be_bytes());
+    hdr[28..32].copy_from_slice(&1000i32.to_le_bytes());
+    hdr[32..36].copy_from_slice(&shape_type.to_le_bytes());
+    hdr[36..44].copy_from_slice(&bbox[0].to_le_bytes());
+    hdr[44..52].copy_from_slice(&bbox[1].to_le_bytes());
+    hdr[52..60].copy_from_slice(&bbox[2].to_le_bytes());
+    hdr[60..68].copy_from_slice(&bbox[3].to_le_bytes());
+    hdr
+}
+
+fn encode_dbf_bytes(rows: &[Vec<String>], field_names: &[String]) -> Vec<u8> {
+    let field_len: usize = 80;
+    let num_fields = field_names.len();
+    let header_len = 32 + num_fields * 32 + 1;
+    let record_len = 1 + num_fields * field_len;
+    let mut out = vec![0u8; header_len];
+    out[0] = 3; // dBASE III
+    out[1] = 126; // year offset
+    out[2] = 1;
+    out[3] = 1;
+    out[4..8].copy_from_slice(&(rows.len() as u32).to_le_bytes());
+    out[8..10].copy_from_slice(&(header_len as u16).to_le_bytes());
+    out[10..12].copy_from_slice(&(record_len as u16).to_le_bytes());
+
+    for (i, name) in field_names.iter().enumerate() {
+        let base = 32 + i * 32;
+        let nb = name.as_bytes();
+        let copy_len = nb.len().min(10);
+        out[base..base + copy_len].copy_from_slice(&nb[..copy_len]);
+        out[base + 11] = b'C';
+        out[base + 16] = field_len as u8;
+    }
+    out[header_len - 1] = 0x0D;
+
+    for row in rows {
+        out.push(b' '); // active record
+        for cell in row {
+            let mut buf = vec![b' '; field_len];
+            let raw = cell.as_bytes();
+            let take = raw.len().min(field_len);
+            buf[..take].copy_from_slice(&raw[..take]);
+            out.extend_from_slice(&buf);
+        }
+    }
+    out
+}
+
+fn build_layer_shapefile_files(
+    stem: &str,
+    layer_suffix: &str,
+    shape_type: i32,
+    records: &[(Vec<u8>, Vec<String>, [f64; 4])],
+    field_names: &[String],
+) -> Vec<(String, Vec<u8>)> {
+    let mut shp_records = Vec::new();
+    let mut shx_entries = Vec::new();
+    let mut rows = Vec::with_capacity(records.len());
+    let mut global_bbox = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+
+    let mut cur_word_offset = 50u32; // 100-byte header = 50 words
+    for (idx, (payload, row, b)) in records.iter().enumerate() {
+        let content_words = (payload.len() / 2) as u32;
+        shp_records.extend_from_slice(&((idx + 1) as u32).to_be_bytes());
+        shp_records.extend_from_slice(&content_words.to_be_bytes());
+        shp_records.extend_from_slice(payload);
+
+        shx_entries.extend_from_slice(&cur_word_offset.to_be_bytes());
+        shx_entries.extend_from_slice(&content_words.to_be_bytes());
+        cur_word_offset += 4 + content_words;
+
+        global_bbox[0] = global_bbox[0].min(b[0]);
+        global_bbox[1] = global_bbox[1].min(b[1]);
+        global_bbox[2] = global_bbox[2].max(b[2]);
+        global_bbox[3] = global_bbox[3].max(b[3]);
+        rows.push(row.clone());
+    }
+    if !global_bbox[0].is_finite() {
+        global_bbox = [0.0, 0.0, 0.0, 0.0];
+    }
+
+    let shp_file_words = ((100 + shp_records.len()) / 2) as u32;
+    let mut shp = write_shp_header(shape_type, shp_file_words, global_bbox);
+    shp.extend_from_slice(&shp_records);
+
+    let shx_file_words = ((100 + shx_entries.len()) / 2) as u32;
+    let mut shx = write_shp_header(shape_type, shx_file_words, global_bbox);
+    shx.extend_from_slice(&shx_entries);
+
+    let dbf = encode_dbf_bytes(&rows, field_names);
+    let prefix = format!("{stem}_{layer_suffix}");
+    vec![
+        (format!("{prefix}.shp"), shp),
+        (format!("{prefix}.shx"), shx),
+        (format!("{prefix}.dbf"), dbf),
+        (format!("{prefix}.prj"), WGS84_PRJ_WKT.as_bytes().to_vec()),
+    ]
+}
+
+fn pack_pkzip_deflate(files: &[(String, Vec<u8>)]) -> Vec<u8> {
+    use flate2::{Compression, Crc, write::DeflateEncoder};
+    use std::io::Write;
+
+    let mut zip = Vec::new();
+    let mut cd = Vec::new();
+
+    for (name, raw) in files {
+        let mut crc_hasher = Crc::new();
+        crc_hasher.update(raw);
+        let crc = crc_hasher.sum();
+
+        let mut enc = DeflateEncoder::new(Vec::new(), Compression::default());
+        enc.write_all(raw).unwrap_or_default();
+        let compressed = enc.finish().unwrap_or_else(|_| raw.clone());
+        let local_off = zip.len() as u32;
+
+        zip.extend_from_slice(b"PK\x03\x04");
+        zip.extend_from_slice(&20u16.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(&8u16.to_le_bytes());
+        zip.extend_from_slice(&0u32.to_le_bytes());
+        zip.extend_from_slice(&crc.to_le_bytes());
+        zip.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
+        zip.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        zip.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(name.as_bytes());
+        zip.extend_from_slice(&compressed);
+
+        cd.extend_from_slice(b"PK\x01\x02");
+        cd.extend_from_slice(&20u16.to_le_bytes());
+        cd.extend_from_slice(&20u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&8u16.to_le_bytes());
+        cd.extend_from_slice(&0u32.to_le_bytes());
+        cd.extend_from_slice(&crc.to_le_bytes());
+        cd.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
+        cd.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        cd.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u32.to_le_bytes());
+        cd.extend_from_slice(&local_off.to_le_bytes());
+        cd.extend_from_slice(name.as_bytes());
+    }
+
+    let cd_off = zip.len() as u32;
+    let cd_size = cd.len() as u32;
+    zip.extend_from_slice(&cd);
+    zip.extend_from_slice(b"PK\x05\x06");
+    zip.extend_from_slice(&0u16.to_le_bytes());
+    zip.extend_from_slice(&0u16.to_le_bytes());
+    zip.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    zip.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    zip.extend_from_slice(&cd_size.to_le_bytes());
+    zip.extend_from_slice(&cd_off.to_le_bytes());
+    zip.extend_from_slice(&0u16.to_le_bytes());
+    zip
+}
+
+fn coords_bbox(pts: &[[f64; 2]]) -> [f64; 4] {
+    let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+    for &[x, y] in pts {
+        b[0] = b[0].min(x);
+        b[1] = b[1].min(y);
+        b[2] = b[2].max(x);
+        b[3] = b[3].max(y);
+    }
+    b
+}
+
+fn encode_parts_payload(shape_type: i32, parts: &[Vec<[f64; 2]>]) -> (Vec<u8>, [f64; 4]) {
+    let all_pts: Vec<[f64; 2]> = parts.iter().flat_map(|p| p.iter().copied()).collect();
+    let b = coords_bbox(&all_pts);
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&shape_type.to_le_bytes());
+    for v in b {
+        payload.extend_from_slice(&v.to_le_bytes());
+    }
+    payload.extend_from_slice(&(parts.len() as i32).to_le_bytes());
+    payload.extend_from_slice(&(all_pts.len() as i32).to_le_bytes());
+    let mut running = 0i32;
+    for part in parts {
+        payload.extend_from_slice(&running.to_le_bytes());
+        running += part.len() as i32;
+    }
+    for [x, y] in all_pts {
+        payload.extend_from_slice(&x.to_le_bytes());
+        payload.extend_from_slice(&y.to_le_bytes());
+    }
+    (payload, b)
+}
+
+fn parse_coord_list(val: &Value) -> Vec<[f64; 2]> {
+    val.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            let a = p.as_array()?;
+            Some([a.first()?.as_f64()?, a.get(1)?.as_f64()?])
+        })
+        .collect()
+}
+
+/// Exports a GeoJSON `FeatureCollection` into a multi-layer ESRI Shapefile
+/// `.zip` bundle containing `.shp`, `.shx`, `.dbf`, `.prj`, and `earthly-metadata.json`.
+pub fn export_geojson_to_shapefile_zip(
+    fc: &Value,
+    title: Option<&str>,
+) -> Result<Vec<u8>, GeoError> {
+    let summary = validate_feature_collection(fc)?;
+    if summary.feature_count == 0 {
+        return Err(GeoError::InvalidParameter(
+            "Cannot export empty FeatureCollection to Shapefile".to_owned(),
+        ));
+    }
+    let features = fc
+        .get("features")
+        .and_then(Value::as_array)
+        .ok_or_else(|| GeoError::InvalidGeoJson("Missing features array".to_owned()))?;
+
+    let mut prop_keys: Vec<String> = vec!["name".to_owned(), "description".to_owned(), "color".to_owned()];
+    for f in features {
+        if let Some(obj) = f.get("properties").and_then(Value::as_object) {
+            for (k, v) in obj {
+                if prop_keys.len() >= 12 {
+                    break;
+                }
+                if (v.is_string() || v.is_number() || v.is_boolean()) && !prop_keys.contains(k) {
+                    prop_keys.push(k.clone());
+                }
+            }
+        }
+    }
+    let dbf_field_names: Vec<String> = prop_keys
+        .iter()
+        .enumerate()
+        .map(|(i, k)| sanitize_dbf_field_name(k, i))
+        .collect();
+
+    let extract_row = |f: &Value| -> Vec<String> {
+        let props = f.get("properties").and_then(Value::as_object);
+        prop_keys
+            .iter()
+            .map(|k| {
+                props
+                    .and_then(|p| p.get(k))
+                    .map(|v| match v {
+                        Value::String(s) => s.clone(),
+                        Value::Number(n) => n.to_string(),
+                        Value::Bool(b) => b.to_string(),
+                        _ => String::new(),
+                    })
+                    .unwrap_or_default()
+            })
+            .collect()
+    };
+
+    let mut point_recs = Vec::new();
+    let mut line_recs = Vec::new();
+    let mut poly_recs = Vec::new();
+
+    for f in features {
+        let Some(geom) = f.get("geometry") else { continue };
+        let gtype = geom.get("type").and_then(Value::as_str).unwrap_or("");
+        let coords = &geom["coordinates"];
+        let row = extract_row(f);
+
+        match gtype {
+            "Point" => {
+                if let (Some(x), Some(y)) = (
+                    coords.get(0).and_then(Value::as_f64),
+                    coords.get(1).and_then(Value::as_f64),
+                ) {
+                    let mut p = Vec::with_capacity(20);
+                    p.extend_from_slice(&1i32.to_le_bytes());
+                    p.extend_from_slice(&x.to_le_bytes());
+                    p.extend_from_slice(&y.to_le_bytes());
+                    point_recs.push((p, row, [x, y, x, y]));
+                }
+            }
+            "LineString" => {
+                let pts = parse_coord_list(coords);
+                if pts.len() >= 2 {
+                    let (p, b) = encode_parts_payload(3, &[pts]);
+                    line_recs.push((p, row, b));
+                }
+            }
+            "MultiLineString" => {
+                let parts: Vec<Vec<[f64; 2]>> = coords
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(parse_coord_list)
+                    .filter(|l| l.len() >= 2)
+                    .collect();
+                if !parts.is_empty() {
+                    let (p, b) = encode_parts_payload(3, &parts);
+                    line_recs.push((p, row, b));
+                }
+            }
+            "Polygon" | "MultiPolygon" => {
+                let mut rings: Vec<Vec<[f64; 2]>> = Vec::new();
+                if gtype == "Polygon" {
+                    for (ri, raw_r) in coords.as_array().into_iter().flatten().enumerate() {
+                        let mut ring = parse_coord_list(raw_r);
+                        if ring.len() >= 3 {
+                            if ring.first() != ring.last() {
+                                ring.push(ring[0]);
+                            }
+                            let area = ring_signed_area_lonlat(&ring);
+                            if (ri == 0 && area > 0.0) || (ri > 0 && area < 0.0) {
+                                ring.reverse();
+                            }
+                            rings.push(ring);
+                        }
+                    }
+                } else {
+                    for poly in coords.as_array().into_iter().flatten() {
+                        for (ri, raw_r) in poly.as_array().into_iter().flatten().enumerate() {
+                            let mut ring = parse_coord_list(raw_r);
+                            if ring.len() >= 3 {
+                                if ring.first() != ring.last() {
+                                    ring.push(ring[0]);
+                                }
+                                let area = ring_signed_area_lonlat(&ring);
+                                if (ri == 0 && area > 0.0) || (ri > 0 && area < 0.0) {
+                                    ring.reverse();
+                                }
+                                rings.push(ring);
+                            }
+                        }
+                    }
+                }
+                if !rings.is_empty() {
+                    let (p, b) = encode_parts_payload(5, &rings);
+                    poly_recs.push((p, row, b));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let clean_name = title
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| fc.get("name").and_then(Value::as_str))
+        .unwrap_or("earthly_map");
+    let stem = sanitize_shp_stem(clean_name);
+
+    let mut archive_files = Vec::new();
+    if !point_recs.is_empty() {
+        archive_files.extend(build_layer_shapefile_files(
+            &stem,
+            "points",
+            1,
+            &point_recs,
+            &dbf_field_names,
+        ));
+    }
+    if !line_recs.is_empty() {
+        archive_files.extend(build_layer_shapefile_files(
+            &stem,
+            "lines",
+            3,
+            &line_recs,
+            &dbf_field_names,
+        ));
+    }
+    if !poly_recs.is_empty() {
+        archive_files.extend(build_layer_shapefile_files(
+            &stem,
+            "polygons",
+            5,
+            &poly_recs,
+            &dbf_field_names,
+        ));
+    }
+    if archive_files.is_empty() {
+        return Err(GeoError::InvalidParameter(
+            "No exportable Point, LineString, or Polygon geometries found".to_owned(),
+        ));
+    }
+
+    let meta = json!({
+        "schemaVersion": 1,
+        "collection": { "name": clean_name },
+        "featureCount": summary.feature_count,
+    });
+    archive_files.push((
+        "earthly-metadata.json".to_owned(),
+        serde_json::to_vec_pretty(&meta).unwrap_or_default(),
+    ));
+
+    Ok(pack_pkzip_deflate(&archive_files))
 }

@@ -295,5 +295,27 @@ pub fn earthly_tool_definitions() -> Vec<ToolDefinition> {
                 }
             }),
         },
+        ToolDefinition {
+            name: "lookup_admin_boundary".to_owned(),
+            description: "Look up a city, park, or administrative boundary polygon via OpenStreetMap Nominatim and add its simplified Polygon/MultiPolygon outline to the draft.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": { "type": "string", "description": "City, district, park, or region name" },
+                    "toleranceMeters": { "type": "number", "description": "Simplification tolerance in meters (default 50)" }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "draft_story_outline".to_owned(),
+            description: "Generate a ready-to-paste Earthly Story v2 Markdown outline with ```earthly-view camera cues derived from the current working draft features.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Optional Story headline" }
+                }
+            }),
+        },
     ]
 }

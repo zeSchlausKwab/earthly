@@ -128,6 +128,8 @@ pub struct PersistedAppSettings {
     pub story_draft_json: Option<String>,
     #[serde(default)]
     pub agent_messages_json: Option<String>,
+    #[serde(default)]
+    pub nwc_uri: Option<String>,
 }
 
 impl Default for PersistedAppSettings {
@@ -159,6 +161,7 @@ impl Default for PersistedAppSettings {
             satellite_opacity: default_satellite_opacity(),
             story_draft_json: None,
             agent_messages_json: None,
+            nwc_uri: None,
         }
     }
 }

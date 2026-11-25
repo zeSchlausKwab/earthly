@@ -42,6 +42,9 @@ pub struct AgentTurnResultDto {
     pub camera_action: Option<AgentCameraActionDto>,
     pub tool_calls: Vec<AgentToolRecordDto>,
     pub used_offline_mode: bool,
+    pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -158,6 +161,9 @@ pub async fn run_earthly_agent_turn(
             })
             .collect(),
         used_offline_mode: out.used_offline_mode,
+        prompt_tokens: out.prompt_tokens,
+        completion_tokens: out.completion_tokens,
+        total_tokens: out.total_tokens,
     })
 }
 

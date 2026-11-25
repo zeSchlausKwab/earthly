@@ -3,6 +3,7 @@ pub mod blossom;
 pub mod geo;
 pub mod nip46;
 pub mod nostr_client;
+pub mod nwc;
 pub mod private_groups;
 pub mod publish;
 pub mod settings;

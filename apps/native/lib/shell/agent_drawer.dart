@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
 
@@ -15,17 +16,26 @@ class CopilotMessage {
     required this.content,
     this.toolCalls = const [],
     this.isError = false,
+    this.promptTokens,
+    this.completionTokens,
+    this.totalTokens,
   });
 
   final String role; // 'user' | 'assistant'
   final String content;
   final List<AgentToolRecordDto> toolCalls;
   final bool isError;
+  final int? promptTokens;
+  final int? completionTokens;
+  final int? totalTokens;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         'role': role,
         'content': content,
         'isError': isError,
+        if (promptTokens != null) 'promptTokens': promptTokens,
+        if (completionTokens != null) 'completionTokens': completionTokens,
+        if (totalTokens != null) 'totalTokens': totalTokens,
         if (toolCalls.isNotEmpty)
           'toolCalls': [
             for (final t in toolCalls)
@@ -57,7 +67,100 @@ class CopilotMessage {
       content: content,
       toolCalls: tools,
       isError: (m['isError'] as bool?) ?? false,
+      promptTokens: (m['promptTokens'] as num?)?.toInt(),
+      completionTokens: (m['completionTokens'] as num?)?.toInt(),
+      totalTokens: (m['totalTokens'] as num?)?.toInt(),
     );
+  }
+}
+
+@immutable
+class CopilotThread {
+  const CopilotThread({
+    required this.id,
+    required this.title,
+    required this.updatedAtMs,
+    this.messages = const [],
+  });
+
+  final String id;
+  final String title;
+  final int updatedAtMs;
+  final List<CopilotMessage> messages;
+
+  CopilotThread copyWith({
+    String? title,
+    int? updatedAtMs,
+    List<CopilotMessage>? messages,
+  }) =>
+      CopilotThread(
+        id: id,
+        title: title ?? this.title,
+        updatedAtMs: updatedAtMs ?? this.updatedAtMs,
+        messages: messages ?? this.messages,
+      );
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'id': id,
+        'title': title,
+        'updatedAtMs': updatedAtMs,
+        'messages': [
+          for (final m in messages.skip(messages.length > 40 ? messages.length - 40 : 0))
+            m.toJson(),
+        ],
+      };
+
+  static CopilotThread? fromJson(Map<String, dynamic> m) {
+    final id = m['id'] as String?;
+    final title = m['title'] as String?;
+    if (id == null || id.isEmpty || title == null) return null;
+    final rawMsgs = m['messages'] as List?;
+    final msgs = <CopilotMessage>[
+      if (rawMsgs != null)
+        for (final item in rawMsgs)
+          if (item is Map)
+            ?CopilotMessage.fromJson(Map<String, dynamic>.from(item)),
+    ];
+    return CopilotThread(
+      id: id,
+      title: title,
+      updatedAtMs: (m['updatedAtMs'] as num?)?.toInt() ?? 0,
+      messages: msgs,
+    );
+  }
+
+  static List<CopilotThread> decodePersistedJson(String raw) {
+    final parsed = jsonDecode(raw);
+    if (parsed is Map) {
+      final rawThreads = parsed['threads'] as List?;
+      if (rawThreads != null) {
+        return [
+          for (final t in rawThreads)
+            if (t is Map)
+              ?CopilotThread.fromJson(Map<String, dynamic>.from(t)),
+        ];
+      }
+    }
+    if (parsed is List) {
+      final legacyMsgs = <CopilotMessage>[
+        for (final item in parsed)
+          if (item is Map)
+            ?CopilotMessage.fromJson(Map<String, dynamic>.from(item)),
+      ];
+      if (legacyMsgs.isNotEmpty) {
+        return [
+          CopilotThread(
+            id: 'thread-default',
+            title: legacyMsgs.first.content.length > 26
+                ? '${legacyMsgs.first.content.substring(0, 26)}…'
+                : legacyMsgs.first.content,
+            updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+            messages: legacyMsgs,
+          ),
+        ];
+      }
+    }
+    return const [];
   }
 }
 
@@ -135,6 +238,11 @@ class AgentDrawer extends StatefulWidget {
     this.onFocusCoord,
     this.onCiteSourceInStory,
     this.onDiscoverModels,
+    this.threads = const <CopilotThread>[],
+    this.activeThreadId,
+    this.onCreateThread,
+    this.onSelectThread,
+    this.onDeleteThread,
     super.key,
   });
 
@@ -152,6 +260,11 @@ class AgentDrawer extends StatefulWidget {
   final ValueChanged<ResearchSourceDto>? onCiteSourceInStory;
   final Future<List<String>> Function(String baseUrl, String apiKey)?
       onDiscoverModels;
+  final List<CopilotThread> threads;
+  final String? activeThreadId;
+  final VoidCallback? onCreateThread;
+  final ValueChanged<String>? onSelectThread;
+  final ValueChanged<String>? onDeleteThread;
   final ValueChanged<CopilotProviderSettings> onSettingsChanged;
   final ValueChanged<String> onSendPrompt;
   final VoidCallback onClearChat;
@@ -672,6 +785,56 @@ class _AgentDrawerState extends State<AgentDrawer>
   Widget _buildChatTab(ThemeData theme) {
     return Column(
       children: [
+        if (widget.onCreateThread != null || widget.threads.length > 1)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 2),
+            child: Row(
+              children: [
+                if (widget.onCreateThread != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ActionChip(
+                      key: const Key('agent-new-thread-btn'),
+                      avatar: const Icon(Icons.add, size: 14),
+                      label: const Text(
+                        'New Thread',
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      onPressed: widget.busy ? null : widget.onCreateThread,
+                    ),
+                  ),
+                for (final t in widget.threads)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: InputChip(
+                      key: Key('agent-thread-${t.id}'),
+                      selected: t.id == widget.activeThreadId,
+                      label: Text(
+                        t.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 10.5,
+                        ),
+                      ),
+                      onPressed: widget.onSelectThread == null
+                          ? null
+                          : () => widget.onSelectThread!(t.id),
+                      onDeleted: widget.threads.length > 1 &&
+                              widget.onDeleteThread != null
+                          ? () => widget.onDeleteThread!(t.id)
+                          : null,
+                    ),
+                  ),
+              ],
+            ),
+          ),
         // Quick spatial prompts
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -777,13 +940,31 @@ class _AgentDrawerState extends State<AgentDrawer>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            isUser ? 'YOU' : 'EARTHLY AGENT',
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                isUser ? 'YOU' : 'EARTHLY AGENT',
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              if (!isUser &&
+                                  m.totalTokens != null &&
+                                  m.totalTokens! > 0) ...[
+                                const Spacer(),
+                                Text(
+                                  '↑${m.promptTokens ?? 0} ↓${m.completionTokens ?? 0} · ${m.totalTokens} tok',
+                                  key: const Key('agent-tokens-badge'),
+                                  style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 9.5,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                           if (m.toolCalls.isNotEmpty) ...[
                             const SizedBox(height: 6),

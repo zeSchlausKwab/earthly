@@ -60,6 +60,12 @@ pub struct AgentTurnOutput {
     pub camera_action: Option<AgentCameraAction>,
     pub tool_calls: Vec<ExecutedToolRecord>,
     pub used_offline_mode: bool,
+    #[serde(default)]
+    pub prompt_tokens: Option<u32>,
+    #[serde(default)]
+    pub completion_tokens: Option<u32>,
+    #[serde(default)]
+    pub total_tokens: Option<u32>,
 }
 
 pub struct MutableDraftState {
@@ -661,6 +667,39 @@ pub fn execute_tool_call(
             )
         }
 
+        "draft_story_outline" => {
+            let headline = args
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&workspace.draft_title);
+            let feats = state.features();
+            let mut md = format!("# {headline}\n\nSummary of {} mapped feature(s):\n\n", feats.len());
+            for (idx, f) in feats.iter().take(5).enumerate() {
+                let title = f
+                    .get("properties")
+                    .and_then(|p| p.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("Field Stop");
+                let center = first_feature_coord(f).unwrap_or([workspace.center_lon, workspace.center_lat]);
+                let view_json = serde_json::to_string_pretty(&json!({
+                    "id": format!("view-{}", idx + 1),
+                    "title": title,
+                    "display": "both",
+                    "center": center,
+                    "zoom": workspace.zoom
+                }))
+                .unwrap_or_default();
+                md.push_str(&format!("## {title}\n\n```earthly-view\n{view_json}\n```\n\n"));
+            }
+            ok_tool(
+                name,
+                format!("Generated Story outline ({} view block(s))", feats.len().min(5)),
+                json!({ "markdown": md, "viewCount": feats.len().min(5) }),
+            )
+        }
+
         other => err_tool(other, &format!("Unknown tool \"{other}\"")),
     }
 }
@@ -775,6 +814,10 @@ pub fn execute_local_offline_turn(input: &AgentTurnInput) -> AgentTurnOutput {
         let (rec, _) = execute_tool_call("deduplicate_draft", &json!({}), &input.workspace, &mut state);
         reply = rec.summary.clone();
         tool_calls.push(rec);
+    } else if lower.contains("story") && lower.contains("outline") {
+        let (rec, val) = execute_tool_call("draft_story_outline", &json!({}), &input.workspace, &mut state);
+        reply = val["markdown"].as_str().unwrap_or(&rec.summary).to_owned();
+        tool_calls.push(rec);
     } else if lower.contains("atlas") {
         let (rec, _) = execute_tool_call("atlas_workspace_status", &json!({}), &input.workspace, &mut state);
         reply = format!("Atlas status: {}. Ready to mount local `.atlas` archives via `earthly-spatial`.", rec.summary);
@@ -782,7 +825,7 @@ pub fn execute_local_offline_turn(input: &AgentTurnInput) -> AgentTurnOutput {
     } else {
         let (rec, _) = execute_tool_call("inspect_workspace", &json!({}), &input.workspace, &mut state);
         reply = format!(
-            "Offline Rust spatial mode active ({}).\nTry commands like:\n• \"Measure my draft\"\n• \"Create a 150m corridor\"\n• \"Extrude a flow arrow\"\n• \"Offset +100m\"\n• \"Union polygons\"\n• \"Add callout: North trailhead open\"\n• \"Drop pin here\"\nOr configure an OpenAI / OpenRouter / local Ollama endpoint above for full LLM reasoning!",
+            "Offline Rust spatial mode active ({}).\nTry commands like:\n• \"Measure my draft\"\n• \"Create a 150m corridor\"\n• \"Extrude a flow arrow\"\n• \"Offset +100m\"\n• \"Union polygons\"\n• \"Add callout: North trailhead open\"\n• \"Drop pin here\"\n• \"Draft story outline\"\nOr configure an OpenAI / OpenRouter / local Ollama endpoint above for full LLM reasoning!",
             rec.summary
         );
         tool_calls.push(rec);
@@ -798,6 +841,27 @@ pub fn execute_local_offline_turn(input: &AgentTurnInput) -> AgentTurnOutput {
         camera_action: state.camera_action,
         tool_calls,
         used_offline_mode: true,
+        prompt_tokens: None,
+        completion_tokens: None,
+        total_tokens: None,
+    }
+}
+
+fn first_feature_coord(feature: &Value) -> Option<[f64; 2]> {
+    let geom = feature.get("geometry")?;
+    let gtype = geom.get("type")?.as_str()?;
+    let coords = geom.get("coordinates")?;
+    match gtype {
+        "Point" => Some([coords.get(0)?.as_f64()?, coords.get(1)?.as_f64()?]),
+        "LineString" => {
+            let p = coords.as_array()?.first()?;
+            Some([p.get(0)?.as_f64()?, p.get(1)?.as_f64()?])
+        }
+        "Polygon" => {
+            let p = coords.as_array()?.first()?.as_array()?.first()?;
+            Some([p.get(0)?.as_f64()?, p.get(1)?.as_f64()?])
+        }
+        _ => None,
     }
 }
 
@@ -1015,8 +1079,36 @@ mod tests {
             "query_osm_bbox",
             "valhalla_route",
             "valhalla_isochrone",
+            "lookup_admin_boundary",
+            "draft_story_outline",
         ] {
             assert!(names.iter().any(|n| n == expected), "missing tool {expected}");
         }
+
+        let story_out = execute_local_offline_turn(&AgentTurnInput {
+            prompt: "Draft story outline".to_owned(),
+            history: vec![],
+            workspace: AgentWorkspaceContext {
+                center_lon: 16.375,
+                center_lat: 48.208,
+                zoom: 14.0,
+                draft_title: "Danube Field Log".to_owned(),
+                draft_geojson: json!({
+                    "type": "FeatureCollection",
+                    "features": [{
+                        "type": "Feature",
+                        "id": "p1",
+                        "geometry": { "type": "Point", "coordinates": [16.375, 48.208] },
+                        "properties": { "name": "Danube Overlook" }
+                    }]
+                })
+                .to_string(),
+                shelf_map_titles: vec![],
+                atlas_workspaces: vec![],
+            },
+        });
+        assert_eq!(story_out.tool_calls[0].name, "draft_story_outline");
+        assert!(story_out.reply.contains("```earthly-view"));
+        assert!(story_out.reply.contains("Danube Overlook"));
     }
 }

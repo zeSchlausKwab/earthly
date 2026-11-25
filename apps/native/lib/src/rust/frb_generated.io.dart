@@ -8,6 +8,7 @@ import 'api/blossom.dart';
 import 'api/geo.dart';
 import 'api/nip46.dart';
 import 'api/nostr_client.dart';
+import 'api/nwc.dart';
 import 'api/private_groups.dart';
 import 'api/publish.dart';
 import 'api/settings.dart';
@@ -354,6 +355,15 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   Nip46ConnectionDto dco_decode_nip_46_connection_dto(dynamic raw);
+
+  @protected
+  NwcConnectionInfoDto dco_decode_nwc_connection_info_dto(dynamic raw);
+
+  @protected
+  NwcPaymentResultDto dco_decode_nwc_payment_result_dto(dynamic raw);
+
+  @protected
+  NwcWalletStatusDto dco_decode_nwc_wallet_status_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -950,6 +960,21 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   Nip46ConnectionDto sse_decode_nip_46_connection_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NwcConnectionInfoDto sse_decode_nwc_connection_info_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NwcPaymentResultDto sse_decode_nwc_payment_result_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NwcWalletStatusDto sse_decode_nwc_wallet_status_dto(
     SseDeserializer deserializer,
   );
 
@@ -1716,6 +1741,24 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_nip_46_connection_dto(
     Nip46ConnectionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_nwc_connection_info_dto(
+    NwcConnectionInfoDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_nwc_payment_result_dto(
+    NwcPaymentResultDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_nwc_wallet_status_dto(
+    NwcWalletStatusDto self,
     SseSerializer serializer,
   );
 

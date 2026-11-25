@@ -41,6 +41,7 @@ import 'package:earthly_native/src/rust/api/agent.dart';
 import 'package:earthly_native/src/rust/api/blossom.dart';
 import 'package:earthly_native/src/rust/api/geo.dart';
 import 'package:earthly_native/src/rust/api/nostr_client.dart';
+import 'package:earthly_native/src/rust/api/nwc.dart';
 import 'package:earthly_native/src/rust/api/private_groups.dart';
 import 'package:earthly_native/src/rust/api/publish.dart';
 import 'package:earthly_native/src/rust/api/settings.dart';
@@ -1253,11 +1254,11 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
       ),
     );
     await tester.scrollUntilVisible(
-      find.text('Import GeoJSON / GPX / KML / SHP'),
+      find.text('Import GeoJSON / GPX / KML / SHP / CSV'),
       140,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('Import GeoJSON / GPX / KML / SHP'), findsOneWidget);
+    expect(find.text('Import GeoJSON / GPX / KML / SHP / CSV'), findsOneWidget);
     expect(find.text('Export ▾'), findsOneWidget);
     expect(exportedGpx, isFalse);
     expect(exportedKml, isFalse);
@@ -4172,5 +4173,397 @@ Start at geo:48.2764,16.3338 and check $naddr
     await tester.pumpAndSettle();
 
     expect(find.textContaining('nostr:npub1testalice'), findsOneWidget);
+  });
+
+  testWidgets(
+      'AccountSessionSheet connects NWC wallet & ZapDialog pays invoice 1-tap via NWC',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    String? connectedUri;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (ctx, setModalState) => Stack(
+              children: [
+                AccountSessionSheet(
+                  account: null,
+                  localNsec: null,
+                  profile: null,
+                  activeSessionSummary: null,
+                  nwcUri: connectedUri,
+                  onNwcUriChanged: (u) => setModalState(() => connectedUri = u),
+                  onCheckNwcStatus: (uri) async => NwcWalletStatusDto(
+                    servicePubkey: 'svc',
+                    relays: const ['wss://relay.earthly.city'],
+                    lud16: null,
+                    methods: const ['pay_invoice', 'get_balance'],
+                    balanceSats: BigInt.from(4200),
+                    canPay: true,
+                  ),
+                  onAccountChanged: (_) {},
+                  onLocalKeyChanged: (_) {},
+                  onSaveProfile: (_) async => const PublishOutcomeDto(
+                    eventId: 'ev0',
+                    outboxState: 'sent',
+                    relays: [],
+                  ),
+                  onOpenSpaces: () {},
+                  onClose: () {},
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final nwcInput = find.byKey(const Key('nwc-uri-input'));
+    await tester.scrollUntilVisible(
+      nwcInput,
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(
+      nwcInput,
+      'nostr+walletconnect://svc?relay=wss://relay.earthly.city&secret=sec',
+    );
+    await tester.tap(find.byKey(const Key('nwc-connect-btn')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('NWC Connected'), findsOneWidget);
+    expect(find.text('4200 sats'), findsOneWidget);
+
+    String? paidBolt11;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (ctx) => Center(
+              child: FilledButton(
+                key: const Key('open-nwc-zap-test'),
+                onPressed: () => showEarthlyZapDialog(
+                  ctx,
+                  recipientName: 'Bob',
+                  recipientPubkey: 'bobpk',
+                  recipientLud16: 'bob@earthly.city',
+                  targetTitle: 'Trail Atlas',
+                  targetAddress: '37518:bobpk:atlas',
+                  hasNwcWallet: true,
+                  onPayWithNwc: (bolt11) async {
+                    paidBolt11 = bolt11;
+                    return const NwcPaymentResultDto(
+                      preimage: 'deadbeef1234567890',
+                      feesPaidMsats: null,
+                    );
+                  },
+                  onGenerateInvoice: ({required amountSats, required comment}) async =>
+                      ZapInvoiceDto(
+                    pr: 'lnbc2100n1ptestnwc',
+                    verifyUrl: null,
+                    callback: 'https://earthly.city/lnurlp/bob',
+                    minSats: BigInt.from(1),
+                    maxSats: BigInt.from(100000),
+                    allowsNostr: true,
+                    amountSats: BigInt.from(amountSats),
+                  ),
+                ),
+                child: const Text('Zap'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('open-nwc-zap-test')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('zap-generate-btn')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('zap-pay-nwc-btn')));
+    await tester.pumpAndSettle();
+
+    expect(paidBolt11, 'lnbc2100n1ptestnwc');
+    expect(find.byKey(const Key('zap-nwc-paid-badge')), findsOneWidget);
+  });
+
+  testWidgets(
+      'AgentDrawer switches multi-threads, creates new thread, and shows token usage badge',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    var createdThread = false;
+    String? selectedThread;
+
+    final threads = [
+      const CopilotThread(
+        id: 't1',
+        title: 'Danube Survey',
+        updatedAtMs: 1000,
+        messages: [
+          CopilotMessage(
+            role: 'assistant',
+            content: 'Measured 2.4 km.',
+            promptTokens: 120,
+            completionTokens: 45,
+            totalTokens: 165,
+          ),
+        ],
+      ),
+      const CopilotThread(
+        id: 't2',
+        title: 'Alps Huts',
+        updatedAtMs: 900,
+        messages: [],
+      ),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AgentDrawer(
+                messages: threads.first.messages,
+                threads: threads,
+                activeThreadId: 't1',
+                onCreateThread: () => createdThread = true,
+                onSelectThread: (id) => selectedThread = id,
+                onDeleteThread: (_) {},
+                settings: CopilotProviderSettings.offline,
+                busy: false,
+                onSettingsChanged: (_) {},
+                onSendPrompt: (_) {},
+                onClearChat: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('agent-tokens-badge')), findsOneWidget);
+    expect(find.textContaining('165 tok'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('agent-new-thread-btn')));
+    await tester.pump();
+    expect(createdThread, isTrue);
+
+    await tester.ensureVisible(find.byKey(const Key('agent-thread-t2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('agent-thread-t2')));
+    await tester.pump();
+    expect(selectedThread, 't2');
+  });
+
+  testWidgets(
+      'DeskSheet exposes Shapefile .zip export action in Export menu',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    var exportedShp = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DeskSheet(
+                activeDraftId: 'd-shp',
+                savedDrafts: const [],
+                relayUrls: const ['wss://relay.earthly.city'],
+                draftTitle: 'Shapefile Test',
+                audience: DraftAudienceChoice.publicRelay,
+                account: null,
+                shelfMaps: const [],
+                deskStories: const [],
+                deskAtlases: const [],
+                drawnFeatures: const [
+                  DrawnFeature(
+                    id: 'p1',
+                    kind: DrawToolMode.point,
+                    name: 'Hub',
+                    vertices: [Geographic(lon: 16.37, lat: 48.20)],
+                  ),
+                ],
+                onSelectDraft: (_) {},
+                onCreateNewDraft: () {},
+                onDeleteDraft: (_) {},
+                onDraftTitleChanged: (_) {},
+                onAudienceChanged: (_) {},
+                onToggleShelfVisibility: (_) {},
+                onRemoveShelfMap: (_) {},
+                onInspectShelfMap: (_) {},
+                onFlyToShelfMap: (_) {},
+                onCloneShelfMapToDraft: (_) {},
+                onOpenShelfDiscussion: (_) {},
+                onOpenDeskStory: (_) {},
+                onRemoveDeskStory: (_) {},
+                onOpenDeskAtlas: (_) {},
+                onRemoveDeskAtlas: (_) {},
+                onRunGeoAction: (_) {},
+                onPublishDraft: (_, _) async => const PublishOutcomeDto(
+                  eventId: '0123456789abcdef',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onComposeStory: () {},
+                onCreateAtlas: () {},
+                onImportGeoJson: () {},
+                onExportGeoJsonFile: () {},
+                onExportShapefileZip: () => exportedShp = true,
+                onCopyGeoJson: () {},
+                onClearDraftFeatures: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final exportBtn = find.text('Export ▾');
+    await tester.ensureVisible(exportBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(exportBtn);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('desk-export-shapefile-zip')));
+    await tester.pumpAndSettle();
+    expect(exportedShp, isTrue);
+  });
+
+  testWidgets(
+      'DiscussionMarginSheet toggles all Map-pinned comment geometries simultaneously',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    List<GeoCommentDto>? toggledAll;
+    final snap = EntityDiscussionSnapshot(
+      rootAddress: '37515:alice:map1',
+      comments: [
+        GeoCommentDto(
+          eventId: 'c1',
+          pubkey: 'bob',
+          address: '37517:bob:c1',
+          dTag: 'c1',
+          text: 'Bridge pin',
+          geojson: '{"type":"FeatureCollection","features":[]}',
+          createdAt: BigInt.zero,
+        ),
+        GeoCommentDto(
+          eventId: 'c2',
+          pubkey: 'carol',
+          address: '37517:carol:c2',
+          dTag: 'c2',
+          text: 'Fountain pin',
+          geojson: '{"type":"FeatureCollection","features":[]}',
+          createdAt: BigInt.zero,
+        ),
+      ],
+      proposals: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DiscussionMarginSheet(
+                target: const DiscussionTarget(
+                  address: '37515:alice:map1',
+                  kind: 37515,
+                  pubkey: 'alice',
+                  title: 'Test Map',
+                ),
+                relayUrls: const ['wss://relay.earthly.city'],
+                hasDraftGeometry: false,
+                activeCommentGeojsonId: null,
+                activeProposalId: null,
+                profilesByPubkey: const {},
+                currentUserPubkey: null,
+                initialSnapshot: snap,
+                onToggleAllCommentPins: (list) => toggledAll = list,
+                onToggleCommentOverlay: (_) {},
+                onToggleProposalOverlay: (_) {},
+                onPostComment: (_, _, {replyTo}) async =>
+                    const PublishOutcomeDto(
+                  eventId: 'ev1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onSubmitProposal: (_) async => const PublishOutcomeDto(
+                  eventId: 'pr1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onLoadProposalToDraft: (_) {},
+                onApplyProposal: (_) async => const PublishOutcomeDto(
+                  eventId: 'ap1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onCloseProposal: (_) async => const PublishOutcomeDto(
+                  eventId: 'cl1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('discussion-toggle-all-pins-btn')));
+    await tester.pump();
+    expect(toggledAll?.length, 2);
+  });
+
+  testWidgets(
+      'HelpShortcutsSheet launches 5-step GuidedTourDialog and steps through to Finish',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              HelpShortcutsSheet(onClose: () {}),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('help-start-tour-btn')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('STEP 1 OF 5'), findsOneWidget);
+    for (var step = 2; step <= 5; step++) {
+      await tester.tap(find.byKey(const Key('tour-next-btn')));
+      await tester.pumpAndSettle();
+      expect(find.text('STEP $step OF 5'), findsOneWidget);
+    }
+
+    await tester.tap(find.byKey(const Key('tour-finish-btn')));
+    await tester.pumpAndSettle();
+    expect(find.text('STEP 5 OF 5'), findsNothing);
   });
 }

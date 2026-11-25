@@ -1437,6 +1437,7 @@ pub fn import_spatial_text_to_geojson(
     let detected = match ext.as_deref() {
         Some("gpx") => "gpx",
         Some("kml") => "kml",
+        Some("csv" | "tsv") => "csv",
         Some("geojson" | "json") => "geojson",
         _ => {
             let head = &trimmed[..trimmed.len().min(256)].to_ascii_lowercase();
@@ -1444,6 +1445,10 @@ pub fn import_spatial_text_to_geojson(
                 "gpx"
             } else if head.contains("<kml") {
                 "kml"
+            } else if !(trimmed.starts_with('{') || trimmed.starts_with('['))
+                && (head.contains("lat") && (head.contains("lon") || head.contains("lng")))
+            {
+                "csv"
             } else {
                 "geojson"
             }
@@ -1453,6 +1458,7 @@ pub fn import_spatial_text_to_geojson(
     match detected {
         "gpx" => parse_gpx_to_geojson(trimmed),
         "kml" => parse_kml_to_geojson(trimmed),
+        "csv" => parse_csv_to_geojson(filename, trimmed),
         _ => {
             let parsed: Value = serde_json::from_str(trimmed)
                 .map_err(|err| GeoError::InvalidGeoJson(err.to_string()))?;
@@ -1587,4 +1593,168 @@ mod tests {
         assert!(parse_kml_to_geojson(bad).is_err());
         assert!(parse_gpx_to_geojson(bad).is_err());
     }
+
+    #[test]
+    fn csv_table_imports_points_and_attributes() {
+        let csv = "name,latitude,longitude,elevation\n\"Base Camp, North\",48.2082,16.3738,171\nBadRow,999,16.3,10\nDanube Pier,48.2160,16.3959,162\n";
+        let res = import_spatial_text_to_geojson(Some("camps.csv"), csv).unwrap();
+        assert_eq!(res.format, "csv");
+        assert_eq!(res.title, "camps");
+        assert_eq!(res.feature_count, 2);
+        assert_eq!(res.warnings.len(), 1);
+        let feats = res.geojson["features"].as_array().unwrap();
+        assert_eq!(feats[0]["properties"]["name"], "Base Camp, North");
+        assert_eq!(feats[0]["geometry"]["coordinates"], json!([16.3738, 48.2082]));
+    }
+}
+
+fn split_delimited_line(line: &str, delim: char) -> Vec<String> {
+    let mut cells = Vec::new();
+    let mut cur = String::new();
+    let mut in_quotes = false;
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            if in_quotes && chars.peek() == Some(&'"') {
+                cur.push('"');
+                chars.next();
+            } else {
+                in_quotes = !in_quotes;
+            }
+        } else if ch == delim && !in_quotes {
+            cells.push(cur.trim().to_owned());
+            cur.clear();
+        } else {
+            cur.push(ch);
+        }
+    }
+    cells.push(cur.trim().to_owned());
+    cells
+}
+
+/// Parses CSV or TSV tabular points with WGS-84 latitude/longitude columns
+/// into a validated Earthly GeoJSON `FeatureCollection`.
+pub fn parse_csv_to_geojson(
+    filename: Option<&str>,
+    text: &str,
+) -> Result<SpatialImportResult, GeoError> {
+    let trimmed = text.trim_start_matches('\u{feff}').trim();
+    if trimmed.len() > MAX_XML_BYTES {
+        return Err(GeoError::InvalidParameter(
+            "CSV file exceeds 10 MiB limit".to_owned(),
+        ));
+    }
+    let mut lines = trimmed.lines().filter(|l| !l.trim().is_empty());
+    let Some(header_line) = lines.next() else {
+        return Err(GeoError::InvalidParameter("CSV file is empty".to_owned()));
+    };
+
+    let delim = if header_line.matches('\t').count() > header_line.matches(',').count() {
+        '\t'
+    } else if header_line.matches(';').count() > header_line.matches(',').count() {
+        ';'
+    } else {
+        ','
+    };
+
+    let headers = split_delimited_line(header_line, delim);
+    if headers.len() < 2 {
+        return Err(GeoError::InvalidParameter(
+            "CSV header must contain at least latitude and longitude columns".to_owned(),
+        ));
+    }
+
+    let lat_col = headers.iter().position(|h| {
+        matches!(
+            h.trim().to_ascii_lowercase().as_str(),
+            "lat" | "latitude" | "y" | "lat_deg" | "wgs84_lat"
+        )
+    });
+    let lon_col = headers.iter().position(|h| {
+        matches!(
+            h.trim().to_ascii_lowercase().as_str(),
+            "lon" | "lng" | "long" | "longitude" | "x" | "lon_deg" | "wgs84_lon"
+        )
+    });
+    let (Some(lat_idx), Some(lon_idx)) = (lat_col, lon_col) else {
+        return Err(GeoError::InvalidParameter(
+            "CSV missing lat/latitude and lon/lng/longitude columns".to_owned(),
+        ));
+    };
+
+    let mut features = Vec::new();
+    let mut skipped_rows = 0usize;
+    for line in lines {
+        if features.len() >= MAX_FEATURES {
+            break;
+        }
+        let cells = split_delimited_line(line, delim);
+        let lat = cells.get(lat_idx).and_then(|s| s.parse::<f64>().ok());
+        let lon = cells.get(lon_idx).and_then(|s| s.parse::<f64>().ok());
+        let (Some(lon), Some(lat)) = (lon, lat) else {
+            skipped_rows += 1;
+            continue;
+        };
+        if parse_valid_lon_lat(lon, lat).is_err() {
+            skipped_rows += 1;
+            continue;
+        }
+
+        let mut props = Map::new();
+        for (i, hdr) in headers.iter().enumerate() {
+            if i == lat_idx || i == lon_idx {
+                continue;
+            }
+            let Some(val) = cells.get(i).map(String::as_str).filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            props.insert(hdr.clone(), Value::String(val.to_owned()));
+            if !props.contains_key("name")
+                && matches!(
+                    hdr.trim().to_ascii_lowercase().as_str(),
+                    "name" | "title" | "label"
+                )
+            {
+                props.insert("name".to_owned(), Value::String(val.to_owned()));
+            }
+        }
+
+        features.push(json!({
+            "type": "Feature",
+            "id": format!("csv-{}", features.len() + 1),
+            "geometry": { "type": "Point", "coordinates": [lon, lat] },
+            "properties": Value::Object(props),
+        }));
+    }
+
+    if features.is_empty() {
+        return Err(GeoError::InvalidParameter(
+            "No valid WGS-84 coordinate rows found in CSV".to_owned(),
+        ));
+    }
+
+    let mut warnings = Vec::new();
+    if skipped_rows > 0 {
+        warnings.push(format!(
+            "Skipped {skipped_rows} CSV row(s) with missing or out-of-range coordinates."
+        ));
+    }
+    let title = filename
+        .map(|f| f.rsplit_once('.').map(|(s, _)| s).unwrap_or(f).to_owned())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "Imported CSV".to_owned());
+
+    let fc = json!({
+        "type": "FeatureCollection",
+        "name": title,
+        "features": features,
+    });
+    let summary = validate_feature_collection(&fc)?;
+    Ok(SpatialImportResult {
+        format: "csv".to_owned(),
+        title,
+        geojson: fc,
+        feature_count: summary.feature_count,
+        warnings,
+    })
 }

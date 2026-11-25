@@ -50,6 +50,7 @@ import 'src/rust/api/blossom.dart';
 import 'src/rust/api/geo.dart';
 import 'src/rust/api/nip46.dart';
 import 'src/rust/api/nostr_client.dart';
+import 'src/rust/api/nwc.dart';
 import 'src/rust/api/private_groups.dart';
 import 'src/rust/api/publish.dart';
 import 'src/rust/api/settings.dart';
@@ -257,7 +258,74 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   bool _initialLocalBaselineCaptured = false;
 
   // Rust AI Agent Copilot + safeEditing Amber Ghost state
-  final List<CopilotMessage> _agentMessages = <CopilotMessage>[];
+  String? _nwcUri;
+  final List<CopilotThread> _agentThreads = <CopilotThread>[
+    CopilotThread(
+      id: 'thread-1',
+      title: 'Thread 1',
+      updatedAtMs: 0,
+    ),
+  ];
+  String _activeAgentThreadId = 'thread-1';
+  CopilotThread get _activeAgentThread {
+    if (_agentThreads.isEmpty) {
+      final fallback = CopilotThread(
+        id: 'thread-1',
+        title: 'Thread 1',
+        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      _agentThreads.add(fallback);
+      _activeAgentThreadId = fallback.id;
+      return fallback;
+    }
+    final idx = _agentThreads.indexWhere((t) => t.id == _activeAgentThreadId);
+    return idx >= 0 ? _agentThreads[idx] : _agentThreads.first;
+  }
+
+  List<CopilotMessage> get _agentMessages => _activeAgentThread.messages;
+
+  void _updateActiveAgentThread(
+    CopilotThread Function(CopilotThread cur) updater,
+  ) {
+    final cur = _activeAgentThread;
+    final idx = _agentThreads.indexWhere((t) => t.id == cur.id);
+    if (idx >= 0) {
+      _agentThreads[idx] = updater(cur);
+    }
+  }
+
+  void _createNewAgentThread() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final nextId = 'thread-$now';
+    setState(() {
+      _agentThreads.insert(
+        0,
+        CopilotThread(
+          id: nextId,
+          title: 'Thread ${_agentThreads.length + 1}',
+          updatedAtMs: now,
+        ),
+      );
+      _activeAgentThreadId = nextId;
+    });
+    unawaited(_persistAppSettings());
+  }
+
+  void _selectAgentThread(String id) {
+    setState(() => _activeAgentThreadId = id);
+  }
+
+  void _deleteAgentThread(String id) {
+    if (_agentThreads.length <= 1) return;
+    setState(() {
+      _agentThreads.removeWhere((t) => t.id == id);
+      if (_activeAgentThreadId == id && _agentThreads.isNotEmpty) {
+        _activeAgentThreadId = _agentThreads.first.id;
+      }
+    });
+    unawaited(_persistAppSettings());
+  }
+
   CopilotProviderSettings _agentSettings = CopilotProviderSettings.offline;
   bool _agentBusy = false;
   bool _agentSafeEditing = true;
@@ -272,6 +340,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   // Discussion (Comment 37517 & Proposal 37519) map overlays
   String? _activeCommentOverlayId;
+  bool _showingAllCommentPins = false;
   List<ShelfShape> _commentOverlayShapes = const [];
   String? _activeProposalOverlayId;
   String? _activeProposalLabel;
@@ -495,23 +564,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             }
           } catch (_) {}
         }
+        _nwcUri = loaded.nwcUri?.trim().isEmpty ?? true ? null : loaded.nwcUri!.trim();
         if (loaded.agentMessagesJson != null &&
             loaded.agentMessagesJson!.trim().isNotEmpty) {
           try {
-            final parsedMsgs = jsonDecode(loaded.agentMessagesJson!);
-            if (parsedMsgs is List) {
-              _agentMessages
+            final restoredThreads = CopilotThread.decodePersistedJson(
+              loaded.agentMessagesJson!,
+            );
+            if (restoredThreads.isNotEmpty) {
+              _agentThreads
                 ..clear()
-                ..addAll(
-                  parsedMsgs
-                      .whereType<Map>()
-                      .map(
-                        (e) => CopilotMessage.fromJson(
-                          Map<String, dynamic>.from(e),
-                        ),
-                      )
-                      .whereType<CopilotMessage>(),
-                );
+                ..addAll(restoredThreads);
+              _activeAgentThreadId = restoredThreads.first.id;
             }
           } catch (_) {}
         }
@@ -685,18 +749,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           storyDraftJson: _savedStoryDraft != null
               ? jsonEncode(_savedStoryDraft)
               : null,
-          agentMessagesJson: _agentMessages.isEmpty
+          agentMessagesJson: _agentThreads.every((t) => t.messages.isEmpty)
               ? null
-              : jsonEncode(
-                  _agentMessages
-                      .skip(
-                        _agentMessages.length > 40
-                            ? _agentMessages.length - 40
-                            : 0,
-                      )
-                      .map((m) => m.toJson())
-                      .toList(growable: false),
-                ),
+              : jsonEncode({
+                  'threads': [
+                    for (final t in _agentThreads.take(12)) t.toJson(),
+                  ],
+                }),
+          nwcUri: _nwcUri,
         ),
       );
     } catch (_) {}
@@ -1162,6 +1222,41 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   }
 
   Future<void> _exportGeoJsonFile() => _exportSpatialFile('geojson');
+
+  Future<void> _exportShapefileZip() async {
+    if (_features.isEmpty) return;
+    try {
+      await RustBridge.ensureInitialized();
+      final geojson = draftFeaturesToGeoJson(
+        title: _draftTitle,
+        features: _features,
+      );
+      final safeName = _draftTitle
+          .trim()
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+          .replaceAll(RegExp(r'^-|-$'), '');
+      final stem = safeName.isEmpty ? 'earthly-map' : safeName;
+      final zipBytes = await geoExportShapefileZip(
+        geojson: geojson,
+        title: _draftTitle,
+      );
+      final savedName = await DeviceBridge.saveBinaryFile(
+        filename: '$stem-shapefile.zip',
+        bytes: Uint8List.fromList(zipBytes),
+        mimeType: 'application/zip',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exported Shapefile bundle "$savedName"')),
+      );
+    } catch (err) {
+      if (!mounted || err.toString().contains('cancelled')) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Shapefile export failed: $err')),
+      );
+    }
+  }
 
   void _copyGeoJsonToClipboard() {
     if (_features.isEmpty) return;
@@ -2037,6 +2132,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       targetTitle: targetTitle,
       targetAddress: targetAddress,
       targetEventId: targetEventId,
+      hasNwcWallet: _nwcUri != null && _nwcUri!.isNotEmpty,
+      onPayWithNwc: (_nwcUri != null && _nwcUri!.isNotEmpty)
+          ? (bolt11) async {
+              await RustBridge.ensureInitialized();
+              return payInvoiceViaNwc(nwcUri: _nwcUri!, bolt11: bolt11);
+            }
+          : null,
       onGenerateInvoice: ({required amountSats, required comment}) async {
         final targetLud16 = lud16?.trim() ?? '';
         if (targetLud16.isEmpty) {
@@ -2694,7 +2796,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   Future<void> _sendAgentPrompt(String prompt) async {
     setState(() {
-      _agentMessages.add(CopilotMessage(role: 'user', content: prompt));
+      final now = DateTime.now().millisecondsSinceEpoch;
+      _updateActiveAgentThread((t) {
+        final nextTitle = t.messages.isEmpty
+            ? (prompt.length > 26 ? '${prompt.substring(0, 26)}…' : prompt)
+            : t.title;
+        return t.copyWith(
+          title: nextTitle,
+          updatedAtMs: now,
+          messages: [
+            ...t.messages,
+            CopilotMessage(role: 'user', content: prompt),
+          ],
+        );
+      });
       _agentBusy = true;
     });
     try {
@@ -2730,11 +2845,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       if (!mounted) return;
       final proposed = result.updatedDraftGeojson;
       setState(() {
-        _agentMessages.add(
-          CopilotMessage(
-            role: 'assistant',
-            content: result.reply,
-            toolCalls: result.toolCalls,
+        final now = DateTime.now().millisecondsSinceEpoch;
+        _updateActiveAgentThread(
+          (t) => t.copyWith(
+            updatedAtMs: now,
+            messages: [
+              ...t.messages,
+              CopilotMessage(
+                role: 'assistant',
+                content: result.reply,
+                toolCalls: result.toolCalls,
+                promptTokens: result.promptTokens,
+                completionTokens: result.completionTokens,
+                totalTokens: result.totalTokens,
+              ),
+            ],
           ),
         );
       });
@@ -2761,11 +2886,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     } catch (err) {
       if (!mounted) return;
       setState(() {
-        _agentMessages.add(
-          CopilotMessage(
-            role: 'assistant',
-            content: err.toString(),
-            isError: true,
+        final now = DateTime.now().millisecondsSinceEpoch;
+        _updateActiveAgentThread(
+          (t) => t.copyWith(
+            updatedAtMs: now,
+            messages: [
+              ...t.messages,
+              CopilotMessage(
+                role: 'assistant',
+                content: err.toString(),
+                isError: true,
+              ),
+            ],
           ),
         );
       });
@@ -6180,6 +6312,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onExportGeoJsonFile: () => unawaited(_exportGeoJsonFile()),
           onExportGpxFile: () => unawaited(_exportSpatialFile('gpx')),
           onExportKmlFile: () => unawaited(_exportSpatialFile('kml')),
+          onExportShapefileZip: () => unawaited(_exportShapefileZip()),
           onExportPosterPng: () => unawaited(_exportMapPosterPng()),
           onCopyGeoJson: _copyGeoJsonToClipboard,
           onPasteGeoJsonFromClipboard: () =>
@@ -6456,6 +6589,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               ),
             );
           },
+          nwcUri: _nwcUri,
+          onNwcUriChanged: (uri) {
+            setState(() => _nwcUri = uri);
+            unawaited(_persistAppSettings());
+          },
           onSaveProfile: _publishProfile,
           onOpenSpaces: () => _openDrawer(_ActiveDrawer.spaces),
           onClose: () => _closeDrawer(target),
@@ -6485,6 +6623,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       case _ActiveDrawer.agent:
         return AgentDrawer(
           messages: _agentMessages,
+          threads: _agentThreads,
+          activeThreadId: _activeAgentThread.id,
+          onCreateThread: _createNewAgentThread,
+          onSelectThread: _selectAgentThread,
+          onDeleteThread: _deleteAgentThread,
           settings: _agentSettings,
           busy: _agentBusy,
           safeEditing: _agentSafeEditing,
@@ -6506,7 +6649,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           },
           onSendPrompt: (p) => unawaited(_sendAgentPrompt(p)),
           onClearChat: () {
-            setState(() => _agentMessages.clear());
+            setState(
+              () => _updateActiveAgentThread((t) => t.copyWith(messages: const [])),
+            );
             unawaited(_persistAppSettings());
           },
           onClose: () => _closeDrawer(target),
@@ -6908,11 +7053,36 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           hasDraftGeometry: _features.isNotEmpty,
           activeCommentGeojsonId: _activeCommentOverlayId,
           activeProposalId: _activeProposalOverlayId,
+          showingAllCommentPins: _showingAllCommentPins,
+          onToggleAllCommentPins: (geoComments) {
+            if (_showingAllCommentPins) {
+              setState(() {
+                _showingAllCommentPins = false;
+                _activeCommentOverlayId = null;
+                _commentOverlayShapes = const [];
+              });
+              return;
+            }
+            final mergedShapes = <ShelfShape>[
+              for (final c in geoComments)
+                if (c.geojson != null && c.geojson!.isNotEmpty)
+                  ...parseGeoJsonShapes(
+                    c.geojson!,
+                    datasetTitle: 'Comment',
+                  ),
+            ];
+            setState(() {
+              _showingAllCommentPins = true;
+              _activeCommentOverlayId = 'all-comment-pins';
+              _commentOverlayShapes = mergedShapes;
+            });
+          },
           profilesByPubkey: _profilesByPubkey,
           currentUserPubkey: _account?.pubkey,
           onToggleCommentOverlay: (comment) {
             if (_activeCommentOverlayId == comment.eventId) {
               setState(() {
+                _showingAllCommentPins = false;
                 _activeCommentOverlayId = null;
                 _commentOverlayShapes = const [];
               });
@@ -6922,6 +7092,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 ? parseGeoJsonShapes(comment.geojson!, datasetTitle: 'Comment')
                 : const <ShelfShape>[];
             setState(() {
+              _showingAllCommentPins = false;
               _activeCommentOverlayId = comment.eventId;
               _commentOverlayShapes = shapes;
             });

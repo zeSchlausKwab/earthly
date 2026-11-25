@@ -14,7 +14,7 @@ use thiserror::Error;
 
 pub use formats::{
     SpatialImportResult, geojson_to_gpx, geojson_to_kml, import_spatial_text_to_geojson,
-    parse_gpx_to_geojson, parse_kml_to_geojson,
+    parse_csv_to_geojson, parse_gpx_to_geojson, parse_kml_to_geojson,
 };
 
 pub use measure::{
@@ -28,7 +28,7 @@ pub use ops::{
     split_polygon_by_line, union_polygons,
 };
 pub use projection::LocalProjection;
-pub use shapefile::parse_shapefile_bytes;
+pub use shapefile::{export_geojson_to_shapefile_zip, parse_shapefile_bytes};
 pub use validate::{ValidationSummary, validate_feature_collection};
 
 #[derive(Clone, Debug, PartialEq, Error)]

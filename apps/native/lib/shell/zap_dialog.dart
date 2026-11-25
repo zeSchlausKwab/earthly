@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../runtime/device_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
+import '../src/rust/api/nwc.dart';
 import '../theme/earthly_theme.dart';
 import 'qr_code_view.dart';
 
@@ -15,6 +16,8 @@ Future<void> showEarthlyZapDialog(
   required String targetTitle,
   required String targetAddress,
   String? targetEventId,
+  bool hasNwcWallet = false,
+  Future<NwcPaymentResultDto> Function(String bolt11)? onPayWithNwc,
   required Future<ZapInvoiceDto> Function({
     required int amountSats,
     required String comment,
@@ -29,6 +32,8 @@ Future<void> showEarthlyZapDialog(
       targetTitle: targetTitle,
       targetAddress: targetAddress,
       targetEventId: targetEventId,
+      hasNwcWallet: hasNwcWallet,
+      onPayWithNwc: onPayWithNwc,
       onGenerateInvoice: onGenerateInvoice,
     ),
   );
@@ -42,6 +47,8 @@ class _EarthlyZapDialog extends StatefulWidget {
     required this.targetTitle,
     required this.targetAddress,
     this.targetEventId,
+    this.hasNwcWallet = false,
+    this.onPayWithNwc,
     required this.onGenerateInvoice,
   });
 
@@ -51,6 +58,8 @@ class _EarthlyZapDialog extends StatefulWidget {
   final String targetTitle;
   final String targetAddress;
   final String? targetEventId;
+  final bool hasNwcWallet;
+  final Future<NwcPaymentResultDto> Function(String bolt11)? onPayWithNwc;
   final Future<ZapInvoiceDto> Function({
     required int amountSats,
     required String comment,
@@ -67,8 +76,10 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
   final _customAmountController = TextEditingController();
   final _commentController = TextEditingController();
   bool _loading = false;
+  bool _payingNwc = false;
   String? _error;
   ZapInvoiceDto? _invoice;
+  NwcPaymentResultDto? _nwcPaidResult;
 
   @override
   void dispose() {
@@ -264,32 +275,94 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    OutlinedButton.icon(
-                      key: const Key('zap-copy-invoice-btn'),
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: _invoice!.pr));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Copied BOLT-11 Lightning invoice'),
+                if (_nwcPaidResult != null)
+                  Container(
+                    key: const Key('zap-nwc-paid-badge'),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: EarthlyColors.commentGreen.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: EarthlyColors.commentGreen.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    child: Text(
+                      'Paid via NWC ✓ (${_nwcPaidResult!.preimage.substring(0, _nwcPaidResult!.preimage.length.clamp(0, 12))}…)',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: EarthlyColors.commentGreen,
+                      ),
+                    ),
+                  )
+                else
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      if (widget.hasNwcWallet && widget.onPayWithNwc != null)
+                        FilledButton.icon(
+                          key: const Key('zap-pay-nwc-btn'),
+                          onPressed: _payingNwc
+                              ? null
+                              : () async {
+                                  setState(() {
+                                    _payingNwc = true;
+                                    _error = null;
+                                  });
+                                  try {
+                                    final paid = await widget.onPayWithNwc!(
+                                      _invoice!.pr,
+                                    );
+                                    if (!mounted) return;
+                                    setState(() => _nwcPaidResult = paid);
+                                  } catch (err) {
+                                    if (!mounted) return;
+                                    setState(() => _error = err.toString());
+                                  } finally {
+                                    if (mounted) {
+                                      setState(() => _payingNwc = false);
+                                    }
+                                  }
+                                },
+                          icon: _payingNwc
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.bolt, size: 15),
+                          label: Text(
+                            _payingNwc ? 'Paying NWC…' : 'Pay with NWC ⚡',
                           ),
-                        );
-                      },
-                      icon: const Icon(Icons.copy, size: 15),
-                      label: const Text('Copy Invoice'),
-                    ),
-                    FilledButton.icon(
-                      key: const Key('zap-open-wallet-btn'),
-                      onPressed: () => _openWallet(_invoice!.pr),
-                      icon: const Icon(Icons.bolt, size: 15),
-                      label: const Text('Open Wallet'),
-                    ),
-                  ],
-                ),
+                        ),
+                      OutlinedButton.icon(
+                        key: const Key('zap-copy-invoice-btn'),
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: _invoice!.pr));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Copied BOLT-11 Lightning invoice'),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.copy, size: 15),
+                        label: const Text('Copy Invoice'),
+                      ),
+                      FilledButton.tonalIcon(
+                        key: const Key('zap-open-wallet-btn'),
+                        onPressed: () => _openWallet(_invoice!.pr),
+                        icon: const Icon(Icons.open_in_new, size: 15),
+                        label: const Text('Open Wallet'),
+                      ),
+                    ],
+                  ),
               ],
               if (_error != null) ...[
                 const SizedBox(height: 10),

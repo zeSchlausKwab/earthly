@@ -246,6 +246,15 @@ Future<SpatialImportDto> geoImportShapefileBytes({
   bytes: bytes,
 );
 
+/// Exports an Earthly GeoJSON FeatureCollection into a downloadable `.zip` ESRI Shapefile bundle.
+Future<Uint8List> geoExportShapefileZip({
+  required String geojson,
+  String? title,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoExportShapefileZip(
+  geojson: geojson,
+  title: title,
+);
+
 class DraftValidationDto {
   final bool valid;
   final int featureCount;

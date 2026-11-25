@@ -116,8 +116,8 @@ class MainFlutterWindow: NSWindow {
         )
       case "pickGeoJsonFile":
         self.openFilePanel(
-          title: "Import GeoJSON, GPX, KML, or Shapefile",
-          extensions: ["geojson", "json", "gpx", "kml", "shp", "zip"],
+          title: "Import GeoJSON, GPX, KML, Shapefile, or CSV",
+          extensions: ["geojson", "json", "gpx", "kml", "shp", "zip", "csv", "tsv"],
           fallbackMime: "application/geo+json",
           result: result
         )

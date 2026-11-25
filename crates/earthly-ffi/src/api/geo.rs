@@ -5,10 +5,11 @@ use std::time::Duration;
 
 use earthly_geo::{
     ExtrudeOptions, ExtrudeShape, ExtrudeSide, LocalProjection, connect_lines,
-    create_line_corridor, difference_polygons, dissolve_lines, extrude_line, geodesic_area_m2,
-    geodesic_length_m, geojson_to_gpx, geojson_to_kml, import_spatial_text_to_geojson, offset_line,
-    offset_polygon, parse_shapefile_bytes, simplify_line, simplify_polygon, split_line_at_point,
-    split_polygon_by_line, union_polygons, validate_feature_collection,
+    create_line_corridor, difference_polygons, dissolve_lines, export_geojson_to_shapefile_zip,
+    extrude_line, geodesic_area_m2, geodesic_length_m, geojson_to_gpx, geojson_to_kml,
+    import_spatial_text_to_geojson, offset_line, offset_polygon, parse_shapefile_bytes,
+    simplify_line, simplify_polygon, split_line_at_point, split_polygon_by_line, union_polygons,
+    validate_feature_collection,
 };
 use geo::{Coord, LineString, Point, Polygon};
 
@@ -1143,6 +1144,20 @@ mod tests {
         assert_eq!(dissolved[0].len(), 3);
 
         assert!(geo_import_shapefile_bytes(Some("empty.zip".to_owned()), Vec::new()).is_err());
+
+        let sample_fc = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.3738,48.2082]},"properties":{"name":"Vienna"}}]}"#;
+        let shp_zip = geo_export_shapefile_zip(sample_fc.to_owned(), Some("Vienna Test".to_owned())).unwrap();
+        assert!(shp_zip.starts_with(b"PK\x03\x04"));
+        let reimported = geo_import_shapefile_bytes(Some("vienna_test.zip".to_owned()), shp_zip).unwrap();
+        assert_eq!(reimported.feature_count, 1);
+
+        let csv_res = geo_import_spatial_file(
+            "waypoints.csv".to_owned(),
+            "name,lat,lon\nHub,48.21,16.37\n".to_owned(),
+        )
+        .unwrap();
+        assert_eq!(csv_res.format, "csv");
+        assert_eq!(csv_res.feature_count, 1);
     }
 }
 
@@ -1170,4 +1185,14 @@ pub fn geo_import_shapefile_bytes(
         feature_count: imported.feature_count as u32,
         warnings: imported.warnings,
     })
+}
+
+/// Exports an Earthly GeoJSON FeatureCollection into a downloadable `.zip` ESRI Shapefile bundle.
+pub fn geo_export_shapefile_zip(
+    geojson: String,
+    title: Option<String>,
+) -> Result<Vec<u8>, String> {
+    let fc: serde_json::Value =
+        serde_json::from_str(&geojson).map_err(|e| format!("invalid GeoJSON: {e}"))?;
+    export_geojson_to_shapefile_zip(&fc, title.as_deref()).map_err(|e| e.to_string())
 }
