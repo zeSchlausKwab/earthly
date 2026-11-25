@@ -163,6 +163,366 @@ pub async fn fetch_profiles(
 }
 
 #[derive(Clone, Debug)]
+pub struct RelayListEntryDto {
+    pub url: String,
+    pub read: bool,
+    pub write: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct RelayHealthDto {
+    pub url: String,
+    pub reachable: bool,
+    pub latency_ms: u32,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ReverseGeocodeDto {
+    pub display_name: String,
+    pub subtitle: String,
+    pub lat: f64,
+    pub lon: f64,
+    pub country: Option<String>,
+    pub city: Option<String>,
+    pub street: Option<String>,
+}
+
+pub(crate) fn parse_nip65_tags(tags: &[Vec<String>]) -> Vec<RelayListEntryDto> {
+    let mut seen: BTreeMap<String, (bool, bool)> = BTreeMap::new();
+    for tag in tags {
+        if tag.first().map(|s| s.as_str()) != Some("r") {
+            continue;
+        }
+        let Some(raw_url) = tag.get(1).map(|s| s.trim()).filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        if !raw_url.starts_with("wss://") && !raw_url.starts_with("ws://") {
+            continue;
+        }
+        let normalized = raw_url.trim_end_matches('/').to_owned();
+        let marker = tag.get(2).map(|s| s.trim().to_ascii_lowercase());
+        let (r, w) = match marker.as_deref() {
+            Some("read") => (true, false),
+            Some("write") => (false, true),
+            _ => (true, true),
+        };
+        seen.entry(normalized)
+            .and_modify(|e| {
+                e.0 |= r;
+                e.1 |= w;
+            })
+            .or_insert((r, w));
+    }
+    seen.into_iter()
+        .map(|(url, (read, write))| RelayListEntryDto { url, read, write })
+        .collect()
+}
+
+/// Fetches a user's NIP-65 (`kind 10002`) relay list metadata across configured
+/// relays (falling back to `wss://purplepag.es` if needed).
+pub async fn fetch_user_relay_list(
+    relay_urls: Vec<String>,
+    pubkey_or_npub: String,
+) -> Result<Vec<RelayListEntryDto>, String> {
+    let author = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|e| format!("invalid Nostr public key: {e}"))?;
+    let mut urls = if relay_urls.is_empty() {
+        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
+    } else {
+        relay_urls
+    };
+    if !urls.iter().any(|u| u.contains("purplepag.es")) {
+        urls.push("wss://purplepag.es".to_owned());
+    }
+
+    let client = Client::default();
+    for url in &urls {
+        let _ = client.add_relay(url).await;
+    }
+    client.connect().await;
+
+    let filter = Filter::new()
+        .kind(Kind::RelayList)
+        .author(author)
+        .limit(5);
+    let events = client
+        .fetch_events(filter, Duration::from_secs(6))
+        .await
+        .map_err(|e| format!("failed to fetch NIP-65 relay list: {e}"))?;
+    client.disconnect().await;
+
+    let newest = events
+        .into_iter()
+        .max_by_key(|ev| (ev.created_at.as_secs(), ev.id));
+    Ok(match newest {
+        Some(ev) => {
+            let raw = event_to_raw(&ev);
+            parse_nip65_tags(&raw.tags)
+        }
+        None => Vec::new(),
+    })
+}
+
+/// Probes WebSocket reachability and handshake latency (ms) for each relay URL.
+pub async fn probe_relays_health(relay_urls: Vec<String>) -> Result<Vec<RelayHealthDto>, String> {
+    let mut results = Vec::with_capacity(relay_urls.len());
+    for raw in relay_urls {
+        let url = raw.trim().to_owned();
+        if !url.starts_with("wss://") && !url.starts_with("ws://") {
+            results.push(RelayHealthDto {
+                url,
+                reachable: false,
+                latency_ms: 0,
+                error: Some("Unsupported URL scheme".to_owned()),
+            });
+            continue;
+        }
+        let client = Client::default();
+        if let Err(err) = client.add_relay(&url).await {
+            results.push(RelayHealthDto {
+                url,
+                reachable: false,
+                latency_ms: 0,
+                error: Some(err.to_string()),
+            });
+            continue;
+        }
+        let started = std::time::Instant::now();
+        match client.try_connect_relay(&url, Duration::from_secs(4)).await {
+            Ok(()) => {
+                let elapsed = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+                client.disconnect().await;
+                results.push(RelayHealthDto {
+                    url,
+                    reachable: true,
+                    latency_ms: elapsed,
+                    error: None,
+                });
+            }
+            Err(err) => {
+                client.disconnect().await;
+                results.push(RelayHealthDto {
+                    url,
+                    reachable: false,
+                    latency_ms: 0,
+                    error: Some(err.to_string()),
+                });
+            }
+        }
+    }
+    Ok(results)
+}
+
+/// Reverse-geocodes a tapped map location using Photon (OSM, zero API key) with
+/// graceful fallback to formatted WGS-84 coordinates.
+pub async fn reverse_geocode_location(lat: f64, lon: f64) -> Result<ReverseGeocodeDto, String> {
+    if !lat.is_finite()
+        || !lon.is_finite()
+        || !(-90.0..=90.0).contains(&lat)
+        || !(-180.0..=180.0).contains(&lon)
+    {
+        return Err("Invalid WGS-84 coordinates".to_owned());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(6))
+        .user_agent("EarthlyNative/1.0 (+https://earthly.city)")
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+    let resp = client
+        .get("https://photon.komoot.io/reverse")
+        .query(&[
+            ("lat", format!("{lat:.6}")),
+            ("lon", format!("{lon:.6}")),
+            ("limit", "1".to_owned()),
+        ])
+        .send()
+        .await;
+
+    let fallback_name = format!("{lat:.5}, {lon:.5}");
+    let Ok(resp) = resp else {
+        return Ok(ReverseGeocodeDto {
+            display_name: fallback_name,
+            subtitle: "WGS-84 coordinate".to_owned(),
+            lat,
+            lon,
+            country: None,
+            city: None,
+            street: None,
+        });
+    };
+    if !resp.status().is_success() {
+        return Ok(ReverseGeocodeDto {
+            display_name: fallback_name,
+            subtitle: "WGS-84 coordinate".to_owned(),
+            lat,
+            lon,
+            country: None,
+            city: None,
+            street: None,
+        });
+    }
+    let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+    let props = body
+        .get("features")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|f| f.get("properties"));
+
+    let pick = |k: &str| {
+        props
+            .and_then(|p| p.get(k))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    };
+    let name = pick("name");
+    let street = pick("street");
+    let housenumber = pick("housenumber");
+    let city = pick("city")
+        .or_else(|| pick("town"))
+        .or_else(|| pick("village"));
+    let country = pick("country");
+
+    let street_line = match (street.as_ref(), housenumber.as_ref()) {
+        (Some(s), Some(n)) => Some(format!("{s} {n}")),
+        (Some(s), None) => Some(s.clone()),
+        _ => None,
+    };
+    let display_name = name
+        .or_else(|| street_line.clone())
+        .or_else(|| city.clone())
+        .or_else(|| country.clone())
+        .unwrap_or(fallback_name);
+
+    let mut sub_parts = Vec::new();
+    for item in [street_line.as_ref(), city.as_ref(), country.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        if item != &display_name && !sub_parts.contains(item) {
+            sub_parts.push(item.clone());
+        }
+    }
+    let subtitle = if sub_parts.is_empty() {
+        "OSM location".to_owned()
+    } else {
+        sub_parts.join(", ")
+    };
+
+    Ok(ReverseGeocodeDto {
+        display_name,
+        subtitle,
+        lat,
+        lon,
+        country,
+        city,
+        street: street_line,
+    })
+}
+
+/// Runs a NIP-50 full-text search query across configured Nostr relays for
+/// Maps (`37515`), Stories (`37520`), and Atlases (`37518`).
+pub async fn search_relay_catalog_nip50(
+    relay_urls: Vec<String>,
+    query: String,
+) -> Result<EarthlyCatalogSnapshot, String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(EarthlyCatalogSnapshot {
+            relay_urls,
+            maps: Vec::new(),
+            stories: Vec::new(),
+            atlases: Vec::new(),
+            sightings: Vec::new(),
+            beacons: Vec::new(),
+        });
+    }
+    let urls = if relay_urls.is_empty() {
+        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
+    } else {
+        relay_urls
+    };
+
+    let client = Client::default();
+    for url in &urls {
+        let _ = client.add_relay(url).await;
+    }
+    client.connect().await;
+
+    let filter = Filter::new()
+        .kinds([
+            Kind::Custom(GEO_EVENT_KIND),
+            Kind::Custom(ARTICLE_KIND),
+            Kind::Custom(MAP_CONTEXT_KIND),
+        ])
+        .search(trimmed)
+        .limit(40);
+    let events = client
+        .fetch_events(filter, Duration::from_secs(6))
+        .await
+        .map_err(|e| format!("NIP-50 search failed: {e}"))?;
+    client.disconnect().await;
+
+    let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
+    for event in events {
+        let raw = event_to_raw(&event);
+        let Some(addr) = raw.address_coordinate() else {
+            continue;
+        };
+        let replace = match latest_by_addr.get(&addr) {
+            None => true,
+            Some(existing) => {
+                raw.created_at > existing.created_at
+                    || (raw.created_at == existing.created_at && raw.id < existing.id)
+            }
+        };
+        if replace {
+            latest_by_addr.insert(addr, raw);
+        }
+    }
+
+    let mut maps = Vec::new();
+    let mut stories = Vec::new();
+    let mut atlases = Vec::new();
+    for (address, raw) in latest_by_addr {
+        match raw.kind {
+            GEO_EVENT_KIND => {
+                if let Ok(dataset) = MapDataset::parse(&raw) {
+                    maps.push(map_to_dto(address, dataset));
+                }
+            }
+            ARTICLE_KIND => {
+                if let Ok(story) = StoryArticle::parse(&raw) {
+                    stories.push(story_to_dto(address, story));
+                }
+            }
+            MAP_CONTEXT_KIND => {
+                if let Ok(group) = AtlasGroup::parse(&raw) {
+                    atlases.push(atlas_to_dto(address, group));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    maps.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    stories.sort_by(|a, b| b.published_at.cmp(&a.published_at));
+    atlases.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    Ok(EarthlyCatalogSnapshot {
+        relay_urls: urls,
+        maps,
+        stories,
+        atlases,
+        sightings: Vec::new(),
+        beacons: Vec::new(),
+    })
+}
+
+#[derive(Clone, Debug)]
 pub struct PlaceSearchResultDto {
     pub name: String,
     pub subtitle: String,
@@ -2481,5 +2841,34 @@ mod tests {
         );
         assert_eq!(added, 2);
         assert_eq!(removed, 1);
+    }
+
+    #[test]
+    fn parses_nip65_relay_list_tags() {
+        let tags = vec![
+            vec!["r".to_owned(), "wss://relay.earthly.city/".to_owned()],
+            vec![
+                "r".to_owned(),
+                "wss://nos.lol".to_owned(),
+                "read".to_owned(),
+            ],
+            vec![
+                "r".to_owned(),
+                "wss://relay.damus.io".to_owned(),
+                "write".to_owned(),
+            ],
+            vec!["r".to_owned(), "https://not-a-relay.invalid".to_owned()],
+        ];
+        let parsed = parse_nip65_tags(&tags);
+        assert_eq!(parsed.len(), 3);
+        let damus = parsed.iter().find(|e| e.url == "wss://relay.damus.io").unwrap();
+        assert!(!damus.read && damus.write);
+        let nos = parsed.iter().find(|e| e.url == "wss://nos.lol").unwrap();
+        assert!(nos.read && !nos.write);
+        let earthly = parsed
+            .iter()
+            .find(|e| e.url == "wss://relay.earthly.city")
+            .unwrap();
+        assert!(earthly.read && earthly.write);
     }
 }

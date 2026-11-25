@@ -4,6 +4,7 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../frb_generated.dart';
+import 'nostr_client.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
@@ -300,6 +301,16 @@ Future<UnsignedCommentEventDto> prepareUnsignedProfileEvent({
   website: website,
   banner: banner,
   lud16: lud16,
+);
+
+/// Prepares a canonical NIP-65 Relay List Metadata event (`kind 10002`)
+/// declaring the user's read/write Nostr relays.
+Future<UnsignedCommentEventDto> prepareUnsignedRelayListEvent({
+  required String pubkeyOrNpub,
+  required List<RelayListEntryDto> relays,
+}) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedRelayListEvent(
+  pubkeyOrNpub: pubkeyOrNpub,
+  relays: relays,
 );
 
 /// Prepares a canonical Story Edit Proposal (`kind 37519`) targeting an existing

@@ -1,5 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../drawing/drawing_model.dart';
+import '../nostr/shelf_renderer.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
@@ -70,6 +72,8 @@ class DiscussionMarginSheet extends StatefulWidget {
     this.onMuteAuthor,
     this.onOpenPerson,
     this.onSubmitStoryProposal,
+    this.onUploadBlossomImage,
+    this.onRequestChangesProposal,
     super.key,
   });
 
@@ -96,6 +100,11 @@ class DiscussionMarginSheet extends StatefulWidget {
     String description,
     String proposedMarkdown,
   )? onSubmitStoryProposal;
+  final Future<String> Function()? onUploadBlossomImage;
+  final Future<PublishOutcomeDto> Function(
+    GeoProposalDto proposal,
+    String note,
+  )? onRequestChangesProposal;
   final ValueChanged<GeoProposalDto> onLoadProposalToDraft;
   final Future<PublishOutcomeDto> Function(GeoProposalDto proposal)
       onApplyProposal;
@@ -121,6 +130,8 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
   bool _showStoryProposalComposer = false;
   GeoCommentDto? _replyingTo;
   final Set<String> _expandedStoryDiffIds = <String>{};
+  final Set<String> _expandedMapDiffIds = <String>{};
+  bool _uploadingPhoto = false;
   String? _error;
   String? _statusNote;
   late String? _activeCommentId = widget.activeCommentGeojsonId;
@@ -247,6 +258,100 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  Future<void> _uploadCommentPhoto() async {
+    if (widget.onUploadBlossomImage == null) return;
+    setState(() {
+      _uploadingPhoto = true;
+      _error = null;
+    });
+    try {
+      final url = await widget.onUploadBlossomImage!();
+      if (!mounted || url.trim().isEmpty) return;
+      final cur = _commentController.text;
+      final sep = cur.isEmpty || cur.endsWith('\n') ? '' : '\n';
+      _commentController.text = '$cur$sep![photo]($url)\n';
+      _commentController.selection = TextSelection.collapsed(
+        offset: _commentController.text.length,
+      );
+      setState(() => _statusNote = 'Uploaded photo to Blossom & inserted Markdown.');
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _uploadingPhoto = false);
+    }
+  }
+
+  Future<void> _handleRequestChanges(GeoProposalDto proposal) async {
+    if (widget.onRequestChangesProposal == null) return;
+    final submitted = await showDialog<String>(
+      context: context,
+      builder: (_) => const _RequestChangesDialog(),
+    );
+    if (submitted == null || !mounted) return;
+    setState(() {
+      _submitting = true;
+      _error = null;
+      _statusNote = null;
+    });
+    try {
+      final outcome =
+          await widget.onRequestChangesProposal!(proposal, submitted);
+      if (!mounted) return;
+      setState(() {
+        _statusNote =
+            'Requested changes (${outcome.outboxState}) · "$submitted"';
+      });
+      if (widget.initialSnapshot == null) {
+        await _refresh();
+      }
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  List<({String prefix, String summary})> _computeMapFeatureDiff(
+    String? baseGeojson,
+    String proposedGeojson,
+  ) {
+    final base = baseGeojson != null && baseGeojson.trim().isNotEmpty
+        ? parseDraftFeaturesFromGeoJson(baseGeojson)
+        : const <DrawnFeature>[];
+    final next = parseDraftFeaturesFromGeoJson(proposedGeojson);
+    final baseById = <String, DrawnFeature>{for (final f in base) f.id: f};
+    final nextById = <String, DrawnFeature>{for (final f in next) f.id: f};
+    final lines = <({String prefix, String summary})>[];
+
+    for (final f in next) {
+      final prev = baseById[f.id];
+      final label = f.name?.isNotEmpty == true ? f.name! : f.id;
+      if (prev == null) {
+        lines.add((
+          prefix: '+',
+          summary: '$label (${f.kind.name}, ${f.vertices.length} pts)',
+        ));
+      } else if (prev.kind != f.kind ||
+          prev.name != f.name ||
+          prev.vertices.length != f.vertices.length) {
+        lines.add((
+          prefix: '~',
+          summary:
+              '$label (${prev.vertices.length} → ${f.vertices.length} pts)',
+        ));
+      }
+    }
+    for (final f in base) {
+      if (!nextById.containsKey(f.id)) {
+        final label = f.name?.isNotEmpty == true ? f.name! : f.id;
+        lines.add((prefix: '-', summary: '$label (${f.kind.name})'));
+      }
+    }
+    return lines;
   }
 
   Future<void> _handleSubmitProposal() async {
@@ -763,7 +868,22 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  if (widget.onUploadBlossomImage != null) ...[
+                    const SizedBox(width: 4),
+                    IconButton(
+                      key: const Key('comment-upload-photo-btn'),
+                      tooltip: 'Upload photo via Blossom',
+                      onPressed: _uploadingPhoto ? null : _uploadCommentPhoto,
+                      icon: _uploadingPhoto
+                          ? const SizedBox(
+                              width: 15,
+                              height: 15,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.add_a_photo_outlined, size: 19),
+                    ),
+                  ],
+                  const SizedBox(width: 6),
                   FilledButton(
                     onPressed: _submitting ? null : _handlePostComment,
                     child: Text(
@@ -832,7 +952,10 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
                                   Container(
                                     padding: const EdgeInsets.symmetric(
@@ -850,7 +973,6 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
                                   Text(
                                     p.isStoryProposal
                                         ? '+${p.addedCount}  -${p.removedCount} lines'
@@ -861,7 +983,6 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
-                                  const Spacer(),
                                   if (p.isStoryProposal)
                                     OutlinedButton(
                                       key: Key('story-diff-btn-${p.eventId}'),
@@ -878,7 +999,25 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                         showingDiff ? 'Hide diff' : 'View diff',
                                       ),
                                     )
-                                  else
+                                  else ...[
+                                    OutlinedButton(
+                                      key: Key(
+                                          'proposal-feature-diff-btn-${p.eventId}'),
+                                      onPressed: () {
+                                        setState(() {
+                                          if (!_expandedMapDiffIds
+                                              .add(p.eventId)) {
+                                            _expandedMapDiffIds
+                                                .remove(p.eventId);
+                                          }
+                                        });
+                                      },
+                                      child: Text(
+                                        _expandedMapDiffIds.contains(p.eventId)
+                                            ? 'Hide diff'
+                                            : 'Diff',
+                                      ),
+                                    ),
                                     OutlinedButton(
                                       onPressed: () {
                                         setState(() {
@@ -891,14 +1030,60 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                         showing ? 'Hide preview' : 'Preview',
                                       ),
                                     ),
+                                  ],
                                 ],
                               ),
-                              const SizedBox(height: 6),
-                              EarthlyRichText(
-                                text:
-                                    '**${_authorLabel(p.pubkey)}** · ${p.description ?? 'Proposed edit (${p.dTag})'}',
-                                compact: true,
-                              ),
+                               const SizedBox(height: 6),
+                               EarthlyRichText(
+                                 text:
+                                     '**${_authorLabel(p.pubkey)}** · ${p.description ?? 'Proposed edit (${p.dTag})'}',
+                                 compact: true,
+                               ),
+                               if (!p.isStoryProposal &&
+                                   _expandedMapDiffIds.contains(p.eventId)) ...[
+                                 const SizedBox(height: 8),
+                                 Container(
+                                   key: Key('proposal-feature-diff-view-${p.eventId}'),
+                                   width: double.infinity,
+                                   padding: const EdgeInsets.all(8),
+                                   decoration: BoxDecoration(
+                                     color: theme
+                                         .colorScheme.surfaceContainerHighest,
+                                     borderRadius: BorderRadius.circular(8),
+                                     border:
+                                         Border.all(color: theme.dividerColor),
+                                   ),
+                                   child: Column(
+                                     crossAxisAlignment:
+                                         CrossAxisAlignment.stretch,
+                                     children: [
+                                       for (final fd in _computeMapFeatureDiff(
+                                         widget.target.baseGeojson,
+                                         p.geojson,
+                                       ))
+                                         Padding(
+                                           padding: const EdgeInsets.symmetric(
+                                             vertical: 1.5,
+                                           ),
+                                           child: Text(
+                                             '${fd.prefix} ${fd.summary}',
+                                             style: TextStyle(
+                                               fontFamily: 'monospace',
+                                               fontSize: 10.5,
+                                               color: fd.prefix == '+'
+                                                   ? EarthlyColors.commentGreen
+                                                   : fd.prefix == '-'
+                                                       ? EarthlyColors
+                                                           .destructive
+                                                       : EarthlyColors
+                                                           .proposedAmber,
+                                             ),
+                                           ),
+                                         ),
+                                     ],
+                                   ),
+                                 ),
+                               ],
                               if (p.isStoryProposal && showingDiff) ...[
                                 const SizedBox(height: 8),
                                 Container(
@@ -985,6 +1170,19 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                         style: const TextStyle(fontSize: 11),
                                       ),
                                     ),
+                                    if (widget.onRequestChangesProposal != null)
+                                      OutlinedButton(
+                                        key: Key(
+                                          'proposal-request-changes-btn-${p.eventId}',
+                                        ),
+                                        onPressed: _submitting
+                                            ? null
+                                            : () => _handleRequestChanges(p),
+                                        child: const Text(
+                                          'Request Changes',
+                                          style: TextStyle(fontSize: 11),
+                                        ),
+                                      ),
                                     OutlinedButton(
                                       onPressed: _submitting
                                           ? null
@@ -1096,6 +1294,53 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+class _RequestChangesDialog extends StatefulWidget {
+  const _RequestChangesDialog();
+
+  @override
+  State<_RequestChangesDialog> createState() => _RequestChangesDialogState();
+}
+
+class _RequestChangesDialogState extends State<_RequestChangesDialog> {
+  final _noteCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _noteCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Request Changes'),
+      content: TextField(
+        key: const Key('request-changes-note-field'),
+        controller: _noteCtrl,
+        maxLines: 3,
+        decoration: const InputDecoration(
+          hintText: 'Describe requested changes for the contributor…',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('request-changes-confirm-btn'),
+          onPressed: () => Navigator.of(context).pop(
+            _noteCtrl.text.trim().isEmpty
+                ? 'Changes requested'
+                : _noteCtrl.text.trim(),
+          ),
+          child: const Text('Send Feedback'),
+        ),
       ],
     );
   }

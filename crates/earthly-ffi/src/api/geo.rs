@@ -1,6 +1,7 @@
 //! Rust `earthly-geo` geometry workbench exposed directly to Flutter via FFI.
 
 use std::f64::consts::PI;
+use std::time::Duration;
 
 use earthly_geo::{
     ExtrudeOptions, ExtrudeShape, ExtrudeSide, LocalProjection, connect_lines,
@@ -338,6 +339,220 @@ pub struct DraftValidationDto {
     pub message: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct OsmImportResultDto {
+    pub geojson: String,
+    pub feature_count: u32,
+    pub query_summary: String,
+}
+
+fn sanitize_osm_ident(raw: &str) -> String {
+    raw.trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ':' || *c == '-')
+        .collect()
+}
+
+fn build_overpass_filter(preset: &str, custom_tag: Option<&str>) -> Result<String, String> {
+    if let Some(custom) = custom_tag.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some((raw_k, raw_v)) = custom.split_once('=') {
+            let k = sanitize_osm_ident(raw_k);
+            let v = raw_v.trim().replace('"', "");
+            if k.is_empty() {
+                return Err("Invalid OSM tag key".to_owned());
+            }
+            if v.is_empty() || v == "*" {
+                return Ok(format!(r#"["{k}"]"#));
+            }
+            return Ok(format!(r#"["{k}"="{v}"]"#));
+        }
+        let k = sanitize_osm_ident(custom);
+        if k.is_empty() {
+            return Err("Invalid OSM tag key".to_owned());
+        }
+        return Ok(format!(r#"["{k}"]"#));
+    }
+    Ok(match preset.trim().to_ascii_lowercase().as_str() {
+        "highway" | "railway" | "waterway" | "building" | "natural" | "landuse" | "amenity"
+        | "leisure" => format!(r#"["{}"]"#, preset.trim().to_ascii_lowercase()),
+        "peaks" => r#"["natural"="peak"]"#.to_owned(),
+        "water" => r#"["amenity"="drinking_water"]"#.to_owned(),
+        _ => r#"["name"]"#.to_owned(),
+    })
+}
+
+pub(crate) fn overpass_json_to_feature_collection(
+    raw: &serde_json::Value,
+    limit: usize,
+) -> Result<(String, usize), String> {
+    let elements = raw
+        .get("elements")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "Overpass response contained no elements array".to_owned())?;
+
+    let mut features = Vec::new();
+    for el in elements {
+        if features.len() >= limit {
+            break;
+        }
+        let el_type = el.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let el_id = el.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
+        let tags = el
+            .get("tags")
+            .and_then(|v| v.as_object())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut props = serde_json::Map::new();
+        for (k, v) in &tags {
+            props.insert(k.clone(), v.clone());
+        }
+        props.insert(
+            "@id".to_owned(),
+            serde_json::Value::String(format!("{el_type}/{el_id}")),
+        );
+        props.insert(
+            "@type".to_owned(),
+            serde_json::Value::String(el_type.to_owned()),
+        );
+        if !props.contains_key("name") {
+            if let Some(ref_val) = props.get("ref").cloned() {
+                props.insert("name".to_owned(), ref_val);
+            }
+        }
+
+        if el_type == "node" {
+            let (Some(lat), Some(lon)) = (
+                el.get("lat").and_then(|v| v.as_f64()),
+                el.get("lon").and_then(|v| v.as_f64()),
+            ) else {
+                continue;
+            };
+            features.push(serde_json::json!({
+                "type": "Feature",
+                "id": format!("osm-node-{el_id}"),
+                "geometry": { "type": "Point", "coordinates": [lon, lat] },
+                "properties": props,
+            }));
+        } else if el_type == "way" {
+            let Some(geom_arr) = el.get("geometry").and_then(|v| v.as_array()) else {
+                continue;
+            };
+            let mut ring: Vec<Vec<f64>> = Vec::with_capacity(geom_arr.len());
+            for pt in geom_arr {
+                if let (Some(lat), Some(lon)) = (
+                    pt.get("lat").and_then(|v| v.as_f64()),
+                    pt.get("lon").and_then(|v| v.as_f64()),
+                ) {
+                    ring.push(vec![lon, lat]);
+                }
+            }
+            if ring.len() < 2 {
+                continue;
+            }
+            let closed = ring.len() >= 4 && ring.first() == ring.last();
+            let area_hint = tags.contains_key("building")
+                || tags.contains_key("landuse")
+                || tags.contains_key("leisure")
+                || tags.contains_key("natural")
+                || tags.get("area").and_then(|v| v.as_str()) == Some("yes");
+            let geometry = if closed && (area_hint || !tags.contains_key("highway")) {
+                serde_json::json!({ "type": "Polygon", "coordinates": [ring] })
+            } else {
+                serde_json::json!({ "type": "LineString", "coordinates": ring })
+            };
+            features.push(serde_json::json!({
+                "type": "Feature",
+                "id": format!("osm-way-{el_id}"),
+                "geometry": geometry,
+                "properties": props,
+            }));
+        }
+    }
+
+    let count = features.len();
+    let fc = serde_json::json!({
+        "type": "FeatureCollection",
+        "name": "OSM Overpass Import",
+        "features": features,
+    });
+    let geojson = serde_json::to_string(&fc).map_err(|e| e.to_string())?;
+    Ok((geojson, count))
+}
+
+/// Queries OpenStreetMap Overpass within a bounded viewport bbox and returns
+/// normalized GeoJSON Features ready to import into the working draft.
+pub async fn geo_query_overpass_bbox(
+    west: f64,
+    south: f64,
+    east: f64,
+    north: f64,
+    preset: String,
+    custom_tag: Option<String>,
+    limit: Option<u32>,
+) -> Result<OsmImportResultDto, String> {
+    if ![west, south, east, north].into_iter().all(f64::is_finite) {
+        return Err("Bounding box coordinates must be finite numbers".to_owned());
+    }
+    if east <= west || north <= south {
+        return Err("Bounding box is empty".to_owned());
+    }
+    if (east - west) > 0.5 || (north - south) > 0.5 {
+        return Err(
+            "Area too large for Overpass query (max 0.5° × 0.5°). Zoom in closer first.".to_owned(),
+        );
+    }
+    let filter = build_overpass_filter(&preset, custom_tag.as_deref())?;
+    let cap = limit.unwrap_or(150).clamp(10, 400) as usize;
+    let query = format!(
+        "[out:json][timeout:18];(nwr{filter}({south:.6},{west:.6},{north:.6},{east:.6}););out geom {cap};"
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .user_agent("EarthlyNative/1.0 (+https://earthly.city)")
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+    let mut body_json: Option<serde_json::Value> = None;
+    let mut last_err = String::new();
+    for endpoint in [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+    ] {
+        match client
+            .post(endpoint)
+            .form(&[("data", query.as_str())])
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => match resp.json::<serde_json::Value>().await {
+                Ok(v) => {
+                    body_json = Some(v);
+                    break;
+                }
+                Err(err) => last_err = format!("invalid Overpass JSON: {err}"),
+            },
+            Ok(resp) => last_err = format!("Overpass HTTP {}", resp.status()),
+            Err(err) => last_err = format!("Overpass request failed: {err}"),
+        }
+    }
+
+    let raw = body_json.ok_or_else(|| {
+        if last_err.is_empty() {
+            "Overpass query failed".to_owned()
+        } else {
+            last_err
+        }
+    })?;
+    let (geojson, feature_count) = overpass_json_to_feature_collection(&raw, cap)?;
+    Ok(OsmImportResultDto {
+        geojson,
+        feature_count: feature_count as u32,
+        query_summary: format!("nwr{filter} -> {feature_count} features"),
+    })
+}
+
 /// Validates a GeoJSON FeatureCollection via `earthly-geo::validate_feature_collection`.
 pub fn geo_validate_draft_geojson(geojson: String) -> DraftValidationDto {
     let parsed: serde_json::Value = match serde_json::from_str(&geojson) {
@@ -473,5 +688,48 @@ mod tests {
         );
         assert!(valid.valid);
         assert_eq!(valid.feature_count, 1);
+    }
+
+    #[test]
+    fn overpass_json_converts_nodes_ways_and_polygons() {
+        let raw = serde_json::json!({
+            "elements": [
+                {
+                    "type": "node",
+                    "id": 101,
+                    "lat": 48.2082,
+                    "lon": 16.3738,
+                    "tags": { "name": "Stephansplatz", "amenity": "drinking_water" }
+                },
+                {
+                    "type": "way",
+                    "id": 202,
+                    "tags": { "name": "Ring", "highway": "primary" },
+                    "geometry": [
+                        { "lat": 48.20, "lon": 16.36 },
+                        { "lat": 48.21, "lon": 16.37 }
+                    ]
+                },
+                {
+                    "type": "way",
+                    "id": 303,
+                    "tags": { "name": "Town Hall", "building": "yes" },
+                    "geometry": [
+                        { "lat": 48.210, "lon": 16.356 },
+                        { "lat": 48.211, "lon": 16.356 },
+                        { "lat": 48.211, "lon": 16.358 },
+                        { "lat": 48.210, "lon": 16.356 }
+                    ]
+                }
+            ]
+        });
+        let (geojson, count) = overpass_json_to_feature_collection(&raw, 50).unwrap();
+        assert_eq!(count, 3);
+        let parsed: serde_json::Value = serde_json::from_str(&geojson).unwrap();
+        let feats = parsed["features"].as_array().unwrap();
+        assert_eq!(feats[0]["geometry"]["type"], "Point");
+        assert_eq!(feats[1]["geometry"]["type"], "LineString");
+        assert_eq!(feats[2]["geometry"]["type"], "Polygon");
+        assert_eq!(feats[0]["properties"]["name"], "Stephansplatz");
     }
 }

@@ -124,6 +124,9 @@ abstract class EarthlyRustLibApiImplPlatform
   int dco_decode_box_autoadd_u_16(dynamic raw);
 
   @protected
+  int dco_decode_box_autoadd_u_32(dynamic raw);
+
+  @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
 
   @protected
@@ -282,6 +285,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<RelayHealthDto> dco_decode_list_relay_health_dto(dynamic raw);
+
+  @protected
+  List<RelayListEntryDto> dco_decode_list_relay_list_entry_dto(dynamic raw);
+
+  @protected
   List<RemotePeerDto> dco_decode_list_remote_peer_dto(dynamic raw);
 
   @protected
@@ -387,7 +396,13 @@ abstract class EarthlyRustLibApiImplPlatform
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
 
   @protected
+  int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  OsmImportResultDto dco_decode_osm_import_result_dto(dynamic raw);
 
   @protected
   OutboxSummarySnapshot dco_decode_outbox_summary_snapshot(dynamic raw);
@@ -411,6 +426,12 @@ abstract class EarthlyRustLibApiImplPlatform
   RelayDeliveryStatusDto dco_decode_relay_delivery_status_dto(dynamic raw);
 
   @protected
+  RelayHealthDto dco_decode_relay_health_dto(dynamic raw);
+
+  @protected
+  RelayListEntryDto dco_decode_relay_list_entry_dto(dynamic raw);
+
+  @protected
   RemotePeerDto dco_decode_remote_peer_dto(dynamic raw);
 
   @protected
@@ -418,6 +439,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   ResearchSourceDto dco_decode_research_source_dto(dynamic raw);
+
+  @protected
+  ReverseGeocodeDto dco_decode_reverse_geocode_dto(dynamic raw);
 
   @protected
   SavedAccountSessionDto dco_decode_saved_account_session_dto(dynamic raw);
@@ -584,6 +608,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
@@ -800,6 +827,16 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<RelayHealthDto> sse_decode_list_relay_health_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<RelayListEntryDto> sse_decode_list_relay_list_entry_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<RemotePeerDto> sse_decode_list_remote_peer_dto(
     SseDeserializer deserializer,
   );
@@ -939,7 +976,15 @@ abstract class EarthlyRustLibApiImplPlatform
   int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
+  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  OsmImportResultDto sse_decode_osm_import_result_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   OutboxSummarySnapshot sse_decode_outbox_summary_snapshot(
@@ -975,6 +1020,14 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  RelayHealthDto sse_decode_relay_health_dto(SseDeserializer deserializer);
+
+  @protected
+  RelayListEntryDto sse_decode_relay_list_entry_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   RemotePeerDto sse_decode_remote_peer_dto(SseDeserializer deserializer);
 
   @protected
@@ -982,6 +1035,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   ResearchSourceDto sse_decode_research_source_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ReverseGeocodeDto sse_decode_reverse_geocode_dto(
     SseDeserializer deserializer,
   );
 
@@ -1203,6 +1261,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
@@ -1475,6 +1536,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_relay_health_dto(
+    List<RelayHealthDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_relay_list_entry_dto(
+    List<RelayListEntryDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_remote_peer_dto(
     List<RemotePeerDto> self,
     SseSerializer serializer,
@@ -1640,7 +1713,16 @@ abstract class EarthlyRustLibApiImplPlatform
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_osm_import_result_dto(
+    OsmImportResultDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_outbox_summary_snapshot(
@@ -1685,6 +1767,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_relay_health_dto(
+    RelayHealthDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_relay_list_entry_dto(
+    RelayListEntryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_remote_peer_dto(RemotePeerDto self, SseSerializer serializer);
 
   @protected
@@ -1696,6 +1790,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_research_source_dto(
     ResearchSourceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_reverse_geocode_dto(
+    ReverseGeocodeDto self,
     SseSerializer serializer,
   );
 

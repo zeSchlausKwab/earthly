@@ -9,6 +9,7 @@ import '../nostr/nip55_signer.dart';
 import '../runtime/device_bridge.dart';
 import '../runtime/rust_bridge.dart';
 import '../spike/rust_node_sheet.dart';
+import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/private_groups.dart';
 import '../src/rust/api/publish.dart';
 import '../src/rust/api/spike.dart';
@@ -42,6 +43,9 @@ class SpacesSheet extends StatefulWidget {
     this.inboxUnreadCount = 0,
     this.onOpenInbox,
     this.initialPairingLink,
+    this.onFetchNip65Relays,
+    this.onPublishNip65Relays,
+    this.onProbeRelaysHealth,
     super.key,
   });
 
@@ -67,6 +71,11 @@ class SpacesSheet extends StatefulWidget {
   final int inboxUnreadCount;
   final VoidCallback? onOpenInbox;
   final String? initialPairingLink;
+  final Future<List<RelayListEntryDto>> Function()? onFetchNip65Relays;
+  final Future<PublishOutcomeDto> Function(List<RelayListEntryDto> relays)?
+      onPublishNip65Relays;
+  final Future<List<RelayHealthDto>> Function(List<String> urls)?
+      onProbeRelaysHealth;
   final VoidCallback onClose;
 
   @override
@@ -91,6 +100,9 @@ class _SpacesSheetState extends State<SpacesSheet> {
   String? _hostedSessionId;
   String? _sessionInvite;
   NearbyPeersSnapshot? _peers;
+  final Map<String, RelayHealthDto> _relayHealth = <String, RelayHealthDto>{};
+  bool _probingRelays = false;
+  bool _syncingNip65 = false;
 
   @override
   void initState() {
@@ -147,6 +159,105 @@ class _SpacesSheetState extends State<SpacesSheet> {
       next.add('wss://relay.earthly.city');
     }
     widget.onRelayUrlsChanged(next);
+  }
+
+  Future<void> _probeRelays() async {
+    setState(() {
+      _probingRelays = true;
+      _error = null;
+    });
+    try {
+      final results = widget.onProbeRelaysHealth != null
+          ? await widget.onProbeRelaysHealth!(widget.relayUrls)
+          : await (() async {
+              await RustBridge.ensureInitialized();
+              return probeRelaysHealth(relayUrls: widget.relayUrls);
+            })();
+      if (!mounted) return;
+      setState(() {
+        for (final r in results) {
+          _relayHealth[r.url] = r;
+        }
+        final okCount = results.where((r) => r.reachable).length;
+        _infoBanner =
+            'Relay health probe complete ($okCount/${results.length} reachable).';
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _probingRelays = false);
+    }
+  }
+
+  Future<void> _syncNip65() async {
+    setState(() {
+      _syncingNip65 = true;
+      _error = null;
+    });
+    try {
+      List<RelayListEntryDto> entries;
+      if (widget.onFetchNip65Relays != null) {
+        entries = await widget.onFetchNip65Relays!();
+      } else {
+        final acct = widget.account;
+        if (acct == null) {
+          throw StateError('Sign in first to sync your NIP-65 relay list');
+        }
+        await RustBridge.ensureInitialized();
+        entries = await fetchUserRelayList(
+          relayUrls: widget.relayUrls,
+          pubkeyOrNpub: acct.pubkey,
+        );
+      }
+      if (!mounted) return;
+      if (entries.isEmpty) {
+        setState(() {
+          _infoBanner = 'No NIP-65 (kind 10002) relays found for this account.';
+        });
+        return;
+      }
+      final merged = <String>[
+        ...widget.relayUrls,
+        for (final e in entries)
+          if (!widget.relayUrls.contains(e.url)) e.url,
+      ];
+      widget.onRelayUrlsChanged(merged);
+      setState(() {
+        _infoBanner =
+            'Synced ${entries.length} NIP-65 relay(s) into active relay list.';
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _syncingNip65 = false);
+    }
+  }
+
+  Future<void> _publishNip65() async {
+    if (widget.onPublishNip65Relays == null) return;
+    setState(() {
+      _syncingNip65 = true;
+      _error = null;
+    });
+    try {
+      final entries = widget.relayUrls
+          .map((url) => RelayListEntryDto(url: url, read: true, write: true))
+          .toList(growable: false);
+      final outcome = await widget.onPublishNip65Relays!(entries);
+      if (!mounted) return;
+      final okCount = outcome.relays.where((r) => r.ok).length;
+      setState(() {
+        _infoBanner =
+            'Published NIP-65 (kind 10002) relay list ($okCount/${outcome.relays.length} ok).';
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _syncingNip65 = false);
+    }
   }
 
   Future<void> _broadcastBeacon() async {
@@ -453,14 +564,17 @@ class _SpacesSheetState extends State<SpacesSheet> {
         padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
         child: Row(
           children: [
-            Text(
-              'SPACES · CIRCLES & NEARBY',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontFamily: 'monospace',
-                letterSpacing: 0.7,
+            Expanded(
+              child: Text(
+                'SPACES · CIRCLES & NEARBY',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.7,
+                ),
               ),
             ),
-            const Spacer(),
             IconButton(
               tooltip: 'Refresh peers',
               visualDensity: VisualDensity.compact,
@@ -1163,7 +1277,7 @@ class _SpacesSheetState extends State<SpacesSheet> {
 
           const Divider(height: 22),
 
-          // Multi-Relay Configuration (persisted in SQLite)
+          // Multi-Relay Configuration (persisted in SQLite + NIP-65 10002)
           Text(
             'NOSTR RELAYS (${widget.relayUrls.length} · PERSISTED)',
             style: theme.textTheme.labelSmall?.copyWith(
@@ -1172,6 +1286,36 @@ class _SpacesSheetState extends State<SpacesSheet> {
             ),
           ),
           const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              OutlinedButton.icon(
+                key: const Key('spaces-probe-relays-btn'),
+                onPressed: _probingRelays ? null : _probeRelays,
+                icon: Icon(
+                  _probingRelays ? Icons.hourglass_top : Icons.network_check,
+                  size: 14,
+                ),
+                label: Text(_probingRelays ? 'Probing…' : 'Check Health'),
+              ),
+              if (widget.account != null || widget.onFetchNip65Relays != null)
+                OutlinedButton.icon(
+                  key: const Key('spaces-sync-nip65-btn'),
+                  onPressed: _syncingNip65 ? null : _syncNip65,
+                  icon: const Icon(Icons.cloud_sync_outlined, size: 14),
+                  label: const Text('Sync NIP-65'),
+                ),
+              if (widget.onPublishNip65Relays != null && widget.account != null)
+                OutlinedButton.icon(
+                  key: const Key('spaces-publish-nip65-btn'),
+                  onPressed: _syncingNip65 ? null : _publishNip65,
+                  icon: const Icon(Icons.publish, size: 14),
+                  label: const Text('Publish 10002'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
           for (final url in widget.relayUrls)
             Container(
               margin: const EdgeInsets.only(bottom: 4),
@@ -1192,6 +1336,35 @@ class _SpacesSheetState extends State<SpacesSheet> {
                       ),
                     ),
                   ),
+                  if (_relayHealth[url] != null) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: (_relayHealth[url]!.reachable
+                                ? EarthlyColors.commentGreen
+                                : EarthlyColors.destructive)
+                            .withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        _relayHealth[url]!.reachable
+                            ? '${_relayHealth[url]!.latencyMs} ms'
+                            : 'OFFLINE',
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: _relayHealth[url]!.reachable
+                              ? EarthlyColors.commentGreen
+                              : EarthlyColors.destructive,
+                        ),
+                      ),
+                    ),
+                  ],
                   if (widget.relayUrls.length > 1)
                     IconButton(
                       tooltip: 'Remove relay',

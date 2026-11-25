@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `blossom_geo_cache`, `compact_preview`, `compute_markdown_line_diff_counts`, `derive_inbox_items_from_events`, `event_to_raw`, `first_tag`, `hex_val`, `humanize_ident`, `inbox_entity_label`, `map_to_dto`, `merge_blob_payload_into_features`, `parse_coord`, `parse_live_relay_event`, `percent_decode_fragment`, `sighting_to_dto`, `story_to_dto`, `verify_optional_sha256`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `blossom_geo_cache`, `compact_preview`, `compute_markdown_line_diff_counts`, `derive_inbox_items_from_events`, `event_to_raw`, `first_tag`, `hex_val`, `humanize_ident`, `inbox_entity_label`, `map_to_dto`, `merge_blob_payload_into_features`, `parse_coord`, `parse_live_relay_event`, `parse_nip65_tags`, `percent_decode_fragment`, `sighting_to_dto`, `story_to_dto`, `verify_optional_sha256`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.
 Future<List<ProfileMetadataDto>> fetchProfiles({
@@ -17,6 +17,43 @@ Future<List<ProfileMetadataDto>> fetchProfiles({
 }) => EarthlyRustLib.instance.api.crateApiNostrClientFetchProfiles(
   relayUrls: relayUrls,
   pubkeys: pubkeys,
+);
+
+/// Fetches a user's NIP-65 (`kind 10002`) relay list metadata across configured
+/// relays (falling back to `wss://purplepag.es` if needed).
+Future<List<RelayListEntryDto>> fetchUserRelayList({
+  required List<String> relayUrls,
+  required String pubkeyOrNpub,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientFetchUserRelayList(
+  relayUrls: relayUrls,
+  pubkeyOrNpub: pubkeyOrNpub,
+);
+
+/// Probes WebSocket reachability and handshake latency (ms) for each relay URL.
+Future<List<RelayHealthDto>> probeRelaysHealth({
+  required List<String> relayUrls,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientProbeRelaysHealth(
+  relayUrls: relayUrls,
+);
+
+/// Reverse-geocodes a tapped map location using Photon (OSM, zero API key) with
+/// graceful fallback to formatted WGS-84 coordinates.
+Future<ReverseGeocodeDto> reverseGeocodeLocation({
+  required double lat,
+  required double lon,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientReverseGeocodeLocation(
+  lat: lat,
+  lon: lon,
+);
+
+/// Runs a NIP-50 full-text search query across configured Nostr relays for
+/// Maps (`37515`), Stories (`37520`), and Atlases (`37518`).
+Future<EarthlyCatalogSnapshot> searchRelayCatalogNip50({
+  required List<String> relayUrls,
+  required String query,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientSearchRelayCatalogNip50(
+  relayUrls: relayUrls,
+  query: query,
 );
 
 /// Searches places via Photon (OpenStreetMap geocoder, zero API key) for fast
@@ -933,6 +970,101 @@ class ProfileMetadataDto {
           website == other.website &&
           banner == other.banner &&
           lud16 == other.lud16;
+}
+
+class RelayHealthDto {
+  final String url;
+  final bool reachable;
+  final int latencyMs;
+  final String? error;
+
+  const RelayHealthDto({
+    required this.url,
+    required this.reachable,
+    required this.latencyMs,
+    this.error,
+  });
+
+  @override
+  int get hashCode =>
+      url.hashCode ^ reachable.hashCode ^ latencyMs.hashCode ^ error.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RelayHealthDto &&
+          runtimeType == other.runtimeType &&
+          url == other.url &&
+          reachable == other.reachable &&
+          latencyMs == other.latencyMs &&
+          error == other.error;
+}
+
+class RelayListEntryDto {
+  final String url;
+  final bool read;
+  final bool write;
+
+  const RelayListEntryDto({
+    required this.url,
+    required this.read,
+    required this.write,
+  });
+
+  @override
+  int get hashCode => url.hashCode ^ read.hashCode ^ write.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RelayListEntryDto &&
+          runtimeType == other.runtimeType &&
+          url == other.url &&
+          read == other.read &&
+          write == other.write;
+}
+
+class ReverseGeocodeDto {
+  final String displayName;
+  final String subtitle;
+  final double lat;
+  final double lon;
+  final String? country;
+  final String? city;
+  final String? street;
+
+  const ReverseGeocodeDto({
+    required this.displayName,
+    required this.subtitle,
+    required this.lat,
+    required this.lon,
+    this.country,
+    this.city,
+    this.street,
+  });
+
+  @override
+  int get hashCode =>
+      displayName.hashCode ^
+      subtitle.hashCode ^
+      lat.hashCode ^
+      lon.hashCode ^
+      country.hashCode ^
+      city.hashCode ^
+      street.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReverseGeocodeDto &&
+          runtimeType == other.runtimeType &&
+          displayName == other.displayName &&
+          subtitle == other.subtitle &&
+          lat == other.lat &&
+          lon == other.lon &&
+          country == other.country &&
+          city == other.city &&
+          street == other.street;
 }
 
 class SightingSummaryDto {

@@ -21,6 +21,8 @@ use nostr::{Event, JsonUtil, Keys, PublicKey, UnsignedEvent};
 use nostr_sdk::Client;
 use sha2::{Digest, Sha256};
 
+use super::nostr_client::RelayListEntryDto;
+
 #[derive(Clone, Debug)]
 pub struct LocalDraftDto {
     pub draft_id: String,
@@ -1028,6 +1030,57 @@ pub fn prepare_unsigned_profile_event(
     })
 }
 
+/// Prepares a canonical NIP-65 Relay List Metadata event (`kind 10002`)
+/// declaring the user's read/write Nostr relays.
+pub fn prepare_unsigned_relay_list_event(
+    pubkey_or_npub: String,
+    relays: Vec<RelayListEntryDto>,
+) -> Result<UnsignedCommentEventDto, String> {
+    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let pubkey_hex = pubkey.to_hex();
+
+    let mut tags: Vec<Vec<String>> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for entry in relays {
+        let clean = entry.url.trim().trim_end_matches('/').to_owned();
+        if (!clean.starts_with("wss://") && !clean.starts_with("ws://"))
+            || (!entry.read && !entry.write)
+            || !seen.insert(clean.clone())
+        {
+            continue;
+        }
+        if entry.read && entry.write {
+            tags.push(vec!["r".to_owned(), clean]);
+        } else if entry.read {
+            tags.push(vec!["r".to_owned(), clean, "read".to_owned()]);
+        } else {
+            tags.push(vec!["r".to_owned(), clean, "write".to_owned()]);
+        }
+    }
+    if tags.is_empty() {
+        return Err("Provide at least one valid wss:// relay URL for NIP-65".to_owned());
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let unsigned = serde_json::json!({
+        "kind": 10002,
+        "pubkey": pubkey_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": "",
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: "relay-list".to_owned(),
+        address: format!("10002:{pubkey_hex}:"),
+    })
+}
+
 /// Prepares a canonical Story Edit Proposal (`kind 37519`) targeting an existing
 /// `37520` Story (`SPEC.md` §17 / `STORY-06`) carrying the proposed replacement
 /// Markdown body as raw `content`.
@@ -1732,5 +1785,29 @@ mod tests {
         let del_tags = del_raw["tags"].as_array().unwrap();
         assert!(del_tags.iter().any(|t| t[0] == "a" && t[1] == format!("37515:{}:old-map", kp.pubkey_hex)));
         assert!(del_tags.iter().any(|t| t[0] == "k" && t[1] == "37515"));
+
+        let nip65 = prepare_unsigned_relay_list_event(
+            kp.pubkey_hex.clone(),
+            vec![
+                RelayListEntryDto {
+                    url: "wss://relay.earthly.city".to_owned(),
+                    read: true,
+                    write: true,
+                },
+                RelayListEntryDto {
+                    url: "wss://nos.lol".to_owned(),
+                    read: true,
+                    write: false,
+                },
+            ],
+        )
+        .unwrap();
+        let nip65_raw: serde_json::Value =
+            serde_json::from_str(&nip65.unsigned_event_json).unwrap();
+        assert_eq!(nip65_raw["kind"], 10002);
+        let r_tags = nip65_raw["tags"].as_array().unwrap();
+        assert_eq!(r_tags.len(), 2);
+        assert_eq!(r_tags[0], serde_json::json!(["r", "wss://relay.earthly.city"]));
+        assert_eq!(r_tags[1], serde_json::json!(["r", "wss://nos.lol", "read"]));
     }
 }

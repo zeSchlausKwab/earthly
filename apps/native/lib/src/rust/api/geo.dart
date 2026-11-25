@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_coords`, `to_closed_polygon`, `to_line`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `build_overpass_filter`, `from_coords`, `overpass_json_to_feature_collection`, `sanitize_osm_ident`, `to_closed_polygon`, `to_line`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Douglas-Peucker simplification of a polyline in meters.
 Future<List<LonLatPoint>> geoSimplifyLine({
@@ -146,6 +146,26 @@ Future<List<LonLatPoint>> geoCreatePrimitiveShape({
   radiusMeters: radiusMeters,
 );
 
+/// Queries OpenStreetMap Overpass within a bounded viewport bbox and returns
+/// normalized GeoJSON Features ready to import into the working draft.
+Future<OsmImportResultDto> geoQueryOverpassBbox({
+  required double west,
+  required double south,
+  required double east,
+  required double north,
+  required String preset,
+  String? customTag,
+  int? limit,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoQueryOverpassBbox(
+  west: west,
+  south: south,
+  east: east,
+  north: north,
+  preset: preset,
+  customTag: customTag,
+  limit: limit,
+);
+
 /// Validates a GeoJSON FeatureCollection via `earthly-geo::validate_feature_collection`.
 Future<DraftValidationDto> geoValidateDraftGeojson({required String geojson}) =>
     EarthlyRustLib.instance.api.crateApiGeoGeoValidateDraftGeojson(
@@ -222,6 +242,31 @@ class LonLatPoint {
           runtimeType == other.runtimeType &&
           lon == other.lon &&
           lat == other.lat;
+}
+
+class OsmImportResultDto {
+  final String geojson;
+  final int featureCount;
+  final String querySummary;
+
+  const OsmImportResultDto({
+    required this.geojson,
+    required this.featureCount,
+    required this.querySummary,
+  });
+
+  @override
+  int get hashCode =>
+      geojson.hashCode ^ featureCount.hashCode ^ querySummary.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is OsmImportResultDto &&
+          runtimeType == other.runtimeType &&
+          geojson == other.geojson &&
+          featureCount == other.featureCount &&
+          querySummary == other.querySummary;
 }
 
 class SpatialImportDto {

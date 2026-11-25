@@ -31,7 +31,9 @@ import 'shell/earthly_rich_text.dart';
 import 'shell/explore_sheet.dart';
 import 'shell/feature_inspector_sheet.dart';
 import 'shell/inbox_sheet.dart';
+import 'shell/location_inspector_sheet.dart';
 import 'shell/map_drawer.dart';
+import 'shell/osm_import_sheet.dart';
 import 'shell/person_margin.dart';
 import 'shell/place_search_sheet.dart';
 import 'shell/sighting_composer_sheet.dart';
@@ -82,6 +84,8 @@ enum _ActiveDrawer {
   datasetDetail,
   inspector,
   discussion,
+  locationInspector,
+  osmImport,
 }
 
 class EarthlyNativeApp extends StatefulWidget {
@@ -204,6 +208,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   AtlasSummaryDto? _activeAtlasLens;
   AtlasSummaryDto? _inspectedAtlas;
   MapSummaryDto? _inspectedMap;
+  Geographic? _inspectedLocation;
   final List<SightingSummaryDto> _localSightings = <SightingSummaryDto>[];
   final List<LiveBeaconDto> _localBeacons = <LiveBeaconDto>[];
   Nip55Account? _account;
@@ -1892,6 +1897,144 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     final signedStatus =
         await _signUnsignedEvent(account, preparedStatus.unsignedEventJson);
     return _deliverForAudience(DraftAudienceChoice.publicRelay, signedStatus);
+  }
+
+  Future<PublishOutcomeDto> _requestChangesProposal(
+    DiscussionTarget target,
+    GeoProposalDto proposal,
+    String note,
+  ) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final preparedStatus = await prepareUnsignedProposalStatusEvent(
+      pubkeyOrNpub: account.pubkey,
+      proposalAddress: proposal.address,
+      proposalEventId: proposal.eventId,
+      proposalAuthorPubkey: proposal.pubkey,
+      statusKind: 1633,
+      note: note,
+    );
+    final signedStatus =
+        await _signUnsignedEvent(account, preparedStatus.unsignedEventJson);
+    return _deliverForAudience(DraftAudienceChoice.publicRelay, signedStatus);
+  }
+
+  Future<List<RelayListEntryDto>> _fetchNip65Relays() async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    return fetchUserRelayList(
+      relayUrls: _activeRelayUrls,
+      pubkeyOrNpub: account.pubkey,
+    );
+  }
+
+  Future<PublishOutcomeDto> _publishNip65Relays(
+    List<RelayListEntryDto> relays,
+  ) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final prepared = await prepareUnsignedRelayListEvent(
+      pubkeyOrNpub: account.pubkey,
+      relays: relays,
+    );
+    final signed =
+        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+    return _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+  }
+
+  void _openLocationInspector(Geographic pt) {
+    setState(() => _inspectedLocation = pt);
+    _openDrawer(_ActiveDrawer.locationInspector);
+  }
+
+  void _dropDraftPointAt(Geographic pt) {
+    _pushDraftUndo();
+    setState(() {
+      _featureCounter += 1;
+      _features.add(
+        DrawnFeature(
+          id: 'pt-$_featureCounter',
+          kind: DrawToolMode.point,
+          name: 'Point #$_featureCounter',
+          vertices: [pt],
+        ),
+      );
+    });
+    unawaited(_persistWorkingDraft());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Added Point #$_featureCounter at ${pt.lat.toStringAsFixed(5)}, ${pt.lon.toStringAsFixed(5)}',
+        ),
+      ),
+    );
+  }
+
+  void _openOsmImportDrawer() {
+    _openDrawer(_ActiveDrawer.osmImport);
+  }
+
+  void _importOsmResultToDraft(OsmImportResultDto res) {
+    final imported = parseDraftFeaturesFromGeoJson(res.geojson);
+    if (imported.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No Point, LineString, or Polygon features found in OSM query'),
+        ),
+      );
+      return;
+    }
+    _pushDraftUndo();
+    setState(() {
+      for (final feat in imported) {
+        _featureCounter += 1;
+        _features.add(feat.copyWith(id: 'osm-$_featureCounter'));
+      }
+      _drawer = _ActiveDrawer.desk;
+    });
+    unawaited(_persistWorkingDraft());
+    final allVerts = imported.expand((f) => f.vertices).toList();
+    if (allVerts.isNotEmpty) {
+      double west = allVerts.first.lon;
+      double east = allVerts.first.lon;
+      double south = allVerts.first.lat;
+      double north = allVerts.first.lat;
+      for (final v in allVerts) {
+        if (v.lon < west) west = v.lon;
+        if (v.lon > east) east = v.lon;
+        if (v.lat < south) south = v.lat;
+        if (v.lat > north) north = v.lat;
+      }
+      const pad = 0.002;
+      _flyToBounds(
+        GeoBox(
+          west: (west - pad).clamp(-180.0, 180.0),
+          south: (south - pad).clamp(-85.0, 85.0),
+          east: (east + pad).clamp(-180.0, 180.0),
+          north: (north + pad).clamp(-85.0, 85.0),
+        ),
+      );
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Imported ${imported.length} OSM feature(s) to Working Draft'),
+      ),
+    );
+  }
+
+  GeoBox _currentImportBounds() {
+    final cam = _controller?.camera;
+    final center = _inspectedLocation ??
+        cam?.center ??
+        const Geographic(lon: 16.3738, lat: 48.2082);
+    final zoom = cam?.zoom ?? 14.0;
+    final delta = (0.8 / (1 << zoom.round().clamp(4, 18))).clamp(0.004, 0.22);
+    return GeoBox(
+      west: (center.lon - delta).clamp(-180.0, 180.0),
+      south: (center.lat - delta).clamp(-85.0, 85.0),
+      east: (center.lon + delta).clamp(-180.0, 180.0),
+      north: (center.lat + delta).clamp(-85.0, 85.0),
+    );
   }
 
   void _jumpToPlace(PlaceSearchResultDto place) {
@@ -5519,7 +5662,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         _ActiveDrawer.atlasDetail ||
         _ActiveDrawer.person ||
         _ActiveDrawer.account ||
-        _ActiveDrawer.search =>
+        _ActiveDrawer.search ||
+        _ActiveDrawer.locationInspector ||
+        _ActiveDrawer.osmImport =>
           true,
         _ => false,
       };
@@ -5561,8 +5706,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     });
   }
 
-  void _openSightingComposer() {
-    final center = _controller?.camera?.center ??
+  void _openSightingComposer({Geographic? initialLocation}) {
+    final center = initialLocation ??
+        _controller?.camera?.center ??
         const Geographic(lon: 16.3738, lat: 48.2082);
     showModalBottomSheet<void>(
       context: context,
@@ -5829,6 +5975,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             _openDrawer(_ActiveDrawer.atlasComposer);
           },
           onImportGeoJson: () => unawaited(_importGeoJsonFile()),
+          onImportOsm: _openOsmImportDrawer,
           onExportGeoJsonFile: () => unawaited(_exportGeoJsonFile()),
           onExportGpxFile: () => unawaited(_exportSpatialFile('gpx')),
           onExportKmlFile: () => unawaited(_exportSpatialFile('kml')),
@@ -5877,6 +6024,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             _openDrawer(_ActiveDrawer.circles);
           },
           onRelayUrlsChanged: _updateRelayUrls,
+          onFetchNip65Relays: _fetchNip65Relays,
+          onPublishNip65Relays: _publishNip65Relays,
           onAccountChanged: (account) {
             if (account == null) {
               if (_activeAccountId != null) {
@@ -6110,6 +6259,22 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         );
       case _ActiveDrawer.search:
         return PlaceSearchSheet(
+          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
+          catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
+          catalogAtlases: _catalog?.atlases ?? const <AtlasSummaryDto>[],
+          profilesByPubkey: _profilesByPubkey,
+          relayUrls: _activeRelayUrls,
+          onSelectMap: (map) {
+            _recordRecentEntity('map:${map.address}');
+            _inspectMap(map);
+            _flyToMap(map);
+          },
+          onSelectStory: (story) {
+            _recordRecentEntity('story:${story.address}');
+            unawaited(_openStory(story));
+          },
+          onSelectAtlas: _inspectAtlas,
+          onSelectPerson: _openPerson,
           onJumpToPlace: _jumpToPlace,
           onJumpToNaddr: _jumpToNaddr,
           onClose: () => _closeDrawer(target),
@@ -6561,7 +6726,40 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ),
           onApplyProposal: (proposal) => _applyProposal(target, proposal),
           onCloseProposal: (proposal) => _closeProposal(target, proposal),
+          onRequestChangesProposal: (proposal, note) =>
+              _requestChangesProposal(target, proposal, note),
+          onUploadBlossomImage: () async =>
+              (await _pickAndUploadBlossomImage('Upload comment photo'))?.url ??
+              '',
           onClose: () => _closeDrawer(_ActiveDrawer.discussion),
+        );
+      case _ActiveDrawer.locationInspector:
+        final pt = _inspectedLocation;
+        if (pt == null) return null;
+        return LocationInspectorSheet(
+          lat: pt.lat,
+          lon: pt.lon,
+          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
+          catalogSightings: _allSightings,
+          onInspectMap: (map) {
+            _recordRecentEntity('map:${map.address}');
+            _inspectMap(map);
+          },
+          onFocusSighting: _focusSighting,
+          onDropPointHere: () => _dropDraftPointAt(pt),
+          onCreateSightingHere: () => _openSightingComposer(initialLocation: pt),
+          onImportOsmHere: _openOsmImportDrawer,
+          onClose: () => _closeDrawer(_ActiveDrawer.locationInspector),
+        );
+      case _ActiveDrawer.osmImport:
+        final bbox = _currentImportBounds();
+        return OsmImportSheet(
+          west: bbox.west,
+          south: bbox.south,
+          east: bbox.east,
+          north: bbox.north,
+          onImportFeatures: _importOsmResultToDraft,
+          onClose: () => _closeDrawer(_ActiveDrawer.osmImport),
         );
     }
   }
@@ -6694,6 +6892,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             onMapCreated: (controller) =>
                 setState(() => _controller = controller),
             onStyleLoaded: (style) => unawaited(_syncSatellite(style)),
+            onLongClick: (event) {
+              if (!_isDrawingMode) {
+                _openLocationInspector(event.point);
+              }
+            },
             layers: gpuLayers,
             children: [
               EarthlyCalloutOverlay(

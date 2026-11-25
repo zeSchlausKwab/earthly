@@ -79,6 +79,7 @@ class DeskSheet extends StatefulWidget {
     required this.onComposeStory,
     required this.onCreateAtlas,
     required this.onImportGeoJson,
+    this.onImportOsm,
     required this.onExportGeoJsonFile,
     this.onExportGpxFile,
     this.onExportKmlFile,
@@ -146,6 +147,7 @@ class DeskSheet extends StatefulWidget {
   final VoidCallback onComposeStory;
   final VoidCallback onCreateAtlas;
   final VoidCallback onImportGeoJson;
+  final VoidCallback? onImportOsm;
   final VoidCallback onExportGeoJsonFile;
   final VoidCallback? onExportGpxFile;
   final VoidCallback? onExportKmlFile;
@@ -652,6 +654,13 @@ class _DeskSheetState extends State<DeskSheet> {
                 icon: const Icon(Icons.file_upload_outlined, size: 15),
                 label: const Text('Import GeoJSON / GPX / KML'),
               ),
+              if (widget.onImportOsm != null)
+                OutlinedButton.icon(
+                  key: const Key('desk-import-osm-btn'),
+                  onPressed: widget.onImportOsm,
+                  icon: const Icon(Icons.public_outlined, size: 15),
+                  label: const Text('Import OSM'),
+                ),
               if (widget.onPasteGeoJsonFromClipboard != null)
                 OutlinedButton.icon(
                   key: const Key('desk-paste-geojson-btn'),

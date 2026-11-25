@@ -21,10 +21,14 @@ import 'package:earthly_native/shell/entity_list_row.dart';
 import 'package:earthly_native/shell/explore_sheet.dart';
 import 'package:earthly_native/shell/feature_inspector_sheet.dart';
 import 'package:earthly_native/shell/inbox_sheet.dart';
+import 'package:earthly_native/shell/location_inspector_sheet.dart';
 import 'package:earthly_native/shell/map_drawer.dart';
+import 'package:earthly_native/shell/osm_import_sheet.dart';
 import 'package:earthly_native/shell/person_margin.dart';
+import 'package:earthly_native/shell/place_search_sheet.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
 import 'package:earthly_native/shell/social_actions_bar.dart';
+import 'package:earthly_native/shell/spaces_sheet.dart';
 import 'package:earthly_native/shell/story_composer_sheet.dart';
 import 'package:earthly_native/shell/story_reader_margin.dart';
 import 'package:earthly_native/src/rust/api/agent.dart';
@@ -2886,5 +2890,489 @@ Start at geo:48.2764,16.3338 and check $naddr
     );
     expect(png.length, greaterThan(100));
     expect(png.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
+  });
+
+  testWidgets(
+      'PlaceSearchSheet omnibox live-filters Maps, Stories, People, inserts operator chips, and merges NIP-50 + Photon results',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    MapSummaryDto? selectedMap;
+    String? nip50Queried;
+
+    final map = MapSummaryDto(
+      address: '37515:alice:danube',
+      eventId: 'ev1',
+      pubkey: 'alice',
+      dTag: 'danube',
+      title: 'Danube Bike Trail',
+      description: 'Cycling route along the river',
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      sizeBytes: 128,
+      blobRefs: const [],
+      hashtags: const ['cycling'],
+      labels: const [],
+      contextRefs: const [],
+      featureCount: 4,
+      createdAt: BigInt.from(1700000000),
+    );
+    final nip50Map = MapSummaryDto(
+      address: '37515:bob:alpine',
+      eventId: 'ev2',
+      pubkey: 'bob',
+      dTag: 'alpine',
+      title: 'Alpine Ridge Pass',
+      description: 'High trail',
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      sizeBytes: 128,
+      blobRefs: const [],
+      hashtags: const ['hiking'],
+      labels: const [],
+      contextRefs: const [],
+      featureCount: 2,
+      createdAt: BigInt.from(1700000100),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              PlaceSearchSheet(
+                catalogMaps: [map],
+                catalogStories: [
+                  StorySummaryDto(
+                    address: '37520:alice:story',
+                    eventId: 'st1',
+                    pubkey: 'alice',
+                    dTag: 'story',
+                    title: 'Danube Field Log',
+                    content: 'Notes',
+                    referencedAddresses: const [],
+                    publishedAt: BigInt.from(1700000000),
+                  ),
+                ],
+                profilesByPubkey: const {
+                  'alice': ProfileMetadataDto(
+                    pubkey: 'alice',
+                    name: 'alice',
+                    displayName: 'Danube Cartographer',
+                  ),
+                },
+                searchPlacesOverride: (q) async => [
+                  const PlaceSearchResultDto(
+                    name: 'Danube Island',
+                    subtitle: 'Vienna',
+                    lon: 16.41,
+                    lat: 48.23,
+                  ),
+                ],
+                searchNip50Override: (_, q) async {
+                  nip50Queried = q;
+                  return EarthlyCatalogSnapshot(
+                    relayUrls: const ['wss://relay.earthly.city'],
+                    maps: [nip50Map],
+                    stories: const [],
+                    atlases: const [],
+                    sightings: const [],
+                    beacons: const [],
+                  );
+                },
+                onSelectMap: (m) => selectedMap = m,
+                onJumpToPlace: (_) {},
+                onJumpToNaddr: (_) async {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('search-chip-tag')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('omnibox-search-field')),
+      'danube',
+    );
+    await tester.pump();
+
+    expect(find.text('Danube Bike Trail'), findsOneWidget);
+    expect(find.text('Danube Field Log'), findsOneWidget);
+    expect(find.text('Danube Cartographer'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('omnibox-go-btn')));
+    await tester.pumpAndSettle();
+
+    expect(nip50Queried, 'danube');
+    expect(find.text('Danube Island'), findsOneWidget);
+
+    await tester.tap(find.text('Danube Bike Trail'));
+    await tester.pump();
+    expect(selectedMap?.address, '37515:alice:danube');
+  });
+
+  testWidgets(
+      'LocationInspectorSheet renders reverse geocode, nearby Maps/Sightings, and Drop Point / Import OSM actions',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    var droppedPoint = false;
+    var openedOsm = false;
+    MapSummaryDto? inspected;
+
+    final nearbyMap = MapSummaryDto(
+      address: '37515:alice:prater',
+      eventId: 'm1',
+      pubkey: 'alice',
+      dTag: 'prater',
+      title: 'Prater Walk',
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      sizeBytes: 128,
+      blobRefs: const [],
+      hashtags: const [],
+      labels: const [],
+      contextRefs: const [],
+      featureCount: 3,
+      west: 16.38,
+      south: 48.20,
+      east: 16.41,
+      north: 48.22,
+      createdAt: BigInt.from(1700000000),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              LocationInspectorSheet(
+                lat: 48.21,
+                lon: 16.39,
+                initialReverseGeocode: const ReverseGeocodeDto(
+                  displayName: 'Praterstern',
+                  subtitle: 'Leopoldstadt, Vienna, Austria',
+                  lat: 48.21,
+                  lon: 16.39,
+                ),
+                catalogMaps: [nearbyMap],
+                catalogSightings: [
+                  SightingSummaryDto(
+                    address: '37522:bob:fox',
+                    eventId: 's1',
+                    pubkey: 'bob',
+                    dTag: 'fox',
+                    title: 'Kestrel Sighting',
+                    note: 'Hovering near tower',
+                    lon: 16.392,
+                    lat: 48.211,
+                    start: BigInt.from(1700000000),
+                  ),
+                ],
+                onInspectMap: (m) => inspected = m,
+                onDropPointHere: () => droppedPoint = true,
+                onImportOsmHere: () => openedOsm = true,
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Praterstern'), findsOneWidget);
+    await tester.ensureVisible(find.text('Prater Walk'));
+    expect(find.text('Prater Walk'), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -180));
+    await tester.pumpAndSettle();
+    expect(find.text('Kestrel Sighting'), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, 180));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('location-drop-point-btn')));
+    await tester.pump();
+    expect(droppedPoint, isTrue);
+
+    await tester.tap(find.byKey(const Key('location-import-osm-btn')));
+    await tester.pump();
+    expect(openedOsm, isTrue);
+
+    await tester.tap(find.text('Prater Walk'));
+    await tester.pump();
+    expect(inspected?.address, '37515:alice:prater');
+  });
+
+  testWidgets(
+      'DiscussionMarginSheet supports Blossom comment photo upload, per-feature Map proposal diff, and owner Request Changes',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    String? requestedChangesNote;
+
+    const baseGeo = '''
+{"type":"FeatureCollection","features":[{"type":"Feature","id":"f1","properties":{"name":"Old Hut"},"geometry":{"type":"Point","coordinates":[16.37,48.21]}}]}
+''';
+    const proposedGeo = '''
+{"type":"FeatureCollection","features":[{"type":"Feature","id":"f1","properties":{"name":"New Hut"},"geometry":{"type":"Point","coordinates":[16.37,48.21]}},{"type":"Feature","id":"f2","properties":{"name":"Ridge Spur"},"geometry":{"type":"LineString","coordinates":[[16.37,48.21],[16.38,48.22]]}}]}
+''';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DiscussionMarginSheet(
+                target: const DiscussionTarget(
+                  address: '37515:owner:hutmap',
+                  kind: 37515,
+                  pubkey: 'owner',
+                  title: 'Hut Map',
+                  baseGeojson: baseGeo,
+                ),
+                relayUrls: const ['wss://relay.earthly.city'],
+                hasDraftGeometry: false,
+                activeCommentGeojsonId: null,
+                activeProposalId: null,
+                profilesByPubkey: const {},
+                currentUserPubkey: 'owner',
+                initialSnapshot: EntityDiscussionSnapshot(
+                  rootAddress: '37515:owner:hutmap',
+                  comments: const [],
+                  proposals: [
+                    GeoProposalDto(
+                      address: '37519:contrib:pr1',
+                      eventId: 'pr1',
+                      pubkey: 'contrib',
+                      dTag: 'pr1',
+                      targetAddress: '37515:owner:hutmap',
+                      description: 'Add Ridge Spur & rename hut',
+                      geojson: proposedGeo,
+                      isStoryProposal: false,
+                      addedCount: 1,
+                      modifiedCount: 1,
+                      removedCount: 0,
+                      status: 'open',
+                      createdAt: BigInt.from(1700000100),
+                    ),
+                  ],
+                ),
+                onToggleCommentOverlay: (_) {},
+                onToggleProposalOverlay: (_) {},
+                onPostComment: (_, _, {replyTo}) async =>
+                    const PublishOutcomeDto(
+                  eventId: 'c1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onUploadBlossomImage: () async =>
+                    'https://blossom.earthly.city/photo.jpg',
+                onSubmitProposal: (_) async => const PublishOutcomeDto(
+                  eventId: 'p1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onLoadProposalToDraft: (_) {},
+                onApplyProposal: (_) async => const PublishOutcomeDto(
+                  eventId: 'a1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onCloseProposal: (_) async => const PublishOutcomeDto(
+                  eventId: 'cl1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onRequestChangesProposal: (_, note) async {
+                  requestedChangesNote = note;
+                  return const PublishOutcomeDto(
+                    eventId: 'rc1',
+                    outboxState: 'sent',
+                    relays: [],
+                  );
+                },
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('comment-upload-photo-btn')));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('https://blossom.earthly.city/photo.jpg'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Proposals (1)'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('proposal-feature-diff-btn-pr1')));
+    await tester.pump();
+    expect(find.byKey(const Key('proposal-feature-diff-view-pr1')), findsOneWidget);
+    expect(find.text('+ Ridge Spur (line, 2 pts)'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('proposal-request-changes-btn-pr1')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('request-changes-note-field')),
+      'Please snap Ridge Spur to trail',
+    );
+    await tester.tap(find.byKey(const Key('request-changes-confirm-btn')));
+    await tester.pumpAndSettle();
+    expect(requestedChangesNote, 'Please snap Ridge Spur to trail');
+  });
+
+  testWidgets(
+      'SpacesSheet probes relay health badges and syncs/publishes NIP-65 10002 relay list',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    List<String>? updatedRelays;
+    List<RelayListEntryDto>? publishedRelays;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              SpacesSheet(
+                account: const Nip55Account(pubkey: 'alice'),
+                localNsec: null,
+                relayUrls: const [
+                  'wss://relay.earthly.city',
+                  'wss://offline.example',
+                ],
+                onRelayUrlsChanged: (next) => updatedRelays = next,
+                onProbeRelaysHealth: (urls) async => [
+                  const RelayHealthDto(
+                    url: 'wss://relay.earthly.city',
+                    reachable: true,
+                    latencyMs: 42,
+                  ),
+                  const RelayHealthDto(
+                    url: 'wss://offline.example',
+                    reachable: false,
+                    latencyMs: 0,
+                    error: 'timeout',
+                  ),
+                ],
+                onFetchNip65Relays: () async => const [
+                  RelayListEntryDto(
+                    url: 'wss://nos.lol',
+                    read: true,
+                    write: true,
+                  ),
+                ],
+                onPublishNip65Relays: (relays) async {
+                  publishedRelays = relays;
+                  return const PublishOutcomeDto(
+                    eventId: 'rk1',
+                    outboxState: 'sent',
+                    relays: [],
+                  );
+                },
+                onAccountChanged: (_) {},
+                onLocalKeyChanged: (_) {},
+                onSessionStateChanged: (_, _) {},
+                onNearbySynced: () {},
+                onBroadcastBeacon: (_, _, _) async => const PublishOutcomeDto(
+                  eventId: 'b1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final probeBtn = find.byKey(const Key('spaces-probe-relays-btn'));
+    await tester.ensureVisible(probeBtn);
+    await tester.tap(probeBtn);
+    await tester.pumpAndSettle();
+
+    expect(find.text('42 ms'), findsOneWidget);
+    expect(find.text('OFFLINE'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('spaces-sync-nip65-btn')));
+    await tester.pumpAndSettle();
+    expect(updatedRelays, contains('wss://nos.lol'));
+
+    await tester.tap(find.byKey(const Key('spaces-publish-nip65-btn')));
+    await tester.pumpAndSettle();
+    expect(publishedRelays?.length, 2);
+  });
+
+  testWidgets(
+      'OsmImportSheet queries Overpass presets and imports GeoJSON features to draft',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 1300);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    String? queriedPreset;
+    OsmImportResultDto? imported;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              OsmImportSheet(
+                west: 16.36,
+                south: 48.20,
+                east: 16.38,
+                north: 48.22,
+                queryOverride: ({
+                  required west,
+                  required south,
+                  required east,
+                  required north,
+                  required preset,
+                  customTag,
+                  limit,
+                }) async {
+                  queriedPreset = preset;
+                  return const OsmImportResultDto(
+                    geojson:
+                        '{"type":"FeatureCollection","features":[{"type":"Feature","id":"way/1","properties":{"name":"Donaukanal"},"geometry":{"type":"LineString","coordinates":[[16.36,48.20],[16.38,48.21]]}}]}',
+                    featureCount: 1,
+                    querySummary: '1 OSM feature (waterway)',
+                  );
+                },
+                onImportFeatures: (res) => imported = res,
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('osm-preset-waterway')));
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('osm-query-btn')));
+    await tester.tap(find.byKey(const Key('osm-query-btn')));
+    await tester.pumpAndSettle();
+
+    expect(queriedPreset, 'waterway');
+    expect(find.textContaining('Donaukanal'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('osm-import-btn')));
+    await tester.tap(find.byKey(const Key('osm-import-btn')));
+    await tester.pump();
+    expect(imported?.featureCount, 1);
   });
 }
