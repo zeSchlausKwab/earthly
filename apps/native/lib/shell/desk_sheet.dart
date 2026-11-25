@@ -50,6 +50,7 @@ class DeskSheet extends StatefulWidget {
     required this.onAudienceChanged,
     required this.onToggleShelfVisibility,
     required this.onRemoveShelfMap,
+    required this.onInspectShelfMap,
     required this.onFlyToShelfMap,
     required this.onCloneShelfMapToDraft,
     required this.onOpenShelfDiscussion,
@@ -87,6 +88,7 @@ class DeskSheet extends StatefulWidget {
   final ValueChanged<DraftAudienceChoice> onAudienceChanged;
   final ValueChanged<String> onToggleShelfVisibility;
   final ValueChanged<String> onRemoveShelfMap;
+  final ValueChanged<MapSummaryDto> onInspectShelfMap;
   final ValueChanged<MapSummaryDto> onFlyToShelfMap;
   final ValueChanged<MapSummaryDto> onCloneShelfMapToDraft;
   final ValueChanged<MapSummaryDto> onOpenShelfDiscussion;
@@ -281,6 +283,11 @@ class _DeskSheetState extends State<DeskSheet> {
                   ),
                 ),
                 menuActions: [
+                  EntityRowMenuAction(
+                    label: 'Open Map details & features',
+                    icon: Icons.info_outline,
+                    onSelected: () => widget.onInspectShelfMap(entry.summary),
+                  ),
                   EntityRowMenuAction(
                     label: 'Zoom to map',
                     icon: Icons.center_focus_strong,

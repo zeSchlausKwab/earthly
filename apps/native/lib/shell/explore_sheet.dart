@@ -32,6 +32,7 @@ class ExploreSheet extends StatefulWidget {
     required this.onToggleFavorite,
     required this.onToggleMapOnShelf,
     required this.onAddMapsBulk,
+    required this.onInspectMap,
     required this.onFocusMap,
     required this.onCloneMapToDraft,
     required this.onOpenMapDiscussion,
@@ -63,6 +64,7 @@ class ExploreSheet extends StatefulWidget {
   final ValueChanged<String> onToggleFavorite;
   final ValueChanged<MapSummaryDto> onToggleMapOnShelf;
   final ValueChanged<List<MapSummaryDto>> onAddMapsBulk;
+  final ValueChanged<MapSummaryDto> onInspectMap;
   final ValueChanged<MapSummaryDto> onFocusMap;
   final ValueChanged<MapSummaryDto> onCloneMapToDraft;
   final ValueChanged<MapSummaryDto> onOpenMapDiscussion;
@@ -319,6 +321,7 @@ class _ExploreSheetState extends State<ExploreSheet>
         .where((m) => !widget.shelfAddresses.contains(m.address))
         .toList(growable: false);
 
+    final isDesktop = MediaQuery.sizeOf(context).width >= 880;
     return EarthlyMapDrawer(
       initialFraction: 0.56,
       accentTopBorder: widget.activeAtlasLens != null,
@@ -326,55 +329,46 @@ class _ExploreSheetState extends State<ExploreSheet>
       header: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 8, 2),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.relayUrls.length > 1
-                        ? 'EXPLORE · RELAY + NEARBY PEER'
-                        : 'EXPLORE · RELAY.EARTHLY.CITY',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontFamily: 'monospace',
-                      letterSpacing: 0.7,
-                    ),
-                  ),
+          Row(
+            children: [
+              Expanded(
+                child: TabBar(
+                  controller: _tabs,
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  dividerHeight: 0,
+                  tabs: [
+                    Tab(text: 'Maps (${visibleMaps.length})'),
+                    Tab(text: 'Stories (${visibleStories.length})'),
+                    Tab(text: 'Atlases (${visibleAtlases.length})'),
+                    Tab(text: 'Sightings (${catalog?.sightings.length ?? 0})'),
+                    Tab(text: 'Live (${catalog?.beacons.length ?? 0})'),
+                  ],
                 ),
+              ),
+              if (isDesktop) ...[
                 IconButton(
-                  tooltip: 'Refresh',
+                  tooltip: 'Refresh catalog',
                   visualDensity: VisualDensity.compact,
                   onPressed: isLoading ? null : _refresh,
-                  icon: isLoading
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh, size: 18),
+                  icon: const Icon(Icons.refresh, size: 17),
                 ),
                 IconButton(
+                  tooltip: 'Close',
                   visualDensity: VisualDensity.compact,
                   onPressed: widget.onClose,
-                  icon: const Icon(Icons.close, size: 18),
+                  icon: const Icon(Icons.close, size: 17),
                 ),
+                const SizedBox(width: 4),
               ],
-            ),
-          ),
-          TabBar(
-            controller: _tabs,
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            tabs: [
-              Tab(text: 'Maps (${visibleMaps.length})'),
-              Tab(text: 'Stories (${visibleStories.length})'),
-              Tab(text: 'Atlases (${visibleAtlases.length})'),
-              Tab(text: 'Sightings (${catalog?.sightings.length ?? 0})'),
-              Tab(text: 'Live (${catalog?.beacons.length ?? 0})'),
             ],
           ),
+          if (isLoading)
+            const LinearProgressIndicator(
+              minHeight: 2,
+              color: EarthlyColors.amber,
+              backgroundColor: Colors.transparent,
+            ),
         ],
       ),
       body: Column(
@@ -587,16 +581,27 @@ class _ExploreSheetState extends State<ExploreSheet>
 
   Widget _buildMapsList(List<MapSummaryDto> filtered) {
     if (filtered.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Text(_emptyMessage('maps'), textAlign: TextAlign.center),
+      return RefreshIndicator(
+        color: EarthlyColors.amber,
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(28),
+              child: Text(_emptyMessage('maps'), textAlign: TextAlign.center),
+            ),
+          ],
         ),
       );
     }
-    return ListView.builder(
-      itemCount: filtered.length,
-      itemBuilder: (context, index) {
+    return RefreshIndicator(
+      color: EarthlyColors.amber,
+      onRefresh: _refresh,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: filtered.length,
+        itemBuilder: (context, index) {
         final map = filtered[index];
         final onShelf = widget.shelfAddresses.contains(map.address);
         final favKey = 'map:${map.address}';
@@ -642,6 +647,11 @@ class _ExploreSheetState extends State<ExploreSheet>
           ),
           menuActions: [
             EntityRowMenuAction(
+              label: 'Open Map details & features',
+              icon: Icons.info_outline,
+              onSelected: () => widget.onInspectMap(map),
+            ),
+            EntityRowMenuAction(
               label: onShelf ? 'Remove from map' : 'Show on map',
               icon: onShelf ? Icons.layers_clear_outlined : Icons.layers,
               onSelected: () => widget.onToggleMapOnShelf(map),
@@ -681,6 +691,7 @@ class _ExploreSheetState extends State<ExploreSheet>
           ],
         );
       },
+      ),
     );
   }
 
@@ -700,18 +711,25 @@ class _ExploreSheetState extends State<ExploreSheet>
         ),
         const Divider(height: 1),
         Expanded(
-          child: filtered.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Text(
-                      _emptyMessage('stories'),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: filtered.length,
+          child: RefreshIndicator(
+            color: EarthlyColors.amber,
+            onRefresh: _refresh,
+            child: filtered.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Text(
+                          _emptyMessage('stories'),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: filtered.length,
                   itemBuilder: (context, index) {
                     final story = filtered[index];
                     final favKey = 'story:${story.address}';
@@ -780,6 +798,7 @@ class _ExploreSheetState extends State<ExploreSheet>
                     );
                   },
                 ),
+          ),
         ),
       ],
     );
@@ -805,18 +824,25 @@ class _ExploreSheetState extends State<ExploreSheet>
         ),
         const Divider(height: 1),
         Expanded(
-          child: filtered.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Text(
-                      _emptyMessage('atlases'),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: filtered.length,
+          child: RefreshIndicator(
+            color: EarthlyColors.amber,
+            onRefresh: _refresh,
+            child: filtered.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Text(
+                          _emptyMessage('atlases'),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: filtered.length,
                   itemBuilder: (context, index) {
                     final atlas = filtered[index];
                     final favKey = 'atlas:${atlas.address}';
@@ -903,6 +929,7 @@ class _ExploreSheetState extends State<ExploreSheet>
                     );
                   },
                 ),
+          ),
         ),
       ],
     );
@@ -924,10 +951,25 @@ class _ExploreSheetState extends State<ExploreSheet>
         ),
         const Divider(height: 1),
         Expanded(
-          child: sightings.isEmpty
-              ? const Center(child: Text('No active sightings right now.'))
-              : ListView.builder(
-                  itemCount: sightings.length,
+          child: RefreshIndicator(
+            color: EarthlyColors.amber,
+            onRefresh: _refresh,
+            child: sightings.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [
+                      Padding(
+                        padding: EdgeInsets.all(28),
+                        child: Text(
+                          'No active sightings right now.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: sightings.length,
                   itemBuilder: (context, index) {
                     final s = sightings[index];
                     final title =
@@ -971,6 +1013,7 @@ class _ExploreSheetState extends State<ExploreSheet>
                     );
                   },
                 ),
+          ),
         ),
       ],
     );
@@ -996,10 +1039,25 @@ class _ExploreSheetState extends State<ExploreSheet>
         ),
         const Divider(height: 1),
         Expanded(
-          child: beacons.isEmpty
-              ? const Center(child: Text('No active live beacons right now.'))
-              : ListView.builder(
-                  itemCount: beacons.length,
+          child: RefreshIndicator(
+            color: EarthlyColors.amber,
+            onRefresh: _refresh,
+            child: beacons.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [
+                      Padding(
+                        padding: EdgeInsets.all(28),
+                        child: Text(
+                          'No active live beacons right now.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: beacons.length,
                   itemBuilder: (context, index) {
                     final b = beacons[index];
                     final seen = formatRelativeUnixDate(b.createdAt.toInt());
@@ -1070,6 +1128,7 @@ class _ExploreSheetState extends State<ExploreSheet>
                     );
                   },
                 ),
+          ),
         ),
       ],
     );

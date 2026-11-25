@@ -278,6 +278,22 @@ Future<UnsignedCommentEventDto> prepareUnsignedProfileEvent({
   nip05: nip05,
 );
 
+/// Prepares a canonical NIP-09 deletion request (`kind 5`) targeting an owned
+/// Earthly entity (Map `37515`, Story `37520`, Atlas `37518`, etc.).
+Future<UnsignedCommentEventDto> prepareUnsignedDeletionEvent({
+  required String pubkeyOrNpub,
+  required String targetAddress,
+  String? targetEventId,
+  required int targetKind,
+  String? reason,
+}) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedDeletionEvent(
+  pubkeyOrNpub: pubkeyOrNpub,
+  targetAddress: targetAddress,
+  targetEventId: targetEventId,
+  targetKind: targetKind,
+  reason: reason,
+);
+
 /// Persists an already-signed Nostr event into the crash-safe SQLite outbox
 /// BEFORE network transmission, delivers it to each target relay via `nostr-sdk`,
 /// records per-relay acknowledgements, and returns the live outcome.

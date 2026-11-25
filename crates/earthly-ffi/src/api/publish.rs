@@ -909,6 +909,56 @@ pub fn prepare_unsigned_profile_event(
     })
 }
 
+/// Prepares a canonical NIP-09 deletion request (`kind 5`) targeting an owned
+/// Earthly entity (Map `37515`, Story `37520`, Atlas `37518`, etc.).
+pub fn prepare_unsigned_deletion_event(
+    pubkey_or_npub: String,
+    target_address: String,
+    target_event_id: Option<String>,
+    target_kind: u16,
+    reason: Option<String>,
+) -> Result<UnsignedCommentEventDto, String> {
+    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let pubkey_hex = pubkey.to_hex();
+
+    let mut tags: Vec<Vec<String>> = vec![
+        vec!["a".to_owned(), target_address.clone()],
+        vec!["k".to_owned(), target_kind.to_string()],
+    ];
+    if let Some(ev_id) = target_event_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        tags.push(vec!["e".to_owned(), ev_id.to_owned()]);
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let content = reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Deleted via Earthly")
+        .to_owned();
+    let unsigned = serde_json::json!({
+        "kind": 5,
+        "pubkey": pubkey_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": content,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: target_address.clone(),
+        address: target_address,
+    })
+}
+
 /// Persists an already-signed Nostr event into the crash-safe SQLite outbox
 /// BEFORE network transmission, delivers it to each target relay via `nostr-sdk`,
 /// records per-relay acknowledgements, and returns the live outcome.
@@ -1300,5 +1350,20 @@ mod tests {
             serde_json::from_str(prof_raw["content"].as_str().unwrap()).unwrap();
         assert_eq!(prof_content["display_name"], "Field Cartographer");
         assert_eq!(prof_content["nip05"], "cartographer@earthly.city");
+
+        let del = prepare_unsigned_deletion_event(
+            kp.pubkey_hex.clone(),
+            format!("37515:{}:old-map", kp.pubkey_hex),
+            Some("deadbeef".to_owned()),
+            GEO_EVENT_KIND,
+            Some("Replaced".to_owned()),
+        )
+        .unwrap();
+        let del_raw: serde_json::Value = serde_json::from_str(&del.unsigned_event_json).unwrap();
+        assert_eq!(del_raw["kind"], 5);
+        assert_eq!(del_raw["content"], "Replaced");
+        let del_tags = del_raw["tags"].as_array().unwrap();
+        assert!(del_tags.iter().any(|t| t[0] == "a" && t[1] == format!("37515:{}:old-map", kp.pubkey_hex)));
+        assert!(del_tags.iter().any(|t| t[0] == "k" && t[1] == "37515"));
     }
 }

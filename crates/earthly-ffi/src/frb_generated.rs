@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 437567158;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1166226406;
 
 // Section: executor
 
@@ -1526,6 +1526,49 @@ fn wire__crate__api__publish__prepare_unsigned_comment_event_impl(
                         api_root_pubkey,
                         api_text,
                         api_geojson,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__publish__prepare_unsigned_deletion_event_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "prepare_unsigned_deletion_event",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_pubkey_or_npub = <String>::sse_decode(&mut deserializer);
+            let api_target_address = <String>::sse_decode(&mut deserializer);
+            let api_target_event_id = <Option<String>>::sse_decode(&mut deserializer);
+            let api_target_kind = <u16>::sse_decode(&mut deserializer);
+            let api_reason = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::publish::prepare_unsigned_deletion_event(
+                        api_pubkey_or_npub,
+                        api_target_address,
+                        api_target_event_id,
+                        api_target_kind,
+                        api_reason,
                     )?;
                     std::result::Result::Ok(output_ok)
                 })())
@@ -3968,82 +4011,88 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        41 => wire__crate__api__publish__prepare_unsigned_map_event_impl(
+        41 => wire__crate__api__publish__prepare_unsigned_deletion_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        42 => wire__crate__api__publish__prepare_unsigned_profile_event_impl(
+        42 => wire__crate__api__publish__prepare_unsigned_map_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        43 => wire__crate__api__publish__prepare_unsigned_proposal_event_impl(
+        43 => wire__crate__api__publish__prepare_unsigned_profile_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        44 => wire__crate__api__publish__prepare_unsigned_proposal_status_event_impl(
+        44 => wire__crate__api__publish__prepare_unsigned_proposal_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        45 => wire__crate__api__publish__prepare_unsigned_sighting_event_impl(
+        45 => wire__crate__api__publish__prepare_unsigned_proposal_status_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        46 => wire__crate__api__publish__prepare_unsigned_story_event_impl(
+        46 => wire__crate__api__publish__prepare_unsigned_sighting_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        47 => wire__crate__api__publish__publish_nearby_event_via_outbox_impl(
+        47 => wire__crate__api__publish__prepare_unsigned_story_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        48 => wire__crate__api__publish__publish_signed_event_via_outbox_impl(
+        48 => wire__crate__api__publish__publish_nearby_event_via_outbox_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        49 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
-        51 => {
+        49 => wire__crate__api__publish__publish_signed_event_via_outbox_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        50 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
+        52 => {
             wire__crate__api__spike__resolve_local_blob_url_impl(port, ptr, rust_vec_len, data_len)
         }
-        52 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        53 => {
+        53 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        54 => {
             wire__crate__api__agent__run_earthly_agent_turn_impl(port, ptr, rust_vec_len, data_len)
         }
-        54 => wire__crate__api__settings__save_app_settings_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__api__publish__save_local_draft_impl(port, ptr, rust_vec_len, data_len),
-        56 => wire__crate__api__nostr_client__search_places_impl(port, ptr, rust_vec_len, data_len),
-        57 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
-        58 => {
+        55 => wire__crate__api__settings__save_app_settings_impl(port, ptr, rust_vec_len, data_len),
+        56 => wire__crate__api__publish__save_local_draft_impl(port, ptr, rust_vec_len, data_len),
+        57 => wire__crate__api__nostr_client__search_places_impl(port, ptr, rust_vec_len, data_len),
+        58 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
+        59 => {
             wire__crate__api__publish__sign_event_with_nsec_impl(port, ptr, rust_vec_len, data_len)
         }
-        59 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
-        60 => {
+        60 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
+        61 => {
             wire__crate__api__spike__start_local_node_fips_impl(port, ptr, rust_vec_len, data_len)
         }
-        61 => wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len),
-        62 => wire__crate__api__nostr_client__subscribe_earthly_relay_stream_impl(
+        62 => wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len),
+        63 => wire__crate__api__nostr_client__subscribe_earthly_relay_stream_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        63 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        64 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

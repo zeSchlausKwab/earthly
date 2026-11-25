@@ -21,6 +21,7 @@ import 'shell/agent_drawer.dart';
 import 'shell/atlas_composer_sheet.dart';
 import 'shell/atlas_detail_margin.dart';
 import 'shell/basemap_switcher_sheet.dart';
+import 'shell/dataset_detail_margin.dart';
 import 'shell/desk_sheet.dart';
 import 'shell/discussion_margin_sheet.dart';
 import 'shell/explore_sheet.dart';
@@ -30,6 +31,7 @@ import 'shell/sighting_composer_sheet.dart';
 import 'shell/spaces_sheet.dart';
 import 'shell/story_composer_sheet.dart';
 import 'shell/story_reader_margin.dart';
+import 'spike/rust_node_sheet.dart';
 import 'src/rust/api/agent.dart';
 import 'src/rust/api/geo.dart';
 import 'src/rust/api/nostr_client.dart';
@@ -64,6 +66,7 @@ enum _ActiveDrawer {
   storyComposer,
   atlasComposer,
   atlasDetail,
+  datasetDetail,
   inspector,
   discussion,
 }
@@ -165,6 +168,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   final List<String> _recentEntityIds = <String>[];
   AtlasSummaryDto? _activeAtlasLens;
   AtlasSummaryDto? _inspectedAtlas;
+  MapSummaryDto? _inspectedMap;
   final List<SightingSummaryDto> _localSightings = <SightingSummaryDto>[];
   final List<LiveBeaconDto> _localBeacons = <LiveBeaconDto>[];
   Nip55Account? _account;
@@ -1985,6 +1989,366 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     });
   }
 
+  void _inspectMap(MapSummaryDto map) {
+    _recordRecentEntity('map:${map.address}');
+    setState(() {
+      _inspectedMap = map;
+      _drawer = _ActiveDrawer.datasetDetail;
+    });
+  }
+
+  void _editOrForkMap(MapSummaryDto map) {
+    final isOwned = _account != null && _account!.pubkey == map.pubkey;
+    final cloned = parseDraftFeaturesFromGeoJson(map.geojson);
+    if (cloned.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No editable features found in map')),
+      );
+      return;
+    }
+    setState(() {
+      _features
+        ..clear()
+        ..addAll(cloned);
+      _draftVertices.clear();
+      _featureCounter = _features.length;
+      if (isOwned) {
+        _draftDTag = map.dTag;
+        _draftTitle = map.title;
+      } else {
+        _draftDTag = 'field-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+        _draftTitle = '${map.title} (Fork)';
+      }
+      _drawer = _ActiveDrawer.desk;
+    });
+    unawaited(_persistWorkingDraft());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isOwned
+              ? 'Loaded "${map.title}" for in-place edit (preserving d-tag)'
+              : 'Forked ${cloned.length} features into Working Draft',
+        ),
+      ),
+    );
+  }
+
+  Future<PublishOutcomeDto> _deleteOwnedMap(MapSummaryDto map) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final prepared = await prepareUnsignedDeletionEvent(
+      pubkeyOrNpub: account.pubkey,
+      targetAddress: map.address,
+      targetEventId: map.eventId,
+      targetKind: 37515,
+      reason: 'Deleted map "${map.title}"',
+    );
+    final signed =
+        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+    final outcome =
+        await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+    if (mounted) {
+      setState(() {
+        _shelfMaps.removeWhere((e) => e.summary.address == map.address);
+        if (_catalog != null) {
+          _catalog = EarthlyCatalogSnapshot(
+            relayUrls: _catalog!.relayUrls,
+            maps: _catalog!.maps
+                .where((m) => m.address != map.address)
+                .toList(growable: false),
+            stories: _catalog!.stories,
+            atlases: _catalog!.atlases,
+            sightings: _catalog!.sightings,
+            beacons: _catalog!.beacons,
+          );
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Published NIP-09 deletion for "${map.title}" (${outcome.outboxState})',
+          ),
+        ),
+      );
+    }
+    return outcome;
+  }
+
+  void _jumpToMapFeature(MapSummaryDto map, ShelfShape shape) {
+    if (!_shelfMaps.any((e) => e.summary.address == map.address)) {
+      setState(() => _shelfMaps.add(_entryFromSummary(map)));
+    }
+    final bounds = computeFeatureBounds(shape);
+    if (bounds != null) _flyToBounds(bounds);
+    _inspectFeature(
+      InspectedFeature(
+        sourceLabel: map.title,
+        isDraft: false,
+        featureId: shape.featureId,
+        geometryType: switch (shape.kind) {
+          ShelfShapeKind.point => 'Point',
+          ShelfShapeKind.line => 'LineString',
+          ShelfShapeKind.polygon => 'Polygon',
+        },
+        title: shape.label ?? shape.featureId ?? map.title,
+        properties: shape.properties,
+        callouts: shape.callouts,
+        datasetAddress: map.address,
+        datasetPubkey: map.pubkey,
+        datasetTitle: map.title,
+        datasetEventId: map.eventId,
+        datasetGeojson: map.geojson,
+      ),
+    );
+  }
+
+  void _fitAllMountedLayers() {
+    final bounds = computeCombinedBounds(_shelfMaps);
+    if (bounds != null) {
+      _flyToBounds(bounds);
+      return;
+    }
+    final verts = _features.expand((f) => f.vertices).toList();
+    if (verts.isNotEmpty) {
+      double west = verts.first.lon;
+      double east = verts.first.lon;
+      double south = verts.first.lat;
+      double north = verts.first.lat;
+      for (final v in verts) {
+        if (v.lon < west) west = v.lon;
+        if (v.lon > east) east = v.lon;
+        if (v.lat < south) south = v.lat;
+        if (v.lat > north) north = v.lat;
+      }
+      _flyToBounds(
+        GeoBox(
+          west: (west - 0.002).clamp(-180.0, 180.0),
+          south: (south - 0.002).clamp(-85.0, 85.0),
+          east: (east + 0.002).clamp(-180.0, 180.0),
+          north: (north + 0.002).clamp(-85.0, 85.0),
+        ),
+      );
+    }
+  }
+
+  void _openEarthlyCommandSheet(BasemapKind effectiveBasemap) {
+    final cam = _controller?.camera;
+    final center = cam?.center ?? const Geographic(lon: 16.3738, lat: 48.2082);
+    final zoom = cam?.zoom ?? 13.5;
+    final geoUri =
+        'geo:${center.lat.toStringAsFixed(5)},${center.lon.toStringAsFixed(5)}';
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.24),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: const BoxDecoration(
+                        color: EarthlyColors.amber,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.explore,
+                        size: 17,
+                        color: EarthlyColors.amberInk,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'EARTHLY',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.0,
+                            ),
+                          ),
+                          Text(
+                            _relayStreamLive
+                                ? 'Live stream · ${_relayUrls.first}'
+                                : 'Connecting · ${_relayUrls.first}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10.5,
+                              color: _relayStreamLive
+                                  ? EarthlyColors.commentGreen
+                                  : theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        unawaited(_preloadCatalog());
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Refreshing Nostr catalog…'),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.refresh, size: 15),
+                      label: const Text('Sync'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'MAP STYLE',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontFamily: 'monospace',
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('Liberty'),
+                      selected:
+                          effectiveBasemap == BasemapKind.openFreeMapLiberty,
+                      onSelected: (_) {
+                        setState(
+                          () =>
+                              _selectedBasemap = BasemapKind.openFreeMapLiberty,
+                        );
+                        Navigator.of(ctx).pop();
+                      },
+                    ),
+                    ChoiceChip(
+                      label: const Text('Dark'),
+                      selected: effectiveBasemap == BasemapKind.openFreeMapDark,
+                      onSelected: (_) {
+                        setState(
+                          () => _selectedBasemap = BasemapKind.openFreeMapDark,
+                        );
+                        Navigator.of(ctx).pop();
+                      },
+                    ),
+                    ActionChip(
+                      avatar: const Icon(Icons.layers_outlined, size: 15),
+                      label: const Text('Offline / Overlays…'),
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        _openBasemapSwitcher(effectiveBasemap);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: theme.dividerColor),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.my_location, size: 15),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${center.lat.toStringAsFixed(5)}, ${center.lon.toStringAsFixed(5)} · z${zoom.toStringAsFixed(1)}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: geoUri));
+                          Navigator.of(ctx).pop();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Copied $geoUri')),
+                          );
+                        },
+                        child: const Text('Copy geo:'),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (_shelfMaps.isNotEmpty || _features.isNotEmpty)
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _fitAllMountedLayers();
+                        },
+                        icon: const Icon(Icons.fit_screen, size: 16),
+                        label: const Text('Fit All Layers'),
+                      ),
+                    if (_shelfMaps.isNotEmpty)
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          setState(() => _shelfMaps.clear());
+                        },
+                        icon: const Icon(Icons.layers_clear_outlined, size: 16),
+                        label: Text('Clear Shelf (${_shelfMaps.length})'),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        showModalBottomSheet<void>(
+                          context: context,
+                          builder: (_) => const RustNodeSheet(),
+                        );
+                      },
+                      icon: const Icon(Icons.memory, size: 16),
+                      label: const Text('Rust Node & Outbox'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _inspectAtlas(AtlasSummaryDto atlas) {
     _recordRecentEntity('atlas:${atlas.address}');
     setState(() {
@@ -2642,6 +3006,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onToggleFavorite: _toggleFavoriteEntity,
           onToggleMapOnShelf: _toggleMapOnShelf,
           onAddMapsBulk: _addMapsBulkToShelf,
+          onInspectMap: _inspectMap,
           onFocusMap: (map) {
             _recordRecentEntity('map:${map.address}');
             _flyToMap(map);
@@ -2725,6 +3090,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               () => _shelfMaps.removeWhere((e) => e.summary.address == addr),
             );
           },
+          onInspectShelfMap: _inspectMap,
           onFlyToShelfMap: _flyToMap,
           onCloneShelfMapToDraft: (map) =>
               _cloneGeoJsonToDraft(map.title, map.geojson),
@@ -2940,6 +3306,38 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               eventId: atlas.eventId,
             ),
           ),
+          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+        );
+      case _ActiveDrawer.datasetDetail:
+        final map = _inspectedMap;
+        if (map == null) return null;
+        return DatasetDetailMargin(
+          map: map,
+          relayUrls: _activeRelayUrls,
+          onShelf: _shelfMaps.any((e) => e.summary.address == map.address),
+          isOwned: _account != null && _account!.pubkey == map.pubkey,
+          authorProfile: _profilesByPubkey[map.pubkey],
+          onToggleOnShelf: () => _toggleMapOnShelf(map),
+          onZoomToMap: () {
+            if (!_shelfMaps.any((e) => e.summary.address == map.address)) {
+              _toggleMapOnShelf(map);
+            } else {
+              _flyToMap(map);
+            }
+          },
+          onJumpToFeature: (shape) => _jumpToMapFeature(map, shape),
+          onEditOrForkMap: () => _editOrForkMap(map),
+          onOpenDiscussion: () => _openDiscussion(
+            DiscussionTarget(
+              address: map.address,
+              kind: 37515,
+              pubkey: map.pubkey,
+              title: map.title,
+              eventId: map.eventId,
+              baseGeojson: map.geojson,
+            ),
+          ),
+          onDeleteMap: _deleteOwnedMap,
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
         );
       case _ActiveDrawer.inspector:
@@ -3333,71 +3731,86 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 child: Row(
                   children: [
                     Flexible(
-                      flex: isDesktop ? 0 : 1,
-                      child: EarthlyGlassSurface(
-                        borderRadius: BorderRadius.circular(999),
-                        padding: const EdgeInsets.fromLTRB(7, 5, 12, 5),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (!_isDrawingMode) ...[
-                              Container(
-                                width: 24,
-                                height: 24,
-                                decoration: const BoxDecoration(
-                                  color: EarthlyColors.amber,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.explore,
-                                  size: 15,
-                                  color: EarthlyColors.amberInk,
-                                ),
-                              ),
-                              const SizedBox(width: 7),
-                              Text(
-                                'EARTHLY',
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 1.1,
-                                ),
-                              ),
-                              if (_relayStreamLive) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  width: 7,
-                                  height: 7,
-                                  decoration: BoxDecoration(
-                                    color: EarthlyColors.commentGreen,
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: EarthlyColors.commentGreen
-                                            .withValues(alpha: 0.65),
-                                        blurRadius: 6,
+                      fit: isDesktop ? FlexFit.loose : FlexFit.tight,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: GestureDetector(
+                          key: const Key('earthly-brand-pill'),
+                          onTap: () =>
+                              _openEarthlyCommandSheet(effectiveBasemap),
+                          child: EarthlyGlassSurface(
+                            borderRadius: BorderRadius.circular(999),
+                            padding: const EdgeInsets.fromLTRB(7, 5, 10, 5),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (!_isDrawingMode) ...[
+                                  Container(
+                                    width: 24,
+                                    height: 24,
+                                    decoration: const BoxDecoration(
+                                      color: EarthlyColors.amber,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.explore,
+                                      size: 15,
+                                      color: EarthlyColors.amberInk,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 7),
+                                  Text(
+                                    'EARTHLY',
+                                    style:
+                                        theme.textTheme.labelMedium?.copyWith(
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 1.1,
+                                    ),
+                                  ),
+                                  if (_relayStreamLive) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      width: 7,
+                                      height: 7,
+                                      decoration: BoxDecoration(
+                                        color: EarthlyColors.commentGreen,
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: EarthlyColors.commentGreen
+                                                .withValues(alpha: 0.65),
+                                            blurRadius: 6,
+                                          ),
+                                        ],
                                       ),
-                                    ],
+                                    ),
+                                  ],
+                                  const SizedBox(width: 6),
+                                ],
+                                Flexible(
+                                  child: Text(
+                                    isDesktop
+                                        ? '${_shelfMaps.length} shelf · ${_features.length} draft${visibleBeacons.isNotEmpty ? ' · ${visibleBeacons.length} live' : ''}'
+                                        : '${_shelfMaps.length}·${_features.length}${visibleBeacons.isNotEmpty ? '·${visibleBeacons.length}' : ''}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
                                   ),
                                 ),
-                              ],
-                              const SizedBox(width: 8),
-                            ],
-                            Flexible(
-                              child: Text(
-                                isDesktop
-                                    ? '${_shelfMaps.length} shelf · ${_features.length} draft${visibleBeacons.isNotEmpty ? ' · ${visibleBeacons.length} live' : ''}'
-                                    : '${_shelfMaps.length}·${_features.length}${visibleBeacons.isNotEmpty ? '·${visibleBeacons.length}' : ''}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
+                                const SizedBox(width: 3),
+                                Icon(
+                                  Icons.keyboard_arrow_down,
+                                  size: 15,
                                   color: theme.colorScheme.onSurfaceVariant,
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -3441,7 +3854,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                         onTap: () => _selectMode(DrawToolMode.line),
                       ),
                     ],
-                    const Spacer(),
+                    if (isDesktop) const Spacer() else const SizedBox(width: 8),
                     if (isDesktop && _isDrawingMode) ...[
                       _MiniToggle(
                         label: _placementStyle == TouchPlacementStyle.drawDrag

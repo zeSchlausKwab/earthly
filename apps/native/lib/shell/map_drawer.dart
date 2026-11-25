@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/earthly_theme.dart';
@@ -10,8 +11,9 @@ import '../theme/earthly_theme.dart';
 /// - **Mobile (`width < 880`)**: Top-rounded bottom drawer (`22px` radius) with
 ///   an **always-visible sticky drag handle + header** at the top. Dragging the
 ///   handle bar snaps smoothly between Peek (18%), 50/50 Split (50%), and Full
-///   (88%), while the scrollable [body] below scrolls **100% independently** of
-///   the drawer height! The map above stays live and interactive at all times.
+///   (88%), and **sliding past the bottom threshold or flicking down dismisses
+///   the drawer implicitly**! The scrollable [body] below scrolls **100%
+///   independently** of the drawer height.
 /// - **Desktop (`width >= 880`, macOS/Linux/Windows)**: Docks as a floating
 ///   frosted-glass 416px left Margin panel beside the full-height GPU map canvas.
 class EarthlyMapDrawer extends StatefulWidget {
@@ -20,7 +22,7 @@ class EarthlyMapDrawer extends StatefulWidget {
     required this.body,
     required this.onClose,
     this.initialFraction = 0.50,
-    this.minFraction = 0.16,
+    this.minFraction = 0.18,
     this.maxFraction = 0.88,
     this.accentTopBorder = false,
     this.onHeightFractionChanged,
@@ -46,18 +48,31 @@ class EarthlyMapDrawer extends StatefulWidget {
 
 class _EarthlyMapDrawerState extends State<EarthlyMapDrawer> {
   static const List<double> _snapPoints = <double>[0.18, 0.50, 0.88];
+  static const double _dismissThreshold = 0.13;
 
   late double _fraction = widget.initialFraction;
   bool _dragging = false;
 
   void _setFraction(double next) {
-    final clamped = next.clamp(widget.minFraction, widget.maxFraction);
+    // Allow sliding smoothly all the way down toward 0.0 for implicit swipe-to-close!
+    final clamped = next.clamp(0.0, widget.maxFraction);
     if ((clamped - _fraction).abs() < 0.0005) return;
     setState(() => _fraction = clamped);
     widget.onHeightFractionChanged?.call(clamped);
   }
 
   void _snapWithVelocity(double velocityPxPerSec) {
+    // Implicit swipe-down-to-close: dragged past threshold OR brisk downward flick.
+    final shouldClose = _fraction < _dismissThreshold ||
+        (velocityPxPerSec > 750 && _fraction < 0.46) ||
+        (velocityPxPerSec > 350 && _fraction <= 0.22);
+    if (shouldClose) {
+      setState(() => _dragging = false);
+      HapticFeedback.selectionClick();
+      widget.onClose();
+      return;
+    }
+
     double target;
     if (velocityPxPerSec < -350) {
       target = _snapPoints.firstWhere(
@@ -105,7 +120,6 @@ class _EarthlyMapDrawerState extends State<EarthlyMapDrawer> {
             : Colors.black.withValues(alpha: 0.09));
 
     if (isDesktop) {
-      // Desktop Studio: floating frosted-glass left Margin card beside the map.
       return Positioned(
         top: 64,
         left: 12,
@@ -114,7 +128,8 @@ class _EarthlyMapDrawerState extends State<EarthlyMapDrawer> {
         child: EarthlyGlassSurface(
           borderRadius: BorderRadius.circular(18),
           blurSigma: 18,
-          color: theme.colorScheme.surface.withValues(alpha: isDark ? 0.90 : 0.93),
+          color:
+              theme.colorScheme.surface.withValues(alpha: isDark ? 0.90 : 0.93),
           borderColor: borderColor,
           borderWidth: widget.accentTopBorder ? 1.5 : 1.0,
           shadows: [
@@ -129,7 +144,7 @@ class _EarthlyMapDrawerState extends State<EarthlyMapDrawer> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 widget.header,
                 const Divider(height: 1),
                 Expanded(child: widget.body),
@@ -140,93 +155,102 @@ class _EarthlyMapDrawerState extends State<EarthlyMapDrawer> {
       );
     }
 
-    // Mobile: Google-Maps-style independent frosted-glass rounded bottom drawer.
+    // Mobile: independent frosted-glass bottom drawer with implicit swipe-down-to-close!
     final availableHeight =
         (size.height - keyboardInset).clamp(240.0, size.height);
     final drawerHeight = (availableHeight * _fraction)
-        .clamp(116.0, availableHeight * widget.maxFraction);
+        .clamp(48.0, availableHeight * widget.maxFraction);
+    final dismissOpacity = _fraction < 0.18
+        ? (_fraction / 0.18).clamp(0.35, 1.0)
+        : 1.0;
     const radius = BorderRadius.vertical(top: Radius.circular(22));
 
     return Positioned(
       left: 0,
       right: 0,
       bottom: keyboardInset,
-      child: AnimatedContainer(
-        duration: _dragging ? Duration.zero : const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        height: drawerHeight,
-        decoration: BoxDecoration(
-          borderRadius: radius,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.48 : 0.20),
-              blurRadius: 24,
-              offset: const Offset(0, -6),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: radius,
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: Container(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface
-                    .withValues(alpha: isDark ? 0.92 : 0.95),
-                borderRadius: radius,
-                border: Border(
-                  top: BorderSide(
-                    color: borderColor,
-                    width: widget.accentTopBorder ? 2.0 : 1.0,
+      child: Opacity(
+        opacity: dismissOpacity,
+        child: AnimatedContainer(
+          duration: _dragging ? Duration.zero : const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          height: drawerHeight,
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.48 : 0.20),
+                blurRadius: 24,
+                offset: const Offset(0, -6),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: radius,
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface
+                      .withValues(alpha: isDark ? 0.92 : 0.95),
+                  borderRadius: radius,
+                  border: Border(
+                    top: BorderSide(
+                      color: borderColor,
+                      width: widget.accentTopBorder ? 2.0 : 1.0,
+                    ),
                   ),
                 ),
-              ),
-              child: SafeArea(
-                top: false,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Sticky drag handle + header bar — ONLY this region resizes the drawer!
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: _cycleSnap,
-                      onVerticalDragStart: (_) =>
-                          setState(() => _dragging = true),
-                      onVerticalDragUpdate: (details) {
-                        final deltaFraction =
-                            -details.delta.dy / availableHeight;
-                        _setFraction(_fraction + deltaFraction);
-                      },
-                      onVerticalDragEnd: (details) {
-                        _snapWithVelocity(details.primaryVelocity ?? 0);
-                      },
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(top: 10, bottom: 6),
-                            child: Center(
-                              child: Container(
-                                width: 40,
-                                height: 4.5,
-                                decoration: BoxDecoration(
-                                  color: widget.accentTopBorder
-                                      ? EarthlyColors.amber
-                                          .withValues(alpha: 0.75)
-                                      : theme.colorScheme.onSurface
-                                          .withValues(alpha: 0.26),
-                                  borderRadius: BorderRadius.circular(999),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Sticky drag handle + header bar — swipe down past threshold to dismiss!
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _cycleSnap,
+                        onVerticalDragStart: (_) =>
+                            setState(() => _dragging = true),
+                        onVerticalDragUpdate: (details) {
+                          final deltaFraction =
+                              -details.delta.dy / availableHeight;
+                          _setFraction(_fraction + deltaFraction);
+                        },
+                        onVerticalDragEnd: (details) {
+                          _snapWithVelocity(details.primaryVelocity ?? 0);
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 10, bottom: 4),
+                              child: Center(
+                                child: Container(
+                                  width: 40,
+                                  height: 4.5,
+                                  decoration: BoxDecoration(
+                                    color: _fraction < _dismissThreshold
+                                        ? EarthlyColors.destructive
+                                            .withValues(alpha: 0.75)
+                                        : widget.accentTopBorder
+                                            ? EarthlyColors.amber
+                                                .withValues(alpha: 0.8)
+                                            : theme.colorScheme.onSurface
+                                                .withValues(alpha: 0.26),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          widget.header,
-                        ],
+                            widget.header,
+                          ],
+                        ),
                       ),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(child: widget.body),
-                  ],
+                      const Divider(height: 1),
+                      Expanded(child: widget.body),
+                    ],
+                  ),
                 ),
               ),
             ),

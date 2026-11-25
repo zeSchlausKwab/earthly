@@ -4,6 +4,7 @@ import 'package:earthly_native/nostr/shelf_renderer.dart';
 import 'package:earthly_native/nostr/story_presentation.dart';
 import 'package:earthly_native/shell/atlas_detail_margin.dart';
 import 'package:earthly_native/shell/basemap_switcher_sheet.dart';
+import 'package:earthly_native/shell/dataset_detail_margin.dart';
 import 'package:earthly_native/shell/entity_list_row.dart';
 import 'package:earthly_native/shell/explore_sheet.dart';
 import 'package:earthly_native/shell/map_drawer.dart';
@@ -442,6 +443,7 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
                 onToggleFavorite: (_) {},
                 onToggleMapOnShelf: (_) {},
                 onAddMapsBulk: (_) {},
+                onInspectMap: (_) {},
                 onFocusMap: (_) {},
                 onCloneMapToDraft: (_) {},
                 onOpenMapDiscussion: (_) {},
@@ -509,5 +511,99 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
     expect(find.text('A world of walks'), findsOneWidget);
     expect(find.text('Alpine Ridge Trail'), findsOneWidget);
     expect(find.text('Enter Atlas Lens'), findsOneWidget);
+
+    // Verify DatasetDetailMargin renders feature browser & owned Edit/Delete controls.
+    final richMap = MapSummaryDto(
+      address: '37515:aaa:rich',
+      eventId: 'ev-rich',
+      pubkey: 'aaa',
+      dTag: 'rich',
+      title: 'Danube Waypoints',
+      featureCount: 2,
+      sizeBytes: 1024,
+      geojson: '''
+      {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "id": "p1", "geometry": { "type": "Point", "coordinates": [16.37, 48.20] }, "properties": { "name": "North Pier" } },
+          { "type": "Feature", "id": "l1", "geometry": { "type": "LineString", "coordinates": [[16.37, 48.20], [16.39, 48.21]] }, "properties": { "name": "Towpath" } }
+        ]
+      }
+      ''',
+      hashtags: const ['river'],
+      labels: const [],
+      contextRefs: const [],
+      createdAt: BigInt.from(1791000200),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DatasetDetailMargin(
+                map: richMap,
+                relayUrls: const ['wss://relay.earthly.city'],
+                onShelf: true,
+                isOwned: true,
+                authorProfile: null,
+                onToggleOnShelf: () {},
+                onZoomToMap: () {},
+                onJumpToFeature: (_) {},
+                onEditOrForkMap: () {},
+                onOpenDiscussion: () {},
+                onDeleteMap: (_) => throw UnimplementedError(),
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Edit in Draft'), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('North Pier'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('North Pier'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Towpath'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Towpath'), findsOneWidget);
+  });
+
+  testWidgets('EarthlyMapDrawer dismisses implicitly when swiped down past threshold',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    var closed = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              EarthlyMapDrawer(
+                initialFraction: 0.50,
+                onClose: () => closed = true,
+                header: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Text('DRAG ME DOWN'),
+                ),
+                body: const SizedBox.expand(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.drag(find.text('DRAG ME DOWN'), const Offset(0, 360));
+    await tester.pumpAndSettle();
+    expect(closed, isTrue);
   });
 }
