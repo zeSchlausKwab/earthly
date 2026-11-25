@@ -440,9 +440,6 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                     child: TextField(
                       controller: _commentController,
                       decoration: const InputDecoration(
-                        isDense: true,
-                        border:
-                            OutlineInputBorder(borderRadius: BorderRadius.zero),
                         hintText: 'Write a geo comment (kind 37517)…',
                       ),
                     ),
@@ -618,8 +615,6 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                 TextField(
                   controller: _proposalDescController,
                   decoration: const InputDecoration(
-                    isDense: true,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                     hintText: 'Summary of your edit proposal…',
                   ),
                 ),

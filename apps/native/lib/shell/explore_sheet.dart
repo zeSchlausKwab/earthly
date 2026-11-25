@@ -4,6 +4,7 @@ import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
 import 'map_drawer.dart';
+import 'share_naddr_sheet.dart';
 
 /// Explore drawer: live Nostr relay catalog (Maps · Stories · Atlases · Sightings)
 /// rendered inside the Google-Maps-style independent `EarthlyMapDrawer`.
@@ -192,8 +193,6 @@ class _ExploreSheetState extends State<ExploreSheet>
               controller: _searchController,
               onChanged: (val) => setState(() => _query = val),
               decoration: InputDecoration(
-                isDense: true,
-                border: const OutlineInputBorder(borderRadius: BorderRadius.zero),
                 prefixIcon: const Icon(Icons.search, size: 17),
                 hintText: 'Filter by title, #tag, or author…',
                 suffixIcon: _query.isNotEmpty
@@ -296,9 +295,28 @@ class _ExploreSheetState extends State<ExploreSheet>
             '${_authorLabel(map.pubkey)} · ${map.featureCount} features${map.hashtags.isNotEmpty ? ' · #${map.hashtags.take(3).join(' #')}' : ''}',
             style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
           ),
-          trailing: OutlinedButton(
-            onPressed: () => widget.onToggleMapOnShelf(map),
-            child: Text(onShelf ? 'Remove' : 'Show'),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Share QR / nostr:naddr',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => showEarthlyShareSheet(
+                  context,
+                  kind: 37515,
+                  pubkey: map.pubkey,
+                  dTag: map.dTag,
+                  title: map.title,
+                  relays: widget.relayUrls,
+                ),
+                icon: const Icon(Icons.qr_code_2, size: 17),
+              ),
+              const SizedBox(width: 2),
+              OutlinedButton(
+                onPressed: () => widget.onToggleMapOnShelf(map),
+                child: Text(onShelf ? 'Remove' : 'Show'),
+              ),
+            ],
           ),
         );
       },
@@ -439,11 +457,30 @@ class _ExploreSheetState extends State<ExploreSheet>
                           fontSize: 11,
                         ),
                       ),
-                      trailing: OutlinedButton(
-                        onPressed: atlas.pinnedAddresses.isEmpty
-                            ? null
-                            : () => widget.onOpenAtlas(atlas),
-                        child: const Text('Load'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Share QR / nostr:naddr',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => showEarthlyShareSheet(
+                              context,
+                              kind: 37518,
+                              pubkey: atlas.pubkey,
+                              dTag: atlas.dTag,
+                              title: atlas.name,
+                              relays: widget.relayUrls,
+                            ),
+                            icon: const Icon(Icons.qr_code_2, size: 17),
+                          ),
+                          const SizedBox(width: 2),
+                          OutlinedButton(
+                            onPressed: atlas.pinnedAddresses.isEmpty
+                                ? null
+                                : () => widget.onOpenAtlas(atlas),
+                            child: const Text('Load'),
+                          ),
+                        ],
                       ),
                     );
                   },

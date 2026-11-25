@@ -57,6 +57,34 @@ Future<DecodedNaddrDto?> decodeNaddrCoordinate({required String naddrUri}) =>
       naddrUri: naddrUri,
     );
 
+/// Encodes an Earthly entity coordinate (`kind`, `pubkey_hex`, `d_tag`, relay
+/// hints, and optional `#feature_id`) into a canonical shareable `nostr:naddr1...`
+/// URI (`SPEC.md` §2.4).
+Future<String> encodeNaddrCoordinate({
+  required int kind,
+  required String pubkeyHex,
+  required String dTag,
+  required List<String> relays,
+  String? featureId,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientEncodeNaddrCoordinate(
+  kind: kind,
+  pubkeyHex: pubkeyHex,
+  dTag: dTag,
+  relays: relays,
+  featureId: featureId,
+);
+
+/// Fetches a single addressable Earthly entity (Map `37515`, Story `37520`, or
+/// Atlas `37518`) by its canonical `<kind>:<pubkey>:<d>` coordinate — used when
+/// opening shared `nostr:naddr1...` links or QR codes.
+Future<LiveRelayEventDto?> fetchEntityByAddress({
+  required List<String> relayUrls,
+  required String address,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientFetchEntityByAddress(
+  relayUrls: relayUrls,
+  address: address,
+);
+
 /// Fetches specific kind-37515 Map Datasets by their canonical
 /// `37515:<pubkey>:<d-tag>` coordinates (used when opening a Story or Atlas
 /// whose referenced datasets are not yet in the local catalog).
@@ -578,6 +606,7 @@ class ProfileMetadataDto {
   final String pubkey;
   final String? name;
   final String? displayName;
+  final String? about;
   final String? picture;
   final String? nip05;
 
@@ -585,6 +614,7 @@ class ProfileMetadataDto {
     required this.pubkey,
     this.name,
     this.displayName,
+    this.about,
     this.picture,
     this.nip05,
   });
@@ -594,6 +624,7 @@ class ProfileMetadataDto {
       pubkey.hashCode ^
       name.hashCode ^
       displayName.hashCode ^
+      about.hashCode ^
       picture.hashCode ^
       nip05.hashCode;
 
@@ -605,6 +636,7 @@ class ProfileMetadataDto {
           pubkey == other.pubkey &&
           name == other.name &&
           displayName == other.displayName &&
+          about == other.about &&
           picture == other.picture &&
           nip05 == other.nip05;
 }

@@ -264,9 +264,6 @@ class _AgentDrawerState extends State<AgentDrawer> {
                   TextField(
                     controller: _baseUrlController,
                     decoration: const InputDecoration(
-                      isDense: true,
-                      border:
-                          OutlineInputBorder(borderRadius: BorderRadius.zero),
                       labelText: 'OpenAI-compatible Base URL (blank = offline)',
                     ),
                   ),
@@ -277,10 +274,6 @@ class _AgentDrawerState extends State<AgentDrawer> {
                         child: TextField(
                           controller: _modelController,
                           decoration: const InputDecoration(
-                            isDense: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.zero,
-                            ),
                             labelText: 'Model',
                           ),
                         ),
@@ -291,10 +284,6 @@ class _AgentDrawerState extends State<AgentDrawer> {
                           controller: _apiKeyController,
                           obscureText: true,
                           decoration: const InputDecoration(
-                            isDense: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.zero,
-                            ),
                             labelText: 'API Key (optional)',
                           ),
                         ),
@@ -327,10 +316,6 @@ class _AgentDrawerState extends State<AgentDrawer> {
                       controller: _urlController,
                       onSubmitted: (_) => _submitResearchUrl(),
                       decoration: const InputDecoration(
-                        isDense: true,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.zero,
-                        ),
                         hintText: 'Paste webpage URL to extract & plot coords…',
                       ),
                     ),
@@ -498,9 +483,6 @@ class _AgentDrawerState extends State<AgentDrawer> {
                     controller: _promptController,
                     onSubmitted: (_) => _submit(),
                     decoration: const InputDecoration(
-                      isDense: true,
-                      border:
-                          OutlineInputBorder(borderRadius: BorderRadius.zero),
                       hintText: 'Ask Earthly Agent to draw, buffer, measure…',
                     ),
                   ),

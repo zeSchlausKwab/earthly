@@ -204,8 +204,6 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
             TextField(
               controller: _titleController,
               decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                 labelText: 'Story title',
               ),
             ),
@@ -213,8 +211,6 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
             TextField(
               controller: _summaryController,
               decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                 labelText: 'Short summary (optional)',
               ),
             ),
@@ -244,7 +240,6 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
               minLines: 5,
               maxLines: 12,
               decoration: const InputDecoration(
-                border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                 hintText:
                     'Write your geo narrative in Markdown… Pan the map above and tap "+ Camera View Block" or "+ Map Center geo:" to bind prose to places.',
               ),

@@ -7,6 +7,7 @@ import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'map_drawer.dart';
+import 'share_naddr_sheet.dart';
 
 enum RustGeoAction {
   simplifyLastLine,
@@ -31,6 +32,7 @@ class DeskSheet extends StatefulWidget {
   const DeskSheet({
     required this.activeDraftId,
     required this.savedDrafts,
+    required this.relayUrls,
     required this.draftTitle,
     required this.audience,
     required this.account,
@@ -66,6 +68,7 @@ class DeskSheet extends StatefulWidget {
 
   final String activeDraftId;
   final List<LocalDraftDto> savedDrafts;
+  final List<String> relayUrls;
   final String draftTitle;
   final DraftAudienceChoice audience;
   final Nip55Account? account;
@@ -247,36 +250,54 @@ class _DeskSheetState extends State<DeskSheet> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
+                      tooltip: 'Share QR / nostr:naddr',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => showEarthlyShareSheet(
+                        context,
+                        kind: 37515,
+                        pubkey: entry.summary.pubkey,
+                        dTag: entry.summary.dTag,
+                        title: entry.summary.title,
+                        relays: widget.relayUrls,
+                      ),
+                      icon: const Icon(Icons.qr_code_2, size: 17),
+                    ),
+                    IconButton(
                       tooltip: 'Clone into Working Draft',
+                      visualDensity: VisualDensity.compact,
                       onPressed: () =>
                           widget.onCloneShelfMapToDraft(entry.summary),
-                      icon: const Icon(Icons.copy_all_outlined, size: 18),
+                      icon: const Icon(Icons.copy_all_outlined, size: 17),
                     ),
                     IconButton(
                       tooltip: 'Comments & Proposals',
+                      visualDensity: VisualDensity.compact,
                       onPressed: () =>
                           widget.onOpenShelfDiscussion(entry.summary),
-                      icon: const Icon(Icons.forum_outlined, size: 18),
+                      icon: const Icon(Icons.forum_outlined, size: 17),
                     ),
                     IconButton(
                       tooltip: 'Frame',
+                      visualDensity: VisualDensity.compact,
                       onPressed: () => widget.onFlyToShelfMap(entry.summary),
-                      icon: const Icon(Icons.center_focus_strong, size: 18),
+                      icon: const Icon(Icons.center_focus_strong, size: 17),
                     ),
                     IconButton(
                       tooltip: entry.visible ? 'Hide' : 'Show',
+                      visualDensity: VisualDensity.compact,
                       onPressed: () =>
                           widget.onToggleShelfVisibility(entry.summary.address),
                       icon: Icon(
                         entry.visible ? Icons.visibility : Icons.visibility_off,
-                        size: 18,
+                        size: 17,
                       ),
                     ),
                     IconButton(
                       tooltip: 'Remove from Shelf',
+                      visualDensity: VisualDensity.compact,
                       onPressed: () =>
                           widget.onRemoveShelfMap(entry.summary.address),
-                      icon: const Icon(Icons.close, size: 18),
+                      icon: const Icon(Icons.close, size: 17),
                     ),
                   ],
                 ),
@@ -314,6 +335,19 @@ class _DeskSheetState extends State<DeskSheet> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    IconButton(
+                      tooltip: 'Share QR / nostr:naddr',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => showEarthlyShareSheet(
+                        context,
+                        kind: 37520,
+                        pubkey: story.pubkey,
+                        dTag: story.dTag,
+                        title: story.title,
+                        relays: widget.relayUrls,
+                      ),
+                      icon: const Icon(Icons.qr_code_2, size: 16),
+                    ),
                     TextButton(
                       onPressed: () => widget.onOpenDeskStory(story),
                       child: const Text('Read'),
@@ -361,6 +395,19 @@ class _DeskSheetState extends State<DeskSheet> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    IconButton(
+                      tooltip: 'Share QR / nostr:naddr',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => showEarthlyShareSheet(
+                        context,
+                        kind: 37518,
+                        pubkey: atlas.pubkey,
+                        dTag: atlas.dTag,
+                        title: atlas.name,
+                        relays: widget.relayUrls,
+                      ),
+                      icon: const Icon(Icons.qr_code_2, size: 16),
+                    ),
                     TextButton(
                       onPressed: () => widget.onOpenDeskAtlas(atlas),
                       child: const Text('Frame'),
@@ -433,9 +480,7 @@ class _DeskSheetState extends State<DeskSheet> {
                 controller: _titleController,
                 onChanged: widget.onDraftTitleChanged,
                 decoration: const InputDecoration(
-                  isDense: true,
                   labelText: 'Map title (auto-saved to SQLite)',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                 ),
               ),
               const SizedBox(height: 8),

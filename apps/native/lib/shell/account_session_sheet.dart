@@ -10,9 +10,27 @@ import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'map_drawer.dart';
 
+@immutable
+class ProfileEditRequest {
+  const ProfileEditRequest({
+    required this.name,
+    required this.displayName,
+    required this.about,
+    required this.picture,
+    required this.nip05,
+  });
+
+  final String name;
+  final String displayName;
+  final String about;
+  final String picture;
+  final String nip05;
+}
+
 /// Dedicated Account & Session drawer opened from the top-bar account pill.
 /// Supports Android NIP-55 Amber, `nsec1...` key import, persisted local keypair
-/// generation, resolved Nostr `kind 0` profile preview, and active Field Session status.
+/// generation, resolved Nostr `kind 0` profile preview & live profile editor,
+/// and active Field Session status.
 class AccountSessionSheet extends StatefulWidget {
   const AccountSessionSheet({
     required this.account,
@@ -21,6 +39,7 @@ class AccountSessionSheet extends StatefulWidget {
     required this.activeSessionSummary,
     required this.onAccountChanged,
     required this.onLocalKeyChanged,
+    required this.onSaveProfile,
     required this.onOpenSpaces,
     required this.onClose,
     super.key,
@@ -32,6 +51,8 @@ class AccountSessionSheet extends StatefulWidget {
   final String? activeSessionSummary;
   final ValueChanged<Nip55Account?> onAccountChanged;
   final ValueChanged<LocalKeypairDto?> onLocalKeyChanged;
+  final Future<PublishOutcomeDto> Function(ProfileEditRequest req)
+      onSaveProfile;
   final VoidCallback onOpenSpaces;
   final VoidCallback onClose;
 
@@ -41,21 +62,52 @@ class AccountSessionSheet extends StatefulWidget {
 
 class _AccountSessionSheetState extends State<AccountSessionSheet> {
   final _nsecController = TextEditingController();
+  late final TextEditingController _displayNameController;
+  late final TextEditingController _nameController;
+  late final TextEditingController _aboutController;
+  late final TextEditingController _pictureController;
+  late final TextEditingController _nip05Controller;
+
   bool _amberInstalled = false;
   bool _busy = false;
   bool _showImport = false;
+  bool _editingProfile = false;
   String? _error;
   String? _info;
 
   @override
   void initState() {
     super.initState();
+    _displayNameController =
+        TextEditingController(text: widget.profile?.displayName ?? '');
+    _nameController = TextEditingController(text: widget.profile?.name ?? '');
+    _aboutController = TextEditingController(text: widget.profile?.about ?? '');
+    _pictureController =
+        TextEditingController(text: widget.profile?.picture ?? '');
+    _nip05Controller = TextEditingController(text: widget.profile?.nip05 ?? '');
     _checkAmber();
+  }
+
+  @override
+  void didUpdateWidget(covariant AccountSessionSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profile != widget.profile && !_editingProfile) {
+      _displayNameController.text = widget.profile?.displayName ?? '';
+      _nameController.text = widget.profile?.name ?? '';
+      _aboutController.text = widget.profile?.about ?? '';
+      _pictureController.text = widget.profile?.picture ?? '';
+      _nip05Controller.text = widget.profile?.nip05 ?? '';
+    }
   }
 
   @override
   void dispose() {
     _nsecController.dispose();
+    _displayNameController.dispose();
+    _nameController.dispose();
+    _aboutController.dispose();
+    _pictureController.dispose();
+    _nip05Controller.dispose();
     super.dispose();
   }
 
@@ -130,6 +182,36 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
     }
   }
 
+  Future<void> _publishProfile() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      final outcome = await widget.onSaveProfile(
+        ProfileEditRequest(
+          name: _nameController.text.trim(),
+          displayName: _displayNameController.text.trim(),
+          about: _aboutController.text.trim(),
+          picture: _pictureController.text.trim(),
+          nip05: _nip05Controller.text.trim(),
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _editingProfile = false;
+        _info =
+            'Published profile (kind 0) · ${outcome.outboxState.toUpperCase()}';
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -138,7 +220,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
     final displayName = profile?.displayName ?? profile?.name;
 
     return EarthlyMapDrawer(
-      initialFraction: 0.50,
+      initialFraction: 0.54,
       accentTopBorder: true,
       onClose: widget.onClose,
       header: Padding(
@@ -169,7 +251,13 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
           if (_info != null) ...[
             Container(
               padding: const EdgeInsets.all(10),
-              color: EarthlyColors.commentGreen.withValues(alpha: 0.12),
+              decoration: BoxDecoration(
+                color: EarthlyColors.commentGreen.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(
+                  color: EarthlyColors.commentGreen.withValues(alpha: 0.4),
+                ),
+              ),
               child: Text(
                 _info!,
                 style: const TextStyle(
@@ -185,7 +273,13 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
           if (_error != null) ...[
             Container(
               padding: const EdgeInsets.all(10),
-              color: EarthlyColors.destructive.withValues(alpha: 0.12),
+              decoration: BoxDecoration(
+                color: EarthlyColors.destructive.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(
+                  color: EarthlyColors.destructive.withValues(alpha: 0.4),
+                ),
+              ),
               child: Text(
                 _error!,
                 style: const TextStyle(
@@ -200,54 +294,71 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
 
           if (account != null) ...[
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                border: Border.all(color: EarthlyColors.commentGreen),
-                color: EarthlyColors.commentGreen.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: EarthlyColors.commentGreen.withValues(alpha: 0.55),
+                ),
+                color: EarthlyColors.commentGreen.withValues(alpha: 0.08),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor:
-                        theme.colorScheme.primary.withValues(alpha: 0.16),
-                    backgroundImage: (profile?.picture != null &&
-                            profile!.picture!.startsWith('http'))
-                        ? NetworkImage(profile.picture!)
-                        : null,
-                    child: (profile?.picture == null ||
-                            !profile!.picture!.startsWith('http'))
-                        ? const Icon(Icons.person, size: 20)
-                        : null,
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor:
+                            EarthlyColors.amber.withValues(alpha: 0.22),
+                        backgroundImage: (profile?.picture != null &&
+                                profile!.picture!.startsWith('http'))
+                            ? NetworkImage(profile.picture!)
+                            : null,
+                        child: (profile?.picture == null ||
+                                !profile!.picture!.startsWith('http'))
+                            ? const Icon(Icons.person, size: 22)
+                            : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              displayName ?? account.shortLabel,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${widget.localNsec != null ? "Persisted local key" : "Amber NIP-55"}${profile?.nip05 != null ? ' · ${profile!.nip05}' : ''}',
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                              ),
+                            ),
+                            Text(
+                              account.shortLabel,
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 10,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayName ?? account.shortLabel,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          '${widget.localNsec != null ? "Persisted local key" : "Amber NIP-55"}${profile?.nip05 != null ? ' · ${profile!.nip05}' : ''}',
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                          ),
-                        ),
-                        Text(
-                          account.shortLabel,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
+                  if (profile?.about != null && profile!.about!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      profile.about!,
+                      style: theme.textTheme.bodySmall,
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -256,6 +367,15 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
               spacing: 8,
               runSpacing: 8,
               children: [
+                OutlinedButton.icon(
+                  onPressed: () =>
+                      setState(() => _editingProfile = !_editingProfile),
+                  icon: Icon(
+                    _editingProfile ? Icons.expand_less : Icons.edit_outlined,
+                    size: 15,
+                  ),
+                  label: Text(_editingProfile ? 'Hide Editor' : 'Edit Profile'),
+                ),
                 OutlinedButton.icon(
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: account.pubkey));
@@ -296,6 +416,83 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                 ),
               ],
             ),
+
+            if (_editingProfile) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: theme.dividerColor),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'PUBLIC NOSTR PROFILE (KIND 0)',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _displayNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Display Name',
+                        hintText: 'e.g. Field Cartographer',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Handle (@name)',
+                        hintText: 'e.g. explorer',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _aboutController,
+                      minLines: 2,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Bio / About',
+                        hintText: 'Mapping rivers, trails, and field notes…',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _pictureController,
+                      decoration: const InputDecoration(
+                        labelText: 'Avatar Image URL (optional)',
+                        hintText: 'https://…',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _nip05Controller,
+                      decoration: const InputDecoration(
+                        labelText: 'NIP-05 Identifier (optional)',
+                        hintText: 'name@earthly.city',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: _busy ? null : _publishProfile,
+                      icon: _busy
+                          ? const SizedBox(
+                              width: 15,
+                              height: 15,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.publish, size: 17),
+                      label: const Text('Save & Publish Profile (kind 0)'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ] else ...[
             Text(
               'Sign in to publish Maps, Stories, Atlases, Sightings, Live Beacons, Comments, and Edit Proposals.',
@@ -340,9 +537,6 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                       obscureText: true,
                       onSubmitted: (_) => _importNsec(),
                       decoration: const InputDecoration(
-                        isDense: true,
-                        border:
-                            OutlineInputBorder(borderRadius: BorderRadius.zero),
                         hintText: 'Paste nsec1… or 64-char hex',
                       ),
                     ),
@@ -375,7 +569,8 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
           OutlinedButton.icon(
             onPressed: widget.onOpenSpaces,
             icon: const Icon(Icons.hub_outlined, size: 17),
-            label: const Text('Open Spaces (QR Pairing, FIPS, Beacons, Relays)'),
+            label:
+                const Text('Open Spaces (QR Pairing, FIPS, Beacons, Relays)'),
           ),
         ],
       ),

@@ -628,8 +628,6 @@ class _SpacesSheetState extends State<SpacesSheet> {
           TextField(
             controller: _beaconStatusController,
             decoration: const InputDecoration(
-              isDense: true,
-              border: OutlineInputBorder(borderRadius: BorderRadius.zero),
               hintText: 'Status note (e.g. Surveying north ridge)',
             ),
           ),
@@ -708,8 +706,6 @@ class _SpacesSheetState extends State<SpacesSheet> {
             TextField(
               controller: _fipsAddressController,
               decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                 hintText: 'FIPS fd00::/8 IPv6 (leave blank to auto-detect)',
               ),
             ),
@@ -872,8 +868,6 @@ class _SpacesSheetState extends State<SpacesSheet> {
                 child: TextField(
                   controller: _inviteInputController,
                   decoration: const InputDecoration(
-                    isDense: true,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                     hintText: 'Or paste earthly://pair?invitation=…',
                   ),
                 ),
@@ -1027,8 +1021,6 @@ class _SpacesSheetState extends State<SpacesSheet> {
                   controller: _relayInputController,
                   onSubmitted: (_) => _addCustomRelay(),
                   decoration: const InputDecoration(
-                    isDense: true,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                     hintText: 'Add relay wss://relay.example.org',
                   ),
                 ),
@@ -1047,9 +1039,6 @@ class _SpacesSheetState extends State<SpacesSheet> {
             onPressed: () {
               showModalBottomSheet<void>(
                 context: context,
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.zero,
-                ),
                 builder: (_) => const RustNodeSheet(),
               );
             },

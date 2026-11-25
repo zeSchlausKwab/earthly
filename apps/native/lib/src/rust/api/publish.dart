@@ -257,6 +257,25 @@ Future<UnsignedCommentEventDto> prepareUnsignedAtlasEvent({
   fieldSessionId: fieldSessionId,
 );
 
+/// Prepares a canonical Nostr `kind 0` user profile metadata event JSON
+/// (`name`, `display_name`, `about`, `picture`, `nip05`) for signing and
+/// publishing to configured relays.
+Future<UnsignedCommentEventDto> prepareUnsignedProfileEvent({
+  required String pubkeyOrNpub,
+  String? name,
+  String? displayName,
+  String? about,
+  String? picture,
+  String? nip05,
+}) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedProfileEvent(
+  pubkeyOrNpub: pubkeyOrNpub,
+  name: name,
+  displayName: displayName,
+  about: about,
+  picture: picture,
+  nip05: nip05,
+);
+
 /// Persists an already-signed Nostr event into the crash-safe SQLite outbox
 /// BEFORE network transmission, delivers it to each target relay via `nostr-sdk`,
 /// records per-relay acknowledgements, and returns the live outcome.

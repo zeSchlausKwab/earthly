@@ -29,6 +29,7 @@ class FeatureInspectorSheet extends StatefulWidget {
     this.onRemoveDraftCallout,
     this.onOpenDiscussion,
     this.onCloneDatasetToDraft,
+    this.onShareFeature,
     super.key,
   });
 
@@ -52,6 +53,7 @@ class FeatureInspectorSheet extends StatefulWidget {
   final void Function(String featureId, String calloutId)? onRemoveDraftCallout;
   final VoidCallback? onOpenDiscussion;
   final VoidCallback? onCloneDatasetToDraft;
+  final VoidCallback? onShareFeature;
 
   @override
   State<FeatureInspectorSheet> createState() => _FeatureInspectorSheetState();
@@ -108,22 +110,11 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
         padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
         child: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            EarthlyBadge(
+              label: f.geometryType.toUpperCase(),
               color: f.isDraft
-                  ? theme.colorScheme.primary.withValues(alpha: 0.14)
-                  : EarthlyColors.published.withValues(alpha: 0.16),
-              child: Text(
-                f.geometryType.toUpperCase(),
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: f.isDraft
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurface,
-                ),
-              ),
+                  ? EarthlyColors.amber
+                  : EarthlyColors.infoCyan,
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -489,13 +480,20 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
               ),
           ],
           if ((widget.onOpenDiscussion != null ||
-                  widget.onCloneDatasetToDraft != null) &&
+                  widget.onCloneDatasetToDraft != null ||
+                  widget.onShareFeature != null) &&
               !f.isDraft) ...[
             const Divider(height: 20),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
+                if (widget.onShareFeature != null)
+                  OutlinedButton.icon(
+                    onPressed: widget.onShareFeature,
+                    icon: const Icon(Icons.qr_code_2, size: 16),
+                    label: const Text('Share QR / naddr'),
+                  ),
                 if (widget.onOpenDiscussion != null)
                   OutlinedButton.icon(
                     onPressed: widget.onOpenDiscussion,
@@ -517,8 +515,6 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
               TextField(
                 controller: _calloutTitleController,
                 decoration: const InputDecoration(
-                  isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                   labelText: 'Callout title (optional)',
                 ),
               ),
@@ -528,8 +524,6 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                 minLines: 2,
                 maxLines: 3,
                 decoration: const InputDecoration(
-                  isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                   labelText: 'Callout card text (shown on map)',
                 ),
               ),

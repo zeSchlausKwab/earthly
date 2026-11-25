@@ -152,8 +152,6 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
           TextField(
             controller: _nameController,
             decoration: const InputDecoration(
-              isDense: true,
-              border: OutlineInputBorder(borderRadius: BorderRadius.zero),
               labelText: 'Atlas name',
               hintText: 'e.g. Vienna Danube Field Atlas',
             ),
@@ -164,8 +162,6 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
             minLines: 2,
             maxLines: 3,
             decoration: const InputDecoration(
-              isDense: true,
-              border: OutlineInputBorder(borderRadius: BorderRadius.zero),
               labelText: 'Description (optional)',
             ),
           ),
@@ -173,8 +169,6 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
           TextField(
             controller: _hashtagsController,
             decoration: const InputDecoration(
-              isDense: true,
-              border: OutlineInputBorder(borderRadius: BorderRadius.zero),
               labelText: 'Hashtags (space or comma separated)',
               hintText: 'vienna cycling rivers',
             ),

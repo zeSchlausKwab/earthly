@@ -838,6 +838,59 @@ pub fn prepare_unsigned_atlas_event(
     })
 }
 
+/// Prepares a canonical Nostr `kind 0` user profile metadata event JSON
+/// (`name`, `display_name`, `about`, `picture`, `nip05`) for signing and
+/// publishing to configured relays.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_unsigned_profile_event(
+    pubkey_or_npub: String,
+    name: Option<String>,
+    display_name: Option<String>,
+    about: Option<String>,
+    picture: Option<String>,
+    nip05: Option<String>,
+) -> Result<UnsignedCommentEventDto, String> {
+    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let pubkey_hex = pubkey.to_hex();
+
+    let mut body = serde_json::Map::new();
+    let mut insert_opt = |k: &str, v: Option<String>| {
+        if let Some(clean) = v.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            body.insert(k.to_owned(), serde_json::Value::String(clean.to_owned()));
+        }
+    };
+    insert_opt("name", name);
+    insert_opt("display_name", display_name);
+    insert_opt("about", about);
+    insert_opt("picture", picture);
+    insert_opt("nip05", nip05);
+
+    if body.is_empty() {
+        return Err("Enter at least a display name or handle before saving profile".to_owned());
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let content = serde_json::to_string(&serde_json::Value::Object(body))
+        .map_err(|e| e.to_string())?;
+    let unsigned = serde_json::json!({
+        "kind": 0,
+        "pubkey": pubkey_hex,
+        "created_at": now,
+        "tags": [],
+        "content": content,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: "profile".to_owned(),
+        address: format!("0:{pubkey_hex}:profile"),
+    })
+}
+
 /// Persists an already-signed Nostr event into the crash-safe SQLite outbox
 /// BEFORE network transmission, delivers it to each target relay via `nostr-sdk`,
 /// records per-relay acknowledgements, and returns the live outcome.
@@ -1210,5 +1263,22 @@ mod tests {
         let raw: serde_json::Value = serde_json::from_str(&status.unsigned_event_json).unwrap();
         assert_eq!(raw["kind"], 1631);
         assert_eq!(raw["content"], "Merged into map");
+
+        let profile = prepare_unsigned_profile_event(
+            kp.pubkey_hex.clone(),
+            Some("cartographer".to_owned()),
+            Some("Field Cartographer".to_owned()),
+            Some("Mapping alpine trails".to_owned()),
+            Some("https://example.org/avatar.jpg".to_owned()),
+            Some("cartographer@earthly.city".to_owned()),
+        )
+        .unwrap();
+        let prof_raw: serde_json::Value =
+            serde_json::from_str(&profile.unsigned_event_json).unwrap();
+        assert_eq!(prof_raw["kind"], 0);
+        let prof_content: serde_json::Value =
+            serde_json::from_str(prof_raw["content"].as_str().unwrap()).unwrap();
+        assert_eq!(prof_content["display_name"], "Field Cartographer");
+        assert_eq!(prof_content["nip05"], "cartographer@earthly.city");
     }
 }

@@ -12,8 +12,9 @@ use earthly_domain::{
     PROPOSAL_STATUS_OPEN_KIND, ProposalStatus, RawNostrEvent, StoryArticle,
     TEMPORAL_SIGHTING_KIND, TemporalSighting, diff_feature_collections, is_expired,
 };
-use nostr::nips::nip19::{FromBech32, Nip19Coordinate};
-use nostr::{Alphabet, Event, Filter, Kind, PublicKey, SingleLetterTag, Timestamp};
+use nostr::nips::nip01::Coordinate;
+use nostr::nips::nip19::{FromBech32, Nip19Coordinate, ToBech32};
+use nostr::{Alphabet, Event, Filter, Kind, PublicKey, RelayUrl, SingleLetterTag, Timestamp};
 use nostr_sdk::{Client, RelayPoolNotification};
 
 pub const DEFAULT_EARTHLY_RELAY: &str = "wss://relay.earthly.city";
@@ -57,6 +58,7 @@ pub struct ProfileMetadataDto {
     pub pubkey: String,
     pub name: Option<String>,
     pub display_name: Option<String>,
+    pub about: Option<String>,
     pub picture: Option<String>,
     pub nip05: Option<String>,
 }
@@ -130,6 +132,7 @@ pub async fn fetch_profiles(
             pubkey,
             name: pick_str("name"),
             display_name: pick_str("display_name").or_else(|| pick_str("displayName")),
+            about: pick_str("about"),
             picture: pick_str("picture"),
             nip05: pick_str("nip05"),
         });
@@ -716,6 +719,101 @@ pub fn decode_naddr_coordinate(naddr_uri: String) -> Option<DecodedNaddrDto> {
     })
 }
 
+/// Encodes an Earthly entity coordinate (`kind`, `pubkey_hex`, `d_tag`, relay
+/// hints, and optional `#feature_id`) into a canonical shareable `nostr:naddr1...`
+/// URI (`SPEC.md` §2.4).
+pub fn encode_naddr_coordinate(
+    kind: u16,
+    pubkey_hex: String,
+    d_tag: String,
+    relays: Vec<String>,
+    feature_id: Option<String>,
+) -> Result<String, String> {
+    let pk = PublicKey::parse(pubkey_hex.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let coordinate = Coordinate::new(Kind::Custom(kind), pk).identifier(d_tag);
+    let parsed_relays: Vec<RelayUrl> = relays
+        .into_iter()
+        .filter_map(|r| RelayUrl::parse(r.trim()).ok())
+        .take(3)
+        .collect();
+    let nip19 = Nip19Coordinate::new(coordinate, parsed_relays);
+    let bech32 = nip19
+        .to_bech32()
+        .map_err(|err| format!("failed to encode naddr: {err}"))?;
+    let mut uri = format!("nostr:{bech32}");
+    if let Some(frag) = feature_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        uri.push('#');
+        uri.push_str(frag);
+    }
+    Ok(uri)
+}
+
+/// Fetches a single addressable Earthly entity (Map `37515`, Story `37520`, or
+/// Atlas `37518`) by its canonical `<kind>:<pubkey>:<d>` coordinate — used when
+/// opening shared `nostr:naddr1...` links or QR codes.
+pub async fn fetch_entity_by_address(
+    relay_urls: Vec<String>,
+    address: String,
+) -> Result<Option<LiveRelayEventDto>, String> {
+    let mut parts = address.splitn(3, ':');
+    let kind_num = parts
+        .next()
+        .and_then(|s| s.parse::<u16>().ok())
+        .ok_or_else(|| "invalid address kind".to_owned())?;
+    let pk_hex = parts.next().ok_or_else(|| "missing address pubkey".to_owned())?;
+    let d_tag = parts.next().ok_or_else(|| "missing address d-tag".to_owned())?;
+    if d_tag.is_empty() {
+        return Err("empty address d-tag".to_owned());
+    }
+    let pk = PublicKey::from_hex(pk_hex)
+        .map_err(|err| format!("invalid address pubkey: {err}"))?;
+
+    let urls = if relay_urls.is_empty() {
+        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
+    } else {
+        relay_urls
+    };
+
+    let client = Client::default();
+    for url in &urls {
+        let _ = client.add_relay(url).await;
+    }
+    client.connect().await;
+
+    let filter = Filter::new()
+        .kind(Kind::Custom(kind_num))
+        .author(pk)
+        .identifier(d_tag)
+        .limit(3);
+
+    let events = client
+        .fetch_events(filter, Duration::from_secs(8))
+        .await
+        .map_err(|err| format!("failed to fetch entity: {err}"))?;
+    client.disconnect().await;
+
+    let mut newest: Option<RawNostrEvent> = None;
+    for ev in events.into_iter() {
+        let raw = event_to_raw(&ev);
+        if raw.address_coordinate().as_deref() != Some(address.as_str()) {
+            continue;
+        }
+        let replace = newest
+            .as_ref()
+            .map(|cur| raw.created_at > cur.created_at)
+            .unwrap_or(true);
+        if replace {
+            newest = Some(raw);
+        }
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    Ok(newest.and_then(|raw| parse_live_relay_event(urls[0].clone(), &raw, now)))
+}
+
 /// Fetches specific kind-37515 Map Datasets by their canonical
 /// `37515:<pubkey>:<d-tag>` coordinates (used when opening a Story or Atlas
 /// whose referenced datasets are not yet in the local catalog).
@@ -1194,5 +1292,34 @@ fn parse_live_relay_event(
             })
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nostr::Keys;
+
+    #[test]
+    fn encodes_and_decodes_naddr_coordinate_round_trip() {
+        let keys = Keys::generate();
+        let pk = keys.public_key().to_hex();
+        let encoded = encode_naddr_coordinate(
+            GEO_EVENT_KIND,
+            pk.clone(),
+            "vienna-parks".to_owned(),
+            vec![DEFAULT_EARTHLY_RELAY.to_owned()],
+            Some("gate-north".to_owned()),
+        )
+        .unwrap();
+        assert!(encoded.starts_with("nostr:naddr1"));
+        assert!(encoded.ends_with("#gate-north"));
+
+        let decoded = decode_naddr_coordinate(encoded).unwrap();
+        assert_eq!(decoded.kind, GEO_EVENT_KIND);
+        assert_eq!(decoded.pubkey, pk);
+        assert_eq!(decoded.d_tag, "vienna-parks");
+        assert_eq!(decoded.feature_id.as_deref(), Some("gate-north"));
+        assert_eq!(decoded.relays, vec![DEFAULT_EARTHLY_RELAY.to_owned()]);
     }
 }

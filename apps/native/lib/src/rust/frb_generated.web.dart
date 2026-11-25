@@ -84,6 +84,9 @@ abstract class EarthlyRustLibApiImplPlatform
   LiveBeaconDto dco_decode_box_autoadd_live_beacon_dto(dynamic raw);
 
   @protected
+  LiveRelayEventDto dco_decode_box_autoadd_live_relay_event_dto(dynamic raw);
+
+  @protected
   LocalDraftDto dco_decode_box_autoadd_local_draft_dto(dynamic raw);
 
   @protected
@@ -245,6 +248,11 @@ abstract class EarthlyRustLibApiImplPlatform
   LiveBeaconDto? dco_decode_opt_box_autoadd_live_beacon_dto(dynamic raw);
 
   @protected
+  LiveRelayEventDto? dco_decode_opt_box_autoadd_live_relay_event_dto(
+    dynamic raw,
+  );
+
+  @protected
   LocalDraftDto? dco_decode_opt_box_autoadd_local_draft_dto(dynamic raw);
 
   @protected
@@ -383,6 +391,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   LiveBeaconDto sse_decode_box_autoadd_live_beacon_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  LiveRelayEventDto sse_decode_box_autoadd_live_relay_event_dto(
     SseDeserializer deserializer,
   );
 
@@ -610,6 +623,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  LiveRelayEventDto? sse_decode_opt_box_autoadd_live_relay_event_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   LocalDraftDto? sse_decode_opt_box_autoadd_local_draft_dto(
     SseDeserializer deserializer,
   );
@@ -804,6 +822,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_box_autoadd_live_beacon_dto(
     LiveBeaconDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_live_relay_event_dto(
+    LiveRelayEventDto self,
     SseSerializer serializer,
   );
 
@@ -1077,6 +1101,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_opt_box_autoadd_live_beacon_dto(
     LiveBeaconDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_live_relay_event_dto(
+    LiveRelayEventDto? self,
     SseSerializer serializer,
   );
 

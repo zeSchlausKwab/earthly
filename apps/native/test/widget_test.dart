@@ -41,15 +41,15 @@ void main() {
 
     expect(lastDragGesture, isFalse);
     expect(lastPinchGesture, isTrue);
-    expect(find.text('Draw-Drag'), findsOneWidget);
-    expect(find.text('Loupe'), findsOneWidget);
+    expect(find.byTooltip('Draw-Drag'), findsOneWidget);
+    expect(find.byTooltip('Loupe'), findsOneWidget);
 
     // Switch to Crosshair mode -> MapLibre regains 1-finger pan under center reticle.
-    await tester.tap(find.text('Draw-Drag'));
+    await tester.tap(find.byTooltip('Draw-Drag'));
     await tester.pump();
 
     expect(lastDragGesture, isTrue);
-    expect(find.text('Crosshair'), findsOneWidget);
+    expect(find.byTooltip('Crosshair'), findsOneWidget);
     expect(find.text('Drop'), findsOneWidget);
 
     // Tap Done -> returns cleanly to Explore/Desk/Spaces navigation.
@@ -300,12 +300,27 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
     expect(dockRect.bottom, closeTo(915.0, 0.5));
     expect(find.byTooltip('Account & Session'), findsOneWidget);
 
-    // Right-thumb map controls rail sits in lower-right thumb zone on phones!
-    final railRect =
-        tester.getRect(find.byKey(const Key('earthly-right-thumb-rail')));
+    // Right-thumb map controls rail sits in lower-right thumb zone on phones
+    // with strictly uniform icon-only 46x46 buttons (zero variable-width text labels!).
+    final railFinder = find.byKey(const Key('earthly-right-thumb-rail'));
+    final railRect = tester.getRect(railFinder);
     expect(railRect.right, greaterThan(380.0));
     expect(railRect.bottom, greaterThan(600.0));
-    expect(find.text('Measure'), findsOneWidget);
-    expect(find.text('Callouts'), findsOneWidget);
+    expect(
+      find.descendant(of: railFinder, matching: find.byType(Text)),
+      findsNothing,
+    );
+    final tooltips = find.descendant(
+      of: railFinder,
+      matching: find.byType(Tooltip),
+    );
+    expect(tooltips, findsAtLeastNWidgets(3));
+    for (final el in tooltips.evaluate()) {
+      final box = el.renderObject! as RenderBox;
+      expect(box.size, const Size(46.0, 46.0));
+    }
+    expect(find.byTooltip('Measure'), findsOneWidget);
+    expect(find.byTooltip('Map Style & Overlays'), findsOneWidget);
+    expect(find.byTooltip('Callouts: Full'), findsOneWidget);
   });
 }

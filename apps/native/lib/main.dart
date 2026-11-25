@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/services.dart';
 import 'package:maplibre/maplibre.dart';
@@ -24,6 +25,7 @@ import 'shell/discussion_margin_sheet.dart';
 import 'shell/explore_sheet.dart';
 import 'shell/feature_inspector_sheet.dart';
 import 'shell/place_search_sheet.dart';
+import 'shell/share_naddr_sheet.dart';
 import 'shell/sighting_composer_sheet.dart';
 import 'shell/spaces_sheet.dart';
 import 'shell/story_composer_sheet.dart';
@@ -630,6 +632,40 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     return outcome;
   }
 
+  Future<PublishOutcomeDto> _publishProfile(ProfileEditRequest req) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final prepared = await prepareUnsignedProfileEvent(
+      pubkeyOrNpub: account.pubkey,
+      name: req.name.isEmpty ? null : req.name,
+      displayName: req.displayName.isEmpty ? null : req.displayName,
+      about: req.about.isEmpty ? null : req.about,
+      picture: req.picture.isEmpty ? null : req.picture,
+      nip05: req.nip05.isEmpty ? null : req.nip05,
+    );
+    final signedEventJson =
+        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+    final dbPath = await _databasePath();
+    final outcome = await publishSignedEventViaOutbox(
+      databasePath: dbPath,
+      signedEventJson: signedEventJson,
+      relayUrls: _activeRelayUrls,
+    );
+    if (mounted) {
+      setState(() {
+        _profilesByPubkey[account.pubkey] = ProfileMetadataDto(
+          pubkey: account.pubkey,
+          name: req.name.isEmpty ? null : req.name,
+          displayName: req.displayName.isEmpty ? null : req.displayName,
+          about: req.about.isEmpty ? null : req.about,
+          picture: req.picture.isEmpty ? null : req.picture,
+          nip05: req.nip05.isEmpty ? null : req.nip05,
+        );
+      });
+    }
+    return outcome;
+  }
+
   Future<PublishOutcomeDto> _applyProposal(
     DiscussionTarget target,
     GeoProposalDto proposal,
@@ -720,22 +756,36 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       ..._activeRelayUrls,
       ...decoded.relays.where((r) => r.startsWith('wss://')),
     }.toList(growable: false);
-    if (decoded.kind == 37515) {
-      final fetched = await fetchMapsByAddresses(
-        relayUrls: relays,
-        addresses: [decoded.address],
+    final fetched = await fetchEntityByAddress(
+      relayUrls: relays,
+      address: decoded.address,
+    );
+    if (fetched == null) {
+      throw StateError(
+        'Entity ${decoded.dTag} (kind ${decoded.kind}) not found on configured relays',
       );
-      if (fetched.isEmpty) {
-        throw StateError('Map ${decoded.dTag} not found on configured relays');
-      }
-      final map = fetched.first;
+    }
+    if (fetched.map != null) {
+      final map = fetched.map!;
       if (!_shelfMaps.any((e) => e.summary.address == map.address)) {
         setState(() => _shelfMaps.add(_entryFromSummary(map)));
       }
       _flyToMap(map);
       return;
     }
-    throw StateError('Unsupported naddr kind ${decoded.kind} (expected 37515 Map)');
+    if (fetched.story != null) {
+      await _openStory(fetched.story!);
+      return;
+    }
+    if (fetched.atlas != null) {
+      await _openAtlas(fetched.atlas!);
+      return;
+    }
+    if (fetched.sighting != null) {
+      _focusSighting(fetched.sighting!);
+      return;
+    }
+    throw StateError('Unsupported naddr kind ${decoded.kind}');
   }
 
   Future<void> _recomputeMeasureTelemetry() async {
@@ -2389,7 +2439,6 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
       builder: (_) => SightingComposerSheet(
         initialLocation: center,
         account: _account,
@@ -2402,7 +2451,6 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
       builder: (_) => BasemapSwitcherSheet(
         activeBasemap: effectiveBasemap,
         offlineBasemap: _offlineBasemap,
@@ -2492,6 +2540,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         return DeskSheet(
           activeDraftId: _activeDraftId,
           savedDrafts: _savedDrafts,
+          relayUrls: _activeRelayUrls,
           draftTitle: _draftTitle,
           audience: _draftAudience,
           account: _account,
@@ -2631,6 +2680,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             });
             unawaited(_persistAppSettings());
           },
+          onSaveProfile: _publishProfile,
           onOpenSpaces: () => setState(() => _drawer = _ActiveDrawer.spaces),
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
         );
@@ -2657,6 +2707,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         if (_activeStory == null || _parsedStory == null) return null;
         return StoryReaderMargin(
           story: _activeStory!,
+          relayUrls: _activeRelayUrls,
           parsed: _parsedStory!,
           datasetsByAddress: _storyDatasets,
           decodedRefsByToken: _storyDecodedRefs,
@@ -2809,6 +2860,26 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                     feature.datasetTitle ?? feature.sourceLabel,
                     feature.datasetGeojson!,
                   )
+              : null,
+          onShareFeature: (!feature.isDraft &&
+                  feature.datasetAddress != null &&
+                  feature.datasetPubkey != null)
+              ? () {
+                  final parts = feature.datasetAddress!.split(':');
+                  final kind = int.tryParse(parts.first) ?? 37515;
+                  final dTag = parts.length >= 3
+                      ? parts.sublist(2).join(':')
+                      : feature.sourceLabel;
+                  showEarthlyShareSheet(
+                    context,
+                    kind: kind,
+                    pubkey: feature.datasetPubkey!,
+                    dTag: dTag,
+                    title: feature.title ?? feature.datasetTitle ?? dTag,
+                    relays: _activeRelayUrls,
+                    featureId: feature.featureId,
+                  );
+                }
               : null,
         );
       case _ActiveDrawer.discussion:
@@ -3053,7 +3124,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             },
           ),
 
-          // Top status bar (Field Posture on mobile; full Studio bar on Desktop)
+          // Top frosted-glass instrument bar (Field Posture on mobile; full Studio bar on Desktop)
           Positioned(
             top: 0,
             left: 0,
@@ -3061,44 +3132,58 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             child: SafeArea(
               bottom: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
                 child: Row(
                   children: [
                     Flexible(
                       flex: isDesktop ? 0 : 1,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          color:
-                              theme.colorScheme.surface.withValues(alpha: 0.94),
-                          border: Border.all(color: theme.dividerColor),
-                        ),
+                      child: EarthlyGlassSurface(
+                        borderRadius: BorderRadius.circular(999),
+                        padding: const EdgeInsets.fromLTRB(7, 5, 12, 5),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             if (!_isDrawingMode) ...[
-                              if (_relayStreamLive) ...[
-                                Container(
-                                  width: 7,
-                                  height: 7,
-                                  decoration: const BoxDecoration(
-                                    color: EarthlyColors.commentGreen,
-                                    shape: BoxShape.circle,
-                                  ),
+                              Container(
+                                width: 24,
+                                height: 24,
+                                decoration: const BoxDecoration(
+                                  color: EarthlyColors.amber,
+                                  shape: BoxShape.circle,
                                 ),
-                                const SizedBox(width: 6),
-                              ],
+                                child: const Icon(
+                                  Icons.explore,
+                                  size: 15,
+                                  color: EarthlyColors.amberInk,
+                                ),
+                              ),
+                              const SizedBox(width: 7),
                               Text(
                                 'EARTHLY',
                                 style: theme.textTheme.labelMedium?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 0.9,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1.1,
                                 ),
                               ),
-                              const SizedBox(width: 6),
+                              if (_relayStreamLive) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    color: EarthlyColors.commentGreen,
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: EarthlyColors.commentGreen
+                                            .withValues(alpha: 0.65),
+                                        blurRadius: 6,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(width: 8),
                             ],
                             Flexible(
                               child: Text(
@@ -3107,9 +3192,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                                     : '${_shelfMaps.length}·${_features.length}${visibleBeacons.isNotEmpty ? '·${visibleBeacons.length}' : ''}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: 'monospace',
                                   fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             ),
@@ -3118,7 +3205,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                       ),
                     ),
                     if (isDesktop && !_isDrawingMode) ...[
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 10),
                       _MiniToggle(
                         label: 'Explore',
                         icon: Icons.explore_outlined,
@@ -3153,7 +3240,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                       _MiniToggle(
                         label: 'Draw',
                         icon: Icons.edit,
-                        active: false,
+                        active: true,
                         onTap: () => _selectMode(DrawToolMode.line),
                       ),
                     ],
@@ -3247,11 +3334,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             ),
           ),
 
-          // Right-thumb ergonomic Map Controls Rail on Mobile (GPS, Loupe, Callouts, Basemap, Measure)
+          // Right-thumb uniform icon-only Map Controls Rail on Mobile (strictly 46x46 frosted squircles!)
           if (!isDesktop)
             Positioned(
               key: const Key('earthly-right-thumb-rail'),
-              right: 10,
+              right: 12,
               bottom: rightThumbRailBottom,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -3259,13 +3346,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 children: [
                   if (_isDrawingMode) ...[
                     _ThumbMapButton(
-                      tooltip: 'Toggle placement style',
+                      tooltip: _placementStyle == TouchPlacementStyle.drawDrag
+                          ? 'Draw-Drag'
+                          : 'Crosshair',
                       icon: _placementStyle == TouchPlacementStyle.drawDrag
                           ? Icons.touch_app
                           : Icons.gps_fixed,
-                      label: _placementStyle == TouchPlacementStyle.drawDrag
-                          ? 'Draw-Drag'
-                          : 'Crosshair',
                       active: true,
                       onTap: () => setState(() {
                         _placementStyle =
@@ -3276,41 +3362,48 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                     ),
                     const SizedBox(height: 8),
                     _ThumbMapButton(
-                      tooltip: 'Magnifier Loupe',
+                      tooltip: 'Loupe',
                       icon: Icons.zoom_in,
-                      label: 'Loupe',
                       active: _loupeEnabled,
                       onTap: () =>
                           setState(() => _loupeEnabled = !_loupeEnabled),
                     ),
                   ] else ...[
                     _ThumbMapButton(
-                      tooltip: 'Measure Distance & Area (Draw-Drag)',
+                      tooltip: 'Measure',
                       icon: Icons.straighten,
-                      label: 'Measure',
                       active: _isMeasureMode,
+                      activeBackground: EarthlyColors.measureViolet,
+                      activeForeground: Colors.white,
                       onTap: _toggleMeasureMode,
                     ),
                     const SizedBox(height: 8),
                     _ThumbMapButton(
-                      tooltip: 'Basemap & Overlays',
-                      icon: Icons.map_outlined,
-                      label: 'Style',
+                      tooltip: 'Map Style & Overlays',
+                      icon: Icons.layers_outlined,
                       active: effectiveBasemap == BasemapKind.offlinePmtiles,
                       onTap: () => _openBasemapSwitcher(effectiveBasemap),
                     ),
                     const SizedBox(height: 8),
                     _ThumbMapButton(
-                      tooltip: 'Cycle Map Callouts',
-                      icon: Icons.chat_bubble_outline,
-                      label: switch (_calloutMode) {
-                        CalloutDisplayMode.full => 'Callouts',
-                        CalloutDisplayMode.compact => 'Compact',
-                        CalloutDisplayMode.pins => 'Pins',
-                        CalloutDisplayMode.hidden => 'Off',
+                      tooltip: switch (_calloutMode) {
+                        CalloutDisplayMode.full => 'Callouts: Full',
+                        CalloutDisplayMode.compact => 'Callouts: Compact',
+                        CalloutDisplayMode.pins => 'Callouts: Pins',
+                        CalloutDisplayMode.hidden => 'Callouts: Off',
+                      },
+                      icon: switch (_calloutMode) {
+                        CalloutDisplayMode.full => Icons.chat_bubble_outline,
+                        CalloutDisplayMode.compact => Icons.short_text,
+                        CalloutDisplayMode.pins => Icons.push_pin_outlined,
+                        CalloutDisplayMode.hidden =>
+                          Icons.comments_disabled_outlined,
                       },
                       active: _calloutMode != CalloutDisplayMode.hidden &&
                           visibleCallouts.isNotEmpty,
+                      badgeDotColor: _calloutMode == CalloutDisplayMode.hidden
+                          ? null
+                          : EarthlyColors.amber,
                       onTap: () => setState(
                         () => _calloutMode =
                             nextCalloutDisplayMode(_calloutMode),
@@ -3322,7 +3415,6 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                     _ThumbMapButton(
                       tooltip: 'Center on GPS',
                       icon: Icons.my_location,
-                      label: 'GPS',
                       active: false,
                       onTap: () => unawaited(_locateMe()),
                     ),
@@ -3335,23 +3427,31 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           if ((_activeProposalLabel != null || _activeCommentOverlayId != null) &&
               !_isDrawingMode)
             Positioned(
-              top: 62,
-              left: isDesktop && activeDrawerWidget != null ? 434 : 10,
-              right: 10,
+              top: 66,
+              left: isDesktop && activeDrawerWidget != null ? 440 : 12,
+              right: 12,
               child: SafeArea(
                 bottom: false,
                 child: Align(
                   alignment: Alignment.topLeft,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
+                      horizontal: 12,
+                      vertical: 6,
                     ),
                     decoration: BoxDecoration(
                       color: (_activeProposalLabel != null
                               ? EarthlyColors.proposedAmber
                               : EarthlyColors.commentGreen)
                           .withValues(alpha: 0.94),
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.22),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -3365,7 +3465,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             color: Colors.white,
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                         GestureDetector(
                           onTap: () => setState(() {
                             _activeProposalOverlayId = null;
@@ -3387,23 +3487,32 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               ),
             ),
 
-          // Precision Draw-Drag Measure Ruler live HUD banner
+          // Precision Draw-Drag Measure Ruler live HUD pill
           if (_isMeasureMode)
             Positioned(
-              top: 62,
-              left: 10,
-              right: 10,
+              top: 66,
+              left: 12,
+              right: 12,
               child: SafeArea(
                 bottom: false,
                 child: Align(
                   alignment: Alignment.topCenter,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+                      horizontal: 14,
+                      vertical: 7,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF7C3AED).withValues(alpha: 0.94),
+                      color: EarthlyColors.measureViolet.withValues(alpha: 0.95),
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: [
+                        BoxShadow(
+                          color: EarthlyColors.measureViolet
+                              .withValues(alpha: 0.35),
+                          blurRadius: 16,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -3416,7 +3525,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                         const SizedBox(width: 8),
                         Text(
                           _draftVertices.isEmpty
-                              ? 'Measure: drag with 1 finger to place vertices'
+                              ? 'Drag with 1 finger to place vertices'
                               : _draftVertices.length < 3
                                   ? '${DrawingMath.formatDistance(_measureDistanceMeters)} (${_draftVertices.length} pts)'
                                   : '${DrawingMath.formatDistance(_measureDistanceMeters)} · ${(_measureAreaM2 / 10000).toStringAsFixed(2)} ha',
@@ -3462,31 +3571,29 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               ),
             ),
 
-          // Contextual guidance strip while drawing
+          // Contextual floating guidance pill while drawing
           if (_isDrawingMode)
             Positioned(
-              left: 12,
-              right: 12,
+              left: 14,
+              right: 70,
               bottom: 84 + bottomSafeInset,
-              child: Center(
-                child: Container(
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: EarthlyGlassSurface(
+                  borderRadius: BorderRadius.circular(999),
+                  color: EarthlyColors.darkSurface.withValues(alpha: 0.88),
+                  borderColor: Colors.white.withValues(alpha: 0.14),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: EarthlyColors.darkSurface.withValues(alpha: 0.88),
-                    border: Border.all(
-                      color: EarthlyColors.darkInk.withValues(alpha: 0.2),
-                    ),
+                    horizontal: 12,
+                    vertical: 7,
                   ),
                   child: Text(
                     _placementStyle == TouchPlacementStyle.drawDrag
                         ? '1 finger: place & drag · 2 fingers: pan/zoom · 2-finger tap: undo'
-                        : 'Pan map under center reticle · tap Drop to place',
+                        : 'Pan map under reticle · tap Drop to place',
                     style: const TextStyle(
                       fontFamily: 'monospace',
-                      fontSize: 11,
+                      fontSize: 10.5,
                       color: EarthlyColors.darkInk,
                     ),
                   ),
@@ -3497,25 +3604,35 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           // Unified Google-Maps-style independent bottom drawer (mobile) or docked left Margin (desktop)
           ?activeDrawerWidget,
 
-          // Bottom Dock: surface extends flush to bottom: 0 behind gesture pill & rounded corners;
+          // Frosted-Glass Bottom Dock: surface extends flush to bottom: 0 behind gesture pill & rounded corners;
           // SafeArea pads ONLY the inner row so there is NEVER a gap on any phone screen shape!
           if (!hideBottomDockOnMobile && (!isDesktop || _isDrawingMode))
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
-              child: Container(
-                key: const Key('earthly-bottom-dock'),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface.withValues(alpha: 0.97),
-                  border: Border(top: BorderSide(color: theme.dividerColor)),
-                ),
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                    child: _isDrawingMode
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: Container(
+                    key: const Key('earthly-bottom-dock'),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface.withValues(
+                        alpha: systemIsDark ? 0.90 : 0.93,
+                      ),
+                      border: Border(
+                        top: BorderSide(
+                          color: systemIsDark
+                              ? Colors.white.withValues(alpha: 0.12)
+                              : Colors.black.withValues(alpha: 0.08),
+                        ),
+                      ),
+                    ),
+                    child: SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
+                        child: _isDrawingMode
                       ? LayoutBuilder(
                           builder: (context, constraints) =>
                               SingleChildScrollView(
@@ -3542,7 +3659,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                                               Icon(
                                                 Icons.straighten,
                                                 size: 18,
-                                                color: Color(0xFF7C3AED),
+                                                color: EarthlyColors.measureViolet,
                                               ),
                                               SizedBox(width: 6),
                                               Text(
@@ -3551,7 +3668,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                                                   fontFamily: 'monospace',
                                                   fontSize: 11,
                                                   fontWeight: FontWeight.w800,
-                                                  color: Color(0xFF7C3AED),
+                                                  color: EarthlyColors.measureViolet,
                                                 ),
                                               ),
                                             ],
@@ -3592,7 +3709,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                                         FilledButton.icon(
                                           style: FilledButton.styleFrom(
                                             padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
+                                              horizontal: 11,
                                               vertical: 8,
                                             ),
                                             minimumSize: const Size(0, 36),
@@ -3610,7 +3727,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                                         FilledButton(
                                           style: FilledButton.styleFrom(
                                             padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
+                                              horizontal: 11,
                                               vertical: 8,
                                             ),
                                             minimumSize: const Size(0, 36),
@@ -3636,7 +3753,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                                       OutlinedButton(
                                         style: OutlinedButton.styleFrom(
                                           padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
+                                            horizontal: 11,
                                             vertical: 8,
                                           ),
                                           minimumSize: const Size(0, 36),
@@ -3694,23 +3811,36 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                                 onTap: () => _toggleDrawer(_ActiveDrawer.agent),
                               ),
                             ),
-                            IconButton(
-                              tooltip: 'Drop Field Sighting',
-                              visualDensity: VisualDensity.compact,
-                              onPressed: _openSightingComposer,
-                              icon: const Icon(
-                                Icons.add_a_photo_outlined,
-                                size: 19,
+                            const SizedBox(width: 4),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.surfaceContainerHighest,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: theme.dividerColor),
+                              ),
+                              child: IconButton(
+                                tooltip: 'Drop Field Sighting',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: _openSightingComposer,
+                                icon: const Icon(
+                                  Icons.add_a_photo_outlined,
+                                  size: 18,
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 2),
+                            const SizedBox(width: 6),
                             FilledButton.icon(
                               style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 8,
+                                backgroundColor: EarthlyColors.amber,
+                                foregroundColor: EarthlyColors.amberInk,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(13),
                                 ),
-                                minimumSize: const Size(0, 38),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 9,
+                                ),
+                                minimumSize: const Size(0, 40),
                               ),
                               onPressed: () => _selectMode(DrawToolMode.line),
                               icon: const Icon(Icons.edit, size: 15),
@@ -3718,6 +3848,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             ),
                           ],
                         ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -3730,63 +3862,89 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   }
 }
 
+/// Strictly uniform 46×46 icon-only frosted-glass squircle button for the
+/// right-thumb map controls rail on phones (zero text labels -> identical sizing!).
 class _ThumbMapButton extends StatelessWidget {
   const _ThumbMapButton({
     required this.tooltip,
     required this.icon,
-    required this.label,
     required this.active,
     required this.onTap,
+    this.activeBackground,
+    this.activeForeground,
+    this.badgeDotColor,
   });
 
   final String tooltip;
   final IconData icon;
-  final String label;
   final bool active;
   final VoidCallback onTap;
+  final Color? activeBackground;
+  final Color? activeForeground;
+  final Color? badgeDotColor;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final bg = active
-        ? theme.colorScheme.primary
-        : theme.colorScheme.surface.withValues(alpha: 0.95);
+        ? (activeBackground ?? EarthlyColors.amber)
+        : (isDark
+            ? EarthlyColors.darkSurface.withValues(alpha: 0.86)
+            : EarthlyColors.lightSurface.withValues(alpha: 0.90));
     final fg = active
-        ? theme.colorScheme.onPrimary
+        ? (activeForeground ?? EarthlyColors.amberInk)
         : theme.colorScheme.onSurface;
+    final borderColor = active
+        ? (activeBackground ?? EarthlyColors.amber)
+        : (isDark
+            ? Colors.white.withValues(alpha: 0.14)
+            : Colors.black.withValues(alpha: 0.10));
 
     return Tooltip(
       message: tooltip,
-      child: Material(
-        color: bg,
-        elevation: 3,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(
-            color: active ? theme.colorScheme.primary : theme.dividerColor,
-          ),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: onTap,
-          child: Container(
-            constraints: const BoxConstraints(minWidth: 52, minHeight: 46),
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 19, color: fg),
-                const SizedBox(height: 2),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    color: fg,
-                  ),
-                ),
-              ],
+      child: SizedBox(
+        width: 46,
+        height: 46,
+        child: EarthlyGlassSurface(
+          borderRadius: BorderRadius.circular(14),
+          color: bg,
+          borderColor: borderColor,
+          blurSigma: active ? 4 : 14,
+          shadows: [
+            BoxShadow(
+              color: active
+                  ? (activeBackground ?? EarthlyColors.amber)
+                      .withValues(alpha: 0.34)
+                  : Colors.black.withValues(alpha: isDark ? 0.42 : 0.16),
+              blurRadius: active ? 14 : 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: onTap,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Icon(icon, size: 20, color: fg),
+                  if (badgeDotColor != null && !active)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: badgeDotColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -3813,24 +3971,29 @@ class _MiniIconButton extends StatelessWidget {
     final theme = Theme.of(context);
     return Tooltip(
       message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(7),
-          decoration: BoxDecoration(
-            color: active
-                ? theme.colorScheme.primary
-                : theme.colorScheme.surface.withValues(alpha: 0.94),
-            border: Border.all(
-              color: active ? theme.colorScheme.primary : theme.dividerColor,
+      child: SizedBox(
+        width: 38,
+        height: 38,
+        child: EarthlyGlassSurface(
+          borderRadius: BorderRadius.circular(12),
+          color: active ? EarthlyColors.amber : null,
+          borderColor: active ? EarthlyColors.amber : null,
+          blurSigma: active ? 4 : 14,
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: onTap,
+              child: Center(
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: active
+                      ? EarthlyColors.amberInk
+                      : theme.colorScheme.onSurface,
+                ),
+              ),
             ),
-          ),
-          child: Icon(
-            icon,
-            size: 16,
-            color: active
-                ? theme.colorScheme.onPrimary
-                : theme.colorScheme.onSurface,
           ),
         ),
       ),
@@ -3854,37 +4017,36 @@ class _MiniToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final bg = active
-        ? theme.colorScheme.primary
-        : theme.colorScheme.surface.withValues(alpha: 0.94);
-    final fg = active
-        ? theme.colorScheme.onPrimary
-        : theme.colorScheme.onSurface;
+    final fg = active ? EarthlyColors.amberInk : theme.colorScheme.onSurface;
 
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-        decoration: BoxDecoration(
-          color: bg,
-          border: Border.all(
-            color: active ? theme.colorScheme.primary : theme.dividerColor,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15, color: fg),
-            const SizedBox(width: 5),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: fg,
-              ),
+    return EarthlyGlassSurface(
+      borderRadius: BorderRadius.circular(12),
+      color: active ? EarthlyColors.amber : null,
+      borderColor: active ? EarthlyColors.amber : null,
+      blurSigma: active ? 4 : 14,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 15, color: fg),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: fg,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -3907,38 +4069,47 @@ class _DockTool extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final fg = selected
-        ? theme.colorScheme.primary
-        : theme.colorScheme.onSurface.withValues(alpha: 0.8);
+        ? (isDark ? EarthlyColors.amber : EarthlyColors.lightAccent)
+        : theme.colorScheme.onSurfaceVariant;
 
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-        decoration: BoxDecoration(
-          color: selected
-              ? theme.colorScheme.primary.withValues(alpha: 0.12)
-              : Colors.transparent,
-          border: Border.all(
-            color: selected ? theme.colorScheme.primary : Colors.transparent,
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: fg),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: fg,
-              ),
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected
+                ? EarthlyColors.amber.withValues(alpha: isDark ? 0.18 : 0.16)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? EarthlyColors.amber.withValues(alpha: 0.55)
+                  : Colors.transparent,
             ),
-          ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 19, color: fg),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: fg,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

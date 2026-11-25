@@ -139,9 +139,6 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
                     autofocus: true,
                     onSubmitted: (_) => _submit(),
                     decoration: const InputDecoration(
-                      isDense: true,
-                      border:
-                          OutlineInputBorder(borderRadius: BorderRadius.zero),
                       hintText: 'Vienna, 48.2082, 16.3738, or nostr:naddr1…',
                     ),
                   ),

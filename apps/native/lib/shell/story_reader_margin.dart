@@ -5,6 +5,7 @@ import '../nostr/story_presentation.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
 import 'map_drawer.dart';
+import 'share_naddr_sheet.dart';
 
 /// Non-blocking draggable Margin sheet that sits over the live MapLibre canvas
 /// while reading a Story (`kind 37520`).
@@ -14,6 +15,7 @@ import 'map_drawer.dart';
 class StoryReaderMargin extends StatelessWidget {
   const StoryReaderMargin({
     required this.story,
+    required this.relayUrls,
     required this.parsed,
     required this.datasetsByAddress,
     required this.decodedRefsByToken,
@@ -32,6 +34,7 @@ class StoryReaderMargin extends StatelessWidget {
   });
 
   final StorySummaryDto story;
+  final List<String> relayUrls;
   final ParsedStoryDocument parsed;
   final Map<String, ShelfMapEntry> datasetsByAddress;
   final Map<String, DecodedNaddrDto> decodedRefsByToken;
@@ -68,21 +71,9 @@ class StoryReaderMargin extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                  child: Text(
-                    'STORY',
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
+                const EarthlyBadge(
+                  label: 'STORY',
+                  color: EarthlyColors.infoCyan,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -94,6 +85,19 @@ class StoryReaderMargin extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                     ),
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Share QR / nostr:naddr',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => showEarthlyShareSheet(
+                    context,
+                    kind: 37520,
+                    pubkey: story.pubkey,
+                    dTag: story.dTag,
+                    title: story.title,
+                    relays: relayUrls,
+                  ),
+                  icon: const Icon(Icons.qr_code_2, size: 18),
                 ),
                 IconButton(
                   tooltip: 'Story Comments',

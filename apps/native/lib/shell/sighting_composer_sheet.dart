@@ -234,8 +234,6 @@ class _SightingComposerSheetState extends State<SightingComposerSheet> {
               TextField(
                 controller: _titleController,
                 decoration: const InputDecoration(
-                  isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                   labelText: 'Title (e.g. Fallen tree, Peregrine falcon)',
                 ),
               ),
@@ -245,8 +243,6 @@ class _SightingComposerSheetState extends State<SightingComposerSheet> {
                 minLines: 2,
                 maxLines: 4,
                 decoration: const InputDecoration(
-                  isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.zero),
                   labelText: 'Observation note',
                 ),
               ),
