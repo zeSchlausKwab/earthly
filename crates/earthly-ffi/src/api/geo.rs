@@ -3,9 +3,9 @@
 use earthly_geo::{
     ExtrudeOptions, ExtrudeShape, ExtrudeSide, create_line_corridor, difference_polygons,
     extrude_line, geodesic_area_m2, geodesic_length_m, offset_line, offset_polygon, simplify_line,
-    split_polygon_by_line, union_polygons,
+    split_line_at_point, split_polygon_by_line, union_polygons,
 };
-use geo::{Coord, LineString, Polygon};
+use geo::{Coord, LineString, Point, Polygon};
 
 #[derive(Clone, Debug)]
 pub struct LonLatPoint {
@@ -140,6 +140,19 @@ pub fn geo_split_polygon_by_line(
         .into_iter()
         .map(|p| from_coords(&p.exterior().0))
         .collect())
+}
+
+/// Splits a polyline into two polylines at the closest point to `split_point`.
+pub fn geo_split_line_at_point(
+    points: Vec<LonLatPoint>,
+    split_point: LonLatPoint,
+) -> Result<Vec<Vec<LonLatPoint>>, String> {
+    let (a, b) = split_line_at_point(
+        &to_line(&points),
+        Point::new(split_point.lon, split_point.lat),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(vec![from_coords(&a.0), from_coords(&b.0)])
 }
 
 pub fn geo_measure_line_meters(points: Vec<LonLatPoint>) -> f64 {

@@ -13,6 +13,7 @@ enum RustGeoAction {
   corridorLastLine,
   arrowLastLine,
   offsetLastLine,
+  splitLastLineAtMidpoint,
   offsetLastPolygon,
   unionAllPolygons,
   differenceLastTwoPolygons,
@@ -412,6 +413,14 @@ class _DeskSheetState extends State<DeskSheet> {
                             widget.onRunGeoAction(RustGeoAction.offsetLastLine)
                         : null,
                     child: const Text('Parallel (+80m)'),
+                  ),
+                  OutlinedButton(
+                    onPressed: hasLine
+                        ? () => widget.onRunGeoAction(
+                              RustGeoAction.splitLastLineAtMidpoint,
+                            )
+                        : null,
+                    child: const Text('Split Line (50%)'),
                   ),
                   OutlinedButton(
                     onPressed: polyCount >= 1

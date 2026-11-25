@@ -138,6 +138,113 @@ pub async fn fetch_profiles(
 }
 
 #[derive(Clone, Debug)]
+pub struct PlaceSearchResultDto {
+    pub name: String,
+    pub subtitle: String,
+    pub lon: f64,
+    pub lat: f64,
+    pub west: Option<f64>,
+    pub south: Option<f64>,
+    pub east: Option<f64>,
+    pub north: Option<f64>,
+}
+
+/// Searches places via Photon (OpenStreetMap geocoder, zero API key) for fast
+/// map jump-to navigation.
+pub async fn search_places(query: String) -> Result<Vec<PlaceSearchResultDto>, String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .user_agent("EarthlyNative/1.0 (+https://earthly.city)")
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+    let resp = client
+        .get("https://photon.komoot.io/api/")
+        .query(&[("q", trimmed), ("limit", "6")])
+        .send()
+        .await
+        .map_err(|e| format!("place search failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("geocoder HTTP {}", resp.status()));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("invalid geocoder JSON: {e}"))?;
+
+    let mut out = Vec::new();
+    let Some(features) = body.get("features").and_then(|v| v.as_array()) else {
+        return Ok(out);
+    };
+    for feat in features {
+        let Some(coords) = feat
+            .get("geometry")
+            .and_then(|g| g.get("coordinates"))
+            .and_then(|c| c.as_array())
+        else {
+            continue;
+        };
+        if coords.len() < 2 {
+            continue;
+        }
+        let (Some(lon), Some(lat)) = (coords[0].as_f64(), coords[1].as_f64()) else {
+            continue;
+        };
+        let props = feat.get("properties");
+        let str_prop = |k: &str| {
+            props
+                .and_then(|p| p.get(k))
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        };
+        let name = str_prop("name")
+            .or_else(|| str_prop("street"))
+            .or_else(|| str_prop("city"))
+            .unwrap_or(trimmed)
+            .to_owned();
+        let mut sub_parts = Vec::new();
+        for key in ["street", "city", "state", "country"] {
+            if let Some(val) = str_prop(key) {
+                if val != name && !sub_parts.contains(&val) {
+                    sub_parts.push(val);
+                }
+            }
+        }
+        let extent = props
+            .and_then(|p| p.get("extent"))
+            .and_then(|e| e.as_array())
+            .filter(|a| a.len() == 4);
+        // Photon extent order is [west, north, east, south].
+        let (west, north, east, south) = if let Some(ext) = extent {
+            (
+                ext[0].as_f64(),
+                ext[1].as_f64(),
+                ext[2].as_f64(),
+                ext[3].as_f64(),
+            )
+        } else {
+            (None, None, None, None)
+        };
+        out.push(PlaceSearchResultDto {
+            name,
+            subtitle: sub_parts.join(", "),
+            lon,
+            lat,
+            west,
+            south,
+            east,
+            north,
+        });
+    }
+    Ok(out)
+}
+
+#[derive(Clone, Debug)]
 pub struct DecodedNaddrDto {
     pub kind: u16,
     pub pubkey: String,

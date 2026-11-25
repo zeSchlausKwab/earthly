@@ -36,10 +36,15 @@ class DiscussionMarginSheet extends StatefulWidget {
     required this.hasDraftGeometry,
     required this.activeCommentGeojsonId,
     required this.activeProposalId,
+    required this.profilesByPubkey,
+    required this.currentUserPubkey,
     required this.onToggleCommentOverlay,
     required this.onToggleProposalOverlay,
     required this.onPostComment,
     required this.onSubmitProposal,
+    required this.onLoadProposalToDraft,
+    required this.onApplyProposal,
+    required this.onCloseProposal,
     required this.onClose,
     super.key,
   });
@@ -49,6 +54,8 @@ class DiscussionMarginSheet extends StatefulWidget {
   final bool hasDraftGeometry;
   final String? activeCommentGeojsonId;
   final String? activeProposalId;
+  final Map<String, ProfileMetadataDto> profilesByPubkey;
+  final String? currentUserPubkey;
   final void Function(GeoCommentDto comment) onToggleCommentOverlay;
   final void Function(GeoProposalDto proposal) onToggleProposalOverlay;
   final Future<PublishOutcomeDto> Function(
@@ -56,6 +63,11 @@ class DiscussionMarginSheet extends StatefulWidget {
     bool attachDraftGeometry,
   ) onPostComment;
   final Future<PublishOutcomeDto> Function(String description) onSubmitProposal;
+  final ValueChanged<GeoProposalDto> onLoadProposalToDraft;
+  final Future<PublishOutcomeDto> Function(GeoProposalDto proposal)
+      onApplyProposal;
+  final Future<PublishOutcomeDto> Function(GeoProposalDto proposal)
+      onCloseProposal;
   final VoidCallback onClose;
 
   @override
@@ -130,6 +142,41 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
         _attachDraft = false;
         _statusNote =
             'Comment published (${outcome.outboxState}) · ${outcome.eventId.substring(0, 10)}…';
+      });
+      await _refresh();
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  String _authorLabel(String pubkey) {
+    final p = widget.profilesByPubkey[pubkey];
+    final name = p?.displayName ?? p?.name;
+    if (name != null && name.isNotEmpty) return '@$name';
+    return '${pubkey.substring(0, pubkey.length.clamp(0, 10))}…';
+  }
+
+  Future<void> _handleProposalStatus(
+    GeoProposalDto proposal, {
+    required bool apply,
+  }) async {
+    setState(() {
+      _submitting = true;
+      _error = null;
+      _statusNote = null;
+    });
+    try {
+      final outcome = apply
+          ? await widget.onApplyProposal(proposal)
+          : await widget.onCloseProposal(proposal);
+      if (!mounted) return;
+      setState(() {
+        _statusNote = apply
+            ? 'Proposal applied & map republished (${outcome.outboxState})!'
+            : 'Proposal closed (${outcome.outboxState}).';
       });
       await _refresh();
     } catch (err) {
@@ -309,8 +356,30 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                           children: [
                             Row(
                               children: [
+                                CircleAvatar(
+                                  radius: 10,
+                                  backgroundColor: theme.colorScheme.primary
+                                      .withValues(alpha: 0.14),
+                                  backgroundImage: (widget
+                                              .profilesByPubkey[c.pubkey]
+                                              ?.picture
+                                              ?.startsWith('http') ??
+                                          false)
+                                      ? NetworkImage(
+                                          widget.profilesByPubkey[c.pubkey]!
+                                              .picture!,
+                                        )
+                                      : null,
+                                  child: (widget.profilesByPubkey[c.pubkey]
+                                              ?.picture
+                                              ?.startsWith('http') ??
+                                          false)
+                                      ? null
+                                      : const Icon(Icons.person, size: 12),
+                                ),
+                                const SizedBox(width: 6),
                                 Text(
-                                  '${c.pubkey.substring(0, c.pubkey.length.clamp(0, 10))}…',
+                                  _authorLabel(c.pubkey),
                                   style: const TextStyle(
                                     fontFamily: 'monospace',
                                     fontSize: 11,
@@ -479,8 +548,59 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                p.description ?? 'Proposed edit (${p.dTag})',
+                                '${_authorLabel(p.pubkey)} · ${p.description ?? 'Proposed edit (${p.dTag})'}',
                                 style: theme.textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: () =>
+                                        widget.onLoadProposalToDraft(p),
+                                    icon: const Icon(
+                                      Icons.copy_all_outlined,
+                                      size: 14,
+                                    ),
+                                    label: const Text(
+                                      'Load to Draft',
+                                      style: TextStyle(fontSize: 11),
+                                    ),
+                                  ),
+                                  if (p.status == 'open' &&
+                                      widget.currentUserPubkey ==
+                                          widget.target.pubkey) ...[
+                                    FilledButton.icon(
+                                      onPressed: _submitting
+                                          ? null
+                                          : () => _handleProposalStatus(
+                                                p,
+                                                apply: true,
+                                              ),
+                                      icon: const Icon(Icons.check, size: 14),
+                                      label: const Text(
+                                        'Accept & Apply',
+                                        style: TextStyle(fontSize: 11),
+                                      ),
+                                    ),
+                                    OutlinedButton(
+                                      onPressed: _submitting
+                                          ? null
+                                          : () => _handleProposalStatus(
+                                                p,
+                                                apply: false,
+                                              ),
+                                      child: const Text(
+                                        'Close',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: EarthlyColors.destructive,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ],
                           ),

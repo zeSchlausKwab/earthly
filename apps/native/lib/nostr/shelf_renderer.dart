@@ -194,12 +194,12 @@ List<ShelfShape> parseGeoJsonShapes(
       idx += 1;
       final featureId = item['id']?.toString();
       final props = (item['properties'] as Map<String, dynamic>?) ?? const {};
-      final colorHex = _sanitizeHexColor(props['color'] as String?);
+      final colorHex = _sanitizeCssColor(props['color'] as String?);
       final fillColorHex =
-          _sanitizeHexColor((props['fillColor'] ?? props['color']) as String?);
-      final strokeColorHex = _sanitizeHexColor(
-        (props['strokeColor'] ?? props['color']) as String?,
-      );
+          _sanitizeCssColor((props['fillColor'] ?? props['color']) as String?);
+      final rawStrokeHex = _sanitizeCssColor(props['strokeColor'] as String?);
+      final strokeColorHex = rawStrokeHex ?? colorHex;
+      final pointFillHex = colorHex ?? fillColorHex;
       final strokeWidth = (props['strokeWidth'] is num)
           ? (props['strokeWidth'] as num).toDouble().clamp(0.5, 16.0)
           : null;
@@ -221,7 +221,7 @@ List<ShelfShape> parseGeoJsonShapes(
         featureId: featureId ?? 'f-$idx',
         datasetTitle: datasetTitle,
         datasetAddress: datasetAddress,
-        colorHex: colorHex ?? strokeColorHex ?? fillColorHex,
+        colorHex: pointFillHex ?? strokeColorHex,
         fillColorHex: fillColorHex,
         strokeColorHex: strokeColorHex,
         strokeWidth: strokeWidth,
@@ -324,7 +324,7 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
       final props = (item['properties'] as Map<String, dynamic>?) ?? const {};
       final name = (props['name'] ?? props['label']) as String?;
       final description = props['description'] as String?;
-      final colorHex = _sanitizeHexColor(props['color'] as String?);
+      final colorHex = _sanitizeCssColor(props['color'] as String?);
       final strokeWidth = (props['strokeWidth'] is num)
           ? (props['strokeWidth'] as num).toDouble().clamp(1.0, 12.0)
           : null;
@@ -621,6 +621,7 @@ List<Layer> buildEarthlyGpuLayers({
   required bool showLabels,
   required ValueChanged<InspectedFeature> onInspectFeature,
   List<LiveBeaconDto> beacons = const [],
+  List<Geographic> measurePoints = const [],
   ActiveStoryRenderContext? activeStory,
   List<ShelfShape> commentOverlayShapes = const [],
   List<ShelfShape> proposalOverlayShapes = const [],
@@ -656,20 +657,28 @@ List<Layer> buildEarthlyGpuLayers({
         continue;
       }
 
-      final fillHex = _sanitizeHexColor(
+      final fillHex = _sanitizeCssColor(
             styleOverride?.fillColor ?? styleOverride?.color,
           ) ??
           shape.fillColorHex ??
           shape.colorHex;
-      final strokeHex = _sanitizeHexColor(
+      final strokeHex = _sanitizeCssColor(
             styleOverride?.strokeColor ?? styleOverride?.color,
           ) ??
           shape.strokeColorHex ??
           shape.colorHex;
+      // On Points, `color` / `fillColor` is the backing disc fill and
+      // `strokeColor` is the outer ring (defaulting to crisp white).
+      final explicitPointRingHex = _sanitizeCssColor(styleOverride?.strokeColor) ??
+          _sanitizeCssColor(shape.properties['strokeColor'] as String?);
 
       final props = <String, Object?>{
         'fillColor': ?fillHex,
         'color': ?strokeHex,
+        'pointStroke': ?explicitPointRingHex,
+        'strokeWidth': ?shape.strokeWidth,
+        'fillOpacity': ?shape.fillOpacity,
+        'radius': ?shape.radius,
         'title': ?shape.label,
       };
 
@@ -1011,6 +1020,8 @@ List<Layer> buildEarthlyGpuLayers({
       Expression.get('fillColor').convertToColor([fallbackShelfColor]);
   final shelfStrokeExpr =
       Expression.get('color').convertToColor([fallbackShelfColor]);
+  final shelfPointStrokeExpr = Expression.get('pointStroke')
+      .convertToColor([const Expression.literal(Colors.white)]);
   final highlightColor = const Color(0xFFF59E0B);
 
   return <Layer>[
@@ -1019,7 +1030,8 @@ List<Layer> buildEarthlyGpuLayers({
         id: 'earthly-shelf-polygons',
         polygons: shelfPolygons,
         color: shelfFillExpr,
-        opacity: const Expression.literal(0.24),
+        opacity: Expression.get('fillOpacity')
+            .convertToNumber([const Expression.literal(0.24)]),
         outlineColor: shelfStrokeExpr,
         onClick: (event) {
           if (event.index < shelfPolyMeta.length) {
@@ -1043,14 +1055,16 @@ List<Layer> buildEarthlyGpuLayers({
               ),
         ],
         color: shelfStrokeExpr,
-        width: const Expression.literal(2.0),
+        width: Expression.get('strokeWidth')
+            .convertToNumber([const Expression.literal(2.0)]),
       ),
     if (shelfLines.isNotEmpty)
       PolylineLayer(
         id: 'earthly-shelf-lines',
         polylines: shelfLines,
         color: shelfStrokeExpr,
-        width: const Expression.literal(3.0),
+        width: Expression.get('strokeWidth')
+            .convertToNumber([const Expression.literal(3.0)]),
         onClick: (event) {
           if (event.index < shelfLineMeta.length) {
             onInspectFeature(shelfLineMeta[event.index]);
@@ -1061,9 +1075,10 @@ List<Layer> buildEarthlyGpuLayers({
       CircleLayer(
         id: 'earthly-shelf-points',
         points: shelfPoints,
-        color: shelfStrokeExpr,
-        radius: const Expression.literal(6.5),
-        strokeColor: const Expression.literal(Colors.white),
+        color: shelfFillExpr,
+        radius: Expression.get('radius')
+            .convertToNumber([const Expression.literal(6.5)]),
+        strokeColor: shelfPointStrokeExpr,
         strokeWidth: const Expression.literal(2.0),
         onClick: (event) {
           if (event.index < shelfPointMeta.length) {
@@ -1244,6 +1259,33 @@ List<Layer> buildEarthlyGpuLayers({
       color: EarthlyColors.proposedAmber,
     ),
 
+    // Standalone Measure Ruler overlay (violet/indigo measurement line & vertices)
+    if (measurePoints.length >= 3)
+      PolygonLayer(
+        id: 'earthly-measure-polygon',
+        polygons: [
+          Feature(geometry: Polygon.from([_ensureClosedRing(measurePoints)])),
+        ],
+        color: const Expression.literal(Color(0xFF7C3AED)),
+        opacity: const Expression.literal(0.16),
+      ),
+    if (measurePoints.length >= 2)
+      PolylineLayer(
+        id: 'earthly-measure-line',
+        polylines: [Feature(geometry: LineString.from(measurePoints))],
+        color: const Expression.literal(Color(0xFF7C3AED)),
+        width: const Expression.literal(3.0),
+      ),
+    if (measurePoints.isNotEmpty)
+      CircleLayer(
+        id: 'earthly-measure-points',
+        points: [for (final p in measurePoints) Feature(geometry: Point(p))],
+        color: const Expression.literal(Color(0xFF7C3AED)),
+        radius: const Expression.literal(5.5),
+        strokeColor: const Expression.literal(Colors.white),
+        strokeWidth: const Expression.literal(2.0),
+      ),
+
     // Collision-free native GPU Feature Labels (rendered via MapLibre symbol shader)
     if (showLabels && labelPoints.isNotEmpty)
       MarkerLayer(
@@ -1355,15 +1397,27 @@ double _polylineLengthMeters(List<Geographic> pts) {
   return total;
 }
 
-String? _sanitizeHexColor(String? raw) {
+String? _sanitizeCssColor(String? raw) {
   if (raw == null) return null;
   final trimmed = raw.trim();
+  if (trimmed.isEmpty) return null;
   if (RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(trimmed)) return trimmed;
+  if (RegExp(r'^#[0-9a-fA-F]{8}$').hasMatch(trimmed)) return trimmed;
   if (RegExp(r'^#[0-9a-fA-F]{3}$').hasMatch(trimmed)) {
     final r = trimmed[1];
     final g = trimmed[2];
     final b = trimmed[3];
     return '#$r$r$g$g$b$b';
+  }
+  final lower = trimmed.toLowerCase();
+  if (lower.startsWith('rgb(') ||
+      lower.startsWith('rgba(') ||
+      lower.startsWith('hsl(') ||
+      lower.startsWith('hsla(')) {
+    return trimmed;
+  }
+  if (RegExp(r'^[a-z]{3,20}$').hasMatch(lower) && lower != 'transparent') {
+    return lower;
   }
   return null;
 }

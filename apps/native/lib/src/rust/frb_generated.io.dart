@@ -85,6 +85,9 @@ abstract class EarthlyRustLibApiImplPlatform
   LocalDraftDto dco_decode_box_autoadd_local_draft_dto(dynamic raw);
 
   @protected
+  LonLatPoint dco_decode_box_autoadd_lon_lat_point(dynamic raw);
+
+  @protected
   MapSummaryDto dco_decode_box_autoadd_map_summary_dto(dynamic raw);
 
   @protected
@@ -160,6 +163,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<PendingClaimDto> dco_decode_list_pending_claim_dto(dynamic raw);
+
+  @protected
+  List<PlaceSearchResultDto> dco_decode_list_place_search_result_dto(
+    dynamic raw,
+  );
 
   @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
@@ -253,6 +261,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   PendingClaimDto dco_decode_pending_claim_dto(dynamic raw);
+
+  @protected
+  PlaceSearchResultDto dco_decode_place_search_result_dto(dynamic raw);
 
   @protected
   PmtilesHeaderSnapshot dco_decode_pmtiles_header_snapshot(dynamic raw);
@@ -376,6 +387,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  LonLatPoint sse_decode_box_autoadd_lon_lat_point(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   MapSummaryDto sse_decode_box_autoadd_map_summary_dto(
     SseDeserializer deserializer,
   );
@@ -483,6 +499,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<PendingClaimDto> sse_decode_list_pending_claim_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<PlaceSearchResultDto> sse_decode_list_place_search_result_dto(
     SseDeserializer deserializer,
   );
 
@@ -608,6 +629,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   PendingClaimDto sse_decode_pending_claim_dto(SseDeserializer deserializer);
+
+  @protected
+  PlaceSearchResultDto sse_decode_place_search_result_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   PmtilesHeaderSnapshot sse_decode_pmtiles_header_snapshot(
@@ -778,6 +804,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_box_autoadd_lon_lat_point(
+    LonLatPoint self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_map_summary_dto(
     MapSummaryDto self,
     SseSerializer serializer,
@@ -912,6 +944,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_pending_claim_dto(
     List<PendingClaimDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_place_search_result_dto(
+    List<PlaceSearchResultDto> self,
     SseSerializer serializer,
   );
 
@@ -1062,6 +1100,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_pending_claim_dto(
     PendingClaimDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_place_search_result_dto(
+    PlaceSearchResultDto self,
     SseSerializer serializer,
   );
 

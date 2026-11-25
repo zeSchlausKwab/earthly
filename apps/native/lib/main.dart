@@ -15,6 +15,7 @@ import 'nostr/shelf_renderer.dart';
 import 'nostr/story_presentation.dart';
 import 'runtime/device_bridge.dart';
 import 'runtime/rust_bridge.dart';
+import 'shell/account_session_sheet.dart';
 import 'shell/agent_drawer.dart';
 import 'shell/atlas_composer_sheet.dart';
 import 'shell/basemap_switcher_sheet.dart';
@@ -22,6 +23,7 @@ import 'shell/desk_sheet.dart';
 import 'shell/discussion_margin_sheet.dart';
 import 'shell/explore_sheet.dart';
 import 'shell/feature_inspector_sheet.dart';
+import 'shell/place_search_sheet.dart';
 import 'shell/sighting_composer_sheet.dart';
 import 'shell/spaces_sheet.dart';
 import 'shell/story_composer_sheet.dart';
@@ -36,6 +38,15 @@ import 'theme/earthly_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarDividerColor: Colors.transparent,
+      systemNavigationBarContrastEnforced: false,
+    ),
+  );
   runApp(const EarthlyNativeApp());
 }
 
@@ -44,6 +55,8 @@ enum _ActiveDrawer {
   explore,
   desk,
   spaces,
+  account,
+  search,
   agent,
   storyReader,
   storyComposer,
@@ -114,6 +127,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   final List<SavedOfflinePackDto> _savedOfflinePacks = <SavedOfflinePackDto>[];
   bool _showLabels = true;
   CalloutDisplayMode _calloutMode = CalloutDisplayMode.full;
+
+  // Standalone Measure Ruler mode (tapping points measures without creating draft features)
+  bool _measureMode = false;
+  final List<Geographic> _measurePoints = <Geographic>[];
+  double _measureDistanceMeters = 0.0;
+  double _measureAreaM2 = 0.0;
 
   // Durable working draft state (auto-persisted to SQLite)
   String _draftDTag = 'field-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
@@ -544,6 +563,168 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     final signedEventJson =
         await _signUnsignedEvent(account, prepared.unsignedEventJson);
     return _deliverForAudience(req.audience, signedEventJson);
+  }
+
+  Future<PublishOutcomeDto> _applyProposal(
+    DiscussionTarget target,
+    GeoProposalDto proposal,
+  ) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final dTag = target.address.split(':').length >= 3
+        ? target.address.split(':').sublist(2).join(':')
+        : target.title;
+    // 1. Republish the updated kind-37515 map with the proposed FeatureCollection.
+    final preparedMap = await prepareUnsignedMapEvent(
+      pubkeyOrNpub: account.pubkey,
+      dTag: dTag,
+      title: target.title,
+      geojson: proposal.geojson,
+      hashtags: const ['earthly-native'],
+    );
+    final signedMap =
+        await _signUnsignedEvent(account, preparedMap.unsignedEventJson);
+    await _deliverForAudience(DraftAudienceChoice.publicRelay, signedMap);
+
+    // 2. Publish NIP-34 kind-1631 Applied status referencing the proposal.
+    final preparedStatus = await prepareUnsignedProposalStatusEvent(
+      pubkeyOrNpub: account.pubkey,
+      proposalAddress: proposal.address,
+      proposalEventId: proposal.eventId,
+      proposalAuthorPubkey: proposal.pubkey,
+      statusKind: 1631,
+      note: 'Applied proposal into ${target.title}',
+    );
+    final signedStatus =
+        await _signUnsignedEvent(account, preparedStatus.unsignedEventJson);
+    return _deliverForAudience(DraftAudienceChoice.publicRelay, signedStatus);
+  }
+
+  Future<PublishOutcomeDto> _closeProposal(
+    DiscussionTarget target,
+    GeoProposalDto proposal,
+  ) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final preparedStatus = await prepareUnsignedProposalStatusEvent(
+      pubkeyOrNpub: account.pubkey,
+      proposalAddress: proposal.address,
+      proposalEventId: proposal.eventId,
+      proposalAuthorPubkey: proposal.pubkey,
+      statusKind: 1632,
+      note: 'Closed proposal',
+    );
+    final signedStatus =
+        await _signUnsignedEvent(account, preparedStatus.unsignedEventJson);
+    return _deliverForAudience(DraftAudienceChoice.publicRelay, signedStatus);
+  }
+
+  void _jumpToPlace(PlaceSearchResultDto place) {
+    final controller = _controller;
+    if (controller == null) return;
+    if (place.west != null &&
+        place.south != null &&
+        place.east != null &&
+        place.north != null &&
+        (place.east! - place.west!).abs() > 1e-4) {
+      _flyToBounds(
+        GeoBox(
+          west: place.west!,
+          south: place.south!,
+          east: place.east!,
+          north: place.north!,
+        ),
+      );
+      return;
+    }
+    controller.animateCamera(
+      CameraUpdate.position(
+        center: Geographic(lon: place.lon, lat: place.lat),
+        zoom: 14.5,
+      ),
+    );
+  }
+
+  Future<void> _jumpToNaddr(String naddrUri) async {
+    await RustBridge.ensureInitialized();
+    final decoded = await decodeNaddrCoordinate(naddrUri: naddrUri);
+    if (decoded == null) {
+      throw StateError('Could not decode Nostr naddr link');
+    }
+    final relays = <String>{
+      ..._activeRelayUrls,
+      ...decoded.relays.where((r) => r.startsWith('wss://')),
+    }.toList(growable: false);
+    if (decoded.kind == 37515) {
+      final fetched = await fetchMapsByAddresses(
+        relayUrls: relays,
+        addresses: [decoded.address],
+      );
+      if (fetched.isEmpty) {
+        throw StateError('Map ${decoded.dTag} not found on configured relays');
+      }
+      final map = fetched.first;
+      if (!_shelfMaps.any((e) => e.summary.address == map.address)) {
+        setState(() => _shelfMaps.add(_entryFromSummary(map)));
+      }
+      _flyToMap(map);
+      return;
+    }
+    throw StateError('Unsupported naddr kind ${decoded.kind} (expected 37515 Map)');
+  }
+
+  Future<void> _appendMeasurePoint(Geographic pt) async {
+    setState(() => _measurePoints.add(pt));
+    if (_measurePoints.length < 2) return;
+    try {
+      await RustBridge.ensureInitialized();
+      final pts = _measurePoints
+          .map((p) => LonLatPoint(lon: p.lon, lat: p.lat))
+          .toList(growable: false);
+      final dist = await geoMeasureLineMeters(points: pts);
+      final area = _measurePoints.length >= 3
+          ? await geoMeasurePolygonAreaM2(ring: pts)
+          : 0.0;
+      if (!mounted) return;
+      setState(() {
+        _measureDistanceMeters = dist;
+        _measureAreaM2 = area;
+      });
+    } catch (_) {}
+  }
+
+  void _toggleMeasureMode() {
+    setState(() {
+      _measureMode = !_measureMode;
+      _measurePoints.clear();
+      _measureDistanceMeters = 0.0;
+      _measureAreaM2 = 0.0;
+      if (_measureMode) {
+        _mode = DrawToolMode.browse;
+        _drawer = _ActiveDrawer.none;
+      }
+    });
+  }
+
+  String? get _activeSessionSummaryText {
+    if (_acceptedRemotePeer != null) {
+      return 'Paired to ${_acceptedRemotePeer!.sessionName ?? _acceptedRemotePeer!.relayUrl}';
+    }
+    if (_hostedSessionId != null) {
+      return 'Hosting Field Session ($_hostedSessionId)';
+    }
+    return null;
+  }
+
+  String get _accountChipLabel {
+    final acct = _account;
+    if (acct == null) return 'Sign in';
+    final p = _profilesByPubkey[acct.pubkey];
+    final name = p?.displayName ?? p?.name;
+    if (name != null && name.isNotEmpty) {
+      return name.length > 12 ? '${name.substring(0, 12)}…' : name;
+    }
+    return acct.shortLabel.substring(0, 8);
   }
 
   @override
@@ -1895,6 +2076,34 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               name: 'Parallel (+80m)',
             ));
           });
+        case RustGeoAction.splitLastLineAtMidpoint:
+          final idx =
+              _features.lastIndexWhere((f) => f.kind == DrawToolMode.line);
+          if (idx < 0) return;
+          final verts = _features[idx].vertices;
+          if (verts.length < 2) return;
+          final midIdx = verts.length ~/ 2;
+          final splitPt = verts.length == 2
+              ? DrawingMath.midpoint(verts[0], verts[1])
+              : verts[midIdx];
+          final parts = await geoSplitLineAtPoint(
+            points: toPoints(verts),
+            splitPoint: LonLatPoint(lon: splitPt.lon, lat: splitPt.lat),
+          );
+          if (parts.length < 2) return;
+          setState(() {
+            final baseName = _features[idx].name ?? 'Line';
+            _features.removeAt(idx);
+            for (var i = 0; i < parts.length; i++) {
+              _featureCounter += 1;
+              _features.add(DrawnFeature(
+                id: 'split-line-$_featureCounter',
+                kind: DrawToolMode.line,
+                vertices: fromPoints(parts[i]),
+                name: '$baseName (Part ${i + 1})',
+              ));
+            }
+          });
         case RustGeoAction.offsetLastPolygon:
           final poly =
               _features.lastWhere((f) => f.kind == DrawToolMode.polygon);
@@ -2193,6 +2402,47 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onBroadcastBeacon: _broadcastLiveBeacon,
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
         );
+      case _ActiveDrawer.account:
+        return AccountSessionSheet(
+          account: _account,
+          localNsec: _localNsec,
+          profile: _account != null ? _profilesByPubkey[_account!.pubkey] : null,
+          activeSessionSummary: _activeSessionSummaryText,
+          onAccountChanged: (account) {
+            setState(() => _account = account);
+            unawaited(_persistAppSettings());
+            if (account != null) {
+              unawaited(
+                fetchProfiles(
+                  relayUrls: _activeRelayUrls,
+                  pubkeys: [account.pubkey],
+                ).then((list) {
+                  if (!mounted || list.isEmpty) return;
+                  setState(() => _profilesByPubkey[list.first.pubkey] = list.first);
+                }),
+              );
+            }
+          },
+          onLocalKeyChanged: (kp) {
+            setState(() {
+              if (kp == null) {
+                _localNsec = null;
+              } else {
+                _account = Nip55Account(pubkey: kp.pubkeyHex);
+                _localNsec = kp.nsec;
+              }
+            });
+            unawaited(_persistAppSettings());
+          },
+          onOpenSpaces: () => setState(() => _drawer = _ActiveDrawer.spaces),
+          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+        );
+      case _ActiveDrawer.search:
+        return PlaceSearchSheet(
+          onJumpToPlace: _jumpToPlace,
+          onJumpToNaddr: _jumpToNaddr,
+          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+        );
       case _ActiveDrawer.agent:
         return AgentDrawer(
           messages: _agentMessages,
@@ -2367,6 +2617,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           hasDraftGeometry: _features.isNotEmpty,
           activeCommentGeojsonId: _activeCommentOverlayId,
           activeProposalId: _activeProposalOverlayId,
+          profilesByPubkey: _profilesByPubkey,
+          currentUserPubkey: _account?.pubkey,
           onToggleCommentOverlay: (comment) {
             if (_activeCommentOverlayId == comment.eventId) {
               setState(() {
@@ -2406,6 +2658,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onPostComment: (text, attachDraft) =>
               _postComment(target, text, attachDraft),
           onSubmitProposal: (description) => _submitProposal(target, description),
+          onLoadProposalToDraft: (proposal) => _cloneGeoJsonToDraft(
+            '${target.title} (PR)',
+            proposal.geojson,
+          ),
+          onApplyProposal: (proposal) => _applyProposal(target, proposal),
+          onCloseProposal: (proposal) => _closeProposal(target, proposal),
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
         );
     }
@@ -2462,6 +2720,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       shelfMaps: _shelfMaps,
       sightings: visibleSightings,
       beacons: visibleBeacons,
+      measurePoints: _measurePoints,
       draftFeatures: _features,
       accentColor: theme.colorScheme.primary,
       isDarkMap: isDarkMap,
@@ -2476,6 +2735,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     final activeDrawerWidget = _buildActiveDrawer(visibleCallouts.length);
     final hideBottomDockOnMobile =
         !isDesktop && activeDrawerWidget != null && !_isDrawingMode;
+    final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
 
     final mapWidget = widget.mapBuilder != null
         ? widget.mapBuilder!(
@@ -2495,13 +2755,19 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             ),
             onMapCreated: (controller) =>
                 setState(() => _controller = controller),
+            onClick: (event) {
+              if (_measureMode) {
+                unawaited(_appendMeasurePoint(event.point));
+              }
+            },
             layers: gpuLayers,
             children: [
               EarthlyCalloutOverlay(
                 callouts: visibleCallouts,
                 sightings: visibleSightings,
                 displayMode: _calloutMode,
-                bottomInset: hideBottomDockOnMobile ? 340 : 108,
+                bottomInset:
+                    (hideBottomDockOnMobile ? 340 : 108) + bottomSafeInset,
                 onInspectFeature: _inspectFeature,
                 onInspectSighting: _inspectSighting,
               ),
@@ -2584,48 +2850,57 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
                 child: Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color:
-                            theme.colorScheme.surface.withValues(alpha: 0.94),
-                        border: Border.all(color: theme.dividerColor),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (!_isDrawingMode) ...[
-                            if (_relayStreamLive) ...[
-                              Container(
-                                width: 7,
-                                height: 7,
-                                decoration: const BoxDecoration(
-                                  color: EarthlyColors.commentGreen,
-                                  shape: BoxShape.circle,
+                    Flexible(
+                      flex: isDesktop ? 0 : 1,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              theme.colorScheme.surface.withValues(alpha: 0.94),
+                          border: Border.all(color: theme.dividerColor),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (!_isDrawingMode) ...[
+                              if (_relayStreamLive) ...[
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: const BoxDecoration(
+                                    color: EarthlyColors.commentGreen,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              Text(
+                                'EARTHLY',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.9,
                                 ),
                               ),
                               const SizedBox(width: 6),
                             ],
-                            Text(
-                              'EARTHLY',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.9,
+                            Flexible(
+                              child: Text(
+                                isDesktop
+                                    ? '${_shelfMaps.length} shelf · ${_features.length} draft${visibleBeacons.isNotEmpty ? ' · ${visibleBeacons.length} live' : ''}'
+                                    : '${_shelfMaps.length}·${_features.length}${visibleBeacons.isNotEmpty ? '·${visibleBeacons.length}' : ''}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 8),
                           ],
-                          Text(
-                            '${_shelfMaps.length} shelf · ${_features.length} draft${visibleBeacons.isNotEmpty ? ' · ${visibleBeacons.length} live' : ''}',
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                     if (isDesktop && !_isDrawingMode) ...[
@@ -2707,12 +2982,48 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                         const SizedBox(width: 6),
                       ],
                       _MiniIconButton(
+                        tooltip: 'Search Place / Coords / naddr',
+                        icon: Icons.search,
+                        active: _drawer == _ActiveDrawer.search,
+                        onTap: () => _toggleDrawer(_ActiveDrawer.search),
+                      ),
+                      const SizedBox(width: 6),
+                      _MiniIconButton(
+                        tooltip: 'Measure Distance & Area',
+                        icon: Icons.straighten,
+                        active: _measureMode,
+                        onTap: _toggleMeasureMode,
+                      ),
+                      const SizedBox(width: 6),
+                      _MiniIconButton(
                         tooltip: 'Basemap & Overlays',
                         icon: Icons.map_outlined,
                         active:
                             effectiveBasemap == BasemapKind.offlinePmtiles,
                         onTap: () => _openBasemapSwitcher(effectiveBasemap),
                       ),
+                      const SizedBox(width: 6),
+                      if (isDesktop)
+                        _MiniToggle(
+                          label: _accountChipLabel,
+                          icon: _account != null
+                              ? Icons.verified_user
+                              : Icons.account_circle_outlined,
+                          active: _drawer == _ActiveDrawer.account,
+                          onTap: () => _toggleDrawer(_ActiveDrawer.account),
+                        )
+                      else
+                        _MiniIconButton(
+                          tooltip: _account != null
+                              ? 'Account ($_accountChipLabel)'
+                              : 'Account & Session',
+                          icon: _account != null
+                              ? Icons.verified_user
+                              : Icons.account_circle_outlined,
+                          active: _drawer == _ActiveDrawer.account ||
+                              _account != null,
+                          onTap: () => _toggleDrawer(_ActiveDrawer.account),
+                        ),
                       if (Platform.isAndroid) ...[
                         const SizedBox(width: 6),
                         _MiniIconButton(
@@ -2785,12 +3096,87 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               ),
             ),
 
+          // Standalone Measure Ruler live HUD banner
+          if (_measureMode)
+            Positioned(
+              top: 62,
+              left: 10,
+              right: 10,
+              child: SafeArea(
+                bottom: false,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7C3AED).withValues(alpha: 0.94),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.straighten,
+                          size: 15,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _measurePoints.isEmpty
+                              ? 'Measure: tap map to add points'
+                              : _measurePoints.length < 3
+                                  ? '${DrawingMath.formatDistance(_measureDistanceMeters)} (${_measurePoints.length} pts)'
+                                  : '${DrawingMath.formatDistance(_measureDistanceMeters)} · ${(_measureAreaM2 / 10000).toStringAsFixed(2)} ha',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                        if (_measurePoints.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () => setState(() {
+                              _measurePoints.clear();
+                              _measureDistanceMeters = 0.0;
+                              _measureAreaM2 = 0.0;
+                            }),
+                            child: const Text(
+                              'CLEAR',
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: _toggleMeasureMode,
+                          child: const Icon(
+                            Icons.close,
+                            size: 15,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
           // Contextual guidance strip while drawing
           if (_isDrawingMode)
             Positioned(
               left: 12,
               right: 12,
-              bottom: 84,
+              bottom: 84 + bottomSafeInset,
               child: Center(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -2820,128 +3206,199 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           // Unified Google-Maps-style independent bottom drawer (mobile) or docked left Margin (desktop)
           ?activeDrawerWidget,
 
-          // Bottom Dock: always shown on mobile when no drawer is open (and always in Drawing mode)
+          // Bottom Dock: surface extends flush to bottom: 0 behind gesture pill & rounded corners;
+          // SafeArea pads ONLY the inner row so there is NEVER a gap on any phone screen shape!
           if (!hideBottomDockOnMobile && (!isDesktop || _isDrawingMode))
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
-              child: SafeArea(
-                top: false,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface.withValues(alpha: 0.96),
-                    border: Border(top: BorderSide(color: theme.dividerColor)),
-                  ),
-                  child: _isDrawingMode
-                      ? Row(
-                          children: [
-                            _DockTool(
-                              label: 'Point',
-                              icon: Icons.location_on_outlined,
-                              selected: _mode == DrawToolMode.point,
-                              onTap: () => _selectMode(DrawToolMode.point),
-                            ),
-                            _DockTool(
-                              label: 'Line',
-                              icon: Icons.timeline,
-                              selected: _mode == DrawToolMode.line,
-                              onTap: () => _selectMode(DrawToolMode.line),
-                            ),
-                            _DockTool(
-                              label: 'Area',
-                              icon: Icons.pentagon_outlined,
-                              selected: _mode == DrawToolMode.polygon,
-                              onTap: () => _selectMode(DrawToolMode.polygon),
-                            ),
-                            const Spacer(),
-                            if (_placementStyle ==
-                                TouchPlacementStyle.crosshair) ...[
-                              FilledButton.icon(
-                                onPressed: _dropCrosshairPoint,
-                                icon: const Icon(
-                                  Icons.add_location_alt,
-                                  size: 16,
-                                ),
-                                label: const Text('Drop'),
+              child: Container(
+                key: const Key('earthly-bottom-dock'),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface.withValues(alpha: 0.97),
+                  border: Border(top: BorderSide(color: theme.dividerColor)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                    child: _isDrawingMode
+                      ? LayoutBuilder(
+                          builder: (context, constraints) =>
+                              SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minWidth: constraints.maxWidth,
                               ),
-                              const SizedBox(width: 6),
-                            ],
-                            if (_canFinishDraft) ...[
-                              FilledButton(
-                                onPressed: _finishDraft,
-                                child: Text(
-                                  _editingDraftFeature != null
-                                      ? 'Save · ${_draftVertices.length}'
-                                      : 'Finish · ${_draftVertices.length}',
-                                ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _DockTool(
+                                        label: 'Point',
+                                        icon: Icons.location_on_outlined,
+                                        selected: _mode == DrawToolMode.point,
+                                        onTap: () =>
+                                            _selectMode(DrawToolMode.point),
+                                      ),
+                                      _DockTool(
+                                        label: 'Line',
+                                        icon: Icons.timeline,
+                                        selected: _mode == DrawToolMode.line,
+                                        onTap: () =>
+                                            _selectMode(DrawToolMode.line),
+                                      ),
+                                      _DockTool(
+                                        label: 'Area',
+                                        icon: Icons.pentagon_outlined,
+                                        selected: _mode == DrawToolMode.polygon,
+                                        onTap: () =>
+                                            _selectMode(DrawToolMode.polygon),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (_placementStyle ==
+                                          TouchPlacementStyle.crosshair) ...[
+                                        FilledButton.icon(
+                                          style: FilledButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 8,
+                                            ),
+                                            minimumSize: const Size(0, 36),
+                                          ),
+                                          onPressed: _dropCrosshairPoint,
+                                          icon: const Icon(
+                                            Icons.add_location_alt,
+                                            size: 16,
+                                          ),
+                                          label: const Text('Drop'),
+                                        ),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      if (_canFinishDraft) ...[
+                                        FilledButton(
+                                          style: FilledButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 8,
+                                            ),
+                                            minimumSize: const Size(0, 36),
+                                          ),
+                                          onPressed: _finishDraft,
+                                          child: Text(
+                                            _editingDraftFeature != null
+                                                ? 'Save · ${_draftVertices.length}'
+                                                : 'Finish · ${_draftVertices.length}',
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      IconButton(
+                                        tooltip: 'Undo',
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: (_draftVertices.isNotEmpty ||
+                                                _features.isNotEmpty)
+                                            ? _undoLastPoint
+                                            : null,
+                                        icon: const Icon(Icons.undo, size: 20),
+                                      ),
+                                      OutlinedButton(
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 8,
+                                          ),
+                                          minimumSize: const Size(0, 36),
+                                        ),
+                                        onPressed: _cancelEditingDraftFeature,
+                                        child: Text(
+                                          _editingDraftFeature != null
+                                              ? 'Cancel'
+                                              : 'Done',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 4),
-                            ],
-                            IconButton(
-                              tooltip: 'Undo',
-                              onPressed: (_draftVertices.isNotEmpty ||
-                                      _features.isNotEmpty)
-                                  ? _undoLastPoint
-                                  : null,
-                              icon: const Icon(Icons.undo, size: 20),
                             ),
-                            OutlinedButton(
-                              onPressed: _cancelEditingDraftFeature,
-                              child: Text(
-                                _editingDraftFeature != null ? 'Cancel' : 'Done',
-                              ),
-                            ),
-                          ],
+                          ),
                         )
                       : Row(
                           children: [
-                            _DockTool(
-                              label: 'Explore',
-                              icon: Icons.explore_outlined,
-                              selected: _drawer == _ActiveDrawer.explore,
-                              onTap: () => _toggleDrawer(_ActiveDrawer.explore),
+                            Expanded(
+                              child: _DockTool(
+                                label: 'Explore',
+                                icon: Icons.explore_outlined,
+                                selected: _drawer == _ActiveDrawer.explore,
+                                onTap: () =>
+                                    _toggleDrawer(_ActiveDrawer.explore),
+                              ),
                             ),
-                            _DockTool(
-                              label: 'Desk',
-                              icon: Icons.layers_outlined,
-                              selected: _drawer == _ActiveDrawer.desk,
-                              onTap: () => _toggleDrawer(_ActiveDrawer.desk),
+                            Expanded(
+                              child: _DockTool(
+                                label: 'Desk',
+                                icon: Icons.layers_outlined,
+                                selected: _drawer == _ActiveDrawer.desk,
+                                onTap: () => _toggleDrawer(_ActiveDrawer.desk),
+                              ),
                             ),
-                            _DockTool(
-                              label: _pendingClaimCount > 0
-                                  ? 'Spaces ($_pendingClaimCount)'
-                                  : 'Spaces',
-                              icon: Icons.hub_outlined,
-                              selected: _drawer == _ActiveDrawer.spaces ||
-                                  _pendingClaimCount > 0,
-                              onTap: () => _toggleDrawer(_ActiveDrawer.spaces),
+                            Expanded(
+                              child: _DockTool(
+                                label: _pendingClaimCount > 0
+                                    ? 'Spaces ($_pendingClaimCount)'
+                                    : 'Spaces',
+                                icon: Icons.hub_outlined,
+                                selected: _drawer == _ActiveDrawer.spaces ||
+                                    _pendingClaimCount > 0,
+                                onTap: () =>
+                                    _toggleDrawer(_ActiveDrawer.spaces),
+                              ),
                             ),
-                            _DockTool(
-                              label: 'Agent',
-                              icon: Icons.auto_awesome,
-                              selected: _drawer == _ActiveDrawer.agent,
-                              onTap: () => _toggleDrawer(_ActiveDrawer.agent),
+                            Expanded(
+                              child: _DockTool(
+                                label: 'Agent',
+                                icon: Icons.auto_awesome,
+                                selected: _drawer == _ActiveDrawer.agent,
+                                onTap: () => _toggleDrawer(_ActiveDrawer.agent),
+                              ),
                             ),
-                            const Spacer(),
                             IconButton(
                               tooltip: 'Drop Field Sighting',
+                              visualDensity: VisualDensity.compact,
                               onPressed: _openSightingComposer,
                               icon: const Icon(
                                 Icons.add_a_photo_outlined,
-                                size: 20,
+                                size: 19,
                               ),
                             ),
-                            const SizedBox(width: 4),
+                            const SizedBox(width: 2),
                             FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 8,
+                                ),
+                                minimumSize: const Size(0, 38),
+                              ),
                               onPressed: () => _selectMode(DrawToolMode.line),
-                              icon: const Icon(Icons.edit, size: 16),
+                              icon: const Icon(Icons.edit, size: 15),
                               label: const Text('Draw'),
                             ),
                           ],
                         ),
+                  ),
                 ),
               ),
             ),
@@ -3072,7 +3529,7 @@ class _DockTool extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
         decoration: BoxDecoration(
           color: selected
               ? theme.colorScheme.primary.withValues(alpha: 0.12)
@@ -3088,8 +3545,10 @@ class _DockTool extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 10.5,
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 color: fg,
               ),

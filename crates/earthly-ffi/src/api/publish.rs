@@ -5,8 +5,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_domain::{
     ARTICLE_KIND, GEO_COMMENT_KIND, GEO_EDIT_PROPOSAL_KIND, GEO_EVENT_KIND, ImetaAttachment,
-    LIVE_BEACON_KIND, MAP_CONTEXT_KIND, MODEL_VERSION, TEMPORAL_SIGHTING_KIND, set_bbox,
-    set_geohash, set_hashtags, set_images, set_referenced_addresses,
+    LIVE_BEACON_KIND, MAP_CONTEXT_KIND, MODEL_VERSION, PROPOSAL_STATUS_APPLIED_KIND,
+    PROPOSAL_STATUS_CLOSED_KIND, PROPOSAL_STATUS_DRAFT_KIND, PROPOSAL_STATUS_OPEN_KIND,
+    TEMPORAL_SIGHTING_KIND, set_bbox, set_geohash, set_hashtags, set_images,
+    set_referenced_addresses,
 };
 use earthly_geo::validate_feature_collection;
 use earthly_spatial::Bounds;
@@ -559,6 +561,79 @@ pub fn generate_local_nostr_keypair() -> Result<LocalKeypairDto, String> {
     })
 }
 
+/// Validates and imports an existing `nsec1...` (or 64-char hex secret key),
+/// returning its canonical `pubkey_hex`, `npub`, and `nsec` for persistent storage.
+pub fn import_local_nostr_nsec(nsec_or_hex: String) -> Result<LocalKeypairDto, String> {
+    let keys = Keys::parse(nsec_or_hex.trim())
+        .map_err(|err| format!("invalid Nostr secret key: {err}"))?;
+    let pubkey_hex = keys.public_key().to_hex();
+    let npub = keys
+        .public_key()
+        .to_bech32()
+        .map_err(|e| format!("failed to encode npub: {e}"))?;
+    let nsec = keys
+        .secret_key()
+        .to_bech32()
+        .map_err(|e| format!("failed to encode nsec: {e}"))?;
+    Ok(LocalKeypairDto {
+        pubkey_hex,
+        npub,
+        nsec,
+    })
+}
+
+/// Prepares a canonical NIP-34 Proposal Status event (`1630` Open, `1631`
+/// Applied/Merged, `1632` Closed, or `1633` Draft) targeting a `37519` Geo Edit Proposal.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_unsigned_proposal_status_event(
+    pubkey_or_npub: String,
+    proposal_address: String,
+    proposal_event_id: String,
+    proposal_author_pubkey: String,
+    status_kind: u16,
+    note: Option<String>,
+) -> Result<UnsignedCommentEventDto, String> {
+    if !matches!(
+        status_kind,
+        PROPOSAL_STATUS_OPEN_KIND
+            | PROPOSAL_STATUS_APPLIED_KIND
+            | PROPOSAL_STATUS_CLOSED_KIND
+            | PROPOSAL_STATUS_DRAFT_KIND
+    ) {
+        return Err(format!("invalid NIP-34 proposal status kind {status_kind}"));
+    }
+    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let pubkey_hex = pubkey.to_hex();
+
+    let mut tags: Vec<Vec<String>> = vec![vec!["a".to_owned(), proposal_address.clone()]];
+    if !proposal_event_id.trim().is_empty() {
+        tags.push(vec!["e".to_owned(), proposal_event_id.trim().to_owned()]);
+    }
+    if !proposal_author_pubkey.trim().is_empty() {
+        tags.push(vec!["p".to_owned(), proposal_author_pubkey.trim().to_owned()]);
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let content = note.unwrap_or_default().trim().to_owned();
+    let unsigned = serde_json::json!({
+        "kind": status_kind,
+        "pubkey": pubkey_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": content,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: proposal_event_id,
+        address: proposal_address,
+    })
+}
+
 /// Parses an `nsec1...` or 64-char hex secret key and signs an unsigned Nostr
 /// event JSON cleanly in Rust.
 pub async fn sign_event_with_nsec(
@@ -1094,5 +1169,26 @@ mod tests {
         let tags = raw["tags"].as_array().unwrap();
         assert!(tags.iter().any(|t| t[0] == "a" && t[1] == format!("37515:{pk}:huts-2026")));
         assert!(tags.iter().any(|t| t[0] == "t" && t[1] == "alps"));
+    }
+
+    #[test]
+    fn prepares_proposal_status_and_imports_nsec() {
+        let kp = generate_local_nostr_keypair().unwrap();
+        let imported = import_local_nostr_nsec(kp.nsec.clone()).unwrap();
+        assert_eq!(imported.pubkey_hex, kp.pubkey_hex);
+        assert_eq!(imported.npub, kp.npub);
+
+        let status = prepare_unsigned_proposal_status_event(
+            kp.pubkey_hex.clone(),
+            format!("37519:{}:pr-1", kp.pubkey_hex),
+            "deadbeef".to_owned(),
+            kp.pubkey_hex.clone(),
+            PROPOSAL_STATUS_APPLIED_KIND,
+            Some("Merged into map".to_owned()),
+        )
+        .unwrap();
+        let raw: serde_json::Value = serde_json::from_str(&status.unsigned_event_json).unwrap();
+        assert_eq!(raw["kind"], 1631);
+        assert_eq!(raw["content"], "Merged into map");
     }
 }

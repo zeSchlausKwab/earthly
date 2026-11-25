@@ -167,6 +167,32 @@ Future<UnsignedCommentEventDto> prepareUnsignedProposalEvent({
 Future<LocalKeypairDto> generateLocalNostrKeypair() =>
     EarthlyRustLib.instance.api.crateApiPublishGenerateLocalNostrKeypair();
 
+/// Validates and imports an existing `nsec1...` (or 64-char hex secret key),
+/// returning its canonical `pubkey_hex`, `npub`, and `nsec` for persistent storage.
+Future<LocalKeypairDto> importLocalNostrNsec({required String nsecOrHex}) =>
+    EarthlyRustLib.instance.api.crateApiPublishImportLocalNostrNsec(
+      nsecOrHex: nsecOrHex,
+    );
+
+/// Prepares a canonical NIP-34 Proposal Status event (`1630` Open, `1631`
+/// Applied/Merged, `1632` Closed, or `1633` Draft) targeting a `37519` Geo Edit Proposal.
+Future<UnsignedCommentEventDto> prepareUnsignedProposalStatusEvent({
+  required String pubkeyOrNpub,
+  required String proposalAddress,
+  required String proposalEventId,
+  required String proposalAuthorPubkey,
+  required int statusKind,
+  String? note,
+}) => EarthlyRustLib.instance.api
+    .crateApiPublishPrepareUnsignedProposalStatusEvent(
+      pubkeyOrNpub: pubkeyOrNpub,
+      proposalAddress: proposalAddress,
+      proposalEventId: proposalEventId,
+      proposalAuthorPubkey: proposalAuthorPubkey,
+      statusKind: statusKind,
+      note: note,
+    );
+
 /// Parses an `nsec1...` or 64-char hex secret key and signs an unsigned Nostr
 /// event JSON cleanly in Rust.
 Future<String> signEventWithNsec({

@@ -8,7 +8,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `event_to_raw`, `hex_val`, `map_to_dto`, `parse_live_relay_event`, `percent_decode_fragment`, `sighting_to_dto`, `story_to_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.
 Future<List<ProfileMetadataDto>> fetchProfiles({
@@ -18,6 +18,11 @@ Future<List<ProfileMetadataDto>> fetchProfiles({
   relayUrls: relayUrls,
   pubkeys: pubkeys,
 );
+
+/// Searches places via Photon (OpenStreetMap geocoder, zero API key) for fast
+/// map jump-to navigation.
+Future<List<PlaceSearchResultDto>> searchPlaces({required String query}) =>
+    EarthlyRustLib.instance.api.crateApiNostrClientSearchPlaces(query: query);
 
 /// Fetches the latest Earthly Maps, Stories, Atlases, and non-expired Sightings
 /// from the specified relay URLs (defaulting to `wss://relay.earthly.city`).
@@ -520,6 +525,53 @@ class MapSummaryDto {
           hashtags == other.hashtags &&
           labels == other.labels &&
           createdAt == other.createdAt;
+}
+
+class PlaceSearchResultDto {
+  final String name;
+  final String subtitle;
+  final double lon;
+  final double lat;
+  final double? west;
+  final double? south;
+  final double? east;
+  final double? north;
+
+  const PlaceSearchResultDto({
+    required this.name,
+    required this.subtitle,
+    required this.lon,
+    required this.lat,
+    this.west,
+    this.south,
+    this.east,
+    this.north,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      subtitle.hashCode ^
+      lon.hashCode ^
+      lat.hashCode ^
+      west.hashCode ^
+      south.hashCode ^
+      east.hashCode ^
+      north.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PlaceSearchResultDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          subtitle == other.subtitle &&
+          lon == other.lon &&
+          lat == other.lat &&
+          west == other.west &&
+          south == other.south &&
+          east == other.east &&
+          north == other.north;
 }
 
 class ProfileMetadataDto {

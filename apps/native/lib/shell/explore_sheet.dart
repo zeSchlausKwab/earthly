@@ -269,7 +269,23 @@ class _ExploreSheetState extends State<ExploreSheet>
       itemBuilder: (context, index) {
         final map = filtered[index];
         final onShelf = widget.shelfAddresses.contains(map.address);
+        final avatarUrl = widget.profilesByPubkey[map.pubkey]?.picture;
         return ListTile(
+          leading: CircleAvatar(
+            radius: 16,
+            backgroundColor: EarthlyColors.commentGreen.withValues(alpha: 0.14),
+            backgroundImage:
+                (avatarUrl != null && avatarUrl.startsWith('http'))
+                    ? NetworkImage(avatarUrl)
+                    : null,
+            child: (avatarUrl != null && avatarUrl.startsWith('http'))
+                ? null
+                : const Icon(
+                    Icons.map_outlined,
+                    size: 16,
+                    color: EarthlyColors.commentGreen,
+                  ),
+          ),
           title: Text(
             map.title,
             maxLines: 1,

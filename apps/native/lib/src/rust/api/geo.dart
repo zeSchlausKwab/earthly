@@ -80,6 +80,15 @@ Future<List<List<LonLatPoint>>> geoSplitPolygonByLine({
   splitter: splitter,
 );
 
+/// Splits a polyline into two polylines at the closest point to `split_point`.
+Future<List<List<LonLatPoint>>> geoSplitLineAtPoint({
+  required List<LonLatPoint> points,
+  required LonLatPoint splitPoint,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoSplitLineAtPoint(
+  points: points,
+  splitPoint: splitPoint,
+);
+
 Future<double> geoMeasureLineMeters({required List<LonLatPoint> points}) =>
     EarthlyRustLib.instance.api.crateApiGeoGeoMeasureLineMeters(points: points);
 

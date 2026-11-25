@@ -250,4 +250,54 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
     expect(reportedFraction, isNotNull);
     expect(reportedFraction!, greaterThan(0.55));
   });
+
+  test('Point features with white strokeColor retain their backing fill color',
+      () {
+    const bushbySample = '''
+    {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "id": "waypoint-1",
+          "geometry": { "type": "Point", "coordinates": [-77.0, 8.5] },
+          "properties": {
+            "name": "Darien Gap Crossing",
+            "color": "#D97706",
+            "strokeColor": "#FFFFFF"
+          }
+        }
+      ]
+    }
+    ''';
+    final shapes = parseGeoJsonShapes(
+      bushbySample,
+      datasetTitle: 'Karl Bushby Expedition',
+      datasetAddress: '37515:abc:bushby',
+    );
+    expect(shapes.length, 1);
+    expect(shapes.first.colorHex, '#D97706');
+    expect(shapes.first.fillColorHex, '#D97706');
+    expect(shapes.first.strokeColorHex, '#FFFFFF');
+  });
+
+  testWidgets(
+      'Bottom dock extends flush to bottom edge behind rounded-screen safe area',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(412, 915);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.padding = const FakeViewPadding(top: 44, bottom: 34);
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      EarthlyNativeApp(
+        mapBuilder: (context, gestures, onMapCreated, onCameraMove) =>
+            const ColoredBox(color: Color(0xFFEDF0EA)),
+      ),
+    );
+
+    final dockRect = tester.getRect(find.byKey(const Key('earthly-bottom-dock')));
+    expect(dockRect.bottom, closeTo(915.0, 0.5));
+    expect(find.byTooltip('Account & Session'), findsOneWidget);
+  });
 }
