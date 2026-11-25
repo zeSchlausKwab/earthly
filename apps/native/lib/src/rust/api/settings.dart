@@ -32,6 +32,8 @@ class AppSettingsDto {
   final String agentModel;
   final String agentApiKey;
   final List<SavedOfflinePackDto> offlinePacks;
+  final List<String> pinnedEntityIds;
+  final List<String> recentEntityIds;
 
   const AppSettingsDto({
     required this.relayUrls,
@@ -42,6 +44,8 @@ class AppSettingsDto {
     required this.agentModel,
     required this.agentApiKey,
     required this.offlinePacks,
+    required this.pinnedEntityIds,
+    required this.recentEntityIds,
   });
 
   @override
@@ -53,7 +57,9 @@ class AppSettingsDto {
       agentBaseUrl.hashCode ^
       agentModel.hashCode ^
       agentApiKey.hashCode ^
-      offlinePacks.hashCode;
+      offlinePacks.hashCode ^
+      pinnedEntityIds.hashCode ^
+      recentEntityIds.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -67,7 +73,9 @@ class AppSettingsDto {
           agentBaseUrl == other.agentBaseUrl &&
           agentModel == other.agentModel &&
           agentApiKey == other.agentApiKey &&
-          offlinePacks == other.offlinePacks;
+          offlinePacks == other.offlinePacks &&
+          pinnedEntityIds == other.pinnedEntityIds &&
+          recentEntityIds == other.recentEntityIds;
 }
 
 class SavedOfflinePackDto {

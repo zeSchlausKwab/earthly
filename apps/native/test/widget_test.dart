@@ -2,10 +2,13 @@ import 'package:earthly_native/main.dart';
 import 'package:earthly_native/nostr/callout_overlay.dart';
 import 'package:earthly_native/nostr/shelf_renderer.dart';
 import 'package:earthly_native/nostr/story_presentation.dart';
+import 'package:earthly_native/shell/atlas_detail_margin.dart';
 import 'package:earthly_native/shell/basemap_switcher_sheet.dart';
 import 'package:earthly_native/shell/entity_list_row.dart';
+import 'package:earthly_native/shell/explore_sheet.dart';
 import 'package:earthly_native/shell/map_drawer.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
+import 'package:earthly_native/src/rust/api/nostr_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -367,5 +370,144 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
     expect(find.byType(EarthlyGeometryThumb), findsOneWidget);
     expect(find.byIcon(Icons.qr_code_2), findsNothing);
     expect(find.byIcon(Icons.more_vert), findsOneWidget);
+  });
+
+  testWidgets(
+      'ExploreSheet filters All / Favorites / Recent and AtlasDetailMargin opens Markdown & maps',
+      (WidgetTester tester) async {
+    final mapA = MapSummaryDto(
+      address: '37515:aaa:trail-a',
+      eventId: 'ev-a',
+      pubkey: 'aaa',
+      dTag: 'trail-a',
+      title: 'Alpine Ridge Trail',
+      featureCount: 5,
+      sizeBytes: 2048,
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      hashtags: const ['hiking'],
+      labels: const [],
+      contextRefs: const ['37518:aaa:alps'],
+      createdAt: BigInt.from(1791000000),
+    );
+    final mapB = MapSummaryDto(
+      address: '37515:bbb:city-b',
+      eventId: 'ev-b',
+      pubkey: 'bbb',
+      dTag: 'city-b',
+      title: 'Vienna Cafes',
+      featureCount: 12,
+      sizeBytes: 4096,
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      hashtags: const ['coffee'],
+      labels: const [],
+      contextRefs: const [],
+      createdAt: BigInt.from(1791000500),
+    );
+    final atlas = AtlasSummaryDto(
+      address: '37518:aaa:alps',
+      eventId: 'ev-atlas',
+      pubkey: 'aaa',
+      dTag: 'alps',
+      name: 'Global Hiking Trails',
+      description: '# A world of walks\n\nCurated alpine paths.',
+      governance: 'open',
+      pinnedAddresses: const ['37515:aaa:trail-a'],
+      hashtags: const ['hiking'],
+      createdAt: BigInt.from(1791000100),
+    );
+    final catalog = EarthlyCatalogSnapshot(
+      relayUrls: const ['wss://relay.earthly.city'],
+      maps: [mapA, mapB],
+      stories: const [],
+      atlases: [atlas],
+      sightings: const [],
+      beacons: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              ExploreSheet(
+                initialCatalog: catalog,
+                catalogLoading: false,
+                relayUrls: const ['wss://relay.earthly.city'],
+                shelfAddresses: const <String>{},
+                profilesByPubkey: const {},
+                pinnedEntityIds: const {'map:37515:aaa:trail-a'},
+                recentEntityIds: const ['map:37515:bbb:city-b'],
+                activeAtlasLens: null,
+                onCatalogLoaded: (_) {},
+                onToggleFavorite: (_) {},
+                onToggleMapOnShelf: (_) {},
+                onAddMapsBulk: (_) {},
+                onFocusMap: (_) {},
+                onCloneMapToDraft: (_) {},
+                onOpenMapDiscussion: (_) {},
+                onOpenStory: (_) {},
+                onOpenStoryDiscussion: (_) {},
+                onInspectAtlas: (_) {},
+                onOpenAtlas: (_) {},
+                onEnterAtlasLens: (_) {},
+                onLeaveAtlasLens: () {},
+                onFocusSighting: (_) {},
+                onFocusBeacon: (_) {},
+                onCreateSighting: () {},
+                onComposeStory: () {},
+                onCreateAtlas: () {},
+                onOpenBeaconBroadcaster: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Alpine Ridge Trail'), findsOneWidget);
+    expect(find.text('Vienna Cafes'), findsOneWidget);
+
+    await tester.tap(find.text('Favorites'));
+    await tester.pump();
+    expect(find.text('Alpine Ridge Trail'), findsOneWidget);
+    expect(find.text('Vienna Cafes'), findsNothing);
+
+    await tester.tap(find.text('Recent'));
+    await tester.pump();
+    expect(find.text('Vienna Cafes'), findsOneWidget);
+    expect(find.text('Alpine Ridge Trail'), findsNothing);
+
+    // Also verify AtlasDetailMargin displays Markdown heading & linked maps.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AtlasDetailMargin(
+                atlas: atlas,
+                relayUrls: const ['wss://relay.earthly.city'],
+                catalogMaps: [mapA, mapB],
+                catalogStories: const [],
+                shelfAddresses: const <String>{},
+                profilesByPubkey: const {},
+                isActiveLens: false,
+                onToggleLens: () {},
+                onShowAllOnMap: () {},
+                onToggleMapOnShelf: (_) {},
+                onFocusMap: (_) {},
+                onOpenStory: (_) {},
+                onOpenDiscussion: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Global Hiking Trails'), findsOneWidget);
+    expect(find.text('A world of walks'), findsOneWidget);
+    expect(find.text('Alpine Ridge Trail'), findsOneWidget);
+    expect(find.text('Enter Atlas Lens'), findsOneWidget);
   });
 }

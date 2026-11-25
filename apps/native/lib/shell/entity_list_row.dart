@@ -534,6 +534,7 @@ class EarthlyEntityListRow extends StatelessWidget {
     this.badges = const <Widget>[],
     this.selected = false,
     this.selectedColor,
+    this.starred = false,
     this.dimmed = false,
     this.primaryAction,
     this.menuActions = const <EntityRowMenuAction>[],
@@ -547,6 +548,7 @@ class EarthlyEntityListRow extends StatelessWidget {
   final List<Widget> badges;
   final bool selected;
   final Color? selectedColor;
+  final bool starred;
   final bool dimmed;
   final VoidCallback onTap;
   final Widget? primaryAction;
@@ -585,15 +587,32 @@ class EarthlyEntityListRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontSize: 14,
-                          height: 1.22,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (starred) ...[
+                            const Padding(
+                              padding: EdgeInsets.only(top: 2, right: 4),
+                              child: Icon(
+                                Icons.star,
+                                size: 13,
+                                color: EarthlyColors.amber,
+                              ),
+                            ),
+                          ],
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontSize: 14,
+                                height: 1.22,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
                         const SizedBox(height: 2),

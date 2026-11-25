@@ -19,6 +19,7 @@ import 'runtime/rust_bridge.dart';
 import 'shell/account_session_sheet.dart';
 import 'shell/agent_drawer.dart';
 import 'shell/atlas_composer_sheet.dart';
+import 'shell/atlas_detail_margin.dart';
 import 'shell/basemap_switcher_sheet.dart';
 import 'shell/desk_sheet.dart';
 import 'shell/discussion_margin_sheet.dart';
@@ -62,6 +63,7 @@ enum _ActiveDrawer {
   storyReader,
   storyComposer,
   atlasComposer,
+  atlasDetail,
   inspector,
   discussion,
 }
@@ -159,6 +161,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   final List<ShelfMapEntry> _shelfMaps = <ShelfMapEntry>[];
   final List<StorySummaryDto> _deskStories = <StorySummaryDto>[];
   final List<AtlasSummaryDto> _deskAtlases = <AtlasSummaryDto>[];
+  final Set<String> _pinnedEntityIds = <String>{};
+  final List<String> _recentEntityIds = <String>[];
+  AtlasSummaryDto? _activeAtlasLens;
+  AtlasSummaryDto? _inspectedAtlas;
   final List<SightingSummaryDto> _localSightings = <SightingSummaryDto>[];
   final List<LiveBeaconDto> _localBeacons = <LiveBeaconDto>[];
   Nip55Account? _account;
@@ -314,6 +320,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         _savedOfflinePacks
           ..clear()
           ..addAll(loaded.offlinePacks);
+        _pinnedEntityIds
+          ..clear()
+          ..addAll(loaded.pinnedEntityIds);
+        _recentEntityIds
+          ..clear()
+          ..addAll(loaded.recentEntityIds);
       });
     } catch (_) {}
   }
@@ -334,9 +346,31 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           agentModel: _agentSettings.model,
           agentApiKey: _agentSettings.apiKey,
           offlinePacks: List<SavedOfflinePackDto>.from(_savedOfflinePacks),
+          pinnedEntityIds: _pinnedEntityIds.toList(growable: false),
+          recentEntityIds: List<String>.from(_recentEntityIds),
         ),
       );
     } catch (_) {}
+  }
+
+  void _toggleFavoriteEntity(String entityId) {
+    setState(() {
+      if (!_pinnedEntityIds.add(entityId)) {
+        _pinnedEntityIds.remove(entityId);
+      }
+    });
+    unawaited(_persistAppSettings());
+  }
+
+  void _recordRecentEntity(String entityId) {
+    setState(() {
+      _recentEntityIds.remove(entityId);
+      _recentEntityIds.insert(0, entityId);
+      if (_recentEntityIds.length > 40) {
+        _recentEntityIds.removeRange(40, _recentEntityIds.length);
+      }
+    });
+    unawaited(_persistAppSettings());
   }
 
   void _updateRelayUrls(List<String> next) {
@@ -644,6 +678,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         description: req.description.isEmpty ? null : req.description,
         governance: req.governance,
         pinnedAddresses: req.pinnedAddresses,
+        hashtags: req.hashtags,
         createdAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
       );
       setState(() {
@@ -704,6 +739,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       title: target.title,
       geojson: proposal.geojson,
       hashtags: const ['earthly-native'],
+      contextRefs: const <String>[],
     );
     final signedMap =
         await _signUnsignedEvent(account, preparedMap.unsignedEventJson);
@@ -1630,7 +1666,32 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       return;
     }
     setState(() => _shelfMaps.add(_entryFromSummary(map)));
+    _recordRecentEntity('map:${map.address}');
     _flyToMap(map);
+  }
+
+  void _addMapsBulkToShelf(List<MapSummaryDto> maps) {
+    if (maps.isEmpty) return;
+    final added = <ShelfMapEntry>[];
+    setState(() {
+      for (final m in maps) {
+        if (_shelfMaps.any((e) => e.summary.address == m.address)) continue;
+        final entry = _entryFromSummary(m);
+        _shelfMaps.add(entry);
+        added.add(entry);
+      }
+    });
+    if (added.isNotEmpty) {
+      final bounds = computeCombinedBounds(added);
+      if (bounds != null) _flyToBounds(bounds);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Added ${added.length} map${added.length == 1 ? '' : 's'} to Shelf',
+          ),
+        ),
+      );
+    }
   }
 
   EdgeInsets _cameraPadding() {
@@ -1924,10 +1985,37 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     });
   }
 
+  void _inspectAtlas(AtlasSummaryDto atlas) {
+    _recordRecentEntity('atlas:${atlas.address}');
+    setState(() {
+      _inspectedAtlas = atlas;
+      _deskAtlases.removeWhere((a) => a.address == atlas.address);
+      _deskAtlases.insert(0, atlas);
+      _drawer = _ActiveDrawer.atlasDetail;
+    });
+  }
+
+  void _enterAtlasLens(AtlasSummaryDto atlas) {
+    _recordRecentEntity('atlas:${atlas.address}');
+    setState(() {
+      _activeAtlasLens = atlas;
+      _deskAtlases.removeWhere((a) => a.address == atlas.address);
+      _deskAtlases.insert(0, atlas);
+    });
+    unawaited(_openAtlas(atlas));
+  }
+
+  void _leaveAtlasLens() {
+    setState(() => _activeAtlasLens = null);
+  }
+
   Future<void> _openAtlas(AtlasSummaryDto atlas) async {
-    final mapAddresses = atlas.pinnedAddresses
-        .where((a) => a.startsWith('37515:'))
-        .toList(growable: false);
+    _recordRecentEntity('atlas:${atlas.address}');
+    final mapAddresses = <String>{
+      ...atlas.pinnedAddresses.where((a) => a.startsWith('37515:')),
+      for (final m in _catalog?.maps ?? const <MapSummaryDto>[])
+        if (m.contextRefs.contains(atlas.address)) m.address,
+    }.toList(growable: false);
     if (mapAddresses.isEmpty) return;
 
     final knownByAddr = <String, MapSummaryDto>{
@@ -2183,6 +2271,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       title: title,
       geojson: geojson,
       hashtags: const ['earthly-native'],
+      contextRefs: _activeAtlasLens != null
+          ? <String>[_activeAtlasLens!.address]
+          : const <String>[],
       fieldSessionId: audience == DraftAudienceChoice.nearbyLocalNode
           ? _activeNearbySessionId
           : null,
@@ -2541,12 +2632,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           relayUrls: _activeRelayUrls,
           shelfAddresses: _shelfMaps.map((e) => e.summary.address).toSet(),
           profilesByPubkey: _profilesByPubkey,
+          pinnedEntityIds: _pinnedEntityIds,
+          recentEntityIds: _recentEntityIds,
+          activeAtlasLens: _activeAtlasLens,
           onCatalogLoaded: (catalog) {
             setState(() => _catalog = catalog);
             unawaited(_resolveCatalogProfiles(catalog));
           },
+          onToggleFavorite: _toggleFavoriteEntity,
           onToggleMapOnShelf: _toggleMapOnShelf,
-          onFocusMap: _flyToMap,
+          onAddMapsBulk: _addMapsBulkToShelf,
+          onFocusMap: (map) {
+            _recordRecentEntity('map:${map.address}');
+            _flyToMap(map);
+          },
           onCloneMapToDraft: (map) =>
               _cloneGeoJsonToDraft(map.title, map.geojson),
           onOpenMapDiscussion: (map) => _openDiscussion(
@@ -2559,7 +2658,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               baseGeojson: map.geojson,
             ),
           ),
-          onOpenStory: (story) => unawaited(_openStory(story)),
+          onOpenStory: (story) {
+            _recordRecentEntity('story:${story.address}');
+            unawaited(_openStory(story));
+          },
           onOpenStoryDiscussion: (story) => _openDiscussion(
             DiscussionTarget(
               address: story.address,
@@ -2569,7 +2671,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               eventId: story.eventId,
             ),
           ),
+          onInspectAtlas: _inspectAtlas,
           onOpenAtlas: (atlas) => unawaited(_openAtlas(atlas)),
+          onEnterAtlasLens: _enterAtlasLens,
+          onLeaveAtlasLens: _leaveAtlasLens,
           onFocusSighting: _focusSighting,
           onFocusBeacon: _focusBeacon,
           onCreateSighting: _openSightingComposer,
@@ -2593,6 +2698,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           deskStories: _deskStories,
           deskAtlases: _deskAtlases,
           drawnFeatures: _features,
+          activeAtlasLensName: _activeAtlasLens?.name,
           onSelectDraft: _selectSavedDraft,
           onCreateNewDraft: _createNewDraft,
           onDeleteDraft: (id) => unawaited(_deleteSavedDraft(id)),
@@ -2636,7 +2742,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onRemoveDeskStory: (addr) => setState(
             () => _deskStories.removeWhere((s) => s.address == addr),
           ),
-          onOpenDeskAtlas: (atlas) => unawaited(_openAtlas(atlas)),
+          onOpenDeskAtlas: _inspectAtlas,
           onRemoveDeskAtlas: (addr) => setState(
             () => _deskAtlases.removeWhere((a) => a.address == addr),
           ),
@@ -2798,6 +2904,42 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
           catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
           onPublishAtlas: _publishAtlas,
+          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+        );
+      case _ActiveDrawer.atlasDetail:
+        final atlas = _inspectedAtlas ?? _activeAtlasLens;
+        if (atlas == null) return null;
+        return AtlasDetailMargin(
+          atlas: atlas,
+          relayUrls: _activeRelayUrls,
+          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
+          catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
+          shelfAddresses: _shelfMaps.map((e) => e.summary.address).toSet(),
+          profilesByPubkey: _profilesByPubkey,
+          isActiveLens: _activeAtlasLens?.address == atlas.address,
+          onToggleLens: () {
+            if (_activeAtlasLens?.address == atlas.address) {
+              _leaveAtlasLens();
+            } else {
+              _enterAtlasLens(atlas);
+            }
+          },
+          onShowAllOnMap: () => unawaited(_openAtlas(atlas)),
+          onToggleMapOnShelf: _toggleMapOnShelf,
+          onFocusMap: _flyToMap,
+          onOpenStory: (story) {
+            _recordRecentEntity('story:${story.address}');
+            unawaited(_openStory(story));
+          },
+          onOpenDiscussion: () => _openDiscussion(
+            DiscussionTarget(
+              address: atlas.address,
+              kind: 37518,
+              pubkey: atlas.pubkey,
+              title: atlas.name,
+              eventId: atlas.eventId,
+            ),
+          ),
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
         );
       case _ActiveDrawer.inspector:
@@ -3475,6 +3617,100 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                     ),
                   ],
                 ],
+              ),
+            ),
+
+          // Active Atlas Lens Bar (matches Web's `.earthly-lensbar`: signals Atlas-scoped browse & authoring)
+          if (_activeAtlasLens != null && !_isDrawingMode)
+            Positioned(
+              key: const Key('earthly-atlas-lens-bar'),
+              top: 62,
+              left: isDesktop && activeDrawerWidget != null ? 440 : 12,
+              right: 12,
+              child: SafeArea(
+                bottom: false,
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: EarthlyGlassSurface(
+                    borderRadius: BorderRadius.circular(14),
+                    color: EarthlyColors.amber.withValues(
+                      alpha: systemIsDark ? 0.24 : 0.92,
+                    ),
+                    borderColor: EarthlyColors.amber,
+                    borderWidth: 1.4,
+                    padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.public,
+                          size: 16,
+                          color: systemIsDark
+                              ? EarthlyColors.amber
+                              : EarthlyColors.amberInk,
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _activeAtlasLens!.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: systemIsDark
+                                      ? EarthlyColors.darkInk
+                                      : EarthlyColors.amberInk,
+                                ),
+                              ),
+                              Text(
+                                '${_activeAtlasLens!.pinnedAddresses.length} pinned · ${_activeAtlasLens!.governance} · Atlas Lens',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 9.5,
+                                  color: (systemIsDark
+                                          ? EarthlyColors.darkInk
+                                          : EarthlyColors.amberInk)
+                                      .withValues(alpha: 0.8),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            foregroundColor: systemIsDark
+                                ? EarthlyColors.amber
+                                : EarthlyColors.amberInk,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          onPressed: () => _inspectAtlas(_activeAtlasLens!),
+                          child: const Text('About'),
+                        ),
+                        IconButton(
+                          tooltip: 'Leave Atlas Lens',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: _leaveAtlasLens,
+                          icon: Icon(
+                            Icons.close,
+                            size: 16,
+                            color: systemIsDark
+                                ? EarthlyColors.darkInk
+                                : EarthlyColors.amberInk,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
 

@@ -31,6 +31,8 @@ pub struct AppSettingsDto {
     pub agent_model: String,
     pub agent_api_key: String,
     pub offline_packs: Vec<SavedOfflinePackDto>,
+    pub pinned_entity_ids: Vec<String>,
+    pub recent_entity_ids: Vec<String>,
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
@@ -78,6 +80,8 @@ fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
                 center_zoom: p.center_zoom,
             })
             .collect(),
+        pinned_entity_ids: r.pinned_entity_ids,
+        recent_entity_ids: r.recent_entity_ids,
     }
 }
 
@@ -109,5 +113,7 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
                 center_zoom: p.center_zoom,
             })
             .collect(),
+        pinned_entity_ids: d.pinned_entity_ids,
+        recent_entity_ids: d.recent_entity_ids,
     }
 }

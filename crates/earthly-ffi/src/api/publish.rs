@@ -7,7 +7,7 @@ use earthly_domain::{
     ARTICLE_KIND, GEO_COMMENT_KIND, GEO_EDIT_PROPOSAL_KIND, GEO_EVENT_KIND, ImetaAttachment,
     LIVE_BEACON_KIND, MAP_CONTEXT_KIND, MODEL_VERSION, PROPOSAL_STATUS_APPLIED_KIND,
     PROPOSAL_STATUS_CLOSED_KIND, PROPOSAL_STATUS_DRAFT_KIND, PROPOSAL_STATUS_OPEN_KIND,
-    TEMPORAL_SIGHTING_KIND, set_bbox, set_geohash, set_hashtags, set_images,
+    TEMPORAL_SIGHTING_KIND, set_bbox, set_context_refs, set_geohash, set_hashtags, set_images,
     set_referenced_addresses,
 };
 use earthly_geo::validate_feature_collection;
@@ -142,6 +142,7 @@ pub fn list_local_drafts(database_path: String) -> Result<Vec<LocalDraftDto>, St
 /// Validates a FeatureCollection with `earthly-geo`, attaches canonical Earthly
 /// tags (`d`, `bbox`, multi-precision `g`, `crs`, `checksum`, `size`, `v`, `t`),
 /// and returns an unsigned kind-37515 event JSON ready for NIP-55 Amber signing.
+#[allow(clippy::too_many_arguments)]
 pub fn prepare_unsigned_map_event(
     pubkey_or_npub: String,
     d_tag: String,
@@ -149,6 +150,7 @@ pub fn prepare_unsigned_map_event(
     description: Option<String>,
     geojson: String,
     hashtags: Vec<String>,
+    context_refs: Vec<String>,
     field_session_id: Option<String>,
 ) -> Result<UnsignedMapEventDto, String> {
     let pubkey = PublicKey::parse(pubkey_or_npub.trim())
@@ -191,6 +193,9 @@ pub fn prepare_unsigned_map_event(
     tags = set_bbox(&tags, summary.bounds);
     tags = set_geohash(&tags, summary.centroid.map(|c| (c[0], c[1])), 6);
     tags = set_hashtags(&tags, &hashtags);
+    if !context_refs.is_empty() {
+        tags = set_context_refs(&tags, &context_refs);
+    }
     if let Some(session_id) = field_session_id
         .as_deref()
         .map(str::trim)
@@ -1153,6 +1158,7 @@ mod tests {
             Some("Quick field map".to_owned()),
             fc.to_owned(),
             vec!["vienna".to_owned()],
+            vec!["37518:abc:alpine-atlas".to_owned()],
             Some("field-1".to_owned()),
         )
         .unwrap();
@@ -1164,6 +1170,7 @@ mod tests {
         let tags = raw["tags"].as_array().unwrap();
         assert!(tags.iter().any(|t| t[0] == "bbox"));
         assert!(tags.iter().any(|t| t[0] == "g"));
+        assert!(tags.iter().any(|t| t[0] == "c" && t[1] == "37518:abc:alpine-atlas"));
         assert!(tags.iter().any(|t| t[0] == "h" && t[1] == "field-1"));
         assert!(tags.iter().any(|t| t[0] == "checksum" && t[1] == prepared.checksum));
     }

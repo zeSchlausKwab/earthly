@@ -63,6 +63,7 @@ Future<UnsignedMapEventDto> prepareUnsignedMapEvent({
   String? description,
   required String geojson,
   required List<String> hashtags,
+  required List<String> contextRefs,
   String? fieldSessionId,
 }) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedMapEvent(
   pubkeyOrNpub: pubkeyOrNpub,
@@ -71,6 +72,7 @@ Future<UnsignedMapEventDto> prepareUnsignedMapEvent({
   description: description,
   geojson: geojson,
   hashtags: hashtags,
+  contextRefs: contextRefs,
   fieldSessionId: fieldSessionId,
 );
 

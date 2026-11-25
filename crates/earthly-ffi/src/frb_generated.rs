@@ -1561,6 +1561,7 @@ fn wire__crate__api__publish__prepare_unsigned_map_event_impl(
             let api_description = <Option<String>>::sse_decode(&mut deserializer);
             let api_geojson = <String>::sse_decode(&mut deserializer);
             let api_hashtags = <Vec<String>>::sse_decode(&mut deserializer);
+            let api_context_refs = <Vec<String>>::sse_decode(&mut deserializer);
             let api_field_session_id = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
@@ -1572,6 +1573,7 @@ fn wire__crate__api__publish__prepare_unsigned_map_event_impl(
                         api_description,
                         api_geojson,
                         api_hashtags,
+                        api_context_refs,
                         api_field_session_id,
                     )?;
                     std::result::Result::Ok(output_ok)
@@ -2607,6 +2609,8 @@ impl SseDecode for crate::api::settings::AppSettingsDto {
         let mut var_agentApiKey = <String>::sse_decode(deserializer);
         let mut var_offlinePacks =
             <Vec<crate::api::settings::SavedOfflinePackDto>>::sse_decode(deserializer);
+        let mut var_pinnedEntityIds = <Vec<String>>::sse_decode(deserializer);
+        let mut var_recentEntityIds = <Vec<String>>::sse_decode(deserializer);
         return crate::api::settings::AppSettingsDto {
             relay_urls: var_relayUrls,
             local_pubkey_hex: var_localPubkeyHex,
@@ -2616,6 +2620,8 @@ impl SseDecode for crate::api::settings::AppSettingsDto {
             agent_model: var_agentModel,
             agent_api_key: var_agentApiKey,
             offline_packs: var_offlinePacks,
+            pinned_entity_ids: var_pinnedEntityIds,
+            recent_entity_ids: var_recentEntityIds,
         };
     }
 }
@@ -2646,6 +2652,7 @@ impl SseDecode for crate::api::nostr_client::AtlasSummaryDto {
         let mut var_image = <Option<String>>::sse_decode(deserializer);
         let mut var_governance = <String>::sse_decode(deserializer);
         let mut var_pinnedAddresses = <Vec<String>>::sse_decode(deserializer);
+        let mut var_hashtags = <Vec<String>>::sse_decode(deserializer);
         let mut var_createdAt = <u64>::sse_decode(deserializer);
         return crate::api::nostr_client::AtlasSummaryDto {
             address: var_address,
@@ -2657,6 +2664,7 @@ impl SseDecode for crate::api::nostr_client::AtlasSummaryDto {
             image: var_image,
             governance: var_governance,
             pinned_addresses: var_pinnedAddresses,
+            hashtags: var_hashtags,
             created_at: var_createdAt,
         };
     }
@@ -3285,6 +3293,7 @@ impl SseDecode for crate::api::nostr_client::MapSummaryDto {
         let mut var_north = <Option<f64>>::sse_decode(deserializer);
         let mut var_hashtags = <Vec<String>>::sse_decode(deserializer);
         let mut var_labels = <Vec<String>>::sse_decode(deserializer);
+        let mut var_contextRefs = <Vec<String>>::sse_decode(deserializer);
         let mut var_createdAt = <u64>::sse_decode(deserializer);
         return crate::api::nostr_client::MapSummaryDto {
             address: var_address,
@@ -3302,6 +3311,7 @@ impl SseDecode for crate::api::nostr_client::MapSummaryDto {
             north: var_north,
             hashtags: var_hashtags,
             labels: var_labels,
+            context_refs: var_contextRefs,
             created_at: var_createdAt,
         };
     }
@@ -4153,6 +4163,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::settings::AppSettingsDto {
             self.agent_model.into_into_dart().into_dart(),
             self.agent_api_key.into_into_dart().into_dart(),
             self.offline_packs.into_into_dart().into_dart(),
+            self.pinned_entity_ids.into_into_dart().into_dart(),
+            self.recent_entity_ids.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -4203,6 +4215,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::nostr_client::AtlasSummaryDto
             self.image.into_into_dart().into_dart(),
             self.governance.into_into_dart().into_dart(),
             self.pinned_addresses.into_into_dart().into_dart(),
+            self.hashtags.into_into_dart().into_dart(),
             self.created_at.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -4593,6 +4606,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::nostr_client::MapSummaryDto {
             self.north.into_into_dart().into_dart(),
             self.hashtags.into_into_dart().into_dart(),
             self.labels.into_into_dart().into_dart(),
+            self.context_refs.into_into_dart().into_dart(),
             self.created_at.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -5076,6 +5090,8 @@ impl SseEncode for crate::api::settings::AppSettingsDto {
             self.offline_packs,
             serializer,
         );
+        <Vec<String>>::sse_encode(self.pinned_entity_ids, serializer);
+        <Vec<String>>::sse_encode(self.recent_entity_ids, serializer);
     }
 }
 
@@ -5100,6 +5116,7 @@ impl SseEncode for crate::api::nostr_client::AtlasSummaryDto {
         <Option<String>>::sse_encode(self.image, serializer);
         <String>::sse_encode(self.governance, serializer);
         <Vec<String>>::sse_encode(self.pinned_addresses, serializer);
+        <Vec<String>>::sse_encode(self.hashtags, serializer);
         <u64>::sse_encode(self.created_at, serializer);
     }
 }
@@ -5525,6 +5542,7 @@ impl SseEncode for crate::api::nostr_client::MapSummaryDto {
         <Option<f64>>::sse_encode(self.north, serializer);
         <Vec<String>>::sse_encode(self.hashtags, serializer);
         <Vec<String>>::sse_encode(self.labels, serializer);
+        <Vec<String>>::sse_encode(self.context_refs, serializer);
         <u64>::sse_encode(self.created_at, serializer);
     }
 }

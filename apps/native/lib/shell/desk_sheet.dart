@@ -42,6 +42,7 @@ class DeskSheet extends StatefulWidget {
     required this.deskStories,
     required this.deskAtlases,
     required this.drawnFeatures,
+    this.activeAtlasLensName,
     required this.onSelectDraft,
     required this.onCreateNewDraft,
     required this.onDeleteDraft,
@@ -78,6 +79,7 @@ class DeskSheet extends StatefulWidget {
   final List<StorySummaryDto> deskStories;
   final List<AtlasSummaryDto> deskAtlases;
   final List<DrawnFeature> drawnFeatures;
+  final String? activeAtlasLensName;
   final ValueChanged<LocalDraftDto> onSelectDraft;
   final VoidCallback onCreateNewDraft;
   final ValueChanged<String> onDeleteDraft;
@@ -519,6 +521,42 @@ class _DeskSheetState extends State<DeskSheet> {
                 },
               ),
               const SizedBox(height: 10),
+              if (widget.activeAtlasLensName != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: EarthlyColors.amber.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: EarthlyColors.amber.withValues(alpha: 0.55),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.filter_tilt_shift,
+                        size: 14,
+                        color: EarthlyColors.lightAccent,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Atlas Lens active · new map will attach to "${widget.activeAtlasLensName}"',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               FilledButton.icon(
                 onPressed: (_publishing || widget.drawnFeatures.isEmpty)
                     ? null

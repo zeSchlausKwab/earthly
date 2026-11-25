@@ -7,10 +7,17 @@ import '../theme/earthly_theme.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
+enum _CatalogScopeTab { all, favorites, recent }
+
+enum _CatalogSortOrder { newest, titleAsc, featuresDesc, sizeDesc }
+
 /// Explore drawer: live Nostr relay catalog (Maps · Stories · Atlases · Sightings · Live)
-/// replicating Earthly Web's `ListRow` grammar (geometry vector thumbnails for Maps,
-/// cover images for Stories/Atlases/Sightings, green presence disc for Beacons,
-/// single primary toggle + More overflow menu).
+/// replicating Earthly Web's `GeoDatasetsPanel` + `ListRow` grammar:
+/// - `All | Favorites | Recent` persisted filter strip
+/// - Sort order (`Newest`, `A–Z`, `Features`, `Size`)
+/// - Bulk "Show filtered on map" button
+/// - Active Atlas Lens scoping
+/// - Vector geometry thumbnails for Maps, cover images for Stories/Atlases/Sightings
 class ExploreSheet extends StatefulWidget {
   const ExploreSheet({
     required this.initialCatalog,
@@ -18,14 +25,22 @@ class ExploreSheet extends StatefulWidget {
     required this.relayUrls,
     required this.shelfAddresses,
     required this.profilesByPubkey,
+    required this.pinnedEntityIds,
+    required this.recentEntityIds,
+    required this.activeAtlasLens,
     required this.onCatalogLoaded,
+    required this.onToggleFavorite,
     required this.onToggleMapOnShelf,
+    required this.onAddMapsBulk,
     required this.onFocusMap,
     required this.onCloneMapToDraft,
     required this.onOpenMapDiscussion,
     required this.onOpenStory,
     required this.onOpenStoryDiscussion,
+    required this.onInspectAtlas,
     required this.onOpenAtlas,
+    required this.onEnterAtlasLens,
+    required this.onLeaveAtlasLens,
     required this.onFocusSighting,
     required this.onFocusBeacon,
     required this.onCreateSighting,
@@ -41,14 +56,22 @@ class ExploreSheet extends StatefulWidget {
   final List<String> relayUrls;
   final Set<String> shelfAddresses;
   final Map<String, ProfileMetadataDto> profilesByPubkey;
+  final Set<String> pinnedEntityIds;
+  final List<String> recentEntityIds;
+  final AtlasSummaryDto? activeAtlasLens;
   final ValueChanged<EarthlyCatalogSnapshot> onCatalogLoaded;
+  final ValueChanged<String> onToggleFavorite;
   final ValueChanged<MapSummaryDto> onToggleMapOnShelf;
+  final ValueChanged<List<MapSummaryDto>> onAddMapsBulk;
   final ValueChanged<MapSummaryDto> onFocusMap;
   final ValueChanged<MapSummaryDto> onCloneMapToDraft;
   final ValueChanged<MapSummaryDto> onOpenMapDiscussion;
   final ValueChanged<StorySummaryDto> onOpenStory;
   final ValueChanged<StorySummaryDto> onOpenStoryDiscussion;
+  final ValueChanged<AtlasSummaryDto> onInspectAtlas;
   final ValueChanged<AtlasSummaryDto> onOpenAtlas;
+  final ValueChanged<AtlasSummaryDto> onEnterAtlasLens;
+  final VoidCallback onLeaveAtlasLens;
   final ValueChanged<SightingSummaryDto> onFocusSighting;
   final ValueChanged<LiveBeaconDto> onFocusBeacon;
   final VoidCallback onCreateSighting;
@@ -67,6 +90,8 @@ class _ExploreSheetState extends State<ExploreSheet>
   final _searchController = TextEditingController();
   EarthlyCatalogSnapshot? _catalog;
   String _query = '';
+  _CatalogScopeTab _scopeTab = _CatalogScopeTab.all;
+  _CatalogSortOrder _sortOrder = _CatalogSortOrder.newest;
   bool _loading = false;
   String? _error;
 
@@ -74,10 +99,15 @@ class _ExploreSheetState extends State<ExploreSheet>
   void initState() {
     super.initState();
     _tabs = TabController(length: 5, vsync: this);
+    _tabs.addListener(_onTabChanged);
     _catalog = widget.initialCatalog;
     if (_catalog == null && !widget.catalogLoading) {
       _refresh();
     }
+  }
+
+  void _onTabChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -91,6 +121,7 @@ class _ExploreSheetState extends State<ExploreSheet>
 
   @override
   void dispose() {
+    _tabs.removeListener(_onTabChanged);
     _tabs.dispose();
     _searchController.dispose();
     super.dispose();
@@ -110,6 +141,125 @@ class _ExploreSheetState extends State<ExploreSheet>
     return fields.any(
       (f) => f != null && f.toLowerCase().contains(clean),
     );
+  }
+
+  int _recentRank(String entityKey) => widget.recentEntityIds.indexOf(entityKey);
+
+  List<MapSummaryDto> _filteredMaps(List<MapSummaryDto> maps) {
+    final lens = widget.activeAtlasLens;
+    final lensPinned = lens?.pinnedAddresses.toSet();
+    final list = maps.where((m) {
+      if (lens != null &&
+          !(lensPinned!.contains(m.address) ||
+              m.contextRefs.contains(lens.address))) {
+        return false;
+      }
+      final key = 'map:${m.address}';
+      if (_scopeTab == _CatalogScopeTab.favorites &&
+          !widget.pinnedEntityIds.contains(key)) {
+        return false;
+      }
+      if (_scopeTab == _CatalogScopeTab.recent && _recentRank(key) < 0) {
+        return false;
+      }
+      return _matchesQuery([
+        m.title,
+        m.description,
+        _authorLabel(m.pubkey),
+        ...m.hashtags,
+        ...m.labels,
+      ]);
+    }).toList();
+
+    if (_scopeTab == _CatalogScopeTab.recent) {
+      list.sort(
+        (a, b) =>
+            _recentRank('map:${a.address}').compareTo(_recentRank('map:${b.address}')),
+      );
+      return list;
+    }
+    switch (_sortOrder) {
+      case _CatalogSortOrder.newest:
+        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      case _CatalogSortOrder.titleAsc:
+        list.sort(
+          (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+        );
+      case _CatalogSortOrder.featuresDesc:
+        list.sort((a, b) => b.featureCount.compareTo(a.featureCount));
+      case _CatalogSortOrder.sizeDesc:
+        list.sort((a, b) => b.sizeBytes.compareTo(a.sizeBytes));
+    }
+    return list;
+  }
+
+  List<StorySummaryDto> _filteredStories(List<StorySummaryDto> stories) {
+    final lens = widget.activeAtlasLens;
+    final lensPinned = lens?.pinnedAddresses.toSet();
+    final list = stories.where((s) {
+      if (lens != null &&
+          !(lensPinned!.contains(s.address) ||
+              s.referencedAddresses.contains(lens.address))) {
+        return false;
+      }
+      final key = 'story:${s.address}';
+      if (_scopeTab == _CatalogScopeTab.favorites &&
+          !widget.pinnedEntityIds.contains(key)) {
+        return false;
+      }
+      if (_scopeTab == _CatalogScopeTab.recent && _recentRank(key) < 0) {
+        return false;
+      }
+      return _matchesQuery([s.title, s.summary, _authorLabel(s.pubkey)]);
+    }).toList();
+
+    if (_scopeTab == _CatalogScopeTab.recent) {
+      list.sort(
+        (a, b) => _recentRank('story:${a.address}')
+            .compareTo(_recentRank('story:${b.address}')),
+      );
+      return list;
+    }
+    if (_sortOrder == _CatalogSortOrder.titleAsc) {
+      list.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    } else {
+      list.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+    }
+    return list;
+  }
+
+  List<AtlasSummaryDto> _filteredAtlases(List<AtlasSummaryDto> atlases) {
+    final list = atlases.where((a) {
+      final key = 'atlas:${a.address}';
+      if (_scopeTab == _CatalogScopeTab.favorites &&
+          !widget.pinnedEntityIds.contains(key)) {
+        return false;
+      }
+      if (_scopeTab == _CatalogScopeTab.recent && _recentRank(key) < 0) {
+        return false;
+      }
+      return _matchesQuery([
+        a.name,
+        a.description,
+        a.governance,
+        _authorLabel(a.pubkey),
+        ...a.hashtags,
+      ]);
+    }).toList();
+
+    if (_scopeTab == _CatalogScopeTab.recent) {
+      list.sort(
+        (a, b) => _recentRank('atlas:${a.address}')
+            .compareTo(_recentRank('atlas:${b.address}')),
+      );
+      return list;
+    }
+    if (_sortOrder == _CatalogSortOrder.titleAsc) {
+      list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    } else {
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    }
+    return list;
   }
 
   Future<void> _copyNaddr({
@@ -162,9 +312,16 @@ class _ExploreSheetState extends State<ExploreSheet>
     final theme = Theme.of(context);
     final catalog = _catalog;
     final isLoading = _loading || (catalog == null && widget.catalogLoading);
+    final visibleMaps = _filteredMaps(catalog?.maps ?? const []);
+    final visibleStories = _filteredStories(catalog?.stories ?? const []);
+    final visibleAtlases = _filteredAtlases(catalog?.atlases ?? const []);
+    final unstackedMaps = visibleMaps
+        .where((m) => !widget.shelfAddresses.contains(m.address))
+        .toList(growable: false);
 
     return EarthlyMapDrawer(
       initialFraction: 0.56,
+      accentTopBorder: widget.activeAtlasLens != null,
       onClose: widget.onClose,
       header: Column(
         mainAxisSize: MainAxisSize.min,
@@ -211,9 +368,9 @@ class _ExploreSheetState extends State<ExploreSheet>
             isScrollable: true,
             tabAlignment: TabAlignment.start,
             tabs: [
-              Tab(text: 'Maps (${catalog?.maps.length ?? 0})'),
-              Tab(text: 'Stories (${catalog?.stories.length ?? 0})'),
-              Tab(text: 'Atlases (${catalog?.atlases.length ?? 0})'),
+              Tab(text: 'Maps (${visibleMaps.length})'),
+              Tab(text: 'Stories (${visibleStories.length})'),
+              Tab(text: 'Atlases (${visibleAtlases.length})'),
               Tab(text: 'Sightings (${catalog?.sightings.length ?? 0})'),
               Tab(text: 'Live (${catalog?.beacons.length ?? 0})'),
             ],
@@ -222,8 +379,53 @@ class _ExploreSheetState extends State<ExploreSheet>
       ),
       body: Column(
         children: [
+          if (widget.activeAtlasLens != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+              decoration: BoxDecoration(
+                color: EarthlyColors.amber.withValues(alpha: 0.14),
+                border: Border(
+                  bottom: BorderSide(
+                    color: EarthlyColors.amber.withValues(alpha: 0.45),
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.filter_tilt_shift,
+                    size: 15,
+                    color: EarthlyColors.lightAccent,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Scoped to Atlas: ${widget.activeAtlasLens!.name}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    onPressed: widget.onLeaveAtlasLens,
+                    child: const Text('Leave'),
+                  ),
+                ],
+              ),
+            ),
+
+          // Search + All/Favorites/Recent + Sort + Bulk Show-on-Map toolbar
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
             child: TextField(
               controller: _searchController,
               onChanged: (val) => setState(() => _query = val),
@@ -243,6 +445,99 @@ class _ExploreSheetState extends State<ExploreSheet>
               ),
             ),
           ),
+
+          if (_tabs.index <= 2)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+              child: Row(
+                children: [
+                  // All | Favorites | Recent pill strip (matching Web GeoDatasetsPanel)
+                  Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: theme.dividerColor),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final entry in const [
+                          (_CatalogScopeTab.all, 'All'),
+                          (_CatalogScopeTab.favorites, 'Favorites'),
+                          (_CatalogScopeTab.recent, 'Recent'),
+                        ])
+                          GestureDetector(
+                            onTap: () => setState(() => _scopeTab = entry.$1),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 9,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _scopeTab == entry.$1
+                                    ? EarthlyColors.amber
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                entry.$2,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: _scopeTab == entry.$1
+                                      ? EarthlyColors.amberInk
+                                      : theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  if (_tabs.index == 0 && unstackedMaps.isNotEmpty)
+                    Tooltip(
+                      message:
+                          'Show ${unstackedMaps.length > 15 ? 15 : unstackedMaps.length} filtered maps on map',
+                      child: IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => widget.onAddMapsBulk(
+                          unstackedMaps.take(15).toList(growable: false),
+                        ),
+                        icon: const Icon(Icons.library_add_outlined, size: 18),
+                      ),
+                    ),
+                  PopupMenuButton<_CatalogSortOrder>(
+                    tooltip: 'Sort order',
+                    initialValue: _sortOrder,
+                    onSelected: (v) => setState(() => _sortOrder = v),
+                    icon: const Icon(Icons.sort, size: 18),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: _CatalogSortOrder.newest,
+                        child: Text('Newest first'),
+                      ),
+                      PopupMenuItem(
+                        value: _CatalogSortOrder.titleAsc,
+                        child: Text('Name (A–Z)'),
+                      ),
+                      PopupMenuItem(
+                        value: _CatalogSortOrder.featuresDesc,
+                        child: Text('Most features'),
+                      ),
+                      PopupMenuItem(
+                        value: _CatalogSortOrder.sizeDesc,
+                        child: Text('Largest size'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
           if (_error != null)
             Container(
               width: double.infinity,
@@ -263,9 +558,9 @@ class _ExploreSheetState extends State<ExploreSheet>
                 : TabBarView(
                     controller: _tabs,
                     children: [
-                      _buildMapsList(catalog?.maps ?? const []),
-                      _buildStoriesList(catalog?.stories ?? const []),
-                      _buildAtlasesList(catalog?.atlases ?? const []),
+                      _buildMapsList(visibleMaps),
+                      _buildStoriesList(visibleStories),
+                      _buildAtlasesList(visibleAtlases),
                       _buildSightingsList(catalog?.sightings ?? const []),
                       _buildBeaconsList(catalog?.beacons ?? const []),
                     ],
@@ -276,24 +571,26 @@ class _ExploreSheetState extends State<ExploreSheet>
     );
   }
 
-  Widget _buildMapsList(List<MapSummaryDto> maps) {
-    final filtered = maps
-        .where(
-          (m) => _matchesQuery([
-            m.title,
-            m.description,
-            _authorLabel(m.pubkey),
-            ...m.hashtags,
-            ...m.labels,
-          ]),
-        )
-        .toList(growable: false);
+  String _emptyMessage(String noun) {
+    if (_scopeTab == _CatalogScopeTab.favorites) {
+      return 'No favorite $noun yet — open a row menu (⋮) to star one.';
+    }
+    if (_scopeTab == _CatalogScopeTab.recent) {
+      return 'No recently viewed $noun yet.';
+    }
+    if (_query.isNotEmpty) return 'No $noun match "$_query".';
+    if (widget.activeAtlasLens != null) {
+      return 'No $noun in "${widget.activeAtlasLens!.name}" yet.';
+    }
+    return 'Listening for $noun…';
+  }
+
+  Widget _buildMapsList(List<MapSummaryDto> filtered) {
     if (filtered.isEmpty) {
       return Center(
-        child: Text(
-          _query.isEmpty
-              ? 'Listening for maps…'
-              : 'No maps match "$_query".',
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Text(_emptyMessage('maps'), textAlign: TextAlign.center),
         ),
       );
     }
@@ -302,6 +599,8 @@ class _ExploreSheetState extends State<ExploreSheet>
       itemBuilder: (context, index) {
         final map = filtered[index];
         final onShelf = widget.shelfAddresses.contains(map.address);
+        final favKey = 'map:${map.address}';
+        final isStarred = widget.pinnedEntityIds.contains(favKey);
         final dateStr = formatRelativeUnixDate(map.createdAt.toInt());
         final sizeStr = formatByteSize(map.sizeBytes);
         final tagsStr = map.hashtags.isNotEmpty
@@ -323,6 +622,7 @@ class _ExploreSheetState extends State<ExploreSheet>
           title: map.title,
           meta: metaParts.join(' · '),
           selected: onShelf,
+          starred: isStarred,
           onTap: () {
             if (!onShelf) {
               widget.onToggleMapOnShelf(map);
@@ -355,6 +655,11 @@ class _ExploreSheetState extends State<ExploreSheet>
               },
             ),
             EntityRowMenuAction(
+              label: isStarred ? 'Remove from favorites' : 'Add to favorites',
+              icon: isStarred ? Icons.star : Icons.star_outline,
+              onSelected: () => widget.onToggleFavorite(favKey),
+            ),
+            EntityRowMenuAction(
               label: 'Comments & Proposals',
               icon: Icons.forum_outlined,
               onSelected: () => widget.onOpenMapDiscussion(map),
@@ -379,16 +684,11 @@ class _ExploreSheetState extends State<ExploreSheet>
     );
   }
 
-  Widget _buildStoriesList(List<StorySummaryDto> stories) {
-    final filtered = stories
-        .where(
-          (s) => _matchesQuery([s.title, s.summary, _authorLabel(s.pubkey)]),
-        )
-        .toList(growable: false);
+  Widget _buildStoriesList(List<StorySummaryDto> filtered) {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+          padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
           child: SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -402,16 +702,20 @@ class _ExploreSheetState extends State<ExploreSheet>
         Expanded(
           child: filtered.isEmpty
               ? Center(
-                  child: Text(
-                    _query.isEmpty
-                        ? 'Listening for stories…'
-                        : 'No stories match "$_query".',
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      _emptyMessage('stories'),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 )
               : ListView.builder(
                   itemCount: filtered.length,
                   itemBuilder: (context, index) {
                     final story = filtered[index];
+                    final favKey = 'story:${story.address}';
+                    final isStarred = widget.pinnedEntityIds.contains(favKey);
                     final linkedCount = story.referencedAddresses.length;
                     final dateStr =
                         formatRelativeUnixDate(story.publishedAt.toInt());
@@ -430,6 +734,7 @@ class _ExploreSheetState extends State<ExploreSheet>
                       title: story.title,
                       subtitle: story.summary,
                       meta: metaParts.join(' · '),
+                      starred: isStarred,
                       badges: [
                         if (story.presentationJson != null)
                           const EarthlyBadge(
@@ -449,6 +754,13 @@ class _ExploreSheetState extends State<ExploreSheet>
                           label: 'Read story',
                           icon: Icons.auto_stories_outlined,
                           onSelected: () => widget.onOpenStory(story),
+                        ),
+                        EntityRowMenuAction(
+                          label: isStarred
+                              ? 'Remove from favorites'
+                              : 'Add to favorites',
+                          icon: isStarred ? Icons.star : Icons.star_outline,
+                          onSelected: () => widget.onToggleFavorite(favKey),
                         ),
                         EntityRowMenuAction(
                           label: 'Story comments',
@@ -473,21 +785,11 @@ class _ExploreSheetState extends State<ExploreSheet>
     );
   }
 
-  Widget _buildAtlasesList(List<AtlasSummaryDto> atlases) {
-    final filtered = atlases
-        .where(
-          (a) => _matchesQuery([
-            a.name,
-            a.description,
-            a.governance,
-            _authorLabel(a.pubkey),
-          ]),
-        )
-        .toList(growable: false);
+  Widget _buildAtlasesList(List<AtlasSummaryDto> filtered) {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+          padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
           child: SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -505,16 +807,22 @@ class _ExploreSheetState extends State<ExploreSheet>
         Expanded(
           child: filtered.isEmpty
               ? Center(
-                  child: Text(
-                    _query.isEmpty
-                        ? 'Listening for atlases…'
-                        : 'No atlases match "$_query".',
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      _emptyMessage('atlases'),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 )
               : ListView.builder(
                   itemCount: filtered.length,
                   itemBuilder: (context, index) {
                     final atlas = filtered[index];
+                    final favKey = 'atlas:${atlas.address}';
+                    final isStarred = widget.pinnedEntityIds.contains(favKey);
+                    final isLens =
+                        widget.activeAtlasLens?.address == atlas.address;
                     final govLabel = switch (atlas.governance) {
                       'closed' => 'AUTHOR PICKS',
                       'schema' => 'SCHEMA',
@@ -533,25 +841,55 @@ class _ExploreSheetState extends State<ExploreSheet>
                       subtitle: atlas.description,
                       meta:
                           '${_authorLabel(atlas.pubkey)} · ${atlas.pinnedAddresses.length} pinned',
+                      selected: isLens,
+                      starred: isStarred,
                       badges: [
                         EarthlyBadge(label: govLabel, color: govColor),
+                        if (isLens)
+                          const EarthlyBadge(
+                            label: 'ACTIVE LENS',
+                            color: EarthlyColors.amber,
+                          ),
                       ],
-                      onTap: () => widget.onOpenAtlas(atlas),
+                      onTap: () => widget.onInspectAtlas(atlas),
                       primaryAction: IconButton(
-                        tooltip: 'Show Atlas maps',
+                        tooltip: isLens ? 'Leave Atlas Lens' : 'Enter Atlas Lens',
                         visualDensity: VisualDensity.compact,
-                        onPressed: atlas.pinnedAddresses.isEmpty
-                            ? null
-                            : () => widget.onOpenAtlas(atlas),
-                        icon: const Icon(Icons.layers_outlined, size: 20),
+                        onPressed: () => isLens
+                            ? widget.onLeaveAtlasLens()
+                            : widget.onEnterAtlasLens(atlas),
+                        icon: Icon(
+                          Icons.filter_tilt_shift,
+                          size: 20,
+                          color: isLens ? EarthlyColors.amber : null,
+                        ),
                       ),
                       menuActions: [
+                        EntityRowMenuAction(
+                          label: 'Open Atlas details',
+                          icon: Icons.info_outline,
+                          onSelected: () => widget.onInspectAtlas(atlas),
+                        ),
+                        EntityRowMenuAction(
+                          label: isLens ? 'Leave Atlas Lens' : 'Enter Atlas Lens',
+                          icon: Icons.filter_tilt_shift,
+                          onSelected: () => isLens
+                              ? widget.onLeaveAtlasLens()
+                              : widget.onEnterAtlasLens(atlas),
+                        ),
                         if (atlas.pinnedAddresses.isNotEmpty)
                           EntityRowMenuAction(
-                            label: 'Show all on map',
+                            label: 'Show all maps on map',
                             icon: Icons.layers,
                             onSelected: () => widget.onOpenAtlas(atlas),
                           ),
+                        EntityRowMenuAction(
+                          label: isStarred
+                              ? 'Remove from favorites'
+                              : 'Add to favorites',
+                          icon: isStarred ? Icons.star : Icons.star_outline,
+                          onSelected: () => widget.onToggleFavorite(favKey),
+                        ),
                         EntityRowMenuAction(
                           label: 'Copy nostr:naddr1… link',
                           icon: Icons.link,

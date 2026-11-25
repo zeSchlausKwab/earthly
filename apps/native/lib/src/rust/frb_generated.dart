@@ -292,6 +292,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? description,
     required String geojson,
     required List<String> hashtags,
+    required List<String> contextRefs,
     String? fieldSessionId,
   });
 
@@ -1884,6 +1885,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     String? description,
     required String geojson,
     required List<String> hashtags,
+    required List<String> contextRefs,
     String? fieldSessionId,
   }) {
     return handler.executeNormal(
@@ -1896,6 +1898,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           sse_encode_opt_String(description, serializer);
           sse_encode_String(geojson, serializer);
           sse_encode_list_String(hashtags, serializer);
+          sse_encode_list_String(contextRefs, serializer);
           sse_encode_opt_String(fieldSessionId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -1916,6 +1919,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           description,
           geojson,
           hashtags,
+          contextRefs,
           fieldSessionId,
         ],
         apiImpl: this,
@@ -1933,6 +1937,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           "description",
           "geojson",
           "hashtags",
+          "contextRefs",
           "fieldSessionId",
         ],
       );
@@ -2970,8 +2975,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   AppSettingsDto dco_decode_app_settings_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 8)
-      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return AppSettingsDto(
       relayUrls: dco_decode_list_String(arr[0]),
       localPubkeyHex: dco_decode_opt_String(arr[1]),
@@ -2981,6 +2986,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       agentModel: dco_decode_String(arr[5]),
       agentApiKey: dco_decode_String(arr[6]),
       offlinePacks: dco_decode_list_saved_offline_pack_dto(arr[7]),
+      pinnedEntityIds: dco_decode_list_String(arr[8]),
+      recentEntityIds: dco_decode_list_String(arr[9]),
     );
   }
 
@@ -3001,8 +3008,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   AtlasSummaryDto dco_decode_atlas_summary_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 10)
-      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return AtlasSummaryDto(
       address: dco_decode_String(arr[0]),
       eventId: dco_decode_String(arr[1]),
@@ -3013,7 +3020,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       image: dco_decode_opt_String(arr[6]),
       governance: dco_decode_String(arr[7]),
       pinnedAddresses: dco_decode_list_String(arr[8]),
-      createdAt: dco_decode_u_64(arr[9]),
+      hashtags: dco_decode_list_String(arr[9]),
+      createdAt: dco_decode_u_64(arr[10]),
     );
   }
 
@@ -3493,8 +3501,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   MapSummaryDto dco_decode_map_summary_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 16)
-      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
+    if (arr.length != 17)
+      throw Exception('unexpected arr length: expect 17 but see ${arr.length}');
     return MapSummaryDto(
       address: dco_decode_String(arr[0]),
       eventId: dco_decode_String(arr[1]),
@@ -3511,7 +3519,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       north: dco_decode_opt_box_autoadd_f_64(arr[12]),
       hashtags: dco_decode_list_String(arr[13]),
       labels: dco_decode_list_String(arr[14]),
-      createdAt: dco_decode_u_64(arr[15]),
+      contextRefs: dco_decode_list_String(arr[15]),
+      createdAt: dco_decode_u_64(arr[16]),
     );
   }
 
@@ -3963,6 +3972,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     var var_agentModel = sse_decode_String(deserializer);
     var var_agentApiKey = sse_decode_String(deserializer);
     var var_offlinePacks = sse_decode_list_saved_offline_pack_dto(deserializer);
+    var var_pinnedEntityIds = sse_decode_list_String(deserializer);
+    var var_recentEntityIds = sse_decode_list_String(deserializer);
     return AppSettingsDto(
       relayUrls: var_relayUrls,
       localPubkeyHex: var_localPubkeyHex,
@@ -3972,6 +3983,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       agentModel: var_agentModel,
       agentApiKey: var_agentApiKey,
       offlinePacks: var_offlinePacks,
+      pinnedEntityIds: var_pinnedEntityIds,
+      recentEntityIds: var_recentEntityIds,
     );
   }
 
@@ -4000,6 +4013,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     var var_image = sse_decode_opt_String(deserializer);
     var var_governance = sse_decode_String(deserializer);
     var var_pinnedAddresses = sse_decode_list_String(deserializer);
+    var var_hashtags = sse_decode_list_String(deserializer);
     var var_createdAt = sse_decode_u_64(deserializer);
     return AtlasSummaryDto(
       address: var_address,
@@ -4011,6 +4025,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       image: var_image,
       governance: var_governance,
       pinnedAddresses: var_pinnedAddresses,
+      hashtags: var_hashtags,
       createdAt: var_createdAt,
     );
   }
@@ -4732,6 +4747,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     var var_north = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_hashtags = sse_decode_list_String(deserializer);
     var var_labels = sse_decode_list_String(deserializer);
+    var var_contextRefs = sse_decode_list_String(deserializer);
     var var_createdAt = sse_decode_u_64(deserializer);
     return MapSummaryDto(
       address: var_address,
@@ -4749,6 +4765,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       north: var_north,
       hashtags: var_hashtags,
       labels: var_labels,
+      contextRefs: var_contextRefs,
       createdAt: var_createdAt,
     );
   }
@@ -5363,6 +5380,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_String(self.agentModel, serializer);
     sse_encode_String(self.agentApiKey, serializer);
     sse_encode_list_saved_offline_pack_dto(self.offlinePacks, serializer);
+    sse_encode_list_String(self.pinnedEntityIds, serializer);
+    sse_encode_list_String(self.recentEntityIds, serializer);
   }
 
   @protected
@@ -5391,6 +5410,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_opt_String(self.image, serializer);
     sse_encode_String(self.governance, serializer);
     sse_encode_list_String(self.pinnedAddresses, serializer);
+    sse_encode_list_String(self.hashtags, serializer);
     sse_encode_u_64(self.createdAt, serializer);
   }
 
@@ -5998,6 +6018,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_opt_box_autoadd_f_64(self.north, serializer);
     sse_encode_list_String(self.hashtags, serializer);
     sse_encode_list_String(self.labels, serializer);
+    sse_encode_list_String(self.contextRefs, serializer);
     sse_encode_u_64(self.createdAt, serializer);
   }
 

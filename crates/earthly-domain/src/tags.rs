@@ -82,10 +82,19 @@ pub fn get_hashtags(tags: &[Vec<String>]) -> Vec<String> {
 }
 
 pub fn get_context_refs(tags: &[Vec<String>]) -> Vec<String> {
-    tags.iter()
-        .filter(|tag| tag.first().map(String::as_str) == Some("c"))
-        .filter_map(|tag| tag.get(1).filter(|v| !v.is_empty()).cloned())
-        .collect()
+    let mut out = Vec::new();
+    for tag in tags {
+        let key = tag.first().map(String::as_str);
+        let Some(val) = tag.get(1).filter(|v| !v.is_empty()) else {
+            continue;
+        };
+        if key == Some("c") || (key == Some("a") && val.starts_with("37518:")) {
+            if !out.contains(val) {
+                out.push(val.clone());
+            }
+        }
+    }
+    out
 }
 
 pub fn get_referenced_addresses(tags: &[Vec<String>]) -> Vec<String> {

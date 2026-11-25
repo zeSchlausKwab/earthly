@@ -36,6 +36,10 @@ pub struct PersistedAppSettings {
     pub agent_model: String,
     pub agent_api_key: String,
     pub offline_packs: Vec<SavedOfflinePackRecord>,
+    #[serde(default)]
+    pub pinned_entity_ids: Vec<String>,
+    #[serde(default)]
+    pub recent_entity_ids: Vec<String>,
 }
 
 impl Default for PersistedAppSettings {
@@ -49,6 +53,8 @@ impl Default for PersistedAppSettings {
             agent_model: "offline-spatial".to_owned(),
             agent_api_key: String::new(),
             offline_packs: Vec::new(),
+            pinned_entity_ids: Vec::new(),
+            recent_entity_ids: Vec::new(),
         }
     }
 }
@@ -188,6 +194,8 @@ mod tests {
         s.agent_preset = "Local Ollama".to_owned();
         s.agent_base_url = "http://127.0.0.1:11434/v1".to_owned();
         s.agent_model = "qwen2.5:7b".to_owned();
+        s.pinned_entity_ids = vec!["map:37515:abc:vienna".to_owned()];
+        s.recent_entity_ids = vec!["story:37520:abc:bushby".to_owned()];
         let saved = store.save(s).unwrap();
         drop(store);
 

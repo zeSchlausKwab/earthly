@@ -122,6 +122,7 @@ class AtlasSummaryDto {
   final String? image;
   final String governance;
   final List<String> pinnedAddresses;
+  final List<String> hashtags;
   final BigInt createdAt;
 
   const AtlasSummaryDto({
@@ -134,6 +135,7 @@ class AtlasSummaryDto {
     this.image,
     required this.governance,
     required this.pinnedAddresses,
+    required this.hashtags,
     required this.createdAt,
   });
 
@@ -148,6 +150,7 @@ class AtlasSummaryDto {
       image.hashCode ^
       governance.hashCode ^
       pinnedAddresses.hashCode ^
+      hashtags.hashCode ^
       createdAt.hashCode;
 
   @override
@@ -164,6 +167,7 @@ class AtlasSummaryDto {
           image == other.image &&
           governance == other.governance &&
           pinnedAddresses == other.pinnedAddresses &&
+          hashtags == other.hashtags &&
           createdAt == other.createdAt;
 }
 
@@ -500,6 +504,7 @@ class MapSummaryDto {
   final double? north;
   final List<String> hashtags;
   final List<String> labels;
+  final List<String> contextRefs;
   final BigInt createdAt;
 
   const MapSummaryDto({
@@ -518,6 +523,7 @@ class MapSummaryDto {
     this.north,
     required this.hashtags,
     required this.labels,
+    required this.contextRefs,
     required this.createdAt,
   });
 
@@ -538,6 +544,7 @@ class MapSummaryDto {
       north.hashCode ^
       hashtags.hashCode ^
       labels.hashCode ^
+      contextRefs.hashCode ^
       createdAt.hashCode;
 
   @override
@@ -560,6 +567,7 @@ class MapSummaryDto {
           north == other.north &&
           hashtags == other.hashtags &&
           labels == other.labels &&
+          contextRefs == other.contextRefs &&
           createdAt == other.createdAt;
 }
 

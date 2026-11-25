@@ -36,6 +36,7 @@ pub struct MapSummaryDto {
     pub north: Option<f64>,
     pub hashtags: Vec<String>,
     pub labels: Vec<String>,
+    pub context_refs: Vec<String>,
     pub created_at: u64,
 }
 
@@ -305,6 +306,7 @@ pub struct AtlasSummaryDto {
     pub image: Option<String>,
     pub governance: String,
     pub pinned_addresses: Vec<String>,
+    pub hashtags: Vec<String>,
     pub created_at: u64,
 }
 
@@ -1183,6 +1185,7 @@ fn map_to_dto(address: String, dataset: MapDataset) -> MapSummaryDto {
         north: dataset.bbox.map(|b| b.north),
         hashtags: dataset.hashtags,
         labels: dataset.labels,
+        context_refs: dataset.context_refs,
         created_at: dataset.created_at,
     }
 }
@@ -1223,6 +1226,7 @@ fn atlas_to_dto(address: String, group: AtlasGroup) -> AtlasSummaryDto {
         image: group.image,
         governance: governance.to_owned(),
         pinned_addresses: group.pinned_addresses,
+        hashtags: group.hashtags,
         created_at: group.created_at,
     }
 }
