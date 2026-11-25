@@ -317,5 +317,30 @@ pub fn earthly_tool_definitions() -> Vec<ToolDefinition> {
                 }
             }),
         },
+        ToolDefinition {
+            name: "query_catalog".to_owned(),
+            description: "Search loaded Nostr Earthly Maps, Stories, and Atlases in the current catalog by keyword and entity kind.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Optional keyword or #tag filter" },
+                    "kind": { "type": "string", "enum": ["all", "map", "story", "atlas"] },
+                    "limit": { "type": "integer", "description": "Max results (default 15)" }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "draft_atlas_manifest".to_owned(),
+            description: "Draft a Markdown Atlas collection manifest from pinned Working Set maps and matching catalog items with governance mode.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string" },
+                    "governance": { "type": "string", "enum": ["open", "moderated", "closed"] },
+                    "summary": { "type": "string" },
+                    "filterQuery": { "type": "string" }
+                }
+            }),
+        },
     ]
 }

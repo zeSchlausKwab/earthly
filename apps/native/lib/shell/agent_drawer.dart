@@ -167,6 +167,23 @@ class CopilotThread {
 /// Staged AI geometry proposal shown as an amber dashed ghost overlay on the
 /// live MapLibre canvas until the user accepts or discards (`safeEditing`).
 @immutable
+class AgentAttachment {
+  const AgentAttachment({
+    required this.fileName,
+    required this.formatLabel,
+    required this.featureCount,
+    required this.summaryText,
+    this.importedGeojson,
+  });
+
+  final String fileName;
+  final String formatLabel;
+  final int featureCount;
+  final String summaryText;
+  final String? importedGeojson;
+}
+
+@immutable
 class PendingAiEdit {
   const PendingAiEdit({
     required this.proposedGeojson,
@@ -243,6 +260,15 @@ class AgentDrawer extends StatefulWidget {
     this.onCreateThread,
     this.onSelectThread,
     this.onDeleteThread,
+    this.streamingText = '',
+    this.activeToolStatus,
+    this.liveToolCalls = const <AgentToolRecordDto>[],
+    this.shelfMaps = const <({String address, String title})>[],
+    this.workingSetAddresses = const <String>{},
+    this.onToggleWorkingSet,
+    this.pendingAttachment,
+    this.onPickAttachment,
+    this.onClearAttachment,
     super.key,
   });
 
@@ -265,6 +291,15 @@ class AgentDrawer extends StatefulWidget {
   final VoidCallback? onCreateThread;
   final ValueChanged<String>? onSelectThread;
   final ValueChanged<String>? onDeleteThread;
+  final String streamingText;
+  final String? activeToolStatus;
+  final List<AgentToolRecordDto> liveToolCalls;
+  final List<({String address, String title})> shelfMaps;
+  final Set<String> workingSetAddresses;
+  final ValueChanged<String>? onToggleWorkingSet;
+  final AgentAttachment? pendingAttachment;
+  final VoidCallback? onPickAttachment;
+  final VoidCallback? onClearAttachment;
   final ValueChanged<CopilotProviderSettings> onSettingsChanged;
   final ValueChanged<String> onSendPrompt;
   final VoidCallback onClearChat;
@@ -866,6 +901,7 @@ class _AgentDrawerState extends State<AgentDrawer>
                 'Union polygons',
                 'Add callout: Verified in field',
                 'Drop pin here',
+                'Draft atlas manifest',
                 'Atlas status',
               ])
                 Padding(
@@ -886,10 +922,51 @@ class _AgentDrawerState extends State<AgentDrawer>
             ],
           ),
         ),
+        if (widget.shelfMaps.isNotEmpty && widget.onToggleWorkingSet != null)
+          SingleChildScrollView(
+            key: const Key('agent-working-set-bar'),
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
+            child: Row(
+              children: [
+                Text(
+                  'WORKING SET: ',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                for (final sm in widget.shelfMaps)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: FilterChip(
+                      key: Key('agent-ws-${sm.address}'),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      selected: widget.workingSetAddresses.contains(sm.address),
+                      label: Text(
+                        sm.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 10,
+                        ),
+                      ),
+                      onSelected: widget.busy
+                          ? null
+                          : (_) => widget.onToggleWorkingSet!(sm.address),
+                    ),
+                  ),
+              ],
+            ),
+          ),
 
         // Chat transcript (independent scrolling!)
         Expanded(
-          child: widget.messages.isEmpty
+          child: widget.messages.isEmpty && !widget.busy
               ? LayoutBuilder(
                   builder: (context, constraints) => SingleChildScrollView(
                     padding: const EdgeInsets.all(16),
@@ -909,8 +986,98 @@ class _AgentDrawerState extends State<AgentDrawer>
                 )
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  itemCount: widget.messages.length,
+                  itemCount: widget.messages.length + (widget.busy ? 1 : 0),
                   itemBuilder: (context, index) {
+                    if (widget.busy && index == widget.messages.length) {
+                      return Container(
+                        key: const Key('agent-tool-progress-bar'),
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          border: Border(
+                            left: BorderSide(
+                              color: EarthlyColors.amber,
+                              width: 3,
+                            ),
+                            top: BorderSide(color: theme.dividerColor),
+                            right: BorderSide(color: theme.dividerColor),
+                            bottom: BorderSide(color: theme.dividerColor),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Text(
+                                  'EARTHLY AGENT · LIVE',
+                                  style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    widget.activeToolStatus ?? 'Thinking…',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 10,
+                                      color: EarthlyColors.amber,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            const LinearProgressIndicator(minHeight: 2),
+                            if (widget.liveToolCalls.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  for (final tc in widget.liveToolCalls)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 3,
+                                      ),
+                                      color: (tc.ok
+                                              ? EarthlyColors.commentGreen
+                                              : EarthlyColors.destructive)
+                                          .withValues(alpha: 0.12),
+                                      child: Text(
+                                        '${tc.ok ? "✓" : "✗"} ${tc.name}: ${tc.summary}',
+                                        style: TextStyle(
+                                          fontFamily: 'monospace',
+                                          fontSize: 10,
+                                          color: tc.ok
+                                              ? EarthlyColors.commentGreen
+                                              : EarthlyColors.destructive,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                            if (widget.streamingText.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              EarthlyRichText(
+                                key: const Key('agent-streaming-reply'),
+                                text: widget.streamingText,
+                                compact: true,
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    }
                     final m = widget.messages[index];
                     final isUser = m.role == 'user';
                     return Container(
@@ -1006,10 +1173,40 @@ class _AgentDrawerState extends State<AgentDrawer>
         ),
 
         const Divider(height: 1),
+        if (widget.pendingAttachment != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: InputChip(
+                key: const Key('agent-attachment-chip'),
+                avatar: const Icon(Icons.description_outlined, size: 14),
+                label: Text(
+                  '${widget.pendingAttachment!.fileName} (${widget.pendingAttachment!.formatLabel}'
+                  '${widget.pendingAttachment!.featureCount > 0 ? ' · ${widget.pendingAttachment!.featureCount} feat' : ''})',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10.5,
+                  ),
+                ),
+                onDeleted: widget.busy ? null : widget.onClearAttachment,
+              ),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
           child: Row(
             children: [
+              if (widget.onPickAttachment != null)
+                IconButton(
+                  key: const Key('agent-attach-file-btn'),
+                  tooltip: 'Attach CSV / GeoJSON / GPX / KML / Text',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: widget.busy ? null : widget.onPickAttachment,
+                  icon: const Icon(Icons.attach_file, size: 18),
+                ),
               Expanded(
                 child: TextField(
                   controller: _promptController,

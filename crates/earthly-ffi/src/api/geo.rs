@@ -5,13 +5,13 @@ use std::time::Duration;
 
 use earthly_geo::{
     ExtrudeOptions, ExtrudeShape, ExtrudeSide, LocalProjection, connect_lines,
-    create_line_corridor, difference_polygons, dissolve_lines, export_geojson_to_shapefile_zip,
-    extrude_line, geodesic_area_m2, geodesic_length_m, geojson_to_gpx, geojson_to_kml,
-    import_spatial_text_to_geojson, offset_line, offset_polygon, parse_shapefile_bytes,
-    simplify_line, simplify_polygon, split_line_at_point, split_polygon_by_line, union_polygons,
-    validate_feature_collection,
+    create_line_corridor, difference_polygons, dissolve_lines, explode_multipart,
+    export_geojson_to_shapefile_zip, extrude_line, geodesic_area_m2, geodesic_length_m,
+    geojson_to_gpx, geojson_to_kml, import_spatial_text_to_geojson, merge_to_multipart,
+    offset_line, offset_polygon, simplify_line, simplify_polygon, split_line_at_point,
+    split_polygon_by_line, union_polygons, validate_feature_collection, parse_shapefile_bytes,
 };
-use geo::{Coord, LineString, Point, Polygon};
+use geo::{Coord, Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
 
 #[derive(Clone, Debug)]
 pub struct LonLatPoint {
@@ -1158,7 +1158,189 @@ mod tests {
         .unwrap();
         assert_eq!(csv_res.format, "csv");
         assert_eq!(csv_res.feature_count, 1);
+
+        let merged_pts = geo_merge_to_multipart(vec![
+            r#"{"type":"Point","coordinates":[16.37,48.20]}"#.to_owned(),
+            r#"{"type":"Point","coordinates":[16.38,48.21]}"#.to_owned(),
+        ])
+        .unwrap();
+        let merged_val: serde_json::Value = serde_json::from_str(&merged_pts).unwrap();
+        assert_eq!(merged_val["type"], "MultiPoint");
+        let exploded_pts = geo_explode_multipart(merged_pts).unwrap();
+        assert_eq!(exploded_pts.len(), 2);
+
+        let merged_lines = geo_merge_to_multipart(vec![
+            r#"{"type":"LineString","coordinates":[[16.36,48.20],[16.37,48.20]]}"#.to_owned(),
+            r#"{"type":"LineString","coordinates":[[16.38,48.21],[16.39,48.21]]}"#.to_owned(),
+        ])
+        .unwrap();
+        assert!(merged_lines.contains("MultiLineString"));
+        assert_eq!(geo_explode_multipart(merged_lines).unwrap().len(), 2);
+
+        assert!(
+            geo_merge_to_multipart(vec![
+                r#"{"type":"Point","coordinates":[16.37,48.20]}"#.to_owned(),
+                r#"{"type":"LineString","coordinates":[[16.36,48.20],[16.37,48.20]]}"#.to_owned(),
+            ])
+            .is_err()
+        );
     }
+}
+
+fn parse_coord_pair(val: &serde_json::Value) -> Result<Coord<f64>, String> {
+    let arr = val
+        .as_array()
+        .ok_or_else(|| "coordinate must be [lon, lat]".to_owned())?;
+    if arr.len() < 2 {
+        return Err("coordinate must have [lon, lat]".to_owned());
+    }
+    let lon = arr[0]
+        .as_f64()
+        .ok_or_else(|| "coordinate lon must be numeric".to_owned())?;
+    let lat = arr[1]
+        .as_f64()
+        .ok_or_else(|| "coordinate lat must be numeric".to_owned())?;
+    Ok(Coord { x: lon, y: lat })
+}
+
+fn parse_ring_coords(val: &serde_json::Value) -> Result<LineString<f64>, String> {
+    let arr = val
+        .as_array()
+        .ok_or_else(|| "coordinate list must be an array".to_owned())?;
+    let mut coords = Vec::with_capacity(arr.len());
+    for item in arr {
+        coords.push(parse_coord_pair(item)?);
+    }
+    Ok(LineString::new(coords))
+}
+
+fn parse_polygon_rings(val: &serde_json::Value) -> Result<Polygon<f64>, String> {
+    let rings = val
+        .as_array()
+        .ok_or_else(|| "polygon coordinates must be array of rings".to_owned())?;
+    let first = rings
+        .first()
+        .ok_or_else(|| "polygon must have an exterior ring".to_owned())?;
+    let exterior = parse_ring_coords(first)?;
+    let mut interiors = Vec::new();
+    for ring in rings.iter().skip(1) {
+        interiors.push(parse_ring_coords(ring)?);
+    }
+    Ok(Polygon::new(exterior, interiors))
+}
+
+fn json_to_geo_geometry(val: &serde_json::Value) -> Result<Geometry<f64>, String> {
+    let geom_obj = if val.get("type").and_then(|v| v.as_str()) == Some("Feature") {
+        val.get("geometry")
+            .ok_or_else(|| "Feature missing geometry".to_owned())?
+    } else {
+        val
+    };
+    let gtype = geom_obj
+        .get("type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "geometry missing type".to_owned())?;
+    let coords = geom_obj
+        .get("coordinates")
+        .ok_or_else(|| "geometry missing coordinates".to_owned())?;
+    match gtype {
+        "Point" => Ok(Geometry::Point(Point::from(parse_coord_pair(coords)?))),
+        "MultiPoint" => {
+            let arr = coords
+                .as_array()
+                .ok_or_else(|| "MultiPoint coordinates must be array".to_owned())?;
+            let mut pts = Vec::with_capacity(arr.len());
+            for item in arr {
+                pts.push(Point::from(parse_coord_pair(item)?));
+            }
+            Ok(Geometry::MultiPoint(MultiPoint::new(pts)))
+        }
+        "LineString" => Ok(Geometry::LineString(parse_ring_coords(coords)?)),
+        "MultiLineString" => {
+            let arr = coords
+                .as_array()
+                .ok_or_else(|| "MultiLineString coordinates must be array".to_owned())?;
+            let mut lines = Vec::with_capacity(arr.len());
+            for item in arr {
+                lines.push(parse_ring_coords(item)?);
+            }
+            Ok(Geometry::MultiLineString(MultiLineString::new(lines)))
+        }
+        "Polygon" => Ok(Geometry::Polygon(parse_polygon_rings(coords)?)),
+        "MultiPolygon" => {
+            let arr = coords
+                .as_array()
+                .ok_or_else(|| "MultiPolygon coordinates must be array".to_owned())?;
+            let mut polys = Vec::with_capacity(arr.len());
+            for item in arr {
+                polys.push(parse_polygon_rings(item)?);
+            }
+            Ok(Geometry::MultiPolygon(MultiPolygon::new(polys)))
+        }
+        other => Err(format!("unsupported geometry type \"{other}\"")),
+    }
+}
+
+fn geo_geometry_to_json(geom: &Geometry<f64>) -> Result<serde_json::Value, String> {
+    let ring_json = |ls: &LineString<f64>| -> Vec<serde_json::Value> {
+        ls.0.iter().map(|c| serde_json::json!([c.x, c.y])).collect()
+    };
+    let poly_json = |p: &Polygon<f64>| -> Vec<Vec<serde_json::Value>> {
+        let mut rings = vec![ring_json(p.exterior())];
+        for inner in p.interiors() {
+            rings.push(ring_json(inner));
+        }
+        rings
+    };
+    match geom {
+        Geometry::Point(p) => Ok(serde_json::json!({ "type": "Point", "coordinates": [p.x(), p.y()] })),
+        Geometry::MultiPoint(mp) => Ok(serde_json::json!({
+            "type": "MultiPoint",
+            "coordinates": mp.0.iter().map(|p| serde_json::json!([p.x(), p.y()])).collect::<Vec<_>>()
+        })),
+        Geometry::LineString(l) => Ok(serde_json::json!({
+            "type": "LineString",
+            "coordinates": ring_json(l)
+        })),
+        Geometry::MultiLineString(ml) => Ok(serde_json::json!({
+            "type": "MultiLineString",
+            "coordinates": ml.0.iter().map(&ring_json).collect::<Vec<_>>()
+        })),
+        Geometry::Polygon(p) => Ok(serde_json::json!({
+            "type": "Polygon",
+            "coordinates": poly_json(p)
+        })),
+        Geometry::MultiPolygon(mp) => Ok(serde_json::json!({
+            "type": "MultiPolygon",
+            "coordinates": mp.0.iter().map(&poly_json).collect::<Vec<_>>()
+        })),
+        _ => Err("unsupported output geometry for JSON conversion".to_owned()),
+    }
+}
+
+/// Merges 2+ homogeneous GeoJSON geometries into a single multipart GeoJSON geometry.
+pub fn geo_merge_to_multipart(geojson_geometries: Vec<String>) -> Result<String, String> {
+    let mut parsed = Vec::with_capacity(geojson_geometries.len());
+    for raw in &geojson_geometries {
+        let val: serde_json::Value =
+            serde_json::from_str(raw).map_err(|e| format!("invalid GeoJSON geometry: {e}"))?;
+        parsed.push(json_to_geo_geometry(&val)?);
+    }
+    let merged = merge_to_multipart(&parsed).map_err(|e| e.to_string())?;
+    let out_json = geo_geometry_to_json(&merged)?;
+    serde_json::to_string(&out_json).map_err(|e| e.to_string())
+}
+
+/// Explodes a multipart GeoJSON geometry into individual single-part GeoJSON geometry strings.
+pub fn geo_explode_multipart(geojson_geometry: String) -> Result<Vec<String>, String> {
+    let val: serde_json::Value =
+        serde_json::from_str(&geojson_geometry).map_err(|e| format!("invalid GeoJSON geometry: {e}"))?;
+    let parsed = json_to_geo_geometry(&val)?;
+    let parts = explode_multipart(&parsed).map_err(|e| e.to_string())?;
+    parts
+        .iter()
+        .map(|g| geo_geometry_to_json(g).and_then(|v| serde_json::to_string(&v).map_err(|e| e.to_string())))
+        .collect()
 }
 
 /// Dissolves overlapping/touching line segments into connected polylines.

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:earthly_native/drawing/drawing_model.dart';
 import 'package:earthly_native/main.dart';
 import 'package:earthly_native/nostr/atlas_schema.dart';
@@ -4565,5 +4567,347 @@ Start at geo:48.2764,16.3338 and check $naddr
     await tester.tap(find.byKey(const Key('tour-finish-btn')));
     await tester.pumpAndSettle();
     expect(find.text('STEP 5 OF 5'), findsNothing);
+  });
+
+  testWidgets(
+      'AgentDrawer renders live SSE streaming reply, tool progress bar, Working Set chips, and attachment controls',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    String? toggledWorkingSet;
+    var attachTapped = false;
+    var clearedAttachment = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AgentDrawer(
+                messages: const [],
+                settings: CopilotProviderSettings.offline,
+                busy: true,
+                streamingText: 'Streamed **Danube** summary...',
+                activeToolStatus: 'Step 1 · Running query_catalog…',
+                liveToolCalls: const [
+                  AgentToolRecordDto(
+                    name: 'query_catalog',
+                    ok: true,
+                    summary: 'Found 2 catalog item(s)',
+                  ),
+                ],
+                shelfMaps: const [
+                  (address: '37515:alice:danube', title: 'Danube Trails'),
+                  (address: '37515:bob:alps', title: 'Alps Ridge'),
+                ],
+                workingSetAddresses: const {'37515:alice:danube'},
+                onToggleWorkingSet: (addr) => toggledWorkingSet = addr,
+                pendingAttachment: const AgentAttachment(
+                  fileName: 'huts.csv',
+                  formatLabel: 'CSV',
+                  featureCount: 4,
+                  summaryText: 'Converted CSV',
+                ),
+                onPickAttachment: () => attachTapped = true,
+                onClearAttachment: () => clearedAttachment = true,
+                onSettingsChanged: (_) {},
+                onSendPrompt: (_) {},
+                onClearChat: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('agent-working-set-bar')), findsOneWidget);
+    expect(find.byKey(const Key('agent-tool-progress-bar')), findsOneWidget);
+    expect(find.byKey(const Key('agent-streaming-reply')), findsOneWidget);
+    expect(find.byKey(const Key('agent-attachment-chip')), findsOneWidget);
+    expect(find.textContaining('Streamed Danube summary'), findsOneWidget);
+    expect(find.textContaining('Found 2 catalog item(s)'), findsOneWidget);
+    expect(toggledWorkingSet, isNull);
+    expect(attachTapped, isFalse);
+    expect(clearedAttachment, isFalse);
+
+    // Non-busy pass exercises interactive Working Set + Attachment controls.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AgentDrawer(
+                messages: const [],
+                settings: CopilotProviderSettings.offline,
+                busy: false,
+                shelfMaps: const [
+                  (address: '37515:alice:danube', title: 'Danube Trails'),
+                ],
+                workingSetAddresses: const <String>{},
+                onToggleWorkingSet: (addr) => toggledWorkingSet = addr,
+                pendingAttachment: const AgentAttachment(
+                  fileName: 'huts.csv',
+                  formatLabel: 'CSV',
+                  featureCount: 4,
+                  summaryText: 'Converted CSV',
+                ),
+                onPickAttachment: () => attachTapped = true,
+                onClearAttachment: () => clearedAttachment = true,
+                onSettingsChanged: (_) {},
+                onSendPrompt: (_) {},
+                onClearChat: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('agent-ws-37515:alice:danube')));
+    await tester.pump();
+    expect(toggledWorkingSet, '37515:alice:danube');
+
+    await tester.tap(find.byKey(const Key('agent-attach-file-btn')));
+    await tester.pump();
+    expect(attachTapped, isTrue);
+
+    await tester.tap(find.descendant(
+      of: find.byKey(const Key('agent-attachment-chip')),
+      matching: find.byType(Icon),
+    ).last);
+    await tester.pump();
+    expect(clearedAttachment, isTrue);
+  });
+
+  test(
+      'draftFeaturesToGeoJson & parseDraftFeaturesFromGeoJson round-trip MultiPoint, MultiLineString, and MultiPolygon',
+      () {
+    const inputFeatures = [
+      DrawnFeature(
+        id: 'mp-1',
+        kind: DrawToolMode.point,
+        vertices: [Geographic(lon: 16.37, lat: 48.20)],
+        extraParts: [
+          [Geographic(lon: 16.39, lat: 48.22)],
+        ],
+        name: 'Twin Well',
+      ),
+      DrawnFeature(
+        id: 'ml-1',
+        kind: DrawToolMode.line,
+        vertices: [
+          Geographic(lon: 16.36, lat: 48.20),
+          Geographic(lon: 16.37, lat: 48.21),
+        ],
+        extraParts: [
+          [
+            Geographic(lon: 16.38, lat: 48.22),
+            Geographic(lon: 16.39, lat: 48.23),
+          ],
+        ],
+        name: 'Split Path',
+      ),
+      DrawnFeature(
+        id: 'mpoly-1',
+        kind: DrawToolMode.polygon,
+        vertices: [
+          Geographic(lon: 16.30, lat: 48.20),
+          Geographic(lon: 16.31, lat: 48.20),
+          Geographic(lon: 16.31, lat: 48.21),
+        ],
+        extraParts: [
+          [
+            Geographic(lon: 16.34, lat: 48.22),
+            Geographic(lon: 16.35, lat: 48.22),
+            Geographic(lon: 16.35, lat: 48.23),
+          ],
+        ],
+        name: 'Archipelago',
+      ),
+    ];
+
+    final encoded =
+        draftFeaturesToGeoJson(title: 'Multipart Draft', features: inputFeatures);
+    final decodedJson = jsonDecode(encoded) as Map<String, dynamic>;
+    final jsonFeats = decodedJson['features'] as List<dynamic>;
+    expect(jsonFeats[0]['geometry']['type'], 'MultiPoint');
+    expect(jsonFeats[1]['geometry']['type'], 'MultiLineString');
+    expect(jsonFeats[2]['geometry']['type'], 'MultiPolygon');
+
+    final reparsed = parseDraftFeaturesFromGeoJson(encoded);
+    expect(reparsed.length, 3);
+    expect(reparsed.every((f) => f.isMultipart), isTrue);
+    expect(reparsed[0].allParts.length, 2);
+    expect(reparsed[1].allParts.length, 2);
+    expect(reparsed[2].allParts.length, 2);
+    expect(reparsed[2].name, 'Archipelago');
+  });
+
+  testWidgets(
+      'DeskSheet triggers Merge Multipart and Explode Multipart workbench controls',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final triggered = <RustGeoAction>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DeskSheet(
+                activeDraftId: 'd-multi',
+                savedDrafts: const [],
+                relayUrls: const ['wss://relay.earthly.city'],
+                draftTitle: 'Multipart Draft',
+                audience: DraftAudienceChoice.publicRelay,
+                account: null,
+                shelfMaps: const [],
+                deskStories: const [],
+                deskAtlases: const [],
+                drawnFeatures: const [
+                  DrawnFeature(
+                    id: 'p1',
+                    kind: DrawToolMode.point,
+                    name: 'Pt A',
+                    vertices: [Geographic(lon: 16.37, lat: 48.20)],
+                  ),
+                  DrawnFeature(
+                    id: 'mp2',
+                    kind: DrawToolMode.point,
+                    name: 'Pt Multi',
+                    vertices: [Geographic(lon: 16.38, lat: 48.21)],
+                    extraParts: [
+                      [Geographic(lon: 16.39, lat: 48.22)],
+                    ],
+                  ),
+                ],
+                onSelectDraft: (_) {},
+                onCreateNewDraft: () {},
+                onDeleteDraft: (_) {},
+                onDraftTitleChanged: (_) {},
+                onAudienceChanged: (_) {},
+                onToggleShelfVisibility: (_) {},
+                onRemoveShelfMap: (_) {},
+                onInspectShelfMap: (_) {},
+                onFlyToShelfMap: (_) {},
+                onCloneShelfMapToDraft: (_) {},
+                onOpenShelfDiscussion: (_) {},
+                onOpenDeskStory: (_) {},
+                onRemoveDeskStory: (_) {},
+                onOpenDeskAtlas: (_) {},
+                onRemoveDeskAtlas: (_) {},
+                onRunGeoAction: (_) {},
+                onRunParameterizedGeoAction: (action, {meters, angleDeg, scale}) =>
+                    triggered.add(action),
+                onPublishDraft: (_, _) async => const PublishOutcomeDto(
+                  eventId: '0123456789abcdef',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onComposeStory: () {},
+                onCreateAtlas: () {},
+                onImportGeoJson: () {},
+                onExportGeoJsonFile: () {},
+                onCopyGeoJson: () {},
+                onClearDraftFeatures: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final mergeBtn = find.byKey(const Key('workbench-merge-multipart'));
+    await tester.scrollUntilVisible(
+      mergeBtn,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(mergeBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(mergeBtn);
+    await tester.pump();
+    expect(triggered, contains(RustGeoAction.mergeMultipart));
+
+    final explodeBtn = find.byKey(const Key('workbench-explode-multipart'));
+    await tester.scrollUntilVisible(
+      explodeBtn,
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(explodeBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(explodeBtn);
+    await tester.pump();
+    expect(triggered, contains(RustGeoAction.explodeMultipart));
+  });
+
+  testWidgets(
+      'EarthlyCalloutOverlay renders map-pinned comment bubbles, opens popup card, and invokes onInspectComment',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    GeoCommentDto? inspectedComment;
+    final dto = GeoCommentDto(
+      eventId: 'c-map-1',
+      pubkey: 'alice123456',
+      address: '37517:alice123456:c-map-1',
+      dTag: 'c-map-1',
+      text: 'Bridge timber loose here **caution**.',
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      createdAt: BigInt.zero,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 440,
+            height: 900,
+            child: EarthlyCalloutOverlay(
+              callouts: const [],
+              sightings: const [],
+              displayMode: CalloutDisplayMode.full,
+              onInspectFeature: (_) {},
+              onInspectSighting: (_) {},
+              screenProjector: (_) => const Offset(200, 320),
+              commentPins: [
+                MapCommentPinItem(
+                  eventId: dto.eventId,
+                  authorName: 'Alice',
+                  text: dto.text,
+                  anchor: const Geographic(lon: 16.3738, lat: 48.2082),
+                  comment: dto,
+                ),
+              ],
+              onInspectComment: (c) => inspectedComment = c,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('map-comment-pin-c-map-1')), findsOneWidget);
+    expect(find.byKey(const Key('map-comment-popup-c-map-1')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('map-comment-pin-c-map-1')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('map-comment-popup-c-map-1')), findsOneWidget);
+    expect(find.textContaining('Bridge timber loose here'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('map-comment-open-thread-c-map-1')));
+    await tester.pump();
+    expect(inspectedComment?.eventId, 'c-map-1');
   });
 }

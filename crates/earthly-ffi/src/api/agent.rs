@@ -6,8 +6,8 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use earthly_agent::{
-    AgentChatMessage, AgentProviderConfig, AgentRole, AgentTurnInput, AgentWorkspaceContext,
-    fetch_research_webpage, run_agent_turn,
+    AgentChatMessage, AgentProviderConfig, AgentRole, AgentStreamEvent, AgentTurnInput,
+    AgentWorkspaceContext, fetch_research_webpage, run_agent_turn, run_agent_turn_streaming,
 };
 use earthly_domain::diff_feature_collections;
 use earthly_geo::import_spatial_text_to_geojson;
@@ -45,6 +45,18 @@ pub struct AgentTurnResultDto {
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
     pub total_tokens: Option<u32>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AgentStreamEventDto {
+    /// `"status" | "delta" | "tool_started" | "tool_finished" | "completed" | "error"`
+    pub event_type: String,
+    pub text: Option<String>,
+    pub tool_name: Option<String>,
+    pub tool_ok: Option<bool>,
+    pub tool_summary: Option<String>,
+    pub step: Option<u32>,
+    pub result: Option<AgentTurnResultDto>,
 }
 
 #[derive(Clone, Debug)]
@@ -130,17 +142,26 @@ pub async fn run_earthly_agent_turn(
             draft_geojson,
             shelf_map_titles,
             atlas_workspaces,
+            working_set_titles: vec![],
+            catalog_items: vec![],
         },
     };
 
     let out = run_agent_turn(&provider, &input).await?;
+    Ok(turn_output_to_dto(&base_geojson_for_diff, out))
+}
+
+fn turn_output_to_dto(
+    base_geojson_for_diff: &str,
+    out: earthly_agent::AgentTurnOutput,
+) -> AgentTurnResultDto {
     let (diff_added, diff_modified, diff_removed) = out
         .updated_draft_geojson
         .as_deref()
-        .map(|proposed| compute_diff_counts(&base_geojson_for_diff, proposed))
+        .map(|proposed| compute_diff_counts(base_geojson_for_diff, proposed))
         .unwrap_or((0, 0, 0));
 
-    Ok(AgentTurnResultDto {
+    AgentTurnResultDto {
         reply: out.reply,
         updated_draft_geojson: out.updated_draft_geojson,
         diff_added,
@@ -164,7 +185,132 @@ pub async fn run_earthly_agent_turn(
         prompt_tokens: out.prompt_tokens,
         completion_tokens: out.completion_tokens,
         total_tokens: out.total_tokens,
+    }
+}
+
+/// Streams real-time SSE text deltas, live tool execution status, and final
+/// `safeEditing` draft diffs back to Flutter via FRB `StreamSink`.
+#[allow(clippy::too_many_arguments)]
+pub async fn stream_earthly_agent_turn(
+    prompt: String,
+    history: Vec<AgentMessageDto>,
+    provider_base_url: String,
+    model: String,
+    api_key: Option<String>,
+    center_lon: f64,
+    center_lat: f64,
+    zoom: f64,
+    draft_title: String,
+    draft_geojson: String,
+    shelf_map_titles: Vec<String>,
+    atlas_workspaces: Vec<String>,
+    working_set_titles: Vec<String>,
+    catalog_items: Vec<String>,
+    sink: crate::frb_generated::StreamSink<AgentStreamEventDto>,
+) -> Result<(), String> {
+    let provider = AgentProviderConfig {
+        base_url: provider_base_url,
+        model,
+        api_key,
+        max_tool_steps: 6,
+    };
+    let parsed_history = history
+        .into_iter()
+        .map(|m| AgentChatMessage {
+            role: match m.role.as_str() {
+                "assistant" => AgentRole::Assistant,
+                "system" => AgentRole::System,
+                _ => AgentRole::User,
+            },
+            content: m.content,
+            tool_call_id: None,
+            tool_name: None,
+        })
+        .collect();
+
+    let base_geojson_for_diff = draft_geojson.clone();
+    let input = AgentTurnInput {
+        prompt,
+        history: parsed_history,
+        workspace: AgentWorkspaceContext {
+            center_lon,
+            center_lat,
+            zoom,
+            draft_title,
+            draft_geojson,
+            shelf_map_titles,
+            atlas_workspaces,
+            working_set_titles,
+            catalog_items,
+        },
+    };
+
+    match run_agent_turn_streaming(&provider, &input, |ev| {
+        let dto = match ev {
+            AgentStreamEvent::Status { message } => AgentStreamEventDto {
+                event_type: "status".to_owned(),
+                text: Some(message),
+                tool_name: None,
+                tool_ok: None,
+                tool_summary: None,
+                step: None,
+                result: None,
+            },
+            AgentStreamEvent::TextDelta { text } => AgentStreamEventDto {
+                event_type: "delta".to_owned(),
+                text: Some(text),
+                tool_name: None,
+                tool_ok: None,
+                tool_summary: None,
+                step: None,
+                result: None,
+            },
+            AgentStreamEvent::ToolStarted { name, step } => AgentStreamEventDto {
+                event_type: "tool_started".to_owned(),
+                text: None,
+                tool_name: Some(name),
+                tool_ok: None,
+                tool_summary: None,
+                step: Some(step as u32),
+                result: None,
+            },
+            AgentStreamEvent::ToolFinished { record, step } => AgentStreamEventDto {
+                event_type: "tool_finished".to_owned(),
+                text: None,
+                tool_name: Some(record.name),
+                tool_ok: Some(record.ok),
+                tool_summary: Some(record.summary),
+                step: Some(step as u32),
+                result: None,
+            },
+            AgentStreamEvent::Completed { output } => AgentStreamEventDto {
+                event_type: "completed".to_owned(),
+                text: None,
+                tool_name: None,
+                tool_ok: None,
+                tool_summary: None,
+                step: None,
+                result: Some(turn_output_to_dto(&base_geojson_for_diff, output)),
+            },
+        };
+        let _ = sink.add(dto);
     })
+    .await
+    {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            let _ = sink.add(AgentStreamEventDto {
+                event_type: "error".to_owned(),
+                text: Some(err.clone()),
+                tool_name: None,
+                tool_ok: None,
+                tool_summary: None,
+                step: None,
+                result: None,
+            });
+            Err(err)
+        }
+    }
 }
 
 /// Fetches any webpage or remote GeoJSON/GPX/KML URL CORS-free in Rust for the

@@ -32,6 +32,8 @@ enum RustGeoAction {
   scaleSelected,
   shiftNorth,
   shiftEast,
+  mergeMultipart,
+  explodeMultipart,
 }
 
 enum DraftAudienceChoice {
@@ -319,10 +321,15 @@ class _DeskSheetState extends State<DeskSheet> {
             .where((f) => selectedIds.contains(f.id))
             .toList(growable: false)
         : widget.drawnFeatures;
+    final pointCount =
+        targetFeatures.where((f) => f.kind == DrawToolMode.point).length;
     final lineCount =
         targetFeatures.where((f) => f.kind == DrawToolMode.line).length;
     final polyCount =
         targetFeatures.where((f) => f.kind == DrawToolMode.polygon).length;
+    final canMergeMultipart =
+        pointCount >= 2 || lineCount >= 2 || polyCount >= 2;
+    final hasMultipart = targetFeatures.any((f) => f.isMultipart);
     final hasLine = lineCount >= 1;
     final hasAnyTarget = targetFeatures.isNotEmpty;
     final mLabel = '${_workbenchMeters.round()}m';
@@ -1336,6 +1343,20 @@ class _DeskSheetState extends State<DeskSheet> {
                         )
                     : null,
                 child: const Text('Scale ×1.2'),
+              ),
+              OutlinedButton(
+                key: const Key('workbench-merge-multipart'),
+                onPressed: canMergeMultipart
+                    ? () => _triggerGeoAction(RustGeoAction.mergeMultipart)
+                    : null,
+                child: const Text('Merge Multipart'),
+              ),
+              OutlinedButton(
+                key: const Key('workbench-explode-multipart'),
+                onPressed: hasMultipart
+                    ? () => _triggerGeoAction(RustGeoAction.explodeMultipart)
+                    : null,
+                child: const Text('Explode Multipart'),
               ),
             ],
           ),

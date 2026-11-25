@@ -632,28 +632,58 @@ String draftFeaturesToGeoJson({
     Map<String, Object?>? geometry;
     switch (f.kind) {
       case DrawToolMode.point:
-        geometry = {
-          'type': 'Point',
-          'coordinates': [f.vertices.first.lon, f.vertices.first.lat],
-        };
-      case DrawToolMode.line:
-        if (f.vertices.length < 2) continue;
-        geometry = {
-          'type': 'LineString',
-          'coordinates': f.vertices.map((v) => [v.lon, v.lat]).toList(),
-        };
-      case DrawToolMode.polygon:
-        if (f.vertices.length < 3) continue;
-        final ring = f.vertices.map((v) => [v.lon, v.lat]).toList();
-        final first = ring.first;
-        final last = ring.last;
-        if (first[0] != last[0] || first[1] != last[1]) {
-          ring.add([first[0], first[1]]);
+        if (f.isMultipart) {
+          final pts = [
+            for (final part in f.allParts)
+              if (part.isNotEmpty) [part.first.lon, part.first.lat],
+          ];
+          if (pts.isEmpty) continue;
+          geometry = {'type': 'MultiPoint', 'coordinates': pts};
+        } else {
+          geometry = {
+            'type': 'Point',
+            'coordinates': [f.vertices.first.lon, f.vertices.first.lat],
+          };
         }
-        geometry = {
-          'type': 'Polygon',
-          'coordinates': [ring],
-        };
+      case DrawToolMode.line:
+        if (f.isMultipart) {
+          final lines = [
+            for (final part in f.allParts)
+              if (part.length >= 2) part.map((v) => [v.lon, v.lat]).toList(),
+          ];
+          if (lines.isEmpty) continue;
+          geometry = {'type': 'MultiLineString', 'coordinates': lines};
+        } else {
+          if (f.vertices.length < 2) continue;
+          geometry = {
+            'type': 'LineString',
+            'coordinates': f.vertices.map((v) => [v.lon, v.lat]).toList(),
+          };
+        }
+      case DrawToolMode.polygon:
+        List<List<double>> closeRing(List<Geographic> verts) {
+          final ring = verts.map((v) => [v.lon, v.lat]).toList();
+          final first = ring.first;
+          final last = ring.last;
+          if (first[0] != last[0] || first[1] != last[1]) {
+            ring.add([first[0], first[1]]);
+          }
+          return ring;
+        }
+        if (f.isMultipart) {
+          final polys = [
+            for (final part in f.allParts)
+              if (part.length >= 3) [closeRing(part)],
+          ];
+          if (polys.isEmpty) continue;
+          geometry = {'type': 'MultiPolygon', 'coordinates': polys};
+        } else {
+          if (f.vertices.length < 3) continue;
+          geometry = {
+            'type': 'Polygon',
+            'coordinates': [closeRing(f.vertices)],
+          };
+        }
       case DrawToolMode.browse:
       case DrawToolMode.measure:
         continue;
@@ -779,6 +809,30 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             customProperties: customProperties,
           ));
         }
+      } else if (type == 'MultiPoint' && coords is List) {
+        final parts = <List<Geographic>>[
+          for (final item in coords)
+            if (_parseCoord(item) case final pt?) [pt],
+        ];
+        if (parts.isNotEmpty) {
+          out.add(DrawnFeature(
+            id: id,
+            kind: DrawToolMode.point,
+            vertices: parts.first,
+            extraParts: parts.skip(1).toList(),
+            name: name,
+            description: description,
+            colorHex: colorHex,
+            fillColorHex: fillColorHex,
+            strokeColorHex: strokeColorHex,
+            radius: radius,
+            displayIcon: (displayIcon != null && displayIcon.isNotEmpty)
+                ? displayIcon
+                : null,
+            callouts: draftCallouts,
+            customProperties: customProperties,
+          ));
+        }
       } else if (type == 'LineString') {
         final pts = _parseCoordList(coords);
         if (pts.length >= 2) {
@@ -786,6 +840,29 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             id: id,
             kind: DrawToolMode.line,
             vertices: pts,
+            name: name,
+            description: description,
+            colorHex: colorHex,
+            strokeColorHex: strokeColorHex,
+            strokeWidth: strokeWidth,
+            lineDash: lineDash,
+            arrowStart: arrowStart,
+            arrowEnd: arrowEnd,
+            callouts: draftCallouts,
+            customProperties: customProperties,
+          ));
+        }
+      } else if (type == 'MultiLineString' && coords is List) {
+        final parts = <List<Geographic>>[
+          for (final item in coords)
+            if (_parseCoordList(item) case final pts when pts.length >= 2) pts,
+        ];
+        if (parts.isNotEmpty) {
+          out.add(DrawnFeature(
+            id: id,
+            kind: DrawToolMode.line,
+            vertices: parts.first,
+            extraParts: parts.skip(1).toList(),
             name: name,
             description: description,
             colorHex: colorHex,
@@ -810,6 +887,38 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             id: id,
             kind: DrawToolMode.polygon,
             vertices: trimmed,
+            name: name,
+            description: description,
+            colorHex: colorHex,
+            fillColorHex: fillColorHex,
+            strokeColorHex: strokeColorHex,
+            strokeWidth: strokeWidth,
+            fillOpacity: fillOpacity,
+            callouts: draftCallouts,
+            customProperties: customProperties,
+          ));
+        }
+      } else if (type == 'MultiPolygon' && coords is List) {
+        final parts = <List<Geographic>>[];
+        for (final poly in coords) {
+          if (poly is List && poly.isNotEmpty) {
+            final ring = _parseCoordList(poly.first);
+            if (ring.length >= 3) {
+              final trimmed = (ring.length > 3 &&
+                      ring.first.lon == ring.last.lon &&
+                      ring.first.lat == ring.last.lat)
+                  ? ring.sublist(0, ring.length - 1)
+                  : ring;
+              parts.add(trimmed);
+            }
+          }
+        }
+        if (parts.isNotEmpty) {
+          out.add(DrawnFeature(
+            id: id,
+            kind: DrawToolMode.polygon,
+            vertices: parts.first,
+            extraParts: parts.skip(1).toList(),
             name: name,
             description: description,
             colorHex: colorHex,
@@ -1350,22 +1459,33 @@ List<Layer> buildEarthlyGpuLayers({
     };
     switch (f.kind) {
       case DrawToolMode.polygon:
-        final ring = _ensureClosedRing(f.vertices);
-        if (ring.length < 4) continue;
-        final polyFeat =
-            Feature(id: f.id, geometry: Polygon.from([ring]), properties: draftProps);
-        draftPolygons.add(polyFeat);
-        if (isSelected) selectedDraftPolygons.add(polyFeat);
+        double totalPerim = 0;
+        var addedAnyPoly = false;
+        for (var pIdx = 0; pIdx < f.allParts.length; pIdx++) {
+          final ring = _ensureClosedRing(f.allParts[pIdx]);
+          if (ring.length < 4) continue;
+          addedAnyPoly = true;
+          totalPerim += _polylineLengthMeters(ring);
+          final polyFeat = Feature(
+            id: f.id,
+            geometry: Polygon.from([ring]),
+            properties: draftProps,
+          );
+          draftPolygons.add(polyFeat);
+          if (isSelected) selectedDraftPolygons.add(polyFeat);
+        }
+        if (!addedAnyPoly) continue;
         draftPolyMeta.add(InspectedFeature(
           sourceLabel: 'Working draft',
           isDraft: true,
           draftFeatureId: f.id,
-          geometryType: 'Polygon',
+          geometryType: f.isMultipart ? 'MultiPolygon' : 'Polygon',
           title: f.name ?? 'Draft Polygon',
           properties: {
             ...f.customProperties,
             'id': f.id,
-            'vertices': f.vertices.length,
+            'vertices': f.allParts.fold<int>(0, (s, p) => s + p.length),
+            if (f.isMultipart) 'parts': f.allParts.length,
             if (f.description != null && f.description!.isNotEmpty)
               'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,
@@ -1374,27 +1494,42 @@ List<Layer> buildEarthlyGpuLayers({
             if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
             if (f.fillOpacity != null) 'fillOpacity': f.fillOpacity!,
           },
-          lengthMeters: _polylineLengthMeters(ring),
+          lengthMeters: totalPerim,
           callouts: draftCalloutItems,
         ));
       case DrawToolMode.line:
-        if (f.vertices.length < 2) continue;
-        final lineFeat = Feature(
-          id: f.id,
-          geometry: LineString.from(f.vertices),
-          properties: draftProps,
-        );
-        if (isSelected) selectedDraftLines.add(lineFeat);
+        double totalLen = 0;
+        var addedAnyLine = false;
+        for (final part in f.allParts) {
+          if (part.length < 2) continue;
+          addedAnyLine = true;
+          totalLen += _polylineLengthMeters(part);
+          final lineFeat = Feature(
+            id: f.id,
+            geometry: LineString.from(part),
+            properties: draftProps,
+          );
+          if (isSelected) selectedDraftLines.add(lineFeat);
+          if (f.lineDash == 'dashed') {
+            draftDashedLines.add(lineFeat);
+          } else if (f.lineDash == 'dotted') {
+            draftDottedLines.add(lineFeat);
+          } else {
+            draftLines.add(lineFeat);
+          }
+        }
+        if (!addedAnyLine) continue;
         final lineMeta = InspectedFeature(
           sourceLabel: 'Working draft',
           isDraft: true,
           draftFeatureId: f.id,
-          geometryType: 'LineString',
+          geometryType: f.isMultipart ? 'MultiLineString' : 'LineString',
           title: f.name ?? 'Draft Line',
           properties: {
             ...f.customProperties,
             'id': f.id,
-            'vertices': f.vertices.length,
+            'vertices': f.allParts.fold<int>(0, (s, p) => s + p.length),
+            if (f.isMultipart) 'parts': f.allParts.length,
             if (f.description != null && f.description!.isNotEmpty)
               'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,
@@ -1404,36 +1539,42 @@ List<Layer> buildEarthlyGpuLayers({
             if (f.arrowStart) 'arrowStart': true,
             if (f.arrowEnd) 'arrowEnd': true,
           },
-          lengthMeters: _polylineLengthMeters(f.vertices),
+          lengthMeters: totalLen,
           callouts: draftCalloutItems,
         );
         if (f.lineDash == 'dashed') {
-          draftDashedLines.add(lineFeat);
           draftDashedLineMeta.add(lineMeta);
         } else if (f.lineDash == 'dotted') {
-          draftDottedLines.add(lineFeat);
           draftDottedLineMeta.add(lineMeta);
         } else {
-          draftLines.add(lineFeat);
           draftLineMeta.add(lineMeta);
         }
       case DrawToolMode.point:
-        if (f.vertices.isEmpty) continue;
-        final ptFeat =
-            Feature(id: f.id, geometry: Point(f.vertices.first), properties: draftProps);
-        draftPoints.add(ptFeat);
-        if (isSelected) selectedDraftPoints.add(ptFeat);
+        var addedAnyPt = false;
+        for (final part in f.allParts) {
+          if (part.isEmpty) continue;
+          addedAnyPt = true;
+          final ptFeat = Feature(
+            id: f.id,
+            geometry: Point(part.first),
+            properties: draftProps,
+          );
+          draftPoints.add(ptFeat);
+          if (isSelected) selectedDraftPoints.add(ptFeat);
+        }
+        if (!addedAnyPt) continue;
         draftPointMeta.add(InspectedFeature(
           sourceLabel: 'Working draft',
           isDraft: true,
           draftFeatureId: f.id,
-          geometryType: 'Point',
+          geometryType: f.isMultipart ? 'MultiPoint' : 'Point',
           title: f.name ?? 'Draft Point',
           properties: {
             ...f.customProperties,
             'id': f.id,
             'lat': f.vertices.first.lat.toStringAsFixed(6),
             'lon': f.vertices.first.lon.toStringAsFixed(6),
+            if (f.isMultipart) 'parts': f.allParts.length,
             if (f.description != null && f.description!.isNotEmpty)
               'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,

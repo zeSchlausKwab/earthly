@@ -79,11 +79,13 @@ class DrawnFeature {
     this.displayIcon,
     this.callouts = const [],
     this.customProperties = const <String, String>{},
+    this.extraParts = const <List<Geographic>>[],
   });
 
   final String id;
   final DrawToolMode kind;
   final List<Geographic> vertices;
+  final List<List<Geographic>> extraParts;
   final String? name;
   final String? description;
   final String? colorHex;
@@ -99,9 +101,13 @@ class DrawnFeature {
   final List<DraftCallout> callouts;
   final Map<String, String> customProperties;
 
+  bool get isMultipart => extraParts.isNotEmpty;
+  List<List<Geographic>> get allParts => <List<Geographic>>[vertices, ...extraParts];
+
   DrawnFeature copyWith({
     String? id,
     List<Geographic>? vertices,
+    List<List<Geographic>>? extraParts,
     String? name,
     String? description,
     String? colorHex,
@@ -124,6 +130,7 @@ class DrawnFeature {
         id: id ?? this.id,
         kind: kind,
         vertices: vertices ?? this.vertices,
+        extraParts: extraParts ?? this.extraParts,
         name: name ?? this.name,
         description: description ?? this.description,
         colorHex: colorHex ?? this.colorHex,

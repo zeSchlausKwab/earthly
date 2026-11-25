@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `compute_diff_counts`, `parse_models_response_json`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `compute_diff_counts`, `parse_models_response_json`, `turn_output_to_dto`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Runs one Earthly AI Agent turn in Rust (`earthly-agent` + `earthly-geo`),
 /// returning exact `safeEditing` diff counts (`diff_added`, `diff_modified`,
@@ -39,6 +39,40 @@ Future<AgentTurnResultDto> runEarthlyAgentTurn({
   draftGeojson: draftGeojson,
   shelfMapTitles: shelfMapTitles,
   atlasWorkspaces: atlasWorkspaces,
+);
+
+/// Streams real-time SSE text deltas, live tool execution status, and final
+/// `safeEditing` draft diffs back to Flutter via FRB `StreamSink`.
+Stream<AgentStreamEventDto> streamEarthlyAgentTurn({
+  required String prompt,
+  required List<AgentMessageDto> history,
+  required String providerBaseUrl,
+  required String model,
+  String? apiKey,
+  required double centerLon,
+  required double centerLat,
+  required double zoom,
+  required String draftTitle,
+  required String draftGeojson,
+  required List<String> shelfMapTitles,
+  required List<String> atlasWorkspaces,
+  required List<String> workingSetTitles,
+  required List<String> catalogItems,
+}) => EarthlyRustLib.instance.api.crateApiAgentStreamEarthlyAgentTurn(
+  prompt: prompt,
+  history: history,
+  providerBaseUrl: providerBaseUrl,
+  model: model,
+  apiKey: apiKey,
+  centerLon: centerLon,
+  centerLat: centerLat,
+  zoom: zoom,
+  draftTitle: draftTitle,
+  draftGeojson: draftGeojson,
+  shelfMapTitles: shelfMapTitles,
+  atlasWorkspaces: atlasWorkspaces,
+  workingSetTitles: workingSetTitles,
+  catalogItems: catalogItems,
 );
 
 /// Fetches any webpage or remote GeoJSON/GPX/KML URL CORS-free in Rust for the
@@ -97,6 +131,50 @@ class AgentMessageDto {
           runtimeType == other.runtimeType &&
           role == other.role &&
           content == other.content;
+}
+
+class AgentStreamEventDto {
+  /// `"status" | "delta" | "tool_started" | "tool_finished" | "completed" | "error"`
+  final String eventType;
+  final String? text;
+  final String? toolName;
+  final bool? toolOk;
+  final String? toolSummary;
+  final int? step;
+  final AgentTurnResultDto? result;
+
+  const AgentStreamEventDto({
+    required this.eventType,
+    this.text,
+    this.toolName,
+    this.toolOk,
+    this.toolSummary,
+    this.step,
+    this.result,
+  });
+
+  @override
+  int get hashCode =>
+      eventType.hashCode ^
+      text.hashCode ^
+      toolName.hashCode ^
+      toolOk.hashCode ^
+      toolSummary.hashCode ^
+      step.hashCode ^
+      result.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AgentStreamEventDto &&
+          runtimeType == other.runtimeType &&
+          eventType == other.eventType &&
+          text == other.text &&
+          toolName == other.toolName &&
+          toolOk == other.toolOk &&
+          toolSummary == other.toolSummary &&
+          step == other.step &&
+          result == other.result;
 }
 
 class AgentToolRecordDto {

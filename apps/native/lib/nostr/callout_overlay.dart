@@ -26,6 +26,23 @@ String calloutModeShortLabel(CalloutDisplayMode mode) => switch (mode) {
       CalloutDisplayMode.hidden => 'Hidden',
     };
 
+@immutable
+class MapCommentPinItem {
+  const MapCommentPinItem({
+    required this.eventId,
+    required this.authorName,
+    required this.text,
+    required this.anchor,
+    required this.comment,
+  });
+
+  final String eventId;
+  final String authorName;
+  final String text;
+  final Geographic anchor;
+  final GeoCommentDto comment;
+}
+
 /// Frame-locked MapLibre child overlay rendering:
 /// 1. Authored `earthly:callouts` with leader lines & collision-aware layout (`SPEC.md` §1.8)
 /// 2. Sighting photo thumbnail pin bubbles (`SPEC.md` §6.1)
@@ -38,6 +55,9 @@ class EarthlyCalloutOverlay extends StatefulWidget {
     required this.onInspectSighting,
     this.iconPins = const <MapIconPinItem>[],
     this.arrowheads = const <MapArrowheadItem>[],
+    this.commentPins = const <MapCommentPinItem>[],
+    this.onInspectComment,
+    this.screenProjector,
     this.onRepositionDraftCallout,
     this.bottomInset = 110,
     super.key,
@@ -47,6 +67,10 @@ class EarthlyCalloutOverlay extends StatefulWidget {
   final List<SightingSummaryDto> sightings;
   final List<MapIconPinItem> iconPins;
   final List<MapArrowheadItem> arrowheads;
+  final List<MapCommentPinItem> commentPins;
+  final ValueChanged<GeoCommentDto>? onInspectComment;
+  @visibleForTesting
+  final Offset Function(Geographic)? screenProjector;
   final void Function(String featureId, String calloutId, Offset newOffset)?
       onRepositionDraftCallout;
   final CalloutDisplayMode displayMode;
@@ -60,6 +84,7 @@ class EarthlyCalloutOverlay extends StatefulWidget {
 
 class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
   String? _expandedKey;
+  String? _expandedCommentId;
   String? _draggingKey;
   Offset _dragDelta = Offset.zero;
 
@@ -67,7 +92,10 @@ class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
   Widget build(BuildContext context) {
     final controller = MapController.maybeOf(context);
     final camera = CameraPosition.maybeOf(context);
-    if (controller == null || camera == null) return const SizedBox.shrink();
+    final projector = widget.screenProjector ?? controller?.toScreenLocation;
+    if (projector == null || (controller != null && camera == null)) {
+      return const SizedBox.shrink();
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -98,21 +126,22 @@ class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
                       : c,
               ];
 
-        final placedCallouts = widget.displayMode == CalloutDisplayMode.hidden
-            ? const <_PlacedCallout>[]
-            : _resolveCalloutLayout(
-                controller: controller,
-                viewport: viewport,
-                callouts: effectiveCallouts,
-                displayMode: widget.displayMode,
-                expandedKey: _expandedKey,
-                bottomInset: widget.bottomInset,
-              );
+        final placedCallouts =
+            (controller == null || widget.displayMode == CalloutDisplayMode.hidden)
+                ? const <_PlacedCallout>[]
+                : _resolveCalloutLayout(
+                    controller: controller,
+                    viewport: viewport,
+                    callouts: effectiveCallouts,
+                    displayMode: widget.displayMode,
+                    expandedKey: _expandedKey,
+                    bottomInset: widget.bottomInset,
+                  );
 
         final sightingBubbles = <_PlacedSightingBubble>[];
         for (final s in widget.sightings) {
           if (s.imageUrl == null || s.imageUrl!.isEmpty) continue;
-          final pt = controller.toScreenLocation(
+          final pt = projector(
             Geographic(lon: s.lon, lat: s.lat),
           );
           if (!_isWithinViewport(pt, viewport, margin: 24)) continue;
@@ -121,7 +150,7 @@ class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
 
         final placedIcons = <({MapIconPinItem pin, Offset pos})>[];
         for (final pin in widget.iconPins) {
-          final pt = controller.toScreenLocation(pin.position);
+          final pt = projector(pin.position);
           if (!_isWithinViewport(pt, viewport, margin: 20)) continue;
           placedIcons.add((pin: pin, pos: pt));
         }
@@ -129,8 +158,8 @@ class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
         final placedArrows =
             <({Offset tip, Offset from, Color color, double strokeWidth})>[];
         for (final arrow in widget.arrowheads) {
-          final tip = controller.toScreenLocation(arrow.tip);
-          final from = controller.toScreenLocation(arrow.from);
+          final tip = projector(arrow.tip);
+          final from = projector(arrow.from);
           if (!_isWithinViewport(tip, viewport, margin: 24)) continue;
           if (!from.dx.isFinite || !from.dy.isFinite) continue;
           if ((tip - from).distance < 1.5) continue;
@@ -142,10 +171,18 @@ class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
           ));
         }
 
+        final placedComments = <({MapCommentPinItem pin, Offset pos})>[];
+        for (final pin in widget.commentPins) {
+          final pt = projector(pin.anchor);
+          if (!_isWithinViewport(pt, viewport, margin: 24)) continue;
+          placedComments.add((pin: pin, pos: pt));
+        }
+
         if (placedCallouts.isEmpty &&
             sightingBubbles.isEmpty &&
             placedIcons.isEmpty &&
-            placedArrows.isEmpty) {
+            placedArrows.isEmpty &&
+            placedComments.isEmpty) {
           return const SizedBox.shrink();
         }
 
@@ -293,6 +330,145 @@ class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
                   },
                 ),
               ),
+
+            // Map-pinned comment pins + interactive popover cards (NIP-22 37517)
+            for (final cp in placedComments)
+              Positioned(
+                left: (cp.pos.dx - 16).clamp(8.0, math.max(8.0, viewport.width - 180)),
+                top: (cp.pos.dy - 14).clamp(8.0, math.max(8.0, viewport.height - 44)),
+                child: GestureDetector(
+                  key: Key('map-comment-pin-${cp.pin.eventId}'),
+                  onTap: () => setState(() {
+                    _expandedCommentId =
+                        _expandedCommentId == cp.pin.eventId ? null : cp.pin.eventId;
+                  }),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: EarthlyColors.commentGreen,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.25),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.chat_bubble, size: 12, color: Colors.white),
+                        const SizedBox(width: 4),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 120),
+                          child: Text(
+                            cp.pin.authorName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            for (final cp in placedComments)
+              if (_expandedCommentId == cp.pin.eventId)
+                Positioned(
+                  left: (cp.pos.dx - 110)
+                      .clamp(10.0, math.max(10.0, viewport.width - 236)),
+                  top: (cp.pos.dy - 148)
+                      .clamp(10.0, math.max(10.0, viewport.height - 170)),
+                  width: 226,
+                  child: Material(
+                    key: Key('map-comment-popup-${cp.pin.eventId}'),
+                    elevation: 6,
+                    color: Theme.of(context).colorScheme.surface,
+                    shape: RoundedRectangleBorder(
+                      side: BorderSide(
+                        color: EarthlyColors.commentGreen,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(9),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.chat_bubble_outline,
+                                size: 13,
+                                color: EarthlyColors.commentGreen,
+                              ),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  cp.pin.authorName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () =>
+                                    setState(() => _expandedCommentId = null),
+                                child: const Icon(Icons.close, size: 14),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 90),
+                            child: SingleChildScrollView(
+                              child: EarthlyRichText(
+                                text: cp.pin.text,
+                                compact: true,
+                              ),
+                            ),
+                          ),
+                          if (widget.onInspectComment != null) ...[
+                            const SizedBox(height: 6),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: OutlinedButton(
+                                key: Key(
+                                  'map-comment-open-thread-${cp.pin.eventId}',
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                ),
+                                onPressed: () =>
+                                    widget.onInspectComment!(cp.pin.comment),
+                                child: const Text(
+                                  'Open Thread',
+                                  style: TextStyle(fontSize: 11),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
           ],
         );
       },

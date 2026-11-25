@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `build_overpass_filter`, `decode_polyline6`, `from_coords`, `normalize_valhalla_profile`, `overpass_json_to_feature_collection`, `parse_valhalla_isochrone_response`, `parse_valhalla_route_response`, `sanitize_osm_ident`, `to_closed_polygon`, `to_line`
+// These functions are ignored because they are not marked as `pub`: `build_overpass_filter`, `decode_polyline6`, `from_coords`, `geo_geometry_to_json`, `json_to_geo_geometry`, `normalize_valhalla_profile`, `overpass_json_to_feature_collection`, `parse_coord_pair`, `parse_polygon_rings`, `parse_ring_coords`, `parse_valhalla_isochrone_response`, `parse_valhalla_route_response`, `sanitize_osm_ident`, `to_closed_polygon`, `to_line`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Douglas-Peucker simplification of a polyline in meters.
@@ -226,6 +226,18 @@ Future<String> geoExportKml({required String geojson, String? title}) =>
     EarthlyRustLib.instance.api.crateApiGeoGeoExportKml(
       geojson: geojson,
       title: title,
+    );
+
+/// Merges 2+ homogeneous GeoJSON geometries into a single multipart GeoJSON geometry.
+Future<String> geoMergeToMultipart({required List<String> geojsonGeometries}) =>
+    EarthlyRustLib.instance.api.crateApiGeoGeoMergeToMultipart(
+      geojsonGeometries: geojsonGeometries,
+    );
+
+/// Explodes a multipart GeoJSON geometry into individual single-part GeoJSON geometry strings.
+Future<List<String>> geoExplodeMultipart({required String geojsonGeometry}) =>
+    EarthlyRustLib.instance.api.crateApiGeoGeoExplodeMultipart(
+      geojsonGeometry: geojsonGeometry,
     );
 
 /// Dissolves overlapping/touching line segments into connected polylines.

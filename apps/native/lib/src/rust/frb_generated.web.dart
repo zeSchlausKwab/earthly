@@ -37,6 +37,10 @@ abstract class EarthlyRustLibApiImplPlatform
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
+  RustStreamSink<AgentStreamEventDto>
+  dco_decode_StreamSink_agent_stream_event_dto_Sse(dynamic raw);
+
+  @protected
   RustStreamSink<LiveRelayEventDto>
   dco_decode_StreamSink_live_relay_event_dto_Sse(dynamic raw);
 
@@ -48,6 +52,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   AgentMessageDto dco_decode_agent_message_dto(dynamic raw);
+
+  @protected
+  AgentStreamEventDto dco_decode_agent_stream_event_dto(dynamic raw);
 
   @protected
   AgentToolRecordDto dco_decode_agent_tool_record_dto(dynamic raw);
@@ -88,10 +95,16 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  AgentTurnResultDto dco_decode_box_autoadd_agent_turn_result_dto(dynamic raw);
+
+  @protected
   AppSettingsDto dco_decode_box_autoadd_app_settings_dto(dynamic raw);
 
   @protected
   AtlasSummaryDto dco_decode_box_autoadd_atlas_summary_dto(dynamic raw);
+
+  @protected
+  bool dco_decode_box_autoadd_bool(dynamic raw);
 
   @protected
   DecodedNaddrDto dco_decode_box_autoadd_decoded_naddr_dto(dynamic raw);
@@ -376,7 +389,15 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  AgentTurnResultDto? dco_decode_opt_box_autoadd_agent_turn_result_dto(
+    dynamic raw,
+  );
+
+  @protected
   AtlasSummaryDto? dco_decode_opt_box_autoadd_atlas_summary_dto(dynamic raw);
+
+  @protected
+  bool? dco_decode_opt_box_autoadd_bool(dynamic raw);
 
   @protected
   DecodedNaddrDto? dco_decode_opt_box_autoadd_decoded_naddr_dto(dynamic raw);
@@ -524,6 +545,12 @@ abstract class EarthlyRustLibApiImplPlatform
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
+  RustStreamSink<AgentStreamEventDto>
+  sse_decode_StreamSink_agent_stream_event_dto_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   RustStreamSink<LiveRelayEventDto>
   sse_decode_StreamSink_live_relay_event_dto_Sse(SseDeserializer deserializer);
 
@@ -537,6 +564,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   AgentMessageDto sse_decode_agent_message_dto(SseDeserializer deserializer);
+
+  @protected
+  AgentStreamEventDto sse_decode_agent_stream_event_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   AgentToolRecordDto sse_decode_agent_tool_record_dto(
@@ -587,6 +619,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  AgentTurnResultDto sse_decode_box_autoadd_agent_turn_result_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   AppSettingsDto sse_decode_box_autoadd_app_settings_dto(
     SseDeserializer deserializer,
   );
@@ -595,6 +632,9 @@ abstract class EarthlyRustLibApiImplPlatform
   AtlasSummaryDto sse_decode_box_autoadd_atlas_summary_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  bool sse_decode_box_autoadd_bool(SseDeserializer deserializer);
 
   @protected
   DecodedNaddrDto sse_decode_box_autoadd_decoded_naddr_dto(
@@ -989,9 +1029,17 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  AgentTurnResultDto? sse_decode_opt_box_autoadd_agent_turn_result_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   AtlasSummaryDto? sse_decode_opt_box_autoadd_atlas_summary_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  bool? sse_decode_opt_box_autoadd_bool(SseDeserializer deserializer);
 
   @protected
   DecodedNaddrDto? sse_decode_opt_box_autoadd_decoded_naddr_dto(
@@ -1189,6 +1237,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_StreamSink_agent_stream_event_dto_Sse(
+    RustStreamSink<AgentStreamEventDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_StreamSink_live_relay_event_dto_Sse(
     RustStreamSink<LiveRelayEventDto> self,
     SseSerializer serializer,
@@ -1206,6 +1260,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_agent_message_dto(
     AgentMessageDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_agent_stream_event_dto(
+    AgentStreamEventDto self,
     SseSerializer serializer,
   );
 
@@ -1276,6 +1336,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_box_autoadd_agent_turn_result_dto(
+    AgentTurnResultDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_app_settings_dto(
     AppSettingsDto self,
     SseSerializer serializer,
@@ -1286,6 +1352,9 @@ abstract class EarthlyRustLibApiImplPlatform
     AtlasSummaryDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_box_autoadd_bool(bool self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_decoded_naddr_dto(
@@ -1774,10 +1843,19 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_agent_turn_result_dto(
+    AgentTurnResultDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_atlas_summary_dto(
     AtlasSummaryDto? self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_opt_box_autoadd_bool(bool? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_decoded_naddr_dto(

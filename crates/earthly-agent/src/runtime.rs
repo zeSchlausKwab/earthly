@@ -4,6 +4,7 @@
 //! Works with local Ollama (`http://127.0.0.1:11434/v1`), OpenRouter, OpenAI,
 //! LM Studio, llama.cpp server, or offline deterministic mode.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -95,16 +96,148 @@ pub async fn fetch_research_webpage(raw_url: &str) -> Result<ResearchPageExtract
     })
 }
 
+#[derive(Clone, Debug)]
+pub enum AgentStreamEvent {
+    Status { message: String },
+    TextDelta { text: String },
+    ToolStarted { name: String, step: u8 },
+    ToolFinished { record: ExecutedToolRecord, step: u8 },
+    Completed { output: AgentTurnOutput },
+}
+
+#[derive(Clone, Debug, Default)]
+struct AccumulatedToolCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+#[derive(Clone, Debug, Default)]
+struct SseTurnAccumulator {
+    reply_buf: String,
+    tool_calls: BTreeMap<usize, AccumulatedToolCall>,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    total_tokens: u32,
+    done: bool,
+}
+
+fn process_sse_data_line(
+    raw_line: &str,
+    acc: &mut SseTurnAccumulator,
+    on_delta: &mut impl FnMut(String),
+) {
+    let trimmed = raw_line.trim();
+    let Some(data) = trimmed.strip_prefix("data:") else {
+        return;
+    };
+    let payload = data.trim();
+    if payload.is_empty() {
+        return;
+    }
+    if payload == "[DONE]" {
+        acc.done = true;
+        return;
+    }
+    let Ok(chunk) = serde_json::from_str::<Value>(payload) else {
+        return;
+    };
+    if let Some(usage) = chunk.get("usage") {
+        let pt = usage.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let ct = usage.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let tt = usage
+            .get("total_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or((pt + ct) as u64) as u32;
+        if pt > 0 {
+            acc.prompt_tokens = pt;
+        }
+        if ct > 0 {
+            acc.completion_tokens = ct;
+        }
+        if tt > 0 {
+            acc.total_tokens = tt;
+        }
+    }
+    let Some(choices) = chunk.get("choices").and_then(Value::as_array) else {
+        return;
+    };
+    for choice in choices {
+        let Some(delta) = choice.get("delta") else {
+            continue;
+        };
+        if let Some(text) = delta.get("content").and_then(Value::as_str) {
+            if !text.is_empty() {
+                acc.reply_buf.push_str(text);
+                on_delta(text.to_owned());
+            }
+        }
+        if let Some(tc_deltas) = delta.get("tool_calls").and_then(Value::as_array) {
+            for tc in tc_deltas {
+                let idx = tc.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let entry = acc.tool_calls.entry(idx).or_default();
+                if let Some(id) = tc.get("id").and_then(Value::as_str) {
+                    if !id.is_empty() {
+                        entry.id = id.to_owned();
+                    }
+                }
+                if let Some(fn_obj) = tc.get("function") {
+                    if let Some(name) = fn_obj.get("name").and_then(Value::as_str) {
+                        if entry.name.is_empty() {
+                            entry.name = name.to_owned();
+                        } else if !name.is_empty() && entry.name != name {
+                            entry.name.push_str(name);
+                        }
+                    }
+                    if let Some(args) = fn_obj.get("arguments").and_then(Value::as_str) {
+                        entry.arguments.push_str(args);
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub async fn run_agent_turn(
     provider: &AgentProviderConfig,
     input: &AgentTurnInput,
 ) -> Result<AgentTurnOutput, String> {
+    run_agent_turn_streaming(provider, input, |_| {}).await
+}
+
+pub async fn run_agent_turn_streaming<F>(
+    provider: &AgentProviderConfig,
+    input: &AgentTurnInput,
+    mut on_event: F,
+) -> Result<AgentTurnOutput, String>
+where
+    F: FnMut(AgentStreamEvent) + Send,
+{
     let base = provider.base_url.trim().trim_end_matches('/');
     if base.is_empty() || provider.model.trim() == "offline-spatial" {
-        if let Some(url) = extract_first_http_url(&input.prompt) {
-            return run_offline_url_research(&url, input).await;
+        on_event(AgentStreamEvent::Status {
+            message: "Running offline Rust spatial agent…".to_owned(),
+        });
+        let output = if let Some(url) = extract_first_http_url(&input.prompt) {
+            run_offline_url_research(&url, input).await?
+        } else {
+            execute_local_offline_turn(input)
+        };
+        for (idx, rec) in output.tool_calls.iter().enumerate() {
+            on_event(AgentStreamEvent::ToolFinished {
+                record: rec.clone(),
+                step: (idx + 1) as u8,
+            });
         }
-        return Ok(execute_local_offline_turn(input));
+        if !output.reply.is_empty() {
+            on_event(AgentStreamEvent::TextDelta {
+                text: output.reply.clone(),
+            });
+        }
+        on_event(AgentStreamEvent::Completed {
+            output: output.clone(),
+        });
+        return Ok(output);
     }
 
     let endpoint = format!("{base}/chat/completions");
@@ -135,7 +268,7 @@ pub async fn run_agent_turn(
     let mut messages: Vec<Value> = vec![json!({
         "role": "system",
         "content": format!(
-            "{}\n\nCurrent map viewport: center=({:.5}, {:.5}), zoom={:.1}, draft=\"{}\" ({} features), shelf maps={:?}.",
+            "{}\n\nCurrent map viewport: center=({:.5}, {:.5}), zoom={:.1}, draft=\"{}\" ({} features), shelf maps={:?}, working_set={:?}, catalog_items={}.",
             earthly_system_prompt(),
             input.workspace.center_lat,
             input.workspace.center_lon,
@@ -143,6 +276,8 @@ pub async fn run_agent_turn(
             input.workspace.draft_title,
             state.fc["features"].as_array().map(Vec::len).unwrap_or(0),
             input.workspace.shelf_map_titles,
+            input.workspace.working_set_titles,
+            input.workspace.catalog_items.len(),
         )
     })];
 
@@ -163,13 +298,18 @@ pub async fn run_agent_turn(
     let mut sum_total_tokens: u32 = 0;
     let max_steps = provider.max_tool_steps.clamp(1, 10);
 
-    for _step in 0..max_steps {
+    for step in 0..max_steps {
+        on_event(AgentStreamEvent::Status {
+            message: format!("Step {}/{} · Thinking…", step + 1, max_steps),
+        });
         let mut req = client.post(&endpoint).json(&json!({
             "model": provider.model.trim(),
             "messages": messages,
             "tools": tools_json,
             "tool_choice": "auto",
-            "temperature": 0.2
+            "temperature": 0.2,
+            "stream": true,
+            "stream_options": { "include_usage": true }
         }));
         if let Some(key) = provider
             .api_key
@@ -180,58 +320,187 @@ pub async fn run_agent_turn(
             req = req.bearer_auth(key);
         }
 
-        let resp = req
+        let mut resp = req
             .send()
             .await
             .map_err(|e| format!("LLM request to {endpoint} failed: {e}"))?;
         let status = resp.status();
-        let body: Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("invalid JSON from LLM ({status}): {e}"))?;
+        let is_sse = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|ct| ct.to_ascii_lowercase().contains("text/event-stream"))
+            .unwrap_or(false);
 
         if !status.is_success() {
-            let err_msg = body
-                .get("error")
-                .and_then(|e| e.get("message"))
-                .and_then(Value::as_str)
-                .unwrap_or("provider returned an error");
+            let body_text = resp.text().await.unwrap_or_default();
+            let err_msg = serde_json::from_str::<Value>(&body_text)
+                .ok()
+                .and_then(|b| {
+                    b.get("error")
+                        .and_then(|e| e.get("message"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .unwrap_or_else(|| {
+                    if body_text.trim().is_empty() {
+                        "provider returned an error".to_owned()
+                    } else {
+                        body_text
+                    }
+                });
             return Err(format!("LLM error ({status}): {err_msg}"));
         }
 
-        if let Some(usage) = body.get("usage") {
-            let pt = usage.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0) as u32;
-            let ct = usage.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0) as u32;
-            let tt = usage.get("total_tokens").and_then(Value::as_u64).unwrap_or((pt + ct) as u64) as u32;
-            sum_prompt_tokens = sum_prompt_tokens.saturating_add(pt);
-            sum_completion_tokens = sum_completion_tokens.saturating_add(ct);
-            sum_total_tokens = sum_total_tokens.saturating_add(tt);
-        }
+        let (reply_text, parsed_tcs, step_assistant_msg) = if is_sse {
+            let mut acc = SseTurnAccumulator::default();
+            let mut line_buf = String::new();
+            while let Some(chunk) = resp
+                .chunk()
+                .await
+                .map_err(|e| format!("failed reading SSE stream: {e}"))?
+            {
+                let piece = String::from_utf8_lossy(&chunk);
+                line_buf.push_str(&piece);
+                while let Some(pos) = line_buf.find('\n') {
+                    let line = line_buf[..pos].trim_end_matches('\r').to_owned();
+                    line_buf.drain(..=pos);
+                    process_sse_data_line(&line, &mut acc, &mut |delta| {
+                        on_event(AgentStreamEvent::TextDelta { text: delta });
+                    });
+                    if acc.done {
+                        break;
+                    }
+                }
+                if acc.done {
+                    break;
+                }
+            }
+            if !line_buf.trim().is_empty() && !acc.done {
+                process_sse_data_line(line_buf.trim_end_matches('\r'), &mut acc, &mut |delta| {
+                    on_event(AgentStreamEvent::TextDelta { text: delta });
+                });
+            }
+            sum_prompt_tokens = sum_prompt_tokens.saturating_add(acc.prompt_tokens);
+            sum_completion_tokens = sum_completion_tokens.saturating_add(acc.completion_tokens);
+            sum_total_tokens = sum_total_tokens.saturating_add(acc.total_tokens);
 
-        let choice_msg = body
-            .get("choices")
-            .and_then(Value::as_array)
-            .and_then(|c| c.first())
-            .and_then(|c| c.get("message"))
-            .ok_or_else(|| "LLM response missing choices[0].message".to_owned())?;
+            let tcs: Vec<(String, String, Value)> = acc
+                .tool_calls
+                .into_values()
+                .enumerate()
+                .map(|(i, tc)| {
+                    let id = if tc.id.is_empty() {
+                        format!("call_{step}_{i}")
+                    } else {
+                        tc.id
+                    };
+                    let args: Value =
+                        serde_json::from_str(&tc.arguments).unwrap_or_else(|_| json!({}));
+                    (id, tc.name, args)
+                })
+                .collect();
 
-        let tool_calls = choice_msg
-            .get("tool_calls")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+            let mut msg = json!({
+                "role": "assistant",
+                "content": if acc.reply_buf.is_empty() { Value::Null } else { json!(acc.reply_buf) }
+            });
+            if !tcs.is_empty() {
+                msg["tool_calls"] = json!(
+                    tcs.iter()
+                        .map(|(id, name, args)| json!({
+                            "id": id,
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": serde_json::to_string(args).unwrap_or_else(|_| "{}".to_owned()),
+                            }
+                        }))
+                        .collect::<Vec<_>>()
+                );
+            }
+            (acc.reply_buf, tcs, msg)
+        } else {
+            let body: Value = resp
+                .json()
+                .await
+                .map_err(|e| format!("invalid JSON from LLM ({status}): {e}"))?;
+            if let Some(usage) = body.get("usage") {
+                let pt = usage.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let ct = usage
+                    .get("completion_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32;
+                let tt = usage
+                    .get("total_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or((pt + ct) as u64) as u32;
+                sum_prompt_tokens = sum_prompt_tokens.saturating_add(pt);
+                sum_completion_tokens = sum_completion_tokens.saturating_add(ct);
+                sum_total_tokens = sum_total_tokens.saturating_add(tt);
+            }
 
-        if tool_calls.is_empty() {
-            let reply = choice_msg
+            let choice_msg = body
+                .get("choices")
+                .and_then(Value::as_array)
+                .and_then(|c| c.first())
+                .and_then(|c| c.get("message"))
+                .ok_or_else(|| "LLM response missing choices[0].message".to_owned())?;
+
+            let raw_tcs = choice_msg
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let tcs: Vec<(String, String, Value)> = raw_tcs
+                .iter()
+                .enumerate()
+                .map(|(i, tc)| {
+                    let call_id = tc
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("call_0")
+                        .to_owned();
+                    let fn_obj = tc.get("function");
+                    let fn_name = fn_obj
+                        .and_then(|f| f.get("name"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    let raw_args = fn_obj
+                        .and_then(|f| f.get("arguments"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("{}");
+                    let parsed_args: Value =
+                        serde_json::from_str(raw_args).unwrap_or_else(|_| json!({}));
+                    let _ = i;
+                    (call_id, fn_name, parsed_args)
+                })
+                .collect();
+            let content = choice_msg
                 .get("content")
                 .and_then(Value::as_str)
-                .unwrap_or("Done.")
+                .unwrap_or("")
                 .trim()
                 .to_owned();
+            if tcs.is_empty() && !content.is_empty() {
+                on_event(AgentStreamEvent::TextDelta {
+                    text: content.clone(),
+                });
+            }
+            (content, tcs, choice_msg.clone())
+        };
+
+        if parsed_tcs.is_empty() {
+            let reply = if reply_text.trim().is_empty() {
+                "Done.".to_owned()
+            } else {
+                reply_text.trim().to_owned()
+            };
             let updated_draft_geojson = state
                 .modified
                 .then(|| serde_json::to_string(&state.fc).unwrap_or_default());
-            return Ok(AgentTurnOutput {
+            let output = AgentTurnOutput {
                 reply,
                 updated_draft_geojson,
                 camera_action: state.camera_action,
@@ -240,28 +509,20 @@ pub async fn run_agent_turn(
                 prompt_tokens: (sum_total_tokens > 0).then_some(sum_prompt_tokens),
                 completion_tokens: (sum_total_tokens > 0).then_some(sum_completion_tokens),
                 total_tokens: (sum_total_tokens > 0).then_some(sum_total_tokens),
+            };
+            on_event(AgentStreamEvent::Completed {
+                output: output.clone(),
             });
+            return Ok(output);
         }
 
-        messages.push(choice_msg.clone());
-        for tc in tool_calls {
-            let call_id = tc
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or("call_0")
-                .to_owned();
-            let fn_obj = tc.get("function");
-            let fn_name = fn_obj
-                .and_then(|f| f.get("name"))
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            let raw_args = fn_obj
-                .and_then(|f| f.get("arguments"))
-                .and_then(Value::as_str)
-                .unwrap_or("{}");
-            let parsed_args: Value = serde_json::from_str(raw_args).unwrap_or_else(|_| json!({}));
-
-            let (record, tool_result) = match fn_name {
+        messages.push(step_assistant_msg);
+        for (call_id, fn_name, parsed_args) in parsed_tcs {
+            on_event(AgentStreamEvent::ToolStarted {
+                name: fn_name.clone(),
+                step: step + 1,
+            });
+            let (record, tool_result) = match fn_name.as_str() {
                 "fetch_webpage" => {
                     let target_url = parsed_args
                         .get("url")
@@ -306,8 +567,12 @@ pub async fn run_agent_turn(
                 "lookup_admin_boundary" => {
                     run_agent_admin_boundary(&client, &parsed_args, &mut state).await
                 }
-                _ => execute_tool_call(fn_name, &parsed_args, &input.workspace, &mut state),
+                _ => execute_tool_call(&fn_name, &parsed_args, &input.workspace, &mut state),
             };
+            on_event(AgentStreamEvent::ToolFinished {
+                record: record.clone(),
+                step: step + 1,
+            });
             executed.push(record);
 
             messages.push(json!({
@@ -321,7 +586,7 @@ pub async fn run_agent_turn(
     let updated_draft_geojson = state
         .modified
         .then(|| serde_json::to_string(&state.fc).unwrap_or_default());
-    Ok(AgentTurnOutput {
+    let output = AgentTurnOutput {
         reply: format!("Executed {} spatial tool step(s).", executed.len()),
         updated_draft_geojson,
         camera_action: state.camera_action,
@@ -330,7 +595,11 @@ pub async fn run_agent_turn(
         prompt_tokens: (sum_total_tokens > 0).then_some(sum_prompt_tokens),
         completion_tokens: (sum_total_tokens > 0).then_some(sum_completion_tokens),
         total_tokens: (sum_total_tokens > 0).then_some(sum_total_tokens),
-    })
+    };
+    on_event(AgentStreamEvent::Completed {
+        output: output.clone(),
+    });
+    Ok(output)
 }
 
 async fn run_offline_url_research(
@@ -1160,5 +1429,34 @@ mod tests {
         assert!(coords.len() >= 3);
         let osm = extract_matching_urls(html, "openstreetmap.org/");
         assert_eq!(osm.len(), 1);
+    }
+
+    #[test]
+    fn parses_sse_text_deltas_tool_call_chunks_and_usage() {
+        let mut acc = SseTurnAccumulator::default();
+        let mut deltas = Vec::new();
+        let lines = [
+            r#"data: {"choices":[{"delta":{"content":"Mapping "}}]}"#,
+            r#"data: {"choices":[{"delta":{"content":"route..."}}]}"#,
+            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_9","function":{"name":"create_point","arguments":"{\"lon\":16.37,"}}]}}]}"#,
+            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"lat\":48.20,\"name\":\"Hub\"}"}}]}}]}"#,
+            r#"data: {"choices":[],"usage":{"prompt_tokens":84,"completion_tokens":26,"total_tokens":110}}"#,
+            r#"data: [DONE]"#,
+        ];
+        for line in lines {
+            process_sse_data_line(line, &mut acc, &mut |d| deltas.push(d));
+        }
+        assert!(acc.done);
+        assert_eq!(deltas, vec!["Mapping ", "route..."]);
+        assert_eq!(acc.reply_buf, "Mapping route...");
+        assert_eq!(acc.prompt_tokens, 84);
+        assert_eq!(acc.completion_tokens, 26);
+        assert_eq!(acc.total_tokens, 110);
+        let tc = acc.tool_calls.get(&0).unwrap();
+        assert_eq!(tc.id, "call_9");
+        assert_eq!(tc.name, "create_point");
+        let parsed: Value = serde_json::from_str(&tc.arguments).unwrap();
+        assert_eq!(parsed["name"], "Hub");
+        assert_eq!(parsed["lon"], 16.37);
     }
 }

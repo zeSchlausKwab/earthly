@@ -331,6 +331,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   bool _agentSafeEditing = true;
   PendingAiEdit? _pendingAiEdit;
   List<ShelfShape> _aiGhostShapes = const [];
+  String _agentStreamingText = '';
+  String? _agentActiveToolStatus;
+  List<AgentToolRecordDto> _agentLiveToolCalls = const <AgentToolRecordDto>[];
+  final Set<String> _agentWorkingSetAddresses = <String>{};
+  AgentAttachment? _agentPendingAttachment;
+  StreamSubscription<AgentStreamEventDto>? _agentStreamSub;
 
   // Background GPS Track Recording (Android Foreground Service + Desktop breadcrumb mode)
   bool _gpsTrackRecording = false;
@@ -342,9 +348,33 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   String? _activeCommentOverlayId;
   bool _showingAllCommentPins = false;
   List<ShelfShape> _commentOverlayShapes = const [];
+  List<MapCommentPinItem> _activeCommentPins = const [];
   String? _activeProposalOverlayId;
   String? _activeProposalLabel;
   List<ShelfShape> _proposalOverlayShapes = const [];
+
+  MapCommentPinItem? _commentPinFromDto(GeoCommentDto comment) {
+    final raw = comment.geojson;
+    if (raw == null || raw.isEmpty) return null;
+    final shapes = parseGeoJsonShapes(raw, datasetTitle: 'Comment');
+    final anchor = shapes.expand((s) => s.coords).firstOrNull;
+    if (anchor == null) return null;
+    final prof = _profilesByPubkey[comment.pubkey];
+    final author = prof?.displayName?.trim().isNotEmpty == true
+        ? prof!.displayName!.trim()
+        : prof?.name?.trim().isNotEmpty == true
+            ? prof!.name!.trim()
+            : (comment.pubkey.length >= 10
+                ? '${comment.pubkey.substring(0, 8)}…'
+                : comment.pubkey);
+    return MapCommentPinItem(
+      eventId: comment.eventId,
+      authorName: author,
+      text: comment.text,
+      anchor: anchor,
+      comment: comment,
+    );
+  }
 
   // Active Story Reader state (live map + associated geometry/callouts/labels)
   StorySummaryDto? _activeStory;
@@ -2534,6 +2564,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   @override
   void dispose() {
+    unawaited(_agentStreamSub?.cancel());
     unawaited(_relayStreamSub?.cancel());
     _liveListenerTimer?.cancel();
     super.dispose();
@@ -2794,7 +2825,75 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     } catch (_) {}
   }
 
+  Future<void> _pickAgentAttachment() async {
+    try {
+      final picked = await DeviceBridge.pickGeoJsonFile();
+      await RustBridge.ensureInitialized();
+      final lowerName = picked.name.toLowerCase();
+      final isZipOrShp = lowerName.endsWith('.zip') ||
+          lowerName.endsWith('.shp') ||
+          (picked.bytes.length >= 2 &&
+              picked.bytes[0] == 0x50 &&
+              picked.bytes[1] == 0x4B);
+      final rawText =
+          isZipOrShp ? '' : utf8.decode(picked.bytes, allowMalformed: true);
+      var formatLabel = lowerName.contains('.')
+          ? lowerName.split('.').last.toUpperCase()
+          : 'FILE';
+      var featureCount = 0;
+      String? importedGeojson;
+      var summary = '';
+      try {
+        final converted = isZipOrShp
+            ? await geoImportShapefileBytes(
+                filename: picked.name,
+                bytes: picked.bytes,
+              )
+            : await geoImportSpatialFile(
+                filename: picked.name,
+                content: rawText,
+              );
+        formatLabel = converted.format.toUpperCase();
+        featureCount = converted.featureCount;
+        importedGeojson = converted.geojson;
+        final preview = converted.geojson.length > 2400
+            ? '${converted.geojson.substring(0, 2400)}…'
+            : converted.geojson;
+        summary =
+            'Converted $formatLabel with $featureCount feature(s).\n$preview';
+      } catch (_) {
+        final trimmed = rawText.trim();
+        summary = trimmed.length > 2400
+            ? '${trimmed.substring(0, 2400)}…'
+            : trimmed;
+      }
+      if (!mounted) return;
+      setState(() {
+        _agentPendingAttachment = AgentAttachment(
+          fileName: picked.name,
+          formatLabel: formatLabel,
+          featureCount: featureCount,
+          summaryText: summary,
+          importedGeojson: importedGeojson,
+        );
+      });
+    } catch (err) {
+      if (!mounted || err.toString().contains('cancelled')) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Attachment failed: $err')),
+      );
+    }
+  }
+
   Future<void> _sendAgentPrompt(String prompt) async {
+    final attachment = _agentPendingAttachment;
+    final visiblePrompt =
+        attachment == null ? prompt : '📎 ${attachment.fileName}\n$prompt';
+    final effectivePrompt = attachment == null
+        ? prompt
+        : '[Attached File: ${attachment.fileName} (${attachment.formatLabel})]\n'
+            '${attachment.summaryText}\n\nUser request: $prompt';
+
     setState(() {
       final now = DateTime.now().millisecondsSinceEpoch;
       _updateActiveAgentThread((t) {
@@ -2806,14 +2905,19 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           updatedAtMs: now,
           messages: [
             ...t.messages,
-            CopilotMessage(role: 'user', content: prompt),
+            CopilotMessage(role: 'user', content: visiblePrompt),
           ],
         );
       });
+      _agentPendingAttachment = null;
       _agentBusy = true;
+      _agentStreamingText = '';
+      _agentActiveToolStatus = 'Starting agent…';
+      _agentLiveToolCalls = const <AgentToolRecordDto>[];
     });
     try {
       await RustBridge.ensureInitialized();
+      await _agentStreamSub?.cancel();
       final cam = _controller?.camera;
       final center =
           cam?.center ?? const Geographic(lon: 16.3738, lat: 48.2082);
@@ -2825,9 +2929,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           .take(_agentMessages.length - 1)
           .map((m) => AgentMessageDto(role: m.role, content: m.content))
           .toList(growable: false);
+      final workingSetTitles = _shelfMaps
+          .where((e) => _agentWorkingSetAddresses.contains(e.summary.address))
+          .map((e) => '${e.summary.title} (${e.summary.address})')
+          .toList(growable: false);
+      final cat = _catalog;
+      final catalogItems = <String>[
+        if (cat != null) ...[
+          for (final m in cat.maps.take(20))
+            '[Map] ${m.title} | ${m.address}${m.hashtags.isNotEmpty ? ' | #${m.hashtags.join(" #")}' : ''} | ${m.featureCount} features',
+          for (final s in cat.stories.take(10)) '[Story] ${s.title} | ${s.address}',
+          for (final a in cat.atlases.take(10))
+            '[Atlas] ${a.name} | ${a.address} | ${a.governance}',
+        ],
+      ];
 
-      final result = await runEarthlyAgentTurn(
-        prompt: prompt,
+      final completer = Completer<AgentTurnResultDto>();
+      _agentStreamSub = streamEarthlyAgentTurn(
+        prompt: effectivePrompt,
         history: history,
         providerBaseUrl: _agentSettings.baseUrl,
         model: _agentSettings.model,
@@ -2840,8 +2959,59 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         shelfMapTitles: _shelfMaps.map((e) => e.summary.title).toList(),
         atlasWorkspaces:
             _mountedAtlasWorkspaces.map((w) => w.coverageSummary).toList(),
+        workingSetTitles: workingSetTitles,
+        catalogItems: catalogItems,
+      ).listen(
+        (ev) {
+          if (!mounted) return;
+          switch (ev.eventType) {
+            case 'status':
+              setState(() => _agentActiveToolStatus = ev.text);
+            case 'delta':
+              final piece = ev.text ?? '';
+              if (piece.isNotEmpty) {
+                setState(() => _agentStreamingText += piece);
+              }
+            case 'tool_started':
+              setState(() {
+                final stepLabel = ev.step != null ? 'Step ${ev.step} · ' : '';
+                _agentActiveToolStatus =
+                    '${stepLabel}Running ${ev.toolName ?? 'tool'}…';
+              });
+            case 'tool_finished':
+              if (ev.toolName != null && ev.toolSummary != null) {
+                setState(() {
+                  _agentLiveToolCalls = [
+                    ..._agentLiveToolCalls,
+                    AgentToolRecordDto(
+                      name: ev.toolName!,
+                      ok: ev.toolOk ?? true,
+                      summary: ev.toolSummary!,
+                    ),
+                  ];
+                });
+              }
+            case 'completed':
+              if (ev.result != null && !completer.isCompleted) {
+                completer.complete(ev.result!);
+              }
+            case 'error':
+              if (!completer.isCompleted) {
+                completer.completeError(ev.text ?? 'Agent streaming error');
+              }
+          }
+        },
+        onError: (Object err) {
+          if (!completer.isCompleted) completer.completeError(err);
+        },
+        onDone: () {
+          if (!completer.isCompleted) {
+            completer.completeError('Agent stream ended unexpectedly');
+          }
+        },
       );
 
+      final result = await completer.future;
       if (!mounted) return;
       final proposed = result.updatedDraftGeojson;
       setState(() {
@@ -2903,7 +3073,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       });
     } finally {
       if (mounted) {
-        setState(() => _agentBusy = false);
+        setState(() {
+          _agentBusy = false;
+          _agentStreamingText = '';
+          _agentActiveToolStatus = null;
+          _agentLiveToolCalls = const <AgentToolRecordDto>[];
+        });
         unawaited(_persistAppSettings());
       }
     }
@@ -5965,6 +6140,128 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                   _features[entry.key].copyWith(vertices: entry.value);
             }
           });
+        case RustGeoAction.mergeMultipart:
+          String? serializeGeom(DrawnFeature f) {
+            final fc = jsonDecode(draftFeaturesToGeoJson(title: 'tmp', features: [f]));
+            if (fc is Map<String, dynamic>) {
+              final feats = fc['features'] as List?;
+              if (feats != null && feats.isNotEmpty && feats.first is Map) {
+                final geom = (feats.first as Map)['geometry'];
+                if (geom != null) return jsonEncode(geom);
+              }
+            }
+            return null;
+          }
+
+          List<int> pickIndices = const [];
+          for (final kind in const [
+            DrawToolMode.polygon,
+            DrawToolMode.line,
+            DrawToolMode.point,
+          ]) {
+            final candidates = indicesOfKind(kind, minRequired: 2);
+            if (candidates.length >= 2) {
+              pickIndices = candidates;
+              break;
+            }
+          }
+          if (pickIndices.length < 2) return;
+          final geomJsonList = <String>[
+            for (final idx in pickIndices) ?serializeGeom(_features[idx]),
+          ];
+          if (geomJsonList.length < 2) return;
+          final mergedGeomJson =
+              await geoMergeToMultipart(geojsonGeometries: geomJsonList);
+          final parsed = parseDraftFeaturesFromGeoJson(
+            jsonEncode({
+              'type': 'FeatureCollection',
+              'features': [
+                {
+                  'type': 'Feature',
+                  'id': 'multipart-tmp',
+                  'geometry': jsonDecode(mergedGeomJson),
+                  'properties': <String, Object?>{},
+                },
+              ],
+            }),
+          );
+          if (parsed.isEmpty) return;
+          final base = _features[pickIndices.first];
+          _pushDraftUndo();
+          setState(() {
+            for (var i = pickIndices.length - 1; i >= 0; i--) {
+              _features.removeAt(pickIndices[i]);
+            }
+            _featureCounter += 1;
+            _features.add(
+              base.copyWith(
+                id: 'multi-$_featureCounter',
+                vertices: parsed.first.vertices,
+                extraParts: parsed.first.extraParts,
+                name: '${base.name ?? 'Feature'} (Multi)',
+              ),
+            );
+          });
+        case RustGeoAction.explodeMultipart:
+          var targetIdx = -1;
+          for (var i = targetIndices.length - 1; i >= 0; i--) {
+            final idx = targetIndices[i];
+            if (_features[idx].isMultipart) {
+              targetIdx = idx;
+              break;
+            }
+          }
+          if (targetIdx < 0) {
+            targetIdx = _features.lastIndexWhere((f) => f.isMultipart);
+          }
+          if (targetIdx < 0) return;
+          final base = _features[targetIdx];
+          final fc = jsonDecode(
+            draftFeaturesToGeoJson(title: 'tmp', features: [base]),
+          );
+          final singleFeat = (fc is Map<String, dynamic> &&
+                  fc['features'] is List &&
+                  (fc['features'] as List).isNotEmpty)
+              ? (fc['features'] as List).first as Map
+              : null;
+          final geom = singleFeat?['geometry'];
+          if (geom == null) return;
+          final explodedJsonList =
+              await geoExplodeMultipart(geojsonGeometry: jsonEncode(geom));
+          final replacementFeatures = <DrawnFeature>[];
+          for (var i = 0; i < explodedJsonList.length; i++) {
+            final parsed = parseDraftFeaturesFromGeoJson(
+              jsonEncode({
+                'type': 'FeatureCollection',
+                'features': [
+                  {
+                    'type': 'Feature',
+                    'id': 'part-tmp-$i',
+                    'geometry': jsonDecode(explodedJsonList[i]),
+                    'properties': <String, Object?>{},
+                  },
+                ],
+              }),
+            );
+            if (parsed.isEmpty) continue;
+            _featureCounter += 1;
+            replacementFeatures.add(
+              base.copyWith(
+                id: 'part-$_featureCounter',
+                vertices: parsed.first.vertices,
+                extraParts: const <List<Geographic>>[],
+                name: base.name != null
+                    ? '${base.name} (${i + 1})'
+                    : 'Part ${i + 1}',
+              ),
+            );
+          }
+          if (replacementFeatures.isEmpty) return;
+          _pushDraftUndo();
+          setState(() {
+            _features.removeAt(targetIdx);
+            _features.insertAll(targetIdx, replacementFeatures);
+          });
       }
       setState(_pruneDraftSelection);
       if (_inspectedFeature?.draftFeatureId != null) {
@@ -6630,6 +6927,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onDeleteThread: _deleteAgentThread,
           settings: _agentSettings,
           busy: _agentBusy,
+          streamingText: _agentStreamingText,
+          activeToolStatus: _agentActiveToolStatus,
+          liveToolCalls: _agentLiveToolCalls,
+          shelfMaps: [
+            for (final entry in _shelfMaps)
+              (address: entry.summary.address, title: entry.summary.title),
+          ],
+          workingSetAddresses: _agentWorkingSetAddresses,
+          onToggleWorkingSet: (addr) {
+            setState(() {
+              if (!_agentWorkingSetAddresses.remove(addr)) {
+                _agentWorkingSetAddresses.add(addr);
+              }
+            });
+          },
+          pendingAttachment: _agentPendingAttachment,
+          onPickAttachment: () => unawaited(_pickAgentAttachment()),
+          onClearAttachment: () => setState(() => _agentPendingAttachment = null),
           safeEditing: _agentSafeEditing,
           onSafeEditingChanged: (v) => setState(() => _agentSafeEditing = v),
           pendingEdit: _pendingAiEdit,
@@ -7060,6 +7375,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 _showingAllCommentPins = false;
                 _activeCommentOverlayId = null;
                 _commentOverlayShapes = const [];
+                _activeCommentPins = const [];
               });
               return;
             }
@@ -7071,10 +7387,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                     datasetTitle: 'Comment',
                   ),
             ];
+            final pins = <MapCommentPinItem>[
+              for (final c in geoComments) ?_commentPinFromDto(c),
+            ];
             setState(() {
               _showingAllCommentPins = true;
               _activeCommentOverlayId = 'all-comment-pins';
               _commentOverlayShapes = mergedShapes;
+              _activeCommentPins = pins;
             });
           },
           profilesByPubkey: _profilesByPubkey,
@@ -7085,16 +7405,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 _showingAllCommentPins = false;
                 _activeCommentOverlayId = null;
                 _commentOverlayShapes = const [];
+                _activeCommentPins = const [];
               });
               return;
             }
             final shapes = comment.geojson != null
                 ? parseGeoJsonShapes(comment.geojson!, datasetTitle: 'Comment')
                 : const <ShelfShape>[];
+            final singlePin = _commentPinFromDto(comment);
             setState(() {
               _showingAllCommentPins = false;
               _activeCommentOverlayId = comment.eventId;
               _commentOverlayShapes = shapes;
+              _activeCommentPins =
+                  singlePin == null ? const [] : <MapCommentPinItem>[singlePin];
             });
           },
           onToggleProposalOverlay: (proposal) {
@@ -7344,6 +7668,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 sightings: visibleSightings,
                 iconPins: visibleIconPins,
                 arrowheads: visibleArrowheads,
+                commentPins: _activeCommentPins,
+                onInspectComment: (_) => _openDrawer(_ActiveDrawer.discussion),
                 onRepositionDraftCallout: _repositionDraftCallout,
                 displayMode: _calloutMode,
                 bottomInset:
@@ -8205,7 +8531,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             _activeProposalLabel = null;
                             _proposalOverlayShapes = const [];
                             _activeCommentOverlayId = null;
+                            _showingAllCommentPins = false;
                             _commentOverlayShapes = const [];
+                            _activeCommentPins = const [];
                           }),
                           child: const Icon(
                             Icons.close,

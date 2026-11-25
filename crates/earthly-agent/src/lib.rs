@@ -20,4 +20,7 @@ pub use schema::{
     earthly_tool_definitions,
 };
 #[cfg(feature = "native-http")]
-pub use runtime::{ResearchPageExtract, fetch_research_webpage, run_agent_turn};
+pub use runtime::{
+    AgentStreamEvent, ResearchPageExtract, fetch_research_webpage, run_agent_turn,
+    run_agent_turn_streaming,
+};

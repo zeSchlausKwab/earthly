@@ -41,6 +41,10 @@ pub struct AgentWorkspaceContext {
     pub shelf_map_titles: Vec<String>,
     #[serde(default)]
     pub atlas_workspaces: Vec<String>,
+    #[serde(default)]
+    pub working_set_titles: Vec<String>,
+    #[serde(default)]
+    pub catalog_items: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -700,6 +704,119 @@ pub fn execute_tool_call(
             )
         }
 
+        "query_catalog" => {
+            let query = args
+                .get("query")
+                .and_then(Value::as_str)
+                .map(|s| s.trim().to_lowercase())
+                .unwrap_or_default();
+            let kind_filter = args
+                .get("kind")
+                .and_then(Value::as_str)
+                .map(|s| s.trim().to_lowercase())
+                .unwrap_or_else(|| "all".to_owned());
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .unwrap_or(15)
+                .clamp(1, 40) as usize;
+
+            let matches: Vec<String> = workspace
+                .catalog_items
+                .iter()
+                .filter(|line| {
+                    let lower = line.to_lowercase();
+                    let kind_ok = match kind_filter.as_str() {
+                        "map" => lower.starts_with("[map]"),
+                        "story" => lower.starts_with("[story]"),
+                        "atlas" => lower.starts_with("[atlas]"),
+                        _ => true,
+                    };
+                    let query_ok = query.is_empty() || lower.contains(&query);
+                    kind_ok && query_ok
+                })
+                .take(limit)
+                .cloned()
+                .collect();
+            ok_tool(
+                name,
+                format!(
+                    "Found {} catalog item(s) (of {})",
+                    matches.len(),
+                    workspace.catalog_items.len()
+                ),
+                json!({
+                    "matches": matches,
+                    "total": matches.len(),
+                    "catalogSize": workspace.catalog_items.len(),
+                }),
+            )
+        }
+
+        "draft_atlas_manifest" => {
+            let title = args
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&workspace.draft_title);
+            let governance = match args
+                .get("governance")
+                .and_then(Value::as_str)
+                .unwrap_or("moderated")
+            {
+                "open" => "open",
+                "closed" => "closed",
+                _ => "moderated",
+            };
+            let summary = args
+                .get("summary")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("Curated field collection authored with Earthly Agent.");
+            let filter_q = args
+                .get("filterQuery")
+                .and_then(Value::as_str)
+                .map(|s| s.trim().to_lowercase())
+                .unwrap_or_default();
+
+            let mut entries: Vec<String> = workspace.working_set_titles.clone();
+            for item in &workspace.catalog_items {
+                if !filter_q.is_empty() && !item.to_lowercase().contains(&filter_q) {
+                    continue;
+                }
+                if entries.len() >= 12 {
+                    break;
+                }
+                if !entries.iter().any(|existing| existing == item) {
+                    entries.push(item.clone());
+                }
+            }
+
+            let mut md = format!(
+                "# {title}\n\n**Governance:** `{governance}`\n\n{summary}\n\n## Included Sources ({})\n\n",
+                entries.len()
+            );
+            for entry in &entries {
+                md.push_str(&format!("- {entry}\n"));
+            }
+            if entries.is_empty() {
+                md.push_str("- _(Pin Shelf maps to your Working Set or publish draft Maps to populate references.)_\n");
+            }
+
+            ok_tool(
+                name,
+                format!("Drafted Atlas manifest \"{title}\" ({} entries, {governance})", entries.len()),
+                json!({
+                    "title": title,
+                    "governance": governance,
+                    "markdown": md,
+                    "entries": entries,
+                }),
+            )
+        }
+
         other => err_tool(other, &format!("Unknown tool \"{other}\"")),
     }
 }
@@ -817,6 +934,38 @@ pub fn execute_local_offline_turn(input: &AgentTurnInput) -> AgentTurnOutput {
     } else if lower.contains("story") && lower.contains("outline") {
         let (rec, val) = execute_tool_call("draft_story_outline", &json!({}), &input.workspace, &mut state);
         reply = val["markdown"].as_str().unwrap_or(&rec.summary).to_owned();
+        tool_calls.push(rec);
+    } else if lower.contains("atlas manifest") || (lower.contains("draft") && lower.contains("atlas")) {
+        let (rec, val) = execute_tool_call("draft_atlas_manifest", &json!({}), &input.workspace, &mut state);
+        reply = val["markdown"].as_str().unwrap_or(&rec.summary).to_owned();
+        tool_calls.push(rec);
+    } else if lower.contains("search catalog") || lower.contains("find map") {
+        let q = input
+            .prompt
+            .split_once(':')
+            .map(|(_, rhs)| rhs.trim())
+            .unwrap_or("");
+        let (rec, val) = execute_tool_call(
+            "query_catalog",
+            &json!({ "query": q }),
+            &input.workspace,
+            &mut state,
+        );
+        let matches = val["matches"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(|s| format!("• {s}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+        reply = if matches.is_empty() {
+            rec.summary.clone()
+        } else {
+            format!("{}\n{}", rec.summary, matches)
+        };
         tool_calls.push(rec);
     } else if lower.contains("atlas") {
         let (rec, _) = execute_tool_call("atlas_workspace_status", &json!({}), &input.workspace, &mut state);
@@ -1013,6 +1162,8 @@ mod tests {
                 draft_geojson: fc,
                 shelf_map_titles: vec![],
                 atlas_workspaces: vec![],
+                working_set_titles: vec![],
+                catalog_items: vec![],
             },
         });
 
@@ -1062,6 +1213,8 @@ mod tests {
                 draft_geojson: fc,
                 shelf_map_titles: vec![],
                 atlas_workspaces: vec![],
+                working_set_titles: vec![],
+                catalog_items: vec![],
             },
         });
         assert_eq!(out.tool_calls[0].name, "deduplicate_draft");
@@ -1105,10 +1258,55 @@ mod tests {
                 .to_string(),
                 shelf_map_titles: vec![],
                 atlas_workspaces: vec![],
+                working_set_titles: vec![],
+                catalog_items: vec![],
             },
         });
         assert_eq!(story_out.tool_calls[0].name, "draft_story_outline");
         assert!(story_out.reply.contains("```earthly-view"));
         assert!(story_out.reply.contains("Danube Overlook"));
+
+        let catalog_out = execute_local_offline_turn(&AgentTurnInput {
+            prompt: "search catalog: Danube".to_owned(),
+            history: vec![],
+            workspace: AgentWorkspaceContext {
+                center_lon: 16.375,
+                center_lat: 48.208,
+                zoom: 14.0,
+                draft_title: "Vienna".to_owned(),
+                draft_geojson: json!({ "type": "FeatureCollection", "features": [] }).to_string(),
+                shelf_map_titles: vec![],
+                atlas_workspaces: vec![],
+                working_set_titles: vec!["Danube Island Loop".to_owned()],
+                catalog_items: vec![
+                    "[Map] Danube Trails | 37515:alice:danube | #cycling | 8 features".to_owned(),
+                    "[Story] Alps Ridge | 37520:bob:alps | #hiking".to_owned(),
+                ],
+            },
+        });
+        assert_eq!(catalog_out.tool_calls[0].name, "query_catalog");
+        assert!(catalog_out.reply.contains("Danube Trails"));
+        assert!(!catalog_out.reply.contains("Alps Ridge"));
+
+        let atlas_out = execute_local_offline_turn(&AgentTurnInput {
+            prompt: "draft atlas manifest".to_owned(),
+            history: vec![],
+            workspace: AgentWorkspaceContext {
+                center_lon: 16.375,
+                center_lat: 48.208,
+                zoom: 14.0,
+                draft_title: "Vienna Trails Atlas".to_owned(),
+                draft_geojson: json!({ "type": "FeatureCollection", "features": [] }).to_string(),
+                shelf_map_titles: vec![],
+                atlas_workspaces: vec![],
+                working_set_titles: vec!["Danube Island Loop".to_owned()],
+                catalog_items: vec![
+                    "[Map] Danube Trails | 37515:alice:danube | #cycling | 8 features".to_owned(),
+                ],
+            },
+        });
+        assert_eq!(atlas_out.tool_calls[0].name, "draft_atlas_manifest");
+        assert!(atlas_out.reply.contains("# Vienna Trails Atlas"));
+        assert!(atlas_out.reply.contains("Danube Island Loop"));
     }
 }
