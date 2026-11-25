@@ -5,6 +5,7 @@ members = [
   "crates/earthly-ffi",
   "crates/earthly-geo",
   "crates/earthly-local-node",
+  "crates/earthly-mls",
   "crates/earthly-spatial",
   "crates/earthly-storage",
   "crates/earthly-wasm",

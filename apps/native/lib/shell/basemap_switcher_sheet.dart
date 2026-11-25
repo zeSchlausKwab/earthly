@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
@@ -134,6 +135,9 @@ class BasemapSwitcherSheet extends StatefulWidget {
     this.savedOfflinePacks = const <SavedOfflinePackDto>[],
     this.onMountSavedPack,
     this.onRemoveSavedPack,
+    this.mountedAtlasWorkspaces = const <MountedAtlasWorkspaceDto>[],
+    this.onMountAtlasWorkspace,
+    this.onUnmountAtlasWorkspace,
     super.key,
   });
 
@@ -148,17 +152,83 @@ class BasemapSwitcherSheet extends StatefulWidget {
   final List<SavedOfflinePackDto> savedOfflinePacks;
   final Future<void> Function(SavedOfflinePackDto pack)? onMountSavedPack;
   final ValueChanged<String>? onRemoveSavedPack;
+  final List<MountedAtlasWorkspaceDto> mountedAtlasWorkspaces;
+  final Future<void> Function(AtlasBundleInspectionDto bundle)?
+      onMountAtlasWorkspace;
+  final ValueChanged<String>? onUnmountAtlasWorkspace;
 
   @override
   State<BasemapSwitcherSheet> createState() => _BasemapSwitcherSheetState();
 }
 
 class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
+  final _atlasPathController = TextEditingController();
   bool _loadingPmtiles = false;
+  bool _scanningAtlas = false;
+  List<AtlasBundleInspectionDto> _discoveredAtlases = const [];
   String? _error;
   late BasemapKind _activeBasemap = widget.activeBasemap;
   late bool _showLabels = widget.showLabels;
   late CalloutDisplayMode _calloutMode = widget.calloutMode;
+
+  @override
+  void dispose() {
+    _atlasPathController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scanAtlasDirectories() async {
+    setState(() {
+      _scanningAtlas = true;
+      _error = null;
+    });
+    try {
+      await RustBridge.ensureInitialized();
+      final support = await getApplicationSupportDirectory();
+      final docs = await getApplicationDocumentsDirectory();
+      final candidates = <String>[
+        support.path,
+        '${support.path}/atlases',
+        docs.path,
+        '${docs.path}/Earthly',
+      ];
+      final found = await discoverLocalAtlasBundles(searchDirs: candidates);
+      if (!mounted) return;
+      setState(() {
+        _discoveredAtlases = found;
+        if (found.isEmpty) {
+          _error =
+              'No .atlas bundles found in app folders yet. Paste a local .atlas folder or archive path below.';
+        }
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _scanningAtlas = false);
+    }
+  }
+
+  Future<void> _mountAtlasFromPath(String rawPath) async {
+    final trimmed = rawPath.trim();
+    if (trimmed.isEmpty) return;
+    setState(() {
+      _scanningAtlas = true;
+      _error = null;
+    });
+    try {
+      await RustBridge.ensureInitialized();
+      final bundle = await inspectAtlasWorkspacePath(path: trimmed);
+      await widget.onMountAtlasWorkspace?.call(bundle);
+      _atlasPathController.clear();
+      if (mounted) Navigator.of(context).pop();
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _scanningAtlas = false);
+    }
+  }
 
   Future<void> _pickAndLoadPmtiles() async {
     setState(() {
@@ -195,7 +265,7 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
     final offline = widget.offlineBasemap;
 
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -358,10 +428,140 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
             ],
             const SizedBox(height: 6),
             Text(
-              _activeBasemap == BasemapKind.offlinePmtiles
-                  ? 'Atlas coverage: COMPLETE (local Blossom PMTiles active)'
+              _activeBasemap == BasemapKind.offlinePmtiles ||
+                      widget.mountedAtlasWorkspaces.isNotEmpty
+                  ? 'Atlas coverage: COMPLETE (${widget.mountedAtlasWorkspaces.length} .atlas bundle${widget.mountedAtlasWorkspaces.length == 1 ? '' : 's'} · ${widget.savedOfflinePacks.length} PMTiles pack${widget.savedOfflinePacks.length == 1 ? '' : 's'})'
                   : 'Atlas coverage: PARTIAL (online OpenFreeMap · mount .pmtiles/.atlas for full offline)',
               style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+            ),
+
+            // Offline .atlas Workspace Discovery & Mounting
+            const Divider(height: 20),
+            Row(
+              children: [
+                Text(
+                  'OFFLINE .ATLAS WORKSPACES (${widget.mountedAtlasWorkspaces.length})',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _scanningAtlas ? null : _scanAtlasDirectories,
+                  icon: _scanningAtlas
+                      ? const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 1.8),
+                        )
+                      : const Icon(Icons.search, size: 15),
+                  label: const Text('Scan'),
+                ),
+              ],
+            ),
+            if (widget.mountedAtlasWorkspaces.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              for (final ws in widget.mountedAtlasWorkspaces)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: EarthlyColors.commentGreen.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: EarthlyColors.commentGreen.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.sd_storage_outlined,
+                        size: 16,
+                        color: EarthlyColors.commentGreen,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              ws.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              ws.coverageSummary,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (widget.onUnmountAtlasWorkspace != null)
+                        IconButton(
+                          tooltip: 'Unmount .atlas',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () =>
+                              widget.onUnmountAtlasWorkspace!(ws.path),
+                          icon: const Icon(Icons.close, size: 16),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+            if (_discoveredAtlases.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              for (final found in _discoveredAtlases)
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(found.name),
+                  subtitle: Text(
+                    found.coverageSummary,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+                  ),
+                  trailing: FilledButton(
+                    onPressed: _scanningAtlas
+                        ? null
+                        : () => unawaited(_mountAtlasFromPath(found.path)),
+                    child: const Text('Mount'),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _atlasPathController,
+                    onSubmitted: (v) => unawaited(_mountAtlasFromPath(v)),
+                    decoration: const InputDecoration(
+                      hintText: 'Mount local .atlas folder or archive path…',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: _scanningAtlas
+                      ? null
+                      : () => unawaited(
+                            _mountAtlasFromPath(_atlasPathController.text),
+                          ),
+                  child: const Text('Mount'),
+                ),
+              ],
             ),
             if (_error != null)
               Padding(

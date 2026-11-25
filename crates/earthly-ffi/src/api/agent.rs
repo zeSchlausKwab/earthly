@@ -54,6 +54,7 @@ pub async fn run_earthly_agent_turn(
     draft_title: String,
     draft_geojson: String,
     shelf_map_titles: Vec<String>,
+    atlas_workspaces: Vec<String>,
 ) -> Result<AgentTurnResultDto, String> {
     let provider = AgentProviderConfig {
         base_url: provider_base_url,
@@ -86,7 +87,7 @@ pub async fn run_earthly_agent_turn(
             draft_title,
             draft_geojson,
             shelf_map_titles,
-            atlas_workspaces: Vec::new(),
+            atlas_workspaces,
         },
     };
 

@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../nostr/nip55_signer.dart';
+import '../runtime/device_bridge.dart';
 import '../runtime/rust_bridge.dart';
+import '../src/rust/api/nip46.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
@@ -42,15 +44,19 @@ class AccountSessionSheet extends StatefulWidget {
     required this.onSaveProfile,
     required this.onOpenSpaces,
     required this.onClose,
+    this.bunkerUri,
+    this.onBunkerConnected,
     super.key,
   });
 
   final Nip55Account? account;
   final String? localNsec;
+  final String? bunkerUri;
   final ProfileMetadataDto? profile;
   final String? activeSessionSummary;
   final ValueChanged<Nip55Account?> onAccountChanged;
   final ValueChanged<LocalKeypairDto?> onLocalKeyChanged;
+  final ValueChanged<Nip46ConnectionDto?>? onBunkerConnected;
   final Future<PublishOutcomeDto> Function(ProfileEditRequest req)
       onSaveProfile;
   final VoidCallback onOpenSpaces;
@@ -62,6 +68,7 @@ class AccountSessionSheet extends StatefulWidget {
 
 class _AccountSessionSheetState extends State<AccountSessionSheet> {
   final _nsecController = TextEditingController();
+  final _bunkerController = TextEditingController();
   late final TextEditingController _displayNameController;
   late final TextEditingController _nameController;
   late final TextEditingController _aboutController;
@@ -71,6 +78,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
   bool _amberInstalled = false;
   bool _busy = false;
   bool _showImport = false;
+  bool _showBunker = false;
   bool _editingProfile = false;
   String? _error;
   String? _info;
@@ -103,6 +111,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
   @override
   void dispose() {
     _nsecController.dispose();
+    _bunkerController.dispose();
     _displayNameController.dispose();
     _nameController.dispose();
     _aboutController.dispose();
@@ -179,6 +188,45 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
       setState(() => _error = err.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _connectBunker() async {
+    final uri = _bunkerController.text.trim();
+    if (uri.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      await RustBridge.ensureInitialized();
+      final conn = await connectNip46Bunker(bunkerUri: uri);
+      if (!mounted) return;
+      _bunkerController.clear();
+      widget.onBunkerConnected?.call(conn);
+      setState(() {
+        _showBunker = false;
+        _info = 'Connected to NIP-46 remote bunker (${conn.relays.length} relay).';
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _scanBunkerQr() async {
+    try {
+      final scanned = await DeviceBridge.scanQrCode();
+      if (!mounted) return;
+      _bunkerController.text = scanned.trim();
+      setState(() => _showBunker = true);
+      await _connectBunker();
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
     }
   }
 
@@ -333,7 +381,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${widget.localNsec != null ? "Persisted local key" : "Amber NIP-55"}${profile?.nip05 != null ? ' · ${profile!.nip05}' : ''}',
+                              '${widget.bunkerUri != null ? "NIP-46 Remote Bunker" : widget.localNsec != null ? "Persisted local key" : "Amber NIP-55"}${profile?.nip05 != null ? ' · ${profile!.nip05}' : ''}',
                               style: const TextStyle(
                                 fontFamily: 'monospace',
                                 fontSize: 11,
@@ -403,6 +451,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                   onPressed: () {
                     widget.onAccountChanged(null);
                     widget.onLocalKeyChanged(null);
+                    widget.onBunkerConnected?.call(null);
                   },
                   icon: const Icon(
                     Icons.logout,
@@ -521,9 +570,20 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                   label: const Text('Create Local Key'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: () => setState(() => _showImport = !_showImport),
+                  onPressed: () => setState(() {
+                    _showImport = !_showImport;
+                    if (_showImport) _showBunker = false;
+                  }),
                   icon: const Icon(Icons.login, size: 16),
                   label: const Text('Import nsec1…'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => setState(() {
+                    _showBunker = !_showBunker;
+                    if (_showBunker) _showImport = false;
+                  }),
+                  icon: const Icon(Icons.cloud_done_outlined, size: 16),
+                  label: const Text('Connect Bunker (NIP-46)'),
                 ),
               ],
             ),
@@ -545,6 +605,41 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                   FilledButton(
                     onPressed: _busy ? null : _importNsec,
                     child: const Text('Import'),
+                  ),
+                ],
+              ),
+            ],
+            if (_showBunker) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _bunkerController,
+                      onSubmitted: (_) => _connectBunker(),
+                      decoration: const InputDecoration(
+                        hintText: 'bunker://<pubkey>?relay=wss://…&secret=…',
+                      ),
+                    ),
+                  ),
+                  if (Platform.isAndroid) ...[
+                    const SizedBox(width: 6),
+                    IconButton(
+                      tooltip: 'Scan bunker QR',
+                      onPressed: _busy ? null : _scanBunkerQr,
+                      icon: const Icon(Icons.qr_code_scanner, size: 20),
+                    ),
+                  ],
+                  const SizedBox(width: 6),
+                  FilledButton(
+                    onPressed: _busy ? null : _connectBunker,
+                    child: _busy
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Connect'),
                   ),
                 ],
               ),

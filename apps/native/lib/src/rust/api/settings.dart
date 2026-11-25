@@ -8,7 +8,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `from_record`, `to_record`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`
 
 Future<AppSettingsDto> loadAppSettings({required String databasePath}) =>
     EarthlyRustLib.instance.api.crateApiSettingsLoadAppSettings(
@@ -34,6 +34,10 @@ class AppSettingsDto {
   final List<SavedOfflinePackDto> offlinePacks;
   final List<String> pinnedEntityIds;
   final List<String> recentEntityIds;
+  final String cordnServerPubkey;
+  final String? bunkerUri;
+  final String? bunkerClientNsec;
+  final List<MountedAtlasWorkspaceDto> mountedAtlasWorkspaces;
 
   const AppSettingsDto({
     required this.relayUrls,
@@ -46,6 +50,10 @@ class AppSettingsDto {
     required this.offlinePacks,
     required this.pinnedEntityIds,
     required this.recentEntityIds,
+    required this.cordnServerPubkey,
+    this.bunkerUri,
+    this.bunkerClientNsec,
+    required this.mountedAtlasWorkspaces,
   });
 
   @override
@@ -59,7 +67,11 @@ class AppSettingsDto {
       agentApiKey.hashCode ^
       offlinePacks.hashCode ^
       pinnedEntityIds.hashCode ^
-      recentEntityIds.hashCode;
+      recentEntityIds.hashCode ^
+      cordnServerPubkey.hashCode ^
+      bunkerUri.hashCode ^
+      bunkerClientNsec.hashCode ^
+      mountedAtlasWorkspaces.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -75,7 +87,46 @@ class AppSettingsDto {
           agentApiKey == other.agentApiKey &&
           offlinePacks == other.offlinePacks &&
           pinnedEntityIds == other.pinnedEntityIds &&
-          recentEntityIds == other.recentEntityIds;
+          recentEntityIds == other.recentEntityIds &&
+          cordnServerPubkey == other.cordnServerPubkey &&
+          bunkerUri == other.bunkerUri &&
+          bunkerClientNsec == other.bunkerClientNsec &&
+          mountedAtlasWorkspaces == other.mountedAtlasWorkspaces;
+}
+
+class MountedAtlasWorkspaceDto {
+  final String name;
+  final String path;
+  final BigInt sizeBytes;
+  final List<String> families;
+  final String coverageSummary;
+
+  const MountedAtlasWorkspaceDto({
+    required this.name,
+    required this.path,
+    required this.sizeBytes,
+    required this.families,
+    required this.coverageSummary,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      path.hashCode ^
+      sizeBytes.hashCode ^
+      families.hashCode ^
+      coverageSummary.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MountedAtlasWorkspaceDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          path == other.path &&
+          sizeBytes == other.sizeBytes &&
+          families == other.families &&
+          coverageSummary == other.coverageSummary;
 }
 
 class SavedOfflinePackDto {

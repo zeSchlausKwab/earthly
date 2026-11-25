@@ -5,7 +5,9 @@
 
 import 'api/agent.dart';
 import 'api/geo.dart';
+import 'api/nip46.dart';
 import 'api/nostr_client.dart';
+import 'api/private_groups.dart';
 import 'api/publish.dart';
 import 'api/settings.dart';
 import 'api/spike.dart';
@@ -56,6 +58,9 @@ abstract class EarthlyRustLibApiImplPlatform
   ApprovedPeerDto dco_decode_approved_peer_dto(dynamic raw);
 
   @protected
+  AtlasBundleInspectionDto dco_decode_atlas_bundle_inspection_dto(dynamic raw);
+
+  @protected
   AtlasSummaryDto dco_decode_atlas_summary_dto(dynamic raw);
 
   @protected
@@ -103,6 +108,27 @@ abstract class EarthlyRustLibApiImplPlatform
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
 
   @protected
+  CircleDatasetDto dco_decode_circle_dataset_dto(dynamic raw);
+
+  @protected
+  CircleJoinRequestDto dco_decode_circle_join_request_dto(dynamic raw);
+
+  @protected
+  CircleMessageDto dco_decode_circle_message_dto(dynamic raw);
+
+  @protected
+  CirclePendingJoinDto dco_decode_circle_pending_join_dto(dynamic raw);
+
+  @protected
+  CircleSnapshotDto dco_decode_circle_snapshot_dto(dynamic raw);
+
+  @protected
+  CircleWorkspaceDto dco_decode_circle_workspace_dto(dynamic raw);
+
+  @protected
+  DecodedCircleInviteDto dco_decode_decoded_circle_invite_dto(dynamic raw);
+
+  @protected
   DecodedFieldSessionInviteDto dco_decode_decoded_field_session_invite_dto(
     dynamic raw,
   );
@@ -144,7 +170,31 @@ abstract class EarthlyRustLibApiImplPlatform
   List<ApprovedPeerDto> dco_decode_list_approved_peer_dto(dynamic raw);
 
   @protected
+  List<AtlasBundleInspectionDto> dco_decode_list_atlas_bundle_inspection_dto(
+    dynamic raw,
+  );
+
+  @protected
   List<AtlasSummaryDto> dco_decode_list_atlas_summary_dto(dynamic raw);
+
+  @protected
+  List<CircleDatasetDto> dco_decode_list_circle_dataset_dto(dynamic raw);
+
+  @protected
+  List<CircleJoinRequestDto> dco_decode_list_circle_join_request_dto(
+    dynamic raw,
+  );
+
+  @protected
+  List<CircleMessageDto> dco_decode_list_circle_message_dto(dynamic raw);
+
+  @protected
+  List<CirclePendingJoinDto> dco_decode_list_circle_pending_join_dto(
+    dynamic raw,
+  );
+
+  @protected
+  List<CircleWorkspaceDto> dco_decode_list_circle_workspace_dto(dynamic raw);
 
   @protected
   List<GeoCommentDto> dco_decode_list_geo_comment_dto(dynamic raw);
@@ -166,6 +216,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<MapSummaryDto> dco_decode_list_map_summary_dto(dynamic raw);
+
+  @protected
+  List<MountedAtlasWorkspaceDto> dco_decode_list_mounted_atlas_workspace_dto(
+    dynamic raw,
+  );
 
   @protected
   List<PendingClaimDto> dco_decode_list_pending_claim_dto(dynamic raw);
@@ -223,7 +278,13 @@ abstract class EarthlyRustLibApiImplPlatform
   MapSummaryDto dco_decode_map_summary_dto(dynamic raw);
 
   @protected
+  MountedAtlasWorkspaceDto dco_decode_mounted_atlas_workspace_dto(dynamic raw);
+
+  @protected
   NearbyPeersSnapshot dco_decode_nearby_peers_snapshot(dynamic raw);
+
+  @protected
+  Nip46ConnectionDto dco_decode_nip_46_connection_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -359,6 +420,11 @@ abstract class EarthlyRustLibApiImplPlatform
   ApprovedPeerDto sse_decode_approved_peer_dto(SseDeserializer deserializer);
 
   @protected
+  AtlasBundleInspectionDto sse_decode_atlas_bundle_inspection_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   AtlasSummaryDto sse_decode_atlas_summary_dto(SseDeserializer deserializer);
 
   @protected
@@ -426,6 +492,37 @@ abstract class EarthlyRustLibApiImplPlatform
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
 
   @protected
+  CircleDatasetDto sse_decode_circle_dataset_dto(SseDeserializer deserializer);
+
+  @protected
+  CircleJoinRequestDto sse_decode_circle_join_request_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CircleMessageDto sse_decode_circle_message_dto(SseDeserializer deserializer);
+
+  @protected
+  CirclePendingJoinDto sse_decode_circle_pending_join_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CircleSnapshotDto sse_decode_circle_snapshot_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CircleWorkspaceDto sse_decode_circle_workspace_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  DecodedCircleInviteDto sse_decode_decoded_circle_invite_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   DecodedFieldSessionInviteDto sse_decode_decoded_field_session_invite_dto(
     SseDeserializer deserializer,
   );
@@ -481,7 +578,37 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<AtlasBundleInspectionDto> sse_decode_list_atlas_bundle_inspection_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<AtlasSummaryDto> sse_decode_list_atlas_summary_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<CircleDatasetDto> sse_decode_list_circle_dataset_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<CircleJoinRequestDto> sse_decode_list_circle_join_request_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<CircleMessageDto> sse_decode_list_circle_message_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<CirclePendingJoinDto> sse_decode_list_circle_pending_join_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<CircleWorkspaceDto> sse_decode_list_circle_workspace_dto(
     SseDeserializer deserializer,
   );
 
@@ -515,6 +642,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<MapSummaryDto> sse_decode_list_map_summary_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<MountedAtlasWorkspaceDto> sse_decode_list_mounted_atlas_workspace_dto(
     SseDeserializer deserializer,
   );
 
@@ -590,7 +722,17 @@ abstract class EarthlyRustLibApiImplPlatform
   MapSummaryDto sse_decode_map_summary_dto(SseDeserializer deserializer);
 
   @protected
+  MountedAtlasWorkspaceDto sse_decode_mounted_atlas_workspace_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   NearbyPeersSnapshot sse_decode_nearby_peers_snapshot(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Nip46ConnectionDto sse_decode_nip_46_connection_dto(
     SseDeserializer deserializer,
   );
 
@@ -782,6 +924,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_atlas_bundle_inspection_dto(
+    AtlasBundleInspectionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_atlas_summary_dto(
     AtlasSummaryDto self,
     SseSerializer serializer,
@@ -863,6 +1011,48 @@ abstract class EarthlyRustLibApiImplPlatform
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
 
   @protected
+  void sse_encode_circle_dataset_dto(
+    CircleDatasetDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_circle_join_request_dto(
+    CircleJoinRequestDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_circle_message_dto(
+    CircleMessageDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_circle_pending_join_dto(
+    CirclePendingJoinDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_circle_snapshot_dto(
+    CircleSnapshotDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_circle_workspace_dto(
+    CircleWorkspaceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_decoded_circle_invite_dto(
+    DecodedCircleInviteDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_decoded_field_session_invite_dto(
     DecodedFieldSessionInviteDto self,
     SseSerializer serializer,
@@ -932,8 +1122,44 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_atlas_bundle_inspection_dto(
+    List<AtlasBundleInspectionDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_atlas_summary_dto(
     List<AtlasSummaryDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_circle_dataset_dto(
+    List<CircleDatasetDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_circle_join_request_dto(
+    List<CircleJoinRequestDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_circle_message_dto(
+    List<CircleMessageDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_circle_pending_join_dto(
+    List<CirclePendingJoinDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_circle_workspace_dto(
+    List<CircleWorkspaceDto> self,
     SseSerializer serializer,
   );
 
@@ -976,6 +1202,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_map_summary_dto(
     List<MapSummaryDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_mounted_atlas_workspace_dto(
+    List<MountedAtlasWorkspaceDto> self,
     SseSerializer serializer,
   );
 
@@ -1067,8 +1299,20 @@ abstract class EarthlyRustLibApiImplPlatform
   void sse_encode_map_summary_dto(MapSummaryDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_mounted_atlas_workspace_dto(
+    MountedAtlasWorkspaceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_nearby_peers_snapshot(
     NearbyPeersSnapshot self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_nip_46_connection_dto(
+    Nip46ConnectionDto self,
     SseSerializer serializer,
   );
 

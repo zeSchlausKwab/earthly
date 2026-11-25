@@ -19,5 +19,6 @@ pub use outbox::{
     OutboxRelayView, OutboxRouting, OutboxStore, OUTBOX_PROTOCOL_VERSION,
 };
 pub use settings::{
-    AppSettingsStore, PersistedAppSettings, SavedOfflinePackRecord, SettingsStoreError,
+    AppSettingsStore, MountedAtlasWorkspaceRecord, PersistedAppSettings, SavedOfflinePackRecord,
+    SettingsStoreError,
 };

@@ -1,8 +1,11 @@
 //! Durable SQLite application settings (custom Nostr relays, persisted
-//! desktop/local Nostr identity, AI Agent provider settings, and mounted
-//! offline `.pmtiles` packs).
+//! desktop/local Nostr identity, NIP-46 bunker session, Cordn coordinator,
+//! AI Agent provider settings, mounted offline `.pmtiles`/`.atlas` packs,
+//! and Favorites / Recents).
 
-use earthly_storage::{AppSettingsStore, PersistedAppSettings, SavedOfflinePackRecord};
+use earthly_storage::{
+    AppSettingsStore, MountedAtlasWorkspaceRecord, PersistedAppSettings, SavedOfflinePackRecord,
+};
 
 #[derive(Clone, Debug)]
 pub struct SavedOfflinePackDto {
@@ -22,6 +25,15 @@ pub struct SavedOfflinePackDto {
 }
 
 #[derive(Clone, Debug)]
+pub struct MountedAtlasWorkspaceDto {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub families: Vec<String>,
+    pub coverage_summary: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct AppSettingsDto {
     pub relay_urls: Vec<String>,
     pub local_pubkey_hex: Option<String>,
@@ -33,6 +45,10 @@ pub struct AppSettingsDto {
     pub offline_packs: Vec<SavedOfflinePackDto>,
     pub pinned_entity_ids: Vec<String>,
     pub recent_entity_ids: Vec<String>,
+    pub cordn_server_pubkey: String,
+    pub bunker_uri: Option<String>,
+    pub bunker_client_nsec: Option<String>,
+    pub mounted_atlas_workspaces: Vec<MountedAtlasWorkspaceDto>,
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
@@ -82,6 +98,20 @@ fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
             .collect(),
         pinned_entity_ids: r.pinned_entity_ids,
         recent_entity_ids: r.recent_entity_ids,
+        cordn_server_pubkey: r.cordn_server_pubkey,
+        bunker_uri: r.bunker_uri,
+        bunker_client_nsec: r.bunker_client_nsec,
+        mounted_atlas_workspaces: r
+            .mounted_atlas_workspaces
+            .into_iter()
+            .map(|w| MountedAtlasWorkspaceDto {
+                name: w.name,
+                path: w.path,
+                size_bytes: w.size_bytes,
+                families: w.families,
+                coverage_summary: w.coverage_summary,
+            })
+            .collect(),
     }
 }
 
@@ -115,5 +145,19 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
             .collect(),
         pinned_entity_ids: d.pinned_entity_ids,
         recent_entity_ids: d.recent_entity_ids,
+        cordn_server_pubkey: d.cordn_server_pubkey,
+        bunker_uri: d.bunker_uri,
+        bunker_client_nsec: d.bunker_client_nsec,
+        mounted_atlas_workspaces: d
+            .mounted_atlas_workspaces
+            .into_iter()
+            .map(|w| MountedAtlasWorkspaceRecord {
+                name: w.name,
+                path: w.path,
+                size_bytes: w.size_bytes,
+                families: w.families,
+                coverage_summary: w.coverage_summary,
+            })
+            .collect(),
     }
 }

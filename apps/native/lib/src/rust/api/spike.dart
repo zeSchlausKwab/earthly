@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `current_node`, `detect_fips_ula_v6`, `detect_private_lan_ip`, `header_to_snapshot`, `node_slot`, `remote_record_to_dto`, `snapshot_from_node`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `current_node`, `detect_fips_ula_v6`, `detect_private_lan_ip`, `dir_size_and_scan`, `header_to_snapshot`, `node_slot`, `remote_record_to_dto`, `snapshot_from_node`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Start (or reuse) Earthly's embedded Nostr relay + Blossom node on loopback.
 Future<LocalNodeSnapshot> startLocalNode({required String dataDir}) =>
@@ -148,6 +148,33 @@ Future<int> syncNearbyPeer({required String nodeId}) =>
 Future<bool> forgetNearbyPeer({required String nodeId}) =>
     EarthlyRustLib.instance.api.crateApiSpikeForgetNearbyPeer(nodeId: nodeId);
 
+/// Inspects a local `.atlas` workspace directory or archive file on disk,
+/// reading optional `manifest.json`/`atlas.json` metadata and discovering
+/// embedded `.pmtiles`, spatial index, routing, or elevation data families.
+Future<AtlasBundleInspectionDto> inspectAtlasWorkspacePath({
+  required String path,
+}) => EarthlyRustLib.instance.api.crateApiSpikeInspectAtlasWorkspacePath(
+  path: path,
+);
+
+/// Scans candidate local directories for `.atlas` bundles (and standalone `.pmtiles`
+/// offline archives) so users can mount them with one tap in Basemap & Offline packs.
+Future<List<AtlasBundleInspectionDto>> discoverLocalAtlasBundles({
+  required List<String> searchDirs,
+}) => EarthlyRustLib.instance.api.crateApiSpikeDiscoverLocalAtlasBundles(
+  searchDirs: searchDirs,
+);
+
+/// Ingests a `.pmtiles` file directly from a local filesystem path into the
+/// running LocalNode Blossom server (used when mounting `.atlas` bundles).
+Future<IngestedPmtilesSnapshot> ingestLocalPmtilesFromPath({
+  required String path,
+  String? label,
+}) => EarthlyRustLib.instance.api.crateApiSpikeIngestLocalPmtilesFromPath(
+  path: path,
+  label: label,
+);
+
 class ApprovedPeerDto {
   final String peerPubkey;
   final List<String> capabilities;
@@ -171,6 +198,45 @@ class ApprovedPeerDto {
           peerPubkey == other.peerPubkey &&
           capabilities == other.capabilities &&
           sessionIds == other.sessionIds;
+}
+
+class AtlasBundleInspectionDto {
+  final String name;
+  final String path;
+  final BigInt sizeBytes;
+  final List<String> families;
+  final String coverageSummary;
+  final String? embeddedPmtilesPath;
+
+  const AtlasBundleInspectionDto({
+    required this.name,
+    required this.path,
+    required this.sizeBytes,
+    required this.families,
+    required this.coverageSummary,
+    this.embeddedPmtilesPath,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      path.hashCode ^
+      sizeBytes.hashCode ^
+      families.hashCode ^
+      coverageSummary.hashCode ^
+      embeddedPmtilesPath.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AtlasBundleInspectionDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          path == other.path &&
+          sizeBytes == other.sizeBytes &&
+          families == other.families &&
+          coverageSummary == other.coverageSummary &&
+          embeddedPmtilesPath == other.embeddedPmtilesPath;
 }
 
 class DecodedFieldSessionInviteDto {

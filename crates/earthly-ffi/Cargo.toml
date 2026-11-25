@@ -16,11 +16,13 @@ earthly-agent = { path = "../earthly-agent", features = ["native-http"] }
 earthly-domain = { path = "../earthly-domain" }
 earthly-geo = { path = "../earthly-geo" }
 earthly-local-node = { path = "../earthly-local-node" }
+earthly-mls = { path = "../earthly-mls" }
 earthly-spatial = { path = "../earthly-spatial" }
 earthly-storage = { path = "../earthly-storage" }
 flutter_rust_bridge = "=2.13.0"
 geo = "0.29"
 nostr = "0.44.1"
+nostr-connect = "0.44.1"
 nostr-sdk = "0.44.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde_json = "1"

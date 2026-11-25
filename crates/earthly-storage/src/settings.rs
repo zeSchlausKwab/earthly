@@ -6,6 +6,22 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 const SETTINGS_KEY: &str = "earthly.native.settings.v1";
+const DEFAULT_CORDN_PUBKEY: &str =
+    "fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37";
+
+fn default_cordn_pubkey() -> String {
+    DEFAULT_CORDN_PUBKEY.to_owned()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MountedAtlasWorkspaceRecord {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub families: Vec<String>,
+    pub coverage_summary: String,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +56,14 @@ pub struct PersistedAppSettings {
     pub pinned_entity_ids: Vec<String>,
     #[serde(default)]
     pub recent_entity_ids: Vec<String>,
+    #[serde(default = "default_cordn_pubkey")]
+    pub cordn_server_pubkey: String,
+    #[serde(default)]
+    pub bunker_uri: Option<String>,
+    #[serde(default)]
+    pub bunker_client_nsec: Option<String>,
+    #[serde(default)]
+    pub mounted_atlas_workspaces: Vec<MountedAtlasWorkspaceRecord>,
 }
 
 impl Default for PersistedAppSettings {
@@ -55,6 +79,10 @@ impl Default for PersistedAppSettings {
             offline_packs: Vec::new(),
             pinned_entity_ids: Vec::new(),
             recent_entity_ids: Vec::new(),
+            cordn_server_pubkey: default_cordn_pubkey(),
+            bunker_uri: None,
+            bunker_client_nsec: None,
+            mounted_atlas_workspaces: Vec::new(),
         }
     }
 }

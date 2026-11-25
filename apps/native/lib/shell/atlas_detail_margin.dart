@@ -26,6 +26,9 @@ class AtlasDetailMargin extends StatefulWidget {
     required this.onOpenStory,
     required this.onOpenDiscussion,
     required this.onClose,
+    this.isOwned = false,
+    this.onEditAtlas,
+    this.onDeleteAtlas,
     super.key,
   });
 
@@ -43,6 +46,9 @@ class AtlasDetailMargin extends StatefulWidget {
   final ValueChanged<StorySummaryDto> onOpenStory;
   final VoidCallback onOpenDiscussion;
   final VoidCallback onClose;
+  final bool isOwned;
+  final VoidCallback? onEditAtlas;
+  final Future<void> Function()? onDeleteAtlas;
 
   @override
   State<AtlasDetailMargin> createState() => _AtlasDetailMarginState();
@@ -265,6 +271,46 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
                 icon: const Icon(Icons.layers, size: 16),
                 label: Text('Show All (${maps.length})'),
               ),
+              if (widget.isOwned && widget.onEditAtlas != null)
+                OutlinedButton.icon(
+                  onPressed: widget.onEditAtlas,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('Edit Atlas'),
+                ),
+              if (widget.isOwned && widget.onDeleteAtlas != null)
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: EarthlyColors.destructive,
+                    side: const BorderSide(color: EarthlyColors.destructive),
+                  ),
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text('Delete "${atlas.name}"?'),
+                        content: const Text(
+                          'Publishes a NIP-09 deletion request (kind 5) to your configured Nostr relays.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: EarthlyColors.destructive,
+                            ),
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (ok == true) await widget.onDeleteAtlas!();
+                  },
+                  icon: const Icon(Icons.delete_outline, size: 16),
+                  label: const Text('Delete'),
+                ),
             ],
           ),
           if (atlas.description != null &&

@@ -32,6 +32,9 @@ class StoryReaderMargin extends StatelessWidget {
     required this.onOpenDiscussion,
     required this.onKeepOnShelf,
     required this.onClose,
+    this.isOwned = false,
+    this.onEditStory,
+    this.onDeleteStory,
     super.key,
   });
 
@@ -51,6 +54,9 @@ class StoryReaderMargin extends StatelessWidget {
   final VoidCallback onOpenDiscussion;
   final VoidCallback onKeepOnShelf;
   final VoidCallback onClose;
+  final bool isOwned;
+  final VoidCallback? onEditStory;
+  final Future<void> Function()? onDeleteStory;
 
   @override
   Widget build(BuildContext context) {
@@ -94,6 +100,48 @@ class StoryReaderMargin extends StatelessWidget {
                   onPressed: onOpenDiscussion,
                   icon: const Icon(Icons.forum_outlined, size: 18),
                 ),
+                if (isOwned && onEditStory != null)
+                  IconButton(
+                    tooltip: 'Edit Story (in-place)',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onEditStory,
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                  ),
+                if (isOwned && onDeleteStory != null)
+                  IconButton(
+                    tooltip: 'Delete Story (NIP-09)',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () async {
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: Text('Delete "${story.title}"?'),
+                          content: const Text(
+                            'Publishes a NIP-09 deletion request (kind 5) to your configured Nostr relays.',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: EarthlyColors.destructive,
+                              ),
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              child: const Text('Delete'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (ok == true) await onDeleteStory!();
+                    },
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      size: 18,
+                      color: EarthlyColors.destructive,
+                    ),
+                  ),
                 IconButton(
                   tooltip: 'Fit all story geometry',
                   visualDensity: VisualDensity.compact,

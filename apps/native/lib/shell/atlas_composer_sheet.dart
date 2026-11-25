@@ -16,6 +16,7 @@ class AtlasPublishRequest {
     required this.pinnedAddresses,
     required this.hashtags,
     required this.audience,
+    this.existingDTag,
   });
 
   final String name;
@@ -24,6 +25,7 @@ class AtlasPublishRequest {
   final List<String> pinnedAddresses;
   final List<String> hashtags;
   final DraftAudienceChoice audience;
+  final String? existingDTag;
 }
 
 /// Authoring drawer for Earthly v2 Atlases / Groups (`kind 37518`) pinning
@@ -35,6 +37,7 @@ class AtlasComposerSheet extends StatefulWidget {
     required this.catalogStories,
     required this.onPublishAtlas,
     required this.onClose,
+    this.editingAtlas,
     super.key,
   });
 
@@ -44,19 +47,27 @@ class AtlasComposerSheet extends StatefulWidget {
   final Future<PublishOutcomeDto> Function(AtlasPublishRequest req)
       onPublishAtlas;
   final VoidCallback onClose;
+  final AtlasSummaryDto? editingAtlas;
 
   @override
   State<AtlasComposerSheet> createState() => _AtlasComposerSheetState();
 }
 
 class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
-  final _nameController = TextEditingController();
-  final _descriptionController = TextEditingController();
-  final _hashtagsController = TextEditingController();
+  late final TextEditingController _nameController =
+      TextEditingController(text: widget.editingAtlas?.name ?? '');
+  late final TextEditingController _descriptionController =
+      TextEditingController(text: widget.editingAtlas?.description ?? '');
+  late final TextEditingController _hashtagsController = TextEditingController(
+    text: widget.editingAtlas?.hashtags.join(' ') ?? '',
+  );
   late final Set<String> _pinnedAddresses = {
-    for (final s in widget.shelfMaps) s.summary.address,
+    if (widget.editingAtlas != null)
+      ...widget.editingAtlas!.pinnedAddresses
+    else
+      for (final s in widget.shelfMaps) s.summary.address,
   };
-  String _governance = 'open';
+  late String _governance = widget.editingAtlas?.governance ?? 'open';
   DraftAudienceChoice _audience = DraftAudienceChoice.publicRelay;
   bool _publishing = false;
   String? _error;
@@ -95,6 +106,7 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
           pinnedAddresses: _pinnedAddresses.toList(growable: false),
           hashtags: tags,
           audience: _audience,
+          existingDTag: widget.editingAtlas?.dTag,
         ),
       );
       if (!mounted) return;
@@ -131,7 +143,9 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
             ),
             const SizedBox(width: 8),
             Text(
-              'CREATE ATLAS (KIND 37518)',
+              widget.editingAtlas != null
+                  ? 'EDIT ATLAS (KIND 37518)'
+                  : 'CREATE ATLAS (KIND 37518)',
               style: theme.textTheme.labelLarge?.copyWith(
                 fontFamily: 'monospace',
                 letterSpacing: 0.7,
@@ -290,9 +304,11 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
                   )
                 : const Icon(Icons.publish, size: 18),
             label: Text(
-              _audience == DraftAudienceChoice.publicRelay
-                  ? 'Publish Atlas (37518)'
-                  : 'Publish Atlas to Nearby Peers',
+              widget.editingAtlas != null
+                  ? 'Save & Update Atlas (37518)'
+                  : _audience == DraftAudienceChoice.publicRelay
+                      ? 'Publish Atlas (37518)'
+                      : 'Publish Atlas to Nearby Peers',
             ),
           ),
           if (_error != null) ...[

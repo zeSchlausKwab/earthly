@@ -27,6 +27,7 @@ Future<AgentTurnResultDto> runEarthlyAgentTurn({
   required String draftTitle,
   required String draftGeojson,
   required List<String> shelfMapTitles,
+  required List<String> atlasWorkspaces,
 }) => EarthlyRustLib.instance.api.crateApiAgentRunEarthlyAgentTurn(
   prompt: prompt,
   history: history,
@@ -39,6 +40,7 @@ Future<AgentTurnResultDto> runEarthlyAgentTurn({
   draftTitle: draftTitle,
   draftGeojson: draftGeojson,
   shelfMapTitles: shelfMapTitles,
+  atlasWorkspaces: atlasWorkspaces,
 );
 
 class AgentCameraActionDto {

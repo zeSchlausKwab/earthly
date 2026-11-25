@@ -4,6 +4,7 @@ import 'package:maplibre/maplibre.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../nostr/shelf_renderer.dart';
+import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'desk_sheet.dart';
@@ -17,6 +18,7 @@ class StoryPublishRequest {
     required this.linkedMapAddresses,
     required this.presentationJson,
     required this.audience,
+    this.existingDTag,
   });
 
   final String title;
@@ -25,6 +27,7 @@ class StoryPublishRequest {
   final List<String> linkedMapAddresses;
   final String? presentationJson;
   final DraftAudienceChoice audience;
+  final String? existingDTag;
 }
 
 /// Interactive Story Composer (`kind 37520`) hosted in the non-blocking
@@ -36,6 +39,7 @@ class StoryComposerDrawer extends StatefulWidget {
     required this.getCameraSnapshot,
     required this.onPublishStory,
     required this.onClose,
+    this.editingStory,
     super.key,
   });
 
@@ -44,18 +48,24 @@ class StoryComposerDrawer extends StatefulWidget {
   final Future<PublishOutcomeDto> Function(StoryPublishRequest req)
       onPublishStory;
   final VoidCallback onClose;
+  final StorySummaryDto? editingStory;
 
   @override
   State<StoryComposerDrawer> createState() => _StoryComposerDrawerState();
 }
 
 class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
-  final _titleController = TextEditingController();
-  final _summaryController = TextEditingController();
-  final _bodyController = TextEditingController();
+  late final TextEditingController _titleController =
+      TextEditingController(text: widget.editingStory?.title ?? '');
+  late final TextEditingController _summaryController =
+      TextEditingController(text: widget.editingStory?.summary ?? '');
+  late final TextEditingController _bodyController =
+      TextEditingController(text: widget.editingStory?.content ?? '');
 
-  late final Set<String> _selectedMapAddresses =
-      widget.shelfMaps.map((m) => m.summary.address).toSet();
+  late final Set<String> _selectedMapAddresses = {
+    ...widget.shelfMaps.map((m) => m.summary.address),
+    ...(widget.editingStory?.referencedAddresses ?? const <String>[]),
+  };
   DraftAudienceChoice _audience = DraftAudienceChoice.publicRelay;
   int _viewCounter = 0;
   bool _publishing = false;
@@ -155,6 +165,7 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
           linkedMapAddresses: _selectedMapAddresses.toList(growable: false),
           presentationJson: _buildPresentationJson(),
           audience: _audience,
+          existingDTag: widget.editingStory?.dTag,
         ),
       );
       if (!mounted) return;
@@ -181,7 +192,9 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
             const Icon(Icons.auto_stories_outlined, size: 17),
             const SizedBox(width: 8),
             Text(
-              'COMPOSE STORY (37520)',
+              widget.editingStory != null
+                  ? 'EDIT STORY (37520)'
+                  : 'COMPOSE STORY (37520)',
               style: theme.textTheme.labelLarge?.copyWith(
                 fontFamily: 'monospace',
                 letterSpacing: 0.7,
@@ -336,7 +349,11 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
                     )
                   : const Icon(Icons.publish, size: 16),
               label: Text(
-                _publishing ? 'Publishing…' : 'Sign & Publish Story (37520)',
+                _publishing
+                    ? 'Publishing…'
+                    : widget.editingStory != null
+                        ? 'Save & Update Story (37520)'
+                        : 'Sign & Publish Story (37520)',
               ),
             ),
           ],

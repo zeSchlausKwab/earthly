@@ -6,6 +6,7 @@ import '../nostr/nip55_signer.dart';
 import '../nostr/shelf_renderer.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
+import '../src/rust/api/private_groups.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'entity_list_row.dart';
@@ -26,6 +27,7 @@ enum RustGeoAction {
 enum DraftAudienceChoice {
   publicRelay,
   nearbyLocalNode,
+  privateCircle,
 }
 
 /// Desk sheet: active Shelf layers + Local Draft (persisted in SQLite) +
@@ -43,6 +45,9 @@ class DeskSheet extends StatefulWidget {
     required this.deskAtlases,
     required this.drawnFeatures,
     this.activeAtlasLensName,
+    this.circles = const <CircleWorkspaceDto>[],
+    this.selectedCircleId,
+    this.onSelectedCircleChanged,
     required this.onSelectDraft,
     required this.onCreateNewDraft,
     required this.onDeleteDraft,
@@ -81,6 +86,9 @@ class DeskSheet extends StatefulWidget {
   final List<AtlasSummaryDto> deskAtlases;
   final List<DrawnFeature> drawnFeatures;
   final String? activeAtlasLensName;
+  final List<CircleWorkspaceDto> circles;
+  final String? selectedCircleId;
+  final ValueChanged<String?>? onSelectedCircleChanged;
   final ValueChanged<LocalDraftDto> onSelectDraft;
   final VoidCallback onCreateNewDraft;
   final ValueChanged<String> onDeleteDraft;
@@ -506,29 +514,94 @@ class _DeskSheetState extends State<DeskSheet> {
               ),
               const SizedBox(height: 10),
 
-              // Per-working-copy Publish Audience
+              // Per-working-copy Publish Audience (Public | Nearby | MLS Circle)
               SegmentedButton<DraftAudienceChoice>(
-                segments: const [
-                  ButtonSegment(
+                segments: [
+                  const ButtonSegment(
                     value: DraftAudienceChoice.publicRelay,
                     label: Text('Public'),
-                    icon: Icon(Icons.public, size: 16),
+                    icon: Icon(Icons.public, size: 15),
                   ),
-                  ButtonSegment(
+                  const ButtonSegment(
                     value: DraftAudienceChoice.nearbyLocalNode,
                     label: Text('Nearby'),
-                    icon: Icon(Icons.wifi_tethering, size: 16),
+                    icon: Icon(Icons.wifi_tethering, size: 15),
                   ),
+                  if (widget.circles.isNotEmpty)
+                    const ButtonSegment(
+                      value: DraftAudienceChoice.privateCircle,
+                      label: Text('Circle'),
+                      icon: Icon(Icons.lock_outline, size: 15),
+                    ),
                 ],
                 selected: {_audience},
                 onSelectionChanged: (selection) {
                   final next = selection.first;
                   setState(() => _audience = next);
                   widget.onAudienceChanged(next);
+                  if (next == DraftAudienceChoice.privateCircle &&
+                      widget.selectedCircleId == null &&
+                      widget.circles.isNotEmpty) {
+                    widget.onSelectedCircleChanged
+                        ?.call(widget.circles.first.workspaceId);
+                  }
                 },
               ),
+              if (_audience == DraftAudienceChoice.privateCircle &&
+                  widget.circles.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final circle in widget.circles)
+                      ChoiceChip(
+                        avatar: const Icon(Icons.lock, size: 14),
+                        label: Text(circle.name),
+                        selected: widget.selectedCircleId == circle.workspaceId,
+                        onSelected: (_) => widget.onSelectedCircleChanged
+                            ?.call(circle.workspaceId),
+                      ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 10),
-              if (widget.activeAtlasLensName != null) ...[
+              if (_audience == DraftAudienceChoice.privateCircle) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: EarthlyColors.measureViolet.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: EarthlyColors.measureViolet.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.lock,
+                        size: 14,
+                        color: EarthlyColors.measureViolet,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'MLS-encrypted · publishes ONLY to Circle "${widget.circles.where((c) => c.workspaceId == widget.selectedCircleId).firstOrNull?.name ?? widget.circles.firstOrNull?.name ?? "Circle"}" (never public Nostr)',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ] else if (widget.activeAtlasLensName != null) ...[
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -574,13 +647,20 @@ class _DeskSheetState extends State<DeskSheet> {
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.publish, size: 18),
+                    : Icon(
+                        _audience == DraftAudienceChoice.privateCircle
+                            ? Icons.lock_outline
+                            : Icons.publish,
+                        size: 18,
+                      ),
                 label: Text(
-                  widget.account == null
-                      ? 'Sign with Amber & Publish Map'
-                      : _audience == DraftAudienceChoice.publicRelay
-                          ? 'Publish to relay.earthly.city'
-                          : 'Publish to Nearby Local Node',
+                  _audience == DraftAudienceChoice.privateCircle
+                      ? 'Encrypt & Publish to Circle'
+                      : widget.account == null
+                          ? 'Sign & Publish Map'
+                          : _audience == DraftAudienceChoice.publicRelay
+                              ? 'Publish to relay.earthly.city'
+                              : 'Publish to Nearby Local Node',
                 ),
               ),
               if (_publishError != null) ...[

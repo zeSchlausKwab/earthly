@@ -9,6 +9,7 @@ import '../nostr/nip55_signer.dart';
 import '../runtime/device_bridge.dart';
 import '../runtime/rust_bridge.dart';
 import '../spike/rust_node_sheet.dart';
+import '../src/rust/api/private_groups.dart';
 import '../src/rust/api/publish.dart';
 import '../src/rust/api/spike.dart';
 import '../theme/earthly_theme.dart';
@@ -33,6 +34,11 @@ class SpacesSheet extends StatefulWidget {
     required this.onNearbySynced,
     required this.onBroadcastBeacon,
     required this.onClose,
+    this.circles = const <CircleWorkspaceDto>[],
+    this.pendingCircleJoinsCount = 0,
+    this.activeCircleId,
+    this.onOpenCircles,
+    this.onSelectCircle,
     this.initialPairingLink,
     super.key,
   });
@@ -51,6 +57,11 @@ class SpacesSheet extends StatefulWidget {
     int durationMinutes,
     bool nearby,
   ) onBroadcastBeacon;
+  final List<CircleWorkspaceDto> circles;
+  final int pendingCircleJoinsCount;
+  final String? activeCircleId;
+  final VoidCallback? onOpenCircles;
+  final ValueChanged<CircleWorkspaceDto>? onSelectCircle;
   final String? initialPairingLink;
   final VoidCallback onClose;
 
@@ -439,7 +450,7 @@ class _SpacesSheetState extends State<SpacesSheet> {
         child: Row(
           children: [
             Text(
-              'SPACES · ACCOUNT & NEARBY',
+              'SPACES · CIRCLES & NEARBY',
               style: theme.textTheme.labelLarge?.copyWith(
                 fontFamily: 'monospace',
                 letterSpacing: 0.7,
@@ -548,6 +559,118 @@ class _SpacesSheetState extends State<SpacesSheet> {
               ),
             ),
             const SizedBox(height: 14),
+          ],
+
+          // MLS / Cordn Private Circles section
+          if (widget.onOpenCircles != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: EarthlyColors.measureViolet.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: EarthlyColors.measureViolet.withValues(alpha: 0.4),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.lock_outline,
+                        size: 16,
+                        color: EarthlyColors.measureViolet,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'CIRCLES · MLS / CORDN (${widget.circles.length})',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w800,
+                          color: EarthlyColors.measureViolet,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (widget.pendingCircleJoinsCount > 0)
+                        EarthlyBadge(
+                          label: '${widget.pendingCircleJoinsCount} PENDING',
+                          color: EarthlyColors.amber,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    widget.circles.isEmpty
+                        ? 'End-to-end encrypted private maps & chat synced via Cordn (Web & Native compatible).'
+                        : 'Tap a Circle to inspect encrypted maps, chat, invites, or member roles.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  if (widget.circles.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    for (final circle in widget.circles.take(3))
+                      InkWell(
+                        onTap: () => widget.onSelectCircle?.call(circle),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 5),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: widget.activeCircleId == circle.workspaceId
+                                ? EarthlyColors.measureViolet
+                                    .withValues(alpha: 0.16)
+                                : theme.colorScheme.surface,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: widget.activeCircleId == circle.workspaceId
+                                  ? EarthlyColors.measureViolet
+                                  : theme.dividerColor,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  circle.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '${circle.datasets.length}m · ${circle.members.length}p',
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 10.5,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.chevron_right, size: 17),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: widget.onOpenCircles,
+                    icon: const Icon(Icons.groups_outlined, size: 17),
+                    label: Text(
+                      widget.circles.isEmpty
+                          ? 'Create or Join Private Circle'
+                          : 'Open Circles Manager',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 22),
           ],
 
           // Identity section

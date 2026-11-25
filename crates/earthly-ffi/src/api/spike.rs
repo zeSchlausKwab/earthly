@@ -615,6 +615,212 @@ fn snapshot_from_node(node: &LocalNode) -> LocalNodeSnapshot {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct AtlasBundleInspectionDto {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub families: Vec<String>,
+    pub coverage_summary: String,
+    pub embedded_pmtiles_path: Option<String>,
+}
+
+fn dir_size_and_scan(
+    root: &std::path::Path,
+    depth: usize,
+    total_bytes: &mut u64,
+    families: &mut Vec<String>,
+    embedded_pmtiles: &mut Option<String>,
+) {
+    if depth > 4 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else { continue };
+        if meta.is_dir() {
+            dir_size_and_scan(&path, depth + 1, total_bytes, families, embedded_pmtiles);
+        } else if meta.is_file() {
+            *total_bytes = total_bytes.saturating_add(meta.len());
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if ext == "pmtiles" {
+                if !families.iter().any(|f| f == "vector_tiles") {
+                    families.push("vector_tiles".to_owned());
+                }
+                if embedded_pmtiles.is_none() {
+                    *embedded_pmtiles = Some(path.to_string_lossy().into_owned());
+                }
+            } else if ext == "sqlite" || ext == "sqlite3" || ext == "db" || ext == "mbtiles" {
+                if !families.iter().any(|f| f == "spatial_index") {
+                    families.push("spatial_index".to_owned());
+                }
+            } else if ext == "geojson" || ext == "json" {
+                if file_name.contains("route") || file_name.contains("valhalla") {
+                    if !families.iter().any(|f| f == "routing") {
+                        families.push("routing".to_owned());
+                    }
+                } else if file_name != "manifest.json" && file_name != "atlas.json" {
+                    if !families.iter().any(|f| f == "features") {
+                        families.push("features".to_owned());
+                    }
+                }
+            } else if ext == "dem" || ext == "tif" || ext == "hgt" {
+                if !families.iter().any(|f| f == "elevation") {
+                    families.push("elevation".to_owned());
+                }
+            }
+        }
+    }
+}
+
+/// Inspects a local `.atlas` workspace directory or archive file on disk,
+/// reading optional `manifest.json`/`atlas.json` metadata and discovering
+/// embedded `.pmtiles`, spatial index, routing, or elevation data families.
+pub fn inspect_atlas_workspace_path(path: String) -> Result<AtlasBundleInspectionDto, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Atlas bundle path cannot be empty".to_owned());
+    }
+    let p = std::path::Path::new(trimmed);
+    if !p.exists() {
+        return Err(format!("Atlas bundle path does not exist: {trimmed}"));
+    }
+    let mut name = p
+        .file_stem()
+        .or_else(|| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("Offline Atlas")
+        .to_owned();
+    let mut families: Vec<String> = Vec::new();
+    let mut embedded_pmtiles: Option<String> = None;
+    let mut size_bytes: u64 = 0;
+
+    if p.is_dir() {
+        for manifest_name in ["manifest.json", "atlas.json"] {
+            let mpath = p.join(manifest_name);
+            if let Ok(raw) = std::fs::read_to_string(&mpath) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if let Some(title) = val
+                        .get("name")
+                        .or_else(|| val.get("title"))
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        name = title.to_owned();
+                    }
+                    if let Some(arr) = val.get("families").and_then(|v| v.as_array()) {
+                        for f in arr {
+                            if let Some(s) = f.as_str() {
+                                if !families.iter().any(|x| x == s) {
+                                    families.push(s.to_owned());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        dir_size_and_scan(p, 0, &mut size_bytes, &mut families, &mut embedded_pmtiles);
+    } else if let Ok(meta) = std::fs::metadata(p) {
+        size_bytes = meta.len();
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if ext == "pmtiles" {
+            families.push("vector_tiles".to_owned());
+            embedded_pmtiles = Some(trimmed.to_owned());
+        } else {
+            families.push("atlas_archive".to_owned());
+        }
+    }
+
+    if families.is_empty() {
+        families.push("atlas_workspace".to_owned());
+    }
+    let coverage_summary = format!(
+        "{} ({} KB · {})",
+        name,
+        (size_bytes / 1024).max(1),
+        families.join(", ")
+    );
+
+    Ok(AtlasBundleInspectionDto {
+        name,
+        path: trimmed.to_owned(),
+        size_bytes,
+        families,
+        coverage_summary,
+        embedded_pmtiles_path: embedded_pmtiles,
+    })
+}
+
+/// Scans candidate local directories for `.atlas` bundles (and standalone `.pmtiles`
+/// offline archives) so users can mount them with one tap in Basemap & Offline packs.
+pub fn discover_local_atlas_bundles(search_dirs: Vec<String>) -> Vec<AtlasBundleInspectionDto> {
+    let mut found = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for dir in search_dirs {
+        let Ok(entries) = std::fs::read_dir(dir.trim()) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if ext != "atlas" {
+                continue;
+            }
+            let path_str = path.to_string_lossy().into_owned();
+            if !seen.insert(path_str.clone()) {
+                continue;
+            }
+            if let Ok(bundle) = inspect_atlas_workspace_path(path_str) {
+                found.push(bundle);
+            }
+        }
+    }
+    found.sort_by(|a, b| a.name.cmp(&b.name));
+    found
+}
+
+/// Ingests a `.pmtiles` file directly from a local filesystem path into the
+/// running LocalNode Blossom server (used when mounting `.atlas` bundles).
+pub async fn ingest_local_pmtiles_from_path(
+    path: String,
+    label: Option<String>,
+) -> Result<IngestedPmtilesSnapshot, String> {
+    let bytes = std::fs::read(path.trim())
+        .map_err(|e| format!("Failed to read local PMTiles file: {e}"))?;
+    let resolved_label = label
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| {
+            std::path::Path::new(path.trim())
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("offline.pmtiles")
+                .to_owned()
+        });
+    ingest_local_pmtiles(bytes, resolved_label).await
+}
+
 fn header_to_snapshot(header: &PmtilesHeader) -> PmtilesHeaderSnapshot {
     let format = match header.tile_type.to_tile_format() {
         TileFormat::Mvt => "mvt",
@@ -687,5 +893,25 @@ mod tests {
         assert_eq!(summary.total, 0);
 
         assert!(shutdown_local_node());
+    }
+
+    #[test]
+    fn discovers_and_inspects_local_atlas_bundle_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle_dir = dir.path().join("danube.atlas");
+        std::fs::create_dir_all(&bundle_dir).unwrap();
+        std::fs::write(
+            bundle_dir.join("manifest.json"),
+            r#"{"name":"Danube Basin Offline Atlas","families":["vector_tiles","routing"]}"#,
+        )
+        .unwrap();
+        std::fs::write(bundle_dir.join("tiles.pmtiles"), sample_pmtiles_bytes()).unwrap();
+
+        let found = discover_local_atlas_bundles(vec![dir.path().to_string_lossy().into_owned()]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "Danube Basin Offline Atlas");
+        assert!(found[0].families.contains(&"vector_tiles".to_owned()));
+        assert!(found[0].families.contains(&"routing".to_owned()));
+        assert!(found[0].embedded_pmtiles_path.is_some());
     }
 }

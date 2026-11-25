@@ -21,6 +21,7 @@ import 'shell/agent_drawer.dart';
 import 'shell/atlas_composer_sheet.dart';
 import 'shell/atlas_detail_margin.dart';
 import 'shell/basemap_switcher_sheet.dart';
+import 'shell/circles_sheet.dart';
 import 'shell/dataset_detail_margin.dart';
 import 'shell/desk_sheet.dart';
 import 'shell/discussion_margin_sheet.dart';
@@ -34,7 +35,9 @@ import 'shell/story_reader_margin.dart';
 import 'spike/rust_node_sheet.dart';
 import 'src/rust/api/agent.dart';
 import 'src/rust/api/geo.dart';
+import 'src/rust/api/nip46.dart';
 import 'src/rust/api/nostr_client.dart';
+import 'src/rust/api/private_groups.dart';
 import 'src/rust/api/publish.dart';
 import 'src/rust/api/settings.dart';
 import 'src/rust/api/spike.dart';
@@ -59,6 +62,7 @@ enum _ActiveDrawer {
   explore,
   desk,
   spaces,
+  circles,
   account,
   search,
   agent,
@@ -131,6 +135,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   BasemapKind? _selectedBasemap;
   OfflinePmtilesBasemap? _offlineBasemap;
   final List<SavedOfflinePackDto> _savedOfflinePacks = <SavedOfflinePackDto>[];
+  final List<MountedAtlasWorkspaceDto> _mountedAtlasWorkspaces =
+      <MountedAtlasWorkspaceDto>[];
   bool _showLabels = true;
   CalloutDisplayMode _calloutMode = CalloutDisplayMode.full;
 
@@ -173,6 +179,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   final List<LiveBeaconDto> _localBeacons = <LiveBeaconDto>[];
   Nip55Account? _account;
   String? _localNsec;
+  String? _bunkerUri;
+  String? _bunkerClientNsec;
+  String _cordnServerPubkey =
+      'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37';
+  String _mlsDatabasePath = '';
+  List<CircleWorkspaceDto> _circles = <CircleWorkspaceDto>[];
+  List<CirclePendingJoinDto> _circlePendingJoins = <CirclePendingJoinDto>[];
+  String? _activeCircleLensId;
+  String? _selectedCircleId;
+  String? _pendingDeepLinkCircleInvite;
+  StorySummaryDto? _editingStory;
+  AtlasSummaryDto? _editingAtlas;
   String? _hostedSessionId;
   RemotePeerDto? _acceptedRemotePeer;
 
@@ -228,8 +246,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   Future<void> _bootstrapPersistentState() async {
     DeviceBridge.setDeepLinkHandler(_handleIncomingDeepLink);
+    final dir = await getApplicationSupportDirectory();
+    if (mounted) {
+      setState(() => _mlsDatabasePath = '${dir.path}/mls.sqlite3');
+    }
     await _restoreAppSettings();
     await _restoreSavedDraft();
+    unawaited(_refreshCirclesSnapshot());
     unawaited(_preloadCatalog());
     unawaited(_startLiveRelayStream());
     final initialLink = await DeviceBridge.getInitialDeepLink();
@@ -261,6 +284,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   void _handleIncomingDeepLink(String rawUri) {
     final trimmed = rawUri.trim();
     final lower = trimmed.toLowerCase();
+    if (lower.contains('private-invite=') ||
+        lower.contains('/circle/') ||
+        lower.contains('/privategroup/') ||
+        lower.contains('/private-group/')) {
+      setState(() {
+        _pendingDeepLinkCircleInvite = trimmed;
+        _drawer = _ActiveDrawer.circles;
+      });
+      return;
+    }
     if (lower.startsWith('earthly://pair') ||
         lower.contains('earthly-pair-v1:')) {
       setState(() {
@@ -314,6 +347,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             loaded.localNsec!.isNotEmpty) {
           _account = Nip55Account(pubkey: loaded.localPubkeyHex!);
           _localNsec = loaded.localNsec;
+        } else if (loaded.localPubkeyHex != null &&
+            loaded.localPubkeyHex!.isNotEmpty &&
+            loaded.bunkerUri != null &&
+            loaded.bunkerUri!.isNotEmpty &&
+            loaded.bunkerClientNsec != null &&
+            loaded.bunkerClientNsec!.isNotEmpty) {
+          _account = Nip55Account(pubkey: loaded.localPubkeyHex!);
+          _bunkerUri = loaded.bunkerUri;
+          _bunkerClientNsec = loaded.bunkerClientNsec;
+        }
+        if (loaded.cordnServerPubkey.length == 64) {
+          _cordnServerPubkey = loaded.cordnServerPubkey;
         }
         _agentSettings = CopilotProviderSettings(
           presetName: loaded.agentPreset,
@@ -324,6 +369,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         _savedOfflinePacks
           ..clear()
           ..addAll(loaded.offlinePacks);
+        _mountedAtlasWorkspaces
+          ..clear()
+          ..addAll(loaded.mountedAtlasWorkspaces);
         _pinnedEntityIds
           ..clear()
           ..addAll(loaded.pinnedEntityIds);
@@ -343,7 +391,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         databasePath: dbPath,
         settings: AppSettingsDto(
           relayUrls: _relayUrls,
-          localPubkeyHex: _localNsec != null ? _account?.pubkey : null,
+          localPubkeyHex: (_localNsec != null || _bunkerUri != null)
+              ? _account?.pubkey
+              : null,
           localNsec: _localNsec,
           agentPreset: _agentSettings.presetName,
           agentBaseUrl: _agentSettings.baseUrl,
@@ -352,6 +402,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           offlinePacks: List<SavedOfflinePackDto>.from(_savedOfflinePacks),
           pinnedEntityIds: _pinnedEntityIds.toList(growable: false),
           recentEntityIds: List<String>.from(_recentEntityIds),
+          cordnServerPubkey: _cordnServerPubkey,
+          bunkerUri: _bunkerUri,
+          bunkerClientNsec: _bunkerClientNsec,
+          mountedAtlasWorkspaces:
+              List<MountedAtlasWorkspaceDto>.from(_mountedAtlasWorkspaces),
         ),
       );
     } catch (_) {}
@@ -656,7 +711,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   Future<PublishOutcomeDto> _publishAtlas(AtlasPublishRequest req) async {
     await RustBridge.ensureInitialized();
     final account = await _ensureAccount();
-    final dTag = 'atlas-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+    final dTag = (req.existingDTag != null && req.existingDTag!.isNotEmpty)
+        ? req.existingDTag!
+        : 'atlas-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
     final prepared = await prepareUnsignedAtlasEvent(
       pubkeyOrNpub: account.pubkey,
       dTag: dTag,
@@ -1209,6 +1266,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         draftTitle: _draftTitle,
         draftGeojson: draftGeojson,
         shelfMapTitles: _shelfMaps.map((e) => e.summary.title).toList(),
+        atlasWorkspaces:
+            _mountedAtlasWorkspaces.map((w) => w.coverageSummary).toList(),
       );
 
       if (!mounted) return;
@@ -1401,6 +1460,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     Nip55Account account,
     String unsignedEventJson,
   ) async {
+    if (_bunkerUri != null &&
+        _bunkerUri!.isNotEmpty &&
+        _bunkerClientNsec != null &&
+        _bunkerClientNsec!.isNotEmpty) {
+      await RustBridge.ensureInitialized();
+      return signEventWithNip46Bunker(
+        bunkerUri: _bunkerUri!,
+        clientNsec: _bunkerClientNsec!,
+        unsignedEventJson: unsignedEventJson,
+      );
+    }
     if (_localNsec != null && _localNsec!.isNotEmpty) {
       await RustBridge.ensureInitialized();
       return signEventWithNsec(
@@ -2331,6 +2401,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                     OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(ctx).pop();
+                        setState(() => _drawer = _ActiveDrawer.circles);
+                      },
+                      icon: const Icon(Icons.lock_outline, size: 16),
+                      label: Text(
+                        _circles.isEmpty
+                            ? 'Circles (MLS)'
+                            : 'Circles (${_circles.length})',
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
                         showModalBottomSheet<void>(
                           context: context,
                           builder: (_) => const RustNodeSheet(),
@@ -2567,7 +2649,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   Future<PublishOutcomeDto> _publishStory(StoryPublishRequest req) async {
     await RustBridge.ensureInitialized();
     final account = await _ensureAccount();
-    final dTag = 'story-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+    final dTag = (req.existingDTag != null && req.existingDTag!.isNotEmpty)
+        ? req.existingDTag!
+        : 'story-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
     final prepared = await prepareUnsignedStoryEvent(
       pubkeyOrNpub: account.pubkey,
       dTag: dTag,
@@ -2627,8 +2711,43 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     DraftAudienceChoice audience,
   ) async {
     await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
     final geojson = draftFeaturesToGeoJson(title: title, features: _features);
+
+    // Encrypted MLS / Cordn Circle destination: NEVER leaks to public Nostr!
+    if (audience == DraftAudienceChoice.privateCircle) {
+      final targetId = _selectedCircleId ??
+          _activeCircleLensId ??
+          _circles.firstOrNull?.workspaceId;
+      if (targetId == null || targetId.isEmpty) {
+        throw StateError('Create or select a Circle first');
+      }
+      final mlsPath = await _ensureMlsDatabasePath();
+      final updated = await sendCircleDataset(
+        databasePath: mlsPath,
+        signerNsec: _localNsec,
+        bunkerUri: _bunkerUri,
+        bunkerClientNsec: _bunkerClientNsec,
+        workspaceId: targetId,
+        geojsonJson: geojson,
+        datasetId: _draftDTag,
+        name: title,
+      );
+      _handleCircleWorkspaceUpdated(updated);
+      unawaited(_persistWorkingDraft());
+      return PublishOutcomeDto(
+        eventId: updated.datasets.firstOrNull?.envelopeId ?? _draftDTag,
+        outboxState: 'mls-encrypted (epoch ${updated.epoch})',
+        relays: [
+          RelayDeliveryStatusDto(
+            relayUrl: 'cordn://${updated.name}',
+            ok: true,
+            message: 'cursor ${updated.cursor}',
+          ),
+        ],
+      );
+    }
+
+    final account = await _ensureAccount();
     final prepared = await prepareUnsignedMapEvent(
       pubkeyOrNpub: account.pubkey,
       dTag: _draftDTag,
@@ -2647,6 +2766,378 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     final outcome = await _deliverForAudience(audience, signedEventJson);
     unawaited(_persistWorkingDraft());
     return outcome;
+  }
+
+  Future<String> _ensureMlsDatabasePath() async {
+    if (_mlsDatabasePath.isNotEmpty) return _mlsDatabasePath;
+    final dir = await getApplicationSupportDirectory();
+    final path = '${dir.path}/mls.sqlite3';
+    if (mounted) setState(() => _mlsDatabasePath = path);
+    return path;
+  }
+
+  Future<void> _refreshCirclesSnapshot() async {
+    if (widget.mapBuilder != null) return;
+    final pk = _account?.pubkey;
+    if (pk == null || pk.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _circles = const [];
+          _circlePendingJoins = const [];
+          _activeCircleLensId = null;
+        });
+      }
+      return;
+    }
+    try {
+      await RustBridge.ensureInitialized();
+      final mlsPath = await _ensureMlsDatabasePath();
+      final snap = await loadCirclesSnapshot(
+        databasePath: mlsPath,
+        ownerPubkeyHex: pk,
+      );
+      if (!mounted) return;
+      setState(() {
+        _circles = snap.workspaces;
+        _circlePendingJoins = snap.pendingJoins;
+      });
+    } catch (_) {}
+  }
+
+  CircleWorkspaceDto? get _activeCircleLens {
+    final id = _activeCircleLensId;
+    if (id == null) return null;
+    for (final c in _circles) {
+      if (c.workspaceId == id) return c;
+    }
+    return null;
+  }
+
+  MapSummaryDto _circleDatasetToSummary(
+    CircleWorkspaceDto ws,
+    CircleDatasetDto ds,
+  ) {
+    final addr = 'private-group:${ws.workspaceId}:${ds.datasetId}';
+    return MapSummaryDto(
+      address: addr,
+      eventId: ds.envelopeId,
+      pubkey: ds.pubkey,
+      dTag: ds.datasetId,
+      title: '🔒 ${ds.title}',
+      description: 'MLS-encrypted Circle Map (${ws.name})',
+      featureCount: ds.featureCount,
+      sizeBytes: ds.geojsonJson.length,
+      geojson: ds.geojsonJson,
+      hashtags: const ['circle-mls'],
+      labels: const <String>[],
+      contextRefs: [ws.workspaceId],
+      createdAt: ds.createdAt,
+    );
+  }
+
+  void _handleCircleWorkspaceUpdated(CircleWorkspaceDto ws) {
+    if (!mounted) return;
+    setState(() {
+      final idx = _circles.indexWhere((c) => c.workspaceId == ws.workspaceId);
+      if (idx >= 0) {
+        _circles = [
+          ..._circles.sublist(0, idx),
+          ws,
+          ..._circles.sublist(idx + 1),
+        ];
+      } else {
+        _circles = [ws, ..._circles];
+      }
+      if (_activeCircleLensId == ws.workspaceId) {
+        for (final ds in ws.datasets) {
+          final summary = _circleDatasetToSummary(ws, ds);
+          final sIdx =
+              _shelfMaps.indexWhere((e) => e.summary.address == summary.address);
+          if (sIdx >= 0) {
+            _shelfMaps[sIdx] = _entryFromSummary(summary)
+                .copyWith(visible: _shelfMaps[sIdx].visible);
+          } else {
+            _shelfMaps.add(_entryFromSummary(summary));
+          }
+        }
+      }
+    });
+  }
+
+  void _enterCircleLens(CircleWorkspaceDto ws) {
+    final added = <ShelfMapEntry>[];
+    setState(() {
+      _activeCircleLensId = ws.workspaceId;
+      _selectedCircleId = ws.workspaceId;
+      _draftAudience = DraftAudienceChoice.privateCircle;
+      _shelfMaps.removeWhere(
+        (e) =>
+            e.summary.address.startsWith('private-group:') &&
+            !e.summary.address.startsWith('private-group:${ws.workspaceId}:'),
+      );
+      for (final ds in ws.datasets) {
+        final summary = _circleDatasetToSummary(ws, ds);
+        final existingIdx =
+            _shelfMaps.indexWhere((e) => e.summary.address == summary.address);
+        if (existingIdx >= 0) {
+          added.add(_shelfMaps[existingIdx]);
+        } else {
+          final entry = _entryFromSummary(summary);
+          _shelfMaps.add(entry);
+          added.add(entry);
+        }
+      }
+    });
+    final bounds = computeCombinedBounds(added);
+    if (bounds != null) _flyToBounds(bounds);
+  }
+
+  void _leaveCircleLens() {
+    setState(() {
+      _activeCircleLensId = null;
+      _shelfMaps.removeWhere(
+        (e) => e.summary.address.startsWith('private-group:'),
+      );
+      if (_draftAudience == DraftAudienceChoice.privateCircle) {
+        _draftAudience = DraftAudienceChoice.publicRelay;
+      }
+    });
+  }
+
+  void _toggleCircleDatasetOnMap(CircleWorkspaceDto ws, CircleDatasetDto ds) {
+    final summary = _circleDatasetToSummary(ws, ds);
+    final idx =
+        _shelfMaps.indexWhere((e) => e.summary.address == summary.address);
+    if (idx >= 0) {
+      setState(() => _shelfMaps.removeAt(idx));
+    } else {
+      final entry = _entryFromSummary(summary);
+      setState(() => _shelfMaps.add(entry));
+      final bounds = computeCombinedBounds([entry]);
+      if (bounds != null) _flyToBounds(bounds);
+    }
+  }
+
+  void _zoomToCircleDataset(CircleWorkspaceDto ws, CircleDatasetDto ds) {
+    final summary = _circleDatasetToSummary(ws, ds);
+    final existingIdx =
+        _shelfMaps.indexWhere((e) => e.summary.address == summary.address);
+    final ShelfMapEntry entry;
+    if (existingIdx >= 0) {
+      entry = _shelfMaps[existingIdx];
+    } else {
+      entry = _entryFromSummary(summary);
+      setState(() => _shelfMaps.add(entry));
+    }
+    final bounds = computeCombinedBounds([entry]);
+    if (bounds != null) _flyToBounds(bounds);
+  }
+
+  void _editCircleDatasetInDraft(CircleWorkspaceDto ws, CircleDatasetDto ds) {
+    final parsed = parseDraftFeaturesFromGeoJson(ds.geojsonJson);
+    setState(() {
+      _activeCircleLensId = ws.workspaceId;
+      _selectedCircleId = ws.workspaceId;
+      _draftAudience = DraftAudienceChoice.privateCircle;
+      _draftDTag = ds.datasetId;
+      _draftTitle = ds.title;
+      _features
+        ..clear()
+        ..addAll(parsed);
+      _draftVertices.clear();
+      _featureCounter = parsed.length;
+      _drawer = _ActiveDrawer.desk;
+    });
+    unawaited(_persistWorkingDraft());
+  }
+
+  void _startNewPrivateMapInCircle(CircleWorkspaceDto ws) {
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    setState(() {
+      _activeCircleLensId = ws.workspaceId;
+      _selectedCircleId = ws.workspaceId;
+      _draftAudience = DraftAudienceChoice.privateCircle;
+      _draftDTag = 'circle-map-$nowSec';
+      _draftTitle = '${ws.name} Map';
+      _features.clear();
+      _draftVertices.clear();
+      _featureCounter = 0;
+      _drawer = _ActiveDrawer.desk;
+    });
+    unawaited(_persistWorkingDraft());
+  }
+
+  void _toggleCircleCommentGeometry(CircleMessageDto msg) {
+    if (_activeCommentOverlayId == msg.envelopeId) {
+      setState(() {
+        _activeCommentOverlayId = null;
+        _commentOverlayShapes = const [];
+      });
+      return;
+    }
+    if (msg.geojsonJson == null || msg.geojsonJson!.isEmpty) return;
+    final shapes = parseGeoJsonShapes(
+      msg.geojsonJson!,
+      datasetTitle: 'Circle Comment',
+    );
+    setState(() {
+      _activeCommentOverlayId = msg.envelopeId;
+      _commentOverlayShapes = shapes;
+    });
+    if (shapes.isNotEmpty) {
+      final bounds = computeFeatureBounds(shapes.first);
+      if (bounds != null) _flyToBounds(bounds);
+    }
+  }
+
+  Future<CircleWorkspaceDto> _sendCircleComment(
+    String workspaceId,
+    String text,
+    bool attachDraft,
+  ) async {
+    await RustBridge.ensureInitialized();
+    final mlsPath = await _ensureMlsDatabasePath();
+    final geojson = (attachDraft && _features.isNotEmpty)
+        ? draftFeaturesToGeoJson(title: 'Circle attachment', features: _features)
+        : null;
+    final updated = await sendCircleComment(
+      databasePath: mlsPath,
+      signerNsec: _localNsec,
+      bunkerUri: _bunkerUri,
+      bunkerClientNsec: _bunkerClientNsec,
+      workspaceId: workspaceId,
+      text: text,
+      geojsonJson: geojson,
+    );
+    _handleCircleWorkspaceUpdated(updated);
+    return updated;
+  }
+
+  Future<void> _deleteOwnedStory(StorySummaryDto story) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final prepared = await prepareUnsignedDeletionEvent(
+      pubkeyOrNpub: account.pubkey,
+      targetAddress: story.address,
+      targetEventId: story.eventId,
+      targetKind: 37520,
+      reason: 'Deleted story "${story.title}"',
+    );
+    final signed =
+        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+    final outcome =
+        await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+    if (!mounted) return;
+    setState(() {
+      _deskStories.removeWhere((s) => s.address == story.address);
+      if (_catalog != null) {
+        _catalog = EarthlyCatalogSnapshot(
+          relayUrls: _catalog!.relayUrls,
+          maps: _catalog!.maps,
+          stories: _catalog!.stories
+              .where((s) => s.address != story.address)
+              .toList(growable: false),
+          atlases: _catalog!.atlases,
+          sightings: _catalog!.sightings,
+          beacons: _catalog!.beacons,
+        );
+      }
+    });
+    _closeStory();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Published NIP-09 deletion for "${story.title}" (${outcome.outboxState})',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteOwnedAtlas(AtlasSummaryDto atlas) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final prepared = await prepareUnsignedDeletionEvent(
+      pubkeyOrNpub: account.pubkey,
+      targetAddress: atlas.address,
+      targetEventId: atlas.eventId,
+      targetKind: 37518,
+      reason: 'Deleted atlas "${atlas.name}"',
+    );
+    final signed =
+        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+    final outcome =
+        await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+    if (!mounted) return;
+    setState(() {
+      _deskAtlases.removeWhere((a) => a.address == atlas.address);
+      if (_activeAtlasLens?.address == atlas.address) {
+        _activeAtlasLens = null;
+      }
+      if (_catalog != null) {
+        _catalog = EarthlyCatalogSnapshot(
+          relayUrls: _catalog!.relayUrls,
+          maps: _catalog!.maps,
+          stories: _catalog!.stories,
+          atlases: _catalog!.atlases
+              .where((a) => a.address != atlas.address)
+              .toList(growable: false),
+          sightings: _catalog!.sightings,
+          beacons: _catalog!.beacons,
+        );
+      }
+      _drawer = _ActiveDrawer.none;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Published NIP-09 deletion for "${atlas.name}" (${outcome.outboxState})',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _mountAtlasWorkspace(AtlasBundleInspectionDto bundle) async {
+    final record = MountedAtlasWorkspaceDto(
+      name: bundle.name,
+      path: bundle.path,
+      sizeBytes: bundle.sizeBytes,
+      families: bundle.families,
+      coverageSummary: bundle.coverageSummary,
+    );
+    setState(() {
+      _mountedAtlasWorkspaces.removeWhere((w) => w.path == record.path);
+      _mountedAtlasWorkspaces.insert(0, record);
+    });
+    unawaited(_persistAppSettings());
+
+    // Auto-mount embedded PMTiles basemap inside the .atlas bundle if present!
+    if (bundle.embeddedPmtilesPath != null &&
+        bundle.embeddedPmtilesPath!.isNotEmpty) {
+      try {
+        final dir = await getApplicationSupportDirectory();
+        await startLocalNode(dataDir: '${dir.path}/local-node');
+        final ingested = await ingestLocalPmtilesFromPath(
+          path: bundle.embeddedPmtilesPath!,
+          label: bundle.name,
+        );
+        final offline = OfflinePmtilesBasemap(
+          snapshot: ingested,
+          styleJson: buildPmtilesStyleJson(ingested),
+        );
+        if (mounted) {
+          setState(() {
+            _offlineBasemap = offline;
+            _selectedBasemap = BasemapKind.offlinePmtiles;
+          });
+        }
+      } catch (_) {}
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Mounted .atlas workspace "${bundle.name}"')),
+      );
+    }
   }
 
   Future<SightingPublishResult> _publishSighting(
@@ -2980,6 +3471,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         },
         onToggleLabels: (val) => setState(() => _showLabels = val),
         onChangeCalloutMode: (mode) => setState(() => _calloutMode = mode),
+        mountedAtlasWorkspaces: _mountedAtlasWorkspaces,
+        onMountAtlasWorkspace: _mountAtlasWorkspace,
+        onUnmountAtlasWorkspace: (path) {
+          setState(
+            () => _mountedAtlasWorkspaces.removeWhere((w) => w.path == path),
+          );
+          unawaited(_persistAppSettings());
+        },
       ),
     );
   }
@@ -3043,10 +3542,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onFocusSighting: _focusSighting,
           onFocusBeacon: _focusBeacon,
           onCreateSighting: _openSightingComposer,
-          onComposeStory: () =>
-              setState(() => _drawer = _ActiveDrawer.storyComposer),
-          onCreateAtlas: () =>
-              setState(() => _drawer = _ActiveDrawer.atlasComposer),
+          onComposeStory: () => setState(() {
+            _editingStory = null;
+            _drawer = _ActiveDrawer.storyComposer;
+          }),
+          onCreateAtlas: () => setState(() {
+            _editingAtlas = null;
+            _drawer = _ActiveDrawer.atlasComposer;
+          }),
           onOpenBeaconBroadcaster: () =>
               setState(() => _drawer = _ActiveDrawer.spaces),
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
@@ -3064,6 +3567,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           deskAtlases: _deskAtlases,
           drawnFeatures: _features,
           activeAtlasLensName: _activeAtlasLens?.name,
+          circles: _circles,
+          selectedCircleId: _selectedCircleId ?? _activeCircleLensId,
+          onSelectedCircleChanged: (id) =>
+              setState(() => _selectedCircleId = id),
           onSelectDraft: _selectSavedDraft,
           onCreateNewDraft: _createNewDraft,
           onDeleteDraft: (id) => unawaited(_deleteSavedDraft(id)),
@@ -3114,10 +3621,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ),
           onRunGeoAction: _runGeoAction,
           onPublishDraft: _publishDraft,
-          onComposeStory: () =>
-              setState(() => _drawer = _ActiveDrawer.storyComposer),
-          onCreateAtlas: () =>
-              setState(() => _drawer = _ActiveDrawer.atlasComposer),
+          onComposeStory: () => setState(() {
+            _editingStory = null;
+            _drawer = _ActiveDrawer.storyComposer;
+          }),
+          onCreateAtlas: () => setState(() {
+            _editingAtlas = null;
+            _drawer = _ActiveDrawer.atlasComposer;
+          }),
           onImportGeoJson: () => unawaited(_importGeoJsonFile()),
           onExportGeoJsonFile: () => unawaited(_exportGeoJsonFile()),
           onCopyGeoJson: _copyGeoJsonToClipboard,
@@ -3136,10 +3647,26 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           localNsec: _localNsec,
           relayUrls: _relayUrls,
           initialPairingLink: _pendingDeepLinkPairing,
+          circles: _circles,
+          pendingCircleJoinsCount: _circlePendingJoins.length,
+          activeCircleId: _activeCircleLensId,
+          onOpenCircles: () => setState(() => _drawer = _ActiveDrawer.circles),
+          onSelectCircle: (ws) => setState(() {
+            _selectedCircleId = ws.workspaceId;
+            _drawer = _ActiveDrawer.circles;
+          }),
           onRelayUrlsChanged: _updateRelayUrls,
           onAccountChanged: (account) {
-            setState(() => _account = account);
+            setState(() {
+              _account = account;
+              if (account == null) {
+                _localNsec = null;
+                _bunkerUri = null;
+                _bunkerClientNsec = null;
+              }
+            });
             unawaited(_persistAppSettings());
+            unawaited(_refreshCirclesSnapshot());
           },
           onLocalKeyChanged: (kp) {
             setState(() {
@@ -3148,9 +3675,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               } else {
                 _account = Nip55Account(pubkey: kp.pubkeyHex);
                 _localNsec = kp.nsec;
+                _bunkerUri = null;
+                _bunkerClientNsec = null;
               }
             });
             unawaited(_persistAppSettings());
+            unawaited(_refreshCirclesSnapshot());
           },
           onSessionStateChanged: (hostedId, acceptedPeer) {
             setState(() {
@@ -3165,15 +3695,63 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onBroadcastBeacon: _broadcastLiveBeacon,
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
         );
+      case _ActiveDrawer.circles:
+        return CirclesSheet(
+          account: _account,
+          localNsec: _localNsec,
+          bunkerUri: _bunkerUri,
+          bunkerClientNsec: _bunkerClientNsec,
+          mlsDatabasePath: _mlsDatabasePath,
+          cordnServerPubkey: _cordnServerPubkey,
+          relayUrls: _activeRelayUrls,
+          workspaces: _circles,
+          pendingJoins: _circlePendingJoins,
+          activeCircleId: _activeCircleLensId,
+          mountedCircleDatasetKeys:
+              _shelfMaps.map((e) => e.summary.address).toSet(),
+          activeCommentOverlayId: _activeCommentOverlayId,
+          hasDraftGeometry: _features.isNotEmpty,
+          profilesByPubkey: _profilesByPubkey,
+          initialWorkspaceId: _selectedCircleId,
+          initialInviteLink: _pendingDeepLinkCircleInvite,
+          onCordnPubkeyChanged: (pubkey) {
+            setState(() => _cordnServerPubkey = pubkey);
+            unawaited(_persistAppSettings());
+          },
+          onRefreshCircles: _refreshCirclesSnapshot,
+          onWorkspaceUpdated: _handleCircleWorkspaceUpdated,
+          onEnterCircleLens: _enterCircleLens,
+          onLeaveCircleLens: _leaveCircleLens,
+          onToggleDatasetOnMap: _toggleCircleDatasetOnMap,
+          onZoomToDataset: _zoomToCircleDataset,
+          onEditDatasetInDraft: _editCircleDatasetInDraft,
+          onStartNewPrivateMap: _startNewPrivateMapInCircle,
+          onToggleCommentGeometry: _toggleCircleCommentGeometry,
+          onSendCircleComment: _sendCircleComment,
+          onOpenAccount: () => setState(() => _drawer = _ActiveDrawer.account),
+          onClose: () => setState(() {
+            _pendingDeepLinkCircleInvite = null;
+            _drawer = _ActiveDrawer.none;
+          }),
+        );
       case _ActiveDrawer.account:
         return AccountSessionSheet(
           account: _account,
           localNsec: _localNsec,
+          bunkerUri: _bunkerUri,
           profile: _account != null ? _profilesByPubkey[_account!.pubkey] : null,
           activeSessionSummary: _activeSessionSummaryText,
           onAccountChanged: (account) {
-            setState(() => _account = account);
+            setState(() {
+              _account = account;
+              if (account == null) {
+                _localNsec = null;
+                _bunkerUri = null;
+                _bunkerClientNsec = null;
+              }
+            });
             unawaited(_persistAppSettings());
+            unawaited(_refreshCirclesSnapshot());
             if (account != null) {
               unawaited(
                 fetchProfiles(
@@ -3193,9 +3771,38 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               } else {
                 _account = Nip55Account(pubkey: kp.pubkeyHex);
                 _localNsec = kp.nsec;
+                _bunkerUri = null;
+                _bunkerClientNsec = null;
               }
             });
             unawaited(_persistAppSettings());
+            unawaited(_refreshCirclesSnapshot());
+          },
+          onBunkerConnected: (conn) {
+            setState(() {
+              if (conn == null) {
+                _bunkerUri = null;
+                _bunkerClientNsec = null;
+              } else {
+                _account = Nip55Account(pubkey: conn.userPubkeyHex);
+                _localNsec = null;
+                _bunkerUri = conn.bunkerUri;
+                _bunkerClientNsec = conn.clientNsec;
+              }
+            });
+            unawaited(_persistAppSettings());
+            unawaited(_refreshCirclesSnapshot());
+            if (conn != null) {
+              unawaited(
+                fetchProfiles(
+                  relayUrls: _activeRelayUrls,
+                  pubkeys: [conn.userPubkeyHex],
+                ).then((list) {
+                  if (!mounted || list.isEmpty) return;
+                  setState(() => _profilesByPubkey[list.first.pubkey] = list.first);
+                }),
+              );
+            }
           },
           onSaveProfile: _publishProfile,
           onOpenSpaces: () => setState(() => _drawer = _ActiveDrawer.spaces),
@@ -3255,22 +3862,38 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             ),
           ),
           onKeepOnShelf: _keepStoryMapsOnShelf,
+          isOwned: _account != null && _account!.pubkey == _activeStory!.pubkey,
+          onEditStory: () => setState(() {
+            _editingStory = _activeStory;
+            _drawer = _ActiveDrawer.storyComposer;
+          }),
+          onDeleteStory: () => _deleteOwnedStory(_activeStory!),
           onClose: _closeStory,
         );
       case _ActiveDrawer.storyComposer:
         return StoryComposerDrawer(
+          key: ValueKey(_editingStory?.address ?? 'new-story'),
           shelfMaps: _shelfMaps,
+          editingStory: _editingStory,
           getCameraSnapshot: () => _controller?.camera,
           onPublishStory: _publishStory,
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => setState(() {
+            _editingStory = null;
+            _drawer = _ActiveDrawer.none;
+          }),
         );
       case _ActiveDrawer.atlasComposer:
         return AtlasComposerSheet(
+          key: ValueKey(_editingAtlas?.address ?? 'new-atlas'),
           shelfMaps: _shelfMaps,
           catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
           catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
+          editingAtlas: _editingAtlas,
           onPublishAtlas: _publishAtlas,
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => setState(() {
+            _editingAtlas = null;
+            _drawer = _ActiveDrawer.none;
+          }),
         );
       case _ActiveDrawer.atlasDetail:
         final atlas = _inspectedAtlas ?? _activeAtlasLens;
@@ -3283,6 +3906,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           shelfAddresses: _shelfMaps.map((e) => e.summary.address).toSet(),
           profilesByPubkey: _profilesByPubkey,
           isActiveLens: _activeAtlasLens?.address == atlas.address,
+          isOwned: _account != null && _account!.pubkey == atlas.pubkey,
+          onEditAtlas: () => setState(() {
+            _editingAtlas = atlas;
+            _drawer = _ActiveDrawer.atlasComposer;
+          }),
+          onDeleteAtlas: () => _deleteOwnedAtlas(atlas),
           onToggleLens: () {
             if (_activeAtlasLens?.address == atlas.address) {
               _leaveAtlasLens();
@@ -3841,6 +4470,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                       ),
                       const SizedBox(width: 6),
                       _MiniToggle(
+                        label: _circlePendingJoins.isNotEmpty
+                            ? 'Circles (${_circlePendingJoins.length})'
+                            : 'Circles',
+                        icon: Icons.lock_outline,
+                        active: _drawer == _ActiveDrawer.circles ||
+                            _activeCircleLensId != null,
+                        onTap: () => _toggleDrawer(_ActiveDrawer.circles),
+                      ),
+                      const SizedBox(width: 6),
+                      _MiniToggle(
                         label: 'Agent',
                         icon: Icons.auto_awesome,
                         active: _drawer == _ActiveDrawer.agent,
@@ -4118,6 +4757,92 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             color: systemIsDark
                                 ? EarthlyColors.darkInk
                                 : EarthlyColors.amberInk,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Active Circle Lens Bar (MLS-encrypted private workspace scoping & indicator)
+          if (_activeCircleLens != null && !_isDrawingMode)
+            Positioned(
+              key: const Key('earthly-circle-lens-bar'),
+              top: _activeAtlasLens != null ? 114 : 62,
+              left: isDesktop && activeDrawerWidget != null ? 440 : 12,
+              right: 12,
+              child: SafeArea(
+                bottom: false,
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: EarthlyGlassSurface(
+                    borderRadius: BorderRadius.circular(14),
+                    color: EarthlyColors.measureViolet.withValues(
+                      alpha: systemIsDark ? 0.28 : 0.92,
+                    ),
+                    borderColor: EarthlyColors.measureViolet,
+                    borderWidth: 1.4,
+                    padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.lock,
+                          size: 15,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _activeCircleLens!.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                '${_activeCircleLens!.datasets.length} maps · ${_activeCircleLens!.members.length} members · epoch ${_activeCircleLens!.epoch} · MLS',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 9.5,
+                                  color: Colors.white.withValues(alpha: 0.85),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          onPressed: () => setState(() {
+                            _selectedCircleId = _activeCircleLens!.workspaceId;
+                            _drawer = _ActiveDrawer.circles;
+                          }),
+                          child: const Text('Open'),
+                        ),
+                        IconButton(
+                          tooltip: 'Leave Circle Lens',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: _leaveCircleLens,
+                          icon: const Icon(
+                            Icons.close,
+                            size: 16,
+                            color: Colors.white,
                           ),
                         ),
                       ],
@@ -4497,12 +5222,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             ),
                             Expanded(
                               child: _DockTool(
-                                label: _pendingClaimCount > 0
-                                    ? 'Spaces ($_pendingClaimCount)'
+                                label: (_pendingClaimCount +
+                                            _circlePendingJoins.length) >
+                                        0
+                                    ? 'Spaces (${_pendingClaimCount + _circlePendingJoins.length})'
                                     : 'Spaces',
                                 icon: Icons.hub_outlined,
                                 selected: _drawer == _ActiveDrawer.spaces ||
-                                    _pendingClaimCount > 0,
+                                    _drawer == _ActiveDrawer.circles ||
+                                    _pendingClaimCount > 0 ||
+                                    _circlePendingJoins.isNotEmpty,
                                 onTap: () =>
                                     _toggleDrawer(_ActiveDrawer.spaces),
                               ),

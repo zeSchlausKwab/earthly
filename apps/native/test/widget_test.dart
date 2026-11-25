@@ -1,15 +1,23 @@
 import 'package:earthly_native/main.dart';
 import 'package:earthly_native/nostr/callout_overlay.dart';
+import 'package:earthly_native/nostr/nip55_signer.dart';
 import 'package:earthly_native/nostr/shelf_renderer.dart';
 import 'package:earthly_native/nostr/story_presentation.dart';
+import 'package:earthly_native/shell/account_session_sheet.dart';
+import 'package:earthly_native/shell/atlas_composer_sheet.dart';
 import 'package:earthly_native/shell/atlas_detail_margin.dart';
 import 'package:earthly_native/shell/basemap_switcher_sheet.dart';
+import 'package:earthly_native/shell/circles_sheet.dart';
 import 'package:earthly_native/shell/dataset_detail_margin.dart';
 import 'package:earthly_native/shell/entity_list_row.dart';
 import 'package:earthly_native/shell/explore_sheet.dart';
 import 'package:earthly_native/shell/map_drawer.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
+import 'package:earthly_native/shell/story_composer_sheet.dart';
 import 'package:earthly_native/src/rust/api/nostr_client.dart';
+import 'package:earthly_native/src/rust/api/private_groups.dart';
+import 'package:earthly_native/src/rust/api/publish.dart';
+import 'package:earthly_native/src/rust/api/settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -605,5 +613,301 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
     await tester.drag(find.text('DRAG ME DOWN'), const Offset(0, 360));
     await tester.pumpAndSettle();
     expect(closed, isTrue);
+  });
+
+  testWidgets(
+      'CirclesSheet renders MLS Circle list, encrypted Chat/Maps/Settings tabs, and Lens toggle',
+      (WidgetTester tester) async {
+    const alicePk =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const bobPk =
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const sampleGeo =
+        '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[16.37,48.20]},"properties":{"name":"Base Camp"}}]}';
+
+    final ws = CircleWorkspaceDto(
+      workspaceId: 'ws-alpine-1',
+      groupId: 'grp-alpine-1',
+      name: 'Alpine Survey Crew',
+      description: 'Private ridge mapping team',
+      recommendedBasemap: 'OpenFreeMap Liberty',
+      role: 'admin',
+      status: 'active',
+      cursor: BigInt.from(4),
+      epoch: BigInt.from(2),
+      coordinatorPubkey:
+          'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+      relays: const ['wss://relay.earthly.city'],
+      members: const [alicePk, bobPk],
+      administrators: const [alicePk],
+      datasets: [
+        CircleDatasetDto(
+          workspaceId: 'ws-alpine-1',
+          envelopeId: 'env-map-1',
+          datasetId: 'ridge-routes',
+          title: 'Ridge Routes',
+          pubkey: alicePk,
+          createdAt: BigInt.from(1791000000),
+          geojsonJson: sampleGeo,
+          featureCount: 1,
+        ),
+      ],
+      messages: [
+        CircleMessageDto(
+          envelopeId: 'env-msg-1',
+          pubkey: bobPk,
+          createdAt: BigInt.from(1791000100),
+          kind: 37517,
+          text: 'Check the north saddle crossing',
+          geojsonJson: sampleGeo,
+          geometryFeatureCount: 1,
+        ),
+      ],
+      createdAtMs: BigInt.from(1791000000000),
+    );
+
+    String? enteredLensId;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              CirclesSheet(
+                account: const Nip55Account(pubkey: alicePk),
+                localNsec: 'nsec1testlocalkey',
+                bunkerUri: null,
+                bunkerClientNsec: null,
+                mlsDatabasePath: '/tmp/test_mls.sqlite3',
+                cordnServerPubkey:
+                    'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+                relayUrls: const ['wss://relay.earthly.city'],
+                workspaces: [ws],
+                pendingJoins: const [],
+                activeCircleId: null,
+                mountedCircleDatasetKeys: const {},
+                activeCommentOverlayId: null,
+                hasDraftGeometry: true,
+                profilesByPubkey: const {},
+                onCordnPubkeyChanged: (_) {},
+                onRefreshCircles: () async {},
+                onWorkspaceUpdated: (_) {},
+                onEnterCircleLens: (w) => enteredLensId = w.workspaceId,
+                onLeaveCircleLens: () {},
+                onToggleDatasetOnMap: (_, _) {},
+                onZoomToDataset: (_, _) {},
+                onEditDatasetInDraft: (_, _) {},
+                onStartNewPrivateMap: (_) {},
+                onToggleCommentGeometry: (_) {},
+                onSendCircleComment: (_, _, _) async => ws,
+                onOpenAccount: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Alpine Survey Crew'), findsOneWidget);
+    await tester.tap(find.text('Alpine Survey Crew'));
+    await tester.pumpAndSettle();
+
+    // Chat tab shows encrypted message & geometry attachment pill.
+    expect(find.text('Check the north saddle crossing'), findsOneWidget);
+    expect(find.text('1 geometry attached'), findsOneWidget);
+
+    // Maps tab shows encrypted GeoJSON dataset.
+    await tester.tap(find.text('Maps (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('Ridge Routes'), findsOneWidget);
+
+    // Circle Lens button works.
+    await tester.tap(find.byTooltip('Enter Circle Lens'));
+    await tester.pump();
+    expect(enteredLensId, 'ws-alpine-1');
+  });
+
+  testWidgets(
+      'AccountSessionSheet shows NIP-46 Bunker connection controls and status',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AccountSessionSheet(
+                account: null,
+                localNsec: null,
+                bunkerUri: null,
+                profile: null,
+                activeSessionSummary: null,
+                onAccountChanged: (_) {},
+                onLocalKeyChanged: (_) {},
+                onBunkerConnected: (_) {},
+                onSaveProfile: (_) async => const PublishOutcomeDto(
+                  eventId: 'ev',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onOpenSpaces: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Connect Bunker (NIP-46)'), findsOneWidget);
+    await tester.tap(find.text('Connect Bunker (NIP-46)'));
+    await tester.pump();
+    expect(find.text('Connect'), findsOneWidget);
+  });
+
+  testWidgets(
+      'StoryComposerDrawer & AtlasComposerSheet preserve existing d-tag in edit-in-place mode',
+      (WidgetTester tester) async {
+    StoryPublishRequest? publishedStory;
+    final existingStory = StorySummaryDto(
+      address: '37520:aaa:my-story',
+      eventId: 'ev-st',
+      pubkey: 'aaa',
+      dTag: 'my-story',
+      title: 'Danube Journal',
+      summary: 'Notes along the river',
+      content: '# Day 1\n\nStarted in Vienna.',
+      referencedAddresses: const [],
+      publishedAt: BigInt.from(1791000000),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              StoryComposerDrawer(
+                shelfMaps: const [],
+                editingStory: existingStory,
+                getCameraSnapshot: () => null,
+                onPublishStory: (req) async {
+                  publishedStory = req;
+                  return const PublishOutcomeDto(
+                    eventId: '0123456789abcdef0123456789abcdef',
+                    outboxState: 'sent',
+                    relays: [],
+                  );
+                },
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('EDIT STORY (37520)'), findsOneWidget);
+    expect(find.text('Danube Journal'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Save & Update Story (37520)'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Save & Update Story (37520)'));
+    await tester.pumpAndSettle();
+    expect(publishedStory?.existingDTag, 'my-story');
+
+    AtlasPublishRequest? publishedAtlas;
+    final existingAtlas = AtlasSummaryDto(
+      address: '37518:aaa:my-atlas',
+      eventId: 'ev-at',
+      pubkey: 'aaa',
+      dTag: 'my-atlas',
+      name: 'Vienna Cycling',
+      description: 'Best protected lanes',
+      governance: 'schema',
+      pinnedAddresses: const [],
+      hashtags: const ['cycling'],
+      createdAt: BigInt.from(1791000000),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AtlasComposerSheet(
+                shelfMaps: const [],
+                catalogMaps: const [],
+                catalogStories: const [],
+                editingAtlas: existingAtlas,
+                onPublishAtlas: (req) async {
+                  publishedAtlas = req;
+                  return const PublishOutcomeDto(
+                    eventId: '0123456789abcdef0123456789abcdef',
+                    outboxState: 'sent',
+                    relays: [],
+                  );
+                },
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('EDIT ATLAS (KIND 37518)'), findsOneWidget);
+    expect(find.text('Vienna Cycling'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Save & Update Atlas (37518)'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Save & Update Atlas (37518)'));
+    await tester.pumpAndSettle();
+    expect(publishedAtlas?.existingDTag, 'my-atlas');
+    expect(publishedAtlas?.governance, 'schema');
+  });
+
+  testWidgets(
+      'BasemapSwitcherSheet displays mounted .atlas workspaces and unmounts cleanly',
+      (WidgetTester tester) async {
+    String? unmountedPath;
+    final bundle = MountedAtlasWorkspaceDto(
+      name: 'alps-2026.atlas',
+      path: '/tmp/alps-2026.atlas',
+      sizeBytes: BigInt.from(4 * 1024 * 1024),
+      families: const ['tiles', 'datasets', 'terrain'],
+      coverageSummary: 'alps-2026.atlas (tiles, datasets, terrain)',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BasemapSwitcherSheet(
+            activeBasemap: BasemapKind.openFreeMapLiberty,
+            offlineBasemap: null,
+            showLabels: true,
+            calloutMode: CalloutDisplayMode.full,
+            mountedAtlasWorkspaces: [bundle],
+            onUnmountAtlasWorkspace: (p) => unmountedPath = p,
+            onSelectBasemap: (_) {},
+            onLoadedOfflinePmtiles: (_) {},
+            onToggleLabels: (_) {},
+            onChangeCalloutMode: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('alps-2026.atlas'),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('alps-2026.atlas'), findsOneWidget);
+    await tester.tap(find.byTooltip('Unmount .atlas'));
+    await tester.pump();
+    expect(unmountedPath, '/tmp/alps-2026.atlas');
   });
 }
