@@ -119,6 +119,26 @@ pub fn delete_local_draft(database_path: String, draft_id: String) -> Result<boo
     store.delete(&draft_id).map_err(|e| e.to_string())
 }
 
+/// Lists all locally persisted SQLite working drafts ordered by most recently updated.
+pub fn list_local_drafts(database_path: String) -> Result<Vec<LocalDraftDto>, String> {
+    let store = DraftStore::open(database_path).map_err(|e| e.to_string())?;
+    let drafts = store.list().map_err(|e| e.to_string())?;
+    Ok(drafts
+        .into_iter()
+        .map(|d| LocalDraftDto {
+            draft_id: d.draft_id,
+            d_tag: d.d_tag,
+            entity_kind: d.entity_kind,
+            title: d.title,
+            description: d.description,
+            audience_channel: d.audience_channel,
+            audience_id: d.audience_id,
+            geojson: d.geojson,
+            updated_at: d.updated_at,
+        })
+        .collect())
+}
+
 /// Validates a FeatureCollection with `earthly-geo`, attaches canonical Earthly
 /// tags (`d`, `bbox`, multi-precision `g`, `crs`, `checksum`, `size`, `v`, `t`),
 /// and returns an unsigned kind-37515 event JSON ready for NIP-55 Amber signing.

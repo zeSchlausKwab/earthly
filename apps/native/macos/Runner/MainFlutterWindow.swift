@@ -3,6 +3,19 @@ import FlutterMacOS
 import UniformTypeIdentifiers
 
 class MainFlutterWindow: NSWindow {
+  private static var deviceChannel: FlutterMethodChannel?
+  private static var pendingDeepLink: String?
+
+  static func deliverDeepLink(_ uri: String) {
+    if let channel = deviceChannel {
+      DispatchQueue.main.async {
+        channel.invokeMethod("onDeepLink", arguments: uri)
+      }
+    } else {
+      pendingDeepLink = uri
+    }
+  }
+
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
@@ -20,12 +33,17 @@ class MainFlutterWindow: NSWindow {
       name: "city.earthly/device",
       binaryMessenger: controller.engine.binaryMessenger
     )
+    MainFlutterWindow.deviceChannel = channel
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self = self else {
         result(FlutterError(code: "disposed", message: "Window closed", details: nil))
         return
       }
       switch call.method {
+      case "getInitialDeepLink":
+        let link = MainFlutterWindow.pendingDeepLink
+        MainFlutterWindow.pendingDeepLink = nil
+        result(link)
       case "pickPmtilesFile":
         self.openFilePanel(
           title: "Select Offline .pmtiles Archive",

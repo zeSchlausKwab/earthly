@@ -33,6 +33,7 @@ class SpacesSheet extends StatefulWidget {
     required this.onNearbySynced,
     required this.onBroadcastBeacon,
     required this.onClose,
+    this.initialPairingLink,
     super.key,
   });
 
@@ -50,6 +51,7 @@ class SpacesSheet extends StatefulWidget {
     int durationMinutes,
     bool nearby,
   ) onBroadcastBeacon;
+  final String? initialPairingLink;
   final VoidCallback onClose;
 
   @override
@@ -78,11 +80,25 @@ class _SpacesSheetState extends State<SpacesSheet> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialPairingLink != null &&
+        widget.initialPairingLink!.isNotEmpty) {
+      _inviteInputController.text = widget.initialPairingLink!;
+    }
     _checkEnvironment();
     _pollTimer = Timer.periodic(
       const Duration(seconds: 2),
       (_) => unawaited(_pollPeers()),
     );
+  }
+
+  @override
+  void didUpdateWidget(covariant SpacesSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialPairingLink != null &&
+        widget.initialPairingLink != oldWidget.initialPairingLink &&
+        widget.initialPairingLink!.isNotEmpty) {
+      _inviteInputController.text = widget.initialPairingLink!;
+    }
   }
 
   @override

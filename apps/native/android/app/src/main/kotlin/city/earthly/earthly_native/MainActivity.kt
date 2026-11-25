@@ -39,6 +39,29 @@ class MainActivity : FlutterActivity() {
     private var pendingRequestCode: Int = 0
     private var pendingSaveContent: String? = null
     private var pendingLocationResult: MethodChannel.Result? = null
+    private var deviceChannel: MethodChannel? = null
+    private var initialDeepLink: String? = null
+
+    private fun extractDeepLink(intent: Intent?): String? {
+        val uri = intent?.dataString ?: return null
+        val lower = uri.lowercase()
+        return if (lower.startsWith("earthly:") || lower.startsWith("nostr:") || lower.startsWith("geo:")) {
+            uri
+        } else {
+            null
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val link = extractDeepLink(intent) ?: return
+        if (deviceChannel != null) {
+            deviceChannel?.invokeMethod("onDeepLink", link)
+        } else {
+            initialDeepLink = link
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -109,9 +132,17 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_CHANNEL)
-            .setMethodCallHandler { call, result ->
+        initialDeepLink = initialDeepLink ?: extractDeepLink(intent)
+        val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_CHANNEL)
+        deviceChannel = channel
+        channel.setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "getInitialDeepLink" -> {
+                        val link = initialDeepLink
+                        initialDeepLink = null
+                        result.success(link)
+                    }
+
                     "getCurrentLocation" -> handleGetLocation(result)
 
                     "capturePhoto" -> {

@@ -109,7 +109,6 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       'https://tiles.openfreemap.org/styles/liberty';
   static const String _openFreeMapDark =
       'https://tiles.openfreemap.org/styles/dark';
-  static const String _activeDraftId = 'active-working-map';
 
   MapController? _controller;
   DrawToolMode _mode = DrawToolMode.browse;
@@ -120,6 +119,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   _ActiveDrawer _drawer = _ActiveDrawer.none;
   InspectedFeature? _inspectedFeature;
   DiscussionTarget? _discussionTarget;
+  String? _pendingDeepLinkPairing;
 
   // Map presentation & basemap state
   BasemapKind? _selectedBasemap;
@@ -128,13 +128,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   bool _showLabels = true;
   CalloutDisplayMode _calloutMode = CalloutDisplayMode.full;
 
-  // Standalone Measure Ruler mode (tapping points measures without creating draft features)
-  bool _measureMode = false;
-  final List<Geographic> _measurePoints = <Geographic>[];
+  // Measure Ruler telemetry (uses DrawToolMode.measure with full Draw-Drag + Loupe!)
   double _measureDistanceMeters = 0.0;
   double _measureAreaM2 = 0.0;
 
-  // Durable working draft state (auto-persisted to SQLite)
+  // Durable working drafts state (multi-draft auto-persisted to SQLite)
+  String _activeDraftId = 'active-working-map';
+  List<LocalDraftDto> _savedDrafts = <LocalDraftDto>[];
   String _draftDTag = 'field-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
   String _draftTitle = 'Field Map';
   DraftAudienceChoice _draftAudience = DraftAudienceChoice.publicRelay;
@@ -148,13 +148,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   bool _previewSnapped = false;
   bool _previewLoupeActive = false;
 
-  // Nostr Explore / Shelf / Account (Amber or Local Desktop Key) / Nearby Peer state
+  // Nostr Explore / Shelf (Maps + Stories + Atlases) / Account / Nearby Peer state
   List<String> _relayUrls = <String>['wss://relay.earthly.city'];
   EarthlyCatalogSnapshot? _catalog;
   final Map<String, ProfileMetadataDto> _profilesByPubkey =
       <String, ProfileMetadataDto>{};
   final Set<String> _requestedProfilePubkeys = <String>{};
   final List<ShelfMapEntry> _shelfMaps = <ShelfMapEntry>[];
+  final List<StorySummaryDto> _deskStories = <StorySummaryDto>[];
+  final List<AtlasSummaryDto> _deskAtlases = <AtlasSummaryDto>[];
   final List<SightingSummaryDto> _localSightings = <SightingSummaryDto>[];
   final List<LiveBeaconDto> _localBeacons = <LiveBeaconDto>[];
   Nip55Account? _account;
@@ -213,9 +215,54 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   }
 
   Future<void> _bootstrapPersistentState() async {
+    DeviceBridge.setDeepLinkHandler(_handleIncomingDeepLink);
     await _restoreAppSettings();
     await _restoreSavedDraft();
     unawaited(_startLiveRelayStream());
+    final initialLink = await DeviceBridge.getInitialDeepLink();
+    if (initialLink != null && mounted) {
+      _handleIncomingDeepLink(initialLink);
+    }
+  }
+
+  void _handleIncomingDeepLink(String rawUri) {
+    final trimmed = rawUri.trim();
+    final lower = trimmed.toLowerCase();
+    if (lower.startsWith('earthly://pair') ||
+        lower.contains('earthly-pair-v1:')) {
+      setState(() {
+        _pendingDeepLinkPairing = trimmed;
+        _drawer = _ActiveDrawer.spaces;
+      });
+      return;
+    }
+    if (lower.contains('naddr1')) {
+      unawaited(
+        _jumpToNaddr(trimmed).catchError((Object err) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Deep link error: $err')),
+          );
+        }),
+      );
+      return;
+    }
+    if (lower.startsWith('geo:')) {
+      final cleaned = trimmed.substring(4).split('?').first;
+      final parts = cleaned.split(',');
+      if (parts.length >= 2) {
+        final lat = double.tryParse(parts[0].trim());
+        final lon = double.tryParse(parts[1].trim());
+        if (lat != null && lon != null) {
+          _controller?.animateCamera(
+            CameraUpdate.position(
+              center: Geographic(lon: lon, lat: lat),
+              zoom: 15.0,
+            ),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _restoreAppSettings() async {
@@ -562,7 +609,25 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     );
     final signedEventJson =
         await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    return _deliverForAudience(req.audience, signedEventJson);
+    final outcome = await _deliverForAudience(req.audience, signedEventJson);
+    if (mounted) {
+      final created = AtlasSummaryDto(
+        address: prepared.address,
+        eventId: outcome.eventId,
+        pubkey: account.pubkey,
+        dTag: prepared.dTag,
+        name: req.name,
+        description: req.description.isEmpty ? null : req.description,
+        governance: req.governance,
+        pinnedAddresses: req.pinnedAddresses,
+        createdAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+      );
+      setState(() {
+        _deskAtlases.removeWhere((a) => a.address == created.address);
+        _deskAtlases.insert(0, created);
+      });
+    }
+    return outcome;
   }
 
   Future<PublishOutcomeDto> _applyProposal(
@@ -673,19 +738,27 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     throw StateError('Unsupported naddr kind ${decoded.kind} (expected 37515 Map)');
   }
 
-  Future<void> _appendMeasurePoint(Geographic pt) async {
-    setState(() => _measurePoints.add(pt));
-    if (_measurePoints.length < 2) return;
+  Future<void> _recomputeMeasureTelemetry() async {
+    if (_mode != DrawToolMode.measure) return;
+    if (_draftVertices.length < 2) {
+      if (mounted) {
+        setState(() {
+          _measureDistanceMeters = 0.0;
+          _measureAreaM2 = 0.0;
+        });
+      }
+      return;
+    }
     try {
       await RustBridge.ensureInitialized();
-      final pts = _measurePoints
+      final pts = _draftVertices
           .map((p) => LonLatPoint(lon: p.lon, lat: p.lat))
           .toList(growable: false);
       final dist = await geoMeasureLineMeters(points: pts);
-      final area = _measurePoints.length >= 3
+      final area = _draftVertices.length >= 3
           ? await geoMeasurePolygonAreaM2(ring: pts)
           : 0.0;
-      if (!mounted) return;
+      if (!mounted || _mode != DrawToolMode.measure) return;
       setState(() {
         _measureDistanceMeters = dist;
         _measureAreaM2 = area;
@@ -695,13 +768,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   void _toggleMeasureMode() {
     setState(() {
-      _measureMode = !_measureMode;
-      _measurePoints.clear();
-      _measureDistanceMeters = 0.0;
-      _measureAreaM2 = 0.0;
-      if (_measureMode) {
+      if (_mode == DrawToolMode.measure) {
         _mode = DrawToolMode.browse;
+        _draftVertices.clear();
+        _measureDistanceMeters = 0.0;
+        _measureAreaM2 = 0.0;
+      } else {
+        _draftVertices.clear();
+        _measureDistanceMeters = 0.0;
+        _measureAreaM2 = 0.0;
         _drawer = _ActiveDrawer.none;
+        _mode = DrawToolMode.measure;
       }
     });
   }
@@ -1073,20 +1150,35 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     return '${dir.path}/earthly.sqlite3';
   }
 
+  Future<void> _refreshSavedDrafts() async {
+    if (widget.mapBuilder != null) return;
+    try {
+      await RustBridge.ensureInitialized();
+      final dbPath = await _databasePath();
+      final all = await listLocalDrafts(databasePath: dbPath);
+      if (mounted) setState(() => _savedDrafts = all);
+    } catch (_) {}
+  }
+
   Future<void> _restoreSavedDraft() async {
     try {
       await RustBridge.ensureInitialized();
       final dbPath = await _databasePath();
+      final all = await listLocalDrafts(databasePath: dbPath);
       final saved = await loadLocalDraft(
         databasePath: dbPath,
         draftId: _activeDraftId,
       );
-      if (!mounted || saved == null) return;
-      final restored = parseDraftFeaturesFromGeoJson(saved.geojson);
+      if (!mounted) return;
+      setState(() => _savedDrafts = all);
+      final target = saved ?? (all.isNotEmpty ? all.first : null);
+      if (target == null) return;
+      final restored = parseDraftFeaturesFromGeoJson(target.geojson);
       setState(() {
-        _draftDTag = saved.dTag;
-        _draftTitle = saved.title;
-        _draftAudience = saved.audienceChannel == 'nearby'
+        _activeDraftId = target.draftId;
+        _draftDTag = target.dTag;
+        _draftTitle = target.title;
+        _draftAudience = target.audienceChannel == 'nearby'
             ? DraftAudienceChoice.nearbyLocalNode
             : DraftAudienceChoice.publicRelay;
         _features
@@ -1094,6 +1186,56 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ..addAll(restored);
         _featureCounter = restored.length;
       });
+    } catch (_) {}
+  }
+
+  void _selectSavedDraft(LocalDraftDto draft) {
+    final restored = parseDraftFeaturesFromGeoJson(draft.geojson);
+    setState(() {
+      _activeDraftId = draft.draftId;
+      _draftDTag = draft.dTag;
+      _draftTitle = draft.title;
+      _draftAudience = draft.audienceChannel == 'nearby'
+          ? DraftAudienceChoice.nearbyLocalNode
+          : DraftAudienceChoice.publicRelay;
+      _features
+        ..clear()
+        ..addAll(restored);
+      _draftVertices.clear();
+      _editingDraftFeature = null;
+      _featureCounter = restored.length;
+    });
+  }
+
+  void _createNewDraft() {
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    setState(() {
+      _activeDraftId = 'draft-$nowSec';
+      _draftDTag = 'field-$nowSec';
+      _draftTitle = 'Field Map ${_savedDrafts.length + 1}';
+      _features.clear();
+      _draftVertices.clear();
+      _editingDraftFeature = null;
+      _featureCounter = 0;
+    });
+    unawaited(_persistWorkingDraft());
+  }
+
+  Future<void> _deleteSavedDraft(String draftId) async {
+    try {
+      await RustBridge.ensureInitialized();
+      final dbPath = await _databasePath();
+      await deleteLocalDraft(databasePath: dbPath, draftId: draftId);
+      final remaining = await listLocalDrafts(databasePath: dbPath);
+      if (!mounted) return;
+      setState(() => _savedDrafts = remaining);
+      if (_activeDraftId == draftId) {
+        if (remaining.isNotEmpty) {
+          _selectSavedDraft(remaining.first);
+        } else {
+          _createNewDraft();
+        }
+      }
     } catch (_) {}
   }
 
@@ -1116,6 +1258,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             : 'public',
         geojson: geojson,
       );
+      await _refreshSavedDrafts();
     } catch (_) {}
   }
 
@@ -1192,6 +1335,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   }
 
   bool get _isDrawingMode => _mode != DrawToolMode.browse;
+  bool get _isMeasureMode => _mode == DrawToolMode.measure;
   bool get _canFinishDraft => switch (_mode) {
         DrawToolMode.line => _draftVertices.length >= 2,
         DrawToolMode.polygon => _draftVertices.length >= 3,
@@ -1337,11 +1481,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             ),
           );
         }
-      } else if (_mode == DrawToolMode.line || _mode == DrawToolMode.polygon) {
+      } else if (_mode == DrawToolMode.line ||
+          _mode == DrawToolMode.polygon ||
+          _mode == DrawToolMode.measure) {
         _draftVertices.add(point);
       }
     });
-    if (_mode == DrawToolMode.point || _mode == DrawToolMode.browse) {
+    if (_mode == DrawToolMode.measure) {
+      unawaited(_recomputeMeasureTelemetry());
+    } else if (_mode == DrawToolMode.point || _mode == DrawToolMode.browse) {
       unawaited(_persistWorkingDraft());
     }
   }
@@ -1384,7 +1532,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   void _undoLastPoint() {
     if (_draftVertices.isNotEmpty) {
       setState(() => _draftVertices.removeLast());
-    } else if (_features.isNotEmpty) {
+      if (_mode == DrawToolMode.measure) {
+        unawaited(_recomputeMeasureTelemetry());
+      }
+    } else if (_mode != DrawToolMode.measure && _features.isNotEmpty) {
       setState(() => _features.removeLast());
       unawaited(_persistWorkingDraft());
     }
@@ -1515,6 +1666,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _drawer = _ActiveDrawer.storyReader;
       _activeStory = story;
       _parsedStory = parsed;
+      _deskStories.removeWhere((s) => s.address == story.address);
+      _deskStories.insert(0, story);
       _storyDatasets
         ..clear()
         ..addAll(initialDatasets);
@@ -1727,6 +1880,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
     final added = <ShelfMapEntry>[];
     setState(() {
+      _deskAtlases.removeWhere((a) => a.address == atlas.address);
+      _deskAtlases.insert(0, atlas);
       for (final addr in mapAddresses) {
         final map = knownByAddr[addr];
         if (map == null) continue;
@@ -1779,6 +1934,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
           if (f.fillOpacity != null) 'fillOpacity': f.fillOpacity!,
           if (f.radius != null) 'radius': f.radius!,
+          if (f.lineDash != null) 'lineDash': f.lineDash!,
+          if (f.displayIcon != null)
+            'displayIcon': f.displayIcon!
+          else
+            'displayIcon': null,
         },
         callouts: [
           for (final c in f.callouts)
@@ -1899,7 +2059,26 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     );
     final signedEventJson =
         await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    return _deliverForAudience(req.audience, signedEventJson);
+    final outcome = await _deliverForAudience(req.audience, signedEventJson);
+    if (mounted) {
+      final created = StorySummaryDto(
+        address: prepared.address,
+        eventId: outcome.eventId,
+        pubkey: account.pubkey,
+        dTag: prepared.dTag,
+        title: req.title,
+        summary: req.summary.isEmpty ? null : req.summary,
+        content: req.markdown,
+        presentationJson: req.presentationJson,
+        referencedAddresses: req.linkedMapAddresses,
+        publishedAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+      );
+      setState(() {
+        _deskStories.removeWhere((s) => s.address == created.address);
+        _deskStories.insert(0, created);
+      });
+    }
+    return outcome;
   }
 
   Future<void> _locateMe() async {
@@ -2311,11 +2490,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         );
       case _ActiveDrawer.desk:
         return DeskSheet(
+          activeDraftId: _activeDraftId,
+          savedDrafts: _savedDrafts,
           draftTitle: _draftTitle,
           audience: _draftAudience,
           account: _account,
           shelfMaps: _shelfMaps,
+          deskStories: _deskStories,
+          deskAtlases: _deskAtlases,
           drawnFeatures: _features,
+          onSelectDraft: _selectSavedDraft,
+          onCreateNewDraft: _createNewDraft,
+          onDeleteDraft: (id) => unawaited(_deleteSavedDraft(id)),
           onDraftTitleChanged: (title) {
             setState(() => _draftTitle = title);
             unawaited(_persistWorkingDraft());
@@ -2352,10 +2538,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               baseGeojson: map.geojson,
             ),
           ),
+          onOpenDeskStory: (story) => unawaited(_openStory(story)),
+          onRemoveDeskStory: (addr) => setState(
+            () => _deskStories.removeWhere((s) => s.address == addr),
+          ),
+          onOpenDeskAtlas: (atlas) => unawaited(_openAtlas(atlas)),
+          onRemoveDeskAtlas: (addr) => setState(
+            () => _deskAtlases.removeWhere((a) => a.address == addr),
+          ),
           onRunGeoAction: _runGeoAction,
           onPublishDraft: _publishDraft,
           onComposeStory: () =>
               setState(() => _drawer = _ActiveDrawer.storyComposer),
+          onCreateAtlas: () =>
+              setState(() => _drawer = _ActiveDrawer.atlasComposer),
           onImportGeoJson: () => unawaited(_importGeoJsonFile()),
           onExportGeoJsonFile: () => unawaited(_exportGeoJsonFile()),
           onCopyGeoJson: _copyGeoJsonToClipboard,
@@ -2373,6 +2569,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           account: _account,
           localNsec: _localNsec,
           relayUrls: _relayUrls,
+          initialPairingLink: _pendingDeepLinkPairing,
           onRelayUrlsChanged: _updateRelayUrls,
           onAccountChanged: (account) {
             setState(() => _account = account);
@@ -2538,6 +2735,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             strokeWidth,
             fillOpacity,
             radius,
+            lineDash,
+            displayIcon,
+            clearDisplayIcon = false,
             description,
           }) {
             setState(() {
@@ -2547,6 +2747,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                   strokeWidth: strokeWidth,
                   fillOpacity: fillOpacity,
                   radius: radius,
+                  lineDash: lineDash,
+                  displayIcon: displayIcon,
+                  clearDisplayIcon: clearDisplayIcon,
                   description: description,
                 );
               }
@@ -2715,12 +2918,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       draftFeatures: _features,
       activeStory: activeStoryContext,
     );
+    final visibleIconPins = collectVisibleIconPins(
+      shelfMaps: _shelfMaps,
+      draftAccentColor: theme.colorScheme.primary,
+      draftFeatures: _features,
+      activeStory: activeStoryContext,
+    );
 
     final gpuLayers = buildEarthlyGpuLayers(
       shelfMaps: _shelfMaps,
       sightings: visibleSightings,
       beacons: visibleBeacons,
-      measurePoints: _measurePoints,
       draftFeatures: _features,
       accentColor: theme.colorScheme.primary,
       isDarkMap: isDarkMap,
@@ -2736,6 +2944,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     final hideBottomDockOnMobile =
         !isDesktop && activeDrawerWidget != null && !_isDrawingMode;
     final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final rightThumbRailBottom = hideBottomDockOnMobile
+        ? (screenHeight * 0.54).clamp(180.0, screenHeight - 220.0)
+        : bottomSafeInset + (_isDrawingMode ? 76.0 : 74.0);
 
     final mapWidget = widget.mapBuilder != null
         ? widget.mapBuilder!(
@@ -2755,16 +2967,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             ),
             onMapCreated: (controller) =>
                 setState(() => _controller = controller),
-            onClick: (event) {
-              if (_measureMode) {
-                unawaited(_appendMeasurePoint(event.point));
-              }
-            },
             layers: gpuLayers,
             children: [
               EarthlyCalloutOverlay(
                 callouts: visibleCallouts,
                 sightings: visibleSightings,
+                iconPins: visibleIconPins,
                 displayMode: _calloutMode,
                 bottomInset:
                     (hideBottomDockOnMobile ? 340 : 108) + bottomSafeInset,
@@ -2824,10 +3032,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             onUpdateDraftVertex: (index, pos) {
               if (index >= 0 && index < _draftVertices.length) {
                 setState(() => _draftVertices[index] = pos);
+                if (_mode == DrawToolMode.measure) {
+                  unawaited(_recomputeMeasureTelemetry());
+                }
               }
             },
             onInsertDraftVertex: (insertIndex, pos) {
               setState(() => _draftVertices.insert(insertIndex, pos));
+              if (_mode == DrawToolMode.measure) {
+                unawaited(_recomputeMeasureTelemetry());
+              }
             },
             onTwoFingerUndo: _undoLastPoint,
             onPreviewChanged: (screen, snapped, loupeActive) {
@@ -2944,7 +3158,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                       ),
                     ],
                     const Spacer(),
-                    if (_isDrawingMode) ...[
+                    if (isDesktop && _isDrawingMode) ...[
                       _MiniToggle(
                         label: _placementStyle == TouchPlacementStyle.drawDrag
                             ? 'Draw-Drag'
@@ -2968,8 +3182,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                         onTap: () =>
                             setState(() => _loupeEnabled = !_loupeEnabled),
                       ),
-                    ] else ...[
-                      if (visibleCallouts.isNotEmpty) ...[
+                    ] else if (!_isDrawingMode) ...[
+                      if (isDesktop && visibleCallouts.isNotEmpty) ...[
                         _MiniToggle(
                           label: calloutModeShortLabel(_calloutMode),
                           icon: Icons.chat_bubble_outline,
@@ -2987,21 +3201,23 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                         active: _drawer == _ActiveDrawer.search,
                         onTap: () => _toggleDrawer(_ActiveDrawer.search),
                       ),
-                      const SizedBox(width: 6),
-                      _MiniIconButton(
-                        tooltip: 'Measure Distance & Area',
-                        icon: Icons.straighten,
-                        active: _measureMode,
-                        onTap: _toggleMeasureMode,
-                      ),
-                      const SizedBox(width: 6),
-                      _MiniIconButton(
-                        tooltip: 'Basemap & Overlays',
-                        icon: Icons.map_outlined,
-                        active:
-                            effectiveBasemap == BasemapKind.offlinePmtiles,
-                        onTap: () => _openBasemapSwitcher(effectiveBasemap),
-                      ),
+                      if (isDesktop) ...[
+                        const SizedBox(width: 6),
+                        _MiniIconButton(
+                          tooltip: 'Measure Distance & Area',
+                          icon: Icons.straighten,
+                          active: _isMeasureMode,
+                          onTap: _toggleMeasureMode,
+                        ),
+                        const SizedBox(width: 6),
+                        _MiniIconButton(
+                          tooltip: 'Basemap & Overlays',
+                          icon: Icons.map_outlined,
+                          active:
+                              effectiveBasemap == BasemapKind.offlinePmtiles,
+                          onTap: () => _openBasemapSwitcher(effectiveBasemap),
+                        ),
+                      ],
                       const SizedBox(width: 6),
                       if (isDesktop)
                         _MiniToggle(
@@ -3024,21 +3240,96 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                               _account != null,
                           onTap: () => _toggleDrawer(_ActiveDrawer.account),
                         ),
-                      if (Platform.isAndroid) ...[
-                        const SizedBox(width: 6),
-                        _MiniIconButton(
-                          tooltip: 'Center on GPS',
-                          icon: Icons.my_location,
-                          active: false,
-                          onTap: () => unawaited(_locateMe()),
-                        ),
-                      ],
                     ],
                   ],
                 ),
               ),
             ),
           ),
+
+          // Right-thumb ergonomic Map Controls Rail on Mobile (GPS, Loupe, Callouts, Basemap, Measure)
+          if (!isDesktop)
+            Positioned(
+              key: const Key('earthly-right-thumb-rail'),
+              right: 10,
+              bottom: rightThumbRailBottom,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (_isDrawingMode) ...[
+                    _ThumbMapButton(
+                      tooltip: 'Toggle placement style',
+                      icon: _placementStyle == TouchPlacementStyle.drawDrag
+                          ? Icons.touch_app
+                          : Icons.gps_fixed,
+                      label: _placementStyle == TouchPlacementStyle.drawDrag
+                          ? 'Draw-Drag'
+                          : 'Crosshair',
+                      active: true,
+                      onTap: () => setState(() {
+                        _placementStyle =
+                            _placementStyle == TouchPlacementStyle.drawDrag
+                                ? TouchPlacementStyle.crosshair
+                                : TouchPlacementStyle.drawDrag;
+                      }),
+                    ),
+                    const SizedBox(height: 8),
+                    _ThumbMapButton(
+                      tooltip: 'Magnifier Loupe',
+                      icon: Icons.zoom_in,
+                      label: 'Loupe',
+                      active: _loupeEnabled,
+                      onTap: () =>
+                          setState(() => _loupeEnabled = !_loupeEnabled),
+                    ),
+                  ] else ...[
+                    _ThumbMapButton(
+                      tooltip: 'Measure Distance & Area (Draw-Drag)',
+                      icon: Icons.straighten,
+                      label: 'Measure',
+                      active: _isMeasureMode,
+                      onTap: _toggleMeasureMode,
+                    ),
+                    const SizedBox(height: 8),
+                    _ThumbMapButton(
+                      tooltip: 'Basemap & Overlays',
+                      icon: Icons.map_outlined,
+                      label: 'Style',
+                      active: effectiveBasemap == BasemapKind.offlinePmtiles,
+                      onTap: () => _openBasemapSwitcher(effectiveBasemap),
+                    ),
+                    const SizedBox(height: 8),
+                    _ThumbMapButton(
+                      tooltip: 'Cycle Map Callouts',
+                      icon: Icons.chat_bubble_outline,
+                      label: switch (_calloutMode) {
+                        CalloutDisplayMode.full => 'Callouts',
+                        CalloutDisplayMode.compact => 'Compact',
+                        CalloutDisplayMode.pins => 'Pins',
+                        CalloutDisplayMode.hidden => 'Off',
+                      },
+                      active: _calloutMode != CalloutDisplayMode.hidden &&
+                          visibleCallouts.isNotEmpty,
+                      onTap: () => setState(
+                        () => _calloutMode =
+                            nextCalloutDisplayMode(_calloutMode),
+                      ),
+                    ),
+                  ],
+                  if (Platform.isAndroid) ...[
+                    const SizedBox(height: 8),
+                    _ThumbMapButton(
+                      tooltip: 'Center on GPS',
+                      icon: Icons.my_location,
+                      label: 'GPS',
+                      active: false,
+                      onTap: () => unawaited(_locateMe()),
+                    ),
+                  ],
+                ],
+              ),
+            ),
 
           // Active Proposal / Comment map overlay banner
           if ((_activeProposalLabel != null || _activeCommentOverlayId != null) &&
@@ -3096,8 +3387,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               ),
             ),
 
-          // Standalone Measure Ruler live HUD banner
-          if (_measureMode)
+          // Precision Draw-Drag Measure Ruler live HUD banner
+          if (_isMeasureMode)
             Positioned(
               top: 62,
               left: 10,
@@ -3124,10 +3415,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          _measurePoints.isEmpty
-                              ? 'Measure: tap map to add points'
-                              : _measurePoints.length < 3
-                                  ? '${DrawingMath.formatDistance(_measureDistanceMeters)} (${_measurePoints.length} pts)'
+                          _draftVertices.isEmpty
+                              ? 'Measure: drag with 1 finger to place vertices'
+                              : _draftVertices.length < 3
+                                  ? '${DrawingMath.formatDistance(_measureDistanceMeters)} (${_draftVertices.length} pts)'
                                   : '${DrawingMath.formatDistance(_measureDistanceMeters)} · ${(_measureAreaM2 / 10000).toStringAsFixed(2)} ha',
                           style: const TextStyle(
                             fontFamily: 'monospace',
@@ -3136,11 +3427,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             color: Colors.white,
                           ),
                         ),
-                        if (_measurePoints.isNotEmpty) ...[
+                        if (_draftVertices.isNotEmpty) ...[
                           const SizedBox(width: 8),
                           GestureDetector(
                             onTap: () => setState(() {
-                              _measurePoints.clear();
+                              _draftVertices.clear();
                               _measureDistanceMeters = 0.0;
                               _measureAreaM2 = 0.0;
                             }),
@@ -3240,27 +3531,56 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                                   Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      _DockTool(
-                                        label: 'Point',
-                                        icon: Icons.location_on_outlined,
-                                        selected: _mode == DrawToolMode.point,
-                                        onTap: () =>
-                                            _selectMode(DrawToolMode.point),
-                                      ),
-                                      _DockTool(
-                                        label: 'Line',
-                                        icon: Icons.timeline,
-                                        selected: _mode == DrawToolMode.line,
-                                        onTap: () =>
-                                            _selectMode(DrawToolMode.line),
-                                      ),
-                                      _DockTool(
-                                        label: 'Area',
-                                        icon: Icons.pentagon_outlined,
-                                        selected: _mode == DrawToolMode.polygon,
-                                        onTap: () =>
-                                            _selectMode(DrawToolMode.polygon),
-                                      ),
+                                      if (_isMeasureMode)
+                                        const Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.straighten,
+                                                size: 18,
+                                                color: Color(0xFF7C3AED),
+                                              ),
+                                              SizedBox(width: 6),
+                                              Text(
+                                                'MEASURE',
+                                                style: TextStyle(
+                                                  fontFamily: 'monospace',
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Color(0xFF7C3AED),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        )
+                                      else ...[
+                                        _DockTool(
+                                          label: 'Point',
+                                          icon: Icons.location_on_outlined,
+                                          selected: _mode == DrawToolMode.point,
+                                          onTap: () =>
+                                              _selectMode(DrawToolMode.point),
+                                        ),
+                                        _DockTool(
+                                          label: 'Line',
+                                          icon: Icons.timeline,
+                                          selected: _mode == DrawToolMode.line,
+                                          onTap: () =>
+                                              _selectMode(DrawToolMode.line),
+                                        ),
+                                        _DockTool(
+                                          label: 'Area',
+                                          icon: Icons.pentagon_outlined,
+                                          selected:
+                                              _mode == DrawToolMode.polygon,
+                                          onTap: () =>
+                                              _selectMode(DrawToolMode.polygon),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                   const SizedBox(width: 8),
@@ -3406,6 +3726,71 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       ),
     ),
     ),
+    );
+  }
+}
+
+class _ThumbMapButton extends StatelessWidget {
+  const _ThumbMapButton({
+    required this.tooltip,
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bg = active
+        ? theme.colorScheme.primary
+        : theme.colorScheme.surface.withValues(alpha: 0.95);
+    final fg = active
+        ? theme.colorScheme.onPrimary
+        : theme.colorScheme.onSurface;
+
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: bg,
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: active ? theme.colorScheme.primary : theme.dividerColor,
+          ),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 52, minHeight: 46),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 19, color: fg),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: fg,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

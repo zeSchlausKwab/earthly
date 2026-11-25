@@ -299,5 +299,13 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
     final dockRect = tester.getRect(find.byKey(const Key('earthly-bottom-dock')));
     expect(dockRect.bottom, closeTo(915.0, 0.5));
     expect(find.byTooltip('Account & Session'), findsOneWidget);
+
+    // Right-thumb map controls rail sits in lower-right thumb zone on phones!
+    final railRect =
+        tester.getRect(find.byKey(const Key('earthly-right-thumb-rail')));
+    expect(railRect.right, greaterThan(380.0));
+    expect(railRect.bottom, greaterThan(600.0));
+    expect(find.text('Measure'), findsOneWidget);
+    expect(find.text('Callouts'), findsOneWidget);
   });
 }

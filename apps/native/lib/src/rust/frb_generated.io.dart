@@ -156,6 +156,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<LiveBeaconDto> dco_decode_list_live_beacon_dto(dynamic raw);
 
   @protected
+  List<LocalDraftDto> dco_decode_list_local_draft_dto(dynamic raw);
+
+  @protected
   List<LonLatPoint> dco_decode_list_lon_lat_point(dynamic raw);
 
   @protected
@@ -486,6 +489,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<LiveBeaconDto> sse_decode_list_live_beacon_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<LocalDraftDto> sse_decode_list_local_draft_dto(
     SseDeserializer deserializer,
   );
 
@@ -926,6 +934,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_live_beacon_dto(
     List<LiveBeaconDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_local_draft_dto(
+    List<LocalDraftDto> self,
     SseSerializer serializer,
   );
 

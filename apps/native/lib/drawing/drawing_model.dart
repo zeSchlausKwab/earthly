@@ -8,6 +8,7 @@ enum DrawToolMode {
   point,
   line,
   polygon,
+  measure,
 }
 
 enum TouchPlacementStyle {
@@ -45,6 +46,8 @@ class DrawnFeature {
     this.strokeWidth,
     this.fillOpacity,
     this.radius,
+    this.lineDash,
+    this.displayIcon,
     this.callouts = const [],
   });
 
@@ -57,6 +60,8 @@ class DrawnFeature {
   final double? strokeWidth;
   final double? fillOpacity;
   final double? radius;
+  final String? lineDash; // 'solid' | 'dashed' | 'dotted'
+  final String? displayIcon; // e.g. 'lucide:mountain'
   final List<DraftCallout> callouts;
 
   DrawnFeature copyWith({
@@ -67,6 +72,9 @@ class DrawnFeature {
     double? strokeWidth,
     double? fillOpacity,
     double? radius,
+    String? lineDash,
+    String? displayIcon,
+    bool clearDisplayIcon = false,
     List<DraftCallout>? callouts,
   }) =>
       DrawnFeature(
@@ -79,6 +87,9 @@ class DrawnFeature {
         strokeWidth: strokeWidth ?? this.strokeWidth,
         fillOpacity: fillOpacity ?? this.fillOpacity,
         radius: radius ?? this.radius,
+        lineDash: lineDash ?? this.lineDash,
+        displayIcon:
+            clearDisplayIcon ? null : (displayIcon ?? this.displayIcon),
         callouts: callouts ?? this.callouts,
       );
 }

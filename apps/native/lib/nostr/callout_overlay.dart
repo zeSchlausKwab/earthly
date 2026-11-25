@@ -35,12 +35,14 @@ class EarthlyCalloutOverlay extends StatefulWidget {
     required this.displayMode,
     required this.onInspectFeature,
     required this.onInspectSighting,
+    this.iconPins = const <MapIconPinItem>[],
     this.bottomInset = 110,
     super.key,
   });
 
   final List<MapCalloutItem> callouts;
   final List<SightingSummaryDto> sightings;
+  final List<MapIconPinItem> iconPins;
   final CalloutDisplayMode displayMode;
   final ValueChanged<InspectedFeature> onInspectFeature;
   final ValueChanged<SightingSummaryDto> onInspectSighting;
@@ -85,13 +87,59 @@ class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
           sightingBubbles.add(_PlacedSightingBubble(sighting: s, anchor: pt));
         }
 
-        if (placedCallouts.isEmpty && sightingBubbles.isEmpty) {
+        final placedIcons = <({MapIconPinItem pin, Offset pos})>[];
+        for (final pin in widget.iconPins) {
+          final pt = controller.toScreenLocation(pin.position);
+          if (!_isWithinViewport(pt, viewport, margin: 20)) continue;
+          placedIcons.add((pin: pin, pos: pt));
+        }
+
+        if (placedCallouts.isEmpty &&
+            sightingBubbles.isEmpty &&
+            placedIcons.isEmpty) {
           return const SizedBox.shrink();
         }
 
         return Stack(
           clipBehavior: Clip.none,
           children: [
+            // `displayIcon` (`lucide:*`) Point badges with auto-contrasting glyph
+            for (final item in placedIcons)
+              Positioned(
+                left: item.pos.dx - 13,
+                top: item.pos.dy - 13,
+                child: GestureDetector(
+                  onTap: () =>
+                      widget.onInspectFeature(item.pin.inspectedFeature),
+                  child: Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: item.pin.fillColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: item.pin.ringColor,
+                        width: 2.0,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.28),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      resolveLucideIcon(item.pin.iconName),
+                      size: 14,
+                      color: item.pin.fillColor.computeLuminance() > 0.55
+                          ? const Color(0xFF111827)
+                          : Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+
             // Leader lines + anchor dots (non-interactive)
             if (placedCallouts.isNotEmpty)
               Positioned.fill(

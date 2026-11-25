@@ -31,6 +31,24 @@ class PickedBinaryFile {
 class DeviceBridge {
   static const MethodChannel _channel = MethodChannel('city.earthly/device');
 
+  static Future<String?> getInitialDeepLink() async {
+    try {
+      final raw = await _channel.invokeMethod<String>('getInitialDeepLink');
+      return (raw != null && raw.trim().isNotEmpty) ? raw.trim() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static void setDeepLinkHandler(void Function(String uri) onDeepLink) {
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onDeepLink' && call.arguments is String) {
+        final raw = (call.arguments as String).trim();
+        if (raw.isNotEmpty) onDeepLink(raw);
+      }
+    });
+  }
+
   static Future<DeviceLocationFix> getCurrentLocation() async {
     final map = await _channel.invokeMapMethod<String, dynamic>(
       'getCurrentLocation',

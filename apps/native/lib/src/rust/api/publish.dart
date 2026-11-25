@@ -47,6 +47,12 @@ Future<bool> deleteLocalDraft({
   draftId: draftId,
 );
 
+/// Lists all locally persisted SQLite working drafts ordered by most recently updated.
+Future<List<LocalDraftDto>> listLocalDrafts({required String databasePath}) =>
+    EarthlyRustLib.instance.api.crateApiPublishListLocalDrafts(
+      databasePath: databasePath,
+    );
+
 /// Validates a FeatureCollection with `earthly-geo`, attaches canonical Earthly
 /// tags (`d`, `bbox`, multi-precision `g`, `crs`, `checksum`, `size`, `v`, `t`),
 /// and returns an unsigned kind-37515 event JSON ready for NIP-55 Amber signing.

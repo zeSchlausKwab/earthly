@@ -28,5 +28,18 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>city.earthly.links</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>earthly</string>
+				<string>nostr</string>
+				<string>geo</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

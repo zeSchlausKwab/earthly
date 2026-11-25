@@ -387,6 +387,9 @@ class _GeometryOverlayPainter extends CustomPainter {
         .where(isSafe)
         .toList();
     if (draftPts.isNotEmpty) {
+      final strokeColor = mode == DrawToolMode.measure
+          ? const Color(0xFF7C3AED)
+          : EarthlyColors.proposedAmber;
       final draftPath = Path()..moveTo(draftPts.first.dx, draftPts.first.dy);
       for (var i = 1; i < draftPts.length; i++) {
         draftPath.lineTo(draftPts[i].dx, draftPts[i].dy);
@@ -396,20 +399,20 @@ class _GeometryOverlayPainter extends CustomPainter {
           mode != DrawToolMode.point) {
         draftPath.lineTo(previewScreen!.dx, previewScreen!.dy);
       }
-      if (mode == DrawToolMode.polygon &&
+      if ((mode == DrawToolMode.polygon || mode == DrawToolMode.measure) &&
           (draftPts.length + (previewScreen != null ? 1 : 0)) >= 3) {
         final fillPath = Path.from(draftPath)..close();
         canvas.drawPath(
           fillPath,
           Paint()
-            ..color = EarthlyColors.proposedAmber.withValues(alpha: 0.18)
+            ..color = strokeColor.withValues(alpha: 0.16)
             ..style = PaintingStyle.fill,
         );
       }
       canvas.drawPath(
         draftPath,
         Paint()
-          ..color = EarthlyColors.proposedAmber
+          ..color = strokeColor
           ..strokeWidth = 2.6
           ..style = PaintingStyle.stroke,
       );
@@ -429,7 +432,7 @@ class _GeometryOverlayPainter extends CustomPainter {
           mid,
           5.0,
           Paint()
-            ..color = EarthlyColors.proposedAmber
+            ..color = strokeColor
             ..strokeWidth = 1.5
             ..style = PaintingStyle.stroke,
         );
@@ -442,7 +445,7 @@ class _GeometryOverlayPainter extends CustomPainter {
           pt,
           7.0,
           Paint()
-            ..color = EarthlyColors.proposedAmber
+            ..color = strokeColor
             ..strokeWidth = 2.4
             ..style = PaintingStyle.stroke,
         );

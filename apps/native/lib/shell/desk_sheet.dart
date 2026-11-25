@@ -29,11 +29,18 @@ enum DraftAudienceChoice {
 /// Rust `earthly-geo` workbench + Amber NIP-55 Publish via SQLite Outbox.
 class DeskSheet extends StatefulWidget {
   const DeskSheet({
+    required this.activeDraftId,
+    required this.savedDrafts,
     required this.draftTitle,
     required this.audience,
     required this.account,
     required this.shelfMaps,
+    required this.deskStories,
+    required this.deskAtlases,
     required this.drawnFeatures,
+    required this.onSelectDraft,
+    required this.onCreateNewDraft,
+    required this.onDeleteDraft,
     required this.onDraftTitleChanged,
     required this.onAudienceChanged,
     required this.onToggleShelfVisibility,
@@ -41,9 +48,14 @@ class DeskSheet extends StatefulWidget {
     required this.onFlyToShelfMap,
     required this.onCloneShelfMapToDraft,
     required this.onOpenShelfDiscussion,
+    required this.onOpenDeskStory,
+    required this.onRemoveDeskStory,
+    required this.onOpenDeskAtlas,
+    required this.onRemoveDeskAtlas,
     required this.onRunGeoAction,
     required this.onPublishDraft,
     required this.onComposeStory,
+    required this.onCreateAtlas,
     required this.onImportGeoJson,
     required this.onExportGeoJsonFile,
     required this.onCopyGeoJson,
@@ -52,11 +64,18 @@ class DeskSheet extends StatefulWidget {
     super.key,
   });
 
+  final String activeDraftId;
+  final List<LocalDraftDto> savedDrafts;
   final String draftTitle;
   final DraftAudienceChoice audience;
   final Nip55Account? account;
   final List<ShelfMapEntry> shelfMaps;
+  final List<StorySummaryDto> deskStories;
+  final List<AtlasSummaryDto> deskAtlases;
   final List<DrawnFeature> drawnFeatures;
+  final ValueChanged<LocalDraftDto> onSelectDraft;
+  final VoidCallback onCreateNewDraft;
+  final ValueChanged<String> onDeleteDraft;
   final ValueChanged<String> onDraftTitleChanged;
   final ValueChanged<DraftAudienceChoice> onAudienceChanged;
   final ValueChanged<String> onToggleShelfVisibility;
@@ -64,12 +83,17 @@ class DeskSheet extends StatefulWidget {
   final ValueChanged<MapSummaryDto> onFlyToShelfMap;
   final ValueChanged<MapSummaryDto> onCloneShelfMapToDraft;
   final ValueChanged<MapSummaryDto> onOpenShelfDiscussion;
+  final ValueChanged<StorySummaryDto> onOpenDeskStory;
+  final ValueChanged<String> onRemoveDeskStory;
+  final ValueChanged<AtlasSummaryDto> onOpenDeskAtlas;
+  final ValueChanged<String> onRemoveDeskAtlas;
   final ValueChanged<RustGeoAction> onRunGeoAction;
   final Future<PublishOutcomeDto> Function(
     String title,
     DraftAudienceChoice audience,
   ) onPublishDraft;
   final VoidCallback onComposeStory;
+  final VoidCallback onCreateAtlas;
   final VoidCallback onImportGeoJson;
   final VoidCallback onExportGeoJsonFile;
   final VoidCallback onCopyGeoJson;
@@ -92,6 +116,19 @@ class _DeskSheetState extends State<DeskSheet> {
     super.initState();
     _titleController = TextEditingController(text: widget.draftTitle);
     _audience = widget.audience;
+  }
+
+  @override
+  void didUpdateWidget(covariant DeskSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.activeDraftId != widget.activeDraftId ||
+        (oldWidget.draftTitle != widget.draftTitle &&
+            _titleController.text != widget.draftTitle)) {
+      _titleController.text = widget.draftTitle;
+    }
+    if (oldWidget.audience != widget.audience) {
+      _audience = widget.audience;
+    }
   }
 
   @override
@@ -161,7 +198,7 @@ class _DeskSheetState extends State<DeskSheet> {
           Row(
             children: [
               Text(
-                'SHELF (${shelfMaps.length} ON MAP)',
+                'SHELF MAPS (${shelfMaps.length})',
                 style: theme.textTheme.labelSmall?.copyWith(
                   fontFamily: 'monospace',
                   fontWeight: FontWeight.w700,
@@ -171,7 +208,12 @@ class _DeskSheetState extends State<DeskSheet> {
               TextButton.icon(
                 onPressed: widget.onComposeStory,
                 icon: const Icon(Icons.auto_stories_outlined, size: 15),
-                label: const Text('Write Story'),
+                label: const Text('Story'),
+              ),
+              TextButton.icon(
+                onPressed: widget.onCreateAtlas,
+                icon: const Icon(Icons.collections_bookmark_outlined, size: 15),
+                label: const Text('Atlas'),
               ),
             ],
           ),
@@ -240,9 +282,103 @@ class _DeskSheetState extends State<DeskSheet> {
                 ),
               ),
 
+          // Active Stories on Desk
+          if (widget.deskStories.isNotEmpty) ...[
+            const Divider(height: 18),
+            Text(
+              'STORIES ON DESK (${widget.deskStories.length})',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            for (final story in widget.deskStories)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
+                  Icons.auto_stories_outlined,
+                  size: 18,
+                  color: EarthlyColors.lightAccent,
+                ),
+                title: Text(
+                  story.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  '${story.referencedAddresses.length} linked map${story.referencedAddresses.length == 1 ? '' : 's'}',
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: () => widget.onOpenDeskStory(story),
+                      child: const Text('Read'),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove from Desk',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => widget.onRemoveDeskStory(story.address),
+                      icon: const Icon(Icons.close, size: 16),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+
+          // Active Atlases on Desk
+          if (widget.deskAtlases.isNotEmpty) ...[
+            const Divider(height: 18),
+            Text(
+              'ATLASES ON DESK (${widget.deskAtlases.length})',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            for (final atlas in widget.deskAtlases)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
+                  Icons.collections_bookmark_outlined,
+                  size: 18,
+                  color: EarthlyColors.commentGreen,
+                ),
+                title: Text(
+                  atlas.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  '${atlas.governance} · ${atlas.pinnedAddresses.length} pinned',
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: () => widget.onOpenDeskAtlas(atlas),
+                      child: const Text('Frame'),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove from Desk',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => widget.onRemoveDeskAtlas(atlas.address),
+                      icon: const Icon(Icons.close, size: 16),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+
           const Divider(height: 20),
 
-          // Working Draft + SQLite Auto-save + Publish
+          // Multi-Draft Switcher + Working Draft + SQLite Auto-save + Publish
           Row(
             children: [
               Text(
@@ -253,6 +389,11 @@ class _DeskSheetState extends State<DeskSheet> {
                 ),
               ),
               const Spacer(),
+              TextButton.icon(
+                onPressed: widget.onCreateNewDraft,
+                icon: const Icon(Icons.add, size: 15),
+                label: const Text('New Draft'),
+              ),
               if (widget.drawnFeatures.isNotEmpty)
                 TextButton(
                   onPressed: widget.onClearDraftFeatures,
@@ -260,6 +401,33 @@ class _DeskSheetState extends State<DeskSheet> {
                 ),
             ],
           ),
+          if (widget.savedDrafts.length > 1) ...[
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final d in widget.savedDrafts)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6, bottom: 6),
+                      child: InputChip(
+                        label: Text(
+                          d.title,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                          ),
+                        ),
+                        selected: d.draftId == widget.activeDraftId,
+                        onPressed: () => widget.onSelectDraft(d),
+                        onDeleted: widget.savedDrafts.length > 1
+                            ? () => widget.onDeleteDraft(d.draftId)
+                            : null,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
               const SizedBox(height: 6),
               TextField(
                 controller: _titleController,

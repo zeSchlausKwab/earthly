@@ -41,6 +41,9 @@ class FeatureInspectorSheet extends StatefulWidget {
     double? strokeWidth,
     double? fillOpacity,
     double? radius,
+    String? lineDash,
+    String? displayIcon,
+    bool clearDisplayIcon,
     String? description,
   })? onUpdateDraftStyle;
   final ValueChanged<String>? onEditDraftGeometry;
@@ -300,6 +303,71 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                     ),
                   ],
                 ),
+              if (f.geometryType == 'LineString') ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text(
+                      'LINE:',
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 10),
+                    ),
+                    for (final dash in const ['solid', 'dashed', 'dotted'])
+                      ChoiceChip(
+                        label: Text(dash),
+                        selected:
+                            (f.properties['lineDash'] as String? ?? 'solid') ==
+                                dash,
+                        onSelected: (_) => widget.onUpdateDraftStyle!(
+                          f.draftFeatureId!,
+                          lineDash: dash,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+              if (f.geometryType == 'Point') ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text(
+                      'ICON:',
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 10),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Dot'),
+                      selected: f.properties['displayIcon'] == null,
+                      onSelected: (_) => widget.onUpdateDraftStyle!(
+                        f.draftFeatureId!,
+                        clearDisplayIcon: true,
+                      ),
+                    ),
+                    for (final entry in const [
+                      ('lucide:mountain', Icons.terrain),
+                      ('lucide:tent', Icons.park),
+                      ('lucide:anchor', Icons.anchor),
+                      ('lucide:flag', Icons.flag),
+                      ('lucide:camera', Icons.photo_camera),
+                      ('lucide:coffee', Icons.local_cafe),
+                      ('lucide:home', Icons.home),
+                      ('lucide:star', Icons.star),
+                      ('lucide:alert-triangle', Icons.warning_amber),
+                    ])
+                      ChoiceChip(
+                        label: Icon(entry.$2, size: 15),
+                        selected: f.properties['displayIcon'] == entry.$1,
+                        onSelected: (_) => widget.onUpdateDraftStyle!(
+                          f.draftFeatureId!,
+                          displayIcon: entry.$1,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ],
           ],
           if (f.callouts.isNotEmpty) ...[

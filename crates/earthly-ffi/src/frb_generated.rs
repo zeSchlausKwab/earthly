@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 761781160;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1996447231;
 
 // Section: executor
 
@@ -1101,6 +1101,39 @@ fn wire__crate__api__spike__join_nearby_session_impl(
                     })()
                     .await,
                 )
+            }
+        },
+    )
+}
+fn wire__crate__api__publish__list_local_drafts_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "list_local_drafts",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::publish::list_local_drafts(api_database_path)?;
+                    std::result::Result::Ok(output_ok)
+                })())
             }
         },
     )
@@ -2816,6 +2849,20 @@ impl SseDecode for Vec<crate::api::nostr_client::LiveBeaconDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::publish::LocalDraftDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::publish::LocalDraftDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::geo::LonLatPoint> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -3727,99 +3774,100 @@ fn pde_ffi_dispatcher_primary_impl(
             wire__crate__api__spike__inspect_pmtiles_header_impl(port, ptr, rust_vec_len, data_len)
         }
         29 => wire__crate__api__spike__join_nearby_session_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__settings__load_app_settings_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__publish__load_local_draft_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__spike__local_node_status_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__spike__nearby_peers_status_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__spike__outbox_summary_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__publish__prepare_unsigned_atlas_event_impl(
+        30 => wire__crate__api__publish__list_local_drafts_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__settings__load_app_settings_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__publish__load_local_draft_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__spike__local_node_status_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__spike__nearby_peers_status_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__spike__outbox_summary_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__publish__prepare_unsigned_atlas_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        36 => wire__crate__api__publish__prepare_unsigned_beacon_event_impl(
+        37 => wire__crate__api__publish__prepare_unsigned_beacon_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        37 => wire__crate__api__publish__prepare_unsigned_comment_event_impl(
+        38 => wire__crate__api__publish__prepare_unsigned_comment_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        38 => wire__crate__api__publish__prepare_unsigned_map_event_impl(
+        39 => wire__crate__api__publish__prepare_unsigned_map_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        39 => wire__crate__api__publish__prepare_unsigned_proposal_event_impl(
+        40 => wire__crate__api__publish__prepare_unsigned_proposal_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        40 => wire__crate__api__publish__prepare_unsigned_proposal_status_event_impl(
+        41 => wire__crate__api__publish__prepare_unsigned_proposal_status_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        41 => wire__crate__api__publish__prepare_unsigned_sighting_event_impl(
+        42 => wire__crate__api__publish__prepare_unsigned_sighting_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        42 => wire__crate__api__publish__prepare_unsigned_story_event_impl(
+        43 => wire__crate__api__publish__prepare_unsigned_story_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        43 => wire__crate__api__publish__publish_nearby_event_via_outbox_impl(
+        44 => wire__crate__api__publish__publish_nearby_event_via_outbox_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        44 => wire__crate__api__publish__publish_signed_event_via_outbox_impl(
+        45 => wire__crate__api__publish__publish_signed_event_via_outbox_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        45 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
-        47 => {
+        46 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
+        48 => {
             wire__crate__api__spike__resolve_local_blob_url_impl(port, ptr, rust_vec_len, data_len)
         }
-        48 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        49 => {
+        49 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        50 => {
             wire__crate__api__agent__run_earthly_agent_turn_impl(port, ptr, rust_vec_len, data_len)
         }
-        50 => wire__crate__api__settings__save_app_settings_impl(port, ptr, rust_vec_len, data_len),
-        51 => wire__crate__api__publish__save_local_draft_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__api__nostr_client__search_places_impl(port, ptr, rust_vec_len, data_len),
-        53 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
-        54 => {
+        51 => wire__crate__api__settings__save_app_settings_impl(port, ptr, rust_vec_len, data_len),
+        52 => wire__crate__api__publish__save_local_draft_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__api__nostr_client__search_places_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
+        55 => {
             wire__crate__api__publish__sign_event_with_nsec_impl(port, ptr, rust_vec_len, data_len)
         }
-        55 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
-        56 => {
+        56 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
+        57 => {
             wire__crate__api__spike__start_local_node_fips_impl(port, ptr, rust_vec_len, data_len)
         }
-        57 => wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len),
-        58 => wire__crate__api__nostr_client__subscribe_earthly_relay_stream_impl(
+        58 => wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len),
+        59 => wire__crate__api__nostr_client__subscribe_earthly_relay_stream_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        59 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        60 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -5089,6 +5137,16 @@ impl SseEncode for Vec<crate::api::nostr_client::LiveBeaconDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::nostr_client::LiveBeaconDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::publish::LocalDraftDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::publish::LocalDraftDto>::sse_encode(item, serializer);
         }
     }
 }

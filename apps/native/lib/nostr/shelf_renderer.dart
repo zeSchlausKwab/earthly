@@ -99,6 +99,199 @@ class GeoPinOverlayItem {
   final String label;
 }
 
+/// Frame-locked `displayIcon` (`lucide:*`) Point marker rendered cleanly over
+/// its colored backing disc (`SPEC.md` §1.7).
+@immutable
+class MapIconPinItem {
+  const MapIconPinItem({
+    required this.key,
+    required this.position,
+    required this.iconName,
+    required this.fillColor,
+    required this.ringColor,
+    required this.inspectedFeature,
+  });
+
+  final String key;
+  final Geographic position;
+  final String iconName;
+  final Color fillColor;
+  final Color ringColor;
+  final InspectedFeature inspectedFeature;
+}
+
+/// Curated Lucide -> Material icon mapping covering Earthly's cartographic vocabulary.
+IconData resolveLucideIcon(String rawIcon) {
+  final name = rawIcon
+      .trim()
+      .toLowerCase()
+      .replaceFirst('lucide:', '');
+  return switch (name) {
+    'mountain' || 'mountain-snow' || 'peak' => Icons.terrain,
+    'tent' || 'campground' || 'trees' || 'tree-pine' || 'tree-deciduous' =>
+      Icons.park,
+    'anchor' || 'ship' || 'sailboat' || 'waves' => Icons.anchor,
+    'coffee' || 'cup-soda' => Icons.local_cafe,
+    'utensils' || 'fork-knife' || 'restaurant' => Icons.restaurant,
+    'camera' || 'image' => Icons.photo_camera,
+    'flag' || 'milestone' => Icons.flag,
+    'compass' || 'navigation' => Icons.explore,
+    'bike' || 'bicycle' => Icons.directions_bike,
+    'footprints' || 'hiking' => Icons.hiking,
+    'home' || 'house' || 'hut' || 'building' => Icons.home,
+    'landmark' || 'castle' || 'church' => Icons.account_balance,
+    'train' || 'train-front' || 'tram-front' => Icons.train,
+    'bus' => Icons.directions_bus,
+    'plane' => Icons.flight,
+    'car' => Icons.directions_car,
+    'droplet' || 'droplets' || 'water' => Icons.water_drop,
+    'flame' || 'fire' => Icons.local_fire_department,
+    'alert-triangle' || 'triangle-alert' || 'shield-alert' => Icons.warning_amber,
+    'star' || 'sparkles' => Icons.star,
+    'heart' => Icons.favorite,
+    'info' => Icons.info_outline,
+    'binoculars' || 'eye' => Icons.visibility,
+    'hospital' || 'cross' || 'heart-pulse' => Icons.local_hospital,
+    'bridge' || 'route' => Icons.route,
+    _ => Icons.place,
+  };
+}
+
+Color _parseDartColor(String? raw, Color fallback) {
+  if (raw == null) return fallback;
+  final trimmed = raw.trim();
+  if (RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(trimmed)) {
+    return Color(0xFF000000 | int.parse(trimmed.substring(1), radix: 16));
+  }
+  if (RegExp(r'^#[0-9a-fA-F]{3}$').hasMatch(trimmed)) {
+    final r = trimmed[1];
+    final g = trimmed[2];
+    final b = trimmed[3];
+    return Color(0xFF000000 | int.parse('$r$r$g$g$b$b', radix: 16));
+  }
+  return fallback;
+}
+
+/// Collects all visible Point features that specify `displayIcon` (`lucide:*`)
+/// across Shelf maps, Active Story datasets, and the working draft.
+List<MapIconPinItem> collectVisibleIconPins({
+  required List<ShelfMapEntry> shelfMaps,
+  required Color draftAccentColor,
+  List<DrawnFeature> draftFeatures = const [],
+  ActiveStoryRenderContext? activeStory,
+}) {
+  final out = <MapIconPinItem>[];
+  final seen = <String>{};
+
+  void addShapes(
+    ShelfMapEntry entry,
+    String sourcePrefix, {
+    Set<String>? allowedFeatureIds,
+  }) {
+    for (final shape in entry.shapes) {
+      if (shape.kind != ShelfShapeKind.point ||
+          shape.coords.isEmpty ||
+          shape.displayIcon == null ||
+          shape.displayIcon!.trim().isEmpty) {
+        continue;
+      }
+      if (allowedFeatureIds != null &&
+          (shape.featureId == null ||
+              !allowedFeatureIds.contains(shape.featureId))) {
+        continue;
+      }
+      final key = '${entry.summary.address}::${shape.featureId ?? shape.coords.first}';
+      if (!seen.add(key)) continue;
+      final fill = _parseDartColor(
+        shape.fillColorHex ?? shape.colorHex,
+        EarthlyColors.commentGreen,
+      );
+      final ring = _parseDartColor(
+        shape.properties['strokeColor'] as String?,
+        Colors.white,
+      );
+      out.add(
+        MapIconPinItem(
+          key: key,
+          position: shape.coords.first,
+          iconName: shape.displayIcon!,
+          fillColor: fill,
+          ringColor: ring,
+          inspectedFeature: InspectedFeature(
+            sourceLabel: '$sourcePrefix · ${entry.summary.title}',
+            isDraft: false,
+            geometryType: 'Point',
+            featureId: shape.featureId,
+            title: shape.label ?? entry.summary.title,
+            properties: shape.properties,
+            callouts: shape.callouts,
+            datasetAddress: entry.summary.address,
+            datasetPubkey: entry.summary.pubkey,
+            datasetTitle: entry.summary.title,
+            datasetEventId: entry.summary.eventId,
+            datasetGeojson: entry.summary.geojson,
+          ),
+        ),
+      );
+    }
+  }
+
+  final storyManaged = activeStory != null
+      ? activeStory.datasetsByAddress.keys.toSet()
+      : const <String>{};
+  for (final entry in shelfMaps) {
+    if (!entry.visible || storyManaged.contains(entry.summary.address)) continue;
+    addShapes(entry, 'Published');
+  }
+  if (activeStory != null) {
+    if (activeStory.presentationLayers.isNotEmpty) {
+      for (final layer in activeStory.presentationLayers) {
+        if (!layer.visible) continue;
+        final ds = activeStory.datasetsByAddress[layer.sourceAddress];
+        if (ds != null) {
+          addShapes(ds, 'Story', allowedFeatureIds: layer.featureIds);
+        }
+      }
+    } else {
+      for (final ds in activeStory.datasetsByAddress.values) {
+        addShapes(ds, 'Story');
+      }
+    }
+  }
+  for (final f in draftFeatures) {
+    if (f.kind != DrawToolMode.point ||
+        f.vertices.isEmpty ||
+        f.displayIcon == null ||
+        f.displayIcon!.trim().isEmpty) {
+      continue;
+    }
+    final fill = _parseDartColor(f.colorHex, draftAccentColor);
+    out.add(
+      MapIconPinItem(
+        key: 'draft::${f.id}',
+        position: f.vertices.first,
+        iconName: f.displayIcon!,
+        fillColor: fill,
+        ringColor: Colors.white,
+        inspectedFeature: InspectedFeature(
+          sourceLabel: 'Working draft',
+          isDraft: true,
+          draftFeatureId: f.id,
+          geometryType: 'Point',
+          title: f.name ?? 'Draft Point',
+          properties: {
+            'id': f.id,
+            'displayIcon': f.displayIcon!,
+            if (f.colorHex != null) 'color': f.colorHex!,
+            if (f.radius != null) 'radius': f.radius!,
+          },
+        ),
+      ),
+    );
+  }
+  return out;
+}
+
 /// Active Story map presentation state applied over loaded datasets.
 @immutable
 class ActiveStoryRenderContext {
@@ -273,6 +466,7 @@ String draftFeaturesToGeoJson({
           'coordinates': [ring],
         };
       case DrawToolMode.browse:
+      case DrawToolMode.measure:
         continue;
     }
     jsonFeatures.add({
@@ -286,6 +480,8 @@ String draftFeaturesToGeoJson({
         'strokeWidth': ?f.strokeWidth,
         'fillOpacity': ?f.fillOpacity,
         'radius': ?f.radius,
+        'lineDash': ?f.lineDash,
+        'displayIcon': ?f.displayIcon,
         if (f.callouts.isNotEmpty)
           'earthly:callouts': [
             for (final c in f.callouts)
@@ -334,6 +530,11 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
       final radius = (props['radius'] is num)
           ? (props['radius'] as num).toDouble().clamp(3.0, 20.0)
           : null;
+      final rawDash = props['lineDash'] as String?;
+      final lineDash = (rawDash == 'dashed' || rawDash == 'dotted' || rawDash == 'solid')
+          ? rawDash
+          : null;
+      final displayIcon = (props['displayIcon'] as String?)?.trim();
       final draftCallouts = _parseDraftCallouts(props);
       final geom = item['geometry'] as Map<String, dynamic>?;
       if (geom == null) continue;
@@ -350,6 +551,9 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             description: description,
             colorHex: colorHex,
             radius: radius,
+            displayIcon: (displayIcon != null && displayIcon.isNotEmpty)
+                ? displayIcon
+                : null,
             callouts: draftCallouts,
           ));
         }
@@ -364,6 +568,7 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             description: description,
             colorHex: colorHex,
             strokeWidth: strokeWidth,
+            lineDash: lineDash,
             callouts: draftCallouts,
           ));
         }
@@ -483,7 +688,7 @@ List<MapCalloutItem> collectVisibleCallouts({
         DrawToolMode.point => ShelfShapeKind.point,
         DrawToolMode.line => ShelfShapeKind.line,
         DrawToolMode.polygon => ShelfShapeKind.polygon,
-        DrawToolMode.browse => ShelfShapeKind.point,
+        DrawToolMode.browse || DrawToolMode.measure => ShelfShapeKind.point,
       },
       f.vertices,
     );
@@ -510,7 +715,7 @@ List<MapCalloutItem> collectVisibleCallouts({
         DrawToolMode.point => 'Point',
         DrawToolMode.line => 'LineString',
         DrawToolMode.polygon => 'Polygon',
-        DrawToolMode.browse => 'Point',
+        DrawToolMode.browse || DrawToolMode.measure => 'Point',
       },
       title: f.name ?? 'Draft Feature',
       properties: {'id': f.id, 'vertices': f.vertices.length},
@@ -628,11 +833,15 @@ List<Layer> buildEarthlyGpuLayers({
 }) {
   final shelfPolygons = <Feature<Polygon>>[];
   final shelfLines = <Feature<LineString>>[];
+  final shelfDashedLines = <Feature<LineString>>[];
+  final shelfDottedLines = <Feature<LineString>>[];
   final shelfPoints = <Feature<Point>>[];
   final labelPoints = <Feature<Point>>[];
 
   final shelfPolyMeta = <InspectedFeature>[];
   final shelfLineMeta = <InspectedFeature>[];
+  final shelfDashedLineMeta = <InspectedFeature>[];
+  final shelfDottedLineMeta = <InspectedFeature>[];
   final shelfPointMeta = <InspectedFeature>[];
 
   final focusedPolygons = <Feature<Polygon>>[];
@@ -720,9 +929,7 @@ List<Layer> buildEarthlyGpuLayers({
           if (shape.coords.length < 2) continue;
           final lineFeature =
               Feature(geometry: LineString.from(shape.coords), properties: props);
-          shelfLines.add(lineFeature);
-          if (isFocusedShape) focusedLines.add(lineFeature);
-          shelfLineMeta.add(InspectedFeature(
+          final lineMeta = InspectedFeature(
             sourceLabel: '$sourcePrefix · ${entry.summary.title}',
             isDraft: false,
             geometryType: 'LineString',
@@ -736,7 +943,19 @@ List<Layer> buildEarthlyGpuLayers({
             datasetTitle: entry.summary.title,
             datasetEventId: entry.summary.eventId,
             datasetGeojson: entry.summary.geojson,
-          ));
+          );
+          final dash = shape.properties['lineDash'] as String?;
+          if (dash == 'dashed') {
+            shelfDashedLines.add(lineFeature);
+            shelfDashedLineMeta.add(lineMeta);
+          } else if (dash == 'dotted') {
+            shelfDottedLines.add(lineFeature);
+            shelfDottedLineMeta.add(lineMeta);
+          } else {
+            shelfLines.add(lineFeature);
+            shelfLineMeta.add(lineMeta);
+          }
+          if (isFocusedShape) focusedLines.add(lineFeature);
         case ShelfShapeKind.point:
           if (shape.coords.isEmpty) continue;
           final ptFeature =
@@ -811,10 +1030,14 @@ List<Layer> buildEarthlyGpuLayers({
   // 3. Working Draft features
   final draftPolygons = <Feature<Polygon>>[];
   final draftLines = <Feature<LineString>>[];
+  final draftDashedLines = <Feature<LineString>>[];
+  final draftDottedLines = <Feature<LineString>>[];
   final draftPoints = <Feature<Point>>[];
 
   final draftPolyMeta = <InspectedFeature>[];
   final draftLineMeta = <InspectedFeature>[];
+  final draftDashedLineMeta = <InspectedFeature>[];
+  final draftDottedLineMeta = <InspectedFeature>[];
   final draftPointMeta = <InspectedFeature>[];
 
   for (final f in draftFeatures) {
@@ -825,7 +1048,8 @@ List<Layer> buildEarthlyGpuLayers({
               DrawToolMode.point => ShelfShapeKind.point,
               DrawToolMode.line => ShelfShapeKind.line,
               DrawToolMode.polygon => ShelfShapeKind.polygon,
-              DrawToolMode.browse => ShelfShapeKind.point,
+              DrawToolMode.browse || DrawToolMode.measure =>
+                ShelfShapeKind.point,
             },
             f.vertices,
           );
@@ -886,10 +1110,12 @@ List<Layer> buildEarthlyGpuLayers({
         ));
       case DrawToolMode.line:
         if (f.vertices.length < 2) continue;
-        draftLines.add(
-          Feature(id: f.id, geometry: LineString.from(f.vertices), properties: draftProps),
+        final lineFeat = Feature(
+          id: f.id,
+          geometry: LineString.from(f.vertices),
+          properties: draftProps,
         );
-        draftLineMeta.add(InspectedFeature(
+        final lineMeta = InspectedFeature(
           sourceLabel: 'Working draft',
           isDraft: true,
           draftFeatureId: f.id,
@@ -902,10 +1128,21 @@ List<Layer> buildEarthlyGpuLayers({
               'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,
             if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
+            if (f.lineDash != null) 'lineDash': f.lineDash!,
           },
           lengthMeters: _polylineLengthMeters(f.vertices),
           callouts: draftCalloutItems,
-        ));
+        );
+        if (f.lineDash == 'dashed') {
+          draftDashedLines.add(lineFeat);
+          draftDashedLineMeta.add(lineMeta);
+        } else if (f.lineDash == 'dotted') {
+          draftDottedLines.add(lineFeat);
+          draftDottedLineMeta.add(lineMeta);
+        } else {
+          draftLines.add(lineFeat);
+          draftLineMeta.add(lineMeta);
+        }
       case DrawToolMode.point:
         if (f.vertices.isEmpty) continue;
         draftPoints.add(
@@ -925,10 +1162,12 @@ List<Layer> buildEarthlyGpuLayers({
               'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,
             if (f.radius != null) 'radius': f.radius!,
+            if (f.displayIcon != null) 'displayIcon': f.displayIcon!,
           },
           callouts: draftCalloutItems,
         ));
       case DrawToolMode.browse:
+      case DrawToolMode.measure:
         continue;
     }
   }
@@ -1068,6 +1307,34 @@ List<Layer> buildEarthlyGpuLayers({
         onClick: (event) {
           if (event.index < shelfLineMeta.length) {
             onInspectFeature(shelfLineMeta[event.index]);
+          }
+        },
+      ),
+    if (shelfDashedLines.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-shelf-lines-dashed',
+        polylines: shelfDashedLines,
+        color: shelfStrokeExpr,
+        width: Expression.get('strokeWidth')
+            .convertToNumber([const Expression.literal(3.0)]),
+        dashArray: const Expression.literal([4, 2]),
+        onClick: (event) {
+          if (event.index < shelfDashedLineMeta.length) {
+            onInspectFeature(shelfDashedLineMeta[event.index]);
+          }
+        },
+      ),
+    if (shelfDottedLines.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-shelf-lines-dotted',
+        polylines: shelfDottedLines,
+        color: shelfStrokeExpr,
+        width: Expression.get('strokeWidth')
+            .convertToNumber([const Expression.literal(3.0)]),
+        dashArray: const Expression.literal([1, 2]),
+        onClick: (event) {
+          if (event.index < shelfDottedLineMeta.length) {
+            onInspectFeature(shelfDottedLineMeta[event.index]);
           }
         },
       ),
@@ -1211,7 +1478,7 @@ List<Layer> buildEarthlyGpuLayers({
       ),
     ],
 
-    // Working Draft Lines
+    // Working Draft Lines (solid, dashed, dotted)
     if (draftLines.isNotEmpty)
       PolylineLayer(
         id: 'earthly-draft-lines',
@@ -1223,6 +1490,36 @@ List<Layer> buildEarthlyGpuLayers({
         onClick: (event) {
           if (event.index < draftLineMeta.length) {
             onInspectFeature(draftLineMeta[event.index]);
+          }
+        },
+      ),
+    if (draftDashedLines.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-draft-lines-dashed',
+        polylines: draftDashedLines,
+        color: Expression.get('color')
+            .convertToColor([Expression.literal(accentColor)]),
+        width: Expression.get('strokeWidth')
+            .convertToNumber([const Expression.literal(3.0)]),
+        dashArray: const Expression.literal([4, 2]),
+        onClick: (event) {
+          if (event.index < draftDashedLineMeta.length) {
+            onInspectFeature(draftDashedLineMeta[event.index]);
+          }
+        },
+      ),
+    if (draftDottedLines.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-draft-lines-dotted',
+        polylines: draftDottedLines,
+        color: Expression.get('color')
+            .convertToColor([Expression.literal(accentColor)]),
+        width: Expression.get('strokeWidth')
+            .convertToNumber([const Expression.literal(3.0)]),
+        dashArray: const Expression.literal([1, 2]),
+        onClick: (event) {
+          if (event.index < draftDottedLineMeta.length) {
+            onInspectFeature(draftDottedLineMeta[event.index]);
           }
         },
       ),
