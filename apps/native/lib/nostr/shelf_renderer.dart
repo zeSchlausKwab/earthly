@@ -120,6 +120,59 @@ class MapIconPinItem {
   final InspectedFeature inspectedFeature;
 }
 
+/// Frame-locked directional arrowhead rendered at the start/end of LineStrings
+/// with `arrowStart` / `arrowEnd` properties (`SPEC.md` §1.7).
+@immutable
+class MapArrowheadItem {
+  const MapArrowheadItem({
+    required this.key,
+    required this.tip,
+    required this.from,
+    required this.color,
+    this.strokeWidth = 3.0,
+  });
+
+  final String key;
+  final Geographic tip;
+  final Geographic from;
+  final Color color;
+  final double strokeWidth;
+}
+
+/// Searchable catalog of cartographic `lucide:*` icons supported natively.
+const List<(String id, String label, IconData icon)> earthlyCartographicIcons = [
+  ('lucide:mountain', 'Mountain / Peak', Icons.terrain),
+  ('lucide:tent', 'Camp / Tent', Icons.park),
+  ('lucide:trees', 'Forest / Trees', Icons.forest),
+  ('lucide:anchor', 'Harbor / Anchor', Icons.anchor),
+  ('lucide:flag', 'Flag / Waypoint', Icons.flag),
+  ('lucide:compass', 'Compass', Icons.explore),
+  ('lucide:camera', 'Viewpoint / Photo', Icons.photo_camera),
+  ('lucide:binoculars', 'Lookout', Icons.visibility),
+  ('lucide:footprints', 'Hiking Trail', Icons.hiking),
+  ('lucide:bike', 'Cycling', Icons.directions_bike),
+  ('lucide:coffee', 'Cafe / Coffee', Icons.local_cafe),
+  ('lucide:utensils', 'Food / Restaurant', Icons.restaurant),
+  ('lucide:home', 'Hut / Shelter', Icons.home),
+  ('lucide:landmark', 'Landmark / Castle', Icons.account_balance),
+  ('lucide:train', 'Train / Rail', Icons.train),
+  ('lucide:bus', 'Bus Stop', Icons.directions_bus),
+  ('lucide:plane', 'Airport / Airstrip', Icons.flight),
+  ('lucide:car', 'Parking / Road', Icons.directions_car),
+  ('lucide:droplet', 'Water / Spring', Icons.water_drop),
+  ('lucide:flame', 'Campfire / Hazard', Icons.local_fire_department),
+  ('lucide:alert-triangle', 'Warning / Caution', Icons.warning_amber),
+  ('lucide:hospital', 'Medical / Aid', Icons.local_hospital),
+  ('lucide:bridge', 'Bridge / Crossing', Icons.route),
+  ('lucide:star', 'Highlight / Star', Icons.star),
+  ('lucide:heart', 'Favorite', Icons.favorite),
+  ('lucide:info', 'Information', Icons.info_outline),
+  ('lucide:sun', 'Sun / Solar', Icons.wb_sunny_outlined),
+  ('lucide:music', 'Venue / Culture', Icons.music_note),
+  ('lucide:shopping-bag', 'Market / Shop', Icons.shopping_bag_outlined),
+  ('lucide:book', 'Library / Archive', Icons.menu_book_outlined),
+];
+
 /// Curated Lucide -> Material icon mapping covering Earthly's cartographic vocabulary.
 IconData resolveLucideIcon(String rawIcon) {
   final name = rawIcon
@@ -128,8 +181,8 @@ IconData resolveLucideIcon(String rawIcon) {
       .replaceFirst('lucide:', '');
   return switch (name) {
     'mountain' || 'mountain-snow' || 'peak' => Icons.terrain,
-    'tent' || 'campground' || 'trees' || 'tree-pine' || 'tree-deciduous' =>
-      Icons.park,
+    'tent' || 'campground' => Icons.park,
+    'trees' || 'tree-pine' || 'tree-deciduous' => Icons.forest,
     'anchor' || 'ship' || 'sailboat' || 'waves' => Icons.anchor,
     'coffee' || 'cup-soda' => Icons.local_cafe,
     'utensils' || 'fork-knife' || 'restaurant' => Icons.restaurant,
@@ -153,8 +206,122 @@ IconData resolveLucideIcon(String rawIcon) {
     'binoculars' || 'eye' => Icons.visibility,
     'hospital' || 'cross' || 'heart-pulse' => Icons.local_hospital,
     'bridge' || 'route' => Icons.route,
+    'sun' => Icons.wb_sunny_outlined,
+    'music' => Icons.music_note,
+    'shopping-bag' || 'store' => Icons.shopping_bag_outlined,
+    'book' || 'library' => Icons.menu_book_outlined,
     _ => Icons.place,
   };
+}
+
+/// Collects all visible LineString arrowheads (`arrowStart` / `arrowEnd`)
+/// across Shelf maps, Active Story datasets, and the working draft.
+List<MapArrowheadItem> collectVisibleArrowheads({
+  required List<ShelfMapEntry> shelfMaps,
+  required Color draftAccentColor,
+  List<DrawnFeature> draftFeatures = const [],
+  ActiveStoryRenderContext? activeStory,
+}) {
+  final out = <MapArrowheadItem>[];
+
+  void emitLineArrows({
+    required String keyPrefix,
+    required List<Geographic> coords,
+    required bool arrowStart,
+    required bool arrowEnd,
+    required Color color,
+    required double strokeWidth,
+  }) {
+    if (coords.length < 2) return;
+    if (arrowStart) {
+      out.add(MapArrowheadItem(
+        key: '$keyPrefix::start',
+        tip: coords.first,
+        from: coords[1],
+        color: color,
+        strokeWidth: strokeWidth,
+      ));
+    }
+    if (arrowEnd) {
+      out.add(MapArrowheadItem(
+        key: '$keyPrefix::end',
+        tip: coords.last,
+        from: coords[coords.length - 2],
+        color: color,
+        strokeWidth: strokeWidth,
+      ));
+    }
+  }
+
+  void addShapes(
+    ShelfMapEntry entry, {
+    Set<String>? allowedFeatureIds,
+  }) {
+    for (var i = 0; i < entry.shapes.length; i++) {
+      final shape = entry.shapes[i];
+      if (shape.kind != ShelfShapeKind.line || shape.coords.length < 2) {
+        continue;
+      }
+      if (allowedFeatureIds != null &&
+          (shape.featureId == null ||
+              !allowedFeatureIds.contains(shape.featureId))) {
+        continue;
+      }
+      final aStart = shape.properties['arrowStart'] == true;
+      final aEnd = shape.properties['arrowEnd'] == true;
+      if (!aStart && !aEnd) continue;
+      final color = _parseDartColor(
+        shape.strokeColorHex ?? shape.colorHex,
+        EarthlyColors.commentGreen,
+      );
+      emitLineArrows(
+        keyPrefix: '${entry.summary.address}::${shape.featureId ?? i}',
+        coords: shape.coords,
+        arrowStart: aStart,
+        arrowEnd: aEnd,
+        color: color,
+        strokeWidth: shape.strokeWidth ?? 3.0,
+      );
+    }
+  }
+
+  final storyManaged = activeStory != null
+      ? activeStory.datasetsByAddress.keys.toSet()
+      : const <String>{};
+  for (final entry in shelfMaps) {
+    if (!entry.visible || storyManaged.contains(entry.summary.address)) continue;
+    addShapes(entry);
+  }
+  if (activeStory != null) {
+    if (activeStory.presentationLayers.isNotEmpty) {
+      for (final layer in activeStory.presentationLayers) {
+        if (!layer.visible) continue;
+        final ds = activeStory.datasetsByAddress[layer.sourceAddress];
+        if (ds != null) addShapes(ds, allowedFeatureIds: layer.featureIds);
+      }
+    } else {
+      for (final ds in activeStory.datasetsByAddress.values) {
+        addShapes(ds);
+      }
+    }
+  }
+  for (final f in draftFeatures) {
+    if (f.kind != DrawToolMode.line || f.vertices.length < 2) continue;
+    if (!f.arrowStart && !f.arrowEnd) continue;
+    final color = _parseDartColor(
+      f.strokeColorHex ?? f.colorHex,
+      draftAccentColor,
+    );
+    emitLineArrows(
+      keyPrefix: 'draft::${f.id}',
+      coords: f.vertices,
+      arrowStart: f.arrowStart,
+      arrowEnd: f.arrowEnd,
+      color: color,
+      strokeWidth: f.strokeWidth ?? 3.0,
+    );
+  }
+  return out;
 }
 
 Color _parseDartColor(String? raw, Color fallback) {
@@ -432,6 +599,28 @@ List<ShelfShape> parseGeoJsonShapes(
   }
 }
 
+const Set<String> _reservedFeaturePropKeys = <String>{
+  'name',
+  'label',
+  'title',
+  'description',
+  'color',
+  'fillColor',
+  'strokeColor',
+  'strokeWidth',
+  'fillOpacity',
+  'radius',
+  'lineDash',
+  'arrowStart',
+  'arrowEnd',
+  'displayIcon',
+  'earthly:callouts',
+  'id',
+  'vertices',
+  'lat',
+  'lon',
+};
+
 /// Serializes local working draft features into an RFC 7946 FeatureCollection JSON.
 String draftFeaturesToGeoJson({
   required String title,
@@ -469,30 +658,48 @@ String draftFeaturesToGeoJson({
       case DrawToolMode.measure:
         continue;
     }
+    final props = <String, Object?>{
+      for (final entry in f.customProperties.entries)
+        if (!_reservedFeaturePropKeys.contains(entry.key) &&
+            entry.key.trim().isNotEmpty)
+          entry.key.trim(): entry.value,
+      'name': ?f.name,
+      'description': ?f.description,
+      'color': ?f.colorHex,
+      'fillColor': ?f.fillColorHex,
+      'strokeColor': ?f.strokeColorHex,
+      'strokeWidth': ?f.strokeWidth,
+      'fillOpacity': ?f.fillOpacity,
+      'radius': ?f.radius,
+      'lineDash': ?f.lineDash,
+      if (f.arrowStart) 'arrowStart': true,
+      if (f.arrowEnd) 'arrowEnd': true,
+      'displayIcon': ?f.displayIcon,
+      if (f.callouts.isNotEmpty)
+        'earthly:callouts': [
+          for (final c in f.callouts)
+            {
+              'id': c.id,
+              'title': ?c.title,
+              'text': c.text,
+              if (c.mediaUrls.isNotEmpty)
+                'media': [
+                  for (final url in c.mediaUrls) {'type': 'image', 'url': url},
+                ],
+              'placement': {
+                'side': c.side,
+                if (c.offsetX != 0.0 || c.offsetY != 0.0)
+                  'offset': [c.offsetX, c.offsetY],
+                'leader': 'line',
+              },
+            },
+        ],
+    };
     jsonFeatures.add({
       'type': 'Feature',
       'id': f.id,
       'geometry': geometry,
-      'properties': {
-        'name': ?f.name,
-        'description': ?f.description,
-        'color': ?f.colorHex,
-        'strokeWidth': ?f.strokeWidth,
-        'fillOpacity': ?f.fillOpacity,
-        'radius': ?f.radius,
-        'lineDash': ?f.lineDash,
-        'displayIcon': ?f.displayIcon,
-        if (f.callouts.isNotEmpty)
-          'earthly:callouts': [
-            for (final c in f.callouts)
-              {
-                'id': c.id,
-                'title': ?c.title,
-                'text': c.text,
-                'placement': {'side': c.side, 'leader': 'line'},
-              },
-          ],
-      },
+      'properties': props,
     });
   }
   return jsonEncode({
@@ -521,6 +728,8 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
       final name = (props['name'] ?? props['label']) as String?;
       final description = props['description'] as String?;
       final colorHex = _sanitizeCssColor(props['color'] as String?);
+      final fillColorHex = _sanitizeCssColor(props['fillColor'] as String?);
+      final strokeColorHex = _sanitizeCssColor(props['strokeColor'] as String?);
       final strokeWidth = (props['strokeWidth'] is num)
           ? (props['strokeWidth'] as num).toDouble().clamp(1.0, 12.0)
           : null;
@@ -534,8 +743,18 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
       final lineDash = (rawDash == 'dashed' || rawDash == 'dotted' || rawDash == 'solid')
           ? rawDash
           : null;
+      final arrowStart = props['arrowStart'] == true;
+      final arrowEnd = props['arrowEnd'] == true;
       final displayIcon = (props['displayIcon'] as String?)?.trim();
       final draftCallouts = _parseDraftCallouts(props);
+      final customProperties = <String, String>{};
+      for (final e in props.entries) {
+        if (_reservedFeaturePropKeys.contains(e.key)) continue;
+        final v = e.value;
+        if (v is String || v is num || v is bool) {
+          customProperties[e.key] = v.toString();
+        }
+      }
       final geom = item['geometry'] as Map<String, dynamic>?;
       if (geom == null) continue;
       final type = geom['type'] as String?;
@@ -550,11 +769,14 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             name: name,
             description: description,
             colorHex: colorHex,
+            fillColorHex: fillColorHex,
+            strokeColorHex: strokeColorHex,
             radius: radius,
             displayIcon: (displayIcon != null && displayIcon.isNotEmpty)
                 ? displayIcon
                 : null,
             callouts: draftCallouts,
+            customProperties: customProperties,
           ));
         }
       } else if (type == 'LineString') {
@@ -567,9 +789,13 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             name: name,
             description: description,
             colorHex: colorHex,
+            strokeColorHex: strokeColorHex,
             strokeWidth: strokeWidth,
             lineDash: lineDash,
+            arrowStart: arrowStart,
+            arrowEnd: arrowEnd,
             callouts: draftCallouts,
+            customProperties: customProperties,
           ));
         }
       } else if (type == 'Polygon' && coords is List && coords.isNotEmpty) {
@@ -587,9 +813,12 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             name: name,
             description: description,
             colorHex: colorHex,
+            fillColorHex: fillColorHex,
+            strokeColorHex: strokeColorHex,
             strokeWidth: strokeWidth,
             fillOpacity: fillOpacity,
             callouts: draftCallouts,
+            customProperties: customProperties,
           ));
         }
       }
@@ -703,8 +932,11 @@ List<MapCalloutItem> collectVisibleCallouts({
           featureId: f.id,
           featureLabel: f.name ?? 'Draft feature',
           title: c.title,
+          mediaUrls: c.mediaUrls,
           preferredSide: c.side,
+          offset: Offset(c.offsetX, c.offsetY),
           showLeader: true,
+          accentColorHex: f.strokeColorHex ?? f.colorHex,
         ),
     ];
     final inspected = InspectedFeature(
@@ -718,7 +950,23 @@ List<MapCalloutItem> collectVisibleCallouts({
         DrawToolMode.browse || DrawToolMode.measure => 'Point',
       },
       title: f.name ?? 'Draft Feature',
-      properties: {'id': f.id, 'vertices': f.vertices.length},
+      properties: {
+        ...f.customProperties,
+        'id': f.id,
+        'vertices': f.vertices.length,
+        if (f.description != null && f.description!.isNotEmpty)
+          'description': f.description!,
+        if (f.colorHex != null) 'color': f.colorHex!,
+        if (f.fillColorHex != null) 'fillColor': f.fillColorHex!,
+        if (f.strokeColorHex != null) 'strokeColor': f.strokeColorHex!,
+        if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
+        if (f.fillOpacity != null) 'fillOpacity': f.fillOpacity!,
+        if (f.radius != null) 'radius': f.radius!,
+        if (f.lineDash != null) 'lineDash': f.lineDash!,
+        if (f.arrowStart) 'arrowStart': true,
+        if (f.arrowEnd) 'arrowEnd': true,
+        if (f.displayIcon != null) 'displayIcon': f.displayIcon!,
+      },
       callouts: calloutItems,
     );
     for (final c in calloutItems) {
@@ -733,8 +981,11 @@ List<MapCalloutItem> collectVisibleCallouts({
           featureId: c.featureId,
           featureLabel: c.featureLabel,
           title: c.title,
+          mediaUrls: c.mediaUrls,
           preferredSide: c.preferredSide,
+          offset: c.offset,
           showLeader: true,
+          accentColorHex: c.accentColorHex,
           inspectedFeature: inspected,
         ),
       );
@@ -831,6 +1082,7 @@ List<Layer> buildEarthlyGpuLayers({
   ActiveStoryRenderContext? activeStory,
   List<ShelfShape> commentOverlayShapes = const [],
   List<ShelfShape> proposalOverlayShapes = const [],
+  Set<String> selectedDraftFeatureIds = const <String>{},
 }) {
   final shelfPolygons = <Feature<Polygon>>[];
   final shelfLines = <Feature<LineString>>[];
@@ -1035,6 +1287,10 @@ List<Layer> buildEarthlyGpuLayers({
   final draftDottedLines = <Feature<LineString>>[];
   final draftPoints = <Feature<Point>>[];
 
+  final selectedDraftPolygons = <Feature<Polygon>>[];
+  final selectedDraftLines = <Feature<LineString>>[];
+  final selectedDraftPoints = <Feature<Point>>[];
+
   final draftPolyMeta = <InspectedFeature>[];
   final draftLineMeta = <InspectedFeature>[];
   final draftDashedLineMeta = <InspectedFeature>[];
@@ -1042,6 +1298,7 @@ List<Layer> buildEarthlyGpuLayers({
   final draftPointMeta = <InspectedFeature>[];
 
   for (final f in draftFeatures) {
+    final isSelected = selectedDraftFeatureIds.contains(f.id);
     final anchor = f.vertices.isEmpty
         ? const Geographic(lon: 0, lat: 0)
         : _representativeAnchor(
@@ -1065,7 +1322,10 @@ List<Layer> buildEarthlyGpuLayers({
           featureId: f.id,
           featureLabel: f.name,
           title: c.title,
+          mediaUrls: c.mediaUrls,
           preferredSide: c.side,
+          offset: Offset(c.offsetX, c.offsetY),
+          accentColorHex: f.strokeColorHex ?? f.colorHex,
         ),
     ];
 
@@ -1078,8 +1338,12 @@ List<Layer> buildEarthlyGpuLayers({
       );
     }
 
+    final effectiveFillHex = f.fillColorHex ?? f.colorHex;
+    final effectiveStrokeHex = f.strokeColorHex ?? f.colorHex;
     final draftProps = <String, Object?>{
-      'color': ?f.colorHex,
+      'fillColor': ?effectiveFillHex,
+      'color': ?effectiveStrokeHex,
+      'pointStroke': ?f.strokeColorHex,
       'strokeWidth': ?f.strokeWidth,
       'fillOpacity': ?f.fillOpacity,
       'radius': ?f.radius,
@@ -1088,9 +1352,10 @@ List<Layer> buildEarthlyGpuLayers({
       case DrawToolMode.polygon:
         final ring = _ensureClosedRing(f.vertices);
         if (ring.length < 4) continue;
-        draftPolygons.add(
-          Feature(id: f.id, geometry: Polygon.from([ring]), properties: draftProps),
-        );
+        final polyFeat =
+            Feature(id: f.id, geometry: Polygon.from([ring]), properties: draftProps);
+        draftPolygons.add(polyFeat);
+        if (isSelected) selectedDraftPolygons.add(polyFeat);
         draftPolyMeta.add(InspectedFeature(
           sourceLabel: 'Working draft',
           isDraft: true,
@@ -1098,11 +1363,14 @@ List<Layer> buildEarthlyGpuLayers({
           geometryType: 'Polygon',
           title: f.name ?? 'Draft Polygon',
           properties: {
+            ...f.customProperties,
             'id': f.id,
             'vertices': f.vertices.length,
             if (f.description != null && f.description!.isNotEmpty)
               'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,
+            if (f.fillColorHex != null) 'fillColor': f.fillColorHex!,
+            if (f.strokeColorHex != null) 'strokeColor': f.strokeColorHex!,
             if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
             if (f.fillOpacity != null) 'fillOpacity': f.fillOpacity!,
           },
@@ -1116,6 +1384,7 @@ List<Layer> buildEarthlyGpuLayers({
           geometry: LineString.from(f.vertices),
           properties: draftProps,
         );
+        if (isSelected) selectedDraftLines.add(lineFeat);
         final lineMeta = InspectedFeature(
           sourceLabel: 'Working draft',
           isDraft: true,
@@ -1123,13 +1392,17 @@ List<Layer> buildEarthlyGpuLayers({
           geometryType: 'LineString',
           title: f.name ?? 'Draft Line',
           properties: {
+            ...f.customProperties,
             'id': f.id,
             'vertices': f.vertices.length,
             if (f.description != null && f.description!.isNotEmpty)
               'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,
+            if (f.strokeColorHex != null) 'strokeColor': f.strokeColorHex!,
             if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
             if (f.lineDash != null) 'lineDash': f.lineDash!,
+            if (f.arrowStart) 'arrowStart': true,
+            if (f.arrowEnd) 'arrowEnd': true,
           },
           lengthMeters: _polylineLengthMeters(f.vertices),
           callouts: draftCalloutItems,
@@ -1146,9 +1419,10 @@ List<Layer> buildEarthlyGpuLayers({
         }
       case DrawToolMode.point:
         if (f.vertices.isEmpty) continue;
-        draftPoints.add(
-          Feature(id: f.id, geometry: Point(f.vertices.first), properties: draftProps),
-        );
+        final ptFeat =
+            Feature(id: f.id, geometry: Point(f.vertices.first), properties: draftProps);
+        draftPoints.add(ptFeat);
+        if (isSelected) selectedDraftPoints.add(ptFeat);
         draftPointMeta.add(InspectedFeature(
           sourceLabel: 'Working draft',
           isDraft: true,
@@ -1156,12 +1430,15 @@ List<Layer> buildEarthlyGpuLayers({
           geometryType: 'Point',
           title: f.name ?? 'Draft Point',
           properties: {
+            ...f.customProperties,
             'id': f.id,
             'lat': f.vertices.first.lat.toStringAsFixed(6),
             'lon': f.vertices.first.lon.toStringAsFixed(6),
             if (f.description != null && f.description!.isNotEmpty)
               'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,
+            if (f.fillColorHex != null) 'fillColor': f.fillColorHex!,
+            if (f.strokeColorHex != null) 'strokeColor': f.strokeColorHex!,
             if (f.radius != null) 'radius': f.radius!,
             if (f.displayIcon != null) 'displayIcon': f.displayIcon!,
           },
@@ -1440,12 +1717,12 @@ List<Layer> buildEarthlyGpuLayers({
         strokeWidth: const Expression.literal(2.5),
       ),
 
-    // Working Draft Polygons (per-feature color, opacity, and strokeWidth expressions)
+    // Working Draft Polygons (separate fillColor + strokeColor, opacity, and strokeWidth expressions)
     if (draftPolygons.isNotEmpty) ...[
       PolygonLayer(
         id: 'earthly-draft-polygons',
         polygons: draftPolygons,
-        color: Expression.get('color')
+        color: Expression.get('fillColor')
             .convertToColor([Expression.literal(accentColor)]),
         opacity: Expression.get('fillOpacity')
             .convertToNumber([const Expression.literal(0.24)]),
@@ -1530,17 +1807,53 @@ List<Layer> buildEarthlyGpuLayers({
       CircleLayer(
         id: 'earthly-draft-points',
         points: draftPoints,
-        color: Expression.get('color')
+        color: Expression.get('fillColor')
             .convertToColor([Expression.literal(accentColor)]),
         radius: Expression.get('radius')
             .convertToNumber([const Expression.literal(7.0)]),
-        strokeColor: const Expression.literal(Colors.white),
+        strokeColor: Expression.get('pointStroke')
+            .convertToColor([const Expression.literal(Colors.white)]),
         strokeWidth: const Expression.literal(2.2),
         onClick: (event) {
           if (event.index < draftPointMeta.length) {
             onInspectFeature(draftPointMeta[event.index]);
           }
         },
+      ),
+
+    // Multi-selected Working Draft feature highlight halos
+    if (selectedDraftPolygons.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-selected-draft-polygons',
+        polylines: [
+          for (final p in selectedDraftPolygons)
+            if (p.geometry?.exterior case final exterior?)
+              Feature(
+                geometry: LineString.from(
+                  exterior.positions.map(
+                    (pos) => Geographic(lon: pos.x, lat: pos.y),
+                  ),
+                ),
+              ),
+        ],
+        color: const Expression.literal(EarthlyColors.amber),
+        width: const Expression.literal(4.6),
+      ),
+    if (selectedDraftLines.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-selected-draft-lines',
+        polylines: selectedDraftLines,
+        color: const Expression.literal(EarthlyColors.amber),
+        width: const Expression.literal(5.4),
+      ),
+    if (selectedDraftPoints.isNotEmpty)
+      CircleLayer(
+        id: 'earthly-selected-draft-points',
+        points: selectedDraftPoints,
+        color: const Expression.literal(Color(0x38F59E0B)),
+        radius: const Expression.literal(12.0),
+        strokeColor: const Expression.literal(EarthlyColors.amber),
+        strokeWidth: const Expression.literal(2.4),
       ),
 
     // Geo Comment Annotation Overlay (Comment Green #15803D)
@@ -1713,13 +2026,37 @@ List<DraftCallout> _parseDraftCallouts(Map<String, Object?> props) {
     final id = (item['id'] as String?)?.trim();
     final title = (item['title'] as String?)?.trim();
     final placement = item['placement'];
-    final side =
-        (placement is Map && placement['side'] is String) ? placement['side'] as String : 'auto';
+    final side = (placement is Map && placement['side'] is String)
+        ? placement['side'] as String
+        : 'auto';
+    var offsetX = 0.0;
+    var offsetY = 0.0;
+    if (placement is Map &&
+        placement['offset'] is List &&
+        (placement['offset'] as List).length >= 2) {
+      final ox = (placement['offset'] as List)[0];
+      final oy = (placement['offset'] as List)[1];
+      if (ox is num && oy is num) {
+        offsetX = ox.toDouble();
+        offsetY = oy.toDouble();
+      }
+    }
+    final mediaUrls = <String>[];
+    if (item['media'] is List) {
+      for (final m in item['media'] as List) {
+        if (m is Map && m['url'] is String && (m['url'] as String).isNotEmpty) {
+          mediaUrls.add(m['url'] as String);
+        }
+      }
+    }
     out.add(DraftCallout(
       id: (id != null && id.isNotEmpty) ? id : 'c-$i',
       text: text,
       title: (title != null && title.isNotEmpty) ? title : null,
       side: side,
+      offsetX: offsetX,
+      offsetY: offsetY,
+      mediaUrls: mediaUrls,
     ));
   }
   return out;

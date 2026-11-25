@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../drawing/drawing_model.dart';
 import '../nostr/shelf_renderer.dart';
+import '../src/rust/api/blossom.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
@@ -9,12 +10,39 @@ import 'map_drawer.dart';
 
 const List<String> _draftColorSwatches = <String>[
   '#1F5F8B',
-  '#15803D',
-  '#D97706',
-  '#B91C1C',
-  '#7C3AED',
+  '#0284C7',
   '#0F766E',
+  '#15803D',
+  '#65A30D',
+  '#D97706',
+  '#EA580C',
+  '#B91C1C',
+  '#DB2777',
+  '#7C3AED',
+  '#4F46E5',
+  '#334155',
+  '#111827',
+  '#FFFFFF',
 ];
+
+const Set<String> _inspectorMetaPropKeys = <String>{
+  'id',
+  'vertices',
+  'lat',
+  'lon',
+  'description',
+  'color',
+  'fillColor',
+  'strokeColor',
+  'strokeWidth',
+  'fillOpacity',
+  'radius',
+  'lineDash',
+  'arrowStart',
+  'arrowEnd',
+  'displayIcon',
+  'earthly:callouts',
+};
 
 /// Non-blocking Object Margin drawer displayed when tapping any GPU-rendered
 /// feature (Published Shelf map, Story feature, Sighting, or Working Draft).
@@ -26,9 +54,13 @@ class FeatureInspectorSheet extends StatefulWidget {
     this.onRecolorDraftFeature,
     this.onUpdateDraftStyle,
     this.onEditDraftGeometry,
+    this.onDuplicateDraftFeature,
     this.onDeleteDraftFeature,
     this.onAddDraftCallout,
     this.onRemoveDraftCallout,
+    this.onResetDraftCalloutOffset,
+    this.onUploadBlossomImage,
+    this.onTransformDraftFeature,
     this.onOpenDiscussion,
     this.onCloneDatasetToDraft,
     this.onShareFeature,
@@ -41,18 +73,37 @@ class FeatureInspectorSheet extends StatefulWidget {
   final void Function(String featureId, String colorHex)? onRecolorDraftFeature;
   final void Function(
     String featureId, {
+    String? fillColorHex,
+    bool clearFillColor,
+    String? strokeColorHex,
+    bool clearStrokeColor,
     double? strokeWidth,
     double? fillOpacity,
     double? radius,
     String? lineDash,
+    bool? arrowStart,
+    bool? arrowEnd,
     String? displayIcon,
     bool clearDisplayIcon,
     String? description,
+    Map<String, String>? customProperties,
   })? onUpdateDraftStyle;
   final ValueChanged<String>? onEditDraftGeometry;
+  final ValueChanged<String>? onDuplicateDraftFeature;
   final ValueChanged<String>? onDeleteDraftFeature;
   final void Function(String featureId, DraftCallout callout)? onAddDraftCallout;
   final void Function(String featureId, String calloutId)? onRemoveDraftCallout;
+  final void Function(String featureId, String calloutId)?
+      onResetDraftCalloutOffset;
+  final Future<BlossomUploadDto?> Function(String purpose)?
+      onUploadBlossomImage;
+  final Future<void> Function(
+    String featureId, {
+    double translateEastM,
+    double translateNorthM,
+    double rotateDeg,
+    double scale,
+  })? onTransformDraftFeature;
   final VoidCallback? onOpenDiscussion;
   final VoidCallback? onCloneDatasetToDraft;
   final VoidCallback? onShareFeature;
@@ -63,16 +114,30 @@ class FeatureInspectorSheet extends StatefulWidget {
 
 class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
   late final TextEditingController _nameController;
+  late final TextEditingController _descController;
+  final _hexController = TextEditingController();
+  final _iconSearchController = TextEditingController();
+  final _propKeyController = TextEditingController();
+  final _propValueController = TextEditingController();
   final _calloutTitleController = TextEditingController();
   final _calloutTextController = TextEditingController();
+  final _calloutPhotoController = TextEditingController();
+
   bool _editingName = false;
   bool _addingCallout = false;
+  bool _uploadingCalloutPhoto = false;
+  bool _editingStrokeTarget = false;
   String _calloutSide = 'right';
+  String _iconQuery = '';
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.feature.title ?? '');
+    _descController = TextEditingController(
+      text: widget.feature.properties['description']?.toString() ?? '',
+    );
+    _editingStrokeTarget = widget.feature.geometryType == 'LineString';
   }
 
   @override
@@ -82,14 +147,76 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
         oldWidget.feature.title != widget.feature.title) {
       _nameController.text = widget.feature.title ?? '';
     }
+    if (oldWidget.feature.draftFeatureId != widget.feature.draftFeatureId) {
+      _descController.text =
+          widget.feature.properties['description']?.toString() ?? '';
+      _editingStrokeTarget = widget.feature.geometryType == 'LineString';
+    }
   }
 
   @override
   void dispose() {
     _nameController.dispose();
+    _descController.dispose();
+    _hexController.dispose();
+    _iconSearchController.dispose();
+    _propKeyController.dispose();
+    _propValueController.dispose();
     _calloutTitleController.dispose();
     _calloutTextController.dispose();
+    _calloutPhotoController.dispose();
     super.dispose();
+  }
+
+  Map<String, String> _currentCustomProps() {
+    final out = <String, String>{};
+    for (final e in widget.feature.properties.entries) {
+      if (_inspectorMetaPropKeys.contains(e.key)) continue;
+      if (e.value == null) continue;
+      out[e.key] = e.value.toString();
+    }
+    return out;
+  }
+
+  void _applyColorHex(String hex) {
+    final f = widget.feature;
+    final id = f.draftFeatureId;
+    if (id == null) return;
+    final clean = hex.trim().toUpperCase();
+    final normalized = clean.startsWith('#') ? clean : '#$clean';
+    if (!RegExp(r'^#[0-9A-F]{6}$').hasMatch(normalized)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a 6-digit hex color like #1F5F8B')),
+      );
+      return;
+    }
+    if (widget.onUpdateDraftStyle != null) {
+      if (_editingStrokeTarget) {
+        widget.onUpdateDraftStyle!(id, strokeColorHex: normalized);
+      } else {
+        widget.onUpdateDraftStyle!(id, fillColorHex: normalized);
+        widget.onRecolorDraftFeature?.call(id, normalized);
+      }
+    } else {
+      widget.onRecolorDraftFeature?.call(id, normalized);
+    }
+  }
+
+  Future<void> _uploadCalloutPhoto() async {
+    if (_uploadingCalloutPhoto || widget.onUploadBlossomImage == null) return;
+    setState(() => _uploadingCalloutPhoto = true);
+    try {
+      final uploaded = await widget.onUploadBlossomImage!('Map callout photo');
+      if (!mounted || uploaded == null) return;
+      setState(() => _calloutPhotoController.text = uploaded.url);
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Photo upload failed: $err')),
+      );
+    } finally {
+      if (mounted) setState(() => _uploadingCalloutPhoto = false);
+    }
   }
 
   @override
@@ -101,12 +228,27 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
             e.value != null &&
             e.value.toString().isNotEmpty &&
             e.key != 'earthly:callouts')
-        .take(12)
+        .take(16)
         .toList();
-    final activeColor = f.properties['color'] as String?;
+    final customProps = _currentCustomProps();
+    final fillColor =
+        (f.properties['fillColor'] ?? f.properties['color']) as String?;
+    final strokeColor =
+        (f.properties['strokeColor'] ?? f.properties['color']) as String?;
+    final activeHex = (_editingStrokeTarget ? strokeColor : fillColor)
+        ?.toUpperCase();
+    final arrowStart = f.properties['arrowStart'] == true;
+    final arrowEnd = f.properties['arrowEnd'] == true;
+
+    final filteredIcons = earthlyCartographicIcons.where((item) {
+      final q = _iconQuery.trim().toLowerCase();
+      if (q.isEmpty) return true;
+      return item.$1.toLowerCase().contains(q) ||
+          item.$2.toLowerCase().contains(q);
+    }).toList(growable: false);
 
     return EarthlyMapDrawer(
-      initialFraction: 0.46,
+      initialFraction: 0.50,
       onClose: widget.onClose,
       header: Padding(
         padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
@@ -194,20 +336,53 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
             ),
           ],
           if (f.isDraft && f.draftFeatureId != null) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
+            const SizedBox(height: 12),
+            Row(
               children: [
                 const Text(
-                  'STYLE:',
-                  style: TextStyle(fontFamily: 'monospace', fontSize: 11),
+                  'COLOR',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
+                const SizedBox(width: 8),
+                if (f.geometryType != 'LineString') ...[
+                  ChoiceChip(
+                    key: const Key('inspector-color-fill-tab'),
+                    label: const Text('Fill', style: TextStyle(fontSize: 11)),
+                    selected: !_editingStrokeTarget,
+                    onSelected: (_) =>
+                        setState(() => _editingStrokeTarget = false),
+                  ),
+                  const SizedBox(width: 6),
+                  ChoiceChip(
+                    key: const Key('inspector-color-stroke-tab'),
+                    label: Text(
+                      f.geometryType == 'Point' ? 'Ring' : 'Stroke',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    selected: _editingStrokeTarget,
+                    onSelected: (_) =>
+                        setState(() => _editingStrokeTarget = true),
+                  ),
+                ] else
+                  const EarthlyBadge(
+                    label: 'STROKE',
+                    color: EarthlyColors.infoCyan,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
                 for (final hex in _draftColorSwatches)
                   GestureDetector(
-                    onTap: () =>
-                        widget.onRecolorDraftFeature?.call(f.draftFeatureId!, hex),
+                    onTap: () => _applyColorHex(hex),
                     child: Container(
                       width: 24,
                       height: 24,
@@ -215,15 +390,40 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                         color: Color(
                           0xFF000000 | int.parse(hex.substring(1), radix: 16),
                         ),
+                        borderRadius: BorderRadius.circular(5),
                         border: Border.all(
-                          color: activeColor == hex
+                          color: activeHex == hex
                               ? theme.colorScheme.onSurface
-                              : Colors.white,
-                          width: activeColor == hex ? 2.5 : 1.2,
+                              : theme.dividerColor,
+                          width: activeHex == hex ? 2.5 : 1.0,
                         ),
                       ),
                     ),
                   ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const Key('inspector-custom-hex-field'),
+                    controller: _hexController,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: activeHex ?? '#1F5F8B',
+                      labelText: 'Custom hex (#RRGGBB)',
+                    ),
+                    onSubmitted: _applyColorHex,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  key: const Key('inspector-custom-hex-apply'),
+                  onPressed: () => _applyColorHex(_hexController.text),
+                  child: const Text('Apply'),
+                ),
               ],
             ),
             if (widget.onUpdateDraftStyle != null) ...[
@@ -311,6 +511,7 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,
+                  runSpacing: 6,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     const Text(
@@ -330,8 +531,6 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                       ),
                   ],
                 ),
-              ],
-              if (f.geometryType == 'Point') ...[
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,
@@ -339,9 +538,58 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     const Text(
-                      'ICON:',
+                      'ARROWS:',
                       style: TextStyle(fontFamily: 'monospace', fontSize: 10),
                     ),
+                    FilterChip(
+                      key: const Key('inspector-arrow-start'),
+                      label: const Text('Start ◀'),
+                      selected: arrowStart,
+                      onSelected: (v) => widget.onUpdateDraftStyle!(
+                        f.draftFeatureId!,
+                        arrowStart: v,
+                      ),
+                    ),
+                    FilterChip(
+                      key: const Key('inspector-arrow-end'),
+                      label: const Text('End ▶'),
+                      selected: arrowEnd,
+                      onSelected: (v) => widget.onUpdateDraftStyle!(
+                        f.draftFeatureId!,
+                        arrowEnd: v,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              if (f.geometryType == 'Point') ...[
+                const SizedBox(height: 8),
+                TextField(
+                  key: const Key('inspector-icon-search'),
+                  controller: _iconSearchController,
+                  onChanged: (v) => setState(() => _iconQuery = v),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    prefixIcon: const Icon(Icons.search, size: 15),
+                    hintText: 'Search ${earthlyCartographicIcons.length} point icons…',
+                    suffixIcon: _iconQuery.isNotEmpty
+                        ? IconButton(
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () {
+                              _iconSearchController.clear();
+                              setState(() => _iconQuery = '');
+                            },
+                            icon: const Icon(Icons.clear, size: 14),
+                          )
+                        : null,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 5,
+                  runSpacing: 5,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
                     ChoiceChip(
                       label: const Text('Dot'),
                       selected: f.properties['displayIcon'] == null,
@@ -350,25 +598,205 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                         clearDisplayIcon: true,
                       ),
                     ),
-                    for (final entry in const [
-                      ('lucide:mountain', Icons.terrain),
-                      ('lucide:tent', Icons.park),
-                      ('lucide:anchor', Icons.anchor),
-                      ('lucide:flag', Icons.flag),
-                      ('lucide:camera', Icons.photo_camera),
-                      ('lucide:coffee', Icons.local_cafe),
-                      ('lucide:home', Icons.home),
-                      ('lucide:star', Icons.star),
-                      ('lucide:alert-triangle', Icons.warning_amber),
-                    ])
-                      ChoiceChip(
-                        label: Icon(entry.$2, size: 15),
-                        selected: f.properties['displayIcon'] == entry.$1,
-                        onSelected: (_) => widget.onUpdateDraftStyle!(
-                          f.draftFeatureId!,
-                          displayIcon: entry.$1,
+                    for (final entry in filteredIcons)
+                      Tooltip(
+                        message: entry.$2,
+                        child: ChoiceChip(
+                          key: Key('icon-chip-${entry.$1}'),
+                          label: Icon(entry.$3, size: 15),
+                          selected: f.properties['displayIcon'] == entry.$1,
+                          onSelected: (_) => widget.onUpdateDraftStyle!(
+                            f.draftFeatureId!,
+                            displayIcon: entry.$1,
+                          ),
                         ),
                       ),
+                  ],
+                ),
+              ],
+              const Divider(height: 20),
+              Text(
+                'DESCRIPTION (MARKDOWN / NOSTR LINKS)',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                key: const Key('inspector-description-field'),
+                controller: _descController,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  hintText: 'Add field notes, links, or nostr:naddr1… references',
+                ),
+              ),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  key: const Key('inspector-save-description'),
+                  onPressed: () => widget.onUpdateDraftStyle!(
+                    f.draftFeatureId!,
+                    description: _descController.text.trim(),
+                  ),
+                  icon: const Icon(Icons.check, size: 15),
+                  label: const Text('Save Description'),
+                ),
+              ),
+              const Divider(height: 20),
+              Text(
+                'CUSTOM PROPERTIES (${customProps.length})',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              if (customProps.isNotEmpty)
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final entry in customProps.entries)
+                      InputChip(
+                        label: Text(
+                          '${entry.key}: ${entry.value}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                          ),
+                        ),
+                        onDeleted: () {
+                          final next = Map<String, String>.from(customProps)
+                            ..remove(entry.key);
+                          widget.onUpdateDraftStyle!(
+                            f.draftFeatureId!,
+                            customProperties: next,
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const Key('inspector-prop-key'),
+                      controller: _propKeyController,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        hintText: 'key (e.g. elevation)',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: TextField(
+                      key: const Key('inspector-prop-value'),
+                      controller: _propValueController,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        hintText: 'value (e.g. 484m)',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton.filledTonal(
+                    key: const Key('inspector-prop-add'),
+                    tooltip: 'Add property',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () {
+                      final k = _propKeyController.text.trim();
+                      final v = _propValueController.text.trim();
+                      if (k.isEmpty || v.isEmpty) return;
+                      final next = Map<String, String>.from(customProps)
+                        ..[k] = v;
+                      _propKeyController.clear();
+                      _propValueController.clear();
+                      widget.onUpdateDraftStyle!(
+                        f.draftFeatureId!,
+                        customProperties: next,
+                      );
+                    },
+                    icon: const Icon(Icons.add, size: 17),
+                  ),
+                ],
+              ),
+              if (widget.onTransformDraftFeature != null) ...[
+                const Divider(height: 20),
+                Text(
+                  'TRANSFORM GEOMETRY',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (f.geometryType != 'Point') ...[
+                      OutlinedButton(
+                        onPressed: () => widget.onTransformDraftFeature!(
+                          f.draftFeatureId!,
+                          rotateDeg: -15,
+                        ),
+                        child: const Text('↺ −15°'),
+                      ),
+                      OutlinedButton(
+                        onPressed: () => widget.onTransformDraftFeature!(
+                          f.draftFeatureId!,
+                          rotateDeg: 15,
+                        ),
+                        child: const Text('↻ +15°'),
+                      ),
+                      OutlinedButton(
+                        onPressed: () => widget.onTransformDraftFeature!(
+                          f.draftFeatureId!,
+                          scale: 0.85,
+                        ),
+                        child: const Text('×0.85'),
+                      ),
+                      OutlinedButton(
+                        onPressed: () => widget.onTransformDraftFeature!(
+                          f.draftFeatureId!,
+                          scale: 1.15,
+                        ),
+                        child: const Text('×1.15'),
+                      ),
+                    ],
+                    OutlinedButton(
+                      onPressed: () => widget.onTransformDraftFeature!(
+                        f.draftFeatureId!,
+                        translateNorthM: 25,
+                      ),
+                      child: const Text('↑ 25m'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => widget.onTransformDraftFeature!(
+                        f.draftFeatureId!,
+                        translateEastM: 25,
+                      ),
+                      child: const Text('→ 25m'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => widget.onTransformDraftFeature!(
+                        f.draftFeatureId!,
+                        translateNorthM: -25,
+                      ),
+                      child: const Text('↓ 25m'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => widget.onTransformDraftFeature!(
+                        f.draftFeatureId!,
+                        translateEastM: -25,
+                      ),
+                      child: const Text('← 25m'),
+                    ),
                   ],
                 ),
               ],
@@ -404,6 +832,22 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                             ),
                           ),
                         ),
+                        if (f.isDraft &&
+                            f.draftFeatureId != null &&
+                            callout.offset != Offset.zero &&
+                            widget.onResetDraftCalloutOffset != null)
+                          IconButton(
+                            tooltip: 'Reset dragged offset',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => widget.onResetDraftCalloutOffset!(
+                              f.draftFeatureId!,
+                              callout.id,
+                            ),
+                            icon: const Icon(
+                              Icons.center_focus_weak,
+                              size: 15,
+                            ),
+                          ),
                         if (f.isDraft && f.draftFeatureId != null)
                           IconButton(
                             visualDensity: VisualDensity.compact,
@@ -472,7 +916,7 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
               ],
             ),
           ],
-          if (visibleProps.isNotEmpty) ...[
+          if (visibleProps.isNotEmpty && !f.isDraft) ...[
             const Divider(height: 18),
             for (final entry in visibleProps)
               Padding(
@@ -557,8 +1001,39 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                 minLines: 2,
                 maxLines: 3,
                 decoration: const InputDecoration(
-                  labelText: 'Callout card text (shown on map)',
+                  labelText: 'Callout card text (draggable on map!)',
                 ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _calloutPhotoController,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        labelText: 'Photo URL (optional)',
+                        hintText: 'https://blossom.earthly.city/…',
+                      ),
+                    ),
+                  ),
+                  if (widget.onUploadBlossomImage != null) ...[
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      key: const Key('callout-upload-photo-btn'),
+                      onPressed:
+                          _uploadingCalloutPhoto ? null : _uploadCalloutPhoto,
+                      icon: _uploadingCalloutPhoto
+                          ? const SizedBox(
+                              width: 13,
+                              height: 13,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.add_a_photo_outlined, size: 15),
+                      label: const Text('Photo'),
+                    ),
+                  ],
+                ],
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -573,12 +1048,16 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                 ],
               ),
               const SizedBox(height: 8),
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   FilledButton(
                     onPressed: () {
                       final text = _calloutTextController.text.trim();
                       if (text.isEmpty) return;
+                      final photoUrl = _calloutPhotoController.text.trim();
                       widget.onAddDraftCallout?.call(
                         f.draftFeatureId!,
                         DraftCallout(
@@ -588,15 +1067,18 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                               : _calloutTitleController.text.trim(),
                           text: text,
                           side: _calloutSide,
+                          mediaUrls: photoUrl.isNotEmpty
+                              ? <String>[photoUrl]
+                              : const <String>[],
                         ),
                       );
                       _calloutTitleController.clear();
                       _calloutTextController.clear();
+                      _calloutPhotoController.clear();
                       setState(() => _addingCallout = false);
                     },
                     child: const Text('Attach Callout'),
                   ),
-                  const SizedBox(width: 8),
                   TextButton(
                     onPressed: () => setState(() => _addingCallout = false),
                     child: const Text('Cancel'),
@@ -624,6 +1106,14 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                     icon: const Icon(Icons.edit, size: 16),
                     label: const Text('Rename'),
                   ),
+                  if (widget.onDuplicateDraftFeature != null)
+                    OutlinedButton.icon(
+                      key: const Key('inspector-duplicate-btn'),
+                      onPressed: () =>
+                          widget.onDuplicateDraftFeature!(f.draftFeatureId!),
+                      icon: const Icon(Icons.control_point_duplicate, size: 16),
+                      label: const Text('Duplicate'),
+                    ),
                   OutlinedButton.icon(
                     onPressed: () => setState(() => _addingCallout = true),
                     icon: const Icon(Icons.add_comment_outlined, size: 16),

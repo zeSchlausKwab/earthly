@@ -75,6 +75,7 @@ class TouchDrawOverlay extends StatefulWidget {
     required this.onInsertDraftVertex,
     required this.onTwoFingerUndo,
     required this.onPreviewChanged,
+    this.externalSnapShapes = const <List<Geographic>>[],
     super.key,
   });
 
@@ -84,6 +85,7 @@ class TouchDrawOverlay extends StatefulWidget {
   final bool loupeEnabled;
   final List<DrawnFeature> features;
   final List<Geographic> draftVertices;
+  final List<List<Geographic>> externalSnapShapes;
   final ValueChanged<Geographic> onCommitVertex;
   final void Function(int index, Geographic position) onUpdateDraftVertex;
   final void Function(int insertIndex, Geographic position) onInsertDraftVertex;
@@ -234,6 +236,7 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
       draftVertices: widget.draftVertices,
       project: controller.toScreenLocation,
       ignoreDraftIndex: _draggingDraftVertexIndex,
+      externalSnapShapes: widget.externalSnapShapes,
     );
 
     if (snap != null && _activeSnap?.screenOffset != snap.screenOffset) {

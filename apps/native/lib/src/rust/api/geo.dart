@@ -8,7 +8,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `from_coords`, `to_closed_polygon`, `to_line`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`
 
 /// Douglas-Peucker simplification of a polyline in meters.
 Future<List<LonLatPoint>> geoSimplifyLine({
@@ -16,6 +16,15 @@ Future<List<LonLatPoint>> geoSimplifyLine({
   required double toleranceMeters,
 }) => EarthlyRustLib.instance.api.crateApiGeoGeoSimplifyLine(
   points: points,
+  toleranceMeters: toleranceMeters,
+);
+
+/// Douglas-Peucker simplification of a polygon exterior ring in meters.
+Future<List<LonLatPoint>> geoSimplifyPolygon({
+  required List<LonLatPoint> ring,
+  required double toleranceMeters,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoSimplifyPolygon(
+  ring: ring,
   toleranceMeters: toleranceMeters,
 );
 
@@ -28,6 +37,15 @@ Future<List<LonLatPoint>> geoOffsetLine({
   distanceMeters: distanceMeters,
 );
 
+/// Connects polylines whose endpoints lie within `tolerance_meters`.
+Future<List<List<LonLatPoint>>> geoConnectLines({
+  required List<List<LonLatPoint>> lines,
+  required double toleranceMeters,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoConnectLines(
+  lines: lines,
+  toleranceMeters: toleranceMeters,
+);
+
 /// Symmetric round-ended corridor polygon around a polyline.
 Future<List<LonLatPoint>> geoLineCorridor({
   required List<LonLatPoint> points,
@@ -35,6 +53,17 @@ Future<List<LonLatPoint>> geoLineCorridor({
 }) => EarthlyRustLib.instance.api.crateApiGeoGeoLineCorridor(
   points: points,
   totalWidthMeters: totalWidthMeters,
+);
+
+/// Tapered filled band polygon extruded from a polyline.
+Future<List<LonLatPoint>> geoExtrudeBand({
+  required List<LonLatPoint> points,
+  required double startWidthMeters,
+  required double endWidthMeters,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoExtrudeBand(
+  points: points,
+  startWidthMeters: startWidthMeters,
+  endWidthMeters: endWidthMeters,
 );
 
 /// Directional flow-map arrow polygon extruded from a polyline.
@@ -89,6 +118,40 @@ Future<List<List<LonLatPoint>>> geoSplitLineAtPoint({
   splitPoint: splitPoint,
 );
 
+/// Translates, rotates (clockwise degrees around centroid), and scales a set of
+/// coordinates accurately in local metric tangent space (`LocalProjection`).
+Future<List<LonLatPoint>> geoTransformPoints({
+  required List<LonLatPoint> points,
+  required double translateEastM,
+  required double translateNorthM,
+  required double rotateDeg,
+  required double scale,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoTransformPoints(
+  points: points,
+  translateEastM: translateEastM,
+  translateNorthM: translateNorthM,
+  rotateDeg: rotateDeg,
+  scale: scale,
+);
+
+/// Generates a geodesic-accurate primitive polygon ring (`circle`, `square`,
+/// `rectangle`, `triangle`, `diamond`, `hexagon`) centered at `center` in meters.
+Future<List<LonLatPoint>> geoCreatePrimitiveShape({
+  required LonLatPoint center,
+  required String shape,
+  required double radiusMeters,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoCreatePrimitiveShape(
+  center: center,
+  shape: shape,
+  radiusMeters: radiusMeters,
+);
+
+/// Validates a GeoJSON FeatureCollection via `earthly-geo::validate_feature_collection`.
+Future<DraftValidationDto> geoValidateDraftGeojson({required String geojson}) =>
+    EarthlyRustLib.instance.api.crateApiGeoGeoValidateDraftGeojson(
+      geojson: geojson,
+    );
+
 Future<double> geoMeasureLineMeters({required List<LonLatPoint> points}) =>
     EarthlyRustLib.instance.api.crateApiGeoGeoMeasureLineMeters(points: points);
 
@@ -118,6 +181,30 @@ Future<String> geoExportKml({required String geojson, String? title}) =>
       geojson: geojson,
       title: title,
     );
+
+class DraftValidationDto {
+  final bool valid;
+  final int featureCount;
+  final String message;
+
+  const DraftValidationDto({
+    required this.valid,
+    required this.featureCount,
+    required this.message,
+  });
+
+  @override
+  int get hashCode => valid.hashCode ^ featureCount.hashCode ^ message.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DraftValidationDto &&
+          runtimeType == other.runtimeType &&
+          valid == other.valid &&
+          featureCount == other.featureCount &&
+          message == other.message;
+}
 
 class LonLatPoint {
   final double lon;

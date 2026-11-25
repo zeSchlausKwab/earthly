@@ -159,6 +159,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   String _draftTitle = 'Field Map';
   DraftAudienceChoice _draftAudience = DraftAudienceChoice.publicRelay;
   final List<DrawnFeature> _features = <DrawnFeature>[];
+  final Set<String> _selectedDraftFeatureIds = <String>{};
   final List<List<DrawnFeature>> _draftUndoStack = <List<DrawnFeature>>[];
   final List<List<DrawnFeature>> _draftRedoStack = <List<DrawnFeature>>[];
   final List<Geographic> _draftVertices = <Geographic>[];
@@ -894,20 +895,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       setState(() {
         for (final feat in imported) {
           _featureCounter += 1;
-          _features.add(
-            DrawnFeature(
-              id: 'imp-$_featureCounter',
-              kind: feat.kind,
-              vertices: feat.vertices,
-              name: feat.name,
-              description: feat.description,
-              colorHex: feat.colorHex,
-              strokeWidth: feat.strokeWidth,
-              fillOpacity: feat.fillOpacity,
-              radius: feat.radius,
-              callouts: feat.callouts,
-            ),
-          );
+          _features.add(feat.copyWith(id: 'imp-$_featureCounter'));
         }
         if (_draftTitle == 'Field Map' && converted.title.isNotEmpty) {
           _draftTitle = converted.title;
@@ -1032,6 +1020,334 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     );
   }
 
+  Future<void> _pasteGeoJsonFromClipboard() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final raw = data?.text?.trim() ?? '';
+      if (raw.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Clipboard is empty')),
+        );
+        return;
+      }
+      List<DrawnFeature> imported;
+      String formatLabel = 'GeoJSON';
+      try {
+        await RustBridge.ensureInitialized();
+        final converted = await geoImportSpatialFile(
+          filename: raw.startsWith('<') ? 'clipboard.xml' : 'clipboard.geojson',
+          content: raw,
+        );
+        formatLabel = converted.format.toUpperCase();
+        imported = parseDraftFeaturesFromGeoJson(converted.geojson);
+      } catch (_) {
+        imported = parseDraftFeaturesFromGeoJson(raw);
+      }
+      if (imported.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No valid GeoJSON, GPX, or KML features on clipboard'),
+          ),
+        );
+        return;
+      }
+      _pushDraftUndo();
+      final addedIds = <String>[];
+      setState(() {
+        for (final feat in imported) {
+          _featureCounter += 1;
+          final id = 'paste-$_featureCounter';
+          addedIds.add(id);
+          _features.add(feat.copyWith(id: id));
+        }
+        _selectedDraftFeatureIds
+          ..clear()
+          ..addAll(addedIds);
+      });
+      unawaited(_persistWorkingDraft());
+      final allVerts = imported.expand((f) => f.vertices).toList();
+      if (allVerts.isNotEmpty) {
+        double west = allVerts.first.lon;
+        double east = allVerts.first.lon;
+        double south = allVerts.first.lat;
+        double north = allVerts.first.lat;
+        for (final v in allVerts) {
+          if (v.lon < west) west = v.lon;
+          if (v.lon > east) east = v.lon;
+          if (v.lat < south) south = v.lat;
+          if (v.lat > north) north = v.lat;
+        }
+        const pad = 0.002;
+        _flyToBounds(
+          GeoBox(
+            west: (west - pad).clamp(-180.0, 180.0),
+            south: (south - pad).clamp(-85.0, 85.0),
+            east: (east + pad).clamp(-180.0, 180.0),
+            north: (north + pad).clamp(-85.0, 85.0),
+          ),
+        );
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Pasted ${imported.length} $formatLabel feature${imported.length == 1 ? '' : 's'} into draft',
+          ),
+        ),
+      );
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Paste failed: $err')),
+      );
+    }
+  }
+
+  Future<DraftValidationDto> _validateCurrentDraft() async {
+    await RustBridge.ensureInitialized();
+    final geojson = draftFeaturesToGeoJson(
+      title: _draftTitle,
+      features: _features,
+    );
+    return geoValidateDraftGeojson(geojson: geojson);
+  }
+
+  void _pruneDraftSelection() {
+    final validIds = _features.map((f) => f.id).toSet();
+    _selectedDraftFeatureIds.removeWhere((id) => !validIds.contains(id));
+  }
+
+  void _toggleSelectDraftFeature(String id) {
+    setState(() {
+      if (!_selectedDraftFeatureIds.remove(id)) {
+        _selectedDraftFeatureIds.add(id);
+      }
+    });
+  }
+
+  void _selectAllDraftFeatures() {
+    setState(() {
+      _selectedDraftFeatureIds
+        ..clear()
+        ..addAll(_features.map((f) => f.id));
+    });
+  }
+
+  void _clearDraftSelection() {
+    setState(() => _selectedDraftFeatureIds.clear());
+  }
+
+  Future<void> _duplicateDraftFeatures(Iterable<String> ids) async {
+    final targetIdSet = ids.toSet();
+    final targets = _features
+        .where((f) => targetIdSet.contains(f.id))
+        .toList(growable: false);
+    if (targets.isEmpty) return;
+
+    final copies = <DrawnFeature>[];
+    for (final feat in targets) {
+      List<Geographic> nudged = feat.vertices;
+      if (feat.vertices.isNotEmpty) {
+        try {
+          await RustBridge.ensureInitialized();
+          final shifted = await geoTransformPoints(
+            points: feat.vertices
+                .map((v) => LonLatPoint(lon: v.lon, lat: v.lat))
+                .toList(),
+            translateEastM: 25.0,
+            translateNorthM: 0.0,
+            rotateDeg: 0.0,
+            scale: 1.0,
+          );
+          nudged = shifted
+              .map((p) => Geographic(lon: p.lon, lat: p.lat))
+              .toList(growable: false);
+        } catch (_) {
+          nudged = feat.vertices
+              .map((v) => Geographic(lon: v.lon + 0.00025, lat: v.lat))
+              .toList(growable: false);
+        }
+      }
+      _featureCounter += 1;
+      final defaultKindName = switch (feat.kind) {
+        DrawToolMode.polygon => 'Polygon',
+        DrawToolMode.line => 'Line',
+        _ => 'Point',
+      };
+      final baseName = (feat.name?.trim().isNotEmpty ?? false)
+          ? feat.name!.trim()
+          : defaultKindName;
+      copies.add(
+        feat.copyWith(
+          id: 'dup-$_featureCounter',
+          name: '$baseName (Copy)',
+          vertices: nudged,
+          callouts: [
+            for (var i = 0; i < feat.callouts.length; i++)
+              feat.callouts[i].copyWith(
+                id: 'callout-${DateTime.now().millisecondsSinceEpoch}-$_featureCounter-$i',
+              ),
+          ],
+        ),
+      );
+    }
+
+    if (!mounted) return;
+    _pushDraftUndo();
+    setState(() {
+      _features.addAll(copies);
+      _selectedDraftFeatureIds
+        ..clear()
+        ..addAll(copies.map((c) => c.id));
+    });
+    HapticFeedback.selectionClick();
+    unawaited(_persistWorkingDraft());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Duplicated ${copies.length} feature${copies.length == 1 ? '' : 's'}',
+        ),
+      ),
+    );
+  }
+
+  void _deleteSelectedDraftFeatures() {
+    if (_selectedDraftFeatureIds.isEmpty) return;
+    final deleted = Set<String>.from(_selectedDraftFeatureIds);
+    _pushDraftUndo();
+    setState(() {
+      _features.removeWhere((f) => deleted.contains(f.id));
+      _selectedDraftFeatureIds.clear();
+      if (_inspectedFeature?.draftFeatureId != null &&
+          deleted.contains(_inspectedFeature!.draftFeatureId)) {
+        _inspectedFeature = null;
+        if (_drawer == _ActiveDrawer.inspector) _drawer = _ActiveDrawer.none;
+        if (_rightStudioDrawer == _ActiveDrawer.inspector) {
+          _rightStudioDrawer = _ActiveDrawer.none;
+        }
+      }
+    });
+    HapticFeedback.mediumImpact();
+    unawaited(_persistWorkingDraft());
+  }
+
+  Future<void> _addPrimitiveShape(String shape, double radiusMeters) async {
+    try {
+      await RustBridge.ensureInitialized();
+      final center = _controller?.camera?.center ??
+          const Geographic(lon: 16.3738, lat: 48.2082);
+      final ring = await geoCreatePrimitiveShape(
+        center: LonLatPoint(lon: center.lon, lat: center.lat),
+        shape: shape,
+        radiusMeters: radiusMeters,
+      );
+      if (ring.length < 3 || !mounted) return;
+      final label = shape.isEmpty
+          ? 'Shape'
+          : '${shape[0].toUpperCase()}${shape.substring(1)}';
+      _pushDraftUndo();
+      late DrawnFeature created;
+      setState(() {
+        _featureCounter += 1;
+        created = DrawnFeature(
+          id: 'prim-$_featureCounter',
+          kind: DrawToolMode.polygon,
+          vertices: ring
+              .map((p) => Geographic(lon: p.lon, lat: p.lat))
+              .toList(growable: false),
+          name: '$label (${radiusMeters.round()}m)',
+        );
+        _features.add(created);
+        _selectedDraftFeatureIds
+          ..clear()
+          ..add(created.id);
+      });
+      HapticFeedback.mediumImpact();
+      unawaited(_persistWorkingDraft());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added $label (${radiusMeters.round()}m) at map center'),
+        ),
+      );
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Primitive shape failed: $err')),
+      );
+    }
+  }
+
+  Future<void> _transformDraftFeature(
+    String featureId, {
+    double translateEastM = 0.0,
+    double translateNorthM = 0.0,
+    double rotateDeg = 0.0,
+    double scale = 1.0,
+  }) async {
+    final idx = _features.indexWhere((f) => f.id == featureId);
+    if (idx < 0 || _features[idx].vertices.isEmpty) return;
+    try {
+      await RustBridge.ensureInitialized();
+      final transformed = await geoTransformPoints(
+        points: _features[idx]
+            .vertices
+            .map((v) => LonLatPoint(lon: v.lon, lat: v.lat))
+            .toList(),
+        translateEastM: translateEastM,
+        translateNorthM: translateNorthM,
+        rotateDeg: rotateDeg,
+        scale: scale,
+      );
+      if (!mounted) return;
+      final freshIdx = _features.indexWhere((f) => f.id == featureId);
+      if (freshIdx < 0) return;
+      _pushDraftUndo();
+      setState(() {
+        _features[freshIdx] = _features[freshIdx].copyWith(
+          vertices: transformed
+              .map((p) => Geographic(lon: p.lon, lat: p.lat))
+              .toList(growable: false),
+        );
+      });
+      _refreshInspectedDraftFeature(featureId);
+      HapticFeedback.selectionClick();
+      unawaited(_persistWorkingDraft());
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Transform failed: $err')),
+      );
+    }
+  }
+
+  void _repositionDraftCallout(
+    String featureId,
+    String calloutId,
+    Offset newOffset,
+  ) {
+    final idx = _features.indexWhere((f) => f.id == featureId);
+    if (idx < 0) return;
+    _pushDraftUndo();
+    setState(() {
+      _features[idx] = _features[idx].copyWith(
+        callouts: [
+          for (final c in _features[idx].callouts)
+            c.id == calloutId
+                ? c.copyWith(offsetX: newOffset.dx, offsetY: newOffset.dy)
+                : c,
+        ],
+      );
+    });
+    _refreshInspectedDraftFeature(featureId);
+    unawaited(_persistWorkingDraft());
+  }
+
+  void _resetDraftCalloutOffset(String featureId, String calloutId) {
+    _repositionDraftCallout(featureId, calloutId, Offset.zero);
+  }
+
   void _startEditingDraftFeature(String featureId) {
     final idx = _features.indexWhere((f) => f.id == featureId);
     if (idx < 0) return;
@@ -1113,6 +1429,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _features
         ..clear()
         ..addAll(cloned);
+      _selectedDraftFeatureIds.clear();
       _draftVertices.clear();
       _featureCounter = _features.length;
       _draftTitle = '$sourceTitle (Draft)';
@@ -2059,7 +2376,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _features
         ..clear()
         ..addAll(prev);
+      _pruneDraftSelection();
     });
+    if (_inspectedFeature?.draftFeatureId != null) {
+      _refreshInspectedDraftFeature(_inspectedFeature!.draftFeatureId!);
+    }
     unawaited(_persistWorkingDraft());
   }
 
@@ -2072,7 +2393,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _features
         ..clear()
         ..addAll(next);
+      _pruneDraftSelection();
     });
+    if (_inspectedFeature?.draftFeatureId != null) {
+      _refreshInspectedDraftFeature(_inspectedFeature!.draftFeatureId!);
+    }
     unawaited(_persistWorkingDraft());
   }
 
@@ -2478,6 +2803,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _features
         ..clear()
         ..addAll(restored);
+      _selectedDraftFeatureIds.clear();
       _draftVertices.clear();
       _editingDraftFeature = null;
       _featureCounter = restored.length;
@@ -2491,6 +2817,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _draftDTag = 'field-$nowSec';
       _draftTitle = 'Field Map ${_savedDrafts.length + 1}';
       _features.clear();
+      _selectedDraftFeatureIds.clear();
       _draftVertices.clear();
       _editingDraftFeature = null;
       _featureCounter = 0;
@@ -3241,6 +3568,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _features
         ..clear()
         ..addAll(cloned);
+      _selectedDraftFeatureIds.clear();
       _draftVertices.clear();
       _featureCounter = _features.length;
       if (isOwned) {
@@ -3715,53 +4043,89 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     _openDrawer(_ActiveDrawer.inspector);
   }
 
-  void _refreshInspectedDraftFeature(String featureId) {
-    final idx = _features.indexWhere((f) => f.id == featureId);
-    if (idx < 0) return;
-    final f = _features[idx];
-    final existing = _inspectedFeature;
-    if (existing == null || existing.draftFeatureId != featureId) return;
+  InspectedFeature _buildInspectedDraftFeature(DrawnFeature f) {
     final anchor = f.vertices.isEmpty
         ? const Geographic(lon: 0, lat: 0)
         : f.vertices.first;
+    final geomType = switch (f.kind) {
+      DrawToolMode.polygon => 'Polygon',
+      DrawToolMode.line => 'LineString',
+      _ => 'Point',
+    };
+    double? lengthMeters;
+    if (f.kind == DrawToolMode.line && f.vertices.length >= 2) {
+      double total = 0;
+      for (var i = 1; i < f.vertices.length; i++) {
+        total += DrawingMath.distanceMeters(f.vertices[i - 1], f.vertices[i]);
+      }
+      lengthMeters = total;
+    } else if (f.kind == DrawToolMode.polygon && f.vertices.length >= 3) {
+      double total = 0;
+      for (var i = 1; i < f.vertices.length; i++) {
+        total += DrawingMath.distanceMeters(f.vertices[i - 1], f.vertices[i]);
+      }
+      total += DrawingMath.distanceMeters(f.vertices.last, f.vertices.first);
+      lengthMeters = total;
+    }
+    return InspectedFeature(
+      sourceLabel: 'Working draft',
+      isDraft: true,
+      draftFeatureId: f.id,
+      geometryType: geomType,
+      title: f.name ?? 'Draft $geomType',
+      lengthMeters: lengthMeters,
+      properties: {
+        ...f.customProperties,
+        'id': f.id,
+        if (f.kind == DrawToolMode.point && f.vertices.isNotEmpty) ...{
+          'lat': f.vertices.first.lat.toStringAsFixed(6),
+          'lon': f.vertices.first.lon.toStringAsFixed(6),
+        } else
+          'vertices': f.vertices.length,
+        if (f.description != null && f.description!.isNotEmpty)
+          'description': f.description!,
+        if (f.colorHex != null) 'color': f.colorHex!,
+        if (f.fillColorHex != null) 'fillColor': f.fillColorHex!,
+        if (f.strokeColorHex != null) 'strokeColor': f.strokeColorHex!,
+        if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
+        if (f.fillOpacity != null) 'fillOpacity': f.fillOpacity!,
+        if (f.radius != null) 'radius': f.radius!,
+        if (f.lineDash != null) 'lineDash': f.lineDash!,
+        if (f.arrowStart) 'arrowStart': true,
+        if (f.arrowEnd) 'arrowEnd': true,
+        if (f.displayIcon != null) 'displayIcon': f.displayIcon!,
+      },
+      callouts: [
+        for (final c in f.callouts)
+          MapCalloutItem(
+            key: 'draft::${f.id}::${c.id}',
+            id: c.id,
+            text: c.text,
+            anchor: anchor,
+            datasetTitle: 'Working draft',
+            featureId: f.id,
+            featureLabel: f.name,
+            title: c.title,
+            mediaUrls: c.mediaUrls,
+            preferredSide: c.side,
+            offset: Offset(c.offsetX, c.offsetY),
+            accentColorHex: f.strokeColorHex ?? f.fillColorHex ?? f.colorHex,
+          ),
+      ],
+    );
+  }
+
+  void _inspectDraftFeature(DrawnFeature f) {
+    _inspectFeature(_buildInspectedDraftFeature(f));
+  }
+
+  void _refreshInspectedDraftFeature(String featureId) {
+    final idx = _features.indexWhere((f) => f.id == featureId);
+    if (idx < 0) return;
+    final existing = _inspectedFeature;
+    if (existing == null || existing.draftFeatureId != featureId) return;
     setState(() {
-      _inspectedFeature = InspectedFeature(
-        sourceLabel: 'Working draft',
-        isDraft: true,
-        draftFeatureId: f.id,
-        geometryType: existing.geometryType,
-        title: f.name ?? existing.title,
-        lengthMeters: existing.lengthMeters,
-        areaSquareMeters: existing.areaSquareMeters,
-        properties: {
-          ...existing.properties,
-          if (f.description != null && f.description!.isNotEmpty)
-            'description': f.description!,
-          if (f.colorHex != null) 'color': f.colorHex!,
-          if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
-          if (f.fillOpacity != null) 'fillOpacity': f.fillOpacity!,
-          if (f.radius != null) 'radius': f.radius!,
-          if (f.lineDash != null) 'lineDash': f.lineDash!,
-          if (f.displayIcon != null)
-            'displayIcon': f.displayIcon!
-          else
-            'displayIcon': null,
-        },
-        callouts: [
-          for (final c in f.callouts)
-            MapCalloutItem(
-              key: 'draft::${f.id}::${c.id}',
-              id: c.id,
-              text: c.text,
-              anchor: anchor,
-              datasetTitle: 'Working draft',
-              featureId: f.id,
-              featureLabel: f.name,
-              title: c.title,
-              preferredSide: c.side,
-            ),
-        ],
-      );
+      _inspectedFeature = _buildInspectedDraftFeature(_features[idx]);
     });
   }
 
@@ -4687,76 +5051,133 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     return SightingPublishResult(outcome: outcome, sighting: localSighting);
   }
 
-  Future<void> _runGeoAction(RustGeoAction action) async {
+  Future<void> _runGeoAction(
+    RustGeoAction action, {
+    double? meters,
+    double? angleDeg,
+    double? scale,
+  }) async {
     try {
       await RustBridge.ensureInitialized();
-      _pushDraftUndo();
+      final step = meters ?? 100.0;
       List<LonLatPoint> toPoints(List<Geographic> verts) =>
           verts.map((v) => LonLatPoint(lon: v.lon, lat: v.lat)).toList();
       List<Geographic> fromPoints(List<LonLatPoint> pts) =>
           pts.map((p) => Geographic(lon: p.lon, lat: p.lat)).toList();
 
+      final targetIndices = <int>[
+        for (var i = 0; i < _features.length; i++)
+          if (_selectedDraftFeatureIds.isEmpty ||
+              _selectedDraftFeatureIds.contains(_features[i].id))
+            i,
+      ];
+      int lastIndexOfKind(DrawToolMode kind) {
+        for (var i = targetIndices.length - 1; i >= 0; i--) {
+          final idx = targetIndices[i];
+          if (_features[idx].kind == kind) return idx;
+        }
+        return _features.lastIndexWhere((f) => f.kind == kind);
+      }
+
+      List<int> indicesOfKind(DrawToolMode kind, {int minRequired = 1}) {
+        final scoped = [
+          for (final idx in targetIndices)
+            if (_features[idx].kind == kind) idx,
+        ];
+        if (scoped.length >= minRequired) return scoped;
+        return [
+          for (var i = 0; i < _features.length; i++)
+            if (_features[i].kind == kind) i,
+        ];
+      }
+
       switch (action) {
         case RustGeoAction.simplifyLastLine:
-          final idx =
-              _features.lastIndexWhere((f) => f.kind == DrawToolMode.line);
+          final idx = lastIndexOfKind(DrawToolMode.line);
           if (idx < 0) return;
+          final tol = meters ?? 25.0;
           final out = await geoSimplifyLine(
             points: toPoints(_features[idx].vertices),
-            toleranceMeters: 25.0,
+            toleranceMeters: tol,
           );
+          _pushDraftUndo();
           setState(() {
             _features[idx] = _features[idx].copyWith(vertices: fromPoints(out));
           });
         case RustGeoAction.corridorLastLine:
-          final line = _features.lastWhere((f) => f.kind == DrawToolMode.line);
+          final idx = lastIndexOfKind(DrawToolMode.line);
+          if (idx < 0) return;
           final ring = await geoLineCorridor(
-            points: toPoints(line.vertices),
-            totalWidthMeters: 120.0,
+            points: toPoints(_features[idx].vertices),
+            totalWidthMeters: step,
           );
+          _pushDraftUndo();
           setState(() {
             _featureCounter += 1;
             _features.add(DrawnFeature(
               id: 'corridor-$_featureCounter',
               kind: DrawToolMode.polygon,
               vertices: fromPoints(ring),
-              name: 'Corridor (120m)',
+              name: 'Corridor (${step.round()}m)',
+            ));
+          });
+        case RustGeoAction.extrudeBand:
+          final idx = lastIndexOfKind(DrawToolMode.line);
+          if (idx < 0) return;
+          final startW = (step * 0.5).clamp(2.0, 2000.0);
+          final ring = await geoExtrudeBand(
+            points: toPoints(_features[idx].vertices),
+            startWidthMeters: startW,
+            endWidthMeters: step,
+          );
+          _pushDraftUndo();
+          setState(() {
+            _featureCounter += 1;
+            _features.add(DrawnFeature(
+              id: 'band-$_featureCounter',
+              kind: DrawToolMode.polygon,
+              vertices: fromPoints(ring),
+              name: 'Band (${startW.round()}–${step.round()}m)',
             ));
           });
         case RustGeoAction.arrowLastLine:
-          final line = _features.lastWhere((f) => f.kind == DrawToolMode.line);
+          final idx = lastIndexOfKind(DrawToolMode.line);
+          if (idx < 0) return;
+          final startW = (step * 0.5).clamp(2.0, 2000.0);
           final ring = await geoExtrudeArrow(
-            points: toPoints(line.vertices),
-            startWidthMeters: 60.0,
-            endWidthMeters: 120.0,
+            points: toPoints(_features[idx].vertices),
+            startWidthMeters: startW,
+            endWidthMeters: step,
           );
+          _pushDraftUndo();
           setState(() {
             _featureCounter += 1;
             _features.add(DrawnFeature(
               id: 'arrow-$_featureCounter',
               kind: DrawToolMode.polygon,
               vertices: fromPoints(ring),
-              name: 'Flow Arrow',
+              name: 'Flow Arrow (${step.round()}m)',
             ));
           });
         case RustGeoAction.offsetLastLine:
-          final line = _features.lastWhere((f) => f.kind == DrawToolMode.line);
+          final idx = lastIndexOfKind(DrawToolMode.line);
+          if (idx < 0) return;
           final out = await geoOffsetLine(
-            points: toPoints(line.vertices),
-            distanceMeters: 80.0,
+            points: toPoints(_features[idx].vertices),
+            distanceMeters: step,
           );
+          _pushDraftUndo();
           setState(() {
             _featureCounter += 1;
             _features.add(DrawnFeature(
               id: 'offset-$_featureCounter',
               kind: DrawToolMode.line,
               vertices: fromPoints(out),
-              name: 'Parallel (+80m)',
+              name: 'Parallel (+${step.round()}m)',
             ));
           });
         case RustGeoAction.splitLastLineAtMidpoint:
-          final idx =
-              _features.lastIndexWhere((f) => f.kind == DrawToolMode.line);
+          final idx = lastIndexOfKind(DrawToolMode.line);
           if (idx < 0) return;
           final verts = _features[idx].vertices;
           if (verts.length < 2) return;
@@ -4769,44 +5190,109 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             splitPoint: LonLatPoint(lon: splitPt.lon, lat: splitPt.lat),
           );
           if (parts.length < 2) return;
+          _pushDraftUndo();
           setState(() {
-            final baseName = _features[idx].name ?? 'Line';
+            final base = _features[idx];
+            final baseName = base.name ?? 'Line';
             _features.removeAt(idx);
             for (var i = 0; i < parts.length; i++) {
               _featureCounter += 1;
-              _features.add(DrawnFeature(
+              _features.add(base.copyWith(
                 id: 'split-line-$_featureCounter',
-                kind: DrawToolMode.line,
                 vertices: fromPoints(parts[i]),
                 name: '$baseName (Part ${i + 1})',
               ));
             }
           });
-        case RustGeoAction.offsetLastPolygon:
-          final poly =
-              _features.lastWhere((f) => f.kind == DrawToolMode.polygon);
-          final out = await geoOffsetPolygon(
-            ring: toPoints(poly.vertices),
-            distanceMeters: 100.0,
+        case RustGeoAction.connectLines:
+          final lineIndices = indicesOfKind(DrawToolMode.line, minRequired: 2);
+          if (lineIndices.length < 2) return;
+          final connected = await geoConnectLines(
+            lines: [
+              for (final idx in lineIndices) toPoints(_features[idx].vertices),
+            ],
+            toleranceMeters: step,
           );
+          if (connected.isEmpty) return;
+          _pushDraftUndo();
+          setState(() {
+            final base = _features[lineIndices.first];
+            for (var i = lineIndices.length - 1; i >= 0; i--) {
+              _features.removeAt(lineIndices[i]);
+            }
+            for (var i = 0; i < connected.length; i++) {
+              _featureCounter += 1;
+              _features.add(base.copyWith(
+                id: 'connected-$_featureCounter',
+                vertices: fromPoints(connected[i]),
+                name: connected.length == 1
+                    ? 'Connected Line'
+                    : 'Connected Line ${i + 1}',
+              ));
+            }
+          });
+        case RustGeoAction.simplifyPolygon:
+          final idx = lastIndexOfKind(DrawToolMode.polygon);
+          if (idx < 0) return;
+          final tol = meters ?? 25.0;
+          final out = await geoSimplifyPolygon(
+            ring: toPoints(_features[idx].vertices),
+            toleranceMeters: tol,
+          );
+          if (out.length < 3) return;
+          _pushDraftUndo();
+          setState(() {
+            _features[idx] = _features[idx].copyWith(vertices: fromPoints(out));
+          });
+        case RustGeoAction.offsetLastPolygon:
+          final idx = lastIndexOfKind(DrawToolMode.polygon);
+          if (idx < 0) return;
+          final out = await geoOffsetPolygon(
+            ring: toPoints(_features[idx].vertices),
+            distanceMeters: step,
+          );
+          _pushDraftUndo();
           setState(() {
             _featureCounter += 1;
             _features.add(DrawnFeature(
               id: 'poly-offset-$_featureCounter',
               kind: DrawToolMode.polygon,
               vertices: fromPoints(out),
-              name: 'Offset (+100m)',
+              name: 'Expand (+${step.round()}m)',
+            ));
+          });
+        case RustGeoAction.insetPolygon:
+          final idx = lastIndexOfKind(DrawToolMode.polygon);
+          if (idx < 0) return;
+          final out = await geoOffsetPolygon(
+            ring: toPoints(_features[idx].vertices),
+            distanceMeters: -step,
+          );
+          if (out.length < 3) return;
+          _pushDraftUndo();
+          setState(() {
+            _featureCounter += 1;
+            _features.add(DrawnFeature(
+              id: 'poly-inset-$_featureCounter',
+              kind: DrawToolMode.polygon,
+              vertices: fromPoints(out),
+              name: 'Inset (-${step.round()}m)',
             ));
           });
         case RustGeoAction.unionAllPolygons:
-          final polys = _features
-              .where((f) => f.kind == DrawToolMode.polygon)
-              .map((f) => toPoints(f.vertices))
-              .toList();
-          if (polys.length < 2) return;
-          final merged = await geoUnionPolygons(rings: polys);
+          final polyIndices =
+              indicesOfKind(DrawToolMode.polygon, minRequired: 2);
+          if (polyIndices.length < 2) return;
+          final merged = await geoUnionPolygons(
+            rings: [
+              for (final idx in polyIndices) toPoints(_features[idx].vertices),
+            ],
+          );
+          _pushDraftUndo();
           setState(() {
-            _features.removeWhere((f) => f.kind == DrawToolMode.polygon);
+            for (var i = polyIndices.length - 1; i >= 0; i--) {
+              _features.removeAt(polyIndices[i]);
+            }
             for (final ring in merged) {
               _featureCounter += 1;
               _features.add(DrawnFeature(
@@ -4818,10 +5304,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             }
           });
         case RustGeoAction.differenceLastTwoPolygons:
-          final polyIndices = <int>[
-            for (var i = 0; i < _features.length; i++)
-              if (_features[i].kind == DrawToolMode.polygon) i,
-          ];
+          final polyIndices =
+              indicesOfKind(DrawToolMode.polygon, minRequired: 2);
           if (polyIndices.length < 2) return;
           final subjectIdx = polyIndices[polyIndices.length - 2];
           final clipIdx = polyIndices[polyIndices.length - 1];
@@ -4829,6 +5313,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             subjectRing: toPoints(_features[subjectIdx].vertices),
             clipRing: toPoints(_features[clipIdx].vertices),
           );
+          _pushDraftUndo();
           setState(() {
             _features.removeAt(clipIdx);
             _features.removeAt(subjectIdx);
@@ -4843,16 +5328,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             }
           });
         case RustGeoAction.splitLastPolygonByLine:
-          final polyIdx =
-              _features.lastIndexWhere((f) => f.kind == DrawToolMode.polygon);
-          final lineIdx =
-              _features.lastIndexWhere((f) => f.kind == DrawToolMode.line);
+          final polyIdx = lastIndexOfKind(DrawToolMode.polygon);
+          final lineIdx = lastIndexOfKind(DrawToolMode.line);
           if (polyIdx < 0 || lineIdx < 0) return;
           final pieces = await geoSplitPolygonByLine(
             ring: toPoints(_features[polyIdx].vertices),
             splitter: toPoints(_features[lineIdx].vertices),
           );
           if (pieces.isEmpty) return;
+          _pushDraftUndo();
           setState(() {
             _features.removeAt(polyIdx);
             for (var i = 0; i < pieces.length; i++) {
@@ -4865,6 +5349,41 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               ));
             }
           });
+        case RustGeoAction.rotateSelected:
+        case RustGeoAction.scaleSelected:
+        case RustGeoAction.shiftNorth:
+        case RustGeoAction.shiftEast:
+          if (targetIndices.isEmpty) return;
+          final tx = action == RustGeoAction.shiftEast ? step : 0.0;
+          final ty = action == RustGeoAction.shiftNorth ? step : 0.0;
+          final rot =
+              action == RustGeoAction.rotateSelected ? (angleDeg ?? 15.0) : 0.0;
+          final sc =
+              action == RustGeoAction.scaleSelected ? (scale ?? 1.15) : 1.0;
+          final updated = <int, List<Geographic>>{};
+          for (final idx in targetIndices) {
+            if (_features[idx].vertices.isEmpty) continue;
+            final out = await geoTransformPoints(
+              points: toPoints(_features[idx].vertices),
+              translateEastM: tx,
+              translateNorthM: ty,
+              rotateDeg: rot,
+              scale: sc,
+            );
+            updated[idx] = fromPoints(out);
+          }
+          if (updated.isEmpty) return;
+          _pushDraftUndo();
+          setState(() {
+            for (final entry in updated.entries) {
+              _features[entry.key] =
+                  _features[entry.key].copyWith(vertices: entry.value);
+            }
+          });
+      }
+      setState(_pruneDraftSelection);
+      if (_inspectedFeature?.draftFeatureId != null) {
+        _refreshInspectedDraftFeature(_inspectedFeature!.draftFeatureId!);
       }
       HapticFeedback.mediumImpact();
       unawaited(_persistWorkingDraft());
@@ -5151,7 +5670,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onRemoveDeskAtlas: (addr) => setState(
             () => _deskAtlases.removeWhere((a) => a.address == addr),
           ),
-          onRunGeoAction: _runGeoAction,
+          onRunGeoAction: (action) => unawaited(_runGeoAction(action)),
+          onRunParameterizedGeoAction: (
+            action, {
+            meters,
+            angleDeg,
+            scale,
+          }) =>
+              unawaited(
+            _runGeoAction(
+              action,
+              meters: meters,
+              angleDeg: angleDeg,
+              scale: scale,
+            ),
+          ),
           onPublishDraft: _publishDraft,
           onComposeStory: () {
             setState(() => _editingStory = null);
@@ -5166,10 +5699,23 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onExportGpxFile: () => unawaited(_exportSpatialFile('gpx')),
           onExportKmlFile: () => unawaited(_exportSpatialFile('kml')),
           onCopyGeoJson: _copyGeoJsonToClipboard,
+          onPasteGeoJsonFromClipboard: () =>
+              unawaited(_pasteGeoJsonFromClipboard()),
+          onValidateDraft: _validateCurrentDraft,
+          selectedDraftFeatureIds: _selectedDraftFeatureIds,
+          onToggleSelectDraftFeature: _toggleSelectDraftFeature,
+          onSelectAllDraftFeatures: _selectAllDraftFeatures,
+          onClearDraftSelection: _clearDraftSelection,
+          onInspectDraftFeature: _inspectDraftFeature,
+          onDuplicateSelectedFeatures: () =>
+              unawaited(_duplicateDraftFeatures(_selectedDraftFeatureIds)),
+          onDeleteSelectedFeatures: _deleteSelectedDraftFeatures,
+          onAddPrimitiveShape: _addPrimitiveShape,
           onClearDraftFeatures: () {
             _pushDraftUndo();
             setState(() {
               _features.clear();
+              _selectedDraftFeatureIds.clear();
               _draftVertices.clear();
             });
             unawaited(_persistWorkingDraft());
@@ -5668,26 +6214,40 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           },
           onUpdateDraftStyle: (
             featureId, {
+            fillColorHex,
+            clearFillColor = false,
+            strokeColorHex,
+            clearStrokeColor = false,
             strokeWidth,
             fillOpacity,
             radius,
             lineDash,
+            arrowStart,
+            arrowEnd,
             displayIcon,
             clearDisplayIcon = false,
             description,
+            customProperties,
           }) {
             _pushDraftUndo();
             setState(() {
               final idx = _features.indexWhere((f) => f.id == featureId);
               if (idx >= 0) {
                 _features[idx] = _features[idx].copyWith(
+                  fillColorHex: fillColorHex,
+                  clearFillColor: clearFillColor,
+                  strokeColorHex: strokeColorHex,
+                  clearStrokeColor: clearStrokeColor,
                   strokeWidth: strokeWidth,
                   fillOpacity: fillOpacity,
                   radius: radius,
                   lineDash: lineDash,
+                  arrowStart: arrowStart,
+                  arrowEnd: arrowEnd,
                   displayIcon: displayIcon,
                   clearDisplayIcon: clearDisplayIcon,
                   description: description,
+                  customProperties: customProperties,
                 );
               }
             });
@@ -5695,9 +6255,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             unawaited(_persistWorkingDraft());
           },
           onEditDraftGeometry: _startEditingDraftFeature,
+          onDuplicateDraftFeature: (featureId) =>
+              unawaited(_duplicateDraftFeatures([featureId])),
           onDeleteDraftFeature: (featureId) {
             _pushDraftUndo();
-            setState(() => _features.removeWhere((f) => f.id == featureId));
+            setState(() {
+              _features.removeWhere((f) => f.id == featureId);
+              _selectedDraftFeatureIds.remove(featureId);
+              if (_inspectedFeature?.draftFeatureId == featureId) {
+                _inspectedFeature = null;
+              }
+            });
+            _closeDrawer(target);
             unawaited(_persistWorkingDraft());
           },
           onAddDraftCallout: (featureId, callout) {
@@ -5729,6 +6298,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             _refreshInspectedDraftFeature(featureId);
             unawaited(_persistWorkingDraft());
           },
+          onResetDraftCalloutOffset: _resetDraftCalloutOffset,
+          onUploadBlossomImage: _pickAndUploadBlossomImage,
+          onTransformDraftFeature: _transformDraftFeature,
           onOpenDiscussion: (feature.datasetAddress != null &&
                   feature.datasetPubkey != null)
               ? () => _openDiscussion(
@@ -5903,6 +6475,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       draftFeatures: _features,
       activeStory: activeStoryContext,
     );
+    final visibleArrowheads = collectVisibleArrowheads(
+      shelfMaps: _shelfMaps,
+      draftAccentColor: theme.colorScheme.primary,
+      draftFeatures: _features,
+      activeStory: activeStoryContext,
+    );
+    final externalSnapShapes = <List<Geographic>>[
+      for (final entry in _shelfMaps)
+        if (entry.visible)
+          for (final shape in entry.shapes)
+            if (shape.coords.isNotEmpty) shape.coords,
+    ];
 
     final combinedProposalShapes = <ShelfShape>[
       ..._proposalOverlayShapes,
@@ -5923,6 +6507,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       activeStory: activeStoryContext,
       commentOverlayShapes: _commentOverlayShapes,
       proposalOverlayShapes: combinedProposalShapes,
+      selectedDraftFeatureIds: _selectedDraftFeatureIds,
     );
 
     final leftDrawerTarget = _drawer != _ActiveDrawer.none
@@ -5968,6 +6553,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 callouts: visibleCallouts,
                 sightings: visibleSightings,
                 iconPins: visibleIconPins,
+                arrowheads: visibleArrowheads,
+                onRepositionDraftCallout: _repositionDraftCallout,
                 displayMode: _calloutMode,
                 bottomInset:
                     (hideBottomDockOnMobile ? 340 : 108) + bottomSafeInset,
@@ -6027,6 +6614,32 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         const SingleActivator(LogicalKeyboardKey.keyY, control: true): () {
           if (!_isDrawingMode) _redoDraftEdit();
         },
+        const SingleActivator(LogicalKeyboardKey.keyD, meta: true): () {
+          if (_isDrawingMode) return;
+          if (_selectedDraftFeatureIds.isNotEmpty) {
+            unawaited(
+              _duplicateDraftFeatures(_selectedDraftFeatureIds.toList()),
+            );
+          } else if (_inspectedFeature?.isDraft == true &&
+              _inspectedFeature?.draftFeatureId != null) {
+            unawaited(
+              _duplicateDraftFeatures([_inspectedFeature!.draftFeatureId!]),
+            );
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.keyD, control: true): () {
+          if (_isDrawingMode) return;
+          if (_selectedDraftFeatureIds.isNotEmpty) {
+            unawaited(
+              _duplicateDraftFeatures(_selectedDraftFeatureIds.toList()),
+            );
+          } else if (_inspectedFeature?.isDraft == true &&
+              _inspectedFeature?.draftFeatureId != null) {
+            unawaited(
+              _duplicateDraftFeatures([_inspectedFeature!.draftFeatureId!]),
+            );
+          }
+        },
         const SingleActivator(LogicalKeyboardKey.digit1, meta: true): () =>
             _selectMode(DrawToolMode.point),
         const SingleActivator(LogicalKeyboardKey.digit2, meta: true): () =>
@@ -6066,6 +6679,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             placementStyle: _placementStyle,
             loupeEnabled: _loupeEnabled,
             features: _features,
+            externalSnapShapes: externalSnapShapes,
             draftVertices: _draftVertices,
             onCommitVertex: _commitVertex,
             onUpdateDraftVertex: (index, pos) {

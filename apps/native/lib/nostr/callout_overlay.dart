@@ -37,6 +37,8 @@ class EarthlyCalloutOverlay extends StatefulWidget {
     required this.onInspectFeature,
     required this.onInspectSighting,
     this.iconPins = const <MapIconPinItem>[],
+    this.arrowheads = const <MapArrowheadItem>[],
+    this.onRepositionDraftCallout,
     this.bottomInset = 110,
     super.key,
   });
@@ -44,6 +46,9 @@ class EarthlyCalloutOverlay extends StatefulWidget {
   final List<MapCalloutItem> callouts;
   final List<SightingSummaryDto> sightings;
   final List<MapIconPinItem> iconPins;
+  final List<MapArrowheadItem> arrowheads;
+  final void Function(String featureId, String calloutId, Offset newOffset)?
+      onRepositionDraftCallout;
   final CalloutDisplayMode displayMode;
   final ValueChanged<InspectedFeature> onInspectFeature;
   final ValueChanged<SightingSummaryDto> onInspectSighting;
@@ -55,6 +60,8 @@ class EarthlyCalloutOverlay extends StatefulWidget {
 
 class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
   String? _expandedKey;
+  String? _draggingKey;
+  Offset _dragDelta = Offset.zero;
 
   @override
   Widget build(BuildContext context) {
@@ -67,12 +74,36 @@ class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
         final viewport = constraints.biggest;
         if (viewport.isEmpty) return const SizedBox.shrink();
 
+        final effectiveCallouts = _draggingKey == null
+            ? widget.callouts
+            : [
+                for (final c in widget.callouts)
+                  c.key == _draggingKey
+                      ? MapCalloutItem(
+                          key: c.key,
+                          id: c.id,
+                          text: c.text,
+                          anchor: c.anchor,
+                          datasetTitle: c.datasetTitle,
+                          featureId: c.featureId,
+                          featureLabel: c.featureLabel,
+                          title: c.title,
+                          mediaUrls: c.mediaUrls,
+                          preferredSide: c.preferredSide,
+                          offset: c.offset + _dragDelta,
+                          showLeader: c.showLeader,
+                          accentColorHex: c.accentColorHex,
+                          inspectedFeature: c.inspectedFeature,
+                        )
+                      : c,
+              ];
+
         final placedCallouts = widget.displayMode == CalloutDisplayMode.hidden
             ? const <_PlacedCallout>[]
             : _resolveCalloutLayout(
                 controller: controller,
                 viewport: viewport,
-                callouts: widget.callouts,
+                callouts: effectiveCallouts,
                 displayMode: widget.displayMode,
                 expandedKey: _expandedKey,
                 bottomInset: widget.bottomInset,
@@ -95,15 +126,41 @@ class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
           placedIcons.add((pin: pin, pos: pt));
         }
 
+        final placedArrows =
+            <({Offset tip, Offset from, Color color, double strokeWidth})>[];
+        for (final arrow in widget.arrowheads) {
+          final tip = controller.toScreenLocation(arrow.tip);
+          final from = controller.toScreenLocation(arrow.from);
+          if (!_isWithinViewport(tip, viewport, margin: 24)) continue;
+          if (!from.dx.isFinite || !from.dy.isFinite) continue;
+          if ((tip - from).distance < 1.5) continue;
+          placedArrows.add((
+            tip: tip,
+            from: from,
+            color: arrow.color,
+            strokeWidth: arrow.strokeWidth,
+          ));
+        }
+
         if (placedCallouts.isEmpty &&
             sightingBubbles.isEmpty &&
-            placedIcons.isEmpty) {
+            placedIcons.isEmpty &&
+            placedArrows.isEmpty) {
           return const SizedBox.shrink();
         }
 
         return Stack(
           clipBehavior: Clip.none,
           children: [
+            // Frame-locked LineString vector arrowheads (`arrowStart` / `arrowEnd`)
+            if (placedArrows.isNotEmpty)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _ArrowheadPainter(arrows: placedArrows),
+                  ),
+                ),
+              ),
             // `displayIcon` (`lucide:*`) Point badges with auto-contrasting glyph
             for (final item in placedIcons)
               Positioned(
@@ -165,34 +222,75 @@ class _EarthlyCalloutOverlayState extends State<EarthlyCalloutOverlay> {
                 ),
               ),
 
-            // Callout cards / compact badges / collapsed pins
+            // Callout cards / compact badges / collapsed pins (draft callouts are draggable!)
             for (final p in placedCallouts)
               Positioned(
                 left: p.rect.left,
                 top: p.rect.top,
                 width: p.rect.width,
-                child: _CalloutCardWidget(
-                  item: p.item,
-                  mode: p.resolvedMode,
-                  isExpanded: _expandedKey == p.item.key,
-                  onTap: () {
-                    if (p.resolvedMode == CalloutDisplayMode.full) {
-                      if (p.item.inspectedFeature != null) {
-                        widget.onInspectFeature(p.item.inspectedFeature!);
-                      }
-                    } else {
-                      setState(() {
-                        _expandedKey =
-                            _expandedKey == p.item.key ? null : p.item.key;
-                      });
-                    }
+                child: Builder(
+                  builder: (_) {
+                    final isDraftCallout = p.item.key.startsWith('draft::') &&
+                        p.item.featureId != null &&
+                        widget.onRepositionDraftCallout != null &&
+                        p.resolvedMode != CalloutDisplayMode.pins;
+                    final card = _CalloutCardWidget(
+                      item: p.item,
+                      mode: p.resolvedMode,
+                      isExpanded: _expandedKey == p.item.key,
+                      draggable: isDraftCallout,
+                      onTap: () {
+                        if (p.resolvedMode == CalloutDisplayMode.full) {
+                          if (p.item.inspectedFeature != null) {
+                            widget.onInspectFeature(p.item.inspectedFeature!);
+                          }
+                        } else {
+                          setState(() {
+                            _expandedKey =
+                                _expandedKey == p.item.key ? null : p.item.key;
+                          });
+                        }
+                      },
+                      onInspect: p.item.inspectedFeature != null
+                          ? () =>
+                              widget.onInspectFeature(p.item.inspectedFeature!)
+                          : null,
+                      onCollapse: _expandedKey == p.item.key
+                          ? () => setState(() => _expandedKey = null)
+                          : null,
+                    );
+                    if (!isDraftCallout) return card;
+                    final origItem = widget.callouts
+                            .where((c) => c.key == p.item.key)
+                            .firstOrNull ??
+                        p.item;
+                    return GestureDetector(
+                      onPanStart: (_) => setState(() {
+                        _draggingKey = p.item.key;
+                        _dragDelta = Offset.zero;
+                      }),
+                      onPanUpdate: (details) => setState(() {
+                        _dragDelta += details.delta;
+                      }),
+                      onPanEnd: (_) {
+                        final committed = origItem.offset + _dragDelta;
+                        setState(() {
+                          _draggingKey = null;
+                          _dragDelta = Offset.zero;
+                        });
+                        widget.onRepositionDraftCallout!(
+                          p.item.featureId!,
+                          p.item.id,
+                          committed,
+                        );
+                      },
+                      onPanCancel: () => setState(() {
+                        _draggingKey = null;
+                        _dragDelta = Offset.zero;
+                      }),
+                      child: card,
+                    );
                   },
-                  onInspect: p.item.inspectedFeature != null
-                      ? () => widget.onInspectFeature(p.item.inspectedFeature!)
-                      : null,
-                  onCollapse: _expandedKey == p.item.key
-                      ? () => setState(() => _expandedKey = null)
-                      : null,
                 ),
               ),
           ],
@@ -422,12 +520,61 @@ class _CalloutLeaderPainter extends CustomPainter {
   bool shouldRepaint(covariant _CalloutLeaderPainter oldDelegate) => true;
 }
 
+class _ArrowheadPainter extends CustomPainter {
+  const _ArrowheadPainter({required this.arrows});
+
+  final List<({Offset tip, Offset from, Color color, double strokeWidth})> arrows;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final a in arrows) {
+      final dx = a.tip.dx - a.from.dx;
+      final dy = a.tip.dy - a.from.dy;
+      final angle = math.atan2(dy, dx);
+      final headLen = (9.5 + a.strokeWidth * 1.4).clamp(10.0, 20.0);
+      const spread = 0.48; // ~27.5 deg each side
+      final leftWing = Offset(
+        a.tip.dx - headLen * math.cos(angle - spread),
+        a.tip.dy - headLen * math.sin(angle - spread),
+      );
+      final rightWing = Offset(
+        a.tip.dx - headLen * math.cos(angle + spread),
+        a.tip.dy - headLen * math.sin(angle + spread),
+      );
+      final path = Path()
+        ..moveTo(a.tip.dx, a.tip.dy)
+        ..lineTo(leftWing.dx, leftWing.dy)
+        ..lineTo(rightWing.dx, rightWing.dy)
+        ..close();
+
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.9)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..strokeJoin = StrokeJoin.round,
+      );
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = a.color
+          ..style = PaintingStyle.fill,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ArrowheadPainter oldDelegate) => true;
+}
+
 class _CalloutCardWidget extends StatelessWidget {
   const _CalloutCardWidget({
     required this.item,
     required this.mode,
     required this.isExpanded,
     required this.onTap,
+    this.draggable = false,
     this.onInspect,
     this.onCollapse,
   });
@@ -435,6 +582,7 @@ class _CalloutCardWidget extends StatelessWidget {
   final MapCalloutItem item;
   final CalloutDisplayMode mode;
   final bool isExpanded;
+  final bool draggable;
   final VoidCallback onTap;
   final VoidCallback? onInspect;
   final VoidCallback? onCollapse;
@@ -551,6 +699,14 @@ class _CalloutCardWidget extends StatelessWidget {
                 children: [
                   Row(
                     children: [
+                      if (draggable) ...[
+                        Icon(
+                          Icons.drag_indicator,
+                          size: 13,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 2),
+                      ],
                       Expanded(
                         child: Text(
                           item.title ?? item.featureLabel ?? item.datasetTitle,

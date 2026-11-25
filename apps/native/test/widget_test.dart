@@ -1,3 +1,4 @@
+import 'package:earthly_native/drawing/drawing_model.dart';
 import 'package:earthly_native/main.dart';
 import 'package:earthly_native/nostr/callout_overlay.dart';
 import 'package:earthly_native/nostr/nip55_signer.dart';
@@ -15,6 +16,7 @@ import 'package:earthly_native/shell/discussion_margin_sheet.dart';
 import 'package:earthly_native/shell/earthly_rich_text.dart';
 import 'package:earthly_native/shell/entity_list_row.dart';
 import 'package:earthly_native/shell/explore_sheet.dart';
+import 'package:earthly_native/shell/feature_inspector_sheet.dart';
 import 'package:earthly_native/shell/inbox_sheet.dart';
 import 'package:earthly_native/shell/map_drawer.dart';
 import 'package:earthly_native/shell/person_margin.dart';
@@ -23,11 +25,13 @@ import 'package:earthly_native/shell/social_actions_bar.dart';
 import 'package:earthly_native/shell/story_composer_sheet.dart';
 import 'package:earthly_native/src/rust/api/agent.dart';
 import 'package:earthly_native/src/rust/api/blossom.dart';
+import 'package:earthly_native/src/rust/api/geo.dart';
 import 'package:earthly_native/src/rust/api/nostr_client.dart';
 import 'package:earthly_native/src/rust/api/private_groups.dart';
 import 'package:earthly_native/src/rust/api/publish.dart';
 import 'package:earthly_native/src/rust/api/settings.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:maplibre/maplibre.dart';
 import 'package:material_ui/material_ui.dart';
 
 void main() {
@@ -2129,5 +2133,455 @@ Start at geo:48.2764,16.3338 and check $naddr
     await tester.pumpAndSettle();
     expect(toggled, isTrue);
     expect(find.text('8'), findsOneWidget);
+  });
+
+  test(
+      'Draft GeoJSON round-trips fillColor, strokeColor, arrowheads, custom properties, callout offset/media, and collects arrowheads',
+      () {
+    const polyFeature = DrawnFeature(
+      id: 'zone-1',
+      kind: DrawToolMode.polygon,
+      vertices: [
+        Geographic(lon: 16.36, lat: 48.20),
+        Geographic(lon: 16.38, lat: 48.20),
+        Geographic(lon: 16.38, lat: 48.22),
+      ],
+      name: 'Alpine Meadow',
+      fillColorHex: '#15803D',
+      strokeColorHex: '#0F766E',
+      fillOpacity: 0.4,
+    );
+    const lineFeature = DrawnFeature(
+      id: 'route-1',
+      kind: DrawToolMode.line,
+      vertices: [
+        Geographic(lon: 16.36, lat: 48.20),
+        Geographic(lon: 16.38, lat: 48.22),
+      ],
+      name: 'Danube Ridge',
+      description: 'Scenic **ridge** climb.',
+      strokeColorHex: '#EA580C',
+      strokeWidth: 4.5,
+      lineDash: 'dashed',
+      arrowStart: true,
+      arrowEnd: true,
+      customProperties: {'difficulty': 'T3', 'surface': 'gravel'},
+      callouts: [
+        DraftCallout(
+          id: 'c-1',
+          title: 'Trailhead',
+          text: 'Water fountain here',
+          side: 'right',
+          offsetX: 28.5,
+          offsetY: -16.0,
+          mediaUrls: ['https://blossom.earthly.city/fountain.jpg'],
+        ),
+      ],
+    );
+
+    final geojson = draftFeaturesToGeoJson(
+      title: 'Workbench Roundtrip',
+      features: const [polyFeature, lineFeature],
+    );
+    final parsed = parseDraftFeaturesFromGeoJson(geojson);
+    expect(parsed, hasLength(2));
+    final p = parsed[0];
+    expect(p.fillColorHex, '#15803D');
+    expect(p.strokeColorHex, '#0F766E');
+
+    final f = parsed[1];
+    expect(f.name, 'Danube Ridge');
+    expect(f.description, 'Scenic **ridge** climb.');
+    expect(f.strokeColorHex, '#EA580C');
+    expect(f.arrowStart, isTrue);
+    expect(f.arrowEnd, isTrue);
+    expect(f.customProperties['difficulty'], 'T3');
+    expect(f.customProperties['surface'], 'gravel');
+    expect(f.callouts, hasLength(1));
+    expect(f.callouts.first.offsetX, closeTo(28.5, 1e-4));
+    expect(f.callouts.first.offsetY, closeTo(-16.0, 1e-4));
+    expect(
+      f.callouts.first.mediaUrls,
+      const ['https://blossom.earthly.city/fountain.jpg'],
+    );
+
+    final arrows = collectVisibleArrowheads(
+      shelfMaps: const [],
+      draftAccentColor: const Color(0xFF1F5F8B),
+      draftFeatures: parsed,
+    );
+    expect(arrows, hasLength(2));
+    expect(arrows.map((a) => a.key), containsAll([
+      'draft::route-1::start',
+      'draft::route-1::end',
+    ]));
+  });
+
+  testWidgets(
+      'FeatureInspectorSheet edits Fill/Stroke custom hex, arrowheads, searchable icons, description, custom properties, callout photo, and duplicate',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1100);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    String? updatedFill;
+    String? updatedStroke;
+    bool? updatedArrowEnd;
+    String? updatedIcon;
+    String? updatedDescription;
+    Map<String, String>? updatedCustomProps;
+    String? duplicatedId;
+    DraftCallout? addedCallout;
+
+    const inspectedLine = InspectedFeature(
+      sourceLabel: 'Working draft',
+      isDraft: true,
+      draftFeatureId: 'line-42',
+      geometryType: 'LineString',
+      title: 'Alpine Traverse',
+      properties: {
+        'id': 'line-42',
+        'vertices': 3,
+        'strokeColor': '#1F5F8B',
+        'elevation': '1850m',
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              FeatureInspectorSheet(
+                feature: inspectedLine,
+                onClose: () {},
+                onUpdateDraftStyle: (
+                  _, {
+                  fillColorHex,
+                  clearFillColor = false,
+                  strokeColorHex,
+                  clearStrokeColor = false,
+                  strokeWidth,
+                  fillOpacity,
+                  radius,
+                  lineDash,
+                  arrowStart,
+                  arrowEnd,
+                  displayIcon,
+                  clearDisplayIcon = false,
+                  description,
+                  customProperties,
+                }) {
+                  if (fillColorHex != null) updatedFill = fillColorHex;
+                  if (strokeColorHex != null) updatedStroke = strokeColorHex;
+                  if (arrowEnd != null) updatedArrowEnd = arrowEnd;
+                  if (displayIcon != null) updatedIcon = displayIcon;
+                  if (description != null) updatedDescription = description;
+                  if (customProperties != null) {
+                    updatedCustomProps = customProperties;
+                  }
+                },
+                onDuplicateDraftFeature: (id) => duplicatedId = id,
+                onAddDraftCallout: (_, c) => addedCallout = c,
+                onUploadBlossomImage: (_) async => BlossomUploadDto(
+                  url: 'https://blossom.earthly.city/callout-photo.jpg',
+                  sha256: 'b' * 64,
+                  sizeBytes: BigInt.from(4096),
+                  mimeType: 'image/jpeg',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    // 1. Custom Stroke hex on LineString
+    await tester.enterText(
+      find.byKey(const Key('inspector-custom-hex-field')),
+      '#FF5500',
+    );
+    await tester.tap(find.byKey(const Key('inspector-custom-hex-apply')));
+    await tester.pump();
+    expect(updatedStroke, '#FF5500');
+
+    // 2. Line arrowhead toggle
+    final arrowEndBtn = find.byKey(const Key('inspector-arrow-end'));
+    await tester.ensureVisible(arrowEndBtn);
+    await tester.tap(arrowEndBtn);
+    await tester.pump();
+    expect(updatedArrowEnd, isTrue);
+
+    // 3. Description save
+    final descField = find.byKey(const Key('inspector-description-field'));
+    await tester.ensureVisible(descField);
+    await tester.enterText(descField, 'Updated **ridge** notes.');
+    final saveDesc = find.byKey(const Key('inspector-save-description'));
+    await tester.ensureVisible(saveDesc);
+    await tester.tap(saveDesc);
+    await tester.pump();
+    expect(updatedDescription, 'Updated **ridge** notes.');
+
+    // 4. Custom properties add
+    final propKey = find.byKey(const Key('inspector-prop-key'));
+    await tester.ensureVisible(propKey);
+    await tester.enterText(propKey, 'grade');
+    await tester.enterText(find.byKey(const Key('inspector-prop-value')), 'A+');
+    await tester.tap(find.byKey(const Key('inspector-prop-add')));
+    await tester.pump();
+    expect(updatedCustomProps?['grade'], 'A+');
+    expect(updatedCustomProps?['elevation'], '1850m');
+
+    // 5. Add callout with Blossom photo upload
+    final addCalloutChip = find.text('Add Callout');
+    await tester.ensureVisible(addCalloutChip);
+    await tester.tap(addCalloutChip);
+    await tester.pumpAndSettle();
+    final uploadBtn = find.byKey(const Key('callout-upload-photo-btn'));
+    await tester.ensureVisible(uploadBtn);
+    await tester.tap(uploadBtn);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Callout card text (draggable on map!)'),
+      'Summit view',
+    );
+    final saveCalloutBtn = find.widgetWithText(FilledButton, 'Attach Callout');
+    await tester.ensureVisible(saveCalloutBtn);
+    await tester.tap(saveCalloutBtn);
+    await tester.pump();
+    expect(addedCallout?.text, 'Summit view');
+    expect(
+      addedCallout?.mediaUrls,
+      const ['https://blossom.earthly.city/callout-photo.jpg'],
+    );
+
+    // 6. Duplicate feature
+    final dupBtn = find.byKey(const Key('inspector-duplicate-btn'));
+    await tester.ensureVisible(dupBtn);
+    await tester.tap(dupBtn);
+    await tester.pump();
+    expect(duplicatedId, 'line-42');
+
+    // 7. Fill/Stroke tabs + searchable 30-icon picker on Point feature
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              FeatureInspectorSheet(
+                feature: const InspectedFeature(
+                  sourceLabel: 'Working draft',
+                  isDraft: true,
+                  draftFeatureId: 'pt-9',
+                  geometryType: 'Point',
+                  title: 'Summit',
+                  properties: {},
+                ),
+                onClose: () {},
+                onUpdateDraftStyle: (
+                  _, {
+                  fillColorHex,
+                  clearFillColor = false,
+                  strokeColorHex,
+                  clearStrokeColor = false,
+                  strokeWidth,
+                  fillOpacity,
+                  radius,
+                  lineDash,
+                  arrowStart,
+                  arrowEnd,
+                  displayIcon,
+                  clearDisplayIcon = false,
+                  description,
+                  customProperties,
+                }) {
+                  if (fillColorHex != null) updatedFill = fillColorHex;
+                  if (displayIcon != null) updatedIcon = displayIcon;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('inspector-color-fill-tab')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('inspector-custom-hex-field')),
+      '#22AA44',
+    );
+    await tester.tap(find.byKey(const Key('inspector-custom-hex-apply')));
+    await tester.pump();
+    expect(updatedFill, '#22AA44');
+
+    final iconSearch = find.byKey(const Key('inspector-icon-search'));
+    await tester.ensureVisible(iconSearch);
+    await tester.enterText(iconSearch, 'mountain');
+    await tester.pump();
+    final mountainChip = find.byKey(const Key('icon-chip-lucide:mountain'));
+    expect(mountainChip, findsOneWidget);
+    await tester.tap(mountainChip);
+    await tester.pump();
+    expect(updatedIcon, 'lucide:mountain');
+  });
+
+  testWidgets(
+      'DeskSheet supports multi-selection, primitive shapes, paste/validate GeoJSON, and parameterized Rust workbench ops',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1100);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    String? toggledFeatureId;
+    var duplicatedSelected = false;
+    var deletedSelected = false;
+    var pastedClipboard = false;
+    (String, double)? addedPrimitive;
+    (RustGeoAction, double?, double?)? lastWorkbenchOp;
+
+    const draftFeatures = [
+      DrawnFeature(
+        id: 'l-1',
+        kind: DrawToolMode.line,
+        name: 'East Path',
+        vertices: [
+          Geographic(lon: 16.36, lat: 48.20),
+          Geographic(lon: 16.37, lat: 48.20),
+        ],
+      ),
+      DrawnFeature(
+        id: 'l-2',
+        kind: DrawToolMode.line,
+        name: 'West Path',
+        vertices: [
+          Geographic(lon: 16.37, lat: 48.20),
+          Geographic(lon: 16.38, lat: 48.20),
+        ],
+      ),
+      DrawnFeature(
+        id: 'p-1',
+        kind: DrawToolMode.polygon,
+        name: 'Park',
+        vertices: [
+          Geographic(lon: 16.36, lat: 48.20),
+          Geographic(lon: 16.37, lat: 48.20),
+          Geographic(lon: 16.37, lat: 48.21),
+        ],
+      ),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DeskSheet(
+                activeDraftId: 'draft-wb',
+                savedDrafts: const [],
+                relayUrls: const ['wss://relay.earthly.city'],
+                draftTitle: 'Workbench Draft',
+                audience: DraftAudienceChoice.publicRelay,
+                account: null,
+                shelfMaps: const [],
+                deskStories: const [],
+                deskAtlases: const [],
+                drawnFeatures: draftFeatures,
+                selectedDraftFeatureIds: const {'l-1', 'l-2', 'p-1'},
+                onToggleSelectDraftFeature: (id) => toggledFeatureId = id,
+                onSelectAllDraftFeatures: () {},
+                onClearDraftSelection: () {},
+                onInspectDraftFeature: (_) {},
+                onDuplicateSelectedFeatures: () => duplicatedSelected = true,
+                onDeleteSelectedFeatures: () => deletedSelected = true,
+                onPasteGeoJsonFromClipboard: () => pastedClipboard = true,
+                onValidateDraft: () async => const DraftValidationDto(
+                  valid: true,
+                  featureCount: 3,
+                  message: 'Valid RFC 7946 GeoJSON (3 features)',
+                ),
+                onAddPrimitiveShape: (shape, r) async {
+                  addedPrimitive = (shape, r);
+                },
+                onSelectDraft: (_) {},
+                onCreateNewDraft: () {},
+                onDeleteDraft: (_) {},
+                onDraftTitleChanged: (_) {},
+                onAudienceChanged: (_) {},
+                onToggleShelfVisibility: (_) {},
+                onRemoveShelfMap: (_) {},
+                onInspectShelfMap: (_) {},
+                onFlyToShelfMap: (_) {},
+                onCloneShelfMapToDraft: (_) {},
+                onOpenShelfDiscussion: (_) {},
+                onOpenDeskStory: (_) {},
+                onRemoveDeskStory: (_) {},
+                onOpenDeskAtlas: (_) {},
+                onRemoveDeskAtlas: (_) {},
+                onRunGeoAction: (_) {},
+                onRunParameterizedGeoAction: (
+                  action, {
+                  meters,
+                  angleDeg,
+                  scale,
+                }) {
+                  lastWorkbenchOp = (action, meters, angleDeg);
+                },
+                onPublishDraft: (_, _) async => const PublishOutcomeDto(
+                  eventId: '0123456789abcdef',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onComposeStory: () {},
+                onCreateAtlas: () {},
+                onImportGeoJson: () {},
+                onExportGeoJsonFile: () {},
+                onCopyGeoJson: () {},
+                onClearDraftFeatures: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    Future<void> scrollAndTap(Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.pumpAndSettle();
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    // 1. Paste GeoJSON & Validate RFC 7946
+    await scrollAndTap(find.byKey(const Key('desk-paste-geojson-btn')));
+    expect(pastedClipboard, isTrue);
+
+    await scrollAndTap(find.byKey(const Key('desk-validate-draft-btn')));
+    expect(
+      find.textContaining('Valid RFC 7946 GeoJSON (3 features)'),
+      findsOneWidget,
+    );
+
+    // 2. Multi-selection row toggle + Duplicate / Delete selected
+    await scrollAndTap(find.byKey(const Key('desk-duplicate-selected-btn')));
+    await scrollAndTap(find.byKey(const Key('desk-delete-selected-btn')));
+    await scrollAndTap(find.byKey(const Key('draft-feature-row-p-1')));
+    expect(duplicatedSelected, isTrue);
+    expect(deletedSelected, isTrue);
+    expect(toggledFeatureId, 'p-1');
+
+    // 3. Meter step preset (250m) + Primitive shape + Parameterized geo actions
+    await scrollAndTap(find.byKey(const Key('workbench-meters-250')));
+    await scrollAndTap(find.byKey(const Key('primitive-circle')));
+    expect(addedPrimitive, ('circle', 250.0));
+
+    await scrollAndTap(find.byKey(const Key('workbench-connect-lines')));
+    expect(lastWorkbenchOp, (RustGeoAction.connectLines, 250.0, null));
+
+    await scrollAndTap(find.byKey(const Key('workbench-inset-polygon')));
+    expect(lastWorkbenchOp, (RustGeoAction.insetPolygon, 250.0, null));
+
+    await scrollAndTap(find.byKey(const Key('workbench-rotate-selected')));
+    expect(lastWorkbenchOp, (RustGeoAction.rotateSelected, 250.0, 15.0));
   });
 }

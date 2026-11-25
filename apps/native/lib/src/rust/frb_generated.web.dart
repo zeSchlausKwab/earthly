@@ -158,6 +158,9 @@ abstract class EarthlyRustLibApiImplPlatform
   DecodedNaddrDto dco_decode_decoded_naddr_dto(dynamic raw);
 
   @protected
+  DraftValidationDto dco_decode_draft_validation_dto(dynamic raw);
+
+  @protected
   EarthlyCatalogSnapshot dco_decode_earthly_catalog_snapshot(dynamic raw);
 
   @protected
@@ -622,6 +625,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   DecodedNaddrDto sse_decode_decoded_naddr_dto(SseDeserializer deserializer);
+
+  @protected
+  DraftValidationDto sse_decode_draft_validation_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   EarthlyCatalogSnapshot sse_decode_earthly_catalog_snapshot(
@@ -1244,6 +1252,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_decoded_naddr_dto(
     DecodedNaddrDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_draft_validation_dto(
+    DraftValidationDto self,
     SseSerializer serializer,
   );
 
