@@ -827,6 +827,7 @@ List<Layer> buildEarthlyGpuLayers({
   required ValueChanged<InspectedFeature> onInspectFeature,
   List<LiveBeaconDto> beacons = const [],
   List<Geographic> measurePoints = const [],
+  List<Geographic> gpsTrackPoints = const [],
   ActiveStoryRenderContext? activeStory,
   List<ShelfShape> commentOverlayShapes = const [],
   List<ShelfShape> proposalOverlayShapes = const [],
@@ -1549,12 +1550,38 @@ List<Layer> buildEarthlyGpuLayers({
       color: EarthlyColors.commentGreen,
     ),
 
-    // Geo Edit Proposal Preview Overlay (Proposed Amber #D97706)
+    // Geo Edit Proposal & AI safeEditing Ghost Preview Overlay (Proposed Amber #D97706, dashed)
     ..._buildOverlayShapeLayers(
       prefix: 'earthly-proposal-overlay',
       shapes: proposalOverlayShapes,
       color: EarthlyColors.proposedAmber,
+      dashed: true,
     ),
+
+    // Live Background GPS Track Recording Overlay (Rose/Red #E11D48 + pulsing head dot)
+    if (gpsTrackPoints.length >= 2)
+      PolylineLayer(
+        id: 'earthly-live-gps-track-line',
+        polylines: [Feature(geometry: LineString.from(gpsTrackPoints))],
+        color: const Expression.literal(Color(0xFFE11D48)),
+        width: const Expression.literal(4.2),
+      ),
+    if (gpsTrackPoints.isNotEmpty) ...[
+      CircleLayer(
+        id: 'earthly-live-gps-track-halo',
+        points: [Feature(geometry: Point(gpsTrackPoints.last))],
+        color: const Expression.literal(Color(0x45E11D48)),
+        radius: const Expression.literal(13.0),
+      ),
+      CircleLayer(
+        id: 'earthly-live-gps-track-head',
+        points: [Feature(geometry: Point(gpsTrackPoints.last))],
+        color: const Expression.literal(Color(0xFFE11D48)),
+        radius: const Expression.literal(6.5),
+        strokeColor: const Expression.literal(Colors.white),
+        strokeWidth: const Expression.literal(2.2),
+      ),
+    ],
 
     // Standalone Measure Ruler overlay (violet/indigo measurement line & vertices)
     if (measurePoints.length >= 3)
@@ -1609,6 +1636,7 @@ List<Layer> _buildOverlayShapeLayers({
   required String prefix,
   required List<ShelfShape> shapes,
   required Color color,
+  bool dashed = false,
 }) {
   if (shapes.isEmpty) return const [];
   final polys = <Feature<Polygon>>[];
@@ -1634,12 +1662,31 @@ List<Layer> _buildOverlayShapeLayers({
         opacity: const Expression.literal(0.28),
         outlineColor: Expression.literal(color),
       ),
+    if (dashed && polys.isNotEmpty)
+      PolylineLayer(
+        id: '$prefix-polygon-dashes',
+        polylines: [
+          for (final p in polys)
+            if (p.geometry?.exterior case final exterior?)
+              Feature(
+                geometry: LineString.from(
+                  exterior.positions.map(
+                    (pos) => Geographic(lon: pos.x, lat: pos.y),
+                  ),
+                ),
+              ),
+        ],
+        color: Expression.literal(color),
+        width: const Expression.literal(3.0),
+        dashArray: const Expression.literal([4, 2]),
+      ),
     if (lines.isNotEmpty)
       PolylineLayer(
         id: '$prefix-lines',
         polylines: lines,
         color: Expression.literal(color),
         width: const Expression.literal(3.6),
+        dashArray: dashed ? const Expression.literal([4, 2]) : null,
       ),
     if (pts.isNotEmpty)
       CircleLayer(

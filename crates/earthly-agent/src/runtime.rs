@@ -16,7 +16,84 @@ use crate::schema::{
     AgentProviderConfig, AgentRole, earthly_system_prompt, earthly_tool_definitions,
 };
 
-const MAX_WEBPAGE_BYTES: usize = 256 * 1024;
+const MAX_WEBPAGE_BYTES: usize = 512 * 1024;
+
+#[derive(Clone, Debug)]
+pub struct ResearchPageExtract {
+    pub url: String,
+    pub title: String,
+    pub excerpt: String,
+    pub coordinates: Vec<(f64, f64)>,
+    pub osm_links: Vec<String>,
+    pub spatial_links: Vec<String>,
+    pub raw_body: String,
+}
+
+pub async fn fetch_research_webpage(raw_url: &str) -> Result<ResearchPageExtract, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(14))
+        .user_agent("EarthlyNative/1.0 (+https://earthly.city)")
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+    let url = raw_url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("URL must start with http:// or https://".to_owned());
+    }
+    let mut resp = client
+        .get(url)
+        .timeout(Duration::from_secs(14))
+        .header(
+            reqwest::header::ACCEPT,
+            "text/html,application/geo+json,application/json,application/gpx+xml,application/vnd.google-earth.kml+xml,text/plain;q=0.9",
+        )
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    let mut buf = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| format!("failed reading response body: {e}"))?
+    {
+        let remaining = MAX_WEBPAGE_BYTES.saturating_sub(buf.len());
+        if remaining == 0 {
+            break;
+        }
+        let take = chunk.len().min(remaining);
+        buf.extend_from_slice(&chunk[..take]);
+        if buf.len() >= MAX_WEBPAGE_BYTES {
+            break;
+        }
+    }
+    let body = String::from_utf8_lossy(&buf).into_owned();
+    let title = extract_html_title(&body).unwrap_or_else(|| url.to_owned());
+    let plain_text = strip_html_to_text(&body);
+    let excerpt: String = plain_text.chars().take(4000).collect();
+    let coordinates = extract_coordinates(&body, &plain_text);
+    let osm_links = extract_matching_urls(&body, "openstreetmap.org/");
+    let mut spatial_links = extract_matching_urls(&body, ".geojson");
+    for extra in extract_matching_urls(&body, ".gpx")
+        .into_iter()
+        .chain(extract_matching_urls(&body, ".kml"))
+    {
+        if !spatial_links.contains(&extra) {
+            spatial_links.push(extra);
+        }
+    }
+    Ok(ResearchPageExtract {
+        url: url.to_owned(),
+        title,
+        excerpt,
+        coordinates,
+        osm_links,
+        spatial_links,
+        raw_body: body,
+    })
+}
 
 pub async fn run_agent_turn(
     provider: &AgentProviderConfig,

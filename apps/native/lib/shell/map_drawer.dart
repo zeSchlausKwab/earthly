@@ -5,6 +5,29 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/earthly_theme.dart';
 
+enum EarthlyDrawerSide { left, right }
+
+/// Optional inherited placement overriding `EarthlyMapDrawer.desktopSide` so
+/// Desktop Studio (`width >= 1100`) can render a simultaneous left Margin and
+/// right Studio Pane around the live GPU map canvas with zero per-sheet boilerplate.
+class EarthlyDrawerPlacement extends InheritedWidget {
+  const EarthlyDrawerPlacement({
+    required this.side,
+    required super.child,
+    super.key,
+  });
+
+  final EarthlyDrawerSide side;
+
+  static EarthlyDrawerSide? maybeOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<EarthlyDrawerPlacement>()
+      ?.side;
+
+  @override
+  bool updateShouldNotify(EarthlyDrawerPlacement oldWidget) =>
+      side != oldWidget.side;
+}
+
 /// Google-Maps-style non-blocking frosted-glass map drawer that adapts across
 /// Mobile & Desktop:
 ///
@@ -15,7 +38,9 @@ import '../theme/earthly_theme.dart';
 ///   the drawer implicitly**! The scrollable [body] below scrolls **100%
 ///   independently** of the drawer height.
 /// - **Desktop (`width >= 880`, macOS/Linux/Windows)**: Docks as a floating
-///   frosted-glass 416px left Margin panel beside the full-height GPU map canvas.
+///   frosted-glass 416px left or right Margin panel beside the full-height GPU
+///   map canvas (enabling simultaneous `Left Margin | Canvas | Right Studio Pane`
+///   multi-column layout at `width >= 1100`!).
 class EarthlyMapDrawer extends StatefulWidget {
   const EarthlyMapDrawer({
     required this.header,
@@ -25,6 +50,7 @@ class EarthlyMapDrawer extends StatefulWidget {
     this.minFraction = 0.18,
     this.maxFraction = 0.88,
     this.accentTopBorder = false,
+    this.desktopSide = EarthlyDrawerSide.left,
     this.onHeightFractionChanged,
     super.key,
   });
@@ -40,6 +66,7 @@ class EarthlyMapDrawer extends StatefulWidget {
   final double minFraction;
   final double maxFraction;
   final bool accentTopBorder;
+  final EarthlyDrawerSide desktopSide;
   final ValueChanged<double>? onHeightFractionChanged;
 
   @override
@@ -120,11 +147,16 @@ class _EarthlyMapDrawerState extends State<EarthlyMapDrawer> {
             : Colors.black.withValues(alpha: 0.09));
 
     if (isDesktop) {
+      final effectiveSide =
+          EarthlyDrawerPlacement.maybeOf(context) ?? widget.desktopSide;
+      final isRight = effectiveSide == EarthlyDrawerSide.right;
+      final panelWidth = size.width >= 1240 ? 416.0 : 372.0;
       return Positioned(
         top: 64,
-        left: 12,
+        left: isRight ? null : 12,
+        right: isRight ? 12 : null,
         bottom: 12,
-        width: 416,
+        width: panelWidth,
         child: EarthlyGlassSurface(
           borderRadius: BorderRadius.circular(18),
           blurSigma: 18,

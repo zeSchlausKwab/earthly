@@ -73,6 +73,10 @@ class DeskSheet extends StatefulWidget {
     this.onExportKmlFile,
     required this.onCopyGeoJson,
     required this.onClearDraftFeatures,
+    this.canUndo = false,
+    this.canRedo = false,
+    this.onUndo,
+    this.onRedo,
     required this.onClose,
     super.key,
   });
@@ -119,6 +123,10 @@ class DeskSheet extends StatefulWidget {
   final VoidCallback? onExportKmlFile;
   final VoidCallback onCopyGeoJson;
   final VoidCallback onClearDraftFeatures;
+  final bool canUndo;
+  final bool canRedo;
+  final VoidCallback? onUndo;
+  final VoidCallback? onRedo;
   final VoidCallback onClose;
 
   @override
@@ -443,6 +451,20 @@ class _DeskSheetState extends State<DeskSheet> {
                 ),
               ),
               const Spacer(),
+              if (widget.onUndo != null)
+                IconButton(
+                  tooltip: 'Undo draft change (Cmd+Z)',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: widget.canUndo ? widget.onUndo : null,
+                  icon: const Icon(Icons.undo, size: 17),
+                ),
+              if (widget.onRedo != null)
+                IconButton(
+                  tooltip: 'Redo draft change (Cmd+Shift+Z)',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: widget.canRedo ? widget.onRedo : null,
+                  icon: const Icon(Icons.redo, size: 17),
+                ),
               TextButton.icon(
                 onPressed: widget.onCreateNewDraft,
                 icon: const Icon(Icons.add, size: 15),

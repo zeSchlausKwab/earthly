@@ -7,14 +7,12 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `compute_diff_counts`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
-/// Runs one Earthly AI Agent turn in Rust (`earthly-agent` + `earthly-geo`).
-///
-/// Leave `provider_base_url` empty (or model = `"offline-spatial"`) to execute
-/// deterministic spatial tools offline with zero API key. Otherwise connects to
-/// any OpenAI-compatible endpoint (e.g. `http://127.0.0.1:11434/v1` for local
-/// Ollama, `https://openrouter.ai/api/v1`, or `https://api.openai.com/v1`).
+/// Runs one Earthly AI Agent turn in Rust (`earthly-agent` + `earthly-geo`),
+/// returning exact `safeEditing` diff counts (`diff_added`, `diff_modified`,
+/// `diff_removed`) whenever the agent proposes draft geometry edits.
 Future<AgentTurnResultDto> runEarthlyAgentTurn({
   required String prompt,
   required List<AgentMessageDto> history,
@@ -42,6 +40,12 @@ Future<AgentTurnResultDto> runEarthlyAgentTurn({
   shelfMapTitles: shelfMapTitles,
   atlasWorkspaces: atlasWorkspaces,
 );
+
+/// Fetches any webpage or remote GeoJSON/GPX/KML URL CORS-free in Rust for the
+/// native Research / Source Pane, extracting readable text, coordinates,
+/// OSM/spatial links, and (when pointing at a spatial document) validated GeoJSON.
+Future<ResearchSourceDto> fetchResearchSource({required String url}) =>
+    EarthlyRustLib.instance.api.crateApiAgentFetchResearchSource(url: url);
 
 class AgentCameraActionDto {
   final double lon;
@@ -112,6 +116,9 @@ class AgentToolRecordDto {
 class AgentTurnResultDto {
   final String reply;
   final String? updatedDraftGeojson;
+  final int diffAdded;
+  final int diffModified;
+  final int diffRemoved;
   final AgentCameraActionDto? cameraAction;
   final List<AgentToolRecordDto> toolCalls;
   final bool usedOfflineMode;
@@ -119,6 +126,9 @@ class AgentTurnResultDto {
   const AgentTurnResultDto({
     required this.reply,
     this.updatedDraftGeojson,
+    required this.diffAdded,
+    required this.diffModified,
+    required this.diffRemoved,
     this.cameraAction,
     required this.toolCalls,
     required this.usedOfflineMode,
@@ -128,6 +138,9 @@ class AgentTurnResultDto {
   int get hashCode =>
       reply.hashCode ^
       updatedDraftGeojson.hashCode ^
+      diffAdded.hashCode ^
+      diffModified.hashCode ^
+      diffRemoved.hashCode ^
       cameraAction.hashCode ^
       toolCalls.hashCode ^
       usedOfflineMode.hashCode;
@@ -139,7 +152,79 @@ class AgentTurnResultDto {
           runtimeType == other.runtimeType &&
           reply == other.reply &&
           updatedDraftGeojson == other.updatedDraftGeojson &&
+          diffAdded == other.diffAdded &&
+          diffModified == other.diffModified &&
+          diffRemoved == other.diffRemoved &&
           cameraAction == other.cameraAction &&
           toolCalls == other.toolCalls &&
           usedOfflineMode == other.usedOfflineMode;
+}
+
+class ResearchCoordDto {
+  final double lat;
+  final double lon;
+
+  const ResearchCoordDto({required this.lat, required this.lon});
+
+  @override
+  int get hashCode => lat.hashCode ^ lon.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ResearchCoordDto &&
+          runtimeType == other.runtimeType &&
+          lat == other.lat &&
+          lon == other.lon;
+}
+
+class ResearchSourceDto {
+  final String url;
+  final String title;
+  final String excerpt;
+  final List<ResearchCoordDto> coordinates;
+  final List<String> osmLinks;
+  final List<String> spatialLinks;
+  final String? directGeojson;
+  final String? directFormat;
+  final int directFeatureCount;
+
+  const ResearchSourceDto({
+    required this.url,
+    required this.title,
+    required this.excerpt,
+    required this.coordinates,
+    required this.osmLinks,
+    required this.spatialLinks,
+    this.directGeojson,
+    this.directFormat,
+    required this.directFeatureCount,
+  });
+
+  @override
+  int get hashCode =>
+      url.hashCode ^
+      title.hashCode ^
+      excerpt.hashCode ^
+      coordinates.hashCode ^
+      osmLinks.hashCode ^
+      spatialLinks.hashCode ^
+      directGeojson.hashCode ^
+      directFormat.hashCode ^
+      directFeatureCount.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ResearchSourceDto &&
+          runtimeType == other.runtimeType &&
+          url == other.url &&
+          title == other.title &&
+          excerpt == other.excerpt &&
+          coordinates == other.coordinates &&
+          osmLinks == other.osmLinks &&
+          spatialLinks == other.spatialLinks &&
+          directGeojson == other.directGeojson &&
+          directFormat == other.directFormat &&
+          directFeatureCount == other.directFeatureCount;
 }

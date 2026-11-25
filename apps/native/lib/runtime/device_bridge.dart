@@ -13,6 +13,52 @@ class DeviceLocationFix {
   final double accuracyMeters;
 }
 
+/// Single GPS sample recorded by the background foreground track service.
+class GpsTrackSample {
+  const GpsTrackSample({
+    required this.lat,
+    required this.lon,
+    required this.accuracyMeters,
+    required this.timestampMs,
+    this.altitudeMeters,
+  });
+
+  final double lat;
+  final double lon;
+  final double accuracyMeters;
+  final int timestampMs;
+  final double? altitudeMeters;
+
+  static GpsTrackSample? fromMap(Map<String, dynamic> map) {
+    final lat = (map['lat'] as num?)?.toDouble();
+    final lon = (map['lon'] as num?)?.toDouble();
+    if (lat == null || lon == null) return null;
+    return GpsTrackSample(
+      lat: lat,
+      lon: lon,
+      accuracyMeters: (map['accuracy'] as num?)?.toDouble() ?? 0.0,
+      timestampMs: (map['timestampMs'] as num?)?.toInt() ??
+          DateTime.now().millisecondsSinceEpoch,
+      altitudeMeters: (map['alt'] as num?)?.toDouble(),
+    );
+  }
+}
+
+/// Snapshot of the native background GPS track recorder state.
+class GpsTrackStatusSnapshot {
+  const GpsTrackStatusSnapshot({
+    required this.recording,
+    required this.paused,
+    required this.startedAtMs,
+    required this.points,
+  });
+
+  final bool recording;
+  final bool paused;
+  final int startedAtMs;
+  final List<GpsTrackSample> points;
+}
+
 /// Binary file payload returned by Android's camera, gallery, or document picker.
 class PickedBinaryFile {
   const PickedBinaryFile({
@@ -33,6 +79,7 @@ class DeviceBridge {
 
   static void Function(String uri)? _deepLinkHandler;
   static void Function(PickedBinaryFile file)? _droppedFileHandler;
+  static void Function(GpsTrackSample sample)? _gpsTrackPointHandler;
 
   static void _ensureMethodCallHandler() {
     _channel.setMethodCallHandler((call) async {
@@ -52,6 +99,11 @@ class DeviceBridge {
             ),
           );
         }
+      } else if (call.method == 'onGpsTrackPoint' && call.arguments is Map) {
+        final sample = GpsTrackSample.fromMap(
+          Map<String, dynamic>.from(call.arguments as Map),
+        );
+        if (sample != null) _gpsTrackPointHandler?.call(sample);
       }
     });
   }
@@ -93,6 +145,59 @@ class DeviceBridge {
   ) {
     _droppedFileHandler = onDroppedFile;
     _ensureMethodCallHandler();
+  }
+
+  static void setGpsTrackPointHandler(
+    void Function(GpsTrackSample sample) onPoint,
+  ) {
+    _gpsTrackPointHandler = onPoint;
+    _ensureMethodCallHandler();
+  }
+
+  static Future<bool> startGpsTrack() async {
+    final ok = await _channel.invokeMethod<bool>('startGpsTrack');
+    return ok ?? false;
+  }
+
+  static Future<void> pauseGpsTrack() async {
+    await _channel.invokeMethod<void>('pauseGpsTrack');
+  }
+
+  static Future<void> resumeGpsTrack() async {
+    await _channel.invokeMethod<void>('resumeGpsTrack');
+  }
+
+  static Future<List<GpsTrackSample>> stopGpsTrack() async {
+    final list = await _channel.invokeListMethod<dynamic>('stopGpsTrack');
+    if (list == null) return const [];
+    return list
+        .whereType<Map>()
+        .map((m) => GpsTrackSample.fromMap(Map<String, dynamic>.from(m)))
+        .whereType<GpsTrackSample>()
+        .toList(growable: false);
+  }
+
+  static Future<GpsTrackStatusSnapshot?> getGpsTrackStatus() async {
+    try {
+      final map = await _channel.invokeMapMethod<String, dynamic>(
+        'getGpsTrackStatus',
+      );
+      if (map == null) return null;
+      final rawPts = (map['points'] as List?) ?? const [];
+      final pts = rawPts
+          .whereType<Map>()
+          .map((m) => GpsTrackSample.fromMap(Map<String, dynamic>.from(m)))
+          .whereType<GpsTrackSample>()
+          .toList(growable: false);
+      return GpsTrackStatusSnapshot(
+        recording: (map['recording'] as bool?) ?? false,
+        paused: (map['paused'] as bool?) ?? false,
+        startedAtMs: (map['startedAtMs'] as num?)?.toInt() ?? 0,
+        points: pts,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<DeviceLocationFix> getCurrentLocation() async {

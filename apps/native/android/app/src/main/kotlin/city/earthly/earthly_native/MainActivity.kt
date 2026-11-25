@@ -33,12 +33,14 @@ class MainActivity : FlutterActivity() {
         private const val REQUEST_PICK_GEOJSON = 5604
         private const val REQUEST_SAVE_GEOJSON = 5605
         private const val REQUEST_LOCATION_PERMISSION = 5701
+        private const val REQUEST_TRACK_PERMISSION = 5702
     }
 
     private var pendingResult: MethodChannel.Result? = null
     private var pendingRequestCode: Int = 0
     private var pendingSaveContent: String? = null
     private var pendingLocationResult: MethodChannel.Result? = null
+    private var pendingTrackStartResult: MethodChannel.Result? = null
     private var deviceChannel: MethodChannel? = null
     private var initialDeepLink: String? = null
     private var initialDroppedFile: Map<String, Any>? = null
@@ -172,6 +174,11 @@ class MainActivity : FlutterActivity() {
         initialDroppedFile = initialDroppedFile ?: extractSharedFile(intent)
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_CHANNEL)
         deviceChannel = channel
+        EarthlyTrackService.onPointListener = { sample ->
+            runOnUiThread {
+                deviceChannel?.invokeMethod("onGpsTrackPoint", sample.toMap())
+            }
+        }
         channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getInitialDeepLink" -> {
@@ -187,6 +194,44 @@ class MainActivity : FlutterActivity() {
                     }
 
                     "getCurrentLocation" -> handleGetLocation(result)
+
+                    "startGpsTrack" -> handleStartGpsTrack(result)
+
+                    "pauseGpsTrack" -> {
+                        val intent = Intent(this, EarthlyTrackService::class.java).apply {
+                            action = EarthlyTrackService.ACTION_PAUSE
+                        }
+                        startService(intent)
+                        result.success(true)
+                    }
+
+                    "resumeGpsTrack" -> {
+                        val intent = Intent(this, EarthlyTrackService::class.java).apply {
+                            action = EarthlyTrackService.ACTION_RESUME
+                        }
+                        startService(intent)
+                        result.success(true)
+                    }
+
+                    "stopGpsTrack" -> {
+                        val pts = EarthlyTrackService.samples.map { it.toMap() }
+                        val intent = Intent(this, EarthlyTrackService::class.java).apply {
+                            action = EarthlyTrackService.ACTION_STOP
+                        }
+                        startService(intent)
+                        result.success(pts)
+                    }
+
+                    "getGpsTrackStatus" -> {
+                        result.success(
+                            mapOf(
+                                "recording" to EarthlyTrackService.isRecording,
+                                "paused" to EarthlyTrackService.isPaused,
+                                "startedAtMs" to EarthlyTrackService.startedAtMs,
+                                "points" to EarthlyTrackService.samples.map { it.toMap() },
+                            ),
+                        )
+                    }
 
                     "capturePhoto" -> {
                         if (pendingResult != null) {
@@ -301,6 +346,34 @@ class MainActivity : FlutterActivity() {
         return fine == PackageManager.PERMISSION_GRANTED || coarse == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun handleStartGpsTrack(result: MethodChannel.Result) {
+        if (!hasLocationPermission()) {
+            if (pendingTrackStartResult != null) {
+                result.error("busy", "Location permission request already pending", null)
+                return
+            }
+            pendingTrackStartResult = result
+            val perms = mutableListOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                perms.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            ActivityCompat.requestPermissions(this, perms.toTypedArray(), REQUEST_TRACK_PERMISSION)
+            return
+        }
+        launchTrackForegroundService()
+        result.success(true)
+    }
+
+    private fun launchTrackForegroundService() {
+        val intent = Intent(this, EarthlyTrackService::class.java).apply {
+            action = EarthlyTrackService.ACTION_START
+        }
+        ContextCompat.startForegroundService(this, intent)
+    }
+
     private fun handleGetLocation(result: MethodChannel.Result) {
         if (!hasLocationPermission()) {
             if (pendingLocationResult != null) {
@@ -389,6 +462,17 @@ class MainActivity : FlutterActivity() {
                 resolveBestLocation(callback)
             } else {
                 callback.error("permission_denied", "Location permission was denied", null)
+            }
+            return
+        }
+        if (requestCode == REQUEST_TRACK_PERMISSION && pendingTrackStartResult != null) {
+            val callback = pendingTrackStartResult!!
+            pendingTrackStartResult = null
+            if (hasLocationPermission()) {
+                launchTrackForegroundService()
+                callback.success(true)
+            } else {
+                callback.error("permission_denied", "Location permission required for GPS track", null)
             }
             return
         }

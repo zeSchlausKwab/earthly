@@ -4,6 +4,7 @@ import 'package:earthly_native/nostr/nip55_signer.dart';
 import 'package:earthly_native/nostr/shelf_renderer.dart';
 import 'package:earthly_native/nostr/story_presentation.dart';
 import 'package:earthly_native/shell/account_session_sheet.dart';
+import 'package:earthly_native/shell/agent_drawer.dart';
 import 'package:earthly_native/shell/atlas_composer_sheet.dart';
 import 'package:earthly_native/shell/atlas_detail_margin.dart';
 import 'package:earthly_native/shell/basemap_switcher_sheet.dart';
@@ -17,6 +18,7 @@ import 'package:earthly_native/shell/map_drawer.dart';
 import 'package:earthly_native/shell/person_margin.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
 import 'package:earthly_native/shell/story_composer_sheet.dart';
+import 'package:earthly_native/src/rust/api/agent.dart';
 import 'package:earthly_native/src/rust/api/blossom.dart';
 import 'package:earthly_native/src/rust/api/nostr_client.dart';
 import 'package:earthly_native/src/rust/api/private_groups.dart';
@@ -1232,5 +1234,233 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
     expect(find.text('Export ▾'), findsOneWidget);
     expect(exportedGpx, isFalse);
     expect(exportedKml, isFalse);
+  });
+
+  testWidgets(
+      'AgentDrawer renders safeEditing amber ghost preview + CORS-free Research Source pane',
+      (WidgetTester tester) async {
+    bool? toggledSafe;
+    var accepted = false;
+    var discarded = false;
+    ResearchSourceDto? extractedSource;
+    ResearchSourceDto? citedSource;
+    (double, double)? focusedCoord;
+
+    const sampleSource = ResearchSourceDto(
+      url: 'https://example.org/alpine-pass',
+      title: 'Grossglockner High Alpine Road',
+      excerpt: 'Mountain pass connecting Salzburg and Carinthia across the Alps.',
+      coordinates: [ResearchCoordDto(lat: 47.0742, lon: 12.8425)],
+      osmLinks: ['https://www.openstreetmap.org/way/12345'],
+      spatialLinks: ['https://example.org/alpine-pass.gpx'],
+      directGeojson: null,
+      directFormat: null,
+      directFeatureCount: 0,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AgentDrawer(
+                messages: const [],
+                settings: CopilotProviderSettings.offline,
+                busy: false,
+                safeEditing: true,
+                onSafeEditingChanged: (v) => toggledSafe = v,
+                pendingEdit: const PendingAiEdit(
+                  proposedGeojson:
+                      '{"type":"FeatureCollection","features":[]}',
+                  diffAdded: 2,
+                  diffModified: 1,
+                  diffRemoved: 0,
+                  summary: 'Created 120m river corridor',
+                ),
+                onAcceptPendingEdit: () => accepted = true,
+                onDiscardPendingEdit: () => discarded = true,
+                initialResearchSource: sampleSource,
+                onExtractSourceToMap: (s) => extractedSource = s,
+                onFocusCoord: (lat, lon, _) => focusedCoord = (lat, lon),
+                onCiteSourceInStory: (s) => citedSource = s,
+                onSettingsChanged: (_) {},
+                onSendPrompt: (_) {},
+                onClearChat: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    // SAFE toggle + amber ghost diff card
+    expect(find.byKey(const Key('agent-safe-editing-card')), findsOneWidget);
+    expect(find.text('SAFE'), findsOneWidget);
+    await tester.tap(find.text('SAFE'));
+    await tester.pump();
+    expect(toggledSafe, isFalse);
+
+    await tester.tap(find.text('Accept to Draft'));
+    await tester.pump();
+    expect(accepted, isTrue);
+
+    await tester.tap(find.text('Discard'));
+    await tester.pump();
+    expect(discarded, isTrue);
+
+    // Switch to Research Source tab
+    await tester.tap(find.text('Source (1)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Grossglockner High Alpine Road'), findsOneWidget);
+    await tester.ensureVisible(find.text('47.0742, 12.8425'));
+    await tester.pumpAndSettle();
+    expect(find.text('47.0742, 12.8425'), findsOneWidget);
+
+    await tester.tap(find.text('47.0742, 12.8425'));
+    await tester.pump();
+    expect(focusedCoord, (47.0742, 12.8425));
+
+    await tester.ensureVisible(find.text('Extract 1 Coord to Map'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Extract 1 Coord to Map'));
+    await tester.pump();
+    expect(extractedSource?.title, 'Grossglockner High Alpine Road');
+
+    await tester.ensureVisible(find.text('Cite in Story'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cite in Story'));
+    await tester.pump();
+    expect(citedSource?.url, 'https://example.org/alpine-pass');
+  });
+
+  testWidgets(
+      'macOS Wide Studio (>=1100px) docks left Explore + right Agent simultaneously',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      EarthlyNativeApp(
+        mapBuilder: (context, gestures, onMapCreated, onCameraMove) =>
+            const ColoredBox(color: Color(0xFFEDF0EA)),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Explore'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ExploreSheet), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Agent'));
+    await tester.tap(find.text('Agent'));
+    await tester.pumpAndSettle();
+
+    // BOTH left Explore margin AND right Agent Studio pane stay mounted side-by-side!
+    expect(find.byType(ExploreSheet), findsOneWidget);
+    expect(find.byType(AgentDrawer), findsOneWidget);
+
+    final leftRect = tester.getRect(find.byType(ExploreSheet));
+    final rightRect = tester.getRect(find.byType(AgentDrawer));
+    expect(leftRect.left, lessThan(40));
+    expect(rightRect.right, greaterThan(1400));
+    expect(leftRect.right, lessThan(rightRect.left));
+  });
+
+  testWidgets(
+      'DeskSheet exposes Undo/Redo controls and phone right-thumb rail stays strictly uniform icon-only',
+      (WidgetTester tester) async {
+    var undoTapped = false;
+    var redoTapped = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DeskSheet(
+                activeDraftId: 'draft-1',
+                savedDrafts: const [],
+                relayUrls: const ['wss://relay.earthly.city'],
+                draftTitle: 'Undo Test',
+                audience: DraftAudienceChoice.publicRelay,
+                account: null,
+                shelfMaps: const [],
+                deskStories: const [],
+                deskAtlases: const [],
+                drawnFeatures: const [],
+                canUndo: true,
+                canRedo: true,
+                onUndo: () => undoTapped = true,
+                onRedo: () => redoTapped = true,
+                onSelectDraft: (_) {},
+                onCreateNewDraft: () {},
+                onDeleteDraft: (_) {},
+                onDraftTitleChanged: (_) {},
+                onAudienceChanged: (_) {},
+                onToggleShelfVisibility: (_) {},
+                onRemoveShelfMap: (_) {},
+                onInspectShelfMap: (_) {},
+                onFlyToShelfMap: (_) {},
+                onCloneShelfMapToDraft: (_) {},
+                onOpenShelfDiscussion: (_) {},
+                onOpenDeskStory: (_) {},
+                onRemoveDeskStory: (_) {},
+                onOpenDeskAtlas: (_) {},
+                onRemoveDeskAtlas: (_) {},
+                onRunGeoAction: (_) {},
+                onPublishDraft: (_, _) async => const PublishOutcomeDto(
+                  eventId: '0123456789abcdef0123456789abcdef',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onComposeStory: () {},
+                onCreateAtlas: () {},
+                onImportGeoJson: () {},
+                onExportGeoJsonFile: () {},
+                onCopyGeoJson: () {},
+                onClearDraftFeatures: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byTooltip('Undo draft change (Cmd+Z)'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byTooltip('Undo draft change (Cmd+Z)'));
+    await tester.tap(find.byTooltip('Redo draft change (Cmd+Shift+Z)'));
+    await tester.pump();
+    expect(undoTapped, isTrue);
+    expect(redoTapped, isTrue);
+
+    // Verify phone right-thumb rail includes GPS Track & stays 100% uniform icon-only (zero Text!)
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      EarthlyNativeApp(
+        mapBuilder: (context, gestures, onMapCreated, onCameraMove) =>
+            const ColoredBox(color: Color(0xFFEDF0EA)),
+      ),
+    );
+    await tester.pump();
+
+    final rail = find.byKey(const Key('earthly-right-thumb-rail'));
+    expect(rail, findsOneWidget);
+    expect(
+      find.descendant(of: rail, matching: find.byType(Text)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: rail, matching: find.byTooltip('Record GPS Track')),
+      findsOneWidget,
+    );
   });
 }

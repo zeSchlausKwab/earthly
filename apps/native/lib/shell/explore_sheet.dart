@@ -535,14 +535,17 @@ class _ExploreSheetState extends State<ExploreSheet>
           if (_error != null)
             Container(
               width: double.infinity,
+              constraints: const BoxConstraints(maxHeight: 96),
               padding: const EdgeInsets.all(10),
               color: EarthlyColors.destructive.withValues(alpha: 0.12),
-              child: Text(
-                _error!,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  color: EarthlyColors.destructive,
+              child: SingleChildScrollView(
+                child: Text(
+                  _error!,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11.5,
+                    color: EarthlyColors.destructive,
+                  ),
                 ),
               ),
             ),

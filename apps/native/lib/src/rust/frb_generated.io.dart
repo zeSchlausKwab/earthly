@@ -267,6 +267,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<RemotePeerDto> dco_decode_list_remote_peer_dto(dynamic raw);
 
   @protected
+  List<ResearchCoordDto> dco_decode_list_research_coord_dto(dynamic raw);
+
+  @protected
   List<SavedOfflinePackDto> dco_decode_list_saved_offline_pack_dto(dynamic raw);
 
   @protected
@@ -378,6 +381,12 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   RemotePeerDto dco_decode_remote_peer_dto(dynamic raw);
+
+  @protected
+  ResearchCoordDto dco_decode_research_coord_dto(dynamic raw);
+
+  @protected
+  ResearchSourceDto dco_decode_research_source_dto(dynamic raw);
 
   @protected
   SavedOfflinePackDto dco_decode_saved_offline_pack_dto(dynamic raw);
@@ -736,6 +745,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<ResearchCoordDto> sse_decode_list_research_coord_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<SavedOfflinePackDto> sse_decode_list_saved_offline_pack_dto(
     SseDeserializer deserializer,
   );
@@ -887,6 +901,14 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   RemotePeerDto sse_decode_remote_peer_dto(SseDeserializer deserializer);
+
+  @protected
+  ResearchCoordDto sse_decode_research_coord_dto(SseDeserializer deserializer);
+
+  @protected
+  ResearchSourceDto sse_decode_research_source_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   SavedOfflinePackDto sse_decode_saved_offline_pack_dto(
@@ -1346,6 +1368,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_research_coord_dto(
+    List<ResearchCoordDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_saved_offline_pack_dto(
     List<SavedOfflinePackDto> self,
     SseSerializer serializer,
@@ -1527,6 +1555,18 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   void sse_encode_remote_peer_dto(RemotePeerDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_research_coord_dto(
+    ResearchCoordDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_research_source_dto(
+    ResearchSourceDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_saved_offline_pack_dto(

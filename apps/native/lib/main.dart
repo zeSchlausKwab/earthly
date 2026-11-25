@@ -28,6 +28,7 @@ import 'shell/discussion_margin_sheet.dart';
 import 'shell/explore_sheet.dart';
 import 'shell/feature_inspector_sheet.dart';
 import 'shell/inbox_sheet.dart';
+import 'shell/map_drawer.dart';
 import 'shell/person_margin.dart';
 import 'shell/place_search_sheet.dart';
 import 'shell/sighting_composer_sheet.dart';
@@ -130,8 +131,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   TouchPlacementStyle _placementStyle = TouchPlacementStyle.drawDrag;
   bool _loupeEnabled = true;
 
-  // Unified non-blocking Google-Maps-style drawer (mobile) / left Margin rail (desktop)
+  // Unified non-blocking Google-Maps-style drawer (mobile) / dual Studio Margin rails (desktop >= 1100px)
   _ActiveDrawer _drawer = _ActiveDrawer.none;
+  _ActiveDrawer _rightStudioDrawer = _ActiveDrawer.none;
   InspectedFeature? _inspectedFeature;
   DiscussionTarget? _discussionTarget;
   String? _pendingDeepLinkPairing;
@@ -156,6 +158,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   String _draftTitle = 'Field Map';
   DraftAudienceChoice _draftAudience = DraftAudienceChoice.publicRelay;
   final List<DrawnFeature> _features = <DrawnFeature>[];
+  final List<List<DrawnFeature>> _draftUndoStack = <List<DrawnFeature>>[];
+  final List<List<DrawnFeature>> _draftRedoStack = <List<DrawnFeature>>[];
   final List<Geographic> _draftVertices = <Geographic>[];
   DrawnFeature? _editingDraftFeature;
   int _featureCounter = 0;
@@ -214,10 +218,19 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   final Map<String, String> _seenLocalEventIds = <String, String>{};
   bool _initialLocalBaselineCaptured = false;
 
-  // Rust AI Agent Copilot state
+  // Rust AI Agent Copilot + safeEditing Amber Ghost state
   final List<CopilotMessage> _agentMessages = <CopilotMessage>[];
   CopilotProviderSettings _agentSettings = CopilotProviderSettings.offline;
   bool _agentBusy = false;
+  bool _agentSafeEditing = true;
+  PendingAiEdit? _pendingAiEdit;
+  List<ShelfShape> _aiGhostShapes = const [];
+
+  // Background GPS Track Recording (Android Foreground Service + Desktop breadcrumb mode)
+  bool _gpsTrackRecording = false;
+  bool _gpsTrackPaused = false;
+  final List<Geographic> _gpsTrackPoints = <Geographic>[];
+  double _gpsTrackDistanceMeters = 0.0;
 
   // Discussion (Comment 37517 & Proposal 37519) map overlays
   String? _activeCommentOverlayId;
@@ -260,12 +273,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     DeviceBridge.setDroppedFileHandler(
       (file) => unawaited(_handleDroppedSpatialOrPmtilesFile(file)),
     );
+    DeviceBridge.setGpsTrackPointHandler(_onGpsTrackPoint);
     final dir = await getApplicationSupportDirectory();
     if (mounted) {
       setState(() => _mlsDatabasePath = '${dir.path}/mls.sqlite3');
     }
     await _restoreAppSettings();
     await _restoreSavedDraft();
+    unawaited(_syncActiveGpsTrackFromService());
     unawaited(_refreshCirclesSnapshot());
     unawaited(_preloadCatalog());
     unawaited(_refreshInbox());
@@ -582,6 +597,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         );
         return;
       }
+      _pushDraftUndo();
       setState(() {
         for (final feat in imported) {
           _featureCounter += 1;
@@ -735,6 +751,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         ..addAll(target.vertices);
       _mode = target.kind;
       _drawer = _ActiveDrawer.none;
+      _rightStudioDrawer = _ActiveDrawer.none;
     });
   }
 
@@ -1383,15 +1400,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       );
 
       if (!mounted) return;
+      final proposed = result.updatedDraftGeojson;
       setState(() {
-        if (result.updatedDraftGeojson != null) {
-          final parsed =
-              parseDraftFeaturesFromGeoJson(result.updatedDraftGeojson!);
-          _features
-            ..clear()
-            ..addAll(parsed);
-          _featureCounter = _features.length;
-        }
         _agentMessages.add(
           CopilotMessage(
             role: 'assistant',
@@ -1400,8 +1410,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ),
         );
       });
-      if (result.updatedDraftGeojson != null) {
-        unawaited(_persistWorkingDraft());
+      if (proposed != null) {
+        _stageOrApplyAiGeojson(
+          proposedGeojson: proposed,
+          diffAdded: result.diffAdded,
+          diffModified: result.diffModified,
+          diffRemoved: result.diffRemoved,
+          summary: result.toolCalls.isNotEmpty
+              ? result.toolCalls.map((t) => t.summary).join(' · ')
+              : result.reply,
+        );
       }
       if (result.cameraAction != null) {
         final ca = result.cameraAction!;
@@ -1426,6 +1444,386 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     } finally {
       if (mounted) setState(() => _agentBusy = false);
     }
+  }
+
+  void _pushDraftUndo() {
+    _draftUndoStack.add(List<DrawnFeature>.from(_features));
+    if (_draftUndoStack.length > 40) {
+      _draftUndoStack.removeAt(0);
+    }
+    _draftRedoStack.clear();
+  }
+
+  void _undoDraftEdit() {
+    if (_draftUndoStack.isEmpty) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _draftRedoStack.add(List<DrawnFeature>.from(_features));
+      final prev = _draftUndoStack.removeLast();
+      _features
+        ..clear()
+        ..addAll(prev);
+    });
+    unawaited(_persistWorkingDraft());
+  }
+
+  void _redoDraftEdit() {
+    if (_draftRedoStack.isEmpty) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _draftUndoStack.add(List<DrawnFeature>.from(_features));
+      final next = _draftRedoStack.removeLast();
+      _features
+        ..clear()
+        ..addAll(next);
+    });
+    unawaited(_persistWorkingDraft());
+  }
+
+  void _stageOrApplyAiGeojson({
+    required String proposedGeojson,
+    required int diffAdded,
+    required int diffModified,
+    required int diffRemoved,
+    required String summary,
+  }) {
+    if (_agentSafeEditing) {
+      final ghostShapes = parseGeoJsonShapes(
+        proposedGeojson,
+        datasetTitle: 'AI Proposal',
+      );
+      setState(() {
+        _pendingAiEdit = PendingAiEdit(
+          proposedGeojson: proposedGeojson,
+          diffAdded: diffAdded,
+          diffModified: diffModified,
+          diffRemoved: diffRemoved,
+          summary: summary,
+        );
+        _aiGhostShapes = ghostShapes;
+      });
+      if (ghostShapes.isNotEmpty) {
+        final bounds = computeFeatureBounds(ghostShapes.first);
+        if (bounds != null) _flyToBounds(bounds);
+      }
+      return;
+    }
+    final parsed = parseDraftFeaturesFromGeoJson(proposedGeojson);
+    _pushDraftUndo();
+    setState(() {
+      _features
+        ..clear()
+        ..addAll(parsed);
+      _featureCounter = _features.length;
+      _pendingAiEdit = null;
+      _aiGhostShapes = const [];
+    });
+    unawaited(_persistWorkingDraft());
+  }
+
+  void _acceptPendingAiEdit() {
+    final pending = _pendingAiEdit;
+    if (pending == null) return;
+    final parsed = parseDraftFeaturesFromGeoJson(pending.proposedGeojson);
+    _pushDraftUndo();
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _features
+        ..clear()
+        ..addAll(parsed);
+      _featureCounter = _features.length;
+      _pendingAiEdit = null;
+      _aiGhostShapes = const [];
+    });
+    unawaited(_persistWorkingDraft());
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Applied AI edit to Working Draft')),
+    );
+  }
+
+  void _discardPendingAiEdit() {
+    setState(() {
+      _pendingAiEdit = null;
+      _aiGhostShapes = const [];
+    });
+  }
+
+  void _extractResearchSourceToMap(ResearchSourceDto src) {
+    final baseFeatures = List<DrawnFeature>.from(_features);
+    int addedCount = 0;
+    if (src.directGeojson != null && src.directGeojson!.isNotEmpty) {
+      final parsed = parseDraftFeaturesFromGeoJson(src.directGeojson!);
+      for (final f in parsed) {
+        addedCount += 1;
+        baseFeatures.add(
+          DrawnFeature(
+            id: 'src-${DateTime.now().millisecondsSinceEpoch}-$addedCount',
+            kind: f.kind,
+            vertices: f.vertices,
+            name: f.name ?? src.title,
+            description: f.description ?? 'Source: ${src.url}',
+            colorHex: f.colorHex ?? '#1F5F8B',
+            strokeWidth: f.strokeWidth,
+            fillOpacity: f.fillOpacity,
+            radius: f.radius,
+            callouts: f.callouts,
+          ),
+        );
+      }
+    } else {
+      for (var i = 0; i < src.coordinates.length && i < 12; i++) {
+        final c = src.coordinates[i];
+        addedCount += 1;
+        final label = src.coordinates.length == 1
+            ? src.title
+            : '${src.title} #${i + 1}';
+        baseFeatures.add(
+          DrawnFeature(
+            id: 'src-${DateTime.now().millisecondsSinceEpoch}-$addedCount',
+            kind: DrawToolMode.point,
+            vertices: [Geographic(lon: c.lon, lat: c.lat)],
+            name: label,
+            description: 'Extracted from ${src.url}',
+            colorHex: '#1F5F8B',
+            callouts: [
+              DraftCallout(
+                id: 'cite-$addedCount',
+                title: src.title,
+                text: src.url,
+              ),
+            ],
+          ),
+        );
+      }
+    }
+    if (addedCount == 0) return;
+    final proposed = draftFeaturesToGeoJson(
+      title: _draftTitle,
+      features: baseFeatures,
+    );
+    _stageOrApplyAiGeojson(
+      proposedGeojson: proposed,
+      diffAdded: addedCount,
+      diffModified: 0,
+      diffRemoved: 0,
+      summary: 'Extracted $addedCount feature(s) from ${src.title}',
+    );
+  }
+
+  void _citeResearchSourceInStory(ResearchSourceDto src) {
+    final buf = StringBuffer()
+      ..writeln('# ${src.title}')
+      ..writeln()
+      ..writeln('> Source: [${src.title}](${src.url})')
+      ..writeln();
+    if (src.coordinates.isNotEmpty) {
+      final c = src.coordinates.first;
+      buf.writeln(
+        'Location: geo:${c.lat.toStringAsFixed(5)},${c.lon.toStringAsFixed(5)}',
+      );
+      buf.writeln();
+    }
+    if (src.excerpt.isNotEmpty) {
+      final snippet = src.excerpt.length > 500
+          ? '${src.excerpt.substring(0, 500)}…'
+          : src.excerpt;
+      buf.writeln(snippet);
+    }
+    setState(() {
+      _editingStory = StorySummaryDto(
+        address: '',
+        eventId: '',
+        pubkey: _account?.pubkey ?? '',
+        dTag: '',
+        title: src.title,
+        summary: 'Field notes citing ${src.url}',
+        content: buf.toString(),
+        referencedAddresses: const [],
+        publishedAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+      );
+    });
+    _openDrawer(_ActiveDrawer.storyComposer);
+  }
+
+  Future<void> _syncActiveGpsTrackFromService() async {
+    if (!Platform.isAndroid) return;
+    final status = await DeviceBridge.getGpsTrackStatus();
+    if (!mounted || status == null || !status.recording) return;
+    final pts =
+        status.points.map((p) => Geographic(lon: p.lon, lat: p.lat)).toList();
+    setState(() {
+      _gpsTrackRecording = true;
+      _gpsTrackPaused = status.paused;
+      _gpsTrackPoints
+        ..clear()
+        ..addAll(pts);
+      _gpsTrackDistanceMeters = _computePolylineMeters(pts);
+    });
+  }
+
+  double _computePolylineMeters(List<Geographic> pts) {
+    if (pts.length < 2) return 0.0;
+    var total = 0.0;
+    for (var i = 1; i < pts.length; i++) {
+      total += DrawingMath.distanceMeters(pts[i - 1], pts[i]);
+    }
+    return total;
+  }
+
+  void _onGpsTrackPoint(GpsTrackSample sample) {
+    if (!mounted || !_gpsTrackRecording || _gpsTrackPaused) return;
+    final nextPt = Geographic(lon: sample.lon, lat: sample.lat);
+    setState(() {
+      if (_gpsTrackPoints.isNotEmpty) {
+        _gpsTrackDistanceMeters +=
+            DrawingMath.distanceMeters(_gpsTrackPoints.last, nextPt);
+      }
+      _gpsTrackPoints.add(nextPt);
+    });
+  }
+
+  Future<void> _startGpsTrack() async {
+    if (_gpsTrackRecording) return;
+    try {
+      if (Platform.isAndroid) {
+        await DeviceBridge.startGpsTrack();
+      }
+      if (!mounted) return;
+      final initialPts = <Geographic>[];
+      if (!Platform.isAndroid) {
+        final center = _controller?.camera?.center;
+        if (center != null) initialPts.add(center);
+      }
+      HapticFeedback.mediumImpact();
+      setState(() {
+        _gpsTrackRecording = true;
+        _gpsTrackPaused = false;
+        _gpsTrackPoints
+          ..clear()
+          ..addAll(initialPts);
+        _gpsTrackDistanceMeters = 0.0;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            Platform.isAndroid
+                ? 'Background GPS track started (foreground notification active)'
+                : 'GPS Track recorder started — pan & tap +Pt to log waypoints',
+          ),
+        ),
+      );
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not start GPS track: $err')),
+      );
+    }
+  }
+
+  Future<void> _togglePauseGpsTrack() async {
+    if (!_gpsTrackRecording) return;
+    final nextPaused = !_gpsTrackPaused;
+    if (Platform.isAndroid) {
+      if (nextPaused) {
+        await DeviceBridge.pauseGpsTrack();
+      } else {
+        await DeviceBridge.resumeGpsTrack();
+      }
+    }
+    if (mounted) setState(() => _gpsTrackPaused = nextPaused);
+  }
+
+  Future<void> _addTrackWaypointNow() async {
+    if (!_gpsTrackRecording) return;
+    Geographic? pt = _controller?.camera?.center;
+    if (Platform.isAndroid) {
+      try {
+        final fix = await DeviceBridge.getCurrentLocation();
+        pt = Geographic(lon: fix.lon, lat: fix.lat);
+      } catch (_) {}
+    }
+    if (pt == null || !mounted) return;
+    final p = pt;
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (_gpsTrackPoints.isNotEmpty) {
+        _gpsTrackDistanceMeters +=
+            DrawingMath.distanceMeters(_gpsTrackPoints.last, p);
+      }
+      _gpsTrackPoints.add(p);
+    });
+  }
+
+  Future<void> _finishGpsTrackToDraft() async {
+    if (!_gpsTrackRecording) return;
+    var pts = List<Geographic>.from(_gpsTrackPoints);
+    if (Platform.isAndroid) {
+      try {
+        final servicePts = await DeviceBridge.stopGpsTrack();
+        if (servicePts.length > pts.length) {
+          pts = servicePts
+              .map((s) => Geographic(lon: s.lon, lat: s.lat))
+              .toList();
+        }
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    if (pts.isEmpty) {
+      setState(() {
+        _gpsTrackRecording = false;
+        _gpsTrackPaused = false;
+      });
+      return;
+    }
+    final dist = _computePolylineMeters(pts);
+    final now = DateTime.now();
+    final hhmm =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    _pushDraftUndo();
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _featureCounter += 1;
+      _features.add(
+        DrawnFeature(
+          id: 'gps-track-$_featureCounter',
+          kind: pts.length >= 2 ? DrawToolMode.line : DrawToolMode.point,
+          vertices: List<Geographic>.unmodifiable(pts),
+          name: 'GPS Track ($hhmm)',
+          description:
+              'Recorded ${pts.length} GPS points · ${DrawingMath.formatDistance(dist)}',
+          colorHex: '#E11D48',
+          strokeWidth: 4.0,
+        ),
+      );
+      _gpsTrackRecording = false;
+      _gpsTrackPaused = false;
+      _gpsTrackPoints.clear();
+      _gpsTrackDistanceMeters = 0.0;
+    });
+    unawaited(_persistWorkingDraft());
+    _openDrawer(_ActiveDrawer.desk);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Saved GPS Track (${pts.length} pts · ${DrawingMath.formatDistance(dist)}) to Working Draft',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _cancelGpsTrack() async {
+    if (Platform.isAndroid) {
+      try {
+        await DeviceBridge.stopGpsTrack();
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      _gpsTrackRecording = false;
+      _gpsTrackPaused = false;
+      _gpsTrackPoints.clear();
+      _gpsTrackDistanceMeters = 0.0;
+    });
   }
 
   Future<String> _databasePath() async {
@@ -1750,12 +2148,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       } else {
         _draftVertices.clear();
         _drawer = _ActiveDrawer.none;
+        _rightStudioDrawer = _ActiveDrawer.none;
         _mode = next;
       }
     });
   }
 
   void _commitVertex(Geographic point) {
+    if (_mode == DrawToolMode.point) {
+      _pushDraftUndo();
+    }
     setState(() {
       if (_mode == DrawToolMode.point) {
         if (_editingDraftFeature != null) {
@@ -1797,6 +2199,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   void _finishDraft() {
     if (!_canFinishDraft) return;
+    _pushDraftUndo();
     HapticFeedback.mediumImpact();
     setState(() {
       if (_editingDraftFeature != null) {
@@ -1882,6 +2285,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   EdgeInsets _cameraPadding() {
     final width = MediaQuery.sizeOf(context).width;
+    if (width >= 1100) {
+      final leftPad = _drawer != _ActiveDrawer.none ? 440.0 : 40.0;
+      final rightPad = _rightStudioDrawer != _ActiveDrawer.none ? 440.0 : 40.0;
+      return EdgeInsets.fromLTRB(leftPad, 72, rightPad, 48);
+    }
     if (width >= 880 && _drawer != _ActiveDrawer.none) {
       return const EdgeInsets.fromLTRB(440, 72, 40, 48);
     }
@@ -1982,7 +2390,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
     setState(() {
       _mode = DrawToolMode.browse;
-      _drawer = _ActiveDrawer.storyReader;
+      if (_isWideStudio) {
+        _rightStudioDrawer = _ActiveDrawer.storyReader;
+      } else {
+        _drawer = _ActiveDrawer.storyReader;
+      }
       _activeStory = story;
       _parsedStory = parsed;
       _deskStories.removeWhere((s) => s.address == story.address);
@@ -2158,7 +2570,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   void _closeStory() {
     setState(() {
-      _drawer = _ActiveDrawer.none;
+      if (_drawer == _ActiveDrawer.storyReader) {
+        _drawer = _ActiveDrawer.none;
+      }
+      if (_rightStudioDrawer == _ActiveDrawer.storyReader) {
+        _rightStudioDrawer = _ActiveDrawer.none;
+      }
       _activeStory = null;
       _parsedStory = null;
       _storyDatasets.clear();
@@ -2173,10 +2590,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   void _inspectMap(MapSummaryDto map) {
     _recordRecentEntity('map:${map.address}');
-    setState(() {
-      _inspectedMap = map;
-      _drawer = _ActiveDrawer.datasetDetail;
-    });
+    setState(() => _inspectedMap = map);
+    _openDrawer(_ActiveDrawer.datasetDetail);
   }
 
   void _editOrForkMap(MapSummaryDto map) {
@@ -2188,6 +2603,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       );
       return;
     }
+    _pushDraftUndo();
     setState(() {
       _features
         ..clear()
@@ -2513,7 +2929,28 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                     OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(ctx).pop();
-                        setState(() => _drawer = _ActiveDrawer.inbox);
+                        if (_gpsTrackRecording) {
+                          unawaited(_finishGpsTrackToDraft());
+                        } else {
+                          unawaited(_startGpsTrack());
+                        }
+                      },
+                      icon: Icon(
+                        _gpsTrackRecording
+                            ? Icons.stop_circle_outlined
+                            : Icons.route,
+                        size: 16,
+                      ),
+                      label: Text(
+                        _gpsTrackRecording
+                            ? 'Save GPS Track (${_gpsTrackPoints.length})'
+                            : 'Record GPS Track',
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        _openDrawer(_ActiveDrawer.inbox);
                         unawaited(_refreshInbox());
                       },
                       icon: const Icon(Icons.inbox_outlined, size: 16),
@@ -2562,8 +2999,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _inspectedAtlas = atlas;
       _deskAtlases.removeWhere((a) => a.address == atlas.address);
       _deskAtlases.insert(0, atlas);
-      _drawer = _ActiveDrawer.atlasDetail;
     });
+    _openDrawer(_ActiveDrawer.atlasDetail);
   }
 
   void _enterAtlasLens(AtlasSummaryDto atlas) {
@@ -2633,10 +3070,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   void _inspectFeature(InspectedFeature feature) {
     if (_isDrawingMode) return;
-    setState(() {
-      _inspectedFeature = feature;
-      _drawer = _ActiveDrawer.inspector;
-    });
+    setState(() => _inspectedFeature = feature);
+    _openDrawer(_ActiveDrawer.inspector);
   }
 
   void _refreshInspectedDraftFeature(String featureId) {
@@ -2707,10 +3142,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   }
 
   void _openDiscussion(DiscussionTarget target) {
-    setState(() {
-      _discussionTarget = target;
-      _drawer = _ActiveDrawer.discussion;
-    });
+    setState(() => _discussionTarget = target);
+    _openDrawer(_ActiveDrawer.discussion);
   }
 
   Future<PublishOutcomeDto> _postComment(
@@ -3212,7 +3645,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           beacons: _catalog!.beacons,
         );
       }
-      _drawer = _ActiveDrawer.none;
+      if (_drawer == _ActiveDrawer.atlasDetail) {
+        _drawer = _ActiveDrawer.none;
+      }
+      if (_rightStudioDrawer == _ActiveDrawer.atlasDetail) {
+        _rightStudioDrawer = _ActiveDrawer.none;
+      }
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -3354,10 +3792,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   }
 
   void _openPerson(String pubkey) {
-    setState(() {
-      _inspectedPersonPubkey = pubkey;
-      _drawer = _ActiveDrawer.person;
-    });
+    setState(() => _inspectedPersonPubkey = pubkey);
+    _openDrawer(_ActiveDrawer.person);
   }
 
   Future<void> _openInboxItem(InboxItemDto item) async {
@@ -3552,6 +3988,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   Future<void> _runGeoAction(RustGeoAction action) async {
     try {
       await RustBridge.ensureInitialized();
+      _pushDraftUndo();
       List<LonLatPoint> toPoints(List<Geographic> verts) =>
           verts.map((v) => LonLatPoint(lon: v.lon, lat: v.lat)).toList();
       List<Geographic> fromPoints(List<LonLatPoint> pts) =>
@@ -3737,9 +4174,56 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     }
   }
 
+  bool _isRightStudioDrawer(_ActiveDrawer d) => switch (d) {
+        _ActiveDrawer.agent ||
+        _ActiveDrawer.inspector ||
+        _ActiveDrawer.discussion ||
+        _ActiveDrawer.datasetDetail ||
+        _ActiveDrawer.storyReader ||
+        _ActiveDrawer.storyComposer ||
+        _ActiveDrawer.atlasComposer ||
+        _ActiveDrawer.atlasDetail ||
+        _ActiveDrawer.person ||
+        _ActiveDrawer.account ||
+        _ActiveDrawer.search =>
+          true,
+        _ => false,
+      };
+
+  bool get _isWideStudio => mounted && MediaQuery.sizeOf(context).width >= 1100;
+
+  bool _isDrawerOpen(_ActiveDrawer target) =>
+      _drawer == target || _rightStudioDrawer == target;
+
+  void _openDrawer(_ActiveDrawer target) {
+    setState(() {
+      if (_isWideStudio && _isRightStudioDrawer(target)) {
+        _rightStudioDrawer = target;
+      } else {
+        _drawer = target;
+        if (!_isWideStudio) _rightStudioDrawer = _ActiveDrawer.none;
+      }
+    });
+  }
+
+  void _closeDrawer(_ActiveDrawer target) {
+    setState(() {
+      if (_drawer == target) _drawer = _ActiveDrawer.none;
+      if (_rightStudioDrawer == target) {
+        _rightStudioDrawer = _ActiveDrawer.none;
+      }
+    });
+  }
+
   void _toggleDrawer(_ActiveDrawer next) {
     setState(() {
-      _drawer = _drawer == next ? _ActiveDrawer.none : next;
+      if (_isWideStudio && _isRightStudioDrawer(next)) {
+        _rightStudioDrawer =
+            _rightStudioDrawer == next ? _ActiveDrawer.none : next;
+      } else {
+        _drawer = _drawer == next ? _ActiveDrawer.none : next;
+        if (!_isWideStudio) _rightStudioDrawer = _ActiveDrawer.none;
+      }
     });
   }
 
@@ -3825,9 +4309,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     );
   }
 
-  Widget? _buildActiveDrawer(int visibleCalloutCount) {
+  Widget? _buildDrawerFor(_ActiveDrawer target, int visibleCalloutCount) {
     if (_isDrawingMode) return null;
-    switch (_drawer) {
+    switch (target) {
       case _ActiveDrawer.none:
         return null;
       case _ActiveDrawer.explore:
@@ -3884,17 +4368,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onFocusSighting: _focusSighting,
           onFocusBeacon: _focusBeacon,
           onCreateSighting: _openSightingComposer,
-          onComposeStory: () => setState(() {
-            _editingStory = null;
-            _drawer = _ActiveDrawer.storyComposer;
-          }),
-          onCreateAtlas: () => setState(() {
-            _editingAtlas = null;
-            _drawer = _ActiveDrawer.atlasComposer;
-          }),
-          onOpenBeaconBroadcaster: () =>
-              setState(() => _drawer = _ActiveDrawer.spaces),
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onComposeStory: () {
+            setState(() => _editingStory = null);
+            _openDrawer(_ActiveDrawer.storyComposer);
+          },
+          onCreateAtlas: () {
+            setState(() => _editingAtlas = null);
+            _openDrawer(_ActiveDrawer.atlasComposer);
+          },
+          onOpenBeaconBroadcaster: () => _openDrawer(_ActiveDrawer.spaces),
+          onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.desk:
         return DeskSheet(
@@ -3913,6 +4396,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           selectedCircleId: _selectedCircleId ?? _activeCircleLensId,
           onSelectedCircleChanged: (id) =>
               setState(() => _selectedCircleId = id),
+          canUndo: _draftUndoStack.isNotEmpty,
+          canRedo: _draftRedoStack.isNotEmpty,
+          onUndo: _undoDraftEdit,
+          onRedo: _redoDraftEdit,
           onSelectDraft: _selectSavedDraft,
           onCreateNewDraft: _createNewDraft,
           onDeleteDraft: (id) => unawaited(_deleteSavedDraft(id)),
@@ -3963,27 +4450,28 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ),
           onRunGeoAction: _runGeoAction,
           onPublishDraft: _publishDraft,
-          onComposeStory: () => setState(() {
-            _editingStory = null;
-            _drawer = _ActiveDrawer.storyComposer;
-          }),
-          onCreateAtlas: () => setState(() {
-            _editingAtlas = null;
-            _drawer = _ActiveDrawer.atlasComposer;
-          }),
+          onComposeStory: () {
+            setState(() => _editingStory = null);
+            _openDrawer(_ActiveDrawer.storyComposer);
+          },
+          onCreateAtlas: () {
+            setState(() => _editingAtlas = null);
+            _openDrawer(_ActiveDrawer.atlasComposer);
+          },
           onImportGeoJson: () => unawaited(_importGeoJsonFile()),
           onExportGeoJsonFile: () => unawaited(_exportGeoJsonFile()),
           onExportGpxFile: () => unawaited(_exportSpatialFile('gpx')),
           onExportKmlFile: () => unawaited(_exportSpatialFile('kml')),
           onCopyGeoJson: _copyGeoJsonToClipboard,
           onClearDraftFeatures: () {
+            _pushDraftUndo();
             setState(() {
               _features.clear();
               _draftVertices.clear();
             });
             unawaited(_persistWorkingDraft());
           },
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.spaces:
         return SpacesSheet(
@@ -3996,14 +4484,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           activeCircleId: _activeCircleLensId,
           inboxUnreadCount: _inboxUnreadCount,
           onOpenInbox: () {
-            setState(() => _drawer = _ActiveDrawer.inbox);
+            _openDrawer(_ActiveDrawer.inbox);
             unawaited(_refreshInbox());
           },
-          onOpenCircles: () => setState(() => _drawer = _ActiveDrawer.circles),
-          onSelectCircle: (ws) => setState(() {
-            _selectedCircleId = ws.workspaceId;
-            _drawer = _ActiveDrawer.circles;
-          }),
+          onOpenCircles: () => _openDrawer(_ActiveDrawer.circles),
+          onSelectCircle: (ws) {
+            setState(() => _selectedCircleId = ws.workspaceId);
+            _openDrawer(_ActiveDrawer.circles);
+          },
           onRelayUrlsChanged: _updateRelayUrls,
           onAccountChanged: (account) {
             setState(() {
@@ -4044,7 +4532,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             setState(() => _catalog = null);
           },
           onBroadcastBeacon: _broadcastLiveBeacon,
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.circles:
         return CirclesSheet(
@@ -4079,11 +4567,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onStartNewPrivateMap: _startNewPrivateMapInCircle,
           onToggleCommentGeometry: _toggleCircleCommentGeometry,
           onSendCircleComment: _sendCircleComment,
-          onOpenAccount: () => setState(() => _drawer = _ActiveDrawer.account),
-          onClose: () => setState(() {
-            _pendingDeepLinkCircleInvite = null;
-            _drawer = _ActiveDrawer.none;
-          }),
+          onOpenAccount: () => _openDrawer(_ActiveDrawer.account),
+          onClose: () {
+            setState(() => _pendingDeepLinkCircleInvite = null);
+            _closeDrawer(target);
+          },
         );
       case _ActiveDrawer.inbox:
         return InboxSheet(
@@ -4100,10 +4588,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onMarkAllRead: _markAllInboxRead,
           onOpenItem: (item) => unawaited(_openInboxItem(item)),
           onOpenPerson: _openPerson,
-          onOpenCircles: () => setState(() => _drawer = _ActiveDrawer.circles),
-          onOpenSpaces: () => setState(() => _drawer = _ActiveDrawer.spaces),
-          onOpenAccount: () => setState(() => _drawer = _ActiveDrawer.account),
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onOpenCircles: () => _openDrawer(_ActiveDrawer.circles),
+          onOpenSpaces: () => _openDrawer(_ActiveDrawer.spaces),
+          onOpenAccount: () => _openDrawer(_ActiveDrawer.account),
+          onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.person:
         final personPk = _inspectedPersonPubkey;
@@ -4129,7 +4617,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           },
           onInspectAtlas: _inspectAtlas,
           onEnterAtlasLens: _enterAtlasLens,
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.account:
         return AccountSessionSheet(
@@ -4211,27 +4699,40 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             }
           },
           onSaveProfile: _publishProfile,
-          onOpenSpaces: () => setState(() => _drawer = _ActiveDrawer.spaces),
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onOpenSpaces: () => _openDrawer(_ActiveDrawer.spaces),
+          onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.search:
         return PlaceSearchSheet(
           onJumpToPlace: _jumpToPlace,
           onJumpToNaddr: _jumpToNaddr,
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.agent:
         return AgentDrawer(
           messages: _agentMessages,
           settings: _agentSettings,
           busy: _agentBusy,
+          safeEditing: _agentSafeEditing,
+          onSafeEditingChanged: (v) => setState(() => _agentSafeEditing = v),
+          pendingEdit: _pendingAiEdit,
+          onAcceptPendingEdit: _acceptPendingAiEdit,
+          onDiscardPendingEdit: _discardPendingAiEdit,
+          onExtractSourceToMap: _extractResearchSourceToMap,
+          onFocusCoord: (lat, lon, _) => _controller?.animateCamera(
+            CameraUpdate.position(
+              center: Geographic(lon: lon, lat: lat),
+              zoom: 15.0,
+            ),
+          ),
+          onCiteSourceInStory: _citeResearchSourceInStory,
           onSettingsChanged: (s) {
             setState(() => _agentSettings = s);
             unawaited(_persistAppSettings());
           },
           onSendPrompt: (p) => unawaited(_sendAgentPrompt(p)),
           onClearChat: () => setState(() => _agentMessages.clear()),
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.storyReader:
         if (_activeStory == null || _parsedStory == null) return null;
@@ -4272,10 +4773,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           authorLabel: _profilesByPubkey[_activeStory!.pubkey]?.displayName ??
               _profilesByPubkey[_activeStory!.pubkey]?.name,
           onOpenPerson: _openPerson,
-          onEditStory: () => setState(() {
-            _editingStory = _activeStory;
-            _drawer = _ActiveDrawer.storyComposer;
-          }),
+          onEditStory: () {
+            setState(() => _editingStory = _activeStory);
+            _openDrawer(_ActiveDrawer.storyComposer);
+          },
           onDeleteStory: () => _deleteOwnedStory(_activeStory!),
           onClose: _closeStory,
         );
@@ -4287,10 +4788,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onUploadBlossomImage: _pickAndUploadBlossomImage,
           getCameraSnapshot: () => _controller?.camera,
           onPublishStory: _publishStory,
-          onClose: () => setState(() {
-            _editingStory = null;
-            _drawer = _ActiveDrawer.none;
-          }),
+          onClose: () {
+            setState(() => _editingStory = null);
+            _closeDrawer(target);
+          },
         );
       case _ActiveDrawer.atlasComposer:
         return AtlasComposerSheet(
@@ -4301,10 +4802,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           editingAtlas: _editingAtlas,
           onUploadBlossomImage: _pickAndUploadBlossomImage,
           onPublishAtlas: _publishAtlas,
-          onClose: () => setState(() {
-            _editingAtlas = null;
-            _drawer = _ActiveDrawer.none;
-          }),
+          onClose: () {
+            setState(() => _editingAtlas = null);
+            _closeDrawer(target);
+          },
         );
       case _ActiveDrawer.atlasDetail:
         final atlas = _inspectedAtlas ?? _activeAtlasLens;
@@ -4319,10 +4820,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           isActiveLens: _activeAtlasLens?.address == atlas.address,
           isOwned: _account != null && _account!.pubkey == atlas.pubkey,
           onOpenPerson: _openPerson,
-          onEditAtlas: () => setState(() {
-            _editingAtlas = atlas;
-            _drawer = _ActiveDrawer.atlasComposer;
-          }),
+          onEditAtlas: () {
+            setState(() => _editingAtlas = atlas);
+            _openDrawer(_ActiveDrawer.atlasComposer);
+          },
           onDeleteAtlas: () => _deleteOwnedAtlas(atlas),
           onToggleLens: () {
             if (_activeAtlasLens?.address == atlas.address) {
@@ -4347,7 +4848,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               eventId: atlas.eventId,
             ),
           ),
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.datasetDetail:
         final map = _inspectedMap;
@@ -4380,15 +4881,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ),
           onDeleteMap: _deleteOwnedMap,
           onOpenPerson: _openPerson,
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.inspector:
         final feature = _inspectedFeature;
         if (feature == null) return null;
         return FeatureInspectorSheet(
           feature: feature,
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => _closeDrawer(target),
           onRenameDraftFeature: (featureId, newName) {
+            _pushDraftUndo();
             setState(() {
               final idx = _features.indexWhere((f) => f.id == featureId);
               if (idx >= 0) {
@@ -4399,6 +4901,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             unawaited(_persistWorkingDraft());
           },
           onRecolorDraftFeature: (featureId, colorHex) {
+            _pushDraftUndo();
             setState(() {
               final idx = _features.indexWhere((f) => f.id == featureId);
               if (idx >= 0) {
@@ -4418,6 +4921,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             clearDisplayIcon = false,
             description,
           }) {
+            _pushDraftUndo();
             setState(() {
               final idx = _features.indexWhere((f) => f.id == featureId);
               if (idx >= 0) {
@@ -4437,10 +4941,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           },
           onEditDraftGeometry: _startEditingDraftFeature,
           onDeleteDraftFeature: (featureId) {
+            _pushDraftUndo();
             setState(() => _features.removeWhere((f) => f.id == featureId));
             unawaited(_persistWorkingDraft());
           },
           onAddDraftCallout: (featureId, callout) {
+            _pushDraftUndo();
             setState(() {
               final idx = _features.indexWhere((f) => f.id == featureId);
               if (idx >= 0) {
@@ -4453,6 +4959,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             unawaited(_persistWorkingDraft());
           },
           onRemoveDraftCallout: (featureId, calloutId) {
+            _pushDraftUndo();
             setState(() {
               final idx = _features.indexWhere((f) => f.id == featureId);
               if (idx >= 0) {
@@ -4575,7 +5082,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ),
           onApplyProposal: (proposal) => _applyProposal(target, proposal),
           onCloseProposal: (proposal) => _closeProposal(target, proposal),
-          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+          onClose: () => _closeDrawer(_ActiveDrawer.discussion),
         );
     }
   }
@@ -4583,7 +5090,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDesktop = MediaQuery.sizeOf(context).width >= 880;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isDesktop = screenWidth >= 880;
+    final isWideStudio = screenWidth >= 1100;
     final systemIsDark = theme.brightness == Brightness.dark;
     final effectiveBasemap = _selectedBasemap ??
         (systemIsDark
@@ -4633,6 +5142,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       activeStory: activeStoryContext,
     );
 
+    final combinedProposalShapes = <ShelfShape>[
+      ..._proposalOverlayShapes,
+      ..._aiGhostShapes,
+    ];
+
     final gpuLayers = buildEarthlyGpuLayers(
       shelfMaps: _shelfMaps,
       sightings: visibleSightings,
@@ -4643,19 +5157,30 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       showLabels:
           _showLabels && effectiveBasemap != BasemapKind.offlinePmtiles,
       onInspectFeature: _inspectFeature,
+      gpsTrackPoints: _gpsTrackRecording ? _gpsTrackPoints : const [],
       activeStory: activeStoryContext,
       commentOverlayShapes: _commentOverlayShapes,
-      proposalOverlayShapes: _proposalOverlayShapes,
+      proposalOverlayShapes: combinedProposalShapes,
     );
 
-    final activeDrawerWidget = _buildActiveDrawer(visibleCallouts.length);
+    final leftDrawerTarget = _drawer != _ActiveDrawer.none
+        ? _drawer
+        : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
+    final leftDrawerWidget =
+        _buildDrawerFor(leftDrawerTarget, visibleCallouts.length);
+    final rightDrawerWidget = isWideStudio
+        ? _buildDrawerFor(_rightStudioDrawer, visibleCallouts.length)
+        : null;
     final hideBottomDockOnMobile =
-        !isDesktop && activeDrawerWidget != null && !_isDrawingMode;
+        !isDesktop && leftDrawerWidget != null && !_isDrawingMode;
     final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
     final screenHeight = MediaQuery.sizeOf(context).height;
     final rightThumbRailBottom = hideBottomDockOnMobile
         ? (screenHeight * 0.54).clamp(180.0, screenHeight - 220.0)
         : bottomSafeInset + (_isDrawingMode ? 76.0 : 74.0);
+    final hudLeftInset = isDesktop && leftDrawerWidget != null ? 440.0 : 12.0;
+    final hudRightInset =
+        isWideStudio && rightDrawerWidget != null ? 440.0 : 12.0;
 
     final mapWidget = widget.mapBuilder != null
         ? widget.mapBuilder!(
@@ -4703,15 +5228,42 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         const SingleActivator(LogicalKeyboardKey.escape): () {
           if (_isDrawingMode) {
             _cancelEditingDraftFeature();
+          } else if (_rightStudioDrawer != _ActiveDrawer.none) {
+            setState(() => _rightStudioDrawer = _ActiveDrawer.none);
           } else if (_drawer != _ActiveDrawer.none) {
             setState(() => _drawer = _ActiveDrawer.none);
           }
         },
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): () {
-          if (_isDrawingMode) _undoLastPoint();
+          if (_isDrawingMode) {
+            _undoLastPoint();
+          } else {
+            _undoDraftEdit();
+          }
         },
         const SingleActivator(LogicalKeyboardKey.keyZ, control: true): () {
-          if (_isDrawingMode) _undoLastPoint();
+          if (_isDrawingMode) {
+            _undoLastPoint();
+          } else {
+            _undoDraftEdit();
+          }
+        },
+        const SingleActivator(
+          LogicalKeyboardKey.keyZ,
+          meta: true,
+          shift: true,
+        ): () {
+          if (!_isDrawingMode) _redoDraftEdit();
+        },
+        const SingleActivator(
+          LogicalKeyboardKey.keyZ,
+          control: true,
+          shift: true,
+        ): () {
+          if (!_isDrawingMode) _redoDraftEdit();
+        },
+        const SingleActivator(LogicalKeyboardKey.keyY, control: true): () {
+          if (!_isDrawingMode) _redoDraftEdit();
         },
         const SingleActivator(LogicalKeyboardKey.digit1, meta: true): () =>
             _selectMode(DrawToolMode.point),
@@ -4772,10 +5324,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
                 child: Row(
                   children: [
-                    Flexible(
-                      fit: isDesktop ? FlexFit.loose : FlexFit.tight,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
+                    if (isDesktop)
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 260),
                         child: GestureDetector(
                           key: const Key('earthly-brand-pill'),
                           onTap: () =>
@@ -4831,9 +5382,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                                 ],
                                 Flexible(
                                   child: Text(
-                                    isDesktop
-                                        ? '${_shelfMaps.length} shelf · ${_features.length} draft${visibleBeacons.isNotEmpty ? ' · ${visibleBeacons.length} live' : ''}'
-                                        : '${_shelfMaps.length}·${_features.length}${visibleBeacons.isNotEmpty ? '·${visibleBeacons.length}' : ''}',
+                                    '${_shelfMaps.length} shelf · ${_features.length} draft${visibleBeacons.isNotEmpty ? ' · ${visibleBeacons.length} live' : ''}',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
@@ -4854,74 +5403,172 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             ),
                           ),
                         ),
+                      )
+                    else
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: GestureDetector(
+                            key: const Key('earthly-brand-pill'),
+                            onTap: () =>
+                                _openEarthlyCommandSheet(effectiveBasemap),
+                            child: EarthlyGlassSurface(
+                              borderRadius: BorderRadius.circular(999),
+                              padding: const EdgeInsets.fromLTRB(7, 5, 10, 5),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (!_isDrawingMode) ...[
+                                    Container(
+                                      width: 24,
+                                      height: 24,
+                                      decoration: const BoxDecoration(
+                                        color: EarthlyColors.amber,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.explore,
+                                        size: 15,
+                                        color: EarthlyColors.amberInk,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 7),
+                                    Text(
+                                      'EARTHLY',
+                                      style:
+                                          theme.textTheme.labelMedium?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 1.1,
+                                      ),
+                                    ),
+                                    if (_relayStreamLive) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        width: 7,
+                                        height: 7,
+                                        decoration: BoxDecoration(
+                                          color: EarthlyColors.commentGreen,
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: EarthlyColors.commentGreen
+                                                  .withValues(alpha: 0.65),
+                                              blurRadius: 6,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Flexible(
+                                    child: Text(
+                                      '${_shelfMaps.length}·${_features.length}${visibleBeacons.isNotEmpty ? '·${visibleBeacons.length}' : ''}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color:
+                                            theme.colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Icon(
+                                    Icons.keyboard_arrow_down,
+                                    size: 15,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
                     if (isDesktop && !_isDrawingMode) ...[
                       const SizedBox(width: 10),
-                      _MiniToggle(
-                        label: 'Explore',
-                        icon: Icons.explore_outlined,
-                        active: _drawer == _ActiveDrawer.explore,
-                        onTap: () => _toggleDrawer(_ActiveDrawer.explore),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _MiniToggle(
+                                label: 'Explore',
+                                icon: Icons.explore_outlined,
+                                active: _isDrawerOpen(_ActiveDrawer.explore),
+                                onTap: () =>
+                                    _toggleDrawer(_ActiveDrawer.explore),
+                              ),
+                              const SizedBox(width: 6),
+                              _MiniToggle(
+                                label: 'Desk',
+                                icon: Icons.layers_outlined,
+                                active: _isDrawerOpen(_ActiveDrawer.desk),
+                                onTap: () => _toggleDrawer(_ActiveDrawer.desk),
+                              ),
+                              const SizedBox(width: 6),
+                              _MiniToggle(
+                                label: _pendingClaimCount > 0
+                                    ? 'Spaces ($_pendingClaimCount)'
+                                    : 'Spaces',
+                                icon: Icons.hub_outlined,
+                                active: _isDrawerOpen(_ActiveDrawer.spaces) ||
+                                    _pendingClaimCount > 0,
+                                onTap: () =>
+                                    _toggleDrawer(_ActiveDrawer.spaces),
+                              ),
+                              const SizedBox(width: 6),
+                              _MiniToggle(
+                                label: _circlePendingJoins.isNotEmpty
+                                    ? 'Circles (${_circlePendingJoins.length})'
+                                    : 'Circles',
+                                icon: Icons.lock_outline,
+                                active: _isDrawerOpen(_ActiveDrawer.circles) ||
+                                    _activeCircleLensId != null,
+                                onTap: () =>
+                                    _toggleDrawer(_ActiveDrawer.circles),
+                              ),
+                              const SizedBox(width: 6),
+                              _MiniToggle(
+                                label: _inboxUnreadCount > 0
+                                    ? 'Inbox ($_inboxUnreadCount)'
+                                    : 'Inbox',
+                                icon: Icons.inbox_outlined,
+                                active: _isDrawerOpen(_ActiveDrawer.inbox) ||
+                                    _inboxUnreadCount > 0,
+                                onTap: () {
+                                  _toggleDrawer(_ActiveDrawer.inbox);
+                                  if (_isDrawerOpen(_ActiveDrawer.inbox)) {
+                                    unawaited(_refreshInbox());
+                                  }
+                                },
+                              ),
+                              const SizedBox(width: 6),
+                              _MiniToggle(
+                                label: 'Agent',
+                                icon: Icons.auto_awesome,
+                                active: _isDrawerOpen(_ActiveDrawer.agent),
+                                onTap: () => _toggleDrawer(_ActiveDrawer.agent),
+                              ),
+                              const SizedBox(width: 6),
+                              _MiniToggle(
+                                label: 'Draw',
+                                icon: Icons.edit,
+                                active: true,
+                                onTap: () => _selectMode(DrawToolMode.line),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      const SizedBox(width: 6),
-                      _MiniToggle(
-                        label: 'Desk',
-                        icon: Icons.layers_outlined,
-                        active: _drawer == _ActiveDrawer.desk,
-                        onTap: () => _toggleDrawer(_ActiveDrawer.desk),
-                      ),
-                      const SizedBox(width: 6),
-                      _MiniToggle(
-                        label: _pendingClaimCount > 0
-                            ? 'Spaces ($_pendingClaimCount)'
-                            : 'Spaces',
-                        icon: Icons.hub_outlined,
-                        active: _drawer == _ActiveDrawer.spaces ||
-                            _pendingClaimCount > 0,
-                        onTap: () => _toggleDrawer(_ActiveDrawer.spaces),
-                      ),
-                      const SizedBox(width: 6),
-                      _MiniToggle(
-                        label: _circlePendingJoins.isNotEmpty
-                            ? 'Circles (${_circlePendingJoins.length})'
-                            : 'Circles',
-                        icon: Icons.lock_outline,
-                        active: _drawer == _ActiveDrawer.circles ||
-                            _activeCircleLensId != null,
-                        onTap: () => _toggleDrawer(_ActiveDrawer.circles),
-                      ),
-                      const SizedBox(width: 6),
-                      _MiniToggle(
-                        label: _inboxUnreadCount > 0
-                            ? 'Inbox ($_inboxUnreadCount)'
-                            : 'Inbox',
-                        icon: Icons.inbox_outlined,
-                        active: _drawer == _ActiveDrawer.inbox ||
-                            _inboxUnreadCount > 0,
-                        onTap: () {
-                          _toggleDrawer(_ActiveDrawer.inbox);
-                          if (_drawer == _ActiveDrawer.inbox) {
-                            unawaited(_refreshInbox());
-                          }
-                        },
-                      ),
-                      const SizedBox(width: 6),
-                      _MiniToggle(
-                        label: 'Agent',
-                        icon: Icons.auto_awesome,
-                        active: _drawer == _ActiveDrawer.agent,
-                        onTap: () => _toggleDrawer(_ActiveDrawer.agent),
-                      ),
-                      const SizedBox(width: 6),
-                      _MiniToggle(
-                        label: 'Draw',
-                        icon: Icons.edit,
-                        active: true,
-                        onTap: () => _selectMode(DrawToolMode.line),
-                      ),
-                    ],
-                    if (isDesktop) const Spacer() else const SizedBox(width: 8),
+                      const SizedBox(width: 8),
+                    ] else if (isDesktop)
+                      const Spacer()
+                    else
+                      const SizedBox(width: 8),
                     if (isDesktop && _isDrawingMode) ...[
                       _MiniToggle(
                         label: _placementStyle == TouchPlacementStyle.drawDrag
@@ -4947,6 +5594,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             setState(() => _loupeEnabled = !_loupeEnabled),
                       ),
                     ] else if (!_isDrawingMode) ...[
+                      if (isDesktop && _draftUndoStack.isNotEmpty) ...[
+                        _MiniIconButton(
+                          tooltip: 'Undo Draft Edit (Cmd+Z)',
+                          icon: Icons.undo,
+                          active: false,
+                          onTap: _undoDraftEdit,
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      if (isDesktop && _draftRedoStack.isNotEmpty) ...[
+                        _MiniIconButton(
+                          tooltip: 'Redo Draft Edit (Cmd+Shift+Z)',
+                          icon: Icons.redo,
+                          active: false,
+                          onTap: _redoDraftEdit,
+                        ),
+                        const SizedBox(width: 6),
+                      ],
                       if (isDesktop && visibleCallouts.isNotEmpty) ...[
                         _MiniToggle(
                           label: calloutModeShortLabel(_calloutMode),
@@ -4962,10 +5627,23 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                       _MiniIconButton(
                         tooltip: 'Search Place / Coords / naddr',
                         icon: Icons.search,
-                        active: _drawer == _ActiveDrawer.search,
+                        active: _isDrawerOpen(_ActiveDrawer.search),
                         onTap: () => _toggleDrawer(_ActiveDrawer.search),
                       ),
                       if (isDesktop) ...[
+                        const SizedBox(width: 6),
+                        _MiniIconButton(
+                          tooltip: _gpsTrackRecording
+                              ? 'Finish GPS Track'
+                              : 'Record GPS Track',
+                          icon: _gpsTrackRecording ? Icons.stop : Icons.route,
+                          active: _gpsTrackRecording,
+                          onTap: () => unawaited(
+                            _gpsTrackRecording
+                                ? _finishGpsTrackToDraft()
+                                : _startGpsTrack(),
+                          ),
+                        ),
                         const SizedBox(width: 6),
                         _MiniIconButton(
                           tooltip: 'Measure Distance & Area',
@@ -4989,7 +5667,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                           icon: _account != null
                               ? Icons.verified_user
                               : Icons.account_circle_outlined,
-                          active: _drawer == _ActiveDrawer.account,
+                          active: _isDrawerOpen(_ActiveDrawer.account),
                           onTap: () => _toggleDrawer(_ActiveDrawer.account),
                         )
                       else
@@ -5000,7 +5678,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                           icon: _account != null
                               ? Icons.verified_user
                               : Icons.account_circle_outlined,
-                          active: _drawer == _ActiveDrawer.account ||
+                          active: _isDrawerOpen(_ActiveDrawer.account) ||
                               _account != null,
                           onTap: () => _toggleDrawer(_ActiveDrawer.account),
                         ),
@@ -5046,6 +5724,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                           setState(() => _loupeEnabled = !_loupeEnabled),
                     ),
                   ] else ...[
+                    _ThumbMapButton(
+                      tooltip: _gpsTrackRecording
+                          ? 'Finish GPS Track'
+                          : 'Record GPS Track',
+                      icon: _gpsTrackRecording ? Icons.stop : Icons.route,
+                      active: _gpsTrackRecording,
+                      activeBackground: EarthlyColors.destructive,
+                      activeForeground: Colors.white,
+                      onTap: () => unawaited(
+                        _gpsTrackRecording
+                            ? _finishGpsTrackToDraft()
+                            : _startGpsTrack(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     _ThumbMapButton(
                       tooltip: 'Measure',
                       icon: Icons.straighten,
@@ -5105,8 +5798,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             Positioned(
               key: const Key('earthly-atlas-lens-bar'),
               top: 62,
-              left: isDesktop && activeDrawerWidget != null ? 440 : 12,
-              right: 12,
+              left: hudLeftInset,
+              right: hudRightInset,
               child: SafeArea(
                 bottom: false,
                 child: Align(
@@ -5199,8 +5892,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             Positioned(
               key: const Key('earthly-circle-lens-bar'),
               top: _activeAtlasLens != null ? 114 : 62,
-              left: isDesktop && activeDrawerWidget != null ? 440 : 12,
-              right: 12,
+              left: hudLeftInset,
+              right: hudRightInset,
               child: SafeArea(
                 bottom: false,
                 child: Align(
@@ -5285,8 +5978,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               !_isDrawingMode)
             Positioned(
               top: 66,
-              left: isDesktop && activeDrawerWidget != null ? 440 : 12,
-              right: 12,
+              left: hudLeftInset,
+              right: hudRightInset,
               child: SafeArea(
                 bottom: false,
                 child: Align(
@@ -5458,8 +6151,217 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               ),
             ),
 
+          // AI safeEditing Amber Ghost Preview Bar (Accept / Discard right on the map)
+          if (_pendingAiEdit != null && !_isDrawingMode)
+            Positioned(
+              key: const Key('earthly-ai-ghost-bar'),
+              top: (_activeAtlasLens != null || _activeCircleLens != null)
+                  ? 118
+                  : 66,
+              left: hudLeftInset,
+              right: hudRightInset,
+              child: SafeArea(
+                bottom: false,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: EarthlyGlassSurface(
+                    borderRadius: BorderRadius.circular(999),
+                    color: EarthlyColors.proposedAmber.withValues(alpha: 0.94),
+                    borderColor: EarthlyColors.amber,
+                    borderWidth: 1.4,
+                    padding: const EdgeInsets.fromLTRB(12, 5, 6, 5),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.auto_awesome,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            'AI Ghost +${_pendingAiEdit!.diffAdded} ~${_pendingAiEdit!.diffModified} -${_pendingAiEdit!.diffRemoved}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: EarthlyColors.amberInk,
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            minimumSize: const Size(0, 28),
+                          ),
+                          onPressed: _acceptPendingAiEdit,
+                          child: const Text(
+                            'Accept',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          tooltip: 'Discard AI Ghost',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 28,
+                            minHeight: 28,
+                          ),
+                          onPressed: _discardPendingAiEdit,
+                          icon: const Icon(
+                            Icons.close,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Live Background GPS Track Recorder HUD Pill
+          if (_gpsTrackRecording)
+            Positioned(
+              key: const Key('earthly-gps-track-bar'),
+              top: (_pendingAiEdit != null ? 116 : 66) +
+                  ((_activeAtlasLens != null || _activeCircleLens != null)
+                      ? 52
+                      : 0),
+              left: hudLeftInset,
+              right: hudRightInset,
+              child: SafeArea(
+                bottom: false,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: EarthlyGlassSurface(
+                    borderRadius: BorderRadius.circular(999),
+                    color: EarthlyColors.destructive.withValues(alpha: 0.94),
+                    borderColor: Colors.white.withValues(alpha: 0.35),
+                    borderWidth: 1.2,
+                    padding: const EdgeInsets.fromLTRB(12, 5, 6, 5),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _gpsTrackPaused
+                              ? Icons.pause_circle_filled
+                              : Icons.fiber_manual_record,
+                          size: 13,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${_gpsTrackPaused ? 'PAUSED' : 'REC'} · ${DrawingMath.formatDistance(_gpsTrackDistanceMeters)} · ${_gpsTrackPoints.length} pts',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        IconButton(
+                          tooltip: _gpsTrackPaused
+                              ? 'Resume GPS Track'
+                              : 'Pause GPS Track',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 28,
+                            minHeight: 28,
+                          ),
+                          onPressed: () => unawaited(_togglePauseGpsTrack()),
+                          icon: Icon(
+                            _gpsTrackPaused ? Icons.play_arrow : Icons.pause,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                        ),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            minimumSize: const Size(0, 28),
+                          ),
+                          onPressed: () => unawaited(_addTrackWaypointNow()),
+                          child: const Text(
+                            '+Pt',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: EarthlyColors.destructive,
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            minimumSize: const Size(0, 28),
+                          ),
+                          onPressed: () => unawaited(_finishGpsTrackToDraft()),
+                          child: const Text(
+                            'Save',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Discard GPS Track',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 28,
+                            minHeight: 28,
+                          ),
+                          onPressed: () => unawaited(_cancelGpsTrack()),
+                          icon: const Icon(
+                            Icons.close,
+                            size: 15,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
           // Unified Google-Maps-style independent bottom drawer (mobile) or docked left Margin (desktop)
-          ?activeDrawerWidget,
+          ?leftDrawerWidget,
+
+          // macOS / Wide Studio simultaneous right column (width >= 1100px)
+          if (rightDrawerWidget != null)
+            EarthlyDrawerPlacement(
+              side: EarthlyDrawerSide.right,
+              child: rightDrawerWidget,
+            ),
 
           // Frosted-Glass Bottom Dock: surface extends flush to bottom: 0 behind gesture pill & rounded corners;
           // SafeArea pads ONLY the inner row so there is NEVER a gap on any phone screen shape!
@@ -5635,7 +6537,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                               child: _DockTool(
                                 label: 'Explore',
                                 icon: Icons.explore_outlined,
-                                selected: _drawer == _ActiveDrawer.explore,
+                                selected: _isDrawerOpen(_ActiveDrawer.explore),
                                 onTap: () =>
                                     _toggleDrawer(_ActiveDrawer.explore),
                               ),
@@ -5644,7 +6546,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                               child: _DockTool(
                                 label: 'Desk',
                                 icon: Icons.layers_outlined,
-                                selected: _drawer == _ActiveDrawer.desk,
+                                selected: _isDrawerOpen(_ActiveDrawer.desk),
                                 onTap: () => _toggleDrawer(_ActiveDrawer.desk),
                               ),
                             ),
@@ -5657,9 +6559,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                                     ? 'Spaces (${_pendingClaimCount + _circlePendingJoins.length + _inboxUnreadCount})'
                                     : 'Spaces',
                                 icon: Icons.hub_outlined,
-                                selected: _drawer == _ActiveDrawer.spaces ||
-                                    _drawer == _ActiveDrawer.circles ||
-                                    _drawer == _ActiveDrawer.inbox ||
+                                selected: _isDrawerOpen(_ActiveDrawer.spaces) ||
+                                    _isDrawerOpen(_ActiveDrawer.circles) ||
+                                    _isDrawerOpen(_ActiveDrawer.inbox) ||
                                     _pendingClaimCount > 0 ||
                                     _circlePendingJoins.isNotEmpty ||
                                     _inboxUnreadCount > 0,
@@ -5671,7 +6573,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                               child: _DockTool(
                                 label: 'Agent',
                                 icon: Icons.auto_awesome,
-                                selected: _drawer == _ActiveDrawer.agent,
+                                selected: _isDrawerOpen(_ActiveDrawer.agent),
                                 onTap: () => _toggleDrawer(_ActiveDrawer.agent),
                               ),
                             ),
