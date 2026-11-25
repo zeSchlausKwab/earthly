@@ -231,6 +231,10 @@ impl LocalNode {
         self.relay.field_session_events(session_id).await
     }
 
+    pub async fn query_earthly_events(&self, limit: usize) -> Result<Vec<Event>, NodeError> {
+        self.relay.query_earthly_events(limit).await
+    }
+
     pub async fn mirror_remote_blobs(
         &self,
         node_id: &str,
@@ -244,6 +248,14 @@ impl LocalNode {
             hashes,
         )
         .await
+    }
+
+    pub async fn store_local_bytes(
+        &self,
+        bytes: &[u8],
+        media_type: &str,
+    ) -> Result<BlobDescriptor, NodeError> {
+        self.blossom.store_local_bytes(bytes, media_type).await
     }
 
     pub async fn read_local_blob(

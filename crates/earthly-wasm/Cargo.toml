@@ -1,0 +1,19 @@
+[package]
+name = "earthly-wasm"
+version = "0.1.0"
+description = "WebAssembly facade exposing earthly-domain, earthly-geo, and earthly-spatial to Earthly Web"
+edition = "2021"
+rust-version = "1.77.2"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+earthly-domain = { path = "../earthly-domain" }
+earthly-geo = { path = "../earthly-geo" }
+earthly-spatial = { path = "../earthly-spatial" }
+geo = "0.29"
+serde_json = "1"
+wasm-bindgen = "0.2"

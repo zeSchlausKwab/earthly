@@ -476,6 +476,47 @@ impl EmbeddedBlossom {
         Ok((descriptor, created))
     }
 
+    pub async fn store_local_bytes(
+        &self,
+        bytes: &[u8],
+        media_type: &str,
+    ) -> Result<BlobDescriptor, NodeError> {
+        let size = bytes.len() as u64;
+        if size > self.max_blob_bytes {
+            return Err(NodeError::Blossom(
+                "local blob exceeds the configured size limit".to_owned(),
+            ));
+        }
+        let hash = format!("{:x}", Sha256::digest(bytes));
+        let target_path = self.store.blob_path(&hash);
+        if fs::try_exists(&target_path).await? {
+            return descriptor(&self.url, &target_path, hash, size, media_type.to_owned())
+                .await
+                .map_err(|error| NodeError::Blossom(error.reason.to_owned()));
+        }
+        let staging_path = self.store.staging_path();
+        fs::create_dir_all(staging_path.parent().expect("staging path has parent")).await?;
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&staging_path)
+            .await?;
+        if let Err(error) = file.write_all(bytes).await {
+            discard_staging(&staging_path).await;
+            return Err(error.into());
+        }
+        if let Err(error) = file.sync_all().await {
+            discard_staging(&staging_path).await;
+            return Err(error.into());
+        }
+        drop(file);
+        fs::create_dir_all(target_path.parent().expect("blob path has parent")).await?;
+        adopt_staging(&staging_path, &target_path).await?;
+        descriptor(&self.url, &target_path, hash, size, media_type.to_owned())
+            .await
+            .map_err(|error| NodeError::Blossom(error.reason.to_owned()))
+    }
+
     pub async fn close(mut self) {
         self.shutdown();
         if let Some(task) = self.task.take() {

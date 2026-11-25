@@ -1,6 +1,13 @@
 [workspace]
 members = [
+  "crates/earthly-agent",
+  "crates/earthly-domain",
+  "crates/earthly-ffi",
+  "crates/earthly-geo",
   "crates/earthly-local-node",
+  "crates/earthly-spatial",
+  "crates/earthly-storage",
+  "crates/earthly-wasm",
   "src-tauri",
 ]
 exclude = ["crates/nostr-relay-builder"]

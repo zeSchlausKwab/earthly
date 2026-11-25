@@ -16,6 +16,7 @@ pub enum NodeBind {
     #[default]
     Loopback,
     LocalNetwork(IpAddr),
+    FipsMesh(Ipv6Addr),
 }
 
 impl NodeBind {
@@ -24,6 +25,8 @@ impl NodeBind {
             Self::Loopback => Ok(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             Self::LocalNetwork(ip) if is_private_or_link_local(ip) => Ok(ip),
             Self::LocalNetwork(ip) => Err(NodeConfigError::UnsafeBindAddress(ip)),
+            Self::FipsMesh(ip) if is_fips_ula_v6(ip) => Ok(IpAddr::V6(ip)),
+            Self::FipsMesh(ip) => Err(NodeConfigError::UnsafeBindAddress(IpAddr::V6(ip))),
         }
     }
 
@@ -31,6 +34,7 @@ impl NodeBind {
         match self {
             Self::Loopback => EndpointScope::Loopback,
             Self::LocalNetwork(_) => EndpointScope::LocalNetwork,
+            Self::FipsMesh(_) => EndpointScope::FipsMesh,
         }
     }
 }
@@ -107,6 +111,10 @@ fn is_unique_local_v6(ip: Ipv6Addr) -> bool {
     ip.octets()[0] & 0xfe == 0xfc
 }
 
+fn is_fips_ula_v6(ip: Ipv6Addr) -> bool {
+    ip.octets()[0] == 0xfd
+}
+
 fn is_link_local_v6(ip: Ipv6Addr) -> bool {
     let octets = ip.octets();
     octets[0] == 0xfe && octets[1] & 0xc0 == 0x80
@@ -158,6 +166,18 @@ mod tests {
         ] {
             let bind = NodeBind::LocalNetwork(ip.parse().unwrap());
             assert!(bind.ip().is_ok());
+        }
+    }
+
+    #[test]
+    fn fips_mesh_bind_accepts_only_fd00_ula_ipv6() {
+        let valid = NodeBind::FipsMesh("fd42:1234::1".parse().unwrap());
+        assert_eq!(valid.scope(), EndpointScope::FipsMesh);
+        assert!(valid.ip().is_ok());
+
+        for rejected in ["::1", "::", "fe80::1", "fc00::1", "2606:4700::1111"] {
+            let bind = NodeBind::FipsMesh(rejected.parse().unwrap());
+            assert!(matches!(bind.ip(), Err(NodeConfigError::UnsafeBindAddress(_))));
         }
     }
 }

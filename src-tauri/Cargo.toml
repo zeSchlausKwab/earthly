@@ -17,6 +17,7 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 earthly-local-node = { path = "../crates/earthly-local-node" }
+earthly-storage = { path = "../crates/earthly-storage" }
 if-addrs = "0.14"
 nostr = "0.44.1"
 rusqlite = { version = "0.32.1", features = ["bundled"] }

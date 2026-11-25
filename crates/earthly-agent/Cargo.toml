@@ -1,0 +1,19 @@
+[package]
+name = "earthly-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Pure-Rust + WASM AI agent runtime, tool schema, and deterministic spatial executor for Earthly"
+
+[features]
+default = []
+native-http = ["dep:reqwest"]
+
+[dependencies]
+earthly-domain = { path = "../earthly-domain" }
+earthly-geo = { path = "../earthly-geo" }
+earthly-spatial = { path = "../earthly-spatial" }
+geo = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }

@@ -263,6 +263,7 @@ impl LocalNodeState {
             match node.descriptor().scope {
                 earthly_local_node::EndpointScope::Loopback => "loopback",
                 earthly_local_node::EndpointScope::LocalNetwork => "local-network",
+                earthly_local_node::EndpointScope::FipsMesh => "fips-mesh",
             }
             .to_owned(),
         );
@@ -438,7 +439,9 @@ fn node_config(data_dir: PathBuf, bind: NodeBind) -> NodeConfig {
 }
 
 fn node_availability(bind: NodeBind, android_foreground_service: bool) -> NodeAvailability {
-    if android_foreground_service && matches!(bind, NodeBind::LocalNetwork(_)) {
+    if android_foreground_service
+        && matches!(bind, NodeBind::LocalNetwork(_) | NodeBind::FipsMesh(_))
+    {
         NodeAvailability::ForegroundService
     } else {
         NodeAvailability::Process
@@ -449,8 +452,12 @@ fn node_matches_bind(node: &LocalNode, bind: NodeBind) -> bool {
     let Ok(ip) = bind.ip() else {
         return false;
     };
-    node.descriptor().scope == bind.scope()
-        && node.descriptor().relay_url.host_str() == Some(ip.to_string().as_str())
+    let host_matches = match (node.descriptor().relay_url.host(), ip) {
+        (Some(url::Host::Ipv4(host)), IpAddr::V4(target)) => host == target,
+        (Some(url::Host::Ipv6(host)), IpAddr::V6(target)) => host == target,
+        _ => false,
+    };
+    node.descriptor().scope == bind.scope() && host_matches
 }
 
 async fn release_node(

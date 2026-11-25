@@ -1,0 +1,33 @@
+[package]
+name = "earthly-ffi"
+version = "0.1.0"
+description = "Thin flutter_rust_bridge facade exposing Earthly's Rust core to the Flutter native app"
+edition = "2021"
+rust-version = "1.77.2"
+license = "MIT"
+publish = false
+
+[lib]
+name = "earthly_ffi"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+earthly-agent = { path = "../earthly-agent", features = ["native-http"] }
+earthly-domain = { path = "../earthly-domain" }
+earthly-geo = { path = "../earthly-geo" }
+earthly-local-node = { path = "../earthly-local-node" }
+earthly-spatial = { path = "../earthly-spatial" }
+earthly-storage = { path = "../earthly-storage" }
+flutter_rust_bridge = "=2.13.0"
+geo = "0.29"
+nostr = "0.44.1"
+nostr-sdk = "0.44.1"
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

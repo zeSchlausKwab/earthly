@@ -116,6 +116,22 @@ impl EmbeddedRelay {
         Ok(events)
     }
 
+    /// Return recent Earthly v2 entities stored in the local LMDB relay database
+    /// (both locally authored and synced from paired Nearby Field Session peers).
+    pub async fn query_earthly_events(&self, limit: usize) -> Result<Vec<Event>, NodeError> {
+        let kinds = [37_515_u16, 37_517, 37_518, 37_519, 37_520, 37_521, 37_522]
+            .into_iter()
+            .map(Kind::from)
+            .collect::<Vec<_>>();
+        let filter = Filter::new().kinds(kinds).limit(limit.clamp(1, 500));
+        let events = self
+            .database
+            .query(filter)
+            .await
+            .map_err(|error| NodeError::RelayDatabase(error.to_string()))?;
+        Ok(events.into_iter().collect())
+    }
+
     /// Persist a signed event through the trusted in-process path.
     ///
     /// This path is intentionally separate from relay writes: it verifies the original event and

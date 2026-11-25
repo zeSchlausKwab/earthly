@@ -15,6 +15,8 @@ pub enum EndpointScope {
     Loopback,
     /// Paired clients on the local network may connect.
     LocalNetwork,
+    /// Paired clients reachable over a FIPS mesh (IPv6 ULA `fd00::/8` or `.fips` domain).
+    FipsMesh,
 }
 
 /// Describes the lifecycle guarantee of the host platform.
@@ -126,12 +128,27 @@ fn endpoint_matches_scope(endpoint: &Url, scope: EndpointScope) -> bool {
         (Some(Host::Ipv6(ip)), EndpointScope::LocalNetwork) => {
             is_unique_local_v6(ip) || is_link_local_v6(ip)
         }
+        (Some(Host::Ipv6(ip)), EndpointScope::FipsMesh) => is_fips_ula_v6(ip),
+        (Some(Host::Domain(domain)), EndpointScope::FipsMesh) => is_fips_domain(domain),
         _ => false,
     }
 }
 
 fn is_unique_local_v6(ip: Ipv6Addr) -> bool {
     ip.octets()[0] & 0xfe == 0xfc
+}
+
+fn is_fips_ula_v6(ip: Ipv6Addr) -> bool {
+    ip.octets()[0] == 0xfd
+}
+
+fn is_fips_domain(domain: &str) -> bool {
+    let trimmed = domain.trim_end_matches('.');
+    trimmed.len() > ".fips".len()
+        && trimmed
+            .rsplit('.')
+            .next()
+            .is_some_and(|label| label.eq_ignore_ascii_case("fips"))
 }
 
 fn is_link_local_v6(ip: Ipv6Addr) -> bool {
@@ -197,5 +214,31 @@ mod tests {
         descriptor.relay_url = Url::parse("ws://192.168.1.5:17447/").unwrap();
         descriptor.blossom_url = Url::parse("http://192.168.1.5:17448/").unwrap();
         assert!(descriptor.validate().is_ok());
+    }
+
+    #[test]
+    fn validates_fips_mesh_ipv6_ula_and_fips_domain_endpoints() {
+        let mut descriptor = valid_descriptor();
+        descriptor.scope = EndpointScope::FipsMesh;
+        descriptor.relay_url = Url::parse("ws://[fd12:3456:789a::1]:17447/").unwrap();
+        descriptor.blossom_url = Url::parse("http://[fd12:3456:789a::1]:17448/").unwrap();
+        assert!(descriptor.validate().is_ok());
+
+        descriptor.relay_url = Url::parse("ws://basecamp.fips:17447/").unwrap();
+        descriptor.blossom_url = Url::parse("http://basecamp.fips:17448/").unwrap();
+        assert!(descriptor.validate().is_ok());
+
+        // Public IPv6 and IPv4 LAN addresses must not pass FipsMesh validation.
+        descriptor.relay_url = Url::parse("ws://192.168.1.5:17447/").unwrap();
+        assert!(matches!(
+            descriptor.validate(),
+            Err(NodeDescriptorError::UnsafeEndpointHost(_))
+        ));
+
+        descriptor.relay_url = Url::parse("ws://.fips:17447/").unwrap();
+        assert!(matches!(
+            descriptor.validate(),
+            Err(NodeDescriptorError::UnsafeEndpointHost(_))
+        ));
     }
 }
