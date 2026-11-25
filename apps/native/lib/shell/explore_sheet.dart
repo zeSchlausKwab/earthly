@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -417,26 +418,47 @@ class _ExploreSheetState extends State<ExploreSheet>
               ),
             ),
 
-          // Search + All/Favorites/Recent + Sort + Bulk Show-on-Map toolbar
+          // Search + inline square New Sighting / Live Beacon CTA when on tabs 3–4
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (val) => setState(() => _query = val),
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search, size: 17),
-                hintText: 'Filter by title, #tag, or author…',
-                suffixIcon: _query.isNotEmpty
-                    ? IconButton(
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _query = '');
-                        },
-                        icon: const Icon(Icons.clear, size: 16),
-                      )
-                    : null,
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (val) => setState(() => _query = val),
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search, size: 17),
+                      hintText: 'Filter by title, #tag, or author…',
+                      suffixIcon: _query.isNotEmpty
+                          ? IconButton(
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _query = '');
+                              },
+                              icon: const Icon(Icons.clear, size: 16),
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+                if (_tabs.index == 3) ...[
+                  const SizedBox(width: 8),
+                  _ExploreSquareCreateButton(
+                    tooltip: 'Drop Field Sighting (GPS + Photo)',
+                    icon: Icons.add_a_photo_outlined,
+                    onTap: widget.onCreateSighting,
+                  ),
+                ] else if (_tabs.index == 4) ...[
+                  const SizedBox(width: 8),
+                  _ExploreSquareCreateButton(
+                    tooltip: 'Broadcast Live Beacon',
+                    icon: Icons.sensors,
+                    onTap: widget.onOpenBeaconBroadcaster,
+                  ),
+                ],
+              ],
             ),
           ),
 
@@ -528,6 +550,21 @@ class _ExploreSheetState extends State<ExploreSheet>
                       ),
                     ],
                   ),
+                  if (_tabs.index == 1) ...[
+                    const SizedBox(width: 6),
+                    _ExploreSquareCreateButton(
+                      tooltip: 'New Story',
+                      icon: Icons.add,
+                      onTap: widget.onComposeStory,
+                    ),
+                  ] else if (_tabs.index == 2) ...[
+                    const SizedBox(width: 6),
+                    _ExploreSquareCreateButton(
+                      tooltip: 'New Atlas',
+                      icon: Icons.add,
+                      onTap: widget.onCreateAtlas,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -699,441 +736,403 @@ class _ExploreSheetState extends State<ExploreSheet>
   }
 
   Widget _buildStoriesList(List<StorySummaryDto> filtered) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: widget.onComposeStory,
-              icon: const Icon(Icons.edit_note, size: 17),
-              label: const Text('New Story'),
-            ),
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: RefreshIndicator(
-            color: EarthlyColors.amber,
-            onRefresh: _refresh,
-            child: filtered.isEmpty
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(28),
-                        child: Text(
-                          _emptyMessage('stories'),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ],
-                  )
-                : ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: filtered.length,
-                  itemBuilder: (context, index) {
-                    final story = filtered[index];
-                    final favKey = 'story:${story.address}';
-                    final isStarred = widget.pinnedEntityIds.contains(favKey);
-                    final linkedCount = story.referencedAddresses.length;
-                    final dateStr =
-                        formatRelativeUnixDate(story.publishedAt.toInt());
-                    final metaParts = <String>[
-                      _authorLabel(story.pubkey),
-                      if (dateStr.isNotEmpty) dateStr,
-                      if (linkedCount > 0)
-                        '$linkedCount map${linkedCount == 1 ? '' : 's'}',
-                    ];
-
-                    return EarthlyEntityListRow(
-                      leading: EarthlyCoverThumb(
-                        imageUrl: story.image,
-                        fallbackIcon: Icons.auto_stories_outlined,
-                      ),
-                      title: story.title,
-                      subtitle: story.summary,
-                      meta: metaParts.join(' · '),
-                      starred: isStarred,
-                      badges: [
-                        if (story.presentationJson != null)
-                          const EarthlyBadge(
-                            label: 'INTERACTIVE VIEWS',
-                            color: EarthlyColors.infoCyan,
-                          ),
-                      ],
-                      onTap: () => widget.onOpenStory(story),
-                      primaryAction: IconButton(
-                        tooltip: 'Open Story',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => widget.onOpenStory(story),
-                        icon: const Icon(Icons.chevron_right, size: 20),
-                      ),
-                      menuActions: [
-                        EntityRowMenuAction(
-                          label: 'Read story',
-                          icon: Icons.auto_stories_outlined,
-                          onSelected: () => widget.onOpenStory(story),
-                        ),
-                        EntityRowMenuAction(
-                          label: isStarred
-                              ? 'Remove from favorites'
-                              : 'Add to favorites',
-                          icon: isStarred ? Icons.star : Icons.star_outline,
-                          onSelected: () => widget.onToggleFavorite(favKey),
-                        ),
-                        EntityRowMenuAction(
-                          label: 'Story comments',
-                          icon: Icons.forum_outlined,
-                          onSelected: () => widget.onOpenStoryDiscussion(story),
-                        ),
-                        EntityRowMenuAction(
-                          label: 'Copy nostr:naddr1… link',
-                          icon: Icons.link,
-                          onSelected: () => _copyNaddr(
-                            kind: 37520,
-                            pubkey: story.pubkey,
-                            dTag: story.dTag,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+    return RefreshIndicator(
+      color: EarthlyColors.amber,
+      onRefresh: _refresh,
+      child: filtered.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Text(
+                    _emptyMessage('stories'),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-          ),
-        ),
-      ],
+              ],
+            )
+          : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: filtered.length,
+              itemBuilder: (context, index) {
+                final story = filtered[index];
+                final favKey = 'story:${story.address}';
+                final isStarred = widget.pinnedEntityIds.contains(favKey);
+                final linkedCount = story.referencedAddresses.length;
+                final dateStr =
+                    formatRelativeUnixDate(story.publishedAt.toInt());
+                final metaParts = <String>[
+                  _authorLabel(story.pubkey),
+                  if (dateStr.isNotEmpty) dateStr,
+                  if (linkedCount > 0)
+                    '$linkedCount map${linkedCount == 1 ? '' : 's'}',
+                ];
+
+                return EarthlyEntityListRow(
+                  leading: EarthlyCoverThumb(
+                    imageUrl: story.image,
+                    fallbackIcon: Icons.auto_stories_outlined,
+                  ),
+                  title: story.title,
+                  subtitle: story.summary != null
+                      ? stripEarthlyMarkdownPreview(story.summary!)
+                      : null,
+                  meta: metaParts.join(' · '),
+                  starred: isStarred,
+                  badges: [
+                    if (story.presentationJson != null)
+                      const EarthlyBadge(
+                        label: 'INTERACTIVE VIEWS',
+                        color: EarthlyColors.infoCyan,
+                      ),
+                  ],
+                  onTap: () => widget.onOpenStory(story),
+                  primaryAction: IconButton(
+                    tooltip: 'Open Story',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => widget.onOpenStory(story),
+                    icon: const Icon(Icons.chevron_right, size: 20),
+                  ),
+                  menuActions: [
+                    EntityRowMenuAction(
+                      label: 'Read story',
+                      icon: Icons.auto_stories_outlined,
+                      onSelected: () => widget.onOpenStory(story),
+                    ),
+                    EntityRowMenuAction(
+                      label: isStarred
+                          ? 'Remove from favorites'
+                          : 'Add to favorites',
+                      icon: isStarred ? Icons.star : Icons.star_outline,
+                      onSelected: () => widget.onToggleFavorite(favKey),
+                    ),
+                    EntityRowMenuAction(
+                      label: 'Story comments',
+                      icon: Icons.forum_outlined,
+                      onSelected: () => widget.onOpenStoryDiscussion(story),
+                    ),
+                    EntityRowMenuAction(
+                      label: 'Copy nostr:naddr1… link',
+                      icon: Icons.link,
+                      onSelected: () => _copyNaddr(
+                        kind: 37520,
+                        pubkey: story.pubkey,
+                        dTag: story.dTag,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
     );
   }
 
   Widget _buildAtlasesList(List<AtlasSummaryDto> filtered) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: widget.onCreateAtlas,
-              icon: const Icon(
-                Icons.public,
-                size: 16,
-                color: EarthlyColors.commentGreen,
-              ),
-              label: const Text('New Atlas'),
-            ),
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: RefreshIndicator(
-            color: EarthlyColors.amber,
-            onRefresh: _refresh,
-            child: filtered.isEmpty
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(28),
-                        child: Text(
-                          _emptyMessage('atlases'),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ],
-                  )
-                : ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: filtered.length,
-                  itemBuilder: (context, index) {
-                    final atlas = filtered[index];
-                    final favKey = 'atlas:${atlas.address}';
-                    final isStarred = widget.pinnedEntityIds.contains(favKey);
-                    final isLens =
-                        widget.activeAtlasLens?.address == atlas.address;
-                    final govLabel = switch (atlas.governance) {
-                      'closed' => 'AUTHOR PICKS',
-                      'schema' => 'SCHEMA',
-                      _ => 'OPEN TO CONTRIBUTIONS',
-                    };
-                    final govColor = atlas.governance == 'open'
-                        ? EarthlyColors.commentGreen
-                        : EarthlyColors.published;
-
-                    return EarthlyEntityListRow(
-                      leading: EarthlyCoverThumb(
-                        imageUrl: atlas.image,
-                        fallbackIcon: Icons.public,
-                      ),
-                      title: atlas.name,
-                      subtitle: atlas.description,
-                      meta:
-                          '${_authorLabel(atlas.pubkey)} · ${atlas.pinnedAddresses.length} pinned',
-                      selected: isLens,
-                      starred: isStarred,
-                      badges: [
-                        EarthlyBadge(label: govLabel, color: govColor),
-                        if (isLens)
-                          const EarthlyBadge(
-                            label: 'ACTIVE LENS',
-                            color: EarthlyColors.amber,
-                          ),
-                      ],
-                      onTap: () => widget.onInspectAtlas(atlas),
-                      primaryAction: IconButton(
-                        tooltip: isLens ? 'Leave Atlas Lens' : 'Enter Atlas Lens',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => isLens
-                            ? widget.onLeaveAtlasLens()
-                            : widget.onEnterAtlasLens(atlas),
-                        icon: Icon(
-                          Icons.filter_tilt_shift,
-                          size: 20,
-                          color: isLens ? EarthlyColors.amber : null,
-                        ),
-                      ),
-                      menuActions: [
-                        EntityRowMenuAction(
-                          label: 'Open Atlas details',
-                          icon: Icons.info_outline,
-                          onSelected: () => widget.onInspectAtlas(atlas),
-                        ),
-                        EntityRowMenuAction(
-                          label: isLens ? 'Leave Atlas Lens' : 'Enter Atlas Lens',
-                          icon: Icons.filter_tilt_shift,
-                          onSelected: () => isLens
-                              ? widget.onLeaveAtlasLens()
-                              : widget.onEnterAtlasLens(atlas),
-                        ),
-                        if (atlas.pinnedAddresses.isNotEmpty)
-                          EntityRowMenuAction(
-                            label: 'Show all maps on map',
-                            icon: Icons.layers,
-                            onSelected: () => widget.onOpenAtlas(atlas),
-                          ),
-                        EntityRowMenuAction(
-                          label: isStarred
-                              ? 'Remove from favorites'
-                              : 'Add to favorites',
-                          icon: isStarred ? Icons.star : Icons.star_outline,
-                          onSelected: () => widget.onToggleFavorite(favKey),
-                        ),
-                        EntityRowMenuAction(
-                          label: 'Copy nostr:naddr1… link',
-                          icon: Icons.link,
-                          onSelected: () => _copyNaddr(
-                            kind: 37518,
-                            pubkey: atlas.pubkey,
-                            dTag: atlas.dTag,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+    return RefreshIndicator(
+      color: EarthlyColors.amber,
+      onRefresh: _refresh,
+      child: filtered.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Text(
+                    _emptyMessage('atlases'),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-          ),
-        ),
-      ],
+              ],
+            )
+          : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: filtered.length,
+              itemBuilder: (context, index) {
+                final atlas = filtered[index];
+                final favKey = 'atlas:${atlas.address}';
+                final isStarred = widget.pinnedEntityIds.contains(favKey);
+                final isLens =
+                    widget.activeAtlasLens?.address == atlas.address;
+                final govLabel = switch (atlas.governance) {
+                  'closed' => 'AUTHOR PICKS',
+                  'schema' => 'SCHEMA',
+                  _ => 'OPEN TO CONTRIBUTIONS',
+                };
+                final govColor = atlas.governance == 'open'
+                    ? EarthlyColors.commentGreen
+                    : EarthlyColors.published;
+
+                return EarthlyEntityListRow(
+                  leading: EarthlyCoverThumb(
+                    imageUrl: atlas.image,
+                    fallbackIcon: Icons.public,
+                  ),
+                  title: atlas.name,
+                  subtitle: atlas.description != null
+                      ? stripEarthlyMarkdownPreview(atlas.description!)
+                      : null,
+                  meta:
+                      '${_authorLabel(atlas.pubkey)} · ${atlas.pinnedAddresses.length} pinned',
+                  selected: isLens,
+                  starred: isStarred,
+                  badges: [
+                    EarthlyBadge(label: govLabel, color: govColor),
+                    if (isLens)
+                      const EarthlyBadge(
+                        label: 'ACTIVE LENS',
+                        color: EarthlyColors.amber,
+                      ),
+                  ],
+                  onTap: () => widget.onInspectAtlas(atlas),
+                  primaryAction: IconButton(
+                    tooltip: isLens ? 'Leave Atlas Lens' : 'Enter Atlas Lens',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => isLens
+                        ? widget.onLeaveAtlasLens()
+                        : widget.onEnterAtlasLens(atlas),
+                    icon: Icon(
+                      Icons.filter_tilt_shift,
+                      size: 20,
+                      color: isLens ? EarthlyColors.amber : null,
+                    ),
+                  ),
+                  menuActions: [
+                    EntityRowMenuAction(
+                      label: 'Open Atlas details',
+                      icon: Icons.info_outline,
+                      onSelected: () => widget.onInspectAtlas(atlas),
+                    ),
+                    EntityRowMenuAction(
+                      label: isLens ? 'Leave Atlas Lens' : 'Enter Atlas Lens',
+                      icon: Icons.filter_tilt_shift,
+                      onSelected: () => isLens
+                          ? widget.onLeaveAtlasLens()
+                          : widget.onEnterAtlasLens(atlas),
+                    ),
+                    if (atlas.pinnedAddresses.isNotEmpty)
+                      EntityRowMenuAction(
+                        label: 'Show all maps on map',
+                        icon: Icons.layers,
+                        onSelected: () => widget.onOpenAtlas(atlas),
+                      ),
+                    EntityRowMenuAction(
+                      label: isStarred
+                          ? 'Remove from favorites'
+                          : 'Add to favorites',
+                      icon: isStarred ? Icons.star : Icons.star_outline,
+                      onSelected: () => widget.onToggleFavorite(favKey),
+                    ),
+                    EntityRowMenuAction(
+                      label: 'Copy nostr:naddr1… link',
+                      icon: Icons.link,
+                      onSelected: () => _copyNaddr(
+                        kind: 37518,
+                        pubkey: atlas.pubkey,
+                        dTag: atlas.dTag,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
     );
   }
 
   Widget _buildSightingsList(List<SightingSummaryDto> sightings) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: widget.onCreateSighting,
-              icon: const Icon(Icons.add_a_photo_outlined, size: 16),
-              label: const Text('Drop Field Sighting (GPS + Photo)'),
-            ),
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: RefreshIndicator(
-            color: EarthlyColors.amber,
-            onRefresh: _refresh,
-            child: sightings.isEmpty
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: const [
-                      Padding(
-                        padding: EdgeInsets.all(28),
-                        child: Text(
-                          'No active sightings right now.',
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ],
-                  )
-                : ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: sightings.length,
-                  itemBuilder: (context, index) {
-                    final s = sightings[index];
-                    final title =
-                        s.title ?? (s.note.isNotEmpty ? s.note : 'Sighting');
-                    final dateStr = formatRelativeUnixDate(s.start.toInt());
-                    return EarthlyEntityListRow(
-                      leading: GestureDetector(
-                        onTap: (s.imageUrl != null && s.imageUrl!.isNotEmpty)
-                            ? () => showEarthlyPhotoLightbox(
-                                  context,
-                                  url: s.imageUrl!,
-                                  caption: title,
-                                )
-                            : null,
-                        child: EarthlyCoverThumb(
-                          imageUrl: s.imageUrl,
-                          fallbackIcon: Icons.visibility,
-                          fallbackColor: EarthlyColors.proposedAmber,
-                        ),
-                      ),
-                      title: title,
-                      subtitle: s.title != null && s.note.isNotEmpty
-                          ? s.note
-                          : null,
-                      meta:
-                          '${_authorLabel(s.pubkey)}${dateStr.isNotEmpty ? ' · $dateStr' : ''} · ${s.lat.toStringAsFixed(3)}, ${s.lon.toStringAsFixed(3)}',
-                      badges: const [
-                        EarthlyBadge(
-                          label: 'LIVE',
-                          color: EarthlyColors.proposedAmber,
-                          filled: true,
-                        ),
-                      ],
-                      onTap: () => widget.onFocusSighting(s),
-                      primaryAction: IconButton(
-                        tooltip: 'Locate on map',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => widget.onFocusSighting(s),
-                        icon: const Icon(Icons.my_location, size: 18),
-                      ),
-                    );
-                  },
+    return RefreshIndicator(
+      color: EarthlyColors.amber,
+      onRefresh: _refresh,
+      child: sightings.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                Padding(
+                  padding: EdgeInsets.all(28),
+                  child: Text(
+                    'No active sightings right now.',
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-          ),
-        ),
-      ],
+              ],
+            )
+          : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: sightings.length,
+              itemBuilder: (context, index) {
+                final s = sightings[index];
+                final title =
+                    s.title ?? (s.note.isNotEmpty ? s.note : 'Sighting');
+                final dateStr = formatRelativeUnixDate(s.start.toInt());
+                return EarthlyEntityListRow(
+                  leading: GestureDetector(
+                    onTap: (s.imageUrl != null && s.imageUrl!.isNotEmpty)
+                        ? () => showEarthlyPhotoLightbox(
+                              context,
+                              url: s.imageUrl!,
+                              caption: title,
+                            )
+                        : null,
+                    child: EarthlyCoverThumb(
+                      imageUrl: s.imageUrl,
+                      fallbackIcon: Icons.visibility,
+                      fallbackColor: EarthlyColors.proposedAmber,
+                    ),
+                  ),
+                  title: title,
+                  subtitle: s.title != null && s.note.isNotEmpty
+                      ? stripEarthlyMarkdownPreview(s.note)
+                      : null,
+                  meta:
+                      '${_authorLabel(s.pubkey)}${dateStr.isNotEmpty ? ' · $dateStr' : ''} · ${s.lat.toStringAsFixed(3)}, ${s.lon.toStringAsFixed(3)}',
+                  badges: const [
+                    EarthlyBadge(
+                      label: 'LIVE',
+                      color: EarthlyColors.proposedAmber,
+                      filled: true,
+                    ),
+                  ],
+                  onTap: () => widget.onFocusSighting(s),
+                  primaryAction: IconButton(
+                    tooltip: 'Locate on map',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => widget.onFocusSighting(s),
+                    icon: const Icon(Icons.my_location, size: 18),
+                  ),
+                );
+              },
+            ),
     );
   }
 
   Widget _buildBeaconsList(List<LiveBeaconDto> beacons) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: widget.onOpenBeaconBroadcaster,
-              icon: const Icon(
-                Icons.sensors,
-                size: 16,
-                color: EarthlyColors.commentGreen,
-              ),
-              label: const Text('Broadcast Live Beacon'),
+    return RefreshIndicator(
+      color: EarthlyColors.amber,
+      onRefresh: _refresh,
+      child: beacons.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                Padding(
+                  padding: EdgeInsets.all(28),
+                  child: Text(
+                    'No active live beacons right now.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            )
+          : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: beacons.length,
+              itemBuilder: (context, index) {
+                final b = beacons[index];
+                final seen = formatRelativeUnixDate(b.createdAt.toInt());
+                return EarthlyEntityListRow(
+                  leading: SizedBox(
+                    width: 68,
+                    height: 54,
+                    child: Center(
+                      child: Stack(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: EarthlyColors.commentGreen
+                                  .withValues(alpha: 0.18),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.sensors,
+                              size: 20,
+                              color: EarthlyColors.commentGreen,
+                            ),
+                          ),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              width: 11,
+                              height: 11,
+                              decoration: BoxDecoration(
+                                color: EarthlyColors.commentGreen,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Theme.of(context).colorScheme.surface,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  title: (b.status != null && b.status!.trim().isNotEmpty)
+                      ? b.status!
+                      : _authorLabel(b.pubkey),
+                  meta:
+                      '${_authorLabel(b.pubkey)}${seen.isNotEmpty ? ' · last seen $seen' : ''}',
+                  badges: const [
+                    EarthlyBadge(
+                      label: 'LIVE',
+                      color: EarthlyColors.commentGreen,
+                      filled: true,
+                    ),
+                  ],
+                  selected: true,
+                  selectedColor: EarthlyColors.commentGreen,
+                  onTap: () => widget.onFocusBeacon(b),
+                  primaryAction: IconButton(
+                    tooltip: 'Watch on map',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => widget.onFocusBeacon(b),
+                    icon: const Icon(Icons.my_location, size: 19),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+/// Compact square create/action button sitting cleanly inline in the Explore
+/// toolbar row to save an entire vertical row across Stories, Atlases,
+/// Sightings, and Live Beacons.
+class _ExploreSquareCreateButton extends StatelessWidget {
+  const _ExploreSquareCreateButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: SizedBox(
+        key: const Key('explore-new-action-btn'),
+        width: 34,
+        height: 34,
+        child: Material(
+          color: EarthlyColors.amber,
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: onTap,
+            child: Icon(
+              icon,
+              size: 18,
+              color: EarthlyColors.amberInk,
             ),
           ),
         ),
-        const Divider(height: 1),
-        Expanded(
-          child: RefreshIndicator(
-            color: EarthlyColors.amber,
-            onRefresh: _refresh,
-            child: beacons.isEmpty
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: const [
-                      Padding(
-                        padding: EdgeInsets.all(28),
-                        child: Text(
-                          'No active live beacons right now.',
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ],
-                  )
-                : ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: beacons.length,
-                  itemBuilder: (context, index) {
-                    final b = beacons[index];
-                    final seen = formatRelativeUnixDate(b.createdAt.toInt());
-                    return EarthlyEntityListRow(
-                      leading: SizedBox(
-                        width: 68,
-                        height: 54,
-                        child: Center(
-                          child: Stack(
-                            children: [
-                              Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  color: EarthlyColors.commentGreen
-                                      .withValues(alpha: 0.18),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.sensors,
-                                  size: 20,
-                                  color: EarthlyColors.commentGreen,
-                                ),
-                              ),
-                              Positioned(
-                                right: 0,
-                                bottom: 0,
-                                child: Container(
-                                  width: 11,
-                                  height: 11,
-                                  decoration: BoxDecoration(
-                                    color: EarthlyColors.commentGreen,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .surface,
-                                      width: 2,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      title: (b.status != null && b.status!.trim().isNotEmpty)
-                          ? b.status!
-                          : _authorLabel(b.pubkey),
-                      meta:
-                          '${_authorLabel(b.pubkey)}${seen.isNotEmpty ? ' · last seen $seen' : ''}',
-                      badges: const [
-                        EarthlyBadge(
-                          label: 'LIVE',
-                          color: EarthlyColors.commentGreen,
-                          filled: true,
-                        ),
-                      ],
-                      selected: true,
-                      selectedColor: EarthlyColors.commentGreen,
-                      onTap: () => widget.onFocusBeacon(b),
-                      primaryAction: IconButton(
-                        tooltip: 'Watch on map',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => widget.onFocusBeacon(b),
-                        icon: const Icon(Icons.my_location, size: 19),
-                      ),
-                    );
-                  },
-                ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

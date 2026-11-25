@@ -6,6 +6,7 @@ import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -308,10 +309,7 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
           ),
           if (map.description != null && map.description!.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
-            Text(
-              map.description!.trim(),
-              style: theme.textTheme.bodyMedium?.copyWith(height: 1.45),
-            ),
+            EarthlyRichText(text: map.description!.trim()),
           ],
           const SizedBox(height: 12),
           Wrap(

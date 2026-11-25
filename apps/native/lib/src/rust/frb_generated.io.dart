@@ -270,6 +270,11 @@ abstract class EarthlyRustLibApiImplPlatform
   List<ResearchCoordDto> dco_decode_list_research_coord_dto(dynamic raw);
 
   @protected
+  List<SavedAccountSessionDto> dco_decode_list_saved_account_session_dto(
+    dynamic raw,
+  );
+
+  @protected
   List<SavedOfflinePackDto> dco_decode_list_saved_offline_pack_dto(dynamic raw);
 
   @protected
@@ -387,6 +392,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   ResearchSourceDto dco_decode_research_source_dto(dynamic raw);
+
+  @protected
+  SavedAccountSessionDto dco_decode_saved_account_session_dto(dynamic raw);
 
   @protected
   SavedOfflinePackDto dco_decode_saved_offline_pack_dto(dynamic raw);
@@ -750,6 +758,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<SavedAccountSessionDto> sse_decode_list_saved_account_session_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<SavedOfflinePackDto> sse_decode_list_saved_offline_pack_dto(
     SseDeserializer deserializer,
   );
@@ -907,6 +920,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   ResearchSourceDto sse_decode_research_source_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  SavedAccountSessionDto sse_decode_saved_account_session_dto(
     SseDeserializer deserializer,
   );
 
@@ -1374,6 +1392,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_saved_account_session_dto(
+    List<SavedAccountSessionDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_saved_offline_pack_dto(
     List<SavedOfflinePackDto> self,
     SseSerializer serializer,
@@ -1565,6 +1589,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_research_source_dto(
     ResearchSourceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_saved_account_session_dto(
+    SavedAccountSessionDto self,
     SseSerializer serializer,
   );
 

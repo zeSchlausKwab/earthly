@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1764399669;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 353063428;
 
 // Section: executor
 
@@ -500,6 +500,41 @@ fn wire__crate__api__nostr_client__decode_naddr_coordinate_impl(
                     let output_ok = Ok::<_, ()>(
                         crate::api::nostr_client::decode_naddr_coordinate(api_naddr_uri),
                     )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__nostr_client__decode_npub_to_hex_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "decode_npub_to_hex",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_pubkey_or_npub = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>(crate::api::nostr_client::decode_npub_to_hex(
+                        api_pubkey_or_npub,
+                    ))?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -3962,6 +3997,9 @@ impl SseDecode for crate::api::settings::AppSettingsDto {
         let mut var_blossomServerUrl = <String>::sse_decode(deserializer);
         let mut var_inboxReadAllBefore = <u64>::sse_decode(deserializer);
         let mut var_inboxReadIds = <Vec<String>>::sse_decode(deserializer);
+        let mut var_savedAccounts =
+            <Vec<crate::api::settings::SavedAccountSessionDto>>::sse_decode(deserializer);
+        let mut var_activeAccountId = <Option<String>>::sse_decode(deserializer);
         return crate::api::settings::AppSettingsDto {
             relay_urls: var_relayUrls,
             local_pubkey_hex: var_localPubkeyHex,
@@ -3980,6 +4018,8 @@ impl SseDecode for crate::api::settings::AppSettingsDto {
             blossom_server_url: var_blossomServerUrl,
             inbox_read_all_before: var_inboxReadAllBefore,
             inbox_read_ids: var_inboxReadIds,
+            saved_accounts: var_savedAccounts,
+            active_account_id: var_activeAccountId,
         };
     }
 }
@@ -4835,6 +4875,20 @@ impl SseDecode for Vec<crate::api::agent::ResearchCoordDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::settings::SavedAccountSessionDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::settings::SavedAccountSessionDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::settings::SavedOfflinePackDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5476,6 +5530,30 @@ impl SseDecode for crate::api::agent::ResearchSourceDto {
     }
 }
 
+impl SseDecode for crate::api::settings::SavedAccountSessionDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_kind = <String>::sse_decode(deserializer);
+        let mut var_pubkeyHex = <String>::sse_decode(deserializer);
+        let mut var_localNsec = <Option<String>>::sse_decode(deserializer);
+        let mut var_bunkerUri = <Option<String>>::sse_decode(deserializer);
+        let mut var_bunkerClientNsec = <Option<String>>::sse_decode(deserializer);
+        let mut var_signerPackage = <Option<String>>::sse_decode(deserializer);
+        let mut var_label = <Option<String>>::sse_decode(deserializer);
+        return crate::api::settings::SavedAccountSessionDto {
+            id: var_id,
+            kind: var_kind,
+            pubkey_hex: var_pubkeyHex,
+            local_nsec: var_localNsec,
+            bunker_uri: var_bunkerUri,
+            bunker_client_nsec: var_bunkerClientNsec,
+            signer_package: var_signerPackage,
+            label: var_label,
+        };
+    }
+}
+
 impl SseDecode for crate::api::settings::SavedOfflinePackDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5738,316 +5816,322 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        12 => wire__crate__api__blossom__default_blossom_server_url_impl(
+        12 => wire__crate__api__nostr_client__decode_npub_to_hex_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        13 => wire__crate__api__private_groups__default_cordn_coordinator_pubkey_impl(
+        13 => wire__crate__api__blossom__default_blossom_server_url_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        14 => wire__crate__api__private_groups__delete_circle_workspace_impl(
+        14 => wire__crate__api__private_groups__default_cordn_coordinator_pubkey_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        15 => wire__crate__api__publish__delete_local_draft_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__spike__discover_local_atlas_bundles_impl(
+        15 => wire__crate__api__private_groups__delete_circle_workspace_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        17 => wire__crate__api__nostr_client__encode_naddr_coordinate_impl(
+        16 => wire__crate__api__publish__delete_local_draft_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__spike__discover_local_atlas_bundles_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        18 => wire__crate__api__nostr_client__fetch_author_portfolio_impl(
+        18 => wire__crate__api__nostr_client__encode_naddr_coordinate_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        19 => wire__crate__api__private_groups__fetch_circle_join_requests_impl(
+        19 => wire__crate__api__nostr_client__fetch_author_portfolio_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        20 => wire__crate__api__nostr_client__fetch_earthly_catalog_impl(
+        20 => wire__crate__api__private_groups__fetch_circle_join_requests_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        21 => wire__crate__api__nostr_client__fetch_entity_by_address_impl(
+        21 => wire__crate__api__nostr_client__fetch_earthly_catalog_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        22 => wire__crate__api__nostr_client__fetch_entity_discussion_impl(
+        22 => wire__crate__api__nostr_client__fetch_entity_by_address_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        23 => wire__crate__api__nostr_client__fetch_inbox_items_impl(
+        23 => wire__crate__api__nostr_client__fetch_entity_discussion_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        24 => wire__crate__api__nostr_client__fetch_local_node_catalog_impl(
+        24 => wire__crate__api__nostr_client__fetch_inbox_items_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        25 => wire__crate__api__nostr_client__fetch_maps_by_addresses_impl(
+        25 => wire__crate__api__nostr_client__fetch_local_node_catalog_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        26 => {
+        26 => wire__crate__api__nostr_client__fetch_maps_by_addresses_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        27 => {
             wire__crate__api__nostr_client__fetch_profiles_impl(port, ptr, rust_vec_len, data_len)
         }
-        27 => {
+        28 => {
             wire__crate__api__agent__fetch_research_source_impl(port, ptr, rust_vec_len, data_len)
         }
-        28 => wire__crate__api__spike__forget_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__publish__generate_local_nostr_keypair_impl(
+        29 => wire__crate__api__spike__forget_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__publish__generate_local_nostr_keypair_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        30 => {
+        31 => {
             wire__crate__api__geo__geo_difference_polygons_impl(port, ptr, rust_vec_len, data_len)
         }
-        31 => wire__crate__api__geo__geo_export_gpx_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__geo__geo_export_kml_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__geo__geo_extrude_arrow_impl(port, ptr, rust_vec_len, data_len),
-        34 => {
+        32 => wire__crate__api__geo__geo_export_gpx_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__geo__geo_export_kml_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__geo__geo_extrude_arrow_impl(port, ptr, rust_vec_len, data_len),
+        35 => {
             wire__crate__api__geo__geo_import_spatial_file_impl(port, ptr, rust_vec_len, data_len)
         }
-        35 => wire__crate__api__geo__geo_line_corridor_impl(port, ptr, rust_vec_len, data_len),
-        36 => {
+        36 => wire__crate__api__geo__geo_line_corridor_impl(port, ptr, rust_vec_len, data_len),
+        37 => {
             wire__crate__api__geo__geo_measure_line_meters_impl(port, ptr, rust_vec_len, data_len)
         }
-        37 => wire__crate__api__geo__geo_measure_polygon_area_m2_impl(
+        38 => wire__crate__api__geo__geo_measure_polygon_area_m2_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        38 => wire__crate__api__geo__geo_offset_line_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__geo__geo_offset_polygon_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__geo__geo_simplify_line_impl(port, ptr, rust_vec_len, data_len),
-        41 => {
+        39 => wire__crate__api__geo__geo_offset_line_impl(port, ptr, rust_vec_len, data_len),
+        40 => wire__crate__api__geo__geo_offset_polygon_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__geo__geo_simplify_line_impl(port, ptr, rust_vec_len, data_len),
+        42 => {
             wire__crate__api__geo__geo_split_line_at_point_impl(port, ptr, rust_vec_len, data_len)
         }
-        42 => {
+        43 => {
             wire__crate__api__geo__geo_split_polygon_by_line_impl(port, ptr, rust_vec_len, data_len)
         }
-        43 => wire__crate__api__geo__geo_union_polygons_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__publish__import_local_nostr_nsec_impl(
+        44 => wire__crate__api__geo__geo_union_polygons_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__publish__import_local_nostr_nsec_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        45 => wire__crate__api__spike__ingest_local_blob_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__spike__ingest_local_pmtiles_impl(port, ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__spike__ingest_local_pmtiles_from_path_impl(
+        46 => wire__crate__api__spike__ingest_local_blob_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__spike__ingest_local_pmtiles_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__spike__ingest_local_pmtiles_from_path_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        48 => wire__crate__api__spike__init_app_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__spike__inspect_atlas_workspace_path_impl(
+        49 => wire__crate__api__spike__init_app_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__spike__inspect_atlas_workspace_path_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        50 => {
+        51 => {
             wire__crate__api__spike__inspect_pmtiles_header_impl(port, ptr, rust_vec_len, data_len)
         }
-        51 => wire__crate__api__spike__join_nearby_session_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__api__publish__list_local_drafts_impl(port, ptr, rust_vec_len, data_len),
-        53 => wire__crate__api__settings__load_app_settings_impl(port, ptr, rust_vec_len, data_len),
-        54 => wire__crate__api__private_groups__load_circles_snapshot_impl(
+        52 => wire__crate__api__spike__join_nearby_session_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__api__publish__list_local_drafts_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__api__settings__load_app_settings_impl(port, ptr, rust_vec_len, data_len),
+        55 => wire__crate__api__private_groups__load_circles_snapshot_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        55 => wire__crate__api__publish__load_local_draft_impl(port, ptr, rust_vec_len, data_len),
-        56 => wire__crate__api__spike__local_node_status_impl(port, ptr, rust_vec_len, data_len),
-        57 => wire__crate__api__spike__nearby_peers_status_impl(port, ptr, rust_vec_len, data_len),
-        58 => wire__crate__api__spike__outbox_summary_impl(port, ptr, rust_vec_len, data_len),
-        59 => wire__crate__api__publish__prepare_unsigned_atlas_event_impl(
+        56 => wire__crate__api__publish__load_local_draft_impl(port, ptr, rust_vec_len, data_len),
+        57 => wire__crate__api__spike__local_node_status_impl(port, ptr, rust_vec_len, data_len),
+        58 => wire__crate__api__spike__nearby_peers_status_impl(port, ptr, rust_vec_len, data_len),
+        59 => wire__crate__api__spike__outbox_summary_impl(port, ptr, rust_vec_len, data_len),
+        60 => wire__crate__api__publish__prepare_unsigned_atlas_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        60 => wire__crate__api__publish__prepare_unsigned_beacon_event_impl(
+        61 => wire__crate__api__publish__prepare_unsigned_beacon_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        61 => wire__crate__api__blossom__prepare_unsigned_blossom_upload_auth_impl(
+        62 => wire__crate__api__blossom__prepare_unsigned_blossom_upload_auth_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        62 => wire__crate__api__publish__prepare_unsigned_comment_event_impl(
+        63 => wire__crate__api__publish__prepare_unsigned_comment_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        63 => wire__crate__api__publish__prepare_unsigned_deletion_event_impl(
+        64 => wire__crate__api__publish__prepare_unsigned_deletion_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        64 => wire__crate__api__publish__prepare_unsigned_map_event_impl(
+        65 => wire__crate__api__publish__prepare_unsigned_map_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        65 => wire__crate__api__publish__prepare_unsigned_profile_event_impl(
+        66 => wire__crate__api__publish__prepare_unsigned_profile_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        66 => wire__crate__api__publish__prepare_unsigned_proposal_event_impl(
+        67 => wire__crate__api__publish__prepare_unsigned_proposal_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        67 => wire__crate__api__publish__prepare_unsigned_proposal_status_event_impl(
+        68 => wire__crate__api__publish__prepare_unsigned_proposal_status_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        68 => wire__crate__api__publish__prepare_unsigned_sighting_event_impl(
+        69 => wire__crate__api__publish__prepare_unsigned_sighting_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        69 => wire__crate__api__publish__prepare_unsigned_story_event_impl(
+        70 => wire__crate__api__publish__prepare_unsigned_story_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        70 => {
+        71 => {
             wire__crate__api__nostr_client__pubkey_to_npub_impl(port, ptr, rust_vec_len, data_len)
         }
-        71 => wire__crate__api__publish__publish_nearby_event_via_outbox_impl(
+        72 => wire__crate__api__publish__publish_nearby_event_via_outbox_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        72 => wire__crate__api__publish__publish_signed_event_via_outbox_impl(
+        73 => wire__crate__api__publish__publish_signed_event_via_outbox_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        73 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        74 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
-        75 => wire__crate__api__private_groups__remove_circle_member_impl(
+        74 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        75 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
+        76 => wire__crate__api__private_groups__remove_circle_member_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        76 => wire__crate__api__private_groups__request_join_circle_impl(
+        77 => wire__crate__api__private_groups__request_join_circle_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        77 => {
+        78 => {
             wire__crate__api__spike__resolve_local_blob_url_impl(port, ptr, rust_vec_len, data_len)
         }
-        78 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        79 => {
+        79 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        80 => {
             wire__crate__api__agent__run_earthly_agent_turn_impl(port, ptr, rust_vec_len, data_len)
         }
-        80 => wire__crate__api__settings__save_app_settings_impl(port, ptr, rust_vec_len, data_len),
-        81 => wire__crate__api__publish__save_local_draft_impl(port, ptr, rust_vec_len, data_len),
-        82 => wire__crate__api__nostr_client__search_places_impl(port, ptr, rust_vec_len, data_len),
-        83 => wire__crate__api__private_groups__send_circle_comment_impl(
+        81 => wire__crate__api__settings__save_app_settings_impl(port, ptr, rust_vec_len, data_len),
+        82 => wire__crate__api__publish__save_local_draft_impl(port, ptr, rust_vec_len, data_len),
+        83 => wire__crate__api__nostr_client__search_places_impl(port, ptr, rust_vec_len, data_len),
+        84 => wire__crate__api__private_groups__send_circle_comment_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        84 => wire__crate__api__private_groups__send_circle_dataset_impl(
+        85 => wire__crate__api__private_groups__send_circle_dataset_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        85 => wire__crate__api__private_groups__set_circle_administrator_impl(
+        86 => wire__crate__api__private_groups__set_circle_administrator_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        86 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
-        87 => wire__crate__api__nip46__sign_event_with_nip46_bunker_impl(
+        87 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
+        88 => wire__crate__api__nip46__sign_event_with_nip46_bunker_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        88 => {
+        89 => {
             wire__crate__api__publish__sign_event_with_nsec_impl(port, ptr, rust_vec_len, data_len)
         }
-        89 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
-        90 => {
+        90 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
+        91 => {
             wire__crate__api__spike__start_local_node_fips_impl(port, ptr, rust_vec_len, data_len)
         }
-        91 => wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len),
-        92 => wire__crate__api__nostr_client__subscribe_earthly_relay_stream_impl(
+        92 => wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len),
+        93 => wire__crate__api__nostr_client__subscribe_earthly_relay_stream_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        93 => wire__crate__api__private_groups__sync_circle_workspace_impl(
+        94 => wire__crate__api__private_groups__sync_circle_workspace_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        94 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        95 => wire__crate__api__blossom__upload_blob_to_blossom_impl(
+        95 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        96 => wire__crate__api__blossom__upload_blob_to_blossom_impl(
             port,
             ptr,
             rust_vec_len,
@@ -6184,6 +6268,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::settings::AppSettingsDto {
             self.blossom_server_url.into_into_dart().into_dart(),
             self.inbox_read_all_before.into_into_dart().into_dart(),
             self.inbox_read_ids.into_into_dart().into_dart(),
+            self.saved_accounts.into_into_dart().into_dart(),
+            self.active_account_id.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -7252,6 +7338,33 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::agent::ResearchSourceDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::settings::SavedAccountSessionDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.pubkey_hex.into_into_dart().into_dart(),
+            self.local_nsec.into_into_dart().into_dart(),
+            self.bunker_uri.into_into_dart().into_dart(),
+            self.bunker_client_nsec.into_into_dart().into_dart(),
+            self.signer_package.into_into_dart().into_dart(),
+            self.label.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::settings::SavedAccountSessionDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::settings::SavedAccountSessionDto>
+    for crate::api::settings::SavedAccountSessionDto
+{
+    fn into_into_dart(self) -> crate::api::settings::SavedAccountSessionDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::settings::SavedOfflinePackDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -7533,6 +7646,11 @@ impl SseEncode for crate::api::settings::AppSettingsDto {
         <String>::sse_encode(self.blossom_server_url, serializer);
         <u64>::sse_encode(self.inbox_read_all_before, serializer);
         <Vec<String>>::sse_encode(self.inbox_read_ids, serializer);
+        <Vec<crate::api::settings::SavedAccountSessionDto>>::sse_encode(
+            self.saved_accounts,
+            serializer,
+        );
+        <Option<String>>::sse_encode(self.active_account_id, serializer);
     }
 }
 
@@ -8103,6 +8221,16 @@ impl SseEncode for Vec<crate::api::agent::ResearchCoordDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::settings::SavedAccountSessionDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::settings::SavedAccountSessionDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::settings::SavedOfflinePackDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -8521,6 +8649,20 @@ impl SseEncode for crate::api::agent::ResearchSourceDto {
         <Option<String>>::sse_encode(self.direct_geojson, serializer);
         <Option<String>>::sse_encode(self.direct_format, serializer);
         <u32>::sse_encode(self.direct_feature_count, serializer);
+    }
+}
+
+impl SseEncode for crate::api::settings::SavedAccountSessionDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.kind, serializer);
+        <String>::sse_encode(self.pubkey_hex, serializer);
+        <Option<String>>::sse_encode(self.local_nsec, serializer);
+        <Option<String>>::sse_encode(self.bunker_uri, serializer);
+        <Option<String>>::sse_encode(self.bunker_client_nsec, serializer);
+        <Option<String>>::sse_encode(self.signer_package, serializer);
+        <Option<String>>::sse_encode(self.label, serializer);
     }
 }
 

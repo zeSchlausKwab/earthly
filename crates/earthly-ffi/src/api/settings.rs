@@ -4,8 +4,21 @@
 //! and Favorites / Recents).
 
 use earthly_storage::{
-    AppSettingsStore, MountedAtlasWorkspaceRecord, PersistedAppSettings, SavedOfflinePackRecord,
+    AppSettingsStore, MountedAtlasWorkspaceRecord, PersistedAppSettings,
+    SavedAccountSessionRecord, SavedOfflinePackRecord,
 };
+
+#[derive(Clone, Debug)]
+pub struct SavedAccountSessionDto {
+    pub id: String,
+    pub kind: String,
+    pub pubkey_hex: String,
+    pub local_nsec: Option<String>,
+    pub bunker_uri: Option<String>,
+    pub bunker_client_nsec: Option<String>,
+    pub signer_package: Option<String>,
+    pub label: Option<String>,
+}
 
 #[derive(Clone, Debug)]
 pub struct SavedOfflinePackDto {
@@ -52,6 +65,8 @@ pub struct AppSettingsDto {
     pub blossom_server_url: String,
     pub inbox_read_all_before: u64,
     pub inbox_read_ids: Vec<String>,
+    pub saved_accounts: Vec<SavedAccountSessionDto>,
+    pub active_account_id: Option<String>,
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
@@ -118,6 +133,21 @@ fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
         blossom_server_url: r.blossom_server_url,
         inbox_read_all_before: r.inbox_read_all_before,
         inbox_read_ids: r.inbox_read_ids,
+        saved_accounts: r
+            .saved_accounts
+            .into_iter()
+            .map(|a| SavedAccountSessionDto {
+                id: a.id,
+                kind: a.kind,
+                pubkey_hex: a.pubkey_hex,
+                local_nsec: a.local_nsec,
+                bunker_uri: a.bunker_uri,
+                bunker_client_nsec: a.bunker_client_nsec,
+                signer_package: a.signer_package,
+                label: a.label,
+            })
+            .collect(),
+        active_account_id: r.active_account_id,
     }
 }
 
@@ -168,6 +198,21 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
         blossom_server_url: d.blossom_server_url,
         inbox_read_all_before: d.inbox_read_all_before,
         inbox_read_ids: d.inbox_read_ids,
+        saved_accounts: d
+            .saved_accounts
+            .into_iter()
+            .map(|a| SavedAccountSessionRecord {
+                id: a.id,
+                kind: a.kind,
+                pubkey_hex: a.pubkey_hex,
+                local_nsec: a.local_nsec,
+                bunker_uri: a.bunker_uri,
+                bunker_client_nsec: a.bunker_client_nsec,
+                signer_package: a.signer_package,
+                label: a.label,
+            })
+            .collect(),
+        active_account_id: d.active_account_id,
     }
 }
 

@@ -10,6 +10,7 @@ import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/private_groups.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 import 'qr_code_view.dart';
@@ -1190,7 +1191,7 @@ class _CirclesSheetState extends State<CirclesSheet>
                         ),
                         if (msg.text.isNotEmpty) ...[
                           const SizedBox(height: 4),
-                          Text(msg.text, style: theme.textTheme.bodyMedium),
+                          EarthlyRichText(text: msg.text, compact: true),
                         ],
                         if (hasGeo) ...[
                           const SizedBox(height: 6),

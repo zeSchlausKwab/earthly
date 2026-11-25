@@ -118,6 +118,13 @@ Future<String> pubkeyToNpub({required String pubkeyOrNpub}) => EarthlyRustLib
     .api
     .crateApiNostrClientPubkeyToNpub(pubkeyOrNpub: pubkeyOrNpub);
 
+/// Decodes a `nostr:npub1…`, `npub1…`, `nostr:nprofile1…`, `nprofile1…`, or 64-char hex
+/// pubkey string into canonical lowercase 64-char hex.
+Future<String?> decodeNpubToHex({required String pubkeyOrNpub}) =>
+    EarthlyRustLib.instance.api.crateApiNostrClientDecodeNpubToHex(
+      pubkeyOrNpub: pubkeyOrNpub,
+    );
+
 /// Fetches a single author's `kind 0` profile and all published Earthly Maps (`37515`),
 /// Stories (`37520`), and Atlases (`37518`) from the configured Nostr relays.
 Future<AuthorPortfolioDto> fetchAuthorPortfolio({

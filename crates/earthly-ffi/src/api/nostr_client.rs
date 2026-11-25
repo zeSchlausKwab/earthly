@@ -13,7 +13,7 @@ use earthly_domain::{
     TEMPORAL_SIGHTING_KIND, TemporalSighting, diff_feature_collections, is_expired,
 };
 use nostr::nips::nip01::Coordinate;
-use nostr::nips::nip19::{FromBech32, Nip19Coordinate, ToBech32};
+use nostr::nips::nip19::{FromBech32, Nip19, Nip19Coordinate, ToBech32};
 use nostr::{Alphabet, Event, Filter, Kind, PublicKey, RelayUrl, SingleLetterTag, Timestamp};
 use nostr_sdk::{Client, RelayPoolNotification};
 
@@ -1364,6 +1364,23 @@ pub fn pubkey_to_npub(pubkey_or_npub: String) -> Result<String, String> {
         .map_err(|err| format!("invalid Nostr public key: {err}"))?;
     pk.to_bech32()
         .map_err(|err| format!("failed to encode npub: {err}"))
+}
+
+/// Decodes a `nostr:npub1…`, `npub1…`, `nostr:nprofile1…`, `nprofile1…`, or 64-char hex
+/// pubkey string into canonical lowercase 64-char hex.
+pub fn decode_npub_to_hex(pubkey_or_npub: String) -> Option<String> {
+    let trimmed = pubkey_or_npub
+        .trim()
+        .strip_prefix("nostr:")
+        .or_else(|| pubkey_or_npub.trim().strip_prefix("NOSTR:"))
+        .unwrap_or(pubkey_or_npub.trim());
+    if let Ok(pk) = PublicKey::parse(trimmed) {
+        return Some(pk.to_hex());
+    }
+    if let Ok(Nip19::Profile(profile)) = Nip19::from_bech32(trimmed) {
+        return Some(profile.public_key.to_hex());
+    }
+    None
 }
 
 /// Fetches a single author's `kind 0` profile and all published Earthly Maps (`37515`),

@@ -25,6 +25,7 @@ import 'shell/circles_sheet.dart';
 import 'shell/dataset_detail_margin.dart';
 import 'shell/desk_sheet.dart';
 import 'shell/discussion_margin_sheet.dart';
+import 'shell/earthly_rich_text.dart';
 import 'shell/explore_sheet.dart';
 import 'shell/feature_inspector_sheet.dart';
 import 'shell/inbox_sheet.dart';
@@ -190,6 +191,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   String? _localNsec;
   String? _bunkerUri;
   String? _bunkerClientNsec;
+  final List<SavedAccountSessionDto> _savedAccounts = <SavedAccountSessionDto>[];
+  String? _activeAccountId;
   String _cordnServerPubkey =
       'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37';
   String _mlsDatabasePath = '';
@@ -375,7 +378,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         if (loaded.relayUrls.isNotEmpty) {
           _relayUrls = List<String>.from(loaded.relayUrls);
         }
-        if (loaded.localPubkeyHex != null &&
+        _savedAccounts
+          ..clear()
+          ..addAll(loaded.savedAccounts);
+        _activeAccountId = loaded.activeAccountId;
+        final restoredSession = _savedAccounts
+                .where((s) => s.id == _activeAccountId)
+                .firstOrNull ??
+            (_savedAccounts.isNotEmpty ? _savedAccounts.first : null);
+        if (restoredSession != null) {
+          _activeAccountId = restoredSession.id;
+          _account = Nip55Account(
+            pubkey: restoredSession.pubkeyHex,
+            signerPackage: restoredSession.signerPackage,
+          );
+          _localNsec = restoredSession.localNsec;
+          _bunkerUri = restoredSession.bunkerUri;
+          _bunkerClientNsec = restoredSession.bunkerClientNsec;
+        } else if (loaded.localPubkeyHex != null &&
             loaded.localPubkeyHex!.isNotEmpty &&
             loaded.localNsec != null &&
             loaded.localNsec!.isNotEmpty) {
@@ -420,7 +440,118 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ..clear()
           ..addAll(loaded.inboxReadIds);
       });
+      if (_savedAccounts.isNotEmpty) {
+        unawaited(_resolveSessionProfiles());
+      }
     } catch (_) {}
+  }
+
+  Future<void> _resolveSessionProfiles() async {
+    if (widget.mapBuilder != null) return;
+    final pks = _savedAccounts
+        .map((s) => s.pubkeyHex)
+        .where((p) => p.isNotEmpty && !_profilesByPubkey.containsKey(p))
+        .toSet()
+        .toList(growable: false);
+    if (pks.isEmpty) return;
+    try {
+      await RustBridge.ensureInitialized();
+      final fetched = await fetchProfiles(
+        relayUrls: _activeRelayUrls,
+        pubkeys: pks,
+      );
+      if (!mounted || fetched.isEmpty) return;
+      setState(() {
+        for (final p in fetched) {
+          _profilesByPubkey[p.pubkey] = p;
+        }
+      });
+    } catch (_) {}
+  }
+
+  SavedAccountSessionDto? get _activeSavedSession =>
+      _savedAccounts.where((s) => s.id == _activeAccountId).firstOrNull;
+
+  void _applyActiveSessionState(SavedAccountSessionDto? session) {
+    if (session == null) {
+      _activeAccountId = null;
+      _account = null;
+      _localNsec = null;
+      _bunkerUri = null;
+      _bunkerClientNsec = null;
+      return;
+    }
+    _activeAccountId = session.id;
+    _account = Nip55Account(
+      pubkey: session.pubkeyHex,
+      signerPackage: session.signerPackage,
+    );
+    _localNsec = session.localNsec;
+    _bunkerUri = session.bunkerUri;
+    _bunkerClientNsec = session.bunkerClientNsec;
+  }
+
+  void _upsertAndActivateSession(SavedAccountSessionDto session) {
+    setState(() {
+      final idx = _savedAccounts.indexWhere((s) => s.id == session.id);
+      if (idx >= 0) {
+        _savedAccounts[idx] = session;
+      } else {
+        _savedAccounts.add(session);
+      }
+      _applyActiveSessionState(session);
+    });
+    unawaited(_persistAppSettings());
+    unawaited(_resolveSessionProfiles());
+    unawaited(_refreshCirclesSnapshot());
+    unawaited(_refreshInbox());
+  }
+
+  void _switchSavedSession(SavedAccountSessionDto session) {
+    setState(() {
+      if (!_savedAccounts.any((s) => s.id == session.id)) {
+        _savedAccounts.add(session);
+      }
+      _applyActiveSessionState(session);
+    });
+    unawaited(_persistAppSettings());
+    unawaited(_resolveSessionProfiles());
+    unawaited(_refreshCirclesSnapshot());
+    unawaited(_refreshInbox());
+    if (mounted) {
+      final prof = _profilesByPubkey[session.pubkeyHex];
+      final name = prof?.displayName ??
+          prof?.name ??
+          session.label ??
+          session.pubkeyHex.substring(0, 8);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Switched account to $name')),
+      );
+    }
+  }
+
+  void _removeSavedSession(String sessionId) {
+    setState(() {
+      _savedAccounts.removeWhere((s) => s.id == sessionId);
+      if (_activeAccountId == sessionId) {
+        _applyActiveSessionState(
+          _savedAccounts.isNotEmpty ? _savedAccounts.first : null,
+        );
+      }
+    });
+    unawaited(_persistAppSettings());
+    unawaited(_refreshCirclesSnapshot());
+    unawaited(_refreshInbox());
+  }
+
+  void _addReadOnlySession(String pubkeyHex) {
+    _upsertAndActivateSession(
+      SavedAccountSessionDto(
+        id: 'readonly:$pubkeyHex',
+        kind: 'readonly',
+        pubkeyHex: pubkeyHex,
+      ),
+    );
   }
 
   Future<void> _persistAppSettings() async {
@@ -428,6 +559,23 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     try {
       await RustBridge.ensureInitialized();
       final dbPath = await _databasePath();
+      final syncedSessions = _savedAccounts.map((s) {
+        final prof = _profilesByPubkey[s.pubkeyHex];
+        final resolved = prof?.displayName ?? prof?.name;
+        if (resolved != null && resolved.isNotEmpty && s.label != resolved) {
+          return SavedAccountSessionDto(
+            id: s.id,
+            kind: s.kind,
+            pubkeyHex: s.pubkeyHex,
+            localNsec: s.localNsec,
+            bunkerUri: s.bunkerUri,
+            bunkerClientNsec: s.bunkerClientNsec,
+            signerPackage: s.signerPackage,
+            label: resolved,
+          );
+        }
+        return s;
+      }).toList(growable: false);
       await saveAppSettings(
         databasePath: dbPath,
         settings: AppSettingsDto(
@@ -451,6 +599,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           blossomServerUrl: _blossomServerUrl,
           inboxReadAllBefore: BigInt.from(_inboxReadAllBefore),
           inboxReadIds: _inboxReadIds.take(500).toList(growable: false),
+          savedAccounts: syncedSessions,
+          activeAccountId: _activeAccountId,
         ),
       );
     } catch (_) {}
@@ -994,12 +1144,82 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     );
   }
 
+  String? _resolveNaddrTitle(DecodedNaddrDto decoded) {
+    final shelf = _shelfMaps
+        .where((e) => e.summary.address == decoded.address)
+        .firstOrNull;
+    final storyDs = _storyDatasets[decoded.address];
+    final entry = shelf ?? storyDs;
+    if (entry != null) {
+      if (decoded.featureId != null) {
+        final match = entry.shapes
+            .where((s) => s.featureId == decoded.featureId)
+            .firstOrNull;
+        if (match?.label != null && match!.label!.isNotEmpty) {
+          return match.label;
+        }
+        return '${entry.summary.title} #${decoded.featureId}';
+      }
+      return entry.summary.title;
+    }
+    final catMap = _catalog?.maps
+        .where((m) => m.address == decoded.address)
+        .firstOrNull;
+    if (catMap != null) {
+      return decoded.featureId != null
+          ? '${catMap.title} #${decoded.featureId}'
+          : catMap.title;
+    }
+    final catStory = _catalog?.stories
+        .where((s) => s.address == decoded.address)
+        .firstOrNull;
+    if (catStory != null) return catStory.title;
+    final catAtlas = _catalog?.atlases
+        .where((a) => a.address == decoded.address)
+        .firstOrNull;
+    if (catAtlas != null) return catAtlas.name;
+    return null;
+  }
+
   Future<void> _jumpToNaddr(String naddrUri) async {
     await RustBridge.ensureInitialized();
     final decoded = await decodeNaddrCoordinate(naddrUri: naddrUri);
     if (decoded == null) {
       throw StateError('Could not decode Nostr naddr link');
     }
+
+    // Fast path: check already-loaded catalog / shelf / story datasets first.
+    if (decoded.kind == 37515) {
+      final localMap = _shelfMaps
+              .where((e) => e.summary.address == decoded.address)
+              .firstOrNull
+              ?.summary ??
+          _storyDatasets[decoded.address]?.summary ??
+          _catalog?.maps
+              .where((m) => m.address == decoded.address)
+              .firstOrNull;
+      if (localMap != null) {
+        _openMapFromNaddr(localMap, decoded.featureId);
+        return;
+      }
+    } else if (decoded.kind == 37520) {
+      final localStory = _catalog?.stories
+          .where((s) => s.address == decoded.address)
+          .firstOrNull;
+      if (localStory != null) {
+        await _openStory(localStory);
+        return;
+      }
+    } else if (decoded.kind == 37518) {
+      final localAtlas = _catalog?.atlases
+          .where((a) => a.address == decoded.address)
+          .firstOrNull;
+      if (localAtlas != null) {
+        _inspectAtlas(localAtlas);
+        return;
+      }
+    }
+
     final relays = <String>{
       ..._activeRelayUrls,
       ...decoded.relays.where((r) => r.startsWith('wss://')),
@@ -1014,11 +1234,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       );
     }
     if (fetched.map != null) {
-      final map = fetched.map!;
-      if (!_shelfMaps.any((e) => e.summary.address == map.address)) {
-        setState(() => _shelfMaps.add(_entryFromSummary(map)));
-      }
-      _flyToMap(map);
+      _openMapFromNaddr(fetched.map!, decoded.featureId);
       return;
     }
     if (fetched.story != null) {
@@ -1026,14 +1242,37 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       return;
     }
     if (fetched.atlas != null) {
-      await _openAtlas(fetched.atlas!);
+      _inspectAtlas(fetched.atlas!);
       return;
     }
     if (fetched.sighting != null) {
       _focusSighting(fetched.sighting!);
+      _inspectSighting(fetched.sighting!);
       return;
     }
     throw StateError('Unsupported naddr kind ${decoded.kind}');
+  }
+
+  void _openMapFromNaddr(MapSummaryDto map, String? featureId) {
+    final existingIdx =
+        _shelfMaps.indexWhere((e) => e.summary.address == map.address);
+    final ShelfMapEntry entry;
+    if (existingIdx >= 0) {
+      entry = _shelfMaps[existingIdx];
+    } else {
+      entry = _entryFromSummary(map);
+      setState(() => _shelfMaps.add(entry));
+    }
+    if (featureId != null && featureId.isNotEmpty) {
+      final shape =
+          entry.shapes.where((s) => s.featureId == featureId).firstOrNull;
+      if (shape != null) {
+        _jumpToMapFeature(map, shape);
+        return;
+      }
+    }
+    _flyToMap(map);
+    _inspectMap(map);
   }
 
   Future<void> _recomputeMeasureTelemetry() async {
@@ -1949,7 +2188,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     if (_account != null) return _account!;
     if (Platform.isAndroid && await Nip55Signer.isSignerInstalled()) {
       final acct = await Nip55Signer.getPublicKey();
-      if (mounted) setState(() => _account = acct);
+      if (mounted) {
+        _upsertAndActivateSession(
+          SavedAccountSessionDto(
+            id: 'amber:${acct.pubkey}',
+            kind: 'amber',
+            pubkeyHex: acct.pubkey,
+            signerPackage: acct.signerPackage,
+          ),
+        );
+      }
       return acct;
     }
     // Desktop / non-Amber host: auto-generate an ephemeral local Nostr keypair.
@@ -1957,11 +2205,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     final kp = await generateLocalNostrKeypair();
     final acct = Nip55Account(pubkey: kp.pubkeyHex);
     if (mounted) {
-      setState(() {
-        _account = acct;
-        _localNsec = kp.nsec;
-      });
-      unawaited(_persistAppSettings());
+      _upsertAndActivateSession(
+        SavedAccountSessionDto(
+          id: 'local:${kp.pubkeyHex}',
+          kind: 'local',
+          pubkeyHex: kp.pubkeyHex,
+          localNsec: kp.nsec,
+        ),
+      );
     }
     return acct;
   }
@@ -1970,6 +2221,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     Nip55Account account,
     String unsignedEventJson,
   ) async {
+    if (_activeSavedSession?.kind == 'readonly') {
+      throw StateError(
+        'Active account is a read-only watch session. Switch to a signing session in Account.',
+      );
+    }
     if (_bunkerUri != null &&
         _bunkerUri!.isNotEmpty &&
         _bunkerClientNsec != null &&
@@ -4494,32 +4750,42 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           },
           onRelayUrlsChanged: _updateRelayUrls,
           onAccountChanged: (account) {
-            setState(() {
-              _account = account;
-              if (account == null) {
-                _localNsec = null;
-                _bunkerUri = null;
-                _bunkerClientNsec = null;
+            if (account == null) {
+              if (_activeAccountId != null) {
+                _removeSavedSession(_activeAccountId!);
+              } else {
+                setState(() => _applyActiveSessionState(null));
+                unawaited(_persistAppSettings());
               }
-            });
-            unawaited(_persistAppSettings());
-            unawaited(_refreshCirclesSnapshot());
-            unawaited(_refreshInbox());
+              return;
+            }
+            _upsertAndActivateSession(
+              SavedAccountSessionDto(
+                id: 'amber:${account.pubkey}',
+                kind: 'amber',
+                pubkeyHex: account.pubkey,
+                signerPackage: account.signerPackage,
+              ),
+            );
           },
           onLocalKeyChanged: (kp) {
-            setState(() {
-              if (kp == null) {
-                _localNsec = null;
+            if (kp == null) {
+              if (_activeAccountId != null &&
+                  _activeAccountId!.startsWith('local:')) {
+                _removeSavedSession(_activeAccountId!);
               } else {
-                _account = Nip55Account(pubkey: kp.pubkeyHex);
-                _localNsec = kp.nsec;
-                _bunkerUri = null;
-                _bunkerClientNsec = null;
+                setState(() => _localNsec = null);
               }
-            });
-            unawaited(_persistAppSettings());
-            unawaited(_refreshCirclesSnapshot());
-            unawaited(_refreshInbox());
+              return;
+            }
+            _upsertAndActivateSession(
+              SavedAccountSessionDto(
+                id: 'local:${kp.pubkeyHex}',
+                kind: 'local',
+                pubkeyHex: kp.pubkeyHex,
+                localNsec: kp.nsec,
+              ),
+            );
           },
           onSessionStateChanged: (hostedId, acceptedPeer) {
             setState(() {
@@ -4624,6 +4890,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           account: _account,
           localNsec: _localNsec,
           bunkerUri: _bunkerUri,
+          savedAccounts: _savedAccounts,
+          activeAccountId: _activeAccountId,
+          profilesByPubkey: _profilesByPubkey,
+          onSwitchSession: _switchSavedSession,
+          onRemoveSession: _removeSavedSession,
+          onAddReadOnlyNpub: _addReadOnlySession,
           blossomServerUrl: _blossomServerUrl,
           onBlossomServerChanged: (url) {
             setState(() => _blossomServerUrl = url);
@@ -4633,70 +4905,65 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           profile: _account != null ? _profilesByPubkey[_account!.pubkey] : null,
           activeSessionSummary: _activeSessionSummaryText,
           onAccountChanged: (account) {
-            setState(() {
-              _account = account;
-              if (account == null) {
-                _localNsec = null;
-                _bunkerUri = null;
-                _bunkerClientNsec = null;
+            if (account == null) {
+              if (_activeAccountId != null) {
+                _removeSavedSession(_activeAccountId!);
+              } else {
+                setState(() => _applyActiveSessionState(null));
+                unawaited(_persistAppSettings());
               }
-            });
-            unawaited(_persistAppSettings());
-            unawaited(_refreshCirclesSnapshot());
-            unawaited(_refreshInbox());
-            if (account != null) {
-              unawaited(
-                fetchProfiles(
-                  relayUrls: _activeRelayUrls,
-                  pubkeys: [account.pubkey],
-                ).then((list) {
-                  if (!mounted || list.isEmpty) return;
-                  setState(() => _profilesByPubkey[list.first.pubkey] = list.first);
-                }),
-              );
+              return;
             }
+            _upsertAndActivateSession(
+              SavedAccountSessionDto(
+                id: 'amber:${account.pubkey}',
+                kind: 'amber',
+                pubkeyHex: account.pubkey,
+                signerPackage: account.signerPackage,
+              ),
+            );
           },
           onLocalKeyChanged: (kp) {
-            setState(() {
-              if (kp == null) {
-                _localNsec = null;
+            if (kp == null) {
+              if (_activeAccountId != null &&
+                  _activeAccountId!.startsWith('local:')) {
+                _removeSavedSession(_activeAccountId!);
               } else {
-                _account = Nip55Account(pubkey: kp.pubkeyHex);
-                _localNsec = kp.nsec;
-                _bunkerUri = null;
-                _bunkerClientNsec = null;
+                setState(() => _localNsec = null);
               }
-            });
-            unawaited(_persistAppSettings());
-            unawaited(_refreshCirclesSnapshot());
-            unawaited(_refreshInbox());
+              return;
+            }
+            _upsertAndActivateSession(
+              SavedAccountSessionDto(
+                id: 'local:${kp.pubkeyHex}',
+                kind: 'local',
+                pubkeyHex: kp.pubkeyHex,
+                localNsec: kp.nsec,
+              ),
+            );
           },
           onBunkerConnected: (conn) {
-            setState(() {
-              if (conn == null) {
-                _bunkerUri = null;
-                _bunkerClientNsec = null;
+            if (conn == null) {
+              if (_activeAccountId != null &&
+                  _activeAccountId!.startsWith('bunker:')) {
+                _removeSavedSession(_activeAccountId!);
               } else {
-                _account = Nip55Account(pubkey: conn.userPubkeyHex);
-                _localNsec = null;
-                _bunkerUri = conn.bunkerUri;
-                _bunkerClientNsec = conn.clientNsec;
+                setState(() {
+                  _bunkerUri = null;
+                  _bunkerClientNsec = null;
+                });
               }
-            });
-            unawaited(_persistAppSettings());
-            unawaited(_refreshCirclesSnapshot());
-            unawaited(_refreshInbox());
-            if (conn != null) {
-              unawaited(
-                fetchProfiles(
-                  relayUrls: _activeRelayUrls,
-                  pubkeys: [conn.userPubkeyHex],
-                ).then((list) {
-                  if (!mounted || list.isEmpty) return;
-                  setState(() => _profilesByPubkey[list.first.pubkey] = list.first);
-                }),
-              );
+              return;
             }
+            _upsertAndActivateSession(
+              SavedAccountSessionDto(
+                id: 'bunker:${conn.userPubkeyHex}',
+                kind: 'bunker',
+                pubkeyHex: conn.userPubkeyHex,
+                bunkerUri: conn.bunkerUri,
+                bunkerClientNsec: conn.clientNsec,
+              ),
+            );
           },
           onSaveProfile: _publishProfile,
           onOpenSpaces: () => _openDrawer(_ActiveDrawer.spaces),
@@ -5274,7 +5541,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       },
       child: Focus(
         autofocus: true,
-        child: Scaffold(
+        child: EarthlyReferenceScope(
+          onOpenNaddr: (uri) async {
+            final messenger = ScaffoldMessenger.of(context);
+            try {
+              await _jumpToNaddr(uri);
+            } catch (err) {
+              if (!mounted) return;
+              messenger.showSnackBar(
+                SnackBar(content: Text('Could not open reference: $err')),
+              );
+            }
+          },
+          onOpenGeo: (lat, lon, label) => _activateStoryGeoRef(lat, lon, label),
+          onOpenPerson: _openPerson,
+          resolveNaddrTitle: _resolveNaddrTitle,
+          resolvePersonLabel: (pk) =>
+              _profilesByPubkey[pk]?.displayName ?? _profilesByPubkey[pk]?.name,
+          child: Scaffold(
           body: Stack(
         fit: StackFit.expand,
         children: [
@@ -6622,6 +6906,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             ),
         ],
       ),
+    ),
     ),
     ),
     );

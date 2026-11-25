@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/agent.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_rich_text.dart';
 import 'map_drawer.dart';
 
 @immutable
@@ -668,7 +669,7 @@ class _AgentDrawerState extends State<AgentDrawer>
                             ),
                           ],
                           const SizedBox(height: 6),
-                          Text(m.content, style: theme.textTheme.bodySmall),
+                          EarthlyRichText(text: m.content, compact: true),
                         ],
                       ),
                     );

@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../drawing/drawing_model.dart';
 import '../nostr/shelf_renderer.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -416,7 +417,7 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                           ),
                       ],
                     ),
-                    Text(callout.text, style: theme.textTheme.bodySmall),
+                    EarthlyRichText(text: callout.text, compact: true),
                     if (callout.mediaUrls.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       GestureDetector(
@@ -489,13 +490,23 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                       ),
                     ),
                     Expanded(
-                      child: Text(
-                        entry.value.toString(),
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                        ),
-                      ),
+                      child: (entry.key == 'description' ||
+                              entry.key == 'note' ||
+                              entry.value.toString().contains('nostr:') ||
+                              entry.value.toString().contains('naddr1') ||
+                              entry.value.toString().contains('geo:') ||
+                              entry.value.toString().contains('http'))
+                          ? EarthlyRichText(
+                              text: entry.value.toString(),
+                              compact: true,
+                            )
+                          : Text(
+                              entry.value.toString(),
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                              ),
+                            ),
                     ),
                   ],
                 ),

@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -264,11 +265,14 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
           if (profile?.about != null && profile!.about!.trim().isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-              child: Text(
-                profile.about!.trim(),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 90),
+                child: SingleChildScrollView(
+                  child: EarthlyRichText(
+                    text: profile.about!.trim(),
+                    compact: true,
+                  ),
+                ),
               ),
             ),
           if (_error != null)

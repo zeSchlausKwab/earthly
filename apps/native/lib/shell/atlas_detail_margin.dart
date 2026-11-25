@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -329,7 +330,7 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
           if (atlas.description != null &&
               atlas.description!.trim().isNotEmpty) ...[
             const Divider(height: 22),
-            _AtlasMarkdownDescription(markdown: atlas.description!.trim()),
+            EarthlyRichText(text: atlas.description!.trim()),
           ],
           const Divider(height: 22),
           Row(
@@ -426,112 +427,6 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
           ],
         ],
       ),
-    );
-  }
-}
-
-final RegExp _atlasImgRe = RegExp(
-  r'!\[([^\]]*)\]\((https?://[^\s)]+)(?:\s+"([^"]*)")?\)',
-);
-
-class _AtlasMarkdownDescription extends StatelessWidget {
-  const _AtlasMarkdownDescription({required this.markdown});
-
-  final String markdown;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final lines = markdown.split('\n');
-    final widgets = <Widget>[];
-    for (final raw in lines) {
-      final line = raw.trim();
-      if (line.isEmpty) {
-        widgets.add(const SizedBox(height: 6));
-        continue;
-      }
-      if (line.startsWith('### ')) {
-        widgets.add(Padding(
-          padding: const EdgeInsets.only(top: 6, bottom: 3),
-          child: Text(
-            line.substring(4),
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ));
-        continue;
-      }
-      if (line.startsWith('## ')) {
-        widgets.add(Padding(
-          padding: const EdgeInsets.only(top: 8, bottom: 4),
-          child: Text(
-            line.substring(3),
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ));
-        continue;
-      }
-      if (line.startsWith('# ')) {
-        widgets.add(Padding(
-          padding: const EdgeInsets.only(top: 4, bottom: 6),
-          child: Text(
-            line.substring(2),
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ));
-        continue;
-      }
-      final imgs = _atlasImgRe.allMatches(line).toList();
-      if (imgs.isNotEmpty) {
-        for (final m in imgs) {
-          final url = (m.group(2) ?? '').trim();
-          final caption = ((m.group(3) ?? '').trim().isNotEmpty
-                  ? m.group(3)!
-                  : (m.group(1) ?? ''))
-              .trim();
-          if (url.isEmpty) continue;
-          widgets.add(Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: GestureDetector(
-              onTap: () => showEarthlyPhotoLightbox(
-                context,
-                url: url,
-                caption: caption,
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 200),
-                  child: EarthlyNetworkImage(
-                    url: url,
-                    fit: BoxFit.cover,
-                    fallback: const SizedBox.shrink(),
-                  ),
-                ),
-              ),
-            ),
-          ));
-        }
-        final rest = line.replaceAll(_atlasImgRe, '').trim();
-        if (rest.isEmpty) continue;
-      }
-      widgets.add(Padding(
-        padding: const EdgeInsets.only(bottom: 4),
-        child: Text(
-          line.startsWith('- ') ? '• ${line.substring(2)}' : line,
-          style: theme.textTheme.bodyMedium?.copyWith(height: 1.45),
-        ),
-      ));
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: widgets,
     );
   }
 }

@@ -11,6 +11,7 @@ import 'package:earthly_native/shell/basemap_switcher_sheet.dart';
 import 'package:earthly_native/shell/circles_sheet.dart';
 import 'package:earthly_native/shell/dataset_detail_margin.dart';
 import 'package:earthly_native/shell/desk_sheet.dart';
+import 'package:earthly_native/shell/earthly_rich_text.dart';
 import 'package:earthly_native/shell/entity_list_row.dart';
 import 'package:earthly_native/shell/explore_sheet.dart';
 import 'package:earthly_native/shell/inbox_sheet.dart';
@@ -1462,5 +1463,246 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
       find.descendant(of: rail, matching: find.byTooltip('Record GPS Track')),
       findsOneWidget,
     );
+  });
+
+  testWidgets(
+      'EarthlyRichText renders GFM tables and clickable nostr:naddr1… reference pills across descriptions',
+      (WidgetTester tester) async {
+    String? openedNaddr;
+    (double, double)? openedGeo;
+    const naddr =
+        'nostr:naddr1qvzqqqyj3vpzqmhhw7nckfq9ltttfke2vxg3v3q3ywcreu2gdzqgg2qdk92rnkkyqq2nw6ejgs65znt2wdhxzdzrwfm5vcjjvax5cqrfw9m';
+    const atlasMarkdown = '''
+## Vienna's Stadtwanderwege
+
+| Trail | Destination | Official distance |
+| --- | --- | ---: |
+| 1 | [Kahlenberg]($naddr) | 11 km |
+
+Start at geo:48.2764,16.3338 and check $naddr
+''';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EarthlyReferenceScope(
+          onOpenNaddr: (uri) async => openedNaddr = uri,
+          onOpenGeo: (lat, lon, _) => openedGeo = (lat, lon),
+          onOpenPerson: (_) {},
+          resolveNaddrTitle: (d) => d.dTag == 'kahlenberg' ? 'Kahlenberg Trail' : null,
+          resolvePersonLabel: (_) => null,
+          child: Scaffold(
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: EarthlyRichText(
+                text: atlasMarkdown,
+                preDecodedRefs: const {
+                  naddr: DecodedNaddrDto(
+                    kind: 37515,
+                    pubkey: 'aaa',
+                    dTag: 'kahlenberg',
+                    address: '37515:aaa:kahlenberg',
+                    relays: ['wss://relay.earthly.city'],
+                  ),
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // GFM Table widget renders cleanly without raw markdown pipes or raw naddr bech32 blobs!
+    expect(find.byType(Table), findsOneWidget);
+    expect(find.text('Kahlenberg'), findsOneWidget);
+    expect(find.text('Kahlenberg Trail'), findsOneWidget);
+    expect(find.textContaining('naddr1qvzqqqyj3'), findsNothing);
+
+    await tester.tap(find.text('Kahlenberg'));
+    await tester.pump();
+    expect(openedNaddr, naddr);
+
+    await tester.tap(find.text('48.2764, 16.3338'));
+    await tester.pump();
+    expect(openedGeo, (48.2764, 16.3338));
+  });
+
+  testWidgets(
+      'ExploreSheet places compact square New Story / New Atlas button inline on the toolbar row',
+      (WidgetTester tester) async {
+    var composedStory = false;
+    var createdAtlas = false;
+    const emptyCatalog = EarthlyCatalogSnapshot(
+      relayUrls: ['wss://relay.earthly.city'],
+      maps: [],
+      stories: [],
+      atlases: [],
+      sightings: [],
+      beacons: [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              ExploreSheet(
+                initialCatalog: emptyCatalog,
+                catalogLoading: false,
+                relayUrls: const ['wss://relay.earthly.city'],
+                shelfAddresses: const {},
+                profilesByPubkey: const {},
+                pinnedEntityIds: const {},
+                recentEntityIds: const [],
+                activeAtlasLens: null,
+                onCatalogLoaded: (_) {},
+                onToggleFavorite: (_) {},
+                onToggleMapOnShelf: (_) {},
+                onAddMapsBulk: (_) {},
+                onInspectMap: (_) {},
+                onFocusMap: (_) {},
+                onCloneMapToDraft: (_) {},
+                onOpenMapDiscussion: (_) {},
+                onOpenStory: (_) {},
+                onOpenStoryDiscussion: (_) {},
+                onInspectAtlas: (_) {},
+                onOpenAtlas: (_) {},
+                onEnterAtlasLens: (_) {},
+                onLeaveAtlasLens: () {},
+                onFocusSighting: (_) {},
+                onFocusBeacon: (_) {},
+                onCreateSighting: () {},
+                onComposeStory: () => composedStory = true,
+                onCreateAtlas: () => createdAtlas = true,
+                onOpenBeaconBroadcaster: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    // Switch to Stories tab -> square 34x34 New Story button sits inline with Sort!
+    await tester.tap(find.text('Stories (0)'));
+    await tester.pumpAndSettle();
+
+    final btnFinder = find.byKey(const Key('explore-new-action-btn'));
+    expect(btnFinder, findsOneWidget);
+    final btnRect = tester.getRect(btnFinder);
+    final sortRect = tester.getRect(find.byTooltip('Sort order'));
+    expect(btnRect.width, closeTo(34, 1));
+    expect(btnRect.height, closeTo(34, 1));
+    expect((btnRect.center.dy - sortRect.center.dy).abs(), lessThan(6));
+
+    await tester.tap(btnFinder);
+    await tester.pump();
+    expect(composedStory, isTrue);
+
+    // Switch to Atlases tab -> same square slot triggers New Atlas!
+    await tester.tap(find.text('Atlases (0)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('explore-new-action-btn')));
+    await tester.pump();
+    expect(createdAtlas, isTrue);
+  });
+
+  testWidgets(
+      'AccountSessionSheet lists multiple saved login sessions, switches accounts, and allows adding more while signed in',
+      (WidgetTester tester) async {
+    const alicePk =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const bobPk =
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const aliceSession = SavedAccountSessionDto(
+      id: 'local:$alicePk',
+      kind: 'local',
+      pubkeyHex: alicePk,
+      localNsec: 'nsec1alice',
+      label: 'Alice Local',
+    );
+    const bobSession = SavedAccountSessionDto(
+      id: 'bunker:$bobPk',
+      kind: 'bunker',
+      pubkeyHex: bobPk,
+      bunkerUri: 'bunker://$bobPk?relay=wss://relay.earthly.city',
+      bunkerClientNsec: 'nsec1client',
+      label: 'Bob Bunker',
+    );
+
+    SavedAccountSessionDto? switchedTo;
+    String? removedId;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AccountSessionSheet(
+                account: const Nip55Account(pubkey: alicePk),
+                localNsec: 'nsec1alice',
+                bunkerUri: null,
+                savedAccounts: const [aliceSession, bobSession],
+                activeAccountId: aliceSession.id,
+                profilesByPubkey: const {
+                  alicePk: ProfileMetadataDto(
+                    pubkey: alicePk,
+                    displayName: 'Alice Field',
+                  ),
+                  bobPk: ProfileMetadataDto(
+                    pubkey: bobPk,
+                    displayName: 'Bob Studio',
+                  ),
+                },
+                onSwitchSession: (s) => switchedTo = s,
+                onRemoveSession: (id) => removedId = id,
+                onAddReadOnlyNpub: (_) {},
+                profile: const ProfileMetadataDto(
+                  pubkey: alicePk,
+                  displayName: 'Alice Field',
+                ),
+                activeSessionSummary: null,
+                onAccountChanged: (_) {},
+                onLocalKeyChanged: (_) {},
+                onBunkerConnected: (_) {},
+                onSaveProfile: (_) async => const PublishOutcomeDto(
+                  eventId: 'ev',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onOpenSpaces: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('Bob Studio'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('SAVED SESSIONS (2)'), findsOneWidget);
+    expect(find.text('Bob Studio'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Switch'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Switch'));
+    await tester.pump();
+    expect(switchedTo?.id, bobSession.id);
+
+    await tester.ensureVisible(find.byTooltip('Remove session').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Remove session').last);
+    await tester.pump();
+    expect(removedId, bobSession.id);
+
+    await tester.scrollUntilVisible(
+      find.text('ADD ANOTHER ACCOUNT'),
+      140,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('ADD ANOTHER ACCOUNT'), findsOneWidget);
   });
 }

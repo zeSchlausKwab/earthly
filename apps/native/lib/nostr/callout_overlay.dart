@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:maplibre/maplibre.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../shell/earthly_rich_text.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
 import 'shelf_renderer.dart';
@@ -569,7 +570,7 @@ class _CalloutCardWidget extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    item.text,
+                    stripEarthlyMarkdownPreview(item.text),
                     maxLines: isExpanded ? 5 : 2,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(

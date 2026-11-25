@@ -4,6 +4,7 @@ import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_rich_text.dart';
 import 'map_drawer.dart';
 
 /// Target entity for the NIP-22 Thread (`37517`) & Edit Proposals (`37519`) Margin.
@@ -411,7 +412,7 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                               ],
                             ),
                             const SizedBox(height: 4),
-                            Text(c.text, style: theme.textTheme.bodyMedium),
+                            EarthlyRichText(text: c.text, compact: true),
                           ],
                         );
                       },
@@ -544,9 +545,10 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                 ],
                               ),
                               const SizedBox(height: 6),
-                              Text(
-                                '${_authorLabel(p.pubkey)} · ${p.description ?? 'Proposed edit (${p.dTag})'}',
-                                style: theme.textTheme.bodyMedium,
+                              EarthlyRichText(
+                                text:
+                                    '**${_authorLabel(p.pubkey)}** · ${p.description ?? 'Proposed edit (${p.dTag})'}',
+                                compact: true,
                               ),
                               const SizedBox(height: 8),
                               Wrap(

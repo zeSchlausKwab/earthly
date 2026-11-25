@@ -20,6 +20,25 @@ fn default_blossom_server_url() -> String {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SavedAccountSessionRecord {
+    pub id: String,
+    /// `"local"` | `"bunker"` | `"amber"` | `"readonly"`
+    pub kind: String,
+    pub pubkey_hex: String,
+    #[serde(default)]
+    pub local_nsec: Option<String>,
+    #[serde(default)]
+    pub bunker_uri: Option<String>,
+    #[serde(default)]
+    pub bunker_client_nsec: Option<String>,
+    #[serde(default)]
+    pub signer_package: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MountedAtlasWorkspaceRecord {
     pub name: String,
     pub path: String,
@@ -75,6 +94,10 @@ pub struct PersistedAppSettings {
     pub inbox_read_all_before: u64,
     #[serde(default)]
     pub inbox_read_ids: Vec<String>,
+    #[serde(default)]
+    pub saved_accounts: Vec<SavedAccountSessionRecord>,
+    #[serde(default)]
+    pub active_account_id: Option<String>,
 }
 
 impl Default for PersistedAppSettings {
@@ -97,6 +120,8 @@ impl Default for PersistedAppSettings {
             blossom_server_url: default_blossom_server_url(),
             inbox_read_all_before: 0,
             inbox_read_ids: Vec::new(),
+            saved_accounts: Vec::new(),
+            active_account_id: None,
         }
     }
 }
@@ -179,6 +204,29 @@ impl AppSettingsStore {
                 if parsed.relay_urls.is_empty() {
                     parsed.relay_urls = vec!["wss://relay.earthly.city".to_owned()];
                 }
+                // Transparent migration from single-account fields to multi-session list.
+                if parsed.saved_accounts.is_empty() {
+                    if let Some(pk) = parsed.local_pubkey_hex.clone().filter(|s| !s.is_empty()) {
+                        let (kind, id) = if parsed.bunker_uri.as_deref().is_some_and(|u| !u.is_empty()) {
+                            ("bunker".to_owned(), format!("bunker:{pk}"))
+                        } else if parsed.local_nsec.as_deref().is_some_and(|s| !s.is_empty()) {
+                            ("local".to_owned(), format!("local:{pk}"))
+                        } else {
+                            ("amber".to_owned(), format!("amber:{pk}"))
+                        };
+                        parsed.saved_accounts.push(SavedAccountSessionRecord {
+                            id: id.clone(),
+                            kind,
+                            pubkey_hex: pk,
+                            local_nsec: parsed.local_nsec.clone(),
+                            bunker_uri: parsed.bunker_uri.clone(),
+                            bunker_client_nsec: parsed.bunker_client_nsec.clone(),
+                            signer_package: None,
+                            label: None,
+                        });
+                        parsed.active_account_id = Some(id);
+                    }
+                }
                 Ok(parsed)
             }
         }
@@ -242,6 +290,46 @@ mod tests {
         drop(store);
 
         let reopened = AppSettingsStore::open(&db).unwrap();
-        assert_eq!(reopened.load().unwrap(), saved);
+        let loaded = reopened.load().unwrap();
+        assert_eq!(loaded.relay_urls, saved.relay_urls);
+        assert_eq!(loaded.saved_accounts.len(), 1);
+        assert_eq!(loaded.saved_accounts[0].pubkey_hex, "a".repeat(64));
+        assert_eq!(loaded.active_account_id, Some(format!("amber:{}", "a".repeat(64))));
+    }
+
+    #[test]
+    fn persists_multiple_saved_account_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("multi.sqlite3");
+        let store = AppSettingsStore::open(&db).unwrap();
+        let mut s = PersistedAppSettings::default();
+        s.saved_accounts = vec![
+            SavedAccountSessionRecord {
+                id: format!("local:{}", "1".repeat(64)),
+                kind: "local".to_owned(),
+                pubkey_hex: "1".repeat(64),
+                local_nsec: Some("nsec1alice".to_owned()),
+                bunker_uri: None,
+                bunker_client_nsec: None,
+                signer_package: None,
+                label: Some("Alice".to_owned()),
+            },
+            SavedAccountSessionRecord {
+                id: format!("bunker:{}", "2".repeat(64)),
+                kind: "bunker".to_owned(),
+                pubkey_hex: "2".repeat(64),
+                local_nsec: None,
+                bunker_uri: Some("bunker://bob?relay=wss://relay.earthly.city".to_owned()),
+                bunker_client_nsec: Some("nsec1client".to_owned()),
+                signer_package: None,
+                label: Some("Bob Bunker".to_owned()),
+            },
+        ];
+        s.active_account_id = Some(format!("bunker:{}", "2".repeat(64)));
+        store.save(s.clone()).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.saved_accounts.len(), 2);
+        assert_eq!(loaded.active_account_id, s.active_account_id);
+        assert_eq!(loaded.saved_accounts[1].label.as_deref(), Some("Bob Bunker"));
     }
 }

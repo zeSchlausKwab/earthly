@@ -10,7 +10,9 @@ import '../src/rust/api/blossom.dart';
 import '../src/rust/api/nip46.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
+import '../src/rust/api/settings.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_rich_text.dart';
 import 'map_drawer.dart';
 
 @immutable
@@ -47,6 +49,12 @@ class AccountSessionSheet extends StatefulWidget {
     required this.onClose,
     this.bunkerUri,
     this.onBunkerConnected,
+    this.savedAccounts = const [],
+    this.activeAccountId,
+    this.profilesByPubkey = const {},
+    this.onSwitchSession,
+    this.onRemoveSession,
+    this.onAddReadOnlyNpub,
     this.blossomServerUrl = 'https://blossom.earthly.city',
     this.onBlossomServerChanged,
     this.onUploadBlossomImage,
@@ -56,6 +64,12 @@ class AccountSessionSheet extends StatefulWidget {
   final Nip55Account? account;
   final String? localNsec;
   final String? bunkerUri;
+  final List<SavedAccountSessionDto> savedAccounts;
+  final String? activeAccountId;
+  final Map<String, ProfileMetadataDto> profilesByPubkey;
+  final ValueChanged<SavedAccountSessionDto>? onSwitchSession;
+  final ValueChanged<String>? onRemoveSession;
+  final ValueChanged<String>? onAddReadOnlyNpub;
   final String blossomServerUrl;
   final ProfileMetadataDto? profile;
   final String? activeSessionSummary;
@@ -77,6 +91,7 @@ class AccountSessionSheet extends StatefulWidget {
 class _AccountSessionSheetState extends State<AccountSessionSheet> {
   final _nsecController = TextEditingController();
   final _bunkerController = TextEditingController();
+  final _readonlyNpubController = TextEditingController();
   late final TextEditingController _blossomController =
       TextEditingController(text: widget.blossomServerUrl);
   late final TextEditingController _displayNameController;
@@ -90,6 +105,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
   bool _uploadingAvatar = false;
   bool _showImport = false;
   bool _showBunker = false;
+  bool _showReadOnly = false;
   bool _editingProfile = false;
   String? _error;
   String? _info;
@@ -123,6 +139,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
   void dispose() {
     _nsecController.dispose();
     _bunkerController.dispose();
+    _readonlyNpubController.dispose();
     _blossomController.dispose();
     _displayNameController.dispose();
     _nameController.dispose();
@@ -240,6 +257,194 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
       if (!mounted) return;
       setState(() => _error = err.toString());
     }
+  }
+
+  Future<void> _addReadOnlySession() async {
+    final raw = _readonlyNpubController.text.trim();
+    if (raw.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      await RustBridge.ensureInitialized();
+      final hex = await decodeNpubToHex(pubkeyOrNpub: raw);
+      if (hex == null || hex.isEmpty) {
+        throw StateError('Enter a valid npub1…, nprofile1…, or 64-char hex key.');
+      }
+      if (!mounted) return;
+      _readonlyNpubController.clear();
+      widget.onAddReadOnlyNpub?.call(hex);
+      setState(() {
+        _showReadOnly = false;
+        _info = 'Added read-only watch session.';
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _sessionKindLabel(String kind) => switch (kind) {
+        'bunker' => 'NIP-46 Bunker',
+        'local' => 'Local Key',
+        'amber' => 'Amber NIP-55',
+        'readonly' => 'Read-only',
+        _ => kind,
+      };
+
+  String _sessionDisplayName(SavedAccountSessionDto session) {
+    final prof = widget.profilesByPubkey[session.pubkeyHex];
+    final name = prof?.displayName ?? prof?.name ?? session.label;
+    if (name != null && name.trim().isNotEmpty) return name.trim();
+    final pk = session.pubkeyHex;
+    return pk.length > 14 ? '${pk.substring(0, 8)}…${pk.substring(pk.length - 4)}' : pk;
+  }
+
+  Widget _buildAddAccountControls(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (Platform.isAndroid) ...[
+          FilledButton.icon(
+            onPressed: (_busy || !_amberInstalled) ? null : _signInAmber,
+            icon: const Icon(Icons.key, size: 18),
+            label: Text(
+              _amberInstalled
+                  ? 'Sign in with Amber (NIP-55)'
+                  : 'Amber signer not installed',
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: _busy ? null : _createLocalKey,
+              icon: const Icon(Icons.vpn_key_outlined, size: 16),
+              label: const Text('Create Local Key'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => setState(() {
+                _showImport = !_showImport;
+                if (_showImport) {
+                  _showBunker = false;
+                  _showReadOnly = false;
+                }
+              }),
+              icon: const Icon(Icons.login, size: 16),
+              label: const Text('Import nsec1…'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => setState(() {
+                _showBunker = !_showBunker;
+                if (_showBunker) {
+                  _showImport = false;
+                  _showReadOnly = false;
+                }
+              }),
+              icon: const Icon(Icons.cloud_done_outlined, size: 16),
+              label: const Text('Connect Bunker (NIP-46)'),
+            ),
+            if (widget.onAddReadOnlyNpub != null)
+              OutlinedButton.icon(
+                onPressed: () => setState(() {
+                  _showReadOnly = !_showReadOnly;
+                  if (_showReadOnly) {
+                    _showImport = false;
+                    _showBunker = false;
+                  }
+                }),
+                icon: const Icon(Icons.visibility_outlined, size: 16),
+                label: const Text('Watch npub1…'),
+              ),
+          ],
+        ),
+        if (_showImport) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _nsecController,
+                  obscureText: true,
+                  onSubmitted: (_) => _importNsec(),
+                  decoration: const InputDecoration(
+                    hintText: 'Paste nsec1… or 64-char hex',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _busy ? null : _importNsec,
+                child: const Text('Import'),
+              ),
+            ],
+          ),
+        ],
+        if (_showBunker) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _bunkerController,
+                  onSubmitted: (_) => _connectBunker(),
+                  decoration: const InputDecoration(
+                    hintText: 'bunker://<pubkey>?relay=wss://…&secret=…',
+                  ),
+                ),
+              ),
+              if (Platform.isAndroid) ...[
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: 'Scan bunker QR',
+                  onPressed: _busy ? null : _scanBunkerQr,
+                  icon: const Icon(Icons.qr_code_scanner, size: 20),
+                ),
+              ],
+              const SizedBox(width: 6),
+              FilledButton(
+                onPressed: _busy ? null : _connectBunker,
+                child: _busy
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Connect'),
+              ),
+            ],
+          ),
+        ],
+        if (_showReadOnly) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _readonlyNpubController,
+                  onSubmitted: (_) => _addReadOnlySession(),
+                  decoration: const InputDecoration(
+                    hintText: 'Paste npub1… (read-only watch session)',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _busy ? null : _addReadOnlySession,
+                child: const Text('Add'),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
   }
 
   Future<void> _publishProfile() async {
@@ -392,12 +597,26 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                               ),
                             ),
                             const SizedBox(height: 2),
-                            Text(
-                              '${widget.bunkerUri != null ? "NIP-46 Remote Bunker" : widget.localNsec != null ? "Persisted local key" : "Amber NIP-55"}${profile?.nip05 != null ? ' · ${profile!.nip05}' : ''}',
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 11,
-                              ),
+                            Builder(
+                              builder: (_) {
+                                final activeSession = widget.savedAccounts
+                                    .where((s) => s.id == widget.activeAccountId)
+                                    .firstOrNull;
+                                final kindText = activeSession != null
+                                    ? _sessionKindLabel(activeSession.kind)
+                                    : (widget.bunkerUri != null
+                                        ? 'NIP-46 Remote Bunker'
+                                        : widget.localNsec != null
+                                            ? 'Persisted local key'
+                                            : 'Amber NIP-55');
+                                return Text(
+                                  '$kindText${profile?.nip05 != null ? ' · ${profile!.nip05}' : ''}',
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 11,
+                                  ),
+                                );
+                              },
                             ),
                             Text(
                               account.shortLabel,
@@ -414,10 +633,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                   ),
                   if (profile?.about != null && profile!.about!.isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    Text(
-                      profile.about!,
-                      style: theme.textTheme.bodySmall,
-                    ),
+                    EarthlyRichText(text: profile.about!, compact: true),
                   ],
                 ],
               ),
@@ -461,9 +677,14 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                   ),
                 OutlinedButton.icon(
                   onPressed: () {
-                    widget.onAccountChanged(null);
-                    widget.onLocalKeyChanged(null);
-                    widget.onBunkerConnected?.call(null);
+                    if (widget.activeAccountId != null &&
+                        widget.onRemoveSession != null) {
+                      widget.onRemoveSession!(widget.activeAccountId!);
+                    } else {
+                      widget.onAccountChanged(null);
+                      widget.onLocalKeyChanged(null);
+                      widget.onBunkerConnected?.call(null);
+                    }
                   },
                   icon: const Icon(
                     Icons.logout,
@@ -602,108 +823,216 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                 ),
               ),
             ],
+            if (widget.savedAccounts.isNotEmpty) ...[
+              const Divider(height: 24),
+              Row(
+                children: [
+                  const Icon(Icons.people_outline, size: 15),
+                  const SizedBox(width: 6),
+                  Text(
+                    'SAVED SESSIONS (${widget.savedAccounts.length})',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              for (final session in widget.savedAccounts) ...[
+                Builder(
+                  builder: (ctx) {
+                    final isActive = widget.activeAccountId == session.id ||
+                        (widget.activeAccountId == null &&
+                            account.pubkey == session.pubkeyHex);
+                    final prof = widget.profilesByPubkey[session.pubkeyHex];
+                    return Container(
+                      key: Key('saved-session-${session.id}'),
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: isActive
+                            ? EarthlyColors.commentGreen.withValues(alpha: 0.10)
+                            : theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isActive
+                              ? EarthlyColors.commentGreen.withValues(alpha: 0.55)
+                              : theme.dividerColor,
+                        ),
+                      ),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: isActive || widget.onSwitchSession == null
+                            ? null
+                            : () => widget.onSwitchSession!(session),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 16,
+                                backgroundColor:
+                                    EarthlyColors.amber.withValues(alpha: 0.20),
+                                backgroundImage: (prof?.picture != null &&
+                                        prof!.picture!.startsWith('http'))
+                                    ? NetworkImage(prof.picture!)
+                                    : null,
+                                child: (prof?.picture == null ||
+                                        !prof!.picture!.startsWith('http'))
+                                    ? const Icon(Icons.person, size: 16)
+                                    : null,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            _sessionDisplayName(session),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                        if (isActive) ...[
+                                          const SizedBox(width: 6),
+                                          const EarthlyBadge(
+                                            label: 'ACTIVE',
+                                            color: EarthlyColors.commentGreen,
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    Text(
+                                      _sessionKindLabel(session.kind),
+                                      style: TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 10,
+                                        color: theme
+                                            .colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (!isActive && widget.onSwitchSession != null)
+                                TextButton(
+                                  style: TextButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                  ),
+                                  onPressed: () =>
+                                      widget.onSwitchSession!(session),
+                                  child: const Text('Switch'),
+                                ),
+                              if (widget.onRemoveSession != null)
+                                IconButton(
+                                  tooltip: 'Remove session',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () =>
+                                      widget.onRemoveSession!(session.id),
+                                  icon: const Icon(
+                                    Icons.logout,
+                                    size: 16,
+                                    color: EarthlyColors.destructive,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ],
+            const Divider(height: 24),
+            Text(
+              'ADD ANOTHER ACCOUNT',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildAddAccountControls(theme),
           ] else ...[
+            if (widget.savedAccounts.isNotEmpty) ...[
+              Text(
+                'SAVED SESSIONS (${widget.savedAccounts.length})',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              for (final session in widget.savedAccounts)
+                Container(
+                  key: Key('saved-session-${session.id}'),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: theme.dividerColor),
+                  ),
+                  child: ListTile(
+                    dense: true,
+                    leading: const CircleAvatar(
+                      radius: 16,
+                      child: Icon(Icons.person, size: 16),
+                    ),
+                    title: Text(
+                      _sessionDisplayName(session),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      _sessionKindLabel(session.kind),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10,
+                      ),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (widget.onSwitchSession != null)
+                          TextButton(
+                            onPressed: () => widget.onSwitchSession!(session),
+                            child: const Text('Use'),
+                          ),
+                        if (widget.onRemoveSession != null)
+                          IconButton(
+                            tooltip: 'Remove session',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () =>
+                                widget.onRemoveSession!(session.id),
+                            icon: const Icon(
+                              Icons.logout,
+                              size: 16,
+                              color: EarthlyColors.destructive,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              const Divider(height: 20),
+            ],
             Text(
               'Sign in to publish Maps, Stories, Atlases, Sightings, Live Beacons, Comments, and Edit Proposals.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
-            if (Platform.isAndroid) ...[
-              FilledButton.icon(
-                onPressed: (_busy || !_amberInstalled) ? null : _signInAmber,
-                icon: const Icon(Icons.key, size: 18),
-                label: Text(
-                  _amberInstalled
-                      ? 'Sign in with Amber (NIP-55)'
-                      : 'Amber signer not installed',
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: _busy ? null : _createLocalKey,
-                  icon: const Icon(Icons.vpn_key_outlined, size: 16),
-                  label: const Text('Create Local Key'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => setState(() {
-                    _showImport = !_showImport;
-                    if (_showImport) _showBunker = false;
-                  }),
-                  icon: const Icon(Icons.login, size: 16),
-                  label: const Text('Import nsec1…'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => setState(() {
-                    _showBunker = !_showBunker;
-                    if (_showBunker) _showImport = false;
-                  }),
-                  icon: const Icon(Icons.cloud_done_outlined, size: 16),
-                  label: const Text('Connect Bunker (NIP-46)'),
-                ),
-              ],
-            ),
-            if (_showImport) ...[
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _nsecController,
-                      obscureText: true,
-                      onSubmitted: (_) => _importNsec(),
-                      decoration: const InputDecoration(
-                        hintText: 'Paste nsec1… or 64-char hex',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: _busy ? null : _importNsec,
-                    child: const Text('Import'),
-                  ),
-                ],
-              ),
-            ],
-            if (_showBunker) ...[
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _bunkerController,
-                      onSubmitted: (_) => _connectBunker(),
-                      decoration: const InputDecoration(
-                        hintText: 'bunker://<pubkey>?relay=wss://…&secret=…',
-                      ),
-                    ),
-                  ),
-                  if (Platform.isAndroid) ...[
-                    const SizedBox(width: 6),
-                    IconButton(
-                      tooltip: 'Scan bunker QR',
-                      onPressed: _busy ? null : _scanBunkerQr,
-                      icon: const Icon(Icons.qr_code_scanner, size: 20),
-                    ),
-                  ],
-                  const SizedBox(width: 6),
-                  FilledButton(
-                    onPressed: _busy ? null : _connectBunker,
-                    child: _busy
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Connect'),
-                  ),
-                ],
-              ),
-            ],
+            _buildAddAccountControls(theme),
           ],
 
           const Divider(height: 24),

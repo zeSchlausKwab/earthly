@@ -8,7 +8,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `from_record`, `to_record`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`
 
 Future<AppSettingsDto> loadAppSettings({required String databasePath}) =>
     EarthlyRustLib.instance.api.crateApiSettingsLoadAppSettings(
@@ -41,6 +41,8 @@ class AppSettingsDto {
   final String blossomServerUrl;
   final BigInt inboxReadAllBefore;
   final List<String> inboxReadIds;
+  final List<SavedAccountSessionDto> savedAccounts;
+  final String? activeAccountId;
 
   const AppSettingsDto({
     required this.relayUrls,
@@ -60,6 +62,8 @@ class AppSettingsDto {
     required this.blossomServerUrl,
     required this.inboxReadAllBefore,
     required this.inboxReadIds,
+    required this.savedAccounts,
+    this.activeAccountId,
   });
 
   @override
@@ -80,7 +84,9 @@ class AppSettingsDto {
       mountedAtlasWorkspaces.hashCode ^
       blossomServerUrl.hashCode ^
       inboxReadAllBefore.hashCode ^
-      inboxReadIds.hashCode;
+      inboxReadIds.hashCode ^
+      savedAccounts.hashCode ^
+      activeAccountId.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -103,7 +109,9 @@ class AppSettingsDto {
           mountedAtlasWorkspaces == other.mountedAtlasWorkspaces &&
           blossomServerUrl == other.blossomServerUrl &&
           inboxReadAllBefore == other.inboxReadAllBefore &&
-          inboxReadIds == other.inboxReadIds;
+          inboxReadIds == other.inboxReadIds &&
+          savedAccounts == other.savedAccounts &&
+          activeAccountId == other.activeAccountId;
 }
 
 class MountedAtlasWorkspaceDto {
@@ -139,6 +147,53 @@ class MountedAtlasWorkspaceDto {
           sizeBytes == other.sizeBytes &&
           families == other.families &&
           coverageSummary == other.coverageSummary;
+}
+
+class SavedAccountSessionDto {
+  final String id;
+  final String kind;
+  final String pubkeyHex;
+  final String? localNsec;
+  final String? bunkerUri;
+  final String? bunkerClientNsec;
+  final String? signerPackage;
+  final String? label;
+
+  const SavedAccountSessionDto({
+    required this.id,
+    required this.kind,
+    required this.pubkeyHex,
+    this.localNsec,
+    this.bunkerUri,
+    this.bunkerClientNsec,
+    this.signerPackage,
+    this.label,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      kind.hashCode ^
+      pubkeyHex.hashCode ^
+      localNsec.hashCode ^
+      bunkerUri.hashCode ^
+      bunkerClientNsec.hashCode ^
+      signerPackage.hashCode ^
+      label.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SavedAccountSessionDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          kind == other.kind &&
+          pubkeyHex == other.pubkeyHex &&
+          localNsec == other.localNsec &&
+          bunkerUri == other.bunkerUri &&
+          bunkerClientNsec == other.bunkerClientNsec &&
+          signerPackage == other.signerPackage &&
+          label == other.label;
 }
 
 class SavedOfflinePackDto {
