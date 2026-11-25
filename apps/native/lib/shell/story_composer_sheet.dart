@@ -4,10 +4,12 @@ import 'package:maplibre/maplibre.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../nostr/shelf_renderer.dart';
+import '../src/rust/api/blossom.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'desk_sheet.dart';
+import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
 class StoryPublishRequest {
@@ -18,6 +20,7 @@ class StoryPublishRequest {
     required this.linkedMapAddresses,
     required this.presentationJson,
     required this.audience,
+    this.image,
     this.existingDTag,
   });
 
@@ -27,6 +30,7 @@ class StoryPublishRequest {
   final List<String> linkedMapAddresses;
   final String? presentationJson;
   final DraftAudienceChoice audience;
+  final String? image;
   final String? existingDTag;
 }
 
@@ -40,6 +44,7 @@ class StoryComposerDrawer extends StatefulWidget {
     required this.onPublishStory,
     required this.onClose,
     this.editingStory,
+    this.onUploadBlossomImage,
     super.key,
   });
 
@@ -47,6 +52,8 @@ class StoryComposerDrawer extends StatefulWidget {
   final CameraPosition? Function() getCameraSnapshot;
   final Future<PublishOutcomeDto> Function(StoryPublishRequest req)
       onPublishStory;
+  final Future<BlossomUploadDto?> Function(String purpose)?
+      onUploadBlossomImage;
   final VoidCallback onClose;
   final StorySummaryDto? editingStory;
 
@@ -59,6 +66,8 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
       TextEditingController(text: widget.editingStory?.title ?? '');
   late final TextEditingController _summaryController =
       TextEditingController(text: widget.editingStory?.summary ?? '');
+  late final TextEditingController _imageController =
+      TextEditingController(text: widget.editingStory?.image ?? '');
   late final TextEditingController _bodyController =
       TextEditingController(text: widget.editingStory?.content ?? '');
 
@@ -69,6 +78,7 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
   DraftAudienceChoice _audience = DraftAudienceChoice.publicRelay;
   int _viewCounter = 0;
   bool _publishing = false;
+  bool _uploadingMedia = false;
   String? _error;
   PublishOutcomeDto? _outcome;
 
@@ -76,8 +86,45 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
   void dispose() {
     _titleController.dispose();
     _summaryController.dispose();
+    _imageController.dispose();
     _bodyController.dispose();
     super.dispose();
+  }
+
+  Future<void> _uploadCoverImage() async {
+    if (widget.onUploadBlossomImage == null) return;
+    setState(() {
+      _uploadingMedia = true;
+      _error = null;
+    });
+    try {
+      final uploaded = await widget.onUploadBlossomImage!('Story cover image');
+      if (!mounted || uploaded == null) return;
+      setState(() => _imageController.text = uploaded.url);
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _uploadingMedia = false);
+    }
+  }
+
+  Future<void> _uploadInlineImage() async {
+    if (widget.onUploadBlossomImage == null) return;
+    setState(() {
+      _uploadingMedia = true;
+      _error = null;
+    });
+    try {
+      final uploaded = await widget.onUploadBlossomImage!('Story inline photo');
+      if (!mounted || uploaded == null) return;
+      _insertAtCursor('\n![Photo](${uploaded.url})\n');
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _uploadingMedia = false);
+    }
   }
 
   void _insertAtCursor(String snippet) {
@@ -165,6 +212,9 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
           linkedMapAddresses: _selectedMapAddresses.toList(growable: false),
           presentationJson: _buildPresentationJson(),
           audience: _audience,
+          image: _imageController.text.trim().isEmpty
+              ? null
+              : _imageController.text.trim(),
           existingDTag: widget.editingStory?.dTag,
         ),
       );
@@ -228,8 +278,52 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
               ),
             ),
             const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _imageController,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Cover image URL (optional)',
+                      hintText: 'https://blossom.earthly.city/…',
+                    ),
+                  ),
+                ),
+                if (widget.onUploadBlossomImage != null) ...[
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: _uploadingMedia ? null : _uploadCoverImage,
+                    icon: _uploadingMedia
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cloud_upload_outlined, size: 15),
+                    label: const Text('Cover'),
+                  ),
+                ],
+              ],
+            ),
+            if (_imageController.text.trim().startsWith('http')) ...[
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  height: 100,
+                  width: double.infinity,
+                  child: EarthlyNetworkImage(
+                    url: _imageController.text.trim(),
+                    fit: BoxFit.cover,
+                    fallback: const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
 
-            // Spatial insertion toolbar
+            // Spatial & Media insertion toolbar
             Wrap(
               spacing: 6,
               runSpacing: 6,
@@ -244,6 +338,12 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
                   icon: const Icon(Icons.camera_alt_outlined, size: 14),
                   label: const Text('+ Camera View Block'),
                 ),
+                if (widget.onUploadBlossomImage != null)
+                  OutlinedButton.icon(
+                    onPressed: _uploadingMedia ? null : _uploadInlineImage,
+                    icon: const Icon(Icons.add_photo_alternate_outlined, size: 14),
+                    label: const Text('+ Upload Photo'),
+                  ),
               ],
             ),
             const SizedBox(height: 8),

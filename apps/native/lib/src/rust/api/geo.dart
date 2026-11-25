@@ -8,7 +8,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `from_coords`, `to_closed_polygon`, `to_line`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `fmt`, `fmt`
 
 /// Douglas-Peucker simplification of a polyline in meters.
 Future<List<LonLatPoint>> geoSimplifyLine({
@@ -95,6 +95,30 @@ Future<double> geoMeasureLineMeters({required List<LonLatPoint> points}) =>
 Future<double> geoMeasurePolygonAreaM2({required List<LonLatPoint> ring}) =>
     EarthlyRustLib.instance.api.crateApiGeoGeoMeasurePolygonAreaM2(ring: ring);
 
+/// Auto-detects GeoJSON, GPX, or KML from filename/content and returns a
+/// validated Earthly GeoJSON FeatureCollection.
+Future<SpatialImportDto> geoImportSpatialFile({
+  required String filename,
+  required String content,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoImportSpatialFile(
+  filename: filename,
+  content: content,
+);
+
+/// Exports an Earthly GeoJSON FeatureCollection string into GPX 1.1 XML.
+Future<String> geoExportGpx({required String geojson, String? title}) =>
+    EarthlyRustLib.instance.api.crateApiGeoGeoExportGpx(
+      geojson: geojson,
+      title: title,
+    );
+
+/// Exports an Earthly GeoJSON FeatureCollection string into KML 2.2 XML.
+Future<String> geoExportKml({required String geojson, String? title}) =>
+    EarthlyRustLib.instance.api.crateApiGeoGeoExportKml(
+      geojson: geojson,
+      title: title,
+    );
+
 class LonLatPoint {
   final double lon;
   final double lat;
@@ -111,4 +135,39 @@ class LonLatPoint {
           runtimeType == other.runtimeType &&
           lon == other.lon &&
           lat == other.lat;
+}
+
+class SpatialImportDto {
+  final String format;
+  final String title;
+  final String geojson;
+  final int featureCount;
+  final List<String> warnings;
+
+  const SpatialImportDto({
+    required this.format,
+    required this.title,
+    required this.geojson,
+    required this.featureCount,
+    required this.warnings,
+  });
+
+  @override
+  int get hashCode =>
+      format.hashCode ^
+      title.hashCode ^
+      geojson.hashCode ^
+      featureCount.hashCode ^
+      warnings.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SpatialImportDto &&
+          runtimeType == other.runtimeType &&
+          format == other.format &&
+          title == other.title &&
+          geojson == other.geojson &&
+          featureCount == other.featureCount &&
+          warnings == other.warnings;
 }

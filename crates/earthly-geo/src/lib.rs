@@ -3,12 +3,18 @@
 //! Replaces Turf.js and QuickJS WASM sandbox operations across both Flutter
 //! native apps and the Web app via `earthly-ffi` and `earthly-wasm`.
 
+pub mod formats;
 pub mod measure;
 pub mod ops;
 pub mod projection;
 pub mod validate;
 
 use thiserror::Error;
+
+pub use formats::{
+    SpatialImportResult, geojson_to_gpx, geojson_to_kml, import_spatial_text_to_geojson,
+    parse_gpx_to_geojson, parse_kml_to_geojson,
+};
 
 pub use measure::{
     SnapHit, SnapKind, bearing_degrees, geodesic_area_m2, geodesic_length_m, haversine_meters,

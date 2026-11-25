@@ -69,6 +69,8 @@ class DeskSheet extends StatefulWidget {
     required this.onCreateAtlas,
     required this.onImportGeoJson,
     required this.onExportGeoJsonFile,
+    this.onExportGpxFile,
+    this.onExportKmlFile,
     required this.onCopyGeoJson,
     required this.onClearDraftFeatures,
     required this.onClose,
@@ -113,6 +115,8 @@ class DeskSheet extends StatefulWidget {
   final VoidCallback onCreateAtlas;
   final VoidCallback onImportGeoJson;
   final VoidCallback onExportGeoJsonFile;
+  final VoidCallback? onExportGpxFile;
+  final VoidCallback? onExportKmlFile;
   final VoidCallback onCopyGeoJson;
   final VoidCallback onClearDraftFeatures;
   final VoidCallback onClose;
@@ -494,21 +498,50 @@ class _DeskSheetState extends State<DeskSheet> {
                   OutlinedButton.icon(
                     onPressed: widget.onImportGeoJson,
                     icon: const Icon(Icons.file_upload_outlined, size: 15),
-                    label: const Text('Import .geojson'),
+                    label: const Text('Import GeoJSON / GPX / KML'),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: widget.drawnFeatures.isEmpty
-                        ? null
-                        : widget.onExportGeoJsonFile,
-                    icon: const Icon(Icons.file_download_outlined, size: 15),
-                    label: const Text('Save .geojson'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: widget.drawnFeatures.isEmpty
-                        ? null
-                        : widget.onCopyGeoJson,
-                    icon: const Icon(Icons.copy_outlined, size: 15),
-                    label: const Text('Copy JSON'),
+                  PopupMenuButton<String>(
+                    enabled: widget.drawnFeatures.isNotEmpty,
+                    tooltip: 'Export working draft',
+                    onSelected: (choice) {
+                      switch (choice) {
+                        case 'geojson':
+                          widget.onExportGeoJsonFile();
+                        case 'gpx':
+                          widget.onExportGpxFile?.call();
+                        case 'kml':
+                          widget.onExportKmlFile?.call();
+                        case 'copy':
+                          widget.onCopyGeoJson();
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'geojson',
+                        child: Text('Export GeoJSON (.geojson)'),
+                      ),
+                      if (widget.onExportGpxFile != null)
+                        const PopupMenuItem(
+                          value: 'gpx',
+                          child: Text('Export GPX Track/Waypoints (.gpx)'),
+                        ),
+                      if (widget.onExportKmlFile != null)
+                        const PopupMenuItem(
+                          value: 'kml',
+                          child: Text('Export Google Earth KML (.kml)'),
+                        ),
+                      const PopupMenuItem(
+                        value: 'copy',
+                        child: Text('Copy GeoJSON to Clipboard'),
+                      ),
+                    ],
+                    child: IgnorePointer(
+                      child: OutlinedButton.icon(
+                        onPressed: widget.drawnFeatures.isEmpty ? null : () {},
+                        icon: const Icon(Icons.file_download_outlined, size: 15),
+                        label: const Text('Export ▾'),
+                      ),
+                    ),
                   ),
                 ],
               ),

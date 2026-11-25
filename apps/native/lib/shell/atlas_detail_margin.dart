@@ -29,6 +29,7 @@ class AtlasDetailMargin extends StatefulWidget {
     this.isOwned = false,
     this.onEditAtlas,
     this.onDeleteAtlas,
+    this.onOpenPerson,
     super.key,
   });
 
@@ -49,6 +50,7 @@ class AtlasDetailMargin extends StatefulWidget {
   final bool isOwned;
   final VoidCallback? onEditAtlas;
   final Future<void> Function()? onDeleteAtlas;
+  final ValueChanged<String>? onOpenPerson;
 
   @override
   State<AtlasDetailMargin> createState() => _AtlasDetailMarginState();
@@ -234,12 +236,23 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               EarthlyBadge(label: govLabel, color: govColor),
-              Text(
-                'by ${_authorLabel(atlas.pubkey)}',
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  color: theme.colorScheme.onSurfaceVariant,
+              InkWell(
+                onTap: widget.onOpenPerson == null
+                    ? null
+                    : () => widget.onOpenPerson!(atlas.pubkey),
+                child: Text(
+                  'by ${_authorLabel(atlas.pubkey)}',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: widget.onOpenPerson != null
+                        ? EarthlyColors.infoCyan
+                        : theme.colorScheme.onSurfaceVariant,
+                    decoration: widget.onOpenPerson != null
+                        ? TextDecoration.underline
+                        : null,
+                  ),
                 ),
               ),
               for (final tag in atlas.hashtags.take(4))

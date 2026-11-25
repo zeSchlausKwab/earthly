@@ -1,10 +1,12 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../nostr/shelf_renderer.dart';
+import '../src/rust/api/blossom.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'desk_sheet.dart';
+import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
 @immutable
@@ -16,6 +18,7 @@ class AtlasPublishRequest {
     required this.pinnedAddresses,
     required this.hashtags,
     required this.audience,
+    this.image,
     this.existingDTag,
   });
 
@@ -25,6 +28,7 @@ class AtlasPublishRequest {
   final List<String> pinnedAddresses;
   final List<String> hashtags;
   final DraftAudienceChoice audience;
+  final String? image;
   final String? existingDTag;
 }
 
@@ -38,6 +42,7 @@ class AtlasComposerSheet extends StatefulWidget {
     required this.onPublishAtlas,
     required this.onClose,
     this.editingAtlas,
+    this.onUploadBlossomImage,
     super.key,
   });
 
@@ -46,6 +51,8 @@ class AtlasComposerSheet extends StatefulWidget {
   final List<StorySummaryDto> catalogStories;
   final Future<PublishOutcomeDto> Function(AtlasPublishRequest req)
       onPublishAtlas;
+  final Future<BlossomUploadDto?> Function(String purpose)?
+      onUploadBlossomImage;
   final VoidCallback onClose;
   final AtlasSummaryDto? editingAtlas;
 
@@ -58,6 +65,8 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
       TextEditingController(text: widget.editingAtlas?.name ?? '');
   late final TextEditingController _descriptionController =
       TextEditingController(text: widget.editingAtlas?.description ?? '');
+  late final TextEditingController _imageController =
+      TextEditingController(text: widget.editingAtlas?.image ?? '');
   late final TextEditingController _hashtagsController = TextEditingController(
     text: widget.editingAtlas?.hashtags.join(' ') ?? '',
   );
@@ -70,6 +79,7 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
   late String _governance = widget.editingAtlas?.governance ?? 'open';
   DraftAudienceChoice _audience = DraftAudienceChoice.publicRelay;
   bool _publishing = false;
+  bool _uploadingCover = false;
   String? _error;
   PublishOutcomeDto? _outcome;
 
@@ -77,8 +87,27 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _imageController.dispose();
     _hashtagsController.dispose();
     super.dispose();
+  }
+
+  Future<void> _uploadCover() async {
+    if (widget.onUploadBlossomImage == null) return;
+    setState(() {
+      _uploadingCover = true;
+      _error = null;
+    });
+    try {
+      final uploaded = await widget.onUploadBlossomImage!('Atlas cover image');
+      if (!mounted || uploaded == null) return;
+      setState(() => _imageController.text = uploaded.url);
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _uploadingCover = false);
+    }
   }
 
   Future<void> _publish() async {
@@ -106,6 +135,9 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
           pinnedAddresses: _pinnedAddresses.toList(growable: false),
           hashtags: tags,
           audience: _audience,
+          image: _imageController.text.trim().isEmpty
+              ? null
+              : _imageController.text.trim(),
           existingDTag: widget.editingAtlas?.dTag,
         ),
       );
@@ -179,6 +211,50 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
               labelText: 'Description (optional)',
             ),
           ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _imageController,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Cover image URL (optional)',
+                    hintText: 'https://blossom.earthly.city/…',
+                  ),
+                ),
+              ),
+              if (widget.onUploadBlossomImage != null) ...[
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: _uploadingCover ? null : _uploadCover,
+                  icon: _uploadingCover
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.cloud_upload_outlined, size: 15),
+                  label: const Text('Cover'),
+                ),
+              ],
+            ],
+          ),
+          if (_imageController.text.trim().startsWith('http')) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                height: 100,
+                width: double.infinity,
+                child: EarthlyNetworkImage(
+                  url: _imageController.text.trim(),
+                  fit: BoxFit.cover,
+                  fallback: const SizedBox.shrink(),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           TextField(
             controller: _hashtagsController,

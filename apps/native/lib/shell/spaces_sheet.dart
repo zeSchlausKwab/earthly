@@ -39,6 +39,8 @@ class SpacesSheet extends StatefulWidget {
     this.activeCircleId,
     this.onOpenCircles,
     this.onSelectCircle,
+    this.inboxUnreadCount = 0,
+    this.onOpenInbox,
     this.initialPairingLink,
     super.key,
   });
@@ -62,6 +64,8 @@ class SpacesSheet extends StatefulWidget {
   final String? activeCircleId;
   final VoidCallback? onOpenCircles;
   final ValueChanged<CircleWorkspaceDto>? onSelectCircle;
+  final int inboxUnreadCount;
+  final VoidCallback? onOpenInbox;
   final String? initialPairingLink;
   final VoidCallback onClose;
 
@@ -559,6 +563,68 @@ class _SpacesSheetState extends State<SpacesSheet> {
               ),
             ),
             const SizedBox(height: 14),
+          ],
+
+          // Inbox & Activity Feed shortcut card
+          if (widget.onOpenInbox != null) ...[
+            InkWell(
+              onTap: widget.onOpenInbox,
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: widget.inboxUnreadCount > 0
+                      ? EarthlyColors.amber.withValues(alpha: 0.14)
+                      : theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: widget.inboxUnreadCount > 0
+                        ? EarthlyColors.amber.withValues(alpha: 0.55)
+                        : theme.dividerColor,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.inbox_outlined,
+                      size: 18,
+                      color: EarthlyColors.amber,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'INBOX & NOTIFICATIONS',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.inboxUnreadCount > 0
+                                ? '${widget.inboxUnreadCount} unread proposal${widget.inboxUnreadCount == 1 ? '' : 's'}, reply or mention'
+                                : 'Proposals, replies, mentions & Atlas arrivals',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (widget.inboxUnreadCount > 0) ...[
+                      EarthlyBadge(
+                        label: '${widget.inboxUnreadCount}',
+                        color: EarthlyColors.amber,
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    const Icon(Icons.chevron_right, size: 18),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
           ],
 
           // MLS / Cordn Private Circles section

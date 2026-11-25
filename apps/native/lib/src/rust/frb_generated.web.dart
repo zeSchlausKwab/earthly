@@ -7,6 +7,7 @@
 // ignore_for_file: argument_type_not_assignable
 
 import 'api/agent.dart';
+import 'api/blossom.dart';
 import 'api/geo.dart';
 import 'api/nip46.dart';
 import 'api/nostr_client.dart';
@@ -66,6 +67,12 @@ abstract class EarthlyRustLibApiImplPlatform
   AtlasSummaryDto dco_decode_atlas_summary_dto(dynamic raw);
 
   @protected
+  AuthorPortfolioDto dco_decode_author_portfolio_dto(dynamic raw);
+
+  @protected
+  BlossomUploadDto dco_decode_blossom_upload_dto(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
@@ -101,10 +108,16 @@ abstract class EarthlyRustLibApiImplPlatform
   MapSummaryDto dco_decode_box_autoadd_map_summary_dto(dynamic raw);
 
   @protected
+  ProfileMetadataDto dco_decode_box_autoadd_profile_metadata_dto(dynamic raw);
+
+  @protected
   SightingSummaryDto dco_decode_box_autoadd_sighting_summary_dto(dynamic raw);
 
   @protected
   StorySummaryDto dco_decode_box_autoadd_story_summary_dto(dynamic raw);
+
+  @protected
+  int dco_decode_box_autoadd_u_16(dynamic raw);
 
   @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
@@ -152,6 +165,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   GeoProposalDto dco_decode_geo_proposal_dto(dynamic raw);
+
+  @protected
+  InboxItemDto dco_decode_inbox_item_dto(dynamic raw);
 
   @protected
   IngestedBlobSnapshot dco_decode_ingested_blob_snapshot(dynamic raw);
@@ -203,6 +219,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<GeoProposalDto> dco_decode_list_geo_proposal_dto(dynamic raw);
+
+  @protected
+  List<InboxItemDto> dco_decode_list_inbox_item_dto(dynamic raw);
 
   @protected
   List<List<LonLatPoint>> dco_decode_list_list_lon_lat_point(dynamic raw);
@@ -320,12 +339,20 @@ abstract class EarthlyRustLibApiImplPlatform
   MapSummaryDto? dco_decode_opt_box_autoadd_map_summary_dto(dynamic raw);
 
   @protected
+  ProfileMetadataDto? dco_decode_opt_box_autoadd_profile_metadata_dto(
+    dynamic raw,
+  );
+
+  @protected
   SightingSummaryDto? dco_decode_opt_box_autoadd_sighting_summary_dto(
     dynamic raw,
   );
 
   @protected
   StorySummaryDto? dco_decode_opt_box_autoadd_story_summary_dto(dynamic raw);
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
 
   @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
@@ -359,6 +386,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   SightingSummaryDto dco_decode_sighting_summary_dto(dynamic raw);
+
+  @protected
+  SpatialImportDto dco_decode_spatial_import_dto(dynamic raw);
 
   @protected
   StorySummaryDto dco_decode_story_summary_dto(dynamic raw);
@@ -430,6 +460,14 @@ abstract class EarthlyRustLibApiImplPlatform
   AtlasSummaryDto sse_decode_atlas_summary_dto(SseDeserializer deserializer);
 
   @protected
+  AuthorPortfolioDto sse_decode_author_portfolio_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BlossomUploadDto sse_decode_blossom_upload_dto(SseDeserializer deserializer);
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
@@ -481,6 +519,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  ProfileMetadataDto sse_decode_box_autoadd_profile_metadata_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SightingSummaryDto sse_decode_box_autoadd_sighting_summary_dto(
     SseDeserializer deserializer,
   );
@@ -489,6 +532,9 @@ abstract class EarthlyRustLibApiImplPlatform
   StorySummaryDto sse_decode_box_autoadd_story_summary_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
@@ -550,6 +596,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   GeoProposalDto sse_decode_geo_proposal_dto(SseDeserializer deserializer);
+
+  @protected
+  InboxItemDto sse_decode_inbox_item_dto(SseDeserializer deserializer);
 
   @protected
   IngestedBlobSnapshot sse_decode_ingested_blob_snapshot(
@@ -621,6 +670,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<GeoProposalDto> sse_decode_list_geo_proposal_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<InboxItemDto> sse_decode_list_inbox_item_dto(
     SseDeserializer deserializer,
   );
 
@@ -780,6 +834,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  ProfileMetadataDto? sse_decode_opt_box_autoadd_profile_metadata_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SightingSummaryDto? sse_decode_opt_box_autoadd_sighting_summary_dto(
     SseDeserializer deserializer,
   );
@@ -788,6 +847,9 @@ abstract class EarthlyRustLibApiImplPlatform
   StorySummaryDto? sse_decode_opt_box_autoadd_story_summary_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
@@ -837,6 +899,9 @@ abstract class EarthlyRustLibApiImplPlatform
   SightingSummaryDto sse_decode_sighting_summary_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  SpatialImportDto sse_decode_spatial_import_dto(SseDeserializer deserializer);
 
   @protected
   StorySummaryDto sse_decode_story_summary_dto(SseDeserializer deserializer);
@@ -938,6 +1003,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_author_portfolio_dto(
+    AuthorPortfolioDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_blossom_upload_dto(
+    BlossomUploadDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
@@ -998,6 +1075,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_box_autoadd_profile_metadata_dto(
+    ProfileMetadataDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_sighting_summary_dto(
     SightingSummaryDto self,
     SseSerializer serializer,
@@ -1008,6 +1091,9 @@ abstract class EarthlyRustLibApiImplPlatform
     StorySummaryDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
@@ -1089,6 +1175,9 @@ abstract class EarthlyRustLibApiImplPlatform
     GeoProposalDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_inbox_item_dto(InboxItemDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_ingested_blob_snapshot(
@@ -1174,6 +1263,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_geo_proposal_dto(
     List<GeoProposalDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_inbox_item_dto(
+    List<InboxItemDto> self,
     SseSerializer serializer,
   );
 
@@ -1367,6 +1462,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_profile_metadata_dto(
+    ProfileMetadataDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_sighting_summary_dto(
     SightingSummaryDto? self,
     SseSerializer serializer,
@@ -1377,6 +1478,9 @@ abstract class EarthlyRustLibApiImplPlatform
     StorySummaryDto? self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
@@ -1435,6 +1539,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_sighting_summary_dto(
     SightingSummaryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_spatial_import_dto(
+    SpatialImportDto self,
     SseSerializer serializer,
   );
 

@@ -35,6 +35,8 @@ class StoryReaderMargin extends StatelessWidget {
     this.isOwned = false,
     this.onEditStory,
     this.onDeleteStory,
+    this.authorLabel,
+    this.onOpenPerson,
     super.key,
   });
 
@@ -57,6 +59,8 @@ class StoryReaderMargin extends StatelessWidget {
   final bool isOwned;
   final VoidCallback? onEditStory;
   final Future<void> Function()? onDeleteStory;
+  final String? authorLabel;
+  final ValueChanged<String>? onOpenPerson;
 
   @override
   Widget build(BuildContext context) {
@@ -245,6 +249,47 @@ class StoryReaderMargin extends StatelessWidget {
             runSpacing: 6,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
+              if (onOpenPerson != null)
+                InkWell(
+                  onTap: () => onOpenPerson!(story.pubkey),
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: EarthlyColors.infoCyan.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: EarthlyColors.infoCyan.withValues(alpha: 0.45),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.person_outline,
+                          size: 12,
+                          color: EarthlyColors.infoCyan,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          authorLabel ??
+                              (story.pubkey.length > 10
+                                  ? '${story.pubkey.substring(0, 8)}…'
+                                  : story.pubkey),
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: EarthlyColors.infoCyan,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               if (loadingLinkedMaps)
                 const Row(
                   mainAxisSize: MainAxisSize.min,

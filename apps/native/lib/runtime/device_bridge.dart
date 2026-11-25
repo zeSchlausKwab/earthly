@@ -31,6 +31,31 @@ class PickedBinaryFile {
 class DeviceBridge {
   static const MethodChannel _channel = MethodChannel('city.earthly/device');
 
+  static void Function(String uri)? _deepLinkHandler;
+  static void Function(PickedBinaryFile file)? _droppedFileHandler;
+
+  static void _ensureMethodCallHandler() {
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onDeepLink' && call.arguments is String) {
+        final raw = (call.arguments as String).trim();
+        if (raw.isNotEmpty) _deepLinkHandler?.call(raw);
+      } else if (call.method == 'onDroppedFile' && call.arguments is Map) {
+        final map = Map<String, dynamic>.from(call.arguments as Map);
+        final bytes = map['bytes'] as Uint8List?;
+        if (bytes != null && bytes.isNotEmpty) {
+          _droppedFileHandler?.call(
+            PickedBinaryFile(
+              bytes: bytes,
+              mimeType:
+                  (map['mimeType'] as String?) ?? 'application/octet-stream',
+              name: (map['name'] as String?) ?? 'dropped-file',
+            ),
+          );
+        }
+      }
+    });
+  }
+
   static Future<String?> getInitialDeepLink() async {
     try {
       final raw = await _channel.invokeMethod<String>('getInitialDeepLink');
@@ -40,13 +65,34 @@ class DeviceBridge {
     }
   }
 
+  static Future<PickedBinaryFile?> getInitialDroppedFile() async {
+    try {
+      final map = await _channel.invokeMapMethod<String, dynamic>(
+        'getInitialDroppedFile',
+      );
+      if (map == null) return null;
+      final bytes = map['bytes'] as Uint8List?;
+      if (bytes == null || bytes.isEmpty) return null;
+      return PickedBinaryFile(
+        bytes: bytes,
+        mimeType: (map['mimeType'] as String?) ?? 'application/octet-stream',
+        name: (map['name'] as String?) ?? 'shared-file',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   static void setDeepLinkHandler(void Function(String uri) onDeepLink) {
-    _channel.setMethodCallHandler((call) async {
-      if (call.method == 'onDeepLink' && call.arguments is String) {
-        final raw = (call.arguments as String).trim();
-        if (raw.isNotEmpty) onDeepLink(raw);
-      }
-    });
+    _deepLinkHandler = onDeepLink;
+    _ensureMethodCallHandler();
+  }
+
+  static void setDroppedFileHandler(
+    void Function(PickedBinaryFile file) onDroppedFile,
+  ) {
+    _droppedFileHandler = onDroppedFile;
+    _ensureMethodCallHandler();
   }
 
   static Future<DeviceLocationFix> getCurrentLocation() async {
@@ -78,12 +124,14 @@ class DeviceBridge {
   static Future<String> saveGeoJsonFile({
     required String filename,
     required String content,
+    String? mimeType,
   }) async {
     final savedName = await _channel.invokeMethod<String>(
       'saveGeoJsonFile',
       <String, Object>{
         'filename': filename,
         'content': content,
+        'mimeType': ?mimeType,
       },
     );
     return savedName ?? filename;

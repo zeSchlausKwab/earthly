@@ -49,6 +49,9 @@ pub struct AppSettingsDto {
     pub bunker_uri: Option<String>,
     pub bunker_client_nsec: Option<String>,
     pub mounted_atlas_workspaces: Vec<MountedAtlasWorkspaceDto>,
+    pub blossom_server_url: String,
+    pub inbox_read_all_before: u64,
+    pub inbox_read_ids: Vec<String>,
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
@@ -112,6 +115,9 @@ fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
                 coverage_summary: w.coverage_summary,
             })
             .collect(),
+        blossom_server_url: r.blossom_server_url,
+        inbox_read_all_before: r.inbox_read_all_before,
+        inbox_read_ids: r.inbox_read_ids,
     }
 }
 
@@ -159,5 +165,30 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
                 coverage_summary: w.coverage_summary,
             })
             .collect(),
+        blossom_server_url: d.blossom_server_url,
+        inbox_read_all_before: d.inbox_read_all_before,
+        inbox_read_ids: d.inbox_read_ids,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn round_trips_blossom_and_inbox_read_state() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("settings.sqlite3").display().to_string();
+        let mut s = load_app_settings(db.clone()).unwrap();
+        assert_eq!(s.blossom_server_url, "https://blossom.earthly.city");
+        s.blossom_server_url = "https://blossom.primal.net".to_owned();
+        s.inbox_read_all_before = 1_790_000_000;
+        s.inbox_read_ids = vec!["reply:abc".to_owned()];
+        let saved = save_app_settings(db.clone(), s).unwrap();
+        assert_eq!(saved.blossom_server_url, "https://blossom.primal.net");
+        let reloaded = load_app_settings(db).unwrap();
+        assert_eq!(reloaded.inbox_read_all_before, 1_790_000_000);
+        assert_eq!(reloaded.inbox_read_ids, vec!["reply:abc".to_owned()]);
     }
 }

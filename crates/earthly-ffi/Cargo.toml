@@ -12,6 +12,7 @@ name = "earthly_ffi"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
+base64 = "0.22"
 earthly-agent = { path = "../earthly-agent", features = ["native-http"] }
 earthly-domain = { path = "../earthly-domain" }
 earthly-geo = { path = "../earthly-geo" }

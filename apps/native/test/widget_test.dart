@@ -9,11 +9,15 @@ import 'package:earthly_native/shell/atlas_detail_margin.dart';
 import 'package:earthly_native/shell/basemap_switcher_sheet.dart';
 import 'package:earthly_native/shell/circles_sheet.dart';
 import 'package:earthly_native/shell/dataset_detail_margin.dart';
+import 'package:earthly_native/shell/desk_sheet.dart';
 import 'package:earthly_native/shell/entity_list_row.dart';
 import 'package:earthly_native/shell/explore_sheet.dart';
+import 'package:earthly_native/shell/inbox_sheet.dart';
 import 'package:earthly_native/shell/map_drawer.dart';
+import 'package:earthly_native/shell/person_margin.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
 import 'package:earthly_native/shell/story_composer_sheet.dart';
+import 'package:earthly_native/src/rust/api/blossom.dart';
 import 'package:earthly_native/src/rust/api/nostr_client.dart';
 import 'package:earthly_native/src/rust/api/private_groups.dart';
 import 'package:earthly_native/src/rust/api/publish.dart';
@@ -909,5 +913,324 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
     await tester.tap(find.byTooltip('Unmount .atlas'));
     await tester.pump();
     expect(unmountedPath, '/tmp/alps-2026.atlas');
+  });
+
+  testWidgets(
+      'InboxSheet filters Proposals/Replies/Activity, shows unread count, and marks read on tap',
+      (WidgetTester tester) async {
+    const me =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const bob =
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    final items = [
+      InboxItemDto(
+        id: 'proposal:ev1',
+        eventId: 'ev1',
+        kind: 'proposal',
+        category: 'proposals',
+        actorPubkey: bob,
+        createdAt: BigInt.from(1791000200),
+        action: 'proposed changes to',
+        thingLabel: 'Danube Route',
+        preview: 'Adjusted bridge crossing',
+        targetAddress: '37515:$me:danube-route',
+        targetKind: 37515,
+        targetTab: 'comments',
+      ),
+      InboxItemDto(
+        id: 'reply:ev2',
+        eventId: 'ev2',
+        kind: 'reply',
+        category: 'replies',
+        actorPubkey: bob,
+        createdAt: BigInt.from(1791000100),
+        action: 'replied on',
+        thingLabel: 'Vienna Atlas',
+        preview: 'Looks great!',
+        targetAddress: '37518:$me:vienna',
+        targetKind: 37518,
+        targetTab: 'comments',
+      ),
+    ];
+
+    String? markedReadId;
+    InboxItemDto? openedItem;
+    var markedAll = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              InboxSheet(
+                account: const Nip55Account(pubkey: me),
+                items: items,
+                loading: false,
+                readAllBeforeSecs: 0,
+                readIds: const {},
+                profilesByPubkey: const {
+                  bob: ProfileMetadataDto(
+                    pubkey: bob,
+                    displayName: 'Bob Mapper',
+                  ),
+                },
+                pendingCircleJoinsCount: 1,
+                pendingNearbyClaimsCount: 0,
+                onRefresh: () async {},
+                onMarkItemRead: (id) => markedReadId = id,
+                onMarkAllRead: () => markedAll = true,
+                onOpenItem: (item) => openedItem = item,
+                onOpenPerson: (_) {},
+                onOpenCircles: () {},
+                onOpenSpaces: () {},
+                onOpenAccount: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('2 unread'), findsOneWidget);
+    expect(find.text('Adjusted bridge crossing'), findsOneWidget);
+    expect(find.text('Looks great!'), findsOneWidget);
+
+    await tester.tap(find.text('Proposals'));
+    await tester.pump();
+    expect(find.text('Adjusted bridge crossing'), findsOneWidget);
+    expect(find.text('Looks great!'), findsNothing);
+
+    await tester.tap(find.text('Adjusted bridge crossing'));
+    await tester.pump();
+    expect(markedReadId, 'proposal:ev1');
+    expect(openedItem?.id, 'proposal:ev1');
+
+    await tester.tap(find.text('Mark all read'));
+    await tester.pump();
+    expect(markedAll, isTrue);
+  });
+
+  testWidgets(
+      'PersonMarginSheet displays author profile, NIP-05, bio, and Maps/Stories/Atlases tabs',
+      (WidgetTester tester) async {
+    const alice =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    final portfolio = AuthorPortfolioDto(
+      pubkey: alice,
+      npub: 'npub1aliceexample',
+      profile: const ProfileMetadataDto(
+        pubkey: alice,
+        displayName: 'Alice Cartographer',
+        about: 'Mapping European rivers and alpine trails.',
+        nip05: 'alice@earthly.city',
+      ),
+      maps: [
+        MapSummaryDto(
+          address: '37515:$alice:danube',
+          eventId: 'ev-m1',
+          pubkey: alice,
+          dTag: 'danube',
+          title: 'Danube Bikeway',
+          featureCount: 4,
+          sizeBytes: 1200,
+          geojson: '{"type":"FeatureCollection","features":[]}',
+          hashtags: const ['cycling'],
+          labels: const [],
+          contextRefs: const [],
+          createdAt: BigInt.from(1791000000),
+        ),
+      ],
+      stories: [
+        StorySummaryDto(
+          address: '37520:$alice:river-notes',
+          eventId: 'ev-s1',
+          pubkey: alice,
+          dTag: 'river-notes',
+          title: 'River Notes',
+          content: '# Hello river',
+          referencedAddresses: const [],
+          publishedAt: BigInt.from(1791000000),
+        ),
+      ],
+      atlases: [
+        AtlasSummaryDto(
+          address: '37518:$alice:waterways',
+          eventId: 'ev-a1',
+          pubkey: alice,
+          dTag: 'waterways',
+          name: 'European Waterways',
+          governance: 'open',
+          pinnedAddresses: const [],
+          hashtags: const ['rivers'],
+          createdAt: BigInt.from(1791000000),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              PersonMarginSheet(
+                pubkey: alice,
+                relayUrls: const ['wss://relay.earthly.city'],
+                isCurrentUser: true,
+                initialProfile: portfolio.profile,
+                initialPortfolio: portfolio,
+                catalogMaps: const [],
+                catalogStories: const [],
+                catalogAtlases: const [],
+                shelfAddresses: const {},
+                onToggleMapOnShelf: (_) {},
+                onInspectMap: (_) {},
+                onFocusMap: (_) {},
+                onOpenStory: (_) {},
+                onInspectAtlas: (_) {},
+                onEnterAtlasLens: (_) {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Alice Cartographer'), findsOneWidget);
+    expect(find.text('alice@earthly.city'), findsOneWidget);
+    expect(find.text('YOU'), findsOneWidget);
+    expect(find.text('Danube Bikeway'), findsOneWidget);
+
+    await tester.tap(find.text('Stories (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('River Notes'), findsOneWidget);
+
+    await tester.tap(find.text('Atlases (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('European Waterways'), findsOneWidget);
+  });
+
+  testWidgets(
+      'StoryComposerDrawer uploads Blossom cover & inline photo and DeskSheet exposes GPX/KML export',
+      (WidgetTester tester) async {
+    StoryPublishRequest? published;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              StoryComposerDrawer(
+                shelfMaps: const [],
+                getCameraSnapshot: () => null,
+                onUploadBlossomImage: (_) async => BlossomUploadDto(
+                  url: 'https://blossom.earthly.city/abc123.jpg',
+                  sha256: 'a' * 64,
+                  sizeBytes: BigInt.from(1024),
+                  mimeType: 'image/jpeg',
+                ),
+                onPublishStory: (req) async {
+                  published = req;
+                  return const PublishOutcomeDto(
+                    eventId: '0123456789abcdef0123456789abcdef',
+                    outboxState: 'sent',
+                    relays: [],
+                  );
+                },
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField).first, 'Blossom Photo Story');
+    await tester.tap(find.text('Cover'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('+ Upload Photo'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('+ Upload Photo'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Sign & Publish Story (37520)'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Sign & Publish Story (37520)'));
+    await tester.pumpAndSettle();
+
+    expect(published?.image, 'https://blossom.earthly.city/abc123.jpg');
+    expect(
+      published?.markdown,
+      contains('![Photo](https://blossom.earthly.city/abc123.jpg)'),
+    );
+
+    var exportedGpx = false;
+    var exportedKml = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DeskSheet(
+                activeDraftId: 'draft-1',
+                savedDrafts: const [],
+                relayUrls: const ['wss://relay.earthly.city'],
+                draftTitle: 'Track Export Test',
+                audience: DraftAudienceChoice.publicRelay,
+                account: null,
+                shelfMaps: const [],
+                deskStories: const [],
+                deskAtlases: const [],
+                drawnFeatures: const [],
+                onSelectDraft: (_) {},
+                onCreateNewDraft: () {},
+                onDeleteDraft: (_) {},
+                onDraftTitleChanged: (_) {},
+                onAudienceChanged: (_) {},
+                onToggleShelfVisibility: (_) {},
+                onRemoveShelfMap: (_) {},
+                onInspectShelfMap: (_) {},
+                onFlyToShelfMap: (_) {},
+                onCloneShelfMapToDraft: (_) {},
+                onOpenShelfDiscussion: (_) {},
+                onOpenDeskStory: (_) {},
+                onRemoveDeskStory: (_) {},
+                onOpenDeskAtlas: (_) {},
+                onRemoveDeskAtlas: (_) {},
+                onRunGeoAction: (_) {},
+                onPublishDraft: (_, _) async => const PublishOutcomeDto(
+                  eventId: '0123456789abcdef0123456789abcdef',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onComposeStory: () {},
+                onCreateAtlas: () {},
+                onImportGeoJson: () {},
+                onExportGeoJsonFile: () {},
+                onExportGpxFile: () => exportedGpx = true,
+                onExportKmlFile: () => exportedKml = true,
+                onCopyGeoJson: () {},
+                onClearDraftFeatures: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.text('Import GeoJSON / GPX / KML'),
+      140,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Import GeoJSON / GPX / KML'), findsOneWidget);
+    expect(find.text('Export ▾'), findsOneWidget);
+    expect(exportedGpx, isFalse);
+    expect(exportedKml, isFalse);
   });
 }

@@ -41,6 +41,7 @@ class MainActivity : FlutterActivity() {
     private var pendingLocationResult: MethodChannel.Result? = null
     private var deviceChannel: MethodChannel? = null
     private var initialDeepLink: String? = null
+    private var initialDroppedFile: Map<String, Any>? = null
 
     private fun extractDeepLink(intent: Intent?): String? {
         val uri = intent?.dataString ?: return null
@@ -52,14 +53,49 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
+    private fun extractSharedFile(intent: Intent?): Map<String, Any>? {
+        if (intent == null) return null
+        val uri: Uri? = when (intent.action) {
+            Intent.ACTION_SEND -> intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            Intent.ACTION_VIEW -> intent.data?.takeIf {
+                it.scheme == "content" || it.scheme == "file"
+            }
+            else -> null
+        }
+        if (uri == null) return null
+        return try {
+            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            if (bytes == null || bytes.isEmpty()) return null
+            val name = queryDisplayName(uri)
+            val mime = contentResolver.getType(uri) ?: "application/octet-stream"
+            mapOf(
+                "bytes" to bytes,
+                "mimeType" to mime,
+                "name" to name,
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val link = extractDeepLink(intent) ?: return
+        val link = extractDeepLink(intent)
+        if (link != null) {
+            if (deviceChannel != null) {
+                deviceChannel?.invokeMethod("onDeepLink", link)
+            } else {
+                initialDeepLink = link
+            }
+            return
+        }
+        val shared = extractSharedFile(intent) ?: return
         if (deviceChannel != null) {
-            deviceChannel?.invokeMethod("onDeepLink", link)
+            deviceChannel?.invokeMethod("onDroppedFile", shared)
         } else {
-            initialDeepLink = link
+            initialDroppedFile = shared
         }
     }
 
@@ -133,6 +169,7 @@ class MainActivity : FlutterActivity() {
             }
 
         initialDeepLink = initialDeepLink ?: extractDeepLink(intent)
+        initialDroppedFile = initialDroppedFile ?: extractSharedFile(intent)
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_CHANNEL)
         deviceChannel = channel
         channel.setMethodCallHandler { call, result ->
@@ -141,6 +178,12 @@ class MainActivity : FlutterActivity() {
                         val link = initialDeepLink
                         initialDeepLink = null
                         result.success(link)
+                    }
+
+                    "getInitialDroppedFile" -> {
+                        val dropped = initialDroppedFile
+                        initialDroppedFile = null
+                        result.success(dropped)
                     }
 
                     "getCurrentLocation" -> handleGetLocation(result)
@@ -213,9 +256,14 @@ class MainActivity : FlutterActivity() {
                         }
                         val filename = call.argument<String>("filename") ?: "earthly-map.geojson"
                         val content = call.argument<String>("content") ?: ""
+                        val mime = call.argument<String>("mimeType") ?: when {
+                            filename.endsWith(".gpx", ignoreCase = true) -> "application/gpx+xml"
+                            filename.endsWith(".kml", ignoreCase = true) -> "application/vnd.google-earth.kml+xml"
+                            else -> "application/geo+json"
+                        }
                         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "application/geo+json"
+                            type = mime
                             putExtra(Intent.EXTRA_TITLE, filename)
                         }
                         pendingResult = result

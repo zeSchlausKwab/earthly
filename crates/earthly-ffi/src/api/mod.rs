@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod blossom;
 pub mod geo;
 pub mod nip46;
 pub mod nostr_client;

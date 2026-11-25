@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `event_to_raw`, `hex_val`, `map_to_dto`, `parse_live_relay_event`, `percent_decode_fragment`, `sighting_to_dto`, `story_to_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `compact_preview`, `derive_inbox_items_from_events`, `event_to_raw`, `first_tag`, `hex_val`, `humanize_ident`, `inbox_entity_label`, `map_to_dto`, `parse_coord`, `parse_live_relay_event`, `percent_decode_fragment`, `sighting_to_dto`, `story_to_dto`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.
 Future<List<ProfileMetadataDto>> fetchProfiles({
@@ -112,6 +112,38 @@ Future<EntityDiscussionSnapshot> fetchEntityDiscussion({
   baseGeojson: baseGeojson,
 );
 
+/// Encodes a 64-char hex pubkey (or normalizes an existing `npub1...`) to canonical `npub1...`.
+Future<String> pubkeyToNpub({required String pubkeyOrNpub}) => EarthlyRustLib
+    .instance
+    .api
+    .crateApiNostrClientPubkeyToNpub(pubkeyOrNpub: pubkeyOrNpub);
+
+/// Fetches a single author's `kind 0` profile and all published Earthly Maps (`37515`),
+/// Stories (`37520`), and Atlases (`37518`) from the configured Nostr relays.
+Future<AuthorPortfolioDto> fetchAuthorPortfolio({
+  required List<String> relayUrls,
+  required String pubkeyOrNpub,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientFetchAuthorPortfolio(
+  relayUrls: relayUrls,
+  pubkeyOrNpub: pubkeyOrNpub,
+);
+
+/// Fetches account-directed Earthly Inbox events (Edit Proposals `37519`,
+/// Proposal Decisions `1631`/`1632`, Comments/Replies/Mentions `37517`,
+/// Atlas Arrivals `37515` with `#c`, Follows `3`, Reactions `7`, Zaps `9735`)
+/// matching Earthly Web's `src/features/inbox/deriveInbox.ts`.
+Future<List<InboxItemDto>> fetchInboxItems({
+  required List<String> relayUrls,
+  required String currentUserPubkey,
+  required List<String> ownedAtlasAddresses,
+  String? knownTitlesJson,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientFetchInboxItems(
+  relayUrls: relayUrls,
+  currentUserPubkey: currentUserPubkey,
+  ownedAtlasAddresses: ownedAtlasAddresses,
+  knownTitlesJson: knownTitlesJson,
+);
+
 class AtlasSummaryDto {
   final String address;
   final String eventId;
@@ -169,6 +201,45 @@ class AtlasSummaryDto {
           pinnedAddresses == other.pinnedAddresses &&
           hashtags == other.hashtags &&
           createdAt == other.createdAt;
+}
+
+class AuthorPortfolioDto {
+  final String pubkey;
+  final String npub;
+  final ProfileMetadataDto? profile;
+  final List<MapSummaryDto> maps;
+  final List<StorySummaryDto> stories;
+  final List<AtlasSummaryDto> atlases;
+
+  const AuthorPortfolioDto({
+    required this.pubkey,
+    required this.npub,
+    this.profile,
+    required this.maps,
+    required this.stories,
+    required this.atlases,
+  });
+
+  @override
+  int get hashCode =>
+      pubkey.hashCode ^
+      npub.hashCode ^
+      profile.hashCode ^
+      maps.hashCode ^
+      stories.hashCode ^
+      atlases.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AuthorPortfolioDto &&
+          runtimeType == other.runtimeType &&
+          pubkey == other.pubkey &&
+          npub == other.npub &&
+          profile == other.profile &&
+          maps == other.maps &&
+          stories == other.stories &&
+          atlases == other.atlases;
 }
 
 class DecodedNaddrDto {
@@ -386,6 +457,76 @@ class GeoProposalDto {
           modifiedCount == other.modifiedCount &&
           removedCount == other.removedCount &&
           createdAt == other.createdAt;
+}
+
+/// Event-derived Inbox notification matching Earthly Web's `src/features/inbox/deriveInbox.ts`.
+class InboxItemDto {
+  final String id;
+  final String eventId;
+
+  /// `proposal` | `accepted` | `declined` | `reply` | `mention` | `atlas_arrival` | `follow` | `reaction` | `zap`
+  final String kind;
+
+  /// `proposals` | `replies` | `activity`
+  final String category;
+  final String actorPubkey;
+  final BigInt createdAt;
+  final String action;
+  final String thingLabel;
+  final String? preview;
+  final String? targetAddress;
+  final int? targetKind;
+
+  /// `details` | `comments` | `person`
+  final String? targetTab;
+
+  const InboxItemDto({
+    required this.id,
+    required this.eventId,
+    required this.kind,
+    required this.category,
+    required this.actorPubkey,
+    required this.createdAt,
+    required this.action,
+    required this.thingLabel,
+    this.preview,
+    this.targetAddress,
+    this.targetKind,
+    this.targetTab,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      eventId.hashCode ^
+      kind.hashCode ^
+      category.hashCode ^
+      actorPubkey.hashCode ^
+      createdAt.hashCode ^
+      action.hashCode ^
+      thingLabel.hashCode ^
+      preview.hashCode ^
+      targetAddress.hashCode ^
+      targetKind.hashCode ^
+      targetTab.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InboxItemDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          eventId == other.eventId &&
+          kind == other.kind &&
+          category == other.category &&
+          actorPubkey == other.actorPubkey &&
+          createdAt == other.createdAt &&
+          action == other.action &&
+          thingLabel == other.thingLabel &&
+          preview == other.preview &&
+          targetAddress == other.targetAddress &&
+          targetKind == other.targetKind &&
+          targetTab == other.targetTab;
 }
 
 class LiveBeaconDto {

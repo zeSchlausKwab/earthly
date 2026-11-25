@@ -27,6 +27,8 @@ import 'shell/desk_sheet.dart';
 import 'shell/discussion_margin_sheet.dart';
 import 'shell/explore_sheet.dart';
 import 'shell/feature_inspector_sheet.dart';
+import 'shell/inbox_sheet.dart';
+import 'shell/person_margin.dart';
 import 'shell/place_search_sheet.dart';
 import 'shell/sighting_composer_sheet.dart';
 import 'shell/spaces_sheet.dart';
@@ -34,6 +36,7 @@ import 'shell/story_composer_sheet.dart';
 import 'shell/story_reader_margin.dart';
 import 'spike/rust_node_sheet.dart';
 import 'src/rust/api/agent.dart';
+import 'src/rust/api/blossom.dart';
 import 'src/rust/api/geo.dart';
 import 'src/rust/api/nip46.dart';
 import 'src/rust/api/nostr_client.dart';
@@ -63,6 +66,8 @@ enum _ActiveDrawer {
   desk,
   spaces,
   circles,
+  inbox,
+  person,
   account,
   search,
   agent,
@@ -191,6 +196,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   String? _pendingDeepLinkCircleInvite;
   StorySummaryDto? _editingStory;
   AtlasSummaryDto? _editingAtlas;
+  String _blossomServerUrl = 'https://blossom.earthly.city';
+  List<InboxItemDto> _inboxItems = <InboxItemDto>[];
+  bool _inboxLoading = false;
+  int _inboxReadAllBefore = 0;
+  final Set<String> _inboxReadIds = <String>{};
+  String? _inspectedPersonPubkey;
   String? _hostedSessionId;
   RemotePeerDto? _acceptedRemotePeer;
 
@@ -246,6 +257,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   Future<void> _bootstrapPersistentState() async {
     DeviceBridge.setDeepLinkHandler(_handleIncomingDeepLink);
+    DeviceBridge.setDroppedFileHandler(
+      (file) => unawaited(_handleDroppedSpatialOrPmtilesFile(file)),
+    );
     final dir = await getApplicationSupportDirectory();
     if (mounted) {
       setState(() => _mlsDatabasePath = '${dir.path}/mls.sqlite3');
@@ -254,10 +268,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     await _restoreSavedDraft();
     unawaited(_refreshCirclesSnapshot());
     unawaited(_preloadCatalog());
+    unawaited(_refreshInbox());
     unawaited(_startLiveRelayStream());
     final initialLink = await DeviceBridge.getInitialDeepLink();
     if (initialLink != null && mounted) {
       _handleIncomingDeepLink(initialLink);
+    }
+    final initialDropped = await DeviceBridge.getInitialDroppedFile();
+    if (initialDropped != null && mounted) {
+      unawaited(_handleDroppedSpatialOrPmtilesFile(initialDropped));
     }
   }
 
@@ -378,6 +397,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         _recentEntityIds
           ..clear()
           ..addAll(loaded.recentEntityIds);
+        if (loaded.blossomServerUrl.trim().isNotEmpty) {
+          _blossomServerUrl = loaded.blossomServerUrl.trim();
+        }
+        _inboxReadAllBefore = loaded.inboxReadAllBefore.toInt();
+        _inboxReadIds
+          ..clear()
+          ..addAll(loaded.inboxReadIds);
       });
     } catch (_) {}
   }
@@ -407,6 +433,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           bunkerClientNsec: _bunkerClientNsec,
           mountedAtlasWorkspaces:
               List<MountedAtlasWorkspaceDto>.from(_mountedAtlasWorkspaces),
+          blossomServerUrl: _blossomServerUrl,
+          inboxReadAllBefore: BigInt.from(_inboxReadAllBefore),
+          inboxReadIds: _inboxReadIds.take(500).toList(growable: false),
         ),
       );
     } catch (_) {}
@@ -492,11 +521,58 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     }
   }
 
-  Future<void> _importGeoJsonFile() async {
+  Future<void> _handleDroppedSpatialOrPmtilesFile(
+    PickedBinaryFile file,
+  ) async {
+    final lower = file.name.toLowerCase();
+    if (lower.endsWith('.pmtiles')) {
+      try {
+        await RustBridge.ensureInitialized();
+        final dir = await getApplicationSupportDirectory();
+        await startLocalNode(dataDir: '${dir.path}/local-node');
+        final ingested = await ingestLocalPmtiles(
+          bytes: file.bytes,
+          label: file.name,
+        );
+        final offline = OfflinePmtilesBasemap(
+          snapshot: ingested,
+          styleJson: buildPmtilesStyleJson(ingested),
+        );
+        if (!mounted) return;
+        final h = ingested.header;
+        setState(() {
+          _offlineBasemap = offline;
+          _selectedBasemap = BasemapKind.offlinePmtiles;
+        });
+        _controller?.animateCamera(
+          CameraUpdate.position(
+            center: Geographic(lon: h.centerLon, lat: h.centerLat),
+            zoom: h.centerZoom.toDouble().clamp(2.0, 18.0),
+          ),
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Loaded offline PMTiles "${file.name}"')),
+        );
+      } catch (err) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PMTiles drop failed: $err')),
+        );
+      }
+      return;
+    }
+    await _importSpatialPickedFile(file);
+  }
+
+  Future<void> _importSpatialPickedFile(PickedBinaryFile picked) async {
     try {
-      final picked = await DeviceBridge.pickGeoJsonFile();
-      final text = utf8.decode(picked.bytes);
-      final imported = parseDraftFeaturesFromGeoJson(text);
+      await RustBridge.ensureInitialized();
+      final text = utf8.decode(picked.bytes, allowMalformed: true);
+      final converted = await geoImportSpatialFile(
+        filename: picked.name,
+        content: text,
+      );
+      final imported = parseDraftFeaturesFromGeoJson(converted.geojson);
       if (imported.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -515,20 +591,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               kind: feat.kind,
               vertices: feat.vertices,
               name: feat.name,
+              description: feat.description,
               colorHex: feat.colorHex,
+              strokeWidth: feat.strokeWidth,
+              fillOpacity: feat.fillOpacity,
+              radius: feat.radius,
               callouts: feat.callouts,
             ),
           );
         }
-        if (_draftTitle == 'Field Map') {
-          _draftTitle = picked.name
-              .replaceAll('.geojson', '')
-              .replaceAll('.json', '');
+        if (_draftTitle == 'Field Map' && converted.title.isNotEmpty) {
+          _draftTitle = converted.title;
         }
       });
       unawaited(_persistWorkingDraft());
 
-      // Frame the imported geometry on the live map!
       final allVerts = imported.expand((f) => f.vertices).toList();
       if (allVerts.isNotEmpty) {
         double west = allVerts.first.lon;
@@ -556,7 +633,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Imported ${imported.length} feature${imported.length == 1 ? '' : 's'} from ${picked.name}',
+            'Imported ${imported.length} feature${imported.length == 1 ? '' : 's'} (${converted.format.toUpperCase()}) from ${picked.name}',
           ),
         ),
       );
@@ -568,9 +645,22 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     }
   }
 
-  Future<void> _exportGeoJsonFile() async {
+  Future<void> _importGeoJsonFile() async {
+    try {
+      final picked = await DeviceBridge.pickGeoJsonFile();
+      await _importSpatialPickedFile(picked);
+    } catch (err) {
+      if (!mounted || err.toString().contains('cancelled')) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Import failed: $err')),
+      );
+    }
+  }
+
+  Future<void> _exportSpatialFile(String format) async {
     if (_features.isEmpty) return;
     try {
+      await RustBridge.ensureInitialized();
       final geojson = draftFeaturesToGeoJson(
         title: _draftTitle,
         features: _features,
@@ -580,10 +670,28 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           .toLowerCase()
           .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
           .replaceAll(RegExp(r'^-|-$'), '');
-      final filename = '${safeName.isEmpty ? 'earthly-map' : safeName}.geojson';
+      final stem = safeName.isEmpty ? 'earthly-map' : safeName;
+      final String content;
+      final String filename;
+      final String mimeType;
+      switch (format) {
+        case 'gpx':
+          content = await geoExportGpx(geojson: geojson, title: _draftTitle);
+          filename = '$stem.gpx';
+          mimeType = 'application/gpx+xml';
+        case 'kml':
+          content = await geoExportKml(geojson: geojson, title: _draftTitle);
+          filename = '$stem.kml';
+          mimeType = 'application/vnd.google-earth.kml+xml';
+        default:
+          content = geojson;
+          filename = '$stem.geojson';
+          mimeType = 'application/geo+json';
+      }
       final savedName = await DeviceBridge.saveGeoJsonFile(
         filename: filename,
-        content: geojson,
+        content: content,
+        mimeType: mimeType,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -596,6 +704,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       );
     }
   }
+
+  Future<void> _exportGeoJsonFile() => _exportSpatialFile('geojson');
 
   void _copyGeoJsonToClipboard() {
     if (_features.isEmpty) return;
@@ -719,6 +829,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       dTag: dTag,
       name: req.name,
       description: req.description.isEmpty ? null : req.description,
+      image: req.image,
       governance: req.governance,
       pinnedAddresses: req.pinnedAddresses,
       hashtags: req.hashtags,
@@ -737,6 +848,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         dTag: prepared.dTag,
         name: req.name,
         description: req.description.isEmpty ? null : req.description,
+        image: req.image,
         governance: req.governance,
         pinnedAddresses: req.pinnedAddresses,
         hashtags: req.hashtags,
@@ -2401,6 +2513,19 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                     OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(ctx).pop();
+                        setState(() => _drawer = _ActiveDrawer.inbox);
+                        unawaited(_refreshInbox());
+                      },
+                      icon: const Icon(Icons.inbox_outlined, size: 16),
+                      label: Text(
+                        _inboxUnreadCount > 0
+                            ? 'Inbox ($_inboxUnreadCount)'
+                            : 'Inbox',
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
                         setState(() => _drawer = _ActiveDrawer.circles);
                       },
                       icon: const Icon(Icons.lock_outline, size: 16),
@@ -2657,6 +2782,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       dTag: dTag,
       title: req.title,
       summary: req.summary.isEmpty ? null : req.summary,
+      image: req.image,
       markdownContent: req.markdown,
       referencedMapAddresses: req.linkedMapAddresses,
       presentationJson: req.presentationJson,
@@ -2676,6 +2802,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         dTag: prepared.dTag,
         title: req.title,
         summary: req.summary.isEmpty ? null : req.summary,
+        image: req.image,
         content: req.markdown,
         presentationJson: req.presentationJson,
         referencedAddresses: req.linkedMapAddresses,
@@ -3140,6 +3267,204 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     }
   }
 
+  int get _inboxUnreadCount => _inboxItems
+      .where(
+        (i) => !InboxSheet.isItemRead(
+          i,
+          readAllBeforeSecs: _inboxReadAllBefore,
+          readIds: _inboxReadIds,
+        ),
+      )
+      .length;
+
+  Future<void> _refreshInbox() async {
+    if (widget.mapBuilder != null || _inboxLoading) return;
+    final pk = _account?.pubkey;
+    if (pk == null || pk.isEmpty) {
+      if (mounted) setState(() => _inboxItems = const []);
+      return;
+    }
+    if (mounted) setState(() => _inboxLoading = true);
+    try {
+      await RustBridge.ensureInitialized();
+      final ownedAtlases = <String>[
+        for (final a in _catalog?.atlases ?? const <AtlasSummaryDto>[])
+          if (a.pubkey == pk) a.address,
+        for (final a in _deskAtlases)
+          if (a.pubkey == pk) a.address,
+      ];
+      final titles = <String, String>{
+        for (final m in _catalog?.maps ?? const <MapSummaryDto>[])
+          m.address: m.title,
+        for (final s in _catalog?.stories ?? const <StorySummaryDto>[])
+          s.address: s.title,
+        for (final a in _catalog?.atlases ?? const <AtlasSummaryDto>[])
+          a.address: a.name,
+      };
+      final items = await fetchInboxItems(
+        relayUrls: _activeRelayUrls,
+        currentUserPubkey: pk,
+        ownedAtlasAddresses: ownedAtlases.toSet().toList(growable: false),
+        knownTitlesJson: jsonEncode(titles),
+      );
+      if (!mounted) return;
+      setState(() => _inboxItems = items);
+
+      // Resolve missing actor profiles for Inbox rows.
+      final actorPks = items
+          .map((i) => i.actorPubkey)
+          .where((p) => !_profilesByPubkey.containsKey(p))
+          .toSet()
+          .toList(growable: false);
+      if (actorPks.isNotEmpty) {
+        final fetched = await fetchProfiles(
+          relayUrls: _activeRelayUrls,
+          pubkeys: actorPks,
+        );
+        if (mounted && fetched.isNotEmpty) {
+          setState(() {
+            for (final p in fetched) {
+              _profilesByPubkey[p.pubkey] = p;
+            }
+          });
+        }
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _inboxLoading = false);
+    }
+  }
+
+  void _markInboxItemRead(String itemId) {
+    setState(() => _inboxReadIds.add(itemId));
+    unawaited(_persistAppSettings());
+  }
+
+  void _markAllInboxRead() {
+    var maxTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    for (final item in _inboxItems) {
+      final ts = item.createdAt.toInt();
+      if (ts > maxTs) maxTs = ts;
+    }
+    setState(() {
+      _inboxReadAllBefore = maxTs;
+      _inboxReadIds.clear();
+    });
+    unawaited(_persistAppSettings());
+  }
+
+  void _openPerson(String pubkey) {
+    setState(() {
+      _inspectedPersonPubkey = pubkey;
+      _drawer = _ActiveDrawer.person;
+    });
+  }
+
+  Future<void> _openInboxItem(InboxItemDto item) async {
+    if (item.targetTab == 'person' ||
+        item.targetAddress == null ||
+        item.targetAddress!.isEmpty) {
+      _openPerson(item.actorPubkey);
+      return;
+    }
+    final addr = item.targetAddress!;
+    final parts = addr.split(':');
+    final kind = item.targetKind ?? (parts.isNotEmpty ? int.tryParse(parts[0]) : null);
+    final ownerPk = parts.length >= 2 ? parts[1] : item.actorPubkey;
+
+    if (item.targetTab == 'comments' && kind != null) {
+      final mapMatch = _catalog?.maps.where((m) => m.address == addr).firstOrNull;
+      _openDiscussion(
+        DiscussionTarget(
+          address: addr,
+          kind: kind,
+          pubkey: ownerPk,
+          title: mapMatch?.title ?? item.thingLabel,
+          eventId: mapMatch?.eventId,
+          baseGeojson: mapMatch?.geojson,
+        ),
+      );
+      return;
+    }
+
+    // Open Map / Story / Atlas directly (from cache or live relay lookup).
+    final cachedMap = _catalog?.maps.where((m) => m.address == addr).firstOrNull;
+    if (cachedMap != null) {
+      _inspectMap(cachedMap);
+      return;
+    }
+    final cachedStory =
+        _catalog?.stories.where((s) => s.address == addr).firstOrNull;
+    if (cachedStory != null) {
+      await _openStory(cachedStory);
+      return;
+    }
+    final cachedAtlas =
+        _catalog?.atlases.where((a) => a.address == addr).firstOrNull;
+    if (cachedAtlas != null) {
+      _inspectAtlas(cachedAtlas);
+      return;
+    }
+
+    try {
+      await RustBridge.ensureInitialized();
+      final fetched = await fetchEntityByAddress(
+        relayUrls: _activeRelayUrls,
+        address: addr,
+      );
+      if (!mounted || fetched == null) return;
+      if (fetched.map != null) {
+        _inspectMap(fetched.map!);
+      } else if (fetched.story != null) {
+        await _openStory(fetched.story!);
+      } else if (fetched.atlas != null) {
+        _inspectAtlas(fetched.atlas!);
+      }
+    } catch (_) {}
+  }
+
+  Future<BlossomUploadDto> _uploadBlossomBytes({
+    required Uint8List bytes,
+    required String mimeType,
+    required String purpose,
+  }) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final sha = await computeSha256Hex(bytes: bytes);
+    final unsignedAuth = await prepareUnsignedBlossomUploadAuth(
+      pubkeyOrNpub: account.pubkey,
+      sha256Hex: sha,
+      message: purpose,
+    );
+    final signedAuth = await _signUnsignedEvent(account, unsignedAuth);
+    return uploadBlobToBlossom(
+      serverUrl: _blossomServerUrl,
+      bytes: bytes,
+      mimeType: mimeType,
+      signedAuthEventJson: signedAuth,
+    );
+  }
+
+  Future<BlossomUploadDto?> _pickAndUploadBlossomImage(String purpose) async {
+    try {
+      final picked = await DeviceBridge.pickImage();
+      final uploaded = await _uploadBlossomBytes(
+        bytes: picked.bytes,
+        mimeType: picked.mimeType,
+        purpose: purpose,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Uploaded to Blossom: ${uploaded.url}')),
+        );
+      }
+      return uploaded;
+    } catch (err) {
+      if (err.toString().contains('cancelled')) return null;
+      rethrow;
+    }
+  }
+
   Future<SightingPublishResult> _publishSighting(
     SightingPublishRequest req,
   ) async {
@@ -3150,18 +3475,35 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     String? imageMime;
     String? imageSha256;
     if (req.photoBytes != null && req.photoBytes!.isNotEmpty) {
-      final dir = await getApplicationSupportDirectory();
-      final status = await localNodeStatus();
-      if (!status.running) {
-        await startLocalNode(dataDir: '${dir.path}/local-node');
+      final mime = req.photoMimeType ?? 'image/jpeg';
+      var uploadedPublic = false;
+      if (req.audience == DraftAudienceChoice.publicRelay) {
+        try {
+          final uploaded = await _uploadBlossomBytes(
+            bytes: req.photoBytes!,
+            mimeType: mime,
+            purpose: 'Upload Earthly Sighting photo',
+          );
+          imageUrl = uploaded.url;
+          imageMime = uploaded.mimeType;
+          imageSha256 = uploaded.sha256;
+          uploadedPublic = true;
+        } catch (_) {}
       }
-      final blob = await ingestLocalBlob(
-        bytes: req.photoBytes!,
-        mimeType: req.photoMimeType ?? 'image/jpeg',
-      );
-      imageUrl = blob.blobUrl;
-      imageMime = blob.mimeType;
-      imageSha256 = blob.sha256;
+      if (!uploadedPublic) {
+        final dir = await getApplicationSupportDirectory();
+        final status = await localNodeStatus();
+        if (!status.running) {
+          await startLocalNode(dataDir: '${dir.path}/local-node');
+        }
+        final blob = await ingestLocalBlob(
+          bytes: req.photoBytes!,
+          mimeType: mime,
+        );
+        imageUrl = blob.blobUrl;
+        imageMime = blob.mimeType;
+        imageSha256 = blob.sha256;
+      }
     }
 
     final dTag = 'sighting-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
@@ -3631,6 +3973,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           }),
           onImportGeoJson: () => unawaited(_importGeoJsonFile()),
           onExportGeoJsonFile: () => unawaited(_exportGeoJsonFile()),
+          onExportGpxFile: () => unawaited(_exportSpatialFile('gpx')),
+          onExportKmlFile: () => unawaited(_exportSpatialFile('kml')),
           onCopyGeoJson: _copyGeoJsonToClipboard,
           onClearDraftFeatures: () {
             setState(() {
@@ -3650,6 +3994,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           circles: _circles,
           pendingCircleJoinsCount: _circlePendingJoins.length,
           activeCircleId: _activeCircleLensId,
+          inboxUnreadCount: _inboxUnreadCount,
+          onOpenInbox: () {
+            setState(() => _drawer = _ActiveDrawer.inbox);
+            unawaited(_refreshInbox());
+          },
           onOpenCircles: () => setState(() => _drawer = _ActiveDrawer.circles),
           onSelectCircle: (ws) => setState(() {
             _selectedCircleId = ws.workspaceId;
@@ -3667,6 +4016,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             });
             unawaited(_persistAppSettings());
             unawaited(_refreshCirclesSnapshot());
+            unawaited(_refreshInbox());
           },
           onLocalKeyChanged: (kp) {
             setState(() {
@@ -3681,6 +4031,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             });
             unawaited(_persistAppSettings());
             unawaited(_refreshCirclesSnapshot());
+            unawaited(_refreshInbox());
           },
           onSessionStateChanged: (hostedId, acceptedPeer) {
             setState(() {
@@ -3734,11 +4085,63 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             _drawer = _ActiveDrawer.none;
           }),
         );
+      case _ActiveDrawer.inbox:
+        return InboxSheet(
+          account: _account,
+          items: _inboxItems,
+          loading: _inboxLoading,
+          readAllBeforeSecs: _inboxReadAllBefore,
+          readIds: _inboxReadIds,
+          profilesByPubkey: _profilesByPubkey,
+          pendingCircleJoinsCount: _circlePendingJoins.length,
+          pendingNearbyClaimsCount: _pendingClaimCount,
+          onRefresh: _refreshInbox,
+          onMarkItemRead: _markInboxItemRead,
+          onMarkAllRead: _markAllInboxRead,
+          onOpenItem: (item) => unawaited(_openInboxItem(item)),
+          onOpenPerson: _openPerson,
+          onOpenCircles: () => setState(() => _drawer = _ActiveDrawer.circles),
+          onOpenSpaces: () => setState(() => _drawer = _ActiveDrawer.spaces),
+          onOpenAccount: () => setState(() => _drawer = _ActiveDrawer.account),
+          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+        );
+      case _ActiveDrawer.person:
+        final personPk = _inspectedPersonPubkey;
+        if (personPk == null) return null;
+        return PersonMarginSheet(
+          pubkey: personPk,
+          relayUrls: _activeRelayUrls,
+          isCurrentUser: _account?.pubkey == personPk,
+          initialProfile: _profilesByPubkey[personPk],
+          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
+          catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
+          catalogAtlases: _catalog?.atlases ?? const <AtlasSummaryDto>[],
+          shelfAddresses: _shelfMaps.map((e) => e.summary.address).toSet(),
+          onProfileResolved: (p) {
+            if (mounted) setState(() => _profilesByPubkey[p.pubkey] = p);
+          },
+          onToggleMapOnShelf: _toggleMapOnShelf,
+          onInspectMap: _inspectMap,
+          onFocusMap: _flyToMap,
+          onOpenStory: (story) {
+            _recordRecentEntity('story:${story.address}');
+            unawaited(_openStory(story));
+          },
+          onInspectAtlas: _inspectAtlas,
+          onEnterAtlasLens: _enterAtlasLens,
+          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+        );
       case _ActiveDrawer.account:
         return AccountSessionSheet(
           account: _account,
           localNsec: _localNsec,
           bunkerUri: _bunkerUri,
+          blossomServerUrl: _blossomServerUrl,
+          onBlossomServerChanged: (url) {
+            setState(() => _blossomServerUrl = url);
+            unawaited(_persistAppSettings());
+          },
+          onUploadBlossomImage: _pickAndUploadBlossomImage,
           profile: _account != null ? _profilesByPubkey[_account!.pubkey] : null,
           activeSessionSummary: _activeSessionSummaryText,
           onAccountChanged: (account) {
@@ -3752,6 +4155,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             });
             unawaited(_persistAppSettings());
             unawaited(_refreshCirclesSnapshot());
+            unawaited(_refreshInbox());
             if (account != null) {
               unawaited(
                 fetchProfiles(
@@ -3777,6 +4181,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             });
             unawaited(_persistAppSettings());
             unawaited(_refreshCirclesSnapshot());
+            unawaited(_refreshInbox());
           },
           onBunkerConnected: (conn) {
             setState(() {
@@ -3792,6 +4197,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             });
             unawaited(_persistAppSettings());
             unawaited(_refreshCirclesSnapshot());
+            unawaited(_refreshInbox());
             if (conn != null) {
               unawaited(
                 fetchProfiles(
@@ -3863,6 +4269,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           ),
           onKeepOnShelf: _keepStoryMapsOnShelf,
           isOwned: _account != null && _account!.pubkey == _activeStory!.pubkey,
+          authorLabel: _profilesByPubkey[_activeStory!.pubkey]?.displayName ??
+              _profilesByPubkey[_activeStory!.pubkey]?.name,
+          onOpenPerson: _openPerson,
           onEditStory: () => setState(() {
             _editingStory = _activeStory;
             _drawer = _ActiveDrawer.storyComposer;
@@ -3875,6 +4284,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           key: ValueKey(_editingStory?.address ?? 'new-story'),
           shelfMaps: _shelfMaps,
           editingStory: _editingStory,
+          onUploadBlossomImage: _pickAndUploadBlossomImage,
           getCameraSnapshot: () => _controller?.camera,
           onPublishStory: _publishStory,
           onClose: () => setState(() {
@@ -3889,6 +4299,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
           catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
           editingAtlas: _editingAtlas,
+          onUploadBlossomImage: _pickAndUploadBlossomImage,
           onPublishAtlas: _publishAtlas,
           onClose: () => setState(() {
             _editingAtlas = null;
@@ -3907,6 +4318,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           profilesByPubkey: _profilesByPubkey,
           isActiveLens: _activeAtlasLens?.address == atlas.address,
           isOwned: _account != null && _account!.pubkey == atlas.pubkey,
+          onOpenPerson: _openPerson,
           onEditAtlas: () => setState(() {
             _editingAtlas = atlas;
             _drawer = _ActiveDrawer.atlasComposer;
@@ -3967,6 +4379,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             ),
           ),
           onDeleteMap: _deleteOwnedMap,
+          onOpenPerson: _openPerson,
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
         );
       case _ActiveDrawer.inspector:
@@ -4477,6 +4890,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                         active: _drawer == _ActiveDrawer.circles ||
                             _activeCircleLensId != null,
                         onTap: () => _toggleDrawer(_ActiveDrawer.circles),
+                      ),
+                      const SizedBox(width: 6),
+                      _MiniToggle(
+                        label: _inboxUnreadCount > 0
+                            ? 'Inbox ($_inboxUnreadCount)'
+                            : 'Inbox',
+                        icon: Icons.inbox_outlined,
+                        active: _drawer == _ActiveDrawer.inbox ||
+                            _inboxUnreadCount > 0,
+                        onTap: () {
+                          _toggleDrawer(_ActiveDrawer.inbox);
+                          if (_drawer == _ActiveDrawer.inbox) {
+                            unawaited(_refreshInbox());
+                          }
+                        },
                       ),
                       const SizedBox(width: 6),
                       _MiniToggle(
@@ -5223,15 +5651,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                             Expanded(
                               child: _DockTool(
                                 label: (_pendingClaimCount +
-                                            _circlePendingJoins.length) >
+                                            _circlePendingJoins.length +
+                                            _inboxUnreadCount) >
                                         0
-                                    ? 'Spaces (${_pendingClaimCount + _circlePendingJoins.length})'
+                                    ? 'Spaces (${_pendingClaimCount + _circlePendingJoins.length + _inboxUnreadCount})'
                                     : 'Spaces',
                                 icon: Icons.hub_outlined,
                                 selected: _drawer == _ActiveDrawer.spaces ||
                                     _drawer == _ActiveDrawer.circles ||
+                                    _drawer == _ActiveDrawer.inbox ||
                                     _pendingClaimCount > 0 ||
-                                    _circlePendingJoins.isNotEmpty,
+                                    _circlePendingJoins.isNotEmpty ||
+                                    _inboxUnreadCount > 0,
                                 onTap: () =>
                                     _toggleDrawer(_ActiveDrawer.spaces),
                               ),

@@ -38,6 +38,9 @@ class AppSettingsDto {
   final String? bunkerUri;
   final String? bunkerClientNsec;
   final List<MountedAtlasWorkspaceDto> mountedAtlasWorkspaces;
+  final String blossomServerUrl;
+  final BigInt inboxReadAllBefore;
+  final List<String> inboxReadIds;
 
   const AppSettingsDto({
     required this.relayUrls,
@@ -54,6 +57,9 @@ class AppSettingsDto {
     this.bunkerUri,
     this.bunkerClientNsec,
     required this.mountedAtlasWorkspaces,
+    required this.blossomServerUrl,
+    required this.inboxReadAllBefore,
+    required this.inboxReadIds,
   });
 
   @override
@@ -71,7 +77,10 @@ class AppSettingsDto {
       cordnServerPubkey.hashCode ^
       bunkerUri.hashCode ^
       bunkerClientNsec.hashCode ^
-      mountedAtlasWorkspaces.hashCode;
+      mountedAtlasWorkspaces.hashCode ^
+      blossomServerUrl.hashCode ^
+      inboxReadAllBefore.hashCode ^
+      inboxReadIds.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -91,7 +100,10 @@ class AppSettingsDto {
           cordnServerPubkey == other.cordnServerPubkey &&
           bunkerUri == other.bunkerUri &&
           bunkerClientNsec == other.bunkerClientNsec &&
-          mountedAtlasWorkspaces == other.mountedAtlasWorkspaces;
+          mountedAtlasWorkspaces == other.mountedAtlasWorkspaces &&
+          blossomServerUrl == other.blossomServerUrl &&
+          inboxReadAllBefore == other.inboxReadAllBefore &&
+          inboxReadIds == other.inboxReadIds;
 }
 
 class MountedAtlasWorkspaceDto {

@@ -29,6 +29,7 @@ class DatasetDetailMargin extends StatefulWidget {
     required this.onOpenDiscussion,
     required this.onDeleteMap,
     required this.onClose,
+    this.onOpenPerson,
     super.key,
   });
 
@@ -43,6 +44,7 @@ class DatasetDetailMargin extends StatefulWidget {
   final VoidCallback onEditOrForkMap;
   final VoidCallback onOpenDiscussion;
   final Future<PublishOutcomeDto> Function(MapSummaryDto map) onDeleteMap;
+  final ValueChanged<String>? onOpenPerson;
   final VoidCallback onClose;
 
   @override
@@ -251,13 +253,39 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
                       style: theme.textTheme.titleMedium,
                     ),
                     const SizedBox(height: 3),
-                    Text(
-                      '$_authorLabel · ${formatRelativeUnixDate(map.createdAt.toInt())} · ${map.featureCount} features${map.sizeBytes > 0 ? ' · ${formatByteSize(map.sizeBytes)}' : ''}',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 10.5,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        InkWell(
+                          onTap: widget.onOpenPerson == null
+                              ? null
+                              : () => widget.onOpenPerson!(map.pubkey),
+                          child: Text(
+                            _authorLabel,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: widget.onOpenPerson != null
+                                  ? EarthlyColors.infoCyan
+                                  : theme.colorScheme.onSurfaceVariant,
+                              decoration: widget.onOpenPerson != null
+                                  ? TextDecoration.underline
+                                  : null,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '· ${formatRelativeUnixDate(map.createdAt.toInt())} · ${map.featureCount} features${map.sizeBytes > 0 ? ' · ${formatByteSize(map.sizeBytes)}' : ''}',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10.5,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                     if (map.hashtags.isNotEmpty) ...[
                       const SizedBox(height: 6),

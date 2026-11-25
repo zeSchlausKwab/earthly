@@ -700,6 +700,7 @@ pub fn prepare_unsigned_story_event(
     d_tag: String,
     title: String,
     summary: Option<String>,
+    image: Option<String>,
     markdown_content: String,
     referenced_map_addresses: Vec<String>,
     presentation_json: Option<String>,
@@ -731,6 +732,14 @@ pub fn prepare_unsigned_story_event(
     if let Some(s) = summary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         body.insert("summary".to_owned(), serde_json::Value::String(s.to_owned()));
     }
+    let clean_image = image
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if let Some(ref img) = clean_image {
+        body.insert("image".to_owned(), serde_json::Value::String(img.clone()));
+    }
     body.insert("publishedAt".to_owned(), serde_json::json!(now));
     body.insert(
         "content".to_owned(),
@@ -747,6 +756,9 @@ pub fn prepare_unsigned_story_event(
     }
 
     let mut tags: Vec<Vec<String>> = vec![vec!["d".to_owned(), d_tag.clone()]];
+    if let Some(img) = clean_image {
+        tags.push(vec!["image".to_owned(), img]);
+    }
     tags = set_referenced_addresses(&tags, &referenced_map_addresses);
     tags = set_hashtags(&tags, &hashtags);
     if let Some(session_id) = field_session_id
@@ -784,6 +796,7 @@ pub fn prepare_unsigned_atlas_event(
     d_tag: String,
     name: String,
     description: Option<String>,
+    image: Option<String>,
     governance: String,
     pinned_addresses: Vec<String>,
     hashtags: Vec<String>,
@@ -822,12 +835,23 @@ pub fn prepare_unsigned_atlas_event(
             serde_json::Value::String(desc.to_owned()),
         );
     }
+    let clean_image = image
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if let Some(ref img) = clean_image {
+        body.insert("image".to_owned(), serde_json::Value::String(img.clone()));
+    }
     body.insert(
         "governance".to_owned(),
         serde_json::Value::String(gov.to_owned()),
     );
 
     let mut tags: Vec<Vec<String>> = vec![vec!["d".to_owned(), d_tag.clone()]];
+    if let Some(img) = clean_image {
+        tags.push(vec!["image".to_owned(), img]);
+    }
     tags = set_referenced_addresses(&tags, &pinned_addresses);
     tags = set_hashtags(&tags, &hashtags);
     if let Some(session_id) = field_session_id
@@ -1295,6 +1319,7 @@ mod tests {
             "alpine-atlas".to_owned(),
             "Alpine Huts Atlas".to_owned(),
             Some("Curated trails and shelters".to_owned()),
+            Some("https://blossom.earthly.city/cover.jpg".to_owned()),
             "schema".to_owned(),
             vec![format!("37515:{pk}:huts-2026")],
             vec!["alps".to_owned(), "hiking".to_owned()],
@@ -1309,7 +1334,9 @@ mod tests {
             serde_json::from_str(raw["content"].as_str().unwrap()).unwrap();
         assert_eq!(content["modelVersion"], "earthly/2");
         assert_eq!(content["governance"], "schema");
+        assert_eq!(content["image"], "https://blossom.earthly.city/cover.jpg");
         let tags = raw["tags"].as_array().unwrap();
+        assert!(tags.iter().any(|t| t[0] == "image" && t[1] == "https://blossom.earthly.city/cover.jpg"));
         assert!(tags.iter().any(|t| t[0] == "a" && t[1] == format!("37515:{pk}:huts-2026")));
         assert!(tags.iter().any(|t| t[0] == "t" && t[1] == "alps"));
     }

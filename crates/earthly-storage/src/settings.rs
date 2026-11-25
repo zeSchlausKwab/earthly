@@ -8,9 +8,14 @@ use serde::{Deserialize, Serialize};
 const SETTINGS_KEY: &str = "earthly.native.settings.v1";
 const DEFAULT_CORDN_PUBKEY: &str =
     "fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37";
+const DEFAULT_BLOSSOM_SERVER_URL: &str = "https://blossom.earthly.city";
 
 fn default_cordn_pubkey() -> String {
     DEFAULT_CORDN_PUBKEY.to_owned()
+}
+
+fn default_blossom_server_url() -> String {
+    DEFAULT_BLOSSOM_SERVER_URL.to_owned()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +69,12 @@ pub struct PersistedAppSettings {
     pub bunker_client_nsec: Option<String>,
     #[serde(default)]
     pub mounted_atlas_workspaces: Vec<MountedAtlasWorkspaceRecord>,
+    #[serde(default = "default_blossom_server_url")]
+    pub blossom_server_url: String,
+    #[serde(default)]
+    pub inbox_read_all_before: u64,
+    #[serde(default)]
+    pub inbox_read_ids: Vec<String>,
 }
 
 impl Default for PersistedAppSettings {
@@ -83,6 +94,9 @@ impl Default for PersistedAppSettings {
             bunker_uri: None,
             bunker_client_nsec: None,
             mounted_atlas_workspaces: Vec::new(),
+            blossom_server_url: default_blossom_server_url(),
+            inbox_read_all_before: 0,
+            inbox_read_ids: Vec::new(),
         }
     }
 }

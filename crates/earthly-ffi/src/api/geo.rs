@@ -2,7 +2,8 @@
 
 use earthly_geo::{
     ExtrudeOptions, ExtrudeShape, ExtrudeSide, create_line_corridor, difference_polygons,
-    extrude_line, geodesic_area_m2, geodesic_length_m, offset_line, offset_polygon, simplify_line,
+    extrude_line, geodesic_area_m2, geodesic_length_m, geojson_to_gpx, geojson_to_kml,
+    import_spatial_text_to_geojson, offset_line, offset_polygon, simplify_line,
     split_line_at_point, split_polygon_by_line, union_polygons,
 };
 use geo::{Coord, LineString, Point, Polygon};
@@ -161,4 +162,49 @@ pub fn geo_measure_line_meters(points: Vec<LonLatPoint>) -> f64 {
 
 pub fn geo_measure_polygon_area_m2(ring: Vec<LonLatPoint>) -> f64 {
     geodesic_area_m2(&to_closed_polygon(&ring))
+}
+
+#[derive(Clone, Debug)]
+pub struct SpatialImportDto {
+    pub format: String,
+    pub title: String,
+    pub geojson: String,
+    pub feature_count: u32,
+    pub warnings: Vec<String>,
+}
+
+/// Auto-detects GeoJSON, GPX, or KML from filename/content and returns a
+/// validated Earthly GeoJSON FeatureCollection.
+pub fn geo_import_spatial_file(
+    filename: String,
+    content: String,
+) -> Result<SpatialImportDto, String> {
+    let fname = if filename.trim().is_empty() {
+        None
+    } else {
+        Some(filename.as_str())
+    };
+    let imported = import_spatial_text_to_geojson(fname, &content).map_err(|e| e.to_string())?;
+    let geojson = serde_json::to_string(&imported.geojson).map_err(|e| e.to_string())?;
+    Ok(SpatialImportDto {
+        format: imported.format,
+        title: imported.title,
+        geojson,
+        feature_count: imported.feature_count as u32,
+        warnings: imported.warnings,
+    })
+}
+
+/// Exports an Earthly GeoJSON FeatureCollection string into GPX 1.1 XML.
+pub fn geo_export_gpx(geojson: String, title: Option<String>) -> Result<String, String> {
+    let fc: serde_json::Value =
+        serde_json::from_str(&geojson).map_err(|e| format!("invalid GeoJSON: {e}"))?;
+    geojson_to_gpx(&fc, title.as_deref()).map_err(|e| e.to_string())
+}
+
+/// Exports an Earthly GeoJSON FeatureCollection string into KML 2.2 XML.
+pub fn geo_export_kml(geojson: String, title: Option<String>) -> Result<String, String> {
+    let fc: serde_json::Value =
+        serde_json::from_str(&geojson).map_err(|e| format!("invalid GeoJSON: {e}"))?;
+    geojson_to_kml(&fc, title.as_deref()).map_err(|e| e.to_string())
 }

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 class MainFlutterWindow: NSWindow {
   private static var deviceChannel: FlutterMethodChannel?
   private static var pendingDeepLink: String?
+  private static var pendingDroppedFile: [String: Any]?
 
   static func deliverDeepLink(_ uri: String) {
     if let channel = deviceChannel {
@@ -24,8 +25,66 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     registerDeviceChannel(controller: flutterViewController)
+    registerForDraggedTypes([.fileURL])
 
     super.awakeFromNib()
+  }
+
+  private static let supportedDropExtensions: Set<String> = [
+    "geojson", "json", "gpx", "kml", "pmtiles"
+  ]
+
+  private func extractDroppedFileURL(_ sender: NSDraggingInfo) -> URL? {
+    let pb = sender.draggingPasteboard
+    guard let urls = pb.readObjects(forClasses: [NSURL.self], options: [
+      .urlReadingFileURLsOnly: true
+    ]) as? [URL] else {
+      return nil
+    }
+    for url in urls {
+      let ext = url.pathExtension.lowercased()
+      if MainFlutterWindow.supportedDropExtensions.contains(ext) {
+        return url
+      }
+    }
+    return nil
+  }
+
+  func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    return extractDroppedFileURL(sender) != nil ? .copy : []
+  }
+
+  func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    guard let url = extractDroppedFileURL(sender) else {
+      return false
+    }
+    do {
+      let data = try Data(contentsOf: url)
+      let ext = url.pathExtension.lowercased()
+      let mime: String
+      switch ext {
+      case "gpx": mime = "application/gpx+xml"
+      case "kml": mime = "application/vnd.google-earth.kml+xml"
+      case "pmtiles": mime = "application/vnd.pmtiles"
+      default: mime = "application/geo+json"
+      }
+      let payload: [String: Any] = [
+        "bytes": FlutterStandardTypedData(bytes: data),
+        "mimeType": mime,
+        "name": url.lastPathComponent,
+        "path": url.path,
+      ]
+      if let channel = MainFlutterWindow.deviceChannel {
+        DispatchQueue.main.async {
+          channel.invokeMethod("onDroppedFile", arguments: payload)
+        }
+      } else {
+        MainFlutterWindow.pendingDroppedFile = payload
+      }
+      return true
+    } catch {
+      return false
+    }
   }
 
   private func registerDeviceChannel(controller: FlutterViewController) {
@@ -44,6 +103,10 @@ class MainFlutterWindow: NSWindow {
         let link = MainFlutterWindow.pendingDeepLink
         MainFlutterWindow.pendingDeepLink = nil
         result(link)
+      case "getInitialDroppedFile":
+        let dropped = MainFlutterWindow.pendingDroppedFile
+        MainFlutterWindow.pendingDroppedFile = nil
+        result(dropped)
       case "pickPmtilesFile":
         self.openFilePanel(
           title: "Select Offline .pmtiles Archive",
@@ -53,14 +116,14 @@ class MainFlutterWindow: NSWindow {
         )
       case "pickGeoJsonFile":
         self.openFilePanel(
-          title: "Import GeoJSON File",
-          extensions: ["geojson", "json"],
+          title: "Import GeoJSON, GPX, or KML File",
+          extensions: ["geojson", "json", "gpx", "kml"],
           fallbackMime: "application/geo+json",
           result: result
         )
       case "pickImage":
         self.openFilePanel(
-          title: "Choose Field Photo",
+          title: "Choose Photo",
           extensions: ["jpg", "jpeg", "png", "webp", "heic"],
           fallbackMime: "image/jpeg",
           result: result
@@ -120,11 +183,13 @@ class MainFlutterWindow: NSWindow {
   ) {
     DispatchQueue.main.async {
       let panel = NSSavePanel()
-      panel.title = "Export Earthly GeoJSON"
+      let ext = (filename as NSString).pathExtension.lowercased()
+      panel.title = "Export Earthly \(ext.isEmpty ? "GEOJSON" : ext.uppercased())"
       panel.nameFieldStringValue = filename
       if #available(macOS 11.0, *) {
-        if let geoType = UTType(filenameExtension: "geojson") {
-          panel.allowedContentTypes = [geoType]
+        let targetExt = ext.isEmpty ? "geojson" : ext
+        if let fileType = UTType(filenameExtension: targetExt) {
+          panel.allowedContentTypes = [fileType]
         }
       }
       panel.beginSheetModal(for: self) { response in

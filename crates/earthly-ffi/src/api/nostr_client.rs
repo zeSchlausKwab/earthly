@@ -1328,6 +1328,650 @@ fn parse_live_relay_event(
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct AuthorPortfolioDto {
+    pub pubkey: String,
+    pub npub: String,
+    pub profile: Option<ProfileMetadataDto>,
+    pub maps: Vec<MapSummaryDto>,
+    pub stories: Vec<StorySummaryDto>,
+    pub atlases: Vec<AtlasSummaryDto>,
+}
+
+/// Event-derived Inbox notification matching Earthly Web's `src/features/inbox/deriveInbox.ts`.
+#[derive(Clone, Debug)]
+pub struct InboxItemDto {
+    pub id: String,
+    pub event_id: String,
+    /// `proposal` | `accepted` | `declined` | `reply` | `mention` | `atlas_arrival` | `follow` | `reaction` | `zap`
+    pub kind: String,
+    /// `proposals` | `replies` | `activity`
+    pub category: String,
+    pub actor_pubkey: String,
+    pub created_at: u64,
+    pub action: String,
+    pub thing_label: String,
+    pub preview: Option<String>,
+    pub target_address: Option<String>,
+    pub target_kind: Option<u16>,
+    /// `details` | `comments` | `person`
+    pub target_tab: Option<String>,
+}
+
+/// Encodes a 64-char hex pubkey (or normalizes an existing `npub1...`) to canonical `npub1...`.
+pub fn pubkey_to_npub(pubkey_or_npub: String) -> Result<String, String> {
+    let pk = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    pk.to_bech32()
+        .map_err(|err| format!("failed to encode npub: {err}"))
+}
+
+/// Fetches a single author's `kind 0` profile and all published Earthly Maps (`37515`),
+/// Stories (`37520`), and Atlases (`37518`) from the configured Nostr relays.
+pub async fn fetch_author_portfolio(
+    relay_urls: Vec<String>,
+    pubkey_or_npub: String,
+) -> Result<AuthorPortfolioDto, String> {
+    let pk = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid author public key: {err}"))?;
+    let pubkey_hex = pk.to_hex();
+    let npub = pk
+        .to_bech32()
+        .map_err(|err| format!("failed to encode npub: {err}"))?;
+
+    let urls = if relay_urls.is_empty() {
+        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
+    } else {
+        relay_urls
+    };
+
+    let client = Client::default();
+    for url in &urls {
+        let _ = client.add_relay(url).await;
+    }
+    client.connect().await;
+
+    let filter_entities = Filter::new()
+        .author(pk)
+        .kinds([
+            Kind::Metadata,
+            Kind::Custom(GEO_EVENT_KIND),
+            Kind::Custom(ARTICLE_KIND),
+            Kind::Custom(MAP_CONTEXT_KIND),
+        ])
+        .limit(120);
+
+    let events = client
+        .fetch_events(filter_entities, Duration::from_secs(7))
+        .await
+        .map_err(|err| format!("failed to fetch author portfolio: {err}"))?;
+    client.disconnect().await;
+
+    let mut latest_profile: Option<(u64, ProfileMetadataDto)> = None;
+    let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
+
+    for event in events {
+        if event.kind == Kind::Metadata {
+            let created_at = event.created_at.as_secs();
+            let should_replace = latest_profile
+                .as_ref()
+                .map(|(ts, _)| created_at >= *ts)
+                .unwrap_or(true);
+            if should_replace {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&event.content) {
+                    let opt = |k: &str| {
+                        parsed
+                            .get(k)
+                            .and_then(|v| v.as_str())
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_owned)
+                    };
+                    latest_profile = Some((
+                        created_at,
+                        ProfileMetadataDto {
+                            pubkey: pubkey_hex.clone(),
+                            name: opt("name"),
+                            display_name: opt("display_name").or_else(|| opt("displayName")),
+                            about: opt("about"),
+                            picture: opt("picture"),
+                            nip05: opt("nip05"),
+                        },
+                    ));
+                }
+            }
+            continue;
+        }
+        let raw = event_to_raw(&event);
+        let Some(addr) = raw.address_coordinate() else {
+            continue;
+        };
+        let replace = match latest_by_addr.get(&addr) {
+            None => true,
+            Some(existing) => {
+                raw.created_at > existing.created_at
+                    || (raw.created_at == existing.created_at && raw.id < existing.id)
+            }
+        };
+        if replace {
+            latest_by_addr.insert(addr, raw);
+        }
+    }
+
+    let mut maps = Vec::new();
+    let mut stories = Vec::new();
+    let mut atlases = Vec::new();
+    for (address, raw) in latest_by_addr {
+        match raw.kind {
+            GEO_EVENT_KIND => {
+                if let Ok(dataset) = MapDataset::parse(&raw) {
+                    maps.push(map_to_dto(address, dataset));
+                }
+            }
+            ARTICLE_KIND => {
+                if let Ok(story) = StoryArticle::parse(&raw) {
+                    stories.push(story_to_dto(address, story));
+                }
+            }
+            MAP_CONTEXT_KIND => {
+                if let Ok(group) = AtlasGroup::parse(&raw) {
+                    atlases.push(atlas_to_dto(address, group));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    maps.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    stories.sort_by(|a, b| b.published_at.cmp(&a.published_at));
+    atlases.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    Ok(AuthorPortfolioDto {
+        pubkey: pubkey_hex,
+        npub,
+        profile: latest_profile.map(|(_, p)| p),
+        maps,
+        stories,
+        atlases,
+    })
+}
+
+/// Fetches account-directed Earthly Inbox events (Edit Proposals `37519`,
+/// Proposal Decisions `1631`/`1632`, Comments/Replies/Mentions `37517`,
+/// Atlas Arrivals `37515` with `#c`, Follows `3`, Reactions `7`, Zaps `9735`)
+/// matching Earthly Web's `src/features/inbox/deriveInbox.ts`.
+pub async fn fetch_inbox_items(
+    relay_urls: Vec<String>,
+    current_user_pubkey: String,
+    owned_atlas_addresses: Vec<String>,
+    known_titles_json: Option<String>,
+) -> Result<Vec<InboxItemDto>, String> {
+    let pk = PublicKey::parse(current_user_pubkey.trim())
+        .map_err(|err| format!("invalid user public key: {err}"))?;
+    let user_hex = pk.to_hex();
+
+    let urls = if relay_urls.is_empty() {
+        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
+    } else {
+        relay_urls
+    };
+
+    let client = Client::default();
+    for url in &urls {
+        let _ = client.add_relay(url).await;
+    }
+    client.connect().await;
+
+    let mut all_raw: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
+
+    // 1. Events directed to the user via `#p` (comments, proposals, follows, reactions, zaps)
+    let directed_filter = Filter::new()
+        .pubkey(pk)
+        .kinds([
+            Kind::Custom(GEO_COMMENT_KIND),
+            Kind::Custom(GEO_EDIT_PROPOSAL_KIND),
+            Kind::ContactList,
+            Kind::Reaction,
+            Kind::ZapReceipt,
+        ])
+        .limit(120);
+    if let Ok(events) = client
+        .fetch_events(directed_filter, Duration::from_secs(6))
+        .await
+    {
+        for ev in events {
+            let raw = event_to_raw(&ev);
+            all_raw.insert(raw.id.clone(), raw);
+        }
+    }
+
+    // 2. Comments addressing root via uppercase `#P`
+    let upper_p_filter = Filter::new()
+        .custom_tag(SingleLetterTag::uppercase(Alphabet::P), user_hex.clone())
+        .kind(Kind::Custom(GEO_COMMENT_KIND))
+        .limit(80);
+    if let Ok(events) = client
+        .fetch_events(upper_p_filter, Duration::from_secs(5))
+        .await
+    {
+        for ev in events {
+            let raw = event_to_raw(&ev);
+            all_raw.insert(raw.id.clone(), raw);
+        }
+    }
+
+    // 3. User's own authored proposals + proposal status updates (1631/1632)
+    let own_proposals_filter = Filter::new()
+        .author(pk)
+        .kind(Kind::Custom(GEO_EDIT_PROPOSAL_KIND))
+        .limit(50);
+    let mut own_proposal_addrs: Vec<String> = Vec::new();
+    if let Ok(events) = client
+        .fetch_events(own_proposals_filter, Duration::from_secs(5))
+        .await
+    {
+        for ev in events {
+            let raw = event_to_raw(&ev);
+            if let Some(addr) = raw.address_coordinate() {
+                own_proposal_addrs.push(addr);
+            }
+            all_raw.insert(raw.id.clone(), raw);
+        }
+    }
+
+    if !own_proposal_addrs.is_empty() {
+        let status_filter = Filter::new()
+            .custom_tags(SingleLetterTag::lowercase(Alphabet::A), own_proposal_addrs)
+            .kinds([
+                Kind::Custom(PROPOSAL_STATUS_APPLIED_KIND),
+                Kind::Custom(PROPOSAL_STATUS_CLOSED_KIND),
+            ])
+            .limit(80);
+        if let Ok(events) = client
+            .fetch_events(status_filter, Duration::from_secs(5))
+            .await
+        {
+            for ev in events {
+                let raw = event_to_raw(&ev);
+                all_raw.insert(raw.id.clone(), raw);
+            }
+        }
+    }
+
+    // 4. Maps arriving into the user's owned Atlases via `#c`
+    let clean_atlases: Vec<String> = owned_atlas_addresses
+        .into_iter()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| s.starts_with("37518:"))
+        .collect();
+    if !clean_atlases.is_empty() {
+        let arrivals_filter = Filter::new()
+            .custom_tags(
+                SingleLetterTag::lowercase(Alphabet::C),
+                clean_atlases.clone(),
+            )
+            .kind(Kind::Custom(GEO_EVENT_KIND))
+            .limit(80);
+        if let Ok(events) = client
+            .fetch_events(arrivals_filter, Duration::from_secs(5))
+            .await
+        {
+            for ev in events {
+                let raw = event_to_raw(&ev);
+                all_raw.insert(raw.id.clone(), raw);
+            }
+        }
+    }
+
+    client.disconnect().await;
+
+    let known_titles: BTreeMap<String, String> = known_titles_json
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<BTreeMap<String, String>>(raw).ok())
+        .unwrap_or_default();
+
+    let events_vec: Vec<RawNostrEvent> = all_raw.into_values().collect();
+    Ok(derive_inbox_items_from_events(
+        &user_hex,
+        &events_vec,
+        &clean_atlases,
+        &known_titles,
+    ))
+}
+
+fn first_tag<'a>(raw: &'a RawNostrEvent, name: &str) -> Option<&'a str> {
+    raw.tags
+        .iter()
+        .find(|t| t.first().map(String::as_str) == Some(name))
+        .and_then(|t| t.get(1))
+        .map(String::as_str)
+}
+
+fn parse_coord(coord: &str) -> Option<(u16, &str, &str)> {
+    let mut parts = coord.splitn(3, ':');
+    let kind = parts.next()?.parse::<u16>().ok()?;
+    let pubkey = parts.next()?;
+    let ident = parts.next()?;
+    if pubkey.is_empty() || ident.is_empty() {
+        return None;
+    }
+    Some((kind, pubkey, ident))
+}
+
+fn humanize_ident(ident: &str) -> String {
+    let spaced = ident.replace(['-', '_'], " ");
+    let trimmed = spaced.trim();
+    if trimmed.is_empty() {
+        "Untitled".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn inbox_entity_label(coord: Option<&str>, labels: &BTreeMap<String, String>) -> String {
+    let Some(c) = coord else {
+        return "your work".to_owned();
+    };
+    if let Some(known) = labels.get(c) {
+        if !known.trim().is_empty() {
+            return known.clone();
+        }
+    }
+    let Some((kind, _, ident)) = parse_coord(c) else {
+        return "your work".to_owned();
+    };
+    let prefix = match kind {
+        MAP_CONTEXT_KIND => "Atlas",
+        ARTICLE_KIND => "Story",
+        TEMPORAL_SIGHTING_KIND => "Sighting",
+        LIVE_BEACON_KIND => "Live map",
+        _ => "Map",
+    };
+    format!("{prefix} “{}”", humanize_ident(ident))
+}
+
+fn compact_preview(text: Option<&str>) -> Option<String> {
+    let raw = text?;
+    let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+    if collapsed.chars().count() <= 120 {
+        Some(collapsed)
+    } else {
+        let mut s: String = collapsed.chars().take(119).collect();
+        s.push('…');
+        Some(s)
+    }
+}
+
+fn derive_inbox_items_from_events(
+    current_user_pubkey: &str,
+    events: &[RawNostrEvent],
+    owned_atlas_addresses: &[String],
+    known_titles: &BTreeMap<String, String>,
+) -> Vec<InboxItemDto> {
+    let owned_atlases: HashSet<&str> = owned_atlas_addresses.iter().map(String::as_str).collect();
+    let mut proposals_by_coord: BTreeMap<String, &RawNostrEvent> = BTreeMap::new();
+    for ev in events {
+        if ev.kind == GEO_EDIT_PROPOSAL_KIND {
+            if let Some(addr) = ev.address_coordinate() {
+                proposals_by_coord.insert(addr, ev);
+            }
+        }
+    }
+
+    let mut items: Vec<InboxItemDto> = Vec::new();
+    let mut seen_ids: HashSet<String> = HashSet::new();
+
+    for ev in events {
+        if ev.pubkey == current_user_pubkey {
+            continue;
+        }
+
+        match ev.kind {
+            GEO_EDIT_PROPOSAL_KIND => {
+                let target_addr = first_tag(ev, "a");
+                let Some((t_kind, t_pk, _)) = target_addr.and_then(parse_coord) else {
+                    continue;
+                };
+                if t_pk != current_user_pubkey {
+                    continue;
+                }
+                let id = format!("proposal:{}", ev.id);
+                if !seen_ids.insert(id.clone()) {
+                    continue;
+                }
+                items.push(InboxItemDto {
+                    id,
+                    event_id: ev.id.clone(),
+                    kind: "proposal".to_owned(),
+                    category: "proposals".to_owned(),
+                    actor_pubkey: ev.pubkey.clone(),
+                    created_at: ev.created_at,
+                    action: "proposed changes to".to_owned(),
+                    thing_label: inbox_entity_label(target_addr, known_titles),
+                    preview: compact_preview(first_tag(ev, "description")),
+                    target_address: target_addr.map(str::to_owned),
+                    target_kind: Some(t_kind),
+                    target_tab: Some("comments".to_owned()),
+                });
+            }
+            PROPOSAL_STATUS_APPLIED_KIND | PROPOSAL_STATUS_CLOSED_KIND => {
+                let Some(prop_addr) = first_tag(ev, "a") else {
+                    continue;
+                };
+                let Some(ref_prop) = proposals_by_coord.get(prop_addr) else {
+                    continue;
+                };
+                if ref_prop.pubkey != current_user_pubkey {
+                    continue;
+                }
+                let target_addr = first_tag(ref_prop, "a");
+                let Some((t_kind, t_pk, _)) = target_addr.and_then(parse_coord) else {
+                    continue;
+                };
+                if t_pk != ev.pubkey {
+                    continue;
+                }
+                let accepted = ev.kind == PROPOSAL_STATUS_APPLIED_KIND;
+                let kind_str = if accepted { "accepted" } else { "declined" };
+                let id = format!("{kind_str}:{}", ev.id);
+                if !seen_ids.insert(id.clone()) {
+                    continue;
+                }
+                items.push(InboxItemDto {
+                    id,
+                    event_id: ev.id.clone(),
+                    kind: kind_str.to_owned(),
+                    category: "proposals".to_owned(),
+                    actor_pubkey: ev.pubkey.clone(),
+                    created_at: ev.created_at,
+                    action: if accepted {
+                        "accepted your proposal for".to_owned()
+                    } else {
+                        "closed your proposal for".to_owned()
+                    },
+                    thing_label: inbox_entity_label(target_addr, known_titles),
+                    preview: compact_preview(Some(&ev.content)),
+                    target_address: target_addr.map(str::to_owned),
+                    target_kind: Some(t_kind),
+                    target_tab: Some("comments".to_owned()),
+                });
+            }
+            GEO_COMMENT_KIND => {
+                let addresses_user = ev.tags.iter().any(|t| {
+                    matches!(t.first().map(String::as_str), Some("p" | "P"))
+                        && t.get(1).map(String::as_str) == Some(current_user_pubkey)
+                });
+                if !addresses_user {
+                    continue;
+                }
+                let root_addr = first_tag(ev, "A").or_else(|| first_tag(ev, "a"));
+                let root_pk = first_tag(ev, "P")
+                    .or_else(|| root_addr.and_then(parse_coord).map(|(_, pk, _)| pk));
+                let parent_kind = first_tag(ev, "k");
+                let parent_pk = first_tag(ev, "p");
+                let is_direct_reply = parent_kind == Some("37517")
+                    && parent_pk == Some(current_user_pubkey);
+                let is_on_owned = root_pk == Some(current_user_pubkey);
+                let kind_str = if is_direct_reply || is_on_owned {
+                    "reply"
+                } else {
+                    "mention"
+                };
+                let id = format!("{kind_str}:{}", ev.id);
+                if !seen_ids.insert(id.clone()) {
+                    continue;
+                }
+                let parsed_text = serde_json::from_str::<serde_json::Value>(&ev.content)
+                    .ok()
+                    .and_then(|v| v.get("text").and_then(|t| t.as_str()).map(str::to_owned))
+                    .unwrap_or_else(|| ev.content.clone());
+                let t_kind = root_addr.and_then(parse_coord).map(|(k, _, _)| k);
+                items.push(InboxItemDto {
+                    id,
+                    event_id: ev.id.clone(),
+                    kind: kind_str.to_owned(),
+                    category: "replies".to_owned(),
+                    actor_pubkey: ev.pubkey.clone(),
+                    created_at: ev.created_at,
+                    action: if is_direct_reply {
+                        "replied on".to_owned()
+                    } else if is_on_owned {
+                        "commented on".to_owned()
+                    } else {
+                        "mentioned you in".to_owned()
+                    },
+                    thing_label: inbox_entity_label(root_addr, known_titles),
+                    preview: compact_preview(Some(&parsed_text)),
+                    target_address: root_addr.map(str::to_owned),
+                    target_kind: t_kind,
+                    target_tab: Some("comments".to_owned()),
+                });
+            }
+            GEO_EVENT_KIND => {
+                let Some(map_coord) = ev.address_coordinate() else {
+                    continue;
+                };
+                let map_label = MapDataset::parse(ev)
+                    .ok()
+                    .and_then(|d| d.name)
+                    .unwrap_or_else(|| inbox_entity_label(Some(&map_coord), known_titles));
+                for tag in &ev.tags {
+                    if tag.first().map(String::as_str) != Some("c") {
+                        continue;
+                    }
+                    let Some(atlas_coord) = tag.get(1).map(String::as_str) else {
+                        continue;
+                    };
+                    if !owned_atlases.contains(atlas_coord) {
+                        continue;
+                    }
+                    let id = format!("atlas_arrival:{}:{atlas_coord}", ev.id);
+                    if !seen_ids.insert(id.clone()) {
+                        continue;
+                    }
+                    items.push(InboxItemDto {
+                        id,
+                        event_id: ev.id.clone(),
+                        kind: "atlas_arrival".to_owned(),
+                        category: "activity".to_owned(),
+                        actor_pubkey: ev.pubkey.clone(),
+                        created_at: ev.created_at,
+                        action: "added a map to".to_owned(),
+                        thing_label: inbox_entity_label(Some(atlas_coord), known_titles),
+                        preview: compact_preview(Some(&map_label)),
+                        target_address: Some(map_coord.clone()),
+                        target_kind: Some(GEO_EVENT_KIND),
+                        target_tab: Some("details".to_owned()),
+                    });
+                }
+            }
+            3 => {
+                let follows_me = ev.tags.iter().any(|t| {
+                    t.first().map(String::as_str) == Some("p")
+                        && t.get(1).map(String::as_str) == Some(current_user_pubkey)
+                });
+                if !follows_me {
+                    continue;
+                }
+                let id = format!("follow:{}", ev.id);
+                if !seen_ids.insert(id.clone()) {
+                    continue;
+                }
+                items.push(InboxItemDto {
+                    id,
+                    event_id: ev.id.clone(),
+                    kind: "follow".to_owned(),
+                    category: "activity".to_owned(),
+                    actor_pubkey: ev.pubkey.clone(),
+                    created_at: ev.created_at,
+                    action: "followed".to_owned(),
+                    thing_label: "you".to_owned(),
+                    preview: None,
+                    target_address: None,
+                    target_kind: None,
+                    target_tab: Some("person".to_owned()),
+                });
+            }
+            7 | 9735 => {
+                let tags_me = ev.tags.iter().any(|t| {
+                    t.first().map(String::as_str) == Some("p")
+                        && t.get(1).map(String::as_str) == Some(current_user_pubkey)
+                });
+                if !tags_me {
+                    continue;
+                }
+                let is_zap = ev.kind == 9735;
+                let actor = if is_zap {
+                    first_tag(ev, "description")
+                        .and_then(|d| serde_json::from_str::<serde_json::Value>(d).ok())
+                        .and_then(|v| v.get("pubkey").and_then(|p| p.as_str()).map(str::to_owned))
+                        .unwrap_or_else(|| ev.pubkey.clone())
+                } else {
+                    ev.pubkey.clone()
+                };
+                if actor == current_user_pubkey {
+                    continue;
+                }
+                let target_addr = first_tag(ev, "a");
+                let kind_str = if is_zap { "zap" } else { "reaction" };
+                let id = format!("{kind_str}:{}", ev.id);
+                if !seen_ids.insert(id.clone()) {
+                    continue;
+                }
+                items.push(InboxItemDto {
+                    id,
+                    event_id: ev.id.clone(),
+                    kind: kind_str.to_owned(),
+                    category: "activity".to_owned(),
+                    actor_pubkey: actor,
+                    created_at: ev.created_at,
+                    action: if is_zap {
+                        "zapped".to_owned()
+                    } else {
+                        "reacted to".to_owned()
+                    },
+                    thing_label: inbox_entity_label(target_addr, known_titles),
+                    preview: if !is_zap {
+                        compact_preview(Some(&ev.content))
+                    } else {
+                        None
+                    },
+                    target_address: target_addr.map(str::to_owned),
+                    target_kind: target_addr.and_then(parse_coord).map(|(k, _, _)| k),
+                    target_tab: Some("details".to_owned()),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    items.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.id.cmp(&a.id)));
+    items
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1354,5 +1998,68 @@ mod tests {
         assert_eq!(decoded.d_tag, "vienna-parks");
         assert_eq!(decoded.feature_id.as_deref(), Some("gate-north"));
         assert_eq!(decoded.relays, vec![DEFAULT_EARTHLY_RELAY.to_owned()]);
+    }
+
+    #[test]
+    fn derives_inbox_proposals_replies_and_atlas_arrivals() {
+        let me = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let bob = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let my_map = format!("37515:{me}:danube-route");
+        let my_atlas = format!("37518:{me}:vienna-atlas");
+
+        let mut titles = BTreeMap::new();
+        titles.insert(my_map.clone(), "Danube Route".to_owned());
+        titles.insert(my_atlas.clone(), "Vienna Atlas".to_owned());
+
+        let events = vec![
+            RawNostrEvent {
+                id: "ev-prop-1".to_owned(),
+                pubkey: bob.to_owned(),
+                created_at: 200,
+                kind: GEO_EDIT_PROPOSAL_KIND,
+                tags: vec![
+                    vec!["d".to_owned(), "pr-1".to_owned()],
+                    vec!["a".to_owned(), my_map.clone()],
+                    vec!["p".to_owned(), me.to_owned()],
+                    vec!["description".to_owned(), "Fix northern bridge bend".to_owned()],
+                ],
+                content: "{}".to_owned(),
+            },
+            RawNostrEvent {
+                id: "ev-comment-1".to_owned(),
+                pubkey: bob.to_owned(),
+                created_at: 300,
+                kind: GEO_COMMENT_KIND,
+                tags: vec![
+                    vec!["d".to_owned(), "c-1".to_owned()],
+                    vec!["A".to_owned(), my_map.clone()],
+                    vec!["P".to_owned(), me.to_owned()],
+                    vec!["p".to_owned(), me.to_owned()],
+                ],
+                content: r#"{"text":"Great river path!"}"#.to_owned(),
+            },
+            RawNostrEvent {
+                id: "ev-arrival-1".to_owned(),
+                pubkey: bob.to_owned(),
+                created_at: 100,
+                kind: GEO_EVENT_KIND,
+                tags: vec![
+                    vec!["d".to_owned(), "bob-map".to_owned()],
+                    vec!["c".to_owned(), my_atlas.clone()],
+                ],
+                content: r#"{"type":"FeatureCollection","name":"Prater Paths","features":[]}"#
+                    .to_owned(),
+            },
+        ];
+
+        let items = derive_inbox_items_from_events(me, &events, &[my_atlas], &titles);
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].kind, "reply");
+        assert_eq!(items[0].thing_label, "Danube Route");
+        assert_eq!(items[0].preview.as_deref(), Some("Great river path!"));
+        assert_eq!(items[1].kind, "proposal");
+        assert_eq!(items[1].category, "proposals");
+        assert_eq!(items[2].kind, "atlas_arrival");
+        assert_eq!(items[2].thing_label, "Vienna Atlas");
     }
 }

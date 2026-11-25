@@ -11,7 +11,8 @@ use earthly_domain::{
 };
 use earthly_geo::{
     ExtrudeOptions, ExtrudeShape, ExtrudeSide, create_line_corridor, extrude_line,
-    geodesic_area_m2, geodesic_length_m, simplify_line, validate_feature_collection,
+    geodesic_area_m2, geodesic_length_m, geojson_to_gpx, geojson_to_kml,
+    import_spatial_text_to_geojson, simplify_line, validate_feature_collection,
 };
 use earthly_spatial::PmtilesHeader;
 use geo::{Coord, LineString, Polygon};
@@ -159,4 +160,25 @@ pub fn earthly_agent_offline_turn_json(input_json: &str) -> Result<String, JsVal
         serde_json::from_str(input_json).map_err(|err| JsValue::from_str(&err.to_string()))?;
     let output = execute_local_offline_turn(&input);
     serde_json::to_string(&output).map_err(|err| JsValue::from_str(&err.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn import_spatial_text_json(filename: Option<String>, content: &str) -> Result<String, JsValue> {
+    let imported = import_spatial_text_to_geojson(filename.as_deref(), content)
+        .map_err(|err| JsValue::from_str(&err.to_string()))?;
+    serde_json::to_string(&imported).map_err(|err| JsValue::from_str(&err.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn export_gpx_from_geojson(geojson: &str, title: Option<String>) -> Result<String, JsValue> {
+    let fc: serde_json::Value =
+        serde_json::from_str(geojson).map_err(|err| JsValue::from_str(&err.to_string()))?;
+    geojson_to_gpx(&fc, title.as_deref()).map_err(|err| JsValue::from_str(&err.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn export_kml_from_geojson(geojson: &str, title: Option<String>) -> Result<String, JsValue> {
+    let fc: serde_json::Value =
+        serde_json::from_str(geojson).map_err(|err| JsValue::from_str(&err.to_string()))?;
+    geojson_to_kml(&fc, title.as_deref()).map_err(|err| JsValue::from_str(&err.to_string()))
 }

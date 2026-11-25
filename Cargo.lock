@@ -1626,6 +1626,7 @@ dependencies = [
 name = "earthly-ffi"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "earthly-agent",
  "earthly-domain",
  "earthly-geo",
@@ -1652,6 +1653,7 @@ dependencies = [
  "earthly-spatial",
  "geo",
  "geojson",
+ "quick-xml",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../nostr/nip55_signer.dart';
 import '../runtime/device_bridge.dart';
 import '../runtime/rust_bridge.dart';
+import '../src/rust/api/blossom.dart';
 import '../src/rust/api/nip46.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
@@ -46,17 +47,24 @@ class AccountSessionSheet extends StatefulWidget {
     required this.onClose,
     this.bunkerUri,
     this.onBunkerConnected,
+    this.blossomServerUrl = 'https://blossom.earthly.city',
+    this.onBlossomServerChanged,
+    this.onUploadBlossomImage,
     super.key,
   });
 
   final Nip55Account? account;
   final String? localNsec;
   final String? bunkerUri;
+  final String blossomServerUrl;
   final ProfileMetadataDto? profile;
   final String? activeSessionSummary;
   final ValueChanged<Nip55Account?> onAccountChanged;
   final ValueChanged<LocalKeypairDto?> onLocalKeyChanged;
   final ValueChanged<Nip46ConnectionDto?>? onBunkerConnected;
+  final ValueChanged<String>? onBlossomServerChanged;
+  final Future<BlossomUploadDto?> Function(String purpose)?
+      onUploadBlossomImage;
   final Future<PublishOutcomeDto> Function(ProfileEditRequest req)
       onSaveProfile;
   final VoidCallback onOpenSpaces;
@@ -69,6 +77,8 @@ class AccountSessionSheet extends StatefulWidget {
 class _AccountSessionSheetState extends State<AccountSessionSheet> {
   final _nsecController = TextEditingController();
   final _bunkerController = TextEditingController();
+  late final TextEditingController _blossomController =
+      TextEditingController(text: widget.blossomServerUrl);
   late final TextEditingController _displayNameController;
   late final TextEditingController _nameController;
   late final TextEditingController _aboutController;
@@ -77,6 +87,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
 
   bool _amberInstalled = false;
   bool _busy = false;
+  bool _uploadingAvatar = false;
   bool _showImport = false;
   bool _showBunker = false;
   bool _editingProfile = false;
@@ -112,6 +123,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
   void dispose() {
     _nsecController.dispose();
     _bunkerController.dispose();
+    _blossomController.dispose();
     _displayNameController.dispose();
     _nameController.dispose();
     _aboutController.dispose();
@@ -511,12 +523,60 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    TextField(
-                      controller: _pictureController,
-                      decoration: const InputDecoration(
-                        labelText: 'Avatar Image URL (optional)',
-                        hintText: 'https://…',
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _pictureController,
+                            decoration: const InputDecoration(
+                              labelText: 'Avatar Image URL (optional)',
+                              hintText: 'https://blossom.earthly.city/…',
+                            ),
+                          ),
+                        ),
+                        if (widget.onUploadBlossomImage != null) ...[
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: (_busy || _uploadingAvatar)
+                                ? null
+                                : () async {
+                                    setState(() {
+                                      _uploadingAvatar = true;
+                                      _error = null;
+                                    });
+                                    try {
+                                      final uploaded =
+                                          await widget.onUploadBlossomImage!(
+                                        'Profile avatar',
+                                      );
+                                      if (!mounted || uploaded == null) return;
+                                      setState(() {
+                                        _pictureController.text = uploaded.url;
+                                        _info = 'Uploaded avatar to Blossom!';
+                                      });
+                                    } catch (err) {
+                                      if (!mounted) return;
+                                      setState(() => _error = err.toString());
+                                    } finally {
+                                      if (mounted) {
+                                        setState(() => _uploadingAvatar = false);
+                                      }
+                                    }
+                                  },
+                            icon: _uploadingAvatar
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.cloud_upload_outlined,
+                                    size: 15),
+                            label: const Text('Upload'),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 8),
                     TextField(
@@ -647,6 +707,45 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
           ],
 
           const Divider(height: 24),
+          if (widget.onBlossomServerChanged != null) ...[
+            Text(
+              'BLOSSOM MEDIA SERVER (BUD-02)',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _blossomController,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11.5),
+                    decoration: const InputDecoration(
+                      hintText: 'https://blossom.earthly.city',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () {
+                    final url = _blossomController.text.trim();
+                    if (url.startsWith('https://') || url.startsWith('http://')) {
+                      widget.onBlossomServerChanged!(url);
+                      setState(() => _info = 'Saved Blossom server: $url');
+                    } else {
+                      setState(
+                        () => _error = 'Blossom server must start with https://',
+                      );
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+            const Divider(height: 24),
+          ],
           Text(
             'NEARBY FIELD SESSION & NETWORK',
             style: theme.textTheme.labelSmall?.copyWith(
