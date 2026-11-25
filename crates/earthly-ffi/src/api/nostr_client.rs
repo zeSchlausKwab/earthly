@@ -28,6 +28,7 @@ pub struct MapSummaryDto {
     pub title: String,
     pub description: Option<String>,
     pub feature_count: u32,
+    pub size_bytes: u32,
     pub geojson: String,
     pub west: Option<f64>,
     pub south: Option<f64>,
@@ -301,6 +302,7 @@ pub struct AtlasSummaryDto {
     pub d_tag: String,
     pub name: String,
     pub description: Option<String>,
+    pub image: Option<String>,
     pub governance: String,
     pub pinned_addresses: Vec<String>,
     pub created_at: u64,
@@ -369,7 +371,7 @@ pub async fn fetch_earthly_catalog(
     } else {
         relay_urls
     };
-    let limit = (limit_per_kind as usize).clamp(1, 80);
+    let limit = (limit_per_kind as usize).clamp(1, 300);
 
     let client = Client::default();
     for url in &urls {
@@ -380,22 +382,46 @@ pub async fn fetch_earthly_catalog(
     }
     client.connect().await;
 
-    let filter = Filter::new()
-        .kinds([
-            Kind::Custom(GEO_EVENT_KIND),
-            Kind::Custom(MAP_CONTEXT_KIND),
-            Kind::Custom(ARTICLE_KIND),
-            Kind::Custom(LIVE_BEACON_KIND),
-            Kind::Custom(TEMPORAL_SIGHTING_KIND),
-        ])
-        .limit(limit * 5);
+    // Query each Earthly entity kind in its own dedicated filter so busy kinds
+    // (e.g. 100+ Maps) never starve Stories, Atlases, Beacons, or Sightings!
+    let maps_filter = Filter::new().kind(Kind::Custom(GEO_EVENT_KIND)).limit(limit);
+    let atlases_filter = Filter::new()
+        .kind(Kind::Custom(MAP_CONTEXT_KIND))
+        .limit(limit.min(150));
+    let stories_filter = Filter::new()
+        .kind(Kind::Custom(ARTICLE_KIND))
+        .limit(limit.min(200));
+    let beacons_filter = Filter::new()
+        .kind(Kind::Custom(LIVE_BEACON_KIND))
+        .limit(limit.min(100));
+    let sightings_filter = Filter::new()
+        .kind(Kind::Custom(TEMPORAL_SIGHTING_KIND))
+        .limit(limit.min(150));
 
-    let events = client
-        .fetch_events(filter, Duration::from_secs(8))
-        .await
-        .map_err(|err| format!("failed to fetch catalog from relays: {err}"))?;
+    let timeout = Duration::from_secs(9);
+    let (maps_res, atlases_res, stories_res, beacons_res, sightings_res) = tokio::join!(
+        client.fetch_events(maps_filter, timeout),
+        client.fetch_events(atlases_filter, timeout),
+        client.fetch_events(stories_filter, timeout),
+        client.fetch_events(beacons_filter, timeout),
+        client.fetch_events(sightings_filter, timeout),
+    );
 
     client.disconnect().await;
+
+    let mut all_events = Vec::new();
+    let mut last_err: Option<String> = None;
+    for res in [maps_res, atlases_res, stories_res, beacons_res, sightings_res] {
+        match res {
+            Ok(set) => all_events.extend(set.into_iter()),
+            Err(err) => last_err = Some(err.to_string()),
+        }
+    }
+    if all_events.is_empty() {
+        if let Some(err) = last_err {
+            return Err(format!("failed to fetch catalog from relays: {err}"));
+        }
+    }
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -404,7 +430,7 @@ pub async fn fetch_earthly_catalog(
 
     // Deduplicate parameterized-replaceable events by (kind, pubkey, d), keeping newest.
     let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
-    for event in events.into_iter() {
+    for event in all_events {
         let raw = event_to_raw(&event);
         let Some(addr) = raw.address_coordinate() else {
             continue;
@@ -1139,6 +1165,7 @@ fn map_to_dto(address: String, dataset: MapDataset) -> MapSummaryDto {
         .name
         .unwrap_or_else(|| format!("Map {}", &dataset.d_tag));
     let geojson = serde_json::to_string(&dataset.feature_collection).unwrap_or_default();
+    let size_bytes = geojson.len() as u32;
 
     MapSummaryDto {
         address,
@@ -1148,6 +1175,7 @@ fn map_to_dto(address: String, dataset: MapDataset) -> MapSummaryDto {
         title,
         description: dataset.description,
         feature_count,
+        size_bytes,
         geojson,
         west: dataset.bbox.map(|b| b.west),
         south: dataset.bbox.map(|b| b.south),
@@ -1192,6 +1220,7 @@ fn atlas_to_dto(address: String, group: AtlasGroup) -> AtlasSummaryDto {
         d_tag: group.d_tag,
         name: group.name,
         description: group.description,
+        image: group.image,
         governance: governance.to_owned(),
         pinned_addresses: group.pinned_addresses,
         created_at: group.created_at,

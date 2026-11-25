@@ -1,13 +1,15 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../drawing/drawing_model.dart';
 import '../nostr/nip55_signer.dart';
 import '../nostr/shelf_renderer.dart';
+import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
+import 'entity_list_row.dart';
 import 'map_drawer.dart';
-import 'share_naddr_sheet.dart';
 
 enum RustGeoAction {
   simplifyLastLine,
@@ -140,6 +142,27 @@ class _DeskSheetState extends State<DeskSheet> {
     super.dispose();
   }
 
+  Future<void> _copyNaddr({
+    required int kind,
+    required String pubkey,
+    required String dTag,
+  }) async {
+    try {
+      await RustBridge.ensureInitialized();
+      final uri = await encodeNaddrCoordinate(
+        kind: kind,
+        pubkeyHex: pubkey,
+        dTag: dTag,
+        relays: widget.relayUrls,
+      );
+      await Clipboard.setData(ClipboardData(text: uri));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Copied nostr:naddr1… link')),
+      );
+    } catch (_) {}
+  }
+
   Future<void> _handlePublish() async {
     setState(() {
       _publishing = true;
@@ -231,76 +254,65 @@ class _DeskSheetState extends State<DeskSheet> {
             )
           else
             for (final entry in shelfMaps)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  entry.summary.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+              EarthlyEntityListRow(
+                leading: EarthlyGeometryThumb(
+                  cacheKey: entry.summary.eventId,
+                  geojson: entry.summary.geojson,
+                  width: 56,
+                  height: 44,
                 ),
-                subtitle: Text(
-                  '${entry.summary.featureCount} features',
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11,
+                title: entry.summary.title,
+                meta:
+                    '${entry.summary.featureCount} features${entry.summary.sizeBytes > 0 ? ' · ${formatByteSize(entry.summary.sizeBytes)}' : ''}',
+                dimmed: !entry.visible,
+                selected: entry.visible,
+                onTap: () => widget.onFlyToShelfMap(entry.summary),
+                primaryAction: IconButton(
+                  tooltip: entry.visible ? 'Hide' : 'Show',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () =>
+                      widget.onToggleShelfVisibility(entry.summary.address),
+                  icon: Icon(
+                    entry.visible ? Icons.visibility : Icons.visibility_off,
+                    size: 19,
+                    color: entry.visible ? EarthlyColors.commentGreen : null,
                   ),
                 ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Share QR / nostr:naddr',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => showEarthlyShareSheet(
-                        context,
-                        kind: 37515,
-                        pubkey: entry.summary.pubkey,
-                        dTag: entry.summary.dTag,
-                        title: entry.summary.title,
-                        relays: widget.relayUrls,
-                      ),
-                      icon: const Icon(Icons.qr_code_2, size: 17),
+                menuActions: [
+                  EntityRowMenuAction(
+                    label: 'Zoom to map',
+                    icon: Icons.center_focus_strong,
+                    onSelected: () => widget.onFlyToShelfMap(entry.summary),
+                  ),
+                  EntityRowMenuAction(
+                    label: 'Comments & Proposals',
+                    icon: Icons.forum_outlined,
+                    onSelected: () =>
+                        widget.onOpenShelfDiscussion(entry.summary),
+                  ),
+                  EntityRowMenuAction(
+                    label: 'Clone into Working Draft',
+                    icon: Icons.copy_all_outlined,
+                    onSelected: () =>
+                        widget.onCloneShelfMapToDraft(entry.summary),
+                  ),
+                  EntityRowMenuAction(
+                    label: 'Copy nostr:naddr1… link',
+                    icon: Icons.link,
+                    onSelected: () => _copyNaddr(
+                      kind: 37515,
+                      pubkey: entry.summary.pubkey,
+                      dTag: entry.summary.dTag,
                     ),
-                    IconButton(
-                      tooltip: 'Clone into Working Draft',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () =>
-                          widget.onCloneShelfMapToDraft(entry.summary),
-                      icon: const Icon(Icons.copy_all_outlined, size: 17),
-                    ),
-                    IconButton(
-                      tooltip: 'Comments & Proposals',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () =>
-                          widget.onOpenShelfDiscussion(entry.summary),
-                      icon: const Icon(Icons.forum_outlined, size: 17),
-                    ),
-                    IconButton(
-                      tooltip: 'Frame',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => widget.onFlyToShelfMap(entry.summary),
-                      icon: const Icon(Icons.center_focus_strong, size: 17),
-                    ),
-                    IconButton(
-                      tooltip: entry.visible ? 'Hide' : 'Show',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () =>
-                          widget.onToggleShelfVisibility(entry.summary.address),
-                      icon: Icon(
-                        entry.visible ? Icons.visibility : Icons.visibility_off,
-                        size: 17,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Remove from Shelf',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () =>
-                          widget.onRemoveShelfMap(entry.summary.address),
-                      icon: const Icon(Icons.close, size: 17),
-                    ),
-                  ],
-                ),
+                  ),
+                  EntityRowMenuAction(
+                    label: 'Remove from Shelf',
+                    icon: Icons.close,
+                    destructive: true,
+                    onSelected: () =>
+                        widget.onRemoveShelfMap(entry.summary.address),
+                  ),
+                ],
               ),
 
           // Active Stories on Desk
@@ -315,51 +327,38 @@ class _DeskSheetState extends State<DeskSheet> {
             ),
             const SizedBox(height: 4),
             for (final story in widget.deskStories)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(
-                  Icons.auto_stories_outlined,
-                  size: 18,
-                  color: EarthlyColors.lightAccent,
+              EarthlyEntityListRow(
+                leading: EarthlyCoverThumb(
+                  imageUrl: story.image,
+                  fallbackIcon: Icons.auto_stories_outlined,
+                  width: 56,
+                  height: 44,
                 ),
-                title: Text(
-                  story.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                title: story.title,
+                meta:
+                    '${story.referencedAddresses.length} linked map${story.referencedAddresses.length == 1 ? '' : 's'}',
+                onTap: () => widget.onOpenDeskStory(story),
+                primaryAction: TextButton(
+                  onPressed: () => widget.onOpenDeskStory(story),
+                  child: const Text('Read'),
                 ),
-                subtitle: Text(
-                  '${story.referencedAddresses.length} linked map${story.referencedAddresses.length == 1 ? '' : 's'}',
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Share QR / nostr:naddr',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => showEarthlyShareSheet(
-                        context,
-                        kind: 37520,
-                        pubkey: story.pubkey,
-                        dTag: story.dTag,
-                        title: story.title,
-                        relays: widget.relayUrls,
-                      ),
-                      icon: const Icon(Icons.qr_code_2, size: 16),
+                menuActions: [
+                  EntityRowMenuAction(
+                    label: 'Copy nostr:naddr1… link',
+                    icon: Icons.link,
+                    onSelected: () => _copyNaddr(
+                      kind: 37520,
+                      pubkey: story.pubkey,
+                      dTag: story.dTag,
                     ),
-                    TextButton(
-                      onPressed: () => widget.onOpenDeskStory(story),
-                      child: const Text('Read'),
-                    ),
-                    IconButton(
-                      tooltip: 'Remove from Desk',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => widget.onRemoveDeskStory(story.address),
-                      icon: const Icon(Icons.close, size: 16),
-                    ),
-                  ],
-                ),
+                  ),
+                  EntityRowMenuAction(
+                    label: 'Remove from Desk',
+                    icon: Icons.close,
+                    destructive: true,
+                    onSelected: () => widget.onRemoveDeskStory(story.address),
+                  ),
+                ],
               ),
           ],
 
@@ -375,51 +374,38 @@ class _DeskSheetState extends State<DeskSheet> {
             ),
             const SizedBox(height: 4),
             for (final atlas in widget.deskAtlases)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(
-                  Icons.collections_bookmark_outlined,
-                  size: 18,
-                  color: EarthlyColors.commentGreen,
+              EarthlyEntityListRow(
+                leading: EarthlyCoverThumb(
+                  imageUrl: atlas.image,
+                  fallbackIcon: Icons.public,
+                  width: 56,
+                  height: 44,
                 ),
-                title: Text(
-                  atlas.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                title: atlas.name,
+                meta:
+                    '${atlas.governance} · ${atlas.pinnedAddresses.length} pinned',
+                onTap: () => widget.onOpenDeskAtlas(atlas),
+                primaryAction: TextButton(
+                  onPressed: () => widget.onOpenDeskAtlas(atlas),
+                  child: const Text('Frame'),
                 ),
-                subtitle: Text(
-                  '${atlas.governance} · ${atlas.pinnedAddresses.length} pinned',
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Share QR / nostr:naddr',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => showEarthlyShareSheet(
-                        context,
-                        kind: 37518,
-                        pubkey: atlas.pubkey,
-                        dTag: atlas.dTag,
-                        title: atlas.name,
-                        relays: widget.relayUrls,
-                      ),
-                      icon: const Icon(Icons.qr_code_2, size: 16),
+                menuActions: [
+                  EntityRowMenuAction(
+                    label: 'Copy nostr:naddr1… link',
+                    icon: Icons.link,
+                    onSelected: () => _copyNaddr(
+                      kind: 37518,
+                      pubkey: atlas.pubkey,
+                      dTag: atlas.dTag,
                     ),
-                    TextButton(
-                      onPressed: () => widget.onOpenDeskAtlas(atlas),
-                      child: const Text('Frame'),
-                    ),
-                    IconButton(
-                      tooltip: 'Remove from Desk',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => widget.onRemoveDeskAtlas(atlas.address),
-                      icon: const Icon(Icons.close, size: 16),
-                    ),
-                  ],
-                ),
+                  ),
+                  EntityRowMenuAction(
+                    label: 'Remove from Desk',
+                    icon: Icons.close,
+                    destructive: true,
+                    onSelected: () => widget.onRemoveDeskAtlas(atlas.address),
+                  ),
+                ],
               ),
           ],
 

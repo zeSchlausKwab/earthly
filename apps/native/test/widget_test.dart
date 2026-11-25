@@ -3,6 +3,7 @@ import 'package:earthly_native/nostr/callout_overlay.dart';
 import 'package:earthly_native/nostr/shelf_renderer.dart';
 import 'package:earthly_native/nostr/story_presentation.dart';
 import 'package:earthly_native/shell/basemap_switcher_sheet.dart';
+import 'package:earthly_native/shell/entity_list_row.dart';
 import 'package:earthly_native/shell/map_drawer.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -322,5 +323,49 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
     expect(find.byTooltip('Measure'), findsOneWidget);
     expect(find.byTooltip('Map Style & Overlays'), findsOneWidget);
     expect(find.byTooltip('Callouts: Full'), findsOneWidget);
+  });
+
+  testWidgets(
+      'EarthlyEntityListRow renders vector GeometryThumb and clean action menu without QR clutter',
+      (WidgetTester tester) async {
+    const sampleGeo = '''
+    {
+      "type": "FeatureCollection",
+      "features": [
+        { "type": "Feature", "geometry": { "type": "LineString", "coordinates": [[16.36, 48.20], [16.39, 48.22]] }, "properties": {} }
+      ]
+    }
+    ''';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EarthlyEntityListRow(
+            leading: const EarthlyGeometryThumb(
+              cacheKey: 'test-map-1',
+              geojson: sampleGeo,
+            ),
+            title: 'Danube Cycling Route',
+            meta: 'cartographer · 2d ago · 1 feat · 1 KB',
+            onTap: () {},
+            primaryAction: IconButton(
+              onPressed: () {},
+              icon: const Icon(Icons.layers_outlined),
+            ),
+            menuActions: [
+              EntityRowMenuAction(
+                label: 'Copy nostr:naddr1… link',
+                icon: Icons.link,
+                onSelected: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Danube Cycling Route'), findsOneWidget);
+    expect(find.byType(EarthlyGeometryThumb), findsOneWidget);
+    expect(find.byIcon(Icons.qr_code_2), findsNothing);
+    expect(find.byIcon(Icons.more_vert), findsOneWidget);
   });
 }

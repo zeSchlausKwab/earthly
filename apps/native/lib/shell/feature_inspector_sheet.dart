@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../drawing/drawing_model.dart';
 import '../nostr/shelf_renderer.dart';
 import '../theme/earthly_theme.dart';
+import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
 const List<String> _draftColorSwatches = <String>[
@@ -171,12 +172,23 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
             ),
           if (f.imageUrl != null && f.imageUrl!.isNotEmpty) ...[
             const SizedBox(height: 10),
-            SizedBox(
-              height: 160,
-              child: Image.network(
-                f.imageUrl!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+            GestureDetector(
+              onTap: () => showEarthlyPhotoLightbox(
+                context,
+                url: f.imageUrl!,
+                caption: f.title,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  height: 176,
+                  width: double.infinity,
+                  child: EarthlyNetworkImage(
+                    url: f.imageUrl!,
+                    fit: BoxFit.cover,
+                    fallback: const SizedBox.shrink(),
+                  ),
+                ),
               ),
             ),
           ],
@@ -407,13 +419,23 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                     Text(callout.text, style: theme.textTheme.bodySmall),
                     if (callout.mediaUrls.isNotEmpty) ...[
                       const SizedBox(height: 6),
-                      SizedBox(
-                        height: 110,
-                        width: double.infinity,
-                        child: Image.network(
-                          callout.mediaUrls.first,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      GestureDetector(
+                        onTap: () => showEarthlyPhotoLightbox(
+                          context,
+                          url: callout.mediaUrls.first,
+                          caption: callout.title,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: SizedBox(
+                            height: 120,
+                            width: double.infinity,
+                            child: EarthlyNetworkImage(
+                              url: callout.mediaUrls.first,
+                              fit: BoxFit.cover,
+                              fallback: const SizedBox.shrink(),
+                            ),
+                          ),
                         ),
                       ),
                     ],
@@ -491,8 +513,8 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                 if (widget.onShareFeature != null)
                   OutlinedButton.icon(
                     onPressed: widget.onShareFeature,
-                    icon: const Icon(Icons.qr_code_2, size: 16),
-                    label: const Text('Share QR / naddr'),
+                    icon: const Icon(Icons.link, size: 16),
+                    label: const Text('Copy Link'),
                   ),
                 if (widget.onOpenDiscussion != null)
                   OutlinedButton.icon(

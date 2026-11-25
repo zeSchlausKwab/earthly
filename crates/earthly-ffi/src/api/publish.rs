@@ -279,6 +279,14 @@ pub fn prepare_unsigned_sighting_event(
         "note".to_owned(),
         serde_json::Value::String(trimmed_note.to_owned()),
     );
+    content_obj.insert(
+        "description".to_owned(),
+        serde_json::Value::String(trimmed_note.to_owned()),
+    );
+    content_obj.insert(
+        "geometry".to_owned(),
+        serde_json::json!({ "type": "Point", "coordinates": [lon, lat] }),
+    );
     content_obj.insert("lon".to_owned(), serde_json::json!(lon));
     content_obj.insert("lat".to_owned(), serde_json::json!(lat));
     content_obj.insert("start".to_owned(), serde_json::json!(now));
@@ -373,9 +381,14 @@ pub fn prepare_unsigned_beacon_event(
         "modelVersion".to_owned(),
         serde_json::Value::String(MODEL_VERSION.to_owned()),
     );
+    content_obj.insert(
+        "geometry".to_owned(),
+        serde_json::json!({ "type": "Point", "coordinates": [lon, lat] }),
+    );
     content_obj.insert("lon".to_owned(), serde_json::json!(lon));
     content_obj.insert("lat".to_owned(), serde_json::json!(lat));
     if let Some(st) = status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        content_obj.insert("label".to_owned(), serde_json::Value::String(st.to_owned()));
         content_obj.insert("status".to_owned(), serde_json::Value::String(st.to_owned()));
     }
     let content = serde_json::to_string(&serde_json::Value::Object(content_obj))

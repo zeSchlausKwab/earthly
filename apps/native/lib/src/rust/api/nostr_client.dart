@@ -119,6 +119,7 @@ class AtlasSummaryDto {
   final String dTag;
   final String name;
   final String? description;
+  final String? image;
   final String governance;
   final List<String> pinnedAddresses;
   final BigInt createdAt;
@@ -130,6 +131,7 @@ class AtlasSummaryDto {
     required this.dTag,
     required this.name,
     this.description,
+    this.image,
     required this.governance,
     required this.pinnedAddresses,
     required this.createdAt,
@@ -143,6 +145,7 @@ class AtlasSummaryDto {
       dTag.hashCode ^
       name.hashCode ^
       description.hashCode ^
+      image.hashCode ^
       governance.hashCode ^
       pinnedAddresses.hashCode ^
       createdAt.hashCode;
@@ -158,6 +161,7 @@ class AtlasSummaryDto {
           dTag == other.dTag &&
           name == other.name &&
           description == other.description &&
+          image == other.image &&
           governance == other.governance &&
           pinnedAddresses == other.pinnedAddresses &&
           createdAt == other.createdAt;
@@ -488,6 +492,7 @@ class MapSummaryDto {
   final String title;
   final String? description;
   final int featureCount;
+  final int sizeBytes;
   final String geojson;
   final double? west;
   final double? south;
@@ -505,6 +510,7 @@ class MapSummaryDto {
     required this.title,
     this.description,
     required this.featureCount,
+    required this.sizeBytes,
     required this.geojson,
     this.west,
     this.south,
@@ -524,6 +530,7 @@ class MapSummaryDto {
       title.hashCode ^
       description.hashCode ^
       featureCount.hashCode ^
+      sizeBytes.hashCode ^
       geojson.hashCode ^
       west.hashCode ^
       south.hashCode ^
@@ -545,6 +552,7 @@ class MapSummaryDto {
           title == other.title &&
           description == other.description &&
           featureCount == other.featureCount &&
+          sizeBytes == other.sizeBytes &&
           geojson == other.geojson &&
           west == other.west &&
           south == other.south &&

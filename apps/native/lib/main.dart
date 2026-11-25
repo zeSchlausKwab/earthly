@@ -25,7 +25,6 @@ import 'shell/discussion_margin_sheet.dart';
 import 'shell/explore_sheet.dart';
 import 'shell/feature_inspector_sheet.dart';
 import 'shell/place_search_sheet.dart';
-import 'shell/share_naddr_sheet.dart';
 import 'shell/sighting_composer_sheet.dart';
 import 'shell/spaces_sheet.dart';
 import 'shell/story_composer_sheet.dart';
@@ -153,6 +152,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   // Nostr Explore / Shelf (Maps + Stories + Atlases) / Account / Nearby Peer state
   List<String> _relayUrls = <String>['wss://relay.earthly.city'];
   EarthlyCatalogSnapshot? _catalog;
+  bool _catalogLoading = false;
   final Map<String, ProfileMetadataDto> _profilesByPubkey =
       <String, ProfileMetadataDto>{};
   final Set<String> _requestedProfilePubkeys = <String>{};
@@ -220,10 +220,31 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     DeviceBridge.setDeepLinkHandler(_handleIncomingDeepLink);
     await _restoreAppSettings();
     await _restoreSavedDraft();
+    unawaited(_preloadCatalog());
     unawaited(_startLiveRelayStream());
     final initialLink = await DeviceBridge.getInitialDeepLink();
     if (initialLink != null && mounted) {
       _handleIncomingDeepLink(initialLink);
+    }
+  }
+
+  /// Loads the full Earthly entity lists (Maps, Stories, Atlases, Sightings,
+  /// Live Beacons) immediately at app launch so Explore is ready right away.
+  Future<void> _preloadCatalog() async {
+    if (widget.mapBuilder != null || _catalogLoading) return;
+    if (mounted) setState(() => _catalogLoading = true);
+    try {
+      await RustBridge.ensureInitialized();
+      final catalog = await fetchEarthlyCatalog(
+        relayUrls: _activeRelayUrls,
+        limitPerKind: 250,
+      );
+      if (!mounted) return;
+      setState(() => _catalog = catalog);
+      unawaited(_resolveCatalogProfiles(catalog));
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _catalogLoading = false);
     }
   }
 
@@ -324,6 +345,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _catalog = null;
     });
     unawaited(_persistAppSettings());
+    unawaited(_preloadCatalog());
     unawaited(_startLiveRelayStream());
   }
 
@@ -2515,6 +2537,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       case _ActiveDrawer.explore:
         return ExploreSheet(
           initialCatalog: _catalog,
+          catalogLoading: _catalogLoading,
           relayUrls: _activeRelayUrls,
           shelfAddresses: _shelfMaps.map((e) => e.summary.address).toSet(),
           profilesByPubkey: _profilesByPubkey,
@@ -2523,7 +2546,29 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             unawaited(_resolveCatalogProfiles(catalog));
           },
           onToggleMapOnShelf: _toggleMapOnShelf,
+          onFocusMap: _flyToMap,
+          onCloneMapToDraft: (map) =>
+              _cloneGeoJsonToDraft(map.title, map.geojson),
+          onOpenMapDiscussion: (map) => _openDiscussion(
+            DiscussionTarget(
+              address: map.address,
+              kind: 37515,
+              pubkey: map.pubkey,
+              title: map.title,
+              eventId: map.eventId,
+              baseGeojson: map.geojson,
+            ),
+          ),
           onOpenStory: (story) => unawaited(_openStory(story)),
+          onOpenStoryDiscussion: (story) => _openDiscussion(
+            DiscussionTarget(
+              address: story.address,
+              kind: 37520,
+              pubkey: story.pubkey,
+              title: story.title,
+              eventId: story.eventId,
+            ),
+          ),
           onOpenAtlas: (atlas) => unawaited(_openAtlas(atlas)),
           onFocusSighting: _focusSighting,
           onFocusBeacon: _focusBeacon,
@@ -2870,14 +2915,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                   final dTag = parts.length >= 3
                       ? parts.sublist(2).join(':')
                       : feature.sourceLabel;
-                  showEarthlyShareSheet(
-                    context,
-                    kind: kind,
-                    pubkey: feature.datasetPubkey!,
-                    dTag: dTag,
-                    title: feature.title ?? feature.datasetTitle ?? dTag,
-                    relays: _activeRelayUrls,
-                    featureId: feature.featureId,
+                  unawaited(
+                    RustBridge.ensureInitialized().then((_) async {
+                      final uri = await encodeNaddrCoordinate(
+                        kind: kind,
+                        pubkeyHex: feature.datasetPubkey!,
+                        dTag: dTag,
+                        relays: _activeRelayUrls,
+                        featureId: feature.featureId,
+                      );
+                      await Clipboard.setData(ClipboardData(text: uri));
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Copied nostr:naddr1… link'),
+                          ),
+                        );
+                      }
+                    }),
                   );
                 }
               : null,

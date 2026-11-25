@@ -3001,8 +3001,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   AtlasSummaryDto dco_decode_atlas_summary_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return AtlasSummaryDto(
       address: dco_decode_String(arr[0]),
       eventId: dco_decode_String(arr[1]),
@@ -3010,9 +3010,10 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       dTag: dco_decode_String(arr[3]),
       name: dco_decode_String(arr[4]),
       description: dco_decode_opt_String(arr[5]),
-      governance: dco_decode_String(arr[6]),
-      pinnedAddresses: dco_decode_list_String(arr[7]),
-      createdAt: dco_decode_u_64(arr[8]),
+      image: dco_decode_opt_String(arr[6]),
+      governance: dco_decode_String(arr[7]),
+      pinnedAddresses: dco_decode_list_String(arr[8]),
+      createdAt: dco_decode_u_64(arr[9]),
     );
   }
 
@@ -3492,8 +3493,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   MapSummaryDto dco_decode_map_summary_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 15)
-      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
+    if (arr.length != 16)
+      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
     return MapSummaryDto(
       address: dco_decode_String(arr[0]),
       eventId: dco_decode_String(arr[1]),
@@ -3502,14 +3503,15 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       title: dco_decode_String(arr[4]),
       description: dco_decode_opt_String(arr[5]),
       featureCount: dco_decode_u_32(arr[6]),
-      geojson: dco_decode_String(arr[7]),
-      west: dco_decode_opt_box_autoadd_f_64(arr[8]),
-      south: dco_decode_opt_box_autoadd_f_64(arr[9]),
-      east: dco_decode_opt_box_autoadd_f_64(arr[10]),
-      north: dco_decode_opt_box_autoadd_f_64(arr[11]),
-      hashtags: dco_decode_list_String(arr[12]),
-      labels: dco_decode_list_String(arr[13]),
-      createdAt: dco_decode_u_64(arr[14]),
+      sizeBytes: dco_decode_u_32(arr[7]),
+      geojson: dco_decode_String(arr[8]),
+      west: dco_decode_opt_box_autoadd_f_64(arr[9]),
+      south: dco_decode_opt_box_autoadd_f_64(arr[10]),
+      east: dco_decode_opt_box_autoadd_f_64(arr[11]),
+      north: dco_decode_opt_box_autoadd_f_64(arr[12]),
+      hashtags: dco_decode_list_String(arr[13]),
+      labels: dco_decode_list_String(arr[14]),
+      createdAt: dco_decode_u_64(arr[15]),
     );
   }
 
@@ -3995,6 +3997,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     var var_dTag = sse_decode_String(deserializer);
     var var_name = sse_decode_String(deserializer);
     var var_description = sse_decode_opt_String(deserializer);
+    var var_image = sse_decode_opt_String(deserializer);
     var var_governance = sse_decode_String(deserializer);
     var var_pinnedAddresses = sse_decode_list_String(deserializer);
     var var_createdAt = sse_decode_u_64(deserializer);
@@ -4005,6 +4008,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       dTag: var_dTag,
       name: var_name,
       description: var_description,
+      image: var_image,
       governance: var_governance,
       pinnedAddresses: var_pinnedAddresses,
       createdAt: var_createdAt,
@@ -4720,6 +4724,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     var var_title = sse_decode_String(deserializer);
     var var_description = sse_decode_opt_String(deserializer);
     var var_featureCount = sse_decode_u_32(deserializer);
+    var var_sizeBytes = sse_decode_u_32(deserializer);
     var var_geojson = sse_decode_String(deserializer);
     var var_west = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_south = sse_decode_opt_box_autoadd_f_64(deserializer);
@@ -4736,6 +4741,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       title: var_title,
       description: var_description,
       featureCount: var_featureCount,
+      sizeBytes: var_sizeBytes,
       geojson: var_geojson,
       west: var_west,
       south: var_south,
@@ -5382,6 +5388,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_String(self.dTag, serializer);
     sse_encode_String(self.name, serializer);
     sse_encode_opt_String(self.description, serializer);
+    sse_encode_opt_String(self.image, serializer);
     sse_encode_String(self.governance, serializer);
     sse_encode_list_String(self.pinnedAddresses, serializer);
     sse_encode_u_64(self.createdAt, serializer);
@@ -5983,6 +5990,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_String(self.title, serializer);
     sse_encode_opt_String(self.description, serializer);
     sse_encode_u_32(self.featureCount, serializer);
+    sse_encode_u_32(self.sizeBytes, serializer);
     sse_encode_String(self.geojson, serializer);
     sse_encode_opt_box_autoadd_f_64(self.west, serializer);
     sse_encode_opt_box_autoadd_f_64(self.south, serializer);

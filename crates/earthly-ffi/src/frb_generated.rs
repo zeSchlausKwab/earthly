@@ -2643,6 +2643,7 @@ impl SseDecode for crate::api::nostr_client::AtlasSummaryDto {
         let mut var_dTag = <String>::sse_decode(deserializer);
         let mut var_name = <String>::sse_decode(deserializer);
         let mut var_description = <Option<String>>::sse_decode(deserializer);
+        let mut var_image = <Option<String>>::sse_decode(deserializer);
         let mut var_governance = <String>::sse_decode(deserializer);
         let mut var_pinnedAddresses = <Vec<String>>::sse_decode(deserializer);
         let mut var_createdAt = <u64>::sse_decode(deserializer);
@@ -2653,6 +2654,7 @@ impl SseDecode for crate::api::nostr_client::AtlasSummaryDto {
             d_tag: var_dTag,
             name: var_name,
             description: var_description,
+            image: var_image,
             governance: var_governance,
             pinned_addresses: var_pinnedAddresses,
             created_at: var_createdAt,
@@ -3275,6 +3277,7 @@ impl SseDecode for crate::api::nostr_client::MapSummaryDto {
         let mut var_title = <String>::sse_decode(deserializer);
         let mut var_description = <Option<String>>::sse_decode(deserializer);
         let mut var_featureCount = <u32>::sse_decode(deserializer);
+        let mut var_sizeBytes = <u32>::sse_decode(deserializer);
         let mut var_geojson = <String>::sse_decode(deserializer);
         let mut var_west = <Option<f64>>::sse_decode(deserializer);
         let mut var_south = <Option<f64>>::sse_decode(deserializer);
@@ -3291,6 +3294,7 @@ impl SseDecode for crate::api::nostr_client::MapSummaryDto {
             title: var_title,
             description: var_description,
             feature_count: var_featureCount,
+            size_bytes: var_sizeBytes,
             geojson: var_geojson,
             west: var_west,
             south: var_south,
@@ -4196,6 +4200,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::nostr_client::AtlasSummaryDto
             self.d_tag.into_into_dart().into_dart(),
             self.name.into_into_dart().into_dart(),
             self.description.into_into_dart().into_dart(),
+            self.image.into_into_dart().into_dart(),
             self.governance.into_into_dart().into_dart(),
             self.pinned_addresses.into_into_dart().into_dart(),
             self.created_at.into_into_dart().into_dart(),
@@ -4580,6 +4585,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::nostr_client::MapSummaryDto {
             self.title.into_into_dart().into_dart(),
             self.description.into_into_dart().into_dart(),
             self.feature_count.into_into_dart().into_dart(),
+            self.size_bytes.into_into_dart().into_dart(),
             self.geojson.into_into_dart().into_dart(),
             self.west.into_into_dart().into_dart(),
             self.south.into_into_dart().into_dart(),
@@ -5091,6 +5097,7 @@ impl SseEncode for crate::api::nostr_client::AtlasSummaryDto {
         <String>::sse_encode(self.d_tag, serializer);
         <String>::sse_encode(self.name, serializer);
         <Option<String>>::sse_encode(self.description, serializer);
+        <Option<String>>::sse_encode(self.image, serializer);
         <String>::sse_encode(self.governance, serializer);
         <Vec<String>>::sse_encode(self.pinned_addresses, serializer);
         <u64>::sse_encode(self.created_at, serializer);
@@ -5510,6 +5517,7 @@ impl SseEncode for crate::api::nostr_client::MapSummaryDto {
         <String>::sse_encode(self.title, serializer);
         <Option<String>>::sse_encode(self.description, serializer);
         <u32>::sse_encode(self.feature_count, serializer);
+        <u32>::sse_encode(self.size_bytes, serializer);
         <String>::sse_encode(self.geojson, serializer);
         <Option<f64>>::sse_encode(self.west, serializer);
         <Option<f64>>::sse_encode(self.south, serializer);

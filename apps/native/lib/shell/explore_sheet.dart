@@ -1,22 +1,30 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
+import 'entity_list_row.dart';
 import 'map_drawer.dart';
-import 'share_naddr_sheet.dart';
 
-/// Explore drawer: live Nostr relay catalog (Maps · Stories · Atlases · Sightings)
-/// rendered inside the Google-Maps-style independent `EarthlyMapDrawer`.
+/// Explore drawer: live Nostr relay catalog (Maps · Stories · Atlases · Sightings · Live)
+/// replicating Earthly Web's `ListRow` grammar (geometry vector thumbnails for Maps,
+/// cover images for Stories/Atlases/Sightings, green presence disc for Beacons,
+/// single primary toggle + More overflow menu).
 class ExploreSheet extends StatefulWidget {
   const ExploreSheet({
     required this.initialCatalog,
+    required this.catalogLoading,
     required this.relayUrls,
     required this.shelfAddresses,
     required this.profilesByPubkey,
     required this.onCatalogLoaded,
     required this.onToggleMapOnShelf,
+    required this.onFocusMap,
+    required this.onCloneMapToDraft,
+    required this.onOpenMapDiscussion,
     required this.onOpenStory,
+    required this.onOpenStoryDiscussion,
     required this.onOpenAtlas,
     required this.onFocusSighting,
     required this.onFocusBeacon,
@@ -29,12 +37,17 @@ class ExploreSheet extends StatefulWidget {
   });
 
   final EarthlyCatalogSnapshot? initialCatalog;
+  final bool catalogLoading;
   final List<String> relayUrls;
   final Set<String> shelfAddresses;
   final Map<String, ProfileMetadataDto> profilesByPubkey;
   final ValueChanged<EarthlyCatalogSnapshot> onCatalogLoaded;
   final ValueChanged<MapSummaryDto> onToggleMapOnShelf;
+  final ValueChanged<MapSummaryDto> onFocusMap;
+  final ValueChanged<MapSummaryDto> onCloneMapToDraft;
+  final ValueChanged<MapSummaryDto> onOpenMapDiscussion;
   final ValueChanged<StorySummaryDto> onOpenStory;
+  final ValueChanged<StorySummaryDto> onOpenStoryDiscussion;
   final ValueChanged<AtlasSummaryDto> onOpenAtlas;
   final ValueChanged<SightingSummaryDto> onFocusSighting;
   final ValueChanged<LiveBeaconDto> onFocusBeacon;
@@ -62,7 +75,7 @@ class _ExploreSheetState extends State<ExploreSheet>
     super.initState();
     _tabs = TabController(length: 5, vsync: this);
     _catalog = widget.initialCatalog;
-    if (_catalog == null) {
+    if (_catalog == null && !widget.catalogLoading) {
       _refresh();
     }
   }
@@ -86,7 +99,7 @@ class _ExploreSheetState extends State<ExploreSheet>
   String _authorLabel(String pubkey) {
     final p = widget.profilesByPubkey[pubkey];
     final name = p?.displayName ?? p?.name;
-    if (name != null && name.isNotEmpty) return '@$name';
+    if (name != null && name.isNotEmpty) return name;
     return pubkey.length > 10 ? '${pubkey.substring(0, 8)}…' : pubkey;
   }
 
@@ -99,6 +112,27 @@ class _ExploreSheetState extends State<ExploreSheet>
     );
   }
 
+  Future<void> _copyNaddr({
+    required int kind,
+    required String pubkey,
+    required String dTag,
+  }) async {
+    try {
+      await RustBridge.ensureInitialized();
+      final uri = await encodeNaddrCoordinate(
+        kind: kind,
+        pubkeyHex: pubkey,
+        dTag: dTag,
+        relays: widget.relayUrls,
+      );
+      await Clipboard.setData(ClipboardData(text: uri));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Copied nostr:naddr1… link')),
+      );
+    } catch (_) {}
+  }
+
   Future<void> _refresh() async {
     setState(() {
       _loading = true;
@@ -108,7 +142,7 @@ class _ExploreSheetState extends State<ExploreSheet>
       await RustBridge.ensureInitialized();
       final catalog = await fetchEarthlyCatalog(
         relayUrls: widget.relayUrls,
-        limitPerKind: 25,
+        limitPerKind: 250,
       );
       if (!mounted) return;
       setState(() => _catalog = catalog);
@@ -127,9 +161,10 @@ class _ExploreSheetState extends State<ExploreSheet>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final catalog = _catalog;
+    final isLoading = _loading || (catalog == null && widget.catalogLoading);
 
     return EarthlyMapDrawer(
-      initialFraction: 0.52,
+      initialFraction: 0.56,
       onClose: widget.onClose,
       header: Column(
         mainAxisSize: MainAxisSize.min,
@@ -154,8 +189,8 @@ class _ExploreSheetState extends State<ExploreSheet>
                 IconButton(
                   tooltip: 'Refresh',
                   visualDensity: VisualDensity.compact,
-                  onPressed: _loading ? null : _refresh,
-                  icon: _loading
+                  onPressed: isLoading ? null : _refresh,
+                  icon: isLoading
                       ? const SizedBox(
                           width: 16,
                           height: 16,
@@ -223,7 +258,7 @@ class _ExploreSheetState extends State<ExploreSheet>
               ),
             ),
           Expanded(
-            child: catalog == null && _loading
+            child: catalog == null && isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : TabBarView(
                     controller: _tabs,
@@ -257,67 +292,88 @@ class _ExploreSheetState extends State<ExploreSheet>
       return Center(
         child: Text(
           _query.isEmpty
-              ? 'No published maps loaded yet.'
+              ? 'Listening for maps…'
               : 'No maps match "$_query".',
         ),
       );
     }
-    return ListView.separated(
+    return ListView.builder(
       itemCount: filtered.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final map = filtered[index];
         final onShelf = widget.shelfAddresses.contains(map.address);
-        final avatarUrl = widget.profilesByPubkey[map.pubkey]?.picture;
-        return ListTile(
-          leading: CircleAvatar(
-            radius: 16,
-            backgroundColor: EarthlyColors.commentGreen.withValues(alpha: 0.14),
-            backgroundImage:
-                (avatarUrl != null && avatarUrl.startsWith('http'))
-                    ? NetworkImage(avatarUrl)
-                    : null,
-            child: (avatarUrl != null && avatarUrl.startsWith('http'))
-                ? null
-                : const Icon(
-                    Icons.map_outlined,
-                    size: 16,
-                    color: EarthlyColors.commentGreen,
-                  ),
+        final dateStr = formatRelativeUnixDate(map.createdAt.toInt());
+        final sizeStr = formatByteSize(map.sizeBytes);
+        final tagsStr = map.hashtags.isNotEmpty
+            ? map.hashtags.take(2).map((t) => '#$t').join(' ')
+            : '';
+        final metaParts = <String>[
+          _authorLabel(map.pubkey),
+          if (dateStr.isNotEmpty) dateStr,
+          '${map.featureCount} feat',
+          if (sizeStr.isNotEmpty) sizeStr,
+          if (tagsStr.isNotEmpty) tagsStr,
+        ];
+
+        return EarthlyEntityListRow(
+          leading: EarthlyGeometryThumb(
+            cacheKey: map.eventId,
+            geojson: map.geojson,
           ),
-          title: Text(
-            map.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w600),
+          title: map.title,
+          meta: metaParts.join(' · '),
+          selected: onShelf,
+          onTap: () {
+            if (!onShelf) {
+              widget.onToggleMapOnShelf(map);
+            } else {
+              widget.onFocusMap(map);
+            }
+          },
+          primaryAction: IconButton(
+            tooltip: onShelf ? 'Remove from map' : 'Show on map',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => widget.onToggleMapOnShelf(map),
+            icon: Icon(
+              onShelf ? Icons.layers : Icons.layers_outlined,
+              size: 20,
+              color: onShelf ? EarthlyColors.commentGreen : null,
+            ),
           ),
-          subtitle: Text(
-            '${_authorLabel(map.pubkey)} · ${map.featureCount} features${map.hashtags.isNotEmpty ? ' · #${map.hashtags.take(3).join(' #')}' : ''}',
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                tooltip: 'Share QR / nostr:naddr',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => showEarthlyShareSheet(
-                  context,
-                  kind: 37515,
-                  pubkey: map.pubkey,
-                  dTag: map.dTag,
-                  title: map.title,
-                  relays: widget.relayUrls,
-                ),
-                icon: const Icon(Icons.qr_code_2, size: 17),
+          menuActions: [
+            EntityRowMenuAction(
+              label: onShelf ? 'Remove from map' : 'Show on map',
+              icon: onShelf ? Icons.layers_clear_outlined : Icons.layers,
+              onSelected: () => widget.onToggleMapOnShelf(map),
+            ),
+            EntityRowMenuAction(
+              label: 'Zoom to map',
+              icon: Icons.center_focus_strong,
+              onSelected: () {
+                if (!onShelf) widget.onToggleMapOnShelf(map);
+                widget.onFocusMap(map);
+              },
+            ),
+            EntityRowMenuAction(
+              label: 'Comments & Proposals',
+              icon: Icons.forum_outlined,
+              onSelected: () => widget.onOpenMapDiscussion(map),
+            ),
+            EntityRowMenuAction(
+              label: 'Clone / Fork to Draft',
+              icon: Icons.copy_all_outlined,
+              onSelected: () => widget.onCloneMapToDraft(map),
+            ),
+            EntityRowMenuAction(
+              label: 'Copy nostr:naddr1… link',
+              icon: Icons.link,
+              onSelected: () => _copyNaddr(
+                kind: 37515,
+                pubkey: map.pubkey,
+                dTag: map.dTag,
               ),
-              const SizedBox(width: 2),
-              OutlinedButton(
-                onPressed: () => widget.onToggleMapOnShelf(map),
-                child: Text(onShelf ? 'Remove' : 'Show'),
-              ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
@@ -332,13 +388,13 @@ class _ExploreSheetState extends State<ExploreSheet>
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
           child: SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: widget.onComposeStory,
               icon: const Icon(Icons.edit_note, size: 17),
-              label: const Text('Compose Story (37520)'),
+              label: const Text('New Story'),
             ),
           ),
         ),
@@ -348,48 +404,67 @@ class _ExploreSheetState extends State<ExploreSheet>
               ? Center(
                   child: Text(
                     _query.isEmpty
-                        ? 'No v2 stories found on relay.'
+                        ? 'Listening for stories…'
                         : 'No stories match "$_query".',
                   ),
                 )
-              : ListView.separated(
+              : ListView.builder(
                   itemCount: filtered.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final story = filtered[index];
                     final linkedCount = story.referencedAddresses.length;
-                    return ListTile(
-                      leading: const Icon(
-                        Icons.auto_stories_outlined,
-                        color: EarthlyColors.lightAccent,
+                    final dateStr =
+                        formatRelativeUnixDate(story.publishedAt.toInt());
+                    final metaParts = <String>[
+                      _authorLabel(story.pubkey),
+                      if (dateStr.isNotEmpty) dateStr,
+                      if (linkedCount > 0)
+                        '$linkedCount map${linkedCount == 1 ? '' : 's'}',
+                    ];
+
+                    return EarthlyEntityListRow(
+                      leading: EarthlyCoverThumb(
+                        imageUrl: story.image,
+                        fallbackIcon: Icons.auto_stories_outlined,
                       ),
-                      title: Text(
-                        story.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (story.summary != null &&
-                              story.summary!.isNotEmpty)
-                            Text(
-                              story.summary!,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          Text(
-                            '${_authorLabel(story.pubkey)} · ${linkedCount > 0 ? '$linkedCount linked map${linkedCount == 1 ? '' : 's'}' : 'Geo narrative'}${story.presentationJson != null ? ' · interactive views' : ''}',
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                            ),
+                      title: story.title,
+                      subtitle: story.summary,
+                      meta: metaParts.join(' · '),
+                      badges: [
+                        if (story.presentationJson != null)
+                          const EarthlyBadge(
+                            label: 'INTERACTIVE VIEWS',
+                            color: EarthlyColors.infoCyan,
                           ),
-                        ],
-                      ),
-                      trailing: const Icon(Icons.chevron_right, size: 18),
+                      ],
                       onTap: () => widget.onOpenStory(story),
+                      primaryAction: IconButton(
+                        tooltip: 'Open Story',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => widget.onOpenStory(story),
+                        icon: const Icon(Icons.chevron_right, size: 20),
+                      ),
+                      menuActions: [
+                        EntityRowMenuAction(
+                          label: 'Read story',
+                          icon: Icons.auto_stories_outlined,
+                          onSelected: () => widget.onOpenStory(story),
+                        ),
+                        EntityRowMenuAction(
+                          label: 'Story comments',
+                          icon: Icons.forum_outlined,
+                          onSelected: () => widget.onOpenStoryDiscussion(story),
+                        ),
+                        EntityRowMenuAction(
+                          label: 'Copy nostr:naddr1… link',
+                          icon: Icons.link,
+                          onSelected: () => _copyNaddr(
+                            kind: 37520,
+                            pubkey: story.pubkey,
+                            dTag: story.dTag,
+                          ),
+                        ),
+                      ],
                     );
                   },
                 ),
@@ -412,17 +487,17 @@ class _ExploreSheetState extends State<ExploreSheet>
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
           child: SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: widget.onCreateAtlas,
               icon: const Icon(
-                Icons.collections_bookmark_outlined,
+                Icons.public,
                 size: 16,
                 color: EarthlyColors.commentGreen,
               ),
-              label: const Text('Create Atlas (37518)'),
+              label: const Text('New Atlas'),
             ),
           ),
         ),
@@ -432,56 +507,61 @@ class _ExploreSheetState extends State<ExploreSheet>
               ? Center(
                   child: Text(
                     _query.isEmpty
-                        ? 'No v2 atlases found on relay.'
+                        ? 'Listening for atlases…'
                         : 'No atlases match "$_query".',
                   ),
                 )
-              : ListView.separated(
+              : ListView.builder(
                   itemCount: filtered.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final atlas = filtered[index];
-                    return ListTile(
-                      leading: const Icon(
-                        Icons.collections_bookmark_outlined,
-                        color: EarthlyColors.commentGreen,
+                    final govLabel = switch (atlas.governance) {
+                      'closed' => 'AUTHOR PICKS',
+                      'schema' => 'SCHEMA',
+                      _ => 'OPEN TO CONTRIBUTIONS',
+                    };
+                    final govColor = atlas.governance == 'open'
+                        ? EarthlyColors.commentGreen
+                        : EarthlyColors.published;
+
+                    return EarthlyEntityListRow(
+                      leading: EarthlyCoverThumb(
+                        imageUrl: atlas.image,
+                        fallbackIcon: Icons.public,
                       ),
-                      title: Text(
-                        atlas.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      title: atlas.name,
+                      subtitle: atlas.description,
+                      meta:
+                          '${_authorLabel(atlas.pubkey)} · ${atlas.pinnedAddresses.length} pinned',
+                      badges: [
+                        EarthlyBadge(label: govLabel, color: govColor),
+                      ],
+                      onTap: () => widget.onOpenAtlas(atlas),
+                      primaryAction: IconButton(
+                        tooltip: 'Show Atlas maps',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: atlas.pinnedAddresses.isEmpty
+                            ? null
+                            : () => widget.onOpenAtlas(atlas),
+                        icon: const Icon(Icons.layers_outlined, size: 20),
                       ),
-                      subtitle: Text(
-                        '${_authorLabel(atlas.pubkey)} · ${atlas.governance} · ${atlas.pinnedAddresses.length} pinned',
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
+                      menuActions: [
+                        if (atlas.pinnedAddresses.isNotEmpty)
+                          EntityRowMenuAction(
+                            label: 'Show all on map',
+                            icon: Icons.layers,
+                            onSelected: () => widget.onOpenAtlas(atlas),
+                          ),
+                        EntityRowMenuAction(
+                          label: 'Copy nostr:naddr1… link',
+                          icon: Icons.link,
+                          onSelected: () => _copyNaddr(
+                            kind: 37518,
+                            pubkey: atlas.pubkey,
+                            dTag: atlas.dTag,
+                          ),
                         ),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: 'Share QR / nostr:naddr',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () => showEarthlyShareSheet(
-                              context,
-                              kind: 37518,
-                              pubkey: atlas.pubkey,
-                              dTag: atlas.dTag,
-                              title: atlas.name,
-                              relays: widget.relayUrls,
-                            ),
-                            icon: const Icon(Icons.qr_code_2, size: 17),
-                          ),
-                          const SizedBox(width: 2),
-                          OutlinedButton(
-                            onPressed: atlas.pinnedAddresses.isEmpty
-                                ? null
-                                : () => widget.onOpenAtlas(atlas),
-                            child: const Text('Load'),
-                          ),
-                        ],
-                      ),
+                      ],
                     );
                   },
                 ),
@@ -494,7 +574,7 @@ class _ExploreSheetState extends State<ExploreSheet>
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
           child: SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -508,42 +588,48 @@ class _ExploreSheetState extends State<ExploreSheet>
         Expanded(
           child: sightings.isEmpty
               ? const Center(child: Text('No active sightings right now.'))
-              : ListView.separated(
+              : ListView.builder(
                   itemCount: sightings.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final s = sightings[index];
-                    return ListTile(
-                      leading: s.imageUrl != null && s.imageUrl!.isNotEmpty
-                          ? SizedBox(
-                              width: 36,
-                              height: 36,
-                              child: Image.network(
-                                s.imageUrl!,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) => const Icon(
-                                  Icons.visibility,
-                                  color: Color(0xFFD97706),
-                                ),
-                              ),
-                            )
-                          : const Icon(
-                              Icons.visibility,
-                              color: Color(0xFFD97706),
-                            ),
-                      title: Text(
-                        s.title ?? (s.note.isNotEmpty ? s.note : 'Sighting'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        '${s.lat.toStringAsFixed(4)}, ${s.lon.toStringAsFixed(4)}',
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
+                    final title =
+                        s.title ?? (s.note.isNotEmpty ? s.note : 'Sighting');
+                    final dateStr = formatRelativeUnixDate(s.start.toInt());
+                    return EarthlyEntityListRow(
+                      leading: GestureDetector(
+                        onTap: (s.imageUrl != null && s.imageUrl!.isNotEmpty)
+                            ? () => showEarthlyPhotoLightbox(
+                                  context,
+                                  url: s.imageUrl!,
+                                  caption: title,
+                                )
+                            : null,
+                        child: EarthlyCoverThumb(
+                          imageUrl: s.imageUrl,
+                          fallbackIcon: Icons.visibility,
+                          fallbackColor: EarthlyColors.proposedAmber,
                         ),
                       ),
+                      title: title,
+                      subtitle: s.title != null && s.note.isNotEmpty
+                          ? s.note
+                          : null,
+                      meta:
+                          '${_authorLabel(s.pubkey)}${dateStr.isNotEmpty ? ' · $dateStr' : ''} · ${s.lat.toStringAsFixed(3)}, ${s.lon.toStringAsFixed(3)}',
+                      badges: const [
+                        EarthlyBadge(
+                          label: 'LIVE',
+                          color: EarthlyColors.proposedAmber,
+                          filled: true,
+                        ),
+                      ],
                       onTap: () => widget.onFocusSighting(s),
+                      primaryAction: IconButton(
+                        tooltip: 'Locate on map',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => widget.onFocusSighting(s),
+                        icon: const Icon(Icons.my_location, size: 18),
+                      ),
                     );
                   },
                 ),
@@ -556,7 +642,7 @@ class _ExploreSheetState extends State<ExploreSheet>
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
           child: SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -564,9 +650,9 @@ class _ExploreSheetState extends State<ExploreSheet>
               icon: const Icon(
                 Icons.sensors,
                 size: 16,
-                color: Color(0xFF0891B2),
+                color: EarthlyColors.commentGreen,
               ),
-              label: const Text('Broadcast Live Beacon (37521)'),
+              label: const Text('Broadcast Live Beacon'),
             ),
           ),
         ),
@@ -574,36 +660,75 @@ class _ExploreSheetState extends State<ExploreSheet>
         Expanded(
           child: beacons.isEmpty
               ? const Center(child: Text('No active live beacons right now.'))
-              : ListView.separated(
+              : ListView.builder(
                   itemCount: beacons.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final b = beacons[index];
-                    final shortKey = b.pubkey.length > 10
-                        ? '${b.pubkey.substring(0, 10)}…'
-                        : b.pubkey;
-                    return ListTile(
-                      leading: const Icon(
-                        Icons.sensors,
-                        color: Color(0xFF0891B2),
-                      ),
-                      title: Text(
-                        (b.status != null && b.status!.trim().isNotEmpty)
-                            ? b.status!
-                            : 'Live Beacon · $shortKey',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      subtitle: Text(
-                        '${b.lat.toStringAsFixed(4)}, ${b.lon.toStringAsFixed(4)} · $shortKey',
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
+                    final seen = formatRelativeUnixDate(b.createdAt.toInt());
+                    return EarthlyEntityListRow(
+                      leading: SizedBox(
+                        width: 68,
+                        height: 54,
+                        child: Center(
+                          child: Stack(
+                            children: [
+                              Container(
+                                width: 42,
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  color: EarthlyColors.commentGreen
+                                      .withValues(alpha: 0.18),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.sensors,
+                                  size: 20,
+                                  color: EarthlyColors.commentGreen,
+                                ),
+                              ),
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  width: 11,
+                                  height: 11,
+                                  decoration: BoxDecoration(
+                                    color: EarthlyColors.commentGreen,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .surface,
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      trailing: const Icon(Icons.my_location, size: 17),
+                      title: (b.status != null && b.status!.trim().isNotEmpty)
+                          ? b.status!
+                          : _authorLabel(b.pubkey),
+                      meta:
+                          '${_authorLabel(b.pubkey)}${seen.isNotEmpty ? ' · last seen $seen' : ''}',
+                      badges: const [
+                        EarthlyBadge(
+                          label: 'LIVE',
+                          color: EarthlyColors.commentGreen,
+                          filled: true,
+                        ),
+                      ],
+                      selected: true,
+                      selectedColor: EarthlyColors.commentGreen,
                       onTap: () => widget.onFocusBeacon(b),
+                      primaryAction: IconButton(
+                        tooltip: 'Watch on map',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => widget.onFocusBeacon(b),
+                        icon: const Icon(Icons.my_location, size: 19),
+                      ),
                     );
                   },
                 ),

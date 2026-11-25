@@ -1,11 +1,13 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../nostr/shelf_renderer.dart';
 import '../nostr/story_presentation.dart';
+import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
+import 'entity_list_row.dart';
 import 'map_drawer.dart';
-import 'share_naddr_sheet.dart';
 
 /// Non-blocking draggable Margin sheet that sits over the live MapLibre canvas
 /// while reading a Story (`kind 37520`).
@@ -87,19 +89,6 @@ class StoryReaderMargin extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Share QR / nostr:naddr',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => showEarthlyShareSheet(
-                    context,
-                    kind: 37520,
-                    pubkey: story.pubkey,
-                    dTag: story.dTag,
-                    title: story.title,
-                    relays: relayUrls,
-                  ),
-                  icon: const Icon(Icons.qr_code_2, size: 18),
-                ),
-                IconButton(
                   tooltip: 'Story Comments',
                   visualDensity: VisualDensity.compact,
                   onPressed: onOpenDiscussion,
@@ -110,6 +99,30 @@ class StoryReaderMargin extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                   onPressed: onFitAllGeometry,
                   icon: const Icon(Icons.fit_screen, size: 18),
+                ),
+                IconButton(
+                  tooltip: 'Copy story link',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () async {
+                    try {
+                      await RustBridge.ensureInitialized();
+                      final uri = await encodeNaddrCoordinate(
+                        kind: 37520,
+                        pubkeyHex: story.pubkey,
+                        dTag: story.dTag,
+                        relays: relayUrls,
+                      );
+                      await Clipboard.setData(ClipboardData(text: uri));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Copied nostr:naddr1… link'),
+                          ),
+                        );
+                      }
+                    } catch (_) {}
+                  },
+                  icon: const Icon(Icons.link, size: 18),
                 ),
                 IconButton(
                   tooltip: 'Close Story',
@@ -268,16 +281,27 @@ class StoryReaderMargin extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          if (story.image != null && story.image!.isNotEmpty) ...[
-            SizedBox(
-              height: 150,
-              child: Image.network(
-                story.image!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+          if (story.image != null && story.image!.trim().isNotEmpty) ...[
+            GestureDetector(
+              onTap: () => showEarthlyPhotoLightbox(
+                context,
+                url: story.image!.trim(),
+                caption: story.title,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: SizedBox(
+                  height: 196,
+                  width: double.infinity,
+                  child: EarthlyNetworkImage(
+                    url: story.image!.trim(),
+                    fit: BoxFit.cover,
+                    fallback: const SizedBox.shrink(),
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
           ],
           if (story.summary != null && story.summary!.trim().isNotEmpty) ...[
             Text(
@@ -426,6 +450,10 @@ final RegExp _inlineSpatialTokenRe = RegExp(
   caseSensitive: false,
 );
 
+final RegExp _markdownImageLineRe = RegExp(
+  r'!\[([^\]]*)\]\((https?://[^\s)]+)(?:\s+"([^"]*)")?\)',
+);
+
 /// Renders clean Markdown paragraphs/headings with inline interactive spatial
 /// pills for `nostr:naddr1...`, `nostr:naddr1...#featureId`, and `geo:lat,lon`.
 class _StoryMarkdownBlock extends StatelessWidget {
@@ -490,6 +518,58 @@ class _StoryMarkdownBlock extends StatelessWidget {
           ),
         ));
         continue;
+      }
+
+      // Render Markdown images `![alt](https://...)` cleanly inline with tap-to-zoom!
+      final imgMatches = _markdownImageLineRe.allMatches(line).toList();
+      if (imgMatches.isNotEmpty) {
+        for (final m in imgMatches) {
+          final alt = (m.group(1) ?? '').trim();
+          final url = (m.group(2) ?? '').trim();
+          final titleCap = (m.group(3) ?? '').trim();
+          final caption = titleCap.isNotEmpty ? titleCap : alt;
+          if (url.isEmpty) continue;
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  GestureDetector(
+                    onTap: () => showEarthlyPhotoLightbox(
+                      context,
+                      url: url,
+                      caption: caption,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 240),
+                        child: EarthlyNetworkImage(
+                          url: url,
+                          fit: BoxFit.cover,
+                          fallback: const SizedBox.shrink(),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (caption.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      caption,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 11.5,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }
+        final remaining = line.replaceAll(_markdownImageLineRe, '').trim();
+        if (remaining.isEmpty) continue;
       }
 
       final matches = _inlineSpatialTokenRe.allMatches(line).toList();

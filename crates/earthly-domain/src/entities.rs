@@ -117,22 +117,55 @@ impl MapDataset {
             });
         }
         let d_tag = event.d_tag().ok_or(DomainError::MissingDTag)?.to_owned();
-        let fc: serde_json::Value = serde_json::from_str(&event.content)
+        let raw_json: serde_json::Value = serde_json::from_str(&event.content)
             .map_err(|err| DomainError::InvalidContent(err.to_string()))?;
-        if fc.get("type").and_then(|v| v.as_str()) != Some("FeatureCollection") {
-            return Err(DomainError::InvalidContent(
-                "content must be a GeoJSON FeatureCollection".to_owned(),
-            ));
-        }
+        let fc = match raw_json.get("type").and_then(|v| v.as_str()) {
+            Some("FeatureCollection") => raw_json,
+            Some("Feature") => {
+                let feat_name = raw_json
+                    .get("properties")
+                    .and_then(|p| p.get("name"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned);
+                let mut wrapped = serde_json::json!({
+                    "type": "FeatureCollection",
+                    "features": [raw_json],
+                });
+                if let Some(n) = feat_name {
+                    wrapped["name"] = serde_json::Value::String(n);
+                }
+                wrapped
+            }
+            _ => {
+                return Err(DomainError::InvalidContent(
+                    "content must be a GeoJSON FeatureCollection".to_owned(),
+                ));
+            }
+        };
         let name = fc
             .get("name")
             .and_then(|v| v.as_str())
+            .or_else(|| {
+                fc.get("properties")
+                    .and_then(|p| p.get("name"))
+                    .and_then(|v| v.as_str())
+            })
+            .or_else(|| get_tag_value(&event.tags, "title"))
+            .or_else(|| get_tag_value(&event.tags, "name"))
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_owned);
         let description = fc
             .get("description")
             .and_then(|v| v.as_str())
+            .or_else(|| {
+                fc.get("properties")
+                    .and_then(|p| p.get("description"))
+                    .and_then(|v| v.as_str())
+            })
+            .or_else(|| get_tag_value(&event.tags, "description"))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
             .map(str::to_owned);
 
         Ok(Self {
@@ -224,6 +257,7 @@ pub struct AtlasGroup {
     pub created_at: u64,
     pub name: String,
     pub description: Option<String>,
+    pub image: Option<String>,
     pub governance: GovernanceMode,
     pub pinned_addresses: Vec<String>,
     pub context_refs: Vec<String>,
@@ -258,6 +292,15 @@ impl AtlasGroup {
             _ => GovernanceMode::Open,
         };
 
+        let image = body
+            .get("image")
+            .and_then(|v| v.as_str())
+            .or_else(|| get_tag_value(&event.tags, "image"))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .or_else(|| get_images(&event.tags).into_iter().next().map(|i| i.url));
+
         Ok(Self {
             event_id: event.id.clone(),
             pubkey: event.pubkey.clone(),
@@ -268,6 +311,7 @@ impl AtlasGroup {
                 .get("description")
                 .and_then(|v| v.as_str())
                 .map(str::to_owned),
+            image,
             governance,
             pinned_addresses: get_referenced_addresses(&event.tags),
             context_refs: get_context_refs(&event.tags),
@@ -401,6 +445,15 @@ impl StoryArticle {
             .and_then(|v| v.as_u64())
             .unwrap_or(event.created_at);
 
+        let image = body
+            .get("image")
+            .and_then(|v| v.as_str())
+            .or_else(|| get_tag_value(&event.tags, "image"))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .or_else(|| get_images(&event.tags).into_iter().next().map(|i| i.url));
+
         Ok(Self {
             event_id: event.id.clone(),
             pubkey: event.pubkey.clone(),
@@ -411,10 +464,7 @@ impl StoryArticle {
                 .get("summary")
                 .and_then(|v| v.as_str())
                 .map(str::to_owned),
-            image: body
-                .get("image")
-                .and_then(|v| v.as_str())
-                .map(str::to_owned),
+            image,
             published_at,
             content,
             presentation: body.get("presentation").cloned(),
@@ -455,16 +505,7 @@ impl LiveBeacon {
         }
         let body: serde_json::Value = serde_json::from_str(&event.content)
             .map_err(|err| DomainError::InvalidContent(err.to_string()))?;
-        let lon = body
-            .get("lon")
-            .or_else(|| body.get("longitude"))
-            .and_then(|v| v.as_f64())
-            .ok_or(DomainError::MissingField("lon"))?;
-        let lat = body
-            .get("lat")
-            .or_else(|| body.get("latitude"))
-            .and_then(|v| v.as_f64())
-            .ok_or(DomainError::MissingField("lat"))?;
+        let (lon, lat) = extract_point_lon_lat(&body)?;
 
         Ok(Self {
             event_id: event.id.clone(),
@@ -474,7 +515,8 @@ impl LiveBeacon {
             lon,
             lat,
             status: body
-                .get("status")
+                .get("label")
+                .or_else(|| body.get("status"))
                 .or_else(|| body.get("note"))
                 .and_then(|v| v.as_str())
                 .map(str::to_owned),
@@ -516,16 +558,7 @@ impl TemporalSighting {
         }
         let body: serde_json::Value = serde_json::from_str(&event.content)
             .map_err(|err| DomainError::InvalidContent(err.to_string()))?;
-        let lon = body
-            .get("lon")
-            .or_else(|| body.get("longitude"))
-            .and_then(|v| v.as_f64())
-            .ok_or(DomainError::MissingField("lon"))?;
-        let lat = body
-            .get("lat")
-            .or_else(|| body.get("latitude"))
-            .and_then(|v| v.as_f64())
-            .ok_or(DomainError::MissingField("lat"))?;
+        let (lon, lat) = extract_point_lon_lat(&body)?;
         let start = body
             .get("start")
             .and_then(|v| v.as_u64())
@@ -554,6 +587,33 @@ impl TemporalSighting {
             images: get_images(&event.tags),
         })
     }
+}
+
+/// Extracts `(lon, lat)` from either Earthly Web v2's GeoJSON Point payload
+/// (`geometry: { type: "Point", coordinates: [lon, lat] }`) or flat `lon`/`lat`.
+fn extract_point_lon_lat(body: &serde_json::Value) -> Result<(f64, f64), DomainError> {
+    if let Some(coords) = body
+        .get("geometry")
+        .and_then(|g| g.get("coordinates"))
+        .and_then(|c| c.as_array())
+    {
+        if coords.len() >= 2 {
+            if let (Some(lon), Some(lat)) = (coords[0].as_f64(), coords[1].as_f64()) {
+                return Ok((lon, lat));
+            }
+        }
+    }
+    let lon = body
+        .get("lon")
+        .or_else(|| body.get("longitude"))
+        .and_then(|v| v.as_f64())
+        .ok_or(DomainError::MissingField("lon"))?;
+    let lat = body
+        .get("lat")
+        .or_else(|| body.get("latitude"))
+        .and_then(|v| v.as_f64())
+        .ok_or(DomainError::MissingField("lat"))?;
+    Ok((lon, lat))
 }
 
 #[cfg(test)]
@@ -602,5 +662,45 @@ mod tests {
         let story = StoryArticle::parse(&event).unwrap();
         assert_eq!(story.published_at, 1_700_000_000);
         assert_eq!(story.referenced_addresses.len(), 1);
+    }
+
+    #[test]
+    fn parses_web_geojson_sighting_beacon_and_title_tag_map() {
+        let sighting_ev = RawNostrEvent {
+            id: "sig1".to_owned(),
+            pubkey: "c".repeat(64),
+            created_at: 1_788_080_221,
+            kind: TEMPORAL_SIGHTING_KIND,
+            tags: vec![vec!["d".to_owned(), "concert".to_owned()]],
+            content: r#"{"title":"Amanda Palmer concert","geometry":{"type":"Point","coordinates":[16.3713,48.1993]},"modelVersion":"earthly/2"}"#.to_owned(),
+        };
+        let sig = TemporalSighting::parse(&sighting_ev).unwrap();
+        assert_eq!(sig.title.as_deref(), Some("Amanda Palmer concert"));
+        assert!((sig.lon - 16.3713).abs() < 1e-6);
+
+        let beacon_ev = RawNostrEvent {
+            id: "bcn1".to_owned(),
+            pubkey: "c".repeat(64),
+            created_at: 1_790_848_738,
+            kind: LIVE_BEACON_KIND,
+            tags: vec![vec!["d".to_owned(), "live-1".to_owned()]],
+            content: r#"{"status":"live","geometry":{"type":"Point","coordinates":[98.299,8.396]},"modelVersion":"earthly/2"}"#.to_owned(),
+        };
+        let bcn = LiveBeacon::parse(&beacon_ev).unwrap();
+        assert!((bcn.lat - 8.396).abs() < 1e-6);
+
+        let map_ev = RawNostrEvent {
+            id: "map1".to_owned(),
+            pubkey: "c".repeat(64),
+            created_at: 1_791_720_218,
+            kind: GEO_EVENT_KIND,
+            tags: vec![
+                vec!["d".to_owned(), "demo".to_owned()],
+                vec!["title".to_owned(), "Earthly integration demo".to_owned()],
+            ],
+            content: r#"{"type":"FeatureCollection","features":[]}"#.to_owned(),
+        };
+        let ds = MapDataset::parse(&map_ev).unwrap();
+        assert_eq!(ds.name.as_deref(), Some("Earthly integration demo"));
     }
 }
