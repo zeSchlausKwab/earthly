@@ -1,0 +1,1525 @@
+import 'dart:convert';
+import 'dart:math' as math;
+
+import 'package:maplibre/maplibre.dart';
+import 'package:material_ui/material_ui.dart';
+
+import '../drawing/drawing_model.dart';
+import '../src/rust/api/nostr_client.dart';
+import '../theme/earthly_theme.dart';
+import 'story_presentation.dart';
+
+@immutable
+class InspectedFeature {
+  const InspectedFeature({
+    required this.sourceLabel,
+    required this.isDraft,
+    required this.geometryType,
+    required this.properties,
+    this.featureId,
+    this.draftFeatureId,
+    this.title,
+    this.lengthMeters,
+    this.areaSquareMeters,
+    this.imageUrl,
+    this.callouts = const [],
+    this.datasetAddress,
+    this.datasetPubkey,
+    this.datasetTitle,
+    this.datasetEventId,
+    this.datasetGeojson,
+  });
+
+  final String sourceLabel;
+  final bool isDraft;
+  final String geometryType;
+  final Map<String, Object?> properties;
+  final String? featureId;
+  final String? draftFeatureId;
+  final String? title;
+  final double? lengthMeters;
+  final double? areaSquareMeters;
+  final String? imageUrl;
+  final List<MapCalloutItem> callouts;
+  final String? datasetAddress;
+  final String? datasetPubkey;
+  final String? datasetTitle;
+  final String? datasetEventId;
+  final String? datasetGeojson;
+}
+
+/// Authored contextual card attached to a Feature (`Feature.properties["earthly:callouts"]`).
+/// See `SPEC.md` §1.8.
+@immutable
+class MapCalloutItem {
+  const MapCalloutItem({
+    required this.key,
+    required this.id,
+    required this.text,
+    required this.anchor,
+    required this.datasetTitle,
+    this.featureId,
+    this.featureLabel,
+    this.title,
+    this.mediaUrls = const [],
+    this.preferredSide = 'auto',
+    this.offset = Offset.zero,
+    this.showLeader = true,
+    this.accentColorHex,
+    this.inspectedFeature,
+  });
+
+  final String key;
+  final String id;
+  final String text;
+  final Geographic anchor;
+  final String datasetTitle;
+  final String? featureId;
+  final String? featureLabel;
+  final String? title;
+  final List<String> mediaUrls;
+  final String preferredSide;
+  final Offset offset;
+  final bool showLeader;
+  final String? accentColorHex;
+  final InspectedFeature? inspectedFeature;
+}
+
+/// Temporary `geo:lat,lon` pin activated from a Story or comment (`SPEC.md` §2.4).
+@immutable
+class GeoPinOverlayItem {
+  const GeoPinOverlayItem({
+    required this.id,
+    required this.position,
+    required this.label,
+  });
+
+  final String id;
+  final Geographic position;
+  final String label;
+}
+
+/// Active Story map presentation state applied over loaded datasets.
+@immutable
+class ActiveStoryRenderContext {
+  const ActiveStoryRenderContext({
+    required this.story,
+    required this.datasetsByAddress,
+    this.presentationLayers = const [],
+    this.focusedDatasetAddress,
+    this.focusedFeatureId,
+    this.geoPins = const [],
+  });
+
+  final StorySummaryDto story;
+  final Map<String, ShelfMapEntry> datasetsByAddress;
+  final List<StoryPresentationLayer> presentationLayers;
+  final String? focusedDatasetAddress;
+  final String? focusedFeatureId;
+  final List<GeoPinOverlayItem> geoPins;
+}
+
+@immutable
+class ShelfMapEntry {
+  const ShelfMapEntry({
+    required this.summary,
+    required this.visible,
+    required this.shapes,
+  });
+
+  final MapSummaryDto summary;
+  final bool visible;
+  final List<ShelfShape> shapes;
+
+  ShelfMapEntry copyWith({bool? visible}) => ShelfMapEntry(
+        summary: summary,
+        visible: visible ?? this.visible,
+        shapes: shapes,
+      );
+}
+
+enum ShelfShapeKind { point, line, polygon }
+
+@immutable
+class ShelfShape {
+  const ShelfShape({
+    required this.kind,
+    required this.coords,
+    required this.anchor,
+    this.featureId,
+    this.colorHex,
+    this.fillColorHex,
+    this.strokeColorHex,
+    this.strokeWidth,
+    this.fillOpacity,
+    this.radius,
+    this.label,
+    this.displayIcon,
+    this.callouts = const [],
+    this.properties = const {},
+  });
+
+  final ShelfShapeKind kind;
+  final List<Geographic> coords;
+  final Geographic anchor;
+  final String? featureId;
+  final String? colorHex;
+  final String? fillColorHex;
+  final String? strokeColorHex;
+  final double? strokeWidth;
+  final double? fillOpacity;
+  final double? radius;
+  final String? label;
+  final String? displayIcon;
+  final List<MapCalloutItem> callouts;
+  final Map<String, Object?> properties;
+}
+
+/// Parses a GeoJSON FeatureCollection string into renderable shapes, labels,
+/// style properties, and authored `earthly:callouts` (`SPEC.md` §1.7–§1.8).
+List<ShelfShape> parseGeoJsonShapes(
+  String geojsonText, {
+  String datasetTitle = 'Map',
+  String datasetAddress = '',
+}) {
+  try {
+    final decoded = jsonDecode(geojsonText);
+    if (decoded is! Map<String, dynamic>) return const [];
+    final features = decoded['features'];
+    if (features is! List) return const [];
+    final out = <ShelfShape>[];
+    var idx = 0;
+    for (final item in features) {
+      if (item is! Map<String, dynamic>) continue;
+      idx += 1;
+      final featureId = item['id']?.toString();
+      final props = (item['properties'] as Map<String, dynamic>?) ?? const {};
+      final colorHex = _sanitizeHexColor(props['color'] as String?);
+      final fillColorHex =
+          _sanitizeHexColor((props['fillColor'] ?? props['color']) as String?);
+      final strokeColorHex = _sanitizeHexColor(
+        (props['strokeColor'] ?? props['color']) as String?,
+      );
+      final strokeWidth = (props['strokeWidth'] is num)
+          ? (props['strokeWidth'] as num).toDouble().clamp(0.5, 16.0)
+          : null;
+      final fillOpacity = (props['fillOpacity'] is num)
+          ? (props['fillOpacity'] as num).toDouble().clamp(0.0, 1.0)
+          : null;
+      final radius = (props['radius'] is num)
+          ? (props['radius'] as num).toDouble().clamp(3.0, 24.0)
+          : null;
+      final rawLabel =
+          (props['label'] ?? props['name'] ?? props['title']) as String?;
+      final label =
+          (rawLabel != null && rawLabel.trim().isNotEmpty) ? rawLabel.trim() : null;
+      final displayIcon = props['displayIcon'] as String?;
+      final geom = item['geometry'] as Map<String, dynamic>?;
+      if (geom == null) continue;
+      _extractGeometry(
+        geom: geom,
+        featureId: featureId ?? 'f-$idx',
+        datasetTitle: datasetTitle,
+        datasetAddress: datasetAddress,
+        colorHex: colorHex ?? strokeColorHex ?? fillColorHex,
+        fillColorHex: fillColorHex,
+        strokeColorHex: strokeColorHex,
+        strokeWidth: strokeWidth,
+        fillOpacity: fillOpacity,
+        radius: radius,
+        label: label,
+        displayIcon: displayIcon,
+        props: props,
+        out: out,
+      );
+    }
+    return out;
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// Serializes local working draft features into an RFC 7946 FeatureCollection JSON.
+String draftFeaturesToGeoJson({
+  required String title,
+  required List<DrawnFeature> features,
+}) {
+  final jsonFeatures = <Map<String, Object?>>[];
+  for (final f in features) {
+    if (f.vertices.isEmpty) continue;
+    Map<String, Object?>? geometry;
+    switch (f.kind) {
+      case DrawToolMode.point:
+        geometry = {
+          'type': 'Point',
+          'coordinates': [f.vertices.first.lon, f.vertices.first.lat],
+        };
+      case DrawToolMode.line:
+        if (f.vertices.length < 2) continue;
+        geometry = {
+          'type': 'LineString',
+          'coordinates': f.vertices.map((v) => [v.lon, v.lat]).toList(),
+        };
+      case DrawToolMode.polygon:
+        if (f.vertices.length < 3) continue;
+        final ring = f.vertices.map((v) => [v.lon, v.lat]).toList();
+        final first = ring.first;
+        final last = ring.last;
+        if (first[0] != last[0] || first[1] != last[1]) {
+          ring.add([first[0], first[1]]);
+        }
+        geometry = {
+          'type': 'Polygon',
+          'coordinates': [ring],
+        };
+      case DrawToolMode.browse:
+        continue;
+    }
+    jsonFeatures.add({
+      'type': 'Feature',
+      'id': f.id,
+      'geometry': geometry,
+      'properties': {
+        'name': ?f.name,
+        'color': ?f.colorHex,
+        if (f.callouts.isNotEmpty)
+          'earthly:callouts': [
+            for (final c in f.callouts)
+              {
+                'id': c.id,
+                'title': ?c.title,
+                'text': c.text,
+                'placement': {'side': c.side, 'leader': 'line'},
+              },
+          ],
+      },
+    });
+  }
+  return jsonEncode({
+    'type': 'FeatureCollection',
+    'name': title,
+    'features': jsonFeatures,
+  });
+}
+
+/// Restores working draft features from a persisted SQLite GeoJSON string.
+List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
+  try {
+    final decoded = jsonDecode(geojsonText);
+    if (decoded is! Map<String, dynamic>) return const [];
+    final features = decoded['features'];
+    if (features is! List) return const [];
+    final out = <DrawnFeature>[];
+    var idx = 0;
+    for (final item in features) {
+      if (item is! Map<String, dynamic>) continue;
+      idx += 1;
+      final id = (item['id']?.toString().isNotEmpty ?? false)
+          ? item['id'].toString()
+          : 'draft-$idx';
+      final props = (item['properties'] as Map<String, dynamic>?) ?? const {};
+      final name = (props['name'] ?? props['label']) as String?;
+      final colorHex = _sanitizeHexColor(props['color'] as String?);
+      final draftCallouts = _parseDraftCallouts(props);
+      final geom = item['geometry'] as Map<String, dynamic>?;
+      if (geom == null) continue;
+      final type = geom['type'] as String?;
+      final coords = geom['coordinates'];
+      if (type == 'Point') {
+        final pt = _parseCoord(coords);
+        if (pt != null) {
+          out.add(DrawnFeature(
+            id: id,
+            kind: DrawToolMode.point,
+            vertices: [pt],
+            name: name,
+            colorHex: colorHex,
+            callouts: draftCallouts,
+          ));
+        }
+      } else if (type == 'LineString') {
+        final pts = _parseCoordList(coords);
+        if (pts.length >= 2) {
+          out.add(DrawnFeature(
+            id: id,
+            kind: DrawToolMode.line,
+            vertices: pts,
+            name: name,
+            colorHex: colorHex,
+            callouts: draftCallouts,
+          ));
+        }
+      } else if (type == 'Polygon' && coords is List && coords.isNotEmpty) {
+        final ring = _parseCoordList(coords.first);
+        if (ring.length >= 3) {
+          final trimmed = (ring.length > 3 &&
+                  ring.first.lon == ring.last.lon &&
+                  ring.first.lat == ring.last.lat)
+              ? ring.sublist(0, ring.length - 1)
+              : ring;
+          out.add(DrawnFeature(
+            id: id,
+            kind: DrawToolMode.polygon,
+            vertices: trimmed,
+            name: name,
+            colorHex: colorHex,
+            callouts: draftCallouts,
+          ));
+        }
+      }
+    }
+    return out;
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// Collects all visible authored `earthly:callouts` across active Shelf maps,
+/// active Story datasets, and local working-draft features.
+List<MapCalloutItem> collectVisibleCallouts({
+  required List<ShelfMapEntry> shelfMaps,
+  List<DrawnFeature> draftFeatures = const [],
+  ActiveStoryRenderContext? activeStory,
+}) {
+  final out = <MapCalloutItem>[];
+  final seenKeys = <String>{};
+
+  void addShapes(
+    String sourceLabel,
+    List<ShelfShape> shapes, {
+    Set<String>? allowedFeatureIds,
+  }) {
+    for (final shape in shapes) {
+      if (allowedFeatureIds != null &&
+          (shape.featureId == null ||
+              !allowedFeatureIds.contains(shape.featureId))) {
+        continue;
+      }
+      for (final callout in shape.callouts) {
+        if (!seenKeys.add(callout.key)) continue;
+        out.add(
+          MapCalloutItem(
+            key: callout.key,
+            id: callout.id,
+            text: callout.text,
+            anchor: callout.anchor,
+            datasetTitle: callout.datasetTitle,
+            featureId: callout.featureId,
+            featureLabel: callout.featureLabel,
+            title: callout.title,
+            mediaUrls: callout.mediaUrls,
+            preferredSide: callout.preferredSide,
+            offset: callout.offset,
+            showLeader: callout.showLeader,
+            accentColorHex: callout.accentColorHex,
+            inspectedFeature: InspectedFeature(
+              sourceLabel: sourceLabel,
+              isDraft: false,
+              geometryType: switch (shape.kind) {
+                ShelfShapeKind.point => 'Point',
+                ShelfShapeKind.line => 'LineString',
+                ShelfShapeKind.polygon => 'Polygon',
+              },
+              featureId: shape.featureId,
+              title: shape.label ?? callout.title ?? callout.datasetTitle,
+              properties: shape.properties,
+              callouts: shape.callouts,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  for (final entry in shelfMaps) {
+    if (!entry.visible) continue;
+    addShapes('Published · ${entry.summary.title}', entry.shapes);
+  }
+
+  if (activeStory != null) {
+    if (activeStory.presentationLayers.isNotEmpty) {
+      for (final layer in activeStory.presentationLayers) {
+        if (!layer.visible) continue;
+        final dataset = activeStory.datasetsByAddress[layer.sourceAddress];
+        if (dataset == null) continue;
+        addShapes(
+          'Story · ${dataset.summary.title}',
+          dataset.shapes,
+          allowedFeatureIds: layer.featureIds,
+        );
+      }
+    } else {
+      for (final dataset in activeStory.datasetsByAddress.values) {
+        addShapes('Story · ${dataset.summary.title}', dataset.shapes);
+      }
+    }
+  }
+
+  for (final f in draftFeatures) {
+    if (f.callouts.isEmpty || f.vertices.isEmpty) continue;
+    final anchor = _representativeAnchor(
+      switch (f.kind) {
+        DrawToolMode.point => ShelfShapeKind.point,
+        DrawToolMode.line => ShelfShapeKind.line,
+        DrawToolMode.polygon => ShelfShapeKind.polygon,
+        DrawToolMode.browse => ShelfShapeKind.point,
+      },
+      f.vertices,
+    );
+    final calloutItems = [
+      for (final c in f.callouts)
+        MapCalloutItem(
+          key: 'draft::${f.id}::${c.id}',
+          id: c.id,
+          text: c.text,
+          anchor: anchor,
+          datasetTitle: 'Working draft',
+          featureId: f.id,
+          featureLabel: f.name ?? 'Draft feature',
+          title: c.title,
+          preferredSide: c.side,
+          showLeader: true,
+        ),
+    ];
+    final inspected = InspectedFeature(
+      sourceLabel: 'Working draft',
+      isDraft: true,
+      draftFeatureId: f.id,
+      geometryType: switch (f.kind) {
+        DrawToolMode.point => 'Point',
+        DrawToolMode.line => 'LineString',
+        DrawToolMode.polygon => 'Polygon',
+        DrawToolMode.browse => 'Point',
+      },
+      title: f.name ?? 'Draft Feature',
+      properties: {'id': f.id, 'vertices': f.vertices.length},
+      callouts: calloutItems,
+    );
+    for (final c in calloutItems) {
+      if (!seenKeys.add(c.key)) continue;
+      out.add(
+        MapCalloutItem(
+          key: c.key,
+          id: c.id,
+          text: c.text,
+          anchor: c.anchor,
+          datasetTitle: c.datasetTitle,
+          featureId: c.featureId,
+          featureLabel: c.featureLabel,
+          title: c.title,
+          preferredSide: c.preferredSide,
+          showLeader: true,
+          inspectedFeature: inspected,
+        ),
+      );
+    }
+  }
+
+  return out;
+}
+
+/// Computes the combined geographic bounds of a set of Shelf maps (e.g. all
+/// datasets linked to a Story or Atlas).
+GeoBox? computeCombinedBounds(Iterable<ShelfMapEntry> entries) {
+  double? west;
+  double? south;
+  double? east;
+  double? north;
+
+  void include(double lon, double lat) {
+    west = west == null ? lon : math.min(west!, lon);
+    south = south == null ? lat : math.min(south!, lat);
+    east = east == null ? lon : math.max(east!, lon);
+    north = north == null ? lat : math.max(north!, lat);
+  }
+
+  for (final entry in entries) {
+    final s = entry.summary;
+    if (s.west != null && s.south != null && s.east != null && s.north != null) {
+      include(s.west!, s.south!);
+      include(s.east!, s.north!);
+      continue;
+    }
+    for (final shape in entry.shapes) {
+      for (final c in shape.coords) {
+        include(c.lon, c.lat);
+      }
+    }
+  }
+  if (west == null || south == null || east == null || north == null) {
+    return null;
+  }
+  // Avoid degenerate zero-area bounds on single-point maps.
+  const pad = 0.002;
+  if ((east! - west!).abs() < 1e-6 && (north! - south!).abs() < 1e-6) {
+    return GeoBox(
+      west: (west! - pad).clamp(-180.0, 180.0),
+      south: (south! - pad).clamp(-85.0, 85.0),
+      east: (east! + pad).clamp(-180.0, 180.0),
+      north: (north! + pad).clamp(-85.0, 85.0),
+    );
+  }
+  return GeoBox(west: west!, south: south!, east: east!, north: north!);
+}
+
+/// Computes the bounding box of a single specific feature (for Story inline
+/// `nostr:naddr1...#featureId` focus & fly-to).
+GeoBox? computeFeatureBounds(ShelfShape shape) {
+  if (shape.coords.isEmpty) return null;
+  double west = shape.coords.first.lon;
+  double south = shape.coords.first.lat;
+  double east = shape.coords.first.lon;
+  double north = shape.coords.first.lat;
+  for (final c in shape.coords) {
+    west = math.min(west, c.lon);
+    south = math.min(south, c.lat);
+    east = math.max(east, c.lon);
+    north = math.max(north, c.lat);
+  }
+  const pad = 0.0012;
+  if ((east - west).abs() < 1e-6 && (north - south).abs() < 1e-6) {
+    return GeoBox(
+      west: (west - pad).clamp(-180.0, 180.0),
+      south: (south - pad).clamp(-85.0, 85.0),
+      east: (east + pad).clamp(-180.0, 180.0),
+      north: (north + pad).clamp(-85.0, 85.0),
+    );
+  }
+  return GeoBox(west: west, south: south, east: east, north: north);
+}
+
+/// Builds MapLibre Native GPU layers for all Shelf maps, active Story datasets
+/// (with presentation overrides + focused feature highlight), Sightings,
+/// committed working draft features, and collision-free GPU feature labels.
+List<Layer> buildEarthlyGpuLayers({
+  required List<ShelfMapEntry> shelfMaps,
+  required List<SightingSummaryDto> sightings,
+  required List<DrawnFeature> draftFeatures,
+  required Color accentColor,
+  required bool isDarkMap,
+  required bool showLabels,
+  required ValueChanged<InspectedFeature> onInspectFeature,
+  ActiveStoryRenderContext? activeStory,
+  List<ShelfShape> commentOverlayShapes = const [],
+  List<ShelfShape> proposalOverlayShapes = const [],
+}) {
+  final shelfPolygons = <Feature<Polygon>>[];
+  final shelfLines = <Feature<LineString>>[];
+  final shelfPoints = <Feature<Point>>[];
+  final labelPoints = <Feature<Point>>[];
+
+  final shelfPolyMeta = <InspectedFeature>[];
+  final shelfLineMeta = <InspectedFeature>[];
+  final shelfPointMeta = <InspectedFeature>[];
+
+  final focusedPolygons = <Feature<Polygon>>[];
+  final focusedLines = <Feature<LineString>>[];
+  final focusedPoints = <Feature<Point>>[];
+
+  void emitDataset({
+    required ShelfMapEntry entry,
+    required String sourcePrefix,
+    Set<String>? allowedFeatureIds,
+    StoryLayerStyleOverride? styleOverride,
+    bool checkFocus = false,
+  }) {
+    final isFocusedDataset = checkFocus &&
+        activeStory?.focusedDatasetAddress == entry.summary.address;
+    final focusedFeatureId = activeStory?.focusedFeatureId;
+
+    for (final shape in entry.shapes) {
+      if (allowedFeatureIds != null &&
+          (shape.featureId == null ||
+              !allowedFeatureIds.contains(shape.featureId))) {
+        continue;
+      }
+
+      final fillHex = _sanitizeHexColor(
+            styleOverride?.fillColor ?? styleOverride?.color,
+          ) ??
+          shape.fillColorHex ??
+          shape.colorHex;
+      final strokeHex = _sanitizeHexColor(
+            styleOverride?.strokeColor ?? styleOverride?.color,
+          ) ??
+          shape.strokeColorHex ??
+          shape.colorHex;
+
+      final props = <String, Object?>{
+        'fillColor': ?fillHex,
+        'color': ?strokeHex,
+        'title': ?shape.label,
+      };
+
+      final isFocusedShape = isFocusedDataset &&
+          (focusedFeatureId == null || focusedFeatureId == shape.featureId);
+
+      if (showLabels && shape.label != null && shape.label!.isNotEmpty) {
+        labelPoints.add(
+          Feature(
+            geometry: Point(shape.anchor),
+            properties: {'label': shape.label!},
+          ),
+        );
+      }
+
+      switch (shape.kind) {
+        case ShelfShapeKind.polygon:
+          final ring = _ensureClosedRing(shape.coords);
+          if (ring.length < 4) continue;
+          final polyFeature =
+              Feature(geometry: Polygon.from([ring]), properties: props);
+          shelfPolygons.add(polyFeature);
+          if (isFocusedShape) focusedPolygons.add(polyFeature);
+          shelfPolyMeta.add(InspectedFeature(
+            sourceLabel: '$sourcePrefix · ${entry.summary.title}',
+            isDraft: false,
+            geometryType: 'Polygon',
+            featureId: shape.featureId,
+            title: shape.label ?? entry.summary.title,
+            properties: shape.properties,
+            callouts: shape.callouts,
+            datasetAddress: entry.summary.address,
+            datasetPubkey: entry.summary.pubkey,
+            datasetTitle: entry.summary.title,
+            datasetEventId: entry.summary.eventId,
+            datasetGeojson: entry.summary.geojson,
+          ));
+        case ShelfShapeKind.line:
+          if (shape.coords.length < 2) continue;
+          final lineFeature =
+              Feature(geometry: LineString.from(shape.coords), properties: props);
+          shelfLines.add(lineFeature);
+          if (isFocusedShape) focusedLines.add(lineFeature);
+          shelfLineMeta.add(InspectedFeature(
+            sourceLabel: '$sourcePrefix · ${entry.summary.title}',
+            isDraft: false,
+            geometryType: 'LineString',
+            featureId: shape.featureId,
+            title: shape.label ?? entry.summary.title,
+            properties: shape.properties,
+            lengthMeters: _polylineLengthMeters(shape.coords),
+            callouts: shape.callouts,
+            datasetAddress: entry.summary.address,
+            datasetPubkey: entry.summary.pubkey,
+            datasetTitle: entry.summary.title,
+            datasetEventId: entry.summary.eventId,
+            datasetGeojson: entry.summary.geojson,
+          ));
+        case ShelfShapeKind.point:
+          if (shape.coords.isEmpty) continue;
+          final ptFeature =
+              Feature(geometry: Point(shape.coords.first), properties: props);
+          shelfPoints.add(ptFeature);
+          if (isFocusedShape) focusedPoints.add(ptFeature);
+          shelfPointMeta.add(InspectedFeature(
+            sourceLabel: '$sourcePrefix · ${entry.summary.title}',
+            isDraft: false,
+            geometryType: 'Point',
+            featureId: shape.featureId,
+            title: shape.label ?? entry.summary.title,
+            properties: shape.properties,
+            callouts: shape.callouts,
+            datasetAddress: entry.summary.address,
+            datasetPubkey: entry.summary.pubkey,
+            datasetTitle: entry.summary.title,
+            datasetEventId: entry.summary.eventId,
+            datasetGeojson: entry.summary.geojson,
+          ));
+      }
+    }
+  }
+
+  // 1. Emit Shelf datasets (skipping duplicates that are actively managed by Story presentation)
+  final storyManagedAddresses = activeStory != null
+      ? activeStory.datasetsByAddress.keys.toSet()
+      : const <String>{};
+  for (final entry in shelfMaps) {
+    if (!entry.visible) continue;
+    if (storyManagedAddresses.contains(entry.summary.address)) continue;
+    emitDataset(entry: entry, sourcePrefix: 'Published');
+  }
+
+  // 2. Emit Active Story datasets (honoring presentation layer order, visibility, featureIds & style overrides)
+  if (activeStory != null) {
+    if (activeStory.presentationLayers.isNotEmpty) {
+      final emitted = <String>{};
+      for (final layer in activeStory.presentationLayers) {
+        emitted.add(layer.sourceAddress);
+        if (!layer.visible) continue;
+        final dataset = activeStory.datasetsByAddress[layer.sourceAddress];
+        if (dataset == null) continue;
+        emitDataset(
+          entry: dataset,
+          sourcePrefix: 'Story',
+          allowedFeatureIds: layer.featureIds,
+          styleOverride: layer.style,
+          checkFocus: true,
+        );
+      }
+      // Also render any inline-referenced datasets not listed in presentation.layers.
+      for (final entry in activeStory.datasetsByAddress.entries) {
+        if (emitted.contains(entry.key)) continue;
+        emitDataset(
+          entry: entry.value,
+          sourcePrefix: 'Story',
+          checkFocus: true,
+        );
+      }
+    } else {
+      for (final dataset in activeStory.datasetsByAddress.values) {
+        emitDataset(
+          entry: dataset,
+          sourcePrefix: 'Story',
+          checkFocus: true,
+        );
+      }
+    }
+  }
+
+  // 3. Working Draft features
+  final draftPolygons = <Feature<Polygon>>[];
+  final draftLines = <Feature<LineString>>[];
+  final draftPoints = <Feature<Point>>[];
+
+  final draftPolyMeta = <InspectedFeature>[];
+  final draftLineMeta = <InspectedFeature>[];
+  final draftPointMeta = <InspectedFeature>[];
+
+  for (final f in draftFeatures) {
+    final anchor = f.vertices.isEmpty
+        ? const Geographic(lon: 0, lat: 0)
+        : _representativeAnchor(
+            switch (f.kind) {
+              DrawToolMode.point => ShelfShapeKind.point,
+              DrawToolMode.line => ShelfShapeKind.line,
+              DrawToolMode.polygon => ShelfShapeKind.polygon,
+              DrawToolMode.browse => ShelfShapeKind.point,
+            },
+            f.vertices,
+          );
+    final draftCalloutItems = [
+      for (final c in f.callouts)
+        MapCalloutItem(
+          key: 'draft::${f.id}::${c.id}',
+          id: c.id,
+          text: c.text,
+          anchor: anchor,
+          datasetTitle: 'Working draft',
+          featureId: f.id,
+          featureLabel: f.name,
+          title: c.title,
+          preferredSide: c.side,
+        ),
+    ];
+
+    if (showLabels && f.name != null && f.name!.trim().isNotEmpty && f.vertices.isNotEmpty) {
+      labelPoints.add(
+        Feature(
+          geometry: Point(anchor),
+          properties: {'label': f.name!.trim()},
+        ),
+      );
+    }
+
+    final draftProps = <String, Object?>{'color': ?f.colorHex};
+    switch (f.kind) {
+      case DrawToolMode.polygon:
+        final ring = _ensureClosedRing(f.vertices);
+        if (ring.length < 4) continue;
+        draftPolygons.add(
+          Feature(id: f.id, geometry: Polygon.from([ring]), properties: draftProps),
+        );
+        draftPolyMeta.add(InspectedFeature(
+          sourceLabel: 'Working draft',
+          isDraft: true,
+          draftFeatureId: f.id,
+          geometryType: 'Polygon',
+          title: f.name ?? 'Draft Polygon',
+          properties: {
+            'id': f.id,
+            'vertices': f.vertices.length,
+            if (f.colorHex != null) 'color': f.colorHex!,
+          },
+          lengthMeters: _polylineLengthMeters(ring),
+          callouts: draftCalloutItems,
+        ));
+      case DrawToolMode.line:
+        if (f.vertices.length < 2) continue;
+        draftLines.add(
+          Feature(id: f.id, geometry: LineString.from(f.vertices), properties: draftProps),
+        );
+        draftLineMeta.add(InspectedFeature(
+          sourceLabel: 'Working draft',
+          isDraft: true,
+          draftFeatureId: f.id,
+          geometryType: 'LineString',
+          title: f.name ?? 'Draft Line',
+          properties: {
+            'id': f.id,
+            'vertices': f.vertices.length,
+            if (f.colorHex != null) 'color': f.colorHex!,
+          },
+          lengthMeters: _polylineLengthMeters(f.vertices),
+          callouts: draftCalloutItems,
+        ));
+      case DrawToolMode.point:
+        if (f.vertices.isEmpty) continue;
+        draftPoints.add(
+          Feature(id: f.id, geometry: Point(f.vertices.first), properties: draftProps),
+        );
+        draftPointMeta.add(InspectedFeature(
+          sourceLabel: 'Working draft',
+          isDraft: true,
+          draftFeatureId: f.id,
+          geometryType: 'Point',
+          title: f.name ?? 'Draft Point',
+          properties: {
+            'id': f.id,
+            'lat': f.vertices.first.lat.toStringAsFixed(6),
+            'lon': f.vertices.first.lon.toStringAsFixed(6),
+            if (f.colorHex != null) 'color': f.colorHex!,
+          },
+          callouts: draftCalloutItems,
+        ));
+      case DrawToolMode.browse:
+        continue;
+    }
+  }
+
+  // 4. Temporal Sightings
+  final sightingPoints = <Feature<Point>>[];
+  final sightingMeta = <InspectedFeature>[];
+  for (final s in sightings) {
+    final pos = Geographic(lon: s.lon, lat: s.lat);
+    sightingPoints.add(Feature(geometry: Point(pos)));
+    final label = (s.title != null && s.title!.trim().isNotEmpty)
+        ? s.title!.trim()
+        : null;
+    if (showLabels && label != null) {
+      labelPoints.add(
+        Feature(geometry: Point(pos), properties: {'label': label}),
+      );
+    }
+    sightingMeta.add(InspectedFeature(
+      sourceLabel: 'Sighting (37522)',
+      isDraft: false,
+      geometryType: 'Point',
+      title: s.title ?? 'Temporal Sighting',
+      imageUrl: s.imageUrl,
+      properties: {
+        'note': s.note,
+        'lat': s.lat.toStringAsFixed(5),
+        'lon': s.lon.toStringAsFixed(5),
+        if (s.imageUrl != null) 'image': s.imageUrl!,
+      },
+    ));
+  }
+
+  // 5. Story inline `geo:` pins
+  final geoPinPoints = <Feature<Point>>[];
+  if (activeStory != null) {
+    for (final pin in activeStory.geoPins) {
+      geoPinPoints.add(
+        Feature(
+          id: pin.id,
+          geometry: Point(pin.position),
+          properties: {'label': pin.label},
+        ),
+      );
+      if (showLabels) {
+        labelPoints.add(
+          Feature(
+            geometry: Point(pin.position),
+            properties: {'label': pin.label},
+          ),
+        );
+      }
+    }
+  }
+
+  final fallbackShelfColor =
+      const Expression.literal(EarthlyColors.commentGreen);
+  final shelfFillExpr =
+      Expression.get('fillColor').convertToColor([fallbackShelfColor]);
+  final shelfStrokeExpr =
+      Expression.get('color').convertToColor([fallbackShelfColor]);
+  final highlightColor = const Color(0xFFF59E0B);
+
+  return <Layer>[
+    if (shelfPolygons.isNotEmpty)
+      PolygonLayer(
+        id: 'earthly-shelf-polygons',
+        polygons: shelfPolygons,
+        color: shelfFillExpr,
+        opacity: const Expression.literal(0.24),
+        outlineColor: shelfStrokeExpr,
+        onClick: (event) {
+          if (event.index < shelfPolyMeta.length) {
+            onInspectFeature(shelfPolyMeta[event.index]);
+          }
+        },
+      ),
+    if (shelfPolygons.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-shelf-polygon-outlines',
+        polylines: [
+          for (final p in shelfPolygons)
+            if (p.geometry?.exterior case final exterior?)
+              Feature(
+                geometry: LineString.from(
+                  exterior.positions.map(
+                    (pos) => Geographic(lon: pos.x, lat: pos.y),
+                  ),
+                ),
+                properties: p.properties,
+              ),
+        ],
+        color: shelfStrokeExpr,
+        width: const Expression.literal(2.0),
+      ),
+    if (shelfLines.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-shelf-lines',
+        polylines: shelfLines,
+        color: shelfStrokeExpr,
+        width: const Expression.literal(3.0),
+        onClick: (event) {
+          if (event.index < shelfLineMeta.length) {
+            onInspectFeature(shelfLineMeta[event.index]);
+          }
+        },
+      ),
+    if (shelfPoints.isNotEmpty)
+      CircleLayer(
+        id: 'earthly-shelf-points',
+        points: shelfPoints,
+        color: shelfStrokeExpr,
+        radius: const Expression.literal(6.5),
+        strokeColor: const Expression.literal(Colors.white),
+        strokeWidth: const Expression.literal(2.0),
+        onClick: (event) {
+          if (event.index < shelfPointMeta.length) {
+            onInspectFeature(shelfPointMeta[event.index]);
+          }
+        },
+      ),
+
+    // Focused Story reference highlight halo
+    if (focusedPolygons.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-focus-polygon-halo',
+        polylines: [
+          for (final p in focusedPolygons)
+            if (p.geometry?.exterior case final exterior?)
+              Feature(
+                geometry: LineString.from(
+                  exterior.positions.map(
+                    (pos) => Geographic(lon: pos.x, lat: pos.y),
+                  ),
+                ),
+              ),
+        ],
+        color: Expression.literal(highlightColor),
+        width: const Expression.literal(4.5),
+      ),
+    if (focusedLines.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-focus-line-halo',
+        polylines: focusedLines,
+        color: Expression.literal(highlightColor),
+        width: const Expression.literal(5.5),
+      ),
+    if (focusedPoints.isNotEmpty)
+      CircleLayer(
+        id: 'earthly-focus-point-halo',
+        points: focusedPoints,
+        color: Expression.literal(highlightColor),
+        radius: const Expression.literal(10.5),
+        strokeColor: const Expression.literal(Colors.white),
+        strokeWidth: const Expression.literal(2.5),
+      ),
+
+    // Temporal Sightings
+    if (sightingPoints.isNotEmpty)
+      CircleLayer(
+        id: 'earthly-sightings',
+        points: sightingPoints,
+        color: const Expression.literal(Color(0xFFD97706)),
+        radius: const Expression.literal(7.5),
+        strokeColor: const Expression.literal(Colors.white),
+        strokeWidth: const Expression.literal(2.2),
+        onClick: (event) {
+          if (event.index < sightingMeta.length) {
+            onInspectFeature(sightingMeta[event.index]);
+          }
+        },
+      ),
+
+    // Story `geo:` pins
+    if (geoPinPoints.isNotEmpty)
+      CircleLayer(
+        id: 'earthly-geo-pins',
+        points: geoPinPoints,
+        color: const Expression.literal(Color(0xFFDC2626)),
+        radius: const Expression.literal(8.0),
+        strokeColor: const Expression.literal(Colors.white),
+        strokeWidth: const Expression.literal(2.5),
+      ),
+
+    // Working Draft Polygons (per-feature color override or theme accent)
+    if (draftPolygons.isNotEmpty) ...[
+      PolygonLayer(
+        id: 'earthly-draft-polygons',
+        polygons: draftPolygons,
+        color: Expression.get('color')
+            .convertToColor([Expression.literal(accentColor)]),
+        opacity: const Expression.literal(0.24),
+        outlineColor: Expression.get('color')
+            .convertToColor([Expression.literal(accentColor)]),
+        onClick: (event) {
+          if (event.index < draftPolyMeta.length) {
+            onInspectFeature(draftPolyMeta[event.index]);
+          }
+        },
+      ),
+      PolylineLayer(
+        id: 'earthly-draft-polygon-outlines',
+        polylines: [
+          for (final p in draftPolygons)
+            if (p.geometry?.exterior case final exterior?)
+              Feature(
+                id: p.id,
+                geometry: LineString.from(
+                  exterior.positions.map(
+                    (pos) => Geographic(lon: pos.x, lat: pos.y),
+                  ),
+                ),
+                properties: p.properties,
+              ),
+        ],
+        color: Expression.get('color')
+            .convertToColor([Expression.literal(accentColor)]),
+        width: const Expression.literal(2.6),
+      ),
+    ],
+
+    // Working Draft Lines
+    if (draftLines.isNotEmpty)
+      PolylineLayer(
+        id: 'earthly-draft-lines',
+        polylines: draftLines,
+        color: Expression.get('color')
+            .convertToColor([Expression.literal(accentColor)]),
+        width: const Expression.literal(3.0),
+        onClick: (event) {
+          if (event.index < draftLineMeta.length) {
+            onInspectFeature(draftLineMeta[event.index]);
+          }
+        },
+      ),
+
+    // Working Draft Points
+    if (draftPoints.isNotEmpty)
+      CircleLayer(
+        id: 'earthly-draft-points',
+        points: draftPoints,
+        color: Expression.get('color')
+            .convertToColor([Expression.literal(accentColor)]),
+        radius: const Expression.literal(7.0),
+        strokeColor: const Expression.literal(Colors.white),
+        strokeWidth: const Expression.literal(2.2),
+        onClick: (event) {
+          if (event.index < draftPointMeta.length) {
+            onInspectFeature(draftPointMeta[event.index]);
+          }
+        },
+      ),
+
+    // Geo Comment Annotation Overlay (Comment Green #15803D)
+    ..._buildOverlayShapeLayers(
+      prefix: 'earthly-comment-overlay',
+      shapes: commentOverlayShapes,
+      color: EarthlyColors.commentGreen,
+    ),
+
+    // Geo Edit Proposal Preview Overlay (Proposed Amber #D97706)
+    ..._buildOverlayShapeLayers(
+      prefix: 'earthly-proposal-overlay',
+      shapes: proposalOverlayShapes,
+      color: EarthlyColors.proposedAmber,
+    ),
+
+    // Collision-free native GPU Feature Labels (rendered via MapLibre symbol shader)
+    if (showLabels && labelPoints.isNotEmpty)
+      MarkerLayer(
+        id: 'earthly-feature-labels',
+        points: labelPoints,
+        textField: Expression.get('label').convertToString(),
+        textFont: const Expression.literal(['Noto Sans Regular']),
+        textSize: const Expression.literal(12.5),
+        textMaxWidth: const Expression.literal(11),
+        textOffset: const Expression.literal(Offset(0, 1.35)),
+        textColor: Expression.literal(
+          isDarkMap ? const Color(0xFFF3F4F6) : const Color(0xFF111827),
+        ),
+        textHaloColor: Expression.literal(
+          isDarkMap ? const Color(0xFF111827) : const Color(0xFFFFFFFF),
+        ),
+        textHaloWidth: const Expression.literal(1.6),
+        textAllowOverlap: const Expression.literal(false),
+      ),
+  ];
+}
+
+List<Layer> _buildOverlayShapeLayers({
+  required String prefix,
+  required List<ShelfShape> shapes,
+  required Color color,
+}) {
+  if (shapes.isEmpty) return const [];
+  final polys = <Feature<Polygon>>[];
+  final lines = <Feature<LineString>>[];
+  final pts = <Feature<Point>>[];
+  for (final s in shapes) {
+    switch (s.kind) {
+      case ShelfShapeKind.polygon:
+        final ring = _ensureClosedRing(s.coords);
+        if (ring.length >= 4) polys.add(Feature(geometry: Polygon.from([ring])));
+      case ShelfShapeKind.line:
+        if (s.coords.length >= 2) lines.add(Feature(geometry: LineString.from(s.coords)));
+      case ShelfShapeKind.point:
+        if (s.coords.isNotEmpty) pts.add(Feature(geometry: Point(s.coords.first)));
+    }
+  }
+  return <Layer>[
+    if (polys.isNotEmpty)
+      PolygonLayer(
+        id: '$prefix-polygons',
+        polygons: polys,
+        color: Expression.literal(color),
+        opacity: const Expression.literal(0.28),
+        outlineColor: Expression.literal(color),
+      ),
+    if (lines.isNotEmpty)
+      PolylineLayer(
+        id: '$prefix-lines',
+        polylines: lines,
+        color: Expression.literal(color),
+        width: const Expression.literal(3.6),
+      ),
+    if (pts.isNotEmpty)
+      CircleLayer(
+        id: '$prefix-points',
+        points: pts,
+        color: Expression.literal(color),
+        radius: const Expression.literal(7.5),
+        strokeColor: const Expression.literal(Colors.white),
+        strokeWidth: const Expression.literal(2.2),
+      ),
+  ];
+}
+
+List<DraftCallout> _parseDraftCallouts(Map<String, Object?> props) {
+  final raw = props['earthly:callouts'];
+  if (raw is! List) return const [];
+  final out = <DraftCallout>[];
+  var i = 0;
+  for (final item in raw) {
+    if (item is! Map) continue;
+    i += 1;
+    final text = (item['text'] as String?)?.trim();
+    if (text == null || text.isEmpty) continue;
+    final id = (item['id'] as String?)?.trim();
+    final title = (item['title'] as String?)?.trim();
+    final placement = item['placement'];
+    final side =
+        (placement is Map && placement['side'] is String) ? placement['side'] as String : 'auto';
+    out.add(DraftCallout(
+      id: (id != null && id.isNotEmpty) ? id : 'c-$i',
+      text: text,
+      title: (title != null && title.isNotEmpty) ? title : null,
+      side: side,
+    ));
+  }
+  return out;
+}
+
+List<Geographic> _ensureClosedRing(List<Geographic> pts) {
+  if (pts.length < 3) return const [];
+  final first = pts.first;
+  final last = pts.last;
+  if (first.lon == last.lon && first.lat == last.lat) return pts;
+  return <Geographic>[...pts, first];
+}
+
+double _polylineLengthMeters(List<Geographic> pts) {
+  double total = 0;
+  for (var i = 1; i < pts.length; i++) {
+    total += DrawingMath.distanceMeters(pts[i - 1], pts[i]);
+  }
+  return total;
+}
+
+String? _sanitizeHexColor(String? raw) {
+  if (raw == null) return null;
+  final trimmed = raw.trim();
+  if (RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(trimmed)) return trimmed;
+  if (RegExp(r'^#[0-9a-fA-F]{3}$').hasMatch(trimmed)) {
+    final r = trimmed[1];
+    final g = trimmed[2];
+    final b = trimmed[3];
+    return '#$r$r$g$g$b$b';
+  }
+  return null;
+}
+
+Geographic _representativeAnchor(
+  ShelfShapeKind kind,
+  List<Geographic> coords,
+) {
+  if (coords.isEmpty) return const Geographic(lon: 0, lat: 0);
+  if (kind == ShelfShapeKind.point || coords.length == 1) {
+    return coords.first;
+  }
+  if (kind == ShelfShapeKind.line) {
+    return coords[coords.length ~/ 2];
+  }
+  // Polygon centroid average (skip closing duplicate if present).
+  var count = coords.length;
+  if (count > 3 &&
+      coords.first.lon == coords.last.lon &&
+      coords.first.lat == coords.last.lat) {
+    count -= 1;
+  }
+  double sumLon = 0;
+  double sumLat = 0;
+  for (var i = 0; i < count; i++) {
+    sumLon += coords[i].lon;
+    sumLat += coords[i].lat;
+  }
+  return Geographic(lon: sumLon / count, lat: sumLat / count);
+}
+
+List<MapCalloutItem> _parseFeatureCallouts({
+  required Map<String, Object?> props,
+  required Geographic anchor,
+  required String datasetTitle,
+  required String datasetAddress,
+  required String featureId,
+  String? featureLabel,
+  String? accentColorHex,
+}) {
+  final raw = props['earthly:callouts'];
+  if (raw is! List || raw.isEmpty) return const [];
+  final out = <MapCalloutItem>[];
+  var idx = 0;
+  for (final item in raw) {
+    if (item is! Map) continue;
+    idx += 1;
+    final id = (item['id'] as String?)?.trim();
+    final text = (item['text'] as String?)?.trim();
+    if (text == null || text.isEmpty) continue;
+    final title = (item['title'] as String?)?.trim();
+    final mediaUrls = <String>[];
+    if (item['media'] is List) {
+      for (final m in item['media'] as List) {
+        if (m is Map && m['url'] is String && (m['url'] as String).isNotEmpty) {
+          mediaUrls.add(m['url'] as String);
+        }
+      }
+    }
+    var preferredSide = 'auto';
+    var offset = Offset.zero;
+    var showLeader = true;
+    final placement = item['placement'];
+    if (placement is Map) {
+      if (placement['side'] is String) {
+        preferredSide = placement['side'] as String;
+      }
+      if (placement['offset'] is List && (placement['offset'] as List).length >= 2) {
+        final ox = (placement['offset'] as List)[0];
+        final oy = (placement['offset'] as List)[1];
+        if (ox is num && oy is num) {
+          offset = Offset(ox.toDouble(), oy.toDouble());
+        }
+      }
+      if (placement['leader'] == 'none') {
+        showLeader = false;
+      }
+    }
+    final calloutId = (id != null && id.isNotEmpty) ? id : 'c-$idx';
+    out.add(
+      MapCalloutItem(
+        key: '$datasetAddress::$featureId::$calloutId',
+        id: calloutId,
+        text: text,
+        anchor: anchor,
+        datasetTitle: datasetTitle,
+        featureId: featureId,
+        featureLabel: featureLabel,
+        title: (title != null && title.isNotEmpty) ? title : null,
+        mediaUrls: mediaUrls,
+        preferredSide: preferredSide,
+        offset: offset,
+        showLeader: showLeader,
+        accentColorHex: accentColorHex,
+      ),
+    );
+  }
+  return out;
+}
+
+void _extractGeometry({
+  required Map<String, dynamic> geom,
+  required String featureId,
+  required String datasetTitle,
+  required String datasetAddress,
+  required String? colorHex,
+  required String? fillColorHex,
+  required String? strokeColorHex,
+  required double? strokeWidth,
+  required double? fillOpacity,
+  required double? radius,
+  required String? label,
+  required String? displayIcon,
+  required Map<String, Object?> props,
+  required List<ShelfShape> out,
+}) {
+  final type = geom['type'] as String?;
+  final coords = geom['coordinates'];
+
+  void pushShape(
+    ShelfShapeKind kind,
+    List<Geographic> pts, {
+    required bool attachCallouts,
+  }) {
+    final anchor = _representativeAnchor(kind, pts);
+    final callouts = attachCallouts
+        ? _parseFeatureCallouts(
+            props: props,
+            anchor: anchor,
+            datasetTitle: datasetTitle,
+            datasetAddress: datasetAddress,
+            featureId: featureId,
+            featureLabel: label,
+            accentColorHex: strokeColorHex ?? colorHex,
+          )
+        : const <MapCalloutItem>[];
+    out.add(ShelfShape(
+      kind: kind,
+      coords: pts,
+      anchor: anchor,
+      featureId: featureId,
+      colorHex: colorHex,
+      fillColorHex: fillColorHex,
+      strokeColorHex: strokeColorHex,
+      strokeWidth: strokeWidth,
+      fillOpacity: fillOpacity,
+      radius: radius,
+      label: attachCallouts ? label : null,
+      displayIcon: displayIcon,
+      callouts: callouts,
+      properties: props,
+    ));
+  }
+
+  switch (type) {
+    case 'Point':
+      final pt = _parseCoord(coords);
+      if (pt != null) {
+        pushShape(ShelfShapeKind.point, [pt], attachCallouts: true);
+      }
+    case 'MultiPoint':
+      if (coords is List) {
+        var first = true;
+        for (final c in coords) {
+          final pt = _parseCoord(c);
+          if (pt != null) {
+            pushShape(ShelfShapeKind.point, [pt], attachCallouts: first);
+            first = false;
+          }
+        }
+      }
+    case 'LineString':
+      final pts = _parseCoordList(coords);
+      if (pts.length >= 2) {
+        pushShape(ShelfShapeKind.line, pts, attachCallouts: true);
+      }
+    case 'MultiLineString':
+      if (coords is List) {
+        var first = true;
+        for (final line in coords) {
+          final pts = _parseCoordList(line);
+          if (pts.length >= 2) {
+            pushShape(ShelfShapeKind.line, pts, attachCallouts: first);
+            first = false;
+          }
+        }
+      }
+    case 'Polygon':
+      if (coords is List && coords.isNotEmpty) {
+        final ring = _parseCoordList(coords.first);
+        if (ring.length >= 3) {
+          pushShape(ShelfShapeKind.polygon, ring, attachCallouts: true);
+        }
+      }
+    case 'MultiPolygon':
+      if (coords is List) {
+        var first = true;
+        for (final poly in coords) {
+          if (poly is List && poly.isNotEmpty) {
+            final ring = _parseCoordList(poly.first);
+            if (ring.length >= 3) {
+              pushShape(ShelfShapeKind.polygon, ring, attachCallouts: first);
+              first = false;
+            }
+          }
+        }
+      }
+    case 'GeometryCollection':
+      final geometries = geom['geometries'];
+      if (geometries is List) {
+        for (final g in geometries) {
+          if (g is Map<String, dynamic>) {
+            _extractGeometry(
+              geom: g,
+              featureId: featureId,
+              datasetTitle: datasetTitle,
+              datasetAddress: datasetAddress,
+              colorHex: colorHex,
+              fillColorHex: fillColorHex,
+              strokeColorHex: strokeColorHex,
+              strokeWidth: strokeWidth,
+              fillOpacity: fillOpacity,
+              radius: radius,
+              label: label,
+              displayIcon: displayIcon,
+              props: props,
+              out: out,
+            );
+          }
+        }
+      }
+  }
+}
+
+Geographic? _parseCoord(Object? raw) {
+  if (raw is! List || raw.length < 2) return null;
+  final lon = raw[0];
+  final lat = raw[1];
+  if (lon is! num || lat is! num) return null;
+  if (!lon.isFinite || !lat.isFinite) return null;
+  if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return null;
+  return Geographic(lon: lon.toDouble(), lat: lat.toDouble());
+}
+
+List<Geographic> _parseCoordList(Object? raw) {
+  if (raw is! List) return const [];
+  final out = <Geographic>[];
+  for (final item in raw) {
+    final pt = _parseCoord(item);
+    if (pt != null) out.add(pt);
+  }
+  return out;
+}
