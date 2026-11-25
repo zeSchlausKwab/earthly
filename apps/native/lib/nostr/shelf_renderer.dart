@@ -281,7 +281,11 @@ String draftFeaturesToGeoJson({
       'geometry': geometry,
       'properties': {
         'name': ?f.name,
+        'description': ?f.description,
         'color': ?f.colorHex,
+        'strokeWidth': ?f.strokeWidth,
+        'fillOpacity': ?f.fillOpacity,
+        'radius': ?f.radius,
         if (f.callouts.isNotEmpty)
           'earthly:callouts': [
             for (final c in f.callouts)
@@ -319,7 +323,17 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
           : 'draft-$idx';
       final props = (item['properties'] as Map<String, dynamic>?) ?? const {};
       final name = (props['name'] ?? props['label']) as String?;
+      final description = props['description'] as String?;
       final colorHex = _sanitizeHexColor(props['color'] as String?);
+      final strokeWidth = (props['strokeWidth'] is num)
+          ? (props['strokeWidth'] as num).toDouble().clamp(1.0, 12.0)
+          : null;
+      final fillOpacity = (props['fillOpacity'] is num)
+          ? (props['fillOpacity'] as num).toDouble().clamp(0.05, 1.0)
+          : null;
+      final radius = (props['radius'] is num)
+          ? (props['radius'] as num).toDouble().clamp(3.0, 20.0)
+          : null;
       final draftCallouts = _parseDraftCallouts(props);
       final geom = item['geometry'] as Map<String, dynamic>?;
       if (geom == null) continue;
@@ -333,7 +347,9 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             kind: DrawToolMode.point,
             vertices: [pt],
             name: name,
+            description: description,
             colorHex: colorHex,
+            radius: radius,
             callouts: draftCallouts,
           ));
         }
@@ -345,7 +361,9 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             kind: DrawToolMode.line,
             vertices: pts,
             name: name,
+            description: description,
             colorHex: colorHex,
+            strokeWidth: strokeWidth,
             callouts: draftCallouts,
           ));
         }
@@ -362,7 +380,10 @@ List<DrawnFeature> parseDraftFeaturesFromGeoJson(String geojsonText) {
             kind: DrawToolMode.polygon,
             vertices: trimmed,
             name: name,
+            description: description,
             colorHex: colorHex,
+            strokeWidth: strokeWidth,
+            fillOpacity: fillOpacity,
             callouts: draftCallouts,
           ));
         }
@@ -823,7 +844,12 @@ List<Layer> buildEarthlyGpuLayers({
       );
     }
 
-    final draftProps = <String, Object?>{'color': ?f.colorHex};
+    final draftProps = <String, Object?>{
+      'color': ?f.colorHex,
+      'strokeWidth': ?f.strokeWidth,
+      'fillOpacity': ?f.fillOpacity,
+      'radius': ?f.radius,
+    };
     switch (f.kind) {
       case DrawToolMode.polygon:
         final ring = _ensureClosedRing(f.vertices);
@@ -840,7 +866,11 @@ List<Layer> buildEarthlyGpuLayers({
           properties: {
             'id': f.id,
             'vertices': f.vertices.length,
+            if (f.description != null && f.description!.isNotEmpty)
+              'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,
+            if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
+            if (f.fillOpacity != null) 'fillOpacity': f.fillOpacity!,
           },
           lengthMeters: _polylineLengthMeters(ring),
           callouts: draftCalloutItems,
@@ -859,7 +889,10 @@ List<Layer> buildEarthlyGpuLayers({
           properties: {
             'id': f.id,
             'vertices': f.vertices.length,
+            if (f.description != null && f.description!.isNotEmpty)
+              'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,
+            if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
           },
           lengthMeters: _polylineLengthMeters(f.vertices),
           callouts: draftCalloutItems,
@@ -879,7 +912,10 @@ List<Layer> buildEarthlyGpuLayers({
             'id': f.id,
             'lat': f.vertices.first.lat.toStringAsFixed(6),
             'lon': f.vertices.first.lon.toStringAsFixed(6),
+            if (f.description != null && f.description!.isNotEmpty)
+              'description': f.description!,
             if (f.colorHex != null) 'color': f.colorHex!,
+            if (f.radius != null) 'radius': f.radius!,
           },
           callouts: draftCalloutItems,
         ));
@@ -1121,14 +1157,15 @@ List<Layer> buildEarthlyGpuLayers({
         strokeWidth: const Expression.literal(2.5),
       ),
 
-    // Working Draft Polygons (per-feature color override or theme accent)
+    // Working Draft Polygons (per-feature color, opacity, and strokeWidth expressions)
     if (draftPolygons.isNotEmpty) ...[
       PolygonLayer(
         id: 'earthly-draft-polygons',
         polygons: draftPolygons,
         color: Expression.get('color')
             .convertToColor([Expression.literal(accentColor)]),
-        opacity: const Expression.literal(0.24),
+        opacity: Expression.get('fillOpacity')
+            .convertToNumber([const Expression.literal(0.24)]),
         outlineColor: Expression.get('color')
             .convertToColor([Expression.literal(accentColor)]),
         onClick: (event) {
@@ -1154,7 +1191,8 @@ List<Layer> buildEarthlyGpuLayers({
         ],
         color: Expression.get('color')
             .convertToColor([Expression.literal(accentColor)]),
-        width: const Expression.literal(2.6),
+        width: Expression.get('strokeWidth')
+            .convertToNumber([const Expression.literal(2.6)]),
       ),
     ],
 
@@ -1165,7 +1203,8 @@ List<Layer> buildEarthlyGpuLayers({
         polylines: draftLines,
         color: Expression.get('color')
             .convertToColor([Expression.literal(accentColor)]),
-        width: const Expression.literal(3.0),
+        width: Expression.get('strokeWidth')
+            .convertToNumber([const Expression.literal(3.0)]),
         onClick: (event) {
           if (event.index < draftLineMeta.length) {
             onInspectFeature(draftLineMeta[event.index]);
@@ -1180,7 +1219,8 @@ List<Layer> buildEarthlyGpuLayers({
         points: draftPoints,
         color: Expression.get('color')
             .convertToColor([Expression.literal(accentColor)]),
-        radius: const Expression.literal(7.0),
+        radius: Expression.get('radius')
+            .convertToNumber([const Expression.literal(7.0)]),
         strokeColor: const Expression.literal(Colors.white),
         strokeWidth: const Expression.literal(2.2),
         onClick: (event) {

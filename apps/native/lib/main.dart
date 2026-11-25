@@ -16,6 +16,7 @@ import 'nostr/story_presentation.dart';
 import 'runtime/device_bridge.dart';
 import 'runtime/rust_bridge.dart';
 import 'shell/agent_drawer.dart';
+import 'shell/atlas_composer_sheet.dart';
 import 'shell/basemap_switcher_sheet.dart';
 import 'shell/desk_sheet.dart';
 import 'shell/discussion_margin_sheet.dart';
@@ -46,6 +47,7 @@ enum _ActiveDrawer {
   agent,
   storyReader,
   storyComposer,
+  atlasComposer,
   inspector,
   discussion,
 }
@@ -130,6 +132,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   // Nostr Explore / Shelf / Account (Amber or Local Desktop Key) / Nearby Peer state
   List<String> _relayUrls = <String>['wss://relay.earthly.city'];
   EarthlyCatalogSnapshot? _catalog;
+  final Map<String, ProfileMetadataDto> _profilesByPubkey =
+      <String, ProfileMetadataDto>{};
+  final Set<String> _requestedProfilePubkeys = <String>{};
   final List<ShelfMapEntry> _shelfMaps = <ShelfMapEntry>[];
   final List<SightingSummaryDto> _localSightings = <SightingSummaryDto>[];
   final List<LiveBeaconDto> _localBeacons = <LiveBeaconDto>[];
@@ -454,6 +459,91 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _draftVertices.clear();
       _mode = DrawToolMode.browse;
     });
+  }
+
+  Future<void> _resolveCatalogProfiles(EarthlyCatalogSnapshot catalog) async {
+    final needed = <String>{};
+    for (final m in catalog.maps) {
+      needed.add(m.pubkey);
+    }
+    for (final s in catalog.stories) {
+      needed.add(s.pubkey);
+    }
+    for (final a in catalog.atlases) {
+      needed.add(a.pubkey);
+    }
+    for (final s in catalog.sightings) {
+      needed.add(s.pubkey);
+    }
+    for (final b in catalog.beacons) {
+      needed.add(b.pubkey);
+    }
+    final missing = needed
+        .where((pk) => !_requestedProfilePubkeys.contains(pk))
+        .toList(growable: false);
+    if (missing.isEmpty) return;
+    _requestedProfilePubkeys.addAll(missing);
+    try {
+      await RustBridge.ensureInitialized();
+      final profiles = await fetchProfiles(
+        relayUrls: _activeRelayUrls,
+        pubkeys: missing,
+      );
+      if (!mounted || profiles.isEmpty) return;
+      setState(() {
+        for (final p in profiles) {
+          _profilesByPubkey[p.pubkey] = p;
+        }
+      });
+    } catch (_) {}
+  }
+
+  void _cloneGeoJsonToDraft(String sourceTitle, String geojson) {
+    final cloned = parseDraftFeaturesFromGeoJson(geojson);
+    if (cloned.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No editable features found to clone')),
+      );
+      return;
+    }
+    setState(() {
+      _features
+        ..clear()
+        ..addAll(cloned);
+      _draftVertices.clear();
+      _featureCounter = _features.length;
+      _draftTitle = '$sourceTitle (Draft)';
+      _drawer = _ActiveDrawer.desk;
+    });
+    unawaited(_persistWorkingDraft());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Cloned ${cloned.length} feature${cloned.length == 1 ? '' : 's'} into Working Draft',
+        ),
+      ),
+    );
+  }
+
+  Future<PublishOutcomeDto> _publishAtlas(AtlasPublishRequest req) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final dTag = 'atlas-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+    final prepared = await prepareUnsignedAtlasEvent(
+      pubkeyOrNpub: account.pubkey,
+      dTag: dTag,
+      name: req.name,
+      description: req.description.isEmpty ? null : req.description,
+      governance: req.governance,
+      pinnedAddresses: req.pinnedAddresses,
+      hashtags: req.hashtags,
+      fieldSessionId: req.audience == DraftAudienceChoice.nearbyLocalNode
+          ? _activeNearbySessionId
+          : null,
+    );
+    final signedEventJson =
+        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+    return _deliverForAudience(req.audience, signedEventJson);
   }
 
   @override
@@ -1502,7 +1592,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         areaSquareMeters: existing.areaSquareMeters,
         properties: {
           ...existing.properties,
+          if (f.description != null && f.description!.isNotEmpty)
+            'description': f.description!,
           if (f.colorHex != null) 'color': f.colorHex!,
+          if (f.strokeWidth != null) 'strokeWidth': f.strokeWidth!,
+          if (f.fillOpacity != null) 'fillOpacity': f.fillOpacity!,
+          if (f.radius != null) 'radius': f.radius!,
         },
         callouts: [
           for (final c in f.callouts)
@@ -1835,6 +1930,54 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               ));
             }
           });
+        case RustGeoAction.differenceLastTwoPolygons:
+          final polyIndices = <int>[
+            for (var i = 0; i < _features.length; i++)
+              if (_features[i].kind == DrawToolMode.polygon) i,
+          ];
+          if (polyIndices.length < 2) return;
+          final subjectIdx = polyIndices[polyIndices.length - 2];
+          final clipIdx = polyIndices[polyIndices.length - 1];
+          final diffRings = await geoDifferencePolygons(
+            subjectRing: toPoints(_features[subjectIdx].vertices),
+            clipRing: toPoints(_features[clipIdx].vertices),
+          );
+          setState(() {
+            _features.removeAt(clipIdx);
+            _features.removeAt(subjectIdx);
+            for (final ring in diffRings) {
+              _featureCounter += 1;
+              _features.add(DrawnFeature(
+                id: 'diff-$_featureCounter',
+                kind: DrawToolMode.polygon,
+                vertices: fromPoints(ring),
+                name: 'Difference Area',
+              ));
+            }
+          });
+        case RustGeoAction.splitLastPolygonByLine:
+          final polyIdx =
+              _features.lastIndexWhere((f) => f.kind == DrawToolMode.polygon);
+          final lineIdx =
+              _features.lastIndexWhere((f) => f.kind == DrawToolMode.line);
+          if (polyIdx < 0 || lineIdx < 0) return;
+          final pieces = await geoSplitPolygonByLine(
+            ring: toPoints(_features[polyIdx].vertices),
+            splitter: toPoints(_features[lineIdx].vertices),
+          );
+          if (pieces.isEmpty) return;
+          setState(() {
+            _features.removeAt(polyIdx);
+            for (var i = 0; i < pieces.length; i++) {
+              _featureCounter += 1;
+              _features.add(DrawnFeature(
+                id: 'split-$_featureCounter',
+                kind: DrawToolMode.polygon,
+                vertices: fromPoints(pieces[i]),
+                name: 'Split Part ${i + 1}',
+              ));
+            }
+          });
       }
       HapticFeedback.mediumImpact();
       unawaited(_persistWorkingDraft());
@@ -1938,7 +2081,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           initialCatalog: _catalog,
           relayUrls: _activeRelayUrls,
           shelfAddresses: _shelfMaps.map((e) => e.summary.address).toSet(),
-          onCatalogLoaded: (catalog) => setState(() => _catalog = catalog),
+          profilesByPubkey: _profilesByPubkey,
+          onCatalogLoaded: (catalog) {
+            setState(() => _catalog = catalog);
+            unawaited(_resolveCatalogProfiles(catalog));
+          },
           onToggleMapOnShelf: _toggleMapOnShelf,
           onOpenStory: (story) => unawaited(_openStory(story)),
           onOpenAtlas: (atlas) => unawaited(_openAtlas(atlas)),
@@ -1947,6 +2094,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onCreateSighting: _openSightingComposer,
           onComposeStory: () =>
               setState(() => _drawer = _ActiveDrawer.storyComposer),
+          onCreateAtlas: () =>
+              setState(() => _drawer = _ActiveDrawer.atlasComposer),
           onOpenBeaconBroadcaster: () =>
               setState(() => _drawer = _ActiveDrawer.spaces),
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
@@ -1982,6 +2131,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             );
           },
           onFlyToShelfMap: _flyToMap,
+          onCloneShelfMapToDraft: (map) =>
+              _cloneGeoJsonToDraft(map.title, map.geojson),
           onOpenShelfDiscussion: (map) => _openDiscussion(
             DiscussionTarget(
               address: map.address,
@@ -2098,6 +2249,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onPublishStory: _publishStory,
           onClose: () => setState(() => _drawer = _ActiveDrawer.none),
         );
+      case _ActiveDrawer.atlasComposer:
+        return AtlasComposerSheet(
+          shelfMaps: _shelfMaps,
+          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
+          catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
+          onPublishAtlas: _publishAtlas,
+          onClose: () => setState(() => _drawer = _ActiveDrawer.none),
+        );
       case _ActiveDrawer.inspector:
         final feature = _inspectedFeature;
         if (feature == null) return null;
@@ -2119,6 +2278,27 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               final idx = _features.indexWhere((f) => f.id == featureId);
               if (idx >= 0) {
                 _features[idx] = _features[idx].copyWith(colorHex: colorHex);
+              }
+            });
+            _refreshInspectedDraftFeature(featureId);
+            unawaited(_persistWorkingDraft());
+          },
+          onUpdateDraftStyle: (
+            featureId, {
+            strokeWidth,
+            fillOpacity,
+            radius,
+            description,
+          }) {
+            setState(() {
+              final idx = _features.indexWhere((f) => f.id == featureId);
+              if (idx >= 0) {
+                _features[idx] = _features[idx].copyWith(
+                  strokeWidth: strokeWidth,
+                  fillOpacity: fillOpacity,
+                  radius: radius,
+                  description: description,
+                );
               }
             });
             _refreshInspectedDraftFeature(featureId);
@@ -2167,6 +2347,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                       eventId: feature.datasetEventId,
                       baseGeojson: feature.datasetGeojson,
                     ),
+                  )
+              : null,
+          onCloneDatasetToDraft: (!feature.isDraft &&
+                  feature.datasetGeojson != null &&
+                  feature.datasetGeojson!.isNotEmpty)
+              ? () => _cloneGeoJsonToDraft(
+                    feature.datasetTitle ?? feature.sourceLabel,
+                    feature.datasetGeojson!,
                   )
               : null,
         );
@@ -2328,8 +2516,32 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             ],
           );
 
-    return Scaffold(
-      body: Stack(
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_isDrawingMode) {
+            _cancelEditingDraftFeature();
+          } else if (_drawer != _ActiveDrawer.none) {
+            setState(() => _drawer = _ActiveDrawer.none);
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): () {
+          if (_isDrawingMode) _undoLastPoint();
+        },
+        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): () {
+          if (_isDrawingMode) _undoLastPoint();
+        },
+        const SingleActivator(LogicalKeyboardKey.digit1, meta: true): () =>
+            _selectMode(DrawToolMode.point),
+        const SingleActivator(LogicalKeyboardKey.digit2, meta: true): () =>
+            _selectMode(DrawToolMode.line),
+        const SingleActivator(LogicalKeyboardKey.digit3, meta: true): () =>
+            _selectMode(DrawToolMode.polygon),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          body: Stack(
         fit: StackFit.expand,
         children: [
           mapWidget,
@@ -2735,6 +2947,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             ),
         ],
       ),
+    ),
+    ),
     );
   }
 }

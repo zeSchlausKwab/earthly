@@ -53,6 +53,91 @@ pub struct StorySummaryDto {
 }
 
 #[derive(Clone, Debug)]
+pub struct ProfileMetadataDto {
+    pub pubkey: String,
+    pub name: Option<String>,
+    pub display_name: Option<String>,
+    pub picture: Option<String>,
+    pub nip05: Option<String>,
+}
+
+/// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.
+pub async fn fetch_profiles(
+    relay_urls: Vec<String>,
+    pubkeys: Vec<String>,
+) -> Result<Vec<ProfileMetadataDto>, String> {
+    let mut authors = Vec::new();
+    let mut seen = HashSet::new();
+    for raw in pubkeys {
+        if let Ok(pk) = PublicKey::parse(raw.trim()) {
+            let hex = pk.to_hex();
+            if seen.insert(hex) {
+                authors.push(pk);
+            }
+        }
+    }
+    if authors.is_empty() {
+        return Ok(Vec::new());
+    }
+    authors.truncate(60);
+
+    let urls = if relay_urls.is_empty() {
+        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
+    } else {
+        relay_urls
+    };
+
+    let client = Client::default();
+    for url in &urls {
+        let _ = client.add_relay(url).await;
+    }
+    client.connect().await;
+
+    let filter = Filter::new()
+        .kind(Kind::Metadata)
+        .authors(authors.clone())
+        .limit(authors.len() * 2);
+
+    let events = client
+        .fetch_events(filter, Duration::from_secs(6))
+        .await
+        .map_err(|err| format!("failed to fetch author profiles: {err}"))?;
+    client.disconnect().await;
+
+    let mut latest: BTreeMap<String, (u64, String)> = BTreeMap::new();
+    for ev in events.into_iter() {
+        let pk = ev.pubkey.to_hex();
+        let ts = ev.created_at.as_secs();
+        let replace = latest.get(&pk).map(|(cur, _)| ts >= *cur).unwrap_or(true);
+        if replace {
+            latest.insert(pk, (ts, ev.content));
+        }
+    }
+
+    let mut out = Vec::with_capacity(latest.len());
+    for (pubkey, (_, content)) in latest {
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
+            continue;
+        };
+        let pick_str = |key: &str| {
+            json.get(key)
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        };
+        out.push(ProfileMetadataDto {
+            pubkey,
+            name: pick_str("name"),
+            display_name: pick_str("display_name").or_else(|| pick_str("displayName")),
+            picture: pick_str("picture"),
+            nip05: pick_str("nip05"),
+        });
+    }
+    Ok(out)
+}
+
+#[derive(Clone, Debug)]
 pub struct DecodedNaddrDto {
     pub kind: u16,
     pub pubkey: String,

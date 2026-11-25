@@ -202,6 +202,29 @@ Future<UnsignedCommentEventDto> prepareUnsignedStoryEvent({
   fieldSessionId: fieldSessionId,
 );
 
+/// Prepares a canonical Earthly v2 Atlas / Group (`kind 37518`) event with
+/// `modelVersion: "earthly/2"`, governance (`open` | `schema` | `closed`),
+/// pinned dataset/story `a` tags, hashtags, and optional Nearby `h` tag.
+Future<UnsignedCommentEventDto> prepareUnsignedAtlasEvent({
+  required String pubkeyOrNpub,
+  required String dTag,
+  required String name,
+  String? description,
+  required String governance,
+  required List<String> pinnedAddresses,
+  required List<String> hashtags,
+  String? fieldSessionId,
+}) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedAtlasEvent(
+  pubkeyOrNpub: pubkeyOrNpub,
+  dTag: dTag,
+  name: name,
+  description: description,
+  governance: governance,
+  pinnedAddresses: pinnedAddresses,
+  hashtags: hashtags,
+  fieldSessionId: fieldSessionId,
+);
+
 /// Persists an already-signed Nostr event into the crash-safe SQLite outbox
 /// BEFORE network transmission, delivers it to each target relay via `nostr-sdk`,
 /// records per-relay acknowledgements, and returns the live outcome.

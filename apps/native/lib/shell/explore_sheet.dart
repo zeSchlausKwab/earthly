@@ -12,6 +12,7 @@ class ExploreSheet extends StatefulWidget {
     required this.initialCatalog,
     required this.relayUrls,
     required this.shelfAddresses,
+    required this.profilesByPubkey,
     required this.onCatalogLoaded,
     required this.onToggleMapOnShelf,
     required this.onOpenStory,
@@ -20,6 +21,7 @@ class ExploreSheet extends StatefulWidget {
     required this.onFocusBeacon,
     required this.onCreateSighting,
     required this.onComposeStory,
+    required this.onCreateAtlas,
     required this.onOpenBeaconBroadcaster,
     required this.onClose,
     super.key,
@@ -28,6 +30,7 @@ class ExploreSheet extends StatefulWidget {
   final EarthlyCatalogSnapshot? initialCatalog;
   final List<String> relayUrls;
   final Set<String> shelfAddresses;
+  final Map<String, ProfileMetadataDto> profilesByPubkey;
   final ValueChanged<EarthlyCatalogSnapshot> onCatalogLoaded;
   final ValueChanged<MapSummaryDto> onToggleMapOnShelf;
   final ValueChanged<StorySummaryDto> onOpenStory;
@@ -36,6 +39,7 @@ class ExploreSheet extends StatefulWidget {
   final ValueChanged<LiveBeaconDto> onFocusBeacon;
   final VoidCallback onCreateSighting;
   final VoidCallback onComposeStory;
+  final VoidCallback onCreateAtlas;
   final VoidCallback onOpenBeaconBroadcaster;
   final VoidCallback onClose;
 
@@ -46,7 +50,9 @@ class ExploreSheet extends StatefulWidget {
 class _ExploreSheetState extends State<ExploreSheet>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
+  final _searchController = TextEditingController();
   EarthlyCatalogSnapshot? _catalog;
+  String _query = '';
   bool _loading = false;
   String? _error;
 
@@ -72,7 +78,24 @@ class _ExploreSheetState extends State<ExploreSheet>
   @override
   void dispose() {
     _tabs.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  String _authorLabel(String pubkey) {
+    final p = widget.profilesByPubkey[pubkey];
+    final name = p?.displayName ?? p?.name;
+    if (name != null && name.isNotEmpty) return '@$name';
+    return pubkey.length > 10 ? '${pubkey.substring(0, 8)}…' : pubkey;
+  }
+
+  bool _matchesQuery(Iterable<String?> fields) {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    final clean = q.startsWith('#') ? q.substring(1) : q;
+    return fields.any(
+      (f) => f != null && f.toLowerCase().contains(clean),
+    );
   }
 
   Future<void> _refresh() async {
@@ -163,6 +186,29 @@ class _ExploreSheetState extends State<ExploreSheet>
       ),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (val) => setState(() => _query = val),
+              decoration: InputDecoration(
+                isDense: true,
+                border: const OutlineInputBorder(borderRadius: BorderRadius.zero),
+                prefixIcon: const Icon(Icons.search, size: 17),
+                hintText: 'Filter by title, #tag, or author…',
+                suffixIcon: _query.isNotEmpty
+                    ? IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                        icon: const Icon(Icons.clear, size: 16),
+                      )
+                    : null,
+              ),
+            ),
+          ),
           if (_error != null)
             Container(
               width: double.infinity,
@@ -197,14 +243,31 @@ class _ExploreSheetState extends State<ExploreSheet>
   }
 
   Widget _buildMapsList(List<MapSummaryDto> maps) {
-    if (maps.isEmpty) {
-      return const Center(child: Text('No published maps loaded yet.'));
+    final filtered = maps
+        .where(
+          (m) => _matchesQuery([
+            m.title,
+            m.description,
+            _authorLabel(m.pubkey),
+            ...m.hashtags,
+            ...m.labels,
+          ]),
+        )
+        .toList(growable: false);
+    if (filtered.isEmpty) {
+      return Center(
+        child: Text(
+          _query.isEmpty
+              ? 'No published maps loaded yet.'
+              : 'No maps match "$_query".',
+        ),
+      );
     }
     return ListView.separated(
-      itemCount: maps.length,
+      itemCount: filtered.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
-        final map = maps[index];
+        final map = filtered[index];
         final onShelf = widget.shelfAddresses.contains(map.address);
         return ListTile(
           title: Text(
@@ -214,7 +277,7 @@ class _ExploreSheetState extends State<ExploreSheet>
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           subtitle: Text(
-            '${map.featureCount} features${map.hashtags.isNotEmpty ? ' · #${map.hashtags.take(3).join(' #')}' : ''}',
+            '${_authorLabel(map.pubkey)} · ${map.featureCount} features${map.hashtags.isNotEmpty ? ' · #${map.hashtags.take(3).join(' #')}' : ''}',
             style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
           ),
           trailing: OutlinedButton(
@@ -227,6 +290,11 @@ class _ExploreSheetState extends State<ExploreSheet>
   }
 
   Widget _buildStoriesList(List<StorySummaryDto> stories) {
+    final filtered = stories
+        .where(
+          (s) => _matchesQuery([s.title, s.summary, _authorLabel(s.pubkey)]),
+        )
+        .toList(growable: false);
     return Column(
       children: [
         Padding(
@@ -242,13 +310,19 @@ class _ExploreSheetState extends State<ExploreSheet>
         ),
         const Divider(height: 1),
         Expanded(
-          child: stories.isEmpty
-              ? const Center(child: Text('No v2 stories found on relay.'))
+          child: filtered.isEmpty
+              ? Center(
+                  child: Text(
+                    _query.isEmpty
+                        ? 'No v2 stories found on relay.'
+                        : 'No stories match "$_query".',
+                  ),
+                )
               : ListView.separated(
-                  itemCount: stories.length,
+                  itemCount: filtered.length,
                   separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {
-                    final story = stories[index];
+                    final story = filtered[index];
                     final linkedCount = story.referencedAddresses.length;
                     return ListTile(
                       leading: const Icon(
@@ -272,7 +346,7 @@ class _ExploreSheetState extends State<ExploreSheet>
                               overflow: TextOverflow.ellipsis,
                             ),
                           Text(
-                            '${linkedCount > 0 ? '$linkedCount linked map${linkedCount == 1 ? '' : 's'}' : 'Geo narrative'}${story.presentationJson != null ? ' · interactive views' : ''}',
+                            '${_authorLabel(story.pubkey)} · ${linkedCount > 0 ? '$linkedCount linked map${linkedCount == 1 ? '' : 's'}' : 'Geo narrative'}${story.presentationJson != null ? ' · interactive views' : ''}',
                             style: const TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 11,
@@ -291,35 +365,75 @@ class _ExploreSheetState extends State<ExploreSheet>
   }
 
   Widget _buildAtlasesList(List<AtlasSummaryDto> atlases) {
-    if (atlases.isEmpty) {
-      return const Center(child: Text('No v2 atlases found on relay.'));
-    }
-    return ListView.separated(
-      itemCount: atlases.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final atlas = atlases[index];
-        return ListTile(
-          leading: const Icon(
-            Icons.collections_bookmark_outlined,
-            color: EarthlyColors.commentGreen,
+    final filtered = atlases
+        .where(
+          (a) => _matchesQuery([
+            a.name,
+            a.description,
+            a.governance,
+            _authorLabel(a.pubkey),
+          ]),
+        )
+        .toList(growable: false);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: widget.onCreateAtlas,
+              icon: const Icon(
+                Icons.collections_bookmark_outlined,
+                size: 16,
+                color: EarthlyColors.commentGreen,
+              ),
+              label: const Text('Create Atlas (37518)'),
+            ),
           ),
-          title: Text(
-            atlas.name,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          subtitle: Text(
-            '${atlas.governance} · ${atlas.pinnedAddresses.length} pinned map${atlas.pinnedAddresses.length == 1 ? '' : 's'}',
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-          ),
-          trailing: OutlinedButton(
-            onPressed: atlas.pinnedAddresses.isEmpty
-                ? null
-                : () => widget.onOpenAtlas(atlas),
-            child: const Text('Load'),
-          ),
-        );
-      },
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: filtered.isEmpty
+              ? Center(
+                  child: Text(
+                    _query.isEmpty
+                        ? 'No v2 atlases found on relay.'
+                        : 'No atlases match "$_query".',
+                  ),
+                )
+              : ListView.separated(
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final atlas = filtered[index];
+                    return ListTile(
+                      leading: const Icon(
+                        Icons.collections_bookmark_outlined,
+                        color: EarthlyColors.commentGreen,
+                      ),
+                      title: Text(
+                        atlas.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        '${_authorLabel(atlas.pubkey)} · ${atlas.governance} · ${atlas.pinnedAddresses.length} pinned',
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                        ),
+                      ),
+                      trailing: OutlinedButton(
+                        onPressed: atlas.pinnedAddresses.isEmpty
+                            ? null
+                            : () => widget.onOpenAtlas(atlas),
+                        child: const Text('Load'),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 

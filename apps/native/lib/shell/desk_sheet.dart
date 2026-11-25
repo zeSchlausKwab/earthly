@@ -15,6 +15,8 @@ enum RustGeoAction {
   offsetLastLine,
   offsetLastPolygon,
   unionAllPolygons,
+  differenceLastTwoPolygons,
+  splitLastPolygonByLine,
 }
 
 enum DraftAudienceChoice {
@@ -36,6 +38,7 @@ class DeskSheet extends StatefulWidget {
     required this.onToggleShelfVisibility,
     required this.onRemoveShelfMap,
     required this.onFlyToShelfMap,
+    required this.onCloneShelfMapToDraft,
     required this.onOpenShelfDiscussion,
     required this.onRunGeoAction,
     required this.onPublishDraft,
@@ -58,6 +61,7 @@ class DeskSheet extends StatefulWidget {
   final ValueChanged<String> onToggleShelfVisibility;
   final ValueChanged<String> onRemoveShelfMap;
   final ValueChanged<MapSummaryDto> onFlyToShelfMap;
+  final ValueChanged<MapSummaryDto> onCloneShelfMapToDraft;
   final ValueChanged<MapSummaryDto> onOpenShelfDiscussion;
   final ValueChanged<RustGeoAction> onRunGeoAction;
   final Future<PublishOutcomeDto> Function(
@@ -199,6 +203,12 @@ class _DeskSheetState extends State<DeskSheet> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    IconButton(
+                      tooltip: 'Clone into Working Draft',
+                      onPressed: () =>
+                          widget.onCloneShelfMapToDraft(entry.summary),
+                      icon: const Icon(Icons.copy_all_outlined, size: 18),
+                    ),
                     IconButton(
                       tooltip: 'Comments & Proposals',
                       onPressed: () =>
@@ -416,6 +426,22 @@ class _DeskSheetState extends State<DeskSheet> {
                             .onRunGeoAction(RustGeoAction.unionAllPolygons)
                         : null,
                     child: Text('Union Areas ($polyCount)'),
+                  ),
+                  OutlinedButton(
+                    onPressed: polyCount >= 2
+                        ? () => widget.onRunGeoAction(
+                              RustGeoAction.differenceLastTwoPolygons,
+                            )
+                        : null,
+                    child: const Text('Difference (A − B)'),
+                  ),
+                  OutlinedButton(
+                    onPressed: (polyCount >= 1 && hasLine)
+                        ? () => widget.onRunGeoAction(
+                              RustGeoAction.splitLastPolygonByLine,
+                            )
+                        : null,
+                    child: const Text('Split Area by Line'),
                   ),
                 ],
               ),

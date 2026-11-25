@@ -8,7 +8,16 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `event_to_raw`, `hex_val`, `map_to_dto`, `parse_live_relay_event`, `percent_decode_fragment`, `sighting_to_dto`, `story_to_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+
+/// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.
+Future<List<ProfileMetadataDto>> fetchProfiles({
+  required List<String> relayUrls,
+  required List<String> pubkeys,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientFetchProfiles(
+  relayUrls: relayUrls,
+  pubkeys: pubkeys,
+);
 
 /// Fetches the latest Earthly Maps, Stories, Atlases, and non-expired Sightings
 /// from the specified relay URLs (defaulting to `wss://relay.earthly.city`).
@@ -511,6 +520,41 @@ class MapSummaryDto {
           hashtags == other.hashtags &&
           labels == other.labels &&
           createdAt == other.createdAt;
+}
+
+class ProfileMetadataDto {
+  final String pubkey;
+  final String? name;
+  final String? displayName;
+  final String? picture;
+  final String? nip05;
+
+  const ProfileMetadataDto({
+    required this.pubkey,
+    this.name,
+    this.displayName,
+    this.picture,
+    this.nip05,
+  });
+
+  @override
+  int get hashCode =>
+      pubkey.hashCode ^
+      name.hashCode ^
+      displayName.hashCode ^
+      picture.hashCode ^
+      nip05.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProfileMetadataDto &&
+          runtimeType == other.runtimeType &&
+          pubkey == other.pubkey &&
+          name == other.name &&
+          displayName == other.displayName &&
+          picture == other.picture &&
+          nip05 == other.nip05;
 }
 
 class SightingSummaryDto {

@@ -62,6 +62,24 @@ Future<List<List<LonLatPoint>>> geoUnionPolygons({
   required List<List<LonLatPoint>> rings,
 }) => EarthlyRustLib.instance.api.crateApiGeoGeoUnionPolygons(rings: rings);
 
+/// Boolean difference (`subject - clip`) of two polygon rings.
+Future<List<List<LonLatPoint>>> geoDifferencePolygons({
+  required List<LonLatPoint> subjectRing,
+  required List<LonLatPoint> clipRing,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoDifferencePolygons(
+  subjectRing: subjectRing,
+  clipRing: clipRing,
+);
+
+/// Splits a polygon ring cleanly along a cutting polyline via `earthly-geo`.
+Future<List<List<LonLatPoint>>> geoSplitPolygonByLine({
+  required List<LonLatPoint> ring,
+  required List<LonLatPoint> splitter,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoSplitPolygonByLine(
+  ring: ring,
+  splitter: splitter,
+);
+
 Future<double> geoMeasureLineMeters({required List<LonLatPoint> points}) =>
     EarthlyRustLib.instance.api.crateApiGeoGeoMeasureLineMeters(points: points);
 

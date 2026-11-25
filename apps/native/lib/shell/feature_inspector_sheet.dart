@@ -22,11 +22,13 @@ class FeatureInspectorSheet extends StatefulWidget {
     required this.onClose,
     this.onRenameDraftFeature,
     this.onRecolorDraftFeature,
+    this.onUpdateDraftStyle,
     this.onEditDraftGeometry,
     this.onDeleteDraftFeature,
     this.onAddDraftCallout,
     this.onRemoveDraftCallout,
     this.onOpenDiscussion,
+    this.onCloneDatasetToDraft,
     super.key,
   });
 
@@ -34,11 +36,19 @@ class FeatureInspectorSheet extends StatefulWidget {
   final VoidCallback onClose;
   final void Function(String featureId, String newName)? onRenameDraftFeature;
   final void Function(String featureId, String colorHex)? onRecolorDraftFeature;
+  final void Function(
+    String featureId, {
+    double? strokeWidth,
+    double? fillOpacity,
+    double? radius,
+    String? description,
+  })? onUpdateDraftStyle;
   final ValueChanged<String>? onEditDraftGeometry;
   final ValueChanged<String>? onDeleteDraftFeature;
   final void Function(String featureId, DraftCallout callout)? onAddDraftCallout;
   final void Function(String featureId, String calloutId)? onRemoveDraftCallout;
   final VoidCallback? onOpenDiscussion;
+  final VoidCallback? onCloneDatasetToDraft;
 
   @override
   State<FeatureInspectorSheet> createState() => _FeatureInspectorSheetState();
@@ -209,6 +219,88 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                   ),
               ],
             ),
+            if (widget.onUpdateDraftStyle != null) ...[
+              const SizedBox(height: 8),
+              if (f.geometryType == 'Point')
+                Row(
+                  children: [
+                    const SizedBox(
+                      width: 82,
+                      child: Text(
+                        'RADIUS',
+                        style: TextStyle(fontFamily: 'monospace', fontSize: 10),
+                      ),
+                    ),
+                    Expanded(
+                      child: Slider(
+                        min: 4,
+                        max: 16,
+                        divisions: 12,
+                        value: ((f.properties['radius'] as num?)?.toDouble() ?? 7.0)
+                            .clamp(4.0, 16.0),
+                        onChanged: (v) => widget.onUpdateDraftStyle!(
+                          f.draftFeatureId!,
+                          radius: v,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    const SizedBox(
+                      width: 82,
+                      child: Text(
+                        'STROKE',
+                        style: TextStyle(fontFamily: 'monospace', fontSize: 10),
+                      ),
+                    ),
+                    Expanded(
+                      child: Slider(
+                        min: 1,
+                        max: 10,
+                        divisions: 9,
+                        value: ((f.properties['strokeWidth'] as num?)
+                                    ?.toDouble() ??
+                                3.0)
+                            .clamp(1.0, 10.0),
+                        onChanged: (v) => widget.onUpdateDraftStyle!(
+                          f.draftFeatureId!,
+                          strokeWidth: v,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              if (f.geometryType == 'Polygon')
+                Row(
+                  children: [
+                    const SizedBox(
+                      width: 82,
+                      child: Text(
+                        'OPACITY',
+                        style: TextStyle(fontFamily: 'monospace', fontSize: 10),
+                      ),
+                    ),
+                    Expanded(
+                      child: Slider(
+                        min: 0.1,
+                        max: 0.8,
+                        divisions: 7,
+                        value: ((f.properties['fillOpacity'] as num?)
+                                    ?.toDouble() ??
+                                0.24)
+                            .clamp(0.1, 0.8),
+                        onChanged: (v) => widget.onUpdateDraftStyle!(
+                          f.draftFeatureId!,
+                          fillOpacity: v,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
           ],
           if (f.callouts.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -328,12 +420,27 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                 ),
               ),
           ],
-          if (widget.onOpenDiscussion != null && !f.isDraft) ...[
+          if ((widget.onOpenDiscussion != null ||
+                  widget.onCloneDatasetToDraft != null) &&
+              !f.isDraft) ...[
             const Divider(height: 20),
-            OutlinedButton.icon(
-              onPressed: widget.onOpenDiscussion,
-              icon: const Icon(Icons.forum_outlined, size: 16),
-              label: const Text('Comments (37517) & Edit Proposals (37519)'),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (widget.onOpenDiscussion != null)
+                  OutlinedButton.icon(
+                    onPressed: widget.onOpenDiscussion,
+                    icon: const Icon(Icons.forum_outlined, size: 16),
+                    label: const Text('Comments & Proposals'),
+                  ),
+                if (widget.onCloneDatasetToDraft != null)
+                  FilledButton.icon(
+                    onPressed: widget.onCloneDatasetToDraft,
+                    icon: const Icon(Icons.copy_all_outlined, size: 16),
+                    label: const Text('Clone Map to Draft'),
+                  ),
+              ],
             ),
           ],
           if (f.isDraft && f.draftFeatureId != null) ...[

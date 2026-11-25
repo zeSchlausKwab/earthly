@@ -168,6 +168,9 @@ abstract class EarthlyRustLibApiImplPlatform
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<ProfileMetadataDto> dco_decode_list_profile_metadata_dto(dynamic raw);
+
+  @protected
   List<RelayDeliveryStatusDto> dco_decode_list_relay_delivery_status_dto(
     dynamic raw,
   );
@@ -253,6 +256,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   PmtilesHeaderSnapshot dco_decode_pmtiles_header_snapshot(dynamic raw);
+
+  @protected
+  ProfileMetadataDto dco_decode_profile_metadata_dto(dynamic raw);
 
   @protected
   PublishOutcomeDto dco_decode_publish_outcome_dto(dynamic raw);
@@ -487,6 +493,11 @@ abstract class EarthlyRustLibApiImplPlatform
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<ProfileMetadataDto> sse_decode_list_profile_metadata_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<RelayDeliveryStatusDto> sse_decode_list_relay_delivery_status_dto(
     SseDeserializer deserializer,
   );
@@ -600,6 +611,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   PmtilesHeaderSnapshot sse_decode_pmtiles_header_snapshot(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ProfileMetadataDto sse_decode_profile_metadata_dto(
     SseDeserializer deserializer,
   );
 
@@ -909,6 +925,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_profile_metadata_dto(
+    List<ProfileMetadataDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_relay_delivery_status_dto(
     List<RelayDeliveryStatusDto> self,
     SseSerializer serializer,
@@ -1046,6 +1068,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_pmtiles_header_snapshot(
     PmtilesHeaderSnapshot self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_profile_metadata_dto(
+    ProfileMetadataDto self,
     SseSerializer serializer,
   );
 

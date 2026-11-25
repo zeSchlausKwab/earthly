@@ -5,8 +5,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_domain::{
     ARTICLE_KIND, GEO_COMMENT_KIND, GEO_EDIT_PROPOSAL_KIND, GEO_EVENT_KIND, ImetaAttachment,
-    LIVE_BEACON_KIND, MODEL_VERSION, TEMPORAL_SIGHTING_KIND, set_bbox, set_geohash, set_hashtags,
-    set_images, set_referenced_addresses,
+    LIVE_BEACON_KIND, MAP_CONTEXT_KIND, MODEL_VERSION, TEMPORAL_SIGHTING_KIND, set_bbox,
+    set_geohash, set_hashtags, set_images, set_referenced_addresses,
 };
 use earthly_geo::validate_feature_collection;
 use earthly_spatial::Bounds;
@@ -662,6 +662,87 @@ pub fn prepare_unsigned_story_event(
     })
 }
 
+/// Prepares a canonical Earthly v2 Atlas / Group (`kind 37518`) event with
+/// `modelVersion: "earthly/2"`, governance (`open` | `schema` | `closed`),
+/// pinned dataset/story `a` tags, hashtags, and optional Nearby `h` tag.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_unsigned_atlas_event(
+    pubkey_or_npub: String,
+    d_tag: String,
+    name: String,
+    description: Option<String>,
+    governance: String,
+    pinned_addresses: Vec<String>,
+    hashtags: Vec<String>,
+    field_session_id: Option<String>,
+) -> Result<UnsignedCommentEventDto, String> {
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty() {
+        return Err("Atlas name cannot be empty".to_owned());
+    }
+    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let pubkey_hex = pubkey.to_hex();
+
+    let gov = match governance.trim().to_lowercase().as_str() {
+        "schema" => "schema",
+        "closed" => "closed",
+        _ => "open",
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let mut body = serde_json::Map::new();
+    body.insert(
+        "modelVersion".to_owned(),
+        serde_json::Value::String(MODEL_VERSION.to_owned()),
+    );
+    body.insert(
+        "name".to_owned(),
+        serde_json::Value::String(trimmed_name.to_owned()),
+    );
+    if let Some(desc) = description.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        body.insert(
+            "description".to_owned(),
+            serde_json::Value::String(desc.to_owned()),
+        );
+    }
+    body.insert(
+        "governance".to_owned(),
+        serde_json::Value::String(gov.to_owned()),
+    );
+
+    let mut tags: Vec<Vec<String>> = vec![vec!["d".to_owned(), d_tag.clone()]];
+    tags = set_referenced_addresses(&tags, &pinned_addresses);
+    tags = set_hashtags(&tags, &hashtags);
+    if let Some(session_id) = field_session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        tags.push(vec!["h".to_owned(), session_id.to_owned()]);
+    }
+
+    let content = serde_json::to_string(&serde_json::Value::Object(body))
+        .map_err(|e| e.to_string())?;
+    let unsigned = serde_json::json!({
+        "kind": MAP_CONTEXT_KIND,
+        "pubkey": pubkey_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": content,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: d_tag.clone(),
+        address: format!("{MAP_CONTEXT_KIND}:{pubkey_hex}:{d_tag}"),
+    })
+}
+
 /// Persists an already-signed Nostr event into the crash-safe SQLite outbox
 /// BEFORE network transmission, delivers it to each target relay via `nostr-sdk`,
 /// records per-relay acknowledgements, and returns the live outcome.
@@ -985,5 +1066,33 @@ mod tests {
         assert!(tags.iter().any(|t| t[0] == "expiration"));
         assert!(tags.iter().any(|t| t[0] == "h" && t[1] == "field-session-9"));
         assert!(tags.iter().any(|t| t[0] == "g"));
+    }
+
+    #[test]
+    fn prepares_canonical_unsigned_atlas_event() {
+        let keys = Keys::generate();
+        let pk = keys.public_key().to_hex();
+        let prepared = prepare_unsigned_atlas_event(
+            pk.clone(),
+            "alpine-atlas".to_owned(),
+            "Alpine Huts Atlas".to_owned(),
+            Some("Curated trails and shelters".to_owned()),
+            "schema".to_owned(),
+            vec![format!("37515:{pk}:huts-2026")],
+            vec!["alps".to_owned(), "hiking".to_owned()],
+            None,
+        )
+        .unwrap();
+
+        assert!(prepared.address.starts_with("37518:"));
+        let raw: serde_json::Value = serde_json::from_str(&prepared.unsigned_event_json).unwrap();
+        assert_eq!(raw["kind"], 37_518);
+        let content: serde_json::Value =
+            serde_json::from_str(raw["content"].as_str().unwrap()).unwrap();
+        assert_eq!(content["modelVersion"], "earthly/2");
+        assert_eq!(content["governance"], "schema");
+        let tags = raw["tags"].as_array().unwrap();
+        assert!(tags.iter().any(|t| t[0] == "a" && t[1] == format!("37515:{pk}:huts-2026")));
+        assert!(tags.iter().any(|t| t[0] == "t" && t[1] == "alps"));
     }
 }

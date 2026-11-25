@@ -1,9 +1,9 @@
 //! Rust `earthly-geo` geometry workbench exposed directly to Flutter via FFI.
 
 use earthly_geo::{
-    ExtrudeOptions, ExtrudeShape, ExtrudeSide, create_line_corridor, extrude_line,
-    geodesic_area_m2, geodesic_length_m, offset_line, offset_polygon, simplify_line,
-    union_polygons,
+    ExtrudeOptions, ExtrudeShape, ExtrudeSide, create_line_corridor, difference_polygons,
+    extrude_line, geodesic_area_m2, geodesic_length_m, offset_line, offset_polygon, simplify_line,
+    split_polygon_by_line, union_polygons,
 };
 use geo::{Coord, LineString, Polygon};
 
@@ -107,6 +107,36 @@ pub fn geo_union_polygons(rings: Vec<Vec<LonLatPoint>>) -> Result<Vec<Vec<LonLat
     let merged = union_polygons(&polys).map_err(|e| e.to_string())?;
     Ok(merged
         .0
+        .into_iter()
+        .map(|p| from_coords(&p.exterior().0))
+        .collect())
+}
+
+/// Boolean difference (`subject - clip`) of two polygon rings.
+pub fn geo_difference_polygons(
+    subject_ring: Vec<LonLatPoint>,
+    clip_ring: Vec<LonLatPoint>,
+) -> Result<Vec<Vec<LonLatPoint>>, String> {
+    let diff = difference_polygons(
+        &to_closed_polygon(&subject_ring),
+        &to_closed_polygon(&clip_ring),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(diff
+        .0
+        .into_iter()
+        .map(|p| from_coords(&p.exterior().0))
+        .collect())
+}
+
+/// Splits a polygon ring cleanly along a cutting polyline via `earthly-geo`.
+pub fn geo_split_polygon_by_line(
+    ring: Vec<LonLatPoint>,
+    splitter: Vec<LonLatPoint>,
+) -> Result<Vec<Vec<LonLatPoint>>, String> {
+    let pieces = split_polygon_by_line(&to_closed_polygon(&ring), &to_line(&splitter))
+        .map_err(|e| e.to_string())?;
+    Ok(pieces
         .into_iter()
         .map(|p| from_coords(&p.exterior().0))
         .collect())

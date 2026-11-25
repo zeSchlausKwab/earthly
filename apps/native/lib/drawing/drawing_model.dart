@@ -40,7 +40,11 @@ class DrawnFeature {
     required this.kind,
     required this.vertices,
     this.name,
+    this.description,
     this.colorHex,
+    this.strokeWidth,
+    this.fillOpacity,
+    this.radius,
     this.callouts = const [],
   });
 
@@ -48,13 +52,21 @@ class DrawnFeature {
   final DrawToolMode kind;
   final List<Geographic> vertices;
   final String? name;
+  final String? description;
   final String? colorHex;
+  final double? strokeWidth;
+  final double? fillOpacity;
+  final double? radius;
   final List<DraftCallout> callouts;
 
   DrawnFeature copyWith({
     List<Geographic>? vertices,
     String? name,
+    String? description,
     String? colorHex,
+    double? strokeWidth,
+    double? fillOpacity,
+    double? radius,
     List<DraftCallout>? callouts,
   }) =>
       DrawnFeature(
@@ -62,7 +74,11 @@ class DrawnFeature {
         kind: kind,
         vertices: vertices ?? this.vertices,
         name: name ?? this.name,
+        description: description ?? this.description,
         colorHex: colorHex ?? this.colorHex,
+        strokeWidth: strokeWidth ?? this.strokeWidth,
+        fillOpacity: fillOpacity ?? this.fillOpacity,
+        radius: radius ?? this.radius,
         callouts: callouts ?? this.callouts,
       );
 }
