@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../nostr/earthly_share.dart';
 import '../nostr/shelf_renderer.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
@@ -233,6 +236,21 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
               visualDensity: VisualDensity.compact,
               onPressed: _copyLink,
               icon: const Icon(Icons.link, size: 18),
+            ),
+            IconButton(
+              tooltip: 'Share earthly.city URL',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => unawaited(
+                shareEarthlyEntity(
+                  context: context,
+                  kind: 37515,
+                  pubkeyHex: map.pubkey,
+                  dTag: map.dTag,
+                  relayUrls: widget.relayUrls,
+                  title: map.title,
+                ),
+              ),
+              icon: const Icon(Icons.ios_share, size: 18),
             ),
             if (isDesktop)
               IconButton(

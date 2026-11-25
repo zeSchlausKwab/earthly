@@ -298,6 +298,36 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                 ),
               ),
             ),
+          if (profile != null &&
+              ((profile.website?.isNotEmpty ?? false) ||
+                  (profile.lud16?.isNotEmpty ?? false)))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (profile.website != null && profile.website!.isNotEmpty)
+                    Text(
+                      profile.website!,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                        color: EarthlyColors.infoCyan,
+                      ),
+                    ),
+                  if (profile.lud16 != null && profile.lud16!.isNotEmpty)
+                    Text(
+                      '⚡ ${profile.lud16!}',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                        color: EarthlyColors.amber,
+                      ),
+                    ),
+                ],
+              ),
+            ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),

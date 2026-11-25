@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../nostr/basemap_config.dart';
 import '../nostr/callout_overlay.dart';
 import '../runtime/device_bridge.dart';
 import '../runtime/rust_bridge.dart';
@@ -11,7 +12,8 @@ import '../src/rust/api/settings.dart';
 import '../src/rust/api/spike.dart';
 import '../theme/earthly_theme.dart';
 
-enum BasemapKind { openFreeMapLiberty, openFreeMapDark, offlinePmtiles }
+export '../nostr/basemap_config.dart'
+    show BasemapKind, MapBackgroundMode, basemapStyleLabel;
 
 @immutable
 class OfflinePmtilesBasemap {
@@ -138,6 +140,13 @@ class BasemapSwitcherSheet extends StatefulWidget {
     this.mountedAtlasWorkspaces = const <MountedAtlasWorkspaceDto>[],
     this.onMountAtlasWorkspace,
     this.onUnmountAtlasWorkspace,
+    this.themeMode = ThemeMode.system,
+    this.onThemeModeChanged,
+    this.backgroundMode = MapBackgroundMode.osm,
+    this.satelliteOpacity = 0.75,
+    this.onBackgroundModeChanged,
+    this.onSatelliteOpacityChanged,
+    this.onExportMapPosterPng,
     super.key,
   });
 
@@ -156,6 +165,13 @@ class BasemapSwitcherSheet extends StatefulWidget {
   final Future<void> Function(AtlasBundleInspectionDto bundle)?
       onMountAtlasWorkspace;
   final ValueChanged<String>? onUnmountAtlasWorkspace;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
+  final MapBackgroundMode backgroundMode;
+  final double satelliteOpacity;
+  final ValueChanged<MapBackgroundMode>? onBackgroundModeChanged;
+  final ValueChanged<double>? onSatelliteOpacityChanged;
+  final VoidCallback? onExportMapPosterPng;
 
   @override
   State<BasemapSwitcherSheet> createState() => _BasemapSwitcherSheetState();
@@ -170,6 +186,9 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
   late BasemapKind _activeBasemap = widget.activeBasemap;
   late bool _showLabels = widget.showLabels;
   late CalloutDisplayMode _calloutMode = widget.calloutMode;
+  late ThemeMode _themeMode = widget.themeMode;
+  late MapBackgroundMode _backgroundMode = widget.backgroundMode;
+  late double _satelliteOpacity = widget.satelliteOpacity;
 
   @override
   void dispose() {
@@ -273,49 +292,88 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
           children: [
             Row(
               children: [
-                Text(
-                  'MAP STYLE & OVERLAYS',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontFamily: 'monospace',
-                    letterSpacing: 0.7,
+                Expanded(
+                  child: Text(
+                    'MAP STYLE, THEME & OVERLAYS',
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontFamily: 'monospace',
+                      letterSpacing: 0.7,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 IconButton(
                   onPressed: () => Navigator.of(context).pop(),
                   icon: const Icon(Icons.close, size: 18),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            if (widget.onThemeModeChanged != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'APPEARANCE',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (final entry in const [
+                    (ThemeMode.system, 'System', Icons.brightness_auto_outlined),
+                    (ThemeMode.light, 'Light', Icons.light_mode_outlined),
+                    (ThemeMode.dark, 'Dark', Icons.dark_mode_outlined),
+                  ])
+                    ChoiceChip(
+                      key: Key('theme-mode-${entry.$1.name}'),
+                      avatar: Icon(entry.$3, size: 15),
+                      label: Text(entry.$2),
+                      selected: _themeMode == entry.$1,
+                      onSelected: (_) {
+                        setState(() => _themeMode = entry.$1);
+                        widget.onThemeModeChanged!(entry.$1);
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ] else
+              const SizedBox(height: 8),
 
+            Text(
+              'OPENFREEMAP & OFFLINE BASEMAP',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                letterSpacing: 0.6,
+              ),
+            ),
+            const SizedBox(height: 6),
             // Basemap tiles
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                ChoiceChip(
-                  label: const Text('OpenFreeMap Liberty'),
-                  selected: _activeBasemap == BasemapKind.openFreeMapLiberty,
-                  onSelected: (_) {
-                    setState(
-                      () => _activeBasemap = BasemapKind.openFreeMapLiberty,
-                    );
-                    widget.onSelectBasemap(BasemapKind.openFreeMapLiberty);
-                    Navigator.of(context).pop();
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('OpenFreeMap Dark'),
-                  selected: _activeBasemap == BasemapKind.openFreeMapDark,
-                  onSelected: (_) {
-                    setState(
-                      () => _activeBasemap = BasemapKind.openFreeMapDark,
-                    );
-                    widget.onSelectBasemap(BasemapKind.openFreeMapDark);
-                    Navigator.of(context).pop();
-                  },
-                ),
+                for (final kind in const [
+                  BasemapKind.auto,
+                  BasemapKind.openFreeMapPositron,
+                  BasemapKind.openFreeMapBright,
+                  BasemapKind.openFreeMapLiberty,
+                  BasemapKind.openFreeMapDark,
+                  BasemapKind.openFreeMapFiord,
+                ])
+                  ChoiceChip(
+                    key: Key('basemap-${kind.name}'),
+                    label: Text(basemapStyleLabel(kind)),
+                    selected: _activeBasemap == kind,
+                    onSelected: (_) {
+                      setState(() => _activeBasemap = kind);
+                      widget.onSelectBasemap(kind);
+                      Navigator.of(context).pop();
+                    },
+                  ),
                 if (offline != null)
                   ChoiceChip(
                     label: Text('Offline: ${offline.snapshot.label}'),
@@ -330,6 +388,68 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
                   ),
               ],
             ),
+            if (widget.onBackgroundModeChanged != null &&
+                _activeBasemap != BasemapKind.offlinePmtiles) ...[
+              const SizedBox(height: 12),
+              Text(
+                'SATELLITE IMAGERY (EOXCLOUDLESS)',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (final item in const [
+                    (MapBackgroundMode.osm, 'Vector'),
+                    (MapBackgroundMode.combined, 'Combined'),
+                    (MapBackgroundMode.satellite, 'Satellite'),
+                  ])
+                    ChoiceChip(
+                      key: Key('bg-mode-${item.$1.name}'),
+                      label: Text(item.$2),
+                      selected: _backgroundMode == item.$1,
+                      onSelected: (_) {
+                        setState(() => _backgroundMode = item.$1);
+                        widget.onBackgroundModeChanged!(item.$1);
+                      },
+                    ),
+                ],
+              ),
+              if (_backgroundMode == MapBackgroundMode.combined &&
+                  widget.onSatelliteOpacityChanged != null)
+                Row(
+                  children: [
+                    const Text(
+                      'IMAGERY OPACITY',
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 10),
+                    ),
+                    Expanded(
+                      child: Slider(
+                        key: const Key('satellite-opacity-slider'),
+                        min: 0.1,
+                        max: 1.0,
+                        divisions: 9,
+                        value: _satelliteOpacity.clamp(0.1, 1.0),
+                        onChanged: (v) {
+                          setState(() => _satelliteOpacity = v);
+                          widget.onSatelliteOpacityChanged!(v);
+                        },
+                      ),
+                    ),
+                    Text(
+                      '${(_satelliteOpacity * 100).round()}%',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
             const SizedBox(height: 10),
             OutlinedButton.icon(
               onPressed: _loadingPmtiles ? null : _pickAndLoadPmtiles,
@@ -615,6 +735,18 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
                   ),
               ],
             ),
+            if (widget.onExportMapPosterPng != null) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('basemap-export-poster-btn'),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  widget.onExportMapPosterPng!();
+                },
+                icon: const Icon(Icons.image_outlined, size: 16),
+                label: const Text('Export High-Res Map Poster (PNG)'),
+              ),
+            ],
           ],
         ),
       ),

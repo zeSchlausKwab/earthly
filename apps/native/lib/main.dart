@@ -10,7 +10,9 @@ import 'package:path_provider/path_provider.dart';
 
 import 'drawing/drawing_model.dart';
 import 'drawing/touch_draw_overlay.dart';
+import 'nostr/basemap_config.dart';
 import 'nostr/callout_overlay.dart';
+import 'nostr/map_poster_exporter.dart';
 import 'nostr/nip55_signer.dart';
 import 'nostr/shelf_renderer.dart';
 import 'nostr/story_presentation.dart';
@@ -82,7 +84,7 @@ enum _ActiveDrawer {
   discussion,
 }
 
-class EarthlyNativeApp extends StatelessWidget {
+class EarthlyNativeApp extends StatefulWidget {
   const EarthlyNativeApp({this.mapBuilder, super.key});
 
   /// Optional test hook allowing widget tests to swap out the native MapLibre
@@ -95,20 +97,36 @@ class EarthlyNativeApp extends StatelessWidget {
   )? mapBuilder;
 
   @override
+  State<EarthlyNativeApp> createState() => _EarthlyNativeAppState();
+}
+
+class _EarthlyNativeAppState extends State<EarthlyNativeApp> {
+  ThemeMode _themeMode = ThemeMode.system;
+
+  @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Earthly',
       debugShowCheckedModeBanner: false,
       theme: buildEarthlyTheme(Brightness.light),
       darkTheme: buildEarthlyTheme(Brightness.dark),
-      themeMode: ThemeMode.system,
-      home: EarthlySpikeHome(mapBuilder: mapBuilder),
+      themeMode: _themeMode,
+      home: EarthlySpikeHome(
+        mapBuilder: widget.mapBuilder,
+        themeMode: _themeMode,
+        onThemeModeChanged: (mode) => setState(() => _themeMode = mode),
+      ),
     );
   }
 }
 
 class EarthlySpikeHome extends StatefulWidget {
-  const EarthlySpikeHome({this.mapBuilder, super.key});
+  const EarthlySpikeHome({
+    this.mapBuilder,
+    this.themeMode = ThemeMode.system,
+    this.onThemeModeChanged,
+    super.key,
+  });
 
   final Widget Function(
     BuildContext context,
@@ -116,17 +134,14 @@ class EarthlySpikeHome extends StatefulWidget {
     ValueChanged<MapController> onMapCreated,
     VoidCallback onCameraMove,
   )? mapBuilder;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
 
   @override
   State<EarthlySpikeHome> createState() => _EarthlySpikeHomeState();
 }
 
 class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
-  static const String _openFreeMapLiberty =
-      'https://tiles.openfreemap.org/styles/liberty';
-  static const String _openFreeMapDark =
-      'https://tiles.openfreemap.org/styles/dark';
-
   MapController? _controller;
   DrawToolMode _mode = DrawToolMode.browse;
   TouchPlacementStyle _placementStyle = TouchPlacementStyle.drawDrag;
@@ -139,14 +154,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   DiscussionTarget? _discussionTarget;
   String? _pendingDeepLinkPairing;
 
-  // Map presentation & basemap state
-  BasemapKind? _selectedBasemap;
+  // Map presentation, theme & satellite basemap state
+  BasemapKind _selectedBasemap = BasemapKind.auto;
+  MapBackgroundMode _backgroundMode = MapBackgroundMode.osm;
+  double _satelliteOpacity = 0.75;
   OfflinePmtilesBasemap? _offlineBasemap;
   final List<SavedOfflinePackDto> _savedOfflinePacks = <SavedOfflinePackDto>[];
   final List<MountedAtlasWorkspaceDto> _mountedAtlasWorkspaces =
       <MountedAtlasWorkspaceDto>[];
   bool _showLabels = true;
   CalloutDisplayMode _calloutMode = CalloutDisplayMode.full;
+  Map<String, dynamic>? _savedStoryDraft;
 
   // Measure Ruler telemetry (uses DrawToolMode.measure with full Draw-Drag + Loupe!)
   double _measureDistanceMeters = 0.0;
@@ -446,6 +464,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         _mutedPubkeys
           ..clear()
           ..addAll(loaded.mutedPubkeys);
+        final restoredTheme = themeModeFromId(loaded.themeMode);
+        widget.onThemeModeChanged?.call(restoredTheme);
+        final restoredBasemap = basemapKindFromId(loaded.basemapStyle);
+        if (restoredBasemap != BasemapKind.offlinePmtiles ||
+            _offlineBasemap != null) {
+          _selectedBasemap = restoredBasemap;
+        }
+        _backgroundMode = backgroundModeFromId(loaded.satelliteMode);
+        _satelliteOpacity = loaded.satelliteOpacity.clamp(0.05, 1.0);
+        if (loaded.storyDraftJson != null &&
+            loaded.storyDraftJson!.trim().isNotEmpty) {
+          try {
+            final parsedDraft = jsonDecode(loaded.storyDraftJson!);
+            if (parsedDraft is Map<String, dynamic>) {
+              _savedStoryDraft = parsedDraft;
+            }
+          } catch (_) {}
+        }
       });
       if (_savedAccounts.isNotEmpty) {
         unawaited(_resolveSessionProfiles());
@@ -609,9 +645,72 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           savedAccounts: syncedSessions,
           activeAccountId: _activeAccountId,
           mutedPubkeys: _mutedPubkeys.toList(growable: false),
+          themeMode: themeModeToId(widget.themeMode),
+          basemapStyle: basemapKindToId(_selectedBasemap),
+          satelliteMode: backgroundModeToId(_backgroundMode),
+          satelliteOpacity: _satelliteOpacity,
+          storyDraftJson: _savedStoryDraft != null
+              ? jsonEncode(_savedStoryDraft)
+              : null,
         ),
       );
     } catch (_) {}
+  }
+
+  Future<void> _syncSatellite(StyleController? style) async {
+    if (style == null) return;
+    final isOffline = _selectedBasemap == BasemapKind.offlinePmtiles &&
+        _offlineBasemap != null;
+    await syncSatelliteOverlayLayer(
+      style: style,
+      mode: _backgroundMode,
+      opacity: _satelliteOpacity,
+      isOfflinePmtiles: isOffline,
+    );
+  }
+
+  Future<void> _exportMapPosterPng() async {
+    try {
+      GeoBox? bounds;
+      try {
+        bounds = _controller?.getVisibleBounds();
+      } catch (_) {}
+      final sysDark =
+          mounted && Theme.of(context).brightness == Brightness.dark;
+      final isDark = isDarkBasemap(
+        _selectedBasemap,
+        systemIsDark: sysDark,
+        backgroundMode: _backgroundMode,
+      );
+      final bytes = await renderEarthlyMapPosterPng(
+        title: _draftTitle.trim().isEmpty ? 'Earthly Map' : _draftTitle.trim(),
+        shelfMaps: _shelfMaps,
+        draftFeatures: _features,
+        sightings: _allSightings,
+        isDark: isDark,
+        bounds: bounds,
+      );
+      final safeName = _draftTitle
+          .trim()
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+          .replaceAll(RegExp(r'^-|-$'), '');
+      final filename = '${safeName.isEmpty ? 'earthly' : safeName}-poster.png';
+      final saved = await DeviceBridge.saveBinaryFile(
+        filename: filename,
+        bytes: bytes,
+        mimeType: 'image/png',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Saved poster $saved')),
+      );
+    } catch (err) {
+      if (!mounted || err.toString().contains('cancelled')) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Poster export failed: $err')),
+      );
+    }
   }
 
   void _mutePubkey(String pubkey) {
@@ -1621,6 +1720,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       about: req.about.isEmpty ? null : req.about,
       picture: req.picture.isEmpty ? null : req.picture,
       nip05: req.nip05.isEmpty ? null : req.nip05,
+      website: req.website.isEmpty ? null : req.website,
+      banner: req.banner.isEmpty ? null : req.banner,
+      lud16: req.lud16.isEmpty ? null : req.lud16,
     );
     final signedEventJson =
         await _signUnsignedEvent(account, prepared.unsignedEventJson);
@@ -1639,6 +1741,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           about: req.about.isEmpty ? null : req.about,
           picture: req.picture.isEmpty ? null : req.picture,
           nip05: req.nip05.isEmpty ? null : req.nip05,
+          website: req.website.isEmpty ? null : req.website,
+          banner: req.banner.isEmpty ? null : req.banner,
+          lud16: req.lud16.isEmpty ? null : req.lud16,
         );
       });
     }
@@ -3781,41 +3886,49 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  'MAP STYLE',
+                  'APPEARANCE & MAP STYLE',
                   style: theme.textTheme.labelSmall?.copyWith(
                     fontFamily: 'monospace',
                   ),
                 ),
                 const SizedBox(height: 6),
                 Wrap(
-                  spacing: 8,
+                  spacing: 6,
                   runSpacing: 6,
                   children: [
-                    ChoiceChip(
-                      label: const Text('Liberty'),
-                      selected:
-                          effectiveBasemap == BasemapKind.openFreeMapLiberty,
-                      onSelected: (_) {
-                        setState(
-                          () =>
-                              _selectedBasemap = BasemapKind.openFreeMapLiberty,
-                        );
-                        Navigator.of(ctx).pop();
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('Dark'),
-                      selected: effectiveBasemap == BasemapKind.openFreeMapDark,
-                      onSelected: (_) {
-                        setState(
-                          () => _selectedBasemap = BasemapKind.openFreeMapDark,
-                        );
-                        Navigator.of(ctx).pop();
-                      },
-                    ),
+                    for (final m in const [
+                      (ThemeMode.system, 'System'),
+                      (ThemeMode.light, 'Light'),
+                      (ThemeMode.dark, 'Dark'),
+                    ])
+                      ChoiceChip(
+                        label: Text(m.$2),
+                        selected: widget.themeMode == m.$1,
+                        onSelected: (_) {
+                          widget.onThemeModeChanged?.call(m.$1);
+                          unawaited(_persistAppSettings());
+                        },
+                      ),
+                    for (final b in const [
+                      BasemapKind.auto,
+                      BasemapKind.openFreeMapPositron,
+                      BasemapKind.openFreeMapBright,
+                      BasemapKind.openFreeMapLiberty,
+                      BasemapKind.openFreeMapDark,
+                      BasemapKind.openFreeMapFiord,
+                    ])
+                      ChoiceChip(
+                        label: Text(basemapStyleLabel(b)),
+                        selected: effectiveBasemap == b,
+                        onSelected: (_) {
+                          setState(() => _selectedBasemap = b);
+                          unawaited(_persistAppSettings());
+                          Navigator.of(ctx).pop();
+                        },
+                      ),
                     ActionChip(
-                      avatar: const Icon(Icons.layers_outlined, size: 15),
-                      label: const Text('Offline / Overlays…'),
+                      avatar: const Icon(Icons.satellite_alt_outlined, size: 15),
+                      label: const Text('Satellite / Offline…'),
                       onPressed: () {
                         Navigator.of(ctx).pop();
                         _openBasemapSwitcher(effectiveBasemap);
@@ -5471,8 +5584,29 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         offlineBasemap: _offlineBasemap,
         showLabels: _showLabels,
         calloutMode: _calloutMode,
+        themeMode: widget.themeMode,
+        onThemeModeChanged: (mode) {
+          widget.onThemeModeChanged?.call(mode);
+          unawaited(_persistAppSettings());
+        },
+        backgroundMode: _backgroundMode,
+        satelliteOpacity: _satelliteOpacity,
+        onBackgroundModeChanged: (bg) {
+          setState(() => _backgroundMode = bg);
+          unawaited(_syncSatellite(_controller?.style));
+          unawaited(_persistAppSettings());
+        },
+        onSatelliteOpacityChanged: (v) {
+          setState(() => _satelliteOpacity = v);
+          unawaited(_syncSatellite(_controller?.style));
+          unawaited(_persistAppSettings());
+        },
+        onExportMapPosterPng: () => unawaited(_exportMapPosterPng()),
         savedOfflinePacks: _savedOfflinePacks,
-        onSelectBasemap: (kind) => setState(() => _selectedBasemap = kind),
+        onSelectBasemap: (kind) {
+          setState(() => _selectedBasemap = kind);
+          unawaited(_persistAppSettings());
+        },
         onLoadedOfflinePmtiles: (offline) {
           final s = offline.snapshot;
           final h = s.header;
@@ -5698,6 +5832,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onExportGeoJsonFile: () => unawaited(_exportGeoJsonFile()),
           onExportGpxFile: () => unawaited(_exportSpatialFile('gpx')),
           onExportKmlFile: () => unawaited(_exportSpatialFile('kml')),
+          onExportPosterPng: () => unawaited(_exportMapPosterPng()),
           onCopyGeoJson: _copyGeoJsonToClipboard,
           onPasteGeoJsonFromClipboard: () =>
               unawaited(_pasteGeoJsonFromClipboard()),
@@ -5891,6 +6026,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           account: _account,
           localNsec: _localNsec,
           bunkerUri: _bunkerUri,
+          relayUrls: _activeRelayUrls,
           savedAccounts: _savedAccounts,
           activeAccountId: _activeAccountId,
           profilesByPubkey: _profilesByPubkey,
@@ -6064,6 +6200,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           key: ValueKey(_editingStory?.address ?? 'new-story'),
           shelfMaps: _shelfMaps,
           editingStory: _editingStory,
+          initialDraft: _editingStory == null ? _savedStoryDraft : null,
+          onDraftChanged: (draft) {
+            _savedStoryDraft = draft;
+            unawaited(_persistAppSettings());
+          },
+          onDiscardDraft: () {
+            setState(() => _savedStoryDraft = null);
+            unawaited(_persistAppSettings());
+          },
           onUploadBlossomImage: _pickAndUploadBlossomImage,
           getCameraSnapshot: () => _controller?.camera,
           onPublishStory: _publishStory,
@@ -6428,20 +6573,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     final isDesktop = screenWidth >= 880;
     final isWideStudio = screenWidth >= 1100;
     final systemIsDark = theme.brightness == Brightness.dark;
-    final effectiveBasemap = _selectedBasemap ??
-        (systemIsDark
-            ? BasemapKind.openFreeMapDark
-            : BasemapKind.openFreeMapLiberty);
-    final isDarkMap = effectiveBasemap == BasemapKind.openFreeMapDark;
+    final effectiveBasemap = _selectedBasemap;
+    final isDarkMap = isDarkBasemap(
+      effectiveBasemap,
+      systemIsDark: systemIsDark,
+      backgroundMode: _backgroundMode,
+    );
 
     final MapStyle mapStyle;
     if (effectiveBasemap == BasemapKind.offlinePmtiles &&
         _offlineBasemap != null) {
       mapStyle = MapStyle.json(_offlineBasemap!.styleJson);
-    } else if (effectiveBasemap == BasemapKind.openFreeMapDark) {
-      mapStyle = const MapStyle.url(_openFreeMapDark);
     } else {
-      mapStyle = const MapStyle.url(_openFreeMapLiberty);
+      mapStyle = MapStyle.url(
+        openFreeMapStyleUrl(effectiveBasemap, systemIsDark: systemIsDark),
+      );
     }
 
     final gestures = _activeMapGestures;
@@ -6547,6 +6693,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             ),
             onMapCreated: (controller) =>
                 setState(() => _controller = controller),
+            onStyleLoaded: (style) => unawaited(_syncSatellite(style)),
             layers: gpuLayers,
             children: [
               EarthlyCalloutOverlay(

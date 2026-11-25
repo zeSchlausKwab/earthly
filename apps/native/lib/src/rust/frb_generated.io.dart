@@ -329,6 +329,9 @@ abstract class EarthlyRustLibApiImplPlatform
   NearbyPeersSnapshot dco_decode_nearby_peers_snapshot(dynamic raw);
 
   @protected
+  Nip46ClientOfferDto dco_decode_nip_46_client_offer_dto(dynamic raw);
+
+  @protected
   Nip46ConnectionDto dco_decode_nip_46_connection_dto(dynamic raw);
 
   @protected
@@ -858,6 +861,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   NearbyPeersSnapshot sse_decode_nearby_peers_snapshot(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Nip46ClientOfferDto sse_decode_nip_46_client_offer_dto(
     SseDeserializer deserializer,
   );
 
@@ -1541,6 +1549,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_nearby_peers_snapshot(
     NearbyPeersSnapshot self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_nip_46_client_offer_dto(
+    Nip46ClientOfferDto self,
     SseSerializer serializer,
   );
 

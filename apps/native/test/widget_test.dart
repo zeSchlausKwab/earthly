@@ -1,6 +1,9 @@
 import 'package:earthly_native/drawing/drawing_model.dart';
 import 'package:earthly_native/main.dart';
+import 'package:earthly_native/nostr/basemap_config.dart';
 import 'package:earthly_native/nostr/callout_overlay.dart';
+import 'package:earthly_native/nostr/earthly_share.dart';
+import 'package:earthly_native/nostr/map_poster_exporter.dart';
 import 'package:earthly_native/nostr/nip55_signer.dart';
 import 'package:earthly_native/nostr/shelf_renderer.dart';
 import 'package:earthly_native/nostr/story_presentation.dart';
@@ -23,6 +26,7 @@ import 'package:earthly_native/shell/person_margin.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
 import 'package:earthly_native/shell/social_actions_bar.dart';
 import 'package:earthly_native/shell/story_composer_sheet.dart';
+import 'package:earthly_native/shell/story_reader_margin.dart';
 import 'package:earthly_native/src/rust/api/agent.dart';
 import 'package:earthly_native/src/rust/api/blossom.dart';
 import 'package:earthly_native/src/rust/api/geo.dart';
@@ -2583,5 +2587,304 @@ Start at geo:48.2764,16.3338 and check $naddr
 
     await scrollAndTap(find.byKey(const Key('workbench-rotate-selected')));
     expect(lastWorkbenchOp, (RustGeoAction.rotateSelected, 250.0, 15.0));
+  });
+
+  testWidgets(
+      'BasemapSwitcherSheet switches Light/Dark theme, OpenFreeMap style, Satellite Combined overlay, and Poster PNG export',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1100);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    ThemeMode? selectedTheme;
+    BasemapKind? selectedBasemap;
+    MapBackgroundMode? selectedBgMode;
+    double? selectedOpacity;
+    var posterExported = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BasemapSwitcherSheet(
+            activeBasemap: BasemapKind.auto,
+            offlineBasemap: null,
+            showLabels: true,
+            calloutMode: CalloutDisplayMode.full,
+            themeMode: ThemeMode.system,
+            onThemeModeChanged: (m) => selectedTheme = m,
+            backgroundMode: MapBackgroundMode.osm,
+            satelliteOpacity: 0.75,
+            onBackgroundModeChanged: (bg) => selectedBgMode = bg,
+            onSatelliteOpacityChanged: (op) => selectedOpacity = op,
+            onExportMapPosterPng: () => posterExported = true,
+            onSelectBasemap: (k) => selectedBasemap = k,
+            onLoadedOfflinePmtiles: (_) {},
+            onToggleLabels: (_) {},
+            onChangeCalloutMode: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('theme-mode-dark')));
+    await tester.pump();
+    expect(selectedTheme, ThemeMode.dark);
+
+    await tester.tap(find.byKey(const Key('bg-mode-combined')));
+    await tester.pumpAndSettle();
+    expect(selectedBgMode, MapBackgroundMode.combined);
+    expect(find.byKey(const Key('satellite-opacity-slider')), findsOneWidget);
+
+    await tester.drag(
+      find.byKey(const Key('satellite-opacity-slider')),
+      const Offset(-80, 0),
+    );
+    await tester.pump();
+    expect(selectedOpacity, isNotNull);
+
+    await tester.ensureVisible(find.byKey(const Key('basemap-export-poster-btn')));
+    await tester.tap(find.byKey(const Key('basemap-export-poster-btn')));
+    await tester.pump();
+    expect(posterExported, isTrue);
+
+    expect(
+      openFreeMapStyleUrl(BasemapKind.openFreeMapPositron, systemIsDark: false),
+      'https://tiles.openfreemap.org/styles/positron',
+    );
+    expect(
+      openFreeMapStyleUrl(BasemapKind.openFreeMapFiord, systemIsDark: false),
+      'https://tiles.openfreemap.org/styles/fiord',
+    );
+    expect(selectedBasemap, isNull);
+  });
+
+  testWidgets(
+      'StoryReaderMargin toggles Follow Text scrollytelling and renders inline vector map figures',
+      (WidgetTester tester) async {
+    const md = '''
+## Ridge Crossing
+
+```earthly-view
+{"id":"v1","title":"Trailhead","caption":"Base camp","display":"both","camera":{"center":[16.36,48.20],"zoom":14.0}}
+```
+''';
+    final parsed = parseStoryDocument(markdown: md);
+    expect(parsed.viewSnapshots.first.step?.display, 'both');
+
+    final story = StorySummaryDto(
+      address: '37520:aaa:ridge',
+      eventId: 'st-ev-1',
+      pubkey: 'aaa',
+      dTag: 'ridge',
+      title: 'Alpine Ridge',
+      content: md,
+      referencedAddresses: const [],
+      publishedAt: BigInt.zero,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              StoryReaderMargin(
+                story: story,
+                relayUrls: const ['wss://relay.earthly.city'],
+                parsed: parsed,
+                datasetsByAddress: const {},
+                decodedRefsByToken: const {},
+                loadingLinkedMaps: false,
+                activeViewIndex: 0,
+                calloutCount: 0,
+                onSelectViewIndex: (_) {},
+                onFocusDataset: (_) {},
+                onActivateNaddrRef: (_) {},
+                onActivateGeoRef: (_, _, _) {},
+                onFitAllGeometry: () {},
+                onOpenDiscussion: () {},
+                onKeepOnShelf: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('story-follow-text-toggle')), findsOneWidget);
+    expect(find.text('FOLLOW ON'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('story-follow-text-toggle')));
+    await tester.pump();
+    expect(find.text('FOLLOW OFF'), findsOneWidget);
+
+    expect(find.byKey(const Key('story-inline-figure-0')), findsOneWidget);
+    expect(find.textContaining('z14.0'), findsOneWidget);
+  });
+
+  testWidgets(
+      'StoryComposerDrawer restores local draft and switches Write/Preview tabs',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1100);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    Map<String, dynamic>? latestDraft;
+    var discarded = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              StoryComposerDrawer(
+                shelfMaps: const [],
+                getCameraSnapshot: () => null,
+                initialDraft: const {
+                  'title': 'Danube Field Log',
+                  'summary': 'Water stations along the bank.',
+                  'markdown': '## Stop 1\nVisited geo:48.2082,16.3738 today.',
+                },
+                onDraftChanged: (d) => latestDraft = d,
+                onDiscardDraft: () => discarded = true,
+                onPublishStory: (_) async => const PublishOutcomeDto(
+                  eventId: '0123456789abcdef',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('DRAFT RESTORED'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('story-composer-preview-tab')));
+    await tester.pumpAndSettle();
+    expect(find.text('Danube Field Log'), findsOneWidget);
+    expect(find.text('Stop 1'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('story-composer-write-tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard'));
+    await tester.pump();
+    expect(discarded, isTrue);
+    expect(latestDraft, isNull);
+  });
+
+  testWidgets(
+      'AccountSessionSheet exposes nostrconnect:// QR login and extended kind 0 fields (website, banner, lud16)',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1100);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    ProfileEditRequest? savedProfile;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AccountSessionSheet(
+                account: Nip55Account(pubkey: 'a' * 64),
+                localNsec: null,
+                profile: const ProfileMetadataDto(
+                  pubkey: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                  name: 'alice',
+                  displayName: 'Alice Explorer',
+                  website: 'https://earthly.city',
+                  lud16: 'alice@getalby.com',
+                ),
+                activeSessionSummary: null,
+                onAccountChanged: (_) {},
+                onLocalKeyChanged: (_) {},
+                onSaveProfile: (req) async {
+                  savedProfile = req;
+                  return const PublishOutcomeDto(
+                    eventId: '0123456789abcdef',
+                    outboxState: 'sent',
+                    relays: [],
+                  );
+                },
+                onOpenSpaces: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('https://earthly.city'), findsOneWidget);
+    expect(find.text('⚡ alice@getalby.com'), findsOneWidget);
+
+    await tester.tap(find.text('Edit Profile'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('profile-website-field')),
+      'https://alice.example',
+    );
+    await tester.enterText(
+      find.byKey(const Key('profile-lud16-field')),
+      'zap@alice.example',
+    );
+    await tester.enterText(
+      find.byKey(const Key('profile-banner-field')),
+      'https://blossom.earthly.city/banner.png',
+    );
+    final saveBtn = find.text('Save & Publish Profile (kind 0)');
+    await tester.ensureVisible(saveBtn);
+    await tester.tap(saveBtn);
+    await tester.pumpAndSettle();
+
+    expect(savedProfile?.website, 'https://alice.example');
+    expect(savedProfile?.lud16, 'zap@alice.example');
+    expect(savedProfile?.banner, 'https://blossom.earthly.city/banner.png');
+
+    final bunkerBtn = find.text('Connect Bunker (NIP-46)');
+    await tester.ensureVisible(bunkerBtn);
+    await tester.tap(bunkerBtn);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('bunker-nostrconnect-qr-btn')), findsOneWidget);
+  });
+
+  test(
+      'renderEarthlyMapPosterPng outputs valid PNG and buildEarthlyWebShareUrl builds web routes',
+      () async {
+    expect(
+      buildEarthlyWebShareUrl(kind: 37515, naddrUri: 'nostr:naddr1abc'),
+      'https://earthly.city/map/naddr1abc',
+    );
+    expect(
+      buildEarthlyWebShareUrl(kind: 37520, naddrUri: 'naddr1story'),
+      'https://earthly.city/story/naddr1story',
+    );
+    expect(
+      buildEarthlyWebShareUrl(kind: 37518, naddrUri: 'nostr:naddr1atlas'),
+      'https://earthly.city/context/naddr1atlas',
+    );
+
+    final png = await renderEarthlyMapPosterPng(
+      title: 'Test Poster',
+      shelfMaps: const [],
+      draftFeatures: const [
+        DrawnFeature(
+          id: 'l-1',
+          kind: DrawToolMode.line,
+          name: 'Ridge Path',
+          arrowEnd: true,
+          vertices: [
+            Geographic(lon: 16.36, lat: 48.20),
+            Geographic(lon: 16.38, lat: 48.22),
+          ],
+        ),
+      ],
+      width: 400,
+      height: 300,
+    );
+    expect(png.length, greaterThan(100));
+    expect(png.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
   });
 }

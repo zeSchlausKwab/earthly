@@ -891,6 +891,9 @@ class ProfileMetadataDto {
   final String? about;
   final String? picture;
   final String? nip05;
+  final String? website;
+  final String? banner;
+  final String? lud16;
 
   const ProfileMetadataDto({
     required this.pubkey,
@@ -899,6 +902,9 @@ class ProfileMetadataDto {
     this.about,
     this.picture,
     this.nip05,
+    this.website,
+    this.banner,
+    this.lud16,
   });
 
   @override
@@ -908,7 +914,10 @@ class ProfileMetadataDto {
       displayName.hashCode ^
       about.hashCode ^
       picture.hashCode ^
-      nip05.hashCode;
+      nip05.hashCode ^
+      website.hashCode ^
+      banner.hashCode ^
+      lud16.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -920,7 +929,10 @@ class ProfileMetadataDto {
           displayName == other.displayName &&
           about == other.about &&
           picture == other.picture &&
-          nip05 == other.nip05;
+          nip05 == other.nip05 &&
+          website == other.website &&
+          banner == other.banner &&
+          lud16 == other.lud16;
 }
 
 class SightingSummaryDto {

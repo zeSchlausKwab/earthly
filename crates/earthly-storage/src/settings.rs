@@ -18,6 +18,22 @@ fn default_blossom_server_url() -> String {
     DEFAULT_BLOSSOM_SERVER_URL.to_owned()
 }
 
+fn default_theme_mode() -> String {
+    "system".to_owned()
+}
+
+fn default_basemap_style() -> String {
+    "auto".to_owned()
+}
+
+fn default_satellite_mode() -> String {
+    "osm".to_owned()
+}
+
+fn default_satellite_opacity() -> f64 {
+    0.75
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedAccountSessionRecord {
@@ -100,6 +116,16 @@ pub struct PersistedAppSettings {
     pub active_account_id: Option<String>,
     #[serde(default)]
     pub muted_pubkeys: Vec<String>,
+    #[serde(default = "default_theme_mode")]
+    pub theme_mode: String,
+    #[serde(default = "default_basemap_style")]
+    pub basemap_style: String,
+    #[serde(default = "default_satellite_mode")]
+    pub satellite_mode: String,
+    #[serde(default = "default_satellite_opacity")]
+    pub satellite_opacity: f64,
+    #[serde(default)]
+    pub story_draft_json: Option<String>,
 }
 
 impl Default for PersistedAppSettings {
@@ -125,6 +151,11 @@ impl Default for PersistedAppSettings {
             saved_accounts: Vec::new(),
             active_account_id: None,
             muted_pubkeys: Vec::new(),
+            theme_mode: default_theme_mode(),
+            basemap_style: default_basemap_style(),
+            satellite_mode: default_satellite_mode(),
+            satellite_opacity: default_satellite_opacity(),
+            story_draft_json: None,
         }
     }
 }
@@ -248,6 +279,11 @@ impl AppSettingsStore {
         if settings.relay_urls.is_empty() {
             settings.relay_urls.push("wss://relay.earthly.city".to_owned());
         }
+        settings.satellite_opacity = if settings.satellite_opacity.is_finite() {
+            settings.satellite_opacity.clamp(0.0, 1.0)
+        } else {
+            default_satellite_opacity()
+        };
         let value_json = serde_json::to_string(&settings)
             .map_err(|e| SettingsStoreError::new("settings-serialize-failed", e.to_string()))?;
         let now = SystemTime::now()

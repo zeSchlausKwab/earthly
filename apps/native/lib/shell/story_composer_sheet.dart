@@ -1,14 +1,17 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:maplibre/maplibre.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../nostr/shelf_renderer.dart';
+import '../nostr/story_presentation.dart';
 import '../src/rust/api/blossom.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'desk_sheet.dart';
+import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -45,6 +48,9 @@ class StoryComposerDrawer extends StatefulWidget {
     required this.onClose,
     this.editingStory,
     this.onUploadBlossomImage,
+    this.initialDraft,
+    this.onDraftChanged,
+    this.onDiscardDraft,
     super.key,
   });
 
@@ -56,34 +62,114 @@ class StoryComposerDrawer extends StatefulWidget {
       onUploadBlossomImage;
   final VoidCallback onClose;
   final StorySummaryDto? editingStory;
+  final Map<String, dynamic>? initialDraft;
+  final ValueChanged<Map<String, dynamic>?>? onDraftChanged;
+  final VoidCallback? onDiscardDraft;
 
   @override
   State<StoryComposerDrawer> createState() => _StoryComposerDrawerState();
 }
 
 class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
-  late final TextEditingController _titleController =
-      TextEditingController(text: widget.editingStory?.title ?? '');
-  late final TextEditingController _summaryController =
-      TextEditingController(text: widget.editingStory?.summary ?? '');
-  late final TextEditingController _imageController =
-      TextEditingController(text: widget.editingStory?.image ?? '');
-  late final TextEditingController _bodyController =
-      TextEditingController(text: widget.editingStory?.content ?? '');
+  late final TextEditingController _titleController;
+  late final TextEditingController _summaryController;
+  late final TextEditingController _imageController;
+  late final TextEditingController _bodyController;
 
-  late final Set<String> _selectedMapAddresses = {
-    ...widget.shelfMaps.map((m) => m.summary.address),
-    ...(widget.editingStory?.referencedAddresses ?? const <String>[]),
-  };
+  late final Set<String> _selectedMapAddresses;
   DraftAudienceChoice _audience = DraftAudienceChoice.publicRelay;
   int _viewCounter = 0;
   bool _publishing = false;
   bool _uploadingMedia = false;
+  bool _previewMode = false;
+  bool _restoredFromDraft = false;
+  Timer? _draftDebounce;
   String? _error;
   PublishOutcomeDto? _outcome;
 
   @override
+  void initState() {
+    super.initState();
+    final draft = widget.editingStory == null ? widget.initialDraft : null;
+    _restoredFromDraft = draft != null &&
+        ((draft['title'] as String? ?? '').isNotEmpty ||
+            (draft['markdown'] as String? ?? '').isNotEmpty ||
+            (draft['summary'] as String? ?? '').isNotEmpty);
+    _titleController = TextEditingController(
+      text: widget.editingStory?.title ?? (draft?['title'] as String? ?? ''),
+    );
+    _summaryController = TextEditingController(
+      text:
+          widget.editingStory?.summary ?? (draft?['summary'] as String? ?? ''),
+    );
+    _imageController = TextEditingController(
+      text: widget.editingStory?.image ?? (draft?['image'] as String? ?? ''),
+    );
+    _bodyController = TextEditingController(
+      text:
+          widget.editingStory?.content ?? (draft?['markdown'] as String? ?? ''),
+    );
+    _selectedMapAddresses = {
+      ...widget.shelfMaps.map((m) => m.summary.address),
+      ...(widget.editingStory?.referencedAddresses ?? const <String>[]),
+      if (draft != null && draft['linkedMaps'] is List)
+        ...(draft['linkedMaps'] as List).whereType<String>(),
+    };
+    if (draft?['audience'] == 'nearby') {
+      _audience = DraftAudienceChoice.nearbyLocalNode;
+    }
+    _titleController.addListener(_scheduleDraftSave);
+    _summaryController.addListener(_scheduleDraftSave);
+    _imageController.addListener(_scheduleDraftSave);
+    _bodyController.addListener(_scheduleDraftSave);
+  }
+
+  void _scheduleDraftSave() {
+    if (widget.editingStory != null || widget.onDraftChanged == null) return;
+    _draftDebounce?.cancel();
+    _draftDebounce = Timer(const Duration(milliseconds: 350), _emitDraftNow);
+  }
+
+  void _emitDraftNow() {
+    if (widget.editingStory != null || widget.onDraftChanged == null) return;
+    final title = _titleController.text;
+    final summary = _summaryController.text;
+    final image = _imageController.text;
+    final body = _bodyController.text;
+    if (title.trim().isEmpty &&
+        summary.trim().isEmpty &&
+        image.trim().isEmpty &&
+        body.trim().isEmpty) {
+      widget.onDraftChanged!(null);
+      return;
+    }
+    widget.onDraftChanged!({
+      'title': title,
+      'summary': summary,
+      'image': image,
+      'markdown': body,
+      'linkedMaps': _selectedMapAddresses.toList(growable: false),
+      'audience':
+          _audience == DraftAudienceChoice.nearbyLocalNode ? 'nearby' : 'public',
+    });
+  }
+
+  void _discardSavedDraft() {
+    _draftDebounce?.cancel();
+    setState(() {
+      _titleController.clear();
+      _summaryController.clear();
+      _imageController.clear();
+      _bodyController.clear();
+      _restoredFromDraft = false;
+    });
+    widget.onDraftChanged?.call(null);
+    widget.onDiscardDraft?.call();
+  }
+
+  @override
   void dispose() {
+    _draftDebounce?.cancel();
     _titleController.dispose();
     _summaryController.dispose();
     _imageController.dispose();
@@ -219,7 +305,12 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
         ),
       );
       if (!mounted) return;
-      setState(() => _outcome = outcome);
+      _draftDebounce?.cancel();
+      widget.onDraftChanged?.call(null);
+      setState(() {
+        _outcome = outcome;
+        _restoredFromDraft = false;
+      });
     } catch (err) {
       if (!mounted) return;
       setState(() => _error = err.toString());
@@ -241,16 +332,19 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
           children: [
             const Icon(Icons.auto_stories_outlined, size: 17),
             const SizedBox(width: 8),
-            Text(
-              widget.editingStory != null
-                  ? 'EDIT STORY (37520)'
-                  : 'COMPOSE STORY (37520)',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontFamily: 'monospace',
-                letterSpacing: 0.7,
+            Expanded(
+              child: Text(
+                widget.editingStory != null
+                    ? 'EDIT STORY (37520)'
+                    : 'COMPOSE STORY (37520)',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.7,
+                ),
               ),
             ),
-            const Spacer(),
             IconButton(
               visualDensity: VisualDensity.compact,
               onPressed: widget.onClose,
@@ -264,6 +358,126 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              alignment: WrapAlignment.spaceBetween,
+              children: [
+                Wrap(
+                  spacing: 6,
+                  children: [
+                    ChoiceChip(
+                      key: const Key('story-composer-write-tab'),
+                      label: const Text('Write'),
+                      selected: !_previewMode,
+                      onSelected: (_) => setState(() => _previewMode = false),
+                    ),
+                    ChoiceChip(
+                      key: const Key('story-composer-preview-tab'),
+                      label: const Text('Preview'),
+                      selected: _previewMode,
+                      onSelected: (_) => setState(() => _previewMode = true),
+                    ),
+                  ],
+                ),
+                if (_restoredFromDraft)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const EarthlyBadge(
+                        label: 'DRAFT RESTORED',
+                        color: EarthlyColors.amber,
+                      ),
+                      const SizedBox(width: 4),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: _discardSavedDraft,
+                        child: const Text('Discard'),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (_previewMode) ...[
+              if (_imageController.text.trim().startsWith('http')) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    height: 150,
+                    width: double.infinity,
+                    child: EarthlyNetworkImage(
+                      url: _imageController.text.trim(),
+                      fit: BoxFit.cover,
+                      fallback: const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              Text(
+                _titleController.text.trim().isEmpty
+                    ? 'Untitled Story'
+                    : _titleController.text.trim(),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              if (_summaryController.text.trim().isNotEmpty) ...[
+                const SizedBox(height: 6),
+                EarthlyRichText(
+                  text: _summaryController.text.trim(),
+                  baseStyle: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+              const Divider(height: 18),
+              ...() {
+                final parsedPreview = parseStoryDocument(
+                  markdown: _bodyController.text,
+                  presentationJson: _buildPresentationJson(),
+                );
+                if (parsedPreview.segments.isEmpty) {
+                  return <Widget>[
+                    Text(
+                      'Start writing Markdown in the Write tab to preview.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ];
+                }
+                return <Widget>[
+                  for (final seg in parsedPreview.segments)
+                    switch (seg) {
+                      StoryViewCardSegment(:final viewIndex, :final step) =>
+                        Container(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary
+                                .withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: theme.dividerColor),
+                          ),
+                          child: Text(
+                            'VIEW ${viewIndex + 1} · ${step.title}${step.caption != null ? ' — ${step.caption}' : ''}',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      StoryMarkdownTextSegment(:final text) =>
+                        EarthlyRichText(text: text),
+                    },
+                ];
+              }(),
+              const SizedBox(height: 12),
+            ] else ...[
             TextField(
               controller: _titleController,
               decoration: const InputDecoration(
@@ -376,13 +590,16 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
                       label: Text(m.summary.title),
                       selected:
                           _selectedMapAddresses.contains(m.summary.address),
-                      onSelected: (sel) => setState(() {
-                        if (sel) {
-                          _selectedMapAddresses.add(m.summary.address);
-                        } else {
-                          _selectedMapAddresses.remove(m.summary.address);
-                        }
-                      }),
+                      onSelected: (sel) {
+                        setState(() {
+                          if (sel) {
+                            _selectedMapAddresses.add(m.summary.address);
+                          } else {
+                            _selectedMapAddresses.remove(m.summary.address);
+                          }
+                        });
+                        _scheduleDraftSave();
+                      },
                     ),
                 ],
               ),
@@ -395,18 +612,24 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
                 ChoiceChip(
                   label: const Text('Public Relay'),
                   selected: _audience == DraftAudienceChoice.publicRelay,
-                  onSelected: (_) =>
-                      setState(() => _audience = DraftAudienceChoice.publicRelay),
+                  onSelected: (_) {
+                    setState(() => _audience = DraftAudienceChoice.publicRelay);
+                    _scheduleDraftSave();
+                  },
                 ),
                 ChoiceChip(
                   label: const Text('Nearby Local Node'),
                   selected: _audience == DraftAudienceChoice.nearbyLocalNode,
-                  onSelected: (_) => setState(
-                    () => _audience = DraftAudienceChoice.nearbyLocalNode,
-                  ),
+                  onSelected: (_) {
+                    setState(
+                      () => _audience = DraftAudienceChoice.nearbyLocalNode,
+                    );
+                    _scheduleDraftSave();
+                  },
                 ),
               ],
             ),
+            ],
 
             if (_error != null) ...[
               const SizedBox(height: 8),

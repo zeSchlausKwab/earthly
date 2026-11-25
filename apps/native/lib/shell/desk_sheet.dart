@@ -82,6 +82,7 @@ class DeskSheet extends StatefulWidget {
     required this.onExportGeoJsonFile,
     this.onExportGpxFile,
     this.onExportKmlFile,
+    this.onExportPosterPng,
     required this.onCopyGeoJson,
     this.onPasteGeoJsonFromClipboard,
     this.onValidateDraft,
@@ -148,6 +149,7 @@ class DeskSheet extends StatefulWidget {
   final VoidCallback onExportGeoJsonFile;
   final VoidCallback? onExportGpxFile;
   final VoidCallback? onExportKmlFile;
+  final VoidCallback? onExportPosterPng;
   final VoidCallback onCopyGeoJson;
   final VoidCallback? onPasteGeoJsonFromClipboard;
   final Future<DraftValidationDto> Function()? onValidateDraft;
@@ -658,7 +660,8 @@ class _DeskSheetState extends State<DeskSheet> {
                   label: const Text('Paste GeoJSON'),
                 ),
               PopupMenuButton<String>(
-                enabled: widget.drawnFeatures.isNotEmpty,
+                enabled: widget.drawnFeatures.isNotEmpty ||
+                    widget.shelfMaps.any((m) => m.visible),
                 tooltip: 'Export working draft',
                 onSelected: (choice) {
                   switch (choice) {
@@ -668,6 +671,8 @@ class _DeskSheetState extends State<DeskSheet> {
                       widget.onExportGpxFile?.call();
                     case 'kml':
                       widget.onExportKmlFile?.call();
+                    case 'poster':
+                      widget.onExportPosterPng?.call();
                     case 'copy':
                       widget.onCopyGeoJson();
                   }
@@ -687,6 +692,12 @@ class _DeskSheetState extends State<DeskSheet> {
                       value: 'kml',
                       child: Text('Export Google Earth KML (.kml)'),
                     ),
+                  if (widget.onExportPosterPng != null)
+                    const PopupMenuItem(
+                      key: Key('desk-export-poster-png'),
+                      value: 'poster',
+                      child: Text('Export Map Poster (.png)'),
+                    ),
                   const PopupMenuItem(
                     value: 'copy',
                     child: Text('Copy GeoJSON to Clipboard'),
@@ -694,7 +705,10 @@ class _DeskSheetState extends State<DeskSheet> {
                 ],
                 child: IgnorePointer(
                   child: OutlinedButton.icon(
-                    onPressed: widget.drawnFeatures.isEmpty ? null : () {},
+                    onPressed: (widget.drawnFeatures.isEmpty &&
+                            !widget.shelfMaps.any((m) => m.visible))
+                        ? null
+                        : () {},
                     icon: const Icon(Icons.file_download_outlined, size: 15),
                     label: const Text('Export ▾'),
                   ),

@@ -44,6 +44,11 @@ class AppSettingsDto {
   final List<SavedAccountSessionDto> savedAccounts;
   final String? activeAccountId;
   final List<String> mutedPubkeys;
+  final String themeMode;
+  final String basemapStyle;
+  final String satelliteMode;
+  final double satelliteOpacity;
+  final String? storyDraftJson;
 
   const AppSettingsDto({
     required this.relayUrls,
@@ -66,6 +71,11 @@ class AppSettingsDto {
     required this.savedAccounts,
     this.activeAccountId,
     required this.mutedPubkeys,
+    required this.themeMode,
+    required this.basemapStyle,
+    required this.satelliteMode,
+    required this.satelliteOpacity,
+    this.storyDraftJson,
   });
 
   @override
@@ -89,7 +99,12 @@ class AppSettingsDto {
       inboxReadIds.hashCode ^
       savedAccounts.hashCode ^
       activeAccountId.hashCode ^
-      mutedPubkeys.hashCode;
+      mutedPubkeys.hashCode ^
+      themeMode.hashCode ^
+      basemapStyle.hashCode ^
+      satelliteMode.hashCode ^
+      satelliteOpacity.hashCode ^
+      storyDraftJson.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -115,7 +130,12 @@ class AppSettingsDto {
           inboxReadIds == other.inboxReadIds &&
           savedAccounts == other.savedAccounts &&
           activeAccountId == other.activeAccountId &&
-          mutedPubkeys == other.mutedPubkeys;
+          mutedPubkeys == other.mutedPubkeys &&
+          themeMode == other.themeMode &&
+          basemapStyle == other.basemapStyle &&
+          satelliteMode == other.satelliteMode &&
+          satelliteOpacity == other.satelliteOpacity &&
+          storyDraftJson == other.storyDraftJson;
 }
 
 class MountedAtlasWorkspaceDto {

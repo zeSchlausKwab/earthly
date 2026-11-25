@@ -132,7 +132,37 @@ class MainFlutterWindow: NSWindow {
         let args = call.arguments as? [String: Any]
         let filename = (args?["filename"] as? String) ?? "earthly-map.geojson"
         let content = (args?["content"] as? String) ?? ""
-        self.saveGeoJsonPanel(filename: filename, content: content, result: result)
+        self.saveDataPanel(
+          filename: filename,
+          data: Data(content.utf8),
+          fallbackExt: "geojson",
+          title: "Export Earthly",
+          result: result
+        )
+      case "saveBinaryFile":
+        let args = call.arguments as? [String: Any]
+        let filename = (args?["filename"] as? String) ?? "earthly-poster.png"
+        let typed = args?["bytes"] as? FlutterStandardTypedData
+        self.saveDataPanel(
+          filename: filename,
+          data: typed?.data ?? Data(),
+          fallbackExt: "png",
+          title: "Save Map Poster",
+          result: result
+        )
+      case "shareText":
+        let args = call.arguments as? [String: Any]
+        let text = (args?["text"] as? String) ?? ""
+        guard !text.isEmpty, let view = self.contentView else {
+          result(false)
+          return
+        }
+        DispatchQueue.main.async {
+          let picker = NSSharingServicePicker(items: [text])
+          let rect = NSRect(x: max(16, view.bounds.width - 120), y: max(16, view.bounds.height - 64), width: 1, height: 1)
+          picker.show(relativeTo: rect, of: view, preferredEdge: .minY)
+          result(true)
+        }
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -176,18 +206,20 @@ class MainFlutterWindow: NSWindow {
     }
   }
 
-  private func saveGeoJsonPanel(
+  private func saveDataPanel(
     filename: String,
-    content: String,
+    data: Data,
+    fallbackExt: String,
+    title: String,
     result: @escaping FlutterResult
   ) {
     DispatchQueue.main.async {
       let panel = NSSavePanel()
       let ext = (filename as NSString).pathExtension.lowercased()
-      panel.title = "Export Earthly \(ext.isEmpty ? "GEOJSON" : ext.uppercased())"
+      panel.title = "\(title) \(ext.isEmpty ? fallbackExt.uppercased() : ext.uppercased())"
       panel.nameFieldStringValue = filename
       if #available(macOS 11.0, *) {
-        let targetExt = ext.isEmpty ? "geojson" : ext
+        let targetExt = ext.isEmpty ? fallbackExt : ext
         if let fileType = UTType(filenameExtension: targetExt) {
           panel.allowedContentTypes = [fileType]
         }
@@ -198,7 +230,7 @@ class MainFlutterWindow: NSWindow {
           return
         }
         do {
-          try content.write(to: url, atomically: true, encoding: .utf8)
+          try data.write(to: url, options: .atomic)
           result(url.lastPathComponent)
         } catch {
           result(FlutterError(code: "write_failed", message: error.localizedDescription, details: nil))

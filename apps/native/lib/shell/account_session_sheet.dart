@@ -14,6 +14,7 @@ import '../src/rust/api/settings.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
 import 'map_drawer.dart';
+import 'qr_code_view.dart';
 
 @immutable
 class ProfileEditRequest {
@@ -23,6 +24,9 @@ class ProfileEditRequest {
     required this.about,
     required this.picture,
     required this.nip05,
+    this.website = '',
+    this.banner = '',
+    this.lud16 = '',
   });
 
   final String name;
@@ -30,6 +34,9 @@ class ProfileEditRequest {
   final String about;
   final String picture;
   final String nip05;
+  final String website;
+  final String banner;
+  final String lud16;
 }
 
 /// Dedicated Account & Session drawer opened from the top-bar account pill.
@@ -60,8 +67,11 @@ class AccountSessionSheet extends StatefulWidget {
     this.onUploadBlossomImage,
     this.mutedPubkeys = const <String>{},
     this.onUnmutePubkey,
+    this.relayUrls = const <String>['wss://relay.earthly.city'],
     super.key,
   });
+
+  final List<String> relayUrls;
 
   final Nip55Account? account;
   final String? localNsec;
@@ -103,14 +113,20 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
   late final TextEditingController _aboutController;
   late final TextEditingController _pictureController;
   late final TextEditingController _nip05Controller;
+  late final TextEditingController _websiteController;
+  late final TextEditingController _bannerController;
+  late final TextEditingController _lud16Controller;
 
   bool _amberInstalled = false;
   bool _busy = false;
   bool _uploadingAvatar = false;
+  bool _uploadingBanner = false;
   bool _showImport = false;
   bool _showBunker = false;
   bool _showReadOnly = false;
   bool _editingProfile = false;
+  Nip46ClientOfferDto? _nostrConnectOffer;
+  bool _awaitingNostrConnect = false;
   String? _error;
   String? _info;
 
@@ -124,6 +140,11 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
     _pictureController =
         TextEditingController(text: widget.profile?.picture ?? '');
     _nip05Controller = TextEditingController(text: widget.profile?.nip05 ?? '');
+    _websiteController =
+        TextEditingController(text: widget.profile?.website ?? '');
+    _bannerController =
+        TextEditingController(text: widget.profile?.banner ?? '');
+    _lud16Controller = TextEditingController(text: widget.profile?.lud16 ?? '');
     _checkAmber();
   }
 
@@ -136,6 +157,9 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
       _aboutController.text = widget.profile?.about ?? '';
       _pictureController.text = widget.profile?.picture ?? '';
       _nip05Controller.text = widget.profile?.nip05 ?? '';
+      _websiteController.text = widget.profile?.website ?? '';
+      _bannerController.text = widget.profile?.banner ?? '';
+      _lud16Controller.text = widget.profile?.lud16 ?? '';
     }
   }
 
@@ -150,6 +174,9 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
     _aboutController.dispose();
     _pictureController.dispose();
     _nip05Controller.dispose();
+    _websiteController.dispose();
+    _bannerController.dispose();
+    _lud16Controller.dispose();
     super.dispose();
   }
 
@@ -260,6 +287,44 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
     } catch (err) {
       if (!mounted) return;
       setState(() => _error = err.toString());
+    }
+  }
+
+  Future<void> _startNostrConnectQr() async {
+    setState(() {
+      _error = null;
+      _info = null;
+      _awaitingNostrConnect = true;
+    });
+    try {
+      await RustBridge.ensureInitialized();
+      final offer = await createNostrconnectOffer(
+        relays: widget.relayUrls,
+        appName: 'Earthly',
+      );
+      if (!mounted) return;
+      setState(() => _nostrConnectOffer = offer);
+      final conn = await awaitNostrconnectSession(
+        connectUri: offer.connectUri,
+        clientNsec: offer.clientNsec,
+        timeoutSecs: BigInt.from(90),
+      );
+      if (!mounted || _nostrConnectOffer?.connectUri != offer.connectUri) {
+        return;
+      }
+      widget.onBunkerConnected?.call(conn);
+      setState(() {
+        _nostrConnectOffer = null;
+        _awaitingNostrConnect = false;
+        _showBunker = false;
+        _info = 'Connected via nostrconnect:// QR (${conn.relays.length} relay).';
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() {
+        _awaitingNostrConnect = false;
+        _error = err.toString();
+      });
     }
   }
 
@@ -425,6 +490,84 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              OutlinedButton.icon(
+                key: const Key('bunker-nostrconnect-qr-btn'),
+                onPressed: _awaitingNostrConnect ? null : _startNostrConnectQr,
+                icon: const Icon(Icons.qr_code_2, size: 16),
+                label: const Text('Show nostrconnect:// QR'),
+              ),
+              if (_nostrConnectOffer != null)
+                TextButton(
+                  onPressed: () => setState(() {
+                    _nostrConnectOffer = null;
+                    _awaitingNostrConnect = false;
+                  }),
+                  child: const Text('Cancel QR'),
+                ),
+            ],
+          ),
+          if (_nostrConnectOffer != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.dividerColor),
+              ),
+              child: Column(
+                children: [
+                  EarthlyQrCode(
+                    data: _nostrConnectOffer!.connectUri,
+                    size: 184,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_awaitingNostrConnect) ...[
+                        const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      const Flexible(
+                        child: Text(
+                          'Scan with Amber / nsecBunker… awaiting approval',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  TextButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(
+                        ClipboardData(text: _nostrConnectOffer!.connectUri),
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Copied nostrconnect:// URI'),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.copy, size: 14),
+                    label: const Text('Copy nostrconnect:// URI'),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
         if (_showReadOnly) ...[
           const SizedBox(height: 10),
@@ -465,6 +608,9 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
           about: _aboutController.text.trim(),
           picture: _pictureController.text.trim(),
           nip05: _nip05Controller.text.trim(),
+          website: _websiteController.text.trim(),
+          banner: _bannerController.text.trim(),
+          lud16: _lud16Controller.text.trim(),
         ),
       );
       if (!mounted) return;
@@ -639,6 +785,37 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                     const SizedBox(height: 8),
                     EarthlyRichText(text: profile.about!, compact: true),
                   ],
+                  if (profile != null &&
+                      ((profile.website?.isNotEmpty ?? false) ||
+                          (profile.lud16?.isNotEmpty ?? false))) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        if (profile.website != null &&
+                            profile.website!.isNotEmpty)
+                          Text(
+                            profile.website!,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10.5,
+                              color: EarthlyColors.infoCyan,
+                            ),
+                          ),
+                        if (profile.lud16 != null &&
+                            profile.lud16!.isNotEmpty)
+                          Text(
+                            '⚡ ${profile.lud16!}',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10.5,
+                              color: EarthlyColors.amber,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -810,6 +987,85 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                         labelText: 'NIP-05 Identifier (optional)',
                         hintText: 'name@earthly.city',
                       ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      key: const Key('profile-website-field'),
+                      controller: _websiteController,
+                      decoration: const InputDecoration(
+                        labelText: 'Website URL (optional)',
+                        hintText: 'https://earthly.city',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      key: const Key('profile-lud16-field'),
+                      controller: _lud16Controller,
+                      decoration: const InputDecoration(
+                        labelText: 'Lightning Address (lud16, optional)',
+                        hintText: 'name@getalby.com',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            key: const Key('profile-banner-field'),
+                            controller: _bannerController,
+                            decoration: const InputDecoration(
+                              labelText: 'Banner Image URL (optional)',
+                              hintText: 'https://blossom.earthly.city/…',
+                            ),
+                          ),
+                        ),
+                        if (widget.onUploadBlossomImage != null) ...[
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: (_busy || _uploadingBanner)
+                                ? null
+                                : () async {
+                                    setState(() {
+                                      _uploadingBanner = true;
+                                      _error = null;
+                                    });
+                                    try {
+                                      final uploaded =
+                                          await widget.onUploadBlossomImage!(
+                                        'Profile banner',
+                                      );
+                                      if (!mounted || uploaded == null) return;
+                                      setState(() {
+                                        _bannerController.text = uploaded.url;
+                                        _info = 'Uploaded banner to Blossom!';
+                                      });
+                                    } catch (err) {
+                                      if (!mounted) return;
+                                      setState(() => _error = err.toString());
+                                    } finally {
+                                      if (mounted) {
+                                        setState(
+                                          () => _uploadingBanner = false,
+                                        );
+                                      }
+                                    }
+                                  },
+                            icon: _uploadingBanner
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.cloud_upload_outlined,
+                                    size: 15,
+                                  ),
+                            label: const Text('Banner'),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 10),
                     FilledButton.icon(

@@ -77,6 +77,9 @@ pub struct ProfileMetadataDto {
     pub about: Option<String>,
     pub picture: Option<String>,
     pub nip05: Option<String>,
+    pub website: Option<String>,
+    pub banner: Option<String>,
+    pub lud16: Option<String>,
 }
 
 /// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.
@@ -151,6 +154,9 @@ pub async fn fetch_profiles(
             about: pick_str("about"),
             picture: pick_str("picture"),
             nip05: pick_str("nip05"),
+            website: pick_str("website"),
+            banner: pick_str("banner"),
+            lud16: pick_str("lud16"),
         });
     }
     Ok(out)
@@ -1813,6 +1819,9 @@ pub async fn fetch_author_portfolio(
                             about: opt("about"),
                             picture: opt("picture"),
                             nip05: opt("nip05"),
+                            website: opt("website"),
+                            banner: opt("banner"),
+                            lud16: opt("lud16"),
                         },
                     ));
                 }

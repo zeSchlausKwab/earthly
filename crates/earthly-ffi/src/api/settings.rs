@@ -68,6 +68,11 @@ pub struct AppSettingsDto {
     pub saved_accounts: Vec<SavedAccountSessionDto>,
     pub active_account_id: Option<String>,
     pub muted_pubkeys: Vec<String>,
+    pub theme_mode: String,
+    pub basemap_style: String,
+    pub satellite_mode: String,
+    pub satellite_opacity: f64,
+    pub story_draft_json: Option<String>,
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
@@ -150,6 +155,11 @@ fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
             .collect(),
         active_account_id: r.active_account_id,
         muted_pubkeys: r.muted_pubkeys,
+        theme_mode: r.theme_mode,
+        basemap_style: r.basemap_style,
+        satellite_mode: r.satellite_mode,
+        satellite_opacity: r.satellite_opacity,
+        story_draft_json: r.story_draft_json,
     }
 }
 
@@ -216,6 +226,11 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
             .collect(),
         active_account_id: d.active_account_id,
         muted_pubkeys: d.muted_pubkeys,
+        theme_mode: d.theme_mode,
+        basemap_style: d.basemap_style,
+        satellite_mode: d.satellite_mode,
+        satellite_opacity: d.satellite_opacity,
+        story_draft_json: d.story_draft_json,
     }
 }
 
@@ -230,10 +245,18 @@ mod tests {
         let db = dir.path().join("settings.sqlite3").display().to_string();
         let mut s = load_app_settings(db.clone()).unwrap();
         assert_eq!(s.blossom_server_url, "https://blossom.earthly.city");
+        assert_eq!(s.theme_mode, "system");
+        assert_eq!(s.basemap_style, "auto");
+        assert_eq!(s.satellite_mode, "osm");
         s.blossom_server_url = "https://blossom.primal.net".to_owned();
         s.inbox_read_all_before = 1_790_000_000;
         s.inbox_read_ids = vec!["reply:abc".to_owned()];
         s.muted_pubkeys = vec!["f".repeat(64)];
+        s.theme_mode = "dark".to_owned();
+        s.basemap_style = "fiord".to_owned();
+        s.satellite_mode = "combined".to_owned();
+        s.satellite_opacity = 0.6;
+        s.story_draft_json = Some(r#"{"title":"Field Log"}"#.to_owned());
         let saved = save_app_settings(db.clone(), s).unwrap();
         assert_eq!(saved.blossom_server_url, "https://blossom.primal.net");
         assert_eq!(saved.muted_pubkeys, vec!["f".repeat(64)]);
@@ -241,5 +264,13 @@ mod tests {
         assert_eq!(reloaded.inbox_read_all_before, 1_790_000_000);
         assert_eq!(reloaded.inbox_read_ids, vec!["reply:abc".to_owned()]);
         assert_eq!(reloaded.muted_pubkeys, vec!["f".repeat(64)]);
+        assert_eq!(reloaded.theme_mode, "dark");
+        assert_eq!(reloaded.basemap_style, "fiord");
+        assert_eq!(reloaded.satellite_mode, "combined");
+        assert!((reloaded.satellite_opacity - 0.6).abs() < 1e-6);
+        assert_eq!(
+            reloaded.story_draft_json.as_deref(),
+            Some(r#"{"title":"Field Log"}"#)
+        );
     }
 }

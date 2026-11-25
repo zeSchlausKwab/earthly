@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `build_nostr_connect`, `connect`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Nip46CircleSigner`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `fmt`, `pubkey_hex`, `sign_event_template`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `fmt`, `fmt`, `pubkey_hex`, `sign_event_template`
 
 /// Connects to a NIP-46 remote signer via `bunker://...`, resolves the remote
 /// user's public key, and returns persisted client credentials for future signing.
@@ -19,6 +19,30 @@ Future<Nip46ConnectionDto> connectNip46Bunker({
 }) => EarthlyRustLib.instance.api.crateApiNip46ConnectNip46Bunker(
   bunkerUri: bunkerUri,
   clientNsec: clientNsec,
+);
+
+/// Generates an ephemeral `nostrconnect://` client URI + secret keypair so a
+/// remote signer app (Amber, nsecBunker, Coracle) can scan the QR code and
+/// initiate the NIP-46 session.
+Future<Nip46ClientOfferDto> createNostrconnectOffer({
+  required List<String> relays,
+  String? appName,
+}) => EarthlyRustLib.instance.api.crateApiNip46CreateNostrconnectOffer(
+  relays: relays,
+  appName: appName,
+);
+
+/// Awaits remote signer approval for a client-initiated `nostrconnect://` QR
+/// offer, resolves the remote signer `bunker://` URI & user pubkey, and returns
+/// a persisted `Nip46ConnectionDto`.
+Future<Nip46ConnectionDto> awaitNostrconnectSession({
+  required String connectUri,
+  required String clientNsec,
+  BigInt? timeoutSecs,
+}) => EarthlyRustLib.instance.api.crateApiNip46AwaitNostrconnectSession(
+  connectUri: connectUri,
+  clientNsec: clientNsec,
+  timeoutSecs: timeoutSecs,
 );
 
 /// Signs an unsigned Earthly Nostr event JSON via the connected NIP-46 Bunker
@@ -32,6 +56,31 @@ Future<String> signEventWithNip46Bunker({
   clientNsec: clientNsec,
   unsignedEventJson: unsignedEventJson,
 );
+
+class Nip46ClientOfferDto {
+  final String connectUri;
+  final String clientNsec;
+  final List<String> relays;
+
+  const Nip46ClientOfferDto({
+    required this.connectUri,
+    required this.clientNsec,
+    required this.relays,
+  });
+
+  @override
+  int get hashCode =>
+      connectUri.hashCode ^ clientNsec.hashCode ^ relays.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Nip46ClientOfferDto &&
+          runtimeType == other.runtimeType &&
+          connectUri == other.connectUri &&
+          clientNsec == other.clientNsec &&
+          relays == other.relays;
+}
 
 class Nip46ConnectionDto {
   final String userPubkeyHex;

@@ -32,6 +32,7 @@ class MainActivity : FlutterActivity() {
         private const val REQUEST_PICK_PMTILES = 5603
         private const val REQUEST_PICK_GEOJSON = 5604
         private const val REQUEST_SAVE_GEOJSON = 5605
+        private const val REQUEST_SAVE_BINARY = 5606
         private const val REQUEST_LOCATION_PERMISSION = 5701
         private const val REQUEST_TRACK_PERMISSION = 5702
     }
@@ -39,6 +40,7 @@ class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
     private var pendingRequestCode: Int = 0
     private var pendingSaveContent: String? = null
+    private var pendingSaveBytes: ByteArray? = null
     private var pendingLocationResult: MethodChannel.Result? = null
     private var pendingTrackStartResult: MethodChannel.Result? = null
     private var deviceChannel: MethodChannel? = null
@@ -316,6 +318,45 @@ class MainActivity : FlutterActivity() {
                         pendingSaveContent = content
                         @Suppress("DEPRECATION")
                         startActivityForResult(intent, REQUEST_SAVE_GEOJSON)
+                    }
+
+                    "saveBinaryFile" -> {
+                        if (pendingResult != null) {
+                            result.error("busy", "Another picker/capture request is pending", null)
+                            return@setMethodCallHandler
+                        }
+                        val filename = call.argument<String>("filename") ?: "earthly-poster.png"
+                        val bytes = call.argument<ByteArray>("bytes") ?: ByteArray(0)
+                        val mime = call.argument<String>("mimeType") ?: "application/octet-stream"
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = mime
+                            putExtra(Intent.EXTRA_TITLE, filename)
+                        }
+                        pendingResult = result
+                        pendingRequestCode = REQUEST_SAVE_BINARY
+                        pendingSaveBytes = bytes
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQUEST_SAVE_BINARY)
+                    }
+
+                    "shareText" -> {
+                        val text = call.argument<String>("text") ?: ""
+                        val subject = call.argument<String>("subject")
+                        if (text.isEmpty()) {
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, text)
+                            if (!subject.isNullOrBlank()) {
+                                putExtra(Intent.EXTRA_SUBJECT, subject)
+                            }
+                        }
+                        val chooser = Intent.createChooser(shareIntent, subject ?: "Share from Earthly")
+                        startActivity(chooser)
+                        result.success(true)
                     }
 
                     "scanQrCode" -> {
@@ -603,6 +644,25 @@ class MainActivity : FlutterActivity() {
                         callback.success(queryDisplayName(uri))
                     } catch (err: Exception) {
                         callback.error("write_failed", err.message ?: "Failed to save GeoJSON", null)
+                    }
+                }
+
+                REQUEST_SAVE_BINARY -> {
+                    val uri = data.data
+                    val bytes = pendingSaveBytes ?: ByteArray(0)
+                    pendingSaveBytes = null
+                    if (uri == null) {
+                        callback.error("empty_file", "No destination URI returned", null)
+                        return
+                    }
+                    try {
+                        contentResolver.openOutputStream(uri)?.use { stream ->
+                            stream.write(bytes)
+                            stream.flush()
+                        }
+                        callback.success(queryDisplayName(uri))
+                    } catch (err: Exception) {
+                        callback.error("write_failed", err.message ?: "Failed to save binary file", null)
                     }
                 }
             }

@@ -142,6 +142,7 @@ class StoryViewStep {
     required this.id,
     required this.title,
     this.caption,
+    this.display = 'cue',
     this.camera,
     this.layerPatches = const {},
   });
@@ -149,6 +150,7 @@ class StoryViewStep {
   final String id;
   final String title;
   final String? caption;
+  final String display;
   final StoryCameraTarget? camera;
   final Map<String, StoryLayerPatch> layerPatches;
 }
@@ -396,6 +398,10 @@ StoryViewStep? _tryParseViewStep(String payload, int fallbackIndex) {
     final id = (decoded['id'] as String?)?.trim();
     final title = (decoded['title'] as String?)?.trim();
     final caption = (decoded['caption'] as String?)?.trim();
+    final rawDisplay = (decoded['display'] as String?)?.trim().toLowerCase();
+    final display = (rawDisplay == 'figure' || rawDisplay == 'both')
+        ? rawDisplay!
+        : 'cue';
     final camera = StoryCameraTarget.tryParse(decoded['camera']);
     final patches = <String, StoryLayerPatch>{};
     final rawLayers = decoded['layers'];
@@ -419,6 +425,7 @@ StoryViewStep? _tryParseViewStep(String payload, int fallbackIndex) {
           ? title
           : 'View ${fallbackIndex + 1}',
       caption: (caption != null && caption.isNotEmpty) ? caption : null,
+      display: display,
       camera: camera,
       layerPatches: patches,
     );

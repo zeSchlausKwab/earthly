@@ -242,6 +242,42 @@ class DeviceBridge {
     return savedName ?? filename;
   }
 
+  static Future<String> saveBinaryFile({
+    required String filename,
+    required Uint8List bytes,
+    String mimeType = 'application/octet-stream',
+  }) async {
+    final savedName = await _channel.invokeMethod<String>(
+      'saveBinaryFile',
+      <String, Object>{
+        'filename': filename,
+        'bytes': bytes,
+        'mimeType': mimeType,
+      },
+    );
+    return savedName ?? filename;
+  }
+
+  static Future<bool> shareText({
+    required String text,
+    String? subject,
+  }) async {
+    try {
+      final ok = await _channel.invokeMethod<bool>(
+        'shareText',
+        <String, Object>{
+          'text': text,
+          'subject': ?subject,
+        },
+      );
+      return ok ?? true;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<String> scanQrCode() async {
     final raw = await _channel.invokeMethod<String>('scanQrCode');
     if (raw == null || raw.isEmpty) {

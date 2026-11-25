@@ -278,8 +278,8 @@ Future<UnsignedCommentEventDto> prepareUnsignedAtlasEvent({
 );
 
 /// Prepares a canonical Nostr `kind 0` user profile metadata event JSON
-/// (`name`, `display_name`, `about`, `picture`, `nip05`) for signing and
-/// publishing to configured relays.
+/// (`name`, `display_name`, `about`, `picture`, `nip05`, `website`, `banner`,
+/// `lud16`) for signing and publishing to configured relays.
 Future<UnsignedCommentEventDto> prepareUnsignedProfileEvent({
   required String pubkeyOrNpub,
   String? name,
@@ -287,6 +287,9 @@ Future<UnsignedCommentEventDto> prepareUnsignedProfileEvent({
   String? about,
   String? picture,
   String? nip05,
+  String? website,
+  String? banner,
+  String? lud16,
 }) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedProfileEvent(
   pubkeyOrNpub: pubkeyOrNpub,
   name: name,
@@ -294,6 +297,9 @@ Future<UnsignedCommentEventDto> prepareUnsignedProfileEvent({
   about: about,
   picture: picture,
   nip05: nip05,
+  website: website,
+  banner: banner,
+  lud16: lud16,
 );
 
 /// Prepares a canonical Story Edit Proposal (`kind 37519`) targeting an existing

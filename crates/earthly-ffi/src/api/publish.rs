@@ -970,8 +970,8 @@ pub fn prepare_unsigned_atlas_event(
 }
 
 /// Prepares a canonical Nostr `kind 0` user profile metadata event JSON
-/// (`name`, `display_name`, `about`, `picture`, `nip05`) for signing and
-/// publishing to configured relays.
+/// (`name`, `display_name`, `about`, `picture`, `nip05`, `website`, `banner`,
+/// `lud16`) for signing and publishing to configured relays.
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_unsigned_profile_event(
     pubkey_or_npub: String,
@@ -980,6 +980,9 @@ pub fn prepare_unsigned_profile_event(
     about: Option<String>,
     picture: Option<String>,
     nip05: Option<String>,
+    website: Option<String>,
+    banner: Option<String>,
+    lud16: Option<String>,
 ) -> Result<UnsignedCommentEventDto, String> {
     let pubkey = PublicKey::parse(pubkey_or_npub.trim())
         .map_err(|err| format!("invalid Nostr public key: {err}"))?;
@@ -996,6 +999,9 @@ pub fn prepare_unsigned_profile_event(
     insert_opt("about", about);
     insert_opt("picture", picture);
     insert_opt("nip05", nip05);
+    insert_opt("website", website);
+    insert_opt("banner", banner);
+    insert_opt("lud16", lud16);
 
     if body.is_empty() {
         return Err("Enter at least a display name or handle before saving profile".to_owned());
@@ -1696,6 +1702,9 @@ mod tests {
             Some("Mapping alpine trails".to_owned()),
             Some("https://example.org/avatar.jpg".to_owned()),
             Some("cartographer@earthly.city".to_owned()),
+            Some("https://earthly.city".to_owned()),
+            Some("https://example.org/banner.jpg".to_owned()),
+            Some("cartographer@getalby.com".to_owned()),
         )
         .unwrap();
         let prof_raw: serde_json::Value =
@@ -1705,6 +1714,9 @@ mod tests {
             serde_json::from_str(prof_raw["content"].as_str().unwrap()).unwrap();
         assert_eq!(prof_content["display_name"], "Field Cartographer");
         assert_eq!(prof_content["nip05"], "cartographer@earthly.city");
+        assert_eq!(prof_content["website"], "https://earthly.city");
+        assert_eq!(prof_content["banner"], "https://example.org/banner.jpg");
+        assert_eq!(prof_content["lud16"], "cartographer@getalby.com");
 
         let del = prepare_unsigned_deletion_event(
             kp.pubkey_hex.clone(),
