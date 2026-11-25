@@ -12,6 +12,7 @@ import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
+import 'raw_event_inspector_dialog.dart';
 import 'social_actions_bar.dart';
 
 enum _FeatureKindFilter { all, point, line, polygon }
@@ -236,6 +237,29 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
               visualDensity: VisualDensity.compact,
               onPressed: _copyLink,
               icon: const Icon(Icons.link, size: 18),
+            ),
+            IconButton(
+              tooltip: 'Inspect raw JSON (37515)',
+              key: const Key('dataset-raw-inspect-btn'),
+              visualDensity: VisualDensity.compact,
+              onPressed: () => unawaited(
+                showRawEventInspectorDialog(
+                  context,
+                  kind: 37515,
+                  title: map.title,
+                  eventId: map.eventId,
+                  pubkey: map.pubkey,
+                  address: map.address,
+                  dTag: map.dTag,
+                  payloadLabel: 'GeoJSON Content',
+                  payloadContent: map.geojson,
+                  extraFields: {
+                    'featureCount': '${map.featureCount}',
+                    'sizeBytes': '${map.sizeBytes}',
+                  },
+                ),
+              ),
+              icon: const Icon(Icons.data_object, size: 18),
             ),
             IconButton(
               tooltip: 'Share earthly.city URL',

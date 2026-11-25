@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `build_overpass_filter`, `from_coords`, `overpass_json_to_feature_collection`, `sanitize_osm_ident`, `to_closed_polygon`, `to_line`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `build_overpass_filter`, `decode_polyline6`, `from_coords`, `normalize_valhalla_profile`, `overpass_json_to_feature_collection`, `parse_valhalla_isochrone_response`, `parse_valhalla_route_response`, `sanitize_osm_ident`, `to_closed_polygon`, `to_line`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Douglas-Peucker simplification of a polyline in meters.
 Future<List<LonLatPoint>> geoSimplifyLine({
@@ -166,6 +166,32 @@ Future<OsmImportResultDto> geoQueryOverpassBbox({
   limit: limit,
 );
 
+/// Computes a routed path through ordered waypoints using a Valhalla server
+/// (defaulting to FOSSGIS `https://valhalla1.openstreetmap.de`).
+Future<ValhallaRouteResultDto> geoValhallaRoute({
+  required List<LonLatPoint> waypoints,
+  required String profile,
+  String? baseUrl,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoValhallaRoute(
+  waypoints: waypoints,
+  profile: profile,
+  baseUrl: baseUrl,
+);
+
+/// Computes travel-time isochrone polygons around `origin` using Valhalla
+/// (defaulting to FOSSGIS `https://valhalla1.openstreetmap.de`).
+Future<ValhallaIsochroneResultDto> geoValhallaIsochrone({
+  required LonLatPoint origin,
+  required String profile,
+  required List<int> contoursMinutes,
+  String? baseUrl,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoValhallaIsochrone(
+  origin: origin,
+  profile: profile,
+  contoursMinutes: contoursMinutes,
+  baseUrl: baseUrl,
+);
+
 /// Validates a GeoJSON FeatureCollection via `earthly-geo::validate_feature_collection`.
 Future<DraftValidationDto> geoValidateDraftGeojson({required String geojson}) =>
     EarthlyRustLib.instance.api.crateApiGeoGeoValidateDraftGeojson(
@@ -302,4 +328,70 @@ class SpatialImportDto {
           geojson == other.geojson &&
           featureCount == other.featureCount &&
           warnings == other.warnings;
+}
+
+class ValhallaIsochroneResultDto {
+  final String geojson;
+  final int featureCount;
+  final String profile;
+  final String summary;
+
+  const ValhallaIsochroneResultDto({
+    required this.geojson,
+    required this.featureCount,
+    required this.profile,
+    required this.summary,
+  });
+
+  @override
+  int get hashCode =>
+      geojson.hashCode ^
+      featureCount.hashCode ^
+      profile.hashCode ^
+      summary.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ValhallaIsochroneResultDto &&
+          runtimeType == other.runtimeType &&
+          geojson == other.geojson &&
+          featureCount == other.featureCount &&
+          profile == other.profile &&
+          summary == other.summary;
+}
+
+class ValhallaRouteResultDto {
+  final String geojson;
+  final double distanceMeters;
+  final double durationSeconds;
+  final String profile;
+  final String summary;
+
+  const ValhallaRouteResultDto({
+    required this.geojson,
+    required this.distanceMeters,
+    required this.durationSeconds,
+    required this.profile,
+    required this.summary,
+  });
+
+  @override
+  int get hashCode =>
+      geojson.hashCode ^
+      distanceMeters.hashCode ^
+      durationSeconds.hashCode ^
+      profile.hashCode ^
+      summary.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ValhallaRouteResultDto &&
+          runtimeType == other.runtimeType &&
+          geojson == other.geojson &&
+          distanceMeters == other.distanceMeters &&
+          durationSeconds == other.durationSeconds &&
+          profile == other.profile &&
+          summary == other.summary;
 }

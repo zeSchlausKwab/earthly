@@ -1,5 +1,6 @@
 import 'package:earthly_native/drawing/drawing_model.dart';
 import 'package:earthly_native/main.dart';
+import 'package:earthly_native/nostr/atlas_schema.dart';
 import 'package:earthly_native/nostr/basemap_config.dart';
 import 'package:earthly_native/nostr/callout_overlay.dart';
 import 'package:earthly_native/nostr/earthly_share.dart';
@@ -20,6 +21,7 @@ import 'package:earthly_native/shell/earthly_rich_text.dart';
 import 'package:earthly_native/shell/entity_list_row.dart';
 import 'package:earthly_native/shell/explore_sheet.dart';
 import 'package:earthly_native/shell/feature_inspector_sheet.dart';
+import 'package:earthly_native/shell/help_shortcuts_sheet.dart';
 import 'package:earthly_native/shell/inbox_sheet.dart';
 import 'package:earthly_native/shell/location_inspector_sheet.dart';
 import 'package:earthly_native/shell/map_drawer.dart';
@@ -27,6 +29,8 @@ import 'package:earthly_native/shell/osm_import_sheet.dart';
 import 'package:earthly_native/shell/person_margin.dart';
 import 'package:earthly_native/shell/place_search_sheet.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
+import 'package:earthly_native/shell/raw_event_inspector_dialog.dart';
+import 'package:earthly_native/shell/routing_sheet.dart';
 import 'package:earthly_native/shell/social_actions_bar.dart';
 import 'package:earthly_native/shell/spaces_sheet.dart';
 import 'package:earthly_native/shell/story_composer_sheet.dart';
@@ -887,6 +891,8 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
       120,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(find.text('Save & Update Atlas (37518)'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Save & Update Atlas (37518)'));
     await tester.pumpAndSettle();
     expect(publishedAtlas?.existingDTag, 'my-atlas');
@@ -3374,5 +3380,428 @@ Start at geo:48.2764,16.3338 and check $naddr
     await tester.tap(find.byKey(const Key('osm-import-btn')));
     await tester.pump();
     expect(imported?.featureCount, 1);
+  });
+
+  testWidgets(
+      'RoutingSheet computes Valhalla route & isochrone and imports GeoJSON into draft',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    String? importedGeoJson;
+    String? importedLabel;
+    String? isoProfile;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              RoutingSheet(
+                mapCenter: const Geographic(lon: 16.3738, lat: 48.2082),
+                draftWaypoints: const [
+                  Geographic(lon: 16.370, lat: 48.205),
+                  Geographic(lon: 16.385, lat: 48.215),
+                ],
+                routeOverride: ({
+                  required waypoints,
+                  required profile,
+                }) async =>
+                    ValhallaRouteResultDto(
+                  geojson:
+                      '{"type":"FeatureCollection","features":[{"type":"Feature","id":"r1","properties":{"name":"Bike Route"},"geometry":{"type":"LineString","coordinates":[[16.37,48.205],[16.385,48.215]]}}]}',
+                  distanceMeters: 1850,
+                  durationSeconds: 360,
+                  profile: profile,
+                  summary: '1.85 km · 6 min ($profile)',
+                ),
+                isochroneOverride: ({
+                  required origin,
+                  required profile,
+                  required contoursMinutes,
+                }) async {
+                  isoProfile = profile;
+                  return ValhallaIsochroneResultDto(
+                    geojson:
+                        '{"type":"FeatureCollection","features":[{"type":"Feature","id":"iso1","properties":{"name":"10 min $profile"},"geometry":{"type":"Polygon","coordinates":[[[16.36,48.20],[16.38,48.20],[16.38,48.22],[16.36,48.20]]]}}]}',
+                    featureCount: 1,
+                    profile: profile,
+                    summary: '1 isochrone band(s) · $profile',
+                  );
+                },
+                onImportGeoJsonToDraft: (geojson, label) {
+                  importedGeoJson = geojson;
+                  importedLabel = label;
+                },
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('routing-compute-route-btn')));
+    await tester.pumpAndSettle();
+    expect(find.text('1.85 km · 6 min (bicycle)'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('routing-tab-iso')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('routing-profile-pedestrian')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('routing-compute-iso-btn')));
+    await tester.pumpAndSettle();
+
+    expect(isoProfile, 'pedestrian');
+    expect(find.text('1 isochrone band(s) · pedestrian'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('routing-import-iso-btn')));
+    await tester.pump();
+    expect(importedLabel, '1 isochrone band(s) · pedestrian');
+    expect(importedGeoJson, contains('Polygon'));
+  });
+
+  testWidgets(
+      'AtlasComposerSheet compiles Schema Builder rules and AtlasDetailMargin filters Community lane with Off/Warn/Strict',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    AtlasPublishRequest? published;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AtlasComposerSheet(
+                shelfMaps: const [],
+                catalogMaps: const [],
+                catalogStories: const [],
+                onPublishAtlas: (req) async {
+                  published = req;
+                  return const PublishOutcomeDto(
+                    eventId: 'atl1',
+                    outboxState: 'sent',
+                    relays: [],
+                  );
+                },
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField).first, 'Alpine Huts Schema');
+    await tester.tap(find.byKey(const Key('atlas-gov-schema')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('schema-geom-Point')));
+    await tester.tap(find.byKey(const Key('schema-add-field-btn')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('schema-field-name-0')),
+      'elevation',
+    );
+    await tester.tap(find.byKey(const Key('schema-field-req-0')));
+    await tester.pump();
+
+    final publishBtn = find.text('Publish Atlas (37518)');
+    await tester.scrollUntilVisible(
+      publishBtn,
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(publishBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(publishBtn);
+    await tester.pumpAndSettle();
+
+    expect(published?.governance, 'schema');
+    expect(published?.schemaJson, contains('elevation'));
+    expect(decodeAtlasAllowedGeometries(published?.schemaJson), ['Point']);
+
+    // Now test Strict -> Warn filtering on AtlasDetailMargin
+    final schemaAtlas = AtlasSummaryDto(
+      address: '37518:owner:huts',
+      eventId: 'ev_atlas',
+      pubkey: 'owner',
+      dTag: 'huts',
+      name: 'Alpine Huts Schema',
+      governance: 'schema',
+      pinnedAddresses: const [],
+      hashtags: const [],
+      schemaJson: published!.schemaJson,
+      createdAt: BigInt.from(1700000000),
+    );
+    final goodMap = MapSummaryDto(
+      address: '37515:alice:valid',
+      eventId: 'm_good',
+      pubkey: 'alice',
+      dTag: 'valid',
+      title: 'Valid Hut Point',
+      featureCount: 1,
+      sizeBytes: 120,
+      geojson:
+          '{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[11.4,47.2]},"properties":{"elevation":"2100m"}}]}',
+      blobRefs: const [],
+      hashtags: const [],
+      labels: const [],
+      contextRefs: const ['37518:owner:huts'],
+      createdAt: BigInt.from(1700000100),
+    );
+    final badMap = MapSummaryDto(
+      address: '37515:bob:invalid',
+      eventId: 'm_bad',
+      pubkey: 'bob',
+      dTag: 'invalid',
+      title: 'Invalid Trail Line',
+      featureCount: 1,
+      sizeBytes: 120,
+      geojson:
+          '{"type":"FeatureCollection","features":[{"type":"Feature","id":"l1","geometry":{"type":"LineString","coordinates":[[11.4,47.2],[11.5,47.3]]},"properties":{}}]}',
+      blobRefs: const [],
+      hashtags: const [],
+      labels: const [],
+      contextRefs: const ['37518:owner:huts'],
+      createdAt: BigInt.from(1700000050),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AtlasDetailMargin(
+                atlas: schemaAtlas,
+                relayUrls: const ['wss://relay.earthly.city'],
+                catalogMaps: [goodMap, badMap],
+                catalogStories: const [],
+                shelfAddresses: const {},
+                profilesByPubkey: const {},
+                isActiveLens: false,
+                onToggleLens: () {},
+                onShowAllOnMap: () {},
+                onToggleMapOnShelf: (_) {},
+                onFocusMap: (_) {},
+                onOpenStory: (_) {},
+                onOpenDiscussion: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Valid Hut Point'), findsOneWidget);
+    expect(find.text('Invalid Trail Line'), findsNothing);
+    expect(find.textContaining('1 map(s) hidden by Strict schema filter'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('atlas-schema-filter-warn')));
+    await tester.pumpAndSettle();
+    expect(find.text('Invalid Trail Line'), findsOneWidget);
+    expect(find.textContaining('missing required `elevation`'), findsOneWidget);
+  });
+
+  testWidgets(
+      'StoryComposerDrawer opens StoryViewBlockEditorDialog and inserts canonical earthly-view JSON',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(480, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              StoryComposerDrawer(
+                shelfMaps: const [],
+                getCameraSnapshot: () => const CameraPosition(
+                  center: Geographic(lon: 16.3738, lat: 48.2082),
+                  zoom: 14.0,
+                  bearing: 0.0,
+                  pitch: 0.0,
+                ),
+                onPublishStory: (_) async => const PublishOutcomeDto(
+                  eventId: 'st1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('story-insert-view-block-btn')));
+    await tester.tap(find.byKey(const Key('story-insert-view-block-btn')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('view-editor-title')),
+      'Stephansdom Overview',
+    );
+    await tester.tap(find.byKey(const Key('view-editor-display-figure')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('view-editor-insert-btn')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Stephansdom Overview'), findsOneWidget);
+    expect(find.textContaining('```earthly-view'), findsOneWidget);
+    expect(find.textContaining('"display": "figure"'), findsOneWidget);
+  });
+
+  testWidgets(
+      'ExploreSheet renders People directory tab with entity counts and triggers onOpenPerson',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    String? openedPubkey;
+    final catalog = EarthlyCatalogSnapshot(
+      relayUrls: const ['wss://relay.earthly.city'],
+      maps: [
+        MapSummaryDto(
+          address: '37515:alicepk:m1',
+          eventId: 'm1',
+          pubkey: 'alicepk',
+          dTag: 'm1',
+          title: 'Trail 1',
+          featureCount: 2,
+          sizeBytes: 100,
+          geojson: '{"type":"FeatureCollection","features":[]}',
+          blobRefs: const [],
+          hashtags: const [],
+          labels: const [],
+          contextRefs: const [],
+          createdAt: BigInt.from(1700000000),
+        ),
+      ],
+      stories: const [],
+      atlases: const [],
+      sightings: const [],
+      beacons: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              ExploreSheet(
+                initialCatalog: catalog,
+                catalogLoading: false,
+                relayUrls: const ['wss://relay.earthly.city'],
+                shelfAddresses: const {},
+                profilesByPubkey: const {
+                  'alicepk': ProfileMetadataDto(
+                    pubkey: 'alicepk',
+                    name: 'alice',
+                    displayName: 'Alice Cartographer',
+                    nip05: 'alice@earthly.city',
+                  ),
+                },
+                pinnedEntityIds: const {},
+                recentEntityIds: const [],
+                activeAtlasLens: null,
+                onCatalogLoaded: (_) {},
+                onToggleFavorite: (_) {},
+                onToggleMapOnShelf: (_) {},
+                onAddMapsBulk: (_) {},
+                onInspectMap: (_) {},
+                onFocusMap: (_) {},
+                onCloneMapToDraft: (_) {},
+                onOpenMapDiscussion: (_) {},
+                onOpenStory: (_) {},
+                onOpenStoryDiscussion: (_) {},
+                onInspectAtlas: (_) {},
+                onOpenAtlas: (_) {},
+                onEnterAtlasLens: (_) {},
+                onLeaveAtlasLens: () {},
+                onFocusSighting: (_) {},
+                onFocusBeacon: (_) {},
+                onCreateSighting: () {},
+                onComposeStory: () {},
+                onCreateAtlas: () {},
+                onOpenBeaconBroadcaster: () {},
+                onOpenPerson: (pk) => openedPubkey = pk,
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('explore-tab-people')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('explore-tab-people')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alice Cartographer'), findsOneWidget);
+    expect(find.text('alice@earthly.city · 1 maps'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('explore-person-alicepk')));
+    await tester.pump();
+    expect(openedPubkey, 'alicepk');
+  });
+
+  testWidgets(
+      'RawEventInspectorDialog and HelpShortcutsSheet render cleanly without overflows',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (ctx) => Stack(
+              children: [
+                HelpShortcutsSheet(onClose: () {}),
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: TextButton(
+                    key: const Key('open-raw-inspector-test-btn'),
+                    onPressed: () => showRawEventInspectorDialog(
+                      ctx,
+                      kind: 37515,
+                      title: 'Raw Test Map',
+                      eventId: 'ev123',
+                      pubkey: 'pk123',
+                      address: '37515:pk123:test',
+                      dTag: 'test',
+                      payloadLabel: 'GeoJSON Content',
+                      payloadContent: '{"type":"FeatureCollection","features":[]}',
+                    ),
+                    child: const Text('Inspect'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('HELP & KEYBOARD SHORTCUTS'), findsOneWidget);
+    expect(find.text('Cmd / Ctrl + Z'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('open-raw-inspector-test-btn')));
+    await tester.pumpAndSettle();
+    expect(find.text('RAW EVENT INSPECTOR (KIND 37515)'), findsOneWidget);
+    expect(find.byKey(const Key('raw-inspector-copy-btn')), findsOneWidget);
   });
 }

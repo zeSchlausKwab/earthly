@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../nostr/atlas_schema.dart';
 import '../nostr/shelf_renderer.dart';
 import '../src/rust/api/blossom.dart';
 import '../src/rust/api/nostr_client.dart';
@@ -19,6 +20,7 @@ class AtlasPublishRequest {
     required this.hashtags,
     required this.audience,
     this.image,
+    this.schemaJson,
     this.existingDTag,
   });
 
@@ -29,6 +31,7 @@ class AtlasPublishRequest {
   final List<String> hashtags;
   final DraftAudienceChoice audience;
   final String? image;
+  final String? schemaJson;
   final String? existingDTag;
 }
 
@@ -77,6 +80,8 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
       for (final s in widget.shelfMaps) s.summary.address,
   };
   late String _governance = widget.editingAtlas?.governance ?? 'open';
+  final List<_SchemaRowControllers> _schemaRows = <_SchemaRowControllers>[];
+  final Set<String> _allowedGeometries = <String>{};
   DraftAudienceChoice _audience = DraftAudienceChoice.publicRelay;
   bool _publishing = false;
   bool _uploadingCover = false;
@@ -84,11 +89,24 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
   PublishOutcomeDto? _outcome;
 
   @override
+  void initState() {
+    super.initState();
+    final initialSchema = widget.editingAtlas?.schemaJson;
+    for (final row in decodeAtlasSchemaRows(initialSchema)) {
+      _schemaRows.add(_SchemaRowControllers.fromRow(row));
+    }
+    _allowedGeometries.addAll(decodeAtlasAllowedGeometries(initialSchema));
+  }
+
+  @override
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
     _imageController.dispose();
     _hashtagsController.dispose();
+    for (final row in _schemaRows) {
+      row.dispose();
+    }
     super.dispose();
   }
 
@@ -127,6 +145,12 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
           .map((t) => t.trim().toLowerCase())
           .where((t) => t.isNotEmpty)
           .toList(growable: false);
+      final compiledSchema = _governance == 'schema'
+          ? compileAtlasSchemaJson(
+              _schemaRows.map((r) => r.toRow()).toList(growable: false),
+              _allowedGeometries.toList(growable: false),
+            )
+          : null;
       final outcome = await widget.onPublishAtlas(
         AtlasPublishRequest(
           name: name,
@@ -138,6 +162,7 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
           image: _imageController.text.trim().isEmpty
               ? null
               : _imageController.text.trim(),
+          schemaJson: compiledSchema,
           existingDTag: widget.editingAtlas?.dTag,
         ),
       );
@@ -174,16 +199,19 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
               color: EarthlyColors.commentGreen,
             ),
             const SizedBox(width: 8),
-            Text(
-              widget.editingAtlas != null
-                  ? 'EDIT ATLAS (KIND 37518)'
-                  : 'CREATE ATLAS (KIND 37518)',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontFamily: 'monospace',
-                letterSpacing: 0.7,
+            Expanded(
+              child: Text(
+                widget.editingAtlas != null
+                    ? 'EDIT ATLAS (KIND 37518)'
+                    : 'CREATE ATLAS (KIND 37518)',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.7,
+                ),
               ),
             ),
-            const Spacer(),
             IconButton(
               visualDensity: VisualDensity.compact,
               onPressed: widget.onClose,
@@ -192,7 +220,9 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
           ],
         ),
       ),
-      body: ListView(
+      body: Material(
+        type: MaterialType.transparency,
+        child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: [
           TextField(
@@ -277,12 +307,163 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
             children: [
               for (final mode in const ['open', 'schema', 'closed'])
                 ChoiceChip(
+                  key: Key('atlas-gov-$mode'),
                   label: Text(mode),
                   selected: _governance == mode,
                   onSelected: (_) => setState(() => _governance = mode),
                 ),
             ],
           ),
+          if (_governance == 'schema') ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: theme.dividerColor),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'CONTRIBUTION SCHEMA BUILDER (DRAFT-2020-12)',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Allowed geometry types (empty = any):',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final g in const ['Point', 'LineString', 'Polygon'])
+                        FilterChip(
+                          key: Key('schema-geom-$g'),
+                          label: Text(g),
+                          selected: _allowedGeometries.contains(g),
+                          onSelected: (sel) {
+                            setState(() {
+                              if (sel) {
+                                _allowedGeometries.add(g);
+                              } else {
+                                _allowedGeometries.remove(g);
+                              }
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  for (var i = 0; i < _schemaRows.length; i++)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: theme.dividerColor),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  key: Key('schema-field-name-$i'),
+                                  controller: _schemaRows[i].nameCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Property key',
+                                    isDense: true,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              DropdownButton<AtlasSchemaFieldType>(
+                                key: Key('schema-field-type-$i'),
+                                value: _schemaRows[i].type,
+                                onChanged: (v) {
+                                  if (v != null) {
+                                    setState(() => _schemaRows[i].type = v);
+                                  }
+                                },
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: AtlasSchemaFieldType.text,
+                                    child: Text('text'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: AtlasSchemaFieldType.number,
+                                    child: Text('number'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: AtlasSchemaFieldType.integer,
+                                    child: Text('integer'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: AtlasSchemaFieldType.boolean,
+                                    child: Text('boolean'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: AtlasSchemaFieldType.enumType,
+                                    child: Text('enum'),
+                                  ),
+                                ],
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () {
+                                  setState(() {
+                                    final removed = _schemaRows.removeAt(i);
+                                    removed.dispose();
+                                  });
+                                },
+                                icon: const Icon(Icons.delete_outline, size: 16),
+                              ),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              Checkbox(
+                                key: Key('schema-field-req-$i'),
+                                value: _schemaRows[i].required,
+                                onChanged: (v) => setState(
+                                  () => _schemaRows[i].required = v ?? false,
+                                ),
+                              ),
+                              const Text('Required', style: TextStyle(fontSize: 12)),
+                            ],
+                          ),
+                          if (_schemaRows[i].type ==
+                              AtlasSchemaFieldType.enumType)
+                            TextField(
+                              key: Key('schema-field-enum-$i'),
+                              controller: _schemaRows[i].enumCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Allowed values (comma separated)',
+                                isDense: true,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  OutlinedButton.icon(
+                    key: const Key('schema-add-field-btn'),
+                    onPressed: () {
+                      setState(() => _schemaRows.add(_SchemaRowControllers()));
+                    },
+                    icon: const Icon(Icons.add, size: 15),
+                    label: const Text('Add Field Rule'),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             'PIN MAPS & STORIES (${_pinnedAddresses.length} SELECTED)',
@@ -411,13 +592,53 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
                 border: Border.all(color: EarthlyColors.commentGreen),
               ),
               child: Text(
-                'Atlas published (${_outcome!.outboxState.toUpperCase()}) · ${_outcome!.eventId.substring(0, 14)}…',
+                'Atlas published (${_outcome!.outboxState.toUpperCase()}) · ${_outcome!.eventId.substring(0, _outcome!.eventId.length.clamp(0, 14))}…',
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
               ),
             ),
           ],
         ],
+        ),
       ),
     );
+  }
+}
+
+class _SchemaRowControllers {
+  _SchemaRowControllers({
+    String name = '',
+    this.type = AtlasSchemaFieldType.text,
+    this.required = false,
+    String enumCsv = '',
+  })  : nameCtrl = TextEditingController(text: name),
+        enumCtrl = TextEditingController(text: enumCsv);
+
+  factory _SchemaRowControllers.fromRow(AtlasSchemaRow row) =>
+      _SchemaRowControllers(
+        name: row.name,
+        type: row.type,
+        required: row.required,
+        enumCsv: row.allowedValues.join(', '),
+      );
+
+  final TextEditingController nameCtrl;
+  AtlasSchemaFieldType type;
+  bool required;
+  final TextEditingController enumCtrl;
+
+  AtlasSchemaRow toRow() => AtlasSchemaRow(
+        name: nameCtrl.text.trim(),
+        type: type,
+        required: required,
+        allowedValues: enumCtrl.text
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList(growable: false),
+      );
+
+  void dispose() {
+    nameCtrl.dispose();
+    enumCtrl.dispose();
   }
 }

@@ -227,5 +227,73 @@ pub fn earthly_tool_definitions() -> Vec<ToolDefinition> {
                 }
             }),
         },
+        ToolDefinition {
+            name: "deduplicate_draft".to_owned(),
+            description: "Remove duplicate features (identical geometry type and coordinates) from the working draft.".to_owned(),
+            parameters: json!({ "type": "object", "properties": {} }),
+        },
+        ToolDefinition {
+            name: "geocode_place".to_owned(),
+            description: "Forward-geocode a named place or address via OSM Photon to coordinates and optionally fly camera.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": { "type": "string" }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "query_osm_bbox".to_owned(),
+            description: "Query OpenStreetMap Overpass features (highway, waterway, building, natural, amenity, leisure, peaks, water) inside the active bbox and append them to the working draft.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "required": ["preset"],
+                "properties": {
+                    "preset": { "type": "string" },
+                    "customTag": { "type": "string" },
+                    "west": { "type": "number" },
+                    "south": { "type": "number" },
+                    "east": { "type": "number" },
+                    "north": { "type": "number" }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "valhalla_route".to_owned(),
+            description: "Compute a network route through ordered [lon, lat] waypoints via Valhalla and add the LineString route to the draft.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "required": ["waypoints"],
+                "properties": {
+                    "profile": { "type": "string", "enum": ["pedestrian", "bicycle", "auto"] },
+                    "waypoints": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["lon", "lat"],
+                            "properties": {
+                                "lon": { "type": "number" },
+                                "lat": { "type": "number" }
+                            }
+                        }
+                    }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "valhalla_isochrone".to_owned(),
+            description: "Compute travel-time isochrone polygons around [lon, lat] via Valhalla and add them to the draft.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "required": ["lon", "lat"],
+                "properties": {
+                    "lon": { "type": "number" },
+                    "lat": { "type": "number" },
+                    "profile": { "type": "string", "enum": ["pedestrian", "bicycle", "auto"] },
+                    "contoursMinutes": { "type": "array", "items": { "type": "integer" } }
+                }
+            }),
+        },
     ]
 }

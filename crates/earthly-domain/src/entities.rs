@@ -264,6 +264,7 @@ pub struct AtlasGroup {
     pub hashtags: Vec<String>,
     pub labels: Vec<String>,
     pub schema_hash: Option<String>,
+    pub schema_json: Option<String>,
     pub bbox: Option<Bounds>,
 }
 
@@ -318,6 +319,10 @@ impl AtlasGroup {
             hashtags: get_hashtags(&event.tags),
             labels: get_labels(&event.tags),
             schema_hash: get_tag_value(&event.tags, "schema-hash").map(str::to_owned),
+            schema_json: body
+                .get("schema")
+                .filter(|v| v.is_object())
+                .and_then(|v| serde_json::to_string(v).ok()),
             bbox: get_bbox(&event.tags),
         })
     }

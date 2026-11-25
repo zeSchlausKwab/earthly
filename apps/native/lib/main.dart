@@ -30,12 +30,14 @@ import 'shell/discussion_margin_sheet.dart';
 import 'shell/earthly_rich_text.dart';
 import 'shell/explore_sheet.dart';
 import 'shell/feature_inspector_sheet.dart';
+import 'shell/help_shortcuts_sheet.dart';
 import 'shell/inbox_sheet.dart';
 import 'shell/location_inspector_sheet.dart';
 import 'shell/map_drawer.dart';
 import 'shell/osm_import_sheet.dart';
 import 'shell/person_margin.dart';
 import 'shell/place_search_sheet.dart';
+import 'shell/routing_sheet.dart';
 import 'shell/sighting_composer_sheet.dart';
 import 'shell/spaces_sheet.dart';
 import 'shell/story_composer_sheet.dart';
@@ -86,6 +88,8 @@ enum _ActiveDrawer {
   discussion,
   locationInspector,
   osmImport,
+  routing,
+  help,
 }
 
 class EarthlyNativeApp extends StatefulWidget {
@@ -209,6 +213,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   AtlasSummaryDto? _inspectedAtlas;
   MapSummaryDto? _inspectedMap;
   Geographic? _inspectedLocation;
+  Geographic? _routingOrigin;
   final List<SightingSummaryDto> _localSightings = <SightingSummaryDto>[];
   final List<LiveBeaconDto> _localBeacons = <LiveBeaconDto>[];
   Nip55Account? _account;
@@ -1567,6 +1572,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       fieldSessionId: req.audience == DraftAudienceChoice.nearbyLocalNode
           ? _activeNearbySessionId
           : null,
+      schemaJson: req.schemaJson,
     );
     final signedEventJson =
         await _signUnsignedEvent(account, prepared.unsignedEventJson);
@@ -1583,6 +1589,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         governance: req.governance,
         pinnedAddresses: req.pinnedAddresses,
         hashtags: req.hashtags,
+        schemaJson: req.schemaJson,
         createdAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
       );
       setState(() {
@@ -1974,12 +1981,29 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     _openDrawer(_ActiveDrawer.osmImport);
   }
 
+  void _openRoutingDrawer({Geographic? origin}) {
+    setState(() => _routingOrigin = origin);
+    _openDrawer(_ActiveDrawer.routing);
+  }
+
   void _importOsmResultToDraft(OsmImportResultDto res) {
-    final imported = parseDraftFeaturesFromGeoJson(res.geojson);
+    _importGeoJsonStringToDraft(
+      res.geojson,
+      prefix: 'osm',
+      snackLabel: res.querySummary,
+    );
+  }
+
+  void _importGeoJsonStringToDraft(
+    String geojson, {
+    required String prefix,
+    required String snackLabel,
+  }) {
+    final imported = parseDraftFeaturesFromGeoJson(geojson);
     if (imported.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No Point, LineString, or Polygon features found in OSM query'),
+          content: Text('No Point, LineString, or Polygon features found to import'),
         ),
       );
       return;
@@ -1988,7 +2012,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     setState(() {
       for (final feat in imported) {
         _featureCounter += 1;
-        _features.add(feat.copyWith(id: 'osm-$_featureCounter'));
+        _features.add(feat.copyWith(id: '$prefix-$_featureCounter'));
       }
       _drawer = _ActiveDrawer.desk;
     });
@@ -2017,7 +2041,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Imported ${imported.length} OSM feature(s) to Working Draft'),
+        content: Text(
+          'Added ${imported.length} feature(s) to Working Draft ($snackLabel)',
+        ),
       ),
     );
   }
@@ -5664,7 +5690,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         _ActiveDrawer.account ||
         _ActiveDrawer.search ||
         _ActiveDrawer.locationInspector ||
-        _ActiveDrawer.osmImport =>
+        _ActiveDrawer.osmImport ||
+        _ActiveDrawer.routing ||
+        _ActiveDrawer.help =>
           true,
         _ => false,
       };
@@ -5879,6 +5907,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             _openDrawer(_ActiveDrawer.atlasComposer);
           },
           onOpenBeaconBroadcaster: () => _openDrawer(_ActiveDrawer.spaces),
+          onOpenPerson: _openPerson,
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.desk:
@@ -5976,6 +6005,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           },
           onImportGeoJson: () => unawaited(_importGeoJsonFile()),
           onImportOsm: _openOsmImportDrawer,
+          onOpenRouting: () => _openRoutingDrawer(),
           onExportGeoJsonFile: () => unawaited(_exportGeoJsonFile()),
           onExportGpxFile: () => unawaited(_exportSpatialFile('gpx')),
           onExportKmlFile: () => unawaited(_exportSpatialFile('kml')),
@@ -6026,6 +6056,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onRelayUrlsChanged: _updateRelayUrls,
           onFetchNip65Relays: _fetchNip65Relays,
           onPublishNip65Relays: _publishNip65Relays,
+          onOpenHelp: () => _openDrawer(_ActiveDrawer.help),
           onAccountChanged: (account) {
             if (account == null) {
               if (_activeAccountId != null) {
@@ -6749,6 +6780,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onDropPointHere: () => _dropDraftPointAt(pt),
           onCreateSightingHere: () => _openSightingComposer(initialLocation: pt),
           onImportOsmHere: _openOsmImportDrawer,
+          onIsochroneHere: () => _openRoutingDrawer(origin: pt),
           onClose: () => _closeDrawer(_ActiveDrawer.locationInspector),
         );
       case _ActiveDrawer.osmImport:
@@ -6760,6 +6792,28 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           north: bbox.north,
           onImportFeatures: _importOsmResultToDraft,
           onClose: () => _closeDrawer(_ActiveDrawer.osmImport),
+        );
+      case _ActiveDrawer.routing:
+        final draftPoints = _features
+            .where((f) => f.kind == DrawToolMode.point && f.vertices.isNotEmpty)
+            .map((f) => f.vertices.first)
+            .toList(growable: false);
+        return RoutingSheet(
+          mapCenter: _controller?.camera?.center ??
+              const Geographic(lon: 16.3738, lat: 48.2082),
+          draftWaypoints: draftPoints,
+          initialOrigin: _routingOrigin,
+          onImportGeoJsonToDraft: (geojson, summaryLabel) =>
+              _importGeoJsonStringToDraft(
+            geojson,
+            prefix: 'route',
+            snackLabel: summaryLabel,
+          ),
+          onClose: () => _closeDrawer(_ActiveDrawer.routing),
+        );
+      case _ActiveDrawer.help:
+        return HelpShortcutsSheet(
+          onClose: () => _closeDrawer(_ActiveDrawer.help),
         );
     }
   }

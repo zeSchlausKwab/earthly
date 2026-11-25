@@ -233,26 +233,26 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
     );
   }
 
-  void _insertCameraViewBlock() {
+  Future<void> _insertCameraViewBlock() async {
     final cam = widget.getCameraSnapshot();
     final center = cam?.center ?? const Geographic(lon: 16.3738, lat: 48.2082);
     final zoom = (cam?.zoom ?? 13.5);
     _viewCounter += 1;
-    final payload = const JsonEncoder.withIndent('  ').convert({
-      'version': 1,
-      'type': 'view',
-      'id': 'view-$_viewCounter',
-      'title': 'Map View $_viewCounter',
-      'caption': 'Focus on this area',
-      'display': 'both',
-      'camera': {
-        'center': [
-          double.parse(center.lon.toStringAsFixed(5)),
-          double.parse(center.lat.toStringAsFixed(5)),
-        ],
-        'zoom': double.parse(zoom.toStringAsFixed(2)),
-      },
-    });
+    final edited = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _StoryViewBlockEditorDialog(
+        defaultId: 'view-$_viewCounter',
+        defaultTitle: 'Map View $_viewCounter',
+        initialLat: center.lat,
+        initialLon: center.lon,
+        initialZoom: zoom,
+        linkedMaps: widget.shelfMaps
+            .where((m) => _selectedMapAddresses.contains(m.summary.address))
+            .toList(growable: false),
+      ),
+    );
+    if (!mounted || edited == null) return;
+    final payload = const JsonEncoder.withIndent('  ').convert(edited);
     _insertAtCursor('\n\n```earthly-view\n$payload\n```\n\n');
   }
 
@@ -548,6 +548,7 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
                   label: const Text('+ Map Center geo:'),
                 ),
                 OutlinedButton.icon(
+                  key: const Key('story-insert-view-block-btn'),
                   onPressed: _insertCameraViewBlock,
                   icon: const Icon(Icons.camera_alt_outlined, size: 14),
                   label: const Text('+ Camera View Block'),
@@ -682,6 +683,183 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _StoryViewBlockEditorDialog extends StatefulWidget {
+  const _StoryViewBlockEditorDialog({
+    required this.defaultId,
+    required this.defaultTitle,
+    required this.initialLat,
+    required this.initialLon,
+    required this.initialZoom,
+    required this.linkedMaps,
+  });
+
+  final String defaultId;
+  final String defaultTitle;
+  final double initialLat;
+  final double initialLon;
+  final double initialZoom;
+  final List<ShelfMapEntry> linkedMaps;
+
+  @override
+  State<_StoryViewBlockEditorDialog> createState() =>
+      _StoryViewBlockEditorDialogState();
+}
+
+class _StoryViewBlockEditorDialogState
+    extends State<_StoryViewBlockEditorDialog> {
+  late final TextEditingController _titleCtrl =
+      TextEditingController(text: widget.defaultTitle);
+  late final TextEditingController _captionCtrl =
+      TextEditingController(text: 'Focus on this area');
+  late final TextEditingController _latCtrl =
+      TextEditingController(text: widget.initialLat.toStringAsFixed(5));
+  late final TextEditingController _lonCtrl =
+      TextEditingController(text: widget.initialLon.toStringAsFixed(5));
+  late final TextEditingController _zoomCtrl =
+      TextEditingController(text: widget.initialZoom.toStringAsFixed(2));
+  String _display = 'both';
+  late final Map<String, bool> _layerVisibility = <String, bool>{
+    for (final m in widget.linkedMaps) m.summary.address: m.visible,
+  };
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _captionCtrl.dispose();
+    _latCtrl.dispose();
+    _lonCtrl.dispose();
+    _zoomCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Insert Camera View Block'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                key: const Key('view-editor-title'),
+                controller: _titleCtrl,
+                decoration: const InputDecoration(labelText: 'View title'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                key: const Key('view-editor-caption'),
+                controller: _captionCtrl,
+                decoration: const InputDecoration(labelText: 'Caption'),
+              ),
+              const SizedBox(height: 10),
+              const Text('Display mode', style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                children: [
+                  for (final d in const ['both', 'figure', 'cue'])
+                    ChoiceChip(
+                      key: Key('view-editor-display-$d'),
+                      label: Text(d),
+                      selected: _display == d,
+                      onSelected: (_) => setState(() => _display = d),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _latCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Lat'),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: TextField(
+                      controller: _lonCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Lon'),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: TextField(
+                      controller: _zoomCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Zoom'),
+                    ),
+                  ),
+                ],
+              ),
+              if (widget.linkedMaps.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                const Text(
+                  'Layer visibility snapshot:',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+                for (final m in widget.linkedMaps)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(m.summary.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    value: _layerVisibility[m.summary.address] ?? true,
+                    onChanged: (v) => setState(
+                      () => _layerVisibility[m.summary.address] = v ?? true,
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('view-editor-insert-btn'),
+          onPressed: () {
+            final lat = double.tryParse(_latCtrl.text.trim()) ?? widget.initialLat;
+            final lon = double.tryParse(_lonCtrl.text.trim()) ?? widget.initialLon;
+            final zoom = double.tryParse(_zoomCtrl.text.trim()) ?? widget.initialZoom;
+            final layers = <String, dynamic>{
+              for (final entry in _layerVisibility.entries)
+                entry.key: {'visible': entry.value},
+            };
+            Navigator.of(context).pop(<String, dynamic>{
+              'version': 1,
+              'type': 'view',
+              'id': widget.defaultId,
+              'title': _titleCtrl.text.trim().isEmpty
+                  ? widget.defaultTitle
+                  : _titleCtrl.text.trim(),
+              if (_captionCtrl.text.trim().isNotEmpty)
+                'caption': _captionCtrl.text.trim(),
+              'display': _display,
+              'camera': {
+                'center': [
+                  double.parse(lon.toStringAsFixed(5)),
+                  double.parse(lat.toStringAsFixed(5)),
+                ],
+                'zoom': double.parse(zoom.toStringAsFixed(2)),
+              },
+              if (layers.isNotEmpty) 'layers': layers,
+            });
+          },
+          child: const Text('Insert View Block'),
+        ),
+      ],
     );
   }
 }

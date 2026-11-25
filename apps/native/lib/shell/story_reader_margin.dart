@@ -14,6 +14,7 @@ import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
+import 'raw_event_inspector_dialog.dart';
 import 'social_actions_bar.dart';
 
 /// Non-blocking draggable Margin sheet that sits over the live MapLibre canvas
@@ -188,6 +189,26 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
                   visualDensity: VisualDensity.compact,
                   onPressed: widget.onOpenDiscussion,
                   icon: const Icon(Icons.forum_outlined, size: 18),
+                ),
+                IconButton(
+                  tooltip: 'Inspect raw JSON (37520)',
+                  key: const Key('story-raw-inspect-btn'),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => showRawEventInspectorDialog(
+                    context,
+                    kind: 37520,
+                    title: story.title,
+                    eventId: story.eventId,
+                    pubkey: story.pubkey,
+                    address: story.address,
+                    dTag: story.dTag,
+                    payloadLabel: 'Markdown Content',
+                    payloadContent: story.content,
+                    extraFields: {
+                      'referencedMaps': '${story.referencedAddresses.length}',
+                    },
+                  ),
+                  icon: const Icon(Icons.data_object, size: 18),
                 ),
                 if (widget.isOwned && widget.onEditStory != null)
                   IconButton(

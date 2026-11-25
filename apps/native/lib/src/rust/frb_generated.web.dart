@@ -64,6 +64,9 @@ abstract class EarthlyRustLibApiImplPlatform
   AtlasBundleInspectionDto dco_decode_atlas_bundle_inspection_dto(dynamic raw);
 
   @protected
+  AtlasSchemaValidationDto dco_decode_atlas_schema_validation_dto(dynamic raw);
+
+  @protected
   AtlasSummaryDto dco_decode_atlas_summary_dto(dynamic raw);
 
   @protected
@@ -271,6 +274,12 @@ abstract class EarthlyRustLibApiImplPlatform
   List<PlaceSearchResultDto> dco_decode_list_place_search_result_dto(
     dynamic raw,
   );
+
+  @protected
+  List<int> dco_decode_list_prim_u_32_loose(dynamic raw);
+
+  @protected
+  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw);
 
   @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
@@ -485,6 +494,14 @@ abstract class EarthlyRustLibApiImplPlatform
   UnsignedSightingEventDto dco_decode_unsigned_sighting_event_dto(dynamic raw);
 
   @protected
+  ValhallaIsochroneResultDto dco_decode_valhalla_isochrone_result_dto(
+    dynamic raw,
+  );
+
+  @protected
+  ValhallaRouteResultDto dco_decode_valhalla_route_result_dto(dynamic raw);
+
+  @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
@@ -520,6 +537,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   AtlasBundleInspectionDto sse_decode_atlas_bundle_inspection_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AtlasSchemaValidationDto sse_decode_atlas_schema_validation_dto(
     SseDeserializer deserializer,
   );
 
@@ -813,6 +835,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<int> sse_decode_list_prim_u_32_loose(SseDeserializer deserializer);
+
+  @protected
+  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer);
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
 
   @protected
@@ -1097,6 +1125,16 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  ValhallaIsochroneResultDto sse_decode_valhalla_isochrone_result_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ValhallaRouteResultDto sse_decode_valhalla_route_result_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
@@ -1153,6 +1191,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_atlas_bundle_inspection_dto(
     AtlasBundleInspectionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_atlas_schema_validation_dto(
+    AtlasSchemaValidationDto self,
     SseSerializer serializer,
   );
 
@@ -1517,6 +1561,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_prim_u_32_loose(
+    List<int> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_prim_u_32_strict(
+    Uint32List self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
 
   @protected
@@ -1861,6 +1917,18 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_unsigned_sighting_event_dto(
     UnsignedSightingEventDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_valhalla_isochrone_result_dto(
+    ValhallaIsochroneResultDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_valhalla_route_result_dto(
+    ValhallaRouteResultDto self,
     SseSerializer serializer,
   );
 

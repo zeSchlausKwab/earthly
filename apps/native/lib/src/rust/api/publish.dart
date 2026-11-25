@@ -8,7 +8,8 @@ import 'nostr_client.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `canonicalize_json_value`, `compute_canonical_schema_hash`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Save or update a local working draft in SQLite (`earthly-storage`).
 Future<LocalDraftDto> saveLocalDraft({
@@ -253,9 +254,21 @@ Future<UnsignedCommentEventDto> prepareUnsignedStoryEvent({
   fieldSessionId: fieldSessionId,
 );
 
+/// Validates a GeoJSON FeatureCollection against an Atlas draft-2020-12 JSON Schema
+/// and verifies an optional published `schema-hash` tag (`sha256:...`).
+Future<AtlasSchemaValidationDto> validateMapAgainstAtlasSchema({
+  required String geojson,
+  required String schemaJson,
+  String? publishedSchemaHash,
+}) => EarthlyRustLib.instance.api.crateApiPublishValidateMapAgainstAtlasSchema(
+  geojson: geojson,
+  schemaJson: schemaJson,
+  publishedSchemaHash: publishedSchemaHash,
+);
+
 /// Prepares a canonical Earthly v2 Atlas / Group (`kind 37518`) event with
 /// `modelVersion: "earthly/2"`, governance (`open` | `schema` | `closed`),
-/// pinned dataset/story `a` tags, hashtags, and optional Nearby `h` tag.
+/// optional draft-2020-12 `schema` + `schema-hash`, pinned coordinates, and tags.
 Future<UnsignedCommentEventDto> prepareUnsignedAtlasEvent({
   required String pubkeyOrNpub,
   required String dTag,
@@ -266,6 +279,7 @@ Future<UnsignedCommentEventDto> prepareUnsignedAtlasEvent({
   required List<String> pinnedAddresses,
   required List<String> hashtags,
   String? fieldSessionId,
+  String? schemaJson,
 }) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedAtlasEvent(
   pubkeyOrNpub: pubkeyOrNpub,
   dTag: dTag,
@@ -276,6 +290,7 @@ Future<UnsignedCommentEventDto> prepareUnsignedAtlasEvent({
   pinnedAddresses: pinnedAddresses,
   hashtags: hashtags,
   fieldSessionId: fieldSessionId,
+  schemaJson: schemaJson,
 );
 
 /// Prepares a canonical Nostr `kind 0` user profile metadata event JSON
@@ -395,6 +410,30 @@ Future<PublishOutcomeDto> publishNearbyEventViaOutbox({
   signedEventJson: signedEventJson,
   remoteNodeIds: remoteNodeIds,
 );
+
+class AtlasSchemaValidationDto {
+  final bool valid;
+  final bool hashVerified;
+  final List<String> errors;
+
+  const AtlasSchemaValidationDto({
+    required this.valid,
+    required this.hashVerified,
+    required this.errors,
+  });
+
+  @override
+  int get hashCode => valid.hashCode ^ hashVerified.hashCode ^ errors.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AtlasSchemaValidationDto &&
+          runtimeType == other.runtimeType &&
+          valid == other.valid &&
+          hashVerified == other.hashVerified &&
+          errors == other.errors;
+}
 
 class ExternalGeoBlobDto {
   final String url;

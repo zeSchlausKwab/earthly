@@ -246,36 +246,49 @@ pub async fn run_agent_turn(
                 .unwrap_or("{}");
             let parsed_args: Value = serde_json::from_str(raw_args).unwrap_or_else(|_| json!({}));
 
-            let (record, tool_result) = if fn_name == "fetch_webpage" {
-                let target_url = parsed_args
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                match fetch_and_extract_webpage(&client, target_url).await {
-                    Ok(extracted) => {
-                        let title = extracted["title"].as_str().unwrap_or(target_url);
-                        let coords_len = extracted["coordinates"]
-                            .as_array()
-                            .map(Vec::len)
-                            .unwrap_or(0);
-                        let rec = ExecutedToolRecord {
-                            name: "fetch_webpage".to_owned(),
-                            ok: true,
-                            summary: format!("Fetched \"{title}\" ({coords_len} coord(s))"),
-                        };
-                        (rec, extracted)
+            let (record, tool_result) = match fn_name {
+                "fetch_webpage" => {
+                    let target_url = parsed_args
+                        .get("url")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    match fetch_and_extract_webpage(&client, target_url).await {
+                        Ok(extracted) => {
+                            let title = extracted["title"].as_str().unwrap_or(target_url);
+                            let coords_len = extracted["coordinates"]
+                                .as_array()
+                                .map(Vec::len)
+                                .unwrap_or(0);
+                            let rec = ExecutedToolRecord {
+                                name: "fetch_webpage".to_owned(),
+                                ok: true,
+                                summary: format!("Fetched \"{title}\" ({coords_len} coord(s))"),
+                            };
+                            (rec, extracted)
+                        }
+                        Err(err) => (
+                            ExecutedToolRecord {
+                                name: "fetch_webpage".to_owned(),
+                                ok: false,
+                                summary: err.clone(),
+                            },
+                            json!({ "error": err }),
+                        ),
                     }
-                    Err(err) => (
-                        ExecutedToolRecord {
-                            name: "fetch_webpage".to_owned(),
-                            ok: false,
-                            summary: err.clone(),
-                        },
-                        json!({ "error": err }),
-                    ),
                 }
-            } else {
-                execute_tool_call(fn_name, &parsed_args, &input.workspace, &mut state)
+                "geocode_place" => {
+                    run_agent_geocode(&client, &parsed_args, &input.workspace, &mut state).await
+                }
+                "query_osm_bbox" => {
+                    run_agent_osm_query(&client, &parsed_args, &input.workspace, &mut state).await
+                }
+                "valhalla_route" => {
+                    run_agent_valhalla_route(&client, &parsed_args, &mut state).await
+                }
+                "valhalla_isochrone" => {
+                    run_agent_valhalla_isochrone(&client, &parsed_args, &mut state).await
+                }
+                _ => execute_tool_call(fn_name, &parsed_args, &input.workspace, &mut state),
             };
             executed.push(record);
 
@@ -659,6 +672,347 @@ fn parse_two_floats_prefix(s: &str, sep: char) -> Option<(f64, f64)> {
     let first = a.parse::<f64>().ok()?;
     let second = b.split(sep).next()?.parse::<f64>().ok()?;
     Some((first, second))
+}
+
+fn agent_err(name: &str, msg: &str) -> (ExecutedToolRecord, Value) {
+    (
+        ExecutedToolRecord {
+            name: name.to_owned(),
+            ok: false,
+            summary: msg.to_owned(),
+        },
+        json!({ "error": msg }),
+    )
+}
+
+async fn run_agent_geocode(
+    client: &reqwest::Client,
+    args: &Value,
+    workspace: &crate::executor::AgentWorkspaceContext,
+    state: &mut MutableDraftState,
+) -> (ExecutedToolRecord, Value) {
+    let q = args
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if q.is_empty() {
+        return agent_err("geocode_place", "query is required");
+    }
+    let resp = client
+        .get("https://photon.komoot.io/api")
+        .query(&[("q", q), ("limit", "5")])
+        .send()
+        .await;
+    let Ok(r) = resp else {
+        return agent_err("geocode_place", "Photon request failed");
+    };
+    let Ok(body) = r.json::<Value>().await else {
+        return agent_err("geocode_place", "Invalid Photon JSON");
+    };
+    let hits = body
+        .get("features")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(first) = hits.first() {
+        if let Some(coords) = first
+            .get("geometry")
+            .and_then(|g| g.get("coordinates"))
+            .and_then(Value::as_array)
+        {
+            if coords.len() >= 2 {
+                if let (Some(lon), Some(lat)) = (coords[0].as_f64(), coords[1].as_f64()) {
+                    state.camera_action = Some(crate::executor::AgentCameraAction {
+                        lon,
+                        lat,
+                        zoom: workspace.zoom.max(14.0),
+                    });
+                }
+            }
+        }
+    }
+    let count = hits.len();
+    (
+        ExecutedToolRecord {
+            name: "geocode_place".to_owned(),
+            ok: true,
+            summary: format!("Geocoded \"{q}\" ({count} candidate(s))"),
+        },
+        json!({ "query": q, "features": hits }),
+    )
+}
+
+async fn run_agent_osm_query(
+    client: &reqwest::Client,
+    args: &Value,
+    workspace: &crate::executor::AgentWorkspaceContext,
+    state: &mut MutableDraftState,
+) -> (ExecutedToolRecord, Value) {
+    let preset = args
+        .get("preset")
+        .and_then(Value::as_str)
+        .unwrap_or("highway")
+        .trim()
+        .to_ascii_lowercase();
+    let span = 0.015;
+    let west = args.get("west").and_then(Value::as_f64).unwrap_or(workspace.center_lon - span);
+    let south = args.get("south").and_then(Value::as_f64).unwrap_or(workspace.center_lat - span);
+    let east = args.get("east").and_then(Value::as_f64).unwrap_or(workspace.center_lon + span);
+    let north = args.get("north").and_then(Value::as_f64).unwrap_or(workspace.center_lat + span);
+    if (east - west) > 0.5 || (north - south) > 0.5 || east <= west || north <= south {
+        return agent_err("query_osm_bbox", "Invalid or oversized (>0.5°) bbox");
+    }
+    let filter = match args.get("customTag").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+        Some(tag) => {
+            if let Some((k, v)) = tag.split_once('=') {
+                format!(r#"["{}"="{}"]"#, k.trim(), v.trim().replace('"', ""))
+            } else {
+                format!(r#"["{}"]"#, tag.replace('"', ""))
+            }
+        }
+        None => match preset.as_str() {
+            "peaks" => r#"["natural"="peak"]"#.to_owned(),
+            "water" => r#"["amenity"="drinking_water"]"#.to_owned(),
+            "highway" | "waterway" | "building" | "natural" | "amenity" | "leisure" | "railway" => {
+                format!(r#"["{preset}"]"#)
+            }
+            _ => r#"["name"]"#.to_owned(),
+        },
+    };
+    let q = format!(
+        "[out:json][timeout:16];(nwr{filter}({south:.6},{west:.6},{north:.6},{east:.6}););out geom 80;"
+    );
+    let Ok(resp) = client
+        .post("https://overpass-api.de/api/interpreter")
+        .form(&[("data", q.as_str())])
+        .send()
+        .await
+    else {
+        return agent_err("query_osm_bbox", "Overpass request failed");
+    };
+    if !resp.status().is_success() {
+        return agent_err("query_osm_bbox", &format!("Overpass HTTP {}", resp.status()));
+    }
+    let Ok(body) = resp.json::<Value>().await else {
+        return agent_err("query_osm_bbox", "Invalid Overpass JSON");
+    };
+    let elements = body
+        .get("elements")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut feats = Vec::new();
+    for el in elements.into_iter().take(80) {
+        let el_type = el.get("type").and_then(Value::as_str).unwrap_or("");
+        let mut props = el.get("tags").and_then(Value::as_object).cloned().unwrap_or_default();
+        if el_type == "node" {
+            if let (Some(lat), Some(lon)) = (
+                el.get("lat").and_then(Value::as_f64),
+                el.get("lon").and_then(Value::as_f64),
+            ) {
+                feats.push(json!({
+                    "type": "Feature",
+                    "geometry": { "type": "Point", "coordinates": [lon, lat] },
+                    "properties": props
+                }));
+            }
+        } else if el_type == "way" {
+            if let Some(arr) = el.get("geometry").and_then(Value::as_array) {
+                let ring: Vec<[f64; 2]> = arr
+                    .iter()
+                    .filter_map(|p| Some([p.get("lon")?.as_f64()?, p.get("lat")?.as_f64()?]))
+                    .collect();
+                if ring.len() >= 2 {
+                    let closed = ring.len() >= 4 && ring.first() == ring.last() && !props.contains_key("highway");
+                    let geom = if closed {
+                        json!({ "type": "Polygon", "coordinates": [ring] })
+                    } else {
+                        json!({ "type": "LineString", "coordinates": ring })
+                    };
+                    props.insert("source".to_owned(), json!("overpass"));
+                    feats.push(json!({ "type": "Feature", "geometry": geom, "properties": props }));
+                }
+            }
+        }
+    }
+    let fc = json!({ "type": "FeatureCollection", "features": feats });
+    let added = state.append_geojson_features(&fc);
+    (
+        ExecutedToolRecord {
+            name: "query_osm_bbox".to_owned(),
+            ok: true,
+            summary: format!("Imported {added} OSM feature(s) for {preset}"),
+        },
+        json!({ "addedCount": added, "preset": preset }),
+    )
+}
+
+fn decode_agent_polyline6(encoded: &str) -> Vec<[f64; 2]> {
+    let bytes = encoded.as_bytes();
+    let (mut idx, mut lat, mut lon) = (0usize, 0i64, 0i64);
+    let mut out = Vec::new();
+    while idx < bytes.len() {
+        let (mut shift, mut result) = (0u32, 0i64);
+        loop {
+            if idx >= bytes.len() {
+                return out;
+            }
+            let b = (bytes[idx] as i64) - 63;
+            idx += 1;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+            if b < 0x20 {
+                break;
+            }
+        }
+        lat += if (result & 1) != 0 { !(result >> 1) } else { result >> 1 };
+        shift = 0;
+        result = 0;
+        loop {
+            if idx >= bytes.len() {
+                return out;
+            }
+            let b = (bytes[idx] as i64) - 63;
+            idx += 1;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+            if b < 0x20 {
+                break;
+            }
+        }
+        lon += if (result & 1) != 0 { !(result >> 1) } else { result >> 1 };
+        out.push([(lon as f64) / 1e6, (lat as f64) / 1e6]);
+    }
+    out
+}
+
+async fn run_agent_valhalla_route(
+    client: &reqwest::Client,
+    args: &Value,
+    state: &mut MutableDraftState,
+) -> (ExecutedToolRecord, Value) {
+    let waypoints = args
+        .get("waypoints")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if waypoints.len() < 2 {
+        return agent_err("valhalla_route", "At least 2 waypoints required");
+    }
+    let profile = match args.get("profile").and_then(Value::as_str).unwrap_or("pedestrian") {
+        "bicycle" | "bike" => "bicycle",
+        "auto" | "drive" => "auto",
+        _ => "pedestrian",
+    };
+    let locs: Vec<Value> = waypoints
+        .iter()
+        .filter_map(|w| Some(json!({ "lon": w.get("lon")?.as_f64()?, "lat": w.get("lat")?.as_f64()? })))
+        .collect();
+    if locs.len() < 2 {
+        return agent_err("valhalla_route", "Valid waypoint lon/lat required");
+    }
+    let Ok(resp) = client
+        .post("https://valhalla1.openstreetmap.de/route")
+        .json(&json!({ "locations": locs, "costing": profile, "units": "kilometers", "directions_type": "none" }))
+        .send()
+        .await
+    else {
+        return agent_err("valhalla_route", "Valhalla request failed");
+    };
+    if !resp.status().is_success() {
+        return agent_err("valhalla_route", &format!("Valhalla HTTP {}", resp.status()));
+    }
+    let Ok(body) = resp.json::<Value>().await else {
+        return agent_err("valhalla_route", "Invalid Valhalla JSON");
+    };
+    let mut coords = Vec::new();
+    for leg in body
+        .get("trip")
+        .and_then(|t| t.get("legs"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(shape) = leg.get("shape").and_then(Value::as_str) {
+            coords.extend(decode_agent_polyline6(shape));
+        }
+    }
+    if coords.len() < 2 {
+        return agent_err("valhalla_route", "Valhalla returned no route geometry");
+    }
+    let km = body["trip"]["summary"]["length"].as_f64().unwrap_or(0.0);
+    let min = body["trip"]["summary"]["time"].as_f64().unwrap_or(0.0) / 60.0;
+    let fc = json!({
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": { "type": "LineString", "coordinates": coords },
+            "properties": { "name": format!("Route · {km:.2} km ({profile})"), "source": "valhalla", "strokeColor": "#0284C7", "strokeWidth": 4 }
+        }]
+    });
+    state.append_geojson_features(&fc);
+    (
+        ExecutedToolRecord {
+            name: "valhalla_route".to_owned(),
+            ok: true,
+            summary: format!("Routed {km:.2} km · {min:.0} min ({profile})"),
+        },
+        json!({ "lengthKm": km, "durationMin": min, "profile": profile }),
+    )
+}
+
+async fn run_agent_valhalla_isochrone(
+    client: &reqwest::Client,
+    args: &Value,
+    state: &mut MutableDraftState,
+) -> (ExecutedToolRecord, Value) {
+    let (Some(lon), Some(lat)) = (
+        args.get("lon").and_then(Value::as_f64),
+        args.get("lat").and_then(Value::as_f64),
+    ) else {
+        return agent_err("valhalla_isochrone", "lon and lat required");
+    };
+    let profile = match args.get("profile").and_then(Value::as_str).unwrap_or("bicycle") {
+        "pedestrian" | "walk" => "pedestrian",
+        "auto" | "drive" => "auto",
+        _ => "bicycle",
+    };
+    let mins: Vec<Value> = args
+        .get("contoursMinutes")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_u64().map(|m| json!({ "time": m.clamp(1, 60) })))
+                .take(4)
+                .collect()
+        })
+        .filter(|v: &Vec<Value>| !v.is_empty())
+        .unwrap_or_else(|| vec![json!({ "time": 10 }), json!({ "time": 20 })]);
+
+    let Ok(resp) = client
+        .post("https://valhalla1.openstreetmap.de/isochrone")
+        .json(&json!({ "locations": [{ "lat": lat, "lon": lon }], "costing": profile, "contours": mins, "polygons": true }))
+        .send()
+        .await
+    else {
+        return agent_err("valhalla_isochrone", "Valhalla isochrone request failed");
+    };
+    if !resp.status().is_success() {
+        return agent_err("valhalla_isochrone", &format!("Valhalla HTTP {}", resp.status()));
+    }
+    let Ok(body) = resp.json::<Value>().await else {
+        return agent_err("valhalla_isochrone", "Invalid Valhalla isochrone JSON");
+    };
+    let added = state.append_geojson_features(&body);
+    (
+        ExecutedToolRecord {
+            name: "valhalla_isochrone".to_owned(),
+            ok: added > 0,
+            summary: format!("Added {added} isochrone band(s) ({profile})"),
+        },
+        json!({ "addedCount": added, "profile": profile }),
+    )
 }
 
 #[cfg(test)]

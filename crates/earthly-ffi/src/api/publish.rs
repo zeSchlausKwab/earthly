@@ -878,9 +878,189 @@ pub fn prepare_unsigned_story_event(
     })
 }
 
+#[derive(Clone, Debug)]
+pub struct AtlasSchemaValidationDto {
+    pub valid: bool,
+    pub hash_verified: bool,
+    pub errors: Vec<String>,
+}
+
+fn canonicalize_json_value(v: &serde_json::Value) -> serde_json::Value {
+    match v {
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(canonicalize_json_value).collect())
+        }
+        serde_json::Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            let mut sorted = serde_json::Map::new();
+            for k in keys {
+                sorted.insert(k.clone(), canonicalize_json_value(&map[k]));
+            }
+            serde_json::Value::Object(sorted)
+        }
+        other => other.clone(),
+    }
+}
+
+pub(crate) fn compute_canonical_schema_hash(schema: &serde_json::Value) -> String {
+    let canonical = serde_json::to_string(&canonicalize_json_value(schema)).unwrap_or_default();
+    let digest = Sha256::digest(canonical.as_bytes());
+    format!("sha256:{}", digest.iter().map(|b| format!("{b:02x}")).collect::<String>())
+}
+
+/// Validates a GeoJSON FeatureCollection against an Atlas draft-2020-12 JSON Schema
+/// and verifies an optional published `schema-hash` tag (`sha256:...`).
+pub fn validate_map_against_atlas_schema(
+    geojson: String,
+    schema_json: String,
+    published_schema_hash: Option<String>,
+) -> Result<AtlasSchemaValidationDto, String> {
+    let schema: serde_json::Value = serde_json::from_str(&schema_json)
+        .map_err(|e| format!("invalid Atlas schema JSON: {e}"))?;
+    if !schema.is_object() {
+        return Err("Atlas schema must be a JSON object".to_owned());
+    }
+
+    if let Some(expected) = published_schema_hash
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let actual = compute_canonical_schema_hash(&schema);
+        if actual != expected {
+            return Ok(AtlasSchemaValidationDto {
+                valid: false,
+                hash_verified: false,
+                errors: vec!["Schema could not be verified (schema-hash mismatch)".to_owned()],
+            });
+        }
+    }
+
+    let fc: serde_json::Value = serde_json::from_str(&geojson)
+        .map_err(|e| format!("invalid GeoJSON payload: {e}"))?;
+    let features = fc
+        .get("features")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "GeoJSON missing features array".to_owned())?;
+
+    let props_schema = schema.get("properties").and_then(|v| v.as_object());
+    let required_keys: Vec<String> = schema
+        .get("required")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    let allowed_geom_types: Vec<String> = props_schema
+        .and_then(|m| m.get("geometry"))
+        .and_then(|g| g.get("properties"))
+        .and_then(|p| p.get("type"))
+        .and_then(|t| t.get("enum"))
+        .and_then(|e| e.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut errors = Vec::new();
+    for (idx, feat) in features.iter().enumerate() {
+        if !allowed_geom_types.is_empty() {
+            if let Some(gtype) = feat
+                .get("geometry")
+                .and_then(|g| g.get("type"))
+                .and_then(|t| t.as_str())
+            {
+                if !allowed_geom_types.iter().any(|allowed| allowed == gtype) {
+                    errors.push(format!(
+                        "Feature #{}: geometry type `{gtype}` not allowed",
+                        idx + 1
+                    ));
+                }
+            }
+        }
+        let fprops = feat
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .cloned()
+            .unwrap_or_default();
+        for req_key in &required_keys {
+            let present = match fprops.get(req_key) {
+                Some(serde_json::Value::Null) | None => false,
+                Some(serde_json::Value::String(s)) => !s.trim().is_empty(),
+                Some(_) => true,
+            };
+            if !present {
+                errors.push(format!(
+                    "Feature #{}: missing required `{req_key}`",
+                    idx + 1
+                ));
+            }
+        }
+        if let Some(schema_map) = props_schema {
+            for (field, def) in schema_map {
+                if field == "geometry" {
+                    continue;
+                }
+                let Some(val) = fprops.get(field) else {
+                    continue;
+                };
+                if val.is_null() {
+                    continue;
+                }
+                if let Some(allowed) = def.get("enum").and_then(|e| e.as_array()) {
+                    let s_val = match val {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    let ok = allowed.iter().any(|item| match item {
+                        serde_json::Value::String(s) => s == &s_val,
+                        other => other == val,
+                    });
+                    if !ok {
+                        errors.push(format!(
+                            "Feature #{}: `{field}` value `{s_val}` not in allowed enum",
+                            idx + 1
+                        ));
+                    }
+                    continue;
+                }
+                match def.get("type").and_then(|t| t.as_str()) {
+                    Some("string") if !val.is_string() => {
+                        errors.push(format!("Feature #{}: `{field}` must be text", idx + 1));
+                    }
+                    Some("number") if !val.is_number() => {
+                        errors.push(format!("Feature #{}: `{field}` must be a number", idx + 1));
+                    }
+                    Some("integer") if val.as_i64().is_none() && val.as_u64().is_none() => {
+                        errors.push(format!("Feature #{}: `{field}` must be an integer", idx + 1));
+                    }
+                    Some("boolean") if !val.is_boolean() => {
+                        errors.push(format!("Feature #{}: `{field}` must be boolean", idx + 1));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if errors.len() >= 12 {
+            break;
+        }
+    }
+
+    Ok(AtlasSchemaValidationDto {
+        valid: errors.is_empty(),
+        hash_verified: true,
+        errors,
+    })
+}
+
 /// Prepares a canonical Earthly v2 Atlas / Group (`kind 37518`) event with
 /// `modelVersion: "earthly/2"`, governance (`open` | `schema` | `closed`),
-/// pinned dataset/story `a` tags, hashtags, and optional Nearby `h` tag.
+/// optional draft-2020-12 `schema` + `schema-hash`, pinned coordinates, and tags.
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_unsigned_atlas_event(
     pubkey_or_npub: String,
@@ -892,6 +1072,7 @@ pub fn prepare_unsigned_atlas_event(
     pinned_addresses: Vec<String>,
     hashtags: Vec<String>,
     field_session_id: Option<String>,
+    schema_json: Option<String>,
 ) -> Result<UnsignedCommentEventDto, String> {
     let trimmed_name = name.trim();
     if trimmed_name.is_empty() {
@@ -939,9 +1120,25 @@ pub fn prepare_unsigned_atlas_event(
         serde_json::Value::String(gov.to_owned()),
     );
 
+    let mut computed_schema_hash: Option<String> = None;
+    if gov == "schema" {
+        if let Some(raw_schema) = schema_json.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            let parsed_schema: serde_json::Value = serde_json::from_str(raw_schema)
+                .map_err(|e| format!("invalid Atlas schema JSON: {e}"))?;
+            if !parsed_schema.is_object() {
+                return Err("Atlas schema must be a JSON object".to_owned());
+            }
+            computed_schema_hash = Some(compute_canonical_schema_hash(&parsed_schema));
+            body.insert("schema".to_owned(), parsed_schema);
+        }
+    }
+
     let mut tags: Vec<Vec<String>> = vec![vec!["d".to_owned(), d_tag.clone()]];
     if let Some(img) = clean_image {
         tags.push(vec!["image".to_owned(), img]);
+    }
+    if let Some(hash) = computed_schema_hash {
+        tags.push(vec!["schema-hash".to_owned(), hash]);
     }
     tags = set_referenced_addresses(&tags, &pinned_addresses);
     tags = set_hashtags(&tags, &hashtags);
@@ -1701,6 +1898,8 @@ mod tests {
     fn prepares_canonical_unsigned_atlas_event() {
         let keys = Keys::generate();
         let pk = keys.public_key().to_hex();
+        let schema_a = r#"{"type":"object","required":["hutName"],"properties":{"hutName":{"type":"string"},"geometry":{"type":"object","properties":{"type":{"enum":["Point"]}}}}}"#;
+        let schema_b = r#"{"properties":{"geometry":{"properties":{"type":{"enum":["Point"]}},"type":"object"},"hutName":{"type":"string"}},"required":["hutName"],"type":"object"}"#;
         let prepared = prepare_unsigned_atlas_event(
             pk.clone(),
             "alpine-atlas".to_owned(),
@@ -1711,6 +1910,7 @@ mod tests {
             vec![format!("37515:{pk}:huts-2026")],
             vec!["alps".to_owned(), "hiking".to_owned()],
             None,
+            Some(schema_a.to_owned()),
         )
         .unwrap();
 
@@ -1722,10 +1922,50 @@ mod tests {
         assert_eq!(content["modelVersion"], "earthly/2");
         assert_eq!(content["governance"], "schema");
         assert_eq!(content["image"], "https://blossom.earthly.city/cover.jpg");
+        assert!(content["schema"].is_object());
         let tags = raw["tags"].as_array().unwrap();
         assert!(tags.iter().any(|t| t[0] == "image" && t[1] == "https://blossom.earthly.city/cover.jpg"));
         assert!(tags.iter().any(|t| t[0] == "a" && t[1] == format!("37515:{pk}:huts-2026")));
         assert!(tags.iter().any(|t| t[0] == "t" && t[1] == "alps"));
+        let published_hash = tags
+            .iter()
+            .find(|t| t[0] == "schema-hash")
+            .and_then(|t| t.get(1))
+            .and_then(|v| v.as_str())
+            .expect("schema-hash tag must be set")
+            .to_owned();
+        // Canonical schema hash is key-order independent!
+        assert_eq!(
+            compute_canonical_schema_hash(&serde_json::from_str::<serde_json::Value>(schema_b).unwrap()),
+            published_hash
+        );
+
+        let valid_fc = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[11.4,47.2]},"properties":{"hutName":"Olpererhutte"}}]}"#;
+        let ok = validate_map_against_atlas_schema(
+            valid_fc.to_owned(),
+            schema_a.to_owned(),
+            Some(published_hash.clone()),
+        )
+        .unwrap();
+        assert!(ok.valid && ok.hash_verified);
+
+        let bad_fc = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"l1","geometry":{"type":"LineString","coordinates":[[11.4,47.2],[11.5,47.3]]},"properties":{}}]}"#;
+        let invalid = validate_map_against_atlas_schema(
+            bad_fc.to_owned(),
+            schema_a.to_owned(),
+            Some(published_hash),
+        )
+        .unwrap();
+        assert!(!invalid.valid && invalid.hash_verified);
+        assert!(invalid.errors.len() >= 2);
+
+        let tampered = validate_map_against_atlas_schema(
+            valid_fc.to_owned(),
+            schema_a.to_owned(),
+            Some("sha256:0000".to_owned()),
+        )
+        .unwrap();
+        assert!(!tampered.valid && !tampered.hash_verified);
     }
 
     #[test]

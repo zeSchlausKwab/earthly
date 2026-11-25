@@ -25,6 +25,7 @@ class LocationInspectorSheet extends StatefulWidget {
     this.onDropPointHere,
     this.onCreateSightingHere,
     this.onImportOsmHere,
+    this.onIsochroneHere,
     super.key,
   });
 
@@ -38,6 +39,7 @@ class LocationInspectorSheet extends StatefulWidget {
   final VoidCallback? onDropPointHere;
   final VoidCallback? onCreateSightingHere;
   final VoidCallback? onImportOsmHere;
+  final VoidCallback? onIsochroneHere;
   final VoidCallback onClose;
 
   @override
@@ -280,6 +282,13 @@ class _LocationInspectorSheetState extends State<LocationInspectorSheet> {
                   onPressed: widget.onImportOsmHere,
                   icon: const Icon(Icons.download_for_offline_outlined, size: 16),
                   label: const Text('Import OSM'),
+                ),
+              if (widget.onIsochroneHere != null)
+                OutlinedButton.icon(
+                  key: const Key('location-isochrone-btn'),
+                  onPressed: widget.onIsochroneHere,
+                  icon: const Icon(Icons.radar, size: 16),
+                  label: const Text('Isochrone Here'),
                 ),
             ],
           ),

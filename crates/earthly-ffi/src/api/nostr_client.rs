@@ -700,6 +700,8 @@ pub struct AtlasSummaryDto {
     pub governance: String,
     pub pinned_addresses: Vec<String>,
     pub hashtags: Vec<String>,
+    pub schema_hash: Option<String>,
+    pub schema_json: Option<String>,
     pub created_at: u64,
 }
 
@@ -1953,6 +1955,8 @@ fn atlas_to_dto(address: String, group: AtlasGroup) -> AtlasSummaryDto {
         governance: governance.to_owned(),
         pinned_addresses: group.pinned_addresses,
         hashtags: group.hashtags,
+        schema_hash: group.schema_hash,
+        schema_json: group.schema_json,
         created_at: group.created_at,
     }
 }

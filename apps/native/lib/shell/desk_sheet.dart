@@ -80,6 +80,7 @@ class DeskSheet extends StatefulWidget {
     required this.onCreateAtlas,
     required this.onImportGeoJson,
     this.onImportOsm,
+    this.onOpenRouting,
     required this.onExportGeoJsonFile,
     this.onExportGpxFile,
     this.onExportKmlFile,
@@ -148,6 +149,7 @@ class DeskSheet extends StatefulWidget {
   final VoidCallback onCreateAtlas;
   final VoidCallback onImportGeoJson;
   final VoidCallback? onImportOsm;
+  final VoidCallback? onOpenRouting;
   final VoidCallback onExportGeoJsonFile;
   final VoidCallback? onExportGpxFile;
   final VoidCallback? onExportKmlFile;
@@ -660,6 +662,13 @@ class _DeskSheetState extends State<DeskSheet> {
                   onPressed: widget.onImportOsm,
                   icon: const Icon(Icons.public_outlined, size: 15),
                   label: const Text('Import OSM'),
+                ),
+              if (widget.onOpenRouting != null)
+                OutlinedButton.icon(
+                  key: const Key('desk-routing-btn'),
+                  onPressed: widget.onOpenRouting,
+                  icon: const Icon(Icons.alt_route, size: 15),
+                  label: const Text('Route / Isochrone'),
                 ),
               if (widget.onPasteGeoJsonFromClipboard != null)
                 OutlinedButton.icon(

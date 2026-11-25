@@ -3,13 +3,16 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../nostr/atlas_schema.dart';
 import '../nostr/earthly_share.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
+import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
+import 'raw_event_inspector_dialog.dart';
 import 'social_actions_bar.dart';
 
 /// Non-blocking Atlas Detail Margin drawer displaying an Atlas (`kind 37518`):
@@ -83,20 +86,50 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
   bool _loadingMissing = false;
   String? _blessingAddress;
   bool _lockingDown = false;
+  late AtlasSchemaFilterMode _schemaFilter;
+  bool _schemaHashVerified = true;
 
   @override
   void initState() {
     super.initState();
+    _schemaFilter = widget.atlas.governance == 'schema'
+        ? AtlasSchemaFilterMode.strict
+        : AtlasSchemaFilterMode.off;
     _loadMissingPinnedMaps();
+    _verifySchemaIntegrity();
   }
 
   @override
   void didUpdateWidget(covariant AtlasDetailMargin oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.atlas.address != widget.atlas.address) {
+    if (oldWidget.atlas.address != widget.atlas.address ||
+        oldWidget.atlas.schemaHash != widget.atlas.schemaHash ||
+        oldWidget.atlas.schemaJson != widget.atlas.schemaJson) {
       _fetchedMaps.clear();
+      _schemaFilter = widget.atlas.governance == 'schema'
+          ? AtlasSchemaFilterMode.strict
+          : AtlasSchemaFilterMode.off;
+      _schemaHashVerified = true;
       _loadMissingPinnedMaps();
+      _verifySchemaIntegrity();
     }
+  }
+
+  Future<void> _verifySchemaIntegrity() async {
+    final hash = widget.atlas.schemaHash;
+    final schema = widget.atlas.schemaJson;
+    if (hash == null || hash.trim().isEmpty || schema == null || schema.trim().isEmpty) {
+      return;
+    }
+    try {
+      await RustBridge.ensureInitialized();
+      final check = await validateMapAgainstAtlasSchema(
+        geojson: '{"type":"FeatureCollection","features":[]}',
+        schemaJson: schema,
+        publishedSchemaHash: hash,
+      );
+      if (mounted) setState(() => _schemaHashVerified = check.hashVerified);
+    } catch (_) {}
   }
 
   Future<void> _loadMissingPinnedMaps() async {
@@ -245,7 +278,11 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
     return (curated: curated, community: community);
   }
 
-  Widget _buildMapRow(MapSummaryDto map, {required bool isCommunity}) {
+  Widget _buildMapRow(
+    MapSummaryDto map, {
+    required bool isCommunity,
+    String? schemaWarning,
+  }) {
     final onShelf = widget.shelfAddresses.contains(map.address);
     final canBless =
         isCommunity && widget.isOwned && widget.onBlessContribution != null;
@@ -262,6 +299,7 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
         height: 44,
       ),
       title: map.title,
+      subtitle: schemaWarning != null ? '⚠ Schema: $schemaWarning' : null,
       meta:
           '${_authorLabel(map.pubkey)} · ${map.featureCount} feat${map.sizeBytes > 0 ? ' · ${formatByteSize(map.sizeBytes)}' : ''}',
       selected: onShelf,
@@ -394,8 +432,6 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
     final totalVisibleMaps =
         mapLanes.curated.length + mapLanes.community.length;
     final totalCurated = mapLanes.curated.length + storyLanes.curated.length;
-    final totalCommunity =
-        mapLanes.community.length + storyLanes.community.length;
 
     final govLabel = switch (atlas.governance) {
       'closed' => 'AUTHOR PICKS',
@@ -434,6 +470,27 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
               visualDensity: VisualDensity.compact,
               onPressed: widget.onOpenDiscussion,
               icon: const Icon(Icons.forum_outlined, size: 18),
+            ),
+            IconButton(
+              tooltip: 'Inspect raw JSON (37518)',
+              key: const Key('atlas-raw-inspect-btn'),
+              visualDensity: VisualDensity.compact,
+              onPressed: () => showRawEventInspectorDialog(
+                context,
+                kind: 37518,
+                title: atlas.name,
+                eventId: atlas.eventId,
+                pubkey: atlas.pubkey,
+                address: atlas.address,
+                dTag: atlas.dTag,
+                payloadLabel: 'Atlas Governance & Schema',
+                payloadContent: atlas.schemaJson ?? atlas.description ?? '{}',
+                extraFields: {
+                  'governance': atlas.governance,
+                  if (atlas.schemaHash != null) 'schemaHash': atlas.schemaHash!,
+                },
+              ),
+              icon: const Icon(Icons.data_object, size: 18),
             ),
             IconButton(
               tooltip: 'Copy Atlas link',
@@ -662,38 +719,132 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
           // LANE 2: COMMUNITY CONTRIBUTIONS (hidden on `closed` Atlases!)
           if (atlas.governance != 'closed') ...[
             const Divider(height: 22),
-            Row(
-              children: [
-                const Icon(
-                  Icons.groups_outlined,
-                  size: 14,
-                  color: EarthlyColors.infoCyan,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'COMMUNITY CONTRIBUTIONS ($totalCommunity)',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.w800,
+            () {
+              final hasSchema = atlas.governance == 'schema' ||
+                  (atlas.schemaJson != null && atlas.schemaJson!.isNotEmpty);
+              final evaluatedMaps = <({MapSummaryDto map, String? reason})>[];
+              var hiddenBySchema = 0;
+              for (final map in mapLanes.community) {
+                final verdict = evaluateMapAgainstSchema(
+                  mode: _schemaFilter,
+                  map: map,
+                  schemaJson: atlas.schemaJson,
+                  publishedHash: atlas.schemaHash,
+                  hashVerified: _schemaHashVerified,
+                );
+                if (!verdict.show) {
+                  hiddenBySchema += 1;
+                } else {
+                  evaluatedMaps.add((map: map, reason: verdict.reason));
+                }
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.groups_outlined,
+                        size: 14,
+                        color: EarthlyColors.infoCyan,
+                      ),
+                      Text(
+                        'COMMUNITY CONTRIBUTIONS (${evaluatedMaps.length + storyLanes.community.length})',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (hasSchema && atlas.schemaHash != null)
+                        EarthlyBadge(
+                          label: _schemaHashVerified
+                              ? 'SCHEMA HASH OK'
+                              : 'SCHEMA UNVERIFIED',
+                          color: _schemaHashVerified
+                              ? EarthlyColors.commentGreen
+                              : EarthlyColors.proposedAmber,
+                        ),
+                      if (hasSchema)
+                        for (final mode in AtlasSchemaFilterMode.values)
+                          ChoiceChip(
+                            key: Key('atlas-schema-filter-${mode.name}'),
+                            label: Text(
+                              mode.name[0].toUpperCase() +
+                                  mode.name.substring(1),
+                              style: const TextStyle(fontSize: 10.5),
+                            ),
+                            selected: _schemaFilter == mode,
+                            onSelected: (_) =>
+                                setState(() => _schemaFilter = mode),
+                          ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            if (totalCommunity == 0)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Text(
-                  'No uncurated community arrivals yet. Enter the Atlas Lens to publish a Map directly into this Atlas.',
-                  style: theme.textTheme.bodySmall,
-                ),
-              )
-            else ...[
-              for (final map in mapLanes.community)
-                _buildMapRow(map, isCommunity: true),
-              for (final story in storyLanes.community)
-                _buildStoryRow(story, isCommunity: true),
-            ],
+                  const SizedBox(height: 6),
+                  if (hiddenBySchema > 0)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: EarthlyColors.proposedAmber.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: EarthlyColors.proposedAmber.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '$hiddenBySchema map(s) hidden by Strict schema filter',
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            key: const Key('atlas-switch-to-warn-btn'),
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () => setState(
+                              () => _schemaFilter = AtlasSchemaFilterMode.warn,
+                            ),
+                            child: const Text('Show warnings'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (evaluatedMaps.isEmpty && storyLanes.community.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Text(
+                        hiddenBySchema > 0
+                            ? 'All uncurated community arrivals failed Strict schema checks. Switch to Warn or Off to inspect.'
+                            : 'No uncurated community arrivals yet. Enter the Atlas Lens to publish a Map directly into this Atlas.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    )
+                  else ...[
+                    for (final item in evaluatedMaps)
+                      _buildMapRow(
+                        item.map,
+                        isCommunity: true,
+                        schemaWarning: item.reason,
+                      ),
+                    for (final story in storyLanes.community)
+                      _buildStoryRow(story, isCommunity: true),
+                  ],
+                ],
+              );
+            }(),
           ] else ...[
             const SizedBox(height: 10),
             Container(

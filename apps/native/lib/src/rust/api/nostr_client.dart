@@ -226,6 +226,8 @@ class AtlasSummaryDto {
   final String governance;
   final List<String> pinnedAddresses;
   final List<String> hashtags;
+  final String? schemaHash;
+  final String? schemaJson;
   final BigInt createdAt;
 
   const AtlasSummaryDto({
@@ -239,6 +241,8 @@ class AtlasSummaryDto {
     required this.governance,
     required this.pinnedAddresses,
     required this.hashtags,
+    this.schemaHash,
+    this.schemaJson,
     required this.createdAt,
   });
 
@@ -254,6 +258,8 @@ class AtlasSummaryDto {
       governance.hashCode ^
       pinnedAddresses.hashCode ^
       hashtags.hashCode ^
+      schemaHash.hashCode ^
+      schemaJson.hashCode ^
       createdAt.hashCode;
 
   @override
@@ -271,6 +277,8 @@ class AtlasSummaryDto {
           governance == other.governance &&
           pinnedAddresses == other.pinnedAddresses &&
           hashtags == other.hashtags &&
+          schemaHash == other.schemaHash &&
+          schemaJson == other.schemaJson &&
           createdAt == other.createdAt;
 }
 

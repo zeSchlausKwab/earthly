@@ -553,6 +553,361 @@ pub async fn geo_query_overpass_bbox(
     })
 }
 
+#[derive(Clone, Debug)]
+pub struct ValhallaRouteResultDto {
+    pub geojson: String,
+    pub distance_meters: f64,
+    pub duration_seconds: f64,
+    pub profile: String,
+    pub summary: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ValhallaIsochroneResultDto {
+    pub geojson: String,
+    pub feature_count: u32,
+    pub profile: String,
+    pub summary: String,
+}
+
+fn normalize_valhalla_profile(profile: &str) -> &'static str {
+    match profile.trim().to_ascii_lowercase().as_str() {
+        "bike" | "bicycle" | "cycling" => "bicycle",
+        "drive" | "auto" | "car" => "auto",
+        "bus" => "bus",
+        "truck" => "truck",
+        _ => "pedestrian",
+    }
+}
+
+/// Decodes Valhalla 6-digit precision encoded polyline into WGS-84 `[lon, lat]` pairs.
+pub(crate) fn decode_polyline6(encoded: &str) -> Vec<[f64; 2]> {
+    let bytes = encoded.as_bytes();
+    let mut index = 0usize;
+    let mut lat: i64 = 0;
+    let mut lon: i64 = 0;
+    let mut out = Vec::new();
+
+    while index < bytes.len() {
+        let mut shift = 0u32;
+        let mut result: i64 = 0;
+        loop {
+            if index >= bytes.len() {
+                return out;
+            }
+            let b = (bytes[index] as i64) - 63;
+            index += 1;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+            if b < 0x20 {
+                break;
+            }
+        }
+        let dlat = if (result & 1) != 0 {
+            !(result >> 1)
+        } else {
+            result >> 1
+        };
+        lat += dlat;
+
+        shift = 0;
+        result = 0;
+        loop {
+            if index >= bytes.len() {
+                return out;
+            }
+            let b = (bytes[index] as i64) - 63;
+            index += 1;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+            if b < 0x20 {
+                break;
+            }
+        }
+        let dlon = if (result & 1) != 0 {
+            !(result >> 1)
+        } else {
+            result >> 1
+        };
+        lon += dlon;
+        out.push([(lon as f64) / 1e6, (lat as f64) / 1e6]);
+    }
+    out
+}
+
+pub(crate) fn parse_valhalla_route_response(
+    raw: &serde_json::Value,
+    profile: &str,
+) -> Result<ValhallaRouteResultDto, String> {
+    let trip = raw
+        .get("trip")
+        .ok_or_else(|| "Valhalla response missing `trip` object".to_owned())?;
+    let legs = trip
+        .get("legs")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "Valhalla trip missing `legs` array".to_owned())?;
+
+    let mut coords: Vec<[f64; 2]> = Vec::new();
+    for leg in legs {
+        let Some(shape) = leg.get("shape").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let pts = decode_polyline6(shape);
+        if pts.is_empty() {
+            continue;
+        }
+        if let (Some(&prev), Some(&first)) = (coords.last(), pts.first()) {
+            if (prev[0] - first[0]).abs() < 1e-6 && (prev[1] - first[1]).abs() < 1e-6 {
+                coords.extend_from_slice(&pts[1..]);
+                continue;
+            }
+        }
+        coords.extend_from_slice(&pts);
+    }
+    if coords.len() < 2 {
+        return Err("Valhalla returned no valid route geometry".to_owned());
+    }
+
+    let length_km = trip
+        .get("summary")
+        .and_then(|s| s.get("length"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let duration_sec = trip
+        .get("summary")
+        .and_then(|s| s.get("time"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let norm = normalize_valhalla_profile(profile);
+    let summary = format!(
+        "{:.2} km · {:.0} min ({norm})",
+        length_km,
+        (duration_sec / 60.0).max(1.0)
+    );
+
+    let fc = serde_json::json!({
+        "type": "FeatureCollection",
+        "name": format!("Valhalla Route ({norm})"),
+        "features": [{
+            "type": "Feature",
+            "id": format!("valhalla-route-{norm}"),
+            "geometry": { "type": "LineString", "coordinates": coords },
+            "properties": {
+                "name": format!("Route · {:.2} km · {:.0} min", length_km, (duration_sec / 60.0).max(1.0)),
+                "source": "valhalla",
+                "profile": norm,
+                "lengthKm": length_km,
+                "durationMin": duration_sec / 60.0,
+                "color": "#0284C7",
+                "strokeColor": "#0284C7",
+                "strokeWidth": 4
+            }
+        }]
+    });
+
+    Ok(ValhallaRouteResultDto {
+        geojson: serde_json::to_string(&fc).map_err(|e| e.to_string())?,
+        distance_meters: length_km * 1000.0,
+        duration_seconds: duration_sec,
+        profile: norm.to_owned(),
+        summary,
+    })
+}
+
+pub(crate) fn parse_valhalla_isochrone_response(
+    raw: &serde_json::Value,
+    profile: &str,
+) -> Result<ValhallaIsochroneResultDto, String> {
+    let raw_features = raw
+        .get("features")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "Valhalla isochrone response missing `features` array".to_owned())?;
+    let norm = normalize_valhalla_profile(profile);
+    let palette = ["#16A34A", "#0284C7", "#D97706", "#DC2626", "#7C3AED"];
+
+    let mut out_features = Vec::new();
+    for (idx, feat) in raw_features.iter().enumerate() {
+        let Some(geom) = feat.get("geometry").and_then(|g| g.as_object()) else {
+            continue;
+        };
+        let gtype = geom.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        if gtype != "Polygon" && gtype != "MultiPolygon" {
+            continue;
+        }
+        let polygon_coords = if gtype == "MultiPolygon" {
+            let Some(first_poly) = geom
+                .get("coordinates")
+                .and_then(|c| c.as_array())
+                .and_then(|a| a.first())
+                .cloned()
+            else {
+                continue;
+            };
+            serde_json::json!({ "type": "Polygon", "coordinates": first_poly })
+        } else {
+            serde_json::Value::Object(geom.clone())
+        };
+        let mut props = feat
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .cloned()
+            .unwrap_or_default();
+        let contour = props
+            .get("contour")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(((idx + 1) * 10) as u64);
+        let hex = palette[idx % palette.len()];
+        props.insert(
+            "name".to_owned(),
+            serde_json::json!(format!("{contour} min {norm}")),
+        );
+        props.insert("source".to_owned(), serde_json::json!("valhalla-isochrone"));
+        props.insert("profile".to_owned(), serde_json::json!(norm));
+        props.insert("fillColor".to_owned(), serde_json::json!(hex));
+        props.insert("strokeColor".to_owned(), serde_json::json!(hex));
+        props.insert("fillOpacity".to_owned(), serde_json::json!(0.22));
+        out_features.push(serde_json::json!({
+            "type": "Feature",
+            "id": format!("valhalla-iso-{contour}m"),
+            "geometry": polygon_coords,
+            "properties": props,
+        }));
+    }
+
+    if out_features.is_empty() {
+        return Err("Valhalla returned no isochrone polygons".to_owned());
+    }
+    let count = out_features.len() as u32;
+    let fc = serde_json::json!({
+        "type": "FeatureCollection",
+        "name": format!("Valhalla Isochrone ({norm})"),
+        "features": out_features,
+    });
+    Ok(ValhallaIsochroneResultDto {
+        geojson: serde_json::to_string(&fc).map_err(|e| e.to_string())?,
+        feature_count: count,
+        profile: norm.to_owned(),
+        summary: format!("{count} isochrone band(s) · {norm}"),
+    })
+}
+
+/// Computes a routed path through ordered waypoints using a Valhalla server
+/// (defaulting to FOSSGIS `https://valhalla1.openstreetmap.de`).
+pub async fn geo_valhalla_route(
+    waypoints: Vec<LonLatPoint>,
+    profile: String,
+    base_url: Option<String>,
+) -> Result<ValhallaRouteResultDto, String> {
+    if waypoints.len() < 2 || waypoints.len() > 50 {
+        return Err("Routing requires between 2 and 50 waypoints".to_owned());
+    }
+    for wp in &waypoints {
+        if !wp.lon.is_finite() || !wp.lat.is_finite() {
+            return Err("Waypoint coordinates must be finite".to_owned());
+        }
+    }
+    let norm = normalize_valhalla_profile(&profile);
+    let base = base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("https://valhalla1.openstreetmap.de")
+        .trim_end_matches('/');
+    let endpoint = format!("{base}/route");
+    let locations: Vec<serde_json::Value> = waypoints
+        .iter()
+        .map(|wp| serde_json::json!({ "lat": wp.lat, "lon": wp.lon }))
+        .collect();
+    let payload = serde_json::json!({
+        "locations": locations,
+        "costing": norm,
+        "units": "kilometers",
+        "directions_type": "none",
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .user_agent("EarthlyNative/1.0 (+https://earthly.city)")
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+    let resp = client
+        .post(&endpoint)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Valhalla route request failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Valhalla HTTP {}", resp.status()));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("invalid Valhalla JSON: {e}"))?;
+    parse_valhalla_route_response(&body, norm)
+}
+
+/// Computes travel-time isochrone polygons around `origin` using Valhalla
+/// (defaulting to FOSSGIS `https://valhalla1.openstreetmap.de`).
+pub async fn geo_valhalla_isochrone(
+    origin: LonLatPoint,
+    profile: String,
+    contours_minutes: Vec<u32>,
+    base_url: Option<String>,
+) -> Result<ValhallaIsochroneResultDto, String> {
+    if !origin.lon.is_finite() || !origin.lat.is_finite() {
+        return Err("Origin coordinates must be finite".to_owned());
+    }
+    let norm = normalize_valhalla_profile(&profile);
+    let mut mins: Vec<u32> = contours_minutes
+        .into_iter()
+        .map(|m| m.clamp(1, 60))
+        .take(5)
+        .collect();
+    if mins.is_empty() {
+        mins = vec![5, 10, 15];
+    }
+    mins.sort_unstable();
+    mins.dedup();
+    let contours: Vec<serde_json::Value> = mins
+        .into_iter()
+        .map(|m| serde_json::json!({ "time": m }))
+        .collect();
+
+    let base = base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("https://valhalla1.openstreetmap.de")
+        .trim_end_matches('/');
+    let endpoint = format!("{base}/isochrone");
+    let payload = serde_json::json!({
+        "locations": [{ "lat": origin.lat, "lon": origin.lon }],
+        "costing": norm,
+        "contours": contours,
+        "polygons": true,
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .user_agent("EarthlyNative/1.0 (+https://earthly.city)")
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+    let resp = client
+        .post(&endpoint)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Valhalla isochrone request failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Valhalla HTTP {}", resp.status()));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("invalid Valhalla isochrone JSON: {e}"))?;
+    parse_valhalla_isochrone_response(&body, norm)
+}
+
 /// Validates a GeoJSON FeatureCollection via `earthly-geo::validate_feature_collection`.
 pub fn geo_validate_draft_geojson(geojson: String) -> DraftValidationDto {
     let parsed: serde_json::Value = match serde_json::from_str(&geojson) {
@@ -731,5 +1086,45 @@ mod tests {
         assert_eq!(feats[1]["geometry"]["type"], "LineString");
         assert_eq!(feats[2]["geometry"]["type"], "Polygon");
         assert_eq!(feats[0]["properties"]["name"], "Stephansplatz");
+    }
+
+    #[test]
+    fn valhalla_polyline6_and_isochrone_parsing_work() {
+        // Known Valhalla sample: two legs + summary + polyline6 shape
+        let route_raw = serde_json::json!({
+            "trip": {
+                "summary": { "length": 1.45, "time": 920.0 },
+                "legs": [{ "shape": "_p~iF~ps|U_ulLnnqC" }]
+            }
+        });
+        let route = parse_valhalla_route_response(&route_raw, "walk").unwrap();
+        assert_eq!(route.profile, "pedestrian");
+        assert!((route.distance_meters - 1450.0).abs() < 0.01);
+        let route_fc: serde_json::Value = serde_json::from_str(&route.geojson).unwrap();
+        assert_eq!(route_fc["features"][0]["geometry"]["type"], "LineString");
+        assert_eq!(
+            route_fc["features"][0]["geometry"]["coordinates"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+
+        let iso_raw = serde_json::json!({
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "properties": { "contour": 10 },
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[16.36, 48.20], [16.38, 48.20], [16.38, 48.22], [16.36, 48.20]]]
+                }
+            }]
+        });
+        let iso = parse_valhalla_isochrone_response(&iso_raw, "bicycle").unwrap();
+        assert_eq!(iso.profile, "bicycle");
+        assert_eq!(iso.feature_count, 1);
+        let iso_fc: serde_json::Value = serde_json::from_str(&iso.geojson).unwrap();
+        assert_eq!(iso_fc["features"][0]["properties"]["name"], "10 min bicycle");
     }
 }

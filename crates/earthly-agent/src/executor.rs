@@ -120,6 +120,28 @@ impl MutableDraftState {
             .as_array_mut()
             .expect("features is an array")
     }
+
+    pub fn append_geojson_features(&mut self, fc: &Value) -> usize {
+        let Some(arr) = fc.get("features").and_then(Value::as_array) else {
+            return 0;
+        };
+        let mut added = 0usize;
+        for f in arr {
+            let mut feat = f.clone();
+            if feat.get("id").is_none() {
+                let id = self.next_id("ai-feat");
+                if let Some(obj) = feat.as_object_mut() {
+                    obj.insert("id".to_owned(), json!(id));
+                }
+            }
+            self.features_mut().push(feat);
+            added += 1;
+        }
+        if added > 0 {
+            self.modified = true;
+        }
+        added
+    }
 }
 
 /// Executes a single named Earthly agent tool against the mutable draft state.
@@ -606,6 +628,39 @@ pub fn execute_tool_call(
             )
         }
 
+        "deduplicate_draft" => {
+            let mut seen = std::collections::HashSet::<String>::new();
+            let before = state.features().len();
+            let mut unique = Vec::with_capacity(before);
+            for f in state.features() {
+                let g_sig = f
+                    .get("geometry")
+                    .map(|g| g.to_string())
+                    .unwrap_or_default();
+                let name_sig = f
+                    .get("properties")
+                    .and_then(|p| p.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_ascii_lowercase();
+                let key = format!("{name_sig}|{g_sig}");
+                if seen.insert(key) {
+                    unique.push(f.clone());
+                }
+            }
+            let removed = before.saturating_sub(unique.len());
+            if removed > 0 {
+                *state.features_mut() = unique;
+                state.modified = true;
+            }
+            ok_tool(
+                name,
+                format!("Removed {removed} duplicate feature(s) ({} kept)", state.features().len()),
+                json!({ "removed": removed, "remaining": state.features().len() }),
+            )
+        }
+
         other => err_tool(other, &format!("Unknown tool \"{other}\"")),
     }
 }
@@ -715,6 +770,10 @@ pub fn execute_local_offline_turn(input: &AgentTurnInput) -> AgentTurnOutput {
             &mut state,
         );
         reply = format!("Dropped a labeled point + callout at the current map center ({:.5}, {:.5}).", input.workspace.center_lat, input.workspace.center_lon);
+        tool_calls.push(rec);
+    } else if lower.contains("dedup") || lower.contains("duplicate") {
+        let (rec, _) = execute_tool_call("deduplicate_draft", &json!({}), &input.workspace, &mut state);
+        reply = rec.summary.clone();
         tool_calls.push(rec);
     } else if lower.contains("atlas") {
         let (rec, _) = execute_tool_call("atlas_workspace_status", &json!({}), &input.workspace, &mut state);
@@ -899,5 +958,65 @@ mod tests {
         let updated: Value =
             serde_json::from_str(out.updated_draft_geojson.as_deref().unwrap()).unwrap();
         assert_eq!(updated["features"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn deduplicate_draft_removes_identical_features_and_keeps_distinct() {
+        let fc = json!({
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "id": "a",
+                    "geometry": { "type": "Point", "coordinates": [16.37, 48.20] },
+                    "properties": { "name": "Well" }
+                },
+                {
+                    "type": "Feature",
+                    "id": "b",
+                    "geometry": { "type": "Point", "coordinates": [16.37, 48.20] },
+                    "properties": { "name": "Well" }
+                },
+                {
+                    "type": "Feature",
+                    "id": "c",
+                    "geometry": { "type": "Point", "coordinates": [16.38, 48.21] },
+                    "properties": { "name": "Gate" }
+                }
+            ]
+        })
+        .to_string();
+
+        let out = execute_local_offline_turn(&AgentTurnInput {
+            prompt: "Deduplicate my draft features".to_owned(),
+            history: vec![],
+            workspace: AgentWorkspaceContext {
+                center_lon: 16.375,
+                center_lat: 48.208,
+                zoom: 14.0,
+                draft_title: "Test".to_owned(),
+                draft_geojson: fc,
+                shelf_map_titles: vec![],
+                atlas_workspaces: vec![],
+            },
+        });
+        assert_eq!(out.tool_calls[0].name, "deduplicate_draft");
+        assert!(out.tool_calls[0].ok);
+        let updated: Value =
+            serde_json::from_str(out.updated_draft_geojson.as_deref().unwrap()).unwrap();
+        assert_eq!(updated["features"].as_array().unwrap().len(), 2);
+        let names: Vec<String> = crate::schema::earthly_tool_definitions()
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        for expected in [
+            "deduplicate_draft",
+            "geocode_place",
+            "query_osm_bbox",
+            "valhalla_route",
+            "valhalla_isochrone",
+        ] {
+            assert!(names.iter().any(|n| n == expected), "missing tool {expected}");
+        }
     }
 }

@@ -49,6 +49,7 @@ class ExploreSheet extends StatefulWidget {
     required this.onComposeStory,
     required this.onCreateAtlas,
     required this.onOpenBeaconBroadcaster,
+    this.onOpenPerson,
     required this.onClose,
     super.key,
   });
@@ -81,6 +82,7 @@ class ExploreSheet extends StatefulWidget {
   final VoidCallback onComposeStory;
   final VoidCallback onCreateAtlas;
   final VoidCallback onOpenBeaconBroadcaster;
+  final ValueChanged<String>? onOpenPerson;
   final VoidCallback onClose;
 
   @override
@@ -101,7 +103,7 @@ class _ExploreSheetState extends State<ExploreSheet>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 5, vsync: this);
+    _tabs = TabController(length: 6, vsync: this);
     _tabs.addListener(_onTabChanged);
     _catalog = widget.initialCatalog;
     if (_catalog == null && !widget.catalogLoading) {
@@ -318,6 +320,7 @@ class _ExploreSheetState extends State<ExploreSheet>
     final visibleMaps = _filteredMaps(catalog?.maps ?? const []);
     final visibleStories = _filteredStories(catalog?.stories ?? const []);
     final visibleAtlases = _filteredAtlases(catalog?.atlases ?? const []);
+    final visiblePeople = _filteredPeople(catalog);
     final unstackedMaps = visibleMaps
         .where((m) => !widget.shelfAddresses.contains(m.address))
         .toList(growable: false);
@@ -344,6 +347,10 @@ class _ExploreSheetState extends State<ExploreSheet>
                     Tab(text: 'Atlases (${visibleAtlases.length})'),
                     Tab(text: 'Sightings (${catalog?.sightings.length ?? 0})'),
                     Tab(text: 'Live (${catalog?.beacons.length ?? 0})'),
+                    Tab(
+                      key: const Key('explore-tab-people'),
+                      text: 'People (${visiblePeople.length})',
+                    ),
                   ],
                 ),
               ),
@@ -597,6 +604,7 @@ class _ExploreSheetState extends State<ExploreSheet>
                       _buildAtlasesList(visibleAtlases),
                       _buildSightingsList(catalog?.sightings ?? const []),
                       _buildBeaconsList(catalog?.beacons ?? const []),
+                      _buildPeopleList(visiblePeople),
                     ],
                   ),
           ),
@@ -1092,6 +1100,149 @@ class _ExploreSheetState extends State<ExploreSheet>
                   ),
                 );
               },
+            ),
+    );
+  }
+
+  List<({String pubkey, int maps, int stories, int atlases, int sightings})>
+      _filteredPeople(EarthlyCatalogSnapshot? catalog) {
+    final counts =
+        <String, ({int maps, int stories, int atlases, int sightings})>{};
+    void bump(String pk, {int m = 0, int s = 0, int a = 0, int sig = 0}) {
+      if (pk.trim().isEmpty) return;
+      final prev =
+          counts[pk] ?? (maps: 0, stories: 0, atlases: 0, sightings: 0);
+      counts[pk] = (
+        maps: prev.maps + m,
+        stories: prev.stories + s,
+        atlases: prev.atlases + a,
+        sightings: prev.sightings + sig,
+      );
+    }
+
+    if (catalog != null) {
+      for (final m in catalog.maps) {
+        bump(m.pubkey, m: 1);
+      }
+      for (final s in catalog.stories) {
+        bump(s.pubkey, s: 1);
+      }
+      for (final a in catalog.atlases) {
+        bump(a.pubkey, a: 1);
+      }
+      for (final sig in catalog.sightings) {
+        bump(sig.pubkey, sig: 1);
+      }
+      for (final b in catalog.beacons) {
+        bump(b.pubkey);
+      }
+    }
+    for (final pk in widget.profilesByPubkey.keys) {
+      bump(pk);
+    }
+
+    final list = counts.entries
+        .map(
+          (e) => (
+            pubkey: e.key,
+            maps: e.value.maps,
+            stories: e.value.stories,
+            atlases: e.value.atlases,
+            sightings: e.value.sightings,
+          ),
+        )
+        .where((entry) {
+      final p = widget.profilesByPubkey[entry.pubkey];
+      return _matchesQuery([
+        entry.pubkey,
+        p?.name,
+        p?.displayName,
+        p?.nip05,
+        p?.about,
+      ]);
+    }).toList();
+
+    list.sort((a, b) {
+      final totalA = a.maps + a.stories + a.atlases + a.sightings;
+      final totalB = b.maps + b.stories + b.atlases + b.sightings;
+      return totalB.compareTo(totalA);
+    });
+    return list;
+  }
+
+  Widget _buildPeopleList(
+    List<({String pubkey, int maps, int stories, int atlases, int sightings})>
+        people,
+  ) {
+    return RefreshIndicator(
+      color: EarthlyColors.amber,
+      onRefresh: _refresh,
+      child: people.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Text(_emptyMessage('people'), textAlign: TextAlign.center),
+                ),
+              ],
+            )
+          : Material(
+              type: MaterialType.transparency,
+              child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemCount: people.length,
+                itemBuilder: (context, index) {
+                  final entry = people[index];
+                  final profile = widget.profilesByPubkey[entry.pubkey];
+                  final title = profile?.displayName?.isNotEmpty == true
+                      ? profile!.displayName!
+                      : profile?.name?.isNotEmpty == true
+                          ? profile!.name!
+                          : '${entry.pubkey.substring(0, entry.pubkey.length.clamp(0, 12))}…';
+                  final stats = [
+                    if (entry.maps > 0) '${entry.maps} maps',
+                    if (entry.stories > 0) '${entry.stories} stories',
+                    if (entry.atlases > 0) '${entry.atlases} atlases',
+                    if (entry.sightings > 0) '${entry.sightings} sightings',
+                  ].join(' · ');
+                  return ListTile(
+                    key: Key('explore-person-${entry.pubkey}'),
+                    dense: true,
+                    leading: CircleAvatar(
+                      radius: 18,
+                      backgroundImage:
+                          (profile?.picture?.startsWith('http') ?? false)
+                              ? NetworkImage(profile!.picture!)
+                              : null,
+                      child: (profile?.picture?.startsWith('http') ?? false)
+                          ? null
+                          : const Icon(Icons.person_outline, size: 18),
+                    ),
+                    title: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(
+                      profile?.nip05?.isNotEmpty == true
+                          ? '${profile!.nip05!}${stats.isNotEmpty ? ' · $stats' : ''}'
+                          : (stats.isNotEmpty ? stats : entry.pubkey),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                      ),
+                    ),
+                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    onTap: widget.onOpenPerson == null
+                        ? null
+                        : () => widget.onOpenPerson!(entry.pubkey),
+                  );
+                },
+              ),
             ),
     );
   }
