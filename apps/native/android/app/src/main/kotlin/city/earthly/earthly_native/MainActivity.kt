@@ -359,6 +359,23 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
 
+                    "openExternalUri" -> {
+                        val rawUri = (call.argument<String>("uri") ?: "").trim()
+                        if (rawUri.isEmpty()) {
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            val viewIntent = Intent(Intent.ACTION_VIEW, Uri.parse(rawUri)).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(viewIntent)
+                            result.success(true)
+                        } catch (_: Exception) {
+                            result.success(false)
+                        }
+                    }
+
                     "scanQrCode" -> {
                         if (pendingResult != null) {
                             result.error("busy", "Another picker/capture request is pending", null)

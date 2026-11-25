@@ -1651,6 +1651,7 @@ name = "earthly-geo"
 version = "0.1.0"
 dependencies = [
  "earthly-spatial",
+ "flate2",
  "geo",
  "geojson",
  "quick-xml",

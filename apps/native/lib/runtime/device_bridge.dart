@@ -278,6 +278,20 @@ class DeviceBridge {
     }
   }
 
+  static Future<bool> openExternalUri(String uri) async {
+    try {
+      final ok = await _channel.invokeMethod<bool>(
+        'openExternalUri',
+        <String, Object>{'uri': uri},
+      );
+      return ok ?? true;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<String> scanQrCode() async {
     final raw = await _channel.invokeMethod<String>('scanQrCode');
     if (raw == null || raw.isEmpty) {

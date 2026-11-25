@@ -8,7 +8,7 @@ import 'nostr_client.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `canonicalize_json_value`, `compute_canonical_schema_hash`
+// These functions are ignored because they are not marked as `pub`: `canonicalize_json_value`, `compute_canonical_schema_hash`, `shoutbox_filter_tag`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Save or update a local working draft in SQLite (`earthly-storage`).
@@ -409,6 +409,40 @@ Future<PublishOutcomeDto> publishNearbyEventViaOutbox({
   databasePath: databasePath,
   signedEventJson: signedEventJson,
   remoteNodeIds: remoteNodeIds,
+);
+
+/// Prepares a NIP-57 Zap Request (`kind 9734`) unsigned Nostr event ready for
+/// signing and passing as the `nostr` query parameter to an LNURL-pay callback.
+Future<UnsignedCommentEventDto> prepareUnsignedZapRequestEvent({
+  required String senderPubkeyOrNpub,
+  required String recipientPubkeyHex,
+  required BigInt amountSats,
+  required List<String> relayUrls,
+  String? targetEventId,
+  String? targetAddress,
+  String? comment,
+  String? lnurl,
+}) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedZapRequestEvent(
+  senderPubkeyOrNpub: senderPubkeyOrNpub,
+  recipientPubkeyHex: recipientPubkeyHex,
+  amountSats: amountSats,
+  relayUrls: relayUrls,
+  targetEventId: targetEventId,
+  targetAddress: targetAddress,
+  comment: comment,
+  lnurl: lnurl,
+);
+
+/// Prepares a Community Shoutbox note (`kind 1`) tagged `earthlycity` and the
+/// requested category tag (`blog` / `feature` / `greetings` / `bug`).
+Future<UnsignedCommentEventDto> prepareUnsignedShoutboxPost({
+  required String pubkeyOrNpub,
+  required String category,
+  required String content,
+}) => EarthlyRustLib.instance.api.crateApiPublishPrepareUnsignedShoutboxPost(
+  pubkeyOrNpub: pubkeyOrNpub,
+  category: category,
+  content: content,
 );
 
 class AtlasSchemaValidationDto {

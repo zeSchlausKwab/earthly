@@ -125,6 +125,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
   bool _showBunker = false;
   bool _showReadOnly = false;
   bool _editingProfile = false;
+  final Set<String> _backedUpAccountKeys = <String>{};
   Nip46ClientOfferDto? _nostrConnectOffer;
   bool _awaitingNostrConnect = false;
   String? _error;
@@ -845,16 +846,35 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                 ),
                 if (widget.localNsec != null)
                   OutlinedButton.icon(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: widget.localNsec!));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Copied nsec secret key (keep safe!)'),
+                    key: const Key('account-backup-wizard-btn'),
+                    onPressed: () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (_) => _LocalKeyBackupWizardDialog(
+                          nsec: widget.localNsec!,
                         ),
                       );
+                      if (confirmed == true && mounted) {
+                        setState(() {
+                          _backedUpAccountKeys.add(account.pubkey);
+                          _info = 'Key backup verified ✓';
+                        });
+                      }
                     },
-                    icon: const Icon(Icons.key_outlined, size: 15),
-                    label: const Text('Backup nsec'),
+                    icon: Icon(
+                      _backedUpAccountKeys.contains(account.pubkey)
+                          ? Icons.verified_outlined
+                          : Icons.key_outlined,
+                      size: 15,
+                      color: _backedUpAccountKeys.contains(account.pubkey)
+                          ? EarthlyColors.commentGreen
+                          : null,
+                    ),
+                    label: Text(
+                      _backedUpAccountKeys.contains(account.pubkey)
+                          ? 'Backup Verified'
+                          : 'Backup Local Key',
+                    ),
                   ),
                 OutlinedButton.icon(
                   onPressed: () {
@@ -1413,6 +1433,164 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LocalKeyBackupWizardDialog extends StatefulWidget {
+  const _LocalKeyBackupWizardDialog({required this.nsec});
+
+  final String nsec;
+
+  @override
+  State<_LocalKeyBackupWizardDialog> createState() =>
+      _LocalKeyBackupWizardDialogState();
+}
+
+class _LocalKeyBackupWizardDialogState
+    extends State<_LocalKeyBackupWizardDialog> {
+  final _verifyController = TextEditingController();
+  int _step = 0;
+  bool _revealed = false;
+  bool _copied = false;
+
+  @override
+  void dispose() {
+    _verifyController.dispose();
+    super.dispose();
+  }
+
+  String get _expectedSuffix {
+    final s = widget.nsec.trim();
+    return s.length <= 4 ? s : s.substring(s.length - 4);
+  }
+
+  bool get _suffixMatches =>
+      _verifyController.text.trim().toLowerCase() ==
+      _expectedSuffix.toLowerCase();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final nsec = widget.nsec.trim();
+    final masked = nsec.length > 14
+        ? '${nsec.substring(0, 8)}••••••••••••••••${nsec.substring(nsec.length - 4)}'
+        : '••••••••';
+
+    return AlertDialog(
+      title: Text(
+        _step == 0 ? 'Backup Local Key (Step 1/2)' : 'Verify Backup (Step 2/2)',
+      ),
+      content: SizedBox(
+        width: 340,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_step == 0) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: EarthlyColors.proposedAmber.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: EarthlyColors.proposedAmber.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: const Text(
+                    'Anyone with your nsec1 secret key controls your Nostr identity and published maps. Store it in a password manager or offline note.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: theme.dividerColor),
+                  ),
+                  child: SelectableText(
+                    _revealed ? nsec : masked,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    OutlinedButton.icon(
+                      key: const Key('backup-reveal-btn'),
+                      onPressed: () => setState(() => _revealed = !_revealed),
+                      icon: Icon(
+                        _revealed ? Icons.visibility_off : Icons.visibility,
+                        size: 15,
+                      ),
+                      label: Text(_revealed ? 'Hide Key' : 'Reveal Secret Key'),
+                    ),
+                    OutlinedButton.icon(
+                      key: const Key('backup-copy-btn'),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: nsec));
+                        setState(() => _copied = true);
+                      },
+                      icon: const Icon(Icons.copy, size: 15),
+                      label: Text(_copied ? 'Copied ✓' : 'Copy nsec'),
+                    ),
+                  ],
+                ),
+                if (_revealed) ...[
+                  const SizedBox(height: 12),
+                  Center(child: EarthlyQrCode(data: nsec, size: 168)),
+                ],
+              ] else ...[
+                const Text(
+                  'To confirm you saved your secret key, enter its last 4 characters:',
+                  style: TextStyle(fontSize: 12.5),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  key: const Key('backup-verify-input'),
+                  controller: _verifyController,
+                  onChanged: (_) => setState(() {}),
+                  autocorrect: false,
+                  decoration: const InputDecoration(
+                    labelText: 'Last 4 characters of nsec',
+                    hintText: 'e.g. a1b2',
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        if (_step == 0)
+          FilledButton(
+            key: const Key('backup-next-btn'),
+            onPressed: () => setState(() => _step = 1),
+            child: const Text('Next: Verify'),
+          )
+        else ...[
+          TextButton(
+            onPressed: () => setState(() => _step = 0),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            key: const Key('backup-confirm-btn'),
+            onPressed: _suffixMatches
+                ? () => Navigator.of(context).pop(true)
+                : null,
+            child: const Text('Confirm Backup'),
+          ),
+        ],
+      ],
     );
   }
 }

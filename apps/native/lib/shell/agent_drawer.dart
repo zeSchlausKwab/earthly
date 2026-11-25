@@ -21,6 +21,44 @@ class CopilotMessage {
   final String content;
   final List<AgentToolRecordDto> toolCalls;
   final bool isError;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'role': role,
+        'content': content,
+        'isError': isError,
+        if (toolCalls.isNotEmpty)
+          'toolCalls': [
+            for (final t in toolCalls)
+              <String, dynamic>{
+                'name': t.name,
+                'ok': t.ok,
+                'summary': t.summary,
+              },
+          ],
+      };
+
+  static CopilotMessage? fromJson(Map<String, dynamic> m) {
+    final role = m['role'] as String?;
+    final content = m['content'] as String?;
+    if (role == null || content == null) return null;
+    final rawTools = m['toolCalls'] as List?;
+    final tools = <AgentToolRecordDto>[
+      if (rawTools != null)
+        for (final item in rawTools)
+          if (item is Map && item['name'] is String && item['summary'] is String)
+            AgentToolRecordDto(
+              name: item['name'] as String,
+              ok: (item['ok'] as bool?) ?? true,
+              summary: item['summary'] as String,
+            ),
+    ];
+    return CopilotMessage(
+      role: role,
+      content: content,
+      toolCalls: tools,
+      isError: (m['isError'] as bool?) ?? false,
+    );
+  }
 }
 
 /// Staged AI geometry proposal shown as an amber dashed ghost overlay on the
@@ -96,6 +134,7 @@ class AgentDrawer extends StatefulWidget {
     this.onExtractSourceToMap,
     this.onFocusCoord,
     this.onCiteSourceInStory,
+    this.onDiscoverModels,
     super.key,
   });
 
@@ -111,6 +150,8 @@ class AgentDrawer extends StatefulWidget {
   final ValueChanged<ResearchSourceDto>? onExtractSourceToMap;
   final void Function(double lat, double lon, String label)? onFocusCoord;
   final ValueChanged<ResearchSourceDto>? onCiteSourceInStory;
+  final Future<List<String>> Function(String baseUrl, String apiKey)?
+      onDiscoverModels;
   final ValueChanged<CopilotProviderSettings> onSettingsChanged;
   final ValueChanged<String> onSendPrompt;
   final VoidCallback onClearChat;
@@ -134,7 +175,10 @@ class _AgentDrawerState extends State<AgentDrawer>
 
   bool _showSettings = false;
   bool _fetchingSource = false;
+  bool _discoveringModels = false;
   String? _sourceError;
+  String? _discoverError;
+  List<String> _discoveredModels = const <String>[];
   late ResearchSourceDto? _researchSource = widget.initialResearchSource;
 
   @override
@@ -169,6 +213,39 @@ class _AgentDrawerState extends State<AgentDrawer>
       setState(() => _sourceError = err.toString());
     } finally {
       if (mounted) setState(() => _fetchingSource = false);
+    }
+  }
+
+  Future<void> _discoverProviderModels() async {
+    final baseUrl = _baseUrlController.text.trim();
+    if (baseUrl.isEmpty || _discoveringModels) {
+      setState(
+        () => _discoverError = 'Enter an OpenAI/Ollama Base URL first.',
+      );
+      return;
+    }
+    setState(() {
+      _discoveringModels = true;
+      _discoverError = null;
+    });
+    try {
+      final apiKey = _apiKeyController.text.trim();
+      final models = widget.onDiscoverModels != null
+          ? await widget.onDiscoverModels!(baseUrl, apiKey)
+          : await (() async {
+              await RustBridge.ensureInitialized();
+              return fetchAgentProviderModels(
+                baseUrl: baseUrl,
+                apiKey: apiKey.isEmpty ? null : apiKey,
+              );
+            })();
+      if (!mounted) return;
+      setState(() => _discoveredModels = models);
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _discoverError = err.toString());
+    } finally {
+      if (mounted) setState(() => _discoveringModels = false);
     }
   }
 
@@ -449,15 +526,20 @@ class _AgentDrawerState extends State<AgentDrawer>
   }
 
   Widget _buildProviderSettings(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primary.withValues(alpha: 0.05),
-        border: Border(bottom: BorderSide(color: theme.dividerColor)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 240),
+      child: ClipRect(
+        child: SingleChildScrollView(
+          child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primary.withValues(alpha: 0.05),
+            border: Border(bottom: BorderSide(color: theme.dividerColor)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
           Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -510,14 +592,79 @@ class _AgentDrawerState extends State<AgentDrawer>
             ],
           ),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton(
-              onPressed: _saveCustomSettings,
-              child: const Text('Apply Provider'),
-            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              OutlinedButton.icon(
+                key: const Key('agent-discover-models-btn'),
+                onPressed: _discoveringModels ? null : _discoverProviderModels,
+                icon: _discoveringModels
+                    ? const SizedBox(
+                        width: 13,
+                        height: 13,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.manage_search, size: 15),
+                label: Text(
+                  _discoveringModels ? 'Checking /models…' : 'Discover Models',
+                ),
+              ),
+              FilledButton(
+                onPressed: _saveCustomSettings,
+                child: const Text('Apply Provider'),
+              ),
+            ],
           ),
+          if (_discoverError != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _discoverError!,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 10.5,
+                color: EarthlyColors.destructive,
+              ),
+            ),
+          ],
+          if (_discoveredModels.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'DISCOVERED MODELS (${_discoveredModels.length})',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                for (final m in _discoveredModels.take(16))
+                  ActionChip(
+                    key: Key('agent-discovered-model-$m'),
+                    label: Text(
+                      m,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                      ),
+                    ),
+                    onPressed: () {
+                      setState(() => _modelController.text = m);
+                      _saveCustomSettings();
+                    },
+                  ),
+              ],
+            ),
+          ],
         ],
+          ),
+        ),
+      ),
       ),
     );
   }

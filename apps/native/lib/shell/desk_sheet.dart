@@ -21,6 +21,7 @@ enum RustGeoAction {
   offsetLastLine,
   splitLastLineAtMidpoint,
   connectLines,
+  dissolveLines,
   simplifyPolygon,
   offsetLastPolygon,
   insetPolygon,
@@ -654,7 +655,7 @@ class _DeskSheetState extends State<DeskSheet> {
               OutlinedButton.icon(
                 onPressed: widget.onImportGeoJson,
                 icon: const Icon(Icons.file_upload_outlined, size: 15),
-                label: const Text('Import GeoJSON / GPX / KML'),
+                label: const Text('Import GeoJSON / GPX / KML / SHP'),
               ),
               if (widget.onImportOsm != null)
                 OutlinedButton.icon(
@@ -1256,6 +1257,13 @@ class _DeskSheetState extends State<DeskSheet> {
                     ? () => _triggerGeoAction(RustGeoAction.connectLines)
                     : null,
                 child: Text('Connect Lines ($lineCount)'),
+              ),
+              OutlinedButton(
+                key: const Key('workbench-dissolve-lines'),
+                onPressed: lineCount >= 2
+                    ? () => _triggerGeoAction(RustGeoAction.dissolveLines)
+                    : null,
+                child: Text('Dissolve Lines ($lineCount)'),
               ),
               OutlinedButton(
                 key: const Key('workbench-simplify-polygon'),

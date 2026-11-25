@@ -31,10 +31,12 @@ import 'package:earthly_native/shell/place_search_sheet.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
 import 'package:earthly_native/shell/raw_event_inspector_dialog.dart';
 import 'package:earthly_native/shell/routing_sheet.dart';
+import 'package:earthly_native/shell/shoutbox_sheet.dart';
 import 'package:earthly_native/shell/social_actions_bar.dart';
 import 'package:earthly_native/shell/spaces_sheet.dart';
 import 'package:earthly_native/shell/story_composer_sheet.dart';
 import 'package:earthly_native/shell/story_reader_margin.dart';
+import 'package:earthly_native/shell/zap_dialog.dart';
 import 'package:earthly_native/src/rust/api/agent.dart';
 import 'package:earthly_native/src/rust/api/blossom.dart';
 import 'package:earthly_native/src/rust/api/geo.dart';
@@ -1251,11 +1253,11 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
       ),
     );
     await tester.scrollUntilVisible(
-      find.text('Import GeoJSON / GPX / KML'),
+      find.text('Import GeoJSON / GPX / KML / SHP'),
       140,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('Import GeoJSON / GPX / KML'), findsOneWidget);
+    expect(find.text('Import GeoJSON / GPX / KML / SHP'), findsOneWidget);
     expect(find.text('Export ▾'), findsOneWidget);
     expect(exportedGpx, isFalse);
     expect(exportedKml, isFalse);
@@ -2560,6 +2562,21 @@ Start at geo:48.2764,16.3338 and check $naddr
     );
 
     Future<void> scrollAndTap(Finder finder) async {
+      if (finder.evaluate().isEmpty) {
+        try {
+          await tester.scrollUntilVisible(
+            finder,
+            160,
+            scrollable: find.byType(Scrollable).first,
+          );
+        } catch (_) {
+          await tester.scrollUntilVisible(
+            finder,
+            -160,
+            scrollable: find.byType(Scrollable).first,
+          );
+        }
+      }
       await tester.ensureVisible(finder);
       await tester.pumpAndSettle();
       await tester.tap(finder);
@@ -2591,6 +2608,9 @@ Start at geo:48.2764,16.3338 and check $naddr
 
     await scrollAndTap(find.byKey(const Key('workbench-connect-lines')));
     expect(lastWorkbenchOp, (RustGeoAction.connectLines, 250.0, null));
+
+    await scrollAndTap(find.byKey(const Key('workbench-dissolve-lines')));
+    expect(lastWorkbenchOp, (RustGeoAction.dissolveLines, 250.0, null));
 
     await scrollAndTap(find.byKey(const Key('workbench-inset-polygon')));
     expect(lastWorkbenchOp, (RustGeoAction.insetPolygon, 250.0, null));
@@ -3803,5 +3823,354 @@ Start at geo:48.2764,16.3338 and check $naddr
     await tester.pumpAndSettle();
     expect(find.text('RAW EVENT INSPECTOR (KIND 37515)'), findsOneWidget);
     expect(find.byKey(const Key('raw-inspector-copy-btn')), findsOneWidget);
+  });
+
+  testWidgets(
+      'EntityReactionBar opens ZapDialog and generates BOLT-11 QR + Copy/Wallet actions',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    int? zappedSats;
+    String? zappedComment;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (ctx) => Padding(
+              padding: const EdgeInsets.all(16),
+              child: EntityReactionBar(
+                targetAddress: '37515:alicepk:trail',
+                targetPubkey: 'alicepk',
+                targetKind: 37515,
+                relayUrls: const [],
+                initialCounts: EntitySocialCountsDto(
+                  address: '37515:alicepk:trail',
+                  reactionCount: 2,
+                  userHasReacted: false,
+                  userReactionEventId: null,
+                  zapCount: 1,
+                  zapSats: BigInt.from(21),
+                ),
+                onToggleReaction: (c) async => c,
+                onZap: () => showEarthlyZapDialog(
+                  ctx,
+                  recipientName: 'Alice',
+                  recipientPubkey: 'alicepk',
+                  recipientLud16: 'alice@earthly.city',
+                  targetTitle: 'Danube Loop',
+                  targetAddress: '37515:alicepk:trail',
+                  onGenerateInvoice: ({required amountSats, required comment}) async {
+                    zappedSats = amountSats;
+                    zappedComment = comment;
+                    return ZapInvoiceDto(
+                      pr: 'lnbc5u1p0testinvoice',
+                      verifyUrl: null,
+                      callback: 'https://earthly.city/lnurlp/alice',
+                      minSats: BigInt.from(1),
+                      maxSats: BigInt.from(1000000),
+                      allowsNostr: true,
+                      amountSats: BigInt.from(amountSats),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('entity-zap-badge')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Zap Alice'), findsOneWidget);
+    expect(find.text('⚡ alice@earthly.city'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('zap-amount-500')));
+    await tester.enterText(
+      find.byKey(const Key('zap-comment-field')),
+      'Great trail!',
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('zap-generate-btn')));
+    await tester.pumpAndSettle();
+
+    expect(zappedSats, 500);
+    expect(zappedComment, 'Great trail!');
+    expect(find.byType(EarthlyQrCode), findsOneWidget);
+    expect(find.byKey(const Key('zap-copy-invoice-btn')), findsOneWidget);
+    expect(find.byKey(const Key('zap-open-wallet-btn')), findsOneWidget);
+  });
+
+  testWidgets(
+      'ShoutboxSheet enforces dev-only Announcements banner and posts to Features tab',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    (String, String)? publishedPost;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              ShoutboxSheet(
+                relayUrls: const ['wss://relay.earthly.city'],
+                profilesByPubkey: const {},
+                currentUserPubkey: 'ordinaryuserpk',
+                initialPostsByCategory: {
+                  'announcements': [
+                    ShoutboxPostDto(
+                      eventId: 'ann-1',
+                      pubkey: kEarthlyDeveloperPubkeyHex,
+                      content: 'Welcome to Earthly v2!',
+                      category: 'announcements',
+                      createdAt: BigInt.from(1790000000),
+                      hashtags: const ['earthlycity', 'blog'],
+                    ),
+                  ],
+                  'features': const [],
+                  'greetings': const [],
+                  'bugs': const [],
+                },
+                onPublishPost: (cat, content) async {
+                  publishedPost = (cat, content);
+                  return const PublishOutcomeDto(
+                    eventId: 'shout-feat-1',
+                    outboxState: 'sent',
+                    relays: [],
+                  );
+                },
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Welcome to Earthly v2!'), findsOneWidget);
+    expect(find.byKey(const Key('shoutbox-dev-only-banner')), findsOneWidget);
+
+    await tester.tap(find.text('Features'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('shoutbox-composer-input')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('shoutbox-composer-input')),
+      'Add hillshade contours',
+    );
+    await tester.tap(find.byKey(const Key('shoutbox-send-btn')));
+    await tester.pumpAndSettle();
+
+    expect(publishedPost, ('features', 'Add hillshade contours'));
+    expect(find.text('Add hillshade contours'), findsOneWidget);
+  });
+
+  testWidgets(
+      'AgentDrawer discovers models via /models and applies tapped model chip',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    CopilotProviderSettings? updatedSettings;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AgentDrawer(
+                messages: const [],
+                settings: CopilotProviderSettings.localOllama,
+                busy: false,
+                onDiscoverModels: (baseUrl, _) async {
+                  expect(baseUrl, contains('11434'));
+                  return const ['llama3.2:latest', 'qwen2.5:14b'];
+                },
+                onSettingsChanged: (s) => updatedSettings = s,
+                onSendPrompt: (_) {},
+                onClearChat: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byTooltip('Provider settings'));
+    await tester.pumpAndSettle();
+
+    final discoverBtn = find.byKey(const Key('agent-discover-models-btn'));
+    await tester.ensureVisible(discoverBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(discoverBtn);
+    await tester.pumpAndSettle();
+
+    final chip = find.byKey(const Key('agent-discovered-model-qwen2.5:14b'));
+    await tester.ensureVisible(chip);
+    await tester.pumpAndSettle();
+    expect(chip, findsOneWidget);
+    await tester.tap(chip);
+    await tester.pumpAndSettle();
+
+    expect(updatedSettings?.model, 'qwen2.5:14b');
+  });
+
+  testWidgets(
+      'AccountSessionSheet runs guided Local-Key Backup Wizard and verifies suffix',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    const testNsec =
+        'nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqwxyz';
+    const testPubkey =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              AccountSessionSheet(
+                account: const Nip55Account(pubkey: testPubkey),
+                localNsec: testNsec,
+                profile: const ProfileMetadataDto(
+                  pubkey: testPubkey,
+                  displayName: 'Field Cartographer',
+                ),
+                activeSessionSummary: null,
+                onAccountChanged: (_) {},
+                onLocalKeyChanged: (_) {},
+                onSaveProfile: (_) async => const PublishOutcomeDto(
+                  eventId: 'ev0',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onOpenSpaces: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final backupBtn = find.byKey(const Key('account-backup-wizard-btn'));
+    await tester.ensureVisible(backupBtn);
+    await tester.tap(backupBtn);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('backup-reveal-btn')));
+    await tester.pumpAndSettle();
+    expect(find.text(testNsec), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('backup-next-btn')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('backup-verify-input')), '0000');
+    await tester.pump();
+    final confirmBtn =
+        tester.widget<FilledButton>(find.byKey(const Key('backup-confirm-btn')));
+    expect(confirmBtn.onPressed, isNull);
+
+    await tester.enterText(find.byKey(const Key('backup-verify-input')), 'wxyz');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('backup-confirm-btn')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Backup Verified'), findsOneWidget);
+  });
+
+  testWidgets(
+      'StoryComposerDrawer inserts \$ Map and @ Person nostr references at cursor',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final sampleMap = MapSummaryDto(
+      address: '37515:alicepk:danube',
+      eventId: 'map1',
+      pubkey: 'alicepk',
+      dTag: 'danube',
+      title: 'Danube Greenway',
+      featureCount: 3,
+      sizeBytes: 512,
+      geojson: '{"type":"FeatureCollection","features":[]}',
+      blobRefs: const [],
+      hashtags: const [],
+      labels: const [],
+      contextRefs: const [],
+      createdAt: BigInt.from(1700000000),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              StoryComposerDrawer(
+                shelfMaps: const [],
+                catalogMaps: [sampleMap],
+                profilesByPubkey: const {
+                  'alicepk': ProfileMetadataDto(
+                    pubkey: 'alicepk',
+                    displayName: 'Alice Cartographer',
+                  ),
+                },
+                relayUrls: const ['wss://relay.earthly.city'],
+                onEncodeNaddr: ({
+                  required kind,
+                  required pubkeyHex,
+                  required dTag,
+                  required relays,
+                }) async =>
+                    'nostr:naddr1testdanube',
+                onEncodeNpub: (_) async => 'npub1testalice',
+                getCameraSnapshot: () => null,
+                onPublishStory: (_) async => const PublishOutcomeDto(
+                  eventId: 'story-pub-1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final mapRefBtn = find.byKey(const Key('story-insert-map-ref-btn'));
+    await tester.ensureVisible(mapRefBtn);
+    await tester.tap(mapRefBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mention-entity-danube')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('[Danube Greenway](nostr:naddr1testdanube)'),
+      findsOneWidget,
+    );
+
+    final personRefBtn = find.byKey(const Key('story-insert-person-ref-btn'));
+    await tester.ensureVisible(personRefBtn);
+    await tester.tap(personRefBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mention-person-alicepk')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('nostr:npub1testalice'), findsOneWidget);
   });
 }

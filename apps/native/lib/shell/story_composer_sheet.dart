@@ -14,6 +14,7 @@ import 'desk_sheet.dart';
 import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
+import 'mention_picker_dialog.dart';
 
 class StoryPublishRequest {
   const StoryPublishRequest({
@@ -51,6 +52,12 @@ class StoryComposerDrawer extends StatefulWidget {
     this.initialDraft,
     this.onDraftChanged,
     this.onDiscardDraft,
+    this.catalogMaps = const <MapSummaryDto>[],
+    this.catalogAtlases = const <AtlasSummaryDto>[],
+    this.profilesByPubkey = const <String, ProfileMetadataDto>{},
+    this.relayUrls = const <String>[],
+    this.onEncodeNaddr,
+    this.onEncodeNpub,
     super.key,
   });
 
@@ -65,6 +72,17 @@ class StoryComposerDrawer extends StatefulWidget {
   final Map<String, dynamic>? initialDraft;
   final ValueChanged<Map<String, dynamic>?>? onDraftChanged;
   final VoidCallback? onDiscardDraft;
+  final List<MapSummaryDto> catalogMaps;
+  final List<AtlasSummaryDto> catalogAtlases;
+  final Map<String, ProfileMetadataDto> profilesByPubkey;
+  final List<String> relayUrls;
+  final Future<String> Function({
+    required int kind,
+    required String pubkeyHex,
+    required String dTag,
+    required List<String> relays,
+  })? onEncodeNaddr;
+  final Future<String> Function(String pubkeyHex)? onEncodeNpub;
 
   @override
   State<StoryComposerDrawer> createState() => _StoryComposerDrawerState();
@@ -552,6 +570,53 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
                   onPressed: _insertCameraViewBlock,
                   icon: const Icon(Icons.camera_alt_outlined, size: 14),
                   label: const Text('+ Camera View Block'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('story-insert-map-ref-btn'),
+                  onPressed: () async {
+                    final mapsForPicker = <MapSummaryDto>[
+                      ...widget.catalogMaps,
+                      for (final s in widget.shelfMaps)
+                        if (!widget.catalogMaps
+                            .any((m) => m.address == s.summary.address))
+                          s.summary,
+                    ];
+                    final token = await showEarthlyMentionPickerDialog(
+                      context,
+                      mode: MentionPickerMode.entity,
+                      maps: mapsForPicker,
+                      atlases: widget.catalogAtlases,
+                      profilesByPubkey: widget.profilesByPubkey,
+                      relayUrls: widget.relayUrls,
+                      onEncodeNaddr: widget.onEncodeNaddr,
+                      onEncodeNpub: widget.onEncodeNpub,
+                    );
+                    if (mounted && token != null) {
+                      _insertAtCursor(' $token ');
+                    }
+                  },
+                  icon: const Icon(Icons.link, size: 14),
+                  label: const Text('+ \$ Map'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('story-insert-person-ref-btn'),
+                  onPressed: () async {
+                    final token = await showEarthlyMentionPickerDialog(
+                      context,
+                      mode: MentionPickerMode.person,
+                      maps: widget.catalogMaps,
+                      atlases: widget.catalogAtlases,
+                      profilesByPubkey: widget.profilesByPubkey,
+                      relayUrls: widget.relayUrls,
+                      onEncodeNaddr: widget.onEncodeNaddr,
+                      onEncodeNpub: widget.onEncodeNpub,
+                    );
+                    if (mounted && token != null) {
+                      _insertAtCursor(' $token ');
+                    }
+                  },
+                  icon: const Icon(Icons.alternate_email, size: 14),
+                  label: const Text('+ @ Person'),
                 ),
                 if (widget.onUploadBlossomImage != null)
                   OutlinedButton.icon(

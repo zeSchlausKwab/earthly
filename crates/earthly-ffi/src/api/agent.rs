@@ -2,6 +2,9 @@
 //! spatial tools + OpenAI/OpenRouter/local Ollama multi-turn tool-calling loop
 //! + CORS-free native webpage/GIS Research Source fetcher + `safeEditing` diffs).
 
+use std::collections::BTreeSet;
+use std::time::Duration;
+
 use earthly_agent::{
     AgentChatMessage, AgentProviderConfig, AgentRole, AgentTurnInput, AgentWorkspaceContext,
     fetch_research_webpage, run_agent_turn,
@@ -211,6 +214,102 @@ pub async fn fetch_research_source(url: String) -> Result<ResearchSourceDto, Str
     })
 }
 
+fn parse_models_response_json(body: &str) -> Vec<String> {
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    let mut models = BTreeSet::new();
+    if let Some(arr) = val.get("data").and_then(|v| v.as_array()) {
+        for item in arr {
+            if let Some(id) = item.get("id").and_then(|v| v.as_str()).map(str::trim) {
+                if !id.is_empty() {
+                    models.insert(id.to_owned());
+                }
+            }
+        }
+    }
+    if let Some(arr) = val.get("models").and_then(|v| v.as_array()) {
+        for item in arr {
+            let candidate = item
+                .get("name")
+                .or_else(|| item.get("id"))
+                .and_then(|v| v.as_str())
+                .map(str::trim);
+            if let Some(id) = candidate.filter(|s| !s.is_empty()) {
+                models.insert(id.to_owned());
+            }
+        }
+    }
+    models.into_iter().take(100).collect()
+}
+
+/// Discovers available models from an OpenAI-compatible (`/models`) or local
+/// Ollama (`/v1/models` or `/api/tags`) endpoint.
+pub async fn fetch_agent_provider_models(
+    base_url: String,
+    api_key: Option<String>,
+) -> Result<Vec<String>, String> {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("Enter a provider Base URL before discovering models.".to_owned());
+    }
+
+    let mut candidate_urls = Vec::new();
+    if trimmed.ends_with("/v1") {
+        candidate_urls.push(format!("{trimmed}/models"));
+        if trimmed.contains("11434") {
+            let root = trimmed.trim_end_matches("/v1");
+            candidate_urls.push(format!("{root}/api/tags"));
+        }
+    } else if trimmed.contains("11434") {
+        candidate_urls.push(format!("{trimmed}/v1/models"));
+        candidate_urls.push(format!("{trimmed}/api/tags"));
+    } else {
+        candidate_urls.push(format!("{trimmed}/models"));
+        candidate_urls.push(format!("{trimmed}/v1/models"));
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+    let auth = api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("Bearer {s}"));
+
+    let mut last_err = String::new();
+    for url in candidate_urls {
+        let mut req = client.get(&url);
+        if let Some(ref bearer) = auth {
+            req = req.header("Authorization", bearer);
+        }
+        match req.send().await {
+            Ok(resp) if resp.status().is_success() => {
+                let body = resp.text().await.unwrap_or_default();
+                let parsed = parse_models_response_json(&body);
+                if !parsed.is_empty() {
+                    return Ok(parsed);
+                }
+                last_err = format!("{url} returned no models");
+            }
+            Ok(resp) => {
+                last_err = format!("{url} returned HTTP {}", resp.status());
+            }
+            Err(err) => {
+                last_err = format!("{url}: {err}");
+            }
+        }
+    }
+
+    Err(if last_err.is_empty() {
+        "No models returned by provider endpoint".to_owned()
+    } else {
+        last_err
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +320,19 @@ mod tests {
         let proposed = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.37,48.20]},"properties":{"name":"Renamed"}},{"type":"Feature","id":"p2","geometry":{"type":"Point","coordinates":[16.38,48.21]},"properties":{"name":"New"}}]}"#;
         let (added, modified, removed) = compute_diff_counts(base, proposed);
         assert_eq!((added, modified, removed), (1, 1, 0));
+    }
+
+    #[test]
+    fn parses_openai_and_ollama_models_payloads() {
+        let openai = r#"{"data":[{"id":"qwen/qwen3-32b"},{"id":"anthropic/claude-3.7-sonnet"},{"id":"  "},{"id":"qwen/qwen3-32b"}]}"#;
+        let parsed_openai = parse_models_response_json(openai);
+        assert_eq!(
+            parsed_openai,
+            vec!["anthropic/claude-3.7-sonnet", "qwen/qwen3-32b"]
+        );
+
+        let ollama = r#"{"models":[{"name":"llama3.2:latest"},{"name":"qwen2.5:14b"}]}"#;
+        let parsed_ollama = parse_models_response_json(ollama);
+        assert_eq!(parsed_ollama, vec!["llama3.2:latest", "qwen2.5:14b"]);
     }
 }

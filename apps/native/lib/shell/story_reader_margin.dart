@@ -47,6 +47,7 @@ class StoryReaderMargin extends StatefulWidget {
     this.currentUserPubkey,
     this.initialSocialCounts,
     this.onToggleReaction,
+    this.onZap,
     super.key,
   });
 
@@ -75,6 +76,7 @@ class StoryReaderMargin extends StatefulWidget {
   final EntitySocialCountsDto? initialSocialCounts;
   final Future<EntitySocialCountsDto?> Function(EntitySocialCountsDto? current)?
       onToggleReaction;
+  final VoidCallback? onZap;
 
   @override
   State<StoryReaderMargin> createState() => _StoryReaderMarginState();
@@ -531,6 +533,7 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
                     ),
                   ),
                 if (widget.onToggleReaction != null ||
+                    widget.onZap != null ||
                     widget.initialSocialCounts != null)
                   EntityReactionBar(
                     targetAddress: story.address,
@@ -541,6 +544,7 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
                     currentUserPubkey: widget.currentUserPubkey,
                     initialCounts: widget.initialSocialCounts,
                     onToggleReaction: widget.onToggleReaction,
+                    onZap: widget.onZap,
                   ),
               ],
             ),

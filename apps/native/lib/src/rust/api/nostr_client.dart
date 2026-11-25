@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `blossom_geo_cache`, `compact_preview`, `compute_markdown_line_diff_counts`, `derive_inbox_items_from_events`, `event_to_raw`, `first_tag`, `hex_val`, `humanize_ident`, `inbox_entity_label`, `map_to_dto`, `merge_blob_payload_into_features`, `parse_coord`, `parse_live_relay_event`, `parse_nip65_tags`, `percent_decode_fragment`, `sighting_to_dto`, `story_to_dto`, `verify_optional_sha256`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `blossom_geo_cache`, `compact_preview`, `compute_markdown_line_diff_counts`, `derive_inbox_items_from_events`, `event_to_raw`, `first_tag`, `hex_val`, `humanize_ident`, `inbox_entity_label`, `map_to_dto`, `merge_blob_payload_into_features`, `parse_coord`, `parse_live_relay_event`, `parse_nip65_tags`, `percent_decode_fragment`, `resolve_lud16_to_lnurlp_url`, `shoutbox_filter_tag`, `sighting_to_dto`, `story_to_dto`, `verify_optional_sha256`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.
 Future<List<ProfileMetadataDto>> fetchProfiles({
@@ -213,6 +213,38 @@ Future<List<InboxItemDto>> fetchInboxItems({
   currentUserPubkey: currentUserPubkey,
   ownedAtlasAddresses: ownedAtlasAddresses,
   knownTitlesJson: knownTitlesJson,
+);
+
+/// Encodes a 64-char hex pubkey (or `npub1...`) into canonical `npub1...`.
+Future<String> encodeHexToNpub({required String pubkeyHex}) => EarthlyRustLib
+    .instance
+    .api
+    .crateApiNostrClientEncodeHexToNpub(pubkeyHex: pubkeyHex);
+
+/// Resolves a Lightning Address (`lud16`) via LNURL-pay and requests a BOLT-11
+/// invoice (`pr`), attaching an optional signed NIP-57 `kind 9734` Zap Request.
+Future<ZapInvoiceDto> fetchLnurlZapInvoice({
+  required String lud16,
+  required BigInt amountSats,
+  String? signedZapRequestJson,
+  String? comment,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientFetchLnurlZapInvoice(
+  lud16: lud16,
+  amountSats: amountSats,
+  signedZapRequestJson: signedZapRequestJson,
+  comment: comment,
+);
+
+/// Fetches Community Shoutbox (`kind 1`, `#earthlycity`) notes for a specific
+/// category (`announcements` | `features` | `greetings` | `bugs`).
+Future<List<ShoutboxPostDto>> fetchShoutboxPosts({
+  required List<String> relayUrls,
+  required String category,
+  required int limit,
+}) => EarthlyRustLib.instance.api.crateApiNostrClientFetchShoutboxPosts(
+  relayUrls: relayUrls,
+  category: category,
+  limit: limit,
 );
 
 class AtlasSummaryDto {
@@ -1075,6 +1107,45 @@ class ReverseGeocodeDto {
           street == other.street;
 }
 
+class ShoutboxPostDto {
+  final String eventId;
+  final String pubkey;
+  final String content;
+  final String category;
+  final BigInt createdAt;
+  final List<String> hashtags;
+
+  const ShoutboxPostDto({
+    required this.eventId,
+    required this.pubkey,
+    required this.content,
+    required this.category,
+    required this.createdAt,
+    required this.hashtags,
+  });
+
+  @override
+  int get hashCode =>
+      eventId.hashCode ^
+      pubkey.hashCode ^
+      content.hashCode ^
+      category.hashCode ^
+      createdAt.hashCode ^
+      hashtags.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ShoutboxPostDto &&
+          runtimeType == other.runtimeType &&
+          eventId == other.eventId &&
+          pubkey == other.pubkey &&
+          content == other.content &&
+          category == other.category &&
+          createdAt == other.createdAt &&
+          hashtags == other.hashtags;
+}
+
 class SightingSummaryDto {
   final String address;
   final String eventId;
@@ -1191,4 +1262,47 @@ class StorySummaryDto {
           presentationJson == other.presentationJson &&
           referencedAddresses == other.referencedAddresses &&
           publishedAt == other.publishedAt;
+}
+
+class ZapInvoiceDto {
+  final String pr;
+  final String? verifyUrl;
+  final String callback;
+  final BigInt minSats;
+  final BigInt maxSats;
+  final bool allowsNostr;
+  final BigInt amountSats;
+
+  const ZapInvoiceDto({
+    required this.pr,
+    this.verifyUrl,
+    required this.callback,
+    required this.minSats,
+    required this.maxSats,
+    required this.allowsNostr,
+    required this.amountSats,
+  });
+
+  @override
+  int get hashCode =>
+      pr.hashCode ^
+      verifyUrl.hashCode ^
+      callback.hashCode ^
+      minSats.hashCode ^
+      maxSats.hashCode ^
+      allowsNostr.hashCode ^
+      amountSats.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ZapInvoiceDto &&
+          runtimeType == other.runtimeType &&
+          pr == other.pr &&
+          verifyUrl == other.verifyUrl &&
+          callback == other.callback &&
+          minSats == other.minSats &&
+          maxSats == other.maxSats &&
+          allowsNostr == other.allowsNostr &&
+          amountSats == other.amountSats;
 }

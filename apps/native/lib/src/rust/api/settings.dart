@@ -49,6 +49,7 @@ class AppSettingsDto {
   final String satelliteMode;
   final double satelliteOpacity;
   final String? storyDraftJson;
+  final String? agentMessagesJson;
 
   const AppSettingsDto({
     required this.relayUrls,
@@ -76,6 +77,7 @@ class AppSettingsDto {
     required this.satelliteMode,
     required this.satelliteOpacity,
     this.storyDraftJson,
+    this.agentMessagesJson,
   });
 
   @override
@@ -104,7 +106,8 @@ class AppSettingsDto {
       basemapStyle.hashCode ^
       satelliteMode.hashCode ^
       satelliteOpacity.hashCode ^
-      storyDraftJson.hashCode;
+      storyDraftJson.hashCode ^
+      agentMessagesJson.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -135,7 +138,8 @@ class AppSettingsDto {
           basemapStyle == other.basemapStyle &&
           satelliteMode == other.satelliteMode &&
           satelliteOpacity == other.satelliteOpacity &&
-          storyDraftJson == other.storyDraftJson;
+          storyDraftJson == other.storyDraftJson &&
+          agentMessagesJson == other.agentMessagesJson;
 }
 
 class MountedAtlasWorkspaceDto {

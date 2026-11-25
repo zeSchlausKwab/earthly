@@ -126,6 +126,8 @@ pub struct PersistedAppSettings {
     pub satellite_opacity: f64,
     #[serde(default)]
     pub story_draft_json: Option<String>,
+    #[serde(default)]
+    pub agent_messages_json: Option<String>,
 }
 
 impl Default for PersistedAppSettings {
@@ -156,6 +158,7 @@ impl Default for PersistedAppSettings {
             satellite_mode: default_satellite_mode(),
             satellite_opacity: default_satellite_opacity(),
             story_draft_json: None,
+            agent_messages_json: None,
         }
     }
 }

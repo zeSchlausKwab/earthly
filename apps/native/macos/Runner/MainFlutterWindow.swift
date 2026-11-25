@@ -116,8 +116,8 @@ class MainFlutterWindow: NSWindow {
         )
       case "pickGeoJsonFile":
         self.openFilePanel(
-          title: "Import GeoJSON, GPX, or KML File",
-          extensions: ["geojson", "json", "gpx", "kml"],
+          title: "Import GeoJSON, GPX, KML, or Shapefile",
+          extensions: ["geojson", "json", "gpx", "kml", "shp", "zip"],
           fallbackMime: "application/geo+json",
           result: result
         )
@@ -162,6 +162,16 @@ class MainFlutterWindow: NSWindow {
           let rect = NSRect(x: max(16, view.bounds.width - 120), y: max(16, view.bounds.height - 64), width: 1, height: 1)
           picker.show(relativeTo: rect, of: view, preferredEdge: .minY)
           result(true)
+        }
+      case "openExternalUri":
+        let args = call.arguments as? [String: Any]
+        let rawUri = (args?["uri"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !rawUri.isEmpty, let url = URL(string: rawUri) else {
+          result(false)
+          return
+        }
+        DispatchQueue.main.async {
+          result(NSWorkspace.shared.open(url))
         }
       default:
         result(FlutterMethodNotImplemented)

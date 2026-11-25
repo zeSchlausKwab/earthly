@@ -46,6 +46,7 @@ class SpacesSheet extends StatefulWidget {
     this.onFetchNip65Relays,
     this.onPublishNip65Relays,
     this.onProbeRelaysHealth,
+    this.onOpenShoutbox,
     this.onOpenHelp,
     super.key,
   });
@@ -77,6 +78,7 @@ class SpacesSheet extends StatefulWidget {
       onPublishNip65Relays;
   final Future<List<RelayHealthDto>> Function(List<String> urls)?
       onProbeRelaysHealth;
+  final VoidCallback? onOpenShoutbox;
   final VoidCallback? onOpenHelp;
   final VoidCallback onClose;
 
@@ -1409,6 +1411,15 @@ class _SpacesSheetState extends State<SpacesSheet> {
             icon: const Icon(Icons.hub_outlined, size: 18),
             label: const Text('Open Rust Core & Outbox Diagnostics'),
           ),
+          if (widget.onOpenShoutbox != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('spaces-shoutbox-btn'),
+              onPressed: widget.onOpenShoutbox,
+              icon: const Icon(Icons.campaign_outlined, size: 18),
+              label: const Text('Community Shoutbox'),
+            ),
+          ],
           if (widget.onOpenHelp != null) ...[
             const SizedBox(height: 8),
             OutlinedButton.icon(

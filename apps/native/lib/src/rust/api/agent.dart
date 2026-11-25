@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `compute_diff_counts`
+// These functions are ignored because they are not marked as `pub`: `compute_diff_counts`, `parse_models_response_json`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Runs one Earthly AI Agent turn in Rust (`earthly-agent` + `earthly-geo`),
@@ -46,6 +46,16 @@ Future<AgentTurnResultDto> runEarthlyAgentTurn({
 /// OSM/spatial links, and (when pointing at a spatial document) validated GeoJSON.
 Future<ResearchSourceDto> fetchResearchSource({required String url}) =>
     EarthlyRustLib.instance.api.crateApiAgentFetchResearchSource(url: url);
+
+/// Discovers available models from an OpenAI-compatible (`/models`) or local
+/// Ollama (`/v1/models` or `/api/tags`) endpoint.
+Future<List<String>> fetchAgentProviderModels({
+  required String baseUrl,
+  String? apiKey,
+}) => EarthlyRustLib.instance.api.crateApiAgentFetchAgentProviderModels(
+  baseUrl: baseUrl,
+  apiKey: apiKey,
+);
 
 class AgentCameraActionDto {
   final double lon;

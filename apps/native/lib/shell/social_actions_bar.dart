@@ -18,6 +18,7 @@ class EntityReactionBar extends StatefulWidget {
     this.currentUserPubkey,
     this.initialCounts,
     this.onToggleReaction,
+    this.onZap,
     super.key,
   });
 
@@ -30,6 +31,7 @@ class EntityReactionBar extends StatefulWidget {
   final EntitySocialCountsDto? initialCounts;
   final Future<EntitySocialCountsDto?> Function(EntitySocialCountsDto? current)?
       onToggleReaction;
+  final VoidCallback? onZap;
 
   @override
   State<EntityReactionBar> createState() => _EntityReactionBarState();
@@ -175,36 +177,40 @@ class _EntityReactionBarState extends State<EntityReactionBar> {
             ),
           ),
         ),
-        if (zapSats > BigInt.zero)
-          Container(
+        if (widget.onZap != null || zapSats > BigInt.zero)
+          InkWell(
             key: const Key('entity-zap-badge'),
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: EarthlyColors.amber.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: EarthlyColors.amber.withValues(alpha: 0.55),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.bolt,
-                  size: 13,
-                  color: EarthlyColors.amber,
+            borderRadius: BorderRadius.circular(999),
+            onTap: widget.onZap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: EarthlyColors.amber.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: EarthlyColors.amber.withValues(alpha: 0.55),
                 ),
-                const SizedBox(width: 3),
-                Text(
-                  '$zapSats sats',
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.bolt,
+                    size: 13,
                     color: EarthlyColors.amber,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 3),
+                  Text(
+                    zapSats > BigInt.zero ? '$zapSats sats' : 'Zap',
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: EarthlyColors.amber,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
       ],

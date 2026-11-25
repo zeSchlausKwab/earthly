@@ -314,6 +314,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<SavedOfflinePackDto> dco_decode_list_saved_offline_pack_dto(dynamic raw);
 
   @protected
+  List<ShoutboxPostDto> dco_decode_list_shoutbox_post_dto(dynamic raw);
+
+  @protected
   List<SightingSummaryDto> dco_decode_list_sighting_summary_dto(dynamic raw);
 
   @protected
@@ -459,6 +462,9 @@ abstract class EarthlyRustLibApiImplPlatform
   SavedOfflinePackDto dco_decode_saved_offline_pack_dto(dynamic raw);
 
   @protected
+  ShoutboxPostDto dco_decode_shoutbox_post_dto(dynamic raw);
+
+  @protected
   SightingSummaryDto dco_decode_sighting_summary_dto(dynamic raw);
 
   @protected
@@ -498,6 +504,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   ValhallaRouteResultDto dco_decode_valhalla_route_result_dto(dynamic raw);
+
+  @protected
+  ZapInvoiceDto dco_decode_zap_invoice_dto(dynamic raw);
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
@@ -885,6 +894,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<ShoutboxPostDto> sse_decode_list_shoutbox_post_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<SightingSummaryDto> sse_decode_list_sighting_summary_dto(
     SseDeserializer deserializer,
   );
@@ -1082,6 +1096,9 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  ShoutboxPostDto sse_decode_shoutbox_post_dto(SseDeserializer deserializer);
+
+  @protected
   SightingSummaryDto sse_decode_sighting_summary_dto(
     SseDeserializer deserializer,
   );
@@ -1131,6 +1148,9 @@ abstract class EarthlyRustLibApiImplPlatform
   ValhallaRouteResultDto sse_decode_valhalla_route_result_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  ZapInvoiceDto sse_decode_zap_invoice_dto(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -1628,6 +1648,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_shoutbox_post_dto(
+    List<ShoutboxPostDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_sighting_summary_dto(
     List<SightingSummaryDto> self,
     SseSerializer serializer,
@@ -1868,6 +1894,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_shoutbox_post_dto(
+    ShoutboxPostDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_sighting_summary_dto(
     SightingSummaryDto self,
     SseSerializer serializer,
@@ -1929,6 +1961,9 @@ abstract class EarthlyRustLibApiImplPlatform
     ValhallaRouteResultDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_zap_invoice_dto(ZapInvoiceDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);

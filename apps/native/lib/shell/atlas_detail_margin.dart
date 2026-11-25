@@ -41,6 +41,7 @@ class AtlasDetailMargin extends StatefulWidget {
     this.mutedPubkeys = const <String>{},
     this.initialSocialCounts,
     this.onToggleReaction,
+    this.onZap,
     this.onEditAtlas,
     this.onDeleteAtlas,
     this.onBlessContribution,
@@ -70,6 +71,7 @@ class AtlasDetailMargin extends StatefulWidget {
   final EntitySocialCountsDto? initialSocialCounts;
   final Future<EntitySocialCountsDto?> Function(EntitySocialCountsDto? current)?
       onToggleReaction;
+  final VoidCallback? onZap;
   final VoidCallback? onEditAtlas;
   final Future<void> Function()? onDeleteAtlas;
   final Future<void> Function(String entityAddress)? onBlessContribution;
@@ -579,6 +581,7 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
             ],
           ),
           if (widget.onToggleReaction != null ||
+              widget.onZap != null ||
               widget.initialSocialCounts != null) ...[
             const SizedBox(height: 10),
             EntityReactionBar(
@@ -590,6 +593,7 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
               currentUserPubkey: widget.currentUserPubkey,
               initialCounts: widget.initialSocialCounts,
               onToggleReaction: widget.onToggleReaction,
+              onZap: widget.onZap,
             ),
           ],
           const SizedBox(height: 12),

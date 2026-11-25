@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use earthly_geo::{
     ExtrudeOptions, ExtrudeShape, ExtrudeSide, LocalProjection, connect_lines,
-    create_line_corridor, difference_polygons, extrude_line, geodesic_area_m2, geodesic_length_m,
-    geojson_to_gpx, geojson_to_kml, import_spatial_text_to_geojson, offset_line, offset_polygon,
-    simplify_line, simplify_polygon, split_line_at_point, split_polygon_by_line, union_polygons,
-    validate_feature_collection,
+    create_line_corridor, difference_polygons, dissolve_lines, extrude_line, geodesic_area_m2,
+    geodesic_length_m, geojson_to_gpx, geojson_to_kml, import_spatial_text_to_geojson, offset_line,
+    offset_polygon, parse_shapefile_bytes, simplify_line, simplify_polygon, split_line_at_point,
+    split_polygon_by_line, union_polygons, validate_feature_collection,
 };
 use geo::{Coord, LineString, Point, Polygon};
 
@@ -1127,4 +1127,47 @@ mod tests {
         let iso_fc: serde_json::Value = serde_json::from_str(&iso.geojson).unwrap();
         assert_eq!(iso_fc["features"][0]["properties"]["name"], "10 min bicycle");
     }
+
+    #[test]
+    fn dissolves_lines_and_rejects_empty_shapefile() {
+        let a = vec![
+            LonLatPoint { lon: 16.36, lat: 48.20 },
+            LonLatPoint { lon: 16.37, lat: 48.20 },
+        ];
+        let b = vec![
+            LonLatPoint { lon: 16.37, lat: 48.20 },
+            LonLatPoint { lon: 16.38, lat: 48.21 },
+        ];
+        let dissolved = geo_dissolve_lines(vec![a.clone(), a, b], 5.0).unwrap();
+        assert_eq!(dissolved.len(), 1);
+        assert_eq!(dissolved[0].len(), 3);
+
+        assert!(geo_import_shapefile_bytes(Some("empty.zip".to_owned()), Vec::new()).is_err());
+    }
+}
+
+/// Dissolves overlapping/touching line segments into connected polylines.
+pub fn geo_dissolve_lines(
+    lines: Vec<Vec<LonLatPoint>>,
+    tolerance_meters: f64,
+) -> Result<Vec<Vec<LonLatPoint>>, String> {
+    let parsed: Vec<LineString<f64>> = lines.iter().map(|l| to_line(l)).collect();
+    let dissolved = dissolve_lines(&parsed, tolerance_meters).map_err(|e| e.to_string())?;
+    Ok(dissolved.into_iter().map(|l| from_coords(&l.0)).collect())
+}
+
+/// Parses a binary `.zip` ESRI Shapefile bundle or raw `.shp` file into validated GeoJSON.
+pub fn geo_import_shapefile_bytes(
+    filename: Option<String>,
+    bytes: Vec<u8>,
+) -> Result<SpatialImportDto, String> {
+    let imported = parse_shapefile_bytes(filename.as_deref(), &bytes).map_err(|e| e.to_string())?;
+    let geojson = serde_json::to_string(&imported.geojson).map_err(|e| e.to_string())?;
+    Ok(SpatialImportDto {
+        format: imported.format,
+        title: imported.title,
+        geojson,
+        feature_count: imported.feature_count as u32,
+        warnings: imported.warnings,
+    })
 }

@@ -38,10 +38,12 @@ import 'shell/osm_import_sheet.dart';
 import 'shell/person_margin.dart';
 import 'shell/place_search_sheet.dart';
 import 'shell/routing_sheet.dart';
+import 'shell/shoutbox_sheet.dart';
 import 'shell/sighting_composer_sheet.dart';
 import 'shell/spaces_sheet.dart';
 import 'shell/story_composer_sheet.dart';
 import 'shell/story_reader_margin.dart';
+import 'shell/zap_dialog.dart';
 import 'spike/rust_node_sheet.dart';
 import 'src/rust/api/agent.dart';
 import 'src/rust/api/blossom.dart';
@@ -89,6 +91,7 @@ enum _ActiveDrawer {
   locationInspector,
   osmImport,
   routing,
+  shoutbox,
   help,
 }
 
@@ -492,6 +495,26 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             }
           } catch (_) {}
         }
+        if (loaded.agentMessagesJson != null &&
+            loaded.agentMessagesJson!.trim().isNotEmpty) {
+          try {
+            final parsedMsgs = jsonDecode(loaded.agentMessagesJson!);
+            if (parsedMsgs is List) {
+              _agentMessages
+                ..clear()
+                ..addAll(
+                  parsedMsgs
+                      .whereType<Map>()
+                      .map(
+                        (e) => CopilotMessage.fromJson(
+                          Map<String, dynamic>.from(e),
+                        ),
+                      )
+                      .whereType<CopilotMessage>(),
+                );
+            }
+          } catch (_) {}
+        }
       });
       if (_savedAccounts.isNotEmpty) {
         unawaited(_resolveSessionProfiles());
@@ -662,6 +685,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           storyDraftJson: _savedStoryDraft != null
               ? jsonEncode(_savedStoryDraft)
               : null,
+          agentMessagesJson: _agentMessages.isEmpty
+              ? null
+              : jsonEncode(
+                  _agentMessages
+                      .skip(
+                        _agentMessages.length > 40
+                            ? _agentMessages.length - 40
+                            : 0,
+                      )
+                      .map((m) => m.toJson())
+                      .toList(growable: false),
+                ),
         ),
       );
     } catch (_) {}
@@ -985,11 +1020,26 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   Future<void> _importSpatialPickedFile(PickedBinaryFile picked) async {
     try {
       await RustBridge.ensureInitialized();
-      final text = utf8.decode(picked.bytes, allowMalformed: true);
-      final converted = await geoImportSpatialFile(
-        filename: picked.name,
-        content: text,
-      );
+      final lowerName = picked.name.toLowerCase();
+      final isZipOrShp = lowerName.endsWith('.zip') ||
+          lowerName.endsWith('.shp') ||
+          (picked.bytes.length >= 2 &&
+              picked.bytes[0] == 0x50 &&
+              picked.bytes[1] == 0x4B) ||
+          (picked.bytes.length >= 4 &&
+              picked.bytes[0] == 0x00 &&
+              picked.bytes[1] == 0x00 &&
+              picked.bytes[2] == 0x27 &&
+              picked.bytes[3] == 0x0A);
+      final converted = isZipOrShp
+          ? await geoImportShapefileBytes(
+              filename: picked.name,
+              bytes: picked.bytes,
+            )
+          : await geoImportSpatialFile(
+              filename: picked.name,
+              content: utf8.decode(picked.bytes, allowMalformed: true),
+            );
       final imported = parseDraftFeaturesFromGeoJson(converted.geojson);
       if (imported.isEmpty) {
         if (!mounted) return;
@@ -1935,6 +1985,97 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     );
   }
 
+  Future<PublishOutcomeDto> _publishShoutboxPost(
+    String category,
+    String content,
+  ) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final prepared = await prepareUnsignedShoutboxPost(
+      pubkeyOrNpub: account.pubkey,
+      category: category,
+      content: content,
+    );
+    final signed =
+        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+    return _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+  }
+
+  Future<void> _openZapDialogForEntity({
+    required String recipientPubkey,
+    required String targetTitle,
+    required String targetAddress,
+    String? targetEventId,
+  }) async {
+    if (!_profilesByPubkey.containsKey(recipientPubkey)) {
+      try {
+        await RustBridge.ensureInitialized();
+        final fetched = await fetchProfiles(
+          relayUrls: _activeRelayUrls,
+          pubkeys: <String>[recipientPubkey],
+        );
+        if (mounted && fetched.isNotEmpty) {
+          setState(() {
+            for (final p in fetched) {
+              _profilesByPubkey[p.pubkey] = p;
+            }
+          });
+        }
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final profile = _profilesByPubkey[recipientPubkey];
+    final recipientName = profile?.displayName ??
+        profile?.name ??
+        '${recipientPubkey.substring(0, recipientPubkey.length.clamp(0, 10))}…';
+    final lud16 = profile?.lud16;
+    await showEarthlyZapDialog(
+      context,
+      recipientName: recipientName,
+      recipientPubkey: recipientPubkey,
+      recipientLud16: lud16,
+      targetTitle: targetTitle,
+      targetAddress: targetAddress,
+      targetEventId: targetEventId,
+      onGenerateInvoice: ({required amountSats, required comment}) async {
+        final targetLud16 = lud16?.trim() ?? '';
+        if (targetLud16.isEmpty) {
+          throw StateError('Author has no Lightning Address (lud16)');
+        }
+        await RustBridge.ensureInitialized();
+        String? signedZapJson;
+        final activeSession = _savedAccounts
+            .where((s) => s.id == _activeAccountId)
+            .firstOrNull;
+        if (_account != null && activeSession?.kind != 'readonly') {
+          try {
+            final prepared = await prepareUnsignedZapRequestEvent(
+              senderPubkeyOrNpub: _account!.pubkey,
+              recipientPubkeyHex: recipientPubkey,
+              amountSats: BigInt.from(amountSats),
+              relayUrls: _activeRelayUrls,
+              targetEventId: targetEventId,
+              targetAddress: targetAddress,
+              comment: comment.isEmpty ? null : comment,
+              lnurl: targetLud16,
+            );
+            signedZapJson =
+                await _signUnsignedEvent(_account!, prepared.unsignedEventJson);
+          } catch (_) {
+            // Fall back to anonymous LNURL invoice if user cancels remote signer
+            signedZapJson = null;
+          }
+        }
+        return fetchLnurlZapInvoice(
+          lud16: targetLud16,
+          amountSats: BigInt.from(amountSats),
+          signedZapRequestJson: signedZapJson,
+          comment: comment.isEmpty ? null : comment,
+        );
+      },
+    );
+  }
+
   Future<PublishOutcomeDto> _publishNip65Relays(
     List<RelayListEntryDto> relays,
   ) async {
@@ -2629,7 +2770,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         );
       });
     } finally {
-      if (mounted) setState(() => _agentBusy = false);
+      if (mounted) {
+        setState(() => _agentBusy = false);
+        unawaited(_persistAppSettings());
+      }
     }
   }
 
@@ -5513,6 +5657,33 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
               ));
             }
           });
+        case RustGeoAction.dissolveLines:
+          final lineIndices = indicesOfKind(DrawToolMode.line, minRequired: 2);
+          if (lineIndices.length < 2) return;
+          final dissolved = await geoDissolveLines(
+            lines: [
+              for (final idx in lineIndices) toPoints(_features[idx].vertices),
+            ],
+            toleranceMeters: step,
+          );
+          if (dissolved.isEmpty) return;
+          _pushDraftUndo();
+          setState(() {
+            final base = _features[lineIndices.first];
+            for (var i = lineIndices.length - 1; i >= 0; i--) {
+              _features.removeAt(lineIndices[i]);
+            }
+            for (var i = 0; i < dissolved.length; i++) {
+              _featureCounter += 1;
+              _features.add(base.copyWith(
+                id: 'dissolved-line-$_featureCounter',
+                vertices: fromPoints(dissolved[i]),
+                name: dissolved.length == 1
+                    ? 'Dissolved Line'
+                    : 'Dissolved Line ${i + 1}',
+              ));
+            }
+          });
         case RustGeoAction.simplifyPolygon:
           final idx = lastIndexOfKind(DrawToolMode.polygon);
           if (idx < 0) return;
@@ -6056,6 +6227,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onRelayUrlsChanged: _updateRelayUrls,
           onFetchNip65Relays: _fetchNip65Relays,
           onPublishNip65Relays: _publishNip65Relays,
+          onOpenShoutbox: () => _openDrawer(_ActiveDrawer.shoutbox),
           onOpenHelp: () => _openDrawer(_ActiveDrawer.help),
           onAccountChanged: (account) {
             if (account == null) {
@@ -6333,7 +6505,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             unawaited(_persistAppSettings());
           },
           onSendPrompt: (p) => unawaited(_sendAgentPrompt(p)),
-          onClearChat: () => setState(() => _agentMessages.clear()),
+          onClearChat: () {
+            setState(() => _agentMessages.clear());
+            unawaited(_persistAppSettings());
+          },
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.storyReader:
@@ -6381,6 +6556,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             kind: 37520,
             current: current,
           ),
+          onZap: () => unawaited(
+            _openZapDialogForEntity(
+              recipientPubkey: _activeStory!.pubkey,
+              targetTitle: _activeStory!.title,
+              targetAddress: _activeStory!.address,
+              targetEventId: _activeStory!.eventId,
+            ),
+          ),
           authorLabel: _profilesByPubkey[_activeStory!.pubkey]?.displayName ??
               _profilesByPubkey[_activeStory!.pubkey]?.name,
           onOpenPerson: _openPerson,
@@ -6395,6 +6578,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         return StoryComposerDrawer(
           key: ValueKey(_editingStory?.address ?? 'new-story'),
           shelfMaps: _shelfMaps,
+          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
+          catalogAtlases: _catalog?.atlases ?? const <AtlasSummaryDto>[],
+          profilesByPubkey: _profilesByPubkey,
+          relayUrls: _activeRelayUrls,
           editingStory: _editingStory,
           initialDraft: _editingStory == null ? _savedStoryDraft : null,
           onDraftChanged: (draft) {
@@ -6448,6 +6635,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             kind: 37518,
             current: current,
           ),
+          onZap: () => unawaited(
+            _openZapDialogForEntity(
+              recipientPubkey: atlas.pubkey,
+              targetTitle: atlas.name,
+              targetAddress: atlas.address,
+              targetEventId: atlas.eventId,
+            ),
+          ),
           onBlessContribution: (entityAddr) =>
               _blessAtlasContribution(atlas, entityAddr),
           onLockDownAtlas: () => _lockDownAtlasToClosed(atlas),
@@ -6500,6 +6695,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             pubkey: map.pubkey,
             kind: 37515,
             current: current,
+          ),
+          onZap: () => unawaited(
+            _openZapDialogForEntity(
+              recipientPubkey: map.pubkey,
+              targetTitle: map.title,
+              targetAddress: map.address,
+              targetEventId: map.eventId,
+            ),
           ),
           onToggleOnShelf: () => _toggleMapOnShelf(map),
           onZoomToMap: () {
@@ -6700,6 +6903,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
         return DiscussionMarginSheet(
           target: target,
           relayUrls: _activeRelayUrls,
+          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
+          catalogAtlases: _catalog?.atlases ?? const <AtlasSummaryDto>[],
           hasDraftGeometry: _features.isNotEmpty,
           activeCommentGeojsonId: _activeCommentOverlayId,
           activeProposalId: _activeProposalOverlayId,
@@ -6810,6 +7015,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             snackLabel: summaryLabel,
           ),
           onClose: () => _closeDrawer(_ActiveDrawer.routing),
+        );
+      case _ActiveDrawer.shoutbox:
+        return ShoutboxSheet(
+          relayUrls: _activeRelayUrls,
+          profilesByPubkey: _profilesByPubkey,
+          currentUserPubkey: _account?.pubkey,
+          mutedPubkeys: _mutedPubkeys,
+          onOpenPerson: _openPerson,
+          onPublishPost: _publishShoutboxPost,
+          onClose: () => _closeDrawer(_ActiveDrawer.shoutbox),
         );
       case _ActiveDrawer.help:
         return HelpShortcutsSheet(

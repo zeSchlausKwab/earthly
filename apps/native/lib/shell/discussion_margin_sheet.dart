@@ -8,6 +8,7 @@ import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
 import 'map_drawer.dart';
+import 'mention_picker_dialog.dart';
 
 /// Target entity for the NIP-22 Thread (`37517`) & Edit Proposals (`37519`) Margin.
 @immutable
@@ -74,6 +75,10 @@ class DiscussionMarginSheet extends StatefulWidget {
     this.onSubmitStoryProposal,
     this.onUploadBlossomImage,
     this.onRequestChangesProposal,
+    this.catalogMaps = const <MapSummaryDto>[],
+    this.catalogAtlases = const <AtlasSummaryDto>[],
+    this.onEncodeNaddr,
+    this.onEncodeNpub,
     super.key,
   });
 
@@ -88,6 +93,15 @@ class DiscussionMarginSheet extends StatefulWidget {
   final Set<String> mutedPubkeys;
   final ValueChanged<String>? onMuteAuthor;
   final ValueChanged<String>? onOpenPerson;
+  final List<MapSummaryDto> catalogMaps;
+  final List<AtlasSummaryDto> catalogAtlases;
+  final Future<String> Function({
+    required int kind,
+    required String pubkeyHex,
+    required String dTag,
+    required List<String> relays,
+  })? onEncodeNaddr;
+  final Future<String> Function(String pubkeyHex)? onEncodeNpub;
   final void Function(GeoCommentDto comment) onToggleCommentOverlay;
   final void Function(GeoProposalDto proposal) onToggleProposalOverlay;
   final Future<PublishOutcomeDto> Function(
@@ -868,11 +882,57 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                       ),
                     ),
                   ),
+                  IconButton(
+                    key: const Key('discussion-insert-map-ref-btn'),
+                    tooltip: 'Mention Map/Atlas (\$)',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () async {
+                      final token = await showEarthlyMentionPickerDialog(
+                        context,
+                        mode: MentionPickerMode.entity,
+                        maps: widget.catalogMaps,
+                        atlases: widget.catalogAtlases,
+                        profilesByPubkey: widget.profilesByPubkey,
+                        relayUrls: widget.relayUrls,
+                        onEncodeNaddr: widget.onEncodeNaddr,
+                        onEncodeNpub: widget.onEncodeNpub,
+                      );
+                      if (!mounted || token == null) return;
+                      final existing = _commentController.text;
+                      final prefix =
+                          existing.isEmpty || existing.endsWith(' ') ? '' : ' ';
+                      _commentController.text = '$existing$prefix$token ';
+                    },
+                    icon: const Icon(Icons.link, size: 18),
+                  ),
+                  IconButton(
+                    key: const Key('discussion-insert-person-ref-btn'),
+                    tooltip: 'Mention Author (@)',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () async {
+                      final token = await showEarthlyMentionPickerDialog(
+                        context,
+                        mode: MentionPickerMode.person,
+                        maps: widget.catalogMaps,
+                        atlases: widget.catalogAtlases,
+                        profilesByPubkey: widget.profilesByPubkey,
+                        relayUrls: widget.relayUrls,
+                        onEncodeNaddr: widget.onEncodeNaddr,
+                        onEncodeNpub: widget.onEncodeNpub,
+                      );
+                      if (!mounted || token == null) return;
+                      final existing = _commentController.text;
+                      final prefix =
+                          existing.isEmpty || existing.endsWith(' ') ? '' : ' ';
+                      _commentController.text = '$existing$prefix$token ';
+                    },
+                    icon: const Icon(Icons.alternate_email, size: 18),
+                  ),
                   if (widget.onUploadBlossomImage != null) ...[
-                    const SizedBox(width: 4),
                     IconButton(
                       key: const Key('comment-upload-photo-btn'),
                       tooltip: 'Upload photo via Blossom',
+                      visualDensity: VisualDensity.compact,
                       onPressed: _uploadingPhoto ? null : _uploadCommentPhoto,
                       icon: _uploadingPhoto
                           ? const SizedBox(
@@ -883,7 +943,7 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                           : const Icon(Icons.add_a_photo_outlined, size: 19),
                     ),
                   ],
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
                   FilledButton(
                     onPressed: _submitting ? null : _handlePostComment,
                     child: Text(

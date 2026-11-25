@@ -231,6 +231,80 @@ pub fn connect_lines(
     Ok(result.into_iter().map(LineString::new).collect())
 }
 
+/// Dissolves a line network by deduplicating overlapping identical segments,
+/// snapping & chaining touching endpoints within `tolerance_meters`, and
+/// collapsing near-duplicate vertices.
+pub fn dissolve_lines(
+    lines: &[LineString<f64>],
+    tolerance_meters: f64,
+) -> Result<Vec<LineString<f64>>, GeoError> {
+    if lines.is_empty() {
+        return Err(GeoError::InsufficientCoordinates("no lines provided"));
+    }
+    if !tolerance_meters.is_finite() || tolerance_meters < 0.0 {
+        return Err(GeoError::InvalidParameter(
+            "tolerance_meters must be >= 0".to_owned(),
+        ));
+    }
+    let snap_tol = tolerance_meters.max(0.5);
+    let mut seen_segments: std::collections::HashSet<(i64, i64, i64, i64)> =
+        std::collections::HashSet::new();
+    let mut cleaned_lines: Vec<LineString<f64>> = Vec::new();
+
+    for line in lines {
+        if line.0.len() < 2 {
+            continue;
+        }
+        let mut pts: Vec<Coord<f64>> = Vec::with_capacity(line.0.len());
+        for &c in &line.0 {
+            if let Some(&prev) = pts.last() {
+                if haversine_meters(prev, c) <= 0.25 {
+                    continue;
+                }
+            }
+            pts.push(c);
+        }
+        if pts.len() < 2 {
+            continue;
+        }
+        if pts.len() == 2 {
+            let q = |v: f64| (v * 1e6).round() as i64;
+            let a = (q(pts[0].x), q(pts[0].y));
+            let b = (q(pts[1].x), q(pts[1].y));
+            let canonical = if a <= b {
+                (a.0, a.1, b.0, b.1)
+            } else {
+                (b.0, b.1, a.0, a.1)
+            };
+            if !seen_segments.insert(canonical) {
+                continue;
+            }
+        }
+        cleaned_lines.push(LineString::new(pts));
+    }
+
+    if cleaned_lines.is_empty() {
+        return Err(GeoError::InsufficientCoordinates(
+            "lines require >= 2 distinct points",
+        ));
+    }
+
+    let chained = connect_lines(&cleaned_lines, snap_tol)?;
+    if tolerance_meters > 0.0 {
+        let mut out = Vec::with_capacity(chained.len());
+        let simp_tol = (tolerance_meters * 0.15).min(5.0);
+        for l in chained {
+            let s = simplify_line(&l, simp_tol).unwrap_or(l);
+            if s.0.len() >= 2 {
+                out.push(s);
+            }
+        }
+        Ok(out)
+    } else {
+        Ok(chained)
+    }
+}
+
 /// Splits `line` at the closest projection of `point` onto the line.
 pub fn split_line_at_point(
     line: &LineString<f64>,
@@ -785,5 +859,24 @@ mod tests {
         ]);
         let simple = simplify_line(&jagged, 20.0).unwrap();
         assert_eq!(simple.0.len(), 2);
+    }
+
+    #[test]
+    fn dissolve_lines_merges_connected_segments_and_deduplicates() {
+        let seg_a = LineString::new(vec![
+            Coord { x: 16.36, y: 48.20 },
+            Coord { x: 16.37, y: 48.20 },
+        ]);
+        let seg_a_dup = LineString::new(vec![
+            Coord { x: 16.37, y: 48.20 },
+            Coord { x: 16.36, y: 48.20 },
+        ]);
+        let seg_b = LineString::new(vec![
+            Coord { x: 16.37, y: 48.20 },
+            Coord { x: 16.38, y: 48.21 },
+        ]);
+        let dissolved = dissolve_lines(&[seg_a, seg_a_dup, seg_b], 5.0).unwrap();
+        assert_eq!(dissolved.len(), 1);
+        assert_eq!(dissolved[0].0.len(), 3);
     }
 }

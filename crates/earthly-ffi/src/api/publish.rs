@@ -2049,5 +2049,175 @@ mod tests {
         assert_eq!(r_tags.len(), 2);
         assert_eq!(r_tags[0], serde_json::json!(["r", "wss://relay.earthly.city"]));
         assert_eq!(r_tags[1], serde_json::json!(["r", "wss://nos.lol", "read"]));
+
+        let zap_req = prepare_unsigned_zap_request_event(
+            kp.pubkey_hex.clone(),
+            kp.pubkey_hex.clone(),
+            210,
+            vec!["wss://relay.earthly.city".to_owned()],
+            Some("ev-123".to_owned()),
+            Some(format!("37515:{}:vienna", kp.pubkey_hex)),
+            Some("Great trail map!".to_owned()),
+            None,
+        )
+        .unwrap();
+        let zap_raw: serde_json::Value =
+            serde_json::from_str(&zap_req.unsigned_event_json).unwrap();
+        assert_eq!(zap_raw["kind"], 9734);
+        assert_eq!(zap_raw["content"], "Great trail map!");
+        let zap_tags = zap_raw["tags"].as_array().unwrap();
+        assert!(zap_tags.iter().any(|t| t[0] == "amount" && t[1] == "210000"));
+        assert!(zap_tags.iter().any(|t| t[0] == "p" && t[1] == kp.pubkey_hex));
+        assert!(zap_tags.iter().any(|t| t[0] == "e" && t[1] == "ev-123"));
+
+        let shout = prepare_unsigned_shoutbox_post(
+            kp.pubkey_hex.clone(),
+            "features".to_owned(),
+            "Add contour hillshading support".to_owned(),
+        )
+        .unwrap();
+        let shout_raw: serde_json::Value =
+            serde_json::from_str(&shout.unsigned_event_json).unwrap();
+        assert_eq!(shout_raw["kind"], 1);
+        let shout_tags = shout_raw["tags"].as_array().unwrap();
+        assert!(shout_tags.iter().any(|t| t[0] == "t" && t[1] == "earthlycity"));
+        assert!(shout_tags.iter().any(|t| t[0] == "t" && t[1] == "feature"));
     }
+}
+
+fn shoutbox_filter_tag(category: &str) -> Result<&'static str, String> {
+    match category.trim().to_ascii_lowercase().as_str() {
+        "announcements" | "blog" => Ok("blog"),
+        "features" | "feature" => Ok("feature"),
+        "greetings" => Ok("greetings"),
+        "bugs" | "bug" => Ok("bug"),
+        other => Err(format!("Unsupported shoutbox category: {other}")),
+    }
+}
+
+/// Prepares a NIP-57 Zap Request (`kind 9734`) unsigned Nostr event ready for
+/// signing and passing as the `nostr` query parameter to an LNURL-pay callback.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_unsigned_zap_request_event(
+    sender_pubkey_or_npub: String,
+    recipient_pubkey_hex: String,
+    amount_sats: u64,
+    relay_urls: Vec<String>,
+    target_event_id: Option<String>,
+    target_address: Option<String>,
+    comment: Option<String>,
+    lnurl: Option<String>,
+) -> Result<UnsignedCommentEventDto, String> {
+    if amount_sats == 0 {
+        return Err("Zap amount must be at least 1 sat".to_owned());
+    }
+    let sender = PublicKey::parse(sender_pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid sender public key: {err}"))?;
+    let recipient = PublicKey::parse(recipient_pubkey_hex.trim())
+        .map_err(|err| format!("invalid recipient public key: {err}"))?;
+    let sender_hex = sender.to_hex();
+    let recipient_hex = recipient.to_hex();
+    let amount_msats = amount_sats.saturating_mul(1000);
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let mut clean_relays: Vec<String> = relay_urls
+        .into_iter()
+        .map(|r| r.trim().to_owned())
+        .filter(|r| !r.is_empty())
+        .collect();
+    if clean_relays.is_empty() {
+        clean_relays.push(crate::api::nostr_client::DEFAULT_EARTHLY_RELAY.to_owned());
+    }
+    let mut relays_tag = Vec::with_capacity(1 + clean_relays.len());
+    relays_tag.push("relays".to_owned());
+    relays_tag.extend(clean_relays);
+
+    let mut tags: Vec<Vec<String>> = vec![
+        relays_tag,
+        vec!["amount".to_owned(), amount_msats.to_string()],
+        vec!["p".to_owned(), recipient_hex.clone()],
+    ];
+    if let Some(eid) = target_event_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        tags.push(vec!["e".to_owned(), eid.to_owned()]);
+    }
+    let clean_addr = target_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if let Some(ref addr) = clean_addr {
+        tags.push(vec!["a".to_owned(), addr.clone()]);
+    }
+    if let Some(l) = lnurl
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        tags.push(vec!["lnurl".to_owned(), l.to_owned()]);
+    }
+
+    let clean_comment = comment.unwrap_or_default().trim().to_owned();
+    let unsigned = serde_json::json!({
+        "kind": 9734,
+        "pubkey": sender_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": clean_comment,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: format!("zap-{amount_sats}"),
+        address: clean_addr.unwrap_or(recipient_hex),
+    })
+}
+
+/// Prepares a Community Shoutbox note (`kind 1`) tagged `earthlycity` and the
+/// requested category tag (`blog` / `feature` / `greetings` / `bug`).
+pub fn prepare_unsigned_shoutbox_post(
+    pubkey_or_npub: String,
+    category: String,
+    content: String,
+) -> Result<UnsignedCommentEventDto, String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return Err("Shoutbox post cannot be empty".to_owned());
+    }
+    if trimmed.chars().count() > 4000 {
+        return Err("Shoutbox post cannot exceed 4000 characters".to_owned());
+    }
+    let filter_tag = shoutbox_filter_tag(&category)?;
+    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let pubkey_hex = pubkey.to_hex();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let tags = vec![
+        vec!["t".to_owned(), "earthlycity".to_owned()],
+        vec!["t".to_owned(), filter_tag.to_owned()],
+    ];
+    let unsigned = serde_json::json!({
+        "kind": 1,
+        "pubkey": pubkey_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": trimmed,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: category,
+        address: format!("1:{pubkey_hex}"),
+    })
 }

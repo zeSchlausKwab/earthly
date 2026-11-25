@@ -39,6 +39,7 @@ class DatasetDetailMargin extends StatefulWidget {
     this.currentUserPubkey,
     this.initialSocialCounts,
     this.onToggleReaction,
+    this.onZap,
     this.resolvingBlobs = false,
     super.key,
   });
@@ -59,6 +60,7 @@ class DatasetDetailMargin extends StatefulWidget {
   final EntitySocialCountsDto? initialSocialCounts;
   final Future<EntitySocialCountsDto?> Function(EntitySocialCountsDto? current)?
       onToggleReaction;
+  final VoidCallback? onZap;
   final bool resolvingBlobs;
   final VoidCallback onClose;
 
@@ -385,6 +387,7 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
             ),
           ],
           if (widget.onToggleReaction != null ||
+              widget.onZap != null ||
               widget.initialSocialCounts != null) ...[
             const SizedBox(height: 10),
             EntityReactionBar(
@@ -396,6 +399,7 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
               currentUserPubkey: widget.currentUserPubkey,
               initialCounts: widget.initialSocialCounts,
               onToggleReaction: widget.onToggleReaction,
+              onZap: widget.onZap,
             ),
           ],
           if (map.description != null && map.description!.trim().isNotEmpty) ...[

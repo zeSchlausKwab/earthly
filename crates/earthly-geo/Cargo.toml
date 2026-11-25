@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 earthly-spatial = { path = "../earthly-spatial" }
+flate2 = "1"
 geo = "0.29"
 geojson = "0.24"
 quick-xml = "0.41"

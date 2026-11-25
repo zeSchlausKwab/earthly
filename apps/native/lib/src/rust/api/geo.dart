@@ -228,6 +228,24 @@ Future<String> geoExportKml({required String geojson, String? title}) =>
       title: title,
     );
 
+/// Dissolves overlapping/touching line segments into connected polylines.
+Future<List<List<LonLatPoint>>> geoDissolveLines({
+  required List<List<LonLatPoint>> lines,
+  required double toleranceMeters,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoDissolveLines(
+  lines: lines,
+  toleranceMeters: toleranceMeters,
+);
+
+/// Parses a binary `.zip` ESRI Shapefile bundle or raw `.shp` file into validated GeoJSON.
+Future<SpatialImportDto> geoImportShapefileBytes({
+  String? filename,
+  required List<int> bytes,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoImportShapefileBytes(
+  filename: filename,
+  bytes: bytes,
+);
+
 class DraftValidationDto {
   final bool valid;
   final int featureCount;
