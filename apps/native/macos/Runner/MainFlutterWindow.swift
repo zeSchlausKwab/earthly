@@ -1,11 +1,21 @@
 import Cocoa
 import FlutterMacOS
+import Security
 import UniformTypeIdentifiers
 
 class MainFlutterWindow: NSWindow {
   private static var deviceChannel: FlutterMethodChannel?
   private static var pendingDeepLink: String?
   private static var pendingDroppedFile: [String: Any]?
+  private static let keychainService = "city.earthly.native"
+  private static let keychainAccount = "settings_master_v1"
+  private var accessedSecurityScopedUrls: [URL] = []
+
+  deinit {
+    for url in accessedSecurityScopedUrls {
+      url.stopAccessingSecurityScopedResource()
+    }
+  }
 
   static func deliverDeepLink(_ uri: String) {
     if let channel = deviceChannel {
@@ -31,7 +41,7 @@ class MainFlutterWindow: NSWindow {
   }
 
   private static let supportedDropExtensions: Set<String> = [
-    "geojson", "json", "gpx", "kml", "pmtiles"
+    "geojson", "json", "gpx", "kml", "pmtiles", "shp", "zip", "csv", "tsv"
   ]
 
   private func extractDroppedFileURL(_ sender: NSDraggingInfo) -> URL? {
@@ -66,6 +76,10 @@ class MainFlutterWindow: NSWindow {
       case "gpx": mime = "application/gpx+xml"
       case "kml": mime = "application/vnd.google-earth.kml+xml"
       case "pmtiles": mime = "application/vnd.pmtiles"
+      case "zip": mime = "application/zip"
+      case "csv": mime = "text/csv"
+      case "tsv": mime = "text/tab-separated-values"
+      case "shp": mime = "application/octet-stream"
       default: mime = "application/geo+json"
       }
       let payload: [String: Any] = [
@@ -173,9 +187,135 @@ class MainFlutterWindow: NSWindow {
         DispatchQueue.main.async {
           result(NSWorkspace.shared.open(url))
         }
+      case "getOrCreateMasterKey":
+        self.handleGetOrCreateMasterKey(result: result)
+      case "createSecurityScopedBookmark":
+        self.handleCreateSecurityScopedBookmark(call: call, result: result)
+      case "resolveSecurityScopedBookmark":
+        self.handleResolveSecurityScopedBookmark(call: call, result: result)
       default:
         result(FlutterMethodNotImplemented)
       }
+    }
+  }
+
+  private func readKeychainMasterKey() -> (status: OSStatus, data: Data?) {
+    let query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: MainFlutterWindow.keychainService,
+      kSecAttrAccount as String: MainFlutterWindow.keychainAccount,
+      kSecReturnData as String: true,
+      kSecMatchLimit as String: kSecMatchLimitOne,
+    ]
+    var item: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &item)
+    return (status, item as? Data)
+  }
+
+  private func handleGetOrCreateMasterKey(result: FlutterResult) {
+    let existing = readKeychainMasterKey()
+    if existing.status == errSecSuccess {
+      guard let data = existing.data, data.count == 32 else {
+        result(FlutterError(
+          code: "keychain_error",
+          message: "Stored master key has invalid length",
+          details: nil
+        ))
+        return
+      }
+      result(data.base64EncodedString())
+      return
+    }
+    if existing.status != errSecItemNotFound {
+      result(FlutterError(
+        code: "keychain_error",
+        message: "Failed to read master key from Keychain (\(existing.status))",
+        details: nil
+      ))
+      return
+    }
+
+    var keyBytes = Data(count: 32)
+    let rngStatus = keyBytes.withUnsafeMutableBytes { ptr -> Int32 in
+      guard let baseAddress = ptr.baseAddress else { return errSecParam }
+      return SecRandomCopyBytes(kSecRandomDefault, 32, baseAddress)
+    }
+    guard rngStatus == errSecSuccess else {
+      result(FlutterError(
+        code: "keychain_error",
+        message: "Failed to generate random master key (\(rngStatus))",
+        details: nil
+      ))
+      return
+    }
+
+    let addQuery: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: MainFlutterWindow.keychainService,
+      kSecAttrAccount as String: MainFlutterWindow.keychainAccount,
+      kSecValueData as String: keyBytes,
+      kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+    ]
+    let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+    if addStatus == errSecSuccess {
+      result(keyBytes.base64EncodedString())
+      return
+    }
+    if addStatus == errSecDuplicateItem {
+      let retry = readKeychainMasterKey()
+      if retry.status == errSecSuccess, let data = retry.data, data.count == 32 {
+        result(data.base64EncodedString())
+        return
+      }
+    }
+    result(FlutterError(
+      code: "keychain_error",
+      message: "Failed to store master key in Keychain (\(addStatus))",
+      details: nil
+    ))
+  }
+
+  private func handleCreateSecurityScopedBookmark(call: FlutterMethodCall, result: FlutterResult) {
+    let args = call.arguments as? [String: Any]
+    let rawPath = (args?["path"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !rawPath.isEmpty else {
+      result(FlutterError(code: "invalid_args", message: "path is required", details: nil))
+      return
+    }
+    let url = URL(fileURLWithPath: rawPath)
+    do {
+      let bookmarkData = try url.bookmarkData(
+        options: .withSecurityScope,
+        includingResourceValuesForKeys: nil,
+        relativeTo: nil
+      )
+      result(bookmarkData.base64EncodedString())
+    } catch {
+      result(FlutterError(code: "bookmark_error", message: error.localizedDescription, details: nil))
+    }
+  }
+
+  private func handleResolveSecurityScopedBookmark(call: FlutterMethodCall, result: FlutterResult) {
+    let args = call.arguments as? [String: Any]
+    let rawBookmark = (args?["bookmark"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !rawBookmark.isEmpty, let bookmarkData = Data(base64Encoded: rawBookmark) else {
+      result(FlutterError(code: "invalid_args", message: "Valid base64 bookmark is required", details: nil))
+      return
+    }
+    do {
+      var isStale = false
+      let resolvedUrl = try URL(
+        resolvingBookmarkData: bookmarkData,
+        options: .withSecurityScope,
+        relativeTo: nil,
+        bookmarkDataIsStale: &isStale
+      )
+      if resolvedUrl.startAccessingSecurityScopedResource() {
+        accessedSecurityScopedUrls.append(resolvedUrl)
+      }
+      result(resolvedUrl.path)
+    } catch {
+      result(FlutterError(code: "bookmark_error", message: error.localizedDescription, details: nil))
     }
   }
 

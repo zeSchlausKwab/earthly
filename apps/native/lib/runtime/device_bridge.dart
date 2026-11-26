@@ -300,6 +300,48 @@ class DeviceBridge {
     return raw;
   }
 
+  /// Returns a Base64-encoded 32-byte master key persisted in the platform's
+  /// hardware keystore / Keychain, or `null` when unavailable on the platform.
+  static Future<String?> getOrCreateMasterKey() async {
+    try {
+      final raw = await _channel.invokeMethod<String>('getOrCreateMasterKey');
+      final trimmed = raw?.trim();
+      return (trimmed != null && trimmed.isNotEmpty) ? trimmed : null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  /// Creates a Base64-encoded app-scoped security bookmark for [path] on macOS,
+  /// or returns `null` when unsupported on the current platform.
+  static Future<String?> createSecurityScopedBookmark(String path) async {
+    try {
+      final raw = await _channel.invokeMethod<String>(
+        'createSecurityScopedBookmark',
+        <String, Object>{'path': path},
+      );
+      final trimmed = raw?.trim();
+      return (trimmed != null && trimmed.isNotEmpty) ? trimmed : null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  /// Resolves a Base64-encoded macOS security-scoped [bookmark], starts
+  /// accessing the security-scoped resource, and returns the resolved path.
+  static Future<String?> resolveSecurityScopedBookmark(String bookmark) async {
+    try {
+      final raw = await _channel.invokeMethod<String>(
+        'resolveSecurityScopedBookmark',
+        <String, Object>{'bookmark': bookmark},
+      );
+      final trimmed = raw?.trim();
+      return (trimmed != null && trimmed.isNotEmpty) ? trimmed : null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
   static Future<PickedBinaryFile> _invokeFile(String method) async {
     final map = await _channel.invokeMapMethod<String, dynamic>(method);
     if (map == null) {

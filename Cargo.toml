@@ -16,3 +16,9 @@ resolver = "2"
 
 [patch.crates-io]
 nostr-relay-builder = { path = "crates/nostr-relay-builder" }
+
+[profile.release]
+opt-level = "z"
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

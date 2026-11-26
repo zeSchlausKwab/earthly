@@ -13,6 +13,9 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.zxing.integration.android.IntentIntegrator
@@ -20,11 +23,24 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
+import java.security.KeyStore
+import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 class MainActivity : FlutterActivity() {
     companion object {
         private const val NIP55_CHANNEL = "city.earthly/nip55"
         private const val DEVICE_CHANNEL = "city.earthly/device"
+        private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
+        private const val KEYSTORE_ALIAS = "earthly_settings_master_v1"
+        private const val VAULT_PREFS_NAME = "earthly_keystore_vault"
+        private const val VAULT_CIPHERTEXT_KEY = "master_key_ciphertext"
+        private const val VAULT_IV_KEY = "master_key_iv"
+        private const val MASTER_KEY_BYTES = 32
+        private const val GCM_TAG_BITS = 128
         private const val REQUEST_GET_PUBKEY = 5501
         private const val REQUEST_SIGN_EVENT = 5502
         private const val REQUEST_CAPTURE_PHOTO = 5601
@@ -393,9 +409,75 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
+                    "getOrCreateMasterKey" -> {
+                        try {
+                            result.success(getOrCreateMasterKeyBase64())
+                        } catch (err: Exception) {
+                            result.error(
+                                "keystore_error",
+                                err.message ?: "Failed to get or create master key",
+                                null,
+                            )
+                        }
+                    }
+
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun getOrCreateWrappingKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
+        val existing = keyStore.getKey(KEYSTORE_ALIAS, null) as? SecretKey
+        if (existing != null) {
+            return existing
+        }
+        val keyGenerator = KeyGenerator.getInstance(
+            KeyProperties.KEY_ALGORITHM_AES,
+            KEYSTORE_PROVIDER,
+        )
+        val spec = KeyGenParameterSpec.Builder(
+            KEYSTORE_ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256)
+            .setRandomizedEncryptionRequired(true)
+            .build()
+        keyGenerator.init(spec)
+        return keyGenerator.generateKey()
+    }
+
+    private fun getOrCreateMasterKeyBase64(): String {
+        val wrappingKey = getOrCreateWrappingKey()
+        val prefs = getSharedPreferences(VAULT_PREFS_NAME, Context.MODE_PRIVATE)
+        val cipherB64 = prefs.getString(VAULT_CIPHERTEXT_KEY, null)
+        val ivB64 = prefs.getString(VAULT_IV_KEY, null)
+        if (!cipherB64.isNullOrBlank() && !ivB64.isNullOrBlank()) {
+            val ciphertext = Base64.decode(cipherB64, Base64.NO_WRAP)
+            val iv = Base64.decode(ivB64, Base64.NO_WRAP)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, wrappingKey, GCMParameterSpec(GCM_TAG_BITS, iv))
+            val unwrapped = cipher.doFinal(ciphertext)
+            require(unwrapped.size == MASTER_KEY_BYTES) {
+                "Unwrapped master key has invalid length: ${unwrapped.size}"
+            }
+            return Base64.encodeToString(unwrapped, Base64.NO_WRAP)
+        }
+
+        val masterKey = ByteArray(MASTER_KEY_BYTES)
+        SecureRandom().nextBytes(masterKey)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, wrappingKey)
+        val iv = cipher.iv
+        val ciphertext = cipher.doFinal(masterKey)
+        val persisted = prefs.edit()
+            .putString(VAULT_CIPHERTEXT_KEY, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
+            .putString(VAULT_IV_KEY, Base64.encodeToString(iv, Base64.NO_WRAP))
+            .commit()
+        check(persisted) { "Failed to persist wrapped master key" }
+        return Base64.encodeToString(masterKey, Base64.NO_WRAP)
     }
 
     private fun hasLocationPermission(): Boolean {
