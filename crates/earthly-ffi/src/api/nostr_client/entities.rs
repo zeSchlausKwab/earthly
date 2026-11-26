@@ -1,6 +1,5 @@
-//! Native Nostr relay client fetching real Earthly v2 entities (Maps 37515,
-//! Atlases 37518, Stories 37520, Live Beacons 37521, Sightings 37522) and
-//! parsing them through `earthly-domain`.
+//! Entity DTOs, naddr coordinate codecs, single/batch entity fetches,
+//! discussions/proposals, social counts, author portfolios, and Inbox derivation.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -13,23 +12,13 @@ use earthly_domain::{
     TemporalSighting, diff_feature_collections, is_expired,
 };
 use nostr::nips::nip01::Coordinate;
-use nostr::nips::nip19::{FromBech32, Nip19, Nip19Coordinate, ToBech32};
-use nostr::{Alphabet, Event, Filter, Kind, PublicKey, RelayUrl, SingleLetterTag, Timestamp};
-use nostr_sdk::{Client, RelayPoolNotification};
-use sha2::{Digest, Sha256};
+use nostr::nips::nip19::{FromBech32, Nip19Coordinate, ToBech32};
+use nostr::{Alphabet, Event, Filter, Kind, PublicKey, RelayUrl, SingleLetterTag};
 
-pub const DEFAULT_EARTHLY_RELAY: &str = "wss://relay.earthly.city";
-const MAX_EXTERNAL_BLOB_BYTES: u64 = 50 * 1024 * 1024;
-
-#[derive(Clone, Debug)]
-pub struct BlobRefDto {
-    /// `"collection"` or `"feature:<id>"`
-    pub scope: String,
-    pub url: String,
-    pub sha256: Option<String>,
-    pub size: Option<u64>,
-    pub mime: Option<String>,
-}
+use super::DEFAULT_EARTHLY_RELAY;
+use super::blob_media::BlobRefDto;
+use super::catalog::LiveRelayEventDto;
+use super::profiles_relays::ProfileMetadataDto;
 
 #[derive(Clone, Debug)]
 pub struct MapSummaryDto {
@@ -66,566 +55,6 @@ pub struct StorySummaryDto {
     pub presentation_json: Option<String>,
     pub referenced_addresses: Vec<String>,
     pub published_at: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct ProfileMetadataDto {
-    pub pubkey: String,
-    pub name: Option<String>,
-    pub display_name: Option<String>,
-    pub about: Option<String>,
-    pub picture: Option<String>,
-    pub nip05: Option<String>,
-    pub website: Option<String>,
-    pub banner: Option<String>,
-    pub lud16: Option<String>,
-}
-
-/// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.
-pub async fn fetch_profiles(
-    relay_urls: Vec<String>,
-    pubkeys: Vec<String>,
-) -> Result<Vec<ProfileMetadataDto>, String> {
-    let mut authors = Vec::new();
-    let mut seen = HashSet::new();
-    for raw in pubkeys {
-        if let Ok(pk) = PublicKey::parse(raw.trim()) {
-            let hex = pk.to_hex();
-            if seen.insert(hex) {
-                authors.push(pk);
-            }
-        }
-    }
-    if authors.is_empty() {
-        return Ok(Vec::new());
-    }
-    authors.truncate(60);
-
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
-
-    let client = super::relay_pool::shared_client(&urls).await?;
-
-    let filter = Filter::new()
-        .kind(Kind::Metadata)
-        .authors(authors.clone())
-        .limit(authors.len() * 2);
-
-    let relay_res = client
-        .fetch_events_from(&urls, filter.clone(), Duration::from_secs(6))
-        .await;
-    let mut events: Vec<Event> = match &relay_res {
-        Ok(set) => set.iter().cloned().collect(),
-        Err(_) => Vec::new(),
-    };
-    if relay_res.is_err() || events.len() < authors.len() {
-        if let Ok(cached) = client.database().query(filter).await {
-            events.extend(cached.into_iter());
-        }
-    }
-    if events.is_empty() {
-        if let Err(err) = relay_res {
-            return Err(format!("failed to fetch author profiles: {err}"));
-        }
-    }
-
-    let mut latest: BTreeMap<String, (u64, String)> = BTreeMap::new();
-    for ev in events.into_iter() {
-        let pk = ev.pubkey.to_hex();
-        let ts = ev.created_at.as_secs();
-        let replace = latest.get(&pk).map(|(cur, _)| ts >= *cur).unwrap_or(true);
-        if replace {
-            latest.insert(pk, (ts, ev.content));
-        }
-    }
-
-    let mut out = Vec::with_capacity(latest.len());
-    for (pubkey, (_, content)) in latest {
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
-            continue;
-        };
-        let pick_str = |key: &str| {
-            json.get(key)
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned)
-        };
-        out.push(ProfileMetadataDto {
-            pubkey,
-            name: pick_str("name"),
-            display_name: pick_str("display_name").or_else(|| pick_str("displayName")),
-            about: pick_str("about"),
-            picture: pick_str("picture"),
-            nip05: pick_str("nip05"),
-            website: pick_str("website"),
-            banner: pick_str("banner"),
-            lud16: pick_str("lud16"),
-        });
-    }
-    Ok(out)
-}
-
-#[derive(Clone, Debug)]
-pub struct RelayListEntryDto {
-    pub url: String,
-    pub read: bool,
-    pub write: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct RelayHealthDto {
-    pub url: String,
-    pub reachable: bool,
-    pub latency_ms: u32,
-    pub error: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ReverseGeocodeDto {
-    pub display_name: String,
-    pub subtitle: String,
-    pub lat: f64,
-    pub lon: f64,
-    pub country: Option<String>,
-    pub city: Option<String>,
-    pub street: Option<String>,
-}
-
-pub(crate) fn parse_nip65_tags(tags: &[Vec<String>]) -> Vec<RelayListEntryDto> {
-    let mut seen: BTreeMap<String, (bool, bool)> = BTreeMap::new();
-    for tag in tags {
-        if tag.first().map(|s| s.as_str()) != Some("r") {
-            continue;
-        }
-        let Some(raw_url) = tag.get(1).map(|s| s.trim()).filter(|s| !s.is_empty()) else {
-            continue;
-        };
-        if !raw_url.starts_with("wss://") && !raw_url.starts_with("ws://") {
-            continue;
-        }
-        let normalized = raw_url.trim_end_matches('/').to_owned();
-        let marker = tag.get(2).map(|s| s.trim().to_ascii_lowercase());
-        let (r, w) = match marker.as_deref() {
-            Some("read") => (true, false),
-            Some("write") => (false, true),
-            _ => (true, true),
-        };
-        seen.entry(normalized)
-            .and_modify(|e| {
-                e.0 |= r;
-                e.1 |= w;
-            })
-            .or_insert((r, w));
-    }
-    seen.into_iter()
-        .map(|(url, (read, write))| RelayListEntryDto { url, read, write })
-        .collect()
-}
-
-/// Fetches a user's NIP-65 (`kind 10002`) relay list metadata across configured
-/// relays (falling back to `wss://purplepag.es` if needed).
-pub async fn fetch_user_relay_list(
-    relay_urls: Vec<String>,
-    pubkey_or_npub: String,
-) -> Result<Vec<RelayListEntryDto>, String> {
-    let author = PublicKey::parse(pubkey_or_npub.trim())
-        .map_err(|e| format!("invalid Nostr public key: {e}"))?;
-    let mut urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
-    if !urls.iter().any(|u| u.contains("purplepag.es")) {
-        urls.push("wss://purplepag.es".to_owned());
-    }
-
-    let client = super::relay_pool::shared_client(&urls).await?;
-
-    let filter = Filter::new()
-        .kind(Kind::RelayList)
-        .author(author)
-        .limit(5);
-    let events = client
-        .fetch_events_from(&urls, filter, Duration::from_secs(6))
-        .await
-        .map_err(|e| format!("failed to fetch NIP-65 relay list: {e}"))?;
-
-    let newest = events
-        .into_iter()
-        .max_by_key(|ev| (ev.created_at.as_secs(), ev.id));
-    Ok(match newest {
-        Some(ev) => {
-            let raw = event_to_raw(&ev);
-            parse_nip65_tags(&raw.tags)
-        }
-        None => Vec::new(),
-    })
-}
-
-/// Probes WebSocket reachability and handshake latency (ms) for each relay URL.
-pub async fn probe_relays_health(relay_urls: Vec<String>) -> Result<Vec<RelayHealthDto>, String> {
-    let mut results = Vec::with_capacity(relay_urls.len());
-    for raw in relay_urls {
-        let url = raw.trim().to_owned();
-        if !url.starts_with("wss://") && !url.starts_with("ws://") {
-            results.push(RelayHealthDto {
-                url,
-                reachable: false,
-                latency_ms: 0,
-                error: Some("Unsupported URL scheme".to_owned()),
-            });
-            continue;
-        }
-        // Intentionally use an isolated temporary probe client (not the shared pool)
-        // so fresh WebSocket/TLS connect latency is measured honestly.
-        let client = Client::default();
-        if let Err(err) = client.add_relay(&url).await {
-            results.push(RelayHealthDto {
-                url,
-                reachable: false,
-                latency_ms: 0,
-                error: Some(err.to_string()),
-            });
-            continue;
-        }
-        let started = std::time::Instant::now();
-        match client.try_connect_relay(&url, Duration::from_secs(4)).await {
-            Ok(()) => {
-                let elapsed = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
-                client.disconnect().await;
-                results.push(RelayHealthDto {
-                    url,
-                    reachable: true,
-                    latency_ms: elapsed,
-                    error: None,
-                });
-            }
-            Err(err) => {
-                client.disconnect().await;
-                results.push(RelayHealthDto {
-                    url,
-                    reachable: false,
-                    latency_ms: 0,
-                    error: Some(err.to_string()),
-                });
-            }
-        }
-    }
-    Ok(results)
-}
-
-/// Reverse-geocodes a tapped map location using Photon (OSM, zero API key) with
-/// graceful fallback to formatted WGS-84 coordinates.
-pub async fn reverse_geocode_location(lat: f64, lon: f64) -> Result<ReverseGeocodeDto, String> {
-    if !lat.is_finite()
-        || !lon.is_finite()
-        || !(-90.0..=90.0).contains(&lat)
-        || !(-180.0..=180.0).contains(&lon)
-    {
-        return Err("Invalid WGS-84 coordinates".to_owned());
-    }
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(6))
-        .user_agent("EarthlyNative/1.0 (+https://earthly.city)")
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
-
-    let resp = client
-        .get("https://photon.komoot.io/reverse")
-        .query(&[
-            ("lat", format!("{lat:.6}")),
-            ("lon", format!("{lon:.6}")),
-            ("limit", "1".to_owned()),
-        ])
-        .send()
-        .await;
-
-    let fallback_name = format!("{lat:.5}, {lon:.5}");
-    let Ok(resp) = resp else {
-        return Ok(ReverseGeocodeDto {
-            display_name: fallback_name,
-            subtitle: "WGS-84 coordinate".to_owned(),
-            lat,
-            lon,
-            country: None,
-            city: None,
-            street: None,
-        });
-    };
-    if !resp.status().is_success() {
-        return Ok(ReverseGeocodeDto {
-            display_name: fallback_name,
-            subtitle: "WGS-84 coordinate".to_owned(),
-            lat,
-            lon,
-            country: None,
-            city: None,
-            street: None,
-        });
-    }
-    let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
-    let props = body
-        .get("features")
-        .and_then(|v| v.as_array())
-        .and_then(|a| a.first())
-        .and_then(|f| f.get("properties"));
-
-    let pick = |k: &str| {
-        props
-            .and_then(|p| p.get(k))
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-    };
-    let name = pick("name");
-    let street = pick("street");
-    let housenumber = pick("housenumber");
-    let city = pick("city")
-        .or_else(|| pick("town"))
-        .or_else(|| pick("village"));
-    let country = pick("country");
-
-    let street_line = match (street.as_ref(), housenumber.as_ref()) {
-        (Some(s), Some(n)) => Some(format!("{s} {n}")),
-        (Some(s), None) => Some(s.clone()),
-        _ => None,
-    };
-    let display_name = name
-        .or_else(|| street_line.clone())
-        .or_else(|| city.clone())
-        .or_else(|| country.clone())
-        .unwrap_or(fallback_name);
-
-    let mut sub_parts = Vec::new();
-    for item in [street_line.as_ref(), city.as_ref(), country.as_ref()]
-        .into_iter()
-        .flatten()
-    {
-        if item != &display_name && !sub_parts.contains(item) {
-            sub_parts.push(item.clone());
-        }
-    }
-    let subtitle = if sub_parts.is_empty() {
-        "OSM location".to_owned()
-    } else {
-        sub_parts.join(", ")
-    };
-
-    Ok(ReverseGeocodeDto {
-        display_name,
-        subtitle,
-        lat,
-        lon,
-        country,
-        city,
-        street: street_line,
-    })
-}
-
-/// Runs a NIP-50 full-text search query across configured Nostr relays for
-/// Maps (`37515`), Stories (`37520`), and Atlases (`37518`).
-pub async fn search_relay_catalog_nip50(
-    relay_urls: Vec<String>,
-    query: String,
-) -> Result<EarthlyCatalogSnapshot, String> {
-    let trimmed = query.trim();
-    if trimmed.is_empty() {
-        return Ok(EarthlyCatalogSnapshot {
-            relay_urls,
-            maps: Vec::new(),
-            stories: Vec::new(),
-            atlases: Vec::new(),
-            sightings: Vec::new(),
-            beacons: Vec::new(),
-        });
-    }
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
-
-    let client = super::relay_pool::shared_client(&urls).await?;
-
-    let filter = Filter::new()
-        .kinds([
-            Kind::Custom(GEO_EVENT_KIND),
-            Kind::Custom(ARTICLE_KIND),
-            Kind::Custom(MAP_CONTEXT_KIND),
-        ])
-        .search(trimmed)
-        .limit(40);
-    let events = client
-        .fetch_events_from(&urls, filter, Duration::from_secs(6))
-        .await
-        .map_err(|e| format!("NIP-50 search failed: {e}"))?;
-
-    let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
-    for event in events {
-        let raw = event_to_raw(&event);
-        let Some(addr) = raw.address_coordinate() else {
-            continue;
-        };
-        let replace = match latest_by_addr.get(&addr) {
-            None => true,
-            Some(existing) => {
-                raw.created_at > existing.created_at
-                    || (raw.created_at == existing.created_at && raw.id < existing.id)
-            }
-        };
-        if replace {
-            latest_by_addr.insert(addr, raw);
-        }
-    }
-
-    let mut maps = Vec::new();
-    let mut stories = Vec::new();
-    let mut atlases = Vec::new();
-    for (address, raw) in latest_by_addr {
-        match raw.kind {
-            GEO_EVENT_KIND => {
-                if let Ok(dataset) = MapDataset::parse(&raw) {
-                    maps.push(map_to_dto(address, dataset));
-                }
-            }
-            ARTICLE_KIND => {
-                if let Ok(story) = StoryArticle::parse(&raw) {
-                    stories.push(story_to_dto(address, story));
-                }
-            }
-            MAP_CONTEXT_KIND => {
-                if let Ok(group) = AtlasGroup::parse(&raw) {
-                    atlases.push(atlas_to_dto(address, group));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    maps.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    stories.sort_by(|a, b| b.published_at.cmp(&a.published_at));
-    atlases.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-
-    Ok(EarthlyCatalogSnapshot {
-        relay_urls: urls,
-        maps,
-        stories,
-        atlases,
-        sightings: Vec::new(),
-        beacons: Vec::new(),
-    })
-}
-
-#[derive(Clone, Debug)]
-pub struct PlaceSearchResultDto {
-    pub name: String,
-    pub subtitle: String,
-    pub lon: f64,
-    pub lat: f64,
-    pub west: Option<f64>,
-    pub south: Option<f64>,
-    pub east: Option<f64>,
-    pub north: Option<f64>,
-}
-
-/// Searches places via Photon (OpenStreetMap geocoder, zero API key) for fast
-/// map jump-to navigation.
-pub async fn search_places(query: String) -> Result<Vec<PlaceSearchResultDto>, String> {
-    let trimmed = query.trim();
-    if trimmed.is_empty() {
-        return Ok(Vec::new());
-    }
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(8))
-        .user_agent("EarthlyNative/1.0 (+https://earthly.city)")
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
-
-    let resp = client
-        .get("https://photon.komoot.io/api/")
-        .query(&[("q", trimmed), ("limit", "6")])
-        .send()
-        .await
-        .map_err(|e| format!("place search failed: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("geocoder HTTP {}", resp.status()));
-    }
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("invalid geocoder JSON: {e}"))?;
-
-    let mut out = Vec::new();
-    let Some(features) = body.get("features").and_then(|v| v.as_array()) else {
-        return Ok(out);
-    };
-    for feat in features {
-        let Some(coords) = feat
-            .get("geometry")
-            .and_then(|g| g.get("coordinates"))
-            .and_then(|c| c.as_array())
-        else {
-            continue;
-        };
-        if coords.len() < 2 {
-            continue;
-        }
-        let (Some(lon), Some(lat)) = (coords[0].as_f64(), coords[1].as_f64()) else {
-            continue;
-        };
-        let props = feat.get("properties");
-        let str_prop = |k: &str| {
-            props
-                .and_then(|p| p.get(k))
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-        };
-        let name = str_prop("name")
-            .or_else(|| str_prop("street"))
-            .or_else(|| str_prop("city"))
-            .unwrap_or(trimmed)
-            .to_owned();
-        let mut sub_parts = Vec::new();
-        for key in ["street", "city", "state", "country"] {
-            if let Some(val) = str_prop(key) {
-                if val != name && !sub_parts.contains(&val) {
-                    sub_parts.push(val);
-                }
-            }
-        }
-        let extent = props
-            .and_then(|p| p.get("extent"))
-            .and_then(|e| e.as_array())
-            .filter(|a| a.len() == 4);
-        // Photon extent order is [west, north, east, south].
-        let (west, north, east, south) = if let Some(ext) = extent {
-            (
-                ext[0].as_f64(),
-                ext[1].as_f64(),
-                ext[2].as_f64(),
-                ext[3].as_f64(),
-            )
-        } else {
-            (None, None, None, None)
-        };
-        out.push(PlaceSearchResultDto {
-            name,
-            subtitle: sub_parts.join(", "),
-            lon,
-            lat,
-            west,
-            south,
-            east,
-            north,
-        });
-    }
-    Ok(out)
 }
 
 #[derive(Clone, Debug)]
@@ -734,373 +163,33 @@ pub struct LiveBeaconDto {
 }
 
 #[derive(Clone, Debug)]
-pub struct EarthlyCatalogSnapshot {
-    pub relay_urls: Vec<String>,
+pub struct AuthorPortfolioDto {
+    pub pubkey: String,
+    pub npub: String,
+    pub profile: Option<ProfileMetadataDto>,
     pub maps: Vec<MapSummaryDto>,
     pub stories: Vec<StorySummaryDto>,
     pub atlases: Vec<AtlasSummaryDto>,
-    pub sightings: Vec<SightingSummaryDto>,
-    pub beacons: Vec<LiveBeaconDto>,
 }
 
-/// Real-time parsed Earthly event pushed over a persistent relay WebSocket
-/// subscription (`StreamSink<LiveRelayEventDto>`).
+/// Event-derived Inbox notification matching Earthly Web's `src/features/inbox/deriveInbox.ts`.
 #[derive(Clone, Debug)]
-pub struct LiveRelayEventDto {
-    pub relay_url: String,
-    pub kind: u16,
-    pub map: Option<MapSummaryDto>,
-    pub story: Option<StorySummaryDto>,
-    pub atlas: Option<AtlasSummaryDto>,
-    pub sighting: Option<SightingSummaryDto>,
-    pub beacon: Option<LiveBeaconDto>,
-}
-
-/// Fetches the latest Earthly Maps, Stories, Atlases, and non-expired Sightings
-/// from the specified relay URLs (defaulting to `wss://relay.earthly.city`).
-pub async fn fetch_earthly_catalog(
-    relay_urls: Vec<String>,
-    limit_per_kind: u32,
-) -> Result<EarthlyCatalogSnapshot, String> {
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
-    let limit = (limit_per_kind as usize).clamp(1, 300);
-
-    let client = super::relay_pool::shared_client(&urls).await?;
-
-    // Query each Earthly entity kind in its own dedicated filter so busy kinds
-    // (e.g. 100+ Maps) never starve Stories, Atlases, Beacons, or Sightings!
-    let maps_filter = Filter::new().kind(Kind::Custom(GEO_EVENT_KIND)).limit(limit);
-    let atlases_filter = Filter::new()
-        .kind(Kind::Custom(MAP_CONTEXT_KIND))
-        .limit(limit.min(150));
-    let stories_filter = Filter::new()
-        .kind(Kind::Custom(ARTICLE_KIND))
-        .limit(limit.min(200));
-    let beacons_filter = Filter::new()
-        .kind(Kind::Custom(LIVE_BEACON_KIND))
-        .limit(limit.min(100));
-    let sightings_filter = Filter::new()
-        .kind(Kind::Custom(TEMPORAL_SIGHTING_KIND))
-        .limit(limit.min(150));
-
-    let timeout = Duration::from_secs(9);
-    let (maps_res, atlases_res, stories_res, beacons_res, sightings_res) = tokio::join!(
-        client.fetch_events_from(&urls, maps_filter.clone(), timeout),
-        client.fetch_events_from(&urls, atlases_filter.clone(), timeout),
-        client.fetch_events_from(&urls, stories_filter.clone(), timeout),
-        client.fetch_events_from(&urls, beacons_filter.clone(), timeout),
-        client.fetch_events_from(&urls, sightings_filter.clone(), timeout),
-    );
-
-    let mut all_events = Vec::new();
-    let mut last_err: Option<String> = None;
-    for res in [maps_res, atlases_res, stories_res, beacons_res, sightings_res] {
-        match res {
-            Ok(set) => all_events.extend(set.into_iter()),
-            Err(err) => last_err = Some(err.to_string()),
-        }
-    }
-
-    // Instant offline fallback to local NostrLMDB when relays fail, time out,
-    // or return no events (fresh relay events are merged into LMDB by nostr-sdk).
-    if last_err.is_some() || all_events.is_empty() {
-        let db = client.database();
-        let (c_maps, c_atlases, c_stories, c_beacons, c_sightings) = tokio::join!(
-            db.query(maps_filter),
-            db.query(atlases_filter),
-            db.query(stories_filter),
-            db.query(beacons_filter),
-            db.query(sightings_filter),
-        );
-        for res in [c_maps, c_atlases, c_stories, c_beacons, c_sightings] {
-            if let Ok(set) = res {
-                all_events.extend(set.into_iter());
-            }
-        }
-    }
-
-    if all_events.is_empty() {
-        if let Some(err) = last_err {
-            return Err(format!("failed to fetch catalog from relays: {err}"));
-        }
-    }
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    // Deduplicate parameterized-replaceable events by (kind, pubkey, d), keeping newest.
-    let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
-    for event in all_events {
-        let raw = event_to_raw(&event);
-        let Some(addr) = raw.address_coordinate() else {
-            continue;
-        };
-        let replace = match latest_by_addr.get(&addr) {
-            None => true,
-            Some(existing) => {
-                raw.created_at > existing.created_at
-                    || (raw.created_at == existing.created_at && raw.id < existing.id)
-            }
-        };
-        if replace {
-            latest_by_addr.insert(addr, raw);
-        }
-    }
-
-    // Also merge in any locally ingested / Nearby Field Session synced events
-    // from the running embedded LocalNode (no NIP-42 WebSocket overhead needed!).
-    if let Some(node) = crate::api::spike::current_node() {
-        if let Ok(local_events) = node.query_earthly_events(160).await {
-            for event in local_events {
-                let raw = event_to_raw(&event);
-                let Some(addr) = raw.address_coordinate() else {
-                    continue;
-                };
-                let replace = match latest_by_addr.get(&addr) {
-                    None => true,
-                    Some(existing) => {
-                        raw.created_at > existing.created_at
-                            || (raw.created_at == existing.created_at && raw.id < existing.id)
-                    }
-                };
-                if replace {
-                    latest_by_addr.insert(addr, raw);
-                }
-            }
-        }
-    }
-
-    let mut maps = Vec::new();
-    let mut stories = Vec::new();
-    let mut atlases = Vec::new();
-    let mut sightings = Vec::new();
-    let mut beacons = Vec::new();
-
-    for (address, raw) in latest_by_addr {
-        match raw.kind {
-            GEO_EVENT_KIND => {
-                if let Ok(dataset) = MapDataset::parse(&raw) {
-                    maps.push(map_to_dto(address, dataset));
-                }
-            }
-            ARTICLE_KIND => {
-                if let Ok(story) = StoryArticle::parse(&raw) {
-                    stories.push(story_to_dto(address, story));
-                }
-            }
-            MAP_CONTEXT_KIND => {
-                if let Ok(group) = AtlasGroup::parse(&raw) {
-                    atlases.push(atlas_to_dto(address, group));
-                }
-            }
-            LIVE_BEACON_KIND => {
-                if is_expired(&raw.tags, now) {
-                    continue;
-                }
-                if let Ok(beacon) = LiveBeacon::parse(&raw) {
-                    beacons.push(beacon_to_dto(address, beacon));
-                }
-            }
-            TEMPORAL_SIGHTING_KIND => {
-                if is_expired(&raw.tags, now) {
-                    continue;
-                }
-                if let Ok(sighting) = TemporalSighting::parse(&raw) {
-                    sightings.push(sighting_to_dto(address, sighting));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    maps.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    stories.sort_by(|a, b| b.published_at.cmp(&a.published_at));
-    atlases.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    sightings.sort_by(|a, b| b.start.cmp(&a.start));
-    beacons.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-
-    Ok(EarthlyCatalogSnapshot {
-        relay_urls: urls,
-        maps,
-        stories,
-        atlases,
-        sightings,
-        beacons,
-    })
-}
-
-/// Fast (~1 ms) local-only catalog read from the running embedded `LocalNode`
-/// LMDB database — powers real-time live listening for incoming Nearby Field
-/// Session Maps, Stories, Atlases, Sightings, and Live Beacons without hitting
-/// public relays.
-pub async fn fetch_local_node_catalog() -> Result<EarthlyCatalogSnapshot, String> {
-    let Some(node) = crate::api::spike::current_node() else {
-        return Ok(EarthlyCatalogSnapshot {
-            relay_urls: Vec::new(),
-            maps: Vec::new(),
-            stories: Vec::new(),
-            atlases: Vec::new(),
-            sightings: Vec::new(),
-            beacons: Vec::new(),
-        });
-    };
-    let local_events = node
-        .query_earthly_events(160)
-        .await
-        .map_err(|err| format!("failed to read local node events: {err}"))?;
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
-    for event in local_events {
-        let raw = event_to_raw(&event);
-        let Some(addr) = raw.address_coordinate() else {
-            continue;
-        };
-        let replace = match latest_by_addr.get(&addr) {
-            None => true,
-            Some(existing) => {
-                raw.created_at > existing.created_at
-                    || (raw.created_at == existing.created_at && raw.id < existing.id)
-            }
-        };
-        if replace {
-            latest_by_addr.insert(addr, raw);
-        }
-    }
-
-    let mut maps = Vec::new();
-    let mut stories = Vec::new();
-    let mut atlases = Vec::new();
-    let mut sightings = Vec::new();
-    let mut beacons = Vec::new();
-
-    for (address, raw) in latest_by_addr {
-        match raw.kind {
-            GEO_EVENT_KIND => {
-                if let Ok(dataset) = MapDataset::parse(&raw) {
-                    maps.push(map_to_dto(address, dataset));
-                }
-            }
-            ARTICLE_KIND => {
-                if let Ok(story) = StoryArticle::parse(&raw) {
-                    stories.push(story_to_dto(address, story));
-                }
-            }
-            MAP_CONTEXT_KIND => {
-                if let Ok(group) = AtlasGroup::parse(&raw) {
-                    atlases.push(atlas_to_dto(address, group));
-                }
-            }
-            LIVE_BEACON_KIND => {
-                if is_expired(&raw.tags, now) {
-                    continue;
-                }
-                if let Ok(beacon) = LiveBeacon::parse(&raw) {
-                    beacons.push(beacon_to_dto(address, beacon));
-                }
-            }
-            TEMPORAL_SIGHTING_KIND => {
-                if is_expired(&raw.tags, now) {
-                    continue;
-                }
-                if let Ok(sighting) = TemporalSighting::parse(&raw) {
-                    sightings.push(sighting_to_dto(address, sighting));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    maps.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    stories.sort_by(|a, b| b.published_at.cmp(&a.published_at));
-    atlases.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    sightings.sort_by(|a, b| b.start.cmp(&a.start));
-    beacons.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-
-    Ok(EarthlyCatalogSnapshot {
-        relay_urls: vec![node.descriptor().relay_url.to_string()],
-        maps,
-        stories,
-        atlases,
-        sightings,
-        beacons,
-    })
-}
-
-/// Opens a persistent Nostr WebSocket subscription to the configured relays for
-/// live Earthly v2 entities (`37515`, `37518`, `37520`, `37521`, `37522`) arriving
-/// after connect, pushing parsed events directly into Flutter via `StreamSink`.
-pub async fn subscribe_earthly_relay_stream(
-    relay_urls: Vec<String>,
-    sink: crate::frb_generated::StreamSink<LiveRelayEventDto>,
-) -> Result<(), String> {
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
-
-    let client = super::relay_pool::shared_client(&urls).await?;
-
-    let filter = Filter::new()
-        .kinds([
-            Kind::Custom(GEO_EVENT_KIND),
-            Kind::Custom(MAP_CONTEXT_KIND),
-            Kind::Custom(ARTICLE_KIND),
-            Kind::Custom(LIVE_BEACON_KIND),
-            Kind::Custom(TEMPORAL_SIGHTING_KIND),
-        ])
-        .since(Timestamp::now());
-
-    let sub_output = client
-        .subscribe_to(&urls, filter, None)
-        .await
-        .map_err(|err| format!("failed to subscribe to Earthly relays: {err}"))?;
-
-    let mut notifications = client.notifications();
-    let mut seen_ids: HashSet<String> = HashSet::new();
-
-    loop {
-        match notifications.recv().await {
-            Ok(RelayPoolNotification::Event {
-                relay_url, event, ..
-            }) => {
-                let raw = event_to_raw(&event);
-                if !seen_ids.insert(raw.id.clone()) {
-                    continue;
-                }
-                if seen_ids.len() > 2048 {
-                    seen_ids.clear();
-                }
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                if let Some(dto) = parse_live_relay_event(relay_url.to_string(), &raw, now) {
-                    if sink.add(dto).is_err() {
-                        break;
-                    }
-                }
-            }
-            Ok(RelayPoolNotification::Shutdown) => break,
-            Ok(_) => {}
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-        }
-    }
-
-    client.unsubscribe(&sub_output.val).await;
-    Ok(())
+pub struct InboxItemDto {
+    pub id: String,
+    pub event_id: String,
+    /// `proposal` | `accepted` | `declined` | `reply` | `mention` | `atlas_arrival` | `follow` | `reaction` | `zap`
+    pub kind: String,
+    /// `proposals` | `replies` | `activity`
+    pub category: String,
+    pub actor_pubkey: String,
+    pub created_at: u64,
+    pub action: String,
+    pub thing_label: String,
+    pub preview: Option<String>,
+    pub target_address: Option<String>,
+    pub target_kind: Option<u16>,
+    /// `details` | `comments` | `person`
+    pub target_tab: Option<String>,
 }
 
 /// Decodes a `nostr:naddr1...` (with optional `#featureId` fragment) or bare
@@ -1200,7 +289,7 @@ pub async fn fetch_entity_by_address(
         relay_urls
     };
 
-    let client = super::relay_pool::shared_client(&urls).await?;
+    let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let filter = Filter::new()
         .kind(Kind::Custom(kind_num))
@@ -1277,7 +366,7 @@ pub async fn fetch_maps_by_addresses(
         relay_urls
     };
 
-    let client = super::relay_pool::shared_client(&urls).await?;
+    let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let authors: Vec<PublicKey> = parsed_targets.iter().map(|(pk, _, _)| *pk).collect();
     let identifiers: Vec<String> = parsed_targets.iter().map(|(_, d, _)| d.clone()).collect();
@@ -1339,7 +428,7 @@ pub async fn fetch_entity_discussion(
     } else {
         relay_urls
     };
-    let client = super::relay_pool::shared_client(&urls).await?;
+    let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let comments_filter_upper = Filter::new()
         .kind(Kind::Custom(GEO_COMMENT_KIND))
@@ -1553,7 +642,7 @@ pub async fn fetch_entity_social_counts(
     } else {
         relay_urls
     };
-    let client = super::relay_pool::shared_client(&urls).await?;
+    let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let reactions_filter = Filter::new()
         .kind(Kind::Reaction)
@@ -1635,162 +724,6 @@ pub async fn fetch_entity_social_counts(
     })
 }
 
-/// Resolves externalized Blossom GeoJSON `blob` references (`SPEC.md` §1.5),
-/// verifying optional `sha256` integrity and merging `collection` and
-/// `feature:<id>` payloads into a single renderable GeoJSON FeatureCollection.
-pub async fn resolve_map_blob_geojson(
-    base_geojson: String,
-    blob_refs: Vec<BlobRefDto>,
-) -> Result<String, String> {
-    if blob_refs.is_empty() {
-        return Ok(base_geojson);
-    }
-
-    let mut base_fc: serde_json::Value = serde_json::from_str(&base_geojson).unwrap_or_else(|_| {
-        serde_json::json!({ "type": "FeatureCollection", "features": [] })
-    });
-    let mut merged_features: Vec<serde_json::Value> = base_fc
-        .get("features")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|f| f.get("geometry").is_some_and(|g| !g.is_null()))
-        .collect();
-
-    let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .user_agent("EarthlyNative/1.0 (+https://earthly.city)")
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
-
-    let mut fetched_any = false;
-    for blob in &blob_refs {
-        let cache_key = blob
-            .sha256
-            .as_deref()
-            .map(|s| format!("sha256:{}", s.to_lowercase()))
-            .unwrap_or_else(|| blob.url.clone());
-
-        let raw_text = if let Some(cached) = super::relay_pool::read_cached_blossom_blob(&cache_key) {
-            cached
-        } else {
-            let mut fetched: Option<String> = None;
-            // Try embedded local Blossom copy first when sha256 is known.
-            if let Some(sha) = blob.sha256.as_deref().filter(|s| s.len() == 64) {
-                if let Some(node) = crate::api::spike::current_node() {
-                    let local_url = format!("{}/{sha}", node.descriptor().blossom_url);
-                    if let Ok(resp) = http.get(&local_url).send().await {
-                        if resp.status().is_success() {
-                            if let Ok(bytes) = resp.bytes().await {
-                                if (bytes.len() as u64) <= MAX_EXTERNAL_BLOB_BYTES {
-                                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                                        if verify_optional_sha256(&text, Some(sha)) {
-                                            fetched = Some(text);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if fetched.is_none() {
-                if let Ok(resp) = http.get(blob.url.trim()).send().await {
-                    if resp.status().is_success() {
-                        if let Ok(bytes) = resp.bytes().await {
-                            if (bytes.len() as u64) <= MAX_EXTERNAL_BLOB_BYTES {
-                                if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                                    if verify_optional_sha256(&text, blob.sha256.as_deref()) {
-                                        fetched = Some(text);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            let Some(text) = fetched else {
-                continue;
-            };
-            super::relay_pool::write_cached_blossom_blob(&cache_key, &text);
-            text
-        };
-
-        fetched_any = true;
-        merge_blob_payload_into_features(&mut merged_features, &blob.scope, &raw_text);
-    }
-
-    if !fetched_any && merged_features.is_empty() {
-        return Err("Unable to fetch external Blossom GeoJSON blob".to_owned());
-    }
-
-    if let Some(obj) = base_fc.as_object_mut() {
-        obj.insert(
-            "type".to_owned(),
-            serde_json::Value::String("FeatureCollection".to_owned()),
-        );
-        obj.insert(
-            "features".to_owned(),
-            serde_json::Value::Array(merged_features),
-        );
-    }
-    serde_json::to_string(&base_fc).map_err(|e| e.to_string())
-}
-
-fn verify_optional_sha256(text: &str, expected: Option<&str>) -> bool {
-    let Some(exp) = expected.map(str::trim).filter(|s| s.len() == 64) else {
-        return true;
-    };
-    let actual = format!("{:x}", Sha256::digest(text.as_bytes()));
-    actual.eq_ignore_ascii_case(exp)
-}
-
-fn merge_blob_payload_into_features(
-    target_features: &mut Vec<serde_json::Value>,
-    scope: &str,
-    payload_text: &str,
-) {
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(payload_text) else {
-        return;
-    };
-    let incoming: Vec<serde_json::Value> = match parsed.get("type").and_then(|v| v.as_str()) {
-        Some("FeatureCollection") => parsed
-            .get("features")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default(),
-        Some("Feature") => vec![parsed],
-        Some(
-            "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon"
-            | "GeometryCollection",
-        ) => vec![serde_json::json!({
-            "type": "Feature",
-            "geometry": parsed,
-            "properties": {},
-        })],
-        _ => return,
-    };
-    let valid_incoming: Vec<serde_json::Value> = incoming
-        .into_iter()
-        .filter(|f| f.get("geometry").is_some_and(|g| !g.is_null()))
-        .collect();
-    if valid_incoming.is_empty() {
-        return;
-    }
-    if let Some(feature_id) = scope.strip_prefix("feature:") {
-        target_features.retain(|f| {
-            let cur_id = f.get("id").and_then(|v| {
-                v.as_str()
-                    .map(str::to_owned)
-                    .or_else(|| v.as_i64().map(|n| n.to_string()))
-            });
-            cur_id.as_deref() != Some(feature_id)
-        });
-    }
-    target_features.extend(valid_incoming);
-}
-
 fn percent_decode_fragment(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -1818,7 +751,7 @@ fn hex_val(b: u8) -> Option<u8> {
     }
 }
 
-fn event_to_raw(event: &Event) -> RawNostrEvent {
+pub(super) fn event_to_raw(event: &Event) -> RawNostrEvent {
     RawNostrEvent {
         id: event.id.to_hex(),
         pubkey: event.pubkey.to_hex(),
@@ -1833,7 +766,7 @@ fn event_to_raw(event: &Event) -> RawNostrEvent {
     }
 }
 
-fn map_to_dto(address: String, dataset: MapDataset) -> MapSummaryDto {
+pub(super) fn map_to_dto(address: String, dataset: MapDataset) -> MapSummaryDto {
     let feature_count = dataset
         .feature_collection
         .get("features")
@@ -1887,7 +820,7 @@ fn map_to_dto(address: String, dataset: MapDataset) -> MapSummaryDto {
     }
 }
 
-fn story_to_dto(address: String, story: StoryArticle) -> StorySummaryDto {
+pub(super) fn story_to_dto(address: String, story: StoryArticle) -> StorySummaryDto {
     let presentation_json = story
         .presentation
         .as_ref()
@@ -1907,7 +840,7 @@ fn story_to_dto(address: String, story: StoryArticle) -> StorySummaryDto {
     }
 }
 
-fn atlas_to_dto(address: String, group: AtlasGroup) -> AtlasSummaryDto {
+pub(super) fn atlas_to_dto(address: String, group: AtlasGroup) -> AtlasSummaryDto {
     let governance = match group.governance {
         earthly_domain::GovernanceMode::Open => "open",
         earthly_domain::GovernanceMode::Schema => "schema",
@@ -1930,7 +863,7 @@ fn atlas_to_dto(address: String, group: AtlasGroup) -> AtlasSummaryDto {
     }
 }
 
-fn sighting_to_dto(address: String, sighting: TemporalSighting) -> SightingSummaryDto {
+pub(super) fn sighting_to_dto(address: String, sighting: TemporalSighting) -> SightingSummaryDto {
     SightingSummaryDto {
         address,
         event_id: sighting.event_id,
@@ -1946,7 +879,7 @@ fn sighting_to_dto(address: String, sighting: TemporalSighting) -> SightingSumma
     }
 }
 
-fn beacon_to_dto(address: String, beacon: LiveBeacon) -> LiveBeaconDto {
+pub(super) fn beacon_to_dto(address: String, beacon: LiveBeacon) -> LiveBeaconDto {
     LiveBeaconDto {
         address,
         event_id: beacon.event_id,
@@ -1961,7 +894,7 @@ fn beacon_to_dto(address: String, beacon: LiveBeacon) -> LiveBeaconDto {
     }
 }
 
-fn parse_live_relay_event(
+pub(super) fn parse_live_relay_event(
     relay_url: String,
     raw: &RawNostrEvent,
     now: u64,
@@ -2027,61 +960,6 @@ fn parse_live_relay_event(
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct AuthorPortfolioDto {
-    pub pubkey: String,
-    pub npub: String,
-    pub profile: Option<ProfileMetadataDto>,
-    pub maps: Vec<MapSummaryDto>,
-    pub stories: Vec<StorySummaryDto>,
-    pub atlases: Vec<AtlasSummaryDto>,
-}
-
-/// Event-derived Inbox notification matching Earthly Web's `src/features/inbox/deriveInbox.ts`.
-#[derive(Clone, Debug)]
-pub struct InboxItemDto {
-    pub id: String,
-    pub event_id: String,
-    /// `proposal` | `accepted` | `declined` | `reply` | `mention` | `atlas_arrival` | `follow` | `reaction` | `zap`
-    pub kind: String,
-    /// `proposals` | `replies` | `activity`
-    pub category: String,
-    pub actor_pubkey: String,
-    pub created_at: u64,
-    pub action: String,
-    pub thing_label: String,
-    pub preview: Option<String>,
-    pub target_address: Option<String>,
-    pub target_kind: Option<u16>,
-    /// `details` | `comments` | `person`
-    pub target_tab: Option<String>,
-}
-
-/// Encodes a 64-char hex pubkey (or normalizes an existing `npub1...`) to canonical `npub1...`.
-pub fn pubkey_to_npub(pubkey_or_npub: String) -> Result<String, String> {
-    let pk = PublicKey::parse(pubkey_or_npub.trim())
-        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
-    pk.to_bech32()
-        .map_err(|err| format!("failed to encode npub: {err}"))
-}
-
-/// Decodes a `nostr:npub1…`, `npub1…`, `nostr:nprofile1…`, `nprofile1…`, or 64-char hex
-/// pubkey string into canonical lowercase 64-char hex.
-pub fn decode_npub_to_hex(pubkey_or_npub: String) -> Option<String> {
-    let trimmed = pubkey_or_npub
-        .trim()
-        .strip_prefix("nostr:")
-        .or_else(|| pubkey_or_npub.trim().strip_prefix("NOSTR:"))
-        .unwrap_or(pubkey_or_npub.trim());
-    if let Ok(pk) = PublicKey::parse(trimmed) {
-        return Some(pk.to_hex());
-    }
-    if let Ok(Nip19::Profile(profile)) = Nip19::from_bech32(trimmed) {
-        return Some(profile.public_key.to_hex());
-    }
-    None
-}
-
 /// Fetches a single author's `kind 0` profile and all published Earthly Maps (`37515`),
 /// Stories (`37520`), and Atlases (`37518`) from the configured Nostr relays.
 pub async fn fetch_author_portfolio(
@@ -2101,7 +979,7 @@ pub async fn fetch_author_portfolio(
         relay_urls
     };
 
-    let client = super::relay_pool::shared_client(&urls).await?;
+    let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let filter_entities = Filter::new()
         .author(pk)
@@ -2230,7 +1108,7 @@ pub async fn fetch_inbox_items(
         relay_urls
     };
 
-    let client = super::relay_pool::shared_client(&urls).await?;
+    let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let mut all_raw: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
 
@@ -2520,8 +1398,8 @@ fn derive_inbox_items_from_events(
                     .or_else(|| root_addr.and_then(parse_coord).map(|(_, pk, _)| pk));
                 let parent_kind = first_tag(ev, "k");
                 let parent_pk = first_tag(ev, "p");
-                let is_direct_reply = parent_kind == Some("37517")
-                    && parent_pk == Some(current_user_pubkey);
+                let is_direct_reply =
+                    parent_kind == Some("37517") && parent_pk == Some(current_user_pubkey);
                 let is_on_owned = root_pk == Some(current_user_pubkey);
                 let kind_str = if is_direct_reply || is_on_owned {
                     "reply"
@@ -2772,31 +1650,7 @@ mod tests {
     }
 
     #[test]
-    fn merges_collection_and_feature_scoped_blossom_blobs_and_verifies_sha256() {
-        let mut features = vec![serde_json::json!({
-            "type": "Feature",
-            "id": "f1",
-            "geometry": { "type": "Point", "coordinates": [16.0, 48.0] },
-            "properties": { "name": "Old F1" }
-        })];
-
-        let collection_blob = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"f2","geometry":{"type":"Point","coordinates":[16.5,48.5]},"properties":{"name":"From Collection"}}]}"#;
-        let expected_sha = format!("{:x}", Sha256::digest(collection_blob.as_bytes()));
-        assert!(verify_optional_sha256(collection_blob, Some(&expected_sha)));
-        assert!(!verify_optional_sha256(collection_blob, Some(&"0".repeat(64))));
-
-        merge_blob_payload_into_features(&mut features, "collection", collection_blob);
-        assert_eq!(features.len(), 2);
-
-        let replacement_blob = r#"{"type":"Feature","id":"f1","geometry":{"type":"Point","coordinates":[16.37,48.21]},"properties":{"name":"Replaced F1"}}"#;
-        merge_blob_payload_into_features(&mut features, "feature:f1", replacement_blob);
-        assert_eq!(features.len(), 2);
-        let f1 = features
-            .iter()
-            .find(|f| f.get("id").and_then(|v| v.as_str()) == Some("f1"))
-            .unwrap();
-        assert_eq!(f1["properties"]["name"], "Replaced F1");
-
+    fn computes_markdown_line_diff_counts() {
         let (added, removed) = compute_markdown_line_diff_counts(
             "# Title\nOld line\nShared line",
             "# Title\nNew line A\nNew line B\nShared line",
@@ -2804,382 +1658,4 @@ mod tests {
         assert_eq!(added, 2);
         assert_eq!(removed, 1);
     }
-
-    #[test]
-    fn parses_nip65_relay_list_tags() {
-        let tags = vec![
-            vec!["r".to_owned(), "wss://relay.earthly.city/".to_owned()],
-            vec![
-                "r".to_owned(),
-                "wss://nos.lol".to_owned(),
-                "read".to_owned(),
-            ],
-            vec![
-                "r".to_owned(),
-                "wss://relay.damus.io".to_owned(),
-                "write".to_owned(),
-            ],
-            vec!["r".to_owned(), "https://not-a-relay.invalid".to_owned()],
-        ];
-        let parsed = parse_nip65_tags(&tags);
-        assert_eq!(parsed.len(), 3);
-        let damus = parsed.iter().find(|e| e.url == "wss://relay.damus.io").unwrap();
-        assert!(!damus.read && damus.write);
-        let nos = parsed.iter().find(|e| e.url == "wss://nos.lol").unwrap();
-        assert!(nos.read && !nos.write);
-        let earthly = parsed
-            .iter()
-            .find(|e| e.url == "wss://relay.earthly.city")
-            .unwrap();
-        assert!(earthly.read && earthly.write);
-    }
-
-    #[test]
-    fn resolves_lud16_lnurl_and_encodes_npub() {
-        assert_eq!(
-            resolve_lud16_to_lnurlp_url("satoshi@earthly.city").unwrap(),
-            "https://earthly.city/.well-known/lnurlp/satoshi"
-        );
-        assert_eq!(
-            resolve_lud16_to_lnurlp_url("dev@localhost:8080").unwrap(),
-            "http://localhost:8080/.well-known/lnurlp/dev"
-        );
-        assert!(resolve_lud16_to_lnurlp_url("invalid-address").is_err());
-
-        let keys = Keys::generate();
-        let hex = keys.public_key().to_hex();
-        let npub = encode_hex_to_npub(hex.clone()).unwrap();
-        assert!(npub.starts_with("npub1"));
-        assert_eq!(decode_npub_to_hex(npub).unwrap(), hex);
-
-        let dev_hex = PublicKey::parse(EARTHLY_CITY_DEVELOPER_NPUB).unwrap().to_hex();
-        assert_eq!(
-            dev_hex,
-            "3aa5817273c3b2f94f491840e0472f049d0f10009e23de63006166bca9b36ea3"
-        );
-    }
-
-    #[tokio::test]
-    async fn catalog_and_profiles_fall_back_to_local_pool_database_when_relay_offline() {
-        let unreachable = vec!["ws://127.0.0.1:9".to_owned()];
-        let client = crate::api::relay_pool::shared_client(&unreachable)
-            .await
-            .unwrap();
-
-        let keys = Keys::generate();
-        let pk_hex = keys.public_key().to_hex();
-
-        let profile_ev = nostr::EventBuilder::new(
-            Kind::Metadata,
-            r#"{"name":"offline-mapper","display_name":"Offline Mapper"}"#,
-        )
-        .sign_with_keys(&keys)
-        .unwrap();
-        let map_ev = nostr::EventBuilder::new(
-            Kind::Custom(GEO_EVENT_KIND),
-            r#"{"type":"FeatureCollection","name":"Cached Trail","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.37,48.21]},"properties":{}}]}"#,
-        )
-        .tag(nostr::Tag::identifier("cached-trail"))
-        .sign_with_keys(&keys)
-        .unwrap();
-
-        client.database().save_event(&profile_ev).await.unwrap();
-        client.database().save_event(&map_ev).await.unwrap();
-
-        let profiles = fetch_profiles(unreachable.clone(), vec![pk_hex.clone()])
-            .await
-            .unwrap();
-        assert_eq!(profiles.len(), 1);
-        assert_eq!(profiles[0].pubkey, pk_hex);
-        assert_eq!(profiles[0].name.as_deref(), Some("offline-mapper"));
-
-        let catalog = fetch_earthly_catalog(unreachable, 20).await.unwrap();
-        assert!(catalog
-            .maps
-            .iter()
-            .any(|m| m.d_tag == "cached-trail" && m.pubkey == pk_hex));
-    }
-}
-
-pub const EARTHLY_CITY_DEVELOPER_NPUB: &str =
-    "npub182jczunncwe0jn6frpqwq3e0qjws7yqqnc3auccqv9nte2dnd63scjm4rf";
-
-#[derive(Clone, Debug)]
-pub struct ZapInvoiceDto {
-    pub pr: String,
-    pub verify_url: Option<String>,
-    pub callback: String,
-    pub min_sats: u64,
-    pub max_sats: u64,
-    pub allows_nostr: bool,
-    pub amount_sats: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct ShoutboxPostDto {
-    pub event_id: String,
-    pub pubkey: String,
-    pub content: String,
-    pub category: String,
-    pub created_at: u64,
-    pub hashtags: Vec<String>,
-}
-
-/// Encodes a 64-char hex pubkey (or `npub1...`) into canonical `npub1...`.
-pub fn encode_hex_to_npub(pubkey_hex: String) -> Result<String, String> {
-    let pk = PublicKey::parse(pubkey_hex.trim())
-        .map_err(|err| format!("invalid public key: {err}"))?;
-    pk.to_bech32()
-        .map_err(|err| format!("failed to encode npub: {err}"))
-}
-
-fn resolve_lud16_to_lnurlp_url(lud16: &str) -> Result<String, String> {
-    let trimmed = lud16.trim();
-    let Some((user, domain)) = trimmed.split_once('@') else {
-        return Err("Invalid Lightning Address (expected user@domain)".to_owned());
-    };
-    let user = user.trim();
-    let domain = domain.trim();
-    if user.is_empty()
-        || domain.is_empty()
-        || user.contains(['/', '?', '#', ' '])
-        || domain.contains(['/', '?', '#', ' '])
-    {
-        return Err("Invalid Lightning Address format".to_owned());
-    }
-    let host_only = domain.split(':').next().unwrap_or(domain).to_ascii_lowercase();
-    let scheme = if host_only == "localhost" || host_only == "127.0.0.1" {
-        "http"
-    } else {
-        "https"
-    };
-    Ok(format!("{scheme}://{domain}/.well-known/lnurlp/{user}"))
-}
-
-/// Resolves a Lightning Address (`lud16`) via LNURL-pay and requests a BOLT-11
-/// invoice (`pr`), attaching an optional signed NIP-57 `kind 9734` Zap Request.
-pub async fn fetch_lnurl_zap_invoice(
-    lud16: String,
-    amount_sats: u64,
-    signed_zap_request_json: Option<String>,
-    comment: Option<String>,
-) -> Result<ZapInvoiceDto, String> {
-    if amount_sats == 0 {
-        return Err("Zap amount must be at least 1 sat".to_owned());
-    }
-    let lnurl_url = resolve_lud16_to_lnurlp_url(&lud16)?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(12))
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
-
-    let meta_resp = client
-        .get(&lnurl_url)
-        .send()
-        .await
-        .map_err(|e| format!("LNURL lookup failed for {lud16}: {e}"))?;
-    if !meta_resp.status().is_success() {
-        return Err(format!(
-            "LNURL endpoint returned HTTP {} for {lud16}",
-            meta_resp.status()
-        ));
-    }
-    let meta: serde_json::Value = meta_resp
-        .json()
-        .await
-        .map_err(|e| format!("invalid LNURL JSON metadata: {e}"))?;
-    if meta.get("status").and_then(|v| v.as_str()) == Some("ERROR") {
-        let reason = meta
-            .get("reason")
-            .and_then(|v| v.as_str())
-            .unwrap_or("LNURL error");
-        return Err(reason.to_owned());
-    }
-
-    let callback = meta
-        .get("callback")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| "LNURL metadata missing callback URL".to_owned())?
-        .to_owned();
-    let min_sendable = meta
-        .get("minSendable")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1_000);
-    let max_sendable = meta
-        .get("maxSendable")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(100_000_000_000);
-    let allows_nostr = meta
-        .get("allowsNostr")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let comment_allowed = meta
-        .get("commentAllowed")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-
-    let min_sats = min_sendable.div_ceil(1000).max(1);
-    let max_sats = (max_sendable / 1000).max(min_sats);
-    let amount_msats = amount_sats.saturating_mul(1000);
-    if amount_msats < min_sendable || amount_msats > max_sendable {
-        return Err(format!(
-            "Recipient accepts between {min_sats} and {max_sats} sats"
-        ));
-    }
-
-    let mut cb_url = reqwest::Url::parse(&callback)
-        .map_err(|e| format!("invalid LNURL callback URL: {e}"))?;
-    {
-        let mut qp = cb_url.query_pairs_mut();
-        qp.append_pair("amount", &amount_msats.to_string());
-        if allows_nostr {
-            if let Some(zap_json) = signed_zap_request_json
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-            {
-                qp.append_pair("nostr", zap_json);
-            }
-        }
-        if comment_allowed > 0 {
-            if let Some(clean_comment) = comment
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-            {
-                let truncated: String =
-                    clean_comment.chars().take(comment_allowed as usize).collect();
-                qp.append_pair("comment", &truncated);
-            }
-        }
-    }
-
-    let inv_resp = client
-        .get(cb_url)
-        .send()
-        .await
-        .map_err(|e| format!("failed to fetch BOLT-11 invoice: {e}"))?;
-    if !inv_resp.status().is_success() {
-        return Err(format!(
-            "LNURL callback returned HTTP {}",
-            inv_resp.status()
-        ));
-    }
-    let inv: serde_json::Value = inv_resp
-        .json()
-        .await
-        .map_err(|e| format!("invalid LNURL invoice JSON: {e}"))?;
-    if inv.get("status").and_then(|v| v.as_str()) == Some("ERROR") {
-        let reason = inv
-            .get("reason")
-            .and_then(|v| v.as_str())
-            .unwrap_or("LNURL invoice error");
-        return Err(reason.to_owned());
-    }
-    let pr = inv
-        .get("pr")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| "LNURL callback returned no BOLT-11 payment request".to_owned())?
-        .to_owned();
-    let verify_url = inv
-        .get("verify")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned);
-
-    Ok(ZapInvoiceDto {
-        pr,
-        verify_url,
-        callback,
-        min_sats,
-        max_sats,
-        allows_nostr,
-        amount_sats,
-    })
-}
-
-fn shoutbox_filter_tag(category: &str) -> Result<(&'static str, &'static str), String> {
-    match category.trim().to_ascii_lowercase().as_str() {
-        "announcements" | "blog" => Ok(("announcements", "blog")),
-        "features" | "feature" => Ok(("features", "feature")),
-        "greetings" => Ok(("greetings", "greetings")),
-        "bugs" | "bug" => Ok(("bugs", "bug")),
-        other => Err(format!("Unsupported shoutbox category: {other}")),
-    }
-}
-
-/// Fetches Community Shoutbox (`kind 1`, `#earthlycity`) notes for a specific
-/// category (`announcements` | `features` | `greetings` | `bugs`).
-pub async fn fetch_shoutbox_posts(
-    relay_urls: Vec<String>,
-    category: String,
-    limit: u32,
-) -> Result<Vec<ShoutboxPostDto>, String> {
-    let (canonical_category, filter_tag) = shoutbox_filter_tag(&category)?;
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
-
-    let client = super::relay_pool::shared_client(&urls).await?;
-
-    let filter = Filter::new()
-        .kind(Kind::TextNote)
-        .hashtag("earthlycity")
-        .limit((limit as usize).clamp(1, 150));
-    let events_res = client
-        .fetch_events_from(&urls, filter, Duration::from_secs(8))
-        .await;
-
-    let events = events_res.map_err(|e| format!("failed to fetch shoutbox posts: {e}"))?;
-    let dev_hex = PublicKey::parse(EARTHLY_CITY_DEVELOPER_NPUB)
-        .map(|pk| pk.to_hex())
-        .ok();
-
-    let mut seen = HashSet::new();
-    let mut posts = Vec::new();
-    for ev in events {
-        let raw = event_to_raw(&ev);
-        if !seen.insert(raw.id.clone()) {
-            continue;
-        }
-        let hashtags: Vec<String> = raw
-            .tags
-            .iter()
-            .filter(|t| t.first().map(String::as_str) == Some("t"))
-            .filter_map(|t| t.get(1).cloned())
-            .collect();
-        let has_category = hashtags
-            .iter()
-            .any(|t| t.eq_ignore_ascii_case(filter_tag));
-        if !has_category {
-            continue;
-        }
-        if canonical_category == "announcements" {
-            if dev_hex.as_deref() != Some(raw.pubkey.as_str()) {
-                continue;
-            }
-        }
-        posts.push(ShoutboxPostDto {
-            event_id: raw.id,
-            pubkey: raw.pubkey,
-            content: raw.content,
-            category: canonical_category.to_owned(),
-            created_at: raw.created_at,
-            hashtags,
-        });
-    }
-
-    posts.sort_by(|a, b| {
-        b.created_at
-            .cmp(&a.created_at)
-            .then_with(|| a.event_id.cmp(&b.event_id))
-    });
-    Ok(posts)
 }

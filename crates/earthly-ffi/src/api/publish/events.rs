@@ -1,7 +1,8 @@
-//! Local SQLite draft persistence + canonical kind-37515 event preparation
-//! (for NIP-55 Amber signing) + crash-safe SQLite outbox relay delivery.
+//! Unsigned Nostr event builders for Earthly v2 entities (Maps, Sightings,
+//! Live Beacons, Stories, Atlases, Comments, Proposals, Profiles, NIP-65, Zaps,
+//! Reactions, Deletions, and Community Shoutbox).
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use earthly_domain::{
     ARTICLE_KIND, GEO_COMMENT_KIND, GEO_EDIT_PROPOSAL_KIND, GEO_EVENT_KIND, ImetaAttachment,
@@ -12,29 +13,11 @@ use earthly_domain::{
 };
 use earthly_geo::validate_feature_collection;
 use earthly_spatial::Bounds;
-use earthly_storage::{
-    DraftStore, OUTBOX_PROTOCOL_VERSION, OutboxEnqueueInput, OutboxItemState,
-    OutboxItemSummaryView, OutboxItemView, OutboxRelayResultInput, OutboxRelayState,
-    OutboxRelayView, OutboxRouting, OutboxStore, SaveDraftInput,
-};
-use nostr::nips::nip19::ToBech32;
-use nostr::{Event, JsonUtil, Keys, PublicKey, UnsignedEvent};
+use nostr::PublicKey;
 use sha2::{Digest, Sha256};
 
-use super::nostr_client::RelayListEntryDto;
-
-#[derive(Clone, Debug)]
-pub struct LocalDraftDto {
-    pub draft_id: String,
-    pub d_tag: String,
-    pub entity_kind: u16,
-    pub title: String,
-    pub description: Option<String>,
-    pub audience_channel: String,
-    pub audience_id: Option<String>,
-    pub geojson: String,
-    pub updated_at: u64,
-}
+use super::validation::compute_canonical_schema_hash;
+use crate::api::nostr_client::RelayListEntryDto;
 
 #[derive(Clone, Debug)]
 pub struct ExternalGeoBlobDto {
@@ -50,102 +33,6 @@ pub struct UnsignedMapEventDto {
     pub address: String,
     pub feature_count: u32,
     pub checksum: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct RelayDeliveryStatusDto {
-    pub relay_url: String,
-    pub ok: bool,
-    pub message: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct PublishOutcomeDto {
-    pub event_id: String,
-    pub outbox_state: String,
-    pub relays: Vec<RelayDeliveryStatusDto>,
-}
-
-/// Save or update a local working draft in SQLite (`earthly-storage`).
-pub fn save_local_draft(
-    database_path: String,
-    draft_id: String,
-    d_tag: String,
-    title: String,
-    description: Option<String>,
-    audience_channel: String,
-    audience_id: Option<String>,
-    geojson: String,
-) -> Result<LocalDraftDto, String> {
-    let store = DraftStore::open(database_path).map_err(|e| e.to_string())?;
-    let saved = store
-        .save(SaveDraftInput {
-            draft_id,
-            d_tag,
-            entity_kind: GEO_EVENT_KIND,
-            title,
-            description,
-            audience_channel,
-            audience_id,
-            geojson,
-        })
-        .map_err(|e| e.to_string())?;
-    Ok(LocalDraftDto {
-        draft_id: saved.draft_id,
-        d_tag: saved.d_tag,
-        entity_kind: saved.entity_kind,
-        title: saved.title,
-        description: saved.description,
-        audience_channel: saved.audience_channel,
-        audience_id: saved.audience_id,
-        geojson: saved.geojson,
-        updated_at: saved.updated_at,
-    })
-}
-
-/// Load a saved local working draft from SQLite.
-pub fn load_local_draft(
-    database_path: String,
-    draft_id: String,
-) -> Result<Option<LocalDraftDto>, String> {
-    let store = DraftStore::open(database_path).map_err(|e| e.to_string())?;
-    let found = store.load(&draft_id).map_err(|e| e.to_string())?;
-    Ok(found.map(|d| LocalDraftDto {
-        draft_id: d.draft_id,
-        d_tag: d.d_tag,
-        entity_kind: d.entity_kind,
-        title: d.title,
-        description: d.description,
-        audience_channel: d.audience_channel,
-        audience_id: d.audience_id,
-        geojson: d.geojson,
-        updated_at: d.updated_at,
-    }))
-}
-
-pub fn delete_local_draft(database_path: String, draft_id: String) -> Result<bool, String> {
-    let store = DraftStore::open(database_path).map_err(|e| e.to_string())?;
-    store.delete(&draft_id).map_err(|e| e.to_string())
-}
-
-/// Lists all locally persisted SQLite working drafts ordered by most recently updated.
-pub fn list_local_drafts(database_path: String) -> Result<Vec<LocalDraftDto>, String> {
-    let store = DraftStore::open(database_path).map_err(|e| e.to_string())?;
-    let drafts = store.list().map_err(|e| e.to_string())?;
-    Ok(drafts
-        .into_iter()
-        .map(|d| LocalDraftDto {
-            draft_id: d.draft_id,
-            d_tag: d.d_tag,
-            entity_kind: d.entity_kind,
-            title: d.title,
-            description: d.description,
-            audience_channel: d.audience_channel,
-            audience_id: d.audience_id,
-            geojson: d.geojson,
-            updated_at: d.updated_at,
-        })
-        .collect())
 }
 
 /// Validates a FeatureCollection with `earthly-geo`, attaches canonical Earthly
@@ -301,7 +188,11 @@ pub fn prepare_unsigned_sighting_event(
     hashtags: Vec<String>,
     field_session_id: Option<String>,
 ) -> Result<UnsignedSightingEventDto, String> {
-    if !lon.is_finite() || !lat.is_finite() || !(-180.0..=180.0).contains(&lon) || !(-90.0..=90.0).contains(&lat) {
+    if !lon.is_finite()
+        || !lat.is_finite()
+        || !(-180.0..=180.0).contains(&lon)
+        || !(-90.0..=90.0).contains(&lat)
+    {
         return Err("sighting coordinates out of WGS-84 range".to_owned());
     }
     let trimmed_note = note.trim();
@@ -663,54 +554,6 @@ pub fn prepare_unsigned_proposal_event(
     })
 }
 
-#[derive(Clone, Debug)]
-pub struct LocalKeypairDto {
-    pub pubkey_hex: String,
-    pub npub: String,
-    pub nsec: String,
-}
-
-/// Generates a fresh Nostr keypair for Desktop (macOS/Linux/Windows) or offline
-/// Field Session testing where Android NIP-55 Amber is not available.
-pub fn generate_local_nostr_keypair() -> Result<LocalKeypairDto, String> {
-    let keys = Keys::generate();
-    let pubkey_hex = keys.public_key().to_hex();
-    let npub = keys
-        .public_key()
-        .to_bech32()
-        .map_err(|e| format!("failed to encode npub: {e}"))?;
-    let nsec = keys
-        .secret_key()
-        .to_bech32()
-        .map_err(|e| format!("failed to encode nsec: {e}"))?;
-    Ok(LocalKeypairDto {
-        pubkey_hex,
-        npub,
-        nsec,
-    })
-}
-
-/// Validates and imports an existing `nsec1...` (or 64-char hex secret key),
-/// returning its canonical `pubkey_hex`, `npub`, and `nsec` for persistent storage.
-pub fn import_local_nostr_nsec(nsec_or_hex: String) -> Result<LocalKeypairDto, String> {
-    let keys = Keys::parse(nsec_or_hex.trim())
-        .map_err(|err| format!("invalid Nostr secret key: {err}"))?;
-    let pubkey_hex = keys.public_key().to_hex();
-    let npub = keys
-        .public_key()
-        .to_bech32()
-        .map_err(|e| format!("failed to encode npub: {e}"))?;
-    let nsec = keys
-        .secret_key()
-        .to_bech32()
-        .map_err(|e| format!("failed to encode nsec: {e}"))?;
-    Ok(LocalKeypairDto {
-        pubkey_hex,
-        npub,
-        nsec,
-    })
-}
-
 /// Prepares a canonical NIP-34 Proposal Status event (`1630` Open, `1631`
 /// Applied/Merged, `1632` Closed, or `1633` Draft) targeting a `37519` Geo Edit Proposal.
 #[allow(clippy::too_many_arguments)]
@@ -761,25 +604,6 @@ pub fn prepare_unsigned_proposal_status_event(
         d_tag: proposal_event_id,
         address: proposal_address,
     })
-}
-
-/// Parses an `nsec1...` or 64-char hex secret key and signs an unsigned Nostr
-/// event JSON cleanly in Rust.
-pub async fn sign_event_with_nsec(
-    nsec_or_hex: String,
-    unsigned_event_json: String,
-) -> Result<String, String> {
-    let keys = Keys::parse(nsec_or_hex.trim())
-        .map_err(|err| format!("invalid Nostr secret key: {err}"))?;
-    let mut unsigned = UnsignedEvent::from_json(&unsigned_event_json)
-        .map_err(|err| format!("invalid unsigned event JSON: {err}"))?;
-    unsigned.pubkey = keys.public_key();
-    unsigned.ensure_id();
-    let signed = unsigned
-        .sign(&keys)
-        .await
-        .map_err(|err| format!("failed to sign event: {err}"))?;
-    Ok(signed.as_json())
 }
 
 /// Prepares a canonical Earthly v2 Story / Article (`kind 37520`) event with
@@ -875,186 +699,6 @@ pub fn prepare_unsigned_story_event(
         unsigned_event_json,
         d_tag: d_tag.clone(),
         address: format!("{ARTICLE_KIND}:{pubkey_hex}:{d_tag}"),
-    })
-}
-
-#[derive(Clone, Debug)]
-pub struct AtlasSchemaValidationDto {
-    pub valid: bool,
-    pub hash_verified: bool,
-    pub errors: Vec<String>,
-}
-
-fn canonicalize_json_value(v: &serde_json::Value) -> serde_json::Value {
-    match v {
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(canonicalize_json_value).collect())
-        }
-        serde_json::Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
-            let mut sorted = serde_json::Map::new();
-            for k in keys {
-                sorted.insert(k.clone(), canonicalize_json_value(&map[k]));
-            }
-            serde_json::Value::Object(sorted)
-        }
-        other => other.clone(),
-    }
-}
-
-pub(crate) fn compute_canonical_schema_hash(schema: &serde_json::Value) -> String {
-    let canonical = serde_json::to_string(&canonicalize_json_value(schema)).unwrap_or_default();
-    let digest = Sha256::digest(canonical.as_bytes());
-    format!("sha256:{}", digest.iter().map(|b| format!("{b:02x}")).collect::<String>())
-}
-
-/// Validates a GeoJSON FeatureCollection against an Atlas draft-2020-12 JSON Schema
-/// and verifies an optional published `schema-hash` tag (`sha256:...`).
-pub fn validate_map_against_atlas_schema(
-    geojson: String,
-    schema_json: String,
-    published_schema_hash: Option<String>,
-) -> Result<AtlasSchemaValidationDto, String> {
-    let schema: serde_json::Value = serde_json::from_str(&schema_json)
-        .map_err(|e| format!("invalid Atlas schema JSON: {e}"))?;
-    if !schema.is_object() {
-        return Err("Atlas schema must be a JSON object".to_owned());
-    }
-
-    if let Some(expected) = published_schema_hash
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        let actual = compute_canonical_schema_hash(&schema);
-        if actual != expected {
-            return Ok(AtlasSchemaValidationDto {
-                valid: false,
-                hash_verified: false,
-                errors: vec!["Schema could not be verified (schema-hash mismatch)".to_owned()],
-            });
-        }
-    }
-
-    let fc: serde_json::Value = serde_json::from_str(&geojson)
-        .map_err(|e| format!("invalid GeoJSON payload: {e}"))?;
-    let features = fc
-        .get("features")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| "GeoJSON missing features array".to_owned())?;
-
-    let props_schema = schema.get("properties").and_then(|v| v.as_object());
-    let required_keys: Vec<String> = schema
-        .get("required")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|item| item.as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
-    let allowed_geom_types: Vec<String> = props_schema
-        .and_then(|m| m.get("geometry"))
-        .and_then(|g| g.get("properties"))
-        .and_then(|p| p.get("type"))
-        .and_then(|t| t.get("enum"))
-        .and_then(|e| e.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|item| item.as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let mut errors = Vec::new();
-    for (idx, feat) in features.iter().enumerate() {
-        if !allowed_geom_types.is_empty() {
-            if let Some(gtype) = feat
-                .get("geometry")
-                .and_then(|g| g.get("type"))
-                .and_then(|t| t.as_str())
-            {
-                if !allowed_geom_types.iter().any(|allowed| allowed == gtype) {
-                    errors.push(format!(
-                        "Feature #{}: geometry type `{gtype}` not allowed",
-                        idx + 1
-                    ));
-                }
-            }
-        }
-        let fprops = feat
-            .get("properties")
-            .and_then(|p| p.as_object())
-            .cloned()
-            .unwrap_or_default();
-        for req_key in &required_keys {
-            let present = match fprops.get(req_key) {
-                Some(serde_json::Value::Null) | None => false,
-                Some(serde_json::Value::String(s)) => !s.trim().is_empty(),
-                Some(_) => true,
-            };
-            if !present {
-                errors.push(format!(
-                    "Feature #{}: missing required `{req_key}`",
-                    idx + 1
-                ));
-            }
-        }
-        if let Some(schema_map) = props_schema {
-            for (field, def) in schema_map {
-                if field == "geometry" {
-                    continue;
-                }
-                let Some(val) = fprops.get(field) else {
-                    continue;
-                };
-                if val.is_null() {
-                    continue;
-                }
-                if let Some(allowed) = def.get("enum").and_then(|e| e.as_array()) {
-                    let s_val = match val {
-                        serde_json::Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    };
-                    let ok = allowed.iter().any(|item| match item {
-                        serde_json::Value::String(s) => s == &s_val,
-                        other => other == val,
-                    });
-                    if !ok {
-                        errors.push(format!(
-                            "Feature #{}: `{field}` value `{s_val}` not in allowed enum",
-                            idx + 1
-                        ));
-                    }
-                    continue;
-                }
-                match def.get("type").and_then(|t| t.as_str()) {
-                    Some("string") if !val.is_string() => {
-                        errors.push(format!("Feature #{}: `{field}` must be text", idx + 1));
-                    }
-                    Some("number") if !val.is_number() => {
-                        errors.push(format!("Feature #{}: `{field}` must be a number", idx + 1));
-                    }
-                    Some("integer") if val.as_i64().is_none() && val.as_u64().is_none() => {
-                        errors.push(format!("Feature #{}: `{field}` must be an integer", idx + 1));
-                    }
-                    Some("boolean") if !val.is_boolean() => {
-                        errors.push(format!("Feature #{}: `{field}` must be boolean", idx + 1));
-                    }
-                    _ => {}
-                }
-            }
-        }
-        if errors.len() >= 12 {
-            break;
-        }
-    }
-
-    Ok(AtlasSchemaValidationDto {
-        valid: errors.is_empty(),
-        hash_verified: true,
-        errors,
     })
 }
 
@@ -1444,463 +1088,140 @@ pub fn prepare_unsigned_deletion_event(
     })
 }
 
-#[derive(Clone, Debug)]
-pub struct OutboxRelayItemDto {
-    pub relay_url: String,
-    pub state: String,
-    pub last_error: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct OutboxItemDto {
-    pub id: String,
-    pub event_id: String,
-    pub kind: u16,
-    pub state: String,
-    pub attempt_count: u64,
-    pub next_retry_at: Option<u64>,
-    pub created_at: u64,
-    pub relays: Vec<OutboxRelayItemDto>,
-}
-
-#[derive(Clone, Debug)]
-pub struct OutboxFlushReportDto {
-    pub attempted: u32,
-    pub delivered: u32,
-    pub retrying: u32,
-    pub failed: u32,
-    pub remaining: u32,
-}
-
-fn outbox_item_state_str(state: OutboxItemState) -> &'static str {
-    match state {
-        OutboxItemState::Queued => "queued",
-        OutboxItemState::Delivering => "delivering",
-        OutboxItemState::Delivered => "delivered",
-        OutboxItemState::Partial => "partial",
-        OutboxItemState::RetryWait => "retry_wait",
-        OutboxItemState::Rejected => "rejected",
-        OutboxItemState::Discarded => "discarded",
+fn shoutbox_filter_tag(category: &str) -> Result<&'static str, String> {
+    match category.trim().to_ascii_lowercase().as_str() {
+        "announcements" | "blog" => Ok("blog"),
+        "features" | "feature" => Ok("feature"),
+        "greetings" => Ok("greetings"),
+        "bugs" | "bug" => Ok("bug"),
+        other => Err(format!("Unsupported shoutbox category: {other}")),
     }
 }
 
-fn outbox_relay_state_str(state: OutboxRelayState) -> &'static str {
-    match state {
-        OutboxRelayState::Pending => "pending",
-        OutboxRelayState::Acknowledged => "acknowledged",
-        OutboxRelayState::Rejected => "rejected",
-    }
-}
-
-fn build_outbox_item_dto(
-    id: String,
-    event_id: String,
-    kind: u16,
-    state: OutboxItemState,
-    attempt_count: u64,
-    next_retry_at: Option<u64>,
-    created_at: u64,
-    relays: Vec<OutboxRelayView>,
-) -> OutboxItemDto {
-    OutboxItemDto {
-        id,
-        event_id,
-        kind,
-        state: outbox_item_state_str(state).to_owned(),
-        attempt_count,
-        next_retry_at,
-        created_at,
-        relays: relays
-            .into_iter()
-            .map(|r| OutboxRelayItemDto {
-                relay_url: r.relay_url,
-                state: outbox_relay_state_str(r.state).to_owned(),
-                last_error: r.last_error,
-            })
-            .collect(),
-    }
-}
-
-impl From<OutboxItemSummaryView> for OutboxItemDto {
-    fn from(item: OutboxItemSummaryView) -> Self {
-        build_outbox_item_dto(
-            item.id,
-            item.event_id,
-            item.event_kind,
-            item.state,
-            item.attempt_count,
-            item.next_attempt_at,
-            item.created_at,
-            item.relays,
-        )
-    }
-}
-
-impl From<OutboxItemView> for OutboxItemDto {
-    fn from(item: OutboxItemView) -> Self {
-        build_outbox_item_dto(
-            item.id,
-            item.event_id,
-            item.event_kind,
-            item.state,
-            item.attempt_count,
-            item.next_attempt_at,
-            item.created_at,
-            item.relays,
-        )
-    }
-}
-
-async fn deliver_event_to_relays(
-    event: &Event,
-    relay_urls: &[String],
-) -> (Vec<OutboxRelayResultInput>, Vec<RelayDeliveryStatusDto>) {
-    let mut results = Vec::with_capacity(relay_urls.len());
-    let mut ui_statuses = Vec::with_capacity(relay_urls.len());
-
-    let client = match super::relay_pool::shared_client(relay_urls).await {
-        Ok(client) => client,
-        Err(err) => {
-            for relay_url in relay_urls {
-                results.push(OutboxRelayResultInput {
-                    relay_url: relay_url.clone(),
-                    ok: false,
-                    message: Some(err.clone()),
-                });
-                ui_statuses.push(RelayDeliveryStatusDto {
-                    relay_url: relay_url.clone(),
-                    ok: false,
-                    message: Some(err.clone()),
-                });
-            }
-            return (results, ui_statuses);
-        }
-    };
-
-    for relay_url in relay_urls {
-        let attempt = async {
-            let output = tokio::time::timeout(
-                Duration::from_secs(8),
-                client.send_event_to([relay_url.as_str()], event),
-            )
-            .await
-            .map_err(|_| "relay publish timed out".to_owned())?
-            .map_err(|e| e.to_string())?;
-            if !output.success.is_empty() {
-                Ok("accepted".to_owned())
-            } else if let Some((_, reason)) = output.failed.into_iter().next() {
-                Err(reason)
-            } else {
-                Err("relay did not acknowledge event".to_owned())
-            }
-        }
-        .await;
-
-        match attempt {
-            Ok(msg) => {
-                results.push(OutboxRelayResultInput {
-                    relay_url: relay_url.clone(),
-                    ok: true,
-                    message: Some(msg.clone()),
-                });
-                ui_statuses.push(RelayDeliveryStatusDto {
-                    relay_url: relay_url.clone(),
-                    ok: true,
-                    message: Some(msg),
-                });
-            }
-            Err(err) => {
-                results.push(OutboxRelayResultInput {
-                    relay_url: relay_url.clone(),
-                    ok: false,
-                    message: Some(err.clone()),
-                });
-                ui_statuses.push(RelayDeliveryStatusDto {
-                    relay_url: relay_url.clone(),
-                    ok: false,
-                    message: Some(err),
-                });
-            }
-        }
-    }
-
-    (results, ui_statuses)
-}
-
-/// Persists an already-signed Nostr event into the crash-safe SQLite outbox
-/// BEFORE network transmission, delivers it to each target relay via the shared
-/// `nostr-sdk` relay pool, records per-relay acknowledgements, and returns the
-/// live outcome.
-pub async fn publish_signed_event_via_outbox(
-    database_path: String,
-    signed_event_json: String,
+/// Prepares a NIP-57 Zap Request (`kind 9734`) unsigned Nostr event ready for
+/// signing and passing as the `nostr` query parameter to an LNURL-pay callback.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_unsigned_zap_request_event(
+    sender_pubkey_or_npub: String,
+    recipient_pubkey_hex: String,
+    amount_sats: u64,
     relay_urls: Vec<String>,
-) -> Result<PublishOutcomeDto, String> {
-    let urls = if relay_urls.is_empty() {
-        vec!["wss://relay.earthly.city".to_owned()]
-    } else {
-        relay_urls
-    };
-
-    let event =
-        Event::from_json(&signed_event_json).map_err(|err| format!("invalid signed event: {err}"))?;
-    event
-        .verify()
-        .map_err(|err| format!("signed event signature verification failed: {err}"))?;
-
-    let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
-    let queued = store
-        .enqueue(OutboxEnqueueInput {
-            version: OUTBOX_PROTOCOL_VERSION,
-            event_json: signed_event_json,
-            routing: OutboxRouting::Configured,
-            target_pubkey: None,
-            relay_urls: urls.clone(),
-            required_relay_urls: vec![urls[0].clone()],
-        })
-        .map_err(|e| e.to_string())?;
-
-    // Claim for delivery and attempt transmission via the shared relay pool.
-    let _ = store.flush();
-    let target_urls: Vec<String> = queued
-        .relays
-        .iter()
-        .map(|r| r.relay_url.clone())
-        .collect();
-    let (results, ui_statuses) = deliver_event_to_relays(&event, &target_urls).await;
-
-    let updated = store
-        .record_results(&queued.id, results)
-        .map_err(|e| e.to_string())?;
-    let state_str = outbox_item_state_str(updated.state).to_owned();
-
-    Ok(PublishOutcomeDto {
-        event_id: updated.event_id,
-        outbox_state: state_str,
-        relays: ui_statuses,
-    })
-}
-
-/// Lists all non-discarded outbox queue items from SQLite.
-pub fn list_outbox_items(database_path: String) -> Result<Vec<OutboxItemDto>, String> {
-    let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
-    let items = store.list_summaries().map_err(|e| e.to_string())?;
-    Ok(items.into_iter().map(OutboxItemDto::from).collect())
-}
-
-/// Claims all ready outbox items via `OutboxStore::flush`, attempts delivery via
-/// the shared relay pool, records per-relay results, and returns a flush report.
-pub async fn flush_outbox_queue(database_path: String) -> Result<OutboxFlushReportDto, String> {
-    let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
-    let claimed = store.flush().map_err(|e| e.to_string())?;
-
-    let attempted = claimed.len() as u32;
-    let mut delivered = 0u32;
-    let mut retrying = 0u32;
-    let mut failed = 0u32;
-
-    for item in claimed {
-        let mut target_urls: Vec<String> = item
-            .relays
-            .iter()
-            .filter(|r| r.state != OutboxRelayState::Acknowledged)
-            .map(|r| r.relay_url.clone())
-            .collect();
-        if target_urls.is_empty() {
-            target_urls = item.relays.iter().map(|r| r.relay_url.clone()).collect();
-        }
-
-        let results = match Event::from_json(&item.event_json)
-            .map_err(|e| format!("invalid signed event in outbox: {e}"))
-            .and_then(|ev| {
-                ev.verify()
-                    .map_err(|e| format!("outbox event verification failed: {e}"))?;
-                Ok(ev)
-            }) {
-            Ok(event) => deliver_event_to_relays(&event, &target_urls).await.0,
-            Err(err) => target_urls
-                .into_iter()
-                .map(|relay_url| OutboxRelayResultInput {
-                    relay_url,
-                    ok: false,
-                    message: Some(err.clone()),
-                })
-                .collect(),
-        };
-
-        let updated = store
-            .record_results(&item.id, results)
-            .map_err(|e| e.to_string())?;
-        match updated.state {
-            OutboxItemState::Delivered => delivered += 1,
-            OutboxItemState::Partial | OutboxItemState::RetryWait | OutboxItemState::Queued => {
-                retrying += 1
-            }
-            OutboxItemState::Rejected => failed += 1,
-            OutboxItemState::Delivering | OutboxItemState::Discarded => {}
-        }
+    target_event_id: Option<String>,
+    target_address: Option<String>,
+    comment: Option<String>,
+    lnurl: Option<String>,
+) -> Result<UnsignedCommentEventDto, String> {
+    if amount_sats == 0 {
+        return Err("Zap amount must be at least 1 sat".to_owned());
     }
+    let sender = PublicKey::parse(sender_pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid sender public key: {err}"))?;
+    let recipient = PublicKey::parse(recipient_pubkey_hex.trim())
+        .map_err(|err| format!("invalid recipient public key: {err}"))?;
+    let sender_hex = sender.to_hex();
+    let recipient_hex = recipient.to_hex();
+    let amount_msats = amount_sats.saturating_mul(1000);
 
-    let summary = store.diagnostic_summary().map_err(|e| e.to_string())?;
-    let remaining = (summary.queued
-        + summary.delivering
-        + summary.partial
-        + summary.retry_wait
-        + summary.rejected) as u32;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
 
-    Ok(OutboxFlushReportDto {
-        attempted,
-        delivered,
-        retrying,
-        failed,
-        remaining,
-    })
-}
-
-/// Resets a failed/partial/retry-wait outbox item back to `queued` for immediate retry.
-pub fn retry_outbox_item(database_path: String, item_id: String) -> Result<OutboxItemDto, String> {
-    let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
-    let updated = store.retry(&item_id).map_err(|e| e.to_string())?;
-    Ok(OutboxItemDto::from(updated))
-}
-
-/// Marks an undelivered outbox item as `discarded` so it will not be retried.
-pub fn discard_outbox_item(
-    database_path: String,
-    item_id: String,
-) -> Result<OutboxItemDto, String> {
-    let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
-    let updated = store.discard(&item_id).map_err(|e| e.to_string())?;
-    Ok(OutboxItemDto::from(updated))
-}
-
-/// Publishes a signed Nostr event to the local embedded `LocalNode` (trusted
-/// in-process LMDB ingest, zero auth friction) AND pushes it with full NIP-42
-/// authentication to every approved paired Nearby peer node via
-/// `LocalNode::publish_remote_event`, recording all outcomes in the SQLite Outbox.
-pub async fn publish_nearby_event_via_outbox(
-    database_path: String,
-    signed_event_json: String,
-    remote_node_ids: Vec<String>,
-) -> Result<PublishOutcomeDto, String> {
-    let node = crate::api::spike::current_node()
-        .ok_or_else(|| "local node is not running".to_owned())?;
-    let event =
-        Event::from_json(&signed_event_json).map_err(|err| format!("invalid signed event: {err}"))?;
-    event
-        .verify()
-        .map_err(|err| format!("signed event signature verification failed: {err}"))?;
-
-    let local_url = node.descriptor().relay_url.to_string();
-    let remotes = node.remote_nodes().await.unwrap_or_default();
-    let target_remotes: Vec<_> = remotes
+    let mut clean_relays: Vec<String> = relay_urls
         .into_iter()
-        .filter(|r| {
-            if remote_node_ids.is_empty() {
-                matches!(r.status, earthly_local_node::PairingStatus::Accepted)
-            } else {
-                remote_node_ids.contains(&r.node_id)
-            }
-        })
+        .map(|r| r.trim().to_owned())
+        .filter(|r| !r.is_empty())
         .collect();
+    if clean_relays.is_empty() {
+        clean_relays.push(crate::api::nostr_client::DEFAULT_EARTHLY_RELAY.to_owned());
+    }
+    let mut relays_tag = Vec::with_capacity(1 + clean_relays.len());
+    relays_tag.push("relays".to_owned());
+    relays_tag.extend(clean_relays);
 
-    let mut relay_urls = vec![local_url.clone()];
-    for r in &target_remotes {
-        relay_urls.push(r.descriptor.relay_url.to_string());
+    let mut tags: Vec<Vec<String>> = vec![
+        relays_tag,
+        vec!["amount".to_owned(), amount_msats.to_string()],
+        vec!["p".to_owned(), recipient_hex.clone()],
+    ];
+    if let Some(eid) = target_event_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        tags.push(vec!["e".to_owned(), eid.to_owned()]);
+    }
+    let clean_addr = target_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if let Some(ref addr) = clean_addr {
+        tags.push(vec!["a".to_owned(), addr.clone()]);
+    }
+    if let Some(l) = lnurl
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        tags.push(vec!["lnurl".to_owned(), l.to_owned()]);
     }
 
-    let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
-    let queued = store
-        .enqueue(OutboxEnqueueInput {
-            version: OUTBOX_PROTOCOL_VERSION,
-            event_json: signed_event_json,
-            routing: OutboxRouting::Configured,
-            target_pubkey: None,
-            relay_urls: relay_urls.clone(),
-            required_relay_urls: vec![local_url.clone()],
-        })
-        .map_err(|e| e.to_string())?;
-    let _ = store.flush();
+    let clean_comment = comment.unwrap_or_default().trim().to_owned();
+    let unsigned = serde_json::json!({
+        "kind": 9734,
+        "pubkey": sender_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": clean_comment,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: format!("zap-{amount_sats}"),
+        address: clean_addr.unwrap_or(recipient_hex),
+    })
+}
 
-    let mut results = Vec::new();
-    let mut ui_statuses = Vec::new();
-
-    // 1. Trusted in-process ingest into this device's local LMDB relay.
-    match node.ingest_verified_event(&event).await {
-        Ok(stored) => {
-            let msg = if stored {
-                "stored locally".to_owned()
-            } else {
-                "already present locally".to_owned()
-            };
-            results.push(OutboxRelayResultInput {
-                relay_url: local_url.clone(),
-                ok: true,
-                message: Some(msg.clone()),
-            });
-            ui_statuses.push(RelayDeliveryStatusDto {
-                relay_url: local_url,
-                ok: true,
-                message: Some(msg),
-            });
-        }
-        Err(err) => {
-            let msg = err.to_string();
-            results.push(OutboxRelayResultInput {
-                relay_url: local_url.clone(),
-                ok: false,
-                message: Some(msg.clone()),
-            });
-            ui_statuses.push(RelayDeliveryStatusDto {
-                relay_url: local_url,
-                ok: false,
-                message: Some(msg),
-            });
-        }
+/// Prepares a Community Shoutbox note (`kind 1`) tagged `earthlycity` and the
+/// requested category tag (`blog` / `feature` / `greetings` / `bug`).
+pub fn prepare_unsigned_shoutbox_post(
+    pubkey_or_npub: String,
+    category: String,
+    content: String,
+) -> Result<UnsignedCommentEventDto, String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return Err("Shoutbox post cannot be empty".to_owned());
     }
-
-    // 2. NIP-42 authenticated WebSocket publish to every approved paired peer.
-    for remote in target_remotes {
-        let remote_url = remote.descriptor.relay_url.to_string();
-        match node.publish_remote_event(&remote.node_id, event.clone()).await {
-            Ok(_) => {
-                let msg = "accepted (NIP-42 paired)".to_owned();
-                results.push(OutboxRelayResultInput {
-                    relay_url: remote_url.clone(),
-                    ok: true,
-                    message: Some(msg.clone()),
-                });
-                ui_statuses.push(RelayDeliveryStatusDto {
-                    relay_url: remote_url,
-                    ok: true,
-                    message: Some(msg),
-                });
-            }
-            Err(err) => {
-                let msg = err.to_string();
-                results.push(OutboxRelayResultInput {
-                    relay_url: remote_url.clone(),
-                    ok: false,
-                    message: Some(msg.clone()),
-                });
-                ui_statuses.push(RelayDeliveryStatusDto {
-                    relay_url: remote_url,
-                    ok: false,
-                    message: Some(msg),
-                });
-            }
-        }
+    if trimmed.chars().count() > 4000 {
+        return Err("Shoutbox post cannot exceed 4000 characters".to_owned());
     }
+    let filter_tag = shoutbox_filter_tag(&category)?;
+    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
+        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
+    let pubkey_hex = pubkey.to_hex();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
 
-    let updated = store
-        .record_results(&queued.id, results)
-        .map_err(|e| e.to_string())?;
-    let state_str = outbox_item_state_str(updated.state).to_owned();
-
-    Ok(PublishOutcomeDto {
-        event_id: updated.event_id,
-        outbox_state: state_str,
-        relays: ui_statuses,
+    let tags = vec![
+        vec!["t".to_owned(), "earthlycity".to_owned()],
+        vec!["t".to_owned(), filter_tag.to_owned()],
+    ];
+    let unsigned = serde_json::json!({
+        "kind": 1,
+        "pubkey": pubkey_hex,
+        "created_at": now,
+        "tags": tags,
+        "content": trimmed,
+    });
+    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
+    Ok(UnsignedCommentEventDto {
+        unsigned_event_json,
+        d_tag: category,
+        address: format!("1:{pubkey_hex}"),
     })
 }
 
@@ -2151,8 +1472,12 @@ mod tests {
         assert_eq!(content["image"], "https://blossom.earthly.city/cover.jpg");
         assert!(content["schema"].is_object());
         let tags = raw["tags"].as_array().unwrap();
-        assert!(tags.iter().any(|t| t[0] == "image" && t[1] == "https://blossom.earthly.city/cover.jpg"));
-        assert!(tags.iter().any(|t| t[0] == "a" && t[1] == format!("37515:{pk}:huts-2026")));
+        assert!(tags
+            .iter()
+            .any(|t| t[0] == "image" && t[1] == "https://blossom.earthly.city/cover.jpg"));
+        assert!(tags
+            .iter()
+            .any(|t| t[0] == "a" && t[1] == format!("37515:{pk}:huts-2026")));
         assert!(tags.iter().any(|t| t[0] == "t" && t[1] == "alps"));
         let published_hash = tags
             .iter()
@@ -2163,12 +1488,14 @@ mod tests {
             .to_owned();
         // Canonical schema hash is key-order independent!
         assert_eq!(
-            compute_canonical_schema_hash(&serde_json::from_str::<serde_json::Value>(schema_b).unwrap()),
+            compute_canonical_schema_hash(
+                &serde_json::from_str::<serde_json::Value>(schema_b).unwrap()
+            ),
             published_hash
         );
 
         let valid_fc = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[11.4,47.2]},"properties":{"hutName":"Olpererhutte"}}]}"#;
-        let ok = validate_map_against_atlas_schema(
+        let ok = super::super::validate_map_against_atlas_schema(
             valid_fc.to_owned(),
             schema_a.to_owned(),
             Some(published_hash.clone()),
@@ -2177,7 +1504,7 @@ mod tests {
         assert!(ok.valid && ok.hash_verified);
 
         let bad_fc = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"l1","geometry":{"type":"LineString","coordinates":[[11.4,47.2],[11.5,47.3]]},"properties":{}}]}"#;
-        let invalid = validate_map_against_atlas_schema(
+        let invalid = super::super::validate_map_against_atlas_schema(
             bad_fc.to_owned(),
             schema_a.to_owned(),
             Some(published_hash),
@@ -2186,7 +1513,7 @@ mod tests {
         assert!(!invalid.valid && invalid.hash_verified);
         assert!(invalid.errors.len() >= 2);
 
-        let tampered = validate_map_against_atlas_schema(
+        let tampered = super::super::validate_map_against_atlas_schema(
             valid_fc.to_owned(),
             schema_a.to_owned(),
             Some("sha256:0000".to_owned()),
@@ -2197,8 +1524,8 @@ mod tests {
 
     #[test]
     fn prepares_proposal_status_and_imports_nsec() {
-        let kp = generate_local_nostr_keypair().unwrap();
-        let imported = import_local_nostr_nsec(kp.nsec.clone()).unwrap();
+        let kp = super::super::generate_local_nostr_keypair().unwrap();
+        let imported = super::super::import_local_nostr_nsec(kp.nsec.clone()).unwrap();
         assert_eq!(imported.pubkey_hex, kp.pubkey_hex);
         assert_eq!(imported.npub, kp.npub);
 
@@ -2250,7 +1577,9 @@ mod tests {
         assert_eq!(del_raw["kind"], 5);
         assert_eq!(del_raw["content"], "Replaced");
         let del_tags = del_raw["tags"].as_array().unwrap();
-        assert!(del_tags.iter().any(|t| t[0] == "a" && t[1] == format!("37515:{}:old-map", kp.pubkey_hex)));
+        assert!(del_tags
+            .iter()
+            .any(|t| t[0] == "a" && t[1] == format!("37515:{}:old-map", kp.pubkey_hex)));
         assert!(del_tags.iter().any(|t| t[0] == "k" && t[1] == "37515"));
 
         let nip65 = prepare_unsigned_relay_list_event(
@@ -2307,207 +1636,9 @@ mod tests {
             serde_json::from_str(&shout.unsigned_event_json).unwrap();
         assert_eq!(shout_raw["kind"], 1);
         let shout_tags = shout_raw["tags"].as_array().unwrap();
-        assert!(shout_tags.iter().any(|t| t[0] == "t" && t[1] == "earthlycity"));
+        assert!(shout_tags
+            .iter()
+            .any(|t| t[0] == "t" && t[1] == "earthlycity"));
         assert!(shout_tags.iter().any(|t| t[0] == "t" && t[1] == "feature"));
     }
-
-    #[tokio::test]
-    async fn outbox_list_retry_flush_and_discard_lifecycle() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let db_path = dir.path().join("outbox.sqlite3");
-        let db_str = db_path.to_string_lossy().to_string();
-
-        // Empty queue flush returns zeroes.
-        let empty_report = flush_outbox_queue(db_str.clone()).await.unwrap();
-        assert_eq!(empty_report.attempted, 0);
-        assert_eq!(empty_report.remaining, 0);
-        assert!(list_outbox_items(db_str.clone()).unwrap().is_empty());
-
-        // Enqueue a valid signed event targeting an unreachable loopback relay.
-        let keys = Keys::generate();
-        let event = nostr::EventBuilder::new(nostr::Kind::Custom(37_515), r#"{"type":"FeatureCollection","features":[]}"#)
-            .tag(nostr::Tag::identifier("outbox-ffi-test"))
-            .sign_with_keys(&keys)
-            .unwrap();
-        let store = OutboxStore::open(&db_path).unwrap();
-        let queued = store
-            .enqueue(OutboxEnqueueInput {
-                version: OUTBOX_PROTOCOL_VERSION,
-                event_json: event.as_json(),
-                routing: OutboxRouting::Configured,
-                target_pubkey: None,
-                relay_urls: vec!["ws://127.0.0.1:9".to_owned()],
-                required_relay_urls: vec!["ws://127.0.0.1:9".to_owned()],
-            })
-            .unwrap();
-        drop(store);
-
-        let listed = list_outbox_items(db_str.clone()).unwrap();
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].id, queued.id);
-        assert_eq!(listed[0].kind, 37_515);
-        assert_eq!(listed[0].state, "queued");
-        assert_eq!(listed[0].relays[0].state, "pending");
-
-        // Flush fails against closed loopback port -> transitions to retry_wait.
-        let report = flush_outbox_queue(db_str.clone()).await.unwrap();
-        assert_eq!(report.attempted, 1);
-        assert_eq!(report.delivered, 0);
-        assert_eq!(report.retrying, 1);
-        assert_eq!(report.remaining, 1);
-
-        let after_flush = list_outbox_items(db_str.clone()).unwrap();
-        assert_eq!(after_flush[0].state, "retry_wait");
-        assert_eq!(after_flush[0].attempt_count, 1);
-        assert!(after_flush[0].next_retry_at.is_some());
-        assert_eq!(after_flush[0].relays[0].state, "rejected");
-
-        // Manual retry resets state back to queued and clears next_retry_at.
-        let retried = retry_outbox_item(db_str.clone(), queued.id.clone()).unwrap();
-        assert_eq!(retried.state, "queued");
-        assert!(retried.next_retry_at.is_none());
-        assert_eq!(retried.relays[0].state, "pending");
-
-        // Discard hides the item from active outbox list.
-        let discarded = discard_outbox_item(db_str.clone(), queued.id.clone()).unwrap();
-        assert_eq!(discarded.state, "discarded");
-        assert!(list_outbox_items(db_str).unwrap().is_empty());
-    }
-}
-
-fn shoutbox_filter_tag(category: &str) -> Result<&'static str, String> {
-    match category.trim().to_ascii_lowercase().as_str() {
-        "announcements" | "blog" => Ok("blog"),
-        "features" | "feature" => Ok("feature"),
-        "greetings" => Ok("greetings"),
-        "bugs" | "bug" => Ok("bug"),
-        other => Err(format!("Unsupported shoutbox category: {other}")),
-    }
-}
-
-/// Prepares a NIP-57 Zap Request (`kind 9734`) unsigned Nostr event ready for
-/// signing and passing as the `nostr` query parameter to an LNURL-pay callback.
-#[allow(clippy::too_many_arguments)]
-pub fn prepare_unsigned_zap_request_event(
-    sender_pubkey_or_npub: String,
-    recipient_pubkey_hex: String,
-    amount_sats: u64,
-    relay_urls: Vec<String>,
-    target_event_id: Option<String>,
-    target_address: Option<String>,
-    comment: Option<String>,
-    lnurl: Option<String>,
-) -> Result<UnsignedCommentEventDto, String> {
-    if amount_sats == 0 {
-        return Err("Zap amount must be at least 1 sat".to_owned());
-    }
-    let sender = PublicKey::parse(sender_pubkey_or_npub.trim())
-        .map_err(|err| format!("invalid sender public key: {err}"))?;
-    let recipient = PublicKey::parse(recipient_pubkey_hex.trim())
-        .map_err(|err| format!("invalid recipient public key: {err}"))?;
-    let sender_hex = sender.to_hex();
-    let recipient_hex = recipient.to_hex();
-    let amount_msats = amount_sats.saturating_mul(1000);
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let mut clean_relays: Vec<String> = relay_urls
-        .into_iter()
-        .map(|r| r.trim().to_owned())
-        .filter(|r| !r.is_empty())
-        .collect();
-    if clean_relays.is_empty() {
-        clean_relays.push(crate::api::nostr_client::DEFAULT_EARTHLY_RELAY.to_owned());
-    }
-    let mut relays_tag = Vec::with_capacity(1 + clean_relays.len());
-    relays_tag.push("relays".to_owned());
-    relays_tag.extend(clean_relays);
-
-    let mut tags: Vec<Vec<String>> = vec![
-        relays_tag,
-        vec!["amount".to_owned(), amount_msats.to_string()],
-        vec!["p".to_owned(), recipient_hex.clone()],
-    ];
-    if let Some(eid) = target_event_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        tags.push(vec!["e".to_owned(), eid.to_owned()]);
-    }
-    let clean_addr = target_address
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned);
-    if let Some(ref addr) = clean_addr {
-        tags.push(vec!["a".to_owned(), addr.clone()]);
-    }
-    if let Some(l) = lnurl
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        tags.push(vec!["lnurl".to_owned(), l.to_owned()]);
-    }
-
-    let clean_comment = comment.unwrap_or_default().trim().to_owned();
-    let unsigned = serde_json::json!({
-        "kind": 9734,
-        "pubkey": sender_hex,
-        "created_at": now,
-        "tags": tags,
-        "content": clean_comment,
-    });
-    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
-    Ok(UnsignedCommentEventDto {
-        unsigned_event_json,
-        d_tag: format!("zap-{amount_sats}"),
-        address: clean_addr.unwrap_or(recipient_hex),
-    })
-}
-
-/// Prepares a Community Shoutbox note (`kind 1`) tagged `earthlycity` and the
-/// requested category tag (`blog` / `feature` / `greetings` / `bug`).
-pub fn prepare_unsigned_shoutbox_post(
-    pubkey_or_npub: String,
-    category: String,
-    content: String,
-) -> Result<UnsignedCommentEventDto, String> {
-    let trimmed = content.trim();
-    if trimmed.is_empty() {
-        return Err("Shoutbox post cannot be empty".to_owned());
-    }
-    if trimmed.chars().count() > 4000 {
-        return Err("Shoutbox post cannot exceed 4000 characters".to_owned());
-    }
-    let filter_tag = shoutbox_filter_tag(&category)?;
-    let pubkey = PublicKey::parse(pubkey_or_npub.trim())
-        .map_err(|err| format!("invalid Nostr public key: {err}"))?;
-    let pubkey_hex = pubkey.to_hex();
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let tags = vec![
-        vec!["t".to_owned(), "earthlycity".to_owned()],
-        vec!["t".to_owned(), filter_tag.to_owned()],
-    ];
-    let unsigned = serde_json::json!({
-        "kind": 1,
-        "pubkey": pubkey_hex,
-        "created_at": now,
-        "tags": tags,
-        "content": trimmed,
-    });
-    let unsigned_event_json = serde_json::to_string(&unsigned).map_err(|e| e.to_string())?;
-    Ok(UnsignedCommentEventDto {
-        unsigned_event_json,
-        d_tag: category,
-        address: format!("1:{pubkey_hex}"),
-    })
 }
