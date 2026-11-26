@@ -626,6 +626,37 @@ class DraftWorkbenchController extends ChangeNotifier {
     onPersist?.call();
   }
 
+  /// Rotates and scales [featureId] in screen space around [pivotScreen]
+  /// (defaults to feature centroid) using pure [project]/[unproject] callbacks.
+  void transformFeatureInScreenSpace(
+    String featureId, {
+    double rotateDeg = 0.0,
+    double scale = 1.0,
+    required Offset Function(Geographic) project,
+    required Geographic Function(Offset) unproject,
+    DrawnFeature? baseFeature,
+    Offset? pivotScreen,
+    bool pushUndoBefore = false,
+    VoidCallback? onPersist,
+  }) {
+    final idx = features.indexWhere((f) => f.id == featureId);
+    if (idx < 0) return;
+    if (pushUndoBefore) {
+      pushUndo();
+    }
+    final source = baseFeature ?? features[idx];
+    features[idx] = DrawingMath.rotateAndScaleFeatureVertices(
+      feature: source,
+      rotateDeg: rotateDeg,
+      scale: scale,
+      project: project,
+      unproject: unproject,
+      pivotScreen: pivotScreen,
+    );
+    _notifyGeometry();
+    onPersist?.call();
+  }
+
   DrawnFeature? commitFreehandStroke(
     List<Geographic> rawPoints, {
     VoidCallback? onPersist,

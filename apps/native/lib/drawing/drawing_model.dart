@@ -622,6 +622,34 @@ abstract final class DrawingMath {
     return selected;
   }
 
+  static const double minTransformScale = 0.2;
+  static const double maxTransformScale = 5.0;
+
+  static Rect? computeFeatureScreenBounds({
+    required DrawnFeature feature,
+    required Offset Function(Geographic) project,
+  }) {
+    var minX = double.infinity;
+    var minY = double.infinity;
+    var maxX = double.negativeInfinity;
+    var maxY = double.negativeInfinity;
+    var count = 0;
+
+    for (final part in feature.allParts) {
+      for (final v in part) {
+        final p = project(v);
+        if (!p.dx.isFinite || !p.dy.isFinite) continue;
+        if (p.dx < minX) minX = p.dx;
+        if (p.dy < minY) minY = p.dy;
+        if (p.dx > maxX) maxX = p.dx;
+        if (p.dy > maxY) maxY = p.dy;
+        count += 1;
+      }
+    }
+    if (count == 0) return null;
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
+  }
+
   static DrawnFeature translateFeatureVertices({
     required DrawnFeature feature,
     required Offset deltaScreen,
@@ -639,6 +667,74 @@ abstract final class DrawingMath {
           : [
               for (final part in feature.extraParts)
                 List<Geographic>.unmodifiable(shiftPart(part)),
+            ],
+    );
+  }
+
+  /// Rotates and scales all vertices (including multipart [extraParts]) in
+  /// screen space around [pivotScreen] (defaults to projected [featureCentroid]).
+  /// Scale is clamped to `[minTransformScale, maxTransformScale]` (`0.2..5.0`).
+  static DrawnFeature rotateAndScaleFeatureVertices({
+    required DrawnFeature feature,
+    required double rotateDeg,
+    required double scale,
+    required Offset Function(Geographic) project,
+    required Geographic Function(Offset) unproject,
+    Offset? pivotScreen,
+  }) {
+    final safeScale =
+        scale.isFinite ? scale.clamp(minTransformScale, maxTransformScale) : 1.0;
+    final safeRotateDeg = rotateDeg.isFinite ? rotateDeg : 0.0;
+    if (safeRotateDeg == 0.0 && safeScale == 1.0) return feature;
+
+    Offset? pivot = pivotScreen;
+    if (pivot == null) {
+      final centroid = featureCentroid(feature);
+      if (centroid == null) return feature;
+      final projectedCentroid = project(centroid);
+      if (!projectedCentroid.dx.isFinite || !projectedCentroid.dy.isFinite) {
+        return feature;
+      }
+      pivot = projectedCentroid;
+    } else if (!pivot.dx.isFinite || !pivot.dy.isFinite) {
+      return feature;
+    }
+
+    if (pivotScreen == null &&
+        feature.vertices.length <= 1 &&
+        !feature.isMultipart) {
+      return feature;
+    }
+
+    final rad = _rad(safeRotateDeg);
+    final cosA = math.cos(rad);
+    final sinA = math.sin(rad);
+
+    Offset transformPoint(Offset p) {
+      final dx = (p.dx - pivot!.dx) * safeScale;
+      final dy = (p.dy - pivot.dy) * safeScale;
+      return Offset(
+        pivot.dx + dx * cosA - dy * sinA,
+        pivot.dy + dx * sinA + dy * cosA,
+      );
+    }
+
+    List<Geographic> transformPart(List<Geographic> part) => [
+          for (final v in part)
+            () {
+              final projected = project(v);
+              if (!projected.dx.isFinite || !projected.dy.isFinite) return v;
+              return unproject(transformPoint(projected));
+            }(),
+        ];
+
+    return feature.copyWith(
+      vertices: List<Geographic>.unmodifiable(transformPart(feature.vertices)),
+      extraParts: feature.extraParts.isEmpty
+          ? const <List<Geographic>>[]
+          : [
+              for (final part in feature.extraParts)
+                List<Geographic>.unmodifiable(transformPart(part)),
             ],
     );
   }

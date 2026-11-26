@@ -18,6 +18,7 @@ class MapGeometryLayer extends StatelessWidget {
     required this.features,
     required this.draftVertices,
     required this.mode,
+    this.controller,
     this.previewScreen,
     this.snapped = false,
     this.loupeActive = false,
@@ -31,6 +32,7 @@ class MapGeometryLayer extends StatelessWidget {
   final List<DrawnFeature> features;
   final List<Geographic> draftVertices;
   final DrawToolMode mode;
+  final MapController? controller;
   final Offset? previewScreen;
   final bool snapped;
   final bool loupeActive;
@@ -43,15 +45,15 @@ class MapGeometryLayer extends StatelessWidget {
   Widget build(BuildContext context) {
     // Subscribe to the frame-locked camera on screen.
     CameraPosition.maybeOf(context);
-    final controller = MapController.maybeOf(context);
-    if (controller == null) return const SizedBox.shrink();
+    final resolvedController = controller ?? MapController.maybeOf(context);
+    if (resolvedController == null) return const SizedBox.shrink();
     final accent = Theme.of(context).colorScheme.primary;
 
     return IgnorePointer(
       child: CustomPaint(
         size: Size.infinite,
         painter: _GeometryOverlayPainter(
-          controller: controller,
+          controller: resolvedController,
           features: features,
           draftVertices: draftVertices,
           mode: mode,
@@ -107,8 +109,16 @@ class TouchDrawOverlay extends StatefulWidget {
     this.onUpdateEditingVertex,
     this.onInsertEditingVertex,
     this.onTranslateFeature,
+    this.onRotateScaleFeature,
     super.key,
   });
+
+  static const double transformBoundsPadding = 18.0;
+  static const double rotateHandleStemPx = 32.0;
+  static const double transformHandleHitRadius = 24.0;
+
+  static Rect computeTransformBounds(Rect rawBounds) =>
+      rawBounds.inflate(transformBoundsPadding);
 
   final MapController? controller;
   final DrawToolMode mode;
@@ -149,10 +159,21 @@ class TouchDrawOverlay extends StatefulWidget {
     Offset deltaScreen, {
     bool pushUndoBefore,
   })? onTranslateFeature;
+  final void Function(
+    String featureId,
+    double rotateDeg,
+    double scale, {
+    DrawnFeature? baseFeature,
+    Offset? pivotScreen,
+    bool pushUndoBefore,
+    bool persist,
+  })? onRotateScaleFeature;
 
   @override
   State<TouchDrawOverlay> createState() => _TouchDrawOverlayState();
 }
+
+enum _ActiveTransformHandle { rotate, scale }
 
 class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
   static const double _thumbClearanceY = -48.0;
@@ -172,13 +193,22 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
   int? _draggingDraftVertexIndex;
   Offset? _tapDownScreen;
 
-  // In-place editing & canvas move state
+  // In-place editing & canvas move / transform state
   int? _draggingEditingVertexIndex;
   bool _hasPushedDragUndo = false;
   String? _draggingMoveFeatureId;
   Offset? _lastMoveScreen;
   Geographic? _moveStartGeo;
   Geographic? _currentMoveGeo;
+
+  _ActiveTransformHandle? _draggingTransformHandle;
+  String? _draggingTransformFeatureId;
+  DrawnFeature? _transformBaselineFeature;
+  Offset? _transformPivotScreen;
+  double _transformLastAngleRad = 0.0;
+  double _transformCumulativeAngleDeg = 0.0;
+  double _transformStartDistPx = 1.0;
+  double _transformCurrentScale = 1.0;
 
   // Box-select marquee state
   Offset? _boxStartScreen;
@@ -391,7 +421,34 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
         return;
       }
 
-      // 3. Centroid Move handle hit test
+      // 3. Rotate & Scale transform handles (for multi-vertex features)
+      final handles = _computeTransformHandles(editing, controller);
+      if (handles != null) {
+        if ((handles.rotateHandle - pos).distance <=
+            TouchDrawOverlay.transformHandleHitRadius) {
+          _startTransformDrag(
+            editing,
+            _ActiveTransformHandle.rotate,
+            handles.centroid,
+            pos,
+            controller,
+          );
+          return;
+        }
+        if ((handles.scaleHandle - pos).distance <=
+            TouchDrawOverlay.transformHandleHitRadius) {
+          _startTransformDrag(
+            editing,
+            _ActiveTransformHandle.scale,
+            handles.centroid,
+            pos,
+            controller,
+          );
+          return;
+        }
+      }
+
+      // 4. Centroid Move handle hit test
       final centroid = DrawingMath.featureCentroid(editing);
       if (centroid != null) {
         final centroidScreen = controller.toScreenLocation(centroid);
@@ -406,6 +463,31 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
   void _handleSelectModeDown(Offset pos, MapController controller) {
     final moveTarget = _primarySelectedMoveFeature();
     if (moveTarget != null) {
+      final handles = _computeTransformHandles(moveTarget, controller);
+      if (handles != null) {
+        if ((handles.rotateHandle - pos).distance <=
+            TouchDrawOverlay.transformHandleHitRadius) {
+          _startTransformDrag(
+            moveTarget,
+            _ActiveTransformHandle.rotate,
+            handles.centroid,
+            pos,
+            controller,
+          );
+          return;
+        }
+        if ((handles.scaleHandle - pos).distance <=
+            TouchDrawOverlay.transformHandleHitRadius) {
+          _startTransformDrag(
+            moveTarget,
+            _ActiveTransformHandle.scale,
+            handles.centroid,
+            pos,
+            controller,
+          );
+          return;
+        }
+      }
       final centroid = DrawingMath.featureCentroid(moveTarget);
       if (centroid != null) {
         final centroidScreen = controller.toScreenLocation(centroid);
@@ -415,6 +497,99 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
         }
       }
     }
+  }
+
+  void _startTransformDrag(
+    DrawnFeature feature,
+    _ActiveTransformHandle handle,
+    Offset pivotScreen,
+    Offset pos,
+    MapController controller,
+  ) {
+    HapticFeedback.lightImpact();
+    final startAngle = math.atan2(
+      pos.dy - pivotScreen.dy,
+      pos.dx - pivotScreen.dx,
+    );
+    final startDist = math.max(8.0, (pos - pivotScreen).distance);
+    final coord = controller.toLngLat(pos);
+    setState(() {
+      _draggingTransformHandle = handle;
+      _draggingTransformFeatureId = feature.id;
+      _transformBaselineFeature = feature;
+      _transformPivotScreen = pivotScreen;
+      _transformLastAngleRad = startAngle;
+      _transformCumulativeAngleDeg = 0.0;
+      _transformStartDistPx = startDist;
+      _transformCurrentScale = 1.0;
+      _hasPushedDragUndo = false;
+      _fingerScreen = pos;
+      _targetScreen = pos;
+      _previewCoord = coord;
+      _activeSnap = null;
+    });
+    widget.onPreviewChanged(pos, false, widget.loupeEnabled);
+  }
+
+  void _updateTransformDrag(Offset pos, MapController controller) {
+    final handle = _draggingTransformHandle;
+    final featureId = _draggingTransformFeatureId;
+    final baseFeature = _transformBaselineFeature;
+    final pivot = _transformPivotScreen;
+    if (handle == null ||
+        featureId == null ||
+        baseFeature == null ||
+        pivot == null) {
+      return;
+    }
+
+    if (handle == _ActiveTransformHandle.rotate) {
+      if ((pos - pivot).distance >= 2.0) {
+        final angle = math.atan2(pos.dy - pivot.dy, pos.dx - pivot.dx);
+        var stepRad = angle - _transformLastAngleRad;
+        while (stepRad > math.pi) {
+          stepRad -= 2 * math.pi;
+        }
+        while (stepRad < -math.pi) {
+          stepRad += 2 * math.pi;
+        }
+        _transformLastAngleRad = angle;
+        _transformCumulativeAngleDeg += stepRad * 180.0 / math.pi;
+      }
+      widget.onRotateScaleFeature?.call(
+        featureId,
+        _transformCumulativeAngleDeg,
+        1.0,
+        baseFeature: baseFeature,
+        pivotScreen: pivot,
+        pushUndoBefore: !_hasPushedDragUndo,
+        persist: false,
+      );
+    } else {
+      final dist = (pos - pivot).distance;
+      _transformCurrentScale = (dist / _transformStartDistPx).clamp(
+        DrawingMath.minTransformScale,
+        DrawingMath.maxTransformScale,
+      );
+      widget.onRotateScaleFeature?.call(
+        featureId,
+        0.0,
+        _transformCurrentScale,
+        baseFeature: baseFeature,
+        pivotScreen: pivot,
+        pushUndoBefore: !_hasPushedDragUndo,
+        persist: false,
+      );
+    }
+
+    _hasPushedDragUndo = true;
+    final coord = controller.toLngLat(pos);
+    setState(() {
+      _fingerScreen = pos;
+      _targetScreen = pos;
+      _previewCoord = coord;
+    });
+    widget.onPreviewChanged(pos, false, widget.loupeEnabled);
   }
 
   DrawnFeature? _primarySelectedMoveFeature() {
@@ -491,6 +666,11 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
         size: size,
         controller: controller,
       );
+      return;
+    }
+
+    if (_draggingTransformHandle != null) {
+      _updateTransformDrag(event.localPosition, controller);
       return;
     }
 
@@ -589,7 +769,9 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
               widget.onRequestAnnotationAt?.call(_previewCoord!);
             }
           case DrawToolMode.editVertices:
-            if (_draggingEditingVertexIndex == null &&
+            if (_draggingTransformHandle != null) {
+              _commitTransformOnLift();
+            } else if (_draggingEditingVertexIndex == null &&
                 _draggingMoveFeatureId == null &&
                 _tapDownScreen != null &&
                 (event.localPosition - _tapDownScreen!).distance < 10.0) {
@@ -606,7 +788,9 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
               }
             }
           case DrawToolMode.select:
-            if (_tapDownScreen != null &&
+            if (_draggingTransformHandle != null) {
+              _commitTransformOnLift();
+            } else if (_tapDownScreen != null &&
                 (event.localPosition - _tapDownScreen!).distance < 10.0 &&
                 !_hasPushedDragUndo) {
               if (_draggingMoveFeatureId != null) {
@@ -684,6 +868,30 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
     }
   }
 
+  void _commitTransformOnLift() {
+    if (!_hasPushedDragUndo ||
+        _draggingTransformHandle == null ||
+        _draggingTransformFeatureId == null) {
+      return;
+    }
+    final rot = _draggingTransformHandle == _ActiveTransformHandle.rotate
+        ? _transformCumulativeAngleDeg
+        : 0.0;
+    final sc = _draggingTransformHandle == _ActiveTransformHandle.scale
+        ? _transformCurrentScale
+        : 1.0;
+    widget.onRotateScaleFeature?.call(
+      _draggingTransformFeatureId!,
+      rot,
+      sc,
+      baseFeature: _transformBaselineFeature,
+      pivotScreen: _transformPivotScreen,
+      pushUndoBefore: false,
+      persist: true,
+    );
+    HapticFeedback.mediumImpact();
+  }
+
   void _handlePointerCancel(PointerCancelEvent event) {
     _activePointers.remove(event.pointer);
     if (event.pointer == _primaryPointer) {
@@ -708,6 +916,14 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
       _lastMoveScreen = null;
       _moveStartGeo = null;
       _currentMoveGeo = null;
+      _draggingTransformHandle = null;
+      _draggingTransformFeatureId = null;
+      _transformBaselineFeature = null;
+      _transformPivotScreen = null;
+      _transformLastAngleRad = 0.0;
+      _transformCumulativeAngleDeg = 0.0;
+      _transformStartDistPx = 1.0;
+      _transformCurrentScale = 1.0;
       _hasPushedDragUndo = false;
       _tapDownScreen = null;
       _boxStartScreen = null;
@@ -900,6 +1116,14 @@ class _TouchDrawOverlayState extends State<TouchDrawOverlay> {
   String _computeLoupeTelemetry() {
     if (widget.mode == DrawToolMode.freehand) {
       return 'FREEHAND · ${_freehandGeoPts.length} pts';
+    }
+    if (_draggingTransformHandle == _ActiveTransformHandle.rotate) {
+      final rounded = _transformCumulativeAngleDeg.round();
+      final sign = rounded > 0 ? '+' : '';
+      return 'ROTATE · $sign$rounded°';
+    }
+    if (_draggingTransformHandle == _ActiveTransformHandle.scale) {
+      return 'SCALE · ×${_transformCurrentScale.toStringAsFixed(2)}';
     }
     if (_draggingMoveFeatureId != null &&
         _moveStartGeo != null &&
@@ -1168,29 +1392,77 @@ class _InteractiveGesturePainter extends CustomPainter {
     }
   }
 
-  void _drawDashedRect(Canvas canvas, Rect rect, Paint paint) {
-    _drawDashedLine(canvas, rect.topLeft, rect.topRight, paint);
-    _drawDashedLine(canvas, rect.topRight, rect.bottomRight, paint);
-    _drawDashedLine(canvas, rect.bottomRight, rect.bottomLeft, paint);
-    _drawDashedLine(canvas, rect.bottomLeft, rect.topLeft, paint);
-  }
-
-  void _drawDashedLine(Canvas canvas, Offset a, Offset b, Paint paint) {
-    final total = (b - a).distance;
-    if (total < 1.0) return;
-    final dir = (b - a) / total;
-    const dash = 7.0;
-    const gap = 5.0;
-    var d = 0.0;
-    while (d < total) {
-      final end = math.min(total, d + dash);
-      canvas.drawLine(a + dir * d, a + dir * end, paint);
-      d += dash + gap;
-    }
-  }
-
   @override
   bool shouldRepaint(_InteractiveGesturePainter oldDelegate) => true;
+}
+
+class _TransformHandlesGeometry {
+  const _TransformHandlesGeometry({
+    required this.bounds,
+    required this.centroid,
+    required this.rotateHandle,
+    required this.scaleHandle,
+  });
+
+  final Rect bounds;
+  final Offset centroid;
+  final Offset rotateHandle;
+  final Offset scaleHandle;
+}
+
+bool _isTransformableFeature(DrawnFeature feature) {
+  if (feature.vertices.length >= 2) return true;
+  if (!feature.isMultipart) return false;
+  var count = 0;
+  for (final part in feature.allParts) {
+    count += part.length;
+    if (count >= 2) return true;
+  }
+  return false;
+}
+
+_TransformHandlesGeometry? _computeTransformHandles(
+  DrawnFeature feature,
+  MapController controller,
+) {
+  if (!_isTransformableFeature(feature)) return null;
+  final rawBounds = DrawingMath.computeFeatureScreenBounds(
+    feature: feature,
+    project: controller.toScreenLocation,
+  );
+  final centroidGeo = DrawingMath.featureCentroid(feature);
+  if (rawBounds == null || centroidGeo == null) return null;
+  final centroid = controller.toScreenLocation(centroidGeo);
+  if (!centroid.dx.isFinite || !centroid.dy.isFinite) return null;
+  final bounds = TouchDrawOverlay.computeTransformBounds(rawBounds);
+  return _TransformHandlesGeometry(
+    bounds: bounds,
+    centroid: centroid,
+    rotateHandle: bounds.topCenter -
+        const Offset(0, TouchDrawOverlay.rotateHandleStemPx),
+    scaleHandle: bounds.bottomRight,
+  );
+}
+
+void _drawDashedRect(Canvas canvas, Rect rect, Paint paint) {
+  _drawDashedLine(canvas, rect.topLeft, rect.topRight, paint);
+  _drawDashedLine(canvas, rect.topRight, rect.bottomRight, paint);
+  _drawDashedLine(canvas, rect.bottomRight, rect.bottomLeft, paint);
+  _drawDashedLine(canvas, rect.bottomLeft, rect.topLeft, paint);
+}
+
+void _drawDashedLine(Canvas canvas, Offset a, Offset b, Paint paint) {
+  final total = (b - a).distance;
+  if (total < 1.0) return;
+  final dir = (b - a) / total;
+  const dash = 7.0;
+  const gap = 5.0;
+  var d = 0.0;
+  while (d < total) {
+    final end = math.min(total, d + dash);
+    canvas.drawLine(a + dir * d, a + dir * end, paint);
+    d += dash + gap;
+  }
 }
 
 class _GeometryOverlayPainter extends CustomPainter {
@@ -1361,6 +1633,15 @@ class _GeometryOverlayPainter extends CustomPainter {
           );
         }
 
+        final handles = _computeTransformHandles(editingFeature!, controller);
+        if (handles != null &&
+            isSafe(handles.bounds.topLeft) &&
+            isSafe(handles.bounds.bottomRight) &&
+            isSafe(handles.rotateHandle) &&
+            isSafe(handles.scaleHandle)) {
+          _drawTransformBoxAndHandles(canvas, handles);
+        }
+
         final centroid = DrawingMath.featureCentroid(editingFeature!);
         if (centroid != null) {
           final cPt = controller.toScreenLocation(centroid);
@@ -1371,7 +1652,7 @@ class _GeometryOverlayPainter extends CustomPainter {
       }
     }
 
-    // 3. Centroid Move handle in Select mode for selected draft feature
+    // 3. Transform box + Rotate/Scale/Centroid Move handles in Select mode
     if (mode == DrawToolMode.select && selectedFeatureIds.isNotEmpty) {
       DrawnFeature? primary;
       for (var i = features.length - 1; i >= 0; i--) {
@@ -1381,6 +1662,14 @@ class _GeometryOverlayPainter extends CustomPainter {
         }
       }
       if (primary != null) {
+        final handles = _computeTransformHandles(primary, controller);
+        if (handles != null &&
+            isSafe(handles.bounds.topLeft) &&
+            isSafe(handles.bounds.bottomRight) &&
+            isSafe(handles.rotateHandle) &&
+            isSafe(handles.scaleHandle)) {
+          _drawTransformBoxAndHandles(canvas, handles);
+        }
         final centroid = DrawingMath.featureCentroid(primary);
         if (centroid != null) {
           final cPt = controller.toScreenLocation(centroid);
@@ -1466,6 +1755,93 @@ class _GeometryOverlayPainter extends CustomPainter {
           plusPaint,
         );
     }
+  }
+
+  void _drawTransformBoxAndHandles(
+    Canvas canvas,
+    _TransformHandlesGeometry handles,
+  ) {
+    // 1. Dashed amber bounding box around feature extents
+    _drawDashedRect(
+      canvas,
+      handles.bounds,
+      Paint()
+        ..color = EarthlyColors.amber.withValues(alpha: 0.92)
+        ..strokeWidth = 1.8
+        ..style = PaintingStyle.stroke,
+    );
+
+    // 2. Stem + circular Rotate handle (32px above top-center)
+    canvas.drawLine(
+      handles.bounds.topCenter,
+      handles.rotateHandle,
+      Paint()
+        ..color = EarthlyColors.amber
+        ..strokeWidth = 1.8,
+    );
+    canvas.drawCircle(
+      handles.rotateHandle,
+      15.0,
+      Paint()..color = EarthlyColors.amber.withValues(alpha: 0.22),
+    );
+    canvas.drawCircle(
+      handles.rotateHandle,
+      11.0,
+      Paint()..color = EarthlyColors.darkSurface.withValues(alpha: 0.94),
+    );
+    canvas.drawCircle(
+      handles.rotateHandle,
+      11.0,
+      Paint()
+        ..color = EarthlyColors.amber
+        ..strokeWidth = 2.0
+        ..style = PaintingStyle.stroke,
+    );
+    // Crisp rotate arc + center dot inside Rotate handle
+    canvas.drawArc(
+      Rect.fromCircle(center: handles.rotateHandle, radius: 5.2),
+      -math.pi * 0.75,
+      math.pi * 1.35,
+      false,
+      Paint()
+        ..color = Colors.white
+        ..strokeWidth = 1.6
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke,
+    );
+    canvas.drawCircle(
+      handles.rotateHandle,
+      1.8,
+      Paint()..color = EarthlyColors.amber,
+    );
+
+    // 3. Bottom-right square Scale handle (with 24px touch target halo)
+    final scaleRect = Rect.fromCenter(
+      center: handles.scaleHandle,
+      width: 14.0,
+      height: 14.0,
+    );
+    canvas.drawCircle(
+      handles.scaleHandle,
+      14.0,
+      Paint()..color = EarthlyColors.amber.withValues(alpha: 0.20),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(scaleRect, const Radius.circular(3.0)),
+      Paint()..color = EarthlyColors.darkSurface.withValues(alpha: 0.94),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(scaleRect, const Radius.circular(3.0)),
+      Paint()
+        ..color = EarthlyColors.amber
+        ..strokeWidth = 2.0
+        ..style = PaintingStyle.stroke,
+    );
+    canvas.drawCircle(
+      handles.scaleHandle,
+      2.2,
+      Paint()..color = Colors.white,
+    );
   }
 
   void _drawCentroidMoveHandle(Canvas canvas, Offset center) {

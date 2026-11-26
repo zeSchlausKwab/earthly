@@ -4790,6 +4790,29 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               onPersist: _schedulePersistWorkingDraft,
             );
           },
+          onRotateScaleFeature: (
+            featureId,
+            rotateDeg,
+            scale, {
+            baseFeature,
+            pivotScreen,
+            pushUndoBefore = false,
+            persist = true,
+          }) {
+            final controller = _controller;
+            if (controller == null) return;
+            _draft.transformFeatureInScreenSpace(
+              featureId,
+              rotateDeg: rotateDeg,
+              scale: scale,
+              project: controller.toScreenLocation,
+              unproject: controller.toLngLat,
+              baseFeature: baseFeature,
+              pivotScreen: pivotScreen,
+              pushUndoBefore: pushUndoBefore,
+              onPersist: persist ? _schedulePersistWorkingDraft : null,
+            );
+          },
         );
       },
     );

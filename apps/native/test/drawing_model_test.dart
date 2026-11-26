@@ -342,6 +342,116 @@ void main() {
       expect(polyParts[0].length, greaterThanOrEqualTo(4));
       expect(polyParts[1].length, greaterThanOrEqualTo(4));
     });
+
+    test('computeFeatureScreenBounds and rotateAndScaleFeatureVertices support Point, Line, Polygon, Multipart, and clamp scale 0.2..5.0', () {
+      final point = DrawnFeature(
+        id: 'pt-x',
+        kind: DrawToolMode.point,
+        vertices: <Geographic>[unproject(const Offset(120, 140))],
+      );
+      final ptBounds = DrawingMath.computeFeatureScreenBounds(
+        feature: point,
+        project: project,
+      )!;
+      expect(ptBounds.left, closeTo(120, 1e-6));
+      expect(ptBounds.top, closeTo(140, 1e-6));
+      expect(ptBounds.right, closeTo(120, 1e-6));
+      expect(ptBounds.bottom, closeTo(140, 1e-6));
+      final samePt = DrawingMath.rotateAndScaleFeatureVertices(
+        feature: point,
+        rotateDeg: 45,
+        scale: 2.0,
+        project: project,
+        unproject: unproject,
+      );
+      expect(samePt.vertices.single, point.vertices.single);
+
+      final line = DrawnFeature(
+        id: 'line-x',
+        kind: DrawToolMode.line,
+        vertices: <Geographic>[
+          unproject(const Offset(100, 200)),
+          unproject(const Offset(200, 200)),
+        ],
+      );
+      final rotatedLine = DrawingMath.rotateAndScaleFeatureVertices(
+        feature: line,
+        rotateDeg: 90,
+        scale: 1.5,
+        project: project,
+        unproject: unproject,
+      );
+      // Centroid is (150, 200). Left vertex (-50, 0) * 1.5 rotated +90deg -> (0, -75) -> (150, 125).
+      expect(project(rotatedLine.vertices[0]).dx, closeTo(150, 0.05));
+      expect(project(rotatedLine.vertices[0]).dy, closeTo(125, 0.05));
+      expect(project(rotatedLine.vertices[1]).dx, closeTo(150, 0.05));
+      expect(project(rotatedLine.vertices[1]).dy, closeTo(275, 0.05));
+
+      final multiPoly = DrawnFeature(
+        id: 'multi-x',
+        kind: DrawToolMode.polygon,
+        vertices: <Geographic>[
+          unproject(const Offset(100, 100)),
+          unproject(const Offset(140, 100)),
+          unproject(const Offset(140, 140)),
+          unproject(const Offset(100, 140)),
+        ],
+        extraParts: <List<Geographic>>[
+          <Geographic>[
+            unproject(const Offset(160, 160)),
+            unproject(const Offset(200, 160)),
+            unproject(const Offset(200, 200)),
+            unproject(const Offset(160, 200)),
+          ],
+        ],
+      );
+      final multiBounds = DrawingMath.computeFeatureScreenBounds(
+        feature: multiPoly,
+        project: project,
+      )!;
+      expect(multiBounds.left, closeTo(100, 1e-6));
+      expect(multiBounds.top, closeTo(100, 1e-6));
+      expect(multiBounds.right, closeTo(200, 1e-6));
+      expect(multiBounds.bottom, closeTo(200, 1e-6));
+
+      // Scale clamping: 0.05 -> 0.2, 12.0 -> 5.0
+      final clampedMin = DrawingMath.rotateAndScaleFeatureVertices(
+        feature: line,
+        rotateDeg: 0,
+        scale: 0.05,
+        project: project,
+        unproject: unproject,
+      );
+      expect(
+        (project(clampedMin.vertices[1]) - project(clampedMin.vertices[0]))
+            .distance,
+        closeTo(100 * 0.2, 0.05),
+      );
+      final clampedMax = DrawingMath.rotateAndScaleFeatureVertices(
+        feature: line,
+        rotateDeg: 0,
+        scale: 12.0,
+        project: project,
+        unproject: unproject,
+      );
+      expect(
+        (project(clampedMax.vertices[1]) - project(clampedMax.vertices[0]))
+            .distance,
+        closeTo(100 * 5.0, 0.05),
+      );
+
+      final scaledMulti = DrawingMath.rotateAndScaleFeatureVertices(
+        feature: multiPoly,
+        rotateDeg: 0,
+        scale: 2.0,
+        project: project,
+        unproject: unproject,
+      );
+      expect(scaledMulti.extraParts.length, 1);
+      // Centroid of multiPoly is (150, 150); (200, 200) at 2.0x becomes (250, 250).
+      expect(project(scaledMulti.extraParts.first[2]).dx, closeTo(250, 0.05));
+      expect(project(scaledMulti.extraParts.first[2]).dy, closeTo(250, 0.05));
+    });
   });
 
   group('DraftWorkbenchController Phase D authoring', () {
@@ -593,6 +703,25 @@ void main() {
                       unproject,
                       pushUndoBefore: pushUndoBefore,
                     ),
+                    onRotateScaleFeature: (
+                      id,
+                      rotateDeg,
+                      scale, {
+                      baseFeature,
+                      pivotScreen,
+                      bool pushUndoBefore = false,
+                      bool persist = true,
+                    }) =>
+                        ctrl.transformFeatureInScreenSpace(
+                      id,
+                      rotateDeg: rotateDeg,
+                      scale: scale,
+                      project: project,
+                      unproject: unproject,
+                      baseFeature: baseFeature,
+                      pivotScreen: pivotScreen,
+                      pushUndoBefore: pushUndoBefore,
+                    ),
                   ),
                 ),
               ),
@@ -685,6 +814,185 @@ void main() {
         ctrl.features.last.vertices.first.lon,
         isNot(equals(ctrl.features.first.vertices.first.lon)),
       );
+    });
+
+    testWidgets('TouchDrawOverlay Rotate and Scale handle drags transform geometry with loupe telemetry and single-step undo', (tester) async {
+      final mapController = _FakeMapController();
+      final ctrl = DraftWorkbenchController();
+      addTearDown(ctrl.dispose);
+
+      // 100x100 square centered at (200, 200): screen bounds [150..250, 150..250].
+      final seedPoly = DrawnFeature(
+        id: 'poly-transform',
+        kind: DrawToolMode.polygon,
+        vertices: <Geographic>[
+          unproject(const Offset(150, 150)),
+          unproject(const Offset(250, 150)),
+          unproject(const Offset(250, 250)),
+          unproject(const Offset(150, 250)),
+        ],
+      );
+      ctrl.features.add(seedPoly);
+      var persistCount = 0;
+
+      Widget buildHarness() => MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 400,
+                height: 400,
+                child: ListenableBuilder(
+                  listenable: Listenable.merge([
+                    ctrl.modeListenable,
+                    ctrl.geometryListenable,
+                    ctrl.placementListenable,
+                  ]),
+                  builder: (context, _) => Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      MapGeometryLayer(
+                        controller: mapController,
+                        features: ctrl.features,
+                        draftVertices: ctrl.draftVertices,
+                        mode: ctrl.mode,
+                        editingFeature: ctrl.activeEditingFeature,
+                        selectedVertexIndex: ctrl.selectedVertexIndex,
+                        selectedFeatureIds: ctrl.selectedDraftFeatureIds,
+                      ),
+                      TouchDrawOverlay(
+                        controller: mapController,
+                        mode: ctrl.mode,
+                        placementStyle: ctrl.placementStyle,
+                        loupeEnabled: ctrl.loupeEnabled,
+                        features: ctrl.features,
+                        draftVertices: ctrl.draftVertices,
+                        activePrimitiveShape: ctrl.activePrimitiveShape,
+                        snappingEnabled: ctrl.snappingEnabled,
+                        snapToEdgesEnabled: ctrl.snapToEdgesEnabled,
+                        editingFeature: ctrl.activeEditingFeature,
+                        selectedVertexIndex: ctrl.selectedVertexIndex,
+                        selectedFeatureIds: ctrl.selectedDraftFeatureIds,
+                        onCommitVertex: ctrl.commitVertex,
+                        onUpdateDraftVertex: ctrl.updateDraftVertex,
+                        onInsertDraftVertex: ctrl.insertDraftVertex,
+                        onTwoFingerUndo: ctrl.undoLastPoint,
+                        onPreviewChanged: ctrl.updatePreview,
+                        onTapFeatureInSelectMode: ctrl.toggleSelectFeature,
+                        onBoxSelect: (rect) => ctrl.commitBoxSelect(rect, project),
+                        onSelectEditingFeature: ctrl.selectEditingTargetFeature,
+                        onSelectEditingVertex: ctrl.selectVertexIndex,
+                        onUpdateEditingVertex: ctrl.updateEditingFeatureVertex,
+                        onInsertEditingVertex: ctrl.insertEditingFeatureVertex,
+                        onTranslateFeature: (id, delta, {bool pushUndoBefore = false}) =>
+                            ctrl.translateFeatureOnCanvas(
+                          id,
+                          delta,
+                          project,
+                          unproject,
+                          pushUndoBefore: pushUndoBefore,
+                          onPersist: () => persistCount += 1,
+                        ),
+                        onRotateScaleFeature: (
+                          id,
+                          rotateDeg,
+                          scale, {
+                          baseFeature,
+                          pivotScreen,
+                          bool pushUndoBefore = false,
+                          bool persist = true,
+                        }) =>
+                            ctrl.transformFeatureInScreenSpace(
+                          id,
+                          rotateDeg: rotateDeg,
+                          scale: scale,
+                          project: project,
+                          unproject: unproject,
+                          baseFeature: baseFeature,
+                          pivotScreen: pivotScreen,
+                          pushUndoBefore: pushUndoBefore,
+                          onPersist: persist ? () => persistCount += 1 : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(buildHarness());
+      ctrl.selectMode(DrawToolMode.select);
+      ctrl.toggleSelectFeature('poly-transform');
+      await tester.pump();
+
+      final rawBounds = DrawingMath.computeFeatureScreenBounds(
+        feature: ctrl.features.first,
+        project: project,
+      )!;
+      final bbox = TouchDrawOverlay.computeTransformBounds(rawBounds);
+      final rotateHandlePos =
+          bbox.topCenter - const Offset(0, TouchDrawOverlay.rotateHandleStemPx);
+      // Centroid is (200, 200); rotateHandlePos is directly above at (200, 100).
+      // Dragging to (300, 200) in two moves produces +90 deg clockwise rotation.
+      final undoBeforeRotate = ctrl.undoStack.length;
+      final rotGesture = await tester.startGesture(rotateHandlePos);
+      await rotGesture.moveTo(const Offset(270.71, 129.29)); // +45 deg
+      await tester.pump();
+      expect(find.text('ROTATE · +45°'), findsOneWidget);
+
+      await rotGesture.moveTo(const Offset(300, 200)); // +90 deg
+      await tester.pump();
+      expect(find.text('ROTATE · +90°'), findsOneWidget);
+      await rotGesture.up();
+      await tester.pump();
+
+      // Single undo step pushed for the entire multi-move rotate drag + persisted on lift.
+      expect(ctrl.undoStack.length, undoBeforeRotate + 1);
+      expect(persistCount, 1);
+      // Top-left (150, 150) rotated +90 deg around (200, 200) -> (250, 150).
+      expect(project(ctrl.features.first.vertices[0]).dx, closeTo(250, 0.5));
+      expect(project(ctrl.features.first.vertices[0]).dy, closeTo(150, 0.5));
+
+      // Single undo rolls back the entire rotation cleanly.
+      ctrl.undoDraftEdit();
+      await tester.pump();
+      expect(project(ctrl.features.first.vertices[0]).dx, closeTo(150, 0.5));
+      expect(project(ctrl.features.first.vertices[0]).dy, closeTo(150, 0.5));
+
+      // Switch to editVertices mode and test Scale handle drag at bbox.bottomRight.
+      ctrl.selectEditingTargetFeature('poly-transform');
+      await tester.pump();
+      final editBounds = TouchDrawOverlay.computeTransformBounds(
+        DrawingMath.computeFeatureScreenBounds(
+          feature: ctrl.features.first,
+          project: project,
+        )!,
+      );
+      final scaleHandlePos = editBounds.bottomRight; // (268, 268), dist from (200,200) = 68*sqrt(2)
+      final startDelta = scaleHandlePos - const Offset(200, 200);
+
+      final undoBeforeScale = ctrl.undoStack.length;
+      final scaleGesture = await tester.startGesture(scaleHandlePos);
+      await scaleGesture.moveTo(const Offset(200, 200) + startDelta * 1.35);
+      await tester.pump();
+      expect(find.text('SCALE · ×1.35'), findsOneWidget);
+
+      await scaleGesture.moveTo(const Offset(200, 200) + startDelta * 1.5);
+      await tester.pump();
+      expect(find.text('SCALE · ×1.50'), findsOneWidget);
+      await scaleGesture.up();
+      await tester.pump();
+
+      expect(ctrl.undoStack.length, undoBeforeScale + 1);
+      expect(persistCount, 2);
+      // Vertex (150, 150) scaled 1.5x around (200, 200) -> (125, 125).
+      expect(project(ctrl.features.first.vertices[0]).dx, closeTo(125, 0.5));
+      expect(project(ctrl.features.first.vertices[0]).dy, closeTo(125, 0.5));
+
+      // Single undo restores pre-scale vertices.
+      ctrl.undoDraftEdit();
+      await tester.pump();
+      expect(project(ctrl.features.first.vertices[0]).dx, closeTo(150, 0.5));
+      expect(project(ctrl.features.first.vertices[0]).dy, closeTo(150, 0.5));
     });
   });
 }
