@@ -42,6 +42,8 @@ class SpacesSheet extends StatefulWidget {
     this.onSelectCircle,
     this.inboxUnreadCount = 0,
     this.onOpenInbox,
+    this.pendingOutboxCount = 0,
+    this.onOpenOutbox,
     this.initialPairingLink,
     this.onFetchNip65Relays,
     this.onPublishNip65Relays,
@@ -72,6 +74,8 @@ class SpacesSheet extends StatefulWidget {
   final ValueChanged<CircleWorkspaceDto>? onSelectCircle;
   final int inboxUnreadCount;
   final VoidCallback? onOpenInbox;
+  final int pendingOutboxCount;
+  final VoidCallback? onOpenOutbox;
   final String? initialPairingLink;
   final Future<List<RelayListEntryDto>> Function()? onFetchNip65Relays;
   final Future<PublishOutcomeDto> Function(List<RelayListEntryDto> relays)?
@@ -733,6 +737,71 @@ class _SpacesSheetState extends State<SpacesSheet> {
                     if (widget.inboxUnreadCount > 0) ...[
                       EarthlyBadge(
                         label: '${widget.inboxUnreadCount}',
+                        color: EarthlyColors.amber,
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    const Icon(Icons.chevron_right, size: 18),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+
+          // Offline Publish Outbox shortcut card
+          if (widget.onOpenOutbox != null) ...[
+            InkWell(
+              key: const Key('spaces-outbox-btn'),
+              onTap: widget.onOpenOutbox,
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: widget.pendingOutboxCount > 0
+                      ? EarthlyColors.amber.withValues(alpha: 0.14)
+                      : theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: widget.pendingOutboxCount > 0
+                        ? EarthlyColors.amber.withValues(alpha: 0.55)
+                        : theme.dividerColor,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.outbox_outlined,
+                      size: 18,
+                      color: widget.pendingOutboxCount > 0
+                          ? EarthlyColors.amber
+                          : EarthlyColors.commentGreen,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'OUTBOX QUEUE',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.pendingOutboxCount > 0
+                                ? '${widget.pendingOutboxCount} pending publish${widget.pendingOutboxCount == 1 ? '' : 'es'} waiting for relay'
+                                : 'All queued publishes delivered',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (widget.pendingOutboxCount > 0) ...[
+                      EarthlyBadge(
+                        label: '${widget.pendingOutboxCount}',
                         color: EarthlyColors.amber,
                       ),
                       const SizedBox(width: 4),

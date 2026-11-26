@@ -1638,6 +1638,7 @@ dependencies = [
  "geo",
  "nostr",
  "nostr-connect",
+ "nostr-lmdb",
  "nostr-sdk",
  "reqwest 0.12.28",
  "serde_json",
@@ -1727,7 +1728,10 @@ dependencies = [
 name = "earthly-storage"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "chacha20poly1305 0.10.1",
  "nostr",
+ "rand 0.8.7",
  "rusqlite",
  "serde",
  "serde_json",

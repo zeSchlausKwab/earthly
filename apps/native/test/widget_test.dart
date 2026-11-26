@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:earthly_native/drawing/drawing_model.dart';
 import 'package:earthly_native/main.dart';
 import 'package:earthly_native/nostr/atlas_schema.dart';
@@ -10,6 +11,7 @@ import 'package:earthly_native/nostr/map_poster_exporter.dart';
 import 'package:earthly_native/nostr/nip55_signer.dart';
 import 'package:earthly_native/nostr/shelf_renderer.dart';
 import 'package:earthly_native/nostr/story_presentation.dart';
+import 'package:earthly_native/runtime/device_bridge.dart';
 import 'package:earthly_native/shell/account_session_sheet.dart';
 import 'package:earthly_native/shell/agent_drawer.dart';
 import 'package:earthly_native/shell/atlas_composer_sheet.dart';
@@ -4909,5 +4911,181 @@ Start at geo:48.2764,16.3338 and check $naddr
     await tester.tap(find.byKey(const Key('map-comment-open-thread-c-map-1')));
     await tester.pump();
     expect(inspectedComment?.eventId, 'c-map-1');
+  });
+
+  testWidgets(
+      'SpacesSheet and DeskSheet render Outbox Queue buttons with pending badge and trigger callbacks',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    var spacesOutboxTapped = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              SpacesSheet(
+                account: const Nip55Account(pubkey: 'alice'),
+                localNsec: null,
+                relayUrls: const ['wss://relay.earthly.city'],
+                pendingOutboxCount: 3,
+                onOpenOutbox: () => spacesOutboxTapped = true,
+                onRelayUrlsChanged: (_) {},
+                onAccountChanged: (_) {},
+                onLocalKeyChanged: (_) {},
+                onSessionStateChanged: (_, _) {},
+                onNearbySynced: () {},
+                onBroadcastBeacon: (_, _, _) async => const PublishOutcomeDto(
+                  eventId: 'b1',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final spacesOutboxBtn = find.byKey(const Key('spaces-outbox-btn'));
+    expect(spacesOutboxBtn, findsOneWidget);
+    expect(find.text('OUTBOX QUEUE'), findsOneWidget);
+    expect(find.text('3 pending publishes waiting for relay'), findsOneWidget);
+    await tester.tap(spacesOutboxBtn);
+    await tester.pump();
+    expect(spacesOutboxTapped, isTrue);
+
+    var deskOutboxTapped = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              DeskSheet(
+                activeDraftId: 'd-outbox',
+                savedDrafts: const [],
+                relayUrls: const ['wss://relay.earthly.city'],
+                draftTitle: 'Outbox Draft',
+                audience: DraftAudienceChoice.publicRelay,
+                account: null,
+                shelfMaps: const [],
+                deskStories: const [],
+                deskAtlases: const [],
+                drawnFeatures: const [],
+                pendingOutboxCount: 2,
+                onOpenOutbox: () => deskOutboxTapped = true,
+                onSelectDraft: (_) {},
+                onCreateNewDraft: () {},
+                onDeleteDraft: (_) {},
+                onDraftTitleChanged: (_) {},
+                onAudienceChanged: (_) {},
+                onToggleShelfVisibility: (_) {},
+                onRemoveShelfMap: (_) {},
+                onInspectShelfMap: (_) {},
+                onFlyToShelfMap: (_) {},
+                onCloneShelfMapToDraft: (_) {},
+                onOpenShelfDiscussion: (_) {},
+                onOpenDeskStory: (_) {},
+                onRemoveDeskStory: (_) {},
+                onOpenDeskAtlas: (_) {},
+                onRemoveDeskAtlas: (_) {},
+                onRunGeoAction: (_) {},
+                onPublishDraft: (_, _) async => const PublishOutcomeDto(
+                  eventId: '0123456789abcdef',
+                  outboxState: 'sent',
+                  relays: [],
+                ),
+                onComposeStory: () {},
+                onCreateAtlas: () {},
+                onImportGeoJson: () {},
+                onExportGeoJsonFile: () {},
+                onCopyGeoJson: () {},
+                onClearDraftFeatures: () {},
+                onClose: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final deskOutboxBtn = find.byKey(const Key('desk-outbox-btn'));
+    await tester.scrollUntilVisible(
+      deskOutboxBtn,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(deskOutboxBtn);
+    await tester.pumpAndSettle();
+    expect(find.text('Outbox Queue (2 pending)'), findsOneWidget);
+    await tester.tap(deskOutboxBtn);
+    await tester.pump();
+    expect(deskOutboxTapped, isTrue);
+  });
+
+  testWidgets(
+      'DeviceBridge invokes getOrCreateMasterKey and macOS security-scoped bookmark channel methods',
+      (WidgetTester tester) async {
+    const channel = MethodChannel('city.earthly/device');
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      switch (call.method) {
+        case 'getOrCreateMasterKey':
+          return 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+        case 'createSecurityScopedBookmark':
+          return 'Ym9va21hcms=';
+        case 'resolveSecurityScopedBookmark':
+          return '/Users/test/Maps/city.atlas';
+        default:
+          return null;
+      }
+    });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    final key = await DeviceBridge.getOrCreateMasterKey();
+    final bookmark = await DeviceBridge.createSecurityScopedBookmark(
+      '/Users/test/Maps/city.atlas',
+    );
+    final resolved = await DeviceBridge.resolveSecurityScopedBookmark(
+      bookmark!,
+    );
+
+    expect(key, 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
+    expect(bookmark, 'Ym9va21hcms=');
+    expect(resolved, '/Users/test/Maps/city.atlas');
+    expect(
+      calls.map((c) => c.method).toList(),
+      [
+        'getOrCreateMasterKey',
+        'createSecurityScopedBookmark',
+        'resolveSecurityScopedBookmark',
+      ],
+    );
+    expect(
+      calls[1].arguments,
+      {'path': '/Users/test/Maps/city.atlas'},
+    );
+    expect(
+      calls[2].arguments,
+      {'bookmark': 'Ym9va21hcms='},
+    );
+
+    // MissingPluginException returns null cleanly.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      channel,
+      (call) async => throw MissingPluginException(),
+    );
+    expect(await DeviceBridge.getOrCreateMasterKey(), isNull);
+    expect(await DeviceBridge.createSecurityScopedBookmark('/tmp/x'), isNull);
+    expect(await DeviceBridge.resolveSecurityScopedBookmark('Ym9va21hcms='), isNull);
   });
 }

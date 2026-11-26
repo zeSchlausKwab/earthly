@@ -8,8 +8,8 @@ import 'nostr_client.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `canonicalize_json_value`, `compute_canonical_schema_hash`, `shoutbox_filter_tag`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `build_outbox_item_dto`, `canonicalize_json_value`, `compute_canonical_schema_hash`, `deliver_event_to_relays`, `outbox_item_state_str`, `outbox_relay_state_str`, `shoutbox_filter_tag`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`
 
 /// Save or update a local working draft in SQLite (`earthly-storage`).
 Future<LocalDraftDto> saveLocalDraft({
@@ -385,8 +385,9 @@ Future<UnsignedCommentEventDto> prepareUnsignedDeletionEvent({
 );
 
 /// Persists an already-signed Nostr event into the crash-safe SQLite outbox
-/// BEFORE network transmission, delivers it to each target relay via `nostr-sdk`,
-/// records per-relay acknowledgements, and returns the live outcome.
+/// BEFORE network transmission, delivers it to each target relay via the shared
+/// `nostr-sdk` relay pool, records per-relay acknowledgements, and returns the
+/// live outcome.
 Future<PublishOutcomeDto> publishSignedEventViaOutbox({
   required String databasePath,
   required String signedEventJson,
@@ -395,6 +396,37 @@ Future<PublishOutcomeDto> publishSignedEventViaOutbox({
   databasePath: databasePath,
   signedEventJson: signedEventJson,
   relayUrls: relayUrls,
+);
+
+/// Lists all non-discarded outbox queue items from SQLite.
+Future<List<OutboxItemDto>> listOutboxItems({required String databasePath}) =>
+    EarthlyRustLib.instance.api.crateApiPublishListOutboxItems(
+      databasePath: databasePath,
+    );
+
+/// Claims all ready outbox items via `OutboxStore::flush`, attempts delivery via
+/// the shared relay pool, records per-relay results, and returns a flush report.
+Future<OutboxFlushReportDto> flushOutboxQueue({required String databasePath}) =>
+    EarthlyRustLib.instance.api.crateApiPublishFlushOutboxQueue(
+      databasePath: databasePath,
+    );
+
+/// Resets a failed/partial/retry-wait outbox item back to `queued` for immediate retry.
+Future<OutboxItemDto> retryOutboxItem({
+  required String databasePath,
+  required String itemId,
+}) => EarthlyRustLib.instance.api.crateApiPublishRetryOutboxItem(
+  databasePath: databasePath,
+  itemId: itemId,
+);
+
+/// Marks an undelivered outbox item as `discarded` so it will not be retried.
+Future<OutboxItemDto> discardOutboxItem({
+  required String databasePath,
+  required String itemId,
+}) => EarthlyRustLib.instance.api.crateApiPublishDiscardOutboxItem(
+  databasePath: databasePath,
+  itemId: itemId,
 );
 
 /// Publishes a signed Nostr event to the local embedded `LocalNode` (trusted
@@ -566,6 +598,112 @@ class LocalKeypairDto {
           pubkeyHex == other.pubkeyHex &&
           npub == other.npub &&
           nsec == other.nsec;
+}
+
+class OutboxFlushReportDto {
+  final int attempted;
+  final int delivered;
+  final int retrying;
+  final int failed;
+  final int remaining;
+
+  const OutboxFlushReportDto({
+    required this.attempted,
+    required this.delivered,
+    required this.retrying,
+    required this.failed,
+    required this.remaining,
+  });
+
+  @override
+  int get hashCode =>
+      attempted.hashCode ^
+      delivered.hashCode ^
+      retrying.hashCode ^
+      failed.hashCode ^
+      remaining.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is OutboxFlushReportDto &&
+          runtimeType == other.runtimeType &&
+          attempted == other.attempted &&
+          delivered == other.delivered &&
+          retrying == other.retrying &&
+          failed == other.failed &&
+          remaining == other.remaining;
+}
+
+class OutboxItemDto {
+  final String id;
+  final String eventId;
+  final int kind;
+  final String state;
+  final BigInt attemptCount;
+  final BigInt? nextRetryAt;
+  final BigInt createdAt;
+  final List<OutboxRelayItemDto> relays;
+
+  const OutboxItemDto({
+    required this.id,
+    required this.eventId,
+    required this.kind,
+    required this.state,
+    required this.attemptCount,
+    this.nextRetryAt,
+    required this.createdAt,
+    required this.relays,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      eventId.hashCode ^
+      kind.hashCode ^
+      state.hashCode ^
+      attemptCount.hashCode ^
+      nextRetryAt.hashCode ^
+      createdAt.hashCode ^
+      relays.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is OutboxItemDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          eventId == other.eventId &&
+          kind == other.kind &&
+          state == other.state &&
+          attemptCount == other.attemptCount &&
+          nextRetryAt == other.nextRetryAt &&
+          createdAt == other.createdAt &&
+          relays == other.relays;
+}
+
+class OutboxRelayItemDto {
+  final String relayUrl;
+  final String state;
+  final String? lastError;
+
+  const OutboxRelayItemDto({
+    required this.relayUrl,
+    required this.state,
+    this.lastError,
+  });
+
+  @override
+  int get hashCode => relayUrl.hashCode ^ state.hashCode ^ lastError.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is OutboxRelayItemDto &&
+          runtimeType == other.runtimeType &&
+          relayUrl == other.relayUrl &&
+          state == other.state &&
+          lastError == other.lastError;
 }
 
 class PublishOutcomeDto {

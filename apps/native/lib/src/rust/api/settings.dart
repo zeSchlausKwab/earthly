@@ -7,8 +7,13 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_record`, `to_record`
+// These functions are ignored because they are not marked as `pub`: `current_master_key`, `from_record`, `master_key_lock`, `to_record`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`
+
+Future<void> setSettingsMasterKey({required String masterKeyBase64}) =>
+    EarthlyRustLib.instance.api.crateApiSettingsSetSettingsMasterKey(
+      masterKeyBase64: masterKeyBase64,
+    );
 
 Future<AppSettingsDto> loadAppSettings({required String databasePath}) =>
     EarthlyRustLib.instance.api.crateApiSettingsLoadAppSettings(

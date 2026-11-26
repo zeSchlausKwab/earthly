@@ -14,6 +14,7 @@ import 'api/nostr_client.dart';
 import 'api/nwc.dart';
 import 'api/private_groups.dart';
 import 'api/publish.dart';
+import 'api/relay_pool.dart';
 import 'api/settings.dart';
 import 'api/spike.dart';
 
@@ -282,6 +283,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<OutboxItemDto> dco_decode_list_outbox_item_dto(dynamic raw);
+
+  @protected
+  List<OutboxRelayItemDto> dco_decode_list_outbox_relay_item_dto(dynamic raw);
+
+  @protected
   List<PendingClaimDto> dco_decode_list_pending_claim_dto(dynamic raw);
 
   @protected
@@ -448,6 +455,15 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   OsmImportResultDto dco_decode_osm_import_result_dto(dynamic raw);
+
+  @protected
+  OutboxFlushReportDto dco_decode_outbox_flush_report_dto(dynamic raw);
+
+  @protected
+  OutboxItemDto dco_decode_outbox_item_dto(dynamic raw);
+
+  @protected
+  OutboxRelayItemDto dco_decode_outbox_relay_item_dto(dynamic raw);
 
   @protected
   OutboxSummarySnapshot dco_decode_outbox_summary_snapshot(dynamic raw);
@@ -884,6 +900,16 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<OutboxItemDto> sse_decode_list_outbox_item_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<OutboxRelayItemDto> sse_decode_list_outbox_relay_item_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<PendingClaimDto> sse_decode_list_pending_claim_dto(
     SseDeserializer deserializer,
   );
@@ -1100,6 +1126,19 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   OsmImportResultDto sse_decode_osm_import_result_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  OutboxFlushReportDto sse_decode_outbox_flush_report_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  OutboxItemDto sse_decode_outbox_item_dto(SseDeserializer deserializer);
+
+  @protected
+  OutboxRelayItemDto sse_decode_outbox_relay_item_dto(
     SseDeserializer deserializer,
   );
 
@@ -1663,6 +1702,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_outbox_item_dto(
+    List<OutboxItemDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_outbox_relay_item_dto(
+    List<OutboxRelayItemDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_pending_claim_dto(
     List<PendingClaimDto> self,
     SseSerializer serializer,
@@ -1926,6 +1977,21 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_osm_import_result_dto(
     OsmImportResultDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_outbox_flush_report_dto(
+    OutboxFlushReportDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_outbox_item_dto(OutboxItemDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_outbox_relay_item_dto(
+    OutboxRelayItemDto self,
     SseSerializer serializer,
   );
 

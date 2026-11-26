@@ -105,6 +105,8 @@ class DeskSheet extends StatefulWidget {
     this.canRedo = false,
     this.onUndo,
     this.onRedo,
+    this.pendingOutboxCount = 0,
+    this.onOpenOutbox,
     required this.onClose,
     super.key,
   });
@@ -176,6 +178,8 @@ class DeskSheet extends StatefulWidget {
   final bool canRedo;
   final VoidCallback? onUndo;
   final VoidCallback? onRedo;
+  final int pendingOutboxCount;
+  final VoidCallback? onOpenOutbox;
   final VoidCallback onClose;
 
   @override
@@ -1133,6 +1137,25 @@ class _DeskSheetState extends State<DeskSheet> {
                 'Event: ${_publishOutcome!.eventId.substring(0, 16)}…\n'
                 '${_publishOutcome!.relays.map((r) => '${r.ok ? "✓" : "✗"} ${r.relayUrl} (${r.message ?? ""})').join("\n")}',
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+              ),
+            ),
+          ],
+          if (widget.onOpenOutbox != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('desk-outbox-btn'),
+              onPressed: widget.onOpenOutbox,
+              icon: Icon(
+                Icons.outbox_outlined,
+                size: 16,
+                color: widget.pendingOutboxCount > 0
+                    ? EarthlyColors.amber
+                    : null,
+              ),
+              label: Text(
+                widget.pendingOutboxCount > 0
+                    ? 'Outbox Queue (${widget.pendingOutboxCount} pending)'
+                    : 'Outbox Queue',
               ),
             ),
           ],

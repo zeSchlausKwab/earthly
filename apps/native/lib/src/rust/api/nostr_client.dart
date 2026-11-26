@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `blossom_geo_cache`, `compact_preview`, `compute_markdown_line_diff_counts`, `derive_inbox_items_from_events`, `event_to_raw`, `first_tag`, `hex_val`, `humanize_ident`, `inbox_entity_label`, `map_to_dto`, `merge_blob_payload_into_features`, `parse_coord`, `parse_live_relay_event`, `parse_nip65_tags`, `percent_decode_fragment`, `resolve_lud16_to_lnurlp_url`, `shoutbox_filter_tag`, `sighting_to_dto`, `story_to_dto`, `verify_optional_sha256`
+// These functions are ignored because they are not marked as `pub`: `atlas_to_dto`, `beacon_to_dto`, `compact_preview`, `compute_markdown_line_diff_counts`, `derive_inbox_items_from_events`, `event_to_raw`, `first_tag`, `hex_val`, `humanize_ident`, `inbox_entity_label`, `map_to_dto`, `merge_blob_payload_into_features`, `parse_coord`, `parse_live_relay_event`, `parse_nip65_tags`, `percent_decode_fragment`, `resolve_lud16_to_lnurlp_url`, `shoutbox_filter_tag`, `sighting_to_dto`, `story_to_dto`, `verify_optional_sha256`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.

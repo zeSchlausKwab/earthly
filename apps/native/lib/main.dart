@@ -35,6 +35,7 @@ import 'shell/inbox_sheet.dart';
 import 'shell/location_inspector_sheet.dart';
 import 'shell/map_drawer.dart';
 import 'shell/osm_import_sheet.dart';
+import 'shell/outbox_queue_sheet.dart';
 import 'shell/person_margin.dart';
 import 'shell/place_search_sheet.dart';
 import 'shell/routing_sheet.dart';
@@ -53,6 +54,7 @@ import 'src/rust/api/nostr_client.dart';
 import 'src/rust/api/nwc.dart';
 import 'src/rust/api/private_groups.dart';
 import 'src/rust/api/publish.dart';
+import 'src/rust/api/relay_pool.dart';
 import 'src/rust/api/settings.dart';
 import 'src/rust/api/spike.dart';
 import 'theme/earthly_theme.dart';
@@ -78,6 +80,7 @@ enum _ActiveDrawer {
   spaces,
   circles,
   inbox,
+  outbox,
   person,
   account,
   search,
@@ -153,7 +156,8 @@ class EarthlySpikeHome extends StatefulWidget {
   State<EarthlySpikeHome> createState() => _EarthlySpikeHomeState();
 }
 
-class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
+class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
+    with WidgetsBindingObserver {
   MapController? _controller;
   DrawToolMode _mode = DrawToolMode.browse;
   TouchPlacementStyle _placementStyle = TouchPlacementStyle.drawDrag;
@@ -252,10 +256,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   StreamSubscription<LiveRelayEventDto>? _relayStreamSub;
   bool _relayStreamLive = false;
   Timer? _liveListenerTimer;
+  Timer? _outboxFlushTimer;
+  String? _supportDirPath;
+  List<OutboxQueueEntry> _outboxItems = const <OutboxQueueEntry>[];
+  bool _outboxFlushing = false;
+  final Map<String, String> _macOsSecurityBookmarks = <String, String>{};
   int _liveTickCount = 0;
   int _pendingClaimCount = 0;
   final Map<String, String> _seenLocalEventIds = <String, String>{};
   bool _initialLocalBaselineCaptured = false;
+
+  int get _pendingOutboxCount =>
+      _outboxItems.where((item) => item.isPending).length;
 
   // Rust AI Agent Copilot + safeEditing Amber Ghost state
   String? _nwcUri;
@@ -396,12 +408,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (widget.mapBuilder == null) {
       unawaited(_bootstrapPersistentState());
       _liveListenerTimer = Timer.periodic(
         const Duration(seconds: 2),
         (_) => unawaited(_pollLiveNearbyUpdates()),
       );
+      _outboxFlushTimer = Timer.periodic(
+        const Duration(seconds: 45),
+        (_) => unawaited(_flushAndRefreshOutbox()),
+      );
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && widget.mapBuilder == null) {
+      unawaited(_flushAndRefreshOutbox());
     }
   }
 
@@ -412,11 +436,28 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     );
     DeviceBridge.setGpsTrackPointHandler(_onGpsTrackPoint);
     final dir = await getApplicationSupportDirectory();
+    _supportDirPath = dir.path;
     if (mounted) {
       setState(() => _mlsDatabasePath = '${dir.path}/mls.sqlite3');
     }
-    await _restoreAppSettings();
+    var masterKeyReady = false;
+    try {
+      await RustBridge.ensureInitialized();
+      final masterKey = await DeviceBridge.getOrCreateMasterKey();
+      if (masterKey != null && masterKey.isNotEmpty) {
+        await setSettingsMasterKey(masterKeyBase64: masterKey);
+        masterKeyReady = true;
+      }
+    } catch (_) {}
+    final hasSecrets = await _restoreAppSettings();
+    if (masterKeyReady && hasSecrets) {
+      // Re-save once so any legacy plaintext secrets migrate to enc:v1: at rest.
+      unawaited(_persistAppSettings());
+    }
+    await _restoreMacOsSecurityScopedBookmarks();
+    await _initPersistentRelayPool(dir.path);
     await _restoreSavedDraft();
+    unawaited(_flushAndRefreshOutbox());
     unawaited(_syncActiveGpsTrackFromService());
     unawaited(_refreshCirclesSnapshot());
     unawaited(_preloadCatalog());
@@ -502,12 +543,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     }
   }
 
-  Future<void> _restoreAppSettings() async {
+  Future<bool> _restoreAppSettings() async {
     try {
       await RustBridge.ensureInitialized();
       final dbPath = await _databasePath();
       final loaded = await loadAppSettings(databasePath: dbPath);
-      if (!mounted) return;
+      final hasSecrets = (loaded.localNsec?.isNotEmpty ?? false) ||
+          (loaded.bunkerClientNsec?.isNotEmpty ?? false) ||
+          (loaded.nwcUri?.isNotEmpty ?? false) ||
+          loaded.agentApiKey.isNotEmpty ||
+          loaded.savedAccounts.any(
+            (a) =>
+                (a.localNsec?.isNotEmpty ?? false) ||
+                (a.bunkerClientNsec?.isNotEmpty ?? false),
+          );
+      if (!mounted) return hasSecrets;
       setState(() {
         if (loaded.relayUrls.isNotEmpty) {
           _relayUrls = List<String>.from(loaded.relayUrls);
@@ -612,6 +662,204 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       });
       if (_savedAccounts.isNotEmpty) {
         unawaited(_resolveSessionProfiles());
+      }
+      return hasSecrets;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _initPersistentRelayPool(String supportDirPath) async {
+    if (widget.mapBuilder != null) return;
+    try {
+      await RustBridge.ensureInitialized();
+      await initRelayPool(
+        dataDir: supportDirPath,
+        relayUrls: _activeRelayUrls,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _syncRelayPoolAndRefresh() async {
+    final dirPath =
+        _supportDirPath ?? (await getApplicationSupportDirectory()).path;
+    _supportDirPath = dirPath;
+    await _initPersistentRelayPool(dirPath);
+    unawaited(_preloadCatalog());
+    unawaited(_startLiveRelayStream());
+  }
+
+  static OutboxQueueEntry _outboxEntryFromDto(OutboxItemDto dto) {
+    return OutboxQueueEntry(
+      id: dto.id,
+      eventId: dto.eventId,
+      kind: dto.kind,
+      state: dto.state,
+      attemptCount: dto.attemptCount.toInt(),
+      nextRetryAt: dto.nextRetryAt?.toInt(),
+      createdAt: dto.createdAt.toInt(),
+      relays: dto.relays
+          .map(
+            (r) => OutboxRelayEntry(
+              relayUrl: r.relayUrl,
+              state: r.state,
+              lastError: r.lastError,
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Future<void> _refreshOutboxItems() async {
+    if (widget.mapBuilder != null) return;
+    try {
+      await RustBridge.ensureInitialized();
+      final dbPath = await _databasePath();
+      final raw = await listOutboxItems(databasePath: dbPath);
+      if (!mounted) return;
+      setState(() {
+        _outboxItems = raw.map(_outboxEntryFromDto).toList(growable: false);
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _flushAndRefreshOutbox() async {
+    if (widget.mapBuilder != null || _outboxFlushing) return;
+    if (mounted) setState(() => _outboxFlushing = true);
+    try {
+      await RustBridge.ensureInitialized();
+      final dbPath = await _databasePath();
+      await flushOutboxQueue(databasePath: dbPath);
+      final raw = await listOutboxItems(databasePath: dbPath);
+      if (!mounted) return;
+      setState(() {
+        _outboxItems = raw.map(_outboxEntryFromDto).toList(growable: false);
+      });
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _outboxFlushing = false);
+    }
+  }
+
+  Future<void> _retryOutboxEntry(String id) async {
+    try {
+      await RustBridge.ensureInitialized();
+      final dbPath = await _databasePath();
+      await retryOutboxItem(databasePath: dbPath, itemId: id);
+      await _flushAndRefreshOutbox();
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Outbox retry failed: $err')),
+      );
+    }
+  }
+
+  Future<void> _discardOutboxEntry(String id) async {
+    try {
+      await RustBridge.ensureInitialized();
+      final dbPath = await _databasePath();
+      await discardOutboxItem(databasePath: dbPath, itemId: id);
+      await _refreshOutboxItems();
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Outbox discard failed: $err')),
+      );
+    }
+  }
+
+  Future<File> _macOsBookmarksFile() async {
+    final dirPath =
+        _supportDirPath ?? (await getApplicationSupportDirectory()).path;
+    _supportDirPath = dirPath;
+    return File('$dirPath/security_bookmarks.json');
+  }
+
+  Future<void> _writeMacOsBookmarksFile() async {
+    if (!Platform.isMacOS) return;
+    try {
+      final file = await _macOsBookmarksFile();
+      await file.writeAsString(jsonEncode(_macOsSecurityBookmarks));
+    } catch (_) {}
+  }
+
+  Future<void> _saveMacOsSecurityScopedBookmark(String path) async {
+    if (!Platform.isMacOS) return;
+    final clean = path.trim();
+    if (clean.isEmpty) return;
+    try {
+      final bookmark = await DeviceBridge.createSecurityScopedBookmark(clean);
+      if (bookmark != null && bookmark.isNotEmpty) {
+        _macOsSecurityBookmarks[clean] = bookmark;
+        await _writeMacOsBookmarksFile();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _removeMacOsSecurityScopedBookmark(String path) async {
+    if (!Platform.isMacOS) return;
+    if (_macOsSecurityBookmarks.remove(path) != null) {
+      await _writeMacOsBookmarksFile();
+    }
+  }
+
+  Future<void> _restoreMacOsSecurityScopedBookmarks() async {
+    if (!Platform.isMacOS) return;
+    try {
+      final file = await _macOsBookmarksFile();
+      if (await file.exists()) {
+        final raw = await file.readAsString();
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            final key = entry.key.toString();
+            final val = entry.value?.toString() ?? '';
+            if (key.isNotEmpty && val.isNotEmpty) {
+              _macOsSecurityBookmarks[key] = val;
+            }
+          }
+        }
+      }
+      var workspacesUpdated = false;
+      final rewrites = <String, String>{};
+      for (final entry in _macOsSecurityBookmarks.entries) {
+        try {
+          final resolved =
+              await DeviceBridge.resolveSecurityScopedBookmark(entry.value);
+          if (resolved != null && resolved.isNotEmpty && resolved != entry.key) {
+            rewrites[entry.key] = resolved;
+          }
+        } catch (_) {}
+      }
+      if (rewrites.isNotEmpty) {
+        for (final rw in rewrites.entries) {
+          final bm = _macOsSecurityBookmarks.remove(rw.key);
+          if (bm != null) _macOsSecurityBookmarks[rw.value] = bm;
+          for (var i = 0; i < _mountedAtlasWorkspaces.length; i++) {
+            final ws = _mountedAtlasWorkspaces[i];
+            if (ws.path == rw.key) {
+              _mountedAtlasWorkspaces[i] = MountedAtlasWorkspaceDto(
+                name: ws.name,
+                path: rw.value,
+                sizeBytes: ws.sizeBytes,
+                families: ws.families,
+                coverageSummary: ws.coverageSummary,
+              );
+              workspacesUpdated = true;
+            }
+          }
+        }
+        await _writeMacOsBookmarksFile();
+        if (workspacesUpdated) {
+          if (mounted) setState(() {});
+          unawaited(_persistAppSettings());
+        }
+      }
+      for (final ws in _mountedAtlasWorkspaces) {
+        if (!_macOsSecurityBookmarks.containsKey(ws.path)) {
+          await _saveMacOsSecurityScopedBookmark(ws.path);
+        }
       }
     } catch (_) {}
   }
@@ -1010,8 +1258,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _catalog = null;
     });
     unawaited(_persistAppSettings());
-    unawaited(_preloadCatalog());
-    unawaited(_startLiveRelayStream());
+    unawaited(_syncRelayPoolAndRefresh());
   }
 
   Future<void> _mountSavedOfflinePack(SavedOfflinePackDto pack) async {
@@ -2564,9 +2811,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_agentStreamSub?.cancel());
     unawaited(_relayStreamSub?.cancel());
     _liveListenerTimer?.cancel();
+    _outboxFlushTimer?.cancel();
     super.dispose();
   }
 
@@ -3670,25 +3919,29 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
     String signedEventJson,
   ) async {
     final dbPath = await _databasePath();
+    final PublishOutcomeDto outcome;
     if (audience == DraftAudienceChoice.nearbyLocalNode) {
       final dir = await getApplicationSupportDirectory();
       final existing = await localNodeStatus();
       if (!existing.running) {
         await startLocalNode(dataDir: '${dir.path}/local-node');
       }
-      return publishNearbyEventViaOutbox(
+      outcome = await publishNearbyEventViaOutbox(
         databasePath: dbPath,
         signedEventJson: signedEventJson,
         remoteNodeIds: _acceptedRemotePeer != null
             ? <String>[_acceptedRemotePeer!.nodeId]
             : const <String>[],
       );
+    } else {
+      outcome = await publishSignedEventViaOutbox(
+        databasePath: dbPath,
+        signedEventJson: signedEventJson,
+        relayUrls: _activeRelayUrls,
+      );
     }
-    return publishSignedEventViaOutbox(
-      databasePath: dbPath,
-      signedEventJson: signedEventJson,
-      relayUrls: _activeRelayUrls,
-    );
+    unawaited(_refreshOutboxItems());
+    return outcome;
   }
 
   bool get _isDrawingMode => _mode != DrawToolMode.browse;
@@ -5469,12 +5722,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
       _mountedAtlasWorkspaces.removeWhere((w) => w.path == record.path);
       _mountedAtlasWorkspaces.insert(0, record);
     });
+    unawaited(_saveMacOsSecurityScopedBookmark(bundle.path));
     unawaited(_persistAppSettings());
 
     // Auto-mount embedded PMTiles basemap inside the .atlas bundle if present!
     if (bundle.embeddedPmtilesPath != null &&
         bundle.embeddedPmtilesPath!.isNotEmpty) {
       try {
+        unawaited(_saveMacOsSecurityScopedBookmark(bundle.embeddedPmtilesPath!));
         final dir = await getApplicationSupportDirectory();
         await startLocalNode(dataDir: '${dir.path}/local-node');
         final ingested = await ingestLocalPmtilesFromPath(
@@ -6432,6 +6687,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           setState(
             () => _mountedAtlasWorkspaces.removeWhere((w) => w.path == path),
           );
+          unawaited(_removeMacOsSecurityScopedBookmark(path));
           unawaited(_persistAppSettings());
         },
       ),
@@ -6633,6 +6889,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
             });
             unawaited(_persistWorkingDraft());
           },
+          pendingOutboxCount: _pendingOutboxCount,
+          onOpenOutbox: () {
+            _openDrawer(_ActiveDrawer.outbox);
+            unawaited(_refreshOutboxItems());
+          },
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.spaces:
@@ -6648,6 +6909,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onOpenInbox: () {
             _openDrawer(_ActiveDrawer.inbox);
             unawaited(_refreshInbox());
+          },
+          pendingOutboxCount: _pendingOutboxCount,
+          onOpenOutbox: () {
+            _openDrawer(_ActiveDrawer.outbox);
+            unawaited(_refreshOutboxItems());
           },
           onOpenCircles: () => _openDrawer(_ActiveDrawer.circles),
           onSelectCircle: (ws) {
@@ -6768,6 +7034,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
           onOpenSpaces: () => _openDrawer(_ActiveDrawer.spaces),
           onOpenAccount: () => _openDrawer(_ActiveDrawer.account),
           onClose: () => _closeDrawer(target),
+        );
+      case _ActiveDrawer.outbox:
+        return OutboxQueueSheet(
+          items: _outboxItems,
+          flushing: _outboxFlushing,
+          onFlushAll: () => unawaited(_flushAndRefreshOutbox()),
+          onRetryItem: (id) => unawaited(_retryOutboxEntry(id)),
+          onDiscardItem: (id) => unawaited(_discardOutboxEntry(id)),
+          onClose: () => _closeDrawer(_ActiveDrawer.outbox),
         );
       case _ActiveDrawer.person:
         final personPk = _inspectedPersonPubkey;
@@ -8013,9 +8288,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                               ),
                               const SizedBox(width: 6),
                               _MiniToggle(
-                                label: 'Desk',
+                                label: _pendingOutboxCount > 0
+                                    ? 'Desk ($_pendingOutboxCount)'
+                                    : 'Desk',
                                 icon: Icons.layers_outlined,
-                                active: _isDrawerOpen(_ActiveDrawer.desk),
+                                active: _isDrawerOpen(_ActiveDrawer.desk) ||
+                                    _isDrawerOpen(_ActiveDrawer.outbox) ||
+                                    _pendingOutboxCount > 0,
                                 onTap: () => _toggleDrawer(_ActiveDrawer.desk),
                               ),
                               const SizedBox(width: 6),
@@ -9065,17 +9344,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome> {
                               child: _DockTool(
                                 label: (_pendingClaimCount +
                                             _circlePendingJoins.length +
-                                            _inboxUnreadCount) >
+                                            _inboxUnreadCount +
+                                            _pendingOutboxCount) >
                                         0
-                                    ? 'Spaces (${_pendingClaimCount + _circlePendingJoins.length + _inboxUnreadCount})'
+                                    ? 'Spaces (${_pendingClaimCount + _circlePendingJoins.length + _inboxUnreadCount + _pendingOutboxCount})'
                                     : 'Spaces',
                                 icon: Icons.hub_outlined,
                                 selected: _isDrawerOpen(_ActiveDrawer.spaces) ||
                                     _isDrawerOpen(_ActiveDrawer.circles) ||
                                     _isDrawerOpen(_ActiveDrawer.inbox) ||
+                                    _isDrawerOpen(_ActiveDrawer.outbox) ||
                                     _pendingClaimCount > 0 ||
                                     _circlePendingJoins.isNotEmpty ||
-                                    _inboxUnreadCount > 0,
+                                    _inboxUnreadCount > 0 ||
+                                    _pendingOutboxCount > 0,
                                 onTap: () =>
                                     _toggleDrawer(_ActiveDrawer.spaces),
                               ),
