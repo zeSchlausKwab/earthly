@@ -3,7 +3,6 @@
 //! parsing them through `earthly-domain`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_domain::{
@@ -108,22 +107,30 @@ pub async fn fetch_profiles(
         relay_urls
     };
 
-    let client = Client::default();
-    for url in &urls {
-        let _ = client.add_relay(url).await;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let filter = Filter::new()
         .kind(Kind::Metadata)
         .authors(authors.clone())
         .limit(authors.len() * 2);
 
-    let events = client
-        .fetch_events(filter, Duration::from_secs(6))
-        .await
-        .map_err(|err| format!("failed to fetch author profiles: {err}"))?;
-    client.disconnect().await;
+    let relay_res = client
+        .fetch_events_from(&urls, filter.clone(), Duration::from_secs(6))
+        .await;
+    let mut events: Vec<Event> = match &relay_res {
+        Ok(set) => set.iter().cloned().collect(),
+        Err(_) => Vec::new(),
+    };
+    if relay_res.is_err() || events.len() < authors.len() {
+        if let Ok(cached) = client.database().query(filter).await {
+            events.extend(cached.into_iter());
+        }
+    }
+    if events.is_empty() {
+        if let Err(err) = relay_res {
+            return Err(format!("failed to fetch author profiles: {err}"));
+        }
+    }
 
     let mut latest: BTreeMap<String, (u64, String)> = BTreeMap::new();
     for ev in events.into_iter() {
@@ -236,21 +243,16 @@ pub async fn fetch_user_relay_list(
         urls.push("wss://purplepag.es".to_owned());
     }
 
-    let client = Client::default();
-    for url in &urls {
-        let _ = client.add_relay(url).await;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let filter = Filter::new()
         .kind(Kind::RelayList)
         .author(author)
         .limit(5);
     let events = client
-        .fetch_events(filter, Duration::from_secs(6))
+        .fetch_events_from(&urls, filter, Duration::from_secs(6))
         .await
         .map_err(|e| format!("failed to fetch NIP-65 relay list: {e}"))?;
-    client.disconnect().await;
 
     let newest = events
         .into_iter()
@@ -278,6 +280,8 @@ pub async fn probe_relays_health(relay_urls: Vec<String>) -> Result<Vec<RelayHea
             });
             continue;
         }
+        // Intentionally use an isolated temporary probe client (not the shared pool)
+        // so fresh WebSocket/TLS connect latency is measured honestly.
         let client = Client::default();
         if let Err(err) = client.add_relay(&url).await {
             results.push(RelayHealthDto {
@@ -446,11 +450,7 @@ pub async fn search_relay_catalog_nip50(
         relay_urls
     };
 
-    let client = Client::default();
-    for url in &urls {
-        let _ = client.add_relay(url).await;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let filter = Filter::new()
         .kinds([
@@ -461,10 +461,9 @@ pub async fn search_relay_catalog_nip50(
         .search(trimmed)
         .limit(40);
     let events = client
-        .fetch_events(filter, Duration::from_secs(6))
+        .fetch_events_from(&urls, filter, Duration::from_secs(6))
         .await
         .map_err(|e| format!("NIP-50 search failed: {e}"))?;
-    client.disconnect().await;
 
     let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
     for event in events {
@@ -770,14 +769,7 @@ pub async fn fetch_earthly_catalog(
     };
     let limit = (limit_per_kind as usize).clamp(1, 300);
 
-    let client = Client::default();
-    for url in &urls {
-        client
-            .add_relay(url)
-            .await
-            .map_err(|err| format!("invalid relay URL {url}: {err}"))?;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     // Query each Earthly entity kind in its own dedicated filter so busy kinds
     // (e.g. 100+ Maps) never starve Stories, Atlases, Beacons, or Sightings!
@@ -797,14 +789,12 @@ pub async fn fetch_earthly_catalog(
 
     let timeout = Duration::from_secs(9);
     let (maps_res, atlases_res, stories_res, beacons_res, sightings_res) = tokio::join!(
-        client.fetch_events(maps_filter, timeout),
-        client.fetch_events(atlases_filter, timeout),
-        client.fetch_events(stories_filter, timeout),
-        client.fetch_events(beacons_filter, timeout),
-        client.fetch_events(sightings_filter, timeout),
+        client.fetch_events_from(&urls, maps_filter.clone(), timeout),
+        client.fetch_events_from(&urls, atlases_filter.clone(), timeout),
+        client.fetch_events_from(&urls, stories_filter.clone(), timeout),
+        client.fetch_events_from(&urls, beacons_filter.clone(), timeout),
+        client.fetch_events_from(&urls, sightings_filter.clone(), timeout),
     );
-
-    client.disconnect().await;
 
     let mut all_events = Vec::new();
     let mut last_err: Option<String> = None;
@@ -814,6 +804,25 @@ pub async fn fetch_earthly_catalog(
             Err(err) => last_err = Some(err.to_string()),
         }
     }
+
+    // Instant offline fallback to local NostrLMDB when relays fail, time out,
+    // or return no events (fresh relay events are merged into LMDB by nostr-sdk).
+    if last_err.is_some() || all_events.is_empty() {
+        let db = client.database();
+        let (c_maps, c_atlases, c_stories, c_beacons, c_sightings) = tokio::join!(
+            db.query(maps_filter),
+            db.query(atlases_filter),
+            db.query(stories_filter),
+            db.query(beacons_filter),
+            db.query(sightings_filter),
+        );
+        for res in [c_maps, c_atlases, c_stories, c_beacons, c_sightings] {
+            if let Ok(set) = res {
+                all_events.extend(set.into_iter());
+            }
+        }
+    }
+
     if all_events.is_empty() {
         if let Some(err) = last_err {
             return Err(format!("failed to fetch catalog from relays: {err}"));
@@ -1041,14 +1050,7 @@ pub async fn subscribe_earthly_relay_stream(
         relay_urls
     };
 
-    let client = Client::default();
-    for url in &urls {
-        client
-            .add_relay(url)
-            .await
-            .map_err(|err| format!("invalid relay URL {url}: {err}"))?;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let filter = Filter::new()
         .kinds([
@@ -1060,8 +1062,8 @@ pub async fn subscribe_earthly_relay_stream(
         ])
         .since(Timestamp::now());
 
-    client
-        .subscribe(filter, None)
+    let sub_output = client
+        .subscribe_to(&urls, filter, None)
         .await
         .map_err(|err| format!("failed to subscribe to Earthly relays: {err}"))?;
 
@@ -1097,7 +1099,7 @@ pub async fn subscribe_earthly_relay_stream(
         }
     }
 
-    client.disconnect().await;
+    client.unsubscribe(&sub_output.val).await;
     Ok(())
 }
 
@@ -1198,11 +1200,7 @@ pub async fn fetch_entity_by_address(
         relay_urls
     };
 
-    let client = Client::default();
-    for url in &urls {
-        let _ = client.add_relay(url).await;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let filter = Filter::new()
         .kind(Kind::Custom(kind_num))
@@ -1211,10 +1209,9 @@ pub async fn fetch_entity_by_address(
         .limit(3);
 
     let events = client
-        .fetch_events(filter, Duration::from_secs(8))
+        .fetch_events_from(&urls, filter, Duration::from_secs(8))
         .await
         .map_err(|err| format!("failed to fetch entity: {err}"))?;
-    client.disconnect().await;
 
     let mut newest: Option<RawNostrEvent> = None;
     for ev in events.into_iter() {
@@ -1280,11 +1277,7 @@ pub async fn fetch_maps_by_addresses(
         relay_urls
     };
 
-    let client = Client::default();
-    for url in &urls {
-        let _ = client.add_relay(url).await;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let authors: Vec<PublicKey> = parsed_targets.iter().map(|(pk, _, _)| *pk).collect();
     let identifiers: Vec<String> = parsed_targets.iter().map(|(_, d, _)| d.clone()).collect();
@@ -1295,10 +1288,9 @@ pub async fn fetch_maps_by_addresses(
         .limit(parsed_targets.len().max(1) * 3);
 
     let events = client
-        .fetch_events(filter, Duration::from_secs(8))
+        .fetch_events_from(&urls, filter, Duration::from_secs(8))
         .await
         .map_err(|err| format!("failed to fetch referenced maps: {err}"))?;
-    client.disconnect().await;
 
     let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
     for event in events.into_iter() {
@@ -1347,11 +1339,7 @@ pub async fn fetch_entity_discussion(
     } else {
         relay_urls
     };
-    let client = Client::default();
-    for url in &urls {
-        let _ = client.add_relay(url).await;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let comments_filter_upper = Filter::new()
         .kind(Kind::Custom(GEO_COMMENT_KIND))
@@ -1367,9 +1355,9 @@ pub async fn fetch_entity_discussion(
         .limit(40);
 
     let (upper_ev, lower_ev, prop_ev) = tokio::join!(
-        client.fetch_events(comments_filter_upper, Duration::from_secs(6)),
-        client.fetch_events(comments_filter_lower, Duration::from_secs(6)),
-        client.fetch_events(proposals_filter, Duration::from_secs(6)),
+        client.fetch_events_from(&urls, comments_filter_upper, Duration::from_secs(6)),
+        client.fetch_events_from(&urls, comments_filter_lower, Duration::from_secs(6)),
+        client.fetch_events_from(&urls, proposals_filter, Duration::from_secs(6)),
     );
 
     let mut latest_comments: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
@@ -1418,7 +1406,7 @@ pub async fn fetch_entity_discussion(
             .custom_tags(SingleLetterTag::lowercase(Alphabet::A), prop_addrs)
             .limit(80);
         if let Ok(status_events) = client
-            .fetch_events(status_filter, Duration::from_secs(5))
+            .fetch_events_from(&urls, status_filter, Duration::from_secs(5))
             .await
         {
             for ev in status_events.into_iter() {
@@ -1438,8 +1426,6 @@ pub async fn fetch_entity_discussion(
             }
         }
     }
-
-    client.disconnect().await;
 
     let mut comments = Vec::new();
     for (address, raw) in latest_comments {
@@ -1567,11 +1553,7 @@ pub async fn fetch_entity_social_counts(
     } else {
         relay_urls
     };
-    let client = Client::default();
-    for url in &urls {
-        let _ = client.add_relay(url).await;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let reactions_filter = Filter::new()
         .kind(Kind::Reaction)
@@ -1587,15 +1569,17 @@ pub async fn fetch_entity_social_counts(
         .map(|eid| Filter::new().kind(Kind::Reaction).event(eid).limit(200));
 
     let (r_a, z_a) = tokio::join!(
-        client.fetch_events(reactions_filter, Duration::from_secs(5)),
-        client.fetch_events(zaps_filter, Duration::from_secs(5)),
+        client.fetch_events_from(&urls, reactions_filter, Duration::from_secs(5)),
+        client.fetch_events_from(&urls, zaps_filter, Duration::from_secs(5)),
     );
     let r_e = if let Some(f) = reactions_e_filter {
-        client.fetch_events(f, Duration::from_secs(4)).await.ok()
+        client
+            .fetch_events_from(&urls, f, Duration::from_secs(4))
+            .await
+            .ok()
     } else {
         None
     };
-    client.disconnect().await;
 
     let me = current_user_pubkey
         .as_deref()
@@ -1651,12 +1635,6 @@ pub async fn fetch_entity_social_counts(
     })
 }
 
-static BLOSSOM_GEO_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
-
-fn blossom_geo_cache() -> &'static Mutex<HashMap<String, String>> {
-    BLOSSOM_GEO_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 /// Resolves externalized Blossom GeoJSON `blob` references (`SPEC.md` §1.5),
 /// verifying optional `sha256` integrity and merging `collection` and
 /// `feature:<id>` payloads into a single renderable GeoJSON FeatureCollection.
@@ -1694,11 +1672,7 @@ pub async fn resolve_map_blob_geojson(
             .map(|s| format!("sha256:{}", s.to_lowercase()))
             .unwrap_or_else(|| blob.url.clone());
 
-        let raw_text = if let Some(cached) = blossom_geo_cache()
-            .lock()
-            .ok()
-            .and_then(|m| m.get(&cache_key).cloned())
-        {
+        let raw_text = if let Some(cached) = super::relay_pool::read_cached_blossom_blob(&cache_key) {
             cached
         } else {
             let mut fetched: Option<String> = None;
@@ -1739,12 +1713,7 @@ pub async fn resolve_map_blob_geojson(
             let Some(text) = fetched else {
                 continue;
             };
-            if let Ok(mut guard) = blossom_geo_cache().lock() {
-                if guard.len() > 64 {
-                    guard.clear();
-                }
-                guard.insert(cache_key, text.clone());
-            }
+            super::relay_pool::write_cached_blossom_blob(&cache_key, &text);
             text
         };
 
@@ -2132,11 +2101,7 @@ pub async fn fetch_author_portfolio(
         relay_urls
     };
 
-    let client = Client::default();
-    for url in &urls {
-        let _ = client.add_relay(url).await;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let filter_entities = Filter::new()
         .author(pk)
@@ -2149,10 +2114,9 @@ pub async fn fetch_author_portfolio(
         .limit(120);
 
     let events = client
-        .fetch_events(filter_entities, Duration::from_secs(7))
+        .fetch_events_from(&urls, filter_entities, Duration::from_secs(7))
         .await
         .map_err(|err| format!("failed to fetch author portfolio: {err}"))?;
-    client.disconnect().await;
 
     let mut latest_profile: Option<(u64, ProfileMetadataDto)> = None;
     let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
@@ -2266,11 +2230,7 @@ pub async fn fetch_inbox_items(
         relay_urls
     };
 
-    let client = Client::default();
-    for url in &urls {
-        let _ = client.add_relay(url).await;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let mut all_raw: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
 
@@ -2286,7 +2246,7 @@ pub async fn fetch_inbox_items(
         ])
         .limit(120);
     if let Ok(events) = client
-        .fetch_events(directed_filter, Duration::from_secs(6))
+        .fetch_events_from(&urls, directed_filter, Duration::from_secs(6))
         .await
     {
         for ev in events {
@@ -2301,7 +2261,7 @@ pub async fn fetch_inbox_items(
         .kind(Kind::Custom(GEO_COMMENT_KIND))
         .limit(80);
     if let Ok(events) = client
-        .fetch_events(upper_p_filter, Duration::from_secs(5))
+        .fetch_events_from(&urls, upper_p_filter, Duration::from_secs(5))
         .await
     {
         for ev in events {
@@ -2317,7 +2277,7 @@ pub async fn fetch_inbox_items(
         .limit(50);
     let mut own_proposal_addrs: Vec<String> = Vec::new();
     if let Ok(events) = client
-        .fetch_events(own_proposals_filter, Duration::from_secs(5))
+        .fetch_events_from(&urls, own_proposals_filter, Duration::from_secs(5))
         .await
     {
         for ev in events {
@@ -2338,7 +2298,7 @@ pub async fn fetch_inbox_items(
             ])
             .limit(80);
         if let Ok(events) = client
-            .fetch_events(status_filter, Duration::from_secs(5))
+            .fetch_events_from(&urls, status_filter, Duration::from_secs(5))
             .await
         {
             for ev in events {
@@ -2363,7 +2323,7 @@ pub async fn fetch_inbox_items(
             .kind(Kind::Custom(GEO_EVENT_KIND))
             .limit(80);
         if let Ok(events) = client
-            .fetch_events(arrivals_filter, Duration::from_secs(5))
+            .fetch_events_from(&urls, arrivals_filter, Duration::from_secs(5))
             .await
         {
             for ev in events {
@@ -2372,8 +2332,6 @@ pub async fn fetch_inbox_items(
             }
         }
     }
-
-    client.disconnect().await;
 
     let known_titles: BTreeMap<String, String> = known_titles_json
         .as_deref()
@@ -2900,6 +2858,47 @@ mod tests {
             "3aa5817273c3b2f94f491840e0472f049d0f10009e23de63006166bca9b36ea3"
         );
     }
+
+    #[tokio::test]
+    async fn catalog_and_profiles_fall_back_to_local_pool_database_when_relay_offline() {
+        let unreachable = vec!["ws://127.0.0.1:9".to_owned()];
+        let client = crate::api::relay_pool::shared_client(&unreachable)
+            .await
+            .unwrap();
+
+        let keys = Keys::generate();
+        let pk_hex = keys.public_key().to_hex();
+
+        let profile_ev = nostr::EventBuilder::new(
+            Kind::Metadata,
+            r#"{"name":"offline-mapper","display_name":"Offline Mapper"}"#,
+        )
+        .sign_with_keys(&keys)
+        .unwrap();
+        let map_ev = nostr::EventBuilder::new(
+            Kind::Custom(GEO_EVENT_KIND),
+            r#"{"type":"FeatureCollection","name":"Cached Trail","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.37,48.21]},"properties":{}}]}"#,
+        )
+        .tag(nostr::Tag::identifier("cached-trail"))
+        .sign_with_keys(&keys)
+        .unwrap();
+
+        client.database().save_event(&profile_ev).await.unwrap();
+        client.database().save_event(&map_ev).await.unwrap();
+
+        let profiles = fetch_profiles(unreachable.clone(), vec![pk_hex.clone()])
+            .await
+            .unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].pubkey, pk_hex);
+        assert_eq!(profiles[0].name.as_deref(), Some("offline-mapper"));
+
+        let catalog = fetch_earthly_catalog(unreachable, 20).await.unwrap();
+        assert!(catalog
+            .maps
+            .iter()
+            .any(|m| m.d_tag == "cached-trail" && m.pubkey == pk_hex));
+    }
 }
 
 pub const EARTHLY_CITY_DEVELOPER_NPUB: &str =
@@ -3128,21 +3127,15 @@ pub async fn fetch_shoutbox_posts(
         relay_urls
     };
 
-    let client = Client::default();
-    for url in &urls {
-        client
-            .add_relay(url)
-            .await
-            .map_err(|err| format!("invalid relay URL {url}: {err}"))?;
-    }
-    client.connect().await;
+    let client = super::relay_pool::shared_client(&urls).await?;
 
     let filter = Filter::new()
         .kind(Kind::TextNote)
         .hashtag("earthlycity")
         .limit((limit as usize).clamp(1, 150));
-    let events_res = client.fetch_events(filter, Duration::from_secs(8)).await;
-    client.disconnect().await;
+    let events_res = client
+        .fetch_events_from(&urls, filter, Duration::from_secs(8))
+        .await;
 
     let events = events_res.map_err(|e| format!("failed to fetch shoutbox posts: {e}"))?;
     let dev_hex = PublicKey::parse(EARTHLY_CITY_DEVELOPER_NPUB)

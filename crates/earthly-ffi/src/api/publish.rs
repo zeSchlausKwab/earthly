@@ -13,12 +13,12 @@ use earthly_domain::{
 use earthly_geo::validate_feature_collection;
 use earthly_spatial::Bounds;
 use earthly_storage::{
-    DraftStore, OUTBOX_PROTOCOL_VERSION, OutboxEnqueueInput, OutboxRelayResultInput, OutboxRouting,
-    OutboxStore, SaveDraftInput,
+    DraftStore, OUTBOX_PROTOCOL_VERSION, OutboxEnqueueInput, OutboxItemState,
+    OutboxItemSummaryView, OutboxItemView, OutboxRelayResultInput, OutboxRelayState,
+    OutboxRelayView, OutboxRouting, OutboxStore, SaveDraftInput,
 };
 use nostr::nips::nip19::ToBech32;
 use nostr::{Event, JsonUtil, Keys, PublicKey, UnsignedEvent};
-use nostr_sdk::Client;
 use sha2::{Digest, Sha256};
 
 use super::nostr_client::RelayListEntryDto;
@@ -1444,9 +1444,193 @@ pub fn prepare_unsigned_deletion_event(
     })
 }
 
+#[derive(Clone, Debug)]
+pub struct OutboxRelayItemDto {
+    pub relay_url: String,
+    pub state: String,
+    pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OutboxItemDto {
+    pub id: String,
+    pub event_id: String,
+    pub kind: u16,
+    pub state: String,
+    pub attempt_count: u64,
+    pub next_retry_at: Option<u64>,
+    pub created_at: u64,
+    pub relays: Vec<OutboxRelayItemDto>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OutboxFlushReportDto {
+    pub attempted: u32,
+    pub delivered: u32,
+    pub retrying: u32,
+    pub failed: u32,
+    pub remaining: u32,
+}
+
+fn outbox_item_state_str(state: OutboxItemState) -> &'static str {
+    match state {
+        OutboxItemState::Queued => "queued",
+        OutboxItemState::Delivering => "delivering",
+        OutboxItemState::Delivered => "delivered",
+        OutboxItemState::Partial => "partial",
+        OutboxItemState::RetryWait => "retry_wait",
+        OutboxItemState::Rejected => "rejected",
+        OutboxItemState::Discarded => "discarded",
+    }
+}
+
+fn outbox_relay_state_str(state: OutboxRelayState) -> &'static str {
+    match state {
+        OutboxRelayState::Pending => "pending",
+        OutboxRelayState::Acknowledged => "acknowledged",
+        OutboxRelayState::Rejected => "rejected",
+    }
+}
+
+fn build_outbox_item_dto(
+    id: String,
+    event_id: String,
+    kind: u16,
+    state: OutboxItemState,
+    attempt_count: u64,
+    next_retry_at: Option<u64>,
+    created_at: u64,
+    relays: Vec<OutboxRelayView>,
+) -> OutboxItemDto {
+    OutboxItemDto {
+        id,
+        event_id,
+        kind,
+        state: outbox_item_state_str(state).to_owned(),
+        attempt_count,
+        next_retry_at,
+        created_at,
+        relays: relays
+            .into_iter()
+            .map(|r| OutboxRelayItemDto {
+                relay_url: r.relay_url,
+                state: outbox_relay_state_str(r.state).to_owned(),
+                last_error: r.last_error,
+            })
+            .collect(),
+    }
+}
+
+impl From<OutboxItemSummaryView> for OutboxItemDto {
+    fn from(item: OutboxItemSummaryView) -> Self {
+        build_outbox_item_dto(
+            item.id,
+            item.event_id,
+            item.event_kind,
+            item.state,
+            item.attempt_count,
+            item.next_attempt_at,
+            item.created_at,
+            item.relays,
+        )
+    }
+}
+
+impl From<OutboxItemView> for OutboxItemDto {
+    fn from(item: OutboxItemView) -> Self {
+        build_outbox_item_dto(
+            item.id,
+            item.event_id,
+            item.event_kind,
+            item.state,
+            item.attempt_count,
+            item.next_attempt_at,
+            item.created_at,
+            item.relays,
+        )
+    }
+}
+
+async fn deliver_event_to_relays(
+    event: &Event,
+    relay_urls: &[String],
+) -> (Vec<OutboxRelayResultInput>, Vec<RelayDeliveryStatusDto>) {
+    let mut results = Vec::with_capacity(relay_urls.len());
+    let mut ui_statuses = Vec::with_capacity(relay_urls.len());
+
+    let client = match super::relay_pool::shared_client(relay_urls).await {
+        Ok(client) => client,
+        Err(err) => {
+            for relay_url in relay_urls {
+                results.push(OutboxRelayResultInput {
+                    relay_url: relay_url.clone(),
+                    ok: false,
+                    message: Some(err.clone()),
+                });
+                ui_statuses.push(RelayDeliveryStatusDto {
+                    relay_url: relay_url.clone(),
+                    ok: false,
+                    message: Some(err.clone()),
+                });
+            }
+            return (results, ui_statuses);
+        }
+    };
+
+    for relay_url in relay_urls {
+        let attempt = async {
+            let output = tokio::time::timeout(
+                Duration::from_secs(8),
+                client.send_event_to([relay_url.as_str()], event),
+            )
+            .await
+            .map_err(|_| "relay publish timed out".to_owned())?
+            .map_err(|e| e.to_string())?;
+            if !output.success.is_empty() {
+                Ok("accepted".to_owned())
+            } else if let Some((_, reason)) = output.failed.into_iter().next() {
+                Err(reason)
+            } else {
+                Err("relay did not acknowledge event".to_owned())
+            }
+        }
+        .await;
+
+        match attempt {
+            Ok(msg) => {
+                results.push(OutboxRelayResultInput {
+                    relay_url: relay_url.clone(),
+                    ok: true,
+                    message: Some(msg.clone()),
+                });
+                ui_statuses.push(RelayDeliveryStatusDto {
+                    relay_url: relay_url.clone(),
+                    ok: true,
+                    message: Some(msg),
+                });
+            }
+            Err(err) => {
+                results.push(OutboxRelayResultInput {
+                    relay_url: relay_url.clone(),
+                    ok: false,
+                    message: Some(err.clone()),
+                });
+                ui_statuses.push(RelayDeliveryStatusDto {
+                    relay_url: relay_url.clone(),
+                    ok: false,
+                    message: Some(err),
+                });
+            }
+        }
+    }
+
+    (results, ui_statuses)
+}
+
 /// Persists an already-signed Nostr event into the crash-safe SQLite outbox
-/// BEFORE network transmission, delivers it to each target relay via `nostr-sdk`,
-/// records per-relay acknowledgements, and returns the live outcome.
+/// BEFORE network transmission, delivers it to each target relay via the shared
+/// `nostr-sdk` relay pool, records per-relay acknowledgements, and returns the
+/// live outcome.
 pub async fn publish_signed_event_via_outbox(
     database_path: String,
     signed_event_json: String,
@@ -1476,75 +1660,118 @@ pub async fn publish_signed_event_via_outbox(
         })
         .map_err(|e| e.to_string())?;
 
-    // Claim for delivery and attempt transmission to each target relay.
+    // Claim for delivery and attempt transmission via the shared relay pool.
     let _ = store.flush();
-    let mut results = Vec::with_capacity(queued.relays.len());
-    let mut ui_statuses = Vec::with_capacity(queued.relays.len());
-
-    for relay in &queued.relays {
-        let client = Client::default();
-        let attempt = async {
-            client
-                .add_relay(&relay.relay_url)
-                .await
-                .map_err(|e| e.to_string())?;
-            client.connect().await;
-            let output = tokio::time::timeout(
-                Duration::from_secs(8),
-                client.send_event(&event),
-            )
-            .await
-            .map_err(|_| "relay publish timed out".to_owned())?
-            .map_err(|e| e.to_string())?;
-            client.disconnect().await;
-            if !output.success.is_empty() {
-                Ok("accepted".to_owned())
-            } else if let Some((_, reason)) = output.failed.into_iter().next() {
-                Err(reason)
-            } else {
-                Err("relay did not acknowledge event".to_owned())
-            }
-        }
-        .await;
-
-        match attempt {
-            Ok(msg) => {
-                results.push(OutboxRelayResultInput {
-                    relay_url: relay.relay_url.clone(),
-                    ok: true,
-                    message: Some(msg.clone()),
-                });
-                ui_statuses.push(RelayDeliveryStatusDto {
-                    relay_url: relay.relay_url.clone(),
-                    ok: true,
-                    message: Some(msg),
-                });
-            }
-            Err(err) => {
-                results.push(OutboxRelayResultInput {
-                    relay_url: relay.relay_url.clone(),
-                    ok: false,
-                    message: Some(err.clone()),
-                });
-                ui_statuses.push(RelayDeliveryStatusDto {
-                    relay_url: relay.relay_url.clone(),
-                    ok: false,
-                    message: Some(err),
-                });
-            }
-        }
-    }
+    let target_urls: Vec<String> = queued
+        .relays
+        .iter()
+        .map(|r| r.relay_url.clone())
+        .collect();
+    let (results, ui_statuses) = deliver_event_to_relays(&event, &target_urls).await;
 
     let updated = store
         .record_results(&queued.id, results)
         .map_err(|e| e.to_string())?;
-    let state_str = format!("{:?}", updated.state).to_lowercase();
+    let state_str = outbox_item_state_str(updated.state).to_owned();
 
     Ok(PublishOutcomeDto {
         event_id: updated.event_id,
         outbox_state: state_str,
         relays: ui_statuses,
     })
+}
+
+/// Lists all non-discarded outbox queue items from SQLite.
+pub fn list_outbox_items(database_path: String) -> Result<Vec<OutboxItemDto>, String> {
+    let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
+    let items = store.list_summaries().map_err(|e| e.to_string())?;
+    Ok(items.into_iter().map(OutboxItemDto::from).collect())
+}
+
+/// Claims all ready outbox items via `OutboxStore::flush`, attempts delivery via
+/// the shared relay pool, records per-relay results, and returns a flush report.
+pub async fn flush_outbox_queue(database_path: String) -> Result<OutboxFlushReportDto, String> {
+    let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
+    let claimed = store.flush().map_err(|e| e.to_string())?;
+
+    let attempted = claimed.len() as u32;
+    let mut delivered = 0u32;
+    let mut retrying = 0u32;
+    let mut failed = 0u32;
+
+    for item in claimed {
+        let mut target_urls: Vec<String> = item
+            .relays
+            .iter()
+            .filter(|r| r.state != OutboxRelayState::Acknowledged)
+            .map(|r| r.relay_url.clone())
+            .collect();
+        if target_urls.is_empty() {
+            target_urls = item.relays.iter().map(|r| r.relay_url.clone()).collect();
+        }
+
+        let results = match Event::from_json(&item.event_json)
+            .map_err(|e| format!("invalid signed event in outbox: {e}"))
+            .and_then(|ev| {
+                ev.verify()
+                    .map_err(|e| format!("outbox event verification failed: {e}"))?;
+                Ok(ev)
+            }) {
+            Ok(event) => deliver_event_to_relays(&event, &target_urls).await.0,
+            Err(err) => target_urls
+                .into_iter()
+                .map(|relay_url| OutboxRelayResultInput {
+                    relay_url,
+                    ok: false,
+                    message: Some(err.clone()),
+                })
+                .collect(),
+        };
+
+        let updated = store
+            .record_results(&item.id, results)
+            .map_err(|e| e.to_string())?;
+        match updated.state {
+            OutboxItemState::Delivered => delivered += 1,
+            OutboxItemState::Partial | OutboxItemState::RetryWait | OutboxItemState::Queued => {
+                retrying += 1
+            }
+            OutboxItemState::Rejected => failed += 1,
+            OutboxItemState::Delivering | OutboxItemState::Discarded => {}
+        }
+    }
+
+    let summary = store.diagnostic_summary().map_err(|e| e.to_string())?;
+    let remaining = (summary.queued
+        + summary.delivering
+        + summary.partial
+        + summary.retry_wait
+        + summary.rejected) as u32;
+
+    Ok(OutboxFlushReportDto {
+        attempted,
+        delivered,
+        retrying,
+        failed,
+        remaining,
+    })
+}
+
+/// Resets a failed/partial/retry-wait outbox item back to `queued` for immediate retry.
+pub fn retry_outbox_item(database_path: String, item_id: String) -> Result<OutboxItemDto, String> {
+    let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
+    let updated = store.retry(&item_id).map_err(|e| e.to_string())?;
+    Ok(OutboxItemDto::from(updated))
+}
+
+/// Marks an undelivered outbox item as `discarded` so it will not be retried.
+pub fn discard_outbox_item(
+    database_path: String,
+    item_id: String,
+) -> Result<OutboxItemDto, String> {
+    let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
+    let updated = store.discard(&item_id).map_err(|e| e.to_string())?;
+    Ok(OutboxItemDto::from(updated))
 }
 
 /// Publishes a signed Nostr event to the local embedded `LocalNode` (trusted
@@ -1668,7 +1895,7 @@ pub async fn publish_nearby_event_via_outbox(
     let updated = store
         .record_results(&queued.id, results)
         .map_err(|e| e.to_string())?;
-    let state_str = format!("{:?}", updated.state).to_lowercase();
+    let state_str = outbox_item_state_str(updated.state).to_owned();
 
     Ok(PublishOutcomeDto {
         event_id: updated.event_id,
@@ -2082,6 +2309,69 @@ mod tests {
         let shout_tags = shout_raw["tags"].as_array().unwrap();
         assert!(shout_tags.iter().any(|t| t[0] == "t" && t[1] == "earthlycity"));
         assert!(shout_tags.iter().any(|t| t[0] == "t" && t[1] == "feature"));
+    }
+
+    #[tokio::test]
+    async fn outbox_list_retry_flush_and_discard_lifecycle() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = dir.path().join("outbox.sqlite3");
+        let db_str = db_path.to_string_lossy().to_string();
+
+        // Empty queue flush returns zeroes.
+        let empty_report = flush_outbox_queue(db_str.clone()).await.unwrap();
+        assert_eq!(empty_report.attempted, 0);
+        assert_eq!(empty_report.remaining, 0);
+        assert!(list_outbox_items(db_str.clone()).unwrap().is_empty());
+
+        // Enqueue a valid signed event targeting an unreachable loopback relay.
+        let keys = Keys::generate();
+        let event = nostr::EventBuilder::new(nostr::Kind::Custom(37_515), r#"{"type":"FeatureCollection","features":[]}"#)
+            .tag(nostr::Tag::identifier("outbox-ffi-test"))
+            .sign_with_keys(&keys)
+            .unwrap();
+        let store = OutboxStore::open(&db_path).unwrap();
+        let queued = store
+            .enqueue(OutboxEnqueueInput {
+                version: OUTBOX_PROTOCOL_VERSION,
+                event_json: event.as_json(),
+                routing: OutboxRouting::Configured,
+                target_pubkey: None,
+                relay_urls: vec!["ws://127.0.0.1:9".to_owned()],
+                required_relay_urls: vec!["ws://127.0.0.1:9".to_owned()],
+            })
+            .unwrap();
+        drop(store);
+
+        let listed = list_outbox_items(db_str.clone()).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, queued.id);
+        assert_eq!(listed[0].kind, 37_515);
+        assert_eq!(listed[0].state, "queued");
+        assert_eq!(listed[0].relays[0].state, "pending");
+
+        // Flush fails against closed loopback port -> transitions to retry_wait.
+        let report = flush_outbox_queue(db_str.clone()).await.unwrap();
+        assert_eq!(report.attempted, 1);
+        assert_eq!(report.delivered, 0);
+        assert_eq!(report.retrying, 1);
+        assert_eq!(report.remaining, 1);
+
+        let after_flush = list_outbox_items(db_str.clone()).unwrap();
+        assert_eq!(after_flush[0].state, "retry_wait");
+        assert_eq!(after_flush[0].attempt_count, 1);
+        assert!(after_flush[0].next_retry_at.is_some());
+        assert_eq!(after_flush[0].relays[0].state, "rejected");
+
+        // Manual retry resets state back to queued and clears next_retry_at.
+        let retried = retry_outbox_item(db_str.clone(), queued.id.clone()).unwrap();
+        assert_eq!(retried.state, "queued");
+        assert!(retried.next_retry_at.is_none());
+        assert_eq!(retried.relays[0].state, "pending");
+
+        // Discard hides the item from active outbox list.
+        let discarded = discard_outbox_item(db_str.clone(), queued.id.clone()).unwrap();
+        assert_eq!(discarded.state, "discarded");
+        assert!(list_outbox_items(db_str).unwrap().is_empty());
     }
 }
 

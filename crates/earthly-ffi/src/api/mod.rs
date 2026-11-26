@@ -6,5 +6,6 @@ pub mod nostr_client;
 pub mod nwc;
 pub mod private_groups;
 pub mod publish;
+pub mod relay_pool;
 pub mod settings;
 pub mod spike;
