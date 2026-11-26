@@ -13,8 +13,9 @@ pub mod validate;
 use thiserror::Error;
 
 pub use formats::{
-    SpatialImportResult, geojson_to_gpx, geojson_to_kml, import_spatial_text_to_geojson,
-    parse_csv_to_geojson, parse_gpx_to_geojson, parse_kml_to_geojson,
+    SpatialImportResult, XlsxParseResult, XlsxSheetSummary, geojson_to_gpx, geojson_to_kml,
+    import_spatial_text_to_geojson, parse_csv_to_geojson, parse_gpx_to_geojson,
+    parse_kml_to_geojson, parse_xlsx_bytes, parse_xlsx_to_geojson,
 };
 
 pub use measure::{

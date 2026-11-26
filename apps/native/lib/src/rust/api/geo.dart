@@ -8,7 +8,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `build_overpass_filter`, `decode_polyline6`, `from_coords`, `geo_geometry_to_json`, `json_to_geo_geometry`, `normalize_valhalla_profile`, `overpass_json_to_feature_collection`, `parse_coord_pair`, `parse_polygon_rings`, `parse_ring_coords`, `parse_valhalla_isochrone_response`, `parse_valhalla_route_response`, `sanitize_osm_ident`, `to_closed_polygon`, `to_line`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Douglas-Peucker simplification of a polyline in meters.
 Future<List<LonLatPoint>> geoSimplifyLine({
@@ -258,6 +258,16 @@ Future<List<List<LonLatPoint>>> geoDissolveLines({
   toleranceMeters: toleranceMeters,
 );
 
+/// Parses a binary `.xlsx` spreadsheet into capped Markdown/CSV table text and
+/// (when WGS-84 `lat`/`lon` columns are detected) a validated GeoJSON FeatureCollection.
+Future<XlsxParseDto> geoParseXlsxBytes({
+  required String filename,
+  required List<int> bytes,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoParseXlsxBytes(
+  filename: filename,
+  bytes: bytes,
+);
+
 /// Parses a binary `.zip` ESRI Shapefile bundle or raw `.shp` file into validated GeoJSON.
 Future<SpatialImportDto> geoImportShapefileBytes({
   String? filename,
@@ -442,4 +452,86 @@ class ValhallaRouteResultDto {
           durationSeconds == other.durationSeconds &&
           profile == other.profile &&
           summary == other.summary;
+}
+
+class XlsxParseDto {
+  final String title;
+  final List<XlsxSheetDto> sheets;
+  final String markdownTable;
+  final String csvText;
+  final String? geojson;
+  final int featureCount;
+  final List<String> warnings;
+
+  const XlsxParseDto({
+    required this.title,
+    required this.sheets,
+    required this.markdownTable,
+    required this.csvText,
+    this.geojson,
+    required this.featureCount,
+    required this.warnings,
+  });
+
+  @override
+  int get hashCode =>
+      title.hashCode ^
+      sheets.hashCode ^
+      markdownTable.hashCode ^
+      csvText.hashCode ^
+      geojson.hashCode ^
+      featureCount.hashCode ^
+      warnings.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is XlsxParseDto &&
+          runtimeType == other.runtimeType &&
+          title == other.title &&
+          sheets == other.sheets &&
+          markdownTable == other.markdownTable &&
+          csvText == other.csvText &&
+          geojson == other.geojson &&
+          featureCount == other.featureCount &&
+          warnings == other.warnings;
+}
+
+class XlsxSheetDto {
+  final String name;
+  final int rowCount;
+  final int columnCount;
+  final List<String> headers;
+  final String markdownTable;
+  final String csvText;
+
+  const XlsxSheetDto({
+    required this.name,
+    required this.rowCount,
+    required this.columnCount,
+    required this.headers,
+    required this.markdownTable,
+    required this.csvText,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      rowCount.hashCode ^
+      columnCount.hashCode ^
+      headers.hashCode ^
+      markdownTable.hashCode ^
+      csvText.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is XlsxSheetDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          rowCount == other.rowCount &&
+          columnCount == other.columnCount &&
+          headers == other.headers &&
+          markdownTable == other.markdownTable &&
+          csvText == other.csvText;
 }

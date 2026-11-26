@@ -282,11 +282,100 @@ pub async fn run_agent_turn(
     run_agent_turn_streaming(provider, input, |_| {}).await
 }
 
+/// Optional Routstr Cashu RIP-01 (`X-Cashu`) payment configuration for an agent turn.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RoutstrPaymentOptions {
+    pub provider_type: Option<String>,
+    pub cashu_token: Option<String>,
+    pub cashu_token_sats: Option<u64>,
+}
+
+/// Result of an agent turn including any Routstr Cashu RIP-01 settlement details.
+#[derive(Clone, Debug)]
+pub struct AgentTurnRunResult {
+    pub output: AgentTurnOutput,
+    pub cashu_sent_sats: Option<u64>,
+    pub cashu_refund_tokens: Vec<String>,
+    pub routstr_cost_msats: Option<u64>,
+}
+
+/// Error returned by [`run_agent_turn_with_payment`], preserving any `X-Cashu`
+/// refund tokens emitted by the provider on an error response.
+#[derive(Clone, Debug)]
+pub struct AgentTurnRunError {
+    pub message: String,
+    pub cashu_refund_tokens: Vec<String>,
+}
+
+pub fn is_routstr_provider(provider_type: Option<&str>, base_url: &str) -> bool {
+    if provider_type.is_some_and(|t| t.trim().eq_ignore_ascii_case("routstr")) {
+        return true;
+    }
+    base_url.trim().to_ascii_lowercase().contains("routstr.com")
+}
+
+pub(crate) fn extract_xcashu_header(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    headers
+        .get("X-Cashu")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+pub(crate) fn extract_routstr_cost_msats(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    headers
+        .get("X-Routstr-Cost-Msats")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v >= 0.0)
+        .map(|v| v.round() as u64)
+}
+
+pub(crate) fn read_routstr_error_body(body_text: &str) -> (Option<String>, Option<String>) {
+    let Ok(parsed) = serde_json::from_str::<Value>(body_text) else {
+        return (None, None);
+    };
+    let nested = parsed.get("error");
+    let message = nested
+        .and_then(|e| e.get("message"))
+        .and_then(Value::as_str)
+        .or_else(|| parsed.get("message").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let refund_token = nested
+        .and_then(|e| e.get("refund_token"))
+        .and_then(Value::as_str)
+        .or_else(|| parsed.get("refund_token").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    (message, refund_token)
+}
+
 pub async fn run_agent_turn_streaming<F>(
     provider: &AgentProviderConfig,
     input: &AgentTurnInput,
     mut on_event: F,
 ) -> Result<AgentTurnOutput, String>
+where
+    F: FnMut(AgentStreamEvent) + Send,
+{
+    let res = run_agent_turn_with_payment(provider, input, None, |ev| {
+        on_event(ev);
+    })
+    .await
+    .map_err(|e| e.message)?;
+    Ok(res.output)
+}
+
+pub async fn run_agent_turn_with_payment<F>(
+    provider: &AgentProviderConfig,
+    input: &AgentTurnInput,
+    payment: Option<&RoutstrPaymentOptions>,
+    mut on_event: F,
+) -> Result<AgentTurnRunResult, AgentTurnRunError>
 where
     F: FnMut(AgentStreamEvent) + Send,
 {
@@ -296,7 +385,12 @@ where
             message: "Running offline Rust spatial agent…".to_owned(),
         });
         let output = if let Some(url) = extract_first_http_url(&input.prompt) {
-            run_offline_url_research(&url, input).await?
+            run_offline_url_research(&url, input)
+                .await
+                .map_err(|message| AgentTurnRunError {
+                    message,
+                    cashu_refund_tokens: Vec::new(),
+                })?
         } else {
             execute_local_offline_turn(input)
         };
@@ -314,14 +408,22 @@ where
         on_event(AgentStreamEvent::Completed {
             output: output.clone(),
         });
-        return Ok(output);
+        return Ok(AgentTurnRunResult {
+            output,
+            cashu_sent_sats: None,
+            cashu_refund_tokens: Vec::new(),
+            routstr_cost_msats: None,
+        });
     }
 
     let endpoint = format!("{base}/chat/completions");
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
         .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+        .map_err(|e| AgentTurnRunError {
+            message: format!("failed to build HTTP client: {e}"),
+            cashu_refund_tokens: Vec::new(),
+        })?;
 
     let tools_json = advertised_tools_json(input.workspace.allow_vision);
 
@@ -363,6 +465,17 @@ where
     let mut sum_total_tokens: u32 = 0;
     let max_steps = provider.max_tool_steps.clamp(1, 10);
 
+    let mut pending_cashu_token = payment
+        .and_then(|p| p.cashu_token.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let initial_cashu_sats = payment.and_then(|p| p.cashu_token_sats).filter(|&s| s > 0);
+    let mut sent_cashu_token = false;
+    let mut unspent_refund_token: Option<String> = None;
+    let mut total_cost_msats: u64 = 0;
+    let mut saw_cost_msats = false;
+
     for step in 0..max_steps {
         on_event(AgentStreamEvent::Status {
             message: format!("Step {}/{} · Thinking…", step + 1, max_steps),
@@ -384,12 +497,23 @@ where
         {
             req = req.bearer_auth(key);
         }
+        if let Some(tok) = pending_cashu_token.take() {
+            req = req.header("X-Cashu", tok);
+            sent_cashu_token = true;
+            // Previous step's refund token has now been forwarded to this step.
+            unspent_refund_token = None;
+        }
 
-        let mut resp = req
-            .send()
-            .await
-            .map_err(|e| format!("LLM request to {endpoint} failed: {e}"))?;
+        let mut resp = req.send().await.map_err(|e| AgentTurnRunError {
+            message: format!("LLM request to {endpoint} failed: {e}"),
+            cashu_refund_tokens: unspent_refund_token.take().into_iter().collect(),
+        })?;
         let status = resp.status();
+        let header_refund = extract_xcashu_header(resp.headers());
+        if let Some(msats) = extract_routstr_cost_msats(resp.headers()) {
+            total_cost_msats = total_cost_msats.saturating_add(msats);
+            saw_cost_msats = true;
+        }
         let is_sse = resp
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -399,32 +523,33 @@ where
 
         if !status.is_success() {
             let body_text = resp.text().await.unwrap_or_default();
-            let err_msg = serde_json::from_str::<Value>(&body_text)
-                .ok()
-                .and_then(|b| {
-                    b.get("error")
-                        .and_then(|e| e.get("message"))
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                })
-                .unwrap_or_else(|| {
-                    if body_text.trim().is_empty() {
-                        "provider returned an error".to_owned()
-                    } else {
-                        body_text
-                    }
-                });
-            return Err(format!("LLM error ({status}): {err_msg}"));
+            let (parsed_msg, body_refund) = read_routstr_error_body(&body_text);
+            let err_msg = parsed_msg.unwrap_or_else(|| {
+                if body_text.trim().is_empty() {
+                    "provider returned an error".to_owned()
+                } else {
+                    body_text
+                }
+            });
+            let refund = header_refund.or(body_refund).or(unspent_refund_token.take());
+            return Err(AgentTurnRunError {
+                message: format!("LLM error ({status}): {err_msg}"),
+                cashu_refund_tokens: refund.into_iter().collect(),
+            });
+        }
+
+        if let Some(refund) = header_refund {
+            pending_cashu_token = Some(refund.clone());
+            unspent_refund_token = Some(refund);
         }
 
         let (reply_text, parsed_tcs, step_assistant_msg) = if is_sse {
             let mut acc = SseTurnAccumulator::default();
             let mut line_buf = String::new();
-            while let Some(chunk) = resp
-                .chunk()
-                .await
-                .map_err(|e| format!("failed reading SSE stream: {e}"))?
-            {
+            while let Some(chunk) = resp.chunk().await.map_err(|e| AgentTurnRunError {
+                message: format!("failed reading SSE stream: {e}"),
+                cashu_refund_tokens: unspent_refund_token.take().into_iter().collect(),
+            })? {
                 let piece = String::from_utf8_lossy(&chunk);
                 line_buf.push_str(&piece);
                 while let Some(pos) = line_buf.find('\n') {
@@ -486,10 +611,10 @@ where
             }
             (acc.reply_buf, tcs, msg)
         } else {
-            let body: Value = resp
-                .json()
-                .await
-                .map_err(|e| format!("invalid JSON from LLM ({status}): {e}"))?;
+            let body: Value = resp.json().await.map_err(|e| AgentTurnRunError {
+                message: format!("invalid JSON from LLM ({status}): {e}"),
+                cashu_refund_tokens: unspent_refund_token.take().into_iter().collect(),
+            })?;
             if let Some(usage) = body.get("usage") {
                 let pt = usage.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0) as u32;
                 let ct = usage
@@ -510,7 +635,10 @@ where
                 .and_then(Value::as_array)
                 .and_then(|c| c.first())
                 .and_then(|c| c.get("message"))
-                .ok_or_else(|| "LLM response missing choices[0].message".to_owned())?;
+                .ok_or_else(|| AgentTurnRunError {
+                    message: "LLM response missing choices[0].message".to_owned(),
+                    cashu_refund_tokens: unspent_refund_token.take().into_iter().collect(),
+                })?;
 
             let raw_tcs = choice_msg
                 .get("tool_calls")
@@ -578,7 +706,12 @@ where
             on_event(AgentStreamEvent::Completed {
                 output: output.clone(),
             });
-            return Ok(output);
+            return Ok(AgentTurnRunResult {
+                output,
+                cashu_sent_sats: sent_cashu_token.then_some(initial_cashu_sats).flatten(),
+                cashu_refund_tokens: unspent_refund_token.into_iter().collect(),
+                routstr_cost_msats: saw_cost_msats.then_some(total_cost_msats),
+            });
         }
 
         messages.push(step_assistant_msg);
@@ -673,7 +806,12 @@ where
     on_event(AgentStreamEvent::Completed {
         output: output.clone(),
     });
-    Ok(output)
+    Ok(AgentTurnRunResult {
+        output,
+        cashu_sent_sats: sent_cashu_token.then_some(initial_cashu_sats).flatten(),
+        cashu_refund_tokens: unspent_refund_token.into_iter().collect(),
+        routstr_cost_msats: saw_cost_msats.then_some(total_cost_msats),
+    })
 }
 
 async fn run_offline_url_research(
@@ -1598,5 +1736,27 @@ mod tests {
 
         let tools_enabled = advertised_tools_json(true);
         assert!(tools_enabled.iter().any(|t| t["function"]["name"] == "capture_map_snapshot"));
+    }
+
+    #[test]
+    fn routstr_provider_detection_and_xcashu_header_parsing() {
+        assert!(is_routstr_provider(Some("routstr"), ""));
+        assert!(is_routstr_provider(None, "https://api.routstr.com/v1"));
+        assert!(!is_routstr_provider(Some("ollama"), "http://127.0.0.1:11434/v1"));
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-cashu", "  cashuAeyJ0b2tlbiI6W119  ".parse().unwrap());
+        headers.insert("x-routstr-cost-msats", "4250".parse().unwrap());
+        assert_eq!(
+            extract_xcashu_header(&headers).as_deref(),
+            Some("cashuAeyJ0b2tlbiI6W119")
+        );
+        assert_eq!(extract_routstr_cost_msats(&headers), Some(4250));
+
+        let (msg, refund) = read_routstr_error_body(
+            r#"{"error":{"message":"Insufficient ecash","refund_token":"cashuArefund123"}}"#,
+        );
+        assert_eq!(msg.as_deref(), Some("Insufficient ecash"));
+        assert_eq!(refund.as_deref(), Some("cashuArefund123"));
     }
 }

@@ -1,3 +1,7 @@
+import 'dart:typed_data';
+
+import 'package:earthly_native/controllers/agent_controller.dart';
+import 'package:earthly_native/runtime/device_bridge.dart';
 import 'package:earthly_native/shell/agent_drawer.dart';
 import 'package:earthly_native/shell/location_inspector_sheet.dart';
 import 'package:earthly_native/shell/osm_import_sheet.dart';
@@ -625,5 +629,125 @@ void main() {
     );
     await tester.pump();
     expect(clearedAttachment, isTrue);
+  });
+
+  testWidgets(
+      'AgentDrawer selects Routstr (Cashu) preset, toggles Auto-pay, and renders sats spent/refunded badge',
+      (WidgetTester tester) async {
+    setTestViewport(tester, const Size(440, 900));
+
+    var currentSettings = CopilotProviderSettings.offline;
+
+    await tester.pumpWidget(
+      wrapSheetInStack(
+        StatefulBuilder(
+          builder: (context, setState) => AgentDrawer(
+            messages: const [
+              CopilotMessage(
+                role: 'assistant',
+                content: 'Routed via Routstr.',
+                promptTokens: 30,
+                completionTokens: 12,
+                totalTokens: 42,
+                cashuSpentSats: 7,
+                cashuRefundedSats: 5,
+                cashuRefundToken: 'cashuArefund',
+              ),
+            ],
+            settings: currentSettings,
+            busy: false,
+            onSettingsChanged: (s) => setState(() => currentSettings = s),
+            onSendPrompt: (_) {},
+            onClearChat: () {},
+            onClose: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('agent-cashu-badge')), findsOneWidget);
+    expect(find.text('⚡ 7 sat · ↩ 5 sat'), findsOneWidget);
+    expect(find.byKey(const Key('agent-tokens-badge')), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Provider settings'));
+    await tester.pumpAndSettle();
+
+    final routstrChip = find.byKey(const Key('agent-preset-routstr'));
+    await tester.ensureVisible(routstrChip);
+    await tester.tap(routstrChip);
+    await tester.pumpAndSettle();
+
+    expect(currentSettings.isRoutstr, isTrue);
+    expect(currentSettings.baseUrl, 'https://api.routstr.com/v1');
+    expect(currentSettings.autoPayCashu, isTrue);
+
+    final autoPaySwitch = find.byKey(const Key('agent-routstr-autopay-switch'));
+    await tester.ensureVisible(autoPaySwitch);
+    await tester.tap(autoPaySwitch);
+    await tester.pumpAndSettle();
+
+    expect(currentSettings.autoPayCashu, isFalse);
+  });
+
+  test('AgentController ingests .xlsx attachment and CopilotMessage persists Cashu metadata',
+      () async {
+    final agent = AgentController();
+    addTearDown(agent.dispose);
+
+    agent.configureCashuWallet(
+      databasePath: '/tmp/test_wallet.sqlite3',
+      pubkeyHex: 'a'.padRight(64, 'a'),
+    );
+
+    final err = await agent.pickAttachment(
+      isHeadlessTest: true,
+      pickFileOverride: () async => PickedBinaryFile(
+        bytes: Uint8List.fromList(const [0x50, 0x4B, 0x03, 0x04]),
+        mimeType:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        name: 'camps.xlsx',
+      ),
+      parseXlsxOverride: (filename, bytes) async {
+        expect(filename, 'camps.xlsx');
+        return const XlsxParseDto(
+          title: 'camps',
+          sheets: [
+            XlsxSheetDto(
+              name: 'Sites',
+              rowCount: 2,
+              columnCount: 3,
+              headers: ['name', 'lat', 'lon'],
+              markdownTable: '| name | lat | lon |\n| --- | --- | --- |\n| Camp A | 48.20 | 16.37 |',
+              csvText: 'name,lat,lon\nCamp A,48.20,16.37',
+            ),
+          ],
+          markdownTable: '| name | lat | lon |\n| --- | --- | --- |\n| Camp A | 48.20 | 16.37 |',
+          csvText: 'name,lat,lon\nCamp A,48.20,16.37',
+          geojson:
+              '{"type":"FeatureCollection","features":[{"type":"Feature","id":"xlsx-1","geometry":{"type":"Point","coordinates":[16.37,48.20]},"properties":{"name":"Camp A"}}]}',
+          featureCount: 1,
+          warnings: [],
+        );
+      },
+    );
+
+    expect(err, isNull);
+    expect(agent.pendingAttachment?.fileName, 'camps.xlsx');
+    expect(agent.pendingAttachment?.formatLabel, 'XLSX');
+    expect(agent.pendingAttachment?.featureCount, 1);
+    expect(agent.pendingAttachment?.summaryText, contains('Camp A'));
+    expect(agent.pendingAttachment?.importedGeojson, contains('16.37'));
+
+    const msg = CopilotMessage(
+      role: 'assistant',
+      content: 'Done',
+      cashuSpentSats: 8,
+      cashuRefundedSats: 12,
+      cashuRefundToken: 'cashuAchange',
+    );
+    final decoded = CopilotMessage.fromJson(msg.toJson())!;
+    expect(decoded.cashuSpentSats, 8);
+    expect(decoded.cashuRefundedSats, 12);
+    expect(decoded.cashuRefundToken, 'cashuAchange');
   });
 }

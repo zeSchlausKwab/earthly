@@ -8,9 +8,9 @@ use earthly_geo::{
     create_line_corridor, difference_polygons, dissolve_lines, explode_multipart,
     export_geojson_to_shapefile_zip, extrude_line, geodesic_area_m2, geodesic_length_m,
     geojson_to_gpx, geojson_to_kml, import_spatial_text_to_geojson, merge_to_multipart,
-    offset_line, offset_polygon, simplify_line, simplify_polygon, split_line_at_point,
-    split_line_by_line, split_polygon_by_line, union_polygons, validate_feature_collection,
-    parse_shapefile_bytes,
+    offset_line, offset_polygon, parse_shapefile_bytes, parse_xlsx_bytes, simplify_line,
+    simplify_polygon, split_line_at_point, split_line_by_line, split_polygon_by_line,
+    union_polygons, validate_feature_collection,
 };
 use geo::{Coord, Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
 
@@ -1221,6 +1221,90 @@ mod tests {
         ];
         assert!(geo_split_line_by_line(line, non_intersecting).is_err());
     }
+
+    #[test]
+    fn parses_xlsx_bytes_with_geojson_and_tables_via_ffi() {
+        fn crc32_ieee(data: &[u8]) -> u32 {
+            let mut crc = 0xFFFF_FFFFu32;
+            for &b in data {
+                crc ^= b as u32;
+                for _ in 0..8 {
+                    let mask = (crc & 1).wrapping_neg();
+                    crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+                }
+            }
+            !crc
+        }
+
+        let sheet_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+          <sheetData>
+            <row r="1">
+              <c r="A1" t="inlineStr"><is><t>name</t></is></c>
+              <c r="B1" t="inlineStr"><is><t>lat</t></is></c>
+              <c r="C1" t="inlineStr"><is><t>lng</t></is></c>
+            </row>
+            <row r="2">
+              <c r="A2" t="inlineStr"><is><t>Prater Hub</t></is></c>
+              <c r="B2"><v>48.2160</v></c>
+              <c r="C2"><v>16.3959</v></c>
+            </row>
+          </sheetData>
+        </worksheet>"#;
+
+        let name = "xl/worksheets/sheet1.xml";
+        let crc = crc32_ieee(sheet_xml);
+
+        let mut zip = Vec::new();
+        zip.extend_from_slice(b"PK\x03\x04");
+        zip.extend_from_slice(&20u16.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(&0u32.to_le_bytes());
+        zip.extend_from_slice(&crc.to_le_bytes());
+        zip.extend_from_slice(&(sheet_xml.len() as u32).to_le_bytes());
+        zip.extend_from_slice(&(sheet_xml.len() as u32).to_le_bytes());
+        zip.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(name.as_bytes());
+        zip.extend_from_slice(sheet_xml);
+
+        let cd_off = zip.len() as u32;
+        let mut cd = Vec::new();
+        cd.extend_from_slice(b"PK\x01\x02");
+        cd.extend_from_slice(&20u16.to_le_bytes());
+        cd.extend_from_slice(&20u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u32.to_le_bytes());
+        cd.extend_from_slice(&crc.to_le_bytes());
+        cd.extend_from_slice(&(sheet_xml.len() as u32).to_le_bytes());
+        cd.extend_from_slice(&(sheet_xml.len() as u32).to_le_bytes());
+        cd.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u32.to_le_bytes());
+        cd.extend_from_slice(&0u32.to_le_bytes());
+        cd.extend_from_slice(name.as_bytes());
+        let cd_size = cd.len() as u32;
+        zip.extend_from_slice(&cd);
+        zip.extend_from_slice(b"PK\x05\x06");
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(&1u16.to_le_bytes());
+        zip.extend_from_slice(&1u16.to_le_bytes());
+        zip.extend_from_slice(&cd_size.to_le_bytes());
+        zip.extend_from_slice(&cd_off.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+
+        let parsed = geo_parse_xlsx_bytes("sites.xlsx".to_owned(), zip).unwrap();
+        assert_eq!(parsed.title, "sites");
+        assert_eq!(parsed.feature_count, 1);
+        assert!(parsed.markdown_table.contains("Prater Hub"));
+        assert!(parsed.geojson.as_deref().unwrap().contains("16.3959"));
+    }
 }
 
 fn parse_coord_pair(val: &serde_json::Value) -> Result<Coord<f64>, String> {
@@ -1387,6 +1471,61 @@ pub fn geo_dissolve_lines(
     let parsed: Vec<LineString<f64>> = lines.iter().map(|l| to_line(l)).collect();
     let dissolved = dissolve_lines(&parsed, tolerance_meters).map_err(|e| e.to_string())?;
     Ok(dissolved.into_iter().map(|l| from_coords(&l.0)).collect())
+}
+
+#[derive(Clone, Debug)]
+pub struct XlsxSheetDto {
+    pub name: String,
+    pub row_count: u32,
+    pub column_count: u32,
+    pub headers: Vec<String>,
+    pub markdown_table: String,
+    pub csv_text: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct XlsxParseDto {
+    pub title: String,
+    pub sheets: Vec<XlsxSheetDto>,
+    pub markdown_table: String,
+    pub csv_text: String,
+    pub geojson: Option<String>,
+    pub feature_count: u32,
+    pub warnings: Vec<String>,
+}
+
+/// Parses a binary `.xlsx` spreadsheet into capped Markdown/CSV table text and
+/// (when WGS-84 `lat`/`lon` columns are detected) a validated GeoJSON FeatureCollection.
+pub fn geo_parse_xlsx_bytes(
+    filename: String,
+    bytes: Vec<u8>,
+) -> Result<XlsxParseDto, String> {
+    let fname = (!filename.trim().is_empty()).then_some(filename.as_str());
+    let parsed = parse_xlsx_bytes(fname, &bytes).map_err(|e| e.to_string())?;
+    let geojson = match parsed.geojson {
+        Some(ref fc) => Some(serde_json::to_string(fc).map_err(|e| e.to_string())?),
+        None => None,
+    };
+    Ok(XlsxParseDto {
+        title: parsed.title,
+        sheets: parsed
+            .sheets
+            .into_iter()
+            .map(|s| XlsxSheetDto {
+                name: s.name,
+                row_count: s.row_count as u32,
+                column_count: s.column_count as u32,
+                headers: s.headers,
+                markdown_table: s.markdown_table,
+                csv_text: s.csv_text,
+            })
+            .collect(),
+        markdown_table: parsed.markdown_table,
+        csv_text: parsed.csv_text,
+        geojson,
+        feature_count: parsed.feature_count as u32,
+        warnings: parsed.warnings,
+    })
 }
 
 /// Parses a binary `.zip` ESRI Shapefile bundle or raw `.shp` file into validated GeoJSON.

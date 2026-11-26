@@ -53,9 +53,26 @@ class AgentController extends ChangeNotifier {
   String visionSupport = 'no-vision';
   bool attachMapView = false;
 
+  String? cashuWalletDbPath;
+  String? cashuWalletPubkeyHex;
+  String? cashuWalletMasterKeyB64;
+  VoidCallback? onCashuWalletUpdated;
+
   McpBridgeStatusDto? mcpBridgeStatus;
   bool mcpBridgeBusy = false;
   Timer? _mcpPollTimer;
+
+  void configureCashuWallet({
+    String? databasePath,
+    String? pubkeyHex,
+    String? masterKeyB64,
+    VoidCallback? onWalletUpdated,
+  }) {
+    cashuWalletDbPath = databasePath;
+    cashuWalletPubkeyHex = pubkeyHex;
+    cashuWalletMasterKeyB64 = masterKeyB64;
+    onCashuWalletUpdated = onWalletUpdated;
+  }
 
   CopilotThread get activeThread {
     if (threads.isEmpty) {
@@ -207,18 +224,30 @@ class AgentController extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<String?> pickAttachment() async {
+  Future<String?> pickAttachment({
+    Future<PickedBinaryFile> Function()? pickFileOverride,
+    Future<XlsxParseDto> Function(String filename, Uint8List bytes)?
+        parseXlsxOverride,
+    bool isHeadlessTest = false,
+  }) async {
     try {
-      final picked = await DeviceBridge.pickGeoJsonFile();
-      await RustBridge.ensureInitialized();
+      final picked = pickFileOverride != null
+          ? await pickFileOverride()
+          : await DeviceBridge.pickGeoJsonFile();
+      if (!isHeadlessTest && parseXlsxOverride == null) {
+        await RustBridge.ensureInitialized();
+      }
       final lowerName = picked.name.toLowerCase();
-      final isZipOrShp = lowerName.endsWith('.zip') ||
-          lowerName.endsWith('.shp') ||
-          (picked.bytes.length >= 2 &&
-              picked.bytes[0] == 0x50 &&
-              picked.bytes[1] == 0x4B);
-      final rawText =
-          isZipOrShp ? '' : utf8.decode(picked.bytes, allowMalformed: true);
+      final isXlsx = lowerName.endsWith('.xlsx');
+      final isZipOrShp = !isXlsx &&
+          (lowerName.endsWith('.zip') ||
+              lowerName.endsWith('.shp') ||
+              (picked.bytes.length >= 2 &&
+                  picked.bytes[0] == 0x50 &&
+                  picked.bytes[1] == 0x4B));
+      final rawText = (isXlsx || isZipOrShp)
+          ? ''
+          : utf8.decode(picked.bytes, allowMalformed: true);
       var formatLabel = lowerName.contains('.')
           ? lowerName.split('.').last.toUpperCase()
           : 'FILE';
@@ -226,23 +255,42 @@ class AgentController extends ChangeNotifier {
       String? importedGeojson;
       var summary = '';
       try {
-        final converted = isZipOrShp
-            ? await geoImportShapefileBytes(
-                filename: picked.name,
-                bytes: picked.bytes,
-              )
-            : await geoImportSpatialFile(
-                filename: picked.name,
-                content: rawText,
-              );
-        formatLabel = converted.format.toUpperCase();
-        featureCount = converted.featureCount;
-        importedGeojson = converted.geojson;
-        final preview = converted.geojson.length > 2400
-            ? '${converted.geojson.substring(0, 2400)}…'
-            : converted.geojson;
-        summary =
-            'Converted $formatLabel with $featureCount feature(s).\n$preview';
+        if (isXlsx) {
+          final parsed = parseXlsxOverride != null
+              ? await parseXlsxOverride(picked.name, picked.bytes)
+              : await geoParseXlsxBytes(
+                  filename: picked.name,
+                  bytes: picked.bytes,
+                );
+          formatLabel = 'XLSX';
+          featureCount = parsed.featureCount;
+          importedGeojson = parsed.geojson;
+          final tablePreview = parsed.markdownTable.length > 2000
+              ? '${parsed.markdownTable.substring(0, 2000)}…'
+              : parsed.markdownTable;
+          final geoNote = parsed.featureCount > 0
+              ? 'Detected ${parsed.featureCount} GeoJSON point feature(s) across ${parsed.sheets.length} sheet(s).\n'
+              : 'Parsed ${parsed.sheets.length} sheet(s) as table.\n';
+          summary = '$geoNote$tablePreview';
+        } else {
+          final converted = isZipOrShp
+              ? await geoImportShapefileBytes(
+                  filename: picked.name,
+                  bytes: picked.bytes,
+                )
+              : await geoImportSpatialFile(
+                  filename: picked.name,
+                  content: rawText,
+                );
+          formatLabel = converted.format.toUpperCase();
+          featureCount = converted.featureCount;
+          importedGeojson = converted.geojson;
+          final preview = converted.geojson.length > 2400
+              ? '${converted.geojson.substring(0, 2400)}…'
+              : converted.geojson;
+          summary =
+              'Converted $formatLabel with $featureCount feature(s).\n$preview';
+        }
       } catch (_) {
         final trimmed = rawText.trim();
         summary = trimmed.length > 2400
@@ -328,6 +376,10 @@ class AgentController extends ChangeNotifier {
     ) onProposedGeojson,
     required void Function(double lon, double lat, double zoom) onCameraAction,
     VoidCallback? onPersistSettings,
+    String? cashuWalletDbPathOverride,
+    String? cashuWalletPubkeyHexOverride,
+    String? cashuWalletMasterKeyB64Override,
+    String? cashuTokenOverride,
   }) async {
     final attachment = pendingAttachment;
     final visiblePrompt =
@@ -390,6 +442,14 @@ class AgentController extends ChangeNotifier {
           allowVision ? await captureMapSnapshotBase64() : null;
 
       final completer = Completer<AgentTurnResultDto>();
+      final effectiveCashuToken = (cashuTokenOverride ?? settings.cashuToken).trim();
+      final effectiveWalletDb =
+          (cashuWalletDbPathOverride ?? cashuWalletDbPath)?.trim();
+      final effectiveWalletPk =
+          (cashuWalletPubkeyHexOverride ?? cashuWalletPubkeyHex)?.trim();
+      final effectiveWalletKey =
+          cashuWalletMasterKeyB64Override ?? cashuWalletMasterKeyB64;
+
       _agentStreamSub = streamEarthlyAgentTurn(
         prompt: effectivePrompt,
         history: history,
@@ -408,6 +468,23 @@ class AgentController extends ChangeNotifier {
         catalogItems: catalogItems,
         mapSnapshotBase64: snapshotB64,
         allowVision: allowVision,
+        providerType: settings.effectiveProviderType.isEmpty
+            ? null
+            : settings.effectiveProviderType,
+        cashuToken: effectiveCashuToken.isEmpty ? null : effectiveCashuToken,
+        autoPayCashu: settings.isRoutstr ? settings.autoPayCashu : false,
+        cashuMaxSats: settings.cashuMaxSats > 0
+            ? BigInt.from(settings.cashuMaxSats)
+            : null,
+        cashuWalletDbPath:
+            (effectiveWalletDb == null || effectiveWalletDb.isEmpty)
+                ? null
+                : effectiveWalletDb,
+        cashuWalletPubkeyHex:
+            (effectiveWalletPk == null || effectiveWalletPk.isEmpty)
+                ? null
+                : effectiveWalletPk,
+        cashuWalletMasterKeyB64: effectiveWalletKey,
       ).listen(
         (ev) => handleStreamEvent(ev, completer: completer),
         onError: (Object err) {
@@ -434,10 +511,16 @@ class AgentController extends ChangeNotifier {
               promptTokens: result.promptTokens,
               completionTokens: result.completionTokens,
               totalTokens: result.totalTokens,
+              cashuSpentSats: result.cashuSpentSats?.toInt(),
+              cashuRefundedSats: result.cashuRefundedSats?.toInt(),
+              cashuRefundToken: result.cashuRefundToken,
             ),
           ],
         ),
       );
+      if (result.cashuSpentSats != null || result.cashuRefundedSats != null) {
+        onCashuWalletUpdated?.call();
+      }
       notifyListeners();
 
       final proposed = result.updatedDraftGeojson;

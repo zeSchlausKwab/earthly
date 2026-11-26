@@ -19,6 +19,9 @@ class CopilotMessage {
     this.promptTokens,
     this.completionTokens,
     this.totalTokens,
+    this.cashuSpentSats,
+    this.cashuRefundedSats,
+    this.cashuRefundToken,
   });
 
   final String role; // 'user' | 'assistant'
@@ -28,6 +31,9 @@ class CopilotMessage {
   final int? promptTokens;
   final int? completionTokens;
   final int? totalTokens;
+  final int? cashuSpentSats;
+  final int? cashuRefundedSats;
+  final String? cashuRefundToken;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         'role': role,
@@ -36,6 +42,9 @@ class CopilotMessage {
         if (promptTokens != null) 'promptTokens': promptTokens,
         if (completionTokens != null) 'completionTokens': completionTokens,
         if (totalTokens != null) 'totalTokens': totalTokens,
+        if (cashuSpentSats != null) 'cashuSpentSats': cashuSpentSats,
+        if (cashuRefundedSats != null) 'cashuRefundedSats': cashuRefundedSats,
+        if (cashuRefundToken != null) 'cashuRefundToken': cashuRefundToken,
         if (toolCalls.isNotEmpty)
           'toolCalls': [
             for (final t in toolCalls)
@@ -70,6 +79,9 @@ class CopilotMessage {
       promptTokens: (m['promptTokens'] as num?)?.toInt(),
       completionTokens: (m['completionTokens'] as num?)?.toInt(),
       totalTokens: (m['totalTokens'] as num?)?.toInt(),
+      cashuSpentSats: (m['cashuSpentSats'] as num?)?.toInt(),
+      cashuRefundedSats: (m['cashuRefundedSats'] as num?)?.toInt(),
+      cashuRefundToken: m['cashuRefundToken'] as String?,
     );
   }
 }
@@ -207,12 +219,48 @@ class CopilotProviderSettings {
     required this.baseUrl,
     required this.model,
     this.apiKey = '',
+    this.providerType,
+    this.autoPayCashu = false,
+    this.cashuMaxSats = 25,
+    this.cashuToken = '',
   });
 
   final String presetName;
   final String baseUrl;
   final String model;
   final String apiKey;
+  final String? providerType;
+  final bool autoPayCashu;
+  final int cashuMaxSats;
+  final String cashuToken;
+
+  bool get isRoutstr =>
+      providerType?.toLowerCase() == 'routstr' ||
+      baseUrl.toLowerCase().contains('routstr.com') ||
+      presetName.toLowerCase().contains('routstr');
+
+  String get effectiveProviderType => isRoutstr ? 'routstr' : (providerType ?? '');
+
+  CopilotProviderSettings copyWith({
+    String? presetName,
+    String? baseUrl,
+    String? model,
+    String? apiKey,
+    String? providerType,
+    bool? autoPayCashu,
+    int? cashuMaxSats,
+    String? cashuToken,
+  }) =>
+      CopilotProviderSettings(
+        presetName: presetName ?? this.presetName,
+        baseUrl: baseUrl ?? this.baseUrl,
+        model: model ?? this.model,
+        apiKey: apiKey ?? this.apiKey,
+        providerType: providerType ?? this.providerType,
+        autoPayCashu: autoPayCashu ?? this.autoPayCashu,
+        cashuMaxSats: cashuMaxSats ?? this.cashuMaxSats,
+        cashuToken: cashuToken ?? this.cashuToken,
+      );
 
   static const offline = CopilotProviderSettings(
     presetName: 'Offline Rust Spatial',
@@ -230,6 +278,15 @@ class CopilotProviderSettings {
     presetName: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     model: 'anthropic/claude-3.5-sonnet',
+  );
+
+  static const routstr = CopilotProviderSettings(
+    presetName: 'Routstr (Cashu)',
+    baseUrl: 'https://api.routstr.com/v1',
+    model: 'openai/gpt-4o-mini',
+    providerType: 'routstr',
+    autoPayCashu: true,
+    cashuMaxSats: 25,
   );
 }
 
@@ -326,14 +383,43 @@ class _AgentDrawerState extends State<AgentDrawer>
       TextEditingController(text: widget.settings.model);
   late final TextEditingController _apiKeyController =
       TextEditingController(text: widget.settings.apiKey);
+  late final TextEditingController _cashuTokenController =
+      TextEditingController(text: widget.settings.cashuToken);
+  late final TextEditingController _cashuMaxSatsController =
+      TextEditingController(text: widget.settings.cashuMaxSats.toString());
 
   bool _showSettings = false;
+  late bool _autoPayCashu = widget.settings.autoPayCashu;
   bool _fetchingSource = false;
   bool _discoveringModels = false;
   String? _sourceError;
   String? _discoverError;
   List<String> _discoveredModels = const <String>[];
   late ResearchSourceDto? _researchSource = widget.initialResearchSource;
+
+  @override
+  void didUpdateWidget(covariant AgentDrawer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.settings != widget.settings) {
+      if (_baseUrlController.text != widget.settings.baseUrl) {
+        _baseUrlController.text = widget.settings.baseUrl;
+      }
+      if (_modelController.text != widget.settings.model) {
+        _modelController.text = widget.settings.model;
+      }
+      if (_apiKeyController.text != widget.settings.apiKey) {
+        _apiKeyController.text = widget.settings.apiKey;
+      }
+      if (_cashuTokenController.text != widget.settings.cashuToken) {
+        _cashuTokenController.text = widget.settings.cashuToken;
+      }
+      final maxStr = widget.settings.cashuMaxSats.toString();
+      if (_cashuMaxSatsController.text != maxStr) {
+        _cashuMaxSatsController.text = maxStr;
+      }
+      _autoPayCashu = widget.settings.autoPayCashu;
+    }
+  }
 
   @override
   void dispose() {
@@ -343,6 +429,8 @@ class _AgentDrawerState extends State<AgentDrawer>
     _baseUrlController.dispose();
     _modelController.dispose();
     _apiKeyController.dispose();
+    _cashuTokenController.dispose();
+    _cashuMaxSatsController.dispose();
     super.dispose();
   }
 
@@ -406,29 +494,51 @@ class _AgentDrawerState extends State<AgentDrawer>
   void _applyPreset(CopilotProviderSettings preset) {
     _baseUrlController.text = preset.baseUrl;
     _modelController.text = preset.model;
+    _autoPayCashu = preset.autoPayCashu;
+    _cashuMaxSatsController.text = preset.cashuMaxSats.toString();
+    final parsedMax = int.tryParse(_cashuMaxSatsController.text.trim());
     widget.onSettingsChanged(
       CopilotProviderSettings(
         presetName: preset.presetName,
         baseUrl: preset.baseUrl,
         model: preset.model,
         apiKey: _apiKeyController.text.trim(),
+        providerType: preset.providerType,
+        autoPayCashu: preset.autoPayCashu,
+        cashuMaxSats: (parsedMax != null && parsedMax > 0)
+            ? parsedMax
+            : preset.cashuMaxSats,
+        cashuToken: _cashuTokenController.text.trim(),
       ),
     );
   }
 
-  void _saveCustomSettings() {
-    widget.onSettingsChanged(
-      CopilotProviderSettings(
-        presetName: _baseUrlController.text.trim().isEmpty
-            ? 'Offline Rust Spatial'
-            : 'Custom LLM',
-        baseUrl: _baseUrlController.text.trim(),
-        model: _modelController.text.trim().isEmpty
-            ? 'offline-spatial'
-            : _modelController.text.trim(),
-        apiKey: _apiKeyController.text.trim(),
-      ),
+  CopilotProviderSettings _buildSettingsFromControllers({bool? autoPayOverride}) {
+    final baseUrl = _baseUrlController.text.trim();
+    final isRoutstr = baseUrl.toLowerCase().contains('routstr.com') ||
+        widget.settings.isRoutstr;
+    final parsedMax = int.tryParse(_cashuMaxSatsController.text.trim());
+    final autoPay = autoPayOverride ?? _autoPayCashu;
+    return CopilotProviderSettings(
+      presetName: baseUrl.isEmpty
+          ? 'Offline Rust Spatial'
+          : isRoutstr
+              ? 'Routstr (Cashu)'
+              : 'Custom LLM',
+      baseUrl: baseUrl,
+      model: _modelController.text.trim().isEmpty
+          ? 'offline-spatial'
+          : _modelController.text.trim(),
+      apiKey: _apiKeyController.text.trim(),
+      providerType: isRoutstr ? 'routstr' : null,
+      autoPayCashu: autoPay,
+      cashuMaxSats: (parsedMax != null && parsedMax > 0) ? parsedMax : 25,
+      cashuToken: _cashuTokenController.text.trim(),
     );
+  }
+
+  void _saveCustomSettings() {
+    widget.onSettingsChanged(_buildSettingsFromControllers());
     setState(() => _showSettings = false);
   }
 
@@ -717,8 +827,11 @@ class _AgentDrawerState extends State<AgentDrawer>
   }
 
   Widget _buildProviderSettings(ThemeData theme) {
+    final showCashuControls = widget.settings.isRoutstr ||
+        _baseUrlController.text.trim().toLowerCase().contains('routstr.com') ||
+        _autoPayCashu;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 240),
+      constraints: const BoxConstraints(maxHeight: 215),
       child: ClipRect(
         child: SingleChildScrollView(
           child: Container(
@@ -752,6 +865,13 @@ class _AgentDrawerState extends State<AgentDrawer>
                 onSelected: (_) =>
                     _applyPreset(CopilotProviderSettings.openRouter),
               ),
+              ChoiceChip(
+                key: const Key('agent-preset-routstr'),
+                label: const Text('Routstr (Cashu)'),
+                selected: widget.settings.isRoutstr,
+                onSelected: (_) =>
+                    _applyPreset(CopilotProviderSettings.routstr),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -782,6 +902,67 @@ class _AgentDrawerState extends State<AgentDrawer>
               ),
             ],
           ),
+          if (showCashuControls) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Auto-pay with Cashu Wallet',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        'Attach X-Cashu ecash on requests & redeem change refunds',
+                        style: TextStyle(fontSize: 10.5),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch.adaptive(
+                  key: const Key('agent-routstr-autopay-switch'),
+                  value: _autoPayCashu,
+                  onChanged: (val) {
+                    setState(() => _autoPayCashu = val);
+                    widget.onSettingsChanged(
+                      _buildSettingsFromControllers(autoPayOverride: val),
+                    );
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                SizedBox(
+                  width: 112,
+                  child: TextField(
+                    key: const Key('agent-cashu-max-sats-field'),
+                    controller: _cashuMaxSatsController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Max prepay (sat)',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: TextField(
+                    key: const Key('agent-cashu-token-field'),
+                    controller: _cashuTokenController,
+                    decoration: const InputDecoration(
+                      labelText: 'Manual X-Cashu token (cashuA…)',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -1196,16 +1377,53 @@ class _AgentDrawerState extends State<AgentDrawer>
                                 ),
                               ),
                               if (!isUser &&
+                                  (m.cashuSpentSats != null ||
+                                      m.cashuRefundedSats != null)) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  key: const Key('agent-cashu-badge'),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: EarthlyColors.proposedAmber
+                                        .withValues(alpha: 0.16),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: EarthlyColors.proposedAmber
+                                          .withValues(alpha: 0.6),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    (m.cashuRefundedSats != null &&
+                                            m.cashuRefundedSats! > 0)
+                                        ? '⚡ ${m.cashuSpentSats ?? 0} sat · ↩ ${m.cashuRefundedSats} sat'
+                                        : '⚡ ${m.cashuSpentSats ?? 0} sat',
+                                    style: const TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: EarthlyColors.proposedAmber,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              if (!isUser &&
                                   m.totalTokens != null &&
                                   m.totalTokens! > 0) ...[
                                 const Spacer(),
-                                Text(
-                                  '↑${m.promptTokens ?? 0} ↓${m.completionTokens ?? 0} · ${m.totalTokens} tok',
-                                  key: const Key('agent-tokens-badge'),
-                                  style: TextStyle(
-                                    fontFamily: 'monospace',
-                                    fontSize: 9.5,
-                                    color: theme.colorScheme.onSurfaceVariant,
+                                Flexible(
+                                  child: Text(
+                                    '↑${m.promptTokens ?? 0} ↓${m.completionTokens ?? 0} · ${m.totalTokens} tok',
+                                    key: const Key('agent-tokens-badge'),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 9.5,
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -1280,7 +1498,7 @@ class _AgentDrawerState extends State<AgentDrawer>
               if (widget.onPickAttachment != null)
                 IconButton(
                   key: const Key('agent-attach-file-btn'),
-                  tooltip: 'Attach CSV / GeoJSON / GPX / KML / Text',
+                  tooltip: 'Attach CSV / XLSX / GeoJSON / GPX / KML / Text',
                   visualDensity: VisualDensity.compact,
                   onPressed: widget.busy ? null : widget.onPickAttachment,
                   icon: const Icon(Icons.attach_file, size: 18),

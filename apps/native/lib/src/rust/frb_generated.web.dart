@@ -397,6 +397,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<StorySummaryDto> dco_decode_list_story_summary_dto(dynamic raw);
 
   @protected
+  List<XlsxSheetDto> dco_decode_list_xlsx_sheet_dto(dynamic raw);
+
+  @protected
   LiveBeaconDto dco_decode_live_beacon_dto(dynamic raw);
 
   @protected
@@ -636,6 +639,12 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   ValhallaRouteResultDto dco_decode_valhalla_route_result_dto(dynamic raw);
+
+  @protected
+  XlsxParseDto dco_decode_xlsx_parse_dto(dynamic raw);
+
+  @protected
+  XlsxSheetDto dco_decode_xlsx_sheet_dto(dynamic raw);
 
   @protected
   ZapInvoiceDto dco_decode_zap_invoice_dto(dynamic raw);
@@ -1133,6 +1142,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<XlsxSheetDto> sse_decode_list_xlsx_sheet_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   LiveBeaconDto sse_decode_live_beacon_dto(SseDeserializer deserializer);
 
   @protected
@@ -1452,6 +1466,12 @@ abstract class EarthlyRustLibApiImplPlatform
   ValhallaRouteResultDto sse_decode_valhalla_route_result_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  XlsxParseDto sse_decode_xlsx_parse_dto(SseDeserializer deserializer);
+
+  @protected
+  XlsxSheetDto sse_decode_xlsx_sheet_dto(SseDeserializer deserializer);
 
   @protected
   ZapInvoiceDto sse_decode_zap_invoice_dto(SseDeserializer deserializer);
@@ -2081,6 +2101,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_xlsx_sheet_dto(
+    List<XlsxSheetDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_live_beacon_dto(LiveBeaconDto self, SseSerializer serializer);
 
   @protected
@@ -2475,6 +2501,12 @@ abstract class EarthlyRustLibApiImplPlatform
     ValhallaRouteResultDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_xlsx_parse_dto(XlsxParseDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_xlsx_sheet_dto(XlsxSheetDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_zap_invoice_dto(ZapInvoiceDto self, SseSerializer serializer);

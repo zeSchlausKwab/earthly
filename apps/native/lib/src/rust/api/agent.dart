@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `compute_diff_counts`, `parse_models_response_json`, `turn_output_to_dto`
+// These functions are ignored because they are not marked as `pub`: `compute_diff_counts`, `execute_agent_turn_core`, `parse_models_response_json`, `prepare_routstr_payment`, `redeem_routstr_refunds`, `token_total_sats`, `turn_output_to_dto`, `turn_run_result_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Runs one Earthly AI Agent turn in Rust (`earthly-agent` + `earthly-geo`),
@@ -26,6 +26,13 @@ Future<AgentTurnResultDto> runEarthlyAgentTurn({
   required String draftGeojson,
   required List<String> shelfMapTitles,
   required List<String> atlasWorkspaces,
+  String? providerType,
+  String? cashuToken,
+  bool? autoPayCashu,
+  BigInt? cashuMaxSats,
+  String? cashuWalletDbPath,
+  String? cashuWalletPubkeyHex,
+  String? cashuWalletMasterKeyB64,
 }) => EarthlyRustLib.instance.api.crateApiAgentRunEarthlyAgentTurn(
   prompt: prompt,
   history: history,
@@ -39,6 +46,13 @@ Future<AgentTurnResultDto> runEarthlyAgentTurn({
   draftGeojson: draftGeojson,
   shelfMapTitles: shelfMapTitles,
   atlasWorkspaces: atlasWorkspaces,
+  providerType: providerType,
+  cashuToken: cashuToken,
+  autoPayCashu: autoPayCashu,
+  cashuMaxSats: cashuMaxSats,
+  cashuWalletDbPath: cashuWalletDbPath,
+  cashuWalletPubkeyHex: cashuWalletPubkeyHex,
+  cashuWalletMasterKeyB64: cashuWalletMasterKeyB64,
 );
 
 /// Probes whether the configured provider/model supports multimodal image input.
@@ -72,6 +86,13 @@ Stream<AgentStreamEventDto> streamEarthlyAgentTurn({
   required List<String> catalogItems,
   String? mapSnapshotBase64,
   required bool allowVision,
+  String? providerType,
+  String? cashuToken,
+  bool? autoPayCashu,
+  BigInt? cashuMaxSats,
+  String? cashuWalletDbPath,
+  String? cashuWalletPubkeyHex,
+  String? cashuWalletMasterKeyB64,
 }) => EarthlyRustLib.instance.api.crateApiAgentStreamEarthlyAgentTurn(
   prompt: prompt,
   history: history,
@@ -89,6 +110,13 @@ Stream<AgentStreamEventDto> streamEarthlyAgentTurn({
   catalogItems: catalogItems,
   mapSnapshotBase64: mapSnapshotBase64,
   allowVision: allowVision,
+  providerType: providerType,
+  cashuToken: cashuToken,
+  autoPayCashu: autoPayCashu,
+  cashuMaxSats: cashuMaxSats,
+  cashuWalletDbPath: cashuWalletDbPath,
+  cashuWalletPubkeyHex: cashuWalletPubkeyHex,
+  cashuWalletMasterKeyB64: cashuWalletMasterKeyB64,
 );
 
 /// Fetches any webpage or remote GeoJSON/GPX/KML URL CORS-free in Rust for the
@@ -229,6 +257,9 @@ class AgentTurnResultDto {
   final int? promptTokens;
   final int? completionTokens;
   final int? totalTokens;
+  final BigInt? cashuSpentSats;
+  final BigInt? cashuRefundedSats;
+  final String? cashuRefundToken;
 
   const AgentTurnResultDto({
     required this.reply,
@@ -242,6 +273,9 @@ class AgentTurnResultDto {
     this.promptTokens,
     this.completionTokens,
     this.totalTokens,
+    this.cashuSpentSats,
+    this.cashuRefundedSats,
+    this.cashuRefundToken,
   });
 
   @override
@@ -256,7 +290,10 @@ class AgentTurnResultDto {
       usedOfflineMode.hashCode ^
       promptTokens.hashCode ^
       completionTokens.hashCode ^
-      totalTokens.hashCode;
+      totalTokens.hashCode ^
+      cashuSpentSats.hashCode ^
+      cashuRefundedSats.hashCode ^
+      cashuRefundToken.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -273,7 +310,10 @@ class AgentTurnResultDto {
           usedOfflineMode == other.usedOfflineMode &&
           promptTokens == other.promptTokens &&
           completionTokens == other.completionTokens &&
-          totalTokens == other.totalTokens;
+          totalTokens == other.totalTokens &&
+          cashuSpentSats == other.cashuSpentSats &&
+          cashuRefundedSats == other.cashuRefundedSats &&
+          cashuRefundToken == other.cashuRefundToken;
 }
 
 class ResearchCoordDto {
