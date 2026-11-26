@@ -504,6 +504,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     if (width >= 880 && _drawer != _ActiveDrawer.none) {
       return const EdgeInsets.fromLTRB(440, 72, 40, 48);
     }
+    if (width < 880 &&
+        _drawer == _ActiveDrawer.explore &&
+        _catalog.galleryModeActive) {
+      return const EdgeInsets.fromLTRB(28, 72, 28, 250);
+    }
     return EdgeInsets.fromLTRB(
       36,
       72,
@@ -1844,6 +1849,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       _drawer == target || _rightStudioDrawer == target;
 
   void _openDrawer(_ActiveDrawer target) {
+    if (target != _ActiveDrawer.explore && _catalog.galleryModeActive) {
+      _catalog.setGalleryModeActive(false);
+    }
     final cur = _drawerNotifier.value;
     if (_isWideStudio && _isRightStudioDrawer(target)) {
       _drawerNotifier.value = (left: cur.left, right: target);
@@ -1870,6 +1878,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   }
 
   void _closeDrawer(_ActiveDrawer target) {
+    if (target == _ActiveDrawer.explore && _catalog.galleryModeActive) {
+      _catalog.setGalleryModeActive(false);
+    }
     final cur = _drawerNotifier.value;
     final nextLeft = cur.left == target ? _ActiveDrawer.none : cur.left;
     final nextRight = cur.right == target ? _ActiveDrawer.none : cur.right;
@@ -1879,6 +1890,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   }
 
   void _closeAllDrawers() {
+    if (_catalog.galleryModeActive) {
+      _catalog.setGalleryModeActive(false);
+    }
     if (_drawer == _ActiveDrawer.none &&
         _rightStudioDrawer == _ActiveDrawer.none) {
       return;
@@ -1889,6 +1903,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
   void _toggleDrawer(_ActiveDrawer next) {
     final cur = _drawerNotifier.value;
+    final willLeaveExplore = !(_isWideStudio && _isRightStudioDrawer(next)) &&
+        cur.left == _ActiveDrawer.explore &&
+        _catalog.galleryModeActive;
+    if (willLeaveExplore) {
+      _catalog.setGalleryModeActive(false);
+    }
     if (_isWideStudio && _isRightStudioDrawer(next)) {
       _drawerNotifier.value = (
         left: cur.left,
@@ -2374,7 +2394,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
   MapLayerSnapshot _resolveMapLayers({required bool systemIsDark}) {
     return _mapLayers.resolve(
-      shelfMaps: _catalog.shelfMaps,
+      shelfMaps: _catalog.effectiveDisplayShelfMaps,
       shelfRevision: _catalog.shelfRevision,
       draftFeatures: _draft.features,
       draftRevision: _draft.draftRevision,
@@ -2541,6 +2561,30 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           },
           onOpenBeaconBroadcaster: () => _openDrawer(_ActiveDrawer.spaces),
           onOpenPerson: _openPerson,
+          galleryMode: _catalog.galleryModeActive,
+          galleryPreviewLoading: _catalog.galleryPreviewLoading,
+          onGalleryModeChanged: _catalog.setGalleryModeActive,
+          onPreviewGalleryMap: (map) => unawaited(
+            _catalog.previewGalleryMap(
+              map,
+              onFlyToBounds: _flyToBounds,
+            ),
+          ),
+          onPreviewGalleryStory: (story) => unawaited(
+            _catalog.previewGalleryStory(
+              story,
+              onFlyToCamera: _flyToStoryCamera,
+              onFlyToBounds: _flyToBounds,
+            ),
+          ),
+          onPreviewGalleryAtlas: (atlas) => unawaited(
+            _catalog.previewGalleryAtlas(
+              atlas,
+              mutedPubkeys: _accountWallet.mutedPubkeys,
+              onFlyToBounds: _flyToBounds,
+            ),
+          ),
+          onClearGalleryPreview: _catalog.clearGalleryPreview,
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.desk:
@@ -4585,6 +4629,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                     listenable: Listenable.merge([
                       _mapLayers.presentationListenable,
                       _drawerNotifier,
+                      _catalog.shelfListenable,
                     ]),
                     builder: (context, _) {
                       final leftTarget = _drawer != _ActiveDrawer.none
@@ -4592,6 +4637,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                           : (!isWideStudio
                               ? _rightStudioDrawer
                               : _ActiveDrawer.none);
+                      final galleryOpen = !isDesktop &&
+                          leftTarget == _ActiveDrawer.explore &&
+                          _catalog.galleryModeActive;
                       final hideBottomDockOnMobile = !isDesktop &&
                           leftTarget != _ActiveDrawer.none &&
                           !_draft.isDrawingMode;
@@ -4614,7 +4662,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                           }
                         },
                         displayMode: _mapLayers.calloutMode,
-                        bottomInset: (hideBottomDockOnMobile ? 340 : 108) +
+                        bottomInset: (galleryOpen
+                                ? 236
+                                : (hideBottomDockOnMobile ? 340 : 108)) +
                             bottomSafeInset,
                         onInspectFeature: _inspectFeature,
                         onInspectSighting: _inspectSighting,
@@ -5103,11 +5153,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         final leftTarget = _drawer != _ActiveDrawer.none
             ? _drawer
             : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
+        final galleryOpen =
+            leftTarget == _ActiveDrawer.explore && _catalog.galleryModeActive;
         final hideBottomDockOnMobile =
             leftTarget != _ActiveDrawer.none && !_draft.isDrawingMode;
-        final rightThumbRailBottom = hideBottomDockOnMobile
-            ? (screenHeight * 0.54).clamp(180.0, screenHeight - 220.0)
-            : bottomSafeInset + (_draft.isDrawingMode ? 76.0 : 74.0);
+        final rightThumbRailBottom = galleryOpen
+            ? bottomSafeInset + 226.0
+            : hideBottomDockOnMobile
+                ? (screenHeight * 0.54).clamp(180.0, screenHeight - 220.0)
+                : bottomSafeInset + (_draft.isDrawingMode ? 76.0 : 74.0);
         final hasCallouts =
             (_mapLayers.lastSnapshot?.visibleCallouts.isNotEmpty ?? false);
 

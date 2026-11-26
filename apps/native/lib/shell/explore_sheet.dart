@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -50,6 +52,13 @@ class ExploreSheet extends StatefulWidget {
     required this.onCreateAtlas,
     required this.onOpenBeaconBroadcaster,
     this.onOpenPerson,
+    this.galleryMode = false,
+    this.galleryPreviewLoading = false,
+    this.onGalleryModeChanged,
+    this.onPreviewGalleryMap,
+    this.onPreviewGalleryStory,
+    this.onPreviewGalleryAtlas,
+    this.onClearGalleryPreview,
     required this.onClose,
     super.key,
   });
@@ -83,6 +92,13 @@ class ExploreSheet extends StatefulWidget {
   final VoidCallback onCreateAtlas;
   final VoidCallback onOpenBeaconBroadcaster;
   final ValueChanged<String>? onOpenPerson;
+  final bool galleryMode;
+  final bool galleryPreviewLoading;
+  final ValueChanged<bool>? onGalleryModeChanged;
+  final ValueChanged<MapSummaryDto>? onPreviewGalleryMap;
+  final ValueChanged<StorySummaryDto>? onPreviewGalleryStory;
+  final ValueChanged<AtlasSummaryDto>? onPreviewGalleryAtlas;
+  final VoidCallback? onClearGalleryPreview;
   final VoidCallback onClose;
 
   @override
@@ -92,12 +108,17 @@ class ExploreSheet extends StatefulWidget {
 class _ExploreSheetState extends State<ExploreSheet>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
+  late final PageController _galleryPageController;
   final _searchController = TextEditingController();
   EarthlyCatalogSnapshot? _catalog;
   String _query = '';
   _CatalogScopeTab _scopeTab = _CatalogScopeTab.all;
   _CatalogSortOrder _sortOrder = _CatalogSortOrder.newest;
   bool _loading = false;
+  late bool _galleryMode = widget.galleryMode;
+  int _galleryIndex = 0;
+  String? _lastPreviewedEntityKey;
+  bool _galleryPreviewScheduled = false;
   String? _error;
 
   @override
@@ -105,6 +126,7 @@ class _ExploreSheetState extends State<ExploreSheet>
     super.initState();
     _tabs = TabController(length: 6, vsync: this);
     _tabs.addListener(_onTabChanged);
+    _galleryPageController = PageController(viewportFraction: 0.88);
     _catalog = widget.initialCatalog;
     if (_catalog == null && !widget.catalogLoading) {
       _refresh();
@@ -112,7 +134,21 @@ class _ExploreSheetState extends State<ExploreSheet>
   }
 
   void _onTabChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (_tabs.index > 2 && _galleryMode) {
+      _galleryMode = false;
+      _lastPreviewedEntityKey = null;
+      widget.onGalleryModeChanged?.call(false);
+      widget.onClearGalleryPreview?.call();
+    } else if (_galleryMode && !_tabs.indexIsChanging) {
+      _galleryIndex = 0;
+      _lastPreviewedEntityKey = null;
+      if (_galleryPageController.hasClients) {
+        _galleryPageController.jumpToPage(0);
+      }
+      _scheduleActiveGalleryPreview();
+    }
+    setState(() {});
   }
 
   @override
@@ -122,14 +158,133 @@ class _ExploreSheetState extends State<ExploreSheet>
         widget.initialCatalog != oldWidget.initialCatalog) {
       _catalog = widget.initialCatalog;
     }
+    if (widget.galleryMode != oldWidget.galleryMode &&
+        widget.galleryMode != _galleryMode) {
+      _galleryMode = widget.galleryMode;
+      if (!_galleryMode) {
+        _lastPreviewedEntityKey = null;
+      } else {
+        _scheduleActiveGalleryPreview();
+      }
+    }
   }
 
   @override
   void dispose() {
     _tabs.removeListener(_onTabChanged);
     _tabs.dispose();
+    _galleryPageController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _toggleGalleryMode(bool enabled) {
+    if (_galleryMode == enabled) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _galleryMode = enabled;
+      _galleryIndex = 0;
+      _lastPreviewedEntityKey = null;
+    });
+    widget.onGalleryModeChanged?.call(enabled);
+    if (!enabled) {
+      widget.onClearGalleryPreview?.call();
+      return;
+    }
+    if (_galleryPageController.hasClients) {
+      _galleryPageController.jumpToPage(0);
+    }
+    _scheduleActiveGalleryPreview();
+  }
+
+  void _selectGalleryTab(int tabIndex) {
+    if (tabIndex < 0 || tabIndex > 2) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _galleryIndex = 0;
+      _lastPreviewedEntityKey = null;
+      if (_tabs.index != tabIndex) {
+        _tabs.index = tabIndex;
+      }
+    });
+    if (_galleryPageController.hasClients) {
+      _galleryPageController.jumpToPage(0);
+    }
+    _scheduleActiveGalleryPreview();
+  }
+
+  void _scheduleActiveGalleryPreview() {
+    if (_galleryPreviewScheduled) return;
+    _galleryPreviewScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _galleryPreviewScheduled = false;
+      if (!mounted || !_galleryMode || _tabs.index > 2) return;
+      final catalog = _catalog;
+      final visibleMaps = _filteredMaps(catalog?.maps ?? const []);
+      final visibleStories = _filteredStories(catalog?.stories ?? const []);
+      final visibleAtlases = _filteredAtlases(catalog?.atlases ?? const []);
+      _previewGalleryItemForIndex(
+        _tabs.index,
+        _galleryIndex,
+        visibleMaps: visibleMaps,
+        visibleStories: visibleStories,
+        visibleAtlases: visibleAtlases,
+      );
+    });
+  }
+
+  void _previewGalleryItemForIndex(
+    int tabIndex,
+    int rawIndex, {
+    required List<MapSummaryDto> visibleMaps,
+    required List<StorySummaryDto> visibleStories,
+    required List<AtlasSummaryDto> visibleAtlases,
+  }) {
+    if (!_galleryMode || tabIndex > 2) return;
+    switch (tabIndex) {
+      case 0:
+        if (visibleMaps.isEmpty) {
+          if (_lastPreviewedEntityKey != null) {
+            _lastPreviewedEntityKey = null;
+            widget.onClearGalleryPreview?.call();
+          }
+          return;
+        }
+        final idx = rawIndex.clamp(0, visibleMaps.length - 1);
+        final map = visibleMaps[idx];
+        final key = 'map:${map.address}';
+        if (_lastPreviewedEntityKey == key) return;
+        _lastPreviewedEntityKey = key;
+        widget.onPreviewGalleryMap?.call(map);
+      case 1:
+        if (visibleStories.isEmpty) {
+          if (_lastPreviewedEntityKey != null) {
+            _lastPreviewedEntityKey = null;
+            widget.onClearGalleryPreview?.call();
+          }
+          return;
+        }
+        final idx = rawIndex.clamp(0, visibleStories.length - 1);
+        final story = visibleStories[idx];
+        final key = 'story:${story.address}';
+        if (_lastPreviewedEntityKey == key) return;
+        _lastPreviewedEntityKey = key;
+        widget.onPreviewGalleryStory?.call(story);
+      case 2:
+        if (visibleAtlases.isEmpty) {
+          if (_lastPreviewedEntityKey != null) {
+            _lastPreviewedEntityKey = null;
+            widget.onClearGalleryPreview?.call();
+          }
+          return;
+        }
+        final idx = rawIndex.clamp(0, visibleAtlases.length - 1);
+        final atlas = visibleAtlases[idx];
+        final key = 'atlas:${atlas.address}';
+        if (_lastPreviewedEntityKey == key) return;
+        _lastPreviewedEntityKey = key;
+        widget.onPreviewGalleryAtlas?.call(atlas);
+    }
   }
 
   String _authorLabel(String pubkey) {
@@ -326,6 +481,16 @@ class _ExploreSheetState extends State<ExploreSheet>
         .toList(growable: false);
 
     final isDesktop = MediaQuery.sizeOf(context).width >= 880;
+    if (!isDesktop && _galleryMode && _tabs.index <= 2) {
+      return _buildMobileGalleryCarousel(
+        context,
+        visibleMaps: visibleMaps,
+        visibleStories: visibleStories,
+        visibleAtlases: visibleAtlases,
+        isLoading: isLoading,
+      );
+    }
+
     return EarthlyMapDrawer(
       initialFraction: 0.56,
       accentTopBorder: widget.activeAtlasLens != null,
@@ -475,56 +640,81 @@ class _ExploreSheetState extends State<ExploreSheet>
               child: Row(
                 children: [
                   // All | Favorites | Recent pill strip (matching Web GeoDatasetsPanel)
-                  Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: theme.dividerColor),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (final entry in const [
-                          (_CatalogScopeTab.all, 'All'),
-                          (_CatalogScopeTab.favorites, 'Favorites'),
-                          (_CatalogScopeTab.recent, 'Recent'),
-                        ])
-                          GestureDetector(
-                            onTap: () => setState(() => _scopeTab = entry.$1),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 9,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _scopeTab == entry.$1
-                                    ? EarthlyColors.amber
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                entry.$2,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: _scopeTab == entry.$1
-                                      ? EarthlyColors.amberInk
-                                      : theme.colorScheme.onSurfaceVariant,
+                  Flexible(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: theme.dividerColor),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (final entry in const [
+                              (_CatalogScopeTab.all, 'All'),
+                              (_CatalogScopeTab.favorites, 'Favorites'),
+                              (_CatalogScopeTab.recent, 'Recent'),
+                            ])
+                              GestureDetector(
+                                onTap: () => setState(() => _scopeTab = entry.$1),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _scopeTab == entry.$1
+                                        ? EarthlyColors.amber
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    entry.$2,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: _scopeTab == entry.$1
+                                          ? EarthlyColors.amberInk
+                                          : theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
-                      ],
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 4),
+                  if (!isDesktop)
+                    Tooltip(
+                      message: 'Gallery Mode (swipe on map)',
+                      child: IconButton(
+                        key: const Key('explore-gallery-toggle'),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        onPressed: () => _toggleGalleryMode(true),
+                        icon: const Icon(Icons.view_carousel_outlined, size: 19),
+                      ),
+                    ),
                   if (_tabs.index == 0 && unstackedMaps.isNotEmpty)
                     Tooltip(
                       message:
                           'Show ${unstackedMaps.length > 15 ? 15 : unstackedMaps.length} filtered maps on map',
                       child: IconButton(
                         visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
                         onPressed: () => widget.onAddMapsBulk(
                           unstackedMaps.take(15).toList(growable: false),
                         ),
@@ -610,6 +800,634 @@ class _ExploreSheetState extends State<ExploreSheet>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMobileGalleryCarousel(
+    BuildContext context, {
+    required List<MapSummaryDto> visibleMaps,
+    required List<StorySummaryDto> visibleStories,
+    required List<AtlasSummaryDto> visibleAtlases,
+    required bool isLoading,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final itemsCount = switch (_tabs.index) {
+      0 => visibleMaps.length,
+      1 => visibleStories.length,
+      2 => visibleAtlases.length,
+      _ => 0,
+    };
+    final activeIndex =
+        itemsCount == 0 ? 0 : _galleryIndex.clamp(0, itemsCount - 1);
+    final activeKey = itemsCount == 0
+        ? null
+        : switch (_tabs.index) {
+            0 => 'map:${visibleMaps[activeIndex].address}',
+            1 => 'story:${visibleStories[activeIndex].address}',
+            _ => 'atlas:${visibleAtlases[activeIndex].address}',
+          };
+
+    if (itemsCount > 0 && _galleryIndex != activeIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_galleryMode) return;
+        setState(() => _galleryIndex = activeIndex);
+        if (_galleryPageController.hasClients) {
+          _galleryPageController.jumpToPage(activeIndex);
+        }
+        _previewGalleryItemForIndex(
+          _tabs.index,
+          activeIndex,
+          visibleMaps: visibleMaps,
+          visibleStories: visibleStories,
+          visibleAtlases: visibleAtlases,
+        );
+      });
+    } else if (activeKey != _lastPreviewedEntityKey) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_galleryMode) return;
+        _previewGalleryItemForIndex(
+          _tabs.index,
+          activeIndex,
+          visibleMaps: visibleMaps,
+          visibleStories: visibleStories,
+          visibleAtlases: visibleAtlases,
+        );
+      });
+    }
+
+    final borderColor = widget.activeAtlasLens != null
+        ? EarthlyColors.amber.withValues(alpha: isDark ? 0.72 : 0.85)
+        : (isDark
+            ? Colors.white.withValues(alpha: 0.12)
+            : Colors.black.withValues(alpha: 0.08));
+
+    return Positioned(
+      key: const Key('explore-gallery-carousel'),
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface
+                  .withValues(alpha: isDark ? 0.88 : 0.92),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(20)),
+              border: Border(
+                top: BorderSide(
+                  color: borderColor,
+                  width: widget.activeAtlasLens != null ? 2.0 : 1.0,
+                ),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.44 : 0.16),
+                  blurRadius: 20,
+                  offset: const Offset(0, -4),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Material(
+                type: MaterialType.transparency,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 6, 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                for (final entry in [
+                                  (0, 'Maps (${visibleMaps.length})'),
+                                  (1, 'Stories (${visibleStories.length})'),
+                                  (2, 'Atlases (${visibleAtlases.length})'),
+                                ])
+                                  Flexible(
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(right: 4),
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerLeft,
+                                        child: GestureDetector(
+                                          key: Key('gallery-tab-${entry.$1}'),
+                                          onTap: () =>
+                                              _selectGalleryTab(entry.$1),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 9,
+                                              vertical: 4,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: _tabs.index == entry.$1
+                                                  ? EarthlyColors.amber
+                                                  : theme.colorScheme
+                                                      .surfaceContainerHighest,
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              border: Border.all(
+                                                color: _tabs.index == entry.$1
+                                                    ? EarthlyColors.amber
+                                                    : theme.dividerColor,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              entry.$2,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w800,
+                                                color: _tabs.index == entry.$1
+                                                    ? EarthlyColors.amberInk
+                                                    : theme.colorScheme
+                                                        .onSurface,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          if (widget.galleryPreviewLoading || isLoading)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 4),
+                              child: SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: EarthlyColors.amber,
+                                ),
+                              ),
+                            ),
+                          if (itemsCount > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    theme.colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${activeIndex + 1}/$itemsCount',
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          IconButton(
+                            key: const Key('explore-gallery-toggle'),
+                            tooltip: 'List Mode',
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 30,
+                              minHeight: 30,
+                            ),
+                            onPressed: () => _toggleGalleryMode(false),
+                            icon:
+                                const Icon(Icons.view_list_outlined, size: 18),
+                          ),
+                          IconButton(
+                            tooltip: 'Close Gallery',
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 30,
+                              minHeight: 30,
+                            ),
+                            onPressed: widget.onClose,
+                            icon: const Icon(Icons.close, size: 17),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      height: 164,
+                      child: itemsCount == 0
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _emptyMessage(switch (_tabs.index) {
+                                      0 => 'maps',
+                                      1 => 'stories',
+                                      _ => 'atlases',
+                                    }),
+                                    textAlign: TextAlign.center,
+                                    style: theme.textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    onPressed: () => _toggleGalleryMode(false),
+                                    icon: const Icon(
+                                      Icons.view_list_outlined,
+                                      size: 16,
+                                    ),
+                                    label: const Text('Switch to List'),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : PageView.builder(
+                              key: Key('explore-gallery-pageview-${_tabs.index}'),
+                              controller: _galleryPageController,
+                              itemCount: itemsCount,
+                              onPageChanged: (index) {
+                                HapticFeedback.selectionClick();
+                                setState(() => _galleryIndex = index);
+                                _previewGalleryItemForIndex(
+                                  _tabs.index,
+                                  index,
+                                  visibleMaps: visibleMaps,
+                                  visibleStories: visibleStories,
+                                  visibleAtlases: visibleAtlases,
+                                );
+                              },
+                              itemBuilder: (context, index) {
+                                final isCurrent = index == activeIndex;
+                                return switch (_tabs.index) {
+                                  0 => _buildMapGalleryCard(
+                                      context,
+                                      visibleMaps[index],
+                                      index: index,
+                                      isCurrent: isCurrent,
+                                    ),
+                                  1 => _buildStoryGalleryCard(
+                                      context,
+                                      visibleStories[index],
+                                      index: index,
+                                      isCurrent: isCurrent,
+                                    ),
+                                  _ => _buildAtlasGalleryCard(
+                                      context,
+                                      visibleAtlases[index],
+                                      index: index,
+                                      isCurrent: isCurrent,
+                                    ),
+                                };
+                              },
+                            ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGalleryCardFrame(
+    BuildContext context, {
+    required Key cardKey,
+    required bool isCurrent,
+    required Widget leading,
+    required List<Widget> badges,
+    required bool isStarred,
+    required VoidCallback onToggleStar,
+    required String title,
+    required String? previewText,
+    required String meta,
+    required VoidCallback onCardTap,
+    required List<Widget> actions,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+      child: Material(
+        key: cardKey,
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.94),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(
+            color: isCurrent ? EarthlyColors.amber : theme.dividerColor,
+            width: isCurrent ? 1.8 : 1.0,
+          ),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onCardTap,
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: [
+                leading,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(children: badges),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: onToggleStar,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 4),
+                              child: Icon(
+                                isStarred ? Icons.star : Icons.star_outline,
+                                size: 17,
+                                color: isStarred
+                                    ? EarthlyColors.amber
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (previewText != null && previewText.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          previewText,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 11.5,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                      const Spacer(),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              meta,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 10,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          ...actions,
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMapGalleryCard(
+    BuildContext context,
+    MapSummaryDto map, {
+    required int index,
+    required bool isCurrent,
+  }) {
+    final onShelf = widget.shelfAddresses.contains(map.address);
+    final favKey = 'map:${map.address}';
+    final isStarred = widget.pinnedEntityIds.contains(favKey);
+    final dateStr = formatRelativeUnixDate(map.createdAt.toInt());
+    final meta = [
+      _authorLabel(map.pubkey),
+      '${map.featureCount} feat',
+      if (dateStr.isNotEmpty) dateStr,
+    ].join(' · ');
+
+    return _buildGalleryCardFrame(
+      context,
+      cardKey: Key('gallery-card-map-$index'),
+      isCurrent: isCurrent,
+      leading: EarthlyGeometryThumb(
+        cacheKey: map.eventId,
+        geojson: map.geojson,
+        width: 82,
+        height: 116,
+      ),
+      badges: [
+        const EarthlyBadge(label: 'MAP', color: EarthlyColors.commentGreen),
+        if (onShelf) ...[
+          const SizedBox(width: 4),
+          const EarthlyBadge(
+            label: 'ON SHELF',
+            color: EarthlyColors.commentGreen,
+            filled: true,
+          ),
+        ],
+      ],
+      isStarred: isStarred,
+      onToggleStar: () => widget.onToggleFavorite(favKey),
+      title: map.title,
+      previewText: map.description != null && map.description!.isNotEmpty
+          ? stripEarthlyMarkdownPreview(map.description!)
+          : map.hashtags.take(3).map((t) => '#$t').join(' '),
+      meta: meta,
+      onCardTap: () => widget.onInspectMap(map),
+      actions: [
+        IconButton(
+          tooltip: 'Zoom to map',
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          onPressed: () => widget.onPreviewGalleryMap != null
+              ? widget.onPreviewGalleryMap!(map)
+              : widget.onFocusMap(map),
+          icon: const Icon(Icons.center_focus_strong, size: 17),
+        ),
+        IconButton(
+          tooltip: onShelf ? 'Remove from shelf' : 'Pin to shelf',
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          onPressed: () => widget.onToggleMapOnShelf(map),
+          icon: Icon(
+            onShelf ? Icons.layers : Icons.layers_outlined,
+            size: 17,
+            color: onShelf ? EarthlyColors.commentGreen : null,
+          ),
+        ),
+        const SizedBox(width: 2),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            minimumSize: const Size(0, 28),
+          ),
+          onPressed: () => widget.onInspectMap(map),
+          child: const Text('Details', style: TextStyle(fontSize: 11)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStoryGalleryCard(
+    BuildContext context,
+    StorySummaryDto story, {
+    required int index,
+    required bool isCurrent,
+  }) {
+    final favKey = 'story:${story.address}';
+    final isStarred = widget.pinnedEntityIds.contains(favKey);
+    final linkedCount = story.referencedAddresses.length;
+    final dateStr = formatRelativeUnixDate(story.publishedAt.toInt());
+    final meta = [
+      _authorLabel(story.pubkey),
+      if (linkedCount > 0) '$linkedCount map${linkedCount == 1 ? '' : 's'}',
+      if (dateStr.isNotEmpty) dateStr,
+    ].join(' · ');
+
+    return _buildGalleryCardFrame(
+      context,
+      cardKey: Key('gallery-card-story-$index'),
+      isCurrent: isCurrent,
+      leading: EarthlyCoverThumb(
+        imageUrl: story.image,
+        fallbackIcon: Icons.auto_stories_outlined,
+        width: 82,
+        height: 116,
+      ),
+      badges: [
+        const EarthlyBadge(label: 'STORY', color: EarthlyColors.amber),
+        if (story.presentationJson != null) ...[
+          const SizedBox(width: 4),
+          const EarthlyBadge(label: 'VIEWS', color: EarthlyColors.infoCyan),
+        ],
+      ],
+      isStarred: isStarred,
+      onToggleStar: () => widget.onToggleFavorite(favKey),
+      title: story.title,
+      previewText: story.summary != null
+          ? stripEarthlyMarkdownPreview(story.summary!)
+          : stripEarthlyMarkdownPreview(story.content),
+      meta: meta,
+      onCardTap: () => widget.onOpenStory(story),
+      actions: [
+        IconButton(
+          tooltip: 'Story comments',
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          onPressed: () => widget.onOpenStoryDiscussion(story),
+          icon: const Icon(Icons.forum_outlined, size: 17),
+        ),
+        const SizedBox(width: 2),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            minimumSize: const Size(0, 28),
+          ),
+          onPressed: () => widget.onOpenStory(story),
+          child: const Text('Read', style: TextStyle(fontSize: 11)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAtlasGalleryCard(
+    BuildContext context,
+    AtlasSummaryDto atlas, {
+    required int index,
+    required bool isCurrent,
+  }) {
+    final favKey = 'atlas:${atlas.address}';
+    final isStarred = widget.pinnedEntityIds.contains(favKey);
+    final isLens = widget.activeAtlasLens?.address == atlas.address;
+    final govLabel = switch (atlas.governance) {
+      'closed' => 'AUTHOR PICKS',
+      'schema' => 'SCHEMA',
+      _ => 'OPEN',
+    };
+    final govColor = atlas.governance == 'open'
+        ? EarthlyColors.commentGreen
+        : EarthlyColors.published;
+
+    return _buildGalleryCardFrame(
+      context,
+      cardKey: Key('gallery-card-atlas-$index'),
+      isCurrent: isCurrent,
+      leading: EarthlyCoverThumb(
+        imageUrl: atlas.image,
+        fallbackIcon: Icons.public,
+        width: 82,
+        height: 116,
+      ),
+      badges: [
+        EarthlyBadge(label: govLabel, color: govColor),
+        if (isLens) ...[
+          const SizedBox(width: 4),
+          const EarthlyBadge(
+            label: 'LENS',
+            color: EarthlyColors.amber,
+            filled: true,
+          ),
+        ],
+      ],
+      isStarred: isStarred,
+      onToggleStar: () => widget.onToggleFavorite(favKey),
+      title: atlas.name,
+      previewText: atlas.description != null
+          ? stripEarthlyMarkdownPreview(atlas.description!)
+          : null,
+      meta: '${_authorLabel(atlas.pubkey)} · ${atlas.pinnedAddresses.length} pinned',
+      onCardTap: () => widget.onInspectAtlas(atlas),
+      actions: [
+        IconButton(
+          tooltip: isLens ? 'Leave Atlas Lens' : 'Enter Atlas Lens',
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          onPressed: () =>
+              isLens ? widget.onLeaveAtlasLens() : widget.onEnterAtlasLens(atlas),
+          icon: Icon(
+            Icons.filter_tilt_shift,
+            size: 17,
+            color: isLens ? EarthlyColors.amber : null,
+          ),
+        ),
+        const SizedBox(width: 2),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            minimumSize: const Size(0, 28),
+          ),
+          onPressed: () => widget.onInspectAtlas(atlas),
+          child: const Text('Open', style: TextStyle(fontSize: 11)),
+        ),
+      ],
     );
   }
 

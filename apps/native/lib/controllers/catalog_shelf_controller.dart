@@ -38,6 +38,21 @@ class CatalogShelfController extends ChangeNotifier {
   final List<StorySummaryDto> deskStories = <StorySummaryDto>[];
   final List<AtlasSummaryDto> deskAtlases = <AtlasSummaryDto>[];
 
+  /// Ephemeral Mobile Gallery preview state (cleared when leaving Gallery Mode
+  /// so swiping through Stories, Atlases, and Maps never pollutes [shelfMaps]).
+  bool galleryModeActive = false;
+  String? galleryPreviewKey;
+  bool galleryPreviewLoading = false;
+  final List<ShelfMapEntry> galleryPreviewMaps = <ShelfMapEntry>[];
+  int _galleryPreviewSeq = 0;
+
+  /// Shelf entries currently rendered on the map canvas — swaps in the active
+  /// Gallery preview when Gallery Mode is displaying an entity.
+  List<ShelfMapEntry> get effectiveDisplayShelfMaps =>
+      galleryModeActive && galleryPreviewMaps.isNotEmpty
+          ? List<ShelfMapEntry>.unmodifiable(galleryPreviewMaps)
+          : shelfMaps;
+
   final Set<String> pinnedEntityIds = <String>{};
   final List<String> recentEntityIds = <String>[];
 
@@ -335,6 +350,12 @@ class CatalogShelfController extends ChangeNotifier {
       if (shelfMaps[i].summary.address == updated.address) {
         shelfMaps[i] =
             entryFromSummary(updated).copyWith(visible: shelfMaps[i].visible);
+        shelfChanged = true;
+      }
+    }
+    for (var i = 0; i < galleryPreviewMaps.length; i++) {
+      if (galleryPreviewMaps[i].summary.address == updated.address) {
+        galleryPreviewMaps[i] = entryFromSummary(updated);
         shelfChanged = true;
       }
     }
@@ -831,6 +852,405 @@ class CatalogShelfController extends ChangeNotifier {
     focusedStoryFeatureId = null;
     storyGeoPins.clear();
     _notifyStoryChanged();
+  }
+
+  // --- Mobile Gallery Ephemeral Map Preview & Auto-Zoom ---
+
+  static GeoBox? _summaryGeoBox(MapSummaryDto map) {
+    final west = map.west;
+    final south = map.south;
+    final east = map.east;
+    final north = map.north;
+    if (west == null || south == null || east == null || north == null) {
+      return null;
+    }
+    if ((east - west).abs() < 1e-6 && (north - south).abs() < 1e-6) {
+      return GeoBox(
+        west: (west - 0.005).clamp(-180.0, 180.0),
+        south: (south - 0.005).clamp(-85.0, 85.0),
+        east: (east + 0.005).clamp(-180.0, 180.0),
+        north: (north + 0.005).clamp(-85.0, 85.0),
+      );
+    }
+    return GeoBox(west: west, south: south, east: east, north: north);
+  }
+
+  static GeoBox? _boundsForEntriesOrMaps(
+    Iterable<ShelfMapEntry> entries, [
+    Iterable<MapSummaryDto> fallbackMaps = const <MapSummaryDto>[],
+  ]) {
+    final fromShapes = computeCombinedBounds(entries);
+    if (fromShapes != null) return fromShapes;
+    double? west;
+    double? south;
+    double? east;
+    double? north;
+    for (final m in fallbackMaps) {
+      final b = _summaryGeoBox(m);
+      if (b == null) continue;
+      west = west == null ? b.west : (b.west < west ? b.west : west);
+      south = south == null ? b.south : (b.south < south ? b.south : south);
+      east = east == null ? b.east : (b.east > east ? b.east : east);
+      north = north == null ? b.north : (b.north > north ? b.north : north);
+    }
+    if (west == null || south == null || east == null || north == null) {
+      return null;
+    }
+    return GeoBox(west: west, south: south, east: east, north: north);
+  }
+
+  MapSummaryDto _withCachedBlobIfAvailable(MapSummaryDto map) {
+    final cached = resolvedBlobGeojsonByEventId[map.eventId];
+    if (cached != null && cached != map.geojson) {
+      final shapes = parseGeoJsonShapes(
+        cached,
+        datasetTitle: map.title,
+        datasetAddress: map.address,
+      );
+      return _withResolvedBlobGeojson(map, cached, shapes.length);
+    }
+    return map;
+  }
+
+  void setGalleryModeActive(bool active) {
+    if (!active) {
+      final hadState = galleryModeActive ||
+          galleryPreviewMaps.isNotEmpty ||
+          galleryPreviewKey != null ||
+          galleryPreviewLoading;
+      _galleryPreviewSeq += 1;
+      galleryModeActive = false;
+      galleryPreviewKey = null;
+      galleryPreviewLoading = false;
+      galleryPreviewMaps.clear();
+      if (hadState) {
+        _notifyShelfChanged();
+      }
+      return;
+    }
+    if (galleryModeActive) return;
+    galleryModeActive = true;
+    _notifyShelfChanged();
+  }
+
+  void clearGalleryPreview() {
+    _galleryPreviewSeq += 1;
+    if (galleryPreviewMaps.isEmpty &&
+        galleryPreviewKey == null &&
+        !galleryPreviewLoading) {
+      return;
+    }
+    galleryPreviewKey = null;
+    galleryPreviewLoading = false;
+    galleryPreviewMaps.clear();
+    _notifyShelfChanged();
+  }
+
+  Future<void> previewGalleryMap(
+    MapSummaryDto map, {
+    required void Function(GeoBox bounds) onFlyToBounds,
+  }) async {
+    final seq = ++_galleryPreviewSeq;
+    galleryModeActive = true;
+    galleryPreviewKey = 'map:${map.address}';
+    final effective = _withCachedBlobIfAvailable(map);
+    final initialEntry = entryFromSummary(effective);
+    final needsBlobFetch = effective.blobRefs.isNotEmpty &&
+        !resolvedBlobGeojsonByEventId.containsKey(effective.eventId);
+
+    galleryPreviewMaps
+      ..clear()
+      ..add(initialEntry);
+    galleryPreviewLoading = needsBlobFetch;
+    _notifyShelfChanged();
+
+    final initialBounds = _boundsForEntriesOrMaps([initialEntry], [effective]);
+    if (initialBounds != null) {
+      onFlyToBounds(initialBounds);
+    }
+
+    if (!needsBlobFetch) return;
+    final resolved = await ensureMapBlobsResolved(effective);
+    if (_galleryPreviewSeq != seq || !galleryModeActive) return;
+    final resolvedEntry = entryFromSummary(resolved);
+    galleryPreviewMaps
+      ..clear()
+      ..add(resolvedEntry);
+    galleryPreviewLoading = false;
+    _notifyShelfChanged();
+
+    final resolvedBounds = _boundsForEntriesOrMaps([resolvedEntry], [resolved]);
+    if (resolvedBounds != null) {
+      onFlyToBounds(resolvedBounds);
+    }
+  }
+
+  Future<void> previewGalleryStory(
+    StorySummaryDto story, {
+    required void Function(StoryCameraTarget camera) onFlyToCamera,
+    required void Function(GeoBox bounds) onFlyToBounds,
+  }) async {
+    final seq = ++_galleryPreviewSeq;
+    galleryModeActive = true;
+    galleryPreviewKey = 'story:${story.address}';
+
+    final parsed = parseStoryDocument(
+      markdown: story.content,
+      presentationJson: story.presentationJson,
+    );
+    final knownByAddr = <String, MapSummaryDto>{
+      for (final m in catalog?.maps ?? const <MapSummaryDto>[])
+        m.address: _withCachedBlobIfAvailable(m),
+      for (final s in shelfMaps)
+        s.summary.address: _withCachedBlobIfAvailable(s.summary),
+    };
+    final targetAddresses = <String>{
+      ...story.referencedAddresses.where((a) => a.startsWith('37515:')),
+      ...parsed.presentationMapAddresses,
+    };
+
+    final entriesByAddr = <String, ShelfMapEntry>{};
+    for (final addr in targetAddresses) {
+      final found = knownByAddr[addr];
+      if (found != null) {
+        entriesByAddr[addr] = entryFromSummary(found);
+      }
+    }
+
+    final hasInlineNaddrs = parsed.inlineRefs
+        .any((r) => r.kind == StoryInlineRefKind.naddr && r.naddrUri != null);
+    final hasMissing =
+        targetAddresses.any((a) => !entriesByAddr.containsKey(a));
+    final needsAsync = hasInlineNaddrs ||
+        hasMissing ||
+        entriesByAddr.values.any(
+          (e) =>
+              e.summary.blobRefs.isNotEmpty &&
+              !resolvedBlobGeojsonByEventId.containsKey(e.summary.eventId),
+        );
+
+    galleryPreviewMaps
+      ..clear()
+      ..addAll(entriesByAddr.values);
+    galleryPreviewLoading = needsAsync;
+    _notifyShelfChanged();
+
+    if (parsed.initialView != null) {
+      onFlyToCamera(parsed.initialView!);
+    } else if (entriesByAddr.isNotEmpty) {
+      final bounds = _boundsForEntriesOrMaps(
+        entriesByAddr.values,
+        entriesByAddr.values.map((e) => e.summary),
+      );
+      if (bounds != null) onFlyToBounds(bounds);
+    } else {
+      final geoRefs = parsed.inlineRefs
+          .where(
+            (r) =>
+                r.kind == StoryInlineRefKind.geoCoord &&
+                r.lat != null &&
+                r.lon != null,
+          )
+          .toList(growable: false);
+      if (geoRefs.isNotEmpty) {
+        var west = geoRefs.first.lon!;
+        var east = geoRefs.first.lon!;
+        var south = geoRefs.first.lat!;
+        var north = geoRefs.first.lat!;
+        for (final r in geoRefs) {
+          if (r.lon! < west) west = r.lon!;
+          if (r.lon! > east) east = r.lon!;
+          if (r.lat! < south) south = r.lat!;
+          if (r.lat! > north) north = r.lat!;
+        }
+        onFlyToBounds(
+          GeoBox(
+            west: (west - 0.01).clamp(-180.0, 180.0),
+            south: (south - 0.01).clamp(-85.0, 85.0),
+            east: (east + 0.01).clamp(-180.0, 180.0),
+            north: (north + 0.01).clamp(-85.0, 85.0),
+          ),
+        );
+      }
+    }
+
+    if (!needsAsync) return;
+
+    try {
+      await RustBridge.ensureInitialized();
+      if (_galleryPreviewSeq != seq || !galleryModeActive) return;
+      final hintedRelays = <String>{...relayUrls};
+      for (final ref in parsed.inlineRefs) {
+        if (ref.kind != StoryInlineRefKind.naddr || ref.naddrUri == null) {
+          continue;
+        }
+        final decoded = await decodeNaddrCoordinate(naddrUri: ref.naddrUri!);
+        if (_galleryPreviewSeq != seq || !galleryModeActive) return;
+        if (decoded != null) {
+          if (decoded.kind == 37515) {
+            targetAddresses.add(decoded.address);
+          }
+          for (final r in decoded.relays) {
+            if (r.startsWith('wss://')) hintedRelays.add(r);
+          }
+        }
+      }
+
+      for (final addr in targetAddresses) {
+        if (!entriesByAddr.containsKey(addr) && knownByAddr.containsKey(addr)) {
+          entriesByAddr[addr] = entryFromSummary(knownByAddr[addr]!);
+        }
+      }
+
+      final missingAddresses = targetAddresses
+          .where((a) => !entriesByAddr.containsKey(a))
+          .toList(growable: false);
+      if (missingAddresses.isNotEmpty) {
+        final fetched = await fetchMapsByAddresses(
+          relayUrls: hintedRelays.toList(growable: false),
+          addresses: missingAddresses,
+        );
+        if (_galleryPreviewSeq != seq || !galleryModeActive) return;
+        for (final map in fetched) {
+          entriesByAddr[map.address] =
+              entryFromSummary(_withCachedBlobIfAvailable(map));
+        }
+      }
+
+      for (final entry in List<ShelfMapEntry>.from(entriesByAddr.values)) {
+        if (entry.summary.blobRefs.isNotEmpty &&
+            !resolvedBlobGeojsonByEventId.containsKey(entry.summary.eventId)) {
+          final resolved = await ensureMapBlobsResolved(entry.summary);
+          if (_galleryPreviewSeq != seq || !galleryModeActive) return;
+          entriesByAddr[resolved.address] = entryFromSummary(resolved);
+        }
+      }
+
+      if (_galleryPreviewSeq != seq || !galleryModeActive) return;
+      galleryPreviewMaps
+        ..clear()
+        ..addAll(entriesByAddr.values);
+      galleryPreviewLoading = false;
+      _notifyShelfChanged();
+
+      if (parsed.initialView == null && entriesByAddr.isNotEmpty) {
+        final bounds = _boundsForEntriesOrMaps(
+          entriesByAddr.values,
+          entriesByAddr.values.map((e) => e.summary),
+        );
+        if (bounds != null) onFlyToBounds(bounds);
+      }
+    } catch (_) {
+      if (_galleryPreviewSeq == seq && galleryModeActive) {
+        galleryPreviewLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> previewGalleryAtlas(
+    AtlasSummaryDto atlas, {
+    required Set<String> mutedPubkeys,
+    required void Function(GeoBox bounds) onFlyToBounds,
+  }) async {
+    final seq = ++_galleryPreviewSeq;
+    galleryModeActive = true;
+    galleryPreviewKey = 'atlas:${atlas.address}';
+
+    final mapAddresses = <String>{
+      ...atlas.pinnedAddresses.where((a) => a.startsWith('37515:')),
+      if (atlas.governance != 'closed')
+        for (final m in catalog?.maps ?? const <MapSummaryDto>[])
+          if (m.contextRefs.contains(atlas.address) &&
+              !mutedPubkeys.contains(m.pubkey))
+            m.address,
+    }.toList(growable: false);
+
+    final knownByAddr = <String, MapSummaryDto>{
+      for (final m in catalog?.maps ?? const <MapSummaryDto>[])
+        m.address: _withCachedBlobIfAvailable(m),
+      for (final s in shelfMaps)
+        s.summary.address: _withCachedBlobIfAvailable(s.summary),
+    };
+
+    final entriesByAddr = <String, ShelfMapEntry>{};
+    final missing = <String>[];
+    for (final addr in mapAddresses) {
+      final found = knownByAddr[addr];
+      if (found != null) {
+        entriesByAddr[addr] = entryFromSummary(found);
+      } else {
+        missing.add(addr);
+      }
+    }
+
+    final needsAsync = missing.isNotEmpty ||
+        entriesByAddr.values.any(
+          (e) =>
+              e.summary.blobRefs.isNotEmpty &&
+              !resolvedBlobGeojsonByEventId.containsKey(e.summary.eventId),
+        );
+
+    galleryPreviewMaps
+      ..clear()
+      ..addAll(entriesByAddr.values);
+    galleryPreviewLoading = needsAsync;
+    _notifyShelfChanged();
+
+    final initialBounds = _boundsForEntriesOrMaps(
+      entriesByAddr.values,
+      entriesByAddr.values.map((e) => e.summary),
+    );
+    if (initialBounds != null) {
+      onFlyToBounds(initialBounds);
+    }
+
+    if (!needsAsync) return;
+
+    try {
+      await RustBridge.ensureInitialized();
+      if (_galleryPreviewSeq != seq || !galleryModeActive) return;
+      if (missing.isNotEmpty) {
+        final fetched = await fetchMapsByAddresses(
+          relayUrls: relayUrls,
+          addresses: missing,
+        );
+        if (_galleryPreviewSeq != seq || !galleryModeActive) return;
+        for (final m in fetched) {
+          entriesByAddr[m.address] =
+              entryFromSummary(_withCachedBlobIfAvailable(m));
+        }
+      }
+
+      for (final entry in List<ShelfMapEntry>.from(entriesByAddr.values)) {
+        if (entry.summary.blobRefs.isNotEmpty &&
+            !resolvedBlobGeojsonByEventId.containsKey(entry.summary.eventId)) {
+          final resolved = await ensureMapBlobsResolved(entry.summary);
+          if (_galleryPreviewSeq != seq || !galleryModeActive) return;
+          entriesByAddr[resolved.address] = entryFromSummary(resolved);
+        }
+      }
+
+      if (_galleryPreviewSeq != seq || !galleryModeActive) return;
+      galleryPreviewMaps
+        ..clear()
+        ..addAll(entriesByAddr.values);
+      galleryPreviewLoading = false;
+      _notifyShelfChanged();
+
+      final resolvedBounds = _boundsForEntriesOrMaps(
+        entriesByAddr.values,
+        entriesByAddr.values.map((e) => e.summary),
+      );
+      if (resolvedBounds != null) {
+        onFlyToBounds(resolvedBounds);
+      }
+    } catch (_) {
+      if (_galleryPreviewSeq == seq && galleryModeActive) {
+        galleryPreviewLoading = false;
+        notifyListeners();
+      }
+    }
   }
 
   // --- Comment / Proposal Map Overlays ---
