@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod blossom;
 pub mod geo;
+pub mod mcp_bridge;
 pub mod nip46;
 pub mod nostr_client;
 pub mod nwc;

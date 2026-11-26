@@ -41,6 +41,18 @@ Future<AgentTurnResultDto> runEarthlyAgentTurn({
   atlasWorkspaces: atlasWorkspaces,
 );
 
+/// Probes whether the configured provider/model supports multimodal image input.
+/// Fail-safe: returns `"vision"`, `"uncertain"`, or `"no-vision"`.
+Future<String> detectAgentVisionSupport({
+  required String baseUrl,
+  required String model,
+  String? apiKey,
+}) => EarthlyRustLib.instance.api.crateApiAgentDetectAgentVisionSupport(
+  baseUrl: baseUrl,
+  model: model,
+  apiKey: apiKey,
+);
+
 /// Streams real-time SSE text deltas, live tool execution status, and final
 /// `safeEditing` draft diffs back to Flutter via FRB `StreamSink`.
 Stream<AgentStreamEventDto> streamEarthlyAgentTurn({
@@ -58,6 +70,8 @@ Stream<AgentStreamEventDto> streamEarthlyAgentTurn({
   required List<String> atlasWorkspaces,
   required List<String> workingSetTitles,
   required List<String> catalogItems,
+  String? mapSnapshotBase64,
+  required bool allowVision,
 }) => EarthlyRustLib.instance.api.crateApiAgentStreamEarthlyAgentTurn(
   prompt: prompt,
   history: history,
@@ -73,6 +87,8 @@ Stream<AgentStreamEventDto> streamEarthlyAgentTurn({
   atlasWorkspaces: atlasWorkspaces,
   workingSetTitles: workingSetTitles,
   catalogItems: catalogItems,
+  mapSnapshotBase64: mapSnapshotBase64,
+  allowVision: allowVision,
 );
 
 /// Fetches any webpage or remote GeoJSON/GPX/KML URL CORS-free in Rust for the

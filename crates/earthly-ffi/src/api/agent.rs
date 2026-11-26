@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use earthly_agent::{
     AgentChatMessage, AgentProviderConfig, AgentRole, AgentStreamEvent, AgentTurnInput,
-    AgentWorkspaceContext, fetch_research_webpage, run_agent_turn, run_agent_turn_streaming,
+    AgentWorkspaceContext, detect_model_vision_support, fetch_research_webpage, run_agent_turn,
+    run_agent_turn_streaming,
 };
 use earthly_domain::diff_feature_collections;
 use earthly_geo::import_spatial_text_to_geojson;
@@ -144,11 +145,26 @@ pub async fn run_earthly_agent_turn(
             atlas_workspaces,
             working_set_titles: vec![],
             catalog_items: vec![],
+            map_snapshot_base64: None,
+            allow_vision: false,
         },
     };
 
     let out = run_agent_turn(&provider, &input).await?;
     Ok(turn_output_to_dto(&base_geojson_for_diff, out))
+}
+
+/// Probes whether the configured provider/model supports multimodal image input.
+/// Fail-safe: returns `"vision"`, `"uncertain"`, or `"no-vision"`.
+pub async fn detect_agent_vision_support(
+    base_url: String,
+    model: String,
+    api_key: Option<String>,
+) -> String {
+    detect_model_vision_support(&base_url, &model, api_key.as_deref())
+        .await
+        .as_str()
+        .to_owned()
 }
 
 fn turn_output_to_dto(
@@ -206,6 +222,8 @@ pub async fn stream_earthly_agent_turn(
     atlas_workspaces: Vec<String>,
     working_set_titles: Vec<String>,
     catalog_items: Vec<String>,
+    map_snapshot_base64: Option<String>,
+    allow_vision: bool,
     sink: crate::frb_generated::StreamSink<AgentStreamEventDto>,
 ) -> Result<(), String> {
     let provider = AgentProviderConfig {
@@ -242,6 +260,8 @@ pub async fn stream_earthly_agent_turn(
             atlas_workspaces,
             working_set_titles,
             catalog_items,
+            map_snapshot_base64,
+            allow_vision,
         },
     };
 
@@ -486,5 +506,24 @@ mod tests {
         let ollama = r#"{"models":[{"name":"llama3.2:latest"},{"name":"qwen2.5:14b"}]}"#;
         let parsed_ollama = parse_models_response_json(ollama);
         assert_eq!(parsed_ollama, vec!["llama3.2:latest", "qwen2.5:14b"]);
+    }
+
+    #[tokio::test]
+    async fn detects_vision_support_fail_safely() {
+        let offline = detect_agent_vision_support(
+            String::new(),
+            "offline-spatial".to_owned(),
+            None,
+        )
+        .await;
+        assert_eq!(offline, "no-vision");
+
+        let heuristic = detect_agent_vision_support(
+            String::new(),
+            "gpt-4o".to_owned(),
+            None,
+        )
+        .await;
+        assert_eq!(heuristic, "uncertain");
     }
 }

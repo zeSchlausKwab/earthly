@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
+import 'dart:ui' as ui;
 
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:maplibre/maplibre.dart';
 import 'package:material_ui/material_ui.dart';
@@ -23,6 +24,7 @@ import 'shell/agent_drawer.dart';
 import 'shell/atlas_composer_sheet.dart';
 import 'shell/atlas_detail_margin.dart';
 import 'shell/basemap_switcher_sheet.dart';
+import 'shell/cashu_wallet_sheet.dart';
 import 'shell/circles_sheet.dart';
 import 'shell/dataset_detail_margin.dart';
 import 'shell/desk_sheet.dart';
@@ -34,6 +36,7 @@ import 'shell/help_shortcuts_sheet.dart';
 import 'shell/inbox_sheet.dart';
 import 'shell/location_inspector_sheet.dart';
 import 'shell/map_drawer.dart';
+import 'shell/mcp_bridge_sheet.dart';
 import 'shell/osm_import_sheet.dart';
 import 'shell/outbox_queue_sheet.dart';
 import 'shell/person_margin.dart';
@@ -49,6 +52,7 @@ import 'spike/rust_node_sheet.dart';
 import 'src/rust/api/agent.dart';
 import 'src/rust/api/blossom.dart';
 import 'src/rust/api/geo.dart';
+import 'src/rust/api/mcp_bridge.dart';
 import 'src/rust/api/nip46.dart';
 import 'src/rust/api/nostr_client.dart';
 import 'src/rust/api/nwc.dart';
@@ -57,6 +61,7 @@ import 'src/rust/api/publish.dart';
 import 'src/rust/api/relay_pool.dart';
 import 'src/rust/api/settings.dart';
 import 'src/rust/api/spike.dart';
+import 'src/rust/api/wallet.dart';
 import 'theme/earthly_theme.dart';
 
 void main() {
@@ -83,6 +88,8 @@ enum _ActiveDrawer {
   outbox,
   person,
   account,
+  cashuWallet,
+  mcpBridge,
   search,
   agent,
   storyReader,
@@ -349,6 +356,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   final Set<String> _agentWorkingSetAddresses = <String>{};
   AgentAttachment? _agentPendingAttachment;
   StreamSubscription<AgentStreamEventDto>? _agentStreamSub;
+  String _agentVisionSupport = 'no-vision';
+  bool _agentAttachMapView = false;
+  final GlobalKey _mapRepaintBoundaryKey = GlobalKey();
+
+  // Phase B: SecretBox master key, NIP-60 Cashu Wallet & Local MCP Desktop Bridge
+  String? _settingsMasterKey;
+  CashuWalletStateDto? _cashuWalletState;
+  bool _cashuBusy = false;
+  final Map<String, int> _cashuQuoteAmounts = <String, int>{};
+  McpBridgeStatusDto? _mcpBridgeStatus;
+  bool _mcpBridgeBusy = false;
+  Timer? _mcpPollTimer;
 
   // Background GPS Track Recording (Android Foreground Service + Desktop breadcrumb mode)
   bool _gpsTrackRecording = false;
@@ -445,6 +464,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       await RustBridge.ensureInitialized();
       final masterKey = await DeviceBridge.getOrCreateMasterKey();
       if (masterKey != null && masterKey.isNotEmpty) {
+        _settingsMasterKey = masterKey;
         await setSettingsMasterKey(masterKeyBase64: masterKey);
         masterKeyReady = true;
       }
@@ -454,6 +474,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       // Re-save once so any legacy plaintext secrets migrate to enc:v1: at rest.
       unawaited(_persistAppSettings());
     }
+    unawaited(_refreshCashuWalletState());
+    unawaited(_refreshAgentVisionSupport());
     await _restoreMacOsSecurityScopedBookmarks();
     await _initPersistentRelayPool(dir.path);
     await _restoreSavedDraft();
@@ -923,6 +945,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     unawaited(_resolveSessionProfiles());
     unawaited(_refreshCirclesSnapshot());
     unawaited(_refreshInbox());
+    unawaited(_refreshCashuWalletState());
   }
 
   void _switchSavedSession(SavedAccountSessionDto session) {
@@ -936,6 +959,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     unawaited(_resolveSessionProfiles());
     unawaited(_refreshCirclesSnapshot());
     unawaited(_refreshInbox());
+    unawaited(_refreshCashuWalletState());
     if (mounted) {
       final prof = _profilesByPubkey[session.pubkeyHex];
       final name = prof?.displayName ??
@@ -960,6 +984,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     unawaited(_persistAppSettings());
     unawaited(_refreshCirclesSnapshot());
     unawaited(_refreshInbox());
+    unawaited(_refreshCashuWalletState());
   }
 
   void _addReadOnlySession(String pubkeyHex) {
@@ -2373,6 +2398,306 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     return _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
   }
 
+  Future<String?> _ensureSettingsMasterKey() async {
+    if (_settingsMasterKey != null && _settingsMasterKey!.isNotEmpty) {
+      return _settingsMasterKey;
+    }
+    try {
+      final masterKey = await DeviceBridge.getOrCreateMasterKey();
+      if (masterKey != null && masterKey.isNotEmpty) {
+        _settingsMasterKey = masterKey;
+        await RustBridge.ensureInitialized();
+        await setSettingsMasterKey(masterKeyBase64: masterKey);
+      }
+    } catch (_) {}
+    return _settingsMasterKey;
+  }
+
+  Future<void> _refreshCashuWalletState() async {
+    if (widget.mapBuilder != null) return;
+    final acct = _account;
+    if (acct == null) {
+      if (mounted) setState(() => _cashuWalletState = null);
+      return;
+    }
+    try {
+      await RustBridge.ensureInitialized();
+      final dbPath = await _databasePath();
+      final masterKey = await _ensureSettingsMasterKey();
+      final loaded = await loadCashuWalletState(
+        databasePath: dbPath,
+        pubkeyHex: acct.pubkey,
+        masterKeyB64: masterKey,
+      );
+      if (mounted) setState(() => _cashuWalletState = loaded);
+    } catch (_) {}
+  }
+
+  CashuWalletViewState get _cashuWalletViewState {
+    final s = _cashuWalletState;
+    if (s == null) {
+      return const CashuWalletViewState(initialized: false);
+    }
+    final initialized = s.mints.isNotEmpty ||
+        s.p2PkPubkeyHex.isNotEmpty ||
+        s.updatedAt > BigInt.zero;
+    return CashuWalletViewState(
+      initialized: initialized,
+      totalBalanceSats: s.balanceSats.toInt(),
+      defaultMint: s.defaultMint,
+      mints: [
+        for (final m in s.mints)
+          CashuMintBalanceView(
+            mintUrl: m,
+            balanceSats: s.mintBalances
+                    .where((b) => b.mintUrl == m)
+                    .firstOrNull
+                    ?.balanceSats
+                    .toInt() ??
+                0,
+            proofCount: m == s.defaultMint ? s.proofCount.toInt() : 0,
+          ),
+      ],
+      nutzapEnabled: s.nutzapEnabled,
+      p2pkPubkeyHex: s.p2PkPubkeyHex.isNotEmpty ? s.p2PkPubkeyHex : null,
+      history: [
+        for (final h in s.history.reversed)
+          CashuHistoryView(
+            id: h.id,
+            direction: h.direction,
+            amountSats: h.amountSats.toInt(),
+            mintUrl: h.mintUrl,
+            timestampMs: h.createdAt.toInt() * 1000,
+            memo: h.memo ?? '',
+          ),
+      ],
+    );
+  }
+
+  Future<T> _runCashuOp<T>(
+    Future<T> Function(String dbPath, String pubkeyHex, String? masterKey) op,
+  ) async {
+    if (mounted) setState(() => _cashuBusy = true);
+    try {
+      await RustBridge.ensureInitialized();
+      final acct = await _ensureAccount();
+      final dbPath = await _databasePath();
+      final masterKey = await _ensureSettingsMasterKey();
+      return await op(dbPath, acct.pubkey, masterKey);
+    } finally {
+      if (mounted) setState(() => _cashuBusy = false);
+    }
+  }
+
+  String _requireCashuNsec() {
+    final nsec = _localNsec?.trim();
+    if (nsec == null || nsec.isEmpty) {
+      throw StateError(
+        'NIP-60 / NIP-61 Nostr operations require a local nsec keypair in Account.',
+      );
+    }
+    return nsec;
+  }
+
+  Future<void> _refreshAgentVisionSupport() async {
+    if (widget.mapBuilder != null) return;
+    try {
+      await RustBridge.ensureInitialized();
+      final verdict = await detectAgentVisionSupport(
+        baseUrl: _agentSettings.baseUrl,
+        model: _agentSettings.model,
+        apiKey: _agentSettings.apiKey.isEmpty ? null : _agentSettings.apiKey,
+      );
+      if (!mounted) return;
+      setState(() {
+        _agentVisionSupport = verdict;
+        if (verdict == 'no-vision') {
+          _agentAttachMapView = false;
+        }
+      });
+    } catch (_) {}
+  }
+
+  Future<String?> _captureMapSnapshotBase64() async {
+    try {
+      final ctx = _mapRepaintBoundaryKey.currentContext;
+      final ro = ctx?.findRenderObject();
+      if (ro is! RenderRepaintBoundary) return null;
+      final image = await ro.toImage(pixelRatio: 1.0);
+      try {
+        final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+        if (byteData == null) return null;
+        return base64Encode(byteData.buffer.asUint8List());
+      } finally {
+        image.dispose();
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  McpWorkspaceDto _buildMcpWorkspaceDto() {
+    final cam = _controller?.camera;
+    final center = cam?.center ?? const Geographic(lon: 16.3738, lat: 48.2082);
+    final draftGeojson = draftFeaturesToGeoJson(
+      title: _draftTitle,
+      features: _features,
+    );
+    final workingSetTitles = _shelfMaps
+        .where((e) => _agentWorkingSetAddresses.contains(e.summary.address))
+        .map((e) => '${e.summary.title} (${e.summary.address})')
+        .toList(growable: false);
+    final cat = _catalog;
+    final catalogItems = <String>[
+      if (cat != null) ...[
+        for (final m in cat.maps.take(20))
+          '[Map] ${m.title} | ${m.address}${m.hashtags.isNotEmpty ? ' | #${m.hashtags.join(" #")}' : ''} | ${m.featureCount} features',
+        for (final s in cat.stories.take(10)) '[Story] ${s.title} | ${s.address}',
+        for (final a in cat.atlases.take(10))
+          '[Atlas] ${a.name} | ${a.address} | ${a.governance}',
+      ],
+    ];
+    return McpWorkspaceDto(
+      centerLon: center.lon,
+      centerLat: center.lat,
+      zoom: cam?.zoom ?? 13.5,
+      draftTitle: _draftTitle,
+      draftGeojson: draftGeojson,
+      shelfMapTitles: _shelfMaps.map((e) => e.summary.title).toList(),
+      atlasWorkspaces:
+          _mountedAtlasWorkspaces.map((w) => w.coverageSummary).toList(),
+      workingSetTitles: workingSetTitles,
+      catalogItems: catalogItems,
+    );
+  }
+
+  void _syncMcpWorkspaceIfRunning() {
+    if (_mcpBridgeStatus?.running != true || widget.mapBuilder != null) return;
+    unawaited(syncMcpWorkspace(workspace: _buildMcpWorkspaceDto()));
+  }
+
+  void _startMcpPolling() {
+    _mcpPollTimer?.cancel();
+    _mcpPollTimer = Timer.periodic(
+      const Duration(milliseconds: 1500),
+      (_) => unawaited(_pollMcpBridgeTick()),
+    );
+  }
+
+  void _stopMcpPolling() {
+    _mcpPollTimer?.cancel();
+    _mcpPollTimer = null;
+  }
+
+  Future<void> _pollMcpBridgeTick() async {
+    if (widget.mapBuilder != null || !mounted) return;
+    try {
+      await RustBridge.ensureInitialized();
+      await syncMcpWorkspace(workspace: _buildMcpWorkspaceDto());
+      final mutations = await drainMcpMutations();
+      for (final m in mutations) {
+        if (m.updatedDraftGeojson != null) {
+          final parsed = parseDraftFeaturesFromGeoJson(m.updatedDraftGeojson!);
+          _pushDraftUndo();
+          if (mounted) {
+            setState(() {
+              _features
+                ..clear()
+                ..addAll(parsed);
+              _featureCounter = _features.length;
+            });
+          }
+          unawaited(_persistWorkingDraft());
+        }
+        if (m.cameraAction != null) {
+          final ca = m.cameraAction!;
+          _controller?.animateCamera(
+            CameraUpdate.position(
+              center: Geographic(lon: ca.lon, lat: ca.lat),
+              zoom: ca.zoom,
+            ),
+          );
+        }
+      }
+      final status = await getMcpBridgeStatus();
+      if (!mounted) return;
+      setState(() => _mcpBridgeStatus = status);
+      if (!status.running) {
+        _stopMcpPolling();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _startMcpBridgeServer(int port) async {
+    if (mounted) setState(() => _mcpBridgeBusy = true);
+    try {
+      await RustBridge.ensureInitialized();
+      final status = await startMcpBridge(
+        port: port,
+        workspace: _buildMcpWorkspaceDto(),
+      );
+      if (!mounted) return;
+      setState(() => _mcpBridgeStatus = status);
+      if (status.running) {
+        _startMcpPolling();
+      }
+    } finally {
+      if (mounted) setState(() => _mcpBridgeBusy = false);
+    }
+  }
+
+  Future<void> _stopMcpBridgeServer() async {
+    if (mounted) setState(() => _mcpBridgeBusy = true);
+    try {
+      await RustBridge.ensureInitialized();
+      final status = await stopMcpBridge();
+      _stopMcpPolling();
+      if (mounted) setState(() => _mcpBridgeStatus = status);
+    } finally {
+      if (mounted) setState(() => _mcpBridgeBusy = false);
+    }
+  }
+
+  Future<void> _refreshMcpBridgeStatus() async {
+    if (widget.mapBuilder != null) return;
+    try {
+      await RustBridge.ensureInitialized();
+      final status = await getMcpBridgeStatus();
+      if (!mounted) return;
+      setState(() => _mcpBridgeStatus = status);
+      if (status.running && _mcpPollTimer == null) {
+        _startMcpPolling();
+      }
+    } catch (_) {}
+  }
+
+  McpBridgeViewState get _mcpBridgeViewState {
+    final s = _mcpBridgeStatus;
+    if (s == null) {
+      return const McpBridgeViewState(
+        running: false,
+        port: McpBridgeSheet.defaultPort,
+      );
+    }
+    return McpBridgeViewState(
+      running: s.running,
+      endpointUrl: s.endpointUrl.isNotEmpty ? s.endpointUrl : null,
+      authToken: s.authToken.isNotEmpty ? s.authToken : null,
+      port: s.port > 0 ? s.port : McpBridgeSheet.defaultPort,
+      toolCount: s.toolCount,
+      totalCalls: s.totalCalls.toInt(),
+      recentCalls: [
+        for (final c in s.recentCalls)
+          McpBridgeCallEntry(
+            timestampMs: c.timestampMs.toInt(),
+            toolName: c.toolName,
+            ok: c.ok,
+            summary: c.summary,
+          ),
+      ],
+    );
+  }
+
   Future<void> _openZapDialogForEntity({
     required String recipientPubkey,
     required String targetTitle,
@@ -2401,6 +2726,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         profile?.name ??
         '${recipientPubkey.substring(0, recipientPubkey.length.clamp(0, 10))}…';
     final lud16 = profile?.lud16;
+    final cashuSats = _cashuWalletState?.balanceSats.toInt();
+    final canCashuNutzap = _account != null &&
+        _localNsec != null &&
+        _localNsec!.isNotEmpty &&
+        (cashuSats ?? 0) > 0;
     await showEarthlyZapDialog(
       context,
       recipientName: recipientName,
@@ -2414,6 +2744,41 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ? (bolt11) async {
               await RustBridge.ensureInitialized();
               return payInvoiceViaNwc(nwcUri: _nwcUri!, bolt11: bolt11);
+            }
+          : null,
+      cashuBalanceSats: cashuSats,
+      onPayWithCashu: (_account != null && (cashuSats ?? 0) > 0)
+          ? (bolt11) async {
+              final res = await _runCashuOp(
+                (dbPath, pubkeyHex, masterKey) => payBolt11ViaCashu(
+                  databasePath: dbPath,
+                  pubkeyHex: pubkeyHex,
+                  bolt11: bolt11,
+                  masterKeyB64: masterKey,
+                ),
+              );
+              if (mounted) setState(() => _cashuWalletState = res.walletState);
+              return res.preimage != null && res.preimage!.isNotEmpty
+                  ? 'Paid via Cashu ⚡ (${res.preimage!.substring(0, res.preimage!.length.clamp(0, 10))}…)'
+                  : 'Paid ${res.amountSats} sats via Cashu ⚡';
+            }
+          : null,
+      onSendNutzap: canCashuNutzap
+          ? ({required amountSats, required comment}) async {
+              final res = await _runCashuOp(
+                (dbPath, _, masterKey) => sendNip61Nutzap(
+                  databasePath: dbPath,
+                  nsecOrHex: _requireCashuNsec(),
+                  recipientPubkeyHex: recipientPubkey,
+                  amountSats: BigInt.from(amountSats),
+                  comment: comment.isEmpty ? null : comment,
+                  targetEventId: targetEventId,
+                  relays: _activeRelayUrls,
+                  masterKeyB64: masterKey,
+                ),
+              );
+              if (mounted) setState(() => _cashuWalletState = res.walletState);
+              return 'Sent ${res.amountSats} sats via NIP-61 Nutzap ✓';
             }
           : null,
       onGenerateInvoice: ({required amountSats, required comment}) async {
@@ -2816,6 +3181,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     unawaited(_relayStreamSub?.cancel());
     _liveListenerTimer?.cancel();
     _outboxFlushTimer?.cancel();
+    _mcpPollTimer?.cancel();
     super.dispose();
   }
 
@@ -3193,6 +3559,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         ],
       ];
 
+      final allowVision =
+          _agentAttachMapView && _agentVisionSupport != 'no-vision';
+      final snapshotB64 =
+          allowVision ? await _captureMapSnapshotBase64() : null;
+
       final completer = Completer<AgentTurnResultDto>();
       _agentStreamSub = streamEarthlyAgentTurn(
         prompt: effectivePrompt,
@@ -3210,6 +3581,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             _mountedAtlasWorkspaces.map((w) => w.coverageSummary).toList(),
         workingSetTitles: workingSetTitles,
         catalogItems: catalogItems,
+        mapSnapshotBase64: snapshotB64,
+        allowVision: allowVision,
       ).listen(
         (ev) {
           if (!mounted) return;
@@ -3837,6 +4210,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         geojson: geojson,
       );
       await _refreshSavedDrafts();
+      _syncMcpWorkspaceIfRunning();
     } catch (_) {}
   }
 
@@ -4170,6 +4544,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final idx = _shelfMaps.indexWhere((e) => e.summary.address == map.address);
     if (idx >= 0) {
       setState(() => _shelfMaps.removeAt(idx));
+      _syncMcpWorkspaceIfRunning();
       return;
     }
     setState(() => _shelfMaps.add(_entryFromSummary(map)));
@@ -4178,6 +4553,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       unawaited(_ensureMapBlobsResolved(map));
     }
     _flyToMap(map);
+    _syncMcpWorkspaceIfRunning();
   }
 
   void _addMapsBulkToShelf(List<MapSummaryDto> maps) {
@@ -6543,6 +6919,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         _ActiveDrawer.atlasDetail ||
         _ActiveDrawer.person ||
         _ActiveDrawer.account ||
+        _ActiveDrawer.cashuWallet ||
+        _ActiveDrawer.mcpBridge ||
         _ActiveDrawer.search ||
         _ActiveDrawer.locationInspector ||
         _ActiveDrawer.osmImport ||
@@ -6566,6 +6944,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         if (!_isWideStudio) _rightStudioDrawer = _ActiveDrawer.none;
       }
     });
+    if (target == _ActiveDrawer.cashuWallet) {
+      unawaited(_refreshCashuWalletState());
+    } else if (target == _ActiveDrawer.mcpBridge) {
+      unawaited(_refreshMcpBridgeStatus());
+    } else if (target == _ActiveDrawer.agent) {
+      unawaited(_refreshAgentVisionSupport());
+    }
   }
 
   void _closeDrawer(_ActiveDrawer target) {
@@ -6925,6 +7310,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onPublishNip65Relays: _publishNip65Relays,
           onOpenShoutbox: () => _openDrawer(_ActiveDrawer.shoutbox),
           onOpenHelp: () => _openDrawer(_ActiveDrawer.help),
+          onOpenCashuWallet: () => _openDrawer(_ActiveDrawer.cashuWallet),
+          cashuBalanceSats: _cashuWalletState?.balanceSats.toInt(),
+          onOpenMcpBridge: () => _openDrawer(_ActiveDrawer.mcpBridge),
+          mcpBridgeRunning: _mcpBridgeStatus?.running ?? false,
           onAccountChanged: (account) {
             if (account == null) {
               if (_activeAccountId != null) {
@@ -7166,8 +7555,189 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             setState(() => _nwcUri = uri);
             unawaited(_persistAppSettings());
           },
+          onOpenCashuWallet: () => _openDrawer(_ActiveDrawer.cashuWallet),
+          cashuBalanceSats: _cashuWalletState?.balanceSats.toInt(),
           onSaveProfile: _publishProfile,
           onOpenSpaces: () => _openDrawer(_ActiveDrawer.spaces),
+          onClose: () => _closeDrawer(target),
+        );
+      case _ActiveDrawer.cashuWallet:
+        return CashuWalletSheet(
+          state: _cashuWalletViewState,
+          busy: _cashuBusy,
+          onInitializeWallet: (mints, enableNutzaps) async {
+            var next = await _runCashuOp(
+              (dbPath, pubkeyHex, masterKey) => initCashuWallet(
+                databasePath: dbPath,
+                pubkeyHex: pubkeyHex,
+                mints: mints,
+                relays: _activeRelayUrls,
+                masterKeyB64: masterKey,
+              ),
+            );
+            if (enableNutzaps &&
+                _localNsec != null &&
+                _localNsec!.trim().isNotEmpty) {
+              await _runCashuOp(
+                (dbPath, pubkeyHex, masterKey) async {
+                  await publishNip61NutzapInfo(
+                    databasePath: dbPath,
+                    nsecOrHex: _requireCashuNsec(),
+                    mints: mints,
+                    relays: _activeRelayUrls,
+                    masterKeyB64: masterKey,
+                  );
+                  next = await loadCashuWalletState(
+                    databasePath: dbPath,
+                    pubkeyHex: pubkeyHex,
+                    masterKeyB64: masterKey,
+                  );
+                },
+              );
+            }
+            if (mounted) setState(() => _cashuWalletState = next);
+          },
+          onSyncWallet: () async {
+            final next = await _runCashuOp(
+              (dbPath, _, masterKey) => syncNip60Wallet(
+                databasePath: dbPath,
+                nsecOrHex: _requireCashuNsec(),
+                relays: _activeRelayUrls,
+                masterKeyB64: masterKey,
+              ),
+            );
+            if (mounted) setState(() => _cashuWalletState = next);
+          },
+          onAddMint: (url) async {
+            final next = await _runCashuOp(
+              (dbPath, pubkeyHex, masterKey) => addCashuMint(
+                databasePath: dbPath,
+                pubkeyHex: pubkeyHex,
+                mintUrl: url,
+                masterKeyB64: masterKey,
+              ),
+            );
+            if (mounted) setState(() => _cashuWalletState = next);
+          },
+          onRemoveMint: (url) async {
+            final next = await _runCashuOp(
+              (dbPath, pubkeyHex, masterKey) => removeCashuMint(
+                databasePath: dbPath,
+                pubkeyHex: pubkeyHex,
+                mintUrl: url,
+                masterKeyB64: masterKey,
+              ),
+            );
+            if (mounted) setState(() => _cashuWalletState = next);
+          },
+          onRequestDeposit: (mintUrl, amountSats) async {
+            final quote = await _runCashuOp(
+              (dbPath, pubkeyHex, masterKey) => requestCashuMintQuote(
+                databasePath: dbPath,
+                pubkeyHex: pubkeyHex,
+                mintUrl: mintUrl,
+                amountSats: BigInt.from(amountSats),
+                masterKeyB64: masterKey,
+              ),
+            );
+            _cashuQuoteAmounts[quote.quoteId] = quote.amountSats.toInt();
+            return CashuMintQuoteView(
+              quoteId: quote.quoteId,
+              mintUrl: quote.mintUrl,
+              amountSats: quote.amountSats.toInt(),
+              bolt11: quote.request,
+              paid: quote.paid,
+            );
+          },
+          onClaimDeposit: (mintUrl, quoteId) async {
+            final amountSats = _cashuQuoteAmounts[quoteId] ?? 0;
+            final next = await _runCashuOp(
+              (dbPath, pubkeyHex, masterKey) => claimCashuMintQuote(
+                databasePath: dbPath,
+                pubkeyHex: pubkeyHex,
+                mintUrl: mintUrl,
+                quoteId: quoteId,
+                amountSats: BigInt.from(amountSats),
+                masterKeyB64: masterKey,
+              ),
+            );
+            if (mounted) setState(() => _cashuWalletState = next);
+          },
+          onReceiveToken: (cashuToken) async {
+            final next = await _runCashuOp(
+              (dbPath, pubkeyHex, masterKey) => receiveCashuToken(
+                databasePath: dbPath,
+                pubkeyHex: pubkeyHex,
+                token: cashuToken,
+                masterKeyB64: masterKey,
+              ),
+            );
+            if (mounted) setState(() => _cashuWalletState = next);
+          },
+          onSendToken: (mintUrl, amountSats) async {
+            final res = await _runCashuOp(
+              (dbPath, pubkeyHex, masterKey) => sendCashuToken(
+                databasePath: dbPath,
+                pubkeyHex: pubkeyHex,
+                mintUrl: mintUrl,
+                amountSats: BigInt.from(amountSats),
+                masterKeyB64: masterKey,
+              ),
+            );
+            if (mounted) setState(() => _cashuWalletState = res.walletState);
+            return res.token;
+          },
+          onWithdrawBolt11: (mintUrl, bolt11) async {
+            final res = await _runCashuOp(
+              (dbPath, pubkeyHex, masterKey) => payBolt11ViaCashu(
+                databasePath: dbPath,
+                pubkeyHex: pubkeyHex,
+                mintUrl: mintUrl,
+                bolt11: bolt11,
+                masterKeyB64: masterKey,
+              ),
+            );
+            if (mounted) setState(() => _cashuWalletState = res.walletState);
+          },
+          onToggleNutzaps: () async {
+            final mints = _cashuWalletState?.mints ?? const <String>[];
+            final next = await _runCashuOp(
+              (dbPath, pubkeyHex, masterKey) async {
+                await publishNip61NutzapInfo(
+                  databasePath: dbPath,
+                  nsecOrHex: _requireCashuNsec(),
+                  mints: mints,
+                  relays: _activeRelayUrls,
+                  masterKeyB64: masterKey,
+                );
+                return loadCashuWalletState(
+                  databasePath: dbPath,
+                  pubkeyHex: pubkeyHex,
+                  masterKeyB64: masterKey,
+                );
+              },
+            );
+            if (mounted) setState(() => _cashuWalletState = next);
+          },
+          onClaimNutzaps: () async {
+            final res = await _runCashuOp(
+              (dbPath, _, masterKey) => claimIncomingNutzaps(
+                databasePath: dbPath,
+                nsecOrHex: _requireCashuNsec(),
+                relays: _activeRelayUrls,
+                masterKeyB64: masterKey,
+              ),
+            );
+            if (mounted) setState(() => _cashuWalletState = res.walletState);
+          },
+          onClose: () => _closeDrawer(target),
+        );
+      case _ActiveDrawer.mcpBridge:
+        return McpBridgeSheet(
+          state: _mcpBridgeViewState,
+          busy: _mcpBridgeBusy,
+          onStart: _startMcpBridgeServer,
+          onStop: _stopMcpBridgeServer,
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.search:
@@ -7220,6 +7790,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           pendingAttachment: _agentPendingAttachment,
           onPickAttachment: () => unawaited(_pickAgentAttachment()),
           onClearAttachment: () => setState(() => _agentPendingAttachment = null),
+          visionSupport: _agentVisionSupport,
+          attachMapView: _agentAttachMapView,
+          onAttachMapViewChanged: (v) =>
+              setState(() => _agentAttachMapView = v),
           safeEditing: _agentSafeEditing,
           onSafeEditingChanged: (v) => setState(() => _agentSafeEditing = v),
           pendingEdit: _pendingAiEdit,
@@ -7236,6 +7810,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onSettingsChanged: (s) {
             setState(() => _agentSettings = s);
             unawaited(_persistAppSettings());
+            unawaited(_refreshAgentVisionSupport());
           },
           onSendPrompt: (p) => unawaited(_sendAgentPrompt(p)),
           onClearChat: () {
@@ -8061,7 +8636,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           body: Stack(
         fit: StackFit.expand,
         children: [
-          mapWidget,
+          RepaintBoundary(
+            key: _mapRepaintBoundaryKey,
+            child: mapWidget,
+          ),
 
           // Zero-lock touch drawing & GPU loupe overlay.
           TouchDrawOverlay(
@@ -9162,7 +9740,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               bottom: 0,
               child: ClipRect(
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                   child: Container(
                     key: const Key('earthly-bottom-dock'),
                     decoration: BoxDecoration(

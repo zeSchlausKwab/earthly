@@ -209,11 +209,12 @@ struct KeysResponse {
     pub keysets: Vec<KeysetKeysWire>,
 }
 
+#[flutter_rust_bridge::frb(ignore)]
 #[derive(Clone, Debug, Deserialize)]
 struct KeysetKeysWire {
-    pub id: String,
-    pub unit: String,
-    pub keys: BTreeMap<String, String>,
+    id: String,
+    unit: String,
+    keys: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

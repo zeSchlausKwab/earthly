@@ -6,6 +6,7 @@
 import 'api/agent.dart';
 import 'api/blossom.dart';
 import 'api/geo.dart';
+import 'api/mcp_bridge.dart';
 import 'api/nip46.dart';
 import 'api/nostr_client.dart';
 import 'api/nwc.dart';
@@ -14,6 +15,7 @@ import 'api/publish.dart';
 import 'api/relay_pool.dart';
 import 'api/settings.dart';
 import 'api/spike.dart';
+import 'api/wallet.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -85,7 +87,7 @@ class EarthlyRustLib
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -1099328648;
+  int get rustContentHash => -1013527988;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -102,6 +104,13 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? signerNsec,
     String? bunkerUri,
     String? bunkerClientNsec,
+  });
+
+  Future<CashuWalletStateDto> crateApiWalletAddCashuMint({
+    required String databasePath,
+    required String pubkeyHex,
+    required String mintUrl,
+    String? masterKeyB64,
   });
 
   Future<CircleWorkspaceDto> crateApiPrivateGroupsApproveCircleJoinRequest({
@@ -121,6 +130,22 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String connectUri,
     required String clientNsec,
     BigInt? timeoutSecs,
+  });
+
+  Future<CashuWalletStateDto> crateApiWalletClaimCashuMintQuote({
+    required String databasePath,
+    required String pubkeyHex,
+    required String mintUrl,
+    required String quoteId,
+    required BigInt amountSats,
+    String? masterKeyB64,
+  });
+
+  Future<NutzapClaimResultDto> crateApiWalletClaimIncomingNutzaps({
+    required String databasePath,
+    required String nsecOrHex,
+    required List<String> relays,
+    String? masterKeyB64,
   });
 
   Future<String> crateApiBlossomComputeSha256Hex({required List<int> bytes});
@@ -193,6 +218,12 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String draftId,
   });
 
+  Future<String> crateApiAgentDetectAgentVisionSupport({
+    required String baseUrl,
+    required String model,
+    String? apiKey,
+  });
+
   Future<OutboxItemDto> crateApiPublishDiscardOutboxItem({
     required String databasePath,
     required String itemId,
@@ -200,6 +231,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
 
   Future<List<AtlasBundleInspectionDto>>
   crateApiSpikeDiscoverLocalAtlasBundles({required List<String> searchDirs});
+
+  Future<List<McpMutationDto>> crateApiMcpBridgeDrainMcpMutations();
 
   Future<String> crateApiNostrClientEncodeHexToNpub({
     required String pubkeyHex,
@@ -457,6 +490,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String geojson,
   });
 
+  Future<McpBridgeStatusDto> crateApiMcpBridgeGetMcpBridgeStatus();
+
   Future<LocalKeypairDto> crateApiPublishImportLocalNostrNsec({
     required String nsecOrHex,
   });
@@ -477,6 +512,14 @@ abstract class EarthlyRustLibApi extends BaseApi {
   });
 
   Future<void> crateApiSpikeInitApp();
+
+  Future<CashuWalletStateDto> crateApiWalletInitCashuWallet({
+    required String databasePath,
+    required String pubkeyHex,
+    required List<String> mints,
+    required List<String> relays,
+    String? masterKeyB64,
+  });
 
   Future<void> crateApiRelayPoolInitRelayPool({
     required String dataDir,
@@ -509,6 +552,12 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String databasePath,
   });
 
+  Future<CashuWalletStateDto> crateApiWalletLoadCashuWalletState({
+    required String databasePath,
+    required String pubkeyHex,
+    String? masterKeyB64,
+  });
+
   Future<CircleSnapshotDto> crateApiPrivateGroupsLoadCirclesSnapshot({
     required String databasePath,
     required String ownerPubkeyHex,
@@ -528,6 +577,14 @@ abstract class EarthlyRustLibApi extends BaseApi {
   });
 
   Future<NwcConnectionInfoDto> crateApiNwcParseNwcUri({required String uri});
+
+  Future<CashuMeltResultDto> crateApiWalletPayBolt11ViaCashu({
+    required String databasePath,
+    required String pubkeyHex,
+    String? mintUrl,
+    required String bolt11,
+    String? masterKeyB64,
+  });
 
   Future<NwcPaymentResultDto> crateApiNwcPayInvoiceViaNwc({
     required String nwcUri,
@@ -713,10 +770,25 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required List<String> remoteNodeIds,
   });
 
+  Future<NutzapInfoDto> crateApiWalletPublishNip61NutzapInfo({
+    required String databasePath,
+    required String nsecOrHex,
+    required List<String> mints,
+    required List<String> relays,
+    String? masterKeyB64,
+  });
+
   Future<PublishOutcomeDto> crateApiPublishPublishSignedEventViaOutbox({
     required String databasePath,
     required String signedEventJson,
     required List<String> relayUrls,
+  });
+
+  Future<CashuWalletStateDto> crateApiWalletReceiveCashuToken({
+    required String databasePath,
+    required String pubkeyHex,
+    required String token,
+    String? masterKeyB64,
   });
 
   Future<RemotePeerDto> crateApiSpikeRefreshNearbyPeer({
@@ -728,6 +800,13 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String reason,
   });
 
+  Future<CashuWalletStateDto> crateApiWalletRemoveCashuMint({
+    required String databasePath,
+    required String pubkeyHex,
+    required String mintUrl,
+    String? masterKeyB64,
+  });
+
   Future<CircleWorkspaceDto> crateApiPrivateGroupsRemoveCircleMember({
     required String databasePath,
     String? signerNsec,
@@ -735,6 +814,14 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? bunkerClientNsec,
     required String workspaceId,
     required String memberPubkey,
+  });
+
+  Future<CashuMintQuoteDto> crateApiWalletRequestCashuMintQuote({
+    required String databasePath,
+    required String pubkeyHex,
+    String? mintUrl,
+    required BigInt amountSats,
+    String? masterKeyB64,
   });
 
   Future<CirclePendingJoinDto> crateApiPrivateGroupsRequestJoinCircle({
@@ -804,6 +891,15 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String query,
   });
 
+  Future<CashuSendTokenDto> crateApiWalletSendCashuToken({
+    required String databasePath,
+    required String pubkeyHex,
+    String? mintUrl,
+    required BigInt amountSats,
+    String? memo,
+    String? masterKeyB64,
+  });
+
   Future<CircleWorkspaceDto> crateApiPrivateGroupsSendCircleComment({
     required String databasePath,
     String? signerNsec,
@@ -823,6 +919,18 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String geojsonJson,
     String? datasetId,
     String? name,
+  });
+
+  Future<NutzapSendResultDto> crateApiWalletSendNip61Nutzap({
+    required String databasePath,
+    required String nsecOrHex,
+    required String recipientPubkeyHex,
+    required BigInt amountSats,
+    String? mintUrl,
+    String? comment,
+    String? targetEventId,
+    required List<String> relays,
+    String? masterKeyB64,
   });
 
   Future<CircleWorkspaceDto> crateApiPrivateGroupsSetCircleAdministrator({
@@ -865,6 +973,13 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String dataDir,
   });
 
+  Future<McpBridgeStatusDto> crateApiMcpBridgeStartMcpBridge({
+    required int port,
+    required McpWorkspaceDto workspace,
+  });
+
+  Future<McpBridgeStatusDto> crateApiMcpBridgeStopMcpBridge();
+
   Stream<AgentStreamEventDto> crateApiAgentStreamEarthlyAgentTurn({
     required String prompt,
     required List<AgentMessageDto> history,
@@ -880,6 +995,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required List<String> atlasWorkspaces,
     required List<String> workingSetTitles,
     required List<String> catalogItems,
+    String? mapSnapshotBase64,
+    required bool allowVision,
   });
 
   Stream<LiveRelayEventDto> crateApiNostrClientSubscribeEarthlyRelayStream({
@@ -894,7 +1011,18 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String workspaceId,
   });
 
+  Future<void> crateApiMcpBridgeSyncMcpWorkspace({
+    required McpWorkspaceDto workspace,
+  });
+
   Future<int> crateApiSpikeSyncNearbyPeer({required String nodeId});
+
+  Future<CashuWalletStateDto> crateApiWalletSyncNip60Wallet({
+    required String databasePath,
+    required String nsecOrHex,
+    required List<String> relays,
+    String? masterKeyB64,
+  });
 
   Future<BlossomUploadDto> crateApiBlossomUploadBlobToBlossom({
     required String serverUrl,
@@ -965,6 +1093,44 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<CashuWalletStateDto> crateApiWalletAddCashuMint({
+    required String databasePath,
+    required String pubkeyHex,
+    required String mintUrl,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_String(mintUrl, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 2,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_wallet_state_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletAddCashuMintConstMeta,
+        argValues: [databasePath, pubkeyHex, mintUrl, masterKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletAddCashuMintConstMeta => const TaskConstMeta(
+    debugName: "add_cashu_mint",
+    argNames: ["databasePath", "pubkeyHex", "mintUrl", "masterKeyB64"],
+  );
+
+  @override
   Future<CircleWorkspaceDto> crateApiPrivateGroupsApproveCircleJoinRequest({
     required String databasePath,
     String? signerNsec,
@@ -990,7 +1156,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 2,
+            funcId: 3,
             port: port_,
           );
         },
@@ -1039,7 +1205,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 4,
             port: port_,
           );
         },
@@ -1076,7 +1242,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 5,
             port: port_,
           );
         },
@@ -1098,6 +1264,102 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<CashuWalletStateDto> crateApiWalletClaimCashuMintQuote({
+    required String databasePath,
+    required String pubkeyHex,
+    required String mintUrl,
+    required String quoteId,
+    required BigInt amountSats,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_String(mintUrl, serializer);
+          sse_encode_String(quoteId, serializer);
+          sse_encode_u_64(amountSats, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_wallet_state_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletClaimCashuMintQuoteConstMeta,
+        argValues: [
+          databasePath,
+          pubkeyHex,
+          mintUrl,
+          quoteId,
+          amountSats,
+          masterKeyB64,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletClaimCashuMintQuoteConstMeta =>
+      const TaskConstMeta(
+        debugName: "claim_cashu_mint_quote",
+        argNames: [
+          "databasePath",
+          "pubkeyHex",
+          "mintUrl",
+          "quoteId",
+          "amountSats",
+          "masterKeyB64",
+        ],
+      );
+
+  @override
+  Future<NutzapClaimResultDto> crateApiWalletClaimIncomingNutzaps({
+    required String databasePath,
+    required String nsecOrHex,
+    required List<String> relays,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(nsecOrHex, serializer);
+          sse_encode_list_String(relays, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 7,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_nutzap_claim_result_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletClaimIncomingNutzapsConstMeta,
+        argValues: [databasePath, nsecOrHex, relays, masterKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletClaimIncomingNutzapsConstMeta =>
+      const TaskConstMeta(
+        debugName: "claim_incoming_nutzaps",
+        argNames: ["databasePath", "nsecOrHex", "relays", "masterKeyB64"],
+      );
+
+  @override
   Future<String> crateApiBlossomComputeSha256Hex({required List<int> bytes}) {
     return handler.executeNormal(
       NormalTask(
@@ -1107,7 +1369,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 8,
             port: port_,
           );
         },
@@ -1139,7 +1401,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 9,
             port: port_,
           );
         },
@@ -1180,7 +1442,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 10,
             port: port_,
           );
         },
@@ -1241,7 +1503,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 11,
             port: port_,
           );
         },
@@ -1300,7 +1562,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 12,
             port: port_,
           );
         },
@@ -1340,7 +1602,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 13,
             port: port_,
           );
         },
@@ -1373,7 +1635,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 14,
             port: port_,
           );
         },
@@ -1406,7 +1668,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 15,
             port: port_,
           );
         },
@@ -1439,7 +1701,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 16,
             port: port_,
           );
         },
@@ -1472,7 +1734,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 17,
             port: port_,
           );
         },
@@ -1502,7 +1764,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 18,
             port: port_,
           );
         },
@@ -1532,7 +1794,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 19,
             port: port_,
           );
         },
@@ -1570,7 +1832,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 20,
             port: port_,
           );
         },
@@ -1605,7 +1867,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 21,
             port: port_,
           );
         },
@@ -1627,6 +1889,43 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<String> crateApiAgentDetectAgentVisionSupport({
+    required String baseUrl,
+    required String model,
+    String? apiKey,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(baseUrl, serializer);
+          sse_encode_String(model, serializer);
+          sse_encode_opt_String(apiKey, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 22,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiAgentDetectAgentVisionSupportConstMeta,
+        argValues: [baseUrl, model, apiKey],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiAgentDetectAgentVisionSupportConstMeta =>
+      const TaskConstMeta(
+        debugName: "detect_agent_vision_support",
+        argNames: ["baseUrl", "model", "apiKey"],
+      );
+
+  @override
   Future<OutboxItemDto> crateApiPublishDiscardOutboxItem({
     required String databasePath,
     required String itemId,
@@ -1640,7 +1939,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 23,
             port: port_,
           );
         },
@@ -1672,7 +1971,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 24,
             port: port_,
           );
         },
@@ -1694,6 +1993,33 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<List<McpMutationDto>> crateApiMcpBridgeDrainMcpMutations() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 25,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_mcp_mutation_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiMcpBridgeDrainMcpMutationsConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMcpBridgeDrainMcpMutationsConstMeta =>
+      const TaskConstMeta(debugName: "drain_mcp_mutations", argNames: []);
+
+  @override
   Future<String> crateApiNostrClientEncodeHexToNpub({
     required String pubkeyHex,
   }) {
@@ -1705,7 +2031,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 26,
             port: port_,
           );
         },
@@ -1746,7 +2072,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 27,
             port: port_,
           );
         },
@@ -1781,7 +2107,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 28,
             port: port_,
           );
         },
@@ -1816,7 +2142,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1858,7 +2184,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1905,7 +2231,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1940,7 +2266,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1979,7 +2305,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 33,
             port: port_,
           );
         },
@@ -2018,7 +2344,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 34,
             port: port_,
           );
         },
@@ -2062,7 +2388,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 35,
             port: port_,
           );
         },
@@ -2111,7 +2437,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 36,
             port: port_,
           );
         },
@@ -2141,7 +2467,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 37,
             port: port_,
           );
         },
@@ -2173,7 +2499,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 38,
             port: port_,
           );
         },
@@ -2206,7 +2532,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 39,
             port: port_,
           );
         },
@@ -2241,7 +2567,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 40,
             port: port_,
           );
         },
@@ -2274,7 +2600,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 41,
             port: port_,
           );
         },
@@ -2311,7 +2637,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 42,
             port: port_,
           );
         },
@@ -2346,7 +2672,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 43,
             port: port_,
           );
         },
@@ -2379,7 +2705,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 44,
             port: port_,
           );
         },
@@ -2410,7 +2736,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 45,
             port: port_,
           );
         },
@@ -2440,7 +2766,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 41,
+            funcId: 46,
             port: port_,
           );
         },
@@ -2475,7 +2801,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 42,
+            funcId: 47,
             port: port_,
           );
         },
@@ -2511,7 +2837,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 43,
+            funcId: 48,
             port: port_,
           );
         },
@@ -2546,7 +2872,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 44,
+            funcId: 49,
             port: port_,
           );
         },
@@ -2581,7 +2907,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 45,
+            funcId: 50,
             port: port_,
           );
         },
@@ -2614,7 +2940,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 46,
+            funcId: 51,
             port: port_,
           );
         },
@@ -2649,7 +2975,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 47,
+            funcId: 52,
             port: port_,
           );
         },
@@ -2683,7 +3009,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 48,
+            funcId: 53,
             port: port_,
           );
         },
@@ -2717,7 +3043,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 49,
+            funcId: 54,
             port: port_,
           );
         },
@@ -2754,7 +3080,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 50,
+            funcId: 55,
             port: port_,
           );
         },
@@ -2790,7 +3116,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 51,
+            funcId: 56,
             port: port_,
           );
         },
@@ -2824,7 +3150,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 52,
+            funcId: 57,
             port: port_,
           );
         },
@@ -2859,7 +3185,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 53,
+            funcId: 58,
             port: port_,
           );
         },
@@ -2894,7 +3220,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 54,
+            funcId: 59,
             port: port_,
           );
         },
@@ -2926,7 +3252,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 55,
+            funcId: 60,
             port: port_,
           );
         },
@@ -2959,7 +3285,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 56,
+            funcId: 61,
             port: port_,
           );
         },
@@ -2992,7 +3318,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 57,
+            funcId: 62,
             port: port_,
           );
         },
@@ -3027,7 +3353,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 58,
+            funcId: 63,
             port: port_,
           );
         },
@@ -3061,7 +3387,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 59,
+            funcId: 64,
             port: port_,
           );
         },
@@ -3106,7 +3432,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 60,
+            funcId: 65,
             port: port_,
           );
         },
@@ -3149,7 +3475,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 61,
+            funcId: 66,
             port: port_,
           );
         },
@@ -3183,7 +3509,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 62,
+            funcId: 67,
             port: port_,
           );
         },
@@ -3218,7 +3544,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 63,
+            funcId: 68,
             port: port_,
           );
         },
@@ -3253,7 +3579,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 64,
+            funcId: 69,
             port: port_,
           );
         },
@@ -3294,7 +3620,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 65,
+            funcId: 70,
             port: port_,
           );
         },
@@ -3333,7 +3659,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 66,
+            funcId: 71,
             port: port_,
           );
         },
@@ -3369,7 +3695,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 67,
+            funcId: 72,
             port: port_,
           );
         },
@@ -3406,7 +3732,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 68,
+            funcId: 73,
             port: port_,
           );
         },
@@ -3439,7 +3765,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 69,
+            funcId: 74,
             port: port_,
           );
         },
@@ -3461,6 +3787,33 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<McpBridgeStatusDto> crateApiMcpBridgeGetMcpBridgeStatus() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 75,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_mcp_bridge_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiMcpBridgeGetMcpBridgeStatusConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMcpBridgeGetMcpBridgeStatusConstMeta =>
+      const TaskConstMeta(debugName: "get_mcp_bridge_status", argNames: []);
+
+  @override
   Future<LocalKeypairDto> crateApiPublishImportLocalNostrNsec({
     required String nsecOrHex,
   }) {
@@ -3472,7 +3825,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 70,
+            funcId: 76,
             port: port_,
           );
         },
@@ -3507,7 +3860,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 71,
+            funcId: 77,
             port: port_,
           );
         },
@@ -3542,7 +3895,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 72,
+            funcId: 78,
             port: port_,
           );
         },
@@ -3577,7 +3930,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 73,
+            funcId: 79,
             port: port_,
           );
         },
@@ -3607,7 +3960,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 74,
+            funcId: 80,
             port: port_,
           );
         },
@@ -3626,6 +3979,53 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
   @override
+  Future<CashuWalletStateDto> crateApiWalletInitCashuWallet({
+    required String databasePath,
+    required String pubkeyHex,
+    required List<String> mints,
+    required List<String> relays,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_list_String(mints, serializer);
+          sse_encode_list_String(relays, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 81,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_wallet_state_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletInitCashuWalletConstMeta,
+        argValues: [databasePath, pubkeyHex, mints, relays, masterKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletInitCashuWalletConstMeta =>
+      const TaskConstMeta(
+        debugName: "init_cashu_wallet",
+        argNames: [
+          "databasePath",
+          "pubkeyHex",
+          "mints",
+          "relays",
+          "masterKeyB64",
+        ],
+      );
+
+  @override
   Future<void> crateApiRelayPoolInitRelayPool({
     required String dataDir,
     required List<String> relayUrls,
@@ -3639,7 +4039,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 75,
+            funcId: 82,
             port: port_,
           );
         },
@@ -3672,7 +4072,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 76,
+            funcId: 83,
             port: port_,
           );
         },
@@ -3705,7 +4105,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 77,
+            funcId: 84,
             port: port_,
           );
         },
@@ -3742,7 +4142,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 78,
+            funcId: 85,
             port: port_,
           );
         },
@@ -3775,7 +4175,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 79,
+            funcId: 86,
             port: port_,
           );
         },
@@ -3808,7 +4208,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 80,
+            funcId: 87,
             port: port_,
           );
         },
@@ -3841,7 +4241,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 81,
+            funcId: 88,
             port: port_,
           );
         },
@@ -3863,6 +4263,43 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<CashuWalletStateDto> crateApiWalletLoadCashuWalletState({
+    required String databasePath,
+    required String pubkeyHex,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 89,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_wallet_state_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletLoadCashuWalletStateConstMeta,
+        argValues: [databasePath, pubkeyHex, masterKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletLoadCashuWalletStateConstMeta =>
+      const TaskConstMeta(
+        debugName: "load_cashu_wallet_state",
+        argNames: ["databasePath", "pubkeyHex", "masterKeyB64"],
+      );
+
+  @override
   Future<CircleSnapshotDto> crateApiPrivateGroupsLoadCirclesSnapshot({
     required String databasePath,
     required String ownerPubkeyHex,
@@ -3876,7 +4313,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 82,
+            funcId: 90,
             port: port_,
           );
         },
@@ -3911,7 +4348,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 83,
+            funcId: 91,
             port: port_,
           );
         },
@@ -3941,7 +4378,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 84,
+            funcId: 92,
             port: port_,
           );
         },
@@ -3968,7 +4405,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 85,
+            funcId: 93,
             port: port_,
           );
         },
@@ -3998,7 +4435,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 86,
+            funcId: 94,
             port: port_,
           );
         },
@@ -4028,7 +4465,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 87,
+            funcId: 95,
             port: port_,
           );
         },
@@ -4047,6 +4484,53 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       const TaskConstMeta(debugName: "parse_nwc_uri", argNames: ["uri"]);
 
   @override
+  Future<CashuMeltResultDto> crateApiWalletPayBolt11ViaCashu({
+    required String databasePath,
+    required String pubkeyHex,
+    String? mintUrl,
+    required String bolt11,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_opt_String(mintUrl, serializer);
+          sse_encode_String(bolt11, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 96,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_melt_result_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletPayBolt11ViaCashuConstMeta,
+        argValues: [databasePath, pubkeyHex, mintUrl, bolt11, masterKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletPayBolt11ViaCashuConstMeta =>
+      const TaskConstMeta(
+        debugName: "pay_bolt11_via_cashu",
+        argNames: [
+          "databasePath",
+          "pubkeyHex",
+          "mintUrl",
+          "bolt11",
+          "masterKeyB64",
+        ],
+      );
+
+  @override
   Future<NwcPaymentResultDto> crateApiNwcPayInvoiceViaNwc({
     required String nwcUri,
     required String bolt11,
@@ -4060,7 +4544,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 88,
+            funcId: 97,
             port: port_,
           );
         },
@@ -4111,7 +4595,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 89,
+            funcId: 98,
             port: port_,
           );
         },
@@ -4178,7 +4662,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 90,
+            funcId: 99,
             port: port_,
           );
         },
@@ -4231,7 +4715,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 91,
+            funcId: 100,
             port: port_,
           );
         },
@@ -4282,7 +4766,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 92,
+            funcId: 101,
             port: port_,
           );
         },
@@ -4345,7 +4829,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 93,
+            funcId: 102,
             port: port_,
           );
         },
@@ -4409,7 +4893,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 94,
+            funcId: 103,
             port: port_,
           );
         },
@@ -4478,7 +4962,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 95,
+            funcId: 104,
             port: port_,
           );
         },
@@ -4543,7 +5027,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 96,
+            funcId: 105,
             port: port_,
           );
         },
@@ -4603,7 +5087,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 97,
+            funcId: 106,
             port: port_,
           );
         },
@@ -4661,7 +5145,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 98,
+            funcId: 107,
             port: port_,
           );
         },
@@ -4710,7 +5194,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 99,
+            funcId: 108,
             port: port_,
           );
         },
@@ -4747,7 +5231,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 100,
+            funcId: 109,
             port: port_,
           );
         },
@@ -4802,7 +5286,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 101,
+            funcId: 110,
             port: port_,
           );
         },
@@ -4879,7 +5363,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 102,
+            funcId: 111,
             port: port_,
           );
         },
@@ -4947,7 +5431,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 103,
+            funcId: 112,
             port: port_,
           );
         },
@@ -5012,7 +5496,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 104,
+            funcId: 113,
             port: port_,
           );
         },
@@ -5063,7 +5547,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 105,
+            funcId: 114,
             port: port_,
           );
         },
@@ -5096,7 +5580,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 106,
+            funcId: 115,
             port: port_,
           );
         },
@@ -5133,7 +5617,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 107,
+            funcId: 116,
             port: port_,
           );
         },
@@ -5155,6 +5639,53 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<NutzapInfoDto> crateApiWalletPublishNip61NutzapInfo({
+    required String databasePath,
+    required String nsecOrHex,
+    required List<String> mints,
+    required List<String> relays,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(nsecOrHex, serializer);
+          sse_encode_list_String(mints, serializer);
+          sse_encode_list_String(relays, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 117,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_nutzap_info_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletPublishNip61NutzapInfoConstMeta,
+        argValues: [databasePath, nsecOrHex, mints, relays, masterKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletPublishNip61NutzapInfoConstMeta =>
+      const TaskConstMeta(
+        debugName: "publish_nip61_nutzap_info",
+        argNames: [
+          "databasePath",
+          "nsecOrHex",
+          "mints",
+          "relays",
+          "masterKeyB64",
+        ],
+      );
+
+  @override
   Future<PublishOutcomeDto> crateApiPublishPublishSignedEventViaOutbox({
     required String databasePath,
     required String signedEventJson,
@@ -5170,7 +5701,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 108,
+            funcId: 118,
             port: port_,
           );
         },
@@ -5192,6 +5723,45 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<CashuWalletStateDto> crateApiWalletReceiveCashuToken({
+    required String databasePath,
+    required String pubkeyHex,
+    required String token,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_String(token, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 119,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_wallet_state_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletReceiveCashuTokenConstMeta,
+        argValues: [databasePath, pubkeyHex, token, masterKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletReceiveCashuTokenConstMeta =>
+      const TaskConstMeta(
+        debugName: "receive_cashu_token",
+        argNames: ["databasePath", "pubkeyHex", "token", "masterKeyB64"],
+      );
+
+  @override
   Future<RemotePeerDto> crateApiSpikeRefreshNearbyPeer({
     required String nodeId,
   }) {
@@ -5203,7 +5773,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 109,
+            funcId: 120,
             port: port_,
           );
         },
@@ -5238,7 +5808,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 110,
+            funcId: 121,
             port: port_,
           );
         },
@@ -5257,6 +5827,45 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       const TaskConstMeta(
         debugName: "reject_nearby_claim",
         argNames: ["claimId", "reason"],
+      );
+
+  @override
+  Future<CashuWalletStateDto> crateApiWalletRemoveCashuMint({
+    required String databasePath,
+    required String pubkeyHex,
+    required String mintUrl,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_String(mintUrl, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 122,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_wallet_state_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletRemoveCashuMintConstMeta,
+        argValues: [databasePath, pubkeyHex, mintUrl, masterKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletRemoveCashuMintConstMeta =>
+      const TaskConstMeta(
+        debugName: "remove_cashu_mint",
+        argNames: ["databasePath", "pubkeyHex", "mintUrl", "masterKeyB64"],
       );
 
   @override
@@ -5281,7 +5890,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 111,
+            funcId: 123,
             port: port_,
           );
         },
@@ -5317,6 +5926,53 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<CashuMintQuoteDto> crateApiWalletRequestCashuMintQuote({
+    required String databasePath,
+    required String pubkeyHex,
+    String? mintUrl,
+    required BigInt amountSats,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_opt_String(mintUrl, serializer);
+          sse_encode_u_64(amountSats, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 124,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_mint_quote_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletRequestCashuMintQuoteConstMeta,
+        argValues: [databasePath, pubkeyHex, mintUrl, amountSats, masterKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletRequestCashuMintQuoteConstMeta =>
+      const TaskConstMeta(
+        debugName: "request_cashu_mint_quote",
+        argNames: [
+          "databasePath",
+          "pubkeyHex",
+          "mintUrl",
+          "amountSats",
+          "masterKeyB64",
+        ],
+      );
+
+  @override
   Future<CirclePendingJoinDto> crateApiPrivateGroupsRequestJoinCircle({
     required String databasePath,
     String? signerNsec,
@@ -5336,7 +5992,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 112,
+            funcId: 125,
             port: port_,
           );
         },
@@ -5379,7 +6035,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 113,
+            funcId: 126,
             port: port_,
           );
         },
@@ -5414,7 +6070,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 114,
+            funcId: 127,
             port: port_,
           );
         },
@@ -5449,7 +6105,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 115,
+            funcId: 128,
             port: port_,
           );
         },
@@ -5484,7 +6140,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 116,
+            funcId: 129,
             port: port_,
           );
         },
@@ -5515,7 +6171,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 117,
+            funcId: 130,
             port: port_,
           );
         },
@@ -5570,7 +6226,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 118,
+            funcId: 131,
             port: port_,
           );
         },
@@ -5631,7 +6287,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 119,
+            funcId: 132,
             port: port_,
           );
         },
@@ -5678,7 +6334,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 120,
+            funcId: 133,
             port: port_,
           );
         },
@@ -5729,7 +6385,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 121,
+            funcId: 134,
             port: port_,
           );
         },
@@ -5761,7 +6417,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 122,
+            funcId: 135,
             port: port_,
           );
         },
@@ -5780,6 +6436,63 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       const TaskConstMeta(
         debugName: "search_relay_catalog_nip50",
         argNames: ["relayUrls", "query"],
+      );
+
+  @override
+  Future<CashuSendTokenDto> crateApiWalletSendCashuToken({
+    required String databasePath,
+    required String pubkeyHex,
+    String? mintUrl,
+    required BigInt amountSats,
+    String? memo,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_opt_String(mintUrl, serializer);
+          sse_encode_u_64(amountSats, serializer);
+          sse_encode_opt_String(memo, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 136,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_send_token_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletSendCashuTokenConstMeta,
+        argValues: [
+          databasePath,
+          pubkeyHex,
+          mintUrl,
+          amountSats,
+          memo,
+          masterKeyB64,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletSendCashuTokenConstMeta =>
+      const TaskConstMeta(
+        debugName: "send_cashu_token",
+        argNames: [
+          "databasePath",
+          "pubkeyHex",
+          "mintUrl",
+          "amountSats",
+          "memo",
+          "masterKeyB64",
+        ],
       );
 
   @override
@@ -5806,7 +6519,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 123,
+            funcId: 137,
             port: port_,
           );
         },
@@ -5869,7 +6582,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 124,
+            funcId: 138,
             port: port_,
           );
         },
@@ -5909,6 +6622,75 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<NutzapSendResultDto> crateApiWalletSendNip61Nutzap({
+    required String databasePath,
+    required String nsecOrHex,
+    required String recipientPubkeyHex,
+    required BigInt amountSats,
+    String? mintUrl,
+    String? comment,
+    String? targetEventId,
+    required List<String> relays,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(nsecOrHex, serializer);
+          sse_encode_String(recipientPubkeyHex, serializer);
+          sse_encode_u_64(amountSats, serializer);
+          sse_encode_opt_String(mintUrl, serializer);
+          sse_encode_opt_String(comment, serializer);
+          sse_encode_opt_String(targetEventId, serializer);
+          sse_encode_list_String(relays, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 139,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_nutzap_send_result_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletSendNip61NutzapConstMeta,
+        argValues: [
+          databasePath,
+          nsecOrHex,
+          recipientPubkeyHex,
+          amountSats,
+          mintUrl,
+          comment,
+          targetEventId,
+          relays,
+          masterKeyB64,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletSendNip61NutzapConstMeta =>
+      const TaskConstMeta(
+        debugName: "send_nip61_nutzap",
+        argNames: [
+          "databasePath",
+          "nsecOrHex",
+          "recipientPubkeyHex",
+          "amountSats",
+          "mintUrl",
+          "comment",
+          "targetEventId",
+          "relays",
+          "masterKeyB64",
+        ],
+      );
+
+  @override
   Future<CircleWorkspaceDto> crateApiPrivateGroupsSetCircleAdministrator({
     required String databasePath,
     String? signerNsec,
@@ -5932,7 +6714,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 125,
+            funcId: 140,
             port: port_,
           );
         },
@@ -5981,7 +6763,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 126,
+            funcId: 141,
             port: port_,
           );
         },
@@ -6011,7 +6793,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 127,
+            funcId: 142,
             port: port_,
           );
         },
@@ -6045,7 +6827,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 128,
+            funcId: 143,
             port: port_,
           );
         },
@@ -6080,7 +6862,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 129,
+            funcId: 144,
             port: port_,
           );
         },
@@ -6113,7 +6895,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 130,
+            funcId: 145,
             port: port_,
           );
         },
@@ -6145,7 +6927,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 131,
+            funcId: 146,
             port: port_,
           );
         },
@@ -6178,7 +6960,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 132,
+            funcId: 147,
             port: port_,
           );
         },
@@ -6200,6 +6982,68 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<McpBridgeStatusDto> crateApiMcpBridgeStartMcpBridge({
+    required int port,
+    required McpWorkspaceDto workspace,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_16(port, serializer);
+          sse_encode_box_autoadd_mcp_workspace_dto(workspace, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 148,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_mcp_bridge_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiMcpBridgeStartMcpBridgeConstMeta,
+        argValues: [port, workspace],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMcpBridgeStartMcpBridgeConstMeta =>
+      const TaskConstMeta(
+        debugName: "start_mcp_bridge",
+        argNames: ["port", "workspace"],
+      );
+
+  @override
+  Future<McpBridgeStatusDto> crateApiMcpBridgeStopMcpBridge() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 149,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_mcp_bridge_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiMcpBridgeStopMcpBridgeConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMcpBridgeStopMcpBridgeConstMeta =>
+      const TaskConstMeta(debugName: "stop_mcp_bridge", argNames: []);
+
+  @override
   Stream<AgentStreamEventDto> crateApiAgentStreamEarthlyAgentTurn({
     required String prompt,
     required List<AgentMessageDto> history,
@@ -6215,6 +7059,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     required List<String> atlasWorkspaces,
     required List<String> workingSetTitles,
     required List<String> catalogItems,
+    String? mapSnapshotBase64,
+    required bool allowVision,
   }) {
     final sink = RustStreamSink<AgentStreamEventDto>();
     unawaited(
@@ -6236,11 +7082,13 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
             sse_encode_list_String(atlasWorkspaces, serializer);
             sse_encode_list_String(workingSetTitles, serializer);
             sse_encode_list_String(catalogItems, serializer);
+            sse_encode_opt_String(mapSnapshotBase64, serializer);
+            sse_encode_bool(allowVision, serializer);
             sse_encode_StreamSink_agent_stream_event_dto_Sse(sink, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 133,
+              funcId: 150,
               port: port_,
             );
           },
@@ -6264,6 +7112,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
             atlasWorkspaces,
             workingSetTitles,
             catalogItems,
+            mapSnapshotBase64,
+            allowVision,
             sink,
           ],
           apiImpl: this,
@@ -6291,6 +7141,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           "atlasWorkspaces",
           "workingSetTitles",
           "catalogItems",
+          "mapSnapshotBase64",
+          "allowVision",
           "sink",
         ],
       );
@@ -6310,7 +7162,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 134,
+              funcId: 151,
               port: port_,
             );
           },
@@ -6353,7 +7205,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 135,
+            funcId: 152,
             port: port_,
           );
         },
@@ -6387,6 +7239,39 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<void> crateApiMcpBridgeSyncMcpWorkspace({
+    required McpWorkspaceDto workspace,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_mcp_workspace_dto(workspace, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 153,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiMcpBridgeSyncMcpWorkspaceConstMeta,
+        argValues: [workspace],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMcpBridgeSyncMcpWorkspaceConstMeta =>
+      const TaskConstMeta(
+        debugName: "sync_mcp_workspace",
+        argNames: ["workspace"],
+      );
+
+  @override
   Future<int> crateApiSpikeSyncNearbyPeer({required String nodeId}) {
     return handler.executeNormal(
       NormalTask(
@@ -6396,7 +7281,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 136,
+            funcId: 154,
             port: port_,
           );
         },
@@ -6413,6 +7298,45 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
 
   TaskConstMeta get kCrateApiSpikeSyncNearbyPeerConstMeta =>
       const TaskConstMeta(debugName: "sync_nearby_peer", argNames: ["nodeId"]);
+
+  @override
+  Future<CashuWalletStateDto> crateApiWalletSyncNip60Wallet({
+    required String databasePath,
+    required String nsecOrHex,
+    required List<String> relays,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(nsecOrHex, serializer);
+          sse_encode_list_String(relays, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 155,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_wallet_state_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletSyncNip60WalletConstMeta,
+        argValues: [databasePath, nsecOrHex, relays, masterKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletSyncNip60WalletConstMeta =>
+      const TaskConstMeta(
+        debugName: "sync_nip60_wallet",
+        argNames: ["databasePath", "nsecOrHex", "relays", "masterKeyB64"],
+      );
 
   @override
   Future<BlossomUploadDto> crateApiBlossomUploadBlobToBlossom({
@@ -6432,7 +7356,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 137,
+            funcId: 156,
             port: port_,
           );
         },
@@ -6470,7 +7394,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 138,
+            funcId: 157,
             port: port_,
           );
         },
@@ -6829,6 +7753,18 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  McpCameraActionDto dco_decode_box_autoadd_mcp_camera_action_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_mcp_camera_action_dto(raw);
+  }
+
+  @protected
+  McpWorkspaceDto dco_decode_box_autoadd_mcp_workspace_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_mcp_workspace_dto(raw);
+  }
+
+  @protected
   ProfileMetadataDto dco_decode_box_autoadd_profile_metadata_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_profile_metadata_dto(raw);
@@ -6862,6 +7798,108 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   BigInt dco_decode_box_autoadd_u_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_u_64(raw);
+  }
+
+  @protected
+  CashuHistoryDto dco_decode_cashu_history_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return CashuHistoryDto(
+      id: dco_decode_String(arr[0]),
+      direction: dco_decode_String(arr[1]),
+      amountSats: dco_decode_u_64(arr[2]),
+      mintUrl: dco_decode_String(arr[3]),
+      unit: dco_decode_String(arr[4]),
+      memo: dco_decode_opt_String(arr[5]),
+      eventId: dco_decode_opt_String(arr[6]),
+      counterpartyPubkey: dco_decode_opt_String(arr[7]),
+      createdAt: dco_decode_u_64(arr[8]),
+    );
+  }
+
+  @protected
+  CashuMeltResultDto dco_decode_cashu_melt_result_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return CashuMeltResultDto(
+      mintUrl: dco_decode_String(arr[0]),
+      quoteId: dco_decode_String(arr[1]),
+      amountSats: dco_decode_u_64(arr[2]),
+      feePaidSats: dco_decode_u_64(arr[3]),
+      paid: dco_decode_bool(arr[4]),
+      preimage: dco_decode_opt_String(arr[5]),
+      walletState: dco_decode_cashu_wallet_state_dto(arr[6]),
+    );
+  }
+
+  @protected
+  CashuMintBalanceDto dco_decode_cashu_mint_balance_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return CashuMintBalanceDto(
+      mintUrl: dco_decode_String(arr[0]),
+      balanceSats: dco_decode_u_64(arr[1]),
+    );
+  }
+
+  @protected
+  CashuMintQuoteDto dco_decode_cashu_mint_quote_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return CashuMintQuoteDto(
+      mintUrl: dco_decode_String(arr[0]),
+      quoteId: dco_decode_String(arr[1]),
+      request: dco_decode_String(arr[2]),
+      amountSats: dco_decode_u_64(arr[3]),
+      state: dco_decode_String(arr[4]),
+      paid: dco_decode_bool(arr[5]),
+      expiry: dco_decode_opt_box_autoadd_u_64(arr[6]),
+    );
+  }
+
+  @protected
+  CashuSendTokenDto dco_decode_cashu_send_token_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return CashuSendTokenDto(
+      token: dco_decode_String(arr[0]),
+      mintUrl: dco_decode_String(arr[1]),
+      amountSats: dco_decode_u_64(arr[2]),
+      memo: dco_decode_opt_String(arr[3]),
+      walletState: dco_decode_cashu_wallet_state_dto(arr[4]),
+    );
+  }
+
+  @protected
+  CashuWalletStateDto dco_decode_cashu_wallet_state_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 12)
+      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
+    return CashuWalletStateDto(
+      pubkeyHex: dco_decode_String(arr[0]),
+      mints: dco_decode_list_String(arr[1]),
+      relays: dco_decode_list_String(arr[2]),
+      defaultMint: dco_decode_opt_String(arr[3]),
+      p2PkPubkeyHex: dco_decode_String(arr[4]),
+      balanceSats: dco_decode_u_64(arr[5]),
+      mintBalances: dco_decode_list_cashu_mint_balance_dto(arr[6]),
+      proofCount: dco_decode_u_64(arr[7]),
+      pendingTokens: dco_decode_list_pending_cashu_token_dto(arr[8]),
+      history: dco_decode_list_cashu_history_dto(arr[9]),
+      nutzapEnabled: dco_decode_bool(arr[10]),
+      updatedAt: dco_decode_u_64(arr[11]),
+    );
   }
 
   @protected
@@ -7244,6 +8282,22 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  List<CashuHistoryDto> dco_decode_list_cashu_history_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_cashu_history_dto).toList();
+  }
+
+  @protected
+  List<CashuMintBalanceDto> dco_decode_list_cashu_mint_balance_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_cashu_mint_balance_dto)
+        .toList();
+  }
+
+  @protected
   List<CircleDatasetDto> dco_decode_list_circle_dataset_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_circle_dataset_dto).toList();
@@ -7330,6 +8384,20 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  List<McpMutationDto> dco_decode_list_mcp_mutation_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_mcp_mutation_dto).toList();
+  }
+
+  @protected
+  List<McpToolCallLogDto> dco_decode_list_mcp_tool_call_log_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_mcp_tool_call_log_dto)
+        .toList();
+  }
+
+  @protected
   List<MountedAtlasWorkspaceDto> dco_decode_list_mounted_atlas_workspace_dto(
     dynamic raw,
   ) {
@@ -7350,6 +8418,16 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>)
         .map(dco_decode_outbox_relay_item_dto)
+        .toList();
+  }
+
+  @protected
+  List<PendingCashuTokenDto> dco_decode_list_pending_cashu_token_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_pending_cashu_token_dto)
         .toList();
   }
 
@@ -7597,6 +8675,83 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  McpBridgeStatusDto dco_decode_mcp_bridge_status_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return McpBridgeStatusDto(
+      running: dco_decode_bool(arr[0]),
+      endpointUrl: dco_decode_String(arr[1]),
+      authToken: dco_decode_String(arr[2]),
+      port: dco_decode_u_16(arr[3]),
+      toolCount: dco_decode_u_32(arr[4]),
+      totalCalls: dco_decode_u_64(arr[5]),
+      recentCalls: dco_decode_list_mcp_tool_call_log_dto(arr[6]),
+    );
+  }
+
+  @protected
+  McpCameraActionDto dco_decode_mcp_camera_action_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return McpCameraActionDto(
+      lon: dco_decode_f_64(arr[0]),
+      lat: dco_decode_f_64(arr[1]),
+      zoom: dco_decode_f_64(arr[2]),
+    );
+  }
+
+  @protected
+  McpMutationDto dco_decode_mcp_mutation_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return McpMutationDto(
+      updatedDraftGeojson: dco_decode_opt_String(arr[0]),
+      cameraAction: dco_decode_opt_box_autoadd_mcp_camera_action_dto(arr[1]),
+      toolName: dco_decode_String(arr[2]),
+      summary: dco_decode_String(arr[3]),
+    );
+  }
+
+  @protected
+  McpToolCallLogDto dco_decode_mcp_tool_call_log_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return McpToolCallLogDto(
+      timestampMs: dco_decode_u_64(arr[0]),
+      toolName: dco_decode_String(arr[1]),
+      ok: dco_decode_bool(arr[2]),
+      summary: dco_decode_String(arr[3]),
+    );
+  }
+
+  @protected
+  McpWorkspaceDto dco_decode_mcp_workspace_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return McpWorkspaceDto(
+      centerLon: dco_decode_f_64(arr[0]),
+      centerLat: dco_decode_f_64(arr[1]),
+      zoom: dco_decode_f_64(arr[2]),
+      draftTitle: dco_decode_String(arr[3]),
+      draftGeojson: dco_decode_String(arr[4]),
+      shelfMapTitles: dco_decode_list_String(arr[5]),
+      atlasWorkspaces: dco_decode_list_String(arr[6]),
+      workingSetTitles: dco_decode_list_String(arr[7]),
+      catalogItems: dco_decode_list_String(arr[8]),
+    );
+  }
+
+  @protected
   MountedAtlasWorkspaceDto dco_decode_mounted_atlas_workspace_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -7649,6 +8804,50 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       bunkerUri: dco_decode_String(arr[2]),
       clientNsec: dco_decode_String(arr[3]),
       relays: dco_decode_list_String(arr[4]),
+    );
+  }
+
+  @protected
+  NutzapClaimResultDto dco_decode_nutzap_claim_result_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return NutzapClaimResultDto(
+      claimedCount: dco_decode_u_64(arr[0]),
+      claimedSats: dco_decode_u_64(arr[1]),
+      failedCount: dco_decode_u_64(arr[2]),
+      walletState: dco_decode_cashu_wallet_state_dto(arr[3]),
+    );
+  }
+
+  @protected
+  NutzapInfoDto dco_decode_nutzap_info_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return NutzapInfoDto(
+      eventId: dco_decode_String(arr[0]),
+      pubkeyHex: dco_decode_String(arr[1]),
+      p2PkPubkeyHex: dco_decode_String(arr[2]),
+      mints: dco_decode_list_String(arr[3]),
+      relays: dco_decode_list_String(arr[4]),
+    );
+  }
+
+  @protected
+  NutzapSendResultDto dco_decode_nutzap_send_result_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return NutzapSendResultDto(
+      eventId: dco_decode_String(arr[0]),
+      recipientPubkeyHex: dco_decode_String(arr[1]),
+      mintUrl: dco_decode_String(arr[2]),
+      amountSats: dco_decode_u_64(arr[3]),
+      walletState: dco_decode_cashu_wallet_state_dto(arr[4]),
     );
   }
 
@@ -7782,6 +8981,16 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  McpCameraActionDto? dco_decode_opt_box_autoadd_mcp_camera_action_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_mcp_camera_action_dto(raw);
+  }
+
+  @protected
   ProfileMetadataDto? dco_decode_opt_box_autoadd_profile_metadata_dto(
     dynamic raw,
   ) {
@@ -7897,6 +9106,23 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       partial: dco_decode_u_64(arr[3]),
       retryWait: dco_decode_u_64(arr[4]),
       rejected: dco_decode_u_64(arr[5]),
+    );
+  }
+
+  @protected
+  PendingCashuTokenDto dco_decode_pending_cashu_token_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return PendingCashuTokenDto(
+      id: dco_decode_String(arr[0]),
+      mintUrl: dco_decode_String(arr[1]),
+      amountSats: dco_decode_u_64(arr[2]),
+      token: dco_decode_String(arr[3]),
+      memo: dco_decode_opt_String(arr[4]),
+      createdAt: dco_decode_u_64(arr[5]),
+      state: dco_decode_String(arr[6]),
     );
   }
 
@@ -8753,6 +9979,22 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  McpCameraActionDto sse_decode_box_autoadd_mcp_camera_action_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_mcp_camera_action_dto(deserializer));
+  }
+
+  @protected
+  McpWorkspaceDto sse_decode_box_autoadd_mcp_workspace_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_mcp_workspace_dto(deserializer));
+  }
+
+  @protected
   ProfileMetadataDto sse_decode_box_autoadd_profile_metadata_dto(
     SseDeserializer deserializer,
   ) {
@@ -8792,6 +10034,144 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_u_64(deserializer));
+  }
+
+  @protected
+  CashuHistoryDto sse_decode_cashu_history_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_direction = sse_decode_String(deserializer);
+    var var_amountSats = sse_decode_u_64(deserializer);
+    var var_mintUrl = sse_decode_String(deserializer);
+    var var_unit = sse_decode_String(deserializer);
+    var var_memo = sse_decode_opt_String(deserializer);
+    var var_eventId = sse_decode_opt_String(deserializer);
+    var var_counterpartyPubkey = sse_decode_opt_String(deserializer);
+    var var_createdAt = sse_decode_u_64(deserializer);
+    return CashuHistoryDto(
+      id: var_id,
+      direction: var_direction,
+      amountSats: var_amountSats,
+      mintUrl: var_mintUrl,
+      unit: var_unit,
+      memo: var_memo,
+      eventId: var_eventId,
+      counterpartyPubkey: var_counterpartyPubkey,
+      createdAt: var_createdAt,
+    );
+  }
+
+  @protected
+  CashuMeltResultDto sse_decode_cashu_melt_result_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_mintUrl = sse_decode_String(deserializer);
+    var var_quoteId = sse_decode_String(deserializer);
+    var var_amountSats = sse_decode_u_64(deserializer);
+    var var_feePaidSats = sse_decode_u_64(deserializer);
+    var var_paid = sse_decode_bool(deserializer);
+    var var_preimage = sse_decode_opt_String(deserializer);
+    var var_walletState = sse_decode_cashu_wallet_state_dto(deserializer);
+    return CashuMeltResultDto(
+      mintUrl: var_mintUrl,
+      quoteId: var_quoteId,
+      amountSats: var_amountSats,
+      feePaidSats: var_feePaidSats,
+      paid: var_paid,
+      preimage: var_preimage,
+      walletState: var_walletState,
+    );
+  }
+
+  @protected
+  CashuMintBalanceDto sse_decode_cashu_mint_balance_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_mintUrl = sse_decode_String(deserializer);
+    var var_balanceSats = sse_decode_u_64(deserializer);
+    return CashuMintBalanceDto(
+      mintUrl: var_mintUrl,
+      balanceSats: var_balanceSats,
+    );
+  }
+
+  @protected
+  CashuMintQuoteDto sse_decode_cashu_mint_quote_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_mintUrl = sse_decode_String(deserializer);
+    var var_quoteId = sse_decode_String(deserializer);
+    var var_request = sse_decode_String(deserializer);
+    var var_amountSats = sse_decode_u_64(deserializer);
+    var var_state = sse_decode_String(deserializer);
+    var var_paid = sse_decode_bool(deserializer);
+    var var_expiry = sse_decode_opt_box_autoadd_u_64(deserializer);
+    return CashuMintQuoteDto(
+      mintUrl: var_mintUrl,
+      quoteId: var_quoteId,
+      request: var_request,
+      amountSats: var_amountSats,
+      state: var_state,
+      paid: var_paid,
+      expiry: var_expiry,
+    );
+  }
+
+  @protected
+  CashuSendTokenDto sse_decode_cashu_send_token_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_token = sse_decode_String(deserializer);
+    var var_mintUrl = sse_decode_String(deserializer);
+    var var_amountSats = sse_decode_u_64(deserializer);
+    var var_memo = sse_decode_opt_String(deserializer);
+    var var_walletState = sse_decode_cashu_wallet_state_dto(deserializer);
+    return CashuSendTokenDto(
+      token: var_token,
+      mintUrl: var_mintUrl,
+      amountSats: var_amountSats,
+      memo: var_memo,
+      walletState: var_walletState,
+    );
+  }
+
+  @protected
+  CashuWalletStateDto sse_decode_cashu_wallet_state_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_pubkeyHex = sse_decode_String(deserializer);
+    var var_mints = sse_decode_list_String(deserializer);
+    var var_relays = sse_decode_list_String(deserializer);
+    var var_defaultMint = sse_decode_opt_String(deserializer);
+    var var_p2PkPubkeyHex = sse_decode_String(deserializer);
+    var var_balanceSats = sse_decode_u_64(deserializer);
+    var var_mintBalances = sse_decode_list_cashu_mint_balance_dto(deserializer);
+    var var_proofCount = sse_decode_u_64(deserializer);
+    var var_pendingTokens = sse_decode_list_pending_cashu_token_dto(
+      deserializer,
+    );
+    var var_history = sse_decode_list_cashu_history_dto(deserializer);
+    var var_nutzapEnabled = sse_decode_bool(deserializer);
+    var var_updatedAt = sse_decode_u_64(deserializer);
+    return CashuWalletStateDto(
+      pubkeyHex: var_pubkeyHex,
+      mints: var_mints,
+      relays: var_relays,
+      defaultMint: var_defaultMint,
+      p2PkPubkeyHex: var_p2PkPubkeyHex,
+      balanceSats: var_balanceSats,
+      mintBalances: var_mintBalances,
+      proofCount: var_proofCount,
+      pendingTokens: var_pendingTokens,
+      history: var_history,
+      nutzapEnabled: var_nutzapEnabled,
+      updatedAt: var_updatedAt,
+    );
   }
 
   @protected
@@ -9322,6 +10702,34 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  List<CashuHistoryDto> sse_decode_list_cashu_history_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <CashuHistoryDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_cashu_history_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<CashuMintBalanceDto> sse_decode_list_cashu_mint_balance_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <CashuMintBalanceDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_cashu_mint_balance_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<CircleDatasetDto> sse_decode_list_circle_dataset_dto(
     SseDeserializer deserializer,
   ) {
@@ -9504,6 +10912,34 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  List<McpMutationDto> sse_decode_list_mcp_mutation_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <McpMutationDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_mcp_mutation_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<McpToolCallLogDto> sse_decode_list_mcp_tool_call_log_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <McpToolCallLogDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_mcp_tool_call_log_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<MountedAtlasWorkspaceDto> sse_decode_list_mounted_atlas_workspace_dto(
     SseDeserializer deserializer,
   ) {
@@ -9541,6 +10977,20 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     var ans_ = <OutboxRelayItemDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_outbox_relay_item_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<PendingCashuTokenDto> sse_decode_list_pending_cashu_token_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <PendingCashuTokenDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_pending_cashu_token_dto(deserializer));
     }
     return ans_;
   }
@@ -9918,6 +11368,99 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  McpBridgeStatusDto sse_decode_mcp_bridge_status_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_running = sse_decode_bool(deserializer);
+    var var_endpointUrl = sse_decode_String(deserializer);
+    var var_authToken = sse_decode_String(deserializer);
+    var var_port = sse_decode_u_16(deserializer);
+    var var_toolCount = sse_decode_u_32(deserializer);
+    var var_totalCalls = sse_decode_u_64(deserializer);
+    var var_recentCalls = sse_decode_list_mcp_tool_call_log_dto(deserializer);
+    return McpBridgeStatusDto(
+      running: var_running,
+      endpointUrl: var_endpointUrl,
+      authToken: var_authToken,
+      port: var_port,
+      toolCount: var_toolCount,
+      totalCalls: var_totalCalls,
+      recentCalls: var_recentCalls,
+    );
+  }
+
+  @protected
+  McpCameraActionDto sse_decode_mcp_camera_action_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_lon = sse_decode_f_64(deserializer);
+    var var_lat = sse_decode_f_64(deserializer);
+    var var_zoom = sse_decode_f_64(deserializer);
+    return McpCameraActionDto(lon: var_lon, lat: var_lat, zoom: var_zoom);
+  }
+
+  @protected
+  McpMutationDto sse_decode_mcp_mutation_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_updatedDraftGeojson = sse_decode_opt_String(deserializer);
+    var var_cameraAction = sse_decode_opt_box_autoadd_mcp_camera_action_dto(
+      deserializer,
+    );
+    var var_toolName = sse_decode_String(deserializer);
+    var var_summary = sse_decode_String(deserializer);
+    return McpMutationDto(
+      updatedDraftGeojson: var_updatedDraftGeojson,
+      cameraAction: var_cameraAction,
+      toolName: var_toolName,
+      summary: var_summary,
+    );
+  }
+
+  @protected
+  McpToolCallLogDto sse_decode_mcp_tool_call_log_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_timestampMs = sse_decode_u_64(deserializer);
+    var var_toolName = sse_decode_String(deserializer);
+    var var_ok = sse_decode_bool(deserializer);
+    var var_summary = sse_decode_String(deserializer);
+    return McpToolCallLogDto(
+      timestampMs: var_timestampMs,
+      toolName: var_toolName,
+      ok: var_ok,
+      summary: var_summary,
+    );
+  }
+
+  @protected
+  McpWorkspaceDto sse_decode_mcp_workspace_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_centerLon = sse_decode_f_64(deserializer);
+    var var_centerLat = sse_decode_f_64(deserializer);
+    var var_zoom = sse_decode_f_64(deserializer);
+    var var_draftTitle = sse_decode_String(deserializer);
+    var var_draftGeojson = sse_decode_String(deserializer);
+    var var_shelfMapTitles = sse_decode_list_String(deserializer);
+    var var_atlasWorkspaces = sse_decode_list_String(deserializer);
+    var var_workingSetTitles = sse_decode_list_String(deserializer);
+    var var_catalogItems = sse_decode_list_String(deserializer);
+    return McpWorkspaceDto(
+      centerLon: var_centerLon,
+      centerLat: var_centerLat,
+      zoom: var_zoom,
+      draftTitle: var_draftTitle,
+      draftGeojson: var_draftGeojson,
+      shelfMapTitles: var_shelfMapTitles,
+      atlasWorkspaces: var_atlasWorkspaces,
+      workingSetTitles: var_workingSetTitles,
+      catalogItems: var_catalogItems,
+    );
+  }
+
+  @protected
   MountedAtlasWorkspaceDto sse_decode_mounted_atlas_workspace_dto(
     SseDeserializer deserializer,
   ) {
@@ -9982,6 +11525,59 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       bunkerUri: var_bunkerUri,
       clientNsec: var_clientNsec,
       relays: var_relays,
+    );
+  }
+
+  @protected
+  NutzapClaimResultDto sse_decode_nutzap_claim_result_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_claimedCount = sse_decode_u_64(deserializer);
+    var var_claimedSats = sse_decode_u_64(deserializer);
+    var var_failedCount = sse_decode_u_64(deserializer);
+    var var_walletState = sse_decode_cashu_wallet_state_dto(deserializer);
+    return NutzapClaimResultDto(
+      claimedCount: var_claimedCount,
+      claimedSats: var_claimedSats,
+      failedCount: var_failedCount,
+      walletState: var_walletState,
+    );
+  }
+
+  @protected
+  NutzapInfoDto sse_decode_nutzap_info_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_eventId = sse_decode_String(deserializer);
+    var var_pubkeyHex = sse_decode_String(deserializer);
+    var var_p2PkPubkeyHex = sse_decode_String(deserializer);
+    var var_mints = sse_decode_list_String(deserializer);
+    var var_relays = sse_decode_list_String(deserializer);
+    return NutzapInfoDto(
+      eventId: var_eventId,
+      pubkeyHex: var_pubkeyHex,
+      p2PkPubkeyHex: var_p2PkPubkeyHex,
+      mints: var_mints,
+      relays: var_relays,
+    );
+  }
+
+  @protected
+  NutzapSendResultDto sse_decode_nutzap_send_result_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_eventId = sse_decode_String(deserializer);
+    var var_recipientPubkeyHex = sse_decode_String(deserializer);
+    var var_mintUrl = sse_decode_String(deserializer);
+    var var_amountSats = sse_decode_u_64(deserializer);
+    var var_walletState = sse_decode_cashu_wallet_state_dto(deserializer);
+    return NutzapSendResultDto(
+      eventId: var_eventId,
+      recipientPubkeyHex: var_recipientPubkeyHex,
+      mintUrl: var_mintUrl,
+      amountSats: var_amountSats,
+      walletState: var_walletState,
     );
   }
 
@@ -10185,6 +11781,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  McpCameraActionDto? sse_decode_opt_box_autoadd_mcp_camera_action_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_mcp_camera_action_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   ProfileMetadataDto? sse_decode_opt_box_autoadd_profile_metadata_dto(
     SseDeserializer deserializer,
   ) {
@@ -10346,6 +11955,29 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       partial: var_partial,
       retryWait: var_retryWait,
       rejected: var_rejected,
+    );
+  }
+
+  @protected
+  PendingCashuTokenDto sse_decode_pending_cashu_token_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_mintUrl = sse_decode_String(deserializer);
+    var var_amountSats = sse_decode_u_64(deserializer);
+    var var_token = sse_decode_String(deserializer);
+    var var_memo = sse_decode_opt_String(deserializer);
+    var var_createdAt = sse_decode_u_64(deserializer);
+    var var_state = sse_decode_String(deserializer);
+    return PendingCashuTokenDto(
+      id: var_id,
+      mintUrl: var_mintUrl,
+      amountSats: var_amountSats,
+      token: var_token,
+      memo: var_memo,
+      createdAt: var_createdAt,
+      state: var_state,
     );
   }
 
@@ -11254,6 +12886,24 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_mcp_camera_action_dto(
+    McpCameraActionDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_mcp_camera_action_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_mcp_workspace_dto(
+    McpWorkspaceDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_mcp_workspace_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_profile_metadata_dto(
     ProfileMetadataDto self,
     SseSerializer serializer,
@@ -11296,6 +12946,96 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_cashu_history_dto(
+    CashuHistoryDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.direction, serializer);
+    sse_encode_u_64(self.amountSats, serializer);
+    sse_encode_String(self.mintUrl, serializer);
+    sse_encode_String(self.unit, serializer);
+    sse_encode_opt_String(self.memo, serializer);
+    sse_encode_opt_String(self.eventId, serializer);
+    sse_encode_opt_String(self.counterpartyPubkey, serializer);
+    sse_encode_u_64(self.createdAt, serializer);
+  }
+
+  @protected
+  void sse_encode_cashu_melt_result_dto(
+    CashuMeltResultDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.mintUrl, serializer);
+    sse_encode_String(self.quoteId, serializer);
+    sse_encode_u_64(self.amountSats, serializer);
+    sse_encode_u_64(self.feePaidSats, serializer);
+    sse_encode_bool(self.paid, serializer);
+    sse_encode_opt_String(self.preimage, serializer);
+    sse_encode_cashu_wallet_state_dto(self.walletState, serializer);
+  }
+
+  @protected
+  void sse_encode_cashu_mint_balance_dto(
+    CashuMintBalanceDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.mintUrl, serializer);
+    sse_encode_u_64(self.balanceSats, serializer);
+  }
+
+  @protected
+  void sse_encode_cashu_mint_quote_dto(
+    CashuMintQuoteDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.mintUrl, serializer);
+    sse_encode_String(self.quoteId, serializer);
+    sse_encode_String(self.request, serializer);
+    sse_encode_u_64(self.amountSats, serializer);
+    sse_encode_String(self.state, serializer);
+    sse_encode_bool(self.paid, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.expiry, serializer);
+  }
+
+  @protected
+  void sse_encode_cashu_send_token_dto(
+    CashuSendTokenDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.token, serializer);
+    sse_encode_String(self.mintUrl, serializer);
+    sse_encode_u_64(self.amountSats, serializer);
+    sse_encode_opt_String(self.memo, serializer);
+    sse_encode_cashu_wallet_state_dto(self.walletState, serializer);
+  }
+
+  @protected
+  void sse_encode_cashu_wallet_state_dto(
+    CashuWalletStateDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.pubkeyHex, serializer);
+    sse_encode_list_String(self.mints, serializer);
+    sse_encode_list_String(self.relays, serializer);
+    sse_encode_opt_String(self.defaultMint, serializer);
+    sse_encode_String(self.p2PkPubkeyHex, serializer);
+    sse_encode_u_64(self.balanceSats, serializer);
+    sse_encode_list_cashu_mint_balance_dto(self.mintBalances, serializer);
+    sse_encode_u_64(self.proofCount, serializer);
+    sse_encode_list_pending_cashu_token_dto(self.pendingTokens, serializer);
+    sse_encode_list_cashu_history_dto(self.history, serializer);
+    sse_encode_bool(self.nutzapEnabled, serializer);
+    sse_encode_u_64(self.updatedAt, serializer);
   }
 
   @protected
@@ -11668,6 +13408,30 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_cashu_history_dto(
+    List<CashuHistoryDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_cashu_history_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_cashu_mint_balance_dto(
+    List<CashuMintBalanceDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_cashu_mint_balance_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_circle_dataset_dto(
     List<CircleDatasetDto> self,
     SseSerializer serializer,
@@ -11824,6 +13588,30 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_mcp_mutation_dto(
+    List<McpMutationDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_mcp_mutation_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_mcp_tool_call_log_dto(
+    List<McpToolCallLogDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_mcp_tool_call_log_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_mounted_atlas_workspace_dto(
     List<MountedAtlasWorkspaceDto> self,
     SseSerializer serializer,
@@ -11856,6 +13644,18 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_outbox_relay_item_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_pending_cashu_token_dto(
+    List<PendingCashuTokenDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_pending_cashu_token_dto(item, serializer);
     }
   }
 
@@ -12168,6 +13968,76 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_mcp_bridge_status_dto(
+    McpBridgeStatusDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.running, serializer);
+    sse_encode_String(self.endpointUrl, serializer);
+    sse_encode_String(self.authToken, serializer);
+    sse_encode_u_16(self.port, serializer);
+    sse_encode_u_32(self.toolCount, serializer);
+    sse_encode_u_64(self.totalCalls, serializer);
+    sse_encode_list_mcp_tool_call_log_dto(self.recentCalls, serializer);
+  }
+
+  @protected
+  void sse_encode_mcp_camera_action_dto(
+    McpCameraActionDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_f_64(self.lon, serializer);
+    sse_encode_f_64(self.lat, serializer);
+    sse_encode_f_64(self.zoom, serializer);
+  }
+
+  @protected
+  void sse_encode_mcp_mutation_dto(
+    McpMutationDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.updatedDraftGeojson, serializer);
+    sse_encode_opt_box_autoadd_mcp_camera_action_dto(
+      self.cameraAction,
+      serializer,
+    );
+    sse_encode_String(self.toolName, serializer);
+    sse_encode_String(self.summary, serializer);
+  }
+
+  @protected
+  void sse_encode_mcp_tool_call_log_dto(
+    McpToolCallLogDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.timestampMs, serializer);
+    sse_encode_String(self.toolName, serializer);
+    sse_encode_bool(self.ok, serializer);
+    sse_encode_String(self.summary, serializer);
+  }
+
+  @protected
+  void sse_encode_mcp_workspace_dto(
+    McpWorkspaceDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_f_64(self.centerLon, serializer);
+    sse_encode_f_64(self.centerLat, serializer);
+    sse_encode_f_64(self.zoom, serializer);
+    sse_encode_String(self.draftTitle, serializer);
+    sse_encode_String(self.draftGeojson, serializer);
+    sse_encode_list_String(self.shelfMapTitles, serializer);
+    sse_encode_list_String(self.atlasWorkspaces, serializer);
+    sse_encode_list_String(self.workingSetTitles, serializer);
+    sse_encode_list_String(self.catalogItems, serializer);
+  }
+
+  @protected
   void sse_encode_mounted_atlas_workspace_dto(
     MountedAtlasWorkspaceDto self,
     SseSerializer serializer,
@@ -12213,6 +14083,44 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_String(self.bunkerUri, serializer);
     sse_encode_String(self.clientNsec, serializer);
     sse_encode_list_String(self.relays, serializer);
+  }
+
+  @protected
+  void sse_encode_nutzap_claim_result_dto(
+    NutzapClaimResultDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.claimedCount, serializer);
+    sse_encode_u_64(self.claimedSats, serializer);
+    sse_encode_u_64(self.failedCount, serializer);
+    sse_encode_cashu_wallet_state_dto(self.walletState, serializer);
+  }
+
+  @protected
+  void sse_encode_nutzap_info_dto(
+    NutzapInfoDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.eventId, serializer);
+    sse_encode_String(self.pubkeyHex, serializer);
+    sse_encode_String(self.p2PkPubkeyHex, serializer);
+    sse_encode_list_String(self.mints, serializer);
+    sse_encode_list_String(self.relays, serializer);
+  }
+
+  @protected
+  void sse_encode_nutzap_send_result_dto(
+    NutzapSendResultDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.eventId, serializer);
+    sse_encode_String(self.recipientPubkeyHex, serializer);
+    sse_encode_String(self.mintUrl, serializer);
+    sse_encode_u_64(self.amountSats, serializer);
+    sse_encode_cashu_wallet_state_dto(self.walletState, serializer);
   }
 
   @protected
@@ -12398,6 +14306,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_mcp_camera_action_dto(
+    McpCameraActionDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_mcp_camera_action_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_profile_metadata_dto(
     ProfileMetadataDto? self,
     SseSerializer serializer,
@@ -12529,6 +14450,21 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_u_64(self.partial, serializer);
     sse_encode_u_64(self.retryWait, serializer);
     sse_encode_u_64(self.rejected, serializer);
+  }
+
+  @protected
+  void sse_encode_pending_cashu_token_dto(
+    PendingCashuTokenDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.mintUrl, serializer);
+    sse_encode_u_64(self.amountSats, serializer);
+    sse_encode_String(self.token, serializer);
+    sse_encode_opt_String(self.memo, serializer);
+    sse_encode_u_64(self.createdAt, serializer);
+    sse_encode_String(self.state, serializer);
   }
 
   @protected

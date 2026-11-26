@@ -18,6 +18,12 @@ Future<void> showEarthlyZapDialog(
   String? targetEventId,
   bool hasNwcWallet = false,
   Future<NwcPaymentResultDto> Function(String bolt11)? onPayWithNwc,
+  int? cashuBalanceSats,
+  Future<String?> Function(String bolt11)? onPayWithCashu,
+  Future<String?> Function({
+    required int amountSats,
+    required String comment,
+  })? onSendNutzap,
   required Future<ZapInvoiceDto> Function({
     required int amountSats,
     required String comment,
@@ -34,6 +40,9 @@ Future<void> showEarthlyZapDialog(
       targetEventId: targetEventId,
       hasNwcWallet: hasNwcWallet,
       onPayWithNwc: onPayWithNwc,
+      cashuBalanceSats: cashuBalanceSats,
+      onPayWithCashu: onPayWithCashu,
+      onSendNutzap: onSendNutzap,
       onGenerateInvoice: onGenerateInvoice,
     ),
   );
@@ -49,6 +58,9 @@ class _EarthlyZapDialog extends StatefulWidget {
     this.targetEventId,
     this.hasNwcWallet = false,
     this.onPayWithNwc,
+    this.cashuBalanceSats,
+    this.onPayWithCashu,
+    this.onSendNutzap,
     required this.onGenerateInvoice,
   });
 
@@ -60,6 +72,12 @@ class _EarthlyZapDialog extends StatefulWidget {
   final String? targetEventId;
   final bool hasNwcWallet;
   final Future<NwcPaymentResultDto> Function(String bolt11)? onPayWithNwc;
+  final int? cashuBalanceSats;
+  final Future<String?> Function(String bolt11)? onPayWithCashu;
+  final Future<String?> Function({
+    required int amountSats,
+    required String comment,
+  })? onSendNutzap;
   final Future<ZapInvoiceDto> Function({
     required int amountSats,
     required String comment,
@@ -77,9 +95,13 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
   final _commentController = TextEditingController();
   bool _loading = false;
   bool _payingNwc = false;
+  bool _payingCashu = false;
+  bool _sendingNutzap = false;
   String? _error;
   ZapInvoiceDto? _invoice;
   NwcPaymentResultDto? _nwcPaidResult;
+  String? _cashuPaidMessage;
+  String? _nutzapSentMessage;
 
   @override
   void dispose() {
@@ -140,6 +162,10 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
     final theme = Theme.of(context);
     final lud16 = widget.recipientLud16?.trim() ?? '';
     final hasLud16 = lud16.isNotEmpty;
+    final cashuSats = widget.cashuBalanceSats ?? 0;
+    final hasSufficientCashu = cashuSats >= _effectiveAmountSats;
+    final canNutzap = widget.onSendNutzap != null && hasSufficientCashu;
+    final canConfigureAmount = hasLud16 || widget.onSendNutzap != null;
 
     return AlertDialog(
       title: Row(
@@ -190,13 +216,48 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                     ),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Text(
-                    'This author has not added a Lightning Address (lud16) to their kind-0 profile yet.',
-                    style: TextStyle(fontSize: 12),
+                  child: Text(
+                    widget.onSendNutzap != null
+                        ? 'No Lightning Address (lud16) on profile — you can still send a NIP-61 Cashu Nutzap.'
+                        : 'This author has not added a Lightning Address (lud16) to their kind-0 profile yet.',
+                    style: const TextStyle(fontSize: 12),
                   ),
                 ),
+              if (widget.cashuBalanceSats != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Cashu wallet: $cashuSats sats',
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10.5,
+                    color: EarthlyColors.commentGreen,
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
-              if (_invoice == null) ...[
+              if (_nutzapSentMessage != null) ...[
+                Container(
+                  key: const Key('zap-nutzap-paid-badge'),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: EarthlyColors.commentGreen.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: EarthlyColors.commentGreen.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Text(
+                    _nutzapSentMessage!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      color: EarthlyColors.commentGreen,
+                    ),
+                  ),
+                ),
+              ] else if (_invoice == null) ...[
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
@@ -207,7 +268,7 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                         label: Text('⚡ $amt'),
                         selected: _customAmountController.text.trim().isEmpty &&
                             _selectedAmount == amt,
-                        onSelected: hasLud16 && !_loading
+                        onSelected: canConfigureAmount && !_loading && !_sendingNutzap
                             ? (_) {
                                 setState(() {
                                   _selectedAmount = amt;
@@ -222,7 +283,7 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                 TextField(
                   key: const Key('zap-custom-amount-field'),
                   controller: _customAmountController,
-                  enabled: hasLud16 && !_loading,
+                  enabled: canConfigureAmount && !_loading && !_sendingNutzap,
                   keyboardType: TextInputType.number,
                   onChanged: (_) => setState(() {}),
                   decoration: const InputDecoration(
@@ -234,7 +295,7 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                 TextField(
                   key: const Key('zap-comment-field'),
                   controller: _commentController,
-                  enabled: hasLud16 && !_loading,
+                  enabled: canConfigureAmount && !_loading && !_sendingNutzap,
                   maxLines: 2,
                   minLines: 1,
                   decoration: const InputDecoration(
@@ -297,16 +358,84 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                       ),
                     ),
                   )
+                else if (_cashuPaidMessage != null)
+                  Container(
+                    key: const Key('zap-cashu-paid-badge'),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: EarthlyColors.commentGreen.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: EarthlyColors.commentGreen.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    child: Text(
+                      _cashuPaidMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: EarthlyColors.commentGreen,
+                      ),
+                    ),
+                  )
                 else
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     alignment: WrapAlignment.center,
                     children: [
+                      if (widget.onPayWithCashu != null &&
+                          cashuSats >= _invoice!.amountSats.toInt())
+                        FilledButton.icon(
+                          key: const Key('zap-pay-cashu-btn'),
+                          onPressed: _payingCashu || _payingNwc
+                              ? null
+                              : () async {
+                                  setState(() {
+                                    _payingCashu = true;
+                                    _error = null;
+                                  });
+                                  try {
+                                    final msg = await widget.onPayWithCashu!(
+                                      _invoice!.pr,
+                                    );
+                                    if (!mounted) return;
+                                    setState(
+                                      () => _cashuPaidMessage =
+                                          msg?.trim().isNotEmpty == true
+                                              ? msg!
+                                              : 'Paid via Cashu ⚡',
+                                    );
+                                  } catch (err) {
+                                    if (!mounted) return;
+                                    setState(() => _error = err.toString());
+                                  } finally {
+                                    if (mounted) {
+                                      setState(() => _payingCashu = false);
+                                    }
+                                  }
+                                },
+                          icon: _payingCashu
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.account_balance_wallet,
+                                  size: 15),
+                          label: Text(
+                            _payingCashu ? 'Paying Cashu…' : 'Pay via Cashu ⚡',
+                          ),
+                        ),
                       if (widget.hasNwcWallet && widget.onPayWithNwc != null)
                         FilledButton.icon(
                           key: const Key('zap-pay-nwc-btn'),
-                          onPressed: _payingNwc
+                          onPressed: _payingNwc || _payingCashu
                               ? null
                               : () async {
                                   setState(() {
@@ -384,7 +513,7 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
         ),
       ),
       actions: [
-        if (_invoice != null)
+        if (_invoice != null && _nutzapSentMessage == null)
           TextButton(
             onPressed: _loading
                 ? null
@@ -396,12 +525,63 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
           ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text(_invoice == null ? 'Cancel' : 'Done'),
+          child: Text(
+            (_invoice == null && _nutzapSentMessage == null) ? 'Cancel' : 'Done',
+          ),
         ),
-        if (_invoice == null)
+        if (_invoice == null && _nutzapSentMessage == null && canNutzap)
+          FilledButton.tonalIcon(
+            key: const Key('zap-send-nutzap-btn'),
+            onPressed: (_loading || _sendingNutzap)
+                ? null
+                : () async {
+                    final sats = _effectiveAmountSats;
+                    if (sats <= 0) {
+                      setState(
+                        () => _error = 'Enter a positive amount in sats.',
+                      );
+                      return;
+                    }
+                    setState(() {
+                      _sendingNutzap = true;
+                      _error = null;
+                    });
+                    try {
+                      final msg = await widget.onSendNutzap!(
+                        amountSats: sats,
+                        comment: _commentController.text.trim(),
+                      );
+                      if (!mounted) return;
+                      setState(
+                        () => _nutzapSentMessage =
+                            msg?.trim().isNotEmpty == true
+                                ? msg!
+                                : 'Sent $sats sats via NIP-61 Nutzap ✓',
+                      );
+                    } catch (err) {
+                      if (!mounted) return;
+                      setState(() => _error = err.toString());
+                    } finally {
+                      if (mounted) setState(() => _sendingNutzap = false);
+                    }
+                  },
+            icon: _sendingNutzap
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.account_balance_wallet_outlined, size: 16),
+            label: Text(
+              _sendingNutzap ? 'Sending Nutzap…' : 'Send NIP-61 Nutzap',
+            ),
+          ),
+        if (_invoice == null && _nutzapSentMessage == null)
           FilledButton.icon(
             key: const Key('zap-generate-btn'),
-            onPressed: (!hasLud16 || _loading) ? null : _generate,
+            onPressed: (!hasLud16 || _loading || _sendingNutzap)
+                ? null
+                : _generate,
             icon: _loading
                 ? const SizedBox(
                     width: 14,

@@ -1670,6 +1670,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "earthly-agent",
  "flate2",
  "fs2",
  "futures-util",

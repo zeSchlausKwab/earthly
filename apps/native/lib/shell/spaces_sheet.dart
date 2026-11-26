@@ -50,6 +50,10 @@ class SpacesSheet extends StatefulWidget {
     this.onProbeRelaysHealth,
     this.onOpenShoutbox,
     this.onOpenHelp,
+    this.onOpenCashuWallet,
+    this.cashuBalanceSats,
+    this.onOpenMcpBridge,
+    this.mcpBridgeRunning = false,
     super.key,
   });
 
@@ -84,6 +88,10 @@ class SpacesSheet extends StatefulWidget {
       onProbeRelaysHealth;
   final VoidCallback? onOpenShoutbox;
   final VoidCallback? onOpenHelp;
+  final VoidCallback? onOpenCashuWallet;
+  final int? cashuBalanceSats;
+  final VoidCallback? onOpenMcpBridge;
+  final bool mcpBridgeRunning;
   final VoidCallback onClose;
 
   @override
@@ -1480,6 +1488,32 @@ class _SpacesSheetState extends State<SpacesSheet> {
             icon: const Icon(Icons.hub_outlined, size: 18),
             label: const Text('Open Rust Core & Outbox Diagnostics'),
           ),
+          if (widget.onOpenCashuWallet != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('spaces-cashu-wallet-btn'),
+              onPressed: widget.onOpenCashuWallet,
+              icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
+              label: Text(
+                widget.cashuBalanceSats != null
+                    ? 'Cashu Ecash Wallet (${widget.cashuBalanceSats} sats)'
+                    : 'Cashu Ecash Wallet (NIP-60)',
+              ),
+            ),
+          ],
+          if (widget.onOpenMcpBridge != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('spaces-mcp-bridge-btn'),
+              onPressed: widget.onOpenMcpBridge,
+              icon: const Icon(Icons.dns_outlined, size: 18),
+              label: Text(
+                widget.mcpBridgeRunning
+                    ? 'Local MCP Desktop Bridge (Running)'
+                    : 'Local MCP Desktop Bridge',
+              ),
+            ),
+          ],
           if (widget.onOpenShoutbox != null) ...[
             const SizedBox(height: 8),
             OutlinedButton.icon(

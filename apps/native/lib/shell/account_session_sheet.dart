@@ -72,6 +72,8 @@ class AccountSessionSheet extends StatefulWidget {
     this.nwcUri,
     this.onNwcUriChanged,
     this.onCheckNwcStatus,
+    this.onOpenCashuWallet,
+    this.cashuBalanceSats,
     this.relayUrls = const <String>['wss://relay.earthly.city'],
     super.key,
   });
@@ -80,6 +82,8 @@ class AccountSessionSheet extends StatefulWidget {
   final String? nwcUri;
   final ValueChanged<String?>? onNwcUriChanged;
   final Future<NwcWalletStatusDto> Function(String uri)? onCheckNwcStatus;
+  final VoidCallback? onOpenCashuWallet;
+  final int? cashuBalanceSats;
 
   final Nip55Account? account;
   final String? localNsec;
@@ -1530,6 +1534,65 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                 ),
               ),
             ],
+            const Divider(height: 24),
+          ],
+          if (widget.onOpenCashuWallet != null) ...[
+            Text(
+              'CASHU ECASH WALLET (NIP-60 / NIP-61)',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: theme.dividerColor),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.account_balance_wallet_outlined,
+                    size: 18,
+                    color: EarthlyColors.amber,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Encrypted Cashu Wallet',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                        Text(
+                          widget.cashuBalanceSats != null
+                              ? '${widget.cashuBalanceSats} sats · SecretBox encrypted'
+                              : 'NIP-60 ecash & NIP-61 Nutzaps',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10.5,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    key: const Key('account-cashu-wallet-btn'),
+                    onPressed: widget.onOpenCashuWallet,
+                    child: const Text('Open'),
+                  ),
+                ],
+              ),
+            ),
             const Divider(height: 24),
           ],
           if (widget.onBlossomServerChanged != null) ...[

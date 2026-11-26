@@ -6,6 +6,7 @@
 import 'api/agent.dart';
 import 'api/blossom.dart';
 import 'api/geo.dart';
+import 'api/mcp_bridge.dart';
 import 'api/nip46.dart';
 import 'api/nostr_client.dart';
 import 'api/nwc.dart';
@@ -14,6 +15,7 @@ import 'api/publish.dart';
 import 'api/relay_pool.dart';
 import 'api/settings.dart';
 import 'api/spike.dart';
+import 'api/wallet.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -130,6 +132,12 @@ abstract class EarthlyRustLibApiImplPlatform
   MapSummaryDto dco_decode_box_autoadd_map_summary_dto(dynamic raw);
 
   @protected
+  McpCameraActionDto dco_decode_box_autoadd_mcp_camera_action_dto(dynamic raw);
+
+  @protected
+  McpWorkspaceDto dco_decode_box_autoadd_mcp_workspace_dto(dynamic raw);
+
+  @protected
   ProfileMetadataDto dco_decode_box_autoadd_profile_metadata_dto(dynamic raw);
 
   @protected
@@ -146,6 +154,24 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  CashuHistoryDto dco_decode_cashu_history_dto(dynamic raw);
+
+  @protected
+  CashuMeltResultDto dco_decode_cashu_melt_result_dto(dynamic raw);
+
+  @protected
+  CashuMintBalanceDto dco_decode_cashu_mint_balance_dto(dynamic raw);
+
+  @protected
+  CashuMintQuoteDto dco_decode_cashu_mint_quote_dto(dynamic raw);
+
+  @protected
+  CashuSendTokenDto dco_decode_cashu_send_token_dto(dynamic raw);
+
+  @protected
+  CashuWalletStateDto dco_decode_cashu_wallet_state_dto(dynamic raw);
 
   @protected
   CircleDatasetDto dco_decode_circle_dataset_dto(dynamic raw);
@@ -233,6 +259,12 @@ abstract class EarthlyRustLibApiImplPlatform
   List<BlobRefDto> dco_decode_list_blob_ref_dto(dynamic raw);
 
   @protected
+  List<CashuHistoryDto> dco_decode_list_cashu_history_dto(dynamic raw);
+
+  @protected
+  List<CashuMintBalanceDto> dco_decode_list_cashu_mint_balance_dto(dynamic raw);
+
+  @protected
   List<CircleDatasetDto> dco_decode_list_circle_dataset_dto(dynamic raw);
 
   @protected
@@ -276,6 +308,12 @@ abstract class EarthlyRustLibApiImplPlatform
   List<MapSummaryDto> dco_decode_list_map_summary_dto(dynamic raw);
 
   @protected
+  List<McpMutationDto> dco_decode_list_mcp_mutation_dto(dynamic raw);
+
+  @protected
+  List<McpToolCallLogDto> dco_decode_list_mcp_tool_call_log_dto(dynamic raw);
+
+  @protected
   List<MountedAtlasWorkspaceDto> dco_decode_list_mounted_atlas_workspace_dto(
     dynamic raw,
   );
@@ -285,6 +323,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<OutboxRelayItemDto> dco_decode_list_outbox_relay_item_dto(dynamic raw);
+
+  @protected
+  List<PendingCashuTokenDto> dco_decode_list_pending_cashu_token_dto(
+    dynamic raw,
+  );
 
   @protected
   List<PendingClaimDto> dco_decode_list_pending_claim_dto(dynamic raw);
@@ -365,6 +408,21 @@ abstract class EarthlyRustLibApiImplPlatform
   MapSummaryDto dco_decode_map_summary_dto(dynamic raw);
 
   @protected
+  McpBridgeStatusDto dco_decode_mcp_bridge_status_dto(dynamic raw);
+
+  @protected
+  McpCameraActionDto dco_decode_mcp_camera_action_dto(dynamic raw);
+
+  @protected
+  McpMutationDto dco_decode_mcp_mutation_dto(dynamic raw);
+
+  @protected
+  McpToolCallLogDto dco_decode_mcp_tool_call_log_dto(dynamic raw);
+
+  @protected
+  McpWorkspaceDto dco_decode_mcp_workspace_dto(dynamic raw);
+
+  @protected
   MountedAtlasWorkspaceDto dco_decode_mounted_atlas_workspace_dto(dynamic raw);
 
   @protected
@@ -375,6 +433,15 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   Nip46ConnectionDto dco_decode_nip_46_connection_dto(dynamic raw);
+
+  @protected
+  NutzapClaimResultDto dco_decode_nutzap_claim_result_dto(dynamic raw);
+
+  @protected
+  NutzapInfoDto dco_decode_nutzap_info_dto(dynamic raw);
+
+  @protected
+  NutzapSendResultDto dco_decode_nutzap_send_result_dto(dynamic raw);
 
   @protected
   NwcConnectionInfoDto dco_decode_nwc_connection_info_dto(dynamic raw);
@@ -430,6 +497,11 @@ abstract class EarthlyRustLibApiImplPlatform
   MapSummaryDto? dco_decode_opt_box_autoadd_map_summary_dto(dynamic raw);
 
   @protected
+  McpCameraActionDto? dco_decode_opt_box_autoadd_mcp_camera_action_dto(
+    dynamic raw,
+  );
+
+  @protected
   ProfileMetadataDto? dco_decode_opt_box_autoadd_profile_metadata_dto(
     dynamic raw,
   );
@@ -465,6 +537,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   OutboxSummarySnapshot dco_decode_outbox_summary_snapshot(dynamic raw);
+
+  @protected
+  PendingCashuTokenDto dco_decode_pending_cashu_token_dto(dynamic raw);
 
   @protected
   PendingClaimDto dco_decode_pending_claim_dto(dynamic raw);
@@ -689,6 +764,16 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  McpCameraActionDto sse_decode_box_autoadd_mcp_camera_action_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  McpWorkspaceDto sse_decode_box_autoadd_mcp_workspace_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ProfileMetadataDto sse_decode_box_autoadd_profile_metadata_dto(
     SseDeserializer deserializer,
   );
@@ -711,6 +796,34 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  CashuHistoryDto sse_decode_cashu_history_dto(SseDeserializer deserializer);
+
+  @protected
+  CashuMeltResultDto sse_decode_cashu_melt_result_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CashuMintBalanceDto sse_decode_cashu_mint_balance_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CashuMintQuoteDto sse_decode_cashu_mint_quote_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CashuSendTokenDto sse_decode_cashu_send_token_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CashuWalletStateDto sse_decode_cashu_wallet_state_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   CircleDatasetDto sse_decode_circle_dataset_dto(SseDeserializer deserializer);
@@ -830,6 +943,16 @@ abstract class EarthlyRustLibApiImplPlatform
   List<BlobRefDto> sse_decode_list_blob_ref_dto(SseDeserializer deserializer);
 
   @protected
+  List<CashuHistoryDto> sse_decode_list_cashu_history_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<CashuMintBalanceDto> sse_decode_list_cashu_mint_balance_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<CircleDatasetDto> sse_decode_list_circle_dataset_dto(
     SseDeserializer deserializer,
   );
@@ -893,6 +1016,16 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<McpMutationDto> sse_decode_list_mcp_mutation_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<McpToolCallLogDto> sse_decode_list_mcp_tool_call_log_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<MountedAtlasWorkspaceDto> sse_decode_list_mounted_atlas_workspace_dto(
     SseDeserializer deserializer,
   );
@@ -904,6 +1037,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<OutboxRelayItemDto> sse_decode_list_outbox_relay_item_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<PendingCashuTokenDto> sse_decode_list_pending_cashu_token_dto(
     SseDeserializer deserializer,
   );
 
@@ -1010,6 +1148,27 @@ abstract class EarthlyRustLibApiImplPlatform
   MapSummaryDto sse_decode_map_summary_dto(SseDeserializer deserializer);
 
   @protected
+  McpBridgeStatusDto sse_decode_mcp_bridge_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  McpCameraActionDto sse_decode_mcp_camera_action_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  McpMutationDto sse_decode_mcp_mutation_dto(SseDeserializer deserializer);
+
+  @protected
+  McpToolCallLogDto sse_decode_mcp_tool_call_log_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  McpWorkspaceDto sse_decode_mcp_workspace_dto(SseDeserializer deserializer);
+
+  @protected
   MountedAtlasWorkspaceDto sse_decode_mounted_atlas_workspace_dto(
     SseDeserializer deserializer,
   );
@@ -1026,6 +1185,19 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   Nip46ConnectionDto sse_decode_nip_46_connection_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NutzapClaimResultDto sse_decode_nutzap_claim_result_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NutzapInfoDto sse_decode_nutzap_info_dto(SseDeserializer deserializer);
+
+  @protected
+  NutzapSendResultDto sse_decode_nutzap_send_result_dto(
     SseDeserializer deserializer,
   );
 
@@ -1099,6 +1271,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  McpCameraActionDto? sse_decode_opt_box_autoadd_mcp_camera_action_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ProfileMetadataDto? sse_decode_opt_box_autoadd_profile_metadata_dto(
     SseDeserializer deserializer,
   );
@@ -1142,6 +1319,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   OutboxSummarySnapshot sse_decode_outbox_summary_snapshot(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PendingCashuTokenDto sse_decode_pending_cashu_token_dto(
     SseDeserializer deserializer,
   );
 
@@ -1439,6 +1621,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_box_autoadd_mcp_camera_action_dto(
+    McpCameraActionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_mcp_workspace_dto(
+    McpWorkspaceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_profile_metadata_dto(
     ProfileMetadataDto self,
     SseSerializer serializer,
@@ -1464,6 +1658,42 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_cashu_history_dto(
+    CashuHistoryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_cashu_melt_result_dto(
+    CashuMeltResultDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_cashu_mint_balance_dto(
+    CashuMintBalanceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_cashu_mint_quote_dto(
+    CashuMintQuoteDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_cashu_send_token_dto(
+    CashuSendTokenDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_cashu_wallet_state_dto(
+    CashuWalletStateDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_circle_dataset_dto(
@@ -1616,6 +1846,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_cashu_history_dto(
+    List<CashuHistoryDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_cashu_mint_balance_dto(
+    List<CashuMintBalanceDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_circle_dataset_dto(
     List<CircleDatasetDto> self,
     SseSerializer serializer,
@@ -1694,6 +1936,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_mcp_mutation_dto(
+    List<McpMutationDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_mcp_tool_call_log_dto(
+    List<McpToolCallLogDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_mounted_atlas_workspace_dto(
     List<MountedAtlasWorkspaceDto> self,
     SseSerializer serializer,
@@ -1708,6 +1962,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_outbox_relay_item_dto(
     List<OutboxRelayItemDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_pending_cashu_token_dto(
+    List<PendingCashuTokenDto> self,
     SseSerializer serializer,
   );
 
@@ -1841,6 +2101,36 @@ abstract class EarthlyRustLibApiImplPlatform
   void sse_encode_map_summary_dto(MapSummaryDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_mcp_bridge_status_dto(
+    McpBridgeStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mcp_camera_action_dto(
+    McpCameraActionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mcp_mutation_dto(
+    McpMutationDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mcp_tool_call_log_dto(
+    McpToolCallLogDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mcp_workspace_dto(
+    McpWorkspaceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_mounted_atlas_workspace_dto(
     MountedAtlasWorkspaceDto self,
     SseSerializer serializer,
@@ -1861,6 +2151,21 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_nip_46_connection_dto(
     Nip46ConnectionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_nutzap_claim_result_dto(
+    NutzapClaimResultDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_nutzap_info_dto(NutzapInfoDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_nutzap_send_result_dto(
+    NutzapSendResultDto self,
     SseSerializer serializer,
   );
 
@@ -1946,6 +2251,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_mcp_camera_action_dto(
+    McpCameraActionDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_profile_metadata_dto(
     ProfileMetadataDto? self,
     SseSerializer serializer,
@@ -1996,6 +2307,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_outbox_summary_snapshot(
     OutboxSummarySnapshot self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_pending_cashu_token_dto(
+    PendingCashuTokenDto self,
     SseSerializer serializer,
   );
 

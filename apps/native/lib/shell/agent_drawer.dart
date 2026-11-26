@@ -269,6 +269,9 @@ class AgentDrawer extends StatefulWidget {
     this.pendingAttachment,
     this.onPickAttachment,
     this.onClearAttachment,
+    this.visionSupport = 'no-vision',
+    this.attachMapView = false,
+    this.onAttachMapViewChanged,
     super.key,
   });
 
@@ -300,6 +303,9 @@ class AgentDrawer extends StatefulWidget {
   final AgentAttachment? pendingAttachment;
   final VoidCallback? onPickAttachment;
   final VoidCallback? onClearAttachment;
+  final String visionSupport;
+  final bool attachMapView;
+  final ValueChanged<bool>? onAttachMapViewChanged;
   final ValueChanged<CopilotProviderSettings> onSettingsChanged;
   final ValueChanged<String> onSendPrompt;
   final VoidCallback onClearChat;
@@ -480,6 +486,8 @@ class _AgentDrawerState extends State<AgentDrawer>
                     ],
                   ),
                 ),
+                _buildVisionBadge(theme),
+                const SizedBox(width: 4),
                 if (widget.onSafeEditingChanged != null)
                   Tooltip(
                     message: widget.safeEditing
@@ -594,6 +602,41 @@ class _AgentDrawerState extends State<AgentDrawer>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildVisionBadge(ThemeData theme) {
+    final normalized = widget.visionSupport.trim().toLowerCase();
+    final (String label, Color color) = switch (normalized) {
+      'vision' => ('Vision ✓', EarthlyColors.commentGreen),
+      'uncertain' => ('Uncertain', EarthlyColors.proposedAmber),
+      _ => ('Text-only', theme.colorScheme.onSurfaceVariant),
+    };
+    return Tooltip(
+      message: switch (normalized) {
+        'vision' => 'Model supports multimodal image input',
+        'uncertain' =>
+          'Model may support vision based on name heuristic (unverified)',
+        _ => 'Text-only model — map image payloads will not be sent',
+      },
+      child: Container(
+        key: const Key('agent-vision-badge'),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withValues(alpha: 0.65)),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 9.5,
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
+        ),
       ),
     );
   }
@@ -891,6 +934,41 @@ class _AgentDrawerState extends State<AgentDrawer>
                     ),
                   ),
                   onPressed: () => _tabs.animateTo(1),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Tooltip(
+                  message: widget.visionSupport == 'no-vision'
+                      ? 'Switch to a vision-capable model to attach the map canvas'
+                      : 'Attach a PNG snapshot of the current map viewport',
+                  child: FilterChip(
+                    key: const Key('agent-attach-map-view-toggle'),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    avatar: Icon(
+                      Icons.image_outlined,
+                      size: 14,
+                      color: widget.visionSupport == 'no-vision'
+                          ? theme.disabledColor
+                          : null,
+                    ),
+                    label: const Text(
+                      'Attach Map View',
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    selected: widget.visionSupport != 'no-vision' &&
+                        widget.attachMapView,
+                    onSelected: (widget.visionSupport == 'no-vision' ||
+                            widget.busy ||
+                            widget.onAttachMapViewChanged == null)
+                        ? null
+                        : widget.onAttachMapViewChanged,
+                  ),
                 ),
               ),
               for (final chip in const [
