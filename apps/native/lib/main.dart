@@ -43,6 +43,7 @@ import 'shell/inbox_sheet.dart';
 import 'shell/location_inspector_sheet.dart';
 import 'shell/map_drawer.dart';
 import 'shell/mcp_bridge_sheet.dart';
+import 'shell/mobile_drawing_tools_sheet.dart';
 import 'shell/osm_import_sheet.dart';
 import 'shell/outbox_queue_sheet.dart';
 import 'shell/person_margin.dart';
@@ -1242,7 +1243,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   }
 
   void _inspectFeature(InspectedFeature feature) {
-    if (_draft.isDrawingMode) return;
+    if (_draft.isDrawingMode) {
+      if (feature.isDraft && feature.draftFeatureId != null) {
+        if (_draft.mode == DrawToolMode.select) {
+          _draft.toggleSelectFeature(feature.draftFeatureId!);
+        } else if (_draft.mode == DrawToolMode.editVertices) {
+          _draft.selectEditingTargetFeature(feature.draftFeatureId!);
+        }
+      }
+      return;
+    }
     _catalog.setInspectedFeature(feature);
     _openDrawer(_ActiveDrawer.inspector);
   }
@@ -2447,7 +2457,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   }
 
   Widget? _buildDrawerFor(_ActiveDrawer target) {
-    if (_draft.isDrawingMode) return null;
+    if (_draft.isDrawingMode && target != _ActiveDrawer.inspector) return null;
     switch (target) {
       case _ActiveDrawer.none:
         return null;
@@ -4151,6 +4161,197 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
   }
 
+  void _selectAuthoringTool(DrawToolMode next) {
+    if (next == DrawToolMode.measure) {
+      _draft.toggleMeasureMode(onCloseDrawers: _closeAllDrawers);
+      return;
+    }
+    _draft.selectMode(next, onCloseDrawers: _closeAllDrawers);
+  }
+
+  Future<void> _finishActiveStroke() async {
+    if (!_draft.canFinishDraft) return;
+    if (_draft.mode == DrawToolMode.splitByLine) {
+      final res = await _draft.finishSplitByLine(
+        onPersist: _schedulePersistWorkingDraft,
+      );
+      _showSnack(res.message);
+      return;
+    }
+    _draft.finishDraft(onPersist: _schedulePersistWorkingDraft);
+  }
+
+  void _undoInDrawingMode() {
+    if (_draft.draftVertices.isNotEmpty) {
+      _draft.undoLastPoint(onPersist: _schedulePersistWorkingDraft);
+    } else if (_draft.undoStack.isNotEmpty) {
+      _draft.undoDraftEdit(
+        onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+        onPersist: _schedulePersistWorkingDraft,
+      );
+    } else {
+      _draft.undoLastPoint(onPersist: _schedulePersistWorkingDraft);
+    }
+  }
+
+  Future<void> _promptDropMapLabel(Geographic point) async {
+    final label = await showDialog<String>(
+      context: context,
+      builder: (_) => _DropMapLabelDialog(point: point),
+    );
+    if (!mounted || label == null) return;
+    final created = _draft.commitAnnotationAt(
+      point,
+      label,
+      onPersist: _schedulePersistWorkingDraft,
+    );
+    _showSnack('Added label "${created.name ?? 'Label'}"');
+  }
+
+  DrawnFeature? _primarySelectedDraftFeature() {
+    for (var i = _draft.features.length - 1; i >= 0; i--) {
+      final f = _draft.features[i];
+      if (_draft.selectedDraftFeatureIds.contains(f.id)) return f;
+    }
+    return null;
+  }
+
+  void _editVerticesPrimarySelectedDraftFeature() {
+    final target = _primarySelectedDraftFeature();
+    final targetId = target?.id ??
+        (_draft.selectedDraftFeatureIds.isNotEmpty
+            ? _draft.selectedDraftFeatureIds.last
+            : null);
+    if (targetId != null) {
+      _draft.selectEditingTargetFeature(targetId, enterMode: true);
+    }
+  }
+
+  void _inspectPrimarySelectedDraftFeature() {
+    final target = _primarySelectedDraftFeature();
+    if (target == null) return;
+    _catalog.setInspectedFeature(_buildInspectedDraftFeature(target));
+    _openDrawer(_ActiveDrawer.inspector);
+  }
+
+  void _deleteSelectedDraftFeatures() {
+    final deleted = _draft.deleteSelectedFeatures(
+      onPersist: _schedulePersistWorkingDraft,
+    );
+    final inspected = _catalog.inspectedFeature;
+    if (inspected?.draftFeatureId != null &&
+        deleted.contains(inspected!.draftFeatureId)) {
+      _catalog.setInspectedFeature(null);
+      _closeDrawer(_ActiveDrawer.inspector);
+    }
+  }
+
+  void _openMobileDrawingToolsSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(ctx).height * 0.84,
+        ),
+        child: ListenableBuilder(
+          listenable: Listenable.merge([
+            _draft,
+            _draft.modeListenable,
+            _draft.placementListenable,
+            _draft.geometryListenable,
+            _draft.undoRedoListenable,
+            _mapLayers.presentationListenable,
+          ]),
+          builder: (sheetCtx, _) => MobileDrawingToolsSheet(
+            activeMode: _draft.mode,
+            activePrimitiveShape: _draft.activePrimitiveShape,
+            placementStyle: _draft.placementStyle,
+            loupeEnabled: _draft.loupeEnabled,
+            snappingEnabled: _draft.snappingEnabled,
+            snapToEdgesEnabled: _draft.snapToEdgesEnabled,
+            calloutMode: _mapLayers.calloutMode,
+            drawnFeatures: _draft.features,
+            selectedFeatureIds: _draft.selectedDraftFeatureIds,
+            canUndo: _draft.undoStack.isNotEmpty,
+            canRedo: _draft.redoStack.isNotEmpty,
+            onSelectTool: (mode) {
+              if (mode != _draft.mode) {
+                _selectAuthoringTool(mode);
+              }
+            },
+            onSelectPrimitiveShape: (shape) {
+              _draft.setActivePrimitiveShape(shape);
+              if (_draft.mode != DrawToolMode.shape) {
+                _draft.selectMode(
+                  DrawToolMode.shape,
+                  onCloseDrawers: _closeAllDrawers,
+                );
+              }
+            },
+            onDropPrimitiveAtCenter: (shape, radiusMeters) =>
+                _addPrimitiveShapeUi(shape.name, radiusMeters),
+            onToggleSnapping: _draft.toggleSnapping,
+            onToggleSnapToEdges: _draft.toggleSnapToEdges,
+            onTogglePlacementStyle: _draft.togglePlacementStyle,
+            onToggleLoupe: _draft.toggleLoupeEnabled,
+            onCycleCalloutMode: _mapLayers.cycleCalloutMode,
+            onUndo: () => _draft.undoDraftEdit(
+              onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+              onPersist: _schedulePersistWorkingDraft,
+            ),
+            onRedo: () => _draft.redoDraftEdit(
+              onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+              onPersist: _schedulePersistWorkingDraft,
+            ),
+            onSelectAll: _draft.selectAllFeatures,
+            onClearSelection: _draft.clearSelection,
+            onDuplicateSelected: () => unawaited(
+              _duplicateDraftFeaturesUi(
+                _draft.selectedDraftFeatureIds.toList(),
+              ),
+            ),
+            onDeleteSelected: _deleteSelectedDraftFeatures,
+            onClearDraft: () => _draft.clearDraftFeatures(
+              onPersist: _schedulePersistWorkingDraft,
+            ),
+            onRunGeoAction: (
+              action, {
+              meters,
+              angleDeg,
+              scale,
+            }) =>
+                unawaited(
+              _runGeoActionUi(
+                action,
+                meters: meters,
+                angleDeg: angleDeg,
+                scale: scale,
+              ),
+            ),
+            onPasteGeoJson: () => unawaited(_pasteGeoJsonFromClipboard()),
+            onImportGeoJson: () => unawaited(_importGeoJsonFile()),
+            onImportOsm: () {
+              if (_draft.isDrawingMode) {
+                _draft.cancelEditingDraftFeature();
+              }
+              _openDrawer(_ActiveDrawer.osmImport);
+            },
+            onExportGeoJson: () => unawaited(_exportSpatialFile('geojson')),
+            onOpenDeskAndPublish: () {
+              if (_draft.isDrawingMode) {
+                _draft.cancelEditingDraftFeature();
+              }
+              _openDrawer(_ActiveDrawer.desk);
+            },
+            onExitDrawingMode: _draft.cancelEditingDraftFeature,
+            onClose: () => Navigator.of(sheetCtx).pop(),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -4429,6 +4630,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                       previewScreen: preview.screen,
                       snapped: preview.snapped,
                       loupeActive: preview.loupeActive,
+                      editingFeature: _draft.activeEditingFeature,
+                      selectedVertexIndex: _draft.selectedVertexIndex,
+                      selectedFeatureIds: _draft.selectedDraftFeatureIds,
+                      activePrimitiveShape: _draft.activePrimitiveShape,
                     ),
                   ),
                 ],
@@ -4445,6 +4650,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   Widget _buildTouchDrawOverlayScope() {
     return ListenableBuilder(
       listenable: Listenable.merge([
+        _draft.modeListenable,
         _draft.geometryListenable,
         _draft.placementListenable,
         _catalog.shelfListenable,
@@ -4466,6 +4672,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           features: _draft.features,
           externalSnapShapes: externalSnapShapes,
           draftVertices: _draft.draftVertices,
+          activePrimitiveShape: _draft.activePrimitiveShape,
+          snappingEnabled: _draft.snappingEnabled,
+          snapToEdgesEnabled: _draft.snapToEdgesEnabled,
+          editingFeature: _draft.activeEditingFeature,
+          selectedVertexIndex: _draft.selectedVertexIndex,
+          selectedFeatureIds: _draft.selectedDraftFeatureIds,
           onCommitVertex: (pt) => _draft.commitVertex(
             pt,
             onPersist: _schedulePersistWorkingDraft,
@@ -4475,6 +4687,59 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onTwoFingerUndo: () =>
               _draft.undoLastPoint(onPersist: _schedulePersistWorkingDraft),
           onPreviewChanged: _draft.updatePreview,
+          onTapFeatureInSelectMode: _draft.toggleSelectFeature,
+          onBoxSelect: (rect) {
+            final controller = _controller;
+            if (controller == null) return;
+            final count = _draft.commitBoxSelect(
+              rect,
+              controller.toScreenLocation,
+            );
+            _showSnack(
+              count == 0
+                  ? 'No draft features inside selection box'
+                  : 'Selected $count feature${count == 1 ? '' : 's'}',
+            );
+          },
+          onCommitFreehand: (pts) => _draft.commitFreehandStroke(
+            pts,
+            onPersist: _schedulePersistWorkingDraft,
+          ),
+          onCommitShape: (shape, ring, radiusMeters) =>
+              _draft.commitPrimitiveRing(
+            shape,
+            ring,
+            radiusMeters: radiusMeters,
+            onPersist: _schedulePersistWorkingDraft,
+          ),
+          onRequestAnnotationAt: (pt) => unawaited(_promptDropMapLabel(pt)),
+          onSelectEditingFeature: _draft.selectEditingTargetFeature,
+          onSelectEditingVertex: _draft.selectVertexIndex,
+          onUpdateEditingVertex: (index, pos, {pushUndoBefore = false}) =>
+              _draft.updateEditingFeatureVertex(
+            index,
+            pos,
+            pushUndoBefore: pushUndoBefore,
+            onPersist: _schedulePersistWorkingDraft,
+          ),
+          onInsertEditingVertex: (insertIndex, pos) =>
+              _draft.insertEditingFeatureVertex(
+            insertIndex,
+            pos,
+            onPersist: _schedulePersistWorkingDraft,
+          ),
+          onTranslateFeature: (featureId, delta, {pushUndoBefore = false}) {
+            final controller = _controller;
+            if (controller == null) return;
+            _draft.translateFeatureOnCanvas(
+              featureId,
+              delta,
+              controller.toScreenLocation,
+              controller.toLngLat,
+              pushUndoBefore: pushUndoBefore,
+              onPersist: _schedulePersistWorkingDraft,
+            );
+          },
         );
       },
     );
@@ -4705,6 +4970,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                       active: _draft.loupeEnabled,
                       onTap: _draft.toggleLoupeEnabled,
                     ),
+                    const SizedBox(width: 6),
+                    _MiniToggle(
+                      label: 'Snap',
+                      icon: Icons.filter_center_focus,
+                      active: _draft.snappingEnabled,
+                      onTap: _draft.toggleSnapping,
+                    ),
                   ] else if (!_draft.isDrawingMode) ...[
                     if (isDesktop && _draft.undoStack.isNotEmpty) ...[
                       _MiniIconButton(
@@ -4865,6 +5137,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                   active: _draft.loupeEnabled,
                   onTap: _draft.toggleLoupeEnabled,
                 ),
+                const SizedBox(height: 8),
+                _ThumbMapButton(
+                  tooltip: 'Snap',
+                  icon: Icons.filter_center_focus,
+                  active: _draft.snappingEnabled,
+                  onTap: _draft.toggleSnapping,
+                ),
               ] else ...[
                 _ThumbMapButton(
                   tooltip: _draft.gpsTrackRecording
@@ -4953,6 +5232,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         _spaces.circleLensListenable,
         _draft.modeListenable,
         _draft.placementListenable,
+        _draft.geometryListenable,
         _draft.measureListenable,
         _draft.gpsTrackListenable,
         _agent.ghostListenable,
@@ -5290,32 +5570,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                 ),
               ),
             if (_draft.isDrawingMode)
-              Positioned(
-                left: 14,
-                right: 70,
-                bottom: 84 + bottomSafeInset,
-                child: Align(
-                  alignment: Alignment.bottomLeft,
-                  child: EarthlyGlassSurface(
-                    borderRadius: BorderRadius.circular(999),
-                    color: EarthlyColors.darkSurface.withValues(alpha: 0.88),
-                    borderColor: Colors.white.withValues(alpha: 0.14),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 7,
-                    ),
-                    child: Text(
-                      _draft.placementStyle == TouchPlacementStyle.drawDrag
-                          ? '1 finger: place & drag · 2 fingers: pan/zoom · 2-finger tap: undo'
-                          : 'Pan map under reticle · tap Drop to place',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 10.5,
-                        color: EarthlyColors.darkInk,
-                      ),
-                    ),
-                  ),
-                ),
+              _buildFloatingAuthoringChrome(
+                isDesktop: isDesktop,
+                systemIsDark: systemIsDark,
+                bottomSafeInset: bottomSafeInset,
               ),
             if (pendingAi != null && !_draft.isDrawingMode)
               Positioned(
@@ -5526,15 +5784,238 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     );
   }
 
+  Widget _buildFloatingAuthoringChrome({
+    required bool isDesktop,
+    required bool systemIsDark,
+    required double bottomSafeInset,
+  }) {
+    final showSelectionBar = _draft.selectedDraftFeatureIds.isNotEmpty &&
+        _draft.draftVertices.isEmpty;
+    final showShapeChips = _draft.mode == DrawToolMode.shape;
+    final showDeleteVertexPill = _draft.mode == DrawToolMode.editVertices &&
+        _draft.selectedVertexIndex != null;
+    final showHintPill =
+        !showSelectionBar && !showShapeChips && !showDeleteVertexPill;
+
+    return Positioned(
+      left: 12,
+      right: isDesktop ? 12 : 68,
+      bottom: 80 + bottomSafeInset,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (showDeleteVertexPill)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: EarthlyGlassSurface(
+                borderRadius: BorderRadius.circular(999),
+                color: EarthlyColors.darkSurface.withValues(alpha: 0.92),
+                borderColor: EarthlyColors.infoCyanBright.withValues(alpha: 0.6),
+                padding: const EdgeInsets.fromLTRB(10, 4, 6, 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Pt ${_draft.selectedVertexIndex! + 1}',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: EarthlyColors.infoCyanBright,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      key: const Key('mobile-drawing-delete-vertex-btn'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: EarthlyColors.destructive,
+                        foregroundColor: Colors.white,
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        minimumSize: const Size(0, 28),
+                      ),
+                      onPressed: () {
+                        final removed = _draft.removeSelectedEditingVertex(
+                          onPersist: _schedulePersistWorkingDraft,
+                        );
+                        if (!removed) {
+                          _showSnack(
+                            'Minimum vertices required for this geometry',
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.delete_outline, size: 14),
+                      label: const Text(
+                        'Delete Vertex',
+                        style: TextStyle(fontSize: 11.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (showShapeChips)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: EarthlyGlassSurface(
+                key: const Key('mobile-drawing-shape-bar'),
+                borderRadius: BorderRadius.circular(14),
+                color: (systemIsDark
+                        ? EarthlyColors.darkSurface
+                        : EarthlyColors.lightSurface)
+                    .withValues(alpha: 0.92),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final shape in mobilePrimitiveShapes)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ChoiceChip(
+                            key: Key('mobile-shape-chip-${shape.kind.name}'),
+                            avatar: Icon(shape.icon, size: 15),
+                            label: Text(shape.label),
+                            selected:
+                                _draft.activePrimitiveShape == shape.kind,
+                            onSelected: (_) =>
+                                _draft.setActivePrimitiveShape(shape.kind),
+                          ),
+                        ),
+                      ActionChip(
+                        key: const Key('mobile-shape-drop-center'),
+                        avatar: const Icon(Icons.add_circle_outline, size: 15),
+                        label: const Text('Drop at Center'),
+                        onPressed: () => unawaited(
+                          _addPrimitiveShapeUi(
+                            _draft.activePrimitiveShape.name,
+                            100.0,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (showSelectionBar)
+            EarthlyGlassSurface(
+              key: const Key('mobile-drawing-selection-bar'),
+              borderRadius: BorderRadius.circular(14),
+              color: EarthlyColors.darkSurface.withValues(alpha: 0.92),
+              borderColor: EarthlyColors.amber.withValues(alpha: 0.55),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    EarthlyBadge(
+                      label: '${_draft.selectedDraftFeatureIds.length} selected',
+                      color: EarthlyColors.amber,
+                      filled: false,
+                    ),
+                    const SizedBox(width: 6),
+                    _SelectionBarAction(
+                      label: 'Vertices',
+                      icon: Icons.edit_location_alt_outlined,
+                      onTap: _editVerticesPrimarySelectedDraftFeature,
+                    ),
+                    _SelectionBarAction(
+                      label: 'Style',
+                      icon: Icons.tune,
+                      onTap: _inspectPrimarySelectedDraftFeature,
+                    ),
+                    _SelectionBarAction(
+                      label: 'Rotate +15°',
+                      icon: Icons.rotate_right,
+                      onTap: () => unawaited(
+                        _runGeoActionUi(
+                          RustGeoAction.rotateSelected,
+                          angleDeg: 15,
+                        ),
+                      ),
+                    ),
+                    _SelectionBarAction(
+                      label: 'Duplicate',
+                      icon: Icons.control_point_duplicate,
+                      onTap: () => unawaited(
+                        _duplicateDraftFeaturesUi(
+                          _draft.selectedDraftFeatureIds.toList(),
+                        ),
+                      ),
+                    ),
+                    _SelectionBarAction(
+                      label: 'Ops',
+                      icon: Icons.build_outlined,
+                      onTap: _openMobileDrawingToolsSheet,
+                    ),
+                    _SelectionBarAction(
+                      label: 'Delete',
+                      icon: Icons.delete_outline,
+                      color: EarthlyColors.destructive,
+                      onTap: _deleteSelectedDraftFeatures,
+                    ),
+                    IconButton(
+                      tooltip: 'Clear selection',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 28,
+                        minHeight: 28,
+                      ),
+                      padding: EdgeInsets.zero,
+                      onPressed: _draft.clearSelection,
+                      icon: const Icon(
+                        Icons.close,
+                        size: 16,
+                        color: EarthlyColors.darkInk,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (showHintPill)
+            EarthlyGlassSurface(
+              borderRadius: BorderRadius.circular(999),
+              color: EarthlyColors.darkSurface.withValues(alpha: 0.88),
+              borderColor: Colors.white.withValues(alpha: 0.14),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 7,
+              ),
+              child: Text(
+                _draft.placementStyle == TouchPlacementStyle.drawDrag
+                    ? '1 finger: place & drag · 2 fingers: pan/zoom · 2-finger tap: undo'
+                    : 'Pan map under reticle · tap Drop to place',
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 10.5,
+                  color: EarthlyColors.darkInk,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLeftDrawerScope({required bool isWideStudio}) {
     return ListenableBuilder(
       listenable: Listenable.merge([_drawerNotifier, _draft.modeListenable]),
       builder: (context, _) {
-        if (_draft.isDrawingMode) return const SizedBox.shrink();
         final leftTarget = _drawer != _ActiveDrawer.none
             ? _drawer
             : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
         if (leftTarget == _ActiveDrawer.none) return const SizedBox.shrink();
+        if (_draft.isDrawingMode && leftTarget != _ActiveDrawer.inspector) {
+          return const SizedBox.shrink();
+        }
         return _buildScopedDrawerSlot(leftTarget);
       },
     );
@@ -5544,7 +6025,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     return ListenableBuilder(
       listenable: Listenable.merge([_drawerNotifier, _draft.modeListenable]),
       builder: (context, _) {
-        if (_draft.isDrawingMode || _rightStudioDrawer == _ActiveDrawer.none) {
+        if (_rightStudioDrawer == _ActiveDrawer.none) {
+          return const SizedBox.shrink();
+        }
+        if (_draft.isDrawingMode &&
+            _rightStudioDrawer != _ActiveDrawer.inspector) {
           return const SizedBox.shrink();
         }
         return EarthlyDrawerPlacement(
@@ -5566,6 +6051,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         _draft.modeListenable,
         _draft.placementListenable,
         _draft.geometryListenable,
+        _draft.undoRedoListenable,
         _spaces.badgeListenable,
       ]),
       builder: (context, _) {
@@ -5608,106 +6094,95 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                     padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
                     child: _draft.isDrawingMode
                         ? LayoutBuilder(
-                            builder: (context, constraints) =>
-                                SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  minWidth: constraints.maxWidth,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Row(
+                            builder: (context, constraints) => Row(
+                              children: [
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        if (_draft.isMeasureMode)
-                                          const Padding(
-                                            padding: EdgeInsets.symmetric(
-                                              horizontal: 8,
+                                        for (final tool in mobileAuthoringTools)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              right: 2,
                                             ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(
-                                                  Icons.straighten,
-                                                  size: 18,
-                                                  color: EarthlyColors
-                                                      .measureViolet,
-                                                ),
-                                                SizedBox(width: 6),
-                                                Text(
-                                                  'MEASURE',
-                                                  style: TextStyle(
-                                                    fontFamily: 'monospace',
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: EarthlyColors
-                                                        .measureViolet,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          )
-                                        else ...[
-                                          _DockTool(
-                                            label: 'Point',
-                                            icon: Icons.location_on_outlined,
-                                            selected: _draft.mode ==
-                                                DrawToolMode.point,
-                                            onTap: () => _draft.selectMode(
-                                              DrawToolMode.point,
-                                              onCloseDrawers: _closeAllDrawers,
+                                            child: _DockTool(
+                                              key: Key(
+                                                'mobile-draw-tool-${tool.mode.name}',
+                                              ),
+                                              label: tool.label,
+                                              icon: tool.icon,
+                                              selected: _draft.mode == tool.mode,
+                                              minWidth: 46,
+                                              onTap: () =>
+                                                  _selectAuthoringTool(tool.mode),
                                             ),
                                           ),
-                                          _DockTool(
-                                            label: 'Line',
-                                            icon: Icons.timeline,
-                                            selected:
-                                                _draft.mode == DrawToolMode.line,
-                                            onTap: () => _draft.selectMode(
-                                              DrawToolMode.line,
-                                              onCloseDrawers: _closeAllDrawers,
-                                            ),
-                                          ),
-                                          _DockTool(
-                                            label: 'Area',
-                                            icon: Icons.pentagon_outlined,
-                                            selected: _draft.mode ==
-                                                DrawToolMode.polygon,
-                                            onTap: () => _draft.selectMode(
-                                              DrawToolMode.polygon,
-                                              onCloseDrawers: _closeAllDrawers,
-                                            ),
-                                          ),
-                                        ],
                                       ],
                                     ),
-                                    const SizedBox(width: 8),
-                                    Row(
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: (constraints.maxWidth * 0.78)
+                                        .clamp(200.0, 460.0),
+                                  ),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.centerRight,
+                                    child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         if (_draft.placementStyle ==
-                                            TouchPlacementStyle.crosshair) ...[
+                                                TouchPlacementStyle.crosshair &&
+                                            _draft.mode != DrawToolMode.select &&
+                                            _draft.mode !=
+                                                DrawToolMode.editVertices &&
+                                            _draft.mode !=
+                                                DrawToolMode.boxSelect &&
+                                            _draft.mode !=
+                                                DrawToolMode.freehand &&
+                                            _draft.mode !=
+                                                DrawToolMode.shape) ...[
                                           FilledButton.icon(
                                             style: FilledButton.styleFrom(
+                                              tapTargetSize:
+                                                  MaterialTapTargetSize
+                                                      .shrinkWrap,
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                horizontal: 11,
-                                                vertical: 8,
+                                                horizontal: 8,
+                                                vertical: 6,
                                               ),
-                                              minimumSize: const Size(0, 36),
+                                              minimumSize: const Size(0, 32),
+                                              textStyle: const TextStyle(
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.w700,
+                                              ),
                                             ),
-                                            onPressed: () =>
-                                                _draft.dropCrosshairPoint(
-                                              _controller?.camera?.center,
-                                              onPersist:
-                                                  _schedulePersistWorkingDraft,
-                                            ),
+                                            onPressed: () {
+                                              final center =
+                                                  _controller?.camera?.center;
+                                              if (_draft.mode ==
+                                                  DrawToolMode.annotation) {
+                                                if (center != null) {
+                                                  unawaited(
+                                                    _promptDropMapLabel(center),
+                                                  );
+                                                }
+                                                return;
+                                              }
+                                              _draft.dropCrosshairPoint(
+                                                center,
+                                                onPersist:
+                                                    _schedulePersistWorkingDraft,
+                                              );
+                                            },
                                             icon: const Icon(
                                               Icons.add_location_alt,
-                                              size: 16,
+                                              size: 14,
                                             ),
                                             label: const Text('Drop'),
                                           ),
@@ -5716,60 +6191,133 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                                         if (_draft.canFinishDraft) ...[
                                           FilledButton(
                                             style: FilledButton.styleFrom(
+                                              tapTargetSize:
+                                                  MaterialTapTargetSize
+                                                      .shrinkWrap,
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                horizontal: 11,
-                                                vertical: 8,
+                                                horizontal: 8,
+                                                vertical: 6,
                                               ),
-                                              minimumSize: const Size(0, 36),
+                                              minimumSize: const Size(0, 32),
+                                              textStyle: const TextStyle(
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.w700,
+                                              ),
                                             ),
-                                            onPressed: () => _draft.finishDraft(
-                                              onPersist:
-                                                  _schedulePersistWorkingDraft,
+                                            onPressed: () => unawaited(
+                                              _finishActiveStroke(),
                                             ),
                                             child: Text(
-                                              _draft.editingDraftFeature != null
-                                                  ? 'Save · ${_draft.draftVertices.length}'
-                                                  : 'Finish · ${_draft.draftVertices.length}',
+                                              _draft.mode ==
+                                                      DrawToolMode.splitByLine
+                                                  ? 'Cut · ${_draft.draftVertices.length}'
+                                                  : _draft.editingDraftFeature !=
+                                                          null
+                                                      ? 'Save · ${_draft.draftVertices.length}'
+                                                      : 'Finish · ${_draft.draftVertices.length}',
                                             ),
                                           ),
                                           const SizedBox(width: 4),
                                         ],
+                                        if (_draft.draftVertices.isNotEmpty)
+                                          Tooltip(
+                                            message: 'Undo',
+                                            child: OutlinedButton.icon(
+                                              style: OutlinedButton.styleFrom(
+                                                tapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 7,
+                                                  vertical: 6,
+                                                ),
+                                                minimumSize: const Size(0, 32),
+                                                textStyle: const TextStyle(
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              onPressed: _undoInDrawingMode,
+                                              icon: const Icon(
+                                                Icons.undo,
+                                                size: 14,
+                                              ),
+                                              label: const Text('Undo pt'),
+                                            ),
+                                          )
+                                        else
+                                          IconButton(
+                                            tooltip: 'Undo',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            constraints: const BoxConstraints(
+                                              minWidth: 32,
+                                              minHeight: 32,
+                                            ),
+                                            padding: EdgeInsets.zero,
+                                            onPressed:
+                                                (_draft.undoStack.isNotEmpty ||
+                                                        _draft
+                                                            .features.isNotEmpty)
+                                                    ? _undoInDrawingMode
+                                                    : null,
+                                            icon: const Icon(
+                                              Icons.undo,
+                                              size: 19,
+                                            ),
+                                          ),
                                         IconButton(
-                                          tooltip: 'Undo',
+                                          key: const Key(
+                                            'mobile-drawing-more-tools',
+                                          ),
+                                          tooltip: 'More tools',
                                           visualDensity: VisualDensity.compact,
-                                          onPressed: (_draft.draftVertices
-                                                      .isNotEmpty ||
-                                                  _draft.features.isNotEmpty)
-                                              ? () => _draft.undoLastPoint(
-                                                    onPersist:
-                                                        _schedulePersistWorkingDraft,
-                                                  )
-                                              : null,
-                                          icon:
-                                              const Icon(Icons.undo, size: 20),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 32,
+                                            minHeight: 32,
+                                          ),
+                                          padding: EdgeInsets.zero,
+                                          onPressed:
+                                              _openMobileDrawingToolsSheet,
+                                          icon: const Icon(
+                                            Icons.more_horiz,
+                                            size: 20,
+                                          ),
                                         ),
+                                        const SizedBox(width: 2),
                                         OutlinedButton(
                                           style: OutlinedButton.styleFrom(
+                                            tapTargetSize:
+                                                MaterialTapTargetSize
+                                                    .shrinkWrap,
                                             padding: const EdgeInsets.symmetric(
-                                              horizontal: 11,
-                                              vertical: 8,
+                                              horizontal: 8,
+                                              vertical: 6,
                                             ),
-                                            minimumSize: const Size(0, 36),
+                                            minimumSize: const Size(0, 32),
+                                            textStyle: const TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                           ),
                                           onPressed:
                                               _draft.cancelEditingDraftFeature,
                                           child: Text(
-                                            _draft.editingDraftFeature != null
+                                            (_draft.editingDraftFeature !=
+                                                        null ||
+                                                    _draft.draftVertices
+                                                        .isNotEmpty)
                                                 ? 'Cancel'
                                                 : 'Done',
                                           ),
                                         ),
                                       ],
                                     ),
-                                  ],
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
                           )
                         : Row(
@@ -6066,12 +6614,15 @@ class _DockTool extends StatelessWidget {
     required this.icon,
     required this.selected,
     required this.onTap,
+    this.minWidth,
+    super.key,
   });
 
   final String label;
   final IconData icon;
   final bool selected;
   final VoidCallback onTap;
+  final double? minWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -6088,6 +6639,8 @@ class _DockTool extends StatelessWidget {
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
+          constraints:
+              minWidth != null ? BoxConstraints(minWidth: minWidth!) : null,
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
           decoration: BoxDecoration(
             color: selected
@@ -6119,6 +6672,121 @@ class _DockTool extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SelectionBarAction extends StatelessWidget {
+  const _SelectionBarAction({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.color,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = color ?? EarthlyColors.darkInk;
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(9),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 14, color: fg),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: fg,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DropMapLabelDialog extends StatefulWidget {
+  const _DropMapLabelDialog({required this.point});
+
+  final Geographic point;
+
+  @override
+  State<_DropMapLabelDialog> createState() => _DropMapLabelDialogState();
+}
+
+class _DropMapLabelDialogState extends State<_DropMapLabelDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    Navigator.of(context).pop(_controller.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('Drop Map Label'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '${widget.point.lat.toStringAsFixed(5)}, ${widget.point.lon.toStringAsFixed(5)}',
+            style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            key: const Key('drop-map-label-field'),
+            controller: _controller,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+            decoration: const InputDecoration(
+              labelText: 'Label text',
+              hintText: 'e.g. North Gate, Trailhead…',
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('drop-map-label-confirm'),
+          onPressed: _submit,
+          child: const Text('Drop Label'),
+        ),
+      ],
     );
   }
 }
