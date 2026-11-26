@@ -10,6 +10,9 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [dependencies]
 earthly-agent = { path = "../earthly-agent" }
 earthly-domain = { path = "../earthly-domain" }

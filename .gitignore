@@ -13,6 +13,7 @@ base-assets
 out
 dist
 *.tgz
+src/lib/wasm/pkg/
 
 # code coverage
 coverage
