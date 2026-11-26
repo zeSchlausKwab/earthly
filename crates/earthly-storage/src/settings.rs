@@ -5,6 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
+use crate::secret_box::{is_encrypted_secret, SecretBox};
+
 const SETTINGS_KEY: &str = "earthly.native.settings.v1";
 const DEFAULT_CORDN_PUBKEY: &str =
     "fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37";
@@ -226,6 +228,14 @@ impl AppSettingsStore {
     }
 
     pub fn load(&self) -> Result<PersistedAppSettings, SettingsStoreError> {
+        self.load_with_master_key(None)
+    }
+
+    pub fn load_with_master_key(
+        &self,
+        master_key_b64: Option<&str>,
+    ) -> Result<PersistedAppSettings, SettingsStoreError> {
+        let secret_box = parse_secret_box(master_key_b64)?;
         let connection = self.connection.lock().map_err(|_| {
             SettingsStoreError::new("settings-lock-failed", "Settings store unavailable")
         })?;
@@ -241,6 +251,7 @@ impl AppSettingsStore {
             Some(json) => {
                 let mut parsed: PersistedAppSettings = serde_json::from_str(&json)
                     .unwrap_or_else(|_| PersistedAppSettings::default());
+                decrypt_sensitive_fields(&mut parsed, secret_box.as_ref())?;
                 if parsed.relay_urls.is_empty() {
                     parsed.relay_urls = vec!["wss://relay.earthly.city".to_owned()];
                 }
@@ -274,23 +285,41 @@ impl AppSettingsStore {
 
     pub fn save(
         &self,
-        mut settings: PersistedAppSettings,
+        settings: PersistedAppSettings,
     ) -> Result<PersistedAppSettings, SettingsStoreError> {
-        settings.relay_urls = settings
+        self.save_with_master_key(&settings, None)
+    }
+
+    pub fn save_with_master_key(
+        &self,
+        settings: &PersistedAppSettings,
+        master_key_b64: Option<&str>,
+    ) -> Result<PersistedAppSettings, SettingsStoreError> {
+        let secret_box = parse_secret_box(master_key_b64)?;
+        let mut normalized = settings.clone();
+        normalized.relay_urls = normalized
             .relay_urls
             .into_iter()
             .map(|r| r.trim().to_owned())
             .filter(|r| r.starts_with("wss://") || r.starts_with("ws://"))
             .collect();
-        if settings.relay_urls.is_empty() {
-            settings.relay_urls.push("wss://relay.earthly.city".to_owned());
+        if normalized.relay_urls.is_empty() {
+            normalized
+                .relay_urls
+                .push("wss://relay.earthly.city".to_owned());
         }
-        settings.satellite_opacity = if settings.satellite_opacity.is_finite() {
-            settings.satellite_opacity.clamp(0.0, 1.0)
+        normalized.satellite_opacity = if normalized.satellite_opacity.is_finite() {
+            normalized.satellite_opacity.clamp(0.0, 1.0)
         } else {
             default_satellite_opacity()
         };
-        let value_json = serde_json::to_string(&settings)
+
+        let mut persisted = normalized.clone();
+        if let Some(ref box_cipher) = secret_box {
+            encrypt_sensitive_fields(&mut persisted, box_cipher)?;
+        }
+
+        let value_json = serde_json::to_string(&persisted)
             .map_err(|e| SettingsStoreError::new("settings-serialize-failed", e.to_string()))?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -308,8 +337,108 @@ impl AppSettingsStore {
                updated_at = excluded.updated_at",
             params![SETTINGS_KEY, value_json, now],
         )?;
-        Ok(settings)
+        Ok(normalized)
     }
+}
+
+fn parse_secret_box(master_key_b64: Option<&str>) -> Result<Option<SecretBox>, SettingsStoreError> {
+    master_key_b64
+        .map(|key| {
+            SecretBox::from_base64_key(key)
+                .map_err(|e| SettingsStoreError::new("settings-invalid-master-key", e))
+        })
+        .transpose()
+}
+
+fn has_encrypted_sensitive_fields(settings: &PersistedAppSettings) -> bool {
+    let top_level_encrypted = settings
+        .local_nsec
+        .as_deref()
+        .is_some_and(is_encrypted_secret)
+        || settings
+            .bunker_client_nsec
+            .as_deref()
+            .is_some_and(is_encrypted_secret)
+        || settings.nwc_uri.as_deref().is_some_and(is_encrypted_secret)
+        || is_encrypted_secret(&settings.agent_api_key);
+
+    top_level_encrypted
+        || settings.saved_accounts.iter().any(|account| {
+            account
+                .local_nsec
+                .as_deref()
+                .is_some_and(is_encrypted_secret)
+                || account
+                    .bunker_client_nsec
+                    .as_deref()
+                    .is_some_and(is_encrypted_secret)
+        })
+}
+
+fn encrypt_sensitive_fields(
+    settings: &mut PersistedAppSettings,
+    secret_box: &SecretBox,
+) -> Result<(), SettingsStoreError> {
+    let map_err = |e: String| SettingsStoreError::new("settings-encrypt-failed", e);
+    settings.local_nsec = secret_box
+        .encrypt_option(settings.local_nsec.as_deref())
+        .map_err(map_err)?;
+    settings.bunker_client_nsec = secret_box
+        .encrypt_option(settings.bunker_client_nsec.as_deref())
+        .map_err(map_err)?;
+    settings.nwc_uri = secret_box
+        .encrypt_option(settings.nwc_uri.as_deref())
+        .map_err(map_err)?;
+    settings.agent_api_key = secret_box
+        .encrypt_str(&settings.agent_api_key)
+        .map_err(map_err)?;
+    for account in &mut settings.saved_accounts {
+        account.local_nsec = secret_box
+            .encrypt_option(account.local_nsec.as_deref())
+            .map_err(map_err)?;
+        account.bunker_client_nsec = secret_box
+            .encrypt_option(account.bunker_client_nsec.as_deref())
+            .map_err(map_err)?;
+    }
+    Ok(())
+}
+
+fn decrypt_sensitive_fields(
+    settings: &mut PersistedAppSettings,
+    secret_box: Option<&SecretBox>,
+) -> Result<(), SettingsStoreError> {
+    let Some(secret_box) = secret_box else {
+        if has_encrypted_sensitive_fields(settings) {
+            return Err(SettingsStoreError::new(
+                "settings-decrypt-failed",
+                "Encrypted settings present but no master key was provided",
+            ));
+        }
+        return Ok(());
+    };
+
+    let map_err = |e: String| SettingsStoreError::new("settings-decrypt-failed", e);
+    settings.local_nsec = secret_box
+        .decrypt_option(settings.local_nsec.as_deref())
+        .map_err(map_err)?;
+    settings.bunker_client_nsec = secret_box
+        .decrypt_option(settings.bunker_client_nsec.as_deref())
+        .map_err(map_err)?;
+    settings.nwc_uri = secret_box
+        .decrypt_option(settings.nwc_uri.as_deref())
+        .map_err(map_err)?;
+    settings.agent_api_key = secret_box
+        .decrypt_str(&settings.agent_api_key)
+        .map_err(map_err)?;
+    for account in &mut settings.saved_accounts {
+        account.local_nsec = secret_box
+            .decrypt_option(account.local_nsec.as_deref())
+            .map_err(map_err)?;
+        account.bunker_client_nsec = secret_box
+            .decrypt_option(account.bunker_client_nsec.as_deref())
+            .map_err(map_err)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -376,5 +505,174 @@ mod tests {
         assert_eq!(loaded.saved_accounts.len(), 2);
         assert_eq!(loaded.active_account_id, s.active_account_id);
         assert_eq!(loaded.saved_accounts[1].label.as_deref(), Some("Bob Bunker"));
+    }
+
+    fn test_master_key(byte: u8) -> String {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine as _;
+        STANDARD.encode([byte; 32])
+    }
+
+    fn read_raw_settings_json(db: &std::path::Path) -> String {
+        let conn = Connection::open(db).unwrap();
+        conn.query_row(
+            "SELECT value_json FROM app_settings WHERE key = ?1",
+            params![SETTINGS_KEY],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn encrypts_sensitive_fields_at_rest_and_round_trips_with_master_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("encrypted.sqlite3");
+        let key_a = test_master_key(0x1a);
+
+        let mut s = PersistedAppSettings::default();
+        s.local_pubkey_hex = Some("a".repeat(64));
+        s.local_nsec = Some("nsec1topsecretlocalnsecvalue".to_owned());
+        s.bunker_client_nsec = Some("nsec1topsecretbunkerclient".to_owned());
+        s.nwc_uri = Some("nostr+walletconnect://pk?relay=wss%3A%2F%2Frelay.earthly.city&secret=supersecret".to_owned());
+        s.agent_api_key = "sk-live-secret-api-key".to_owned();
+        s.saved_accounts = vec![
+            SavedAccountSessionRecord {
+                id: format!("local:{}", "1".repeat(64)),
+                kind: "local".to_owned(),
+                pubkey_hex: "1".repeat(64),
+                local_nsec: Some("nsec1accountonelocal".to_owned()),
+                bunker_uri: None,
+                bunker_client_nsec: Some("nsec1accountonebunker".to_owned()),
+                signer_package: None,
+                label: Some("Alice".to_owned()),
+            },
+        ];
+
+        let store = AppSettingsStore::open(&db).unwrap();
+        let saved = store.save_with_master_key(&s, Some(&key_a)).unwrap();
+        // Returned value stays decrypted for in-memory callers.
+        assert_eq!(saved.local_nsec, s.local_nsec);
+        assert_eq!(saved.bunker_client_nsec, s.bunker_client_nsec);
+        assert_eq!(saved.nwc_uri, s.nwc_uri);
+        assert_eq!(saved.agent_api_key, s.agent_api_key);
+        assert_eq!(saved.saved_accounts[0].local_nsec, s.saved_accounts[0].local_nsec);
+        assert_eq!(
+            saved.saved_accounts[0].bunker_client_nsec,
+            s.saved_accounts[0].bunker_client_nsec
+        );
+        drop(store);
+
+        let raw_json = read_raw_settings_json(&db);
+        assert!(!raw_json.contains("nsec1topsecretlocalnsecvalue"));
+        assert!(!raw_json.contains("nsec1topsecretbunkerclient"));
+        assert!(!raw_json.contains("nostr+walletconnect://"));
+        assert!(!raw_json.contains("sk-live-secret-api-key"));
+        assert!(!raw_json.contains("nsec1accountonelocal"));
+        assert!(!raw_json.contains("nsec1accountonebunker"));
+
+        let persisted_raw: PersistedAppSettings = serde_json::from_str(&raw_json).unwrap();
+        assert!(persisted_raw
+            .local_nsec
+            .as_deref()
+            .is_some_and(is_encrypted_secret));
+        assert!(persisted_raw
+            .bunker_client_nsec
+            .as_deref()
+            .is_some_and(is_encrypted_secret));
+        assert!(persisted_raw
+            .nwc_uri
+            .as_deref()
+            .is_some_and(is_encrypted_secret));
+        assert!(is_encrypted_secret(&persisted_raw.agent_api_key));
+        assert!(persisted_raw.saved_accounts[0]
+            .local_nsec
+            .as_deref()
+            .is_some_and(is_encrypted_secret));
+        assert!(persisted_raw.saved_accounts[0]
+            .bunker_client_nsec
+            .as_deref()
+            .is_some_and(is_encrypted_secret));
+
+        let reopened = AppSettingsStore::open(&db).unwrap();
+        let loaded = reopened.load_with_master_key(Some(&key_a)).unwrap();
+        assert_eq!(loaded.local_nsec, s.local_nsec);
+        assert_eq!(loaded.bunker_client_nsec, s.bunker_client_nsec);
+        assert_eq!(loaded.nwc_uri, s.nwc_uri);
+        assert_eq!(loaded.agent_api_key, s.agent_api_key);
+        assert_eq!(loaded.saved_accounts, s.saved_accounts);
+    }
+
+    #[test]
+    fn migrates_legacy_plaintext_settings_on_next_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("legacy.sqlite3");
+        let key = test_master_key(0x2b);
+
+        let mut legacy = PersistedAppSettings::default();
+        legacy.local_nsec = Some("nsec1legacyuserkey".to_owned());
+        legacy.bunker_client_nsec = Some("nsec1legacybunker".to_owned());
+        legacy.nwc_uri = Some("nostr+walletconnect://legacy?secret=123".to_owned());
+        legacy.agent_api_key = "sk-legacy-key".to_owned();
+        legacy.saved_accounts = vec![SavedAccountSessionRecord {
+            id: format!("local:{}", "3".repeat(64)),
+            kind: "local".to_owned(),
+            pubkey_hex: "3".repeat(64),
+            local_nsec: Some("nsec1legacysaved".to_owned()),
+            bunker_uri: None,
+            bunker_client_nsec: None,
+            signer_package: None,
+            label: None,
+        }];
+
+        let store = AppSettingsStore::open(&db).unwrap();
+        store.save(legacy.clone()).unwrap();
+
+        let raw_before = read_raw_settings_json(&db);
+        assert!(raw_before.contains("nsec1legacyuserkey"));
+        assert!(raw_before.contains("sk-legacy-key"));
+
+        let loaded = store.load_with_master_key(Some(&key)).unwrap();
+        assert_eq!(loaded.local_nsec, legacy.local_nsec);
+        assert_eq!(loaded.bunker_client_nsec, legacy.bunker_client_nsec);
+        assert_eq!(loaded.nwc_uri, legacy.nwc_uri);
+        assert_eq!(loaded.agent_api_key, legacy.agent_api_key);
+        assert_eq!(loaded.saved_accounts, legacy.saved_accounts);
+
+        store.save_with_master_key(&loaded, Some(&key)).unwrap();
+        let raw_after = read_raw_settings_json(&db);
+        assert!(!raw_after.contains("nsec1legacyuserkey"));
+        assert!(!raw_after.contains("nsec1legacybunker"));
+        assert!(!raw_after.contains("nostr+walletconnect://legacy"));
+        assert!(!raw_after.contains("sk-legacy-key"));
+        assert!(!raw_after.contains("nsec1legacysaved"));
+
+        let reloaded = store.load_with_master_key(Some(&key)).unwrap();
+        assert_eq!(reloaded.local_nsec, legacy.local_nsec);
+        assert_eq!(reloaded.agent_api_key, legacy.agent_api_key);
+    }
+
+    #[test]
+    fn wrong_or_missing_master_key_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("wrong-key.sqlite3");
+        let key_a = test_master_key(0x3c);
+        let key_b = test_master_key(0x4d);
+
+        let mut s = PersistedAppSettings::default();
+        s.local_nsec = Some("nsec1protected".to_owned());
+        s.nwc_uri = Some("nostr+walletconnect://protected?secret=xyz".to_owned());
+
+        let store = AppSettingsStore::open(&db).unwrap();
+        store.save_with_master_key(&s, Some(&key_a)).unwrap();
+
+        let wrong_err = store.load_with_master_key(Some(&key_b)).unwrap_err();
+        assert_eq!(wrong_err.code, "settings-decrypt-failed");
+
+        let missing_err = store.load_with_master_key(None).unwrap_err();
+        assert_eq!(missing_err.code, "settings-decrypt-failed");
+        assert_eq!(store.load().unwrap_err().code, "settings-decrypt-failed");
+
+        let bad_key_err = store.load_with_master_key(Some("not-valid-base64!")).unwrap_err();
+        assert_eq!(bad_key_err.code, "settings-invalid-master-key");
     }
 }

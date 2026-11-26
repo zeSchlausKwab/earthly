@@ -6,6 +6,7 @@
 pub mod account_session;
 pub mod drafts;
 pub mod outbox;
+pub mod secret_box;
 pub mod settings;
 
 pub use account_session::{
@@ -18,6 +19,7 @@ pub use outbox::{
     OutboxItemSummaryView, OutboxItemView, OutboxRelayResultInput, OutboxRelayState,
     OutboxRelayView, OutboxRouting, OutboxStore, OUTBOX_PROTOCOL_VERSION,
 };
+pub use secret_box::{decode_master_key, is_encrypted_secret, SecretBox, SECRET_BOX_PREFIX};
 pub use settings::{
     AppSettingsStore, MountedAtlasWorkspaceRecord, PersistedAppSettings,
     SavedAccountSessionRecord, SavedOfflinePackRecord, SettingsStoreError,

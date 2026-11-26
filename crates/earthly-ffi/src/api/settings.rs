@@ -3,10 +3,34 @@
 //! AI Agent provider settings, mounted offline `.pmtiles`/`.atlas` packs,
 //! and Favorites / Recents).
 
+use std::sync::{OnceLock, RwLock};
+
 use earthly_storage::{
-    AppSettingsStore, MountedAtlasWorkspaceRecord, PersistedAppSettings,
+    decode_master_key, AppSettingsStore, MountedAtlasWorkspaceRecord, PersistedAppSettings,
     SavedAccountSessionRecord, SavedOfflinePackRecord,
 };
+
+static SETTINGS_MASTER_KEY: OnceLock<RwLock<Option<String>>> = OnceLock::new();
+
+fn master_key_lock() -> &'static RwLock<Option<String>> {
+    SETTINGS_MASTER_KEY.get_or_init(|| RwLock::new(None))
+}
+
+fn current_master_key() -> Result<Option<String>, String> {
+    let guard = master_key_lock()
+        .read()
+        .map_err(|_| "Settings master key lock poisoned".to_owned())?;
+    Ok(guard.clone())
+}
+
+pub fn set_settings_master_key(master_key_base64: String) -> Result<(), String> {
+    decode_master_key(&master_key_base64)?;
+    let mut guard = master_key_lock()
+        .write()
+        .map_err(|_| "Settings master key lock poisoned".to_owned())?;
+    *guard = Some(master_key_base64.trim().to_owned());
+    Ok(())
+}
 
 #[derive(Clone, Debug)]
 pub struct SavedAccountSessionDto {
@@ -78,8 +102,11 @@ pub struct AppSettingsDto {
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
+    let master_key = current_master_key()?;
     let store = AppSettingsStore::open(database_path).map_err(|e| e.to_string())?;
-    let loaded = store.load().map_err(|e| e.to_string())?;
+    let loaded = store
+        .load_with_master_key(master_key.as_deref())
+        .map_err(|e| e.to_string())?;
     Ok(from_record(loaded))
 }
 
@@ -87,9 +114,11 @@ pub fn save_app_settings(
     database_path: String,
     settings: AppSettingsDto,
 ) -> Result<AppSettingsDto, String> {
+    let master_key = current_master_key()?;
     let store = AppSettingsStore::open(database_path).map_err(|e| e.to_string())?;
+    let record = to_record(settings);
     let saved = store
-        .save(to_record(settings))
+        .save_with_master_key(&record, master_key.as_deref())
         .map_err(|e| e.to_string())?;
     Ok(from_record(saved))
 }
@@ -243,10 +272,42 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
+    use std::sync::{Mutex, MutexGuard};
     use tempfile::tempdir;
+
+    static TEST_MASTER_KEY_MUTEX: Mutex<()> = Mutex::new(());
+
+    struct MasterKeyTestGuard {
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl MasterKeyTestGuard {
+        fn acquire() -> Self {
+            let lock = TEST_MASTER_KEY_MUTEX
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *master_key_lock().write().unwrap() = None;
+            Self { _lock: lock }
+        }
+    }
+
+    impl Drop for MasterKeyTestGuard {
+        fn drop(&mut self) {
+            if let Ok(mut guard) = master_key_lock().write() {
+                *guard = None;
+            }
+        }
+    }
+
+    fn test_key_b64(byte: u8) -> String {
+        STANDARD.encode([byte; 32])
+    }
 
     #[test]
     fn round_trips_blossom_and_inbox_read_state() {
+        let _guard = MasterKeyTestGuard::acquire();
         let dir = tempdir().unwrap();
         let db = dir.path().join("settings.sqlite3").display().to_string();
         let mut s = load_app_settings(db.clone()).unwrap();
@@ -287,6 +348,86 @@ mod tests {
         assert_eq!(
             reloaded.nwc_uri.as_deref(),
             Some("nostr+walletconnect://abc?relay=wss%3A%2F%2Frelay.earthly.city&secret=def")
+        );
+    }
+
+    #[test]
+    fn set_settings_master_key_validates_and_encrypts_ffi_persistence() {
+        let _guard = MasterKeyTestGuard::acquire();
+        assert!(set_settings_master_key("not-base64".to_owned()).is_err());
+        assert!(set_settings_master_key(STANDARD.encode([1u8; 16])).is_err());
+
+        let key_a = test_key_b64(0x7a);
+        let key_b = test_key_b64(0x8b);
+        set_settings_master_key(key_a.clone()).unwrap();
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("ffi-encrypted.sqlite3");
+        let db = db_path.display().to_string();
+
+        let mut s = load_app_settings(db.clone()).unwrap();
+        s.local_nsec = Some("nsec1ffilocalnsec".to_owned());
+        s.bunker_client_nsec = Some("nsec1ffibunkernsec".to_owned());
+        s.nwc_uri = Some("nostr+walletconnect://ffi?secret=supersecret".to_owned());
+        s.agent_api_key = "sk-ffi-secret-key".to_owned();
+        s.saved_accounts = vec![SavedAccountSessionDto {
+            id: format!("local:{}", "4".repeat(64)),
+            kind: "local".to_owned(),
+            pubkey_hex: "4".repeat(64),
+            local_nsec: Some("nsec1ffisavedlocal".to_owned()),
+            bunker_uri: None,
+            bunker_client_nsec: Some("nsec1ffisavedbunker".to_owned()),
+            signer_package: None,
+            label: Some("Primary".to_owned()),
+        }];
+
+        let saved = save_app_settings(db.clone(), s).unwrap();
+        assert_eq!(saved.local_nsec.as_deref(), Some("nsec1ffilocalnsec"));
+        assert_eq!(saved.agent_api_key, "sk-ffi-secret-key");
+
+        // Verify SQLite storage files contain no plaintext secrets.
+        for candidate in [
+            db_path.clone(),
+            dir.path().join("ffi-encrypted.sqlite3-wal"),
+        ] {
+            if candidate.exists() {
+                let bytes = std::fs::read(&candidate).unwrap();
+                let text = String::from_utf8_lossy(&bytes);
+                assert!(!text.contains("nsec1ffilocalnsec"));
+                assert!(!text.contains("nsec1ffibunkernsec"));
+                assert!(!text.contains("nostr+walletconnect://ffi"));
+                assert!(!text.contains("sk-ffi-secret-key"));
+                assert!(!text.contains("nsec1ffisavedlocal"));
+                assert!(!text.contains("nsec1ffisavedbunker"));
+            }
+        }
+
+        let loaded = load_app_settings(db.clone()).unwrap();
+        assert_eq!(loaded.local_nsec.as_deref(), Some("nsec1ffilocalnsec"));
+        assert_eq!(loaded.bunker_client_nsec.as_deref(), Some("nsec1ffibunkernsec"));
+        assert_eq!(
+            loaded.nwc_uri.as_deref(),
+            Some("nostr+walletconnect://ffi?secret=supersecret")
+        );
+        assert_eq!(loaded.agent_api_key, "sk-ffi-secret-key");
+        assert_eq!(
+            loaded.saved_accounts[0].local_nsec.as_deref(),
+            Some("nsec1ffisavedlocal")
+        );
+        assert_eq!(
+            loaded.saved_accounts[0].bunker_client_nsec.as_deref(),
+            Some("nsec1ffisavedbunker")
+        );
+
+        // Wrong master key must fail closed.
+        set_settings_master_key(key_b).unwrap();
+        assert!(load_app_settings(db.clone()).is_err());
+
+        // Restoring original master key succeeds again.
+        set_settings_master_key(key_a).unwrap();
+        assert_eq!(
+            load_app_settings(db).unwrap().local_nsec.as_deref(),
+            Some("nsec1ffilocalnsec")
         );
     }
 }
