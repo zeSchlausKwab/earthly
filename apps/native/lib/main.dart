@@ -9,6 +9,12 @@ import 'package:maplibre/maplibre.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'controllers/account_wallet_controller.dart';
+import 'controllers/agent_controller.dart';
+import 'controllers/catalog_shelf_controller.dart';
+import 'controllers/draft_workbench_controller.dart';
+import 'controllers/map_layer_cache.dart';
+import 'controllers/spaces_sync_controller.dart';
 import 'drawing/drawing_model.dart';
 import 'drawing/touch_draw_overlay.dart';
 import 'nostr/basemap_config.dart';
@@ -51,14 +57,10 @@ import 'shell/zap_dialog.dart';
 import 'spike/rust_node_sheet.dart';
 import 'src/rust/api/agent.dart';
 import 'src/rust/api/blossom.dart';
-import 'src/rust/api/geo.dart';
 import 'src/rust/api/mcp_bridge.dart';
-import 'src/rust/api/nip46.dart';
 import 'src/rust/api/nostr_client.dart';
-import 'src/rust/api/nwc.dart';
 import 'src/rust/api/private_groups.dart';
 import 'src/rust/api/publish.dart';
-import 'src/rust/api/relay_pool.dart';
 import 'src/rust/api/settings.dart';
 import 'src/rust/api/spike.dart';
 import 'src/rust/api/wallet.dart';
@@ -147,6 +149,12 @@ class EarthlySpikeHome extends StatefulWidget {
     this.mapBuilder,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
+    this.mapLayerCache,
+    this.agentController,
+    this.draftController,
+    this.accountController,
+    this.catalogController,
+    this.spacesController,
     super.key,
   });
 
@@ -158,6 +166,12 @@ class EarthlySpikeHome extends StatefulWidget {
   )? mapBuilder;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
+  final MapLayerCache? mapLayerCache;
+  final AgentController? agentController;
+  final DraftWorkbenchController? draftController;
+  final AccountWalletController? accountController;
+  final CatalogShelfController? catalogController;
+  final SpacesSyncController? spacesController;
 
   @override
   State<EarthlySpikeHome> createState() => _EarthlySpikeHomeState();
@@ -165,287 +179,90 @@ class EarthlySpikeHome extends StatefulWidget {
 
 class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     with WidgetsBindingObserver {
-  MapController? _controller;
-  DrawToolMode _mode = DrawToolMode.browse;
-  TouchPlacementStyle _placementStyle = TouchPlacementStyle.drawDrag;
-  bool _loupeEnabled = true;
+  late final MapLayerCache _mapLayers;
+  late final AgentController _agent;
+  late final DraftWorkbenchController _draft;
+  late final AccountWalletController _accountWallet;
+  late final CatalogShelfController _catalog;
+  late final SpacesSyncController _spaces;
 
-  // Unified non-blocking Google-Maps-style drawer (mobile) / dual Studio Margin rails (desktop >= 1100px)
-  _ActiveDrawer _drawer = _ActiveDrawer.none;
-  _ActiveDrawer _rightStudioDrawer = _ActiveDrawer.none;
-  InspectedFeature? _inspectedFeature;
-  DiscussionTarget? _discussionTarget;
-  String? _pendingDeepLinkPairing;
+  late final bool _ownsMapLayers;
+  late final bool _ownsAgent;
+  late final bool _ownsDraft;
+  late final bool _ownsAccountWallet;
+  late final bool _ownsCatalog;
+  late final bool _ownsSpaces;
 
-  // Map presentation, theme & satellite basemap state
-  BasemapKind _selectedBasemap = BasemapKind.auto;
-  MapBackgroundMode _backgroundMode = MapBackgroundMode.osm;
-  double _satelliteOpacity = 0.75;
-  OfflinePmtilesBasemap? _offlineBasemap;
-  final List<SavedOfflinePackDto> _savedOfflinePacks = <SavedOfflinePackDto>[];
-  final List<MountedAtlasWorkspaceDto> _mountedAtlasWorkspaces =
-      <MountedAtlasWorkspaceDto>[];
-  bool _showLabels = true;
-  CalloutDisplayMode _calloutMode = CalloutDisplayMode.full;
-  Map<String, dynamic>? _savedStoryDraft;
-
-  // Measure Ruler telemetry (uses DrawToolMode.measure with full Draw-Drag + Loupe!)
-  double _measureDistanceMeters = 0.0;
-  double _measureAreaM2 = 0.0;
-
-  // Durable working drafts state (multi-draft auto-persisted to SQLite)
-  String _activeDraftId = 'active-working-map';
-  List<LocalDraftDto> _savedDrafts = <LocalDraftDto>[];
-  String _draftDTag = 'field-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-  String _draftTitle = 'Field Map';
-  DraftAudienceChoice _draftAudience = DraftAudienceChoice.publicRelay;
-  final List<DrawnFeature> _features = <DrawnFeature>[];
-  final Set<String> _selectedDraftFeatureIds = <String>{};
-  final List<List<DrawnFeature>> _draftUndoStack = <List<DrawnFeature>>[];
-  final List<List<DrawnFeature>> _draftRedoStack = <List<DrawnFeature>>[];
-  final List<Geographic> _draftVertices = <Geographic>[];
-  DrawnFeature? _editingDraftFeature;
-  int _featureCounter = 0;
-
-  // Live preview state synced into MapGeometryLayer
-  Offset? _previewScreen;
-  bool _previewSnapped = false;
-  bool _previewLoupeActive = false;
-
-  // Nostr Explore / Shelf (Maps + Stories + Atlases) / Account / Nearby Peer state
-  List<String> _relayUrls = <String>['wss://relay.earthly.city'];
-  EarthlyCatalogSnapshot? _catalog;
-  bool _catalogLoading = false;
-  final Map<String, ProfileMetadataDto> _profilesByPubkey =
-      <String, ProfileMetadataDto>{};
-  final Set<String> _requestedProfilePubkeys = <String>{};
-  final List<ShelfMapEntry> _shelfMaps = <ShelfMapEntry>[];
-  final List<StorySummaryDto> _deskStories = <StorySummaryDto>[];
-  final List<AtlasSummaryDto> _deskAtlases = <AtlasSummaryDto>[];
-  final Set<String> _pinnedEntityIds = <String>{};
-  final List<String> _recentEntityIds = <String>[];
-  AtlasSummaryDto? _activeAtlasLens;
-  AtlasSummaryDto? _inspectedAtlas;
-  MapSummaryDto? _inspectedMap;
-  Geographic? _inspectedLocation;
-  Geographic? _routingOrigin;
-  final List<SightingSummaryDto> _localSightings = <SightingSummaryDto>[];
-  final List<LiveBeaconDto> _localBeacons = <LiveBeaconDto>[];
-  Nip55Account? _account;
-  String? _localNsec;
-  String? _bunkerUri;
-  String? _bunkerClientNsec;
-  final List<SavedAccountSessionDto> _savedAccounts = <SavedAccountSessionDto>[];
-  String? _activeAccountId;
-  String _cordnServerPubkey =
-      'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37';
-  String _mlsDatabasePath = '';
-  List<CircleWorkspaceDto> _circles = <CircleWorkspaceDto>[];
-  List<CirclePendingJoinDto> _circlePendingJoins = <CirclePendingJoinDto>[];
-  String? _activeCircleLensId;
-  String? _selectedCircleId;
-  String? _pendingDeepLinkCircleInvite;
-  StorySummaryDto? _editingStory;
-  AtlasSummaryDto? _editingAtlas;
-  String _blossomServerUrl = 'https://blossom.earthly.city';
-  List<InboxItemDto> _inboxItems = <InboxItemDto>[];
-  bool _inboxLoading = false;
-  int _inboxReadAllBefore = 0;
-  final Set<String> _inboxReadIds = <String>{};
-  final Set<String> _mutedPubkeys = <String>{};
-  final Set<String> _resolvingBlobAddresses = <String>{};
-  final Map<String, String> _resolvedBlobGeojsonByEventId = <String, String>{};
-  String? _inspectedPersonPubkey;
-  String? _hostedSessionId;
-  RemotePeerDto? _acceptedRemotePeer;
-
-  // Live public relay WebSocket stream + Nearby / Local-Node background listener state
-  StreamSubscription<LiveRelayEventDto>? _relayStreamSub;
-  bool _relayStreamLive = false;
-  Timer? _liveListenerTimer;
-  Timer? _outboxFlushTimer;
-  String? _supportDirPath;
-  List<OutboxQueueEntry> _outboxItems = const <OutboxQueueEntry>[];
-  bool _outboxFlushing = false;
-  final Map<String, String> _macOsSecurityBookmarks = <String, String>{};
-  int _liveTickCount = 0;
-  int _pendingClaimCount = 0;
-  final Map<String, String> _seenLocalEventIds = <String, String>{};
-  bool _initialLocalBaselineCaptured = false;
-
-  int get _pendingOutboxCount =>
-      _outboxItems.where((item) => item.isPending).length;
-
-  // Rust AI Agent Copilot + safeEditing Amber Ghost state
-  String? _nwcUri;
-  final List<CopilotThread> _agentThreads = <CopilotThread>[
-    CopilotThread(
-      id: 'thread-1',
-      title: 'Thread 1',
-      updatedAtMs: 0,
-    ),
-  ];
-  String _activeAgentThreadId = 'thread-1';
-  CopilotThread get _activeAgentThread {
-    if (_agentThreads.isEmpty) {
-      final fallback = CopilotThread(
-        id: 'thread-1',
-        title: 'Thread 1',
-        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
-      );
-      _agentThreads.add(fallback);
-      _activeAgentThreadId = fallback.id;
-      return fallback;
-    }
-    final idx = _agentThreads.indexWhere((t) => t.id == _activeAgentThreadId);
-    return idx >= 0 ? _agentThreads[idx] : _agentThreads.first;
-  }
-
-  List<CopilotMessage> get _agentMessages => _activeAgentThread.messages;
-
-  void _updateActiveAgentThread(
-    CopilotThread Function(CopilotThread cur) updater,
-  ) {
-    final cur = _activeAgentThread;
-    final idx = _agentThreads.indexWhere((t) => t.id == cur.id);
-    if (idx >= 0) {
-      _agentThreads[idx] = updater(cur);
-    }
-  }
-
-  void _createNewAgentThread() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final nextId = 'thread-$now';
-    setState(() {
-      _agentThreads.insert(
-        0,
-        CopilotThread(
-          id: nextId,
-          title: 'Thread ${_agentThreads.length + 1}',
-          updatedAtMs: now,
-        ),
-      );
-      _activeAgentThreadId = nextId;
-    });
-    unawaited(_persistAppSettings());
-  }
-
-  void _selectAgentThread(String id) {
-    setState(() => _activeAgentThreadId = id);
-  }
-
-  void _deleteAgentThread(String id) {
-    if (_agentThreads.length <= 1) return;
-    setState(() {
-      _agentThreads.removeWhere((t) => t.id == id);
-      if (_activeAgentThreadId == id && _agentThreads.isNotEmpty) {
-        _activeAgentThreadId = _agentThreads.first.id;
-      }
-    });
-    unawaited(_persistAppSettings());
-  }
-
-  CopilotProviderSettings _agentSettings = CopilotProviderSettings.offline;
-  bool _agentBusy = false;
-  bool _agentSafeEditing = true;
-  PendingAiEdit? _pendingAiEdit;
-  List<ShelfShape> _aiGhostShapes = const [];
-  String _agentStreamingText = '';
-  String? _agentActiveToolStatus;
-  List<AgentToolRecordDto> _agentLiveToolCalls = const <AgentToolRecordDto>[];
-  final Set<String> _agentWorkingSetAddresses = <String>{};
-  AgentAttachment? _agentPendingAttachment;
-  StreamSubscription<AgentStreamEventDto>? _agentStreamSub;
-  String _agentVisionSupport = 'no-vision';
-  bool _agentAttachMapView = false;
+  final ValueNotifier<MapController?> _controllerNotifier =
+      ValueNotifier<MapController?>(null);
+  final ValueNotifier<({_ActiveDrawer left, _ActiveDrawer right})>
+      _drawerNotifier =
+      ValueNotifier<({_ActiveDrawer left, _ActiveDrawer right})>(
+    (left: _ActiveDrawer.none, right: _ActiveDrawer.none),
+  );
   final GlobalKey _mapRepaintBoundaryKey = GlobalKey();
 
-  // Phase B: SecretBox master key, NIP-60 Cashu Wallet & Local MCP Desktop Bridge
-  String? _settingsMasterKey;
-  CashuWalletStateDto? _cashuWalletState;
-  bool _cashuBusy = false;
-  final Map<String, int> _cashuQuoteAmounts = <String, int>{};
-  McpBridgeStatusDto? _mcpBridgeStatus;
-  bool _mcpBridgeBusy = false;
-  Timer? _mcpPollTimer;
-
-  // Background GPS Track Recording (Android Foreground Service + Desktop breadcrumb mode)
-  bool _gpsTrackRecording = false;
-  bool _gpsTrackPaused = false;
-  final List<Geographic> _gpsTrackPoints = <Geographic>[];
-  double _gpsTrackDistanceMeters = 0.0;
-
-  // Discussion (Comment 37517 & Proposal 37519) map overlays
-  String? _activeCommentOverlayId;
-  bool _showingAllCommentPins = false;
-  List<ShelfShape> _commentOverlayShapes = const [];
-  List<MapCommentPinItem> _activeCommentPins = const [];
-  String? _activeProposalOverlayId;
-  String? _activeProposalLabel;
-  List<ShelfShape> _proposalOverlayShapes = const [];
-
-  MapCommentPinItem? _commentPinFromDto(GeoCommentDto comment) {
-    final raw = comment.geojson;
-    if (raw == null || raw.isEmpty) return null;
-    final shapes = parseGeoJsonShapes(raw, datasetTitle: 'Comment');
-    final anchor = shapes.expand((s) => s.coords).firstOrNull;
-    if (anchor == null) return null;
-    final prof = _profilesByPubkey[comment.pubkey];
-    final author = prof?.displayName?.trim().isNotEmpty == true
-        ? prof!.displayName!.trim()
-        : prof?.name?.trim().isNotEmpty == true
-            ? prof!.name!.trim()
-            : (comment.pubkey.length >= 10
-                ? '${comment.pubkey.substring(0, 8)}…'
-                : comment.pubkey);
-    return MapCommentPinItem(
-      eventId: comment.eventId,
-      authorName: author,
-      text: comment.text,
-      anchor: anchor,
-      comment: comment,
-    );
-  }
-
-  // Active Story Reader state (live map + associated geometry/callouts/labels)
-  StorySummaryDto? _activeStory;
-  ParsedStoryDocument? _parsedStory;
-  final Map<String, ShelfMapEntry> _storyDatasets = <String, ShelfMapEntry>{};
-  final Map<String, DecodedNaddrDto> _storyDecodedRefs =
-      <String, DecodedNaddrDto>{};
-  bool _loadingStoryMaps = false;
-  int? _activeStoryViewIndex;
-  String? _focusedStoryDatasetAddress;
-  String? _focusedStoryFeatureId;
-  final List<GeoPinOverlayItem> _storyGeoPins = <GeoPinOverlayItem>[];
-
-  List<String> get _activeRelayUrls => _relayUrls;
-
-  String? get _activeNearbySessionId =>
-      _acceptedRemotePeer?.sessionId ?? _hostedSessionId;
+  MapController? get _controller => _controllerNotifier.value;
+  _ActiveDrawer get _drawer => _drawerNotifier.value.left;
+  _ActiveDrawer get _rightStudioDrawer => _drawerNotifier.value.right;
+  bool get _isHeadlessTest => widget.mapBuilder != null;
+  bool get _isWideStudio => mounted && MediaQuery.sizeOf(context).width >= 1100;
 
   @override
   void initState() {
     super.initState();
+    _ownsMapLayers = widget.mapLayerCache == null;
+    _ownsAgent = widget.agentController == null;
+    _ownsDraft = widget.draftController == null;
+    _ownsAccountWallet = widget.accountController == null;
+    _ownsCatalog = widget.catalogController == null;
+    _ownsSpaces = widget.spacesController == null;
+
+    _mapLayers = widget.mapLayerCache ?? MapLayerCache();
+    _agent = widget.agentController ?? AgentController();
+    _draft = widget.draftController ?? DraftWorkbenchController();
+    _accountWallet = widget.accountController ?? AccountWalletController();
+    _catalog = widget.catalogController ?? CatalogShelfController();
+    _spaces = widget.spacesController ?? SpacesSyncController();
+
     WidgetsBinding.instance.addObserver(this);
-    if (widget.mapBuilder == null) {
+    if (!_isHeadlessTest) {
       unawaited(_bootstrapPersistentState());
-      _liveListenerTimer = Timer.periodic(
-        const Duration(seconds: 2),
-        (_) => unawaited(_pollLiveNearbyUpdates()),
-      );
-      _outboxFlushTimer = Timer.periodic(
-        const Duration(seconds: 45),
-        (_) => unawaited(_flushAndRefreshOutbox()),
+      _spaces.startTimers(
+        isHeadlessTest: _isHeadlessTest,
+        onLivePollTick: _pollLiveNearbyUpdates,
+        onOutboxFlushTick: () =>
+            _spaces.flushAndRefreshOutbox(isHeadlessTest: _isHeadlessTest),
       );
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && widget.mapBuilder == null) {
-      unawaited(_flushAndRefreshOutbox());
+    if (state == AppLifecycleState.resumed && !_isHeadlessTest) {
+      unawaited(_spaces.flushAndRefreshOutbox(isHeadlessTest: _isHeadlessTest));
     }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controllerNotifier.dispose();
+    _drawerNotifier.dispose();
+    if (_ownsMapLayers) _mapLayers.dispose();
+    if (_ownsAgent) _agent.dispose();
+    if (_ownsDraft) _draft.dispose();
+    if (_ownsAccountWallet) _accountWallet.dispose();
+    if (_ownsCatalog) _catalog.dispose();
+    if (_ownsSpaces) _spaces.dispose();
+    super.dispose();
+  }
+
+  // --- Bootstrap & Settings Persistence ---
+
+  Future<String> _databasePath() async {
+    final dir = await getApplicationSupportDirectory();
+    return '${dir.path}/earthly.sqlite3';
   }
 
   Future<void> _bootstrapPersistentState() async {
@@ -453,38 +270,53 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     DeviceBridge.setDroppedFileHandler(
       (file) => unawaited(_handleDroppedSpatialOrPmtilesFile(file)),
     );
-    DeviceBridge.setGpsTrackPointHandler(_onGpsTrackPoint);
+    DeviceBridge.setGpsTrackPointHandler(_draft.onGpsTrackPoint);
     final dir = await getApplicationSupportDirectory();
-    _supportDirPath = dir.path;
-    if (mounted) {
-      setState(() => _mlsDatabasePath = '${dir.path}/mls.sqlite3');
-    }
+    _spaces.supportDirPath = dir.path;
+    if (mounted) _spaces.setMlsDatabasePath('${dir.path}/mls.sqlite3');
+
     var masterKeyReady = false;
     try {
       await RustBridge.ensureInitialized();
       final masterKey = await DeviceBridge.getOrCreateMasterKey();
       if (masterKey != null && masterKey.isNotEmpty) {
-        _settingsMasterKey = masterKey;
+        _accountWallet.settingsMasterKey = masterKey;
         await setSettingsMasterKey(masterKeyBase64: masterKey);
         masterKeyReady = true;
       }
     } catch (_) {}
+
     final hasSecrets = await _restoreAppSettings();
     if (masterKeyReady && hasSecrets) {
-      // Re-save once so any legacy plaintext secrets migrate to enc:v1: at rest.
       unawaited(_persistAppSettings());
     }
-    unawaited(_refreshCashuWalletState());
-    unawaited(_refreshAgentVisionSupport());
-    await _restoreMacOsSecurityScopedBookmarks();
-    await _initPersistentRelayPool(dir.path);
-    await _restoreSavedDraft();
-    unawaited(_flushAndRefreshOutbox());
-    unawaited(_syncActiveGpsTrackFromService());
-    unawaited(_refreshCirclesSnapshot());
+    unawaited(
+      _accountWallet.refreshCashuWalletState(isHeadlessTest: _isHeadlessTest),
+    );
+    unawaited(_agent.refreshVisionSupport(isHeadlessTest: _isHeadlessTest));
+    final bookmarksUpdated =
+        await _mapLayers.restoreMacOsSecurityScopedBookmarks(
+      supportDirPath: _spaces.supportDirPath,
+    );
+    if (bookmarksUpdated) unawaited(_persistAppSettings());
+    await _spaces.initPersistentRelayPool(
+      dir.path,
+      _catalog.relayUrls,
+      isHeadlessTest: _isHeadlessTest,
+    );
+    await _draft.restoreSavedDraft();
+    unawaited(_spaces.flushAndRefreshOutbox(isHeadlessTest: _isHeadlessTest));
+    unawaited(_draft.syncActiveGpsTrackFromService());
+    unawaited(
+      _spaces.refreshCirclesSnapshot(
+        accountPubkey: _accountWallet.account?.pubkey,
+        isHeadlessTest: _isHeadlessTest,
+      ),
+    );
     unawaited(_preloadCatalog());
     unawaited(_refreshInbox());
     unawaited(_startLiveRelayStream());
+
     final initialLink = await DeviceBridge.getInitialDeepLink();
     if (initialLink != null && mounted) {
       _handleIncomingDeepLink(initialLink);
@@ -492,76 +324,6 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final initialDropped = await DeviceBridge.getInitialDroppedFile();
     if (initialDropped != null && mounted) {
       unawaited(_handleDroppedSpatialOrPmtilesFile(initialDropped));
-    }
-  }
-
-  /// Loads the full Earthly entity lists (Maps, Stories, Atlases, Sightings,
-  /// Live Beacons) immediately at app launch so Explore is ready right away.
-  Future<void> _preloadCatalog() async {
-    if (widget.mapBuilder != null || _catalogLoading) return;
-    if (mounted) setState(() => _catalogLoading = true);
-    try {
-      await RustBridge.ensureInitialized();
-      final catalog = await fetchEarthlyCatalog(
-        relayUrls: _activeRelayUrls,
-        limitPerKind: 250,
-      );
-      if (!mounted) return;
-      setState(() => _catalog = catalog);
-      unawaited(_resolveCatalogProfiles(catalog));
-    } catch (_) {
-    } finally {
-      if (mounted) setState(() => _catalogLoading = false);
-    }
-  }
-
-  void _handleIncomingDeepLink(String rawUri) {
-    final trimmed = rawUri.trim();
-    final lower = trimmed.toLowerCase();
-    if (lower.contains('private-invite=') ||
-        lower.contains('/circle/') ||
-        lower.contains('/privategroup/') ||
-        lower.contains('/private-group/')) {
-      setState(() {
-        _pendingDeepLinkCircleInvite = trimmed;
-        _drawer = _ActiveDrawer.circles;
-      });
-      return;
-    }
-    if (lower.startsWith('earthly://pair') ||
-        lower.contains('earthly-pair-v1:')) {
-      setState(() {
-        _pendingDeepLinkPairing = trimmed;
-        _drawer = _ActiveDrawer.spaces;
-      });
-      return;
-    }
-    if (lower.contains('naddr1')) {
-      unawaited(
-        _jumpToNaddr(trimmed).catchError((Object err) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Deep link error: $err')),
-          );
-        }),
-      );
-      return;
-    }
-    if (lower.startsWith('geo:')) {
-      final cleaned = trimmed.substring(4).split('?').first;
-      final parts = cleaned.split(',');
-      if (parts.length >= 2) {
-        final lat = double.tryParse(parts[0].trim());
-        final lon = double.tryParse(parts[1].trim());
-        if (lat != null && lon != null) {
-          _controller?.animateCamera(
-            CameraUpdate.position(
-              center: Geographic(lon: lon, lat: lat),
-              zoom: 15.0,
-            ),
-          );
-        }
-      }
     }
   }
 
@@ -580,110 +342,41 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                 (a.bunkerClientNsec?.isNotEmpty ?? false),
           );
       if (!mounted) return hasSecrets;
-      setState(() {
-        if (loaded.relayUrls.isNotEmpty) {
-          _relayUrls = List<String>.from(loaded.relayUrls);
-        }
-        _savedAccounts
-          ..clear()
-          ..addAll(loaded.savedAccounts);
-        _activeAccountId = loaded.activeAccountId;
-        final restoredSession = _savedAccounts
-                .where((s) => s.id == _activeAccountId)
-                .firstOrNull ??
-            (_savedAccounts.isNotEmpty ? _savedAccounts.first : null);
-        if (restoredSession != null) {
-          _activeAccountId = restoredSession.id;
-          _account = Nip55Account(
-            pubkey: restoredSession.pubkeyHex,
-            signerPackage: restoredSession.signerPackage,
-          );
-          _localNsec = restoredSession.localNsec;
-          _bunkerUri = restoredSession.bunkerUri;
-          _bunkerClientNsec = restoredSession.bunkerClientNsec;
-        } else if (loaded.localPubkeyHex != null &&
-            loaded.localPubkeyHex!.isNotEmpty &&
-            loaded.localNsec != null &&
-            loaded.localNsec!.isNotEmpty) {
-          _account = Nip55Account(pubkey: loaded.localPubkeyHex!);
-          _localNsec = loaded.localNsec;
-        } else if (loaded.localPubkeyHex != null &&
-            loaded.localPubkeyHex!.isNotEmpty &&
-            loaded.bunkerUri != null &&
-            loaded.bunkerUri!.isNotEmpty &&
-            loaded.bunkerClientNsec != null &&
-            loaded.bunkerClientNsec!.isNotEmpty) {
-          _account = Nip55Account(pubkey: loaded.localPubkeyHex!);
-          _bunkerUri = loaded.bunkerUri;
-          _bunkerClientNsec = loaded.bunkerClientNsec;
-        }
-        if (loaded.cordnServerPubkey.length == 64) {
-          _cordnServerPubkey = loaded.cordnServerPubkey;
-        }
-        _agentSettings = CopilotProviderSettings(
+
+      _accountWallet.applyRestoredSessions(loaded);
+      _spaces.applyRestoredSettings(loaded);
+      _agent.applyRestoredSettings(
+        CopilotProviderSettings(
           presetName: loaded.agentPreset,
           baseUrl: loaded.agentBaseUrl,
           model: loaded.agentModel,
           apiKey: loaded.agentApiKey,
+        ),
+      );
+      _agent.restoreThreadsFromJson(loaded.agentMessagesJson);
+      _catalog.applyRestoredSettings(
+        restoredRelayUrls: loaded.relayUrls,
+        restoredPinnedEntityIds: loaded.pinnedEntityIds,
+        restoredRecentEntityIds: loaded.recentEntityIds,
+        restoredBlossomServerUrl: loaded.blossomServerUrl,
+        restoredStoryDraftJson: loaded.storyDraftJson,
+      );
+      _mapLayers.applyRestoredPresentation(
+        offlinePacks: loaded.offlinePacks,
+        atlasWorkspaces: loaded.mountedAtlasWorkspaces,
+        restoredBasemap: basemapKindFromId(loaded.basemapStyle),
+        restoredBackgroundMode: backgroundModeFromId(loaded.satelliteMode),
+        restoredSatelliteOpacity: loaded.satelliteOpacity,
+      );
+      widget.onThemeModeChanged?.call(themeModeFromId(loaded.themeMode));
+
+      if (_accountWallet.savedAccounts.isNotEmpty) {
+        unawaited(
+          _accountWallet.resolveSessionProfiles(
+            _catalog.relayUrls,
+            isHeadlessTest: _isHeadlessTest,
+          ),
         );
-        _savedOfflinePacks
-          ..clear()
-          ..addAll(loaded.offlinePacks);
-        _mountedAtlasWorkspaces
-          ..clear()
-          ..addAll(loaded.mountedAtlasWorkspaces);
-        _pinnedEntityIds
-          ..clear()
-          ..addAll(loaded.pinnedEntityIds);
-        _recentEntityIds
-          ..clear()
-          ..addAll(loaded.recentEntityIds);
-        if (loaded.blossomServerUrl.trim().isNotEmpty) {
-          _blossomServerUrl = loaded.blossomServerUrl.trim();
-        }
-        _inboxReadAllBefore = loaded.inboxReadAllBefore.toInt();
-        _inboxReadIds
-          ..clear()
-          ..addAll(loaded.inboxReadIds);
-        _mutedPubkeys
-          ..clear()
-          ..addAll(loaded.mutedPubkeys);
-        final restoredTheme = themeModeFromId(loaded.themeMode);
-        widget.onThemeModeChanged?.call(restoredTheme);
-        final restoredBasemap = basemapKindFromId(loaded.basemapStyle);
-        if (restoredBasemap != BasemapKind.offlinePmtiles ||
-            _offlineBasemap != null) {
-          _selectedBasemap = restoredBasemap;
-        }
-        _backgroundMode = backgroundModeFromId(loaded.satelliteMode);
-        _satelliteOpacity = loaded.satelliteOpacity.clamp(0.05, 1.0);
-        if (loaded.storyDraftJson != null &&
-            loaded.storyDraftJson!.trim().isNotEmpty) {
-          try {
-            final parsedDraft = jsonDecode(loaded.storyDraftJson!);
-            if (parsedDraft is Map<String, dynamic>) {
-              _savedStoryDraft = parsedDraft;
-            }
-          } catch (_) {}
-        }
-        _nwcUri = loaded.nwcUri?.trim().isEmpty ?? true ? null : loaded.nwcUri!.trim();
-        if (loaded.agentMessagesJson != null &&
-            loaded.agentMessagesJson!.trim().isNotEmpty) {
-          try {
-            final restoredThreads = CopilotThread.decodePersistedJson(
-              loaded.agentMessagesJson!,
-            );
-            if (restoredThreads.isNotEmpty) {
-              _agentThreads
-                ..clear()
-                ..addAll(restoredThreads);
-              _activeAgentThreadId = restoredThreads.first.id;
-            }
-          } catch (_) {}
-        }
-      });
-      if (_savedAccounts.isNotEmpty) {
-        unawaited(_resolveSessionProfiles());
       }
       return hasSecrets;
     } catch (_) {
@@ -691,648 +384,321 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
   }
 
-  Future<void> _initPersistentRelayPool(String supportDirPath) async {
-    if (widget.mapBuilder != null) return;
-    try {
-      await RustBridge.ensureInitialized();
-      await initRelayPool(
-        dataDir: supportDirPath,
-        relayUrls: _activeRelayUrls,
-      );
-    } catch (_) {}
-  }
-
-  Future<void> _syncRelayPoolAndRefresh() async {
-    final dirPath =
-        _supportDirPath ?? (await getApplicationSupportDirectory()).path;
-    _supportDirPath = dirPath;
-    await _initPersistentRelayPool(dirPath);
-    unawaited(_preloadCatalog());
-    unawaited(_startLiveRelayStream());
-  }
-
-  static OutboxQueueEntry _outboxEntryFromDto(OutboxItemDto dto) {
-    return OutboxQueueEntry(
-      id: dto.id,
-      eventId: dto.eventId,
-      kind: dto.kind,
-      state: dto.state,
-      attemptCount: dto.attemptCount.toInt(),
-      nextRetryAt: dto.nextRetryAt?.toInt(),
-      createdAt: dto.createdAt.toInt(),
-      relays: dto.relays
-          .map(
-            (r) => OutboxRelayEntry(
-              relayUrl: r.relayUrl,
-              state: r.state,
-              lastError: r.lastError,
-            ),
-          )
-          .toList(growable: false),
-    );
-  }
-
-  Future<void> _refreshOutboxItems() async {
-    if (widget.mapBuilder != null) return;
+  Future<void> _persistAppSettings() async {
+    if (_isHeadlessTest) return;
     try {
       await RustBridge.ensureInitialized();
       final dbPath = await _databasePath();
-      final raw = await listOutboxItems(databasePath: dbPath);
-      if (!mounted) return;
-      setState(() {
-        _outboxItems = raw.map(_outboxEntryFromDto).toList(growable: false);
-      });
-    } catch (_) {}
-  }
-
-  Future<void> _flushAndRefreshOutbox() async {
-    if (widget.mapBuilder != null || _outboxFlushing) return;
-    if (mounted) setState(() => _outboxFlushing = true);
-    try {
-      await RustBridge.ensureInitialized();
-      final dbPath = await _databasePath();
-      await flushOutboxQueue(databasePath: dbPath);
-      final raw = await listOutboxItems(databasePath: dbPath);
-      if (!mounted) return;
-      setState(() {
-        _outboxItems = raw.map(_outboxEntryFromDto).toList(growable: false);
-      });
-    } catch (_) {
-    } finally {
-      if (mounted) setState(() => _outboxFlushing = false);
-    }
-  }
-
-  Future<void> _retryOutboxEntry(String id) async {
-    try {
-      await RustBridge.ensureInitialized();
-      final dbPath = await _databasePath();
-      await retryOutboxItem(databasePath: dbPath, itemId: id);
-      await _flushAndRefreshOutbox();
-    } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Outbox retry failed: $err')),
+      final syncedSessions = _accountWallet.buildSyncedSavedAccounts();
+      await saveAppSettings(
+        databasePath: dbPath,
+        settings: AppSettingsDto(
+          relayUrls: _catalog.relayUrls,
+          localPubkeyHex: (_accountWallet.localNsec != null ||
+                  _accountWallet.bunkerUri != null)
+              ? _accountWallet.account?.pubkey
+              : null,
+          localNsec: _accountWallet.localNsec,
+          agentPreset: _agent.settings.presetName,
+          agentBaseUrl: _agent.settings.baseUrl,
+          agentModel: _agent.settings.model,
+          agentApiKey: _agent.settings.apiKey,
+          offlinePacks:
+              List<SavedOfflinePackDto>.from(_mapLayers.savedOfflinePacks),
+          pinnedEntityIds: _catalog.pinnedEntityIds.toList(growable: false),
+          recentEntityIds: List<String>.from(_catalog.recentEntityIds),
+          cordnServerPubkey: _spaces.cordnServerPubkey,
+          bunkerUri: _accountWallet.bunkerUri,
+          bunkerClientNsec: _accountWallet.bunkerClientNsec,
+          mountedAtlasWorkspaces: List<MountedAtlasWorkspaceDto>.from(
+            _mapLayers.mountedAtlasWorkspaces,
+          ),
+          blossomServerUrl: _catalog.blossomServerUrl,
+          inboxReadAllBefore: BigInt.from(_spaces.inboxReadAllBefore),
+          inboxReadIds: _spaces.inboxReadIds.take(500).toList(growable: false),
+          savedAccounts: syncedSessions,
+          activeAccountId: _accountWallet.activeAccountId,
+          mutedPubkeys: _accountWallet.mutedPubkeys.toList(growable: false),
+          themeMode: themeModeToId(widget.themeMode),
+          basemapStyle: basemapKindToId(_mapLayers.selectedBasemap),
+          satelliteMode: backgroundModeToId(_mapLayers.backgroundMode),
+          satelliteOpacity: _mapLayers.satelliteOpacity,
+          storyDraftJson: _catalog.savedStoryDraft != null
+              ? jsonEncode(_catalog.savedStoryDraft)
+              : null,
+          agentMessagesJson: _agent.encodePersistedThreadsJson(),
+          nwcUri: _accountWallet.nwcUri,
+        ),
       );
-    }
-  }
-
-  Future<void> _discardOutboxEntry(String id) async {
-    try {
-      await RustBridge.ensureInitialized();
-      final dbPath = await _databasePath();
-      await discardOutboxItem(databasePath: dbPath, itemId: id);
-      await _refreshOutboxItems();
-    } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Outbox discard failed: $err')),
-      );
-    }
-  }
-
-  Future<File> _macOsBookmarksFile() async {
-    final dirPath =
-        _supportDirPath ?? (await getApplicationSupportDirectory()).path;
-    _supportDirPath = dirPath;
-    return File('$dirPath/security_bookmarks.json');
-  }
-
-  Future<void> _writeMacOsBookmarksFile() async {
-    if (!Platform.isMacOS) return;
-    try {
-      final file = await _macOsBookmarksFile();
-      await file.writeAsString(jsonEncode(_macOsSecurityBookmarks));
     } catch (_) {}
   }
 
-  Future<void> _saveMacOsSecurityScopedBookmark(String path) async {
-    if (!Platform.isMacOS) return;
-    final clean = path.trim();
-    if (clean.isEmpty) return;
-    try {
-      final bookmark = await DeviceBridge.createSecurityScopedBookmark(clean);
-      if (bookmark != null && bookmark.isNotEmpty) {
-        _macOsSecurityBookmarks[clean] = bookmark;
-        await _writeMacOsBookmarksFile();
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _removeMacOsSecurityScopedBookmark(String path) async {
-    if (!Platform.isMacOS) return;
-    if (_macOsSecurityBookmarks.remove(path) != null) {
-      await _writeMacOsBookmarksFile();
-    }
-  }
-
-  Future<void> _restoreMacOsSecurityScopedBookmarks() async {
-    if (!Platform.isMacOS) return;
-    try {
-      final file = await _macOsBookmarksFile();
-      if (await file.exists()) {
-        final raw = await file.readAsString();
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) {
-          for (final entry in decoded.entries) {
-            final key = entry.key.toString();
-            final val = entry.value?.toString() ?? '';
-            if (key.isNotEmpty && val.isNotEmpty) {
-              _macOsSecurityBookmarks[key] = val;
-            }
-          }
-        }
-      }
-      var workspacesUpdated = false;
-      final rewrites = <String, String>{};
-      for (final entry in _macOsSecurityBookmarks.entries) {
-        try {
-          final resolved =
-              await DeviceBridge.resolveSecurityScopedBookmark(entry.value);
-          if (resolved != null && resolved.isNotEmpty && resolved != entry.key) {
-            rewrites[entry.key] = resolved;
-          }
-        } catch (_) {}
-      }
-      if (rewrites.isNotEmpty) {
-        for (final rw in rewrites.entries) {
-          final bm = _macOsSecurityBookmarks.remove(rw.key);
-          if (bm != null) _macOsSecurityBookmarks[rw.value] = bm;
-          for (var i = 0; i < _mountedAtlasWorkspaces.length; i++) {
-            final ws = _mountedAtlasWorkspaces[i];
-            if (ws.path == rw.key) {
-              _mountedAtlasWorkspaces[i] = MountedAtlasWorkspaceDto(
-                name: ws.name,
-                path: rw.value,
-                sizeBytes: ws.sizeBytes,
-                families: ws.families,
-                coverageSummary: ws.coverageSummary,
-              );
-              workspacesUpdated = true;
-            }
-          }
-        }
-        await _writeMacOsBookmarksFile();
-        if (workspacesUpdated) {
-          if (mounted) setState(() {});
-          unawaited(_persistAppSettings());
-        }
-      }
-      for (final ws in _mountedAtlasWorkspaces) {
-        if (!_macOsSecurityBookmarks.containsKey(ws.path)) {
-          await _saveMacOsSecurityScopedBookmark(ws.path);
-        }
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _resolveSessionProfiles() async {
-    if (widget.mapBuilder != null) return;
-    final pks = _savedAccounts
-        .map((s) => s.pubkeyHex)
-        .where((p) => p.isNotEmpty && !_profilesByPubkey.containsKey(p))
-        .toSet()
-        .toList(growable: false);
-    if (pks.isEmpty) return;
-    try {
-      await RustBridge.ensureInitialized();
-      final fetched = await fetchProfiles(
-        relayUrls: _activeRelayUrls,
-        pubkeys: pks,
-      );
-      if (!mounted || fetched.isEmpty) return;
-      setState(() {
-        for (final p in fetched) {
-          _profilesByPubkey[p.pubkey] = p;
-        }
-      });
-    } catch (_) {}
-  }
-
-  SavedAccountSessionDto? get _activeSavedSession =>
-      _savedAccounts.where((s) => s.id == _activeAccountId).firstOrNull;
-
-  void _applyActiveSessionState(SavedAccountSessionDto? session) {
-    if (session == null) {
-      _activeAccountId = null;
-      _account = null;
-      _localNsec = null;
-      _bunkerUri = null;
-      _bunkerClientNsec = null;
-      return;
-    }
-    _activeAccountId = session.id;
-    _account = Nip55Account(
-      pubkey: session.pubkeyHex,
-      signerPackage: session.signerPackage,
-    );
-    _localNsec = session.localNsec;
-    _bunkerUri = session.bunkerUri;
-    _bunkerClientNsec = session.bunkerClientNsec;
-  }
-
-  void _upsertAndActivateSession(SavedAccountSessionDto session) {
-    setState(() {
-      final idx = _savedAccounts.indexWhere((s) => s.id == session.id);
-      if (idx >= 0) {
-        _savedAccounts[idx] = session;
-      } else {
-        _savedAccounts.add(session);
-      }
-      _applyActiveSessionState(session);
-    });
-    unawaited(_persistAppSettings());
-    unawaited(_resolveSessionProfiles());
-    unawaited(_refreshCirclesSnapshot());
-    unawaited(_refreshInbox());
-    unawaited(_refreshCashuWalletState());
-  }
-
-  void _switchSavedSession(SavedAccountSessionDto session) {
-    setState(() {
-      if (!_savedAccounts.any((s) => s.id == session.id)) {
-        _savedAccounts.add(session);
-      }
-      _applyActiveSessionState(session);
-    });
-    unawaited(_persistAppSettings());
-    unawaited(_resolveSessionProfiles());
-    unawaited(_refreshCirclesSnapshot());
-    unawaited(_refreshInbox());
-    unawaited(_refreshCashuWalletState());
-    if (mounted) {
-      final prof = _profilesByPubkey[session.pubkeyHex];
-      final name = prof?.displayName ??
-          prof?.name ??
-          session.label ??
-          session.pubkeyHex.substring(0, 8);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Switched account to $name')),
-      );
-    }
-  }
-
-  void _removeSavedSession(String sessionId) {
-    setState(() {
-      _savedAccounts.removeWhere((s) => s.id == sessionId);
-      if (_activeAccountId == sessionId) {
-        _applyActiveSessionState(
-          _savedAccounts.isNotEmpty ? _savedAccounts.first : null,
-        );
-      }
-    });
-    unawaited(_persistAppSettings());
-    unawaited(_refreshCirclesSnapshot());
-    unawaited(_refreshInbox());
-    unawaited(_refreshCashuWalletState());
-  }
-
-  void _addReadOnlySession(String pubkeyHex) {
-    _upsertAndActivateSession(
-      SavedAccountSessionDto(
-        id: 'readonly:$pubkeyHex',
-        kind: 'readonly',
-        pubkeyHex: pubkeyHex,
+  void _schedulePersistWorkingDraft() {
+    unawaited(
+      _draft.persistWorkingDraft(
+        isHeadlessTest: _isHeadlessTest,
+        onAfterPersist: _syncMcpWorkspaceIfRunning,
       ),
     );
   }
 
-  Future<void> _persistAppSettings() async {
-    if (widget.mapBuilder != null) return;
-    try {
-      await RustBridge.ensureInitialized();
-      final dbPath = await _databasePath();
-      final syncedSessions = _savedAccounts.map((s) {
-        final prof = _profilesByPubkey[s.pubkeyHex];
-        final resolved = prof?.displayName ?? prof?.name;
-        if (resolved != null && resolved.isNotEmpty && s.label != resolved) {
-          return SavedAccountSessionDto(
-            id: s.id,
-            kind: s.kind,
-            pubkeyHex: s.pubkeyHex,
-            localNsec: s.localNsec,
-            bunkerUri: s.bunkerUri,
-            bunkerClientNsec: s.bunkerClientNsec,
-            signerPackage: s.signerPackage,
-            label: resolved,
-          );
-        }
-        return s;
-      }).toList(growable: false);
-      await saveAppSettings(
-        databasePath: dbPath,
-        settings: AppSettingsDto(
-          relayUrls: _relayUrls,
-          localPubkeyHex: (_localNsec != null || _bunkerUri != null)
-              ? _account?.pubkey
-              : null,
-          localNsec: _localNsec,
-          agentPreset: _agentSettings.presetName,
-          agentBaseUrl: _agentSettings.baseUrl,
-          agentModel: _agentSettings.model,
-          agentApiKey: _agentSettings.apiKey,
-          offlinePacks: List<SavedOfflinePackDto>.from(_savedOfflinePacks),
-          pinnedEntityIds: _pinnedEntityIds.toList(growable: false),
-          recentEntityIds: List<String>.from(_recentEntityIds),
-          cordnServerPubkey: _cordnServerPubkey,
-          bunkerUri: _bunkerUri,
-          bunkerClientNsec: _bunkerClientNsec,
-          mountedAtlasWorkspaces:
-              List<MountedAtlasWorkspaceDto>.from(_mountedAtlasWorkspaces),
-          blossomServerUrl: _blossomServerUrl,
-          inboxReadAllBefore: BigInt.from(_inboxReadAllBefore),
-          inboxReadIds: _inboxReadIds.take(500).toList(growable: false),
-          savedAccounts: syncedSessions,
-          activeAccountId: _activeAccountId,
-          mutedPubkeys: _mutedPubkeys.toList(growable: false),
-          themeMode: themeModeToId(widget.themeMode),
-          basemapStyle: basemapKindToId(_selectedBasemap),
-          satelliteMode: backgroundModeToId(_backgroundMode),
-          satelliteOpacity: _satelliteOpacity,
-          storyDraftJson: _savedStoryDraft != null
-              ? jsonEncode(_savedStoryDraft)
-              : null,
-          agentMessagesJson: _agentThreads.every((t) => t.messages.isEmpty)
-              ? null
-              : jsonEncode({
-                  'threads': [
-                    for (final t in _agentThreads.take(12)) t.toJson(),
-                  ],
-                }),
-          nwcUri: _nwcUri,
-        ),
-      );
-    } catch (_) {}
-  }
-
-  Future<void> _syncSatellite(StyleController? style) async {
-    if (style == null) return;
-    final isOffline = _selectedBasemap == BasemapKind.offlinePmtiles &&
-        _offlineBasemap != null;
-    await syncSatelliteOverlayLayer(
-      style: style,
-      mode: _backgroundMode,
-      opacity: _satelliteOpacity,
-      isOfflinePmtiles: isOffline,
+  void _syncMcpWorkspaceIfRunning() {
+    _agent.syncMcpWorkspaceIfRunning(
+      isHeadlessTest: _isHeadlessTest,
+      buildWorkspace: _buildMcpWorkspaceDto,
     );
   }
 
-  Future<void> _exportMapPosterPng() async {
-    try {
-      GeoBox? bounds;
-      try {
-        bounds = _controller?.getVisibleBounds();
-      } catch (_) {}
-      final sysDark =
-          mounted && Theme.of(context).brightness == Brightness.dark;
-      final isDark = isDarkBasemap(
-        _selectedBasemap,
-        systemIsDark: sysDark,
-        backgroundMode: _backgroundMode,
-      );
-      final bytes = await renderEarthlyMapPosterPng(
-        title: _draftTitle.trim().isEmpty ? 'Earthly Map' : _draftTitle.trim(),
-        shelfMaps: _shelfMaps,
-        draftFeatures: _features,
-        sightings: _allSightings,
-        isDark: isDark,
-        bounds: bounds,
-      );
-      final safeName = _draftTitle
-          .trim()
-          .toLowerCase()
-          .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-          .replaceAll(RegExp(r'^-|-$'), '');
-      final filename = '${safeName.isEmpty ? 'earthly' : safeName}-poster.png';
-      final saved = await DeviceBridge.saveBinaryFile(
-        filename: filename,
-        bytes: bytes,
-        mimeType: 'image/png',
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Saved poster $saved')),
-      );
-    } catch (err) {
-      if (!mounted || err.toString().contains('cancelled')) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Poster export failed: $err')),
-      );
-    }
+  McpWorkspaceDto _buildMcpWorkspaceDto() {
+    final cam = _controller?.camera;
+    return _agent.buildMcpWorkspaceDto(
+      center: cam?.center ?? const Geographic(lon: 16.3738, lat: 48.2082),
+      zoom: cam?.zoom ?? 13.5,
+      draftTitle: _draft.draftTitle,
+      draftFeatures: _draft.features,
+      shelfMaps: _catalog.shelfMaps,
+      atlasWorkspaces: _mapLayers.mountedAtlasWorkspaces,
+      catalog: _catalog.catalog,
+    );
   }
 
-  void _mutePubkey(String pubkey) {
-    final clean = pubkey.trim();
-    if (clean.isEmpty) return;
-    setState(() => _mutedPubkeys.add(clean));
-    unawaited(_persistAppSettings());
-    final prof = _profilesByPubkey[clean];
-    final label = prof?.displayName ??
-        prof?.name ??
-        (clean.length > 10 ? '${clean.substring(0, 8)}…' : clean);
+  Future<void> _pollMcpBridgeTick() => _agent.pollMcpBridgeTick(
+        isHeadlessTest: _isHeadlessTest,
+        buildWorkspace: _buildMcpWorkspaceDto,
+        onDraftMutated: (parsed) {
+          _draft.applyAiFeatures(parsed, onPersist: _schedulePersistWorkingDraft);
+        },
+        onCameraAction: _animateCameraPosition,
+      );
+
+  // --- Coordinated Cross-Controller Helpers ---
+
+  void _showSnack(String message, {SnackBarAction? action, Duration? duration}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 10),
-          content: Text('Muted $label on this device'),
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () => _unmutePubkey(clean),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: action,
+        duration: duration ?? const Duration(milliseconds: 4000),
+      ),
+    );
+  }
+
+  void _animateCameraPosition(double lon, double lat, double zoom) {
+    _controller?.animateCamera(
+      CameraUpdate.position(
+        center: Geographic(lon: lon, lat: lat),
+        zoom: zoom,
+      ),
+    );
+  }
+
+  EdgeInsets _cameraPadding() {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width >= 1100) {
+      final leftPad = _drawer != _ActiveDrawer.none ? 440.0 : 40.0;
+      final rightPad = _rightStudioDrawer != _ActiveDrawer.none ? 440.0 : 40.0;
+      return EdgeInsets.fromLTRB(leftPad, 72, rightPad, 48);
+    }
+    if (width >= 880 && _drawer != _ActiveDrawer.none) {
+      return const EdgeInsets.fromLTRB(440, 72, 40, 48);
+    }
+    return EdgeInsets.fromLTRB(
+      36,
+      72,
+      36,
+      _drawer != _ActiveDrawer.none ? 320 : 96,
+    );
+  }
+
+  void _flyToBounds(GeoBox bounds) {
+    _controller?.animateCamera(
+      CameraUpdate.bounds(bounds, padding: _cameraPadding()),
+    );
+  }
+
+  void _flyToMap(MapSummaryDto map) {
+    final controller = _controller;
+    if (controller == null) return;
+    if (map.west != null &&
+        map.south != null &&
+        map.east != null &&
+        map.north != null) {
+      controller.animateCamera(
+        CameraUpdate.bounds(
+          GeoBox(
+            west: map.west!,
+            south: map.south!,
+            east: map.east!,
+            north: map.north!,
           ),
+          padding: _cameraPadding(),
         ),
       );
+    }
   }
 
-  void _unmutePubkey(String pubkey) {
-    setState(() => _mutedPubkeys.remove(pubkey));
-    unawaited(_persistAppSettings());
-  }
-
-  MapSummaryDto _withResolvedBlobGeojson(
-    MapSummaryDto map,
-    String resolvedGeojson,
-    int resolvedFeatureCount,
-  ) {
-    return MapSummaryDto(
-      address: map.address,
-      eventId: map.eventId,
-      pubkey: map.pubkey,
-      dTag: map.dTag,
-      title: map.title,
-      description: map.description,
-      featureCount: resolvedFeatureCount > map.featureCount
-          ? resolvedFeatureCount
-          : map.featureCount,
-      sizeBytes: map.sizeBytes > resolvedGeojson.length
-          ? map.sizeBytes
-          : resolvedGeojson.length,
-      geojson: resolvedGeojson,
-      blobRefs: map.blobRefs,
-      west: map.west,
-      south: map.south,
-      east: map.east,
-      north: map.north,
-      hashtags: map.hashtags,
-      labels: map.labels,
-      contextRefs: map.contextRefs,
-      createdAt: map.createdAt,
+  void _flyToStoryCamera(StoryCameraTarget camera) {
+    _controller?.animateCamera(
+      CameraUpdate.position(
+        center: Geographic(lon: camera.lon, lat: camera.lat),
+        zoom: camera.zoom,
+        bearing: camera.bearing,
+        pitch: camera.pitch,
+      ),
     );
   }
 
-  void _applyResolvedMapToState(MapSummaryDto updated) {
-    if (!mounted) return;
-    setState(() {
-      if (_catalog != null) {
-        final nextMaps = _catalog!.maps
-            .map((m) => m.address == updated.address ? updated : m)
-            .toList(growable: false);
-        _catalog = EarthlyCatalogSnapshot(
-          relayUrls: _catalog!.relayUrls,
-          maps: nextMaps,
-          stories: _catalog!.stories,
-          atlases: _catalog!.atlases,
-          sightings: _catalog!.sightings,
-          beacons: _catalog!.beacons,
-        );
-      }
-      for (var i = 0; i < _shelfMaps.length; i++) {
-        if (_shelfMaps[i].summary.address == updated.address) {
-          _shelfMaps[i] =
-              _entryFromSummary(updated).copyWith(visible: _shelfMaps[i].visible);
+  void _focusSighting(SightingSummaryDto sighting) {
+    _animateCameraPosition(sighting.lon, sighting.lat, 15);
+  }
+
+  void _focusBeacon(LiveBeaconDto beacon) {
+    _animateCameraPosition(beacon.lon, beacon.lat, 15.5);
+  }
+
+  void _onSessionActivated() {
+    unawaited(_persistAppSettings());
+    unawaited(
+      _accountWallet.resolveSessionProfiles(
+        _catalog.relayUrls,
+        isHeadlessTest: _isHeadlessTest,
+      ),
+    );
+    unawaited(
+      _spaces.refreshCirclesSnapshot(
+        accountPubkey: _accountWallet.account?.pubkey,
+        isHeadlessTest: _isHeadlessTest,
+      ),
+    );
+    unawaited(_refreshInbox());
+    unawaited(
+      _accountWallet.refreshCashuWalletState(isHeadlessTest: _isHeadlessTest),
+    );
+  }
+
+  Future<Nip55Account> _ensureAccount() =>
+      _accountWallet.ensureAccount(onSessionActivated: _onSessionActivated);
+
+  Future<PublishOutcomeDto> _deliverForAudience(
+    DraftAudienceChoice audience,
+    String signedEventJson,
+  ) =>
+      _spaces.deliverForAudience(
+        audience,
+        signedEventJson,
+        relayUrls: _catalog.relayUrls,
+      );
+
+  Future<void> _preloadCatalog() => _catalog.preloadCatalog(
+        isHeadlessTest: _isHeadlessTest,
+        onCatalogLoaded: (cat) => unawaited(
+          _accountWallet.resolveCatalogProfiles(cat, _catalog.relayUrls),
+        ),
+      );
+
+  Future<void> _syncRelayPoolAndRefresh() async {
+    final dirPath =
+        _spaces.supportDirPath ?? (await getApplicationSupportDirectory()).path;
+    await _spaces.initPersistentRelayPool(
+      dirPath,
+      _catalog.relayUrls,
+      isHeadlessTest: _isHeadlessTest,
+    );
+    unawaited(_preloadCatalog());
+    unawaited(_startLiveRelayStream());
+  }
+
+  Future<void> _startLiveRelayStream() => _spaces.startLiveRelayStream(
+        _catalog.relayUrls,
+        onEvent: (event) {
+          if (!mounted) return;
+          _catalog.mergeLiveRelayEvent(event);
+          if (event.beacon != null) {
+            final b = event.beacon!;
+            _showSnack(
+              'Live Beacon: ${b.status?.isNotEmpty == true ? b.status : b.dTag}',
+              action: SnackBarAction(
+                label: 'Locate',
+                onPressed: () => _focusBeacon(b),
+              ),
+            );
+          }
+        },
+      );
+
+  Future<void> _pollLiveNearbyUpdates() => _spaces.pollLiveNearbyUpdates(
+        onLocalSnapChanged: (localSnap) {
+          if (mounted) _catalog.mergeLocalNodeCatalog(localSnap);
+        },
+        onNewlyArrivedMaps: (newlyArrivedMaps) {
+          if (!mounted) return;
+          final latest = newlyArrivedMaps.first;
+          final alreadyOnShelf = _catalog.shelfMaps
+              .any((e) => e.summary.address == latest.address);
+          _showSnack(
+            alreadyOnShelf
+                ? 'Live update: "${latest.title}" refreshed on map'
+                : 'New Nearby Map received: "${latest.title}"',
+            action: alreadyOnShelf
+                ? null
+                : SnackBarAction(
+                    label: 'Show',
+                    onPressed: () => _toggleMapOnShelf(latest),
+                  ),
+          );
+        },
+      );
+
+  Future<void> _refreshInbox() => _spaces.refreshInbox(
+        accountPubkey: _accountWallet.account?.pubkey,
+        relayUrls: _catalog.relayUrls,
+        catalog: _catalog.catalog,
+        deskAtlases: _catalog.deskAtlases,
+        hasProfile: _accountWallet.profilesByPubkey.containsKey,
+        onProfilesFetched: (fetched) {
+          for (final p in fetched) {
+            _accountWallet.cacheProfile(p);
+          }
+        },
+        isHeadlessTest: _isHeadlessTest,
+      );
+
+  void _handleIncomingDeepLink(String rawUri) {
+    final trimmed = rawUri.trim();
+    final lower = trimmed.toLowerCase();
+    if (lower.contains('private-invite=') ||
+        lower.contains('/circle/') ||
+        lower.contains('/privategroup/') ||
+        lower.contains('/private-group/')) {
+      _spaces.setPendingDeepLinkCircleInvite(trimmed);
+      _openDrawer(_ActiveDrawer.circles);
+      return;
+    }
+    if (lower.startsWith('earthly://pair') ||
+        lower.contains('earthly-pair-v1:')) {
+      _spaces.setPendingDeepLinkPairing(trimmed);
+      _openDrawer(_ActiveDrawer.spaces);
+      return;
+    }
+    if (lower.contains('naddr1')) {
+      unawaited(
+        _jumpToNaddr(trimmed).catchError((Object err) {
+          _showSnack('Deep link error: $err');
+        }),
+      );
+      return;
+    }
+    if (lower.startsWith('geo:')) {
+      final cleaned = trimmed.substring(4).split('?').first;
+      final parts = cleaned.split(',');
+      if (parts.length >= 2) {
+        final lat = double.tryParse(parts[0].trim());
+        final lon = double.tryParse(parts[1].trim());
+        if (lat != null && lon != null) {
+          _animateCameraPosition(lon, lat, 15.0);
         }
       }
-      if (_storyDatasets.containsKey(updated.address)) {
-        _storyDatasets[updated.address] = _entryFromSummary(updated);
-      }
-      if (_inspectedMap?.address == updated.address) {
-        _inspectedMap = updated;
-      }
-    });
-  }
-
-  Future<MapSummaryDto> _ensureMapBlobsResolved(MapSummaryDto map) async {
-    if (map.blobRefs.isEmpty) return map;
-    final cached = _resolvedBlobGeojsonByEventId[map.eventId];
-    if (cached != null) {
-      if (map.geojson == cached) return map;
-      final shapes = parseGeoJsonShapes(
-        cached,
-        datasetTitle: map.title,
-        datasetAddress: map.address,
-      );
-      final updated = _withResolvedBlobGeojson(map, cached, shapes.length);
-      _applyResolvedMapToState(updated);
-      return updated;
-    }
-    if (_resolvingBlobAddresses.contains(map.address)) return map;
-    if (mounted) setState(() => _resolvingBlobAddresses.add(map.address));
-    try {
-      await RustBridge.ensureInitialized();
-      final resolved = await resolveMapBlobGeojson(
-        baseGeojson: map.geojson,
-        blobRefs: map.blobRefs,
-      );
-      _resolvedBlobGeojsonByEventId[map.eventId] = resolved;
-      final shapes = parseGeoJsonShapes(
-        resolved,
-        datasetTitle: map.title,
-        datasetAddress: map.address,
-      );
-      final updated = _withResolvedBlobGeojson(map, resolved, shapes.length);
-      _applyResolvedMapToState(updated);
-      return updated;
-    } catch (err) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Blossom blob fetch failed: $err')),
-        );
-      }
-      return map;
-    } finally {
-      if (mounted) {
-        setState(() => _resolvingBlobAddresses.remove(map.address));
-      }
-    }
-  }
-
-  void _toggleFavoriteEntity(String entityId) {
-    setState(() {
-      if (!_pinnedEntityIds.add(entityId)) {
-        _pinnedEntityIds.remove(entityId);
-      }
-    });
-    unawaited(_persistAppSettings());
-  }
-
-  void _recordRecentEntity(String entityId) {
-    setState(() {
-      _recentEntityIds.remove(entityId);
-      _recentEntityIds.insert(0, entityId);
-      if (_recentEntityIds.length > 40) {
-        _recentEntityIds.removeRange(40, _recentEntityIds.length);
-      }
-    });
-    unawaited(_persistAppSettings());
-  }
-
-  void _updateRelayUrls(List<String> next) {
-    setState(() {
-      _relayUrls = next;
-      _catalog = null;
-    });
-    unawaited(_persistAppSettings());
-    unawaited(_syncRelayPoolAndRefresh());
-  }
-
-  Future<void> _mountSavedOfflinePack(SavedOfflinePackDto pack) async {
-    try {
-      await RustBridge.ensureInitialized();
-      final dir = await getApplicationSupportDirectory();
-      await startLocalNode(dataDir: '${dir.path}/local-node');
-      final blobUrl = await resolveLocalBlobUrl(sha256: pack.sha256);
-      if (blobUrl == null) return;
-      final snap = IngestedPmtilesSnapshot(
-        label: pack.label,
-        sha256: pack.sha256,
-        sizeBytes: pack.sizeBytes,
-        blobUrl: blobUrl,
-        authorization: '',
-        header: PmtilesHeaderSnapshot(
-          format: pack.format,
-          minZoom: pack.minZoom,
-          maxZoom: pack.maxZoom,
-          west: pack.west,
-          south: pack.south,
-          east: pack.east,
-          north: pack.north,
-          centerLon: pack.centerLon,
-          centerLat: pack.centerLat,
-          centerZoom: pack.centerZoom,
-          clustered: true,
-        ),
-      );
-      final offline = OfflinePmtilesBasemap(
-        snapshot: snap,
-        styleJson: buildPmtilesStyleJson(snap),
-      );
-      if (!mounted) return;
-      setState(() {
-        _offlineBasemap = offline;
-        _selectedBasemap = BasemapKind.offlinePmtiles;
-      });
-      _controller?.animateCamera(
-        CameraUpdate.position(
-          center: Geographic(lon: pack.centerLon, lat: pack.centerLat),
-          zoom: pack.centerZoom.toDouble().clamp(2.0, 18.0),
-        ),
-      );
-    } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not mount offline pack: $err')),
-      );
     }
   }
 
@@ -1355,24 +721,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         );
         if (!mounted) return;
         final h = ingested.header;
-        setState(() {
-          _offlineBasemap = offline;
-          _selectedBasemap = BasemapKind.offlinePmtiles;
-        });
-        _controller?.animateCamera(
-          CameraUpdate.position(
-            center: Geographic(lon: h.centerLon, lat: h.centerLat),
-            zoom: h.centerZoom.toDouble().clamp(2.0, 18.0),
-          ),
+        _mapLayers.setOfflineBasemap(offline);
+        _animateCameraPosition(
+          h.centerLon,
+          h.centerLat,
+          h.centerZoom.toDouble().clamp(2.0, 18.0),
         );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Loaded offline PMTiles "${file.name}"')),
-        );
+        _showSnack('Loaded offline PMTiles "${file.name}"');
       } catch (err) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PMTiles drop failed: $err')),
-        );
+        _showSnack('PMTiles drop failed: $err');
       }
       return;
     }
@@ -1381,85 +738,23 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
   Future<void> _importSpatialPickedFile(PickedBinaryFile picked) async {
     try {
-      await RustBridge.ensureInitialized();
-      final lowerName = picked.name.toLowerCase();
-      final isZipOrShp = lowerName.endsWith('.zip') ||
-          lowerName.endsWith('.shp') ||
-          (picked.bytes.length >= 2 &&
-              picked.bytes[0] == 0x50 &&
-              picked.bytes[1] == 0x4B) ||
-          (picked.bytes.length >= 4 &&
-              picked.bytes[0] == 0x00 &&
-              picked.bytes[1] == 0x00 &&
-              picked.bytes[2] == 0x27 &&
-              picked.bytes[3] == 0x0A);
-      final converted = isZipOrShp
-          ? await geoImportShapefileBytes(
-              filename: picked.name,
-              bytes: picked.bytes,
-            )
-          : await geoImportSpatialFile(
-              filename: picked.name,
-              content: utf8.decode(picked.bytes, allowMalformed: true),
-            );
-      final imported = parseDraftFeaturesFromGeoJson(converted.geojson);
-      if (imported.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No Point, LineString, or Polygon features found in file'),
-          ),
+      final res = await _draft.importSpatialPickedFile(
+        picked,
+        onPersist: _schedulePersistWorkingDraft,
+      );
+      if (res.imported.isEmpty) {
+        _showSnack(
+          'No Point, LineString, or Polygon features found in file',
         );
         return;
       }
-      _pushDraftUndo();
-      setState(() {
-        for (final feat in imported) {
-          _featureCounter += 1;
-          _features.add(feat.copyWith(id: 'imp-$_featureCounter'));
-        }
-        if (_draftTitle == 'Field Map' && converted.title.isNotEmpty) {
-          _draftTitle = converted.title;
-        }
-      });
-      unawaited(_persistWorkingDraft());
-
-      final allVerts = imported.expand((f) => f.vertices).toList();
-      if (allVerts.isNotEmpty) {
-        double west = allVerts.first.lon;
-        double east = allVerts.first.lon;
-        double south = allVerts.first.lat;
-        double north = allVerts.first.lat;
-        for (final v in allVerts) {
-          if (v.lon < west) west = v.lon;
-          if (v.lon > east) east = v.lon;
-          if (v.lat < south) south = v.lat;
-          if (v.lat > north) north = v.lat;
-        }
-        const pad = 0.002;
-        _flyToBounds(
-          GeoBox(
-            west: (west - pad).clamp(-180.0, 180.0),
-            south: (south - pad).clamp(-85.0, 85.0),
-            east: (east + pad).clamp(-180.0, 180.0),
-            north: (north + pad).clamp(-85.0, 85.0),
-          ),
-        );
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Imported ${imported.length} feature${imported.length == 1 ? '' : 's'} (${converted.format.toUpperCase()}) from ${picked.name}',
-          ),
-        ),
+      if (res.bounds != null) _flyToBounds(res.bounds!);
+      _showSnack(
+        'Imported ${res.imported.length} feature${res.imported.length == 1 ? '' : 's'} (${res.format}) from ${picked.name}',
       );
     } catch (err) {
-      if (!mounted || err.toString().contains('cancelled')) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Import failed: $err')),
-      );
+      if (err.toString().contains('cancelled')) return;
+      _showSnack('Import failed: $err');
     }
   }
 
@@ -1468,1054 +763,97 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       final picked = await DeviceBridge.pickGeoJsonFile();
       await _importSpatialPickedFile(picked);
     } catch (err) {
-      if (!mounted || err.toString().contains('cancelled')) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Import failed: $err')),
-      );
+      if (err.toString().contains('cancelled')) return;
+      _showSnack('Import failed: $err');
     }
   }
 
   Future<void> _exportSpatialFile(String format) async {
-    if (_features.isEmpty) return;
     try {
-      await RustBridge.ensureInitialized();
-      final geojson = draftFeaturesToGeoJson(
-        title: _draftTitle,
-        features: _features,
-      );
-      final safeName = _draftTitle
-          .trim()
-          .toLowerCase()
-          .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-          .replaceAll(RegExp(r'^-|-$'), '');
-      final stem = safeName.isEmpty ? 'earthly-map' : safeName;
-      final String content;
-      final String filename;
-      final String mimeType;
-      switch (format) {
-        case 'gpx':
-          content = await geoExportGpx(geojson: geojson, title: _draftTitle);
-          filename = '$stem.gpx';
-          mimeType = 'application/gpx+xml';
-        case 'kml':
-          content = await geoExportKml(geojson: geojson, title: _draftTitle);
-          filename = '$stem.kml';
-          mimeType = 'application/vnd.google-earth.kml+xml';
-        default:
-          content = geojson;
-          filename = '$stem.geojson';
-          mimeType = 'application/geo+json';
-      }
-      final savedName = await DeviceBridge.saveGeoJsonFile(
-        filename: filename,
-        content: content,
-        mimeType: mimeType,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Exported $savedName')),
-      );
+      final savedName = await _draft.exportSpatialFile(format);
+      if (savedName != null) _showSnack('Exported $savedName');
     } catch (err) {
-      if (!mounted || err.toString().contains('cancelled')) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Export failed: $err')),
-      );
+      if (err.toString().contains('cancelled')) return;
+      _showSnack('Export failed: $err');
     }
   }
 
-  Future<void> _exportGeoJsonFile() => _exportSpatialFile('geojson');
-
   Future<void> _exportShapefileZip() async {
-    if (_features.isEmpty) return;
     try {
-      await RustBridge.ensureInitialized();
-      final geojson = draftFeaturesToGeoJson(
-        title: _draftTitle,
-        features: _features,
-      );
-      final safeName = _draftTitle
-          .trim()
-          .toLowerCase()
-          .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-          .replaceAll(RegExp(r'^-|-$'), '');
-      final stem = safeName.isEmpty ? 'earthly-map' : safeName;
-      final zipBytes = await geoExportShapefileZip(
-        geojson: geojson,
-        title: _draftTitle,
-      );
-      final savedName = await DeviceBridge.saveBinaryFile(
-        filename: '$stem-shapefile.zip',
-        bytes: Uint8List.fromList(zipBytes),
-        mimeType: 'application/zip',
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Exported Shapefile bundle "$savedName"')),
-      );
+      final savedName = await _draft.exportShapefileZip();
+      if (savedName != null) {
+        _showSnack('Exported Shapefile bundle "$savedName"');
+      }
     } catch (err) {
-      if (!mounted || err.toString().contains('cancelled')) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Shapefile export failed: $err')),
-      );
+      if (err.toString().contains('cancelled')) return;
+      _showSnack('Shapefile export failed: $err');
     }
   }
 
   void _copyGeoJsonToClipboard() {
-    if (_features.isEmpty) return;
-    final geojson = draftFeaturesToGeoJson(
-      title: _draftTitle,
-      features: _features,
-    );
-    Clipboard.setData(ClipboardData(text: geojson));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Copied GeoJSON (${_features.length} features) to clipboard',
-        ),
-      ),
-    );
+    final count = _draft.copyGeoJsonToClipboard();
+    if (count > 0) {
+      _showSnack('Copied GeoJSON ($count features) to clipboard');
+    }
   }
 
   Future<void> _pasteGeoJsonFromClipboard() async {
     try {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      final raw = data?.text?.trim() ?? '';
-      if (raw.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Clipboard is empty')),
-        );
+      final res = await _draft.pasteGeoJsonFromClipboard(
+        onPersist: _schedulePersistWorkingDraft,
+      );
+      if (res == null) {
+        _showSnack('Clipboard is empty');
         return;
       }
-      List<DrawnFeature> imported;
-      String formatLabel = 'GeoJSON';
+      if (res.count == 0) {
+        _showSnack('No valid GeoJSON, GPX, or KML features on clipboard');
+        return;
+      }
+      if (res.bounds != null) _flyToBounds(res.bounds!);
+      _showSnack(
+        'Pasted ${res.count} ${res.formatLabel} feature${res.count == 1 ? '' : 's'} into draft',
+      );
+    } catch (err) {
+      _showSnack('Paste failed: $err');
+    }
+  }
+
+  Future<void> _exportMapPosterPng() async {
+    try {
+      GeoBox? bounds;
       try {
-        await RustBridge.ensureInitialized();
-        final converted = await geoImportSpatialFile(
-          filename: raw.startsWith('<') ? 'clipboard.xml' : 'clipboard.geojson',
-          content: raw,
-        );
-        formatLabel = converted.format.toUpperCase();
-        imported = parseDraftFeaturesFromGeoJson(converted.geojson);
-      } catch (_) {
-        imported = parseDraftFeaturesFromGeoJson(raw);
-      }
-      if (imported.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No valid GeoJSON, GPX, or KML features on clipboard'),
-          ),
-        );
-        return;
-      }
-      _pushDraftUndo();
-      final addedIds = <String>[];
-      setState(() {
-        for (final feat in imported) {
-          _featureCounter += 1;
-          final id = 'paste-$_featureCounter';
-          addedIds.add(id);
-          _features.add(feat.copyWith(id: id));
-        }
-        _selectedDraftFeatureIds
-          ..clear()
-          ..addAll(addedIds);
-      });
-      unawaited(_persistWorkingDraft());
-      final allVerts = imported.expand((f) => f.vertices).toList();
-      if (allVerts.isNotEmpty) {
-        double west = allVerts.first.lon;
-        double east = allVerts.first.lon;
-        double south = allVerts.first.lat;
-        double north = allVerts.first.lat;
-        for (final v in allVerts) {
-          if (v.lon < west) west = v.lon;
-          if (v.lon > east) east = v.lon;
-          if (v.lat < south) south = v.lat;
-          if (v.lat > north) north = v.lat;
-        }
-        const pad = 0.002;
-        _flyToBounds(
-          GeoBox(
-            west: (west - pad).clamp(-180.0, 180.0),
-            south: (south - pad).clamp(-85.0, 85.0),
-            east: (east + pad).clamp(-180.0, 180.0),
-            north: (north + pad).clamp(-85.0, 85.0),
-          ),
-        );
-      }
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Pasted ${imported.length} $formatLabel feature${imported.length == 1 ? '' : 's'} into draft',
-          ),
-        ),
+        bounds = _controller?.getVisibleBounds();
+      } catch (_) {}
+      final sysDark =
+          mounted && Theme.of(context).brightness == Brightness.dark;
+      final isDark = _mapLayers.isDark(systemIsDark: sysDark);
+      final bytes = await renderEarthlyMapPosterPng(
+        title: _draft.draftTitle.trim().isEmpty
+            ? 'Earthly Map'
+            : _draft.draftTitle.trim(),
+        shelfMaps: _catalog.shelfMaps,
+        draftFeatures: _draft.features,
+        sightings: _catalog.allSightings,
+        isDark: isDark,
+        bounds: bounds,
       );
+      final safeName = _draft.draftTitle
+          .trim()
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+          .replaceAll(RegExp(r'^-|-$'), '');
+      final filename = '${safeName.isEmpty ? 'earthly' : safeName}-poster.png';
+      final saved = await DeviceBridge.saveBinaryFile(
+        filename: filename,
+        bytes: bytes,
+        mimeType: 'image/png',
+      );
+      _showSnack('Saved poster $saved');
     } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Paste failed: $err')),
-      );
+      if (err.toString().contains('cancelled')) return;
+      _showSnack('Poster export failed: $err');
     }
-  }
-
-  Future<DraftValidationDto> _validateCurrentDraft() async {
-    await RustBridge.ensureInitialized();
-    final geojson = draftFeaturesToGeoJson(
-      title: _draftTitle,
-      features: _features,
-    );
-    return geoValidateDraftGeojson(geojson: geojson);
-  }
-
-  void _pruneDraftSelection() {
-    final validIds = _features.map((f) => f.id).toSet();
-    _selectedDraftFeatureIds.removeWhere((id) => !validIds.contains(id));
-  }
-
-  void _toggleSelectDraftFeature(String id) {
-    setState(() {
-      if (!_selectedDraftFeatureIds.remove(id)) {
-        _selectedDraftFeatureIds.add(id);
-      }
-    });
-  }
-
-  void _selectAllDraftFeatures() {
-    setState(() {
-      _selectedDraftFeatureIds
-        ..clear()
-        ..addAll(_features.map((f) => f.id));
-    });
-  }
-
-  void _clearDraftSelection() {
-    setState(() => _selectedDraftFeatureIds.clear());
-  }
-
-  Future<void> _duplicateDraftFeatures(Iterable<String> ids) async {
-    final targetIdSet = ids.toSet();
-    final targets = _features
-        .where((f) => targetIdSet.contains(f.id))
-        .toList(growable: false);
-    if (targets.isEmpty) return;
-
-    final copies = <DrawnFeature>[];
-    for (final feat in targets) {
-      List<Geographic> nudged = feat.vertices;
-      if (feat.vertices.isNotEmpty) {
-        try {
-          await RustBridge.ensureInitialized();
-          final shifted = await geoTransformPoints(
-            points: feat.vertices
-                .map((v) => LonLatPoint(lon: v.lon, lat: v.lat))
-                .toList(),
-            translateEastM: 25.0,
-            translateNorthM: 0.0,
-            rotateDeg: 0.0,
-            scale: 1.0,
-          );
-          nudged = shifted
-              .map((p) => Geographic(lon: p.lon, lat: p.lat))
-              .toList(growable: false);
-        } catch (_) {
-          nudged = feat.vertices
-              .map((v) => Geographic(lon: v.lon + 0.00025, lat: v.lat))
-              .toList(growable: false);
-        }
-      }
-      _featureCounter += 1;
-      final defaultKindName = switch (feat.kind) {
-        DrawToolMode.polygon => 'Polygon',
-        DrawToolMode.line => 'Line',
-        _ => 'Point',
-      };
-      final baseName = (feat.name?.trim().isNotEmpty ?? false)
-          ? feat.name!.trim()
-          : defaultKindName;
-      copies.add(
-        feat.copyWith(
-          id: 'dup-$_featureCounter',
-          name: '$baseName (Copy)',
-          vertices: nudged,
-          callouts: [
-            for (var i = 0; i < feat.callouts.length; i++)
-              feat.callouts[i].copyWith(
-                id: 'callout-${DateTime.now().millisecondsSinceEpoch}-$_featureCounter-$i',
-              ),
-          ],
-        ),
-      );
-    }
-
-    if (!mounted) return;
-    _pushDraftUndo();
-    setState(() {
-      _features.addAll(copies);
-      _selectedDraftFeatureIds
-        ..clear()
-        ..addAll(copies.map((c) => c.id));
-    });
-    HapticFeedback.selectionClick();
-    unawaited(_persistWorkingDraft());
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Duplicated ${copies.length} feature${copies.length == 1 ? '' : 's'}',
-        ),
-      ),
-    );
-  }
-
-  void _deleteSelectedDraftFeatures() {
-    if (_selectedDraftFeatureIds.isEmpty) return;
-    final deleted = Set<String>.from(_selectedDraftFeatureIds);
-    _pushDraftUndo();
-    setState(() {
-      _features.removeWhere((f) => deleted.contains(f.id));
-      _selectedDraftFeatureIds.clear();
-      if (_inspectedFeature?.draftFeatureId != null &&
-          deleted.contains(_inspectedFeature!.draftFeatureId)) {
-        _inspectedFeature = null;
-        if (_drawer == _ActiveDrawer.inspector) _drawer = _ActiveDrawer.none;
-        if (_rightStudioDrawer == _ActiveDrawer.inspector) {
-          _rightStudioDrawer = _ActiveDrawer.none;
-        }
-      }
-    });
-    HapticFeedback.mediumImpact();
-    unawaited(_persistWorkingDraft());
-  }
-
-  Future<void> _addPrimitiveShape(String shape, double radiusMeters) async {
-    try {
-      await RustBridge.ensureInitialized();
-      final center = _controller?.camera?.center ??
-          const Geographic(lon: 16.3738, lat: 48.2082);
-      final ring = await geoCreatePrimitiveShape(
-        center: LonLatPoint(lon: center.lon, lat: center.lat),
-        shape: shape,
-        radiusMeters: radiusMeters,
-      );
-      if (ring.length < 3 || !mounted) return;
-      final label = shape.isEmpty
-          ? 'Shape'
-          : '${shape[0].toUpperCase()}${shape.substring(1)}';
-      _pushDraftUndo();
-      late DrawnFeature created;
-      setState(() {
-        _featureCounter += 1;
-        created = DrawnFeature(
-          id: 'prim-$_featureCounter',
-          kind: DrawToolMode.polygon,
-          vertices: ring
-              .map((p) => Geographic(lon: p.lon, lat: p.lat))
-              .toList(growable: false),
-          name: '$label (${radiusMeters.round()}m)',
-        );
-        _features.add(created);
-        _selectedDraftFeatureIds
-          ..clear()
-          ..add(created.id);
-      });
-      HapticFeedback.mediumImpact();
-      unawaited(_persistWorkingDraft());
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Added $label (${radiusMeters.round()}m) at map center'),
-        ),
-      );
-    } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Primitive shape failed: $err')),
-      );
-    }
-  }
-
-  Future<void> _transformDraftFeature(
-    String featureId, {
-    double translateEastM = 0.0,
-    double translateNorthM = 0.0,
-    double rotateDeg = 0.0,
-    double scale = 1.0,
-  }) async {
-    final idx = _features.indexWhere((f) => f.id == featureId);
-    if (idx < 0 || _features[idx].vertices.isEmpty) return;
-    try {
-      await RustBridge.ensureInitialized();
-      final transformed = await geoTransformPoints(
-        points: _features[idx]
-            .vertices
-            .map((v) => LonLatPoint(lon: v.lon, lat: v.lat))
-            .toList(),
-        translateEastM: translateEastM,
-        translateNorthM: translateNorthM,
-        rotateDeg: rotateDeg,
-        scale: scale,
-      );
-      if (!mounted) return;
-      final freshIdx = _features.indexWhere((f) => f.id == featureId);
-      if (freshIdx < 0) return;
-      _pushDraftUndo();
-      setState(() {
-        _features[freshIdx] = _features[freshIdx].copyWith(
-          vertices: transformed
-              .map((p) => Geographic(lon: p.lon, lat: p.lat))
-              .toList(growable: false),
-        );
-      });
-      _refreshInspectedDraftFeature(featureId);
-      HapticFeedback.selectionClick();
-      unawaited(_persistWorkingDraft());
-    } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Transform failed: $err')),
-      );
-    }
-  }
-
-  void _repositionDraftCallout(
-    String featureId,
-    String calloutId,
-    Offset newOffset,
-  ) {
-    final idx = _features.indexWhere((f) => f.id == featureId);
-    if (idx < 0) return;
-    _pushDraftUndo();
-    setState(() {
-      _features[idx] = _features[idx].copyWith(
-        callouts: [
-          for (final c in _features[idx].callouts)
-            c.id == calloutId
-                ? c.copyWith(offsetX: newOffset.dx, offsetY: newOffset.dy)
-                : c,
-        ],
-      );
-    });
-    _refreshInspectedDraftFeature(featureId);
-    unawaited(_persistWorkingDraft());
-  }
-
-  void _resetDraftCalloutOffset(String featureId, String calloutId) {
-    _repositionDraftCallout(featureId, calloutId, Offset.zero);
-  }
-
-  void _startEditingDraftFeature(String featureId) {
-    final idx = _features.indexWhere((f) => f.id == featureId);
-    if (idx < 0) return;
-    final target = _features[idx];
-    setState(() {
-      _editingDraftFeature = target;
-      _features.removeAt(idx);
-      _draftVertices
-        ..clear()
-        ..addAll(target.vertices);
-      _mode = target.kind;
-      _drawer = _ActiveDrawer.none;
-      _rightStudioDrawer = _ActiveDrawer.none;
-    });
-  }
-
-  void _cancelEditingDraftFeature() {
-    if (_editingDraftFeature == null) {
-      setState(() {
-        _draftVertices.clear();
-        _mode = DrawToolMode.browse;
-      });
-      return;
-    }
-    setState(() {
-      _features.add(_editingDraftFeature!);
-      _editingDraftFeature = null;
-      _draftVertices.clear();
-      _mode = DrawToolMode.browse;
-    });
-  }
-
-  Future<void> _resolveCatalogProfiles(EarthlyCatalogSnapshot catalog) async {
-    final needed = <String>{};
-    for (final m in catalog.maps) {
-      needed.add(m.pubkey);
-    }
-    for (final s in catalog.stories) {
-      needed.add(s.pubkey);
-    }
-    for (final a in catalog.atlases) {
-      needed.add(a.pubkey);
-    }
-    for (final s in catalog.sightings) {
-      needed.add(s.pubkey);
-    }
-    for (final b in catalog.beacons) {
-      needed.add(b.pubkey);
-    }
-    final missing = needed
-        .where((pk) => !_requestedProfilePubkeys.contains(pk))
-        .toList(growable: false);
-    if (missing.isEmpty) return;
-    _requestedProfilePubkeys.addAll(missing);
-    try {
-      await RustBridge.ensureInitialized();
-      final profiles = await fetchProfiles(
-        relayUrls: _activeRelayUrls,
-        pubkeys: missing,
-      );
-      if (!mounted || profiles.isEmpty) return;
-      setState(() {
-        for (final p in profiles) {
-          _profilesByPubkey[p.pubkey] = p;
-        }
-      });
-    } catch (_) {}
-  }
-
-  void _cloneGeoJsonToDraft(String sourceTitle, String geojson) {
-    final cloned = parseDraftFeaturesFromGeoJson(geojson);
-    if (cloned.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No editable features found to clone')),
-      );
-      return;
-    }
-    setState(() {
-      _features
-        ..clear()
-        ..addAll(cloned);
-      _selectedDraftFeatureIds.clear();
-      _draftVertices.clear();
-      _featureCounter = _features.length;
-      _draftTitle = '$sourceTitle (Draft)';
-      _drawer = _ActiveDrawer.desk;
-    });
-    unawaited(_persistWorkingDraft());
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Cloned ${cloned.length} feature${cloned.length == 1 ? '' : 's'} into Working Draft',
-        ),
-      ),
-    );
-  }
-
-  Future<PublishOutcomeDto> _publishAtlas(AtlasPublishRequest req) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final dTag = (req.existingDTag != null && req.existingDTag!.isNotEmpty)
-        ? req.existingDTag!
-        : 'atlas-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-    final prepared = await prepareUnsignedAtlasEvent(
-      pubkeyOrNpub: account.pubkey,
-      dTag: dTag,
-      name: req.name,
-      description: req.description.isEmpty ? null : req.description,
-      image: req.image,
-      governance: req.governance,
-      pinnedAddresses: req.pinnedAddresses,
-      hashtags: req.hashtags,
-      fieldSessionId: req.audience == DraftAudienceChoice.nearbyLocalNode
-          ? _activeNearbySessionId
-          : null,
-      schemaJson: req.schemaJson,
-    );
-    final signedEventJson =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final outcome = await _deliverForAudience(req.audience, signedEventJson);
-    if (mounted) {
-      final created = AtlasSummaryDto(
-        address: prepared.address,
-        eventId: outcome.eventId,
-        pubkey: account.pubkey,
-        dTag: prepared.dTag,
-        name: req.name,
-        description: req.description.isEmpty ? null : req.description,
-        image: req.image,
-        governance: req.governance,
-        pinnedAddresses: req.pinnedAddresses,
-        hashtags: req.hashtags,
-        schemaJson: req.schemaJson,
-        createdAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
-      );
-      setState(() {
-        _deskAtlases.removeWhere((a) => a.address == created.address);
-        _deskAtlases.insert(0, created);
-        if (_inspectedAtlas?.address == created.address) {
-          _inspectedAtlas = created;
-        }
-        if (_activeAtlasLens?.address == created.address) {
-          _activeAtlasLens = created;
-        }
-        if (_catalog != null) {
-          final others = _catalog!.atlases
-              .where((a) => a.address != created.address)
-              .toList(growable: false);
-          _catalog = EarthlyCatalogSnapshot(
-            relayUrls: _catalog!.relayUrls,
-            maps: _catalog!.maps,
-            stories: _catalog!.stories,
-            atlases: [created, ...others],
-            sightings: _catalog!.sightings,
-            beacons: _catalog!.beacons,
-          );
-        }
-      });
-    }
-    return outcome;
-  }
-
-  Future<void> _blessAtlasContribution(
-    AtlasSummaryDto atlas,
-    String entityAddress,
-  ) async {
-    final updatedPins = <String>[
-      ...atlas.pinnedAddresses,
-      if (!atlas.pinnedAddresses.contains(entityAddress)) entityAddress,
-    ];
-    await _publishAtlas(
-      AtlasPublishRequest(
-        name: atlas.name,
-        description: atlas.description ?? '',
-        image: atlas.image,
-        governance: atlas.governance,
-        pinnedAddresses: updatedPins,
-        hashtags: atlas.hashtags,
-        audience: DraftAudienceChoice.publicRelay,
-        existingDTag: atlas.dTag,
-      ),
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Added to Curated in "${atlas.name}"')),
-    );
-  }
-
-  Future<void> _lockDownAtlasToClosed(AtlasSummaryDto atlas) async {
-    await _publishAtlas(
-      AtlasPublishRequest(
-        name: atlas.name,
-        description: atlas.description ?? '',
-        image: atlas.image,
-        governance: 'closed',
-        pinnedAddresses: atlas.pinnedAddresses,
-        hashtags: atlas.hashtags,
-        audience: DraftAudienceChoice.publicRelay,
-        existingDTag: atlas.dTag,
-      ),
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Locked down "${atlas.name}" to Author Picks only'),
-      ),
-    );
-  }
-
-  Future<EntitySocialCountsDto?> _toggleEntityReaction({
-    required String address,
-    required String? eventId,
-    required String pubkey,
-    required int kind,
-    required EntitySocialCountsDto? current,
-  }) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final prevCount = current?.reactionCount ?? 0;
-
-    if (current?.userHasReacted == true &&
-        current?.userReactionEventId != null &&
-        current!.userReactionEventId!.isNotEmpty) {
-      final del = await prepareUnsignedDeletionEvent(
-        pubkeyOrNpub: account.pubkey,
-        targetAddress: '',
-        targetEventId: current.userReactionEventId,
-        targetKind: 7,
-        reason: 'Removed reaction',
-      );
-      final signed =
-          await _signUnsignedEvent(account, del.unsignedEventJson);
-      await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
-      return EntitySocialCountsDto(
-        address: address,
-        reactionCount: prevCount > 0 ? prevCount - 1 : 0,
-        userHasReacted: false,
-        userReactionEventId: null,
-        zapCount: current.zapCount,
-        zapSats: current.zapSats,
-      );
-    }
-
-    final prepared = await prepareUnsignedReactionEvent(
-      pubkeyOrNpub: account.pubkey,
-      targetAddress: address,
-      targetEventId: eventId,
-      targetPubkey: pubkey,
-      targetKind: kind,
-      content: '+',
-    );
-    final signed =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final outcome =
-        await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
-    return EntitySocialCountsDto(
-      address: address,
-      reactionCount: prevCount + 1,
-      userHasReacted: true,
-      userReactionEventId: outcome.eventId,
-      zapCount: current?.zapCount ?? 0,
-      zapSats: current?.zapSats ?? BigInt.zero,
-    );
-  }
-
-  Future<PublishOutcomeDto> _publishProfile(ProfileEditRequest req) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final prepared = await prepareUnsignedProfileEvent(
-      pubkeyOrNpub: account.pubkey,
-      name: req.name.isEmpty ? null : req.name,
-      displayName: req.displayName.isEmpty ? null : req.displayName,
-      about: req.about.isEmpty ? null : req.about,
-      picture: req.picture.isEmpty ? null : req.picture,
-      nip05: req.nip05.isEmpty ? null : req.nip05,
-      website: req.website.isEmpty ? null : req.website,
-      banner: req.banner.isEmpty ? null : req.banner,
-      lud16: req.lud16.isEmpty ? null : req.lud16,
-    );
-    final signedEventJson =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final dbPath = await _databasePath();
-    final outcome = await publishSignedEventViaOutbox(
-      databasePath: dbPath,
-      signedEventJson: signedEventJson,
-      relayUrls: _activeRelayUrls,
-    );
-    if (mounted) {
-      setState(() {
-        _profilesByPubkey[account.pubkey] = ProfileMetadataDto(
-          pubkey: account.pubkey,
-          name: req.name.isEmpty ? null : req.name,
-          displayName: req.displayName.isEmpty ? null : req.displayName,
-          about: req.about.isEmpty ? null : req.about,
-          picture: req.picture.isEmpty ? null : req.picture,
-          nip05: req.nip05.isEmpty ? null : req.nip05,
-          website: req.website.isEmpty ? null : req.website,
-          banner: req.banner.isEmpty ? null : req.banner,
-          lud16: req.lud16.isEmpty ? null : req.lud16,
-        );
-      });
-    }
-    return outcome;
-  }
-
-  Future<PublishOutcomeDto> _applyProposal(
-    DiscussionTarget target,
-    GeoProposalDto proposal,
-  ) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final dTag = target.address.split(':').length >= 3
-        ? target.address.split(':').sublist(2).join(':')
-        : target.title;
-
-    if (proposal.isStoryProposal || target.kind == 37520) {
-      final proposedMd = proposal.proposedMarkdown;
-      if (proposedMd == null || proposedMd.trim().isEmpty) {
-        throw StateError('Story proposal has no Markdown content');
-      }
-      final existingStory = _activeStory?.address == target.address
-          ? _activeStory
-          : (_catalog?.stories
-                  .where((s) => s.address == target.address)
-                  .firstOrNull ??
-              _deskStories
-                  .where((s) => s.address == target.address)
-                  .firstOrNull);
-      final preparedStory = await prepareUnsignedStoryEvent(
-        pubkeyOrNpub: account.pubkey,
-        dTag: existingStory?.dTag ?? dTag,
-        title: existingStory?.title ?? target.title,
-        summary: existingStory?.summary,
-        image: existingStory?.image,
-        markdownContent: proposedMd,
-        referencedMapAddresses:
-            existingStory?.referencedAddresses ?? const <String>[],
-        presentationJson: existingStory?.presentationJson,
-        hashtags: const ['earthly-story'],
-      );
-      final signedStory =
-          await _signUnsignedEvent(account, preparedStory.unsignedEventJson);
-      final storyOutcome =
-          await _deliverForAudience(DraftAudienceChoice.publicRelay, signedStory);
-
-      if (mounted) {
-        final updatedStory = StorySummaryDto(
-          address: target.address,
-          eventId: storyOutcome.eventId,
-          pubkey: account.pubkey,
-          dTag: existingStory?.dTag ?? dTag,
-          title: existingStory?.title ?? target.title,
-          summary: existingStory?.summary,
-          image: existingStory?.image,
-          content: proposedMd,
-          presentationJson: existingStory?.presentationJson,
-          referencedAddresses:
-              existingStory?.referencedAddresses ?? const <String>[],
-          publishedAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
-        );
-        setState(() {
-          if (_activeStory?.address == updatedStory.address) {
-            _activeStory = updatedStory;
-            _parsedStory = parseStoryDocument(
-              markdown: updatedStory.content,
-              presentationJson: updatedStory.presentationJson,
-            );
-          }
-          _deskStories.removeWhere((s) => s.address == updatedStory.address);
-          _deskStories.insert(0, updatedStory);
-          if (_catalog != null) {
-            final others = _catalog!.stories
-                .where((s) => s.address != updatedStory.address)
-                .toList(growable: false);
-            _catalog = EarthlyCatalogSnapshot(
-              relayUrls: _catalog!.relayUrls,
-              maps: _catalog!.maps,
-              stories: [updatedStory, ...others],
-              atlases: _catalog!.atlases,
-              sightings: _catalog!.sightings,
-              beacons: _catalog!.beacons,
-            );
-          }
-        });
-      }
-    } else {
-      // 1. Republish the updated kind-37515 map with the proposed FeatureCollection
-      //    (auto-externalizing via Blossom if > 60 KiB).
-      ExternalGeoBlobDto? externalBlob;
-      final rawBytes = Uint8List.fromList(utf8.encode(proposal.geojson));
-      if (rawBytes.length > 60 * 1024) {
-        final uploaded = await _uploadBlossomBytes(
-          bytes: rawBytes,
-          mimeType: 'application/geo+json',
-          purpose: 'Externalize Earthly Map GeoJSON (${target.title})',
-        );
-        externalBlob = ExternalGeoBlobDto(
-          url: uploaded.url,
-          sha256: uploaded.sha256,
-          sizeBytes: uploaded.sizeBytes,
-        );
-      }
-      final preparedMap = await prepareUnsignedMapEvent(
-        pubkeyOrNpub: account.pubkey,
-        dTag: dTag,
-        title: target.title,
-        geojson: proposal.geojson,
-        hashtags: const ['earthly-native'],
-        contextRefs: const <String>[],
-        externalBlob: externalBlob,
-      );
-      final signedMap =
-          await _signUnsignedEvent(account, preparedMap.unsignedEventJson);
-      await _deliverForAudience(DraftAudienceChoice.publicRelay, signedMap);
-    }
-
-    // 2. Publish NIP-34 kind-1631 Applied status referencing the proposal.
-    final preparedStatus = await prepareUnsignedProposalStatusEvent(
-      pubkeyOrNpub: account.pubkey,
-      proposalAddress: proposal.address,
-      proposalEventId: proposal.eventId,
-      proposalAuthorPubkey: proposal.pubkey,
-      statusKind: 1631,
-      note: 'Applied proposal into ${target.title}',
-    );
-    final signedStatus =
-        await _signUnsignedEvent(account, preparedStatus.unsignedEventJson);
-    return _deliverForAudience(DraftAudienceChoice.publicRelay, signedStatus);
-  }
-
-  Future<PublishOutcomeDto> _closeProposal(
-    DiscussionTarget target,
-    GeoProposalDto proposal,
-  ) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final preparedStatus = await prepareUnsignedProposalStatusEvent(
-      pubkeyOrNpub: account.pubkey,
-      proposalAddress: proposal.address,
-      proposalEventId: proposal.eventId,
-      proposalAuthorPubkey: proposal.pubkey,
-      statusKind: 1632,
-      note: 'Closed proposal',
-    );
-    final signedStatus =
-        await _signUnsignedEvent(account, preparedStatus.unsignedEventJson);
-    return _deliverForAudience(DraftAudienceChoice.publicRelay, signedStatus);
-  }
-
-  Future<PublishOutcomeDto> _requestChangesProposal(
-    DiscussionTarget target,
-    GeoProposalDto proposal,
-    String note,
-  ) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final preparedStatus = await prepareUnsignedProposalStatusEvent(
-      pubkeyOrNpub: account.pubkey,
-      proposalAddress: proposal.address,
-      proposalEventId: proposal.eventId,
-      proposalAuthorPubkey: proposal.pubkey,
-      statusKind: 1633,
-      note: note,
-    );
-    final signedStatus =
-        await _signUnsignedEvent(account, preparedStatus.unsignedEventJson);
-    return _deliverForAudience(DraftAudienceChoice.publicRelay, signedStatus);
-  }
-
-  Future<List<RelayListEntryDto>> _fetchNip65Relays() async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    return fetchUserRelayList(
-      relayUrls: _activeRelayUrls,
-      pubkeyOrNpub: account.pubkey,
-    );
-  }
-
-  Future<PublishOutcomeDto> _publishShoutboxPost(
-    String category,
-    String content,
-  ) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final prepared = await prepareUnsignedShoutboxPost(
-      pubkeyOrNpub: account.pubkey,
-      category: category,
-      content: content,
-    );
-    final signed =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    return _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
-  }
-
-  Future<String?> _ensureSettingsMasterKey() async {
-    if (_settingsMasterKey != null && _settingsMasterKey!.isNotEmpty) {
-      return _settingsMasterKey;
-    }
-    try {
-      final masterKey = await DeviceBridge.getOrCreateMasterKey();
-      if (masterKey != null && masterKey.isNotEmpty) {
-        _settingsMasterKey = masterKey;
-        await RustBridge.ensureInitialized();
-        await setSettingsMasterKey(masterKeyBase64: masterKey);
-      }
-    } catch (_) {}
-    return _settingsMasterKey;
-  }
-
-  Future<void> _refreshCashuWalletState() async {
-    if (widget.mapBuilder != null) return;
-    final acct = _account;
-    if (acct == null) {
-      if (mounted) setState(() => _cashuWalletState = null);
-      return;
-    }
-    try {
-      await RustBridge.ensureInitialized();
-      final dbPath = await _databasePath();
-      final masterKey = await _ensureSettingsMasterKey();
-      final loaded = await loadCashuWalletState(
-        databasePath: dbPath,
-        pubkeyHex: acct.pubkey,
-        masterKeyB64: masterKey,
-      );
-      if (mounted) setState(() => _cashuWalletState = loaded);
-    } catch (_) {}
-  }
-
-  CashuWalletViewState get _cashuWalletViewState {
-    final s = _cashuWalletState;
-    if (s == null) {
-      return const CashuWalletViewState(initialized: false);
-    }
-    final initialized = s.mints.isNotEmpty ||
-        s.p2PkPubkeyHex.isNotEmpty ||
-        s.updatedAt > BigInt.zero;
-    return CashuWalletViewState(
-      initialized: initialized,
-      totalBalanceSats: s.balanceSats.toInt(),
-      defaultMint: s.defaultMint,
-      mints: [
-        for (final m in s.mints)
-          CashuMintBalanceView(
-            mintUrl: m,
-            balanceSats: s.mintBalances
-                    .where((b) => b.mintUrl == m)
-                    .firstOrNull
-                    ?.balanceSats
-                    .toInt() ??
-                0,
-            proofCount: m == s.defaultMint ? s.proofCount.toInt() : 0,
-          ),
-      ],
-      nutzapEnabled: s.nutzapEnabled,
-      p2pkPubkeyHex: s.p2PkPubkeyHex.isNotEmpty ? s.p2PkPubkeyHex : null,
-      history: [
-        for (final h in s.history.reversed)
-          CashuHistoryView(
-            id: h.id,
-            direction: h.direction,
-            amountSats: h.amountSats.toInt(),
-            mintUrl: h.mintUrl,
-            timestampMs: h.createdAt.toInt() * 1000,
-            memo: h.memo ?? '',
-          ),
-      ],
-    );
-  }
-
-  Future<T> _runCashuOp<T>(
-    Future<T> Function(String dbPath, String pubkeyHex, String? masterKey) op,
-  ) async {
-    if (mounted) setState(() => _cashuBusy = true);
-    try {
-      await RustBridge.ensureInitialized();
-      final acct = await _ensureAccount();
-      final dbPath = await _databasePath();
-      final masterKey = await _ensureSettingsMasterKey();
-      return await op(dbPath, acct.pubkey, masterKey);
-    } finally {
-      if (mounted) setState(() => _cashuBusy = false);
-    }
-  }
-
-  String _requireCashuNsec() {
-    final nsec = _localNsec?.trim();
-    if (nsec == null || nsec.isEmpty) {
-      throw StateError(
-        'NIP-60 / NIP-61 Nostr operations require a local nsec keypair in Account.',
-      );
-    }
-    return nsec;
-  }
-
-  Future<void> _refreshAgentVisionSupport() async {
-    if (widget.mapBuilder != null) return;
-    try {
-      await RustBridge.ensureInitialized();
-      final verdict = await detectAgentVisionSupport(
-        baseUrl: _agentSettings.baseUrl,
-        model: _agentSettings.model,
-        apiKey: _agentSettings.apiKey.isEmpty ? null : _agentSettings.apiKey,
-      );
-      if (!mounted) return;
-      setState(() {
-        _agentVisionSupport = verdict;
-        if (verdict == 'no-vision') {
-          _agentAttachMapView = false;
-        }
-      });
-    } catch (_) {}
   }
 
   Future<String?> _captureMapSnapshotBase64() async {
@@ -2536,479 +874,241 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
   }
 
-  McpWorkspaceDto _buildMcpWorkspaceDto() {
+  Future<void> _sendAgentPrompt(String prompt) async {
     final cam = _controller?.camera;
-    final center = cam?.center ?? const Geographic(lon: 16.3738, lat: 48.2082);
-    final draftGeojson = draftFeaturesToGeoJson(
-      title: _draftTitle,
-      features: _features,
-    );
-    final workingSetTitles = _shelfMaps
-        .where((e) => _agentWorkingSetAddresses.contains(e.summary.address))
-        .map((e) => '${e.summary.title} (${e.summary.address})')
-        .toList(growable: false);
-    final cat = _catalog;
-    final catalogItems = <String>[
-      if (cat != null) ...[
-        for (final m in cat.maps.take(20))
-          '[Map] ${m.title} | ${m.address}${m.hashtags.isNotEmpty ? ' | #${m.hashtags.join(" #")}' : ''} | ${m.featureCount} features',
-        for (final s in cat.stories.take(10)) '[Story] ${s.title} | ${s.address}',
-        for (final a in cat.atlases.take(10))
-          '[Atlas] ${a.name} | ${a.address} | ${a.governance}',
-      ],
-    ];
-    return McpWorkspaceDto(
-      centerLon: center.lon,
-      centerLat: center.lat,
+    await _agent.sendPrompt(
+      prompt,
+      center: cam?.center ?? const Geographic(lon: 16.3738, lat: 48.2082),
       zoom: cam?.zoom ?? 13.5,
-      draftTitle: _draftTitle,
-      draftGeojson: draftGeojson,
-      shelfMapTitles: _shelfMaps.map((e) => e.summary.title).toList(),
-      atlasWorkspaces:
-          _mountedAtlasWorkspaces.map((w) => w.coverageSummary).toList(),
-      workingSetTitles: workingSetTitles,
-      catalogItems: catalogItems,
-    );
-  }
-
-  void _syncMcpWorkspaceIfRunning() {
-    if (_mcpBridgeStatus?.running != true || widget.mapBuilder != null) return;
-    unawaited(syncMcpWorkspace(workspace: _buildMcpWorkspaceDto()));
-  }
-
-  void _startMcpPolling() {
-    _mcpPollTimer?.cancel();
-    _mcpPollTimer = Timer.periodic(
-      const Duration(milliseconds: 1500),
-      (_) => unawaited(_pollMcpBridgeTick()),
-    );
-  }
-
-  void _stopMcpPolling() {
-    _mcpPollTimer?.cancel();
-    _mcpPollTimer = null;
-  }
-
-  Future<void> _pollMcpBridgeTick() async {
-    if (widget.mapBuilder != null || !mounted) return;
-    try {
-      await RustBridge.ensureInitialized();
-      await syncMcpWorkspace(workspace: _buildMcpWorkspaceDto());
-      final mutations = await drainMcpMutations();
-      for (final m in mutations) {
-        if (m.updatedDraftGeojson != null) {
-          final parsed = parseDraftFeaturesFromGeoJson(m.updatedDraftGeojson!);
-          _pushDraftUndo();
-          if (mounted) {
-            setState(() {
-              _features
-                ..clear()
-                ..addAll(parsed);
-              _featureCounter = _features.length;
-            });
-          }
-          unawaited(_persistWorkingDraft());
-        }
-        if (m.cameraAction != null) {
-          final ca = m.cameraAction!;
-          _controller?.animateCamera(
-            CameraUpdate.position(
-              center: Geographic(lon: ca.lon, lat: ca.lat),
-              zoom: ca.zoom,
-            ),
-          );
-        }
-      }
-      final status = await getMcpBridgeStatus();
-      if (!mounted) return;
-      setState(() => _mcpBridgeStatus = status);
-      if (!status.running) {
-        _stopMcpPolling();
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _startMcpBridgeServer(int port) async {
-    if (mounted) setState(() => _mcpBridgeBusy = true);
-    try {
-      await RustBridge.ensureInitialized();
-      final status = await startMcpBridge(
-        port: port,
-        workspace: _buildMcpWorkspaceDto(),
-      );
-      if (!mounted) return;
-      setState(() => _mcpBridgeStatus = status);
-      if (status.running) {
-        _startMcpPolling();
-      }
-    } finally {
-      if (mounted) setState(() => _mcpBridgeBusy = false);
-    }
-  }
-
-  Future<void> _stopMcpBridgeServer() async {
-    if (mounted) setState(() => _mcpBridgeBusy = true);
-    try {
-      await RustBridge.ensureInitialized();
-      final status = await stopMcpBridge();
-      _stopMcpPolling();
-      if (mounted) setState(() => _mcpBridgeStatus = status);
-    } finally {
-      if (mounted) setState(() => _mcpBridgeBusy = false);
-    }
-  }
-
-  Future<void> _refreshMcpBridgeStatus() async {
-    if (widget.mapBuilder != null) return;
-    try {
-      await RustBridge.ensureInitialized();
-      final status = await getMcpBridgeStatus();
-      if (!mounted) return;
-      setState(() => _mcpBridgeStatus = status);
-      if (status.running && _mcpPollTimer == null) {
-        _startMcpPolling();
-      }
-    } catch (_) {}
-  }
-
-  McpBridgeViewState get _mcpBridgeViewState {
-    final s = _mcpBridgeStatus;
-    if (s == null) {
-      return const McpBridgeViewState(
-        running: false,
-        port: McpBridgeSheet.defaultPort,
-      );
-    }
-    return McpBridgeViewState(
-      running: s.running,
-      endpointUrl: s.endpointUrl.isNotEmpty ? s.endpointUrl : null,
-      authToken: s.authToken.isNotEmpty ? s.authToken : null,
-      port: s.port > 0 ? s.port : McpBridgeSheet.defaultPort,
-      toolCount: s.toolCount,
-      totalCalls: s.totalCalls.toInt(),
-      recentCalls: [
-        for (final c in s.recentCalls)
-          McpBridgeCallEntry(
-            timestampMs: c.timestampMs.toInt(),
-            toolName: c.toolName,
-            ok: c.ok,
-            summary: c.summary,
+      draftTitle: _draft.draftTitle,
+      draftFeatures: _draft.features,
+      shelfMaps: _catalog.shelfMaps,
+      atlasWorkspaces: _mapLayers.mountedAtlasWorkspaces,
+      catalog: _catalog.catalog,
+      captureMapSnapshotBase64: _captureMapSnapshotBase64,
+      onProposedGeojson: (
+        proposedGeojson,
+        diffAdded,
+        diffModified,
+        diffRemoved,
+        summary,
+      ) {
+        final bounds = _agent.stageOrApplyAiGeojson(
+          proposedGeojson: proposedGeojson,
+          diffAdded: diffAdded,
+          diffModified: diffModified,
+          diffRemoved: diffRemoved,
+          summary: summary,
+          onApplyDirect: (parsed) => _draft.applyAiFeatures(
+            parsed,
+            onPersist: _schedulePersistWorkingDraft,
           ),
-      ],
+        );
+        if (bounds != null) _flyToBounds(bounds);
+      },
+      onCameraAction: _animateCameraPosition,
+      onPersistSettings: () => unawaited(_persistAppSettings()),
     );
   }
 
-  Future<void> _openZapDialogForEntity({
-    required String recipientPubkey,
-    required String targetTitle,
-    required String targetAddress,
-    String? targetEventId,
-  }) async {
-    if (!_profilesByPubkey.containsKey(recipientPubkey)) {
+  void _acceptPendingAiEdit() {
+    final pending = _agent.takeAndClearPendingAiEdit();
+    if (pending == null) return;
+    final parsed = parseDraftFeaturesFromGeoJson(pending.proposedGeojson);
+    HapticFeedback.mediumImpact();
+    _draft.applyAiFeatures(parsed, onPersist: _schedulePersistWorkingDraft);
+    _showSnack('Applied AI edit to Working Draft');
+  }
+
+  void _extractResearchSourceToMap(ResearchSourceDto src) {
+    final nextFeatures = _agent.buildExtractedResearchFeatures(
+      src: src,
+      existingFeatures: _draft.features,
+    );
+    if (nextFeatures == null) return;
+    final proposed = draftFeaturesToGeoJson(
+      title: _draft.draftTitle,
+      features: nextFeatures,
+    );
+    final bounds = _agent.stageOrApplyAiGeojson(
+      proposedGeojson: proposed,
+      diffAdded: nextFeatures.length - _draft.features.length,
+      diffModified: 0,
+      diffRemoved: 0,
+      summary:
+          'Extracted ${nextFeatures.length - _draft.features.length} feature(s) from ${src.title}',
+      onApplyDirect: (parsed) => _draft.applyAiFeatures(
+        parsed,
+        onPersist: _schedulePersistWorkingDraft,
+      ),
+    );
+    if (bounds != null) _flyToBounds(bounds);
+  }
+
+  void _citeResearchSourceInStory(ResearchSourceDto src) {
+    _catalog.setEditingStory(
+      _agent.buildResearchCitationStory(
+        src,
+        pubkey: _accountWallet.account?.pubkey ?? '',
+      ),
+    );
+    _openDrawer(_ActiveDrawer.storyComposer);
+  }
+
+  Future<void> _mountAtlasWorkspace(AtlasBundleInspectionDto bundle) async {
+    final record = MountedAtlasWorkspaceDto(
+      name: bundle.name,
+      path: bundle.path,
+      sizeBytes: bundle.sizeBytes,
+      families: bundle.families,
+      coverageSummary: bundle.coverageSummary,
+    );
+    _mapLayers.addMountedAtlasWorkspace(record);
+    unawaited(
+      _mapLayers.saveMacOsSecurityScopedBookmark(
+        bundle.path,
+        supportDirPath: _spaces.supportDirPath,
+      ),
+    );
+    unawaited(_persistAppSettings());
+
+    if (bundle.embeddedPmtilesPath != null &&
+        bundle.embeddedPmtilesPath!.isNotEmpty) {
       try {
-        await RustBridge.ensureInitialized();
-        final fetched = await fetchProfiles(
-          relayUrls: _activeRelayUrls,
-          pubkeys: <String>[recipientPubkey],
+        unawaited(
+          _mapLayers.saveMacOsSecurityScopedBookmark(
+            bundle.embeddedPmtilesPath!,
+            supportDirPath: _spaces.supportDirPath,
+          ),
         );
-        if (mounted && fetched.isNotEmpty) {
-          setState(() {
-            for (final p in fetched) {
-              _profilesByPubkey[p.pubkey] = p;
-            }
-          });
-        }
+        final dir = await getApplicationSupportDirectory();
+        await startLocalNode(dataDir: '${dir.path}/local-node');
+        final ingested = await ingestLocalPmtilesFromPath(
+          path: bundle.embeddedPmtilesPath!,
+          label: bundle.name,
+        );
+        _mapLayers.setOfflineBasemap(
+          OfflinePmtilesBasemap(
+            snapshot: ingested,
+            styleJson: buildPmtilesStyleJson(ingested),
+          ),
+        );
       } catch (_) {}
     }
+
+    _showSnack('Mounted .atlas workspace "${bundle.name}"');
+  }
+
+  void _toggleMapOnShelf(MapSummaryDto map) {
+    final added = _catalog.toggleMapOnShelf(
+      map,
+      onPersist: () => unawaited(_persistAppSettings()),
+      onSyncMcp: _syncMcpWorkspaceIfRunning,
+    );
+    if (added) _flyToMap(map);
+  }
+
+  void _addMapsBulkToShelf(List<MapSummaryDto> maps) {
+    final added = _catalog.addMapsBulkToShelf(maps);
+    if (added.isNotEmpty) {
+      final bounds = computeCombinedBounds(added);
+      if (bounds != null) _flyToBounds(bounds);
+      _showSnack(
+        'Added ${added.length} map${added.length == 1 ? '' : 's'} to Shelf',
+      );
+    }
+  }
+
+  void _cloneGeoJsonToDraft(String sourceTitle, String geojson) {
+    final count = _draft.cloneGeoJsonToDraft(
+      sourceTitle,
+      geojson,
+      onPersist: _schedulePersistWorkingDraft,
+    );
+    if (count == 0) {
+      _showSnack('No editable features found to clone');
+      return;
+    }
+    _openDrawer(_ActiveDrawer.desk);
+    _showSnack(
+      'Cloned $count feature${count == 1 ? '' : 's'} into Working Draft',
+    );
+  }
+
+  Future<void> _editOrForkMap(MapSummaryDto map) async {
+    final resolvedMap = map.blobRefs.isNotEmpty
+        ? await _catalog.ensureMapBlobsResolved(
+            map,
+            onError: _showSnack,
+          )
+        : map;
     if (!mounted) return;
-    final profile = _profilesByPubkey[recipientPubkey];
-    final recipientName = profile?.displayName ??
-        profile?.name ??
-        '${recipientPubkey.substring(0, recipientPubkey.length.clamp(0, 10))}…';
-    final lud16 = profile?.lud16;
-    final cashuSats = _cashuWalletState?.balanceSats.toInt();
-    final canCashuNutzap = _account != null &&
-        _localNsec != null &&
-        _localNsec!.isNotEmpty &&
-        (cashuSats ?? 0) > 0;
-    await showEarthlyZapDialog(
-      context,
-      recipientName: recipientName,
-      recipientPubkey: recipientPubkey,
-      recipientLud16: lud16,
-      targetTitle: targetTitle,
-      targetAddress: targetAddress,
-      targetEventId: targetEventId,
-      hasNwcWallet: _nwcUri != null && _nwcUri!.isNotEmpty,
-      onPayWithNwc: (_nwcUri != null && _nwcUri!.isNotEmpty)
-          ? (bolt11) async {
-              await RustBridge.ensureInitialized();
-              return payInvoiceViaNwc(nwcUri: _nwcUri!, bolt11: bolt11);
-            }
-          : null,
-      cashuBalanceSats: cashuSats,
-      onPayWithCashu: (_account != null && (cashuSats ?? 0) > 0)
-          ? (bolt11) async {
-              final res = await _runCashuOp(
-                (dbPath, pubkeyHex, masterKey) => payBolt11ViaCashu(
-                  databasePath: dbPath,
-                  pubkeyHex: pubkeyHex,
-                  bolt11: bolt11,
-                  masterKeyB64: masterKey,
-                ),
-              );
-              if (mounted) setState(() => _cashuWalletState = res.walletState);
-              return res.preimage != null && res.preimage!.isNotEmpty
-                  ? 'Paid via Cashu ⚡ (${res.preimage!.substring(0, res.preimage!.length.clamp(0, 10))}…)'
-                  : 'Paid ${res.amountSats} sats via Cashu ⚡';
-            }
-          : null,
-      onSendNutzap: canCashuNutzap
-          ? ({required amountSats, required comment}) async {
-              final res = await _runCashuOp(
-                (dbPath, _, masterKey) => sendNip61Nutzap(
-                  databasePath: dbPath,
-                  nsecOrHex: _requireCashuNsec(),
-                  recipientPubkeyHex: recipientPubkey,
-                  amountSats: BigInt.from(amountSats),
-                  comment: comment.isEmpty ? null : comment,
-                  targetEventId: targetEventId,
-                  relays: _activeRelayUrls,
-                  masterKeyB64: masterKey,
-                ),
-              );
-              if (mounted) setState(() => _cashuWalletState = res.walletState);
-              return 'Sent ${res.amountSats} sats via NIP-61 Nutzap ✓';
-            }
-          : null,
-      onGenerateInvoice: ({required amountSats, required comment}) async {
-        final targetLud16 = lud16?.trim() ?? '';
-        if (targetLud16.isEmpty) {
-          throw StateError('Author has no Lightning Address (lud16)');
+    final isOwned = _accountWallet.account != null &&
+        _accountWallet.account!.pubkey == resolvedMap.pubkey;
+    final cloned = parseDraftFeaturesFromGeoJson(resolvedMap.geojson);
+    if (cloned.isEmpty) {
+      _showSnack('No editable features found in map');
+      return;
+    }
+    _draft.loadForkOrOwnedMap(
+      cloned: cloned,
+      isOwned: isOwned,
+      dTag: resolvedMap.dTag,
+      title: resolvedMap.title,
+      onPersist: _schedulePersistWorkingDraft,
+    );
+    _openDrawer(_ActiveDrawer.desk);
+    _showSnack(
+      isOwned
+          ? 'Loaded "${resolvedMap.title}" for in-place edit (preserving d-tag)'
+          : 'Forked ${cloned.length} features into Working Draft',
+    );
+  }
+
+  void _jumpToMapFeature(MapSummaryDto map, ShelfShape shape) {
+    _catalog.ensureMapOnShelf(map);
+    final bounds = computeFeatureBounds(shape);
+    if (bounds != null) _flyToBounds(bounds);
+    _inspectFeature(
+      InspectedFeature(
+        sourceLabel: map.title,
+        isDraft: false,
+        featureId: shape.featureId,
+        geometryType: switch (shape.kind) {
+          ShelfShapeKind.point => 'Point',
+          ShelfShapeKind.line => 'LineString',
+          ShelfShapeKind.polygon => 'Polygon',
+        },
+        title: shape.label ?? shape.featureId ?? map.title,
+        properties: shape.properties,
+        callouts: shape.callouts,
+        datasetAddress: map.address,
+        datasetPubkey: map.pubkey,
+        datasetTitle: map.title,
+        datasetEventId: map.eventId,
+        datasetGeojson: map.geojson,
+      ),
+    );
+  }
+
+  void _fitAllMountedLayers() {
+    final bounds = computeCombinedBounds(_catalog.shelfMaps) ??
+        _draft.computeDraftBounds();
+    if (bounds != null) _flyToBounds(bounds);
+  }
+
+  Future<void> _openStory(StorySummaryDto story) async {
+    await _catalog.openStory(
+      story,
+      onPrepareDrawer: () {
+        if (_draft.isDrawingMode) {
+          _draft.cancelEditingDraftFeature();
         }
-        await RustBridge.ensureInitialized();
-        String? signedZapJson;
-        final activeSession = _savedAccounts
-            .where((s) => s.id == _activeAccountId)
-            .firstOrNull;
-        if (_account != null && activeSession?.kind != 'readonly') {
-          try {
-            final prepared = await prepareUnsignedZapRequestEvent(
-              senderPubkeyOrNpub: _account!.pubkey,
-              recipientPubkeyHex: recipientPubkey,
-              amountSats: BigInt.from(amountSats),
-              relayUrls: _activeRelayUrls,
-              targetEventId: targetEventId,
-              targetAddress: targetAddress,
-              comment: comment.isEmpty ? null : comment,
-              lnurl: targetLud16,
-            );
-            signedZapJson =
-                await _signUnsignedEvent(_account!, prepared.unsignedEventJson);
-          } catch (_) {
-            // Fall back to anonymous LNURL invoice if user cancels remote signer
-            signedZapJson = null;
-          }
-        }
-        return fetchLnurlZapInvoice(
-          lud16: targetLud16,
-          amountSats: BigInt.from(amountSats),
-          signedZapRequestJson: signedZapJson,
-          comment: comment.isEmpty ? null : comment,
-        );
+        _openDrawer(_ActiveDrawer.storyReader);
       },
+      onFlyToCamera: _flyToStoryCamera,
+      onFlyToBounds: _flyToBounds,
     );
-  }
-
-  Future<PublishOutcomeDto> _publishNip65Relays(
-    List<RelayListEntryDto> relays,
-  ) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final prepared = await prepareUnsignedRelayListEvent(
-      pubkeyOrNpub: account.pubkey,
-      relays: relays,
-    );
-    final signed =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    return _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
-  }
-
-  void _openLocationInspector(Geographic pt) {
-    setState(() => _inspectedLocation = pt);
-    _openDrawer(_ActiveDrawer.locationInspector);
-  }
-
-  void _dropDraftPointAt(Geographic pt) {
-    _pushDraftUndo();
-    setState(() {
-      _featureCounter += 1;
-      _features.add(
-        DrawnFeature(
-          id: 'pt-$_featureCounter',
-          kind: DrawToolMode.point,
-          name: 'Point #$_featureCounter',
-          vertices: [pt],
-        ),
-      );
-    });
-    unawaited(_persistWorkingDraft());
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Added Point #$_featureCounter at ${pt.lat.toStringAsFixed(5)}, ${pt.lon.toStringAsFixed(5)}',
-        ),
-      ),
-    );
-  }
-
-  void _openOsmImportDrawer() {
-    _openDrawer(_ActiveDrawer.osmImport);
-  }
-
-  void _openRoutingDrawer({Geographic? origin}) {
-    setState(() => _routingOrigin = origin);
-    _openDrawer(_ActiveDrawer.routing);
-  }
-
-  void _importOsmResultToDraft(OsmImportResultDto res) {
-    _importGeoJsonStringToDraft(
-      res.geojson,
-      prefix: 'osm',
-      snackLabel: res.querySummary,
-    );
-  }
-
-  void _importGeoJsonStringToDraft(
-    String geojson, {
-    required String prefix,
-    required String snackLabel,
-  }) {
-    final imported = parseDraftFeaturesFromGeoJson(geojson);
-    if (imported.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No Point, LineString, or Polygon features found to import'),
-        ),
-      );
-      return;
-    }
-    _pushDraftUndo();
-    setState(() {
-      for (final feat in imported) {
-        _featureCounter += 1;
-        _features.add(feat.copyWith(id: '$prefix-$_featureCounter'));
-      }
-      _drawer = _ActiveDrawer.desk;
-    });
-    unawaited(_persistWorkingDraft());
-    final allVerts = imported.expand((f) => f.vertices).toList();
-    if (allVerts.isNotEmpty) {
-      double west = allVerts.first.lon;
-      double east = allVerts.first.lon;
-      double south = allVerts.first.lat;
-      double north = allVerts.first.lat;
-      for (final v in allVerts) {
-        if (v.lon < west) west = v.lon;
-        if (v.lon > east) east = v.lon;
-        if (v.lat < south) south = v.lat;
-        if (v.lat > north) north = v.lat;
-      }
-      const pad = 0.002;
-      _flyToBounds(
-        GeoBox(
-          west: (west - pad).clamp(-180.0, 180.0),
-          south: (south - pad).clamp(-85.0, 85.0),
-          east: (east + pad).clamp(-180.0, 180.0),
-          north: (north + pad).clamp(-85.0, 85.0),
-        ),
-      );
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Added ${imported.length} feature(s) to Working Draft ($snackLabel)',
-        ),
-      ),
-    );
-  }
-
-  GeoBox _currentImportBounds() {
-    final cam = _controller?.camera;
-    final center = _inspectedLocation ??
-        cam?.center ??
-        const Geographic(lon: 16.3738, lat: 48.2082);
-    final zoom = cam?.zoom ?? 14.0;
-    final delta = (0.8 / (1 << zoom.round().clamp(4, 18))).clamp(0.004, 0.22);
-    return GeoBox(
-      west: (center.lon - delta).clamp(-180.0, 180.0),
-      south: (center.lat - delta).clamp(-85.0, 85.0),
-      east: (center.lon + delta).clamp(-180.0, 180.0),
-      north: (center.lat + delta).clamp(-85.0, 85.0),
-    );
-  }
-
-  void _jumpToPlace(PlaceSearchResultDto place) {
-    final controller = _controller;
-    if (controller == null) return;
-    if (place.west != null &&
-        place.south != null &&
-        place.east != null &&
-        place.north != null &&
-        (place.east! - place.west!).abs() > 1e-4) {
-      _flyToBounds(
-        GeoBox(
-          west: place.west!,
-          south: place.south!,
-          east: place.east!,
-          north: place.north!,
-        ),
-      );
-      return;
-    }
-    controller.animateCamera(
-      CameraUpdate.position(
-        center: Geographic(lon: place.lon, lat: place.lat),
-        zoom: 14.5,
-      ),
-    );
-  }
-
-  String? _resolveNaddrTitle(DecodedNaddrDto decoded) {
-    final shelf = _shelfMaps
-        .where((e) => e.summary.address == decoded.address)
-        .firstOrNull;
-    final storyDs = _storyDatasets[decoded.address];
-    final entry = shelf ?? storyDs;
-    if (entry != null) {
-      if (decoded.featureId != null) {
-        final match = entry.shapes
-            .where((s) => s.featureId == decoded.featureId)
-            .firstOrNull;
-        if (match?.label != null && match!.label!.isNotEmpty) {
-          return match.label;
-        }
-        return '${entry.summary.title} #${decoded.featureId}';
-      }
-      return entry.summary.title;
-    }
-    final catMap = _catalog?.maps
-        .where((m) => m.address == decoded.address)
-        .firstOrNull;
-    if (catMap != null) {
-      return decoded.featureId != null
-          ? '${catMap.title} #${decoded.featureId}'
-          : catMap.title;
-    }
-    final catStory = _catalog?.stories
-        .where((s) => s.address == decoded.address)
-        .firstOrNull;
-    if (catStory != null) return catStory.title;
-    final catAtlas = _catalog?.atlases
-        .where((a) => a.address == decoded.address)
-        .firstOrNull;
-    if (catAtlas != null) return catAtlas.name;
-    return null;
   }
 
   Future<void> _jumpToNaddr(String naddrUri) async {
@@ -3018,14 +1118,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       throw StateError('Could not decode Nostr naddr link');
     }
 
-    // Fast path: check already-loaded catalog / shelf / story datasets first.
     if (decoded.kind == 37515) {
-      final localMap = _shelfMaps
+      final localMap = _catalog.shelfMaps
               .where((e) => e.summary.address == decoded.address)
               .firstOrNull
               ?.summary ??
-          _storyDatasets[decoded.address]?.summary ??
-          _catalog?.maps
+          _catalog.storyDatasets[decoded.address]?.summary ??
+          _catalog.catalog?.maps
               .where((m) => m.address == decoded.address)
               .firstOrNull;
       if (localMap != null) {
@@ -3033,7 +1132,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         return;
       }
     } else if (decoded.kind == 37520) {
-      final localStory = _catalog?.stories
+      final localStory = _catalog.catalog?.stories
           .where((s) => s.address == decoded.address)
           .firstOrNull;
       if (localStory != null) {
@@ -3041,7 +1140,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         return;
       }
     } else if (decoded.kind == 37518) {
-      final localAtlas = _catalog?.atlases
+      final localAtlas = _catalog.catalog?.atlases
           .where((a) => a.address == decoded.address)
           .firstOrNull;
       if (localAtlas != null) {
@@ -3051,7 +1150,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
 
     final relays = <String>{
-      ..._activeRelayUrls,
+      ..._catalog.relayUrls,
       ...decoded.relays.where((r) => r.startsWith('wss://')),
     }.toList(growable: false);
     final fetched = await fetchEntityByAddress(
@@ -3085,16 +1184,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
   void _openMapFromNaddr(MapSummaryDto map, String? featureId) {
     final existingIdx =
-        _shelfMaps.indexWhere((e) => e.summary.address == map.address);
+        _catalog.shelfMaps.indexWhere((e) => e.summary.address == map.address);
     final ShelfMapEntry entry;
     if (existingIdx >= 0) {
-      entry = _shelfMaps[existingIdx];
+      entry = _catalog.shelfMaps[existingIdx];
     } else {
-      entry = _entryFromSummary(map);
-      setState(() => _shelfMaps.add(entry));
+      entry = CatalogShelfController.entryFromSummary(map);
+      _catalog.ensureMapOnShelf(map);
     }
     if (map.blobRefs.isNotEmpty) {
-      unawaited(_ensureMapBlobsResolved(map));
+      unawaited(_catalog.ensureMapBlobsResolved(map, onError: _showSnack));
     }
     if (featureId != null && featureId.isNotEmpty) {
       final shape =
@@ -3108,2300 +1207,43 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     _inspectMap(map);
   }
 
-  Future<void> _recomputeMeasureTelemetry() async {
-    if (_mode != DrawToolMode.measure) return;
-    if (_draftVertices.length < 2) {
-      if (mounted) {
-        setState(() {
-          _measureDistanceMeters = 0.0;
-          _measureAreaM2 = 0.0;
-        });
-      }
-      return;
-    }
-    try {
-      await RustBridge.ensureInitialized();
-      final pts = _draftVertices
-          .map((p) => LonLatPoint(lon: p.lon, lat: p.lat))
-          .toList(growable: false);
-      final dist = await geoMeasureLineMeters(points: pts);
-      final area = _draftVertices.length >= 3
-          ? await geoMeasurePolygonAreaM2(ring: pts)
-          : 0.0;
-      if (!mounted || _mode != DrawToolMode.measure) return;
-      setState(() {
-        _measureDistanceMeters = dist;
-        _measureAreaM2 = area;
-      });
-    } catch (_) {}
-  }
-
-  void _toggleMeasureMode() {
-    setState(() {
-      if (_mode == DrawToolMode.measure) {
-        _mode = DrawToolMode.browse;
-        _draftVertices.clear();
-        _measureDistanceMeters = 0.0;
-        _measureAreaM2 = 0.0;
-      } else {
-        _draftVertices.clear();
-        _measureDistanceMeters = 0.0;
-        _measureAreaM2 = 0.0;
-        _drawer = _ActiveDrawer.none;
-        _mode = DrawToolMode.measure;
-      }
-    });
-  }
-
-  String? get _activeSessionSummaryText {
-    if (_acceptedRemotePeer != null) {
-      return 'Paired to ${_acceptedRemotePeer!.sessionName ?? _acceptedRemotePeer!.relayUrl}';
-    }
-    if (_hostedSessionId != null) {
-      return 'Hosting Field Session ($_hostedSessionId)';
-    }
-    return null;
-  }
-
-  String get _accountChipLabel {
-    final acct = _account;
-    if (acct == null) return 'Sign in';
-    final p = _profilesByPubkey[acct.pubkey];
-    final name = p?.displayName ?? p?.name;
-    if (name != null && name.isNotEmpty) {
-      return name.length > 12 ? '${name.substring(0, 12)}…' : name;
-    }
-    return acct.shortLabel.substring(0, 8);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    unawaited(_agentStreamSub?.cancel());
-    unawaited(_relayStreamSub?.cancel());
-    _liveListenerTimer?.cancel();
-    _outboxFlushTimer?.cancel();
-    _mcpPollTimer?.cancel();
-    super.dispose();
-  }
-
-  /// Opens a persistent Rust `nostr-sdk` WebSocket subscription (`StreamSink`)
-  /// to `wss://relay.earthly.city` so new Maps, Stories, Atlases, Sightings,
-  /// and Live Beacons appear live on the map without manual refresh.
-  Future<void> _startLiveRelayStream() async {
-    try {
-      await RustBridge.ensureInitialized();
-      if (!mounted) return;
-      await _relayStreamSub?.cancel();
-      final stream = subscribeEarthlyRelayStream(relayUrls: _activeRelayUrls);
-      if (mounted) setState(() => _relayStreamLive = true);
-      _relayStreamSub = stream.listen(
-        _handleLiveRelayEvent,
-        onError: (_) {
-          if (mounted) setState(() => _relayStreamLive = false);
-        },
-        onDone: () {
-          if (mounted) setState(() => _relayStreamLive = false);
-        },
-      );
-    } catch (_) {
-      if (mounted) setState(() => _relayStreamLive = false);
-    }
-  }
-
-  void _handleLiveRelayEvent(LiveRelayEventDto event) {
-    if (!mounted) return;
-    setState(() {
-      final base = _catalog;
-      final mapsByAddr = <String, MapSummaryDto>{
-        for (final m in base?.maps ?? const <MapSummaryDto>[]) m.address: m,
-      };
-      final storiesByAddr = <String, StorySummaryDto>{
-        for (final s in base?.stories ?? const <StorySummaryDto>[])
-          s.address: s,
-      };
-      final atlasesByAddr = <String, AtlasSummaryDto>{
-        for (final a in base?.atlases ?? const <AtlasSummaryDto>[])
-          a.address: a,
-      };
-      final sightingsByAddr = <String, SightingSummaryDto>{
-        for (final s in base?.sightings ?? const <SightingSummaryDto>[])
-          s.address: s,
-      };
-      final beaconsByAddr = <String, LiveBeaconDto>{
-        for (final b in base?.beacons ?? const <LiveBeaconDto>[]) b.address: b,
-      };
-
-      if (event.map != null) {
-        final m = event.map!;
-        mapsByAddr[m.address] = m;
-        for (var i = 0; i < _shelfMaps.length; i++) {
-          if (_shelfMaps[i].summary.address == m.address &&
-              _shelfMaps[i].summary.eventId != m.eventId) {
-            _shelfMaps[i] = _entryFromSummary(m)
-                .copyWith(visible: _shelfMaps[i].visible);
-          }
-        }
-      }
-      if (event.story != null) storiesByAddr[event.story!.address] = event.story!;
-      if (event.atlas != null) atlasesByAddr[event.atlas!.address] = event.atlas!;
-      if (event.sighting != null) {
-        sightingsByAddr[event.sighting!.address] = event.sighting!;
-      }
-      if (event.beacon != null) {
-        beaconsByAddr[event.beacon!.address] = event.beacon!;
-      }
-
-      final mergedMaps = mapsByAddr.values.toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      final mergedStories = storiesByAddr.values.toList()
-        ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
-      final mergedAtlases = atlasesByAddr.values.toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      final mergedSightings = sightingsByAddr.values.toList()
-        ..sort((a, b) => b.start.compareTo(a.start));
-      final mergedBeacons = beaconsByAddr.values.toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-      _catalog = EarthlyCatalogSnapshot(
-        relayUrls: base?.relayUrls ?? _activeRelayUrls,
-        maps: mergedMaps,
-        stories: mergedStories,
-        atlases: mergedAtlases,
-        sightings: mergedSightings,
-        beacons: mergedBeacons,
-      );
-    });
-
-    if (event.beacon != null) {
-      final b = event.beacon!;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Live Beacon: ${b.status?.isNotEmpty == true ? b.status : b.dTag}',
-          ),
-          action: SnackBarAction(
-            label: 'Locate',
-            onPressed: () => _focusBeacon(b),
-          ),
-        ),
-      );
-    }
-  }
-
-  /// Actively listens for incoming Nearby Field Session data (both local host
-  /// LMDB writes from paired peers AND periodic NIP-42 sync pulls from approved
-  /// remote hosts), updating Shelf maps, Sightings, Explore, and Spaces badges
-  /// in real time without manual refresh!
-  Future<void> _pollLiveNearbyUpdates() async {
-    if (!mounted) return;
-    _liveTickCount += 1;
-    try {
-      await RustBridge.ensureInitialized();
-      final status = await localNodeStatus();
-      if (!status.running) return;
-
-      final peers = await nearbyPeersStatus();
-      final pendingCount = peers.pendingClaims.length;
-      if (mounted && pendingCount != _pendingClaimCount) {
-        setState(() => _pendingClaimCount = pendingCount);
-      }
-
-      // Every 4s on joined peer devices, pull newly published events from approved hosts.
-      if (_liveTickCount % 2 == 0) {
-        for (final remote in peers.remotePeers) {
-          if (remote.status == 'accepted') {
-            try {
-              await syncNearbyPeer(nodeId: remote.nodeId);
-            } catch (_) {}
-          }
-        }
-      }
-
-      // Fast (~1 ms) LMDB scan for newly arrived or updated Nearby entities.
-      final localSnap = await fetchLocalNodeCatalog();
-      if (!mounted) return;
-
-      final newlyArrivedMaps = <MapSummaryDto>[];
-      var anyChange = false;
-
-      for (final m in localSnap.maps) {
-        final prevId = _seenLocalEventIds[m.address];
-        if (prevId != m.eventId) {
-          _seenLocalEventIds[m.address] = m.eventId;
-          anyChange = true;
-          if (_initialLocalBaselineCaptured) {
-            newlyArrivedMaps.add(m);
-          }
-        }
-      }
-      for (final s in localSnap.sightings) {
-        if (_seenLocalEventIds[s.address] != s.eventId) {
-          _seenLocalEventIds[s.address] = s.eventId;
-          anyChange = true;
-        }
-      }
-      for (final st in localSnap.stories) {
-        if (_seenLocalEventIds[st.address] != st.eventId) {
-          _seenLocalEventIds[st.address] = st.eventId;
-          anyChange = true;
-        }
-      }
-      for (final b in localSnap.beacons) {
-        if (_seenLocalEventIds[b.address] != b.eventId) {
-          _seenLocalEventIds[b.address] = b.eventId;
-          anyChange = true;
-        }
-      }
-      _initialLocalBaselineCaptured = true;
-
-      if (!anyChange) return;
-
-      setState(() {
-        // Merge local/Nearby items into active catalog snapshot live.
-        final base = _catalog;
-        final mapsByAddr = <String, MapSummaryDto>{
-          for (final m in base?.maps ?? const <MapSummaryDto>[]) m.address: m,
-          for (final m in localSnap.maps) m.address: m,
-        };
-        final storiesByAddr = <String, StorySummaryDto>{
-          for (final s in base?.stories ?? const <StorySummaryDto>[])
-            s.address: s,
-          for (final s in localSnap.stories) s.address: s,
-        };
-        final atlasesByAddr = <String, AtlasSummaryDto>{
-          for (final a in base?.atlases ?? const <AtlasSummaryDto>[])
-            a.address: a,
-          for (final a in localSnap.atlases) a.address: a,
-        };
-        final sightingsByAddr = <String, SightingSummaryDto>{
-          for (final s in base?.sightings ?? const <SightingSummaryDto>[])
-            s.address: s,
-          for (final s in localSnap.sightings) s.address: s,
-        };
-        final beaconsByAddr = <String, LiveBeaconDto>{
-          for (final b in base?.beacons ?? const <LiveBeaconDto>[])
-            b.address: b,
-          for (final b in localSnap.beacons) b.address: b,
-        };
-
-        final mergedMaps = mapsByAddr.values.toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        final mergedStories = storiesByAddr.values.toList()
-          ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
-        final mergedAtlases = atlasesByAddr.values.toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        final mergedSightings = sightingsByAddr.values.toList()
-          ..sort((a, b) => b.start.compareTo(a.start));
-        final mergedBeacons = beaconsByAddr.values.toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-        _catalog = EarthlyCatalogSnapshot(
-          relayUrls: base?.relayUrls ?? localSnap.relayUrls,
-          maps: mergedMaps,
-          stories: mergedStories,
-          atlases: mergedAtlases,
-          sightings: mergedSightings,
-          beacons: mergedBeacons,
-        );
-
-        // Live-refresh any Map already mounted on the Shelf!
-        for (var i = 0; i < _shelfMaps.length; i++) {
-          final updated = mapsByAddr[_shelfMaps[i].summary.address];
-          if (updated != null &&
-              updated.eventId != _shelfMaps[i].summary.eventId) {
-            _shelfMaps[i] = _entryFromSummary(updated)
-                .copyWith(visible: _shelfMaps[i].visible);
-          }
-        }
-      });
-
-      // Notify user with a 1-tap Show button when a brand-new Nearby map arrives!
-      if (newlyArrivedMaps.isNotEmpty && mounted) {
-        final latest = newlyArrivedMaps.first;
-        final alreadyOnShelf =
-            _shelfMaps.any((e) => e.summary.address == latest.address);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              alreadyOnShelf
-                  ? 'Live update: "${latest.title}" refreshed on map'
-                  : 'New Nearby Map received: "${latest.title}"',
-            ),
-            action: alreadyOnShelf
-                ? null
-                : SnackBarAction(
-                    label: 'Show',
-                    onPressed: () => _toggleMapOnShelf(latest),
-                  ),
-          ),
-        );
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _pickAgentAttachment() async {
-    try {
-      final picked = await DeviceBridge.pickGeoJsonFile();
-      await RustBridge.ensureInitialized();
-      final lowerName = picked.name.toLowerCase();
-      final isZipOrShp = lowerName.endsWith('.zip') ||
-          lowerName.endsWith('.shp') ||
-          (picked.bytes.length >= 2 &&
-              picked.bytes[0] == 0x50 &&
-              picked.bytes[1] == 0x4B);
-      final rawText =
-          isZipOrShp ? '' : utf8.decode(picked.bytes, allowMalformed: true);
-      var formatLabel = lowerName.contains('.')
-          ? lowerName.split('.').last.toUpperCase()
-          : 'FILE';
-      var featureCount = 0;
-      String? importedGeojson;
-      var summary = '';
-      try {
-        final converted = isZipOrShp
-            ? await geoImportShapefileBytes(
-                filename: picked.name,
-                bytes: picked.bytes,
-              )
-            : await geoImportSpatialFile(
-                filename: picked.name,
-                content: rawText,
-              );
-        formatLabel = converted.format.toUpperCase();
-        featureCount = converted.featureCount;
-        importedGeojson = converted.geojson;
-        final preview = converted.geojson.length > 2400
-            ? '${converted.geojson.substring(0, 2400)}…'
-            : converted.geojson;
-        summary =
-            'Converted $formatLabel with $featureCount feature(s).\n$preview';
-      } catch (_) {
-        final trimmed = rawText.trim();
-        summary = trimmed.length > 2400
-            ? '${trimmed.substring(0, 2400)}…'
-            : trimmed;
-      }
-      if (!mounted) return;
-      setState(() {
-        _agentPendingAttachment = AgentAttachment(
-          fileName: picked.name,
-          formatLabel: formatLabel,
-          featureCount: featureCount,
-          summaryText: summary,
-          importedGeojson: importedGeojson,
-        );
-      });
-    } catch (err) {
-      if (!mounted || err.toString().contains('cancelled')) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Attachment failed: $err')),
-      );
-    }
-  }
-
-  Future<void> _sendAgentPrompt(String prompt) async {
-    final attachment = _agentPendingAttachment;
-    final visiblePrompt =
-        attachment == null ? prompt : '📎 ${attachment.fileName}\n$prompt';
-    final effectivePrompt = attachment == null
-        ? prompt
-        : '[Attached File: ${attachment.fileName} (${attachment.formatLabel})]\n'
-            '${attachment.summaryText}\n\nUser request: $prompt';
-
-    setState(() {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      _updateActiveAgentThread((t) {
-        final nextTitle = t.messages.isEmpty
-            ? (prompt.length > 26 ? '${prompt.substring(0, 26)}…' : prompt)
-            : t.title;
-        return t.copyWith(
-          title: nextTitle,
-          updatedAtMs: now,
-          messages: [
-            ...t.messages,
-            CopilotMessage(role: 'user', content: visiblePrompt),
-          ],
-        );
-      });
-      _agentPendingAttachment = null;
-      _agentBusy = true;
-      _agentStreamingText = '';
-      _agentActiveToolStatus = 'Starting agent…';
-      _agentLiveToolCalls = const <AgentToolRecordDto>[];
-    });
-    try {
-      await RustBridge.ensureInitialized();
-      await _agentStreamSub?.cancel();
-      final cam = _controller?.camera;
-      final center =
-          cam?.center ?? const Geographic(lon: 16.3738, lat: 48.2082);
-      final draftGeojson = draftFeaturesToGeoJson(
-        title: _draftTitle,
-        features: _features,
-      );
-      final history = _agentMessages
-          .take(_agentMessages.length - 1)
-          .map((m) => AgentMessageDto(role: m.role, content: m.content))
-          .toList(growable: false);
-      final workingSetTitles = _shelfMaps
-          .where((e) => _agentWorkingSetAddresses.contains(e.summary.address))
-          .map((e) => '${e.summary.title} (${e.summary.address})')
-          .toList(growable: false);
-      final cat = _catalog;
-      final catalogItems = <String>[
-        if (cat != null) ...[
-          for (final m in cat.maps.take(20))
-            '[Map] ${m.title} | ${m.address}${m.hashtags.isNotEmpty ? ' | #${m.hashtags.join(" #")}' : ''} | ${m.featureCount} features',
-          for (final s in cat.stories.take(10)) '[Story] ${s.title} | ${s.address}',
-          for (final a in cat.atlases.take(10))
-            '[Atlas] ${a.name} | ${a.address} | ${a.governance}',
-        ],
-      ];
-
-      final allowVision =
-          _agentAttachMapView && _agentVisionSupport != 'no-vision';
-      final snapshotB64 =
-          allowVision ? await _captureMapSnapshotBase64() : null;
-
-      final completer = Completer<AgentTurnResultDto>();
-      _agentStreamSub = streamEarthlyAgentTurn(
-        prompt: effectivePrompt,
-        history: history,
-        providerBaseUrl: _agentSettings.baseUrl,
-        model: _agentSettings.model,
-        apiKey: _agentSettings.apiKey.isEmpty ? null : _agentSettings.apiKey,
-        centerLon: center.lon,
-        centerLat: center.lat,
-        zoom: cam?.zoom ?? 13.5,
-        draftTitle: _draftTitle,
-        draftGeojson: draftGeojson,
-        shelfMapTitles: _shelfMaps.map((e) => e.summary.title).toList(),
-        atlasWorkspaces:
-            _mountedAtlasWorkspaces.map((w) => w.coverageSummary).toList(),
-        workingSetTitles: workingSetTitles,
-        catalogItems: catalogItems,
-        mapSnapshotBase64: snapshotB64,
-        allowVision: allowVision,
-      ).listen(
-        (ev) {
-          if (!mounted) return;
-          switch (ev.eventType) {
-            case 'status':
-              setState(() => _agentActiveToolStatus = ev.text);
-            case 'delta':
-              final piece = ev.text ?? '';
-              if (piece.isNotEmpty) {
-                setState(() => _agentStreamingText += piece);
-              }
-            case 'tool_started':
-              setState(() {
-                final stepLabel = ev.step != null ? 'Step ${ev.step} · ' : '';
-                _agentActiveToolStatus =
-                    '${stepLabel}Running ${ev.toolName ?? 'tool'}…';
-              });
-            case 'tool_finished':
-              if (ev.toolName != null && ev.toolSummary != null) {
-                setState(() {
-                  _agentLiveToolCalls = [
-                    ..._agentLiveToolCalls,
-                    AgentToolRecordDto(
-                      name: ev.toolName!,
-                      ok: ev.toolOk ?? true,
-                      summary: ev.toolSummary!,
-                    ),
-                  ];
-                });
-              }
-            case 'completed':
-              if (ev.result != null && !completer.isCompleted) {
-                completer.complete(ev.result!);
-              }
-            case 'error':
-              if (!completer.isCompleted) {
-                completer.completeError(ev.text ?? 'Agent streaming error');
-              }
-          }
-        },
-        onError: (Object err) {
-          if (!completer.isCompleted) completer.completeError(err);
-        },
-        onDone: () {
-          if (!completer.isCompleted) {
-            completer.completeError('Agent stream ended unexpectedly');
-          }
-        },
-      );
-
-      final result = await completer.future;
-      if (!mounted) return;
-      final proposed = result.updatedDraftGeojson;
-      setState(() {
-        final now = DateTime.now().millisecondsSinceEpoch;
-        _updateActiveAgentThread(
-          (t) => t.copyWith(
-            updatedAtMs: now,
-            messages: [
-              ...t.messages,
-              CopilotMessage(
-                role: 'assistant',
-                content: result.reply,
-                toolCalls: result.toolCalls,
-                promptTokens: result.promptTokens,
-                completionTokens: result.completionTokens,
-                totalTokens: result.totalTokens,
-              ),
-            ],
-          ),
-        );
-      });
-      if (proposed != null) {
-        _stageOrApplyAiGeojson(
-          proposedGeojson: proposed,
-          diffAdded: result.diffAdded,
-          diffModified: result.diffModified,
-          diffRemoved: result.diffRemoved,
-          summary: result.toolCalls.isNotEmpty
-              ? result.toolCalls.map((t) => t.summary).join(' · ')
-              : result.reply,
-        );
-      }
-      if (result.cameraAction != null) {
-        final ca = result.cameraAction!;
-        _controller?.animateCamera(
-          CameraUpdate.position(
-            center: Geographic(lon: ca.lon, lat: ca.lat),
-            zoom: ca.zoom,
-          ),
-        );
-      }
-    } catch (err) {
-      if (!mounted) return;
-      setState(() {
-        final now = DateTime.now().millisecondsSinceEpoch;
-        _updateActiveAgentThread(
-          (t) => t.copyWith(
-            updatedAtMs: now,
-            messages: [
-              ...t.messages,
-              CopilotMessage(
-                role: 'assistant',
-                content: err.toString(),
-                isError: true,
-              ),
-            ],
-          ),
-        );
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _agentBusy = false;
-          _agentStreamingText = '';
-          _agentActiveToolStatus = null;
-          _agentLiveToolCalls = const <AgentToolRecordDto>[];
-        });
-        unawaited(_persistAppSettings());
-      }
-    }
-  }
-
-  void _pushDraftUndo() {
-    _draftUndoStack.add(List<DrawnFeature>.from(_features));
-    if (_draftUndoStack.length > 40) {
-      _draftUndoStack.removeAt(0);
-    }
-    _draftRedoStack.clear();
-  }
-
-  void _undoDraftEdit() {
-    if (_draftUndoStack.isEmpty) return;
-    HapticFeedback.selectionClick();
-    setState(() {
-      _draftRedoStack.add(List<DrawnFeature>.from(_features));
-      final prev = _draftUndoStack.removeLast();
-      _features
-        ..clear()
-        ..addAll(prev);
-      _pruneDraftSelection();
-    });
-    if (_inspectedFeature?.draftFeatureId != null) {
-      _refreshInspectedDraftFeature(_inspectedFeature!.draftFeatureId!);
-    }
-    unawaited(_persistWorkingDraft());
-  }
-
-  void _redoDraftEdit() {
-    if (_draftRedoStack.isEmpty) return;
-    HapticFeedback.selectionClick();
-    setState(() {
-      _draftUndoStack.add(List<DrawnFeature>.from(_features));
-      final next = _draftRedoStack.removeLast();
-      _features
-        ..clear()
-        ..addAll(next);
-      _pruneDraftSelection();
-    });
-    if (_inspectedFeature?.draftFeatureId != null) {
-      _refreshInspectedDraftFeature(_inspectedFeature!.draftFeatureId!);
-    }
-    unawaited(_persistWorkingDraft());
-  }
-
-  void _stageOrApplyAiGeojson({
-    required String proposedGeojson,
-    required int diffAdded,
-    required int diffModified,
-    required int diffRemoved,
-    required String summary,
-  }) {
-    if (_agentSafeEditing) {
-      final ghostShapes = parseGeoJsonShapes(
-        proposedGeojson,
-        datasetTitle: 'AI Proposal',
-      );
-      setState(() {
-        _pendingAiEdit = PendingAiEdit(
-          proposedGeojson: proposedGeojson,
-          diffAdded: diffAdded,
-          diffModified: diffModified,
-          diffRemoved: diffRemoved,
-          summary: summary,
-        );
-        _aiGhostShapes = ghostShapes;
-      });
-      if (ghostShapes.isNotEmpty) {
-        final bounds = computeFeatureBounds(ghostShapes.first);
-        if (bounds != null) _flyToBounds(bounds);
-      }
-      return;
-    }
-    final parsed = parseDraftFeaturesFromGeoJson(proposedGeojson);
-    _pushDraftUndo();
-    setState(() {
-      _features
-        ..clear()
-        ..addAll(parsed);
-      _featureCounter = _features.length;
-      _pendingAiEdit = null;
-      _aiGhostShapes = const [];
-    });
-    unawaited(_persistWorkingDraft());
-  }
-
-  void _acceptPendingAiEdit() {
-    final pending = _pendingAiEdit;
-    if (pending == null) return;
-    final parsed = parseDraftFeaturesFromGeoJson(pending.proposedGeojson);
-    _pushDraftUndo();
-    HapticFeedback.mediumImpact();
-    setState(() {
-      _features
-        ..clear()
-        ..addAll(parsed);
-      _featureCounter = _features.length;
-      _pendingAiEdit = null;
-      _aiGhostShapes = const [];
-    });
-    unawaited(_persistWorkingDraft());
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Applied AI edit to Working Draft')),
-    );
-  }
-
-  void _discardPendingAiEdit() {
-    setState(() {
-      _pendingAiEdit = null;
-      _aiGhostShapes = const [];
-    });
-  }
-
-  void _extractResearchSourceToMap(ResearchSourceDto src) {
-    final baseFeatures = List<DrawnFeature>.from(_features);
-    int addedCount = 0;
-    if (src.directGeojson != null && src.directGeojson!.isNotEmpty) {
-      final parsed = parseDraftFeaturesFromGeoJson(src.directGeojson!);
-      for (final f in parsed) {
-        addedCount += 1;
-        baseFeatures.add(
-          DrawnFeature(
-            id: 'src-${DateTime.now().millisecondsSinceEpoch}-$addedCount',
-            kind: f.kind,
-            vertices: f.vertices,
-            name: f.name ?? src.title,
-            description: f.description ?? 'Source: ${src.url}',
-            colorHex: f.colorHex ?? '#1F5F8B',
-            strokeWidth: f.strokeWidth,
-            fillOpacity: f.fillOpacity,
-            radius: f.radius,
-            callouts: f.callouts,
-          ),
-        );
-      }
-    } else {
-      for (var i = 0; i < src.coordinates.length && i < 12; i++) {
-        final c = src.coordinates[i];
-        addedCount += 1;
-        final label = src.coordinates.length == 1
-            ? src.title
-            : '${src.title} #${i + 1}';
-        baseFeatures.add(
-          DrawnFeature(
-            id: 'src-${DateTime.now().millisecondsSinceEpoch}-$addedCount',
-            kind: DrawToolMode.point,
-            vertices: [Geographic(lon: c.lon, lat: c.lat)],
-            name: label,
-            description: 'Extracted from ${src.url}',
-            colorHex: '#1F5F8B',
-            callouts: [
-              DraftCallout(
-                id: 'cite-$addedCount',
-                title: src.title,
-                text: src.url,
-              ),
-            ],
-          ),
-        );
-      }
-    }
-    if (addedCount == 0) return;
-    final proposed = draftFeaturesToGeoJson(
-      title: _draftTitle,
-      features: baseFeatures,
-    );
-    _stageOrApplyAiGeojson(
-      proposedGeojson: proposed,
-      diffAdded: addedCount,
-      diffModified: 0,
-      diffRemoved: 0,
-      summary: 'Extracted $addedCount feature(s) from ${src.title}',
-    );
-  }
-
-  void _citeResearchSourceInStory(ResearchSourceDto src) {
-    final buf = StringBuffer()
-      ..writeln('# ${src.title}')
-      ..writeln()
-      ..writeln('> Source: [${src.title}](${src.url})')
-      ..writeln();
-    if (src.coordinates.isNotEmpty) {
-      final c = src.coordinates.first;
-      buf.writeln(
-        'Location: geo:${c.lat.toStringAsFixed(5)},${c.lon.toStringAsFixed(5)}',
-      );
-      buf.writeln();
-    }
-    if (src.excerpt.isNotEmpty) {
-      final snippet = src.excerpt.length > 500
-          ? '${src.excerpt.substring(0, 500)}…'
-          : src.excerpt;
-      buf.writeln(snippet);
-    }
-    setState(() {
-      _editingStory = StorySummaryDto(
-        address: '',
-        eventId: '',
-        pubkey: _account?.pubkey ?? '',
-        dTag: '',
-        title: src.title,
-        summary: 'Field notes citing ${src.url}',
-        content: buf.toString(),
-        referencedAddresses: const [],
-        publishedAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
-      );
-    });
-    _openDrawer(_ActiveDrawer.storyComposer);
-  }
-
-  Future<void> _syncActiveGpsTrackFromService() async {
-    if (!Platform.isAndroid) return;
-    final status = await DeviceBridge.getGpsTrackStatus();
-    if (!mounted || status == null || !status.recording) return;
-    final pts =
-        status.points.map((p) => Geographic(lon: p.lon, lat: p.lat)).toList();
-    setState(() {
-      _gpsTrackRecording = true;
-      _gpsTrackPaused = status.paused;
-      _gpsTrackPoints
-        ..clear()
-        ..addAll(pts);
-      _gpsTrackDistanceMeters = _computePolylineMeters(pts);
-    });
-  }
-
-  double _computePolylineMeters(List<Geographic> pts) {
-    if (pts.length < 2) return 0.0;
-    var total = 0.0;
-    for (var i = 1; i < pts.length; i++) {
-      total += DrawingMath.distanceMeters(pts[i - 1], pts[i]);
-    }
-    return total;
-  }
-
-  void _onGpsTrackPoint(GpsTrackSample sample) {
-    if (!mounted || !_gpsTrackRecording || _gpsTrackPaused) return;
-    final nextPt = Geographic(lon: sample.lon, lat: sample.lat);
-    setState(() {
-      if (_gpsTrackPoints.isNotEmpty) {
-        _gpsTrackDistanceMeters +=
-            DrawingMath.distanceMeters(_gpsTrackPoints.last, nextPt);
-      }
-      _gpsTrackPoints.add(nextPt);
-    });
-  }
-
-  Future<void> _startGpsTrack() async {
-    if (_gpsTrackRecording) return;
-    try {
-      if (Platform.isAndroid) {
-        await DeviceBridge.startGpsTrack();
-      }
-      if (!mounted) return;
-      final initialPts = <Geographic>[];
-      if (!Platform.isAndroid) {
-        final center = _controller?.camera?.center;
-        if (center != null) initialPts.add(center);
-      }
-      HapticFeedback.mediumImpact();
-      setState(() {
-        _gpsTrackRecording = true;
-        _gpsTrackPaused = false;
-        _gpsTrackPoints
-          ..clear()
-          ..addAll(initialPts);
-        _gpsTrackDistanceMeters = 0.0;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            Platform.isAndroid
-                ? 'Background GPS track started (foreground notification active)'
-                : 'GPS Track recorder started — pan & tap +Pt to log waypoints',
-          ),
-        ),
-      );
-    } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not start GPS track: $err')),
-      );
-    }
-  }
-
-  Future<void> _togglePauseGpsTrack() async {
-    if (!_gpsTrackRecording) return;
-    final nextPaused = !_gpsTrackPaused;
-    if (Platform.isAndroid) {
-      if (nextPaused) {
-        await DeviceBridge.pauseGpsTrack();
-      } else {
-        await DeviceBridge.resumeGpsTrack();
-      }
-    }
-    if (mounted) setState(() => _gpsTrackPaused = nextPaused);
-  }
-
-  Future<void> _addTrackWaypointNow() async {
-    if (!_gpsTrackRecording) return;
-    Geographic? pt = _controller?.camera?.center;
-    if (Platform.isAndroid) {
-      try {
-        final fix = await DeviceBridge.getCurrentLocation();
-        pt = Geographic(lon: fix.lon, lat: fix.lat);
-      } catch (_) {}
-    }
-    if (pt == null || !mounted) return;
-    final p = pt;
-    HapticFeedback.selectionClick();
-    setState(() {
-      if (_gpsTrackPoints.isNotEmpty) {
-        _gpsTrackDistanceMeters +=
-            DrawingMath.distanceMeters(_gpsTrackPoints.last, p);
-      }
-      _gpsTrackPoints.add(p);
-    });
-  }
-
-  Future<void> _finishGpsTrackToDraft() async {
-    if (!_gpsTrackRecording) return;
-    var pts = List<Geographic>.from(_gpsTrackPoints);
-    if (Platform.isAndroid) {
-      try {
-        final servicePts = await DeviceBridge.stopGpsTrack();
-        if (servicePts.length > pts.length) {
-          pts = servicePts
-              .map((s) => Geographic(lon: s.lon, lat: s.lat))
-              .toList();
-        }
-      } catch (_) {}
-    }
-    if (!mounted) return;
-    if (pts.isEmpty) {
-      setState(() {
-        _gpsTrackRecording = false;
-        _gpsTrackPaused = false;
-      });
-      return;
-    }
-    final dist = _computePolylineMeters(pts);
-    final now = DateTime.now();
-    final hhmm =
-        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-    _pushDraftUndo();
-    HapticFeedback.mediumImpact();
-    setState(() {
-      _featureCounter += 1;
-      _features.add(
-        DrawnFeature(
-          id: 'gps-track-$_featureCounter',
-          kind: pts.length >= 2 ? DrawToolMode.line : DrawToolMode.point,
-          vertices: List<Geographic>.unmodifiable(pts),
-          name: 'GPS Track ($hhmm)',
-          description:
-              'Recorded ${pts.length} GPS points · ${DrawingMath.formatDistance(dist)}',
-          colorHex: '#E11D48',
-          strokeWidth: 4.0,
-        ),
-      );
-      _gpsTrackRecording = false;
-      _gpsTrackPaused = false;
-      _gpsTrackPoints.clear();
-      _gpsTrackDistanceMeters = 0.0;
-    });
-    unawaited(_persistWorkingDraft());
-    _openDrawer(_ActiveDrawer.desk);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Saved GPS Track (${pts.length} pts · ${DrawingMath.formatDistance(dist)}) to Working Draft',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _cancelGpsTrack() async {
-    if (Platform.isAndroid) {
-      try {
-        await DeviceBridge.stopGpsTrack();
-      } catch (_) {}
-    }
-    if (!mounted) return;
-    setState(() {
-      _gpsTrackRecording = false;
-      _gpsTrackPaused = false;
-      _gpsTrackPoints.clear();
-      _gpsTrackDistanceMeters = 0.0;
-    });
-  }
-
-  Future<String> _databasePath() async {
-    final dir = await getApplicationSupportDirectory();
-    return '${dir.path}/earthly.sqlite3';
-  }
-
-  Future<void> _refreshSavedDrafts() async {
-    if (widget.mapBuilder != null) return;
-    try {
-      await RustBridge.ensureInitialized();
-      final dbPath = await _databasePath();
-      final all = await listLocalDrafts(databasePath: dbPath);
-      if (mounted) setState(() => _savedDrafts = all);
-    } catch (_) {}
-  }
-
-  Future<void> _restoreSavedDraft() async {
-    try {
-      await RustBridge.ensureInitialized();
-      final dbPath = await _databasePath();
-      final all = await listLocalDrafts(databasePath: dbPath);
-      final saved = await loadLocalDraft(
-        databasePath: dbPath,
-        draftId: _activeDraftId,
-      );
-      if (!mounted) return;
-      setState(() => _savedDrafts = all);
-      final target = saved ?? (all.isNotEmpty ? all.first : null);
-      if (target == null) return;
-      final restored = parseDraftFeaturesFromGeoJson(target.geojson);
-      setState(() {
-        _activeDraftId = target.draftId;
-        _draftDTag = target.dTag;
-        _draftTitle = target.title;
-        _draftAudience = target.audienceChannel == 'nearby'
-            ? DraftAudienceChoice.nearbyLocalNode
-            : DraftAudienceChoice.publicRelay;
-        _features
-          ..clear()
-          ..addAll(restored);
-        _featureCounter = restored.length;
-      });
-    } catch (_) {}
-  }
-
-  void _selectSavedDraft(LocalDraftDto draft) {
-    final restored = parseDraftFeaturesFromGeoJson(draft.geojson);
-    setState(() {
-      _activeDraftId = draft.draftId;
-      _draftDTag = draft.dTag;
-      _draftTitle = draft.title;
-      _draftAudience = draft.audienceChannel == 'nearby'
-          ? DraftAudienceChoice.nearbyLocalNode
-          : DraftAudienceChoice.publicRelay;
-      _features
-        ..clear()
-        ..addAll(restored);
-      _selectedDraftFeatureIds.clear();
-      _draftVertices.clear();
-      _editingDraftFeature = null;
-      _featureCounter = restored.length;
-    });
-  }
-
-  void _createNewDraft() {
-    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    setState(() {
-      _activeDraftId = 'draft-$nowSec';
-      _draftDTag = 'field-$nowSec';
-      _draftTitle = 'Field Map ${_savedDrafts.length + 1}';
-      _features.clear();
-      _selectedDraftFeatureIds.clear();
-      _draftVertices.clear();
-      _editingDraftFeature = null;
-      _featureCounter = 0;
-    });
-    unawaited(_persistWorkingDraft());
-  }
-
-  Future<void> _deleteSavedDraft(String draftId) async {
-    try {
-      await RustBridge.ensureInitialized();
-      final dbPath = await _databasePath();
-      await deleteLocalDraft(databasePath: dbPath, draftId: draftId);
-      final remaining = await listLocalDrafts(databasePath: dbPath);
-      if (!mounted) return;
-      setState(() => _savedDrafts = remaining);
-      if (_activeDraftId == draftId) {
-        if (remaining.isNotEmpty) {
-          _selectSavedDraft(remaining.first);
-        } else {
-          _createNewDraft();
-        }
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _persistWorkingDraft() async {
-    if (widget.mapBuilder != null) return;
-    try {
-      await RustBridge.ensureInitialized();
-      final dbPath = await _databasePath();
-      final geojson = draftFeaturesToGeoJson(
-        title: _draftTitle,
-        features: _features,
-      );
-      await saveLocalDraft(
-        databasePath: dbPath,
-        draftId: _activeDraftId,
-        dTag: _draftDTag,
-        title: _draftTitle,
-        audienceChannel: _draftAudience == DraftAudienceChoice.nearbyLocalNode
-            ? 'nearby'
-            : 'public',
-        geojson: geojson,
-      );
-      await _refreshSavedDrafts();
-      _syncMcpWorkspaceIfRunning();
-    } catch (_) {}
-  }
-
-  /// Ensures an active signer identity (Android Amber NIP-55 OR Desktop local
-  /// keypair) and returns `(pubkey, signedEventJson)` for any unsigned event.
-  Future<Nip55Account> _ensureAccount() async {
-    if (_account != null) return _account!;
-    if (Platform.isAndroid && await Nip55Signer.isSignerInstalled()) {
-      final acct = await Nip55Signer.getPublicKey();
-      if (mounted) {
-        _upsertAndActivateSession(
-          SavedAccountSessionDto(
-            id: 'amber:${acct.pubkey}',
-            kind: 'amber',
-            pubkeyHex: acct.pubkey,
-            signerPackage: acct.signerPackage,
-          ),
-        );
-      }
-      return acct;
-    }
-    // Desktop / non-Amber host: auto-generate an ephemeral local Nostr keypair.
-    await RustBridge.ensureInitialized();
-    final kp = await generateLocalNostrKeypair();
-    final acct = Nip55Account(pubkey: kp.pubkeyHex);
-    if (mounted) {
-      _upsertAndActivateSession(
-        SavedAccountSessionDto(
-          id: 'local:${kp.pubkeyHex}',
-          kind: 'local',
-          pubkeyHex: kp.pubkeyHex,
-          localNsec: kp.nsec,
-        ),
-      );
-    }
-    return acct;
-  }
-
-  Future<String> _signUnsignedEvent(
-    Nip55Account account,
-    String unsignedEventJson,
-  ) async {
-    if (_activeSavedSession?.kind == 'readonly') {
-      throw StateError(
-        'Active account is a read-only watch session. Switch to a signing session in Account.',
-      );
-    }
-    if (_bunkerUri != null &&
-        _bunkerUri!.isNotEmpty &&
-        _bunkerClientNsec != null &&
-        _bunkerClientNsec!.isNotEmpty) {
-      await RustBridge.ensureInitialized();
-      return signEventWithNip46Bunker(
-        bunkerUri: _bunkerUri!,
-        clientNsec: _bunkerClientNsec!,
-        unsignedEventJson: unsignedEventJson,
-      );
-    }
-    if (_localNsec != null && _localNsec!.isNotEmpty) {
-      await RustBridge.ensureInitialized();
-      return signEventWithNsec(
-        nsecOrHex: _localNsec!,
-        unsignedEventJson: unsignedEventJson,
-      );
-    }
-    final signed = await Nip55Signer.signEvent(
-      eventJson: unsignedEventJson,
-      currentUser: account.pubkey,
-      signerPackage: account.signerPackage,
-    );
-    final json = signed.signedEventJson;
-    if (json == null || json.isEmpty) {
-      throw StateError('Signer did not return a full signed event JSON');
-    }
-    return json;
-  }
-
-  Future<PublishOutcomeDto> _deliverForAudience(
-    DraftAudienceChoice audience,
-    String signedEventJson,
-  ) async {
-    final dbPath = await _databasePath();
-    final PublishOutcomeDto outcome;
-    if (audience == DraftAudienceChoice.nearbyLocalNode) {
-      final dir = await getApplicationSupportDirectory();
-      final existing = await localNodeStatus();
-      if (!existing.running) {
-        await startLocalNode(dataDir: '${dir.path}/local-node');
-      }
-      outcome = await publishNearbyEventViaOutbox(
-        databasePath: dbPath,
-        signedEventJson: signedEventJson,
-        remoteNodeIds: _acceptedRemotePeer != null
-            ? <String>[_acceptedRemotePeer!.nodeId]
-            : const <String>[],
-      );
-    } else {
-      outcome = await publishSignedEventViaOutbox(
-        databasePath: dbPath,
-        signedEventJson: signedEventJson,
-        relayUrls: _activeRelayUrls,
-      );
-    }
-    unawaited(_refreshOutboxItems());
-    return outcome;
-  }
-
-  bool get _isDrawingMode => _mode != DrawToolMode.browse;
-  bool get _isMeasureMode => _mode == DrawToolMode.measure;
-  bool get _canFinishDraft => switch (_mode) {
-        DrawToolMode.line => _draftVertices.length >= 2,
-        DrawToolMode.polygon => _draftVertices.length >= 3,
-        _ => false,
-      };
-
-  List<SightingSummaryDto> get _allSightings {
-    final byAddr = <String, SightingSummaryDto>{};
-    for (final s in _catalog?.sightings ?? const <SightingSummaryDto>[]) {
-      byAddr[s.address] = s;
-    }
-    for (final s in _localSightings) {
-      byAddr[s.address] = s;
-    }
-    return byAddr.values.toList(growable: false);
-  }
-
-  List<LiveBeaconDto> get _allBeacons {
-    final nowSec = BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000);
-    final byAddr = <String, LiveBeaconDto>{};
-    for (final b in _catalog?.beacons ?? const <LiveBeaconDto>[]) {
-      if (b.expiresAt == null || b.expiresAt! > nowSec) {
-        byAddr[b.address] = b;
-      }
-    }
-    for (final b in _localBeacons) {
-      if (b.expiresAt == null || b.expiresAt! > nowSec) {
-        byAddr[b.address] = b;
-      }
-    }
-    return byAddr.values.toList(growable: false);
-  }
-
-  void _focusBeacon(LiveBeaconDto beacon) {
-    _controller?.animateCamera(
-      CameraUpdate.position(
-        center: Geographic(lon: beacon.lon, lat: beacon.lat),
-        zoom: 15.5,
-      ),
-    );
-  }
-
-  Future<PublishOutcomeDto> _broadcastLiveBeacon(
-    String status,
-    int durationMinutes,
-    bool nearby,
-  ) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-
-    Geographic loc = _controller?.camera?.center ??
-        const Geographic(lon: 16.3738, lat: 48.2082);
-    if (Platform.isAndroid) {
-      try {
-        final gps = await DeviceBridge.getCurrentLocation();
-        loc = Geographic(lon: gps.lon, lat: gps.lat);
-      } catch (_) {}
-    }
-
-    final prepared = await prepareUnsignedBeaconEvent(
-      pubkeyOrNpub: account.pubkey,
-      dTag: 'live-beacon',
-      lon: loc.lon,
-      lat: loc.lat,
-      status: status.isEmpty ? null : status,
-      durationMinutes: durationMinutes,
-      fieldSessionId: nearby ? _activeNearbySessionId : null,
-    );
-    final signedJson =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final outcome = await _deliverForAudience(
-      nearby
-          ? DraftAudienceChoice.nearbyLocalNode
-          : DraftAudienceChoice.publicRelay,
-      signedJson,
-    );
-
-    final liveDto = LiveBeaconDto(
-      address: prepared.address,
-      eventId: outcome.eventId,
-      pubkey: account.pubkey,
-      dTag: prepared.dTag,
-      lon: loc.lon,
-      lat: loc.lat,
-      status: status.isEmpty ? 'Live here' : status,
-      expiresAt: prepared.expiresAt,
-      createdAt: prepared.start,
-    );
-    if (mounted) {
-      setState(() {
-        _localBeacons.removeWhere((b) => b.address == liveDto.address);
-        _localBeacons.add(liveDto);
-      });
-      _focusBeacon(liveDto);
-    }
-    return outcome;
-  }
-
-  MapGestures get _activeMapGestures {
-    if (_isDrawingMode && _placementStyle == TouchPlacementStyle.drawDrag) {
-      return const MapGestures(
-        drag: false,
-        fling: false,
-        pinch: true,
-        scrollWheel: true,
-        doubleTap: false,
-        doubleTapDrag: false,
-        twoFingerDrag: true,
-      );
-    }
-    return const MapGestures();
-  }
-
-  void _selectMode(DrawToolMode next) {
-    setState(() {
-      if (_mode == next) {
-        _mode = DrawToolMode.browse;
-      } else {
-        _draftVertices.clear();
-        _drawer = _ActiveDrawer.none;
-        _rightStudioDrawer = _ActiveDrawer.none;
-        _mode = next;
-      }
-    });
-  }
-
-  void _commitVertex(Geographic point) {
-    if (_mode == DrawToolMode.point) {
-      _pushDraftUndo();
-    }
-    setState(() {
-      if (_mode == DrawToolMode.point) {
-        if (_editingDraftFeature != null) {
-          _features.add(
-            _editingDraftFeature!.copyWith(vertices: <Geographic>[point]),
-          );
-          _editingDraftFeature = null;
-          _draftVertices.clear();
-          _mode = DrawToolMode.browse;
-        } else {
-          _featureCounter += 1;
-          _features.add(
-            DrawnFeature(
-              id: 'pt-$_featureCounter',
-              kind: DrawToolMode.point,
-              vertices: <Geographic>[point],
-            ),
-          );
-        }
-      } else if (_mode == DrawToolMode.line ||
-          _mode == DrawToolMode.polygon ||
-          _mode == DrawToolMode.measure) {
-        _draftVertices.add(point);
-      }
-    });
-    if (_mode == DrawToolMode.measure) {
-      unawaited(_recomputeMeasureTelemetry());
-    } else if (_mode == DrawToolMode.point || _mode == DrawToolMode.browse) {
-      unawaited(_persistWorkingDraft());
-    }
-  }
-
-  void _dropCrosshairPoint() {
-    final center = _controller?.camera?.center;
-    if (center == null) return;
-    HapticFeedback.mediumImpact();
-    _commitVertex(center);
-  }
-
-  void _finishDraft() {
-    if (!_canFinishDraft) return;
-    _pushDraftUndo();
-    HapticFeedback.mediumImpact();
-    setState(() {
-      if (_editingDraftFeature != null) {
-        _features.add(
-          _editingDraftFeature!.copyWith(
-            vertices: List<Geographic>.unmodifiable(_draftVertices),
-          ),
-        );
-        _editingDraftFeature = null;
-        _draftVertices.clear();
-        _mode = DrawToolMode.browse;
-      } else {
-        _featureCounter += 1;
-        _features.add(
-          DrawnFeature(
-            id: 'feat-$_featureCounter',
-            kind: _mode,
-            vertices: List<Geographic>.unmodifiable(_draftVertices),
-          ),
-        );
-        _draftVertices.clear();
-      }
-    });
-    unawaited(_persistWorkingDraft());
-  }
-
-  void _undoLastPoint() {
-    if (_draftVertices.isNotEmpty) {
-      setState(() => _draftVertices.removeLast());
-      if (_mode == DrawToolMode.measure) {
-        unawaited(_recomputeMeasureTelemetry());
-      }
-    } else if (_mode != DrawToolMode.measure && _features.isNotEmpty) {
-      setState(() => _features.removeLast());
-      unawaited(_persistWorkingDraft());
-    }
-  }
-
-  ShelfMapEntry _entryFromSummary(MapSummaryDto map) => ShelfMapEntry(
-        summary: map,
-        visible: true,
-        shapes: parseGeoJsonShapes(
-          map.geojson,
-          datasetTitle: map.title,
-          datasetAddress: map.address,
-        ),
-      );
-
-  void _toggleMapOnShelf(MapSummaryDto map) {
-    final idx = _shelfMaps.indexWhere((e) => e.summary.address == map.address);
-    if (idx >= 0) {
-      setState(() => _shelfMaps.removeAt(idx));
-      _syncMcpWorkspaceIfRunning();
-      return;
-    }
-    setState(() => _shelfMaps.add(_entryFromSummary(map)));
-    _recordRecentEntity('map:${map.address}');
-    if (map.blobRefs.isNotEmpty) {
-      unawaited(_ensureMapBlobsResolved(map));
-    }
-    _flyToMap(map);
-    _syncMcpWorkspaceIfRunning();
-  }
-
-  void _addMapsBulkToShelf(List<MapSummaryDto> maps) {
-    if (maps.isEmpty) return;
-    final added = <ShelfMapEntry>[];
-    setState(() {
-      for (final m in maps) {
-        if (_shelfMaps.any((e) => e.summary.address == m.address)) continue;
-        final entry = _entryFromSummary(m);
-        _shelfMaps.add(entry);
-        added.add(entry);
-      }
-    });
-    for (final entry in added) {
-      if (entry.summary.blobRefs.isNotEmpty) {
-        unawaited(_ensureMapBlobsResolved(entry.summary));
-      }
-    }
-    if (added.isNotEmpty) {
-      final bounds = computeCombinedBounds(added);
-      if (bounds != null) _flyToBounds(bounds);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Added ${added.length} map${added.length == 1 ? '' : 's'} to Shelf',
-          ),
-        ),
-      );
-    }
-  }
-
-  EdgeInsets _cameraPadding() {
-    final width = MediaQuery.sizeOf(context).width;
-    if (width >= 1100) {
-      final leftPad = _drawer != _ActiveDrawer.none ? 440.0 : 40.0;
-      final rightPad = _rightStudioDrawer != _ActiveDrawer.none ? 440.0 : 40.0;
-      return EdgeInsets.fromLTRB(leftPad, 72, rightPad, 48);
-    }
-    if (width >= 880 && _drawer != _ActiveDrawer.none) {
-      return const EdgeInsets.fromLTRB(440, 72, 40, 48);
-    }
-    return EdgeInsets.fromLTRB(
-      36,
-      72,
-      36,
-      _drawer != _ActiveDrawer.none ? 320 : 96,
-    );
-  }
-
-  void _flyToMap(MapSummaryDto map) {
-    final controller = _controller;
-    if (controller == null) return;
-    if (map.west != null &&
-        map.south != null &&
-        map.east != null &&
-        map.north != null) {
-      controller.animateCamera(
-        CameraUpdate.bounds(
-          GeoBox(
-            west: map.west!,
-            south: map.south!,
-            east: map.east!,
-            north: map.north!,
-          ),
-          padding: _cameraPadding(),
-        ),
-      );
-    }
-  }
-
-  void _flyToBounds(GeoBox bounds) {
-    _controller?.animateCamera(
-      CameraUpdate.bounds(bounds, padding: _cameraPadding()),
-    );
-  }
-
-  void _flyToStoryCamera(StoryCameraTarget camera) {
-    _controller?.animateCamera(
-      CameraUpdate.position(
-        center: Geographic(lon: camera.lon, lat: camera.lat),
-        zoom: camera.zoom,
-        bearing: camera.bearing,
-        pitch: camera.pitch,
-      ),
-    );
-  }
-
-  void _focusSighting(SightingSummaryDto sighting) {
-    _controller?.animateCamera(
-      CameraUpdate.position(
-        center: Geographic(lon: sighting.lon, lat: sighting.lat),
-        zoom: 15,
-      ),
-    );
-  }
-
-  Future<void> _openStory(StorySummaryDto story) async {
-    final parsed = parseStoryDocument(
-      markdown: story.content,
-      presentationJson: story.presentationJson,
-    );
-
-    final knownByAddr = <String, MapSummaryDto>{
-      for (final m in _catalog?.maps ?? const <MapSummaryDto>[]) m.address: m,
-      for (final s in _shelfMaps) s.summary.address: s.summary,
-    };
-
-    final targetAddresses = <String>{
-      ...story.referencedAddresses.where((a) => a.startsWith('37515:')),
-      ...parsed.presentationMapAddresses,
-    };
-
-    final initialDatasets = <String, ShelfMapEntry>{};
-    for (final addr in targetAddresses) {
-      final found = knownByAddr[addr];
-      if (found != null) {
-        initialDatasets[addr] = _entryFromSummary(found);
-      }
-    }
-
-    final initialPins = <GeoPinOverlayItem>[];
-    for (final ref in parsed.inlineRefs) {
-      if (ref.kind == StoryInlineRefKind.geoCoord &&
-          ref.lat != null &&
-          ref.lon != null) {
-        initialPins.add(
-          GeoPinOverlayItem(
-            id: ref.rawToken,
-            position: Geographic(lon: ref.lon!, lat: ref.lat!),
-            label:
-                '${ref.lat!.toStringAsFixed(4)}, ${ref.lon!.toStringAsFixed(4)}',
-          ),
-        );
-      }
-    }
-
-    setState(() {
-      _mode = DrawToolMode.browse;
-      if (_isWideStudio) {
-        _rightStudioDrawer = _ActiveDrawer.storyReader;
-      } else {
-        _drawer = _ActiveDrawer.storyReader;
-      }
-      _activeStory = story;
-      _parsedStory = parsed;
-      _deskStories.removeWhere((s) => s.address == story.address);
-      _deskStories.insert(0, story);
-      _storyDatasets
-        ..clear()
-        ..addAll(initialDatasets);
-      _storyDecodedRefs.clear();
-      _loadingStoryMaps = true;
-      _activeStoryViewIndex = null;
-      _focusedStoryDatasetAddress = null;
-      _focusedStoryFeatureId = null;
-      _storyGeoPins
-        ..clear()
-        ..addAll(initialPins);
-    });
-
-    if (parsed.initialView != null) {
-      _flyToStoryCamera(parsed.initialView!);
-    } else if (initialDatasets.isNotEmpty) {
-      final bounds = computeCombinedBounds(initialDatasets.values);
-      if (bounds != null) _flyToBounds(bounds);
-    }
-
-    try {
-      await RustBridge.ensureInitialized();
-      final decodedMap = <String, DecodedNaddrDto>{};
-      final hintedRelays = <String>{..._activeRelayUrls};
-
-      for (final ref in parsed.inlineRefs) {
-        if (ref.kind != StoryInlineRefKind.naddr || ref.naddrUri == null) {
-          continue;
-        }
-        final decoded = await decodeNaddrCoordinate(naddrUri: ref.naddrUri!);
-        if (decoded != null) {
-          decodedMap[ref.rawToken] = decoded;
-          if (decoded.kind == 37515) {
-            targetAddresses.add(decoded.address);
-          }
-          for (final r in decoded.relays) {
-            if (r.startsWith('wss://')) hintedRelays.add(r);
-          }
-        }
-      }
-
-      for (final addr in targetAddresses) {
-        if (!initialDatasets.containsKey(addr) &&
-            knownByAddr.containsKey(addr)) {
-          initialDatasets[addr] = _entryFromSummary(knownByAddr[addr]!);
-        }
-      }
-
-      final missingAddresses = targetAddresses
-          .where((a) => !initialDatasets.containsKey(a))
-          .toList(growable: false);
-
-      if (missingAddresses.isNotEmpty) {
-        final fetched = await fetchMapsByAddresses(
-          relayUrls: hintedRelays.toList(growable: false),
-          addresses: missingAddresses,
-        );
-        for (final map in fetched) {
-          initialDatasets[map.address] = _entryFromSummary(map);
-        }
-      }
-
-      if (!mounted || _activeStory?.address != story.address) return;
-      setState(() {
-        _storyDecodedRefs
-          ..clear()
-          ..addAll(decodedMap);
-        _storyDatasets
-          ..clear()
-          ..addAll(initialDatasets);
-        _loadingStoryMaps = false;
-      });
-      for (final entry in initialDatasets.values) {
-        if (entry.summary.blobRefs.isNotEmpty) {
-          unawaited(_ensureMapBlobsResolved(entry.summary));
-        }
-      }
-
-      if (parsed.initialView == null && initialDatasets.isNotEmpty) {
-        final bounds = computeCombinedBounds(initialDatasets.values);
-        if (bounds != null) _flyToBounds(bounds);
-      }
-    } catch (_) {
-      if (mounted && _activeStory?.address == story.address) {
-        setState(() => _loadingStoryMaps = false);
-      }
-    }
-  }
-
-  void _selectStoryView(int? index) {
-    final parsed = _parsedStory;
-    if (parsed == null) return;
-    setState(() {
-      _activeStoryViewIndex = index;
-      _focusedStoryDatasetAddress = null;
-      _focusedStoryFeatureId = null;
-    });
-    if (index == null) {
-      if (parsed.initialView != null) {
-        _flyToStoryCamera(parsed.initialView!);
-      } else {
-        final bounds = computeCombinedBounds(_storyDatasets.values);
-        if (bounds != null) _flyToBounds(bounds);
-      }
-      return;
-    }
-    if (index >= 0 && index < parsed.viewSnapshots.length) {
-      final snap = parsed.viewSnapshots[index];
-      if (snap.camera != null) {
-        _flyToStoryCamera(snap.camera!);
-      }
-    }
-  }
-
-  void _activateStoryNaddrRef(DecodedNaddrDto ref) {
-    final dataset = _storyDatasets[ref.address];
-    setState(() {
-      _focusedStoryDatasetAddress = ref.address;
-      _focusedStoryFeatureId = ref.featureId;
-    });
-    if (dataset == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Referenced map ${ref.dTag} is not on relay')),
-      );
-      return;
-    }
-    if (ref.featureId != null) {
-      final matches =
-          dataset.shapes.where((s) => s.featureId == ref.featureId).toList();
-      if (matches.isNotEmpty) {
-        final bounds = computeFeatureBounds(matches.first);
-        if (bounds != null) {
-          _flyToBounds(bounds);
-          return;
-        }
-      }
-    }
-    _flyToMap(dataset.summary);
-  }
-
-  void _activateStoryGeoRef(double lat, double lon, String label) {
-    final pos = Geographic(lon: lon, lat: lat);
-    setState(() {
-      if (!_storyGeoPins.any((p) => p.label == label)) {
-        _storyGeoPins.add(
-          GeoPinOverlayItem(id: 'geo-$label', position: pos, label: label),
-        );
-      }
-    });
-    _controller?.animateCamera(
-      CameraUpdate.position(center: pos, zoom: 15.5),
-    );
-  }
-
-  void _keepStoryMapsOnShelf() {
-    setState(() {
-      for (final entry in _storyDatasets.values) {
-        final exists = _shelfMaps.any(
-          (e) => e.summary.address == entry.summary.address,
-        );
-        if (!exists) {
-          _shelfMaps.add(entry);
-        }
-      }
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Pinned ${_storyDatasets.length} Story map${_storyDatasets.length == 1 ? '' : 's'} to Shelf',
-        ),
-      ),
-    );
-  }
-
-  void _closeStory() {
-    setState(() {
-      if (_drawer == _ActiveDrawer.storyReader) {
-        _drawer = _ActiveDrawer.none;
-      }
-      if (_rightStudioDrawer == _ActiveDrawer.storyReader) {
-        _rightStudioDrawer = _ActiveDrawer.none;
-      }
-      _activeStory = null;
-      _parsedStory = null;
-      _storyDatasets.clear();
-      _storyDecodedRefs.clear();
-      _loadingStoryMaps = false;
-      _activeStoryViewIndex = null;
-      _focusedStoryDatasetAddress = null;
-      _focusedStoryFeatureId = null;
-      _storyGeoPins.clear();
-    });
-  }
-
   void _inspectMap(MapSummaryDto map) {
-    _recordRecentEntity('map:${map.address}');
-    setState(() => _inspectedMap = map);
+    _catalog.setInspectedMap(
+      map,
+      onPersist: () => unawaited(_persistAppSettings()),
+    );
     _openDrawer(_ActiveDrawer.datasetDetail);
-    if (map.blobRefs.isNotEmpty) {
-      unawaited(_ensureMapBlobsResolved(map));
-    }
-  }
-
-  Future<void> _editOrForkMap(MapSummaryDto map) async {
-    final resolvedMap = map.blobRefs.isNotEmpty
-        ? await _ensureMapBlobsResolved(map)
-        : map;
-    if (!mounted) return;
-    final isOwned = _account != null && _account!.pubkey == resolvedMap.pubkey;
-    final cloned = parseDraftFeaturesFromGeoJson(resolvedMap.geojson);
-    if (cloned.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No editable features found in map')),
-      );
-      return;
-    }
-    _pushDraftUndo();
-    setState(() {
-      _features
-        ..clear()
-        ..addAll(cloned);
-      _selectedDraftFeatureIds.clear();
-      _draftVertices.clear();
-      _featureCounter = _features.length;
-      if (isOwned) {
-        _draftDTag = resolvedMap.dTag;
-        _draftTitle = resolvedMap.title;
-      } else {
-        _draftDTag = 'field-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-        _draftTitle = '${resolvedMap.title} (Fork)';
-      }
-      _drawer = _ActiveDrawer.desk;
-    });
-    unawaited(_persistWorkingDraft());
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isOwned
-              ? 'Loaded "${resolvedMap.title}" for in-place edit (preserving d-tag)'
-              : 'Forked ${cloned.length} features into Working Draft',
-        ),
-      ),
-    );
-  }
-
-  Future<PublishOutcomeDto> _deleteOwnedMap(MapSummaryDto map) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final prepared = await prepareUnsignedDeletionEvent(
-      pubkeyOrNpub: account.pubkey,
-      targetAddress: map.address,
-      targetEventId: map.eventId,
-      targetKind: 37515,
-      reason: 'Deleted map "${map.title}"',
-    );
-    final signed =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final outcome =
-        await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
-    if (mounted) {
-      setState(() {
-        _shelfMaps.removeWhere((e) => e.summary.address == map.address);
-        if (_catalog != null) {
-          _catalog = EarthlyCatalogSnapshot(
-            relayUrls: _catalog!.relayUrls,
-            maps: _catalog!.maps
-                .where((m) => m.address != map.address)
-                .toList(growable: false),
-            stories: _catalog!.stories,
-            atlases: _catalog!.atlases,
-            sightings: _catalog!.sightings,
-            beacons: _catalog!.beacons,
-          );
-        }
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Published NIP-09 deletion for "${map.title}" (${outcome.outboxState})',
-          ),
-        ),
-      );
-    }
-    return outcome;
-  }
-
-  void _jumpToMapFeature(MapSummaryDto map, ShelfShape shape) {
-    if (!_shelfMaps.any((e) => e.summary.address == map.address)) {
-      setState(() => _shelfMaps.add(_entryFromSummary(map)));
-    }
-    final bounds = computeFeatureBounds(shape);
-    if (bounds != null) _flyToBounds(bounds);
-    _inspectFeature(
-      InspectedFeature(
-        sourceLabel: map.title,
-        isDraft: false,
-        featureId: shape.featureId,
-        geometryType: switch (shape.kind) {
-          ShelfShapeKind.point => 'Point',
-          ShelfShapeKind.line => 'LineString',
-          ShelfShapeKind.polygon => 'Polygon',
-        },
-        title: shape.label ?? shape.featureId ?? map.title,
-        properties: shape.properties,
-        callouts: shape.callouts,
-        datasetAddress: map.address,
-        datasetPubkey: map.pubkey,
-        datasetTitle: map.title,
-        datasetEventId: map.eventId,
-        datasetGeojson: map.geojson,
-      ),
-    );
-  }
-
-  void _fitAllMountedLayers() {
-    final bounds = computeCombinedBounds(_shelfMaps);
-    if (bounds != null) {
-      _flyToBounds(bounds);
-      return;
-    }
-    final verts = _features.expand((f) => f.vertices).toList();
-    if (verts.isNotEmpty) {
-      double west = verts.first.lon;
-      double east = verts.first.lon;
-      double south = verts.first.lat;
-      double north = verts.first.lat;
-      for (final v in verts) {
-        if (v.lon < west) west = v.lon;
-        if (v.lon > east) east = v.lon;
-        if (v.lat < south) south = v.lat;
-        if (v.lat > north) north = v.lat;
-      }
-      _flyToBounds(
-        GeoBox(
-          west: (west - 0.002).clamp(-180.0, 180.0),
-          south: (south - 0.002).clamp(-85.0, 85.0),
-          east: (east + 0.002).clamp(-180.0, 180.0),
-          north: (north + 0.002).clamp(-85.0, 85.0),
-        ),
-      );
-    }
-  }
-
-  void _openEarthlyCommandSheet(BasemapKind effectiveBasemap) {
-    final cam = _controller?.camera;
-    final center = cam?.center ?? const Geographic(lon: 16.3738, lat: 48.2082);
-    final zoom = cam?.zoom ?? 13.5;
-    final geoUri =
-        'geo:${center.lat.toStringAsFixed(5)},${center.lon.toStringAsFixed(5)}';
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) {
-        final theme = Theme.of(ctx);
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.24),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-                Row(
-                  children: [
-                    Container(
-                      width: 28,
-                      height: 28,
-                      decoration: const BoxDecoration(
-                        color: EarthlyColors.amber,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.explore,
-                        size: 17,
-                        color: EarthlyColors.amberInk,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'EARTHLY',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 1.0,
-                            ),
-                          ),
-                          Text(
-                            _relayStreamLive
-                                ? 'Live stream · ${_relayUrls.first}'
-                                : 'Connecting · ${_relayUrls.first}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 10.5,
-                              color: _relayStreamLive
-                                  ? EarthlyColors.commentGreen
-                                  : theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        unawaited(_preloadCatalog());
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Refreshing Nostr catalog…'),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.refresh, size: 15),
-                      label: const Text('Sync'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'APPEARANCE & MAP STYLE',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontFamily: 'monospace',
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final m in const [
-                      (ThemeMode.system, 'System'),
-                      (ThemeMode.light, 'Light'),
-                      (ThemeMode.dark, 'Dark'),
-                    ])
-                      ChoiceChip(
-                        label: Text(m.$2),
-                        selected: widget.themeMode == m.$1,
-                        onSelected: (_) {
-                          widget.onThemeModeChanged?.call(m.$1);
-                          unawaited(_persistAppSettings());
-                        },
-                      ),
-                    for (final b in const [
-                      BasemapKind.auto,
-                      BasemapKind.openFreeMapPositron,
-                      BasemapKind.openFreeMapBright,
-                      BasemapKind.openFreeMapLiberty,
-                      BasemapKind.openFreeMapDark,
-                      BasemapKind.openFreeMapFiord,
-                    ])
-                      ChoiceChip(
-                        label: Text(basemapStyleLabel(b)),
-                        selected: effectiveBasemap == b,
-                        onSelected: (_) {
-                          setState(() => _selectedBasemap = b);
-                          unawaited(_persistAppSettings());
-                          Navigator.of(ctx).pop();
-                        },
-                      ),
-                    ActionChip(
-                      avatar: const Icon(Icons.satellite_alt_outlined, size: 15),
-                      label: const Text('Satellite / Offline…'),
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        _openBasemapSwitcher(effectiveBasemap);
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 9,
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: theme.dividerColor),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.my_location, size: 15),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${center.lat.toStringAsFixed(5)}, ${center.lon.toStringAsFixed(5)} · z${zoom.toStringAsFixed(1)}',
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: geoUri));
-                          Navigator.of(ctx).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Copied $geoUri')),
-                          );
-                        },
-                        child: const Text('Copy geo:'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (_shelfMaps.isNotEmpty || _features.isNotEmpty)
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.of(ctx).pop();
-                          _fitAllMountedLayers();
-                        },
-                        icon: const Icon(Icons.fit_screen, size: 16),
-                        label: const Text('Fit All Layers'),
-                      ),
-                    if (_shelfMaps.isNotEmpty)
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.of(ctx).pop();
-                          setState(() => _shelfMaps.clear());
-                        },
-                        icon: const Icon(Icons.layers_clear_outlined, size: 16),
-                        label: Text('Clear Shelf (${_shelfMaps.length})'),
-                      ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        if (_gpsTrackRecording) {
-                          unawaited(_finishGpsTrackToDraft());
-                        } else {
-                          unawaited(_startGpsTrack());
-                        }
-                      },
-                      icon: Icon(
-                        _gpsTrackRecording
-                            ? Icons.stop_circle_outlined
-                            : Icons.route,
-                        size: 16,
-                      ),
-                      label: Text(
-                        _gpsTrackRecording
-                            ? 'Save GPS Track (${_gpsTrackPoints.length})'
-                            : 'Record GPS Track',
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        _openDrawer(_ActiveDrawer.inbox);
-                        unawaited(_refreshInbox());
-                      },
-                      icon: const Icon(Icons.inbox_outlined, size: 16),
-                      label: Text(
-                        _inboxUnreadCount > 0
-                            ? 'Inbox ($_inboxUnreadCount)'
-                            : 'Inbox',
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        setState(() => _drawer = _ActiveDrawer.circles);
-                      },
-                      icon: const Icon(Icons.lock_outline, size: 16),
-                      label: Text(
-                        _circles.isEmpty
-                            ? 'Circles (MLS)'
-                            : 'Circles (${_circles.length})',
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        showModalBottomSheet<void>(
-                          context: context,
-                          builder: (_) => const RustNodeSheet(),
-                        );
-                      },
-                      icon: const Icon(Icons.memory, size: 16),
-                      label: const Text('Rust Node & Outbox'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 
   void _inspectAtlas(AtlasSummaryDto atlas) {
-    _recordRecentEntity('atlas:${atlas.address}');
-    setState(() {
-      _inspectedAtlas = atlas;
-      _deskAtlases.removeWhere((a) => a.address == atlas.address);
-      _deskAtlases.insert(0, atlas);
-    });
+    _catalog.setInspectedAtlas(
+      atlas,
+      onPersist: () => unawaited(_persistAppSettings()),
+    );
     _openDrawer(_ActiveDrawer.atlasDetail);
   }
 
   void _enterAtlasLens(AtlasSummaryDto atlas) {
-    _recordRecentEntity('atlas:${atlas.address}');
-    setState(() {
-      _activeAtlasLens = atlas;
-      _deskAtlases.removeWhere((a) => a.address == atlas.address);
-      _deskAtlases.insert(0, atlas);
-    });
+    _catalog.enterAtlasLens(
+      atlas,
+      onPersist: () => unawaited(_persistAppSettings()),
+    );
     unawaited(_openAtlas(atlas));
   }
 
-  void _leaveAtlasLens() {
-    setState(() => _activeAtlasLens = null);
-  }
-
   Future<void> _openAtlas(AtlasSummaryDto atlas) async {
-    _recordRecentEntity('atlas:${atlas.address}');
-    final mapAddresses = <String>{
-      ...atlas.pinnedAddresses.where((a) => a.startsWith('37515:')),
-      if (atlas.governance != 'closed')
-        for (final m in _catalog?.maps ?? const <MapSummaryDto>[])
-          if (m.contextRefs.contains(atlas.address) &&
-              !_mutedPubkeys.contains(m.pubkey))
-            m.address,
-    }.toList(growable: false);
-    if (mapAddresses.isEmpty) return;
-
-    final knownByAddr = <String, MapSummaryDto>{
-      for (final m in _catalog?.maps ?? const <MapSummaryDto>[]) m.address: m,
-      for (final s in _shelfMaps) s.summary.address: s.summary,
-    };
-    final missing =
-        mapAddresses.where((a) => !knownByAddr.containsKey(a)).toList();
-
-    if (missing.isNotEmpty) {
-      try {
-        await RustBridge.ensureInitialized();
-        final fetched = await fetchMapsByAddresses(
-          relayUrls: _activeRelayUrls,
-          addresses: missing,
-        );
-        for (final m in fetched) {
-          knownByAddr[m.address] = m;
-        }
-      } catch (_) {}
-    }
-
-    final added = <ShelfMapEntry>[];
-    setState(() {
-      _deskAtlases.removeWhere((a) => a.address == atlas.address);
-      _deskAtlases.insert(0, atlas);
-      for (final addr in mapAddresses) {
-        final map = knownByAddr[addr];
-        if (map == null) continue;
-        final existingIdx =
-            _shelfMaps.indexWhere((e) => e.summary.address == map.address);
-        if (existingIdx >= 0) {
-          added.add(_shelfMaps[existingIdx]);
-        } else {
-          final entry = _entryFromSummary(map);
-          _shelfMaps.add(entry);
-          added.add(entry);
-        }
-      }
-    });
-    for (final entry in added) {
-      if (entry.summary.blobRefs.isNotEmpty) {
-        unawaited(_ensureMapBlobsResolved(entry.summary));
-      }
-    }
+    final added = await _catalog.openAtlas(
+      atlas,
+      mutedPubkeys: _accountWallet.mutedPubkeys,
+      onPersist: () => unawaited(_persistAppSettings()),
+    );
     final bounds = computeCombinedBounds(added);
     if (bounds != null) _flyToBounds(bounds);
   }
 
   void _inspectFeature(InspectedFeature feature) {
-    if (_isDrawingMode) return;
-    setState(() => _inspectedFeature = feature);
+    if (_draft.isDrawingMode) return;
+    _catalog.setInspectedFeature(feature);
     _openDrawer(_ActiveDrawer.inspector);
   }
 
@@ -5416,13 +1258,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     };
     double? lengthMeters;
     if (f.kind == DrawToolMode.line && f.vertices.length >= 2) {
-      double total = 0;
+      var total = 0.0;
       for (var i = 1; i < f.vertices.length; i++) {
         total += DrawingMath.distanceMeters(f.vertices[i - 1], f.vertices[i]);
       }
       lengthMeters = total;
     } else if (f.kind == DrawToolMode.polygon && f.vertices.length >= 3) {
-      double total = 0;
+      var total = 0.0;
       for (var i = 1; i < f.vertices.length; i++) {
         total += DrawingMath.distanceMeters(f.vertices[i - 1], f.vertices[i]);
       }
@@ -5477,18 +1319,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     );
   }
 
-  void _inspectDraftFeature(DrawnFeature f) {
-    _inspectFeature(_buildInspectedDraftFeature(f));
-  }
-
   void _refreshInspectedDraftFeature(String featureId) {
-    final idx = _features.indexWhere((f) => f.id == featureId);
+    final existing = _catalog.inspectedFeature;
+    if (existing == null || existing.draftFeatureId == null) return;
+    final targetId = featureId.isEmpty ? existing.draftFeatureId! : featureId;
+    if (existing.draftFeatureId != targetId) return;
+    final idx = _draft.features.indexWhere((f) => f.id == targetId);
     if (idx < 0) return;
-    final existing = _inspectedFeature;
-    if (existing == null || existing.draftFeatureId != featureId) return;
-    setState(() {
-      _inspectedFeature = _buildInspectedDraftFeature(_features[idx]);
-    });
+    _catalog.setInspectedFeature(_buildInspectedDraftFeature(_draft.features[idx]));
   }
 
   void _inspectSighting(SightingSummaryDto s) {
@@ -5509,158 +1347,35 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   }
 
   void _openDiscussion(DiscussionTarget target) {
-    setState(() => _discussionTarget = target);
+    _catalog.setDiscussionTarget(target);
     _openDrawer(_ActiveDrawer.discussion);
   }
 
-  Future<PublishOutcomeDto> _postComment(
-    DiscussionTarget target,
-    String text,
-    bool attachDraft, {
-    GeoCommentDto? replyTo,
-  }) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final dTag = 'comment-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-    final geojson = (attachDraft && _features.isNotEmpty)
-        ? draftFeaturesToGeoJson(title: 'Comment annotation', features: _features)
-        : null;
-    final prepared = await prepareUnsignedCommentEvent(
-      pubkeyOrNpub: account.pubkey,
-      dTag: dTag,
-      rootAddress: target.address,
-      rootKind: target.kind,
-      rootPubkey: target.pubkey,
-      text: text,
-      geojson: geojson,
-      parentAddress: replyTo?.address,
-      parentEventId: replyTo?.eventId,
-      parentPubkey: replyTo?.pubkey,
-    );
-    final signedEventJson =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final dbPath = await _databasePath();
-    return publishSignedEventViaOutbox(
-      databasePath: dbPath,
-      signedEventJson: signedEventJson,
-      relayUrls: _activeRelayUrls,
-    );
+  void _openPerson(String pubkey) {
+    _catalog.setInspectedPersonPubkey(pubkey);
+    _openDrawer(_ActiveDrawer.person);
   }
 
-  Future<PublishOutcomeDto> _submitStoryProposal(
-    DiscussionTarget target,
-    String description,
-    String proposedMarkdown,
-  ) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final dTag = 'story-pr-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-    final prepared = await prepareUnsignedStoryProposalEvent(
-      pubkeyOrNpub: account.pubkey,
-      dTag: dTag,
-      targetAddress: target.address,
-      targetOwnerPubkey: target.pubkey,
-      baseEventId: target.eventId,
-      description: description,
-      proposedMarkdown: proposedMarkdown,
-    );
-    final signedEventJson =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final dbPath = await _databasePath();
-    return publishSignedEventViaOutbox(
-      databasePath: dbPath,
-      signedEventJson: signedEventJson,
-      relayUrls: _activeRelayUrls,
-    );
+  void _openLocationInspector(Geographic pt) {
+    _catalog.setInspectedLocation(pt);
+    _openDrawer(_ActiveDrawer.locationInspector);
   }
 
-  Future<PublishOutcomeDto> _submitProposal(
-    DiscussionTarget target,
-    String description,
-  ) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final dTag = 'pr-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-    final proposedGeojson =
-        draftFeaturesToGeoJson(title: target.title, features: _features);
-    final prepared = await prepareUnsignedProposalEvent(
-      pubkeyOrNpub: account.pubkey,
-      dTag: dTag,
-      targetAddress: target.address,
-      targetOwnerPubkey: target.pubkey,
-      baseEventId: target.eventId,
-      description: description,
-      proposedGeojson: proposedGeojson,
-    );
-    final signedEventJson =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final dbPath = await _databasePath();
-    return publishSignedEventViaOutbox(
-      databasePath: dbPath,
-      signedEventJson: signedEventJson,
-      relayUrls: _activeRelayUrls,
-    );
-  }
-
-  Future<PublishOutcomeDto> _publishStory(StoryPublishRequest req) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final dTag = (req.existingDTag != null && req.existingDTag!.isNotEmpty)
-        ? req.existingDTag!
-        : 'story-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-    final prepared = await prepareUnsignedStoryEvent(
-      pubkeyOrNpub: account.pubkey,
-      dTag: dTag,
-      title: req.title,
-      summary: req.summary.isEmpty ? null : req.summary,
-      image: req.image,
-      markdownContent: req.markdown,
-      referencedMapAddresses: req.linkedMapAddresses,
-      presentationJson: req.presentationJson,
-      hashtags: const ['earthly-story'],
-      fieldSessionId: req.audience == DraftAudienceChoice.nearbyLocalNode
-          ? _activeNearbySessionId
-          : null,
-    );
-    final signedEventJson =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final outcome = await _deliverForAudience(req.audience, signedEventJson);
-    if (mounted) {
-      final created = StorySummaryDto(
-        address: prepared.address,
-        eventId: outcome.eventId,
-        pubkey: account.pubkey,
-        dTag: prepared.dTag,
-        title: req.title,
-        summary: req.summary.isEmpty ? null : req.summary,
-        image: req.image,
-        content: req.markdown,
-        presentationJson: req.presentationJson,
-        referencedAddresses: req.linkedMapAddresses,
-        publishedAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
-      );
-      setState(() {
-        _deskStories.removeWhere((s) => s.address == created.address);
-        _deskStories.insert(0, created);
-      });
-    }
-    return outcome;
-  }
-
-  Future<void> _locateMe() async {
+  Future<BlossomUploadDto?> _pickAndUploadBlossomImage(String purpose) async {
     try {
-      final fix = await DeviceBridge.getCurrentLocation();
-      _controller?.animateCamera(
-        CameraUpdate.position(
-          center: Geographic(lon: fix.lon, lat: fix.lat),
-          zoom: 15.5,
-        ),
+      final picked = await DeviceBridge.pickImage();
+      final uploaded = await _catalog.uploadBlossomBytes(
+        bytes: picked.bytes,
+        mimeType: picked.mimeType,
+        purpose: purpose,
+        ensureAccount: _ensureAccount,
+        signUnsignedEvent: _accountWallet.signUnsignedEvent,
       );
+      _showSnack('Uploaded to Blossom: ${uploaded.url}');
+      return uploaded;
     } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('GPS unavailable: $err')),
-      );
+      if (err.toString().contains('cancelled')) return null;
+      rethrow;
     }
   }
 
@@ -5669,31 +1384,30 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     DraftAudienceChoice audience,
   ) async {
     await RustBridge.ensureInitialized();
-    final geojson = draftFeaturesToGeoJson(title: title, features: _features);
+    final geojson = draftFeaturesToGeoJson(title: title, features: _draft.features);
 
-    // Encrypted MLS / Cordn Circle destination: NEVER leaks to public Nostr!
     if (audience == DraftAudienceChoice.privateCircle) {
-      final targetId = _selectedCircleId ??
-          _activeCircleLensId ??
-          _circles.firstOrNull?.workspaceId;
+      final targetId = _spaces.selectedCircleId ??
+          _spaces.activeCircleLensId ??
+          _spaces.circles.firstOrNull?.workspaceId;
       if (targetId == null || targetId.isEmpty) {
         throw StateError('Create or select a Circle first');
       }
-      final mlsPath = await _ensureMlsDatabasePath();
+      final mlsPath = await _spaces.ensureMlsDatabasePath();
       final updated = await sendCircleDataset(
         databasePath: mlsPath,
-        signerNsec: _localNsec,
-        bunkerUri: _bunkerUri,
-        bunkerClientNsec: _bunkerClientNsec,
+        signerNsec: _accountWallet.localNsec,
+        bunkerUri: _accountWallet.bunkerUri,
+        bunkerClientNsec: _accountWallet.bunkerClientNsec,
         workspaceId: targetId,
         geojsonJson: geojson,
-        datasetId: _draftDTag,
+        datasetId: _draft.draftDTag,
         name: title,
       );
       _handleCircleWorkspaceUpdated(updated);
-      unawaited(_persistWorkingDraft());
+      _schedulePersistWorkingDraft();
       return PublishOutcomeDto(
-        eventId: updated.datasets.firstOrNull?.envelopeId ?? _draftDTag,
+        eventId: updated.datasets.firstOrNull?.envelopeId ?? _draft.draftDTag,
         outboxState: 'mls-encrypted (epoch ${updated.epoch})',
         relays: [
           RelayDeliveryStatusDto(
@@ -5706,521 +1420,322 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
 
     final account = await _ensureAccount();
-    // SPEC §1.5: Auto-externalize large GeoJSON (> 60 KiB) via BUD-02 Blossom on public relays.
     ExternalGeoBlobDto? externalBlob;
     final rawBytes = Uint8List.fromList(utf8.encode(geojson));
     if (audience == DraftAudienceChoice.publicRelay &&
         rawBytes.length > 60 * 1024) {
-      final uploaded = await _uploadBlossomBytes(
+      final uploaded = await _catalog.uploadBlossomBytes(
         bytes: rawBytes,
         mimeType: 'application/geo+json',
         purpose: 'Externalize large Earthly Map ($title)',
+        ensureAccount: _ensureAccount,
+        signUnsignedEvent: _accountWallet.signUnsignedEvent,
       );
       externalBlob = ExternalGeoBlobDto(
         url: uploaded.url,
         sha256: uploaded.sha256,
         sizeBytes: uploaded.sizeBytes,
       );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Uploaded ${(rawBytes.length / 1024).toStringAsFixed(0)} KB GeoJSON to Blossom blob',
-            ),
-          ),
-        );
-      }
+      _showSnack(
+        'Uploaded ${(rawBytes.length / 1024).toStringAsFixed(0)} KB GeoJSON to Blossom blob',
+      );
     }
     final prepared = await prepareUnsignedMapEvent(
       pubkeyOrNpub: account.pubkey,
-      dTag: _draftDTag,
+      dTag: _draft.draftDTag,
       title: title,
       geojson: geojson,
       hashtags: const ['earthly-native'],
-      contextRefs: _activeAtlasLens != null
-          ? <String>[_activeAtlasLens!.address]
+      contextRefs: _catalog.activeAtlasLens != null
+          ? <String>[_catalog.activeAtlasLens!.address]
           : const <String>[],
       fieldSessionId: audience == DraftAudienceChoice.nearbyLocalNode
-          ? _activeNearbySessionId
+          ? _spaces.activeNearbySessionId
           : null,
       externalBlob: externalBlob,
     );
     final signedEventJson =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
+        await _accountWallet.signUnsignedEvent(account, prepared.unsignedEventJson);
     final outcome = await _deliverForAudience(audience, signedEventJson);
-    unawaited(_persistWorkingDraft());
+    _schedulePersistWorkingDraft();
     return outcome;
   }
 
-  Future<String> _ensureMlsDatabasePath() async {
-    if (_mlsDatabasePath.isNotEmpty) return _mlsDatabasePath;
-    final dir = await getApplicationSupportDirectory();
-    final path = '${dir.path}/mls.sqlite3';
-    if (mounted) setState(() => _mlsDatabasePath = path);
-    return path;
-  }
-
-  Future<void> _refreshCirclesSnapshot() async {
-    if (widget.mapBuilder != null) return;
-    final pk = _account?.pubkey;
-    if (pk == null || pk.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _circles = const [];
-          _circlePendingJoins = const [];
-          _activeCircleLensId = null;
-        });
-      }
-      return;
-    }
-    try {
-      await RustBridge.ensureInitialized();
-      final mlsPath = await _ensureMlsDatabasePath();
-      final snap = await loadCirclesSnapshot(
-        databasePath: mlsPath,
-        ownerPubkeyHex: pk,
-      );
-      if (!mounted) return;
-      setState(() {
-        _circles = snap.workspaces;
-        _circlePendingJoins = snap.pendingJoins;
-      });
-    } catch (_) {}
-  }
-
-  CircleWorkspaceDto? get _activeCircleLens {
-    final id = _activeCircleLensId;
-    if (id == null) return null;
-    for (final c in _circles) {
-      if (c.workspaceId == id) return c;
-    }
-    return null;
-  }
-
-  MapSummaryDto _circleDatasetToSummary(
-    CircleWorkspaceDto ws,
-    CircleDatasetDto ds,
-  ) {
-    final addr = 'private-group:${ws.workspaceId}:${ds.datasetId}';
-    return MapSummaryDto(
-      address: addr,
-      eventId: ds.envelopeId,
-      pubkey: ds.pubkey,
-      dTag: ds.datasetId,
-      title: '🔒 ${ds.title}',
-      description: 'MLS-encrypted Circle Map (${ws.name})',
-      featureCount: ds.featureCount,
-      sizeBytes: ds.geojsonJson.length,
-      geojson: ds.geojsonJson,
-      blobRefs: const <BlobRefDto>[],
-      hashtags: const ['circle-mls'],
-      labels: const <String>[],
-      contextRefs: [ws.workspaceId],
-      createdAt: ds.createdAt,
-    );
-  }
-
   void _handleCircleWorkspaceUpdated(CircleWorkspaceDto ws) {
-    if (!mounted) return;
-    setState(() {
-      final idx = _circles.indexWhere((c) => c.workspaceId == ws.workspaceId);
-      if (idx >= 0) {
-        _circles = [
-          ..._circles.sublist(0, idx),
-          ws,
-          ..._circles.sublist(idx + 1),
-        ];
-      } else {
-        _circles = [ws, ..._circles];
+    _spaces.upsertCircleWorkspace(ws);
+    if (_spaces.activeCircleLensId == ws.workspaceId) {
+      for (final ds in ws.datasets) {
+        final summary = SpacesSyncController.circleDatasetToSummary(ws, ds);
+        _catalog.applyResolvedMapToState(summary);
+        _catalog.ensureMapOnShelf(summary);
       }
-      if (_activeCircleLensId == ws.workspaceId) {
-        for (final ds in ws.datasets) {
-          final summary = _circleDatasetToSummary(ws, ds);
-          final sIdx =
-              _shelfMaps.indexWhere((e) => e.summary.address == summary.address);
-          if (sIdx >= 0) {
-            _shelfMaps[sIdx] = _entryFromSummary(summary)
-                .copyWith(visible: _shelfMaps[sIdx].visible);
-          } else {
-            _shelfMaps.add(_entryFromSummary(summary));
-          }
-        }
-      }
-    });
+    }
   }
 
   void _enterCircleLens(CircleWorkspaceDto ws) {
-    final added = <ShelfMapEntry>[];
-    setState(() {
-      _activeCircleLensId = ws.workspaceId;
-      _selectedCircleId = ws.workspaceId;
-      _draftAudience = DraftAudienceChoice.privateCircle;
-      _shelfMaps.removeWhere(
-        (e) =>
-            e.summary.address.startsWith('private-group:') &&
-            !e.summary.address.startsWith('private-group:${ws.workspaceId}:'),
-      );
-      for (final ds in ws.datasets) {
-        final summary = _circleDatasetToSummary(ws, ds);
-        final existingIdx =
-            _shelfMaps.indexWhere((e) => e.summary.address == summary.address);
-        if (existingIdx >= 0) {
-          added.add(_shelfMaps[existingIdx]);
-        } else {
-          final entry = _entryFromSummary(summary);
-          _shelfMaps.add(entry);
-          added.add(entry);
-        }
+    _spaces.enterCircleLensState(ws);
+    _draft.setDraftAudience(DraftAudienceChoice.privateCircle);
+    for (final existing in List<ShelfMapEntry>.from(_catalog.shelfMaps)) {
+      if (existing.summary.address.startsWith('private-group:') &&
+          !existing.summary.address
+              .startsWith('private-group:${ws.workspaceId}:')) {
+        _catalog.removeShelfMap(existing.summary.address);
       }
-    });
+    }
+    final added = <ShelfMapEntry>[];
+    for (final ds in ws.datasets) {
+      final summary = SpacesSyncController.circleDatasetToSummary(ws, ds);
+      _catalog.ensureMapOnShelf(summary);
+      final found = _catalog.shelfMaps
+          .where((e) => e.summary.address == summary.address)
+          .firstOrNull;
+      if (found != null) added.add(found);
+    }
     final bounds = computeCombinedBounds(added);
     if (bounds != null) _flyToBounds(bounds);
   }
 
   void _leaveCircleLens() {
-    setState(() {
-      _activeCircleLensId = null;
-      _shelfMaps.removeWhere(
-        (e) => e.summary.address.startsWith('private-group:'),
-      );
-      if (_draftAudience == DraftAudienceChoice.privateCircle) {
-        _draftAudience = DraftAudienceChoice.publicRelay;
+    _spaces.leaveCircleLensState();
+    for (final existing in List<ShelfMapEntry>.from(_catalog.shelfMaps)) {
+      if (existing.summary.address.startsWith('private-group:')) {
+        _catalog.removeShelfMap(existing.summary.address);
       }
-    });
+    }
+    if (_draft.draftAudience == DraftAudienceChoice.privateCircle) {
+      _draft.setDraftAudience(DraftAudienceChoice.publicRelay);
+    }
   }
 
   void _toggleCircleDatasetOnMap(CircleWorkspaceDto ws, CircleDatasetDto ds) {
-    final summary = _circleDatasetToSummary(ws, ds);
-    final idx =
-        _shelfMaps.indexWhere((e) => e.summary.address == summary.address);
-    if (idx >= 0) {
-      setState(() => _shelfMaps.removeAt(idx));
-    } else {
-      final entry = _entryFromSummary(summary);
-      setState(() => _shelfMaps.add(entry));
+    final summary = SpacesSyncController.circleDatasetToSummary(ws, ds);
+    final added = _catalog.toggleMapOnShelf(summary);
+    if (added) {
+      final entry = CatalogShelfController.entryFromSummary(summary);
       final bounds = computeCombinedBounds([entry]);
       if (bounds != null) _flyToBounds(bounds);
     }
   }
 
   void _zoomToCircleDataset(CircleWorkspaceDto ws, CircleDatasetDto ds) {
-    final summary = _circleDatasetToSummary(ws, ds);
-    final existingIdx =
-        _shelfMaps.indexWhere((e) => e.summary.address == summary.address);
-    final ShelfMapEntry entry;
-    if (existingIdx >= 0) {
-      entry = _shelfMaps[existingIdx];
-    } else {
-      entry = _entryFromSummary(summary);
-      setState(() => _shelfMaps.add(entry));
-    }
+    final summary = SpacesSyncController.circleDatasetToSummary(ws, ds);
+    _catalog.ensureMapOnShelf(summary);
+    final entry = _catalog.shelfMaps
+            .where((e) => e.summary.address == summary.address)
+            .firstOrNull ??
+        CatalogShelfController.entryFromSummary(summary);
     final bounds = computeCombinedBounds([entry]);
     if (bounds != null) _flyToBounds(bounds);
   }
 
-  void _editCircleDatasetInDraft(CircleWorkspaceDto ws, CircleDatasetDto ds) {
-    final parsed = parseDraftFeaturesFromGeoJson(ds.geojsonJson);
-    setState(() {
-      _activeCircleLensId = ws.workspaceId;
-      _selectedCircleId = ws.workspaceId;
-      _draftAudience = DraftAudienceChoice.privateCircle;
-      _draftDTag = ds.datasetId;
-      _draftTitle = ds.title;
-      _features
-        ..clear()
-        ..addAll(parsed);
-      _draftVertices.clear();
-      _featureCounter = parsed.length;
-      _drawer = _ActiveDrawer.desk;
-    });
-    unawaited(_persistWorkingDraft());
-  }
-
-  void _startNewPrivateMapInCircle(CircleWorkspaceDto ws) {
-    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    setState(() {
-      _activeCircleLensId = ws.workspaceId;
-      _selectedCircleId = ws.workspaceId;
-      _draftAudience = DraftAudienceChoice.privateCircle;
-      _draftDTag = 'circle-map-$nowSec';
-      _draftTitle = '${ws.name} Map';
-      _features.clear();
-      _draftVertices.clear();
-      _featureCounter = 0;
-      _drawer = _ActiveDrawer.desk;
-    });
-    unawaited(_persistWorkingDraft());
-  }
-
-  void _toggleCircleCommentGeometry(CircleMessageDto msg) {
-    if (_activeCommentOverlayId == msg.envelopeId) {
-      setState(() {
-        _activeCommentOverlayId = null;
-        _commentOverlayShapes = const [];
-      });
-      return;
-    }
-    if (msg.geojsonJson == null || msg.geojsonJson!.isEmpty) return;
-    final shapes = parseGeoJsonShapes(
-      msg.geojsonJson!,
-      datasetTitle: 'Circle Comment',
-    );
-    setState(() {
-      _activeCommentOverlayId = msg.envelopeId;
-      _commentOverlayShapes = shapes;
-    });
-    if (shapes.isNotEmpty) {
-      final bounds = computeFeatureBounds(shapes.first);
-      if (bounds != null) _flyToBounds(bounds);
+  Future<void> _locateMe() async {
+    try {
+      final fix = await DeviceBridge.getCurrentLocation();
+      _animateCameraPosition(fix.lon, fix.lat, 15.5);
+    } catch (err) {
+      _showSnack('GPS unavailable: $err');
     }
   }
 
-  Future<CircleWorkspaceDto> _sendCircleComment(
-    String workspaceId,
-    String text,
-    bool attachDraft,
+  Future<PublishOutcomeDto> _broadcastLiveBeacon(
+    String status,
+    int durationMinutes,
+    bool nearby,
   ) async {
     await RustBridge.ensureInitialized();
-    final mlsPath = await _ensureMlsDatabasePath();
-    final geojson = (attachDraft && _features.isNotEmpty)
-        ? draftFeaturesToGeoJson(title: 'Circle attachment', features: _features)
-        : null;
-    final updated = await sendCircleComment(
-      databasePath: mlsPath,
-      signerNsec: _localNsec,
-      bunkerUri: _bunkerUri,
-      bunkerClientNsec: _bunkerClientNsec,
-      workspaceId: workspaceId,
-      text: text,
-      geojsonJson: geojson,
-    );
-    _handleCircleWorkspaceUpdated(updated);
-    return updated;
-  }
-
-  Future<void> _deleteOwnedStory(StorySummaryDto story) async {
-    await RustBridge.ensureInitialized();
     final account = await _ensureAccount();
-    final prepared = await prepareUnsignedDeletionEvent(
-      pubkeyOrNpub: account.pubkey,
-      targetAddress: story.address,
-      targetEventId: story.eventId,
-      targetKind: 37520,
-      reason: 'Deleted story "${story.title}"',
-    );
-    final signed =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final outcome =
-        await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
-    if (!mounted) return;
-    setState(() {
-      _deskStories.removeWhere((s) => s.address == story.address);
-      if (_catalog != null) {
-        _catalog = EarthlyCatalogSnapshot(
-          relayUrls: _catalog!.relayUrls,
-          maps: _catalog!.maps,
-          stories: _catalog!.stories
-              .where((s) => s.address != story.address)
-              .toList(growable: false),
-          atlases: _catalog!.atlases,
-          sightings: _catalog!.sightings,
-          beacons: _catalog!.beacons,
-        );
-      }
-    });
-    _closeStory();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Published NIP-09 deletion for "${story.title}" (${outcome.outboxState})',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _deleteOwnedAtlas(AtlasSummaryDto atlas) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final prepared = await prepareUnsignedDeletionEvent(
-      pubkeyOrNpub: account.pubkey,
-      targetAddress: atlas.address,
-      targetEventId: atlas.eventId,
-      targetKind: 37518,
-      reason: 'Deleted atlas "${atlas.name}"',
-    );
-    final signed =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final outcome =
-        await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
-    if (!mounted) return;
-    setState(() {
-      _deskAtlases.removeWhere((a) => a.address == atlas.address);
-      if (_activeAtlasLens?.address == atlas.address) {
-        _activeAtlasLens = null;
-      }
-      if (_catalog != null) {
-        _catalog = EarthlyCatalogSnapshot(
-          relayUrls: _catalog!.relayUrls,
-          maps: _catalog!.maps,
-          stories: _catalog!.stories,
-          atlases: _catalog!.atlases
-              .where((a) => a.address != atlas.address)
-              .toList(growable: false),
-          sightings: _catalog!.sightings,
-          beacons: _catalog!.beacons,
-        );
-      }
-      if (_drawer == _ActiveDrawer.atlasDetail) {
-        _drawer = _ActiveDrawer.none;
-      }
-      if (_rightStudioDrawer == _ActiveDrawer.atlasDetail) {
-        _rightStudioDrawer = _ActiveDrawer.none;
-      }
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Published NIP-09 deletion for "${atlas.name}" (${outcome.outboxState})',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _mountAtlasWorkspace(AtlasBundleInspectionDto bundle) async {
-    final record = MountedAtlasWorkspaceDto(
-      name: bundle.name,
-      path: bundle.path,
-      sizeBytes: bundle.sizeBytes,
-      families: bundle.families,
-      coverageSummary: bundle.coverageSummary,
-    );
-    setState(() {
-      _mountedAtlasWorkspaces.removeWhere((w) => w.path == record.path);
-      _mountedAtlasWorkspaces.insert(0, record);
-    });
-    unawaited(_saveMacOsSecurityScopedBookmark(bundle.path));
-    unawaited(_persistAppSettings());
-
-    // Auto-mount embedded PMTiles basemap inside the .atlas bundle if present!
-    if (bundle.embeddedPmtilesPath != null &&
-        bundle.embeddedPmtilesPath!.isNotEmpty) {
+    var loc = _controller?.camera?.center ??
+        const Geographic(lon: 16.3738, lat: 48.2082);
+    if (Platform.isAndroid) {
       try {
-        unawaited(_saveMacOsSecurityScopedBookmark(bundle.embeddedPmtilesPath!));
-        final dir = await getApplicationSupportDirectory();
-        await startLocalNode(dataDir: '${dir.path}/local-node');
-        final ingested = await ingestLocalPmtilesFromPath(
-          path: bundle.embeddedPmtilesPath!,
-          label: bundle.name,
-        );
-        final offline = OfflinePmtilesBasemap(
-          snapshot: ingested,
-          styleJson: buildPmtilesStyleJson(ingested),
-        );
-        if (mounted) {
-          setState(() {
-            _offlineBasemap = offline;
-            _selectedBasemap = BasemapKind.offlinePmtiles;
-          });
-        }
+        final gps = await DeviceBridge.getCurrentLocation();
+        loc = Geographic(lon: gps.lon, lat: gps.lat);
       } catch (_) {}
     }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Mounted .atlas workspace "${bundle.name}"')),
-      );
-    }
+    final prepared = await prepareUnsignedBeaconEvent(
+      pubkeyOrNpub: account.pubkey,
+      dTag: 'live-beacon',
+      lon: loc.lon,
+      lat: loc.lat,
+      status: status.isEmpty ? null : status,
+      durationMinutes: durationMinutes,
+      fieldSessionId: nearby ? _spaces.activeNearbySessionId : null,
+    );
+    final signedJson = await _accountWallet.signUnsignedEvent(
+      account,
+      prepared.unsignedEventJson,
+    );
+    final outcome = await _deliverForAudience(
+      nearby
+          ? DraftAudienceChoice.nearbyLocalNode
+          : DraftAudienceChoice.publicRelay,
+      signedJson,
+    );
+    final liveDto = LiveBeaconDto(
+      address: prepared.address,
+      eventId: outcome.eventId,
+      pubkey: account.pubkey,
+      dTag: prepared.dTag,
+      lon: loc.lon,
+      lat: loc.lat,
+      status: status.isEmpty ? 'Live here' : status,
+      expiresAt: prepared.expiresAt,
+      createdAt: prepared.start,
+    );
+    _catalog.upsertLocalBeacon(liveDto);
+    _focusBeacon(liveDto);
+    return outcome;
   }
 
-  int get _inboxUnreadCount => _inboxItems
-      .where(
-        (i) => !InboxSheet.isItemRead(
-          i,
-          readAllBeforeSecs: _inboxReadAllBefore,
-          readIds: _inboxReadIds,
-        ),
-      )
-      .length;
+  Future<EntitySocialCountsDto?> _toggleEntityReaction({
+    required String address,
+    required String? eventId,
+    required String pubkey,
+    required int kind,
+    required EntitySocialCountsDto? current,
+  }) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final prevCount = current?.reactionCount ?? 0;
 
-  Future<void> _refreshInbox() async {
-    if (widget.mapBuilder != null || _inboxLoading) return;
-    final pk = _account?.pubkey;
-    if (pk == null || pk.isEmpty) {
-      if (mounted) setState(() => _inboxItems = const []);
-      return;
-    }
-    if (mounted) setState(() => _inboxLoading = true);
-    try {
-      await RustBridge.ensureInitialized();
-      final ownedAtlases = <String>[
-        for (final a in _catalog?.atlases ?? const <AtlasSummaryDto>[])
-          if (a.pubkey == pk) a.address,
-        for (final a in _deskAtlases)
-          if (a.pubkey == pk) a.address,
-      ];
-      final titles = <String, String>{
-        for (final m in _catalog?.maps ?? const <MapSummaryDto>[])
-          m.address: m.title,
-        for (final s in _catalog?.stories ?? const <StorySummaryDto>[])
-          s.address: s.title,
-        for (final a in _catalog?.atlases ?? const <AtlasSummaryDto>[])
-          a.address: a.name,
-      };
-      final items = await fetchInboxItems(
-        relayUrls: _activeRelayUrls,
-        currentUserPubkey: pk,
-        ownedAtlasAddresses: ownedAtlases.toSet().toList(growable: false),
-        knownTitlesJson: jsonEncode(titles),
+    if (current?.userHasReacted == true &&
+        current?.userReactionEventId != null &&
+        current!.userReactionEventId!.isNotEmpty) {
+      final del = await prepareUnsignedDeletionEvent(
+        pubkeyOrNpub: account.pubkey,
+        targetAddress: '',
+        targetEventId: current.userReactionEventId,
+        targetKind: 7,
+        reason: 'Removed reaction',
       );
-      if (!mounted) return;
-      setState(() => _inboxItems = items);
+      final signed = await _accountWallet.signUnsignedEvent(
+        account,
+        del.unsignedEventJson,
+      );
+      await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+      return EntitySocialCountsDto(
+        address: address,
+        reactionCount: prevCount > 0 ? prevCount - 1 : 0,
+        userHasReacted: false,
+        userReactionEventId: null,
+        zapCount: current.zapCount,
+        zapSats: current.zapSats,
+      );
+    }
 
-      // Resolve missing actor profiles for Inbox rows.
-      final actorPks = items
-          .map((i) => i.actorPubkey)
-          .where((p) => !_profilesByPubkey.containsKey(p))
-          .toSet()
-          .toList(growable: false);
-      if (actorPks.isNotEmpty) {
-        final fetched = await fetchProfiles(
-          relayUrls: _activeRelayUrls,
-          pubkeys: actorPks,
-        );
-        if (mounted && fetched.isNotEmpty) {
-          setState(() {
-            for (final p in fetched) {
-              _profilesByPubkey[p.pubkey] = p;
-            }
-          });
+    final prepared = await prepareUnsignedReactionEvent(
+      pubkeyOrNpub: account.pubkey,
+      targetAddress: address,
+      targetEventId: eventId,
+      targetPubkey: pubkey,
+      targetKind: kind,
+      content: '+',
+    );
+    final signed = await _accountWallet.signUnsignedEvent(
+      account,
+      prepared.unsignedEventJson,
+    );
+    final outcome =
+        await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+    return EntitySocialCountsDto(
+      address: address,
+      reactionCount: prevCount + 1,
+      userHasReacted: true,
+      userReactionEventId: outcome.eventId,
+      zapCount: current?.zapCount ?? 0,
+      zapSats: current?.zapSats ?? BigInt.zero,
+    );
+  }
+
+  Future<void> _openZapDialogForEntity({
+    required String recipientPubkey,
+    required String targetTitle,
+    required String targetAddress,
+    String? targetEventId,
+  }) async {
+    if (!_accountWallet.profilesByPubkey.containsKey(recipientPubkey)) {
+      await _accountWallet.fetchMissingProfiles(
+        <String>[recipientPubkey],
+        _catalog.relayUrls,
+      );
+    }
+    if (!mounted) return;
+    final profile = _accountWallet.profilesByPubkey[recipientPubkey];
+    final recipientName = _accountWallet.displayNameForPubkey(recipientPubkey);
+    final lud16 = profile?.lud16;
+    final cashuSats = _accountWallet.cashuWalletState?.balanceSats.toInt();
+    final canCashuNutzap = _accountWallet.account != null &&
+        _accountWallet.localNsec != null &&
+        _accountWallet.localNsec!.isNotEmpty &&
+        (cashuSats ?? 0) > 0;
+    await showEarthlyZapDialog(
+      context,
+      recipientName: recipientName,
+      recipientPubkey: recipientPubkey,
+      recipientLud16: lud16,
+      targetTitle: targetTitle,
+      targetAddress: targetAddress,
+      targetEventId: targetEventId,
+      hasNwcWallet:
+          _accountWallet.nwcUri != null && _accountWallet.nwcUri!.isNotEmpty,
+      onPayWithNwc:
+          (_accountWallet.nwcUri != null && _accountWallet.nwcUri!.isNotEmpty)
+              ? _accountWallet.payInvoiceViaNwcUri
+              : null,
+      cashuBalanceSats: cashuSats,
+      onPayWithCashu: (_accountWallet.account != null && (cashuSats ?? 0) > 0)
+          ? (bolt11) => _accountWallet.payBolt11WithCashu(
+                bolt11: bolt11,
+                onSessionActivated: _onSessionActivated,
+              )
+          : null,
+      onSendNutzap: canCashuNutzap
+          ? ({required amountSats, required comment}) =>
+              _accountWallet.sendNutzapWithCashu(
+                recipientPubkey: recipientPubkey,
+                amountSats: amountSats,
+                comment: comment,
+                targetEventId: targetEventId,
+                relayUrls: _catalog.relayUrls,
+                onSessionActivated: _onSessionActivated,
+              )
+          : null,
+      onGenerateInvoice: ({required amountSats, required comment}) async {
+        final targetLud16 = lud16?.trim() ?? '';
+        if (targetLud16.isEmpty) {
+          throw StateError('Author has no Lightning Address (lud16)');
         }
-      }
-    } catch (_) {
-    } finally {
-      if (mounted) setState(() => _inboxLoading = false);
-    }
-  }
-
-  void _markInboxItemRead(String itemId) {
-    setState(() => _inboxReadIds.add(itemId));
-    unawaited(_persistAppSettings());
-  }
-
-  void _markAllInboxRead() {
-    var maxTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    for (final item in _inboxItems) {
-      final ts = item.createdAt.toInt();
-      if (ts > maxTs) maxTs = ts;
-    }
-    setState(() {
-      _inboxReadAllBefore = maxTs;
-      _inboxReadIds.clear();
-    });
-    unawaited(_persistAppSettings());
-  }
-
-  void _openPerson(String pubkey) {
-    setState(() => _inspectedPersonPubkey = pubkey);
-    _openDrawer(_ActiveDrawer.person);
+        await RustBridge.ensureInitialized();
+        String? signedZapJson;
+        if (_accountWallet.account != null &&
+            _accountWallet.activeSavedSession?.kind != 'readonly') {
+          try {
+            final prepared = await prepareUnsignedZapRequestEvent(
+              senderPubkeyOrNpub: _accountWallet.account!.pubkey,
+              recipientPubkeyHex: recipientPubkey,
+              amountSats: BigInt.from(amountSats),
+              relayUrls: _catalog.relayUrls,
+              targetEventId: targetEventId,
+              targetAddress: targetAddress,
+              comment: comment.isEmpty ? null : comment,
+              lnurl: targetLud16,
+            );
+            signedZapJson = await _accountWallet.signUnsignedEvent(
+              _accountWallet.account!,
+              prepared.unsignedEventJson,
+            );
+          } catch (_) {
+            signedZapJson = null;
+          }
+        }
+        return fetchLnurlZapInvoice(
+          lud16: targetLud16,
+          amountSats: BigInt.from(amountSats),
+          signedZapRequestJson: signedZapJson,
+          comment: comment.isEmpty ? null : comment,
+        );
+      },
+    );
   }
 
   Future<void> _openInboxItem(InboxItemDto item) async {
@@ -6232,13 +1747,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
     final addr = item.targetAddress!;
     final parts = addr.split(':');
-    final kind = item.targetKind ?? (parts.isNotEmpty ? int.tryParse(parts[0]) : null);
+    final kind =
+        item.targetKind ?? (parts.isNotEmpty ? int.tryParse(parts[0]) : null);
     final ownerPk = parts.length >= 2 ? parts[1] : item.actorPubkey;
 
     if (item.targetTab == 'comments' && kind != null) {
-      final mapMatch = _catalog?.maps.where((m) => m.address == addr).firstOrNull;
+      final mapMatch =
+          _catalog.catalog?.maps.where((m) => m.address == addr).firstOrNull;
       final storyMatch =
-          _catalog?.stories.where((s) => s.address == addr).firstOrNull;
+          _catalog.catalog?.stories.where((s) => s.address == addr).firstOrNull;
       _openDiscussion(
         DiscussionTarget(
           address: addr,
@@ -6253,20 +1770,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       return;
     }
 
-    // Open Map / Story / Atlas directly (from cache or live relay lookup).
-    final cachedMap = _catalog?.maps.where((m) => m.address == addr).firstOrNull;
+    final cachedMap =
+        _catalog.catalog?.maps.where((m) => m.address == addr).firstOrNull;
     if (cachedMap != null) {
       _inspectMap(cachedMap);
       return;
     }
     final cachedStory =
-        _catalog?.stories.where((s) => s.address == addr).firstOrNull;
+        _catalog.catalog?.stories.where((s) => s.address == addr).firstOrNull;
     if (cachedStory != null) {
       await _openStory(cachedStory);
       return;
     }
     final cachedAtlas =
-        _catalog?.atlases.where((a) => a.address == addr).firstOrNull;
+        _catalog.catalog?.atlases.where((a) => a.address == addr).firstOrNull;
     if (cachedAtlas != null) {
       _inspectAtlas(cachedAtlas);
       return;
@@ -6275,7 +1792,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     try {
       await RustBridge.ensureInitialized();
       final fetched = await fetchEntityByAddress(
-        relayUrls: _activeRelayUrls,
+        relayUrls: _catalog.relayUrls,
         address: addr,
       );
       if (!mounted || fetched == null) return;
@@ -6289,624 +1806,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     } catch (_) {}
   }
 
-  Future<BlossomUploadDto> _uploadBlossomBytes({
-    required Uint8List bytes,
-    required String mimeType,
-    required String purpose,
-  }) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-    final sha = await computeSha256Hex(bytes: bytes);
-    final unsignedAuth = await prepareUnsignedBlossomUploadAuth(
-      pubkeyOrNpub: account.pubkey,
-      sha256Hex: sha,
-      message: purpose,
-    );
-    final signedAuth = await _signUnsignedEvent(account, unsignedAuth);
-    return uploadBlobToBlossom(
-      serverUrl: _blossomServerUrl,
-      bytes: bytes,
-      mimeType: mimeType,
-      signedAuthEventJson: signedAuth,
-    );
-  }
-
-  Future<BlossomUploadDto?> _pickAndUploadBlossomImage(String purpose) async {
-    try {
-      final picked = await DeviceBridge.pickImage();
-      final uploaded = await _uploadBlossomBytes(
-        bytes: picked.bytes,
-        mimeType: picked.mimeType,
-        purpose: purpose,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Uploaded to Blossom: ${uploaded.url}')),
-        );
-      }
-      return uploaded;
-    } catch (err) {
-      if (err.toString().contains('cancelled')) return null;
-      rethrow;
-    }
-  }
-
-  Future<SightingPublishResult> _publishSighting(
-    SightingPublishRequest req,
-  ) async {
-    await RustBridge.ensureInitialized();
-    final account = await _ensureAccount();
-
-    String? imageUrl;
-    String? imageMime;
-    String? imageSha256;
-    if (req.photoBytes != null && req.photoBytes!.isNotEmpty) {
-      final mime = req.photoMimeType ?? 'image/jpeg';
-      var uploadedPublic = false;
-      if (req.audience == DraftAudienceChoice.publicRelay) {
-        try {
-          final uploaded = await _uploadBlossomBytes(
-            bytes: req.photoBytes!,
-            mimeType: mime,
-            purpose: 'Upload Earthly Sighting photo',
-          );
-          imageUrl = uploaded.url;
-          imageMime = uploaded.mimeType;
-          imageSha256 = uploaded.sha256;
-          uploadedPublic = true;
-        } catch (_) {}
-      }
-      if (!uploadedPublic) {
-        final dir = await getApplicationSupportDirectory();
-        final status = await localNodeStatus();
-        if (!status.running) {
-          await startLocalNode(dataDir: '${dir.path}/local-node');
-        }
-        final blob = await ingestLocalBlob(
-          bytes: req.photoBytes!,
-          mimeType: mime,
-        );
-        imageUrl = blob.blobUrl;
-        imageMime = blob.mimeType;
-        imageSha256 = blob.sha256;
-      }
-    }
-
-    final dTag = 'sighting-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-    final prepared = await prepareUnsignedSightingEvent(
-      pubkeyOrNpub: account.pubkey,
-      dTag: dTag,
-      title: req.title.isEmpty ? null : req.title,
-      note: req.note,
-      lon: req.lon,
-      lat: req.lat,
-      durationHours: req.durationHours,
-      imageUrl: imageUrl,
-      imageMime: imageMime,
-      imageSha256: imageSha256,
-      hashtags: const ['earthly-field'],
-      fieldSessionId: req.audience == DraftAudienceChoice.nearbyLocalNode
-          ? _activeNearbySessionId
-          : null,
-    );
-    final signedEventJson =
-        await _signUnsignedEvent(account, prepared.unsignedEventJson);
-    final outcome = await _deliverForAudience(req.audience, signedEventJson);
-
-    final localSighting = SightingSummaryDto(
-      address: prepared.address,
-      eventId: outcome.eventId,
-      pubkey: account.pubkey,
-      dTag: prepared.dTag,
-      title: req.title.isEmpty ? null : req.title,
-      note: req.note,
-      lon: req.lon,
-      lat: req.lat,
-      imageUrl: imageUrl,
-      start: prepared.start,
-      expiresAt: prepared.expiresAt,
-    );
-
-    if (mounted) {
-      setState(() => _localSightings.add(localSighting));
-      _focusSighting(localSighting);
-    }
-
-    return SightingPublishResult(outcome: outcome, sighting: localSighting);
-  }
-
-  Future<void> _runGeoAction(
-    RustGeoAction action, {
-    double? meters,
-    double? angleDeg,
-    double? scale,
-  }) async {
-    try {
-      await RustBridge.ensureInitialized();
-      final step = meters ?? 100.0;
-      List<LonLatPoint> toPoints(List<Geographic> verts) =>
-          verts.map((v) => LonLatPoint(lon: v.lon, lat: v.lat)).toList();
-      List<Geographic> fromPoints(List<LonLatPoint> pts) =>
-          pts.map((p) => Geographic(lon: p.lon, lat: p.lat)).toList();
-
-      final targetIndices = <int>[
-        for (var i = 0; i < _features.length; i++)
-          if (_selectedDraftFeatureIds.isEmpty ||
-              _selectedDraftFeatureIds.contains(_features[i].id))
-            i,
-      ];
-      int lastIndexOfKind(DrawToolMode kind) {
-        for (var i = targetIndices.length - 1; i >= 0; i--) {
-          final idx = targetIndices[i];
-          if (_features[idx].kind == kind) return idx;
-        }
-        return _features.lastIndexWhere((f) => f.kind == kind);
-      }
-
-      List<int> indicesOfKind(DrawToolMode kind, {int minRequired = 1}) {
-        final scoped = [
-          for (final idx in targetIndices)
-            if (_features[idx].kind == kind) idx,
-        ];
-        if (scoped.length >= minRequired) return scoped;
-        return [
-          for (var i = 0; i < _features.length; i++)
-            if (_features[i].kind == kind) i,
-        ];
-      }
-
-      switch (action) {
-        case RustGeoAction.simplifyLastLine:
-          final idx = lastIndexOfKind(DrawToolMode.line);
-          if (idx < 0) return;
-          final tol = meters ?? 25.0;
-          final out = await geoSimplifyLine(
-            points: toPoints(_features[idx].vertices),
-            toleranceMeters: tol,
-          );
-          _pushDraftUndo();
-          setState(() {
-            _features[idx] = _features[idx].copyWith(vertices: fromPoints(out));
-          });
-        case RustGeoAction.corridorLastLine:
-          final idx = lastIndexOfKind(DrawToolMode.line);
-          if (idx < 0) return;
-          final ring = await geoLineCorridor(
-            points: toPoints(_features[idx].vertices),
-            totalWidthMeters: step,
-          );
-          _pushDraftUndo();
-          setState(() {
-            _featureCounter += 1;
-            _features.add(DrawnFeature(
-              id: 'corridor-$_featureCounter',
-              kind: DrawToolMode.polygon,
-              vertices: fromPoints(ring),
-              name: 'Corridor (${step.round()}m)',
-            ));
-          });
-        case RustGeoAction.extrudeBand:
-          final idx = lastIndexOfKind(DrawToolMode.line);
-          if (idx < 0) return;
-          final startW = (step * 0.5).clamp(2.0, 2000.0);
-          final ring = await geoExtrudeBand(
-            points: toPoints(_features[idx].vertices),
-            startWidthMeters: startW,
-            endWidthMeters: step,
-          );
-          _pushDraftUndo();
-          setState(() {
-            _featureCounter += 1;
-            _features.add(DrawnFeature(
-              id: 'band-$_featureCounter',
-              kind: DrawToolMode.polygon,
-              vertices: fromPoints(ring),
-              name: 'Band (${startW.round()}–${step.round()}m)',
-            ));
-          });
-        case RustGeoAction.arrowLastLine:
-          final idx = lastIndexOfKind(DrawToolMode.line);
-          if (idx < 0) return;
-          final startW = (step * 0.5).clamp(2.0, 2000.0);
-          final ring = await geoExtrudeArrow(
-            points: toPoints(_features[idx].vertices),
-            startWidthMeters: startW,
-            endWidthMeters: step,
-          );
-          _pushDraftUndo();
-          setState(() {
-            _featureCounter += 1;
-            _features.add(DrawnFeature(
-              id: 'arrow-$_featureCounter',
-              kind: DrawToolMode.polygon,
-              vertices: fromPoints(ring),
-              name: 'Flow Arrow (${step.round()}m)',
-            ));
-          });
-        case RustGeoAction.offsetLastLine:
-          final idx = lastIndexOfKind(DrawToolMode.line);
-          if (idx < 0) return;
-          final out = await geoOffsetLine(
-            points: toPoints(_features[idx].vertices),
-            distanceMeters: step,
-          );
-          _pushDraftUndo();
-          setState(() {
-            _featureCounter += 1;
-            _features.add(DrawnFeature(
-              id: 'offset-$_featureCounter',
-              kind: DrawToolMode.line,
-              vertices: fromPoints(out),
-              name: 'Parallel (+${step.round()}m)',
-            ));
-          });
-        case RustGeoAction.splitLastLineAtMidpoint:
-          final idx = lastIndexOfKind(DrawToolMode.line);
-          if (idx < 0) return;
-          final verts = _features[idx].vertices;
-          if (verts.length < 2) return;
-          final midIdx = verts.length ~/ 2;
-          final splitPt = verts.length == 2
-              ? DrawingMath.midpoint(verts[0], verts[1])
-              : verts[midIdx];
-          final parts = await geoSplitLineAtPoint(
-            points: toPoints(verts),
-            splitPoint: LonLatPoint(lon: splitPt.lon, lat: splitPt.lat),
-          );
-          if (parts.length < 2) return;
-          _pushDraftUndo();
-          setState(() {
-            final base = _features[idx];
-            final baseName = base.name ?? 'Line';
-            _features.removeAt(idx);
-            for (var i = 0; i < parts.length; i++) {
-              _featureCounter += 1;
-              _features.add(base.copyWith(
-                id: 'split-line-$_featureCounter',
-                vertices: fromPoints(parts[i]),
-                name: '$baseName (Part ${i + 1})',
-              ));
-            }
-          });
-        case RustGeoAction.connectLines:
-          final lineIndices = indicesOfKind(DrawToolMode.line, minRequired: 2);
-          if (lineIndices.length < 2) return;
-          final connected = await geoConnectLines(
-            lines: [
-              for (final idx in lineIndices) toPoints(_features[idx].vertices),
-            ],
-            toleranceMeters: step,
-          );
-          if (connected.isEmpty) return;
-          _pushDraftUndo();
-          setState(() {
-            final base = _features[lineIndices.first];
-            for (var i = lineIndices.length - 1; i >= 0; i--) {
-              _features.removeAt(lineIndices[i]);
-            }
-            for (var i = 0; i < connected.length; i++) {
-              _featureCounter += 1;
-              _features.add(base.copyWith(
-                id: 'connected-$_featureCounter',
-                vertices: fromPoints(connected[i]),
-                name: connected.length == 1
-                    ? 'Connected Line'
-                    : 'Connected Line ${i + 1}',
-              ));
-            }
-          });
-        case RustGeoAction.dissolveLines:
-          final lineIndices = indicesOfKind(DrawToolMode.line, minRequired: 2);
-          if (lineIndices.length < 2) return;
-          final dissolved = await geoDissolveLines(
-            lines: [
-              for (final idx in lineIndices) toPoints(_features[idx].vertices),
-            ],
-            toleranceMeters: step,
-          );
-          if (dissolved.isEmpty) return;
-          _pushDraftUndo();
-          setState(() {
-            final base = _features[lineIndices.first];
-            for (var i = lineIndices.length - 1; i >= 0; i--) {
-              _features.removeAt(lineIndices[i]);
-            }
-            for (var i = 0; i < dissolved.length; i++) {
-              _featureCounter += 1;
-              _features.add(base.copyWith(
-                id: 'dissolved-line-$_featureCounter',
-                vertices: fromPoints(dissolved[i]),
-                name: dissolved.length == 1
-                    ? 'Dissolved Line'
-                    : 'Dissolved Line ${i + 1}',
-              ));
-            }
-          });
-        case RustGeoAction.simplifyPolygon:
-          final idx = lastIndexOfKind(DrawToolMode.polygon);
-          if (idx < 0) return;
-          final tol = meters ?? 25.0;
-          final out = await geoSimplifyPolygon(
-            ring: toPoints(_features[idx].vertices),
-            toleranceMeters: tol,
-          );
-          if (out.length < 3) return;
-          _pushDraftUndo();
-          setState(() {
-            _features[idx] = _features[idx].copyWith(vertices: fromPoints(out));
-          });
-        case RustGeoAction.offsetLastPolygon:
-          final idx = lastIndexOfKind(DrawToolMode.polygon);
-          if (idx < 0) return;
-          final out = await geoOffsetPolygon(
-            ring: toPoints(_features[idx].vertices),
-            distanceMeters: step,
-          );
-          _pushDraftUndo();
-          setState(() {
-            _featureCounter += 1;
-            _features.add(DrawnFeature(
-              id: 'poly-offset-$_featureCounter',
-              kind: DrawToolMode.polygon,
-              vertices: fromPoints(out),
-              name: 'Expand (+${step.round()}m)',
-            ));
-          });
-        case RustGeoAction.insetPolygon:
-          final idx = lastIndexOfKind(DrawToolMode.polygon);
-          if (idx < 0) return;
-          final out = await geoOffsetPolygon(
-            ring: toPoints(_features[idx].vertices),
-            distanceMeters: -step,
-          );
-          if (out.length < 3) return;
-          _pushDraftUndo();
-          setState(() {
-            _featureCounter += 1;
-            _features.add(DrawnFeature(
-              id: 'poly-inset-$_featureCounter',
-              kind: DrawToolMode.polygon,
-              vertices: fromPoints(out),
-              name: 'Inset (-${step.round()}m)',
-            ));
-          });
-        case RustGeoAction.unionAllPolygons:
-          final polyIndices =
-              indicesOfKind(DrawToolMode.polygon, minRequired: 2);
-          if (polyIndices.length < 2) return;
-          final merged = await geoUnionPolygons(
-            rings: [
-              for (final idx in polyIndices) toPoints(_features[idx].vertices),
-            ],
-          );
-          _pushDraftUndo();
-          setState(() {
-            for (var i = polyIndices.length - 1; i >= 0; i--) {
-              _features.removeAt(polyIndices[i]);
-            }
-            for (final ring in merged) {
-              _featureCounter += 1;
-              _features.add(DrawnFeature(
-                id: 'union-$_featureCounter',
-                kind: DrawToolMode.polygon,
-                vertices: fromPoints(ring),
-                name: 'Merged Area',
-              ));
-            }
-          });
-        case RustGeoAction.differenceLastTwoPolygons:
-          final polyIndices =
-              indicesOfKind(DrawToolMode.polygon, minRequired: 2);
-          if (polyIndices.length < 2) return;
-          final subjectIdx = polyIndices[polyIndices.length - 2];
-          final clipIdx = polyIndices[polyIndices.length - 1];
-          final diffRings = await geoDifferencePolygons(
-            subjectRing: toPoints(_features[subjectIdx].vertices),
-            clipRing: toPoints(_features[clipIdx].vertices),
-          );
-          _pushDraftUndo();
-          setState(() {
-            _features.removeAt(clipIdx);
-            _features.removeAt(subjectIdx);
-            for (final ring in diffRings) {
-              _featureCounter += 1;
-              _features.add(DrawnFeature(
-                id: 'diff-$_featureCounter',
-                kind: DrawToolMode.polygon,
-                vertices: fromPoints(ring),
-                name: 'Difference Area',
-              ));
-            }
-          });
-        case RustGeoAction.splitLastPolygonByLine:
-          final polyIdx = lastIndexOfKind(DrawToolMode.polygon);
-          final lineIdx = lastIndexOfKind(DrawToolMode.line);
-          if (polyIdx < 0 || lineIdx < 0) return;
-          final pieces = await geoSplitPolygonByLine(
-            ring: toPoints(_features[polyIdx].vertices),
-            splitter: toPoints(_features[lineIdx].vertices),
-          );
-          if (pieces.isEmpty) return;
-          _pushDraftUndo();
-          setState(() {
-            _features.removeAt(polyIdx);
-            for (var i = 0; i < pieces.length; i++) {
-              _featureCounter += 1;
-              _features.add(DrawnFeature(
-                id: 'split-$_featureCounter',
-                kind: DrawToolMode.polygon,
-                vertices: fromPoints(pieces[i]),
-                name: 'Split Part ${i + 1}',
-              ));
-            }
-          });
-        case RustGeoAction.rotateSelected:
-        case RustGeoAction.scaleSelected:
-        case RustGeoAction.shiftNorth:
-        case RustGeoAction.shiftEast:
-          if (targetIndices.isEmpty) return;
-          final tx = action == RustGeoAction.shiftEast ? step : 0.0;
-          final ty = action == RustGeoAction.shiftNorth ? step : 0.0;
-          final rot =
-              action == RustGeoAction.rotateSelected ? (angleDeg ?? 15.0) : 0.0;
-          final sc =
-              action == RustGeoAction.scaleSelected ? (scale ?? 1.15) : 1.0;
-          final updated = <int, List<Geographic>>{};
-          for (final idx in targetIndices) {
-            if (_features[idx].vertices.isEmpty) continue;
-            final out = await geoTransformPoints(
-              points: toPoints(_features[idx].vertices),
-              translateEastM: tx,
-              translateNorthM: ty,
-              rotateDeg: rot,
-              scale: sc,
-            );
-            updated[idx] = fromPoints(out);
-          }
-          if (updated.isEmpty) return;
-          _pushDraftUndo();
-          setState(() {
-            for (final entry in updated.entries) {
-              _features[entry.key] =
-                  _features[entry.key].copyWith(vertices: entry.value);
-            }
-          });
-        case RustGeoAction.mergeMultipart:
-          String? serializeGeom(DrawnFeature f) {
-            final fc = jsonDecode(draftFeaturesToGeoJson(title: 'tmp', features: [f]));
-            if (fc is Map<String, dynamic>) {
-              final feats = fc['features'] as List?;
-              if (feats != null && feats.isNotEmpty && feats.first is Map) {
-                final geom = (feats.first as Map)['geometry'];
-                if (geom != null) return jsonEncode(geom);
-              }
-            }
-            return null;
-          }
-
-          List<int> pickIndices = const [];
-          for (final kind in const [
-            DrawToolMode.polygon,
-            DrawToolMode.line,
-            DrawToolMode.point,
-          ]) {
-            final candidates = indicesOfKind(kind, minRequired: 2);
-            if (candidates.length >= 2) {
-              pickIndices = candidates;
-              break;
-            }
-          }
-          if (pickIndices.length < 2) return;
-          final geomJsonList = <String>[
-            for (final idx in pickIndices) ?serializeGeom(_features[idx]),
-          ];
-          if (geomJsonList.length < 2) return;
-          final mergedGeomJson =
-              await geoMergeToMultipart(geojsonGeometries: geomJsonList);
-          final parsed = parseDraftFeaturesFromGeoJson(
-            jsonEncode({
-              'type': 'FeatureCollection',
-              'features': [
-                {
-                  'type': 'Feature',
-                  'id': 'multipart-tmp',
-                  'geometry': jsonDecode(mergedGeomJson),
-                  'properties': <String, Object?>{},
-                },
-              ],
-            }),
-          );
-          if (parsed.isEmpty) return;
-          final base = _features[pickIndices.first];
-          _pushDraftUndo();
-          setState(() {
-            for (var i = pickIndices.length - 1; i >= 0; i--) {
-              _features.removeAt(pickIndices[i]);
-            }
-            _featureCounter += 1;
-            _features.add(
-              base.copyWith(
-                id: 'multi-$_featureCounter',
-                vertices: parsed.first.vertices,
-                extraParts: parsed.first.extraParts,
-                name: '${base.name ?? 'Feature'} (Multi)',
-              ),
-            );
-          });
-        case RustGeoAction.explodeMultipart:
-          var targetIdx = -1;
-          for (var i = targetIndices.length - 1; i >= 0; i--) {
-            final idx = targetIndices[i];
-            if (_features[idx].isMultipart) {
-              targetIdx = idx;
-              break;
-            }
-          }
-          if (targetIdx < 0) {
-            targetIdx = _features.lastIndexWhere((f) => f.isMultipart);
-          }
-          if (targetIdx < 0) return;
-          final base = _features[targetIdx];
-          final fc = jsonDecode(
-            draftFeaturesToGeoJson(title: 'tmp', features: [base]),
-          );
-          final singleFeat = (fc is Map<String, dynamic> &&
-                  fc['features'] is List &&
-                  (fc['features'] as List).isNotEmpty)
-              ? (fc['features'] as List).first as Map
-              : null;
-          final geom = singleFeat?['geometry'];
-          if (geom == null) return;
-          final explodedJsonList =
-              await geoExplodeMultipart(geojsonGeometry: jsonEncode(geom));
-          final replacementFeatures = <DrawnFeature>[];
-          for (var i = 0; i < explodedJsonList.length; i++) {
-            final parsed = parseDraftFeaturesFromGeoJson(
-              jsonEncode({
-                'type': 'FeatureCollection',
-                'features': [
-                  {
-                    'type': 'Feature',
-                    'id': 'part-tmp-$i',
-                    'geometry': jsonDecode(explodedJsonList[i]),
-                    'properties': <String, Object?>{},
-                  },
-                ],
-              }),
-            );
-            if (parsed.isEmpty) continue;
-            _featureCounter += 1;
-            replacementFeatures.add(
-              base.copyWith(
-                id: 'part-$_featureCounter',
-                vertices: parsed.first.vertices,
-                extraParts: const <List<Geographic>>[],
-                name: base.name != null
-                    ? '${base.name} (${i + 1})'
-                    : 'Part ${i + 1}',
-              ),
-            );
-          }
-          if (replacementFeatures.isEmpty) return;
-          _pushDraftUndo();
-          setState(() {
-            _features.removeAt(targetIdx);
-            _features.insertAll(targetIdx, replacementFeatures);
-          });
-      }
-      setState(_pruneDraftSelection);
-      if (_inspectedFeature?.draftFeatureId != null) {
-        _refreshInspectedDraftFeature(_inspectedFeature!.draftFeatureId!);
-      }
-      HapticFeedback.mediumImpact();
-      unawaited(_persistWorkingDraft());
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Rust geo op failed: $error')),
-      );
-    }
-  }
+  // --- Drawer Routing ---
 
   bool _isRightStudioDrawer(_ActiveDrawer d) => switch (d) {
         _ActiveDrawer.agent ||
@@ -6930,48 +1830,66 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         _ => false,
       };
 
-  bool get _isWideStudio => mounted && MediaQuery.sizeOf(context).width >= 1100;
-
   bool _isDrawerOpen(_ActiveDrawer target) =>
       _drawer == target || _rightStudioDrawer == target;
 
   void _openDrawer(_ActiveDrawer target) {
-    setState(() {
-      if (_isWideStudio && _isRightStudioDrawer(target)) {
-        _rightStudioDrawer = target;
-      } else {
-        _drawer = target;
-        if (!_isWideStudio) _rightStudioDrawer = _ActiveDrawer.none;
-      }
-    });
+    final cur = _drawerNotifier.value;
+    if (_isWideStudio && _isRightStudioDrawer(target)) {
+      _drawerNotifier.value = (left: cur.left, right: target);
+    } else {
+      _drawerNotifier.value = (
+        left: target,
+        right: _isWideStudio ? cur.right : _ActiveDrawer.none,
+      );
+    }
     if (target == _ActiveDrawer.cashuWallet) {
-      unawaited(_refreshCashuWalletState());
+      unawaited(
+        _accountWallet.refreshCashuWalletState(isHeadlessTest: _isHeadlessTest),
+      );
     } else if (target == _ActiveDrawer.mcpBridge) {
-      unawaited(_refreshMcpBridgeStatus());
+      unawaited(
+        _agent.refreshMcpBridgeStatus(
+          isHeadlessTest: _isHeadlessTest,
+          onTick: _pollMcpBridgeTick,
+        ),
+      );
     } else if (target == _ActiveDrawer.agent) {
-      unawaited(_refreshAgentVisionSupport());
+      unawaited(_agent.refreshVisionSupport(isHeadlessTest: _isHeadlessTest));
     }
   }
 
   void _closeDrawer(_ActiveDrawer target) {
-    setState(() {
-      if (_drawer == target) _drawer = _ActiveDrawer.none;
-      if (_rightStudioDrawer == target) {
-        _rightStudioDrawer = _ActiveDrawer.none;
-      }
-    });
+    final cur = _drawerNotifier.value;
+    final nextLeft = cur.left == target ? _ActiveDrawer.none : cur.left;
+    final nextRight = cur.right == target ? _ActiveDrawer.none : cur.right;
+    if (nextLeft != cur.left || nextRight != cur.right) {
+      _drawerNotifier.value = (left: nextLeft, right: nextRight);
+    }
+  }
+
+  void _closeAllDrawers() {
+    if (_drawer == _ActiveDrawer.none &&
+        _rightStudioDrawer == _ActiveDrawer.none) {
+      return;
+    }
+    _drawerNotifier.value =
+        (left: _ActiveDrawer.none, right: _ActiveDrawer.none);
   }
 
   void _toggleDrawer(_ActiveDrawer next) {
-    setState(() {
-      if (_isWideStudio && _isRightStudioDrawer(next)) {
-        _rightStudioDrawer =
-            _rightStudioDrawer == next ? _ActiveDrawer.none : next;
-      } else {
-        _drawer = _drawer == next ? _ActiveDrawer.none : next;
-        if (!_isWideStudio) _rightStudioDrawer = _ActiveDrawer.none;
-      }
-    });
+    final cur = _drawerNotifier.value;
+    if (_isWideStudio && _isRightStudioDrawer(next)) {
+      _drawerNotifier.value = (
+        left: cur.left,
+        right: cur.right == next ? _ActiveDrawer.none : next,
+      );
+    } else {
+      _drawerNotifier.value = (
+        left: cur.left == next ? _ActiveDrawer.none : next,
+        right: _isWideStudio ? cur.right : _ActiveDrawer.none,
+      );
+    }
   }
 
   void _openSightingComposer({Geographic? initialLocation}) {
@@ -6983,127 +1901,588 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       isScrollControlled: true,
       builder: (_) => SightingComposerSheet(
         initialLocation: center,
-        account: _account,
-        onPublishSighting: _publishSighting,
+        account: _accountWallet.account,
+        onPublishSighting: (req) async {
+          final res = await _catalog.publishSighting(
+            req,
+            activeNearbySessionId: _spaces.activeNearbySessionId,
+            ensureAccount: _ensureAccount,
+            signUnsignedEvent: _accountWallet.signUnsignedEvent,
+            deliverForAudience: _deliverForAudience,
+          );
+          _focusSighting(res.sighting);
+          return res;
+        },
       ),
     );
   }
 
-  void _openBasemapSwitcher(BasemapKind effectiveBasemap) {
+  void _openBasemapSwitcher() {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => BasemapSwitcherSheet(
-        activeBasemap: effectiveBasemap,
-        offlineBasemap: _offlineBasemap,
-        showLabels: _showLabels,
-        calloutMode: _calloutMode,
-        themeMode: widget.themeMode,
-        onThemeModeChanged: (mode) {
-          widget.onThemeModeChanged?.call(mode);
-          unawaited(_persistAppSettings());
-        },
-        backgroundMode: _backgroundMode,
-        satelliteOpacity: _satelliteOpacity,
-        onBackgroundModeChanged: (bg) {
-          setState(() => _backgroundMode = bg);
-          unawaited(_syncSatellite(_controller?.style));
-          unawaited(_persistAppSettings());
-        },
-        onSatelliteOpacityChanged: (v) {
-          setState(() => _satelliteOpacity = v);
-          unawaited(_syncSatellite(_controller?.style));
-          unawaited(_persistAppSettings());
-        },
-        onExportMapPosterPng: () => unawaited(_exportMapPosterPng()),
-        savedOfflinePacks: _savedOfflinePacks,
-        onSelectBasemap: (kind) {
-          setState(() => _selectedBasemap = kind);
-          unawaited(_persistAppSettings());
-        },
-        onLoadedOfflinePmtiles: (offline) {
-          final s = offline.snapshot;
-          final h = s.header;
-          final record = SavedOfflinePackDto(
-            label: s.label,
-            sha256: s.sha256,
-            sizeBytes: s.sizeBytes,
-            format: h.format,
-            minZoom: h.minZoom,
-            maxZoom: h.maxZoom,
-            west: h.west,
-            south: h.south,
-            east: h.east,
-            north: h.north,
-            centerLon: h.centerLon,
-            centerLat: h.centerLat,
-            centerZoom: h.centerZoom,
-          );
-          setState(() {
-            _offlineBasemap = offline;
-            _selectedBasemap = BasemapKind.offlinePmtiles;
-            _savedOfflinePacks.removeWhere((p) => p.sha256 == record.sha256);
-            _savedOfflinePacks.insert(0, record);
-          });
-          unawaited(_persistAppSettings());
-          _controller?.animateCamera(
-            CameraUpdate.position(
-              center: Geographic(lon: h.centerLon, lat: h.centerLat),
-              zoom: h.centerZoom.toDouble().clamp(2.0, 18.0),
-            ),
-          );
-        },
-        onMountSavedPack: _mountSavedOfflinePack,
-        onRemoveSavedPack: (sha) {
-          setState(() {
-            _savedOfflinePacks.removeWhere((p) => p.sha256 == sha);
-            if (_offlineBasemap?.snapshot.sha256 == sha) {
-              _offlineBasemap = null;
-              _selectedBasemap = BasemapKind.openFreeMapLiberty;
+          builder: (_) => ListenableBuilder(
+        listenable: _mapLayers.presentationListenable,
+        builder: (context, _) => BasemapSwitcherSheet(
+          activeBasemap: _mapLayers.selectedBasemap,
+          offlineBasemap: _mapLayers.offlineBasemap,
+          showLabels: _mapLayers.showLabels,
+          calloutMode: _mapLayers.calloutMode,
+          themeMode: widget.themeMode,
+          onThemeModeChanged: (mode) {
+            widget.onThemeModeChanged?.call(mode);
+            unawaited(_persistAppSettings());
+          },
+          backgroundMode: _mapLayers.backgroundMode,
+          satelliteOpacity: _mapLayers.satelliteOpacity,
+          onBackgroundModeChanged: (bg) {
+            _mapLayers.setBackgroundMode(bg);
+            unawaited(_mapLayers.syncSatellite(_controller?.style));
+            unawaited(_persistAppSettings());
+          },
+          onSatelliteOpacityChanged: (v) {
+            _mapLayers.setSatelliteOpacity(v);
+            unawaited(_mapLayers.syncSatellite(_controller?.style));
+            unawaited(_persistAppSettings());
+          },
+          onExportMapPosterPng: () => unawaited(_exportMapPosterPng()),
+          savedOfflinePacks: _mapLayers.savedOfflinePacks,
+          onSelectBasemap: (kind) {
+            _mapLayers.setSelectedBasemap(kind);
+            unawaited(_persistAppSettings());
+          },
+          onLoadedOfflinePmtiles: (offline) {
+            final s = offline.snapshot;
+            final h = s.header;
+            final record = SavedOfflinePackDto(
+              label: s.label,
+              sha256: s.sha256,
+              sizeBytes: s.sizeBytes,
+              format: h.format,
+              minZoom: h.minZoom,
+              maxZoom: h.maxZoom,
+              west: h.west,
+              south: h.south,
+              east: h.east,
+              north: h.north,
+              centerLon: h.centerLon,
+              centerLat: h.centerLat,
+              centerZoom: h.centerZoom,
+            );
+            _mapLayers.setOfflineBasemap(offline, packRecord: record);
+            unawaited(_persistAppSettings());
+            _animateCameraPosition(
+              h.centerLon,
+              h.centerLat,
+              h.centerZoom.toDouble().clamp(2.0, 18.0),
+            );
+          },
+          onMountSavedPack: (pack) async {
+            try {
+              await _mapLayers.mountSavedOfflinePack(
+                pack,
+                onFlyTo: (center, zoom) =>
+                    _animateCameraPosition(center.lon, center.lat, zoom),
+              );
+            } catch (err) {
+              _showSnack('Could not mount offline pack: $err');
             }
-          });
-          unawaited(_persistAppSettings());
-        },
-        onToggleLabels: (val) => setState(() => _showLabels = val),
-        onChangeCalloutMode: (mode) => setState(() => _calloutMode = mode),
-        mountedAtlasWorkspaces: _mountedAtlasWorkspaces,
-        onMountAtlasWorkspace: _mountAtlasWorkspace,
-        onUnmountAtlasWorkspace: (path) {
-          setState(
-            () => _mountedAtlasWorkspaces.removeWhere((w) => w.path == path),
-          );
-          unawaited(_removeMacOsSecurityScopedBookmark(path));
-          unawaited(_persistAppSettings());
-        },
+          },
+          onRemoveSavedPack: (sha) {
+            _mapLayers.removeSavedOfflinePack(sha);
+            unawaited(_persistAppSettings());
+          },
+          onToggleLabels: _mapLayers.setShowLabels,
+          onChangeCalloutMode: _mapLayers.setCalloutMode,
+          mountedAtlasWorkspaces: _mapLayers.mountedAtlasWorkspaces,
+          onMountAtlasWorkspace: _mountAtlasWorkspace,
+          onUnmountAtlasWorkspace: (path) {
+            _mapLayers.removeMountedAtlasWorkspace(path);
+            unawaited(
+              _mapLayers.removeMacOsSecurityScopedBookmark(
+                path,
+                supportDirPath: _spaces.supportDirPath,
+              ),
+            );
+            unawaited(_persistAppSettings());
+          },
+        ),
       ),
     );
   }
 
-  Widget? _buildDrawerFor(_ActiveDrawer target, int visibleCalloutCount) {
-    if (_isDrawingMode) return null;
+  void _openEarthlyCommandSheet() {
+    final cam = _controller?.camera;
+    final center = cam?.center ?? const Geographic(lon: 16.3738, lat: 48.2082);
+    final zoom = cam?.zoom ?? 13.5;
+    final geoUri =
+        'geo:${center.lat.toStringAsFixed(5)},${center.lon.toStringAsFixed(5)}';
+    final effectiveBasemap = _mapLayers.selectedBasemap;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.24),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: const BoxDecoration(
+                        color: EarthlyColors.amber,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.explore,
+                        size: 17,
+                        color: EarthlyColors.amberInk,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'EARTHLY',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.0,
+                            ),
+                          ),
+                          Text(
+                            _spaces.relayStreamLive
+                                ? 'Live stream · ${_catalog.relayUrls.first}'
+                                : 'Connecting · ${_catalog.relayUrls.first}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10.5,
+                              color: _spaces.relayStreamLive
+                                  ? EarthlyColors.commentGreen
+                                  : theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        unawaited(_preloadCatalog());
+                        _showSnack('Refreshing Nostr catalog…');
+                      },
+                      icon: const Icon(Icons.refresh, size: 15),
+                      label: const Text('Sync'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'APPEARANCE & MAP STYLE',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontFamily: 'monospace',
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final m in const [
+                      (ThemeMode.system, 'System'),
+                      (ThemeMode.light, 'Light'),
+                      (ThemeMode.dark, 'Dark'),
+                    ])
+                      ChoiceChip(
+                        label: Text(m.$2),
+                        selected: widget.themeMode == m.$1,
+                        onSelected: (_) {
+                          widget.onThemeModeChanged?.call(m.$1);
+                          unawaited(_persistAppSettings());
+                        },
+                      ),
+                    for (final b in const [
+                      BasemapKind.auto,
+                      BasemapKind.openFreeMapPositron,
+                      BasemapKind.openFreeMapBright,
+                      BasemapKind.openFreeMapLiberty,
+                      BasemapKind.openFreeMapDark,
+                      BasemapKind.openFreeMapFiord,
+                    ])
+                      ChoiceChip(
+                        label: Text(basemapStyleLabel(b)),
+                        selected: effectiveBasemap == b,
+                        onSelected: (_) {
+                          _mapLayers.setSelectedBasemap(b);
+                          unawaited(_persistAppSettings());
+                          Navigator.of(ctx).pop();
+                        },
+                      ),
+                    ActionChip(
+                      avatar: const Icon(Icons.satellite_alt_outlined, size: 15),
+                      label: const Text('Satellite / Offline…'),
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        _openBasemapSwitcher();
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: theme.dividerColor),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.my_location, size: 15),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${center.lat.toStringAsFixed(5)}, ${center.lon.toStringAsFixed(5)} · z${zoom.toStringAsFixed(1)}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: geoUri));
+                          Navigator.of(ctx).pop();
+                          _showSnack('Copied $geoUri');
+                        },
+                        child: const Text('Copy geo:'),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (_catalog.shelfMaps.isNotEmpty ||
+                        _draft.features.isNotEmpty)
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _fitAllMountedLayers();
+                        },
+                        icon: const Icon(Icons.fit_screen, size: 16),
+                        label: const Text('Fit All Layers'),
+                      ),
+                    if (_catalog.shelfMaps.isNotEmpty)
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _catalog.clearShelf();
+                        },
+                        icon: const Icon(Icons.layers_clear_outlined, size: 16),
+                        label: Text('Clear Shelf (${_catalog.shelfMaps.length})'),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        if (_draft.gpsTrackRecording) {
+                          unawaited(_finishGpsTrackToDraft());
+                        } else {
+                          unawaited(_startGpsTrack());
+                        }
+                      },
+                      icon: Icon(
+                        _draft.gpsTrackRecording
+                            ? Icons.stop_circle_outlined
+                            : Icons.route,
+                        size: 16,
+                      ),
+                      label: Text(
+                        _draft.gpsTrackRecording
+                            ? 'Save GPS Track (${_draft.gpsTrackPoints.length})'
+                            : 'Record GPS Track',
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        _openDrawer(_ActiveDrawer.inbox);
+                        unawaited(_refreshInbox());
+                      },
+                      icon: const Icon(Icons.inbox_outlined, size: 16),
+                      label: Text(
+                        _spaces.inboxUnreadCount > 0
+                            ? 'Inbox (${_spaces.inboxUnreadCount})'
+                            : 'Inbox',
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        _openDrawer(_ActiveDrawer.circles);
+                      },
+                      icon: const Icon(Icons.lock_outline, size: 16),
+                      label: Text(
+                        _spaces.circles.isEmpty
+                            ? 'Circles (MLS)'
+                            : 'Circles (${_spaces.circles.length})',
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        showModalBottomSheet<void>(
+                          context: context,
+                          builder: (_) => const RustNodeSheet(),
+                        );
+                      },
+                      icon: const Icon(Icons.memory, size: 16),
+                      label: const Text('Rust Node & Outbox'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _startGpsTrack() async {
+    try {
+      await _draft.startGpsTrack(
+        fallbackCenter: _controller?.camera?.center,
+      );
+      _showSnack(
+        Platform.isAndroid
+            ? 'Background GPS track started (foreground notification active)'
+            : 'GPS Track recorder started — pan & tap +Pt to log waypoints',
+      );
+    } catch (err) {
+      _showSnack('Could not start GPS track: $err');
+    }
+  }
+
+  Future<void> _finishGpsTrackToDraft() async {
+    final res = await _draft.finishGpsTrackToDraft(
+      onPersist: _schedulePersistWorkingDraft,
+    );
+    if (res == null) return;
+    _openDrawer(_ActiveDrawer.desk);
+    _showSnack(
+      'Saved GPS Track (${res.pointCount} pts · ${DrawingMath.formatDistance(res.distanceMeters)}) to Working Draft',
+    );
+  }
+
+  GeoBox _currentImportBounds() {
+    final cam = _controller?.camera;
+    final center = _catalog.inspectedLocation ??
+        cam?.center ??
+        const Geographic(lon: 16.3738, lat: 48.2082);
+    final zoom = cam?.zoom ?? 14.0;
+    final delta = (0.8 / (1 << zoom.round().clamp(4, 18))).clamp(0.004, 0.22);
+    return GeoBox(
+      west: (center.lon - delta).clamp(-180.0, 180.0),
+      south: (center.lat - delta).clamp(-85.0, 85.0),
+      east: (center.lon + delta).clamp(-180.0, 180.0),
+      north: (center.lat + delta).clamp(-85.0, 85.0),
+    );
+  }
+
+  void _jumpToPlace(PlaceSearchResultDto place) {
+    final controller = _controller;
+    if (controller == null) return;
+    if (place.west != null &&
+        place.south != null &&
+        place.east != null &&
+        place.north != null &&
+        (place.east! - place.west!).abs() > 1e-4) {
+      _flyToBounds(
+        GeoBox(
+          west: place.west!,
+          south: place.south!,
+          east: place.east!,
+          north: place.north!,
+        ),
+      );
+      return;
+    }
+    _animateCameraPosition(place.lon, place.lat, 14.5);
+  }
+
+  void _importGeoJsonStringToDraft(
+    String geojson, {
+    required String prefix,
+    required String snackLabel,
+  }) {
+    final res = _draft.importGeoJsonString(
+      geojson,
+      prefix: prefix,
+      onPersist: _schedulePersistWorkingDraft,
+    );
+    if (res.imported.isEmpty) {
+      _showSnack('No Point, LineString, or Polygon features found to import');
+      return;
+    }
+    _openDrawer(_ActiveDrawer.desk);
+    if (res.bounds != null) _flyToBounds(res.bounds!);
+    _showSnack(
+      'Added ${res.imported.length} feature(s) to Working Draft ($snackLabel)',
+    );
+  }
+
+  MapLayerSnapshot _resolveMapLayers({required bool systemIsDark}) {
+    return _mapLayers.resolve(
+      shelfMaps: _catalog.shelfMaps,
+      shelfRevision: _catalog.shelfRevision,
+      draftFeatures: _draft.features,
+      draftRevision: _draft.draftRevision,
+      selectedDraftFeatureIds: _draft.selectedDraftFeatureIds,
+      selectionRevision: _draft.selectionRevision,
+      sightings: _catalog.allSightings,
+      sightingsRevision: _catalog.sightingsRevision,
+      beacons: _catalog.allBeacons,
+      beaconsRevision: _catalog.beaconsRevision,
+      activeStory: _catalog.activeStoryContext,
+      storyRevision: _catalog.storyRevision,
+      commentOverlayShapes: _catalog.commentOverlayShapes,
+      commentOverlayRevision: _catalog.commentOverlayRevision,
+      proposalOverlayShapes: _catalog.proposalOverlayShapes,
+      proposalOverlayRevision: _catalog.proposalOverlayRevision,
+      aiGhostShapes: _agent.aiGhostShapes,
+      aiGhostRevision: _agent.aiGhostRevision,
+      gpsTrackRecording: _draft.gpsTrackRecording,
+      gpsTrackPoints: _draft.gpsTrackPoints,
+      gpsTrackRevision: _draft.gpsTrackRevision,
+      accentColor: Theme.of(context).colorScheme.primary,
+      systemIsDark: systemIsDark,
+      onInspectFeature: _inspectFeature,
+    );
+  }
+
+  Listenable _listenableForDrawer(_ActiveDrawer target) => switch (target) {
+        _ActiveDrawer.agent => Listenable.merge([
+            _agent,
+            _agent.streamListenable,
+            _agent.ghostListenable,
+            _catalog.shelfListenable,
+          ]),
+        _ActiveDrawer.explore => Listenable.merge([
+            _catalog,
+            _accountWallet.profilesListenable,
+          ]),
+        _ActiveDrawer.desk => Listenable.merge([
+            _draft,
+            _catalog,
+            _spaces.outboxListenable,
+            _spaces.circleLensListenable,
+            _accountWallet.accountListenable,
+          ]),
+        _ActiveDrawer.spaces => Listenable.merge([
+            _spaces,
+            _accountWallet.accountListenable,
+            _accountWallet.walletListenable,
+            _agent.mcpListenable,
+            _catalog,
+          ]),
+        _ActiveDrawer.circles => Listenable.merge([
+            _spaces,
+            _catalog.shelfListenable,
+            _catalog.overlayListenable,
+            _draft.geometryListenable,
+            _accountWallet,
+          ]),
+        _ActiveDrawer.inbox => Listenable.merge([
+            _spaces.inboxListenable,
+            _spaces.badgeListenable,
+            _accountWallet,
+          ]),
+        _ActiveDrawer.outbox => _spaces.outboxListenable,
+        _ActiveDrawer.cashuWallet => Listenable.merge([
+            _accountWallet.walletListenable,
+            _accountWallet.accountListenable,
+          ]),
+        _ActiveDrawer.mcpBridge => _agent.mcpListenable,
+        _ActiveDrawer.account => Listenable.merge([_accountWallet, _catalog]),
+        _ => Listenable.merge([_catalog, _draft, _accountWallet]),
+      };
+
+  Widget _buildScopedDrawerSlot(_ActiveDrawer target) {
+    return ListenableBuilder(
+      listenable: _listenableForDrawer(target),
+      builder: (context, _) =>
+          _buildDrawerFor(target) ?? const SizedBox.shrink(),
+    );
+  }
+
+  Widget? _buildDrawerFor(_ActiveDrawer target) {
+    if (_draft.isDrawingMode) return null;
     switch (target) {
       case _ActiveDrawer.none:
         return null;
       case _ActiveDrawer.explore:
         return ExploreSheet(
-          initialCatalog: _catalog,
-          catalogLoading: _catalogLoading,
-          relayUrls: _activeRelayUrls,
-          shelfAddresses: _shelfMaps.map((e) => e.summary.address).toSet(),
-          profilesByPubkey: _profilesByPubkey,
-          pinnedEntityIds: _pinnedEntityIds,
-          recentEntityIds: _recentEntityIds,
-          activeAtlasLens: _activeAtlasLens,
+          initialCatalog: _catalog.catalog,
+          catalogLoading: _catalog.catalogLoading,
+          relayUrls: _catalog.relayUrls,
+          shelfAddresses:
+              _catalog.shelfMaps.map((e) => e.summary.address).toSet(),
+          profilesByPubkey: _accountWallet.profilesByPubkey,
+          pinnedEntityIds: _catalog.pinnedEntityIds,
+          recentEntityIds: _catalog.recentEntityIds,
+          activeAtlasLens: _catalog.activeAtlasLens,
           onCatalogLoaded: (catalog) {
-            setState(() => _catalog = catalog);
-            unawaited(_resolveCatalogProfiles(catalog));
+            _catalog.setCatalog(catalog);
+            unawaited(
+              _accountWallet.resolveCatalogProfiles(
+                catalog,
+                _catalog.relayUrls,
+              ),
+            );
           },
-          onToggleFavorite: _toggleFavoriteEntity,
+          onToggleFavorite: (id) => _catalog.toggleFavoriteEntity(
+            id,
+            onPersist: () => unawaited(_persistAppSettings()),
+          ),
           onToggleMapOnShelf: _toggleMapOnShelf,
           onAddMapsBulk: _addMapsBulkToShelf,
           onInspectMap: _inspectMap,
           onFocusMap: (map) {
-            _recordRecentEntity('map:${map.address}');
+            _catalog.recordRecentEntity(
+              'map:${map.address}',
+              onPersist: () => unawaited(_persistAppSettings()),
+            );
             _flyToMap(map);
           },
           onCloneMapToDraft: (map) =>
@@ -7119,7 +2498,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             ),
           ),
           onOpenStory: (story) {
-            _recordRecentEntity('story:${story.address}');
+            _catalog.recordRecentEntity(
+              'story:${story.address}',
+              onPersist: () => unawaited(_persistAppSettings()),
+            );
             unawaited(_openStory(story));
           },
           onOpenStoryDiscussion: (story) => _openDiscussion(
@@ -7135,16 +2517,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onInspectAtlas: _inspectAtlas,
           onOpenAtlas: (atlas) => unawaited(_openAtlas(atlas)),
           onEnterAtlasLens: _enterAtlasLens,
-          onLeaveAtlasLens: _leaveAtlasLens,
+          onLeaveAtlasLens: _catalog.leaveAtlasLens,
           onFocusSighting: _focusSighting,
           onFocusBeacon: _focusBeacon,
           onCreateSighting: _openSightingComposer,
           onComposeStory: () {
-            setState(() => _editingStory = null);
+            _catalog.setEditingStory(null);
             _openDrawer(_ActiveDrawer.storyComposer);
           },
           onCreateAtlas: () {
-            setState(() => _editingAtlas = null);
+            _catalog.setEditingAtlas(null);
             _openDrawer(_ActiveDrawer.atlasComposer);
           },
           onOpenBeaconBroadcaster: () => _openDrawer(_ActiveDrawer.spaces),
@@ -7153,51 +2535,50 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         );
       case _ActiveDrawer.desk:
         return DeskSheet(
-          activeDraftId: _activeDraftId,
-          savedDrafts: _savedDrafts,
-          relayUrls: _activeRelayUrls,
-          draftTitle: _draftTitle,
-          audience: _draftAudience,
-          account: _account,
-          shelfMaps: _shelfMaps,
-          deskStories: _deskStories,
-          deskAtlases: _deskAtlases,
-          drawnFeatures: _features,
-          activeAtlasLensName: _activeAtlasLens?.name,
-          circles: _circles,
-          selectedCircleId: _selectedCircleId ?? _activeCircleLensId,
-          onSelectedCircleChanged: (id) =>
-              setState(() => _selectedCircleId = id),
-          canUndo: _draftUndoStack.isNotEmpty,
-          canRedo: _draftRedoStack.isNotEmpty,
-          onUndo: _undoDraftEdit,
-          onRedo: _redoDraftEdit,
-          onSelectDraft: _selectSavedDraft,
-          onCreateNewDraft: _createNewDraft,
-          onDeleteDraft: (id) => unawaited(_deleteSavedDraft(id)),
-          onDraftTitleChanged: (title) {
-            setState(() => _draftTitle = title);
-            unawaited(_persistWorkingDraft());
-          },
-          onAudienceChanged: (audience) {
-            setState(() => _draftAudience = audience);
-            unawaited(_persistWorkingDraft());
-          },
-          onToggleShelfVisibility: (addr) {
-            setState(() {
-              final idx =
-                  _shelfMaps.indexWhere((e) => e.summary.address == addr);
-              if (idx >= 0) {
-                _shelfMaps[idx] =
-                    _shelfMaps[idx].copyWith(visible: !_shelfMaps[idx].visible);
-              }
-            });
-          },
-          onRemoveShelfMap: (addr) {
-            setState(
-              () => _shelfMaps.removeWhere((e) => e.summary.address == addr),
-            );
-          },
+          activeDraftId: _draft.activeDraftId,
+          savedDrafts: _draft.savedDrafts,
+          relayUrls: _catalog.relayUrls,
+          draftTitle: _draft.draftTitle,
+          audience: _draft.draftAudience,
+          account: _accountWallet.account,
+          shelfMaps: _catalog.shelfMaps,
+          deskStories: _catalog.deskStories,
+          deskAtlases: _catalog.deskAtlases,
+          drawnFeatures: _draft.features,
+          activeAtlasLensName: _catalog.activeAtlasLens?.name,
+          circles: _spaces.circles,
+          selectedCircleId:
+              _spaces.selectedCircleId ?? _spaces.activeCircleLensId,
+          onSelectedCircleChanged: _spaces.setSelectedCircleId,
+          canUndo: _draft.undoStack.isNotEmpty,
+          canRedo: _draft.redoStack.isNotEmpty,
+          onUndo: () => _draft.undoDraftEdit(
+            onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+            onPersist: _schedulePersistWorkingDraft,
+          ),
+          onRedo: () => _draft.redoDraftEdit(
+            onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+            onPersist: _schedulePersistWorkingDraft,
+          ),
+          onSelectDraft: _draft.selectSavedDraft,
+          onCreateNewDraft: () =>
+              _draft.createNewDraft(onPersist: _schedulePersistWorkingDraft),
+          onDeleteDraft: (id) => unawaited(
+            _draft.deleteSavedDraft(
+              id,
+              onPersist: _schedulePersistWorkingDraft,
+            ),
+          ),
+          onDraftTitleChanged: (title) => _draft.setDraftTitle(
+            title,
+            onPersist: _schedulePersistWorkingDraft,
+          ),
+          onAudienceChanged: (audience) => _draft.setDraftAudience(
+            audience,
+            onPersist: _schedulePersistWorkingDraft,
+          ),
+          onToggleShelfVisibility: _catalog.toggleShelfVisibility,
+          onRemoveShelfMap: _catalog.removeShelfMap,
           onInspectShelfMap: _inspectMap,
           onFlyToShelfMap: _flyToMap,
           onCloneShelfMapToDraft: (map) =>
@@ -7213,14 +2594,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             ),
           ),
           onOpenDeskStory: (story) => unawaited(_openStory(story)),
-          onRemoveDeskStory: (addr) => setState(
-            () => _deskStories.removeWhere((s) => s.address == addr),
-          ),
+          onRemoveDeskStory: _catalog.removeDeskStory,
           onOpenDeskAtlas: _inspectAtlas,
-          onRemoveDeskAtlas: (addr) => setState(
-            () => _deskAtlases.removeWhere((a) => a.address == addr),
-          ),
-          onRunGeoAction: (action) => unawaited(_runGeoAction(action)),
+          onRemoveDeskAtlas: _catalog.removeDeskAtlas,
+          onRunGeoAction: (action) => unawaited(_runGeoActionUi(action)),
           onRunParameterizedGeoAction: (
             action, {
             meters,
@@ -7228,7 +2605,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             scale,
           }) =>
               unawaited(
-            _runGeoAction(
+            _runGeoActionUi(
               action,
               meters: meters,
               angleDeg: angleDeg,
@@ -7237,17 +2614,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ),
           onPublishDraft: _publishDraft,
           onComposeStory: () {
-            setState(() => _editingStory = null);
+            _catalog.setEditingStory(null);
             _openDrawer(_ActiveDrawer.storyComposer);
           },
           onCreateAtlas: () {
-            setState(() => _editingAtlas = null);
+            _catalog.setEditingAtlas(null);
             _openDrawer(_ActiveDrawer.atlasComposer);
           },
           onImportGeoJson: () => unawaited(_importGeoJsonFile()),
-          onImportOsm: _openOsmImportDrawer,
-          onOpenRouting: () => _openRoutingDrawer(),
-          onExportGeoJsonFile: () => unawaited(_exportGeoJsonFile()),
+          onImportOsm: () => _openDrawer(_ActiveDrawer.osmImport),
+          onOpenRouting: () {
+            _catalog.setRoutingOrigin(null);
+            _openDrawer(_ActiveDrawer.routing);
+          },
+          onExportGeoJsonFile: () => unawaited(_exportSpatialFile('geojson')),
           onExportGpxFile: () => unawaited(_exportSpatialFile('gpx')),
           onExportKmlFile: () => unawaited(_exportSpatialFile('kml')),
           onExportShapefileZip: () => unawaited(_exportShapefileZip()),
@@ -7255,168 +2635,206 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onCopyGeoJson: _copyGeoJsonToClipboard,
           onPasteGeoJsonFromClipboard: () =>
               unawaited(_pasteGeoJsonFromClipboard()),
-          onValidateDraft: _validateCurrentDraft,
-          selectedDraftFeatureIds: _selectedDraftFeatureIds,
-          onToggleSelectDraftFeature: _toggleSelectDraftFeature,
-          onSelectAllDraftFeatures: _selectAllDraftFeatures,
-          onClearDraftSelection: _clearDraftSelection,
-          onInspectDraftFeature: _inspectDraftFeature,
-          onDuplicateSelectedFeatures: () =>
-              unawaited(_duplicateDraftFeatures(_selectedDraftFeatureIds)),
-          onDeleteSelectedFeatures: _deleteSelectedDraftFeatures,
-          onAddPrimitiveShape: _addPrimitiveShape,
-          onClearDraftFeatures: () {
-            _pushDraftUndo();
-            setState(() {
-              _features.clear();
-              _selectedDraftFeatureIds.clear();
-              _draftVertices.clear();
-            });
-            unawaited(_persistWorkingDraft());
+          onValidateDraft: _draft.validateCurrentDraft,
+          selectedDraftFeatureIds: _draft.selectedDraftFeatureIds,
+          onToggleSelectDraftFeature: _draft.toggleSelectFeature,
+          onSelectAllDraftFeatures: _draft.selectAllFeatures,
+          onClearDraftSelection: _draft.clearSelection,
+          onInspectDraftFeature: (f) =>
+              _inspectFeature(_buildInspectedDraftFeature(f)),
+          onDuplicateSelectedFeatures: () => unawaited(
+            _duplicateDraftFeaturesUi(_draft.selectedDraftFeatureIds),
+          ),
+          onDeleteSelectedFeatures: () {
+            final deleted = _draft.deleteSelectedFeatures(
+              onPersist: _schedulePersistWorkingDraft,
+            );
+            final inspected = _catalog.inspectedFeature;
+            if (inspected?.draftFeatureId != null &&
+                deleted.contains(inspected!.draftFeatureId)) {
+              _catalog.setInspectedFeature(null);
+              _closeDrawer(_ActiveDrawer.inspector);
+            }
           },
-          pendingOutboxCount: _pendingOutboxCount,
+          onAddPrimitiveShape: _addPrimitiveShapeUi,
+          onClearDraftFeatures: () =>
+              _draft.clearDraftFeatures(onPersist: _schedulePersistWorkingDraft),
+          pendingOutboxCount: _spaces.pendingOutboxCount,
           onOpenOutbox: () {
             _openDrawer(_ActiveDrawer.outbox);
-            unawaited(_refreshOutboxItems());
+            unawaited(
+              _spaces.refreshOutboxItems(isHeadlessTest: _isHeadlessTest),
+            );
           },
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.spaces:
         return SpacesSheet(
-          account: _account,
-          localNsec: _localNsec,
-          relayUrls: _relayUrls,
-          initialPairingLink: _pendingDeepLinkPairing,
-          circles: _circles,
-          pendingCircleJoinsCount: _circlePendingJoins.length,
-          activeCircleId: _activeCircleLensId,
-          inboxUnreadCount: _inboxUnreadCount,
+          account: _accountWallet.account,
+          localNsec: _accountWallet.localNsec,
+          relayUrls: _catalog.relayUrls,
+          initialPairingLink: _spaces.pendingDeepLinkPairing,
+          circles: _spaces.circles,
+          pendingCircleJoinsCount: _spaces.circlePendingJoins.length,
+          activeCircleId: _spaces.activeCircleLensId,
+          inboxUnreadCount: _spaces.inboxUnreadCount,
           onOpenInbox: () {
             _openDrawer(_ActiveDrawer.inbox);
             unawaited(_refreshInbox());
           },
-          pendingOutboxCount: _pendingOutboxCount,
+          pendingOutboxCount: _spaces.pendingOutboxCount,
           onOpenOutbox: () {
             _openDrawer(_ActiveDrawer.outbox);
-            unawaited(_refreshOutboxItems());
+            unawaited(
+              _spaces.refreshOutboxItems(isHeadlessTest: _isHeadlessTest),
+            );
           },
           onOpenCircles: () => _openDrawer(_ActiveDrawer.circles),
           onSelectCircle: (ws) {
-            setState(() => _selectedCircleId = ws.workspaceId);
+            _spaces.setSelectedCircleId(ws.workspaceId);
             _openDrawer(_ActiveDrawer.circles);
           },
-          onRelayUrlsChanged: _updateRelayUrls,
-          onFetchNip65Relays: _fetchNip65Relays,
-          onPublishNip65Relays: _publishNip65Relays,
+          onRelayUrlsChanged: (next) => _catalog.updateRelayUrls(
+            next,
+            onPersist: () => unawaited(_persistAppSettings()),
+            onSyncRelays: () => unawaited(_syncRelayPoolAndRefresh()),
+          ),
+          onFetchNip65Relays: () => _spaces.fetchNip65Relays(
+            relayUrls: _catalog.relayUrls,
+            ensureAccount: _ensureAccount,
+          ),
+          onPublishNip65Relays: (relays) => _spaces.publishNip65Relays(
+            relays,
+            relayUrls: _catalog.relayUrls,
+            ensureAccount: _ensureAccount,
+            signUnsignedEvent: _accountWallet.signUnsignedEvent,
+          ),
           onOpenShoutbox: () => _openDrawer(_ActiveDrawer.shoutbox),
           onOpenHelp: () => _openDrawer(_ActiveDrawer.help),
           onOpenCashuWallet: () => _openDrawer(_ActiveDrawer.cashuWallet),
-          cashuBalanceSats: _cashuWalletState?.balanceSats.toInt(),
+          cashuBalanceSats:
+              _accountWallet.cashuWalletState?.balanceSats.toInt(),
           onOpenMcpBridge: () => _openDrawer(_ActiveDrawer.mcpBridge),
-          mcpBridgeRunning: _mcpBridgeStatus?.running ?? false,
-          onAccountChanged: (account) {
-            if (account == null) {
-              if (_activeAccountId != null) {
-                _removeSavedSession(_activeAccountId!);
-              } else {
-                setState(() => _applyActiveSessionState(null));
-                unawaited(_persistAppSettings());
-              }
-              return;
-            }
-            _upsertAndActivateSession(
-              SavedAccountSessionDto(
-                id: 'amber:${account.pubkey}',
-                kind: 'amber',
-                pubkeyHex: account.pubkey,
-                signerPackage: account.signerPackage,
-              ),
-            );
-          },
-          onLocalKeyChanged: (kp) {
-            if (kp == null) {
-              if (_activeAccountId != null &&
-                  _activeAccountId!.startsWith('local:')) {
-                _removeSavedSession(_activeAccountId!);
-              } else {
-                setState(() => _localNsec = null);
-              }
-              return;
-            }
-            _upsertAndActivateSession(
-              SavedAccountSessionDto(
-                id: 'local:${kp.pubkeyHex}',
-                kind: 'local',
-                pubkeyHex: kp.pubkeyHex,
-                localNsec: kp.nsec,
-              ),
-            );
-          },
-          onSessionStateChanged: (hostedId, acceptedPeer) {
-            setState(() {
-              if (hostedId != null) _hostedSessionId = hostedId;
-              _acceptedRemotePeer = acceptedPeer;
-            });
-          },
-          onNearbySynced: () {
-            // Invalidate cached Explore snapshot so newly synced maps appear immediately.
-            setState(() => _catalog = null);
-          },
+          mcpBridgeRunning: _agent.mcpBridgeStatus?.running ?? false,
+          onAccountChanged: _onAmberAccountChanged,
+          onLocalKeyChanged: _onLocalKeyChanged,
+          onSessionStateChanged: _spaces.setSessionState,
+          onNearbySynced: () => _catalog.setCatalog(null),
           onBroadcastBeacon: _broadcastLiveBeacon,
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.circles:
         return CirclesSheet(
-          account: _account,
-          localNsec: _localNsec,
-          bunkerUri: _bunkerUri,
-          bunkerClientNsec: _bunkerClientNsec,
-          mlsDatabasePath: _mlsDatabasePath,
-          cordnServerPubkey: _cordnServerPubkey,
-          relayUrls: _activeRelayUrls,
-          workspaces: _circles,
-          pendingJoins: _circlePendingJoins,
-          activeCircleId: _activeCircleLensId,
+          account: _accountWallet.account,
+          localNsec: _accountWallet.localNsec,
+          bunkerUri: _accountWallet.bunkerUri,
+          bunkerClientNsec: _accountWallet.bunkerClientNsec,
+          mlsDatabasePath: _spaces.mlsDatabasePath,
+          cordnServerPubkey: _spaces.cordnServerPubkey,
+          relayUrls: _catalog.relayUrls,
+          workspaces: _spaces.circles,
+          pendingJoins: _spaces.circlePendingJoins,
+          activeCircleId: _spaces.activeCircleLensId,
           mountedCircleDatasetKeys:
-              _shelfMaps.map((e) => e.summary.address).toSet(),
-          activeCommentOverlayId: _activeCommentOverlayId,
-          hasDraftGeometry: _features.isNotEmpty,
-          profilesByPubkey: _profilesByPubkey,
-          initialWorkspaceId: _selectedCircleId,
-          initialInviteLink: _pendingDeepLinkCircleInvite,
-          onCordnPubkeyChanged: (pubkey) {
-            setState(() => _cordnServerPubkey = pubkey);
-            unawaited(_persistAppSettings());
-          },
-          onRefreshCircles: _refreshCirclesSnapshot,
+              _catalog.shelfMaps.map((e) => e.summary.address).toSet(),
+          activeCommentOverlayId: _catalog.activeCommentOverlayId,
+          hasDraftGeometry: _draft.features.isNotEmpty,
+          profilesByPubkey: _accountWallet.profilesByPubkey,
+          initialWorkspaceId: _spaces.selectedCircleId,
+          initialInviteLink: _spaces.pendingDeepLinkCircleInvite,
+          onCordnPubkeyChanged: (pk) => _spaces.setCordnServerPubkey(
+            pk,
+            onPersist: () => unawaited(_persistAppSettings()),
+          ),
+          onRefreshCircles: () => _spaces.refreshCirclesSnapshot(
+            accountPubkey: _accountWallet.account?.pubkey,
+            isHeadlessTest: _isHeadlessTest,
+          ),
           onWorkspaceUpdated: _handleCircleWorkspaceUpdated,
           onEnterCircleLens: _enterCircleLens,
           onLeaveCircleLens: _leaveCircleLens,
           onToggleDatasetOnMap: _toggleCircleDatasetOnMap,
           onZoomToDataset: _zoomToCircleDataset,
-          onEditDatasetInDraft: _editCircleDatasetInDraft,
-          onStartNewPrivateMap: _startNewPrivateMapInCircle,
-          onToggleCommentGeometry: _toggleCircleCommentGeometry,
-          onSendCircleComment: _sendCircleComment,
+          onEditDatasetInDraft: (ws, ds) {
+            final parsed = parseDraftFeaturesFromGeoJson(ds.geojsonJson);
+            _spaces.enterCircleLensState(ws);
+            _draft.loadCircleDataset(
+              dTag: ds.datasetId,
+              title: ds.title,
+              parsed: parsed,
+              onPersist: _schedulePersistWorkingDraft,
+            );
+            _openDrawer(_ActiveDrawer.desk);
+          },
+          onStartNewPrivateMap: (ws) {
+            _spaces.enterCircleLensState(ws);
+            _draft.startNewCircleDraft(
+              circleName: ws.name,
+              onPersist: _schedulePersistWorkingDraft,
+            );
+            _openDrawer(_ActiveDrawer.desk);
+          },
+          onToggleCommentGeometry: (msg) {
+            if (_catalog.activeCommentOverlayId == msg.envelopeId) {
+              _catalog.setCircleCommentOverlay(null, const <ShelfShape>[]);
+              return;
+            }
+            if (msg.geojsonJson == null || msg.geojsonJson!.isEmpty) return;
+            final shapes = parseGeoJsonShapes(
+              msg.geojsonJson!,
+              datasetTitle: 'Circle Comment',
+            );
+            _catalog.setCircleCommentOverlay(msg.envelopeId, shapes);
+            if (shapes.isNotEmpty) {
+              final bounds = computeFeatureBounds(shapes.first);
+              if (bounds != null) _flyToBounds(bounds);
+            }
+          },
+          onSendCircleComment: (workspaceId, text, attachDraft) async {
+            await RustBridge.ensureInitialized();
+            final mlsPath = await _spaces.ensureMlsDatabasePath();
+            final geojson = (attachDraft && _draft.features.isNotEmpty)
+                ? draftFeaturesToGeoJson(
+                    title: 'Circle attachment',
+                    features: _draft.features,
+                  )
+                : null;
+            final updated = await sendCircleComment(
+              databasePath: mlsPath,
+              signerNsec: _accountWallet.localNsec,
+              bunkerUri: _accountWallet.bunkerUri,
+              bunkerClientNsec: _accountWallet.bunkerClientNsec,
+              workspaceId: workspaceId,
+              text: text,
+              geojsonJson: geojson,
+            );
+            _handleCircleWorkspaceUpdated(updated);
+            return updated;
+          },
           onOpenAccount: () => _openDrawer(_ActiveDrawer.account),
           onClose: () {
-            setState(() => _pendingDeepLinkCircleInvite = null);
+            _spaces.clearPendingCircleInvite();
             _closeDrawer(target);
           },
         );
       case _ActiveDrawer.inbox:
         return InboxSheet(
-          account: _account,
-          items: _inboxItems,
-          loading: _inboxLoading,
-          readAllBeforeSecs: _inboxReadAllBefore,
-          readIds: _inboxReadIds,
-          profilesByPubkey: _profilesByPubkey,
-          pendingCircleJoinsCount: _circlePendingJoins.length,
-          pendingNearbyClaimsCount: _pendingClaimCount,
+          account: _accountWallet.account,
+          items: _spaces.inboxItems,
+          loading: _spaces.inboxLoading,
+          readAllBeforeSecs: _spaces.inboxReadAllBefore,
+          readIds: _spaces.inboxReadIds,
+          profilesByPubkey: _accountWallet.profilesByPubkey,
+          pendingCircleJoinsCount: _spaces.circlePendingJoins.length,
+          pendingNearbyClaimsCount: _spaces.pendingClaimCount,
           onRefresh: _refreshInbox,
-          onMarkItemRead: _markInboxItemRead,
-          onMarkAllRead: _markAllInboxRead,
+          onMarkItemRead: (id) => _spaces.markInboxItemRead(
+            id,
+            onPersist: () => unawaited(_persistAppSettings()),
+          ),
+          onMarkAllRead: () => _spaces.markAllInboxRead(
+            onPersist: () => unawaited(_persistAppSettings()),
+          ),
           onOpenItem: (item) => unawaited(_openInboxItem(item)),
           onOpenPerson: _openPerson,
           onOpenCircles: () => _openDrawer(_ActiveDrawer.circles),
@@ -7426,121 +2844,119 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         );
       case _ActiveDrawer.outbox:
         return OutboxQueueSheet(
-          items: _outboxItems,
-          flushing: _outboxFlushing,
-          onFlushAll: () => unawaited(_flushAndRefreshOutbox()),
-          onRetryItem: (id) => unawaited(_retryOutboxEntry(id)),
-          onDiscardItem: (id) => unawaited(_discardOutboxEntry(id)),
+          items: _spaces.outboxItems,
+          flushing: _spaces.outboxFlushing,
+          onFlushAll: () => unawaited(
+            _spaces.flushAndRefreshOutbox(isHeadlessTest: _isHeadlessTest),
+          ),
+          onRetryItem: (id) => unawaited(
+            _spaces.retryOutboxEntry(id).catchError((Object err) {
+              _showSnack('Outbox retry failed: $err');
+            }),
+          ),
+          onDiscardItem: (id) => unawaited(
+            _spaces.discardOutboxEntry(id).catchError((Object err) {
+              _showSnack('Outbox discard failed: $err');
+            }),
+          ),
           onClose: () => _closeDrawer(_ActiveDrawer.outbox),
         );
       case _ActiveDrawer.person:
-        final personPk = _inspectedPersonPubkey;
+        final personPk = _catalog.inspectedPersonPubkey;
         if (personPk == null) return null;
         return PersonMarginSheet(
           pubkey: personPk,
-          relayUrls: _activeRelayUrls,
-          isCurrentUser: _account?.pubkey == personPk,
-          initialProfile: _profilesByPubkey[personPk],
-          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
-          catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
-          catalogAtlases: _catalog?.atlases ?? const <AtlasSummaryDto>[],
-          shelfAddresses: _shelfMaps.map((e) => e.summary.address).toSet(),
-          onProfileResolved: (p) {
-            if (mounted) setState(() => _profilesByPubkey[p.pubkey] = p);
-          },
+          relayUrls: _catalog.relayUrls,
+          isCurrentUser: _accountWallet.account?.pubkey == personPk,
+          initialProfile: _accountWallet.profilesByPubkey[personPk],
+          catalogMaps: _catalog.catalog?.maps ?? const <MapSummaryDto>[],
+          catalogStories:
+              _catalog.catalog?.stories ?? const <StorySummaryDto>[],
+          catalogAtlases:
+              _catalog.catalog?.atlases ?? const <AtlasSummaryDto>[],
+          shelfAddresses:
+              _catalog.shelfMaps.map((e) => e.summary.address).toSet(),
+          onProfileResolved: _accountWallet.cacheProfile,
           onToggleMapOnShelf: _toggleMapOnShelf,
           onInspectMap: _inspectMap,
           onFocusMap: _flyToMap,
           onOpenStory: (story) {
-            _recordRecentEntity('story:${story.address}');
+            _catalog.recordRecentEntity(
+              'story:${story.address}',
+              onPersist: () => unawaited(_persistAppSettings()),
+            );
             unawaited(_openStory(story));
           },
           onInspectAtlas: _inspectAtlas,
           onEnterAtlasLens: _enterAtlasLens,
-          isMuted: _mutedPubkeys.contains(personPk),
+          isMuted: _accountWallet.mutedPubkeys.contains(personPk),
           onToggleMute: () {
-            if (_mutedPubkeys.contains(personPk)) {
-              _unmutePubkey(personPk);
+            if (_accountWallet.mutedPubkeys.contains(personPk)) {
+              _accountWallet.unmutePubkey(
+                personPk,
+                onPersistSettings: () => unawaited(_persistAppSettings()),
+              );
             } else {
-              _mutePubkey(personPk);
+              _mutePubkeyUi(personPk);
             }
           },
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.account:
         return AccountSessionSheet(
-          account: _account,
-          localNsec: _localNsec,
-          bunkerUri: _bunkerUri,
-          relayUrls: _activeRelayUrls,
-          savedAccounts: _savedAccounts,
-          activeAccountId: _activeAccountId,
-          profilesByPubkey: _profilesByPubkey,
-          onSwitchSession: _switchSavedSession,
-          onRemoveSession: _removeSavedSession,
-          onAddReadOnlyNpub: _addReadOnlySession,
-          mutedPubkeys: _mutedPubkeys,
-          onUnmutePubkey: _unmutePubkey,
-          blossomServerUrl: _blossomServerUrl,
-          onBlossomServerChanged: (url) {
-            setState(() => _blossomServerUrl = url);
-            unawaited(_persistAppSettings());
+          account: _accountWallet.account,
+          localNsec: _accountWallet.localNsec,
+          bunkerUri: _accountWallet.bunkerUri,
+          relayUrls: _catalog.relayUrls,
+          savedAccounts: _accountWallet.savedAccounts,
+          activeAccountId: _accountWallet.activeAccountId,
+          profilesByPubkey: _accountWallet.profilesByPubkey,
+          onSwitchSession: (session) {
+            final name = _accountWallet.switchSavedSession(
+              session,
+              onSessionActivated: _onSessionActivated,
+            );
+            _showSnack('Switched account to $name');
           },
+          onRemoveSession: (id) => _accountWallet.removeSavedSession(
+            id,
+            onSessionActivated: _onSessionActivated,
+          ),
+          onAddReadOnlyNpub: (pk) => _accountWallet.addReadOnlySession(
+            pk,
+            onSessionActivated: _onSessionActivated,
+          ),
+          mutedPubkeys: _accountWallet.mutedPubkeys,
+          onUnmutePubkey: (pk) => _accountWallet.unmutePubkey(
+            pk,
+            onPersistSettings: () => unawaited(_persistAppSettings()),
+          ),
+          blossomServerUrl: _catalog.blossomServerUrl,
+          onBlossomServerChanged: (url) => _catalog.setBlossomServerUrl(
+            url,
+            onPersist: () => unawaited(_persistAppSettings()),
+          ),
           onUploadBlossomImage: _pickAndUploadBlossomImage,
-          profile: _account != null ? _profilesByPubkey[_account!.pubkey] : null,
-          activeSessionSummary: _activeSessionSummaryText,
-          onAccountChanged: (account) {
-            if (account == null) {
-              if (_activeAccountId != null) {
-                _removeSavedSession(_activeAccountId!);
-              } else {
-                setState(() => _applyActiveSessionState(null));
-                unawaited(_persistAppSettings());
-              }
-              return;
-            }
-            _upsertAndActivateSession(
-              SavedAccountSessionDto(
-                id: 'amber:${account.pubkey}',
-                kind: 'amber',
-                pubkeyHex: account.pubkey,
-                signerPackage: account.signerPackage,
-              ),
-            );
-          },
-          onLocalKeyChanged: (kp) {
-            if (kp == null) {
-              if (_activeAccountId != null &&
-                  _activeAccountId!.startsWith('local:')) {
-                _removeSavedSession(_activeAccountId!);
-              } else {
-                setState(() => _localNsec = null);
-              }
-              return;
-            }
-            _upsertAndActivateSession(
-              SavedAccountSessionDto(
-                id: 'local:${kp.pubkeyHex}',
-                kind: 'local',
-                pubkeyHex: kp.pubkeyHex,
-                localNsec: kp.nsec,
-              ),
-            );
-          },
+          profile: _accountWallet.account != null
+              ? _accountWallet.profilesByPubkey[_accountWallet.account!.pubkey]
+              : null,
+          activeSessionSummary: _spaces.activeSessionSummaryText,
+          onAccountChanged: _onAmberAccountChanged,
+          onLocalKeyChanged: _onLocalKeyChanged,
           onBunkerConnected: (conn) {
             if (conn == null) {
-              if (_activeAccountId != null &&
-                  _activeAccountId!.startsWith('bunker:')) {
-                _removeSavedSession(_activeAccountId!);
+              if (_accountWallet.activeAccountId != null &&
+                  _accountWallet.activeAccountId!.startsWith('bunker:')) {
+                _accountWallet.removeSavedSession(
+                  _accountWallet.activeAccountId!,
+                  onSessionActivated: _onSessionActivated,
+                );
               } else {
-                setState(() {
-                  _bunkerUri = null;
-                  _bunkerClientNsec = null;
-                });
+                _accountWallet.clearBunkerCredentials();
               }
               return;
             }
-            _upsertAndActivateSession(
+            _accountWallet.upsertAndActivateSession(
               SavedAccountSessionDto(
                 id: 'bunker:${conn.userPubkeyHex}',
                 kind: 'bunker',
@@ -7548,43 +2964,50 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                 bunkerUri: conn.bunkerUri,
                 bunkerClientNsec: conn.clientNsec,
               ),
+              onSessionActivated: _onSessionActivated,
             );
           },
-          nwcUri: _nwcUri,
-          onNwcUriChanged: (uri) {
-            setState(() => _nwcUri = uri);
-            unawaited(_persistAppSettings());
-          },
+          nwcUri: _accountWallet.nwcUri,
+          onNwcUriChanged: (uri) => _accountWallet.setNwcUri(
+            uri,
+            onPersistSettings: () => unawaited(_persistAppSettings()),
+          ),
           onOpenCashuWallet: () => _openDrawer(_ActiveDrawer.cashuWallet),
-          cashuBalanceSats: _cashuWalletState?.balanceSats.toInt(),
-          onSaveProfile: _publishProfile,
+          cashuBalanceSats:
+              _accountWallet.cashuWalletState?.balanceSats.toInt(),
+          onSaveProfile: (req) => _accountWallet.publishProfile(
+            req,
+            relayUrls: _catalog.relayUrls,
+            onSessionActivated: _onSessionActivated,
+          ),
           onOpenSpaces: () => _openDrawer(_ActiveDrawer.spaces),
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.cashuWallet:
         return CashuWalletSheet(
-          state: _cashuWalletViewState,
-          busy: _cashuBusy,
+          state: _accountWallet.cashuWalletViewState,
+          busy: _accountWallet.cashuBusy,
           onInitializeWallet: (mints, enableNutzaps) async {
-            var next = await _runCashuOp(
+            var next = await _accountWallet.runCashuOp(
               (dbPath, pubkeyHex, masterKey) => initCashuWallet(
                 databasePath: dbPath,
                 pubkeyHex: pubkeyHex,
                 mints: mints,
-                relays: _activeRelayUrls,
+                relays: _catalog.relayUrls,
                 masterKeyB64: masterKey,
               ),
+              onSessionActivated: _onSessionActivated,
             );
             if (enableNutzaps &&
-                _localNsec != null &&
-                _localNsec!.trim().isNotEmpty) {
-              await _runCashuOp(
+                _accountWallet.localNsec != null &&
+                _accountWallet.localNsec!.trim().isNotEmpty) {
+              await _accountWallet.runCashuOp(
                 (dbPath, pubkeyHex, masterKey) async {
                   await publishNip61NutzapInfo(
                     databasePath: dbPath,
-                    nsecOrHex: _requireCashuNsec(),
+                    nsecOrHex: _accountWallet.requireCashuNsec(),
                     mints: mints,
-                    relays: _activeRelayUrls,
+                    relays: _catalog.relayUrls,
                     masterKeyB64: masterKey,
                   );
                   next = await loadCashuWalletState(
@@ -7593,45 +3016,49 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                     masterKeyB64: masterKey,
                   );
                 },
+                onSessionActivated: _onSessionActivated,
               );
             }
-            if (mounted) setState(() => _cashuWalletState = next);
+            _accountWallet.updateCashuWalletState(next);
           },
           onSyncWallet: () async {
-            final next = await _runCashuOp(
+            final next = await _accountWallet.runCashuOp(
               (dbPath, _, masterKey) => syncNip60Wallet(
                 databasePath: dbPath,
-                nsecOrHex: _requireCashuNsec(),
-                relays: _activeRelayUrls,
+                nsecOrHex: _accountWallet.requireCashuNsec(),
+                relays: _catalog.relayUrls,
                 masterKeyB64: masterKey,
               ),
+              onSessionActivated: _onSessionActivated,
             );
-            if (mounted) setState(() => _cashuWalletState = next);
+            _accountWallet.updateCashuWalletState(next);
           },
           onAddMint: (url) async {
-            final next = await _runCashuOp(
+            final next = await _accountWallet.runCashuOp(
               (dbPath, pubkeyHex, masterKey) => addCashuMint(
                 databasePath: dbPath,
                 pubkeyHex: pubkeyHex,
                 mintUrl: url,
                 masterKeyB64: masterKey,
               ),
+              onSessionActivated: _onSessionActivated,
             );
-            if (mounted) setState(() => _cashuWalletState = next);
+            _accountWallet.updateCashuWalletState(next);
           },
           onRemoveMint: (url) async {
-            final next = await _runCashuOp(
+            final next = await _accountWallet.runCashuOp(
               (dbPath, pubkeyHex, masterKey) => removeCashuMint(
                 databasePath: dbPath,
                 pubkeyHex: pubkeyHex,
                 mintUrl: url,
                 masterKeyB64: masterKey,
               ),
+              onSessionActivated: _onSessionActivated,
             );
-            if (mounted) setState(() => _cashuWalletState = next);
+            _accountWallet.updateCashuWalletState(next);
           },
           onRequestDeposit: (mintUrl, amountSats) async {
-            final quote = await _runCashuOp(
+            final quote = await _accountWallet.runCashuOp(
               (dbPath, pubkeyHex, masterKey) => requestCashuMintQuote(
                 databasePath: dbPath,
                 pubkeyHex: pubkeyHex,
@@ -7639,8 +3066,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                 amountSats: BigInt.from(amountSats),
                 masterKeyB64: masterKey,
               ),
+              onSessionActivated: _onSessionActivated,
             );
-            _cashuQuoteAmounts[quote.quoteId] = quote.amountSats.toInt();
+            _accountWallet.cashuQuoteAmounts[quote.quoteId] =
+                quote.amountSats.toInt();
             return CashuMintQuoteView(
               quoteId: quote.quoteId,
               mintUrl: quote.mintUrl,
@@ -7650,8 +3079,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             );
           },
           onClaimDeposit: (mintUrl, quoteId) async {
-            final amountSats = _cashuQuoteAmounts[quoteId] ?? 0;
-            final next = await _runCashuOp(
+            final amountSats = _accountWallet.cashuQuoteAmounts[quoteId] ?? 0;
+            final next = await _accountWallet.runCashuOp(
               (dbPath, pubkeyHex, masterKey) => claimCashuMintQuote(
                 databasePath: dbPath,
                 pubkeyHex: pubkeyHex,
@@ -7660,22 +3089,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                 amountSats: BigInt.from(amountSats),
                 masterKeyB64: masterKey,
               ),
+              onSessionActivated: _onSessionActivated,
             );
-            if (mounted) setState(() => _cashuWalletState = next);
+            _accountWallet.updateCashuWalletState(next);
           },
           onReceiveToken: (cashuToken) async {
-            final next = await _runCashuOp(
+            final next = await _accountWallet.runCashuOp(
               (dbPath, pubkeyHex, masterKey) => receiveCashuToken(
                 databasePath: dbPath,
                 pubkeyHex: pubkeyHex,
                 token: cashuToken,
                 masterKeyB64: masterKey,
               ),
+              onSessionActivated: _onSessionActivated,
             );
-            if (mounted) setState(() => _cashuWalletState = next);
+            _accountWallet.updateCashuWalletState(next);
           },
           onSendToken: (mintUrl, amountSats) async {
-            final res = await _runCashuOp(
+            final res = await _accountWallet.runCashuOp(
               (dbPath, pubkeyHex, masterKey) => sendCashuToken(
                 databasePath: dbPath,
                 pubkeyHex: pubkeyHex,
@@ -7683,12 +3114,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                 amountSats: BigInt.from(amountSats),
                 masterKeyB64: masterKey,
               ),
+              onSessionActivated: _onSessionActivated,
             );
-            if (mounted) setState(() => _cashuWalletState = res.walletState);
+            _accountWallet.updateCashuWalletState(res.walletState);
             return res.token;
           },
           onWithdrawBolt11: (mintUrl, bolt11) async {
-            final res = await _runCashuOp(
+            final res = await _accountWallet.runCashuOp(
               (dbPath, pubkeyHex, masterKey) => payBolt11ViaCashu(
                 databasePath: dbPath,
                 pubkeyHex: pubkeyHex,
@@ -7696,18 +3128,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                 bolt11: bolt11,
                 masterKeyB64: masterKey,
               ),
+              onSessionActivated: _onSessionActivated,
             );
-            if (mounted) setState(() => _cashuWalletState = res.walletState);
+            _accountWallet.updateCashuWalletState(res.walletState);
           },
           onToggleNutzaps: () async {
-            final mints = _cashuWalletState?.mints ?? const <String>[];
-            final next = await _runCashuOp(
+            final mints =
+                _accountWallet.cashuWalletState?.mints ?? const <String>[];
+            final next = await _accountWallet.runCashuOp(
               (dbPath, pubkeyHex, masterKey) async {
                 await publishNip61NutzapInfo(
                   databasePath: dbPath,
-                  nsecOrHex: _requireCashuNsec(),
+                  nsecOrHex: _accountWallet.requireCashuNsec(),
                   mints: mints,
-                  relays: _activeRelayUrls,
+                  relays: _catalog.relayUrls,
                   masterKeyB64: masterKey,
                 );
                 return loadCashuWalletState(
@@ -7716,44 +3150,58 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                   masterKeyB64: masterKey,
                 );
               },
+              onSessionActivated: _onSessionActivated,
             );
-            if (mounted) setState(() => _cashuWalletState = next);
+            _accountWallet.updateCashuWalletState(next);
           },
           onClaimNutzaps: () async {
-            final res = await _runCashuOp(
+            final res = await _accountWallet.runCashuOp(
               (dbPath, _, masterKey) => claimIncomingNutzaps(
                 databasePath: dbPath,
-                nsecOrHex: _requireCashuNsec(),
-                relays: _activeRelayUrls,
+                nsecOrHex: _accountWallet.requireCashuNsec(),
+                relays: _catalog.relayUrls,
                 masterKeyB64: masterKey,
               ),
+              onSessionActivated: _onSessionActivated,
             );
-            if (mounted) setState(() => _cashuWalletState = res.walletState);
+            _accountWallet.updateCashuWalletState(res.walletState);
           },
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.mcpBridge:
         return McpBridgeSheet(
-          state: _mcpBridgeViewState,
-          busy: _mcpBridgeBusy,
-          onStart: _startMcpBridgeServer,
-          onStop: _stopMcpBridgeServer,
+          state: _agent.mcpBridgeViewState,
+          busy: _agent.mcpBridgeBusy,
+          onStart: (port) => _agent.startMcpBridgeServer(
+            port,
+            buildWorkspace: _buildMcpWorkspaceDto,
+            onTick: _pollMcpBridgeTick,
+          ),
+          onStop: _agent.stopMcpBridgeServer,
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.search:
         return PlaceSearchSheet(
-          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
-          catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
-          catalogAtlases: _catalog?.atlases ?? const <AtlasSummaryDto>[],
-          profilesByPubkey: _profilesByPubkey,
-          relayUrls: _activeRelayUrls,
+          catalogMaps: _catalog.catalog?.maps ?? const <MapSummaryDto>[],
+          catalogStories:
+              _catalog.catalog?.stories ?? const <StorySummaryDto>[],
+          catalogAtlases:
+              _catalog.catalog?.atlases ?? const <AtlasSummaryDto>[],
+          profilesByPubkey: _accountWallet.profilesByPubkey,
+          relayUrls: _catalog.relayUrls,
           onSelectMap: (map) {
-            _recordRecentEntity('map:${map.address}');
+            _catalog.recordRecentEntity(
+              'map:${map.address}',
+              onPersist: () => unawaited(_persistAppSettings()),
+            );
             _inspectMap(map);
             _flyToMap(map);
           },
           onSelectStory: (story) {
-            _recordRecentEntity('story:${story.address}');
+            _catalog.recordRecentEntity(
+              'story:${story.address}',
+              onPersist: () => unawaited(_persistAppSettings()),
+            );
             unawaited(_openStory(story));
           },
           onSelectAtlas: _inspectAtlas,
@@ -7764,180 +3212,245 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         );
       case _ActiveDrawer.agent:
         return AgentDrawer(
-          messages: _agentMessages,
-          threads: _agentThreads,
-          activeThreadId: _activeAgentThread.id,
-          onCreateThread: _createNewAgentThread,
-          onSelectThread: _selectAgentThread,
-          onDeleteThread: _deleteAgentThread,
-          settings: _agentSettings,
-          busy: _agentBusy,
-          streamingText: _agentStreamingText,
-          activeToolStatus: _agentActiveToolStatus,
-          liveToolCalls: _agentLiveToolCalls,
+          messages: _agent.messages,
+          threads: _agent.threads,
+          activeThreadId: _agent.activeThread.id,
+          onCreateThread: () => _agent.createNewThread(
+            onPersistSettings: () => unawaited(_persistAppSettings()),
+          ),
+          onSelectThread: _agent.selectThread,
+          onDeleteThread: (id) => _agent.deleteThread(
+            id,
+            onPersistSettings: () => unawaited(_persistAppSettings()),
+          ),
+          settings: _agent.settings,
+          busy: _agent.busy,
+          streamingText: _agent.streamingText,
+          activeToolStatus: _agent.activeToolStatus,
+          liveToolCalls: _agent.liveToolCalls,
           shelfMaps: [
-            for (final entry in _shelfMaps)
+            for (final entry in _catalog.shelfMaps)
               (address: entry.summary.address, title: entry.summary.title),
           ],
-          workingSetAddresses: _agentWorkingSetAddresses,
-          onToggleWorkingSet: (addr) {
-            setState(() {
-              if (!_agentWorkingSetAddresses.remove(addr)) {
-                _agentWorkingSetAddresses.add(addr);
-              }
-            });
-          },
-          pendingAttachment: _agentPendingAttachment,
-          onPickAttachment: () => unawaited(_pickAgentAttachment()),
-          onClearAttachment: () => setState(() => _agentPendingAttachment = null),
-          visionSupport: _agentVisionSupport,
-          attachMapView: _agentAttachMapView,
-          onAttachMapViewChanged: (v) =>
-              setState(() => _agentAttachMapView = v),
-          safeEditing: _agentSafeEditing,
-          onSafeEditingChanged: (v) => setState(() => _agentSafeEditing = v),
-          pendingEdit: _pendingAiEdit,
-          onAcceptPendingEdit: _acceptPendingAiEdit,
-          onDiscardPendingEdit: _discardPendingAiEdit,
-          onExtractSourceToMap: _extractResearchSourceToMap,
-          onFocusCoord: (lat, lon, _) => _controller?.animateCamera(
-            CameraUpdate.position(
-              center: Geographic(lon: lon, lat: lat),
-              zoom: 15.0,
-            ),
+          workingSetAddresses: _agent.workingSetAddresses,
+          onToggleWorkingSet: _agent.toggleWorkingSet,
+          pendingAttachment: _agent.pendingAttachment,
+          onPickAttachment: () => unawaited(
+            _agent.pickAttachment().then((err) {
+              if (err != null) _showSnack(err);
+            }),
           ),
+          onClearAttachment: _agent.clearPendingAttachment,
+          visionSupport: _agent.visionSupport,
+          attachMapView: _agent.attachMapView,
+          onAttachMapViewChanged: _agent.setAttachMapView,
+          safeEditing: _agent.safeEditing,
+          onSafeEditingChanged: _agent.setSafeEditing,
+          pendingEdit: _agent.pendingAiEdit,
+          onAcceptPendingEdit: _acceptPendingAiEdit,
+          onDiscardPendingEdit: _agent.clearPendingGhost,
+          onExtractSourceToMap: _extractResearchSourceToMap,
+          onFocusCoord: (lat, lon, _) => _animateCameraPosition(lon, lat, 15.0),
           onCiteSourceInStory: _citeResearchSourceInStory,
-          onSettingsChanged: (s) {
-            setState(() => _agentSettings = s);
-            unawaited(_persistAppSettings());
-            unawaited(_refreshAgentVisionSupport());
-          },
+          onSettingsChanged: (s) => _agent.updateSettings(
+            s,
+            isHeadlessTest: _isHeadlessTest,
+            onPersistSettings: () => unawaited(_persistAppSettings()),
+          ),
           onSendPrompt: (p) => unawaited(_sendAgentPrompt(p)),
-          onClearChat: () {
-            setState(
-              () => _updateActiveAgentThread((t) => t.copyWith(messages: const [])),
-            );
-            unawaited(_persistAppSettings());
-          },
+          onClearChat: () => _agent.clearActiveThread(
+            onPersistSettings: () => unawaited(_persistAppSettings()),
+          ),
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.storyReader:
-        if (_activeStory == null || _parsedStory == null) return null;
+        if (_catalog.activeStory == null || _catalog.parsedStory == null) {
+          return null;
+        }
+        final activeStory = _catalog.activeStory!;
+        final visibleCalloutCount = collectVisibleCallouts(
+          shelfMaps: _catalog.shelfMaps,
+          draftFeatures: _draft.features,
+          activeStory: _catalog.activeStoryContext,
+        ).length;
         return StoryReaderMargin(
-          story: _activeStory!,
-          relayUrls: _activeRelayUrls,
-          parsed: _parsedStory!,
-          datasetsByAddress: _storyDatasets,
-          decodedRefsByToken: _storyDecodedRefs,
-          loadingLinkedMaps: _loadingStoryMaps,
-          activeViewIndex: _activeStoryViewIndex,
+          story: activeStory,
+          relayUrls: _catalog.relayUrls,
+          parsed: _catalog.parsedStory!,
+          datasetsByAddress: _catalog.storyDatasets,
+          decodedRefsByToken: _catalog.storyDecodedRefs,
+          loadingLinkedMaps: _catalog.loadingStoryMaps,
+          activeViewIndex: _catalog.activeStoryViewIndex,
           calloutCount: visibleCalloutCount,
-          onSelectViewIndex: _selectStoryView,
+          onSelectViewIndex: (index) => _catalog.selectStoryView(
+            index,
+            onFlyToCamera: _flyToStoryCamera,
+            onFlyToBounds: _flyToBounds,
+          ),
           onFocusDataset: (entry) {
-            setState(() {
-              _focusedStoryDatasetAddress = entry.summary.address;
-              _focusedStoryFeatureId = null;
-            });
+            _catalog.focusStoryDataset(entry.summary.address);
             _flyToMap(entry.summary);
           },
-          onActivateNaddrRef: _activateStoryNaddrRef,
-          onActivateGeoRef: _activateStoryGeoRef,
+          onActivateNaddrRef: (ref) {
+            final dataset = _catalog.activateStoryNaddrRef(ref);
+            if (dataset == null) {
+              _showSnack('Referenced map ${ref.dTag} is not on relay');
+              return;
+            }
+            if (ref.featureId != null) {
+              final matches = dataset.shapes
+                  .where((s) => s.featureId == ref.featureId)
+                  .toList();
+              if (matches.isNotEmpty) {
+                final bounds = computeFeatureBounds(matches.first);
+                if (bounds != null) {
+                  _flyToBounds(bounds);
+                  return;
+                }
+              }
+            }
+            _flyToMap(dataset.summary);
+          },
+          onActivateGeoRef: (lat, lon, label) {
+            _catalog.addStoryGeoPin(lat, lon, label);
+            _animateCameraPosition(lon, lat, 15.5);
+          },
           onFitAllGeometry: () {
-            final bounds = computeCombinedBounds(_storyDatasets.values);
+            final bounds = computeCombinedBounds(_catalog.storyDatasets.values);
             if (bounds != null) _flyToBounds(bounds);
           },
           onOpenDiscussion: () => _openDiscussion(
             DiscussionTarget(
-              address: _activeStory!.address,
+              address: activeStory.address,
               kind: 37520,
-              pubkey: _activeStory!.pubkey,
-              title: _activeStory!.title,
-              eventId: _activeStory!.eventId,
-              baseMarkdown: _activeStory!.content,
+              pubkey: activeStory.pubkey,
+              title: activeStory.title,
+              eventId: activeStory.eventId,
+              baseMarkdown: activeStory.content,
             ),
           ),
-          onKeepOnShelf: _keepStoryMapsOnShelf,
-          isOwned: _account != null && _account!.pubkey == _activeStory!.pubkey,
-          currentUserPubkey: _account?.pubkey,
+          onKeepOnShelf: () {
+            final count = _catalog.keepStoryMapsOnShelf();
+            _showSnack(
+              'Pinned $count Story map${count == 1 ? '' : 's'} to Shelf',
+            );
+          },
+          isOwned: _accountWallet.account != null &&
+              _accountWallet.account!.pubkey == activeStory.pubkey,
+          currentUserPubkey: _accountWallet.account?.pubkey,
           onToggleReaction: (current) => _toggleEntityReaction(
-            address: _activeStory!.address,
-            eventId: _activeStory!.eventId,
-            pubkey: _activeStory!.pubkey,
+            address: activeStory.address,
+            eventId: activeStory.eventId,
+            pubkey: activeStory.pubkey,
             kind: 37520,
             current: current,
           ),
           onZap: () => unawaited(
             _openZapDialogForEntity(
-              recipientPubkey: _activeStory!.pubkey,
-              targetTitle: _activeStory!.title,
-              targetAddress: _activeStory!.address,
-              targetEventId: _activeStory!.eventId,
+              recipientPubkey: activeStory.pubkey,
+              targetTitle: activeStory.title,
+              targetAddress: activeStory.address,
+              targetEventId: activeStory.eventId,
             ),
           ),
-          authorLabel: _profilesByPubkey[_activeStory!.pubkey]?.displayName ??
-              _profilesByPubkey[_activeStory!.pubkey]?.name,
+          authorLabel:
+              _accountWallet.profilesByPubkey[activeStory.pubkey]?.displayName ??
+                  _accountWallet.profilesByPubkey[activeStory.pubkey]?.name,
           onOpenPerson: _openPerson,
           onEditStory: () {
-            setState(() => _editingStory = _activeStory);
+            _catalog.setEditingStory(activeStory);
             _openDrawer(_ActiveDrawer.storyComposer);
           },
-          onDeleteStory: () => _deleteOwnedStory(_activeStory!),
-          onClose: _closeStory,
+          onDeleteStory: () async {
+            final outcome = await _catalog.deleteOwnedStory(
+              activeStory,
+              ensureAccount: _ensureAccount,
+              signUnsignedEvent: _accountWallet.signUnsignedEvent,
+              deliverForAudience: _deliverForAudience,
+            );
+            _closeDrawer(_ActiveDrawer.storyReader);
+            _showSnack(
+              'Published NIP-09 deletion for "${activeStory.title}" (${outcome.outboxState})',
+            );
+          },
+          onClose: () {
+            _closeDrawer(_ActiveDrawer.storyReader);
+            _catalog.closeStory();
+          },
         );
       case _ActiveDrawer.storyComposer:
         return StoryComposerDrawer(
-          key: ValueKey(_editingStory?.address ?? 'new-story'),
-          shelfMaps: _shelfMaps,
-          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
-          catalogAtlases: _catalog?.atlases ?? const <AtlasSummaryDto>[],
-          profilesByPubkey: _profilesByPubkey,
-          relayUrls: _activeRelayUrls,
-          editingStory: _editingStory,
-          initialDraft: _editingStory == null ? _savedStoryDraft : null,
-          onDraftChanged: (draft) {
-            _savedStoryDraft = draft;
-            unawaited(_persistAppSettings());
-          },
-          onDiscardDraft: () {
-            setState(() => _savedStoryDraft = null);
-            unawaited(_persistAppSettings());
-          },
+          key: ValueKey(_catalog.editingStory?.address ?? 'new-story'),
+          shelfMaps: _catalog.shelfMaps,
+          catalogMaps: _catalog.catalog?.maps ?? const <MapSummaryDto>[],
+          catalogAtlases:
+              _catalog.catalog?.atlases ?? const <AtlasSummaryDto>[],
+          profilesByPubkey: _accountWallet.profilesByPubkey,
+          relayUrls: _catalog.relayUrls,
+          editingStory: _catalog.editingStory,
+          initialDraft:
+              _catalog.editingStory == null ? _catalog.savedStoryDraft : null,
+          onDraftChanged: (draft) => _catalog.setSavedStoryDraft(
+            draft,
+            notify: false,
+            onPersist: () => unawaited(_persistAppSettings()),
+          ),
+          onDiscardDraft: () => _catalog.setSavedStoryDraft(
+            null,
+            onPersist: () => unawaited(_persistAppSettings()),
+          ),
           onUploadBlossomImage: _pickAndUploadBlossomImage,
           getCameraSnapshot: () => _controller?.camera,
-          onPublishStory: _publishStory,
+          onPublishStory: (req) => _catalog.publishStory(
+            req,
+            activeNearbySessionId: _spaces.activeNearbySessionId,
+            ensureAccount: _ensureAccount,
+            signUnsignedEvent: _accountWallet.signUnsignedEvent,
+            deliverForAudience: _deliverForAudience,
+          ),
           onClose: () {
-            setState(() => _editingStory = null);
+            _catalog.setEditingStory(null);
             _closeDrawer(target);
           },
         );
       case _ActiveDrawer.atlasComposer:
         return AtlasComposerSheet(
-          key: ValueKey(_editingAtlas?.address ?? 'new-atlas'),
-          shelfMaps: _shelfMaps,
-          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
-          catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
-          editingAtlas: _editingAtlas,
+          key: ValueKey(_catalog.editingAtlas?.address ?? 'new-atlas'),
+          shelfMaps: _catalog.shelfMaps,
+          catalogMaps: _catalog.catalog?.maps ?? const <MapSummaryDto>[],
+          catalogStories:
+              _catalog.catalog?.stories ?? const <StorySummaryDto>[],
+          editingAtlas: _catalog.editingAtlas,
           onUploadBlossomImage: _pickAndUploadBlossomImage,
-          onPublishAtlas: _publishAtlas,
+          onPublishAtlas: (req) => _catalog.publishAtlas(
+            req,
+            activeNearbySessionId: _spaces.activeNearbySessionId,
+            ensureAccount: _ensureAccount,
+            signUnsignedEvent: _accountWallet.signUnsignedEvent,
+            deliverForAudience: _deliverForAudience,
+          ),
           onClose: () {
-            setState(() => _editingAtlas = null);
+            _catalog.setEditingAtlas(null);
             _closeDrawer(target);
           },
         );
       case _ActiveDrawer.atlasDetail:
-        final atlas = _inspectedAtlas ?? _activeAtlasLens;
+        final atlas = _catalog.inspectedAtlas ?? _catalog.activeAtlasLens;
         if (atlas == null) return null;
         return AtlasDetailMargin(
           atlas: atlas,
-          relayUrls: _activeRelayUrls,
-          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
-          catalogStories: _catalog?.stories ?? const <StorySummaryDto>[],
-          shelfAddresses: _shelfMaps.map((e) => e.summary.address).toSet(),
-          profilesByPubkey: _profilesByPubkey,
-          isActiveLens: _activeAtlasLens?.address == atlas.address,
-          isOwned: _account != null && _account!.pubkey == atlas.pubkey,
-          currentUserPubkey: _account?.pubkey,
-          mutedPubkeys: _mutedPubkeys,
+          relayUrls: _catalog.relayUrls,
+          catalogMaps: _catalog.catalog?.maps ?? const <MapSummaryDto>[],
+          catalogStories:
+              _catalog.catalog?.stories ?? const <StorySummaryDto>[],
+          shelfAddresses:
+              _catalog.shelfMaps.map((e) => e.summary.address).toSet(),
+          profilesByPubkey: _accountWallet.profilesByPubkey,
+          isActiveLens: _catalog.activeAtlasLens?.address == atlas.address,
+          isOwned: _accountWallet.account != null &&
+              _accountWallet.account!.pubkey == atlas.pubkey,
+          currentUserPubkey: _accountWallet.account?.pubkey,
+          mutedPubkeys: _accountWallet.mutedPubkeys,
           onToggleReaction: (current) => _toggleEntityReaction(
             address: atlas.address,
             eventId: atlas.eventId,
@@ -7953,19 +3466,69 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               targetEventId: atlas.eventId,
             ),
           ),
-          onBlessContribution: (entityAddr) =>
-              _blessAtlasContribution(atlas, entityAddr),
-          onLockDownAtlas: () => _lockDownAtlasToClosed(atlas),
-          onMuteAuthor: _mutePubkey,
+          onBlessContribution: (entityAddr) async {
+            final updatedPins = <String>[
+              ...atlas.pinnedAddresses,
+              if (!atlas.pinnedAddresses.contains(entityAddr)) entityAddr,
+            ];
+            await _catalog.publishAtlas(
+              AtlasPublishRequest(
+                name: atlas.name,
+                description: atlas.description ?? '',
+                image: atlas.image,
+                governance: atlas.governance,
+                pinnedAddresses: updatedPins,
+                hashtags: atlas.hashtags,
+                audience: DraftAudienceChoice.publicRelay,
+                existingDTag: atlas.dTag,
+              ),
+              activeNearbySessionId: _spaces.activeNearbySessionId,
+              ensureAccount: _ensureAccount,
+              signUnsignedEvent: _accountWallet.signUnsignedEvent,
+              deliverForAudience: _deliverForAudience,
+            );
+            _showSnack('Added to Curated in "${atlas.name}"');
+          },
+          onLockDownAtlas: () async {
+            await _catalog.publishAtlas(
+              AtlasPublishRequest(
+                name: atlas.name,
+                description: atlas.description ?? '',
+                image: atlas.image,
+                governance: 'closed',
+                pinnedAddresses: atlas.pinnedAddresses,
+                hashtags: atlas.hashtags,
+                audience: DraftAudienceChoice.publicRelay,
+                existingDTag: atlas.dTag,
+              ),
+              activeNearbySessionId: _spaces.activeNearbySessionId,
+              ensureAccount: _ensureAccount,
+              signUnsignedEvent: _accountWallet.signUnsignedEvent,
+              deliverForAudience: _deliverForAudience,
+            );
+            _showSnack('Locked down "${atlas.name}" to Author Picks only');
+          },
+          onMuteAuthor: _mutePubkeyUi,
           onOpenPerson: _openPerson,
           onEditAtlas: () {
-            setState(() => _editingAtlas = atlas);
+            _catalog.setEditingAtlas(atlas);
             _openDrawer(_ActiveDrawer.atlasComposer);
           },
-          onDeleteAtlas: () => _deleteOwnedAtlas(atlas),
+          onDeleteAtlas: () async {
+            final outcome = await _catalog.deleteOwnedAtlas(
+              atlas,
+              ensureAccount: _ensureAccount,
+              signUnsignedEvent: _accountWallet.signUnsignedEvent,
+              deliverForAudience: _deliverForAudience,
+            );
+            _closeDrawer(_ActiveDrawer.atlasDetail);
+            _showSnack(
+              'Published NIP-09 deletion for "${atlas.name}" (${outcome.outboxState})',
+            );
+          },
           onToggleLens: () {
-            if (_activeAtlasLens?.address == atlas.address) {
-              _leaveAtlasLens();
+            if (_catalog.activeAtlasLens?.address == atlas.address) {
+              _catalog.leaveAtlasLens();
             } else {
               _enterAtlasLens(atlas);
             }
@@ -7974,7 +3537,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onToggleMapOnShelf: _toggleMapOnShelf,
           onFocusMap: _flyToMap,
           onOpenStory: (story) {
-            _recordRecentEntity('story:${story.address}');
+            _catalog.recordRecentEntity(
+              'story:${story.address}',
+              onPersist: () => unawaited(_persistAppSettings()),
+            );
             unawaited(_openStory(story));
           },
           onOpenDiscussion: () => _openDiscussion(
@@ -7989,16 +3555,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.datasetDetail:
-        final map = _inspectedMap;
+        final map = _catalog.inspectedMap;
         if (map == null) return null;
         return DatasetDetailMargin(
           map: map,
-          relayUrls: _activeRelayUrls,
-          onShelf: _shelfMaps.any((e) => e.summary.address == map.address),
-          isOwned: _account != null && _account!.pubkey == map.pubkey,
-          authorProfile: _profilesByPubkey[map.pubkey],
-          currentUserPubkey: _account?.pubkey,
-          resolvingBlobs: _resolvingBlobAddresses.contains(map.address),
+          relayUrls: _catalog.relayUrls,
+          onShelf:
+              _catalog.shelfMaps.any((e) => e.summary.address == map.address),
+          isOwned: _accountWallet.account != null &&
+              _accountWallet.account!.pubkey == map.pubkey,
+          authorProfile: _accountWallet.profilesByPubkey[map.pubkey],
+          currentUserPubkey: _accountWallet.account?.pubkey,
+          resolvingBlobs: _catalog.resolvingBlobAddresses.contains(map.address),
           onToggleReaction: (current) => _toggleEntityReaction(
             address: map.address,
             eventId: map.eventId,
@@ -8016,7 +3584,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ),
           onToggleOnShelf: () => _toggleMapOnShelf(map),
           onZoomToMap: () {
-            if (!_shelfMaps.any((e) => e.summary.address == map.address)) {
+            if (!_catalog.shelfMaps
+                .any((e) => e.summary.address == map.address)) {
               _toggleMapOnShelf(map);
             } else {
               _flyToMap(map);
@@ -8034,37 +3603,44 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               baseGeojson: map.geojson,
             ),
           ),
-          onDeleteMap: _deleteOwnedMap,
+          onDeleteMap: (m) async {
+            final outcome = await _catalog.deleteOwnedMap(
+              m,
+              ensureAccount: _ensureAccount,
+              signUnsignedEvent: _accountWallet.signUnsignedEvent,
+              deliverForAudience: _deliverForAudience,
+            );
+            _showSnack(
+              'Published NIP-09 deletion for "${m.title}" (${outcome.outboxState})',
+            );
+            return outcome;
+          },
           onOpenPerson: _openPerson,
           onClose: () => _closeDrawer(target),
         );
       case _ActiveDrawer.inspector:
-        final feature = _inspectedFeature;
+        final feature = _catalog.inspectedFeature;
         if (feature == null) return null;
         return FeatureInspectorSheet(
           feature: feature,
           onClose: () => _closeDrawer(target),
           onRenameDraftFeature: (featureId, newName) {
-            _pushDraftUndo();
-            setState(() {
-              final idx = _features.indexWhere((f) => f.id == featureId);
-              if (idx >= 0) {
-                _features[idx] = _features[idx].copyWith(name: newName);
-              }
-            });
-            _refreshInspectedDraftFeature(featureId);
-            unawaited(_persistWorkingDraft());
+            if (_draft.renameDraftFeature(
+              featureId,
+              newName,
+              onPersist: _schedulePersistWorkingDraft,
+            )) {
+              _refreshInspectedDraftFeature(featureId);
+            }
           },
           onRecolorDraftFeature: (featureId, colorHex) {
-            _pushDraftUndo();
-            setState(() {
-              final idx = _features.indexWhere((f) => f.id == featureId);
-              if (idx >= 0) {
-                _features[idx] = _features[idx].copyWith(colorHex: colorHex);
-              }
-            });
-            _refreshInspectedDraftFeature(featureId);
-            unawaited(_persistWorkingDraft());
+            if (_draft.recolorDraftFeature(
+              featureId,
+              colorHex,
+              onPersist: _schedulePersistWorkingDraft,
+            )) {
+              _refreshInspectedDraftFeature(featureId);
+            }
           },
           onUpdateDraftStyle: (
             featureId, {
@@ -8083,78 +3659,73 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             description,
             customProperties,
           }) {
-            _pushDraftUndo();
-            setState(() {
-              final idx = _features.indexWhere((f) => f.id == featureId);
-              if (idx >= 0) {
-                _features[idx] = _features[idx].copyWith(
-                  fillColorHex: fillColorHex,
-                  clearFillColor: clearFillColor,
-                  strokeColorHex: strokeColorHex,
-                  clearStrokeColor: clearStrokeColor,
-                  strokeWidth: strokeWidth,
-                  fillOpacity: fillOpacity,
-                  radius: radius,
-                  lineDash: lineDash,
-                  arrowStart: arrowStart,
-                  arrowEnd: arrowEnd,
-                  displayIcon: displayIcon,
-                  clearDisplayIcon: clearDisplayIcon,
-                  description: description,
-                  customProperties: customProperties,
-                );
-              }
-            });
-            _refreshInspectedDraftFeature(featureId);
-            unawaited(_persistWorkingDraft());
+            if (_draft.updateDraftFeatureStyle(
+              featureId,
+              fillColorHex: fillColorHex,
+              clearFillColor: clearFillColor,
+              strokeColorHex: strokeColorHex,
+              clearStrokeColor: clearStrokeColor,
+              strokeWidth: strokeWidth,
+              fillOpacity: fillOpacity,
+              radius: radius,
+              lineDash: lineDash,
+              arrowStart: arrowStart,
+              arrowEnd: arrowEnd,
+              displayIcon: displayIcon,
+              clearDisplayIcon: clearDisplayIcon,
+              description: description,
+              customProperties: customProperties,
+              onPersist: _schedulePersistWorkingDraft,
+            )) {
+              _refreshInspectedDraftFeature(featureId);
+            }
           },
-          onEditDraftGeometry: _startEditingDraftFeature,
+          onEditDraftGeometry: (featureId) => _draft.startEditingDraftFeature(
+            featureId,
+            onCloseDrawers: _closeAllDrawers,
+          ),
           onDuplicateDraftFeature: (featureId) =>
-              unawaited(_duplicateDraftFeatures([featureId])),
+              unawaited(_duplicateDraftFeaturesUi([featureId])),
           onDeleteDraftFeature: (featureId) {
-            _pushDraftUndo();
-            setState(() {
-              _features.removeWhere((f) => f.id == featureId);
-              _selectedDraftFeatureIds.remove(featureId);
-              if (_inspectedFeature?.draftFeatureId == featureId) {
-                _inspectedFeature = null;
-              }
-            });
+            _draft.deleteDraftFeature(
+              featureId,
+              onPersist: _schedulePersistWorkingDraft,
+            );
+            if (_catalog.inspectedFeature?.draftFeatureId == featureId) {
+              _catalog.setInspectedFeature(null);
+            }
             _closeDrawer(target);
-            unawaited(_persistWorkingDraft());
           },
           onAddDraftCallout: (featureId, callout) {
-            _pushDraftUndo();
-            setState(() {
-              final idx = _features.indexWhere((f) => f.id == featureId);
-              if (idx >= 0) {
-                _features[idx] = _features[idx].copyWith(
-                  callouts: [..._features[idx].callouts, callout],
-                );
-              }
-            });
-            _refreshInspectedDraftFeature(featureId);
-            unawaited(_persistWorkingDraft());
+            if (_draft.addDraftCallout(
+              featureId,
+              callout,
+              onPersist: _schedulePersistWorkingDraft,
+            )) {
+              _refreshInspectedDraftFeature(featureId);
+            }
           },
           onRemoveDraftCallout: (featureId, calloutId) {
-            _pushDraftUndo();
-            setState(() {
-              final idx = _features.indexWhere((f) => f.id == featureId);
-              if (idx >= 0) {
-                _features[idx] = _features[idx].copyWith(
-                  callouts: _features[idx]
-                      .callouts
-                      .where((c) => c.id != calloutId)
-                      .toList(growable: false),
-                );
-              }
-            });
-            _refreshInspectedDraftFeature(featureId);
-            unawaited(_persistWorkingDraft());
+            if (_draft.removeDraftCallout(
+              featureId,
+              calloutId,
+              onPersist: _schedulePersistWorkingDraft,
+            )) {
+              _refreshInspectedDraftFeature(featureId);
+            }
           },
-          onResetDraftCalloutOffset: _resetDraftCalloutOffset,
+          onResetDraftCalloutOffset: (featureId, calloutId) {
+            if (_draft.repositionDraftCallout(
+              featureId,
+              calloutId,
+              Offset.zero,
+              onPersist: _schedulePersistWorkingDraft,
+            )) {
+              _refreshInspectedDraftFeature(featureId);
+            }
+          },
           onUploadBlossomImage: _pickAndUploadBlossomImage,
-          onTransformDraftFeature: _transformDraftFeature,
+          onTransformDraftFeature: _transformDraftFeatureUi,
           onOpenDiscussion: (feature.datasetAddress != null &&
                   feature.datasetPubkey != null)
               ? () => _openDiscussion(
@@ -8191,146 +3762,177 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                         kind: kind,
                         pubkeyHex: feature.datasetPubkey!,
                         dTag: dTag,
-                        relays: _activeRelayUrls,
+                        relays: _catalog.relayUrls,
                         featureId: feature.featureId,
                       );
                       await Clipboard.setData(ClipboardData(text: uri));
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Copied nostr:naddr1… link'),
-                          ),
-                        );
-                      }
+                      _showSnack('Copied nostr:naddr1… link');
                     }),
                   );
                 }
               : null,
         );
       case _ActiveDrawer.discussion:
-        final target = _discussionTarget;
-        if (target == null) return null;
+        final dTarget = _catalog.discussionTarget;
+        if (dTarget == null) return null;
         return DiscussionMarginSheet(
-          target: target,
-          relayUrls: _activeRelayUrls,
-          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
-          catalogAtlases: _catalog?.atlases ?? const <AtlasSummaryDto>[],
-          hasDraftGeometry: _features.isNotEmpty,
-          activeCommentGeojsonId: _activeCommentOverlayId,
-          activeProposalId: _activeProposalOverlayId,
-          showingAllCommentPins: _showingAllCommentPins,
-          onToggleAllCommentPins: (geoComments) {
-            if (_showingAllCommentPins) {
-              setState(() {
-                _showingAllCommentPins = false;
-                _activeCommentOverlayId = null;
-                _commentOverlayShapes = const [];
-                _activeCommentPins = const [];
-              });
-              return;
-            }
-            final mergedShapes = <ShelfShape>[
-              for (final c in geoComments)
-                if (c.geojson != null && c.geojson!.isNotEmpty)
-                  ...parseGeoJsonShapes(
-                    c.geojson!,
-                    datasetTitle: 'Comment',
-                  ),
-            ];
-            final pins = <MapCommentPinItem>[
-              for (final c in geoComments) ?_commentPinFromDto(c),
-            ];
-            setState(() {
-              _showingAllCommentPins = true;
-              _activeCommentOverlayId = 'all-comment-pins';
-              _commentOverlayShapes = mergedShapes;
-              _activeCommentPins = pins;
-            });
-          },
-          profilesByPubkey: _profilesByPubkey,
-          currentUserPubkey: _account?.pubkey,
-          onToggleCommentOverlay: (comment) {
-            if (_activeCommentOverlayId == comment.eventId) {
-              setState(() {
-                _showingAllCommentPins = false;
-                _activeCommentOverlayId = null;
-                _commentOverlayShapes = const [];
-                _activeCommentPins = const [];
-              });
-              return;
-            }
-            final shapes = comment.geojson != null
-                ? parseGeoJsonShapes(comment.geojson!, datasetTitle: 'Comment')
-                : const <ShelfShape>[];
-            final singlePin = _commentPinFromDto(comment);
-            setState(() {
-              _showingAllCommentPins = false;
-              _activeCommentOverlayId = comment.eventId;
-              _commentOverlayShapes = shapes;
-              _activeCommentPins =
-                  singlePin == null ? const [] : <MapCommentPinItem>[singlePin];
-            });
-          },
-          onToggleProposalOverlay: (proposal) {
-            if (_activeProposalOverlayId == proposal.eventId) {
-              setState(() {
-                _activeProposalOverlayId = null;
-                _activeProposalLabel = null;
-                _proposalOverlayShapes = const [];
-              });
-              return;
-            }
-            final shapes = parseGeoJsonShapes(
-              proposal.geojson,
-              datasetTitle: proposal.description ?? 'Proposal',
+          target: dTarget,
+          relayUrls: _catalog.relayUrls,
+          catalogMaps: _catalog.catalog?.maps ?? const <MapSummaryDto>[],
+          catalogAtlases:
+              _catalog.catalog?.atlases ?? const <AtlasSummaryDto>[],
+          hasDraftGeometry: _draft.features.isNotEmpty,
+          activeCommentGeojsonId: _catalog.activeCommentOverlayId,
+          activeProposalId: _catalog.activeProposalOverlayId,
+          showingAllCommentPins: _catalog.showingAllCommentPins,
+          onToggleAllCommentPins: (geoComments) => _catalog.toggleAllCommentPins(
+            geoComments,
+            resolveAuthorName: _accountWallet.displayNameForPubkey,
+          ),
+          profilesByPubkey: _accountWallet.profilesByPubkey,
+          currentUserPubkey: _accountWallet.account?.pubkey,
+          onToggleCommentOverlay: (comment) => _catalog.toggleCommentOverlay(
+            comment,
+            resolveAuthorName: _accountWallet.displayNameForPubkey,
+          ),
+          onToggleProposalOverlay: _catalog.toggleProposalOverlay,
+          onPostComment: (text, attachDraft, {replyTo}) async {
+            await RustBridge.ensureInitialized();
+            final account = await _ensureAccount();
+            final dTag =
+                'comment-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+            final geojson = (attachDraft && _draft.features.isNotEmpty)
+                ? draftFeaturesToGeoJson(
+                    title: 'Comment annotation',
+                    features: _draft.features,
+                  )
+                : null;
+            final prepared = await prepareUnsignedCommentEvent(
+              pubkeyOrNpub: account.pubkey,
+              dTag: dTag,
+              rootAddress: dTarget.address,
+              rootKind: dTarget.kind,
+              rootPubkey: dTarget.pubkey,
+              text: text,
+              geojson: geojson,
+              parentAddress: replyTo?.address,
+              parentEventId: replyTo?.eventId,
+              parentPubkey: replyTo?.pubkey,
             );
-            setState(() {
-              _activeProposalOverlayId = proposal.eventId;
-              _activeProposalLabel =
-                  'Proposal (${proposal.status}) +${proposal.addedCount} ~${proposal.modifiedCount} -${proposal.removedCount}';
-              _proposalOverlayShapes = shapes;
-            });
+            final signed = await _accountWallet.signUnsignedEvent(
+              account,
+              prepared.unsignedEventJson,
+            );
+            return _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
           },
-          onPostComment: (text, attachDraft, {replyTo}) =>
-              _postComment(target, text, attachDraft, replyTo: replyTo),
-          onSubmitProposal: (description) => _submitProposal(target, description),
-          onSubmitStoryProposal: target.kind == 37520
-              ? (description, proposedMarkdown) =>
-                  _submitStoryProposal(target, description, proposedMarkdown)
+          onSubmitProposal: (description) async {
+            await RustBridge.ensureInitialized();
+            final account = await _ensureAccount();
+            final dTag = 'pr-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+            final proposedGeojson = draftFeaturesToGeoJson(
+              title: dTarget.title,
+              features: _draft.features,
+            );
+            final prepared = await prepareUnsignedProposalEvent(
+              pubkeyOrNpub: account.pubkey,
+              dTag: dTag,
+              targetAddress: dTarget.address,
+              targetOwnerPubkey: dTarget.pubkey,
+              baseEventId: dTarget.eventId,
+              description: description,
+              proposedGeojson: proposedGeojson,
+            );
+            final signed = await _accountWallet.signUnsignedEvent(
+              account,
+              prepared.unsignedEventJson,
+            );
+            return _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+          },
+          onSubmitStoryProposal: dTarget.kind == 37520
+              ? (description, proposedMarkdown) async {
+                  await RustBridge.ensureInitialized();
+                  final account = await _ensureAccount();
+                  final dTag =
+                      'story-pr-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+                  final prepared = await prepareUnsignedStoryProposalEvent(
+                    pubkeyOrNpub: account.pubkey,
+                    dTag: dTag,
+                    targetAddress: dTarget.address,
+                    targetOwnerPubkey: dTarget.pubkey,
+                    baseEventId: dTarget.eventId,
+                    description: description,
+                    proposedMarkdown: proposedMarkdown,
+                  );
+                  final signed = await _accountWallet.signUnsignedEvent(
+                    account,
+                    prepared.unsignedEventJson,
+                  );
+                  return _deliverForAudience(
+                    DraftAudienceChoice.publicRelay,
+                    signed,
+                  );
+                }
               : null,
-          mutedPubkeys: _mutedPubkeys,
-          onMuteAuthor: _mutePubkey,
+          mutedPubkeys: _accountWallet.mutedPubkeys,
+          onMuteAuthor: _mutePubkeyUi,
           onOpenPerson: _openPerson,
           onLoadProposalToDraft: (proposal) => _cloneGeoJsonToDraft(
-            '${target.title} (PR)',
+            '${dTarget.title} (PR)',
             proposal.geojson,
           ),
-          onApplyProposal: (proposal) => _applyProposal(target, proposal),
-          onCloseProposal: (proposal) => _closeProposal(target, proposal),
-          onRequestChangesProposal: (proposal, note) =>
-              _requestChangesProposal(target, proposal, note),
+          onApplyProposal: (proposal) => _catalog.applyProposal(
+            dTarget,
+            proposal,
+            ensureAccount: _ensureAccount,
+            signUnsignedEvent: _accountWallet.signUnsignedEvent,
+            deliverForAudience: _deliverForAudience,
+          ),
+          onCloseProposal: (proposal) => _submitProposalStatus(
+            proposal,
+            statusKind: 1632,
+            note: 'Closed proposal',
+          ),
+          onRequestChangesProposal: (proposal, note) => _submitProposalStatus(
+            proposal,
+            statusKind: 1633,
+            note: note,
+          ),
           onUploadBlossomImage: () async =>
               (await _pickAndUploadBlossomImage('Upload comment photo'))?.url ??
               '',
           onClose: () => _closeDrawer(_ActiveDrawer.discussion),
         );
       case _ActiveDrawer.locationInspector:
-        final pt = _inspectedLocation;
+        final pt = _catalog.inspectedLocation;
         if (pt == null) return null;
         return LocationInspectorSheet(
           lat: pt.lat,
           lon: pt.lon,
-          catalogMaps: _catalog?.maps ?? const <MapSummaryDto>[],
-          catalogSightings: _allSightings,
+          catalogMaps: _catalog.catalog?.maps ?? const <MapSummaryDto>[],
+          catalogSightings: _catalog.allSightings,
           onInspectMap: (map) {
-            _recordRecentEntity('map:${map.address}');
+            _catalog.recordRecentEntity(
+              'map:${map.address}',
+              onPersist: () => unawaited(_persistAppSettings()),
+            );
             _inspectMap(map);
           },
           onFocusSighting: _focusSighting,
-          onDropPointHere: () => _dropDraftPointAt(pt),
+          onDropPointHere: () {
+            final feat = _draft.dropDraftPointAt(
+              pt,
+              onPersist: _schedulePersistWorkingDraft,
+            );
+            _showSnack(
+              'Added ${feat.name} at ${pt.lat.toStringAsFixed(5)}, ${pt.lon.toStringAsFixed(5)}',
+            );
+          },
           onCreateSightingHere: () => _openSightingComposer(initialLocation: pt),
-          onImportOsmHere: _openOsmImportDrawer,
-          onIsochroneHere: () => _openRoutingDrawer(origin: pt),
+          onImportOsmHere: () => _openDrawer(_ActiveDrawer.osmImport),
+          onIsochroneHere: () {
+            _catalog.setRoutingOrigin(pt);
+            _openDrawer(_ActiveDrawer.routing);
+          },
           onClose: () => _closeDrawer(_ActiveDrawer.locationInspector),
         );
       case _ActiveDrawer.osmImport:
@@ -8340,11 +3942,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           south: bbox.south,
           east: bbox.east,
           north: bbox.north,
-          onImportFeatures: _importOsmResultToDraft,
+          onImportFeatures: (res) => _importGeoJsonStringToDraft(
+            res.geojson,
+            prefix: 'osm',
+            snackLabel: res.querySummary,
+          ),
           onClose: () => _closeDrawer(_ActiveDrawer.osmImport),
         );
       case _ActiveDrawer.routing:
-        final draftPoints = _features
+        final draftPoints = _draft.features
             .where((f) => f.kind == DrawToolMode.point && f.vertices.isNotEmpty)
             .map((f) => f.vertices.first)
             .toList(growable: false);
@@ -8352,7 +3958,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           mapCenter: _controller?.camera?.center ??
               const Geographic(lon: 16.3738, lat: 48.2082),
           draftWaypoints: draftPoints,
-          initialOrigin: _routingOrigin,
+          initialOrigin: _catalog.routingOrigin,
           onImportGeoJsonToDraft: (geojson, summaryLabel) =>
               _importGeoJsonStringToDraft(
             geojson,
@@ -8363,18 +3969,185 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         );
       case _ActiveDrawer.shoutbox:
         return ShoutboxSheet(
-          relayUrls: _activeRelayUrls,
-          profilesByPubkey: _profilesByPubkey,
-          currentUserPubkey: _account?.pubkey,
-          mutedPubkeys: _mutedPubkeys,
+          relayUrls: _catalog.relayUrls,
+          profilesByPubkey: _accountWallet.profilesByPubkey,
+          currentUserPubkey: _accountWallet.account?.pubkey,
+          mutedPubkeys: _accountWallet.mutedPubkeys,
           onOpenPerson: _openPerson,
-          onPublishPost: _publishShoutboxPost,
+          onPublishPost: (category, content) => _spaces.publishShoutboxPost(
+            category,
+            content,
+            relayUrls: _catalog.relayUrls,
+            ensureAccount: _ensureAccount,
+            signUnsignedEvent: _accountWallet.signUnsignedEvent,
+          ),
           onClose: () => _closeDrawer(_ActiveDrawer.shoutbox),
         );
       case _ActiveDrawer.help:
         return HelpShortcutsSheet(
           onClose: () => _closeDrawer(_ActiveDrawer.help),
         );
+    }
+  }
+
+  void _onAmberAccountChanged(Nip55Account? account) {
+    if (account == null) {
+      if (_accountWallet.activeAccountId != null) {
+        _accountWallet.removeSavedSession(
+          _accountWallet.activeAccountId!,
+          onSessionActivated: _onSessionActivated,
+        );
+      } else {
+        _accountWallet.applyActiveSessionState(null);
+        unawaited(_persistAppSettings());
+      }
+      return;
+    }
+    _accountWallet.upsertAndActivateSession(
+      SavedAccountSessionDto(
+        id: 'amber:${account.pubkey}',
+        kind: 'amber',
+        pubkeyHex: account.pubkey,
+        signerPackage: account.signerPackage,
+      ),
+      onSessionActivated: _onSessionActivated,
+    );
+  }
+
+  void _onLocalKeyChanged(LocalKeypairDto? kp) {
+    if (kp == null) {
+      if (_accountWallet.activeAccountId != null &&
+          _accountWallet.activeAccountId!.startsWith('local:')) {
+        _accountWallet.removeSavedSession(
+          _accountWallet.activeAccountId!,
+          onSessionActivated: _onSessionActivated,
+        );
+      } else {
+        _accountWallet.clearLocalNsec();
+      }
+      return;
+    }
+    _accountWallet.upsertAndActivateSession(
+      SavedAccountSessionDto(
+        id: 'local:${kp.pubkeyHex}',
+        kind: 'local',
+        pubkeyHex: kp.pubkeyHex,
+        localNsec: kp.nsec,
+      ),
+      onSessionActivated: _onSessionActivated,
+    );
+  }
+
+  void _mutePubkeyUi(String pubkey) {
+    final label = _accountWallet.mutePubkey(
+      pubkey,
+      onPersistSettings: () => unawaited(_persistAppSettings()),
+    );
+    if (label == null || !mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 10),
+          content: Text('Muted $label on this device'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () => _accountWallet.unmutePubkey(
+              pubkey.trim(),
+              onPersistSettings: () => unawaited(_persistAppSettings()),
+            ),
+          ),
+        ),
+      );
+  }
+
+  Future<PublishOutcomeDto> _submitProposalStatus(
+    GeoProposalDto proposal, {
+    required int statusKind,
+    required String note,
+  }) async {
+    await RustBridge.ensureInitialized();
+    final account = await _ensureAccount();
+    final preparedStatus = await prepareUnsignedProposalStatusEvent(
+      pubkeyOrNpub: account.pubkey,
+      proposalAddress: proposal.address,
+      proposalEventId: proposal.eventId,
+      proposalAuthorPubkey: proposal.pubkey,
+      statusKind: statusKind,
+      note: note,
+    );
+    final signed = await _accountWallet.signUnsignedEvent(
+      account,
+      preparedStatus.unsignedEventJson,
+    );
+    return _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+  }
+
+  Future<void> _duplicateDraftFeaturesUi(Iterable<String> ids) async {
+    final count = await _draft.duplicateDraftFeatures(
+      ids,
+      onPersist: _schedulePersistWorkingDraft,
+    );
+    if (count > 0) {
+      _showSnack('Duplicated $count feature${count == 1 ? '' : 's'}');
+    }
+  }
+
+  Future<void> _addPrimitiveShapeUi(String shape, double radiusMeters) async {
+    try {
+      final center = _controller?.camera?.center ??
+          const Geographic(lon: 16.3738, lat: 48.2082);
+      final label = await _draft.addPrimitiveShape(
+        shape,
+        radiusMeters,
+        center: center,
+        onPersist: _schedulePersistWorkingDraft,
+      );
+      if (label != null) _showSnack('Added $label at map center');
+    } catch (err) {
+      _showSnack('Primitive shape failed: $err');
+    }
+  }
+
+  Future<void> _transformDraftFeatureUi(
+    String featureId, {
+    double translateEastM = 0.0,
+    double translateNorthM = 0.0,
+    double rotateDeg = 0.0,
+    double scale = 1.0,
+  }) async {
+    try {
+      final ok = await _draft.transformDraftFeature(
+        featureId,
+        translateEastM: translateEastM,
+        translateNorthM: translateNorthM,
+        rotateDeg: rotateDeg,
+        scale: scale,
+        onPersist: _schedulePersistWorkingDraft,
+      );
+      if (ok) _refreshInspectedDraftFeature(featureId);
+    } catch (err) {
+      _showSnack('Transform failed: $err');
+    }
+  }
+
+  Future<void> _runGeoActionUi(
+    RustGeoAction action, {
+    double? meters,
+    double? angleDeg,
+    double? scale,
+  }) async {
+    try {
+      await _draft.runGeoAction(
+        action,
+        meters: meters,
+        angleDeg: angleDeg,
+        scale: scale,
+        onPersist: _schedulePersistWorkingDraft,
+      );
+      _refreshInspectedDraftFeature('');
+    } catch (err) {
+      _showSnack('Geo operation failed: $err');
     }
   }
 
@@ -8385,182 +4158,40 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final isDesktop = screenWidth >= 880;
     final isWideStudio = screenWidth >= 1100;
     final systemIsDark = theme.brightness == Brightness.dark;
-    final effectiveBasemap = _selectedBasemap;
-    final isDarkMap = isDarkBasemap(
-      effectiveBasemap,
-      systemIsDark: systemIsDark,
-      backgroundMode: _backgroundMode,
-    );
-
-    final MapStyle mapStyle;
-    if (effectiveBasemap == BasemapKind.offlinePmtiles &&
-        _offlineBasemap != null) {
-      mapStyle = MapStyle.json(_offlineBasemap!.styleJson);
-    } else {
-      mapStyle = MapStyle.url(
-        openFreeMapStyleUrl(effectiveBasemap, systemIsDark: systemIsDark),
-      );
-    }
-
-    final gestures = _activeMapGestures;
-
-    ActiveStoryRenderContext? activeStoryContext;
-    if (_activeStory != null && _parsedStory != null) {
-      final layers = (_activeStoryViewIndex != null &&
-              _activeStoryViewIndex! < _parsedStory!.viewSnapshots.length)
-          ? _parsedStory!.viewSnapshots[_activeStoryViewIndex!].layers
-          : _parsedStory!.baseLayers;
-      activeStoryContext = ActiveStoryRenderContext(
-        story: _activeStory!,
-        datasetsByAddress: _storyDatasets,
-        presentationLayers: layers,
-        focusedDatasetAddress: _focusedStoryDatasetAddress,
-        focusedFeatureId: _focusedStoryFeatureId,
-        geoPins: _storyGeoPins,
-      );
-    }
-
-    final visibleSightings = _allSightings;
-    final visibleBeacons = _allBeacons;
-    final visibleCallouts = collectVisibleCallouts(
-      shelfMaps: _shelfMaps,
-      draftFeatures: _features,
-      activeStory: activeStoryContext,
-    );
-    final visibleIconPins = collectVisibleIconPins(
-      shelfMaps: _shelfMaps,
-      draftAccentColor: theme.colorScheme.primary,
-      draftFeatures: _features,
-      activeStory: activeStoryContext,
-    );
-    final visibleArrowheads = collectVisibleArrowheads(
-      shelfMaps: _shelfMaps,
-      draftAccentColor: theme.colorScheme.primary,
-      draftFeatures: _features,
-      activeStory: activeStoryContext,
-    );
-    final externalSnapShapes = <List<Geographic>>[
-      for (final entry in _shelfMaps)
-        if (entry.visible)
-          for (final shape in entry.shapes)
-            if (shape.coords.isNotEmpty) shape.coords,
-    ];
-
-    final combinedProposalShapes = <ShelfShape>[
-      ..._proposalOverlayShapes,
-      ..._aiGhostShapes,
-    ];
-
-    final gpuLayers = buildEarthlyGpuLayers(
-      shelfMaps: _shelfMaps,
-      sightings: visibleSightings,
-      beacons: visibleBeacons,
-      draftFeatures: _features,
-      accentColor: theme.colorScheme.primary,
-      isDarkMap: isDarkMap,
-      showLabels:
-          _showLabels && effectiveBasemap != BasemapKind.offlinePmtiles,
-      onInspectFeature: _inspectFeature,
-      gpsTrackPoints: _gpsTrackRecording ? _gpsTrackPoints : const [],
-      activeStory: activeStoryContext,
-      commentOverlayShapes: _commentOverlayShapes,
-      proposalOverlayShapes: combinedProposalShapes,
-      selectedDraftFeatureIds: _selectedDraftFeatureIds,
-    );
-
-    final leftDrawerTarget = _drawer != _ActiveDrawer.none
-        ? _drawer
-        : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
-    final leftDrawerWidget =
-        _buildDrawerFor(leftDrawerTarget, visibleCallouts.length);
-    final rightDrawerWidget = isWideStudio
-        ? _buildDrawerFor(_rightStudioDrawer, visibleCallouts.length)
-        : null;
-    final hideBottomDockOnMobile =
-        !isDesktop && leftDrawerWidget != null && !_isDrawingMode;
     final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
     final screenHeight = MediaQuery.sizeOf(context).height;
-    final rightThumbRailBottom = hideBottomDockOnMobile
-        ? (screenHeight * 0.54).clamp(180.0, screenHeight - 220.0)
-        : bottomSafeInset + (_isDrawingMode ? 76.0 : 74.0);
-    final hudLeftInset = isDesktop && leftDrawerWidget != null ? 440.0 : 12.0;
-    final hudRightInset =
-        isWideStudio && rightDrawerWidget != null ? 440.0 : 12.0;
-
-    final mapWidget = widget.mapBuilder != null
-        ? widget.mapBuilder!(
-            context,
-            gestures,
-            (controller) => setState(() => _controller = controller),
-            () => setState(() {}),
-          )
-        : MapLibreMap(
-            options: MapOptions(
-              style: mapStyle,
-              initCamera: CameraUpdate.position(
-                center: const Geographic(lon: 16.3738, lat: 48.2082),
-                zoom: 13.5,
-              ),
-              gestures: gestures,
-            ),
-            onMapCreated: (controller) =>
-                setState(() => _controller = controller),
-            onStyleLoaded: (style) => unawaited(_syncSatellite(style)),
-            onLongClick: (event) {
-              if (!_isDrawingMode) {
-                _openLocationInspector(event.point);
-              }
-            },
-            layers: gpuLayers,
-            children: [
-              EarthlyCalloutOverlay(
-                callouts: visibleCallouts,
-                sightings: visibleSightings,
-                iconPins: visibleIconPins,
-                arrowheads: visibleArrowheads,
-                commentPins: _activeCommentPins,
-                onInspectComment: (_) => _openDrawer(_ActiveDrawer.discussion),
-                onRepositionDraftCallout: _repositionDraftCallout,
-                displayMode: _calloutMode,
-                bottomInset:
-                    (hideBottomDockOnMobile ? 340 : 108) + bottomSafeInset,
-                onInspectFeature: _inspectFeature,
-                onInspectSighting: _inspectSighting,
-              ),
-              MapGeometryLayer(
-                features: _features,
-                draftVertices: _draftVertices,
-                mode: _mode,
-                previewScreen: _previewScreen,
-                snapped: _previewSnapped,
-                loupeActive: _previewLoupeActive,
-              ),
-            ],
-          );
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_isDrawingMode) {
-            _cancelEditingDraftFeature();
+          if (_draft.isDrawingMode) {
+            _draft.cancelEditingDraftFeature();
           } else if (_rightStudioDrawer != _ActiveDrawer.none) {
-            setState(() => _rightStudioDrawer = _ActiveDrawer.none);
+            _drawerNotifier.value =
+                (left: _drawer, right: _ActiveDrawer.none);
           } else if (_drawer != _ActiveDrawer.none) {
-            setState(() => _drawer = _ActiveDrawer.none);
+            _drawerNotifier.value =
+                (left: _ActiveDrawer.none, right: _rightStudioDrawer);
           }
         },
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): () {
-          if (_isDrawingMode) {
-            _undoLastPoint();
+          if (_draft.isDrawingMode) {
+            _draft.undoLastPoint(onPersist: _schedulePersistWorkingDraft);
           } else {
-            _undoDraftEdit();
+            _draft.undoDraftEdit(
+              onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+              onPersist: _schedulePersistWorkingDraft,
+            );
           }
         },
         const SingleActivator(LogicalKeyboardKey.keyZ, control: true): () {
-          if (_isDrawingMode) {
-            _undoLastPoint();
+          if (_draft.isDrawingMode) {
+            _draft.undoLastPoint(onPersist: _schedulePersistWorkingDraft);
           } else {
-            _undoDraftEdit();
+            _draft.undoDraftEdit(
+              onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+              onPersist: _schedulePersistWorkingDraft,
+            );
           }
         },
         const SingleActivator(
@@ -8568,990 +4199,1235 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           meta: true,
           shift: true,
         ): () {
-          if (!_isDrawingMode) _redoDraftEdit();
+          if (!_draft.isDrawingMode) {
+            _draft.redoDraftEdit(
+              onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+              onPersist: _schedulePersistWorkingDraft,
+            );
+          }
         },
         const SingleActivator(
           LogicalKeyboardKey.keyZ,
           control: true,
           shift: true,
         ): () {
-          if (!_isDrawingMode) _redoDraftEdit();
+          if (!_draft.isDrawingMode) {
+            _draft.redoDraftEdit(
+              onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+              onPersist: _schedulePersistWorkingDraft,
+            );
+          }
         },
         const SingleActivator(LogicalKeyboardKey.keyY, control: true): () {
-          if (!_isDrawingMode) _redoDraftEdit();
-        },
-        const SingleActivator(LogicalKeyboardKey.keyD, meta: true): () {
-          if (_isDrawingMode) return;
-          if (_selectedDraftFeatureIds.isNotEmpty) {
-            unawaited(
-              _duplicateDraftFeatures(_selectedDraftFeatureIds.toList()),
-            );
-          } else if (_inspectedFeature?.isDraft == true &&
-              _inspectedFeature?.draftFeatureId != null) {
-            unawaited(
-              _duplicateDraftFeatures([_inspectedFeature!.draftFeatureId!]),
+          if (!_draft.isDrawingMode) {
+            _draft.redoDraftEdit(
+              onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+              onPersist: _schedulePersistWorkingDraft,
             );
           }
         },
-        const SingleActivator(LogicalKeyboardKey.keyD, control: true): () {
-          if (_isDrawingMode) return;
-          if (_selectedDraftFeatureIds.isNotEmpty) {
-            unawaited(
-              _duplicateDraftFeatures(_selectedDraftFeatureIds.toList()),
-            );
-          } else if (_inspectedFeature?.isDraft == true &&
-              _inspectedFeature?.draftFeatureId != null) {
-            unawaited(
-              _duplicateDraftFeatures([_inspectedFeature!.draftFeatureId!]),
-            );
-          }
-        },
+        const SingleActivator(LogicalKeyboardKey.keyD, meta: true): () =>
+            _handleDuplicateShortcut(),
+        const SingleActivator(LogicalKeyboardKey.keyD, control: true): () =>
+            _handleDuplicateShortcut(),
         const SingleActivator(LogicalKeyboardKey.digit1, meta: true): () =>
-            _selectMode(DrawToolMode.point),
+            _draft.selectMode(
+              DrawToolMode.point,
+              onCloseDrawers: _closeAllDrawers,
+            ),
         const SingleActivator(LogicalKeyboardKey.digit2, meta: true): () =>
-            _selectMode(DrawToolMode.line),
+            _draft.selectMode(
+              DrawToolMode.line,
+              onCloseDrawers: _closeAllDrawers,
+            ),
         const SingleActivator(LogicalKeyboardKey.digit3, meta: true): () =>
-            _selectMode(DrawToolMode.polygon),
+            _draft.selectMode(
+              DrawToolMode.polygon,
+              onCloseDrawers: _closeAllDrawers,
+            ),
       },
       child: Focus(
         autofocus: true,
         child: EarthlyReferenceScope(
           onOpenNaddr: (uri) async {
-            final messenger = ScaffoldMessenger.of(context);
             try {
               await _jumpToNaddr(uri);
             } catch (err) {
-              if (!mounted) return;
-              messenger.showSnackBar(
-                SnackBar(content: Text('Could not open reference: $err')),
-              );
+              _showSnack('Could not open reference: $err');
             }
           },
-          onOpenGeo: (lat, lon, label) => _activateStoryGeoRef(lat, lon, label),
+          onOpenGeo: (lat, lon, label) {
+            _catalog.addStoryGeoPin(lat, lon, label);
+            _animateCameraPosition(lon, lat, 15.5);
+          },
           onOpenPerson: _openPerson,
-          resolveNaddrTitle: _resolveNaddrTitle,
+          resolveNaddrTitle: _catalog.resolveNaddrTitle,
           resolvePersonLabel: (pk) =>
-              _profilesByPubkey[pk]?.displayName ?? _profilesByPubkey[pk]?.name,
+              _accountWallet.profilesByPubkey[pk]?.displayName ??
+              _accountWallet.profilesByPubkey[pk]?.name,
           child: Scaffold(
-          body: Stack(
-        fit: StackFit.expand,
-        children: [
-          RepaintBoundary(
-            key: _mapRepaintBoundaryKey,
-            child: mapWidget,
-          ),
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                // 1. Isolated Map Surface + Memoized GeoJSON/GPU Layer Scope
+                _buildIsolatedMapSurface(
+                  systemIsDark: systemIsDark,
+                  isDesktop: isDesktop,
+                  isWideStudio: isWideStudio,
+                  bottomSafeInset: bottomSafeInset,
+                ),
 
-          // Zero-lock touch drawing & GPU loupe overlay.
-          TouchDrawOverlay(
-            controller: _controller,
-            mode: _mode,
-            placementStyle: _placementStyle,
-            loupeEnabled: _loupeEnabled,
-            features: _features,
-            externalSnapShapes: externalSnapShapes,
-            draftVertices: _draftVertices,
-            onCommitVertex: _commitVertex,
-            onUpdateDraftVertex: (index, pos) {
-              if (index >= 0 && index < _draftVertices.length) {
-                setState(() => _draftVertices[index] = pos);
-                if (_mode == DrawToolMode.measure) {
-                  unawaited(_recomputeMeasureTelemetry());
-                }
-              }
-            },
-            onInsertDraftVertex: (insertIndex, pos) {
-              setState(() => _draftVertices.insert(insertIndex, pos));
-              if (_mode == DrawToolMode.measure) {
-                unawaited(_recomputeMeasureTelemetry());
-              }
-            },
-            onTwoFingerUndo: _undoLastPoint,
-            onPreviewChanged: (screen, snapped, loupeActive) {
-              setState(() {
-                _previewScreen = screen;
-                _previewSnapped = snapped;
-                _previewLoupeActive = loupeActive;
-              });
-            },
-          ),
+                // 2. Touch Draw Overlay Scope (does not rebuild on AI tokens/drawer)
+                _buildTouchDrawOverlayScope(),
 
-          // Top frosted-glass instrument bar (Field Posture on mobile; full Studio bar on Desktop)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-                child: Row(
-                  children: [
-                    if (isDesktop)
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 260),
-                        child: GestureDetector(
-                          key: const Key('earthly-brand-pill'),
-                          onTap: () =>
-                              _openEarthlyCommandSheet(effectiveBasemap),
-                          child: EarthlyGlassSurface(
-                            borderRadius: BorderRadius.circular(999),
-                            padding: const EdgeInsets.fromLTRB(7, 5, 10, 5),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (!_isDrawingMode) ...[
-                                  Container(
-                                    width: 24,
-                                    height: 24,
-                                    decoration: const BoxDecoration(
-                                      color: EarthlyColors.amber,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.explore,
-                                      size: 15,
-                                      color: EarthlyColors.amberInk,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 7),
-                                  Text(
-                                    'EARTHLY',
-                                    style:
-                                        theme.textTheme.labelMedium?.copyWith(
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 1.1,
-                                    ),
-                                  ),
-                                  if (_relayStreamLive) ...[
-                                    const SizedBox(width: 6),
-                                    Container(
-                                      width: 7,
-                                      height: 7,
-                                      decoration: BoxDecoration(
-                                        color: EarthlyColors.commentGreen,
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: EarthlyColors.commentGreen
-                                                .withValues(alpha: 0.65),
-                                            blurRadius: 6,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                  const SizedBox(width: 6),
-                                ],
-                                Flexible(
-                                  child: Text(
-                                    '${_shelfMaps.length} shelf · ${_features.length} draft${visibleBeacons.isNotEmpty ? ' · ${visibleBeacons.length} live' : ''}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 3),
-                                Icon(
-                                  Icons.keyboard_arrow_down,
-                                  size: 15,
-                                  color: theme.colorScheme.onSurfaceVariant,
+                // 3. Top Instrument Bar Scope
+                _buildTopBarScope(isDesktop: isDesktop),
+
+                // 4. Mobile Right-Thumb Controls Rail Scope
+                if (!isDesktop)
+                  _buildRightThumbRailScope(
+                    screenHeight: screenHeight,
+                    bottomSafeInset: bottomSafeInset,
+                    isWideStudio: isWideStudio,
+                  ),
+
+                // 5. Contextual Map HUD Bars Scope (Lens, Measure, Ghost, GPS)
+                _buildHudOverlaysScope(
+                  isDesktop: isDesktop,
+                  isWideStudio: isWideStudio,
+                  systemIsDark: systemIsDark,
+                  bottomSafeInset: bottomSafeInset,
+                ),
+
+                // 6. Left / Mobile Drawer Scope
+                _buildLeftDrawerScope(isWideStudio: isWideStudio),
+
+                // 7. Wide Studio Right Margin Drawer Scope
+                if (isWideStudio) _buildRightDrawerScope(),
+
+                // 8. Bottom Dock Scope
+                _buildBottomDockScope(
+                  isDesktop: isDesktop,
+                  isWideStudio: isWideStudio,
+                  systemIsDark: systemIsDark,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _handleDuplicateShortcut() {
+    if (_draft.isDrawingMode) return;
+    if (_draft.selectedDraftFeatureIds.isNotEmpty) {
+      unawaited(
+        _duplicateDraftFeaturesUi(_draft.selectedDraftFeatureIds.toList()),
+      );
+    } else if (_catalog.inspectedFeature?.isDraft == true &&
+        _catalog.inspectedFeature?.draftFeatureId != null) {
+      unawaited(
+        _duplicateDraftFeaturesUi([_catalog.inspectedFeature!.draftFeatureId!]),
+      );
+    }
+  }
+
+  Widget _buildIsolatedMapSurface({
+    required bool systemIsDark,
+    required bool isDesktop,
+    required bool isWideStudio,
+    required double bottomSafeInset,
+  }) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        _draft.geometryListenable,
+        _draft.placementListenable,
+        _catalog.mapContentListenable,
+        _draft.gpsTrackListenable,
+        _agent.ghostListenable,
+        _mapLayers.layerConfigListenable,
+      ]),
+      builder: (context, _) {
+        final snapshot = _resolveMapLayers(systemIsDark: systemIsDark);
+        final gestures = _draft.activeMapGestures;
+        final mapStyle = _mapLayers.resolveMapStyle(systemIsDark: systemIsDark);
+
+        final mapWidget = widget.mapBuilder != null
+            ? widget.mapBuilder!(
+                context,
+                gestures,
+                (controller) => _controllerNotifier.value = controller,
+                () => setState(() {}),
+              )
+            : MapLibreMap(
+                options: MapOptions(
+                  style: mapStyle,
+                  initCamera: CameraUpdate.position(
+                    center: const Geographic(lon: 16.3738, lat: 48.2082),
+                    zoom: 13.5,
+                  ),
+                  gestures: gestures,
+                ),
+                onMapCreated: (controller) =>
+                    _controllerNotifier.value = controller,
+                onStyleLoaded: (style) =>
+                    unawaited(_mapLayers.syncSatellite(style)),
+                onLongClick: (event) {
+                  if (!_draft.isDrawingMode) {
+                    _openLocationInspector(event.point);
+                  }
+                },
+                layers: snapshot.gpuLayers,
+                children: [
+                  ListenableBuilder(
+                    listenable: Listenable.merge([
+                      _mapLayers.presentationListenable,
+                      _drawerNotifier,
+                    ]),
+                    builder: (context, _) {
+                      final leftTarget = _drawer != _ActiveDrawer.none
+                          ? _drawer
+                          : (!isWideStudio
+                              ? _rightStudioDrawer
+                              : _ActiveDrawer.none);
+                      final hideBottomDockOnMobile = !isDesktop &&
+                          leftTarget != _ActiveDrawer.none &&
+                          !_draft.isDrawingMode;
+                      return EarthlyCalloutOverlay(
+                        callouts: snapshot.visibleCallouts,
+                        sightings: _catalog.allSightings,
+                        iconPins: snapshot.visibleIconPins,
+                        arrowheads: snapshot.visibleArrowheads,
+                        commentPins: _catalog.activeCommentPins,
+                        onInspectComment: (_) =>
+                            _openDrawer(_ActiveDrawer.discussion),
+                        onRepositionDraftCallout: (fid, cid, off) {
+                          if (_draft.repositionDraftCallout(
+                            fid,
+                            cid,
+                            off,
+                            onPersist: _schedulePersistWorkingDraft,
+                          )) {
+                            _refreshInspectedDraftFeature(fid);
+                          }
+                        },
+                        displayMode: _mapLayers.calloutMode,
+                        bottomInset: (hideBottomDockOnMobile ? 340 : 108) +
+                            bottomSafeInset,
+                        onInspectFeature: _inspectFeature,
+                        onInspectSighting: _inspectSighting,
+                      );
+                    },
+                  ),
+                  ValueListenableBuilder<DraftPreviewState>(
+                    valueListenable: _draft.previewNotifier,
+                    builder: (context, preview, _) => MapGeometryLayer(
+                      features: _draft.features,
+                      draftVertices: _draft.draftVertices,
+                      mode: _draft.mode,
+                      previewScreen: preview.screen,
+                      snapped: preview.snapped,
+                      loupeActive: preview.loupeActive,
+                    ),
+                  ),
+                ],
+              );
+
+        return RepaintBoundary(
+          key: _mapRepaintBoundaryKey,
+          child: mapWidget,
+        );
+      },
+    );
+  }
+
+  Widget _buildTouchDrawOverlayScope() {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        _draft.geometryListenable,
+        _draft.placementListenable,
+        _catalog.shelfListenable,
+        _controllerNotifier,
+      ]),
+      builder: (context, _) {
+        final externalSnapShapes = _mapLayers.lastSnapshot?.externalSnapShapes ??
+            <List<Geographic>>[
+              for (final entry in _catalog.shelfMaps)
+                if (entry.visible)
+                  for (final shape in entry.shapes)
+                    if (shape.coords.isNotEmpty) shape.coords,
+            ];
+        return TouchDrawOverlay(
+          controller: _controller,
+          mode: _draft.mode,
+          placementStyle: _draft.placementStyle,
+          loupeEnabled: _draft.loupeEnabled,
+          features: _draft.features,
+          externalSnapShapes: externalSnapShapes,
+          draftVertices: _draft.draftVertices,
+          onCommitVertex: (pt) => _draft.commitVertex(
+            pt,
+            onPersist: _schedulePersistWorkingDraft,
+          ),
+          onUpdateDraftVertex: _draft.updateDraftVertex,
+          onInsertDraftVertex: _draft.insertDraftVertex,
+          onTwoFingerUndo: () =>
+              _draft.undoLastPoint(onPersist: _schedulePersistWorkingDraft),
+          onPreviewChanged: _draft.updatePreview,
+        );
+      },
+    );
+  }
+
+  Widget _buildTopBarScope({required bool isDesktop}) {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+          child: ListenableBuilder(
+            listenable: Listenable.merge([
+              _drawerNotifier,
+              _catalog.shelfListenable,
+              _catalog.beaconsListenable,
+              _draft.geometryListenable,
+              _draft.undoRedoListenable,
+              _draft.placementListenable,
+              _draft.gpsTrackListenable,
+              _spaces.badgeListenable,
+              _spaces,
+              _accountWallet.accountListenable,
+              _mapLayers.presentationListenable,
+            ]),
+            builder: (context, _) {
+              final theme = Theme.of(context);
+              final visibleBeacons = _catalog.allBeacons;
+              final visibleCalloutCount =
+                  _mapLayers.lastSnapshot?.visibleCallouts.length ?? 0;
+              final brandPill = GestureDetector(
+                key: const Key('earthly-brand-pill'),
+                onTap: _openEarthlyCommandSheet,
+                child: EarthlyGlassSurface(
+                  borderRadius: BorderRadius.circular(999),
+                  padding: const EdgeInsets.fromLTRB(7, 5, 10, 5),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!_draft.isDrawingMode) ...[
+                        Container(
+                          width: 24,
+                          height: 24,
+                          decoration: const BoxDecoration(
+                            color: EarthlyColors.amber,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.explore,
+                            size: 15,
+                            color: EarthlyColors.amberInk,
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        Text(
+                          'EARTHLY',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                        if (_spaces.relayStreamLive) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: EarthlyColors.commentGreen,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: EarthlyColors.commentGreen
+                                      .withValues(alpha: 0.65),
+                                  blurRadius: 6,
                                 ),
                               ],
                             ),
                           ),
+                        ],
+                        const SizedBox(width: 6),
+                      ],
+                      Flexible(
+                        child: Text(
+                          isDesktop
+                              ? '${_catalog.shelfMaps.length} shelf · ${_draft.features.length} draft${visibleBeacons.isNotEmpty ? ' · ${visibleBeacons.length} live' : ''}'
+                              : '${_catalog.shelfMaps.length}·${_draft.features.length}${visibleBeacons.isNotEmpty ? '·${visibleBeacons.length}' : ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
-                      )
-                    else
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: GestureDetector(
-                            key: const Key('earthly-brand-pill'),
-                            onTap: () =>
-                                _openEarthlyCommandSheet(effectiveBasemap),
-                            child: EarthlyGlassSurface(
-                              borderRadius: BorderRadius.circular(999),
-                              padding: const EdgeInsets.fromLTRB(7, 5, 10, 5),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (!_isDrawingMode) ...[
-                                    Container(
-                                      width: 24,
-                                      height: 24,
-                                      decoration: const BoxDecoration(
-                                        color: EarthlyColors.amber,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(
-                                        Icons.explore,
-                                        size: 15,
-                                        color: EarthlyColors.amberInk,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 7),
-                                    Text(
-                                      'EARTHLY',
-                                      style:
-                                          theme.textTheme.labelMedium?.copyWith(
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 1.1,
-                                      ),
-                                    ),
-                                    if (_relayStreamLive) ...[
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        width: 7,
-                                        height: 7,
-                                        decoration: BoxDecoration(
-                                          color: EarthlyColors.commentGreen,
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: EarthlyColors.commentGreen
-                                                  .withValues(alpha: 0.65),
-                                              blurRadius: 6,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                    const SizedBox(width: 6),
-                                  ],
-                                  Flexible(
-                                    child: Text(
-                                      '${_shelfMaps.length}·${_features.length}${visibleBeacons.isNotEmpty ? '·${visibleBeacons.length}' : ''}',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontFamily: 'monospace',
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color:
-                                            theme.colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 3),
-                                  Icon(
-                                    Icons.keyboard_arrow_down,
-                                    size: 15,
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ],
+                      ),
+                      const SizedBox(width: 3),
+                      Icon(
+                        Icons.keyboard_arrow_down,
+                        size: 15,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+
+              return Row(
+                children: [
+                  if (isDesktop)
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 260),
+                      child: brandPill,
+                    )
+                  else
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: brandPill,
+                      ),
+                    ),
+                  if (isDesktop && !_draft.isDrawingMode) ...[
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _MiniToggle(
+                              label: 'Explore',
+                              icon: Icons.explore_outlined,
+                              active: _isDrawerOpen(_ActiveDrawer.explore),
+                              onTap: () => _toggleDrawer(_ActiveDrawer.explore),
+                            ),
+                            const SizedBox(width: 6),
+                            _MiniToggle(
+                              label: _spaces.pendingOutboxCount > 0
+                                  ? 'Desk (${_spaces.pendingOutboxCount})'
+                                  : 'Desk',
+                              icon: Icons.layers_outlined,
+                              active: _isDrawerOpen(_ActiveDrawer.desk) ||
+                                  _isDrawerOpen(_ActiveDrawer.outbox) ||
+                                  _spaces.pendingOutboxCount > 0,
+                              onTap: () => _toggleDrawer(_ActiveDrawer.desk),
+                            ),
+                            const SizedBox(width: 6),
+                            _MiniToggle(
+                              label: _spaces.pendingClaimCount > 0
+                                  ? 'Spaces (${_spaces.pendingClaimCount})'
+                                  : 'Spaces',
+                              icon: Icons.hub_outlined,
+                              active: _isDrawerOpen(_ActiveDrawer.spaces) ||
+                                  _spaces.pendingClaimCount > 0,
+                              onTap: () => _toggleDrawer(_ActiveDrawer.spaces),
+                            ),
+                            const SizedBox(width: 6),
+                            _MiniToggle(
+                              label: _spaces.circlePendingJoins.isNotEmpty
+                                  ? 'Circles (${_spaces.circlePendingJoins.length})'
+                                  : 'Circles',
+                              icon: Icons.lock_outline,
+                              active: _isDrawerOpen(_ActiveDrawer.circles) ||
+                                  _spaces.activeCircleLensId != null,
+                              onTap: () => _toggleDrawer(_ActiveDrawer.circles),
+                            ),
+                            const SizedBox(width: 6),
+                            _MiniToggle(
+                              label: _spaces.inboxUnreadCount > 0
+                                  ? 'Inbox (${_spaces.inboxUnreadCount})'
+                                  : 'Inbox',
+                              icon: Icons.inbox_outlined,
+                              active: _isDrawerOpen(_ActiveDrawer.inbox) ||
+                                  _spaces.inboxUnreadCount > 0,
+                              onTap: () {
+                                _toggleDrawer(_ActiveDrawer.inbox);
+                                if (_isDrawerOpen(_ActiveDrawer.inbox)) {
+                                  unawaited(_refreshInbox());
+                                }
+                              },
+                            ),
+                            const SizedBox(width: 6),
+                            _MiniToggle(
+                              label: 'Agent',
+                              icon: Icons.auto_awesome,
+                              active: _isDrawerOpen(_ActiveDrawer.agent),
+                              onTap: () => _toggleDrawer(_ActiveDrawer.agent),
+                            ),
+                            const SizedBox(width: 6),
+                            _MiniToggle(
+                              label: 'Draw',
+                              icon: Icons.edit,
+                              active: true,
+                              onTap: () => _draft.selectMode(
+                                DrawToolMode.line,
+                                onCloseDrawers: _closeAllDrawers,
                               ),
                             ),
-                          ),
+                          ],
                         ),
                       ),
-                    if (isDesktop && !_isDrawingMode) ...[
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _MiniToggle(
-                                label: 'Explore',
-                                icon: Icons.explore_outlined,
-                                active: _isDrawerOpen(_ActiveDrawer.explore),
-                                onTap: () =>
-                                    _toggleDrawer(_ActiveDrawer.explore),
-                              ),
-                              const SizedBox(width: 6),
-                              _MiniToggle(
-                                label: _pendingOutboxCount > 0
-                                    ? 'Desk ($_pendingOutboxCount)'
-                                    : 'Desk',
-                                icon: Icons.layers_outlined,
-                                active: _isDrawerOpen(_ActiveDrawer.desk) ||
-                                    _isDrawerOpen(_ActiveDrawer.outbox) ||
-                                    _pendingOutboxCount > 0,
-                                onTap: () => _toggleDrawer(_ActiveDrawer.desk),
-                              ),
-                              const SizedBox(width: 6),
-                              _MiniToggle(
-                                label: _pendingClaimCount > 0
-                                    ? 'Spaces ($_pendingClaimCount)'
-                                    : 'Spaces',
-                                icon: Icons.hub_outlined,
-                                active: _isDrawerOpen(_ActiveDrawer.spaces) ||
-                                    _pendingClaimCount > 0,
-                                onTap: () =>
-                                    _toggleDrawer(_ActiveDrawer.spaces),
-                              ),
-                              const SizedBox(width: 6),
-                              _MiniToggle(
-                                label: _circlePendingJoins.isNotEmpty
-                                    ? 'Circles (${_circlePendingJoins.length})'
-                                    : 'Circles',
-                                icon: Icons.lock_outline,
-                                active: _isDrawerOpen(_ActiveDrawer.circles) ||
-                                    _activeCircleLensId != null,
-                                onTap: () =>
-                                    _toggleDrawer(_ActiveDrawer.circles),
-                              ),
-                              const SizedBox(width: 6),
-                              _MiniToggle(
-                                label: _inboxUnreadCount > 0
-                                    ? 'Inbox ($_inboxUnreadCount)'
-                                    : 'Inbox',
-                                icon: Icons.inbox_outlined,
-                                active: _isDrawerOpen(_ActiveDrawer.inbox) ||
-                                    _inboxUnreadCount > 0,
-                                onTap: () {
-                                  _toggleDrawer(_ActiveDrawer.inbox);
-                                  if (_isDrawerOpen(_ActiveDrawer.inbox)) {
-                                    unawaited(_refreshInbox());
-                                  }
-                                },
-                              ),
-                              const SizedBox(width: 6),
-                              _MiniToggle(
-                                label: 'Agent',
-                                icon: Icons.auto_awesome,
-                                active: _isDrawerOpen(_ActiveDrawer.agent),
-                                onTap: () => _toggleDrawer(_ActiveDrawer.agent),
-                              ),
-                              const SizedBox(width: 6),
-                              _MiniToggle(
-                                label: 'Draw',
-                                icon: Icons.edit,
-                                active: true,
-                                onTap: () => _selectMode(DrawToolMode.line),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                    ] else if (isDesktop)
-                      const Spacer()
-                    else
-                      const SizedBox(width: 8),
-                    if (isDesktop && _isDrawingMode) ...[
-                      _MiniToggle(
-                        label: _placementStyle == TouchPlacementStyle.drawDrag
-                            ? 'Draw-Drag'
-                            : 'Crosshair',
-                        icon: _placementStyle == TouchPlacementStyle.drawDrag
-                            ? Icons.touch_app
-                            : Icons.gps_fixed,
-                        active: true,
-                        onTap: () => setState(() {
-                          _placementStyle =
-                              _placementStyle == TouchPlacementStyle.drawDrag
-                                  ? TouchPlacementStyle.crosshair
-                                  : TouchPlacementStyle.drawDrag;
-                        }),
-                      ),
-                      const SizedBox(width: 6),
-                      _MiniToggle(
-                        label: 'Loupe',
-                        icon: Icons.zoom_in,
-                        active: _loupeEnabled,
-                        onTap: () =>
-                            setState(() => _loupeEnabled = !_loupeEnabled),
-                      ),
-                    ] else if (!_isDrawingMode) ...[
-                      if (isDesktop && _draftUndoStack.isNotEmpty) ...[
-                        _MiniIconButton(
-                          tooltip: 'Undo Draft Edit (Cmd+Z)',
-                          icon: Icons.undo,
-                          active: false,
-                          onTap: _undoDraftEdit,
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                      if (isDesktop && _draftRedoStack.isNotEmpty) ...[
-                        _MiniIconButton(
-                          tooltip: 'Redo Draft Edit (Cmd+Shift+Z)',
-                          icon: Icons.redo,
-                          active: false,
-                          onTap: _redoDraftEdit,
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                      if (isDesktop && visibleCallouts.isNotEmpty) ...[
-                        _MiniToggle(
-                          label: calloutModeShortLabel(_calloutMode),
-                          icon: Icons.chat_bubble_outline,
-                          active: _calloutMode != CalloutDisplayMode.hidden,
-                          onTap: () => setState(
-                            () => _calloutMode =
-                                nextCalloutDisplayMode(_calloutMode),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                      _MiniIconButton(
-                        tooltip: 'Search Place / Coords / naddr',
-                        icon: Icons.search,
-                        active: _isDrawerOpen(_ActiveDrawer.search),
-                        onTap: () => _toggleDrawer(_ActiveDrawer.search),
-                      ),
-                      if (isDesktop) ...[
-                        const SizedBox(width: 6),
-                        _MiniIconButton(
-                          tooltip: _gpsTrackRecording
-                              ? 'Finish GPS Track'
-                              : 'Record GPS Track',
-                          icon: _gpsTrackRecording ? Icons.stop : Icons.route,
-                          active: _gpsTrackRecording,
-                          onTap: () => unawaited(
-                            _gpsTrackRecording
-                                ? _finishGpsTrackToDraft()
-                                : _startGpsTrack(),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        _MiniIconButton(
-                          tooltip: 'Measure Distance & Area',
-                          icon: Icons.straighten,
-                          active: _isMeasureMode,
-                          onTap: _toggleMeasureMode,
-                        ),
-                        const SizedBox(width: 6),
-                        _MiniIconButton(
-                          tooltip: 'Basemap & Overlays',
-                          icon: Icons.map_outlined,
-                          active:
-                              effectiveBasemap == BasemapKind.offlinePmtiles,
-                          onTap: () => _openBasemapSwitcher(effectiveBasemap),
-                        ),
-                      ],
-                      const SizedBox(width: 6),
-                      if (isDesktop)
-                        _MiniToggle(
-                          label: _accountChipLabel,
-                          icon: _account != null
-                              ? Icons.verified_user
-                              : Icons.account_circle_outlined,
-                          active: _isDrawerOpen(_ActiveDrawer.account),
-                          onTap: () => _toggleDrawer(_ActiveDrawer.account),
-                        )
-                      else
-                        _MiniIconButton(
-                          tooltip: _account != null
-                              ? 'Account ($_accountChipLabel)'
-                              : 'Account & Session',
-                          icon: _account != null
-                              ? Icons.verified_user
-                              : Icons.account_circle_outlined,
-                          active: _isDrawerOpen(_ActiveDrawer.account) ||
-                              _account != null,
-                          onTap: () => _toggleDrawer(_ActiveDrawer.account),
-                        ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Right-thumb uniform icon-only Map Controls Rail on Mobile (strictly 46x46 frosted squircles!)
-          if (!isDesktop)
-            Positioned(
-              key: const Key('earthly-right-thumb-rail'),
-              right: 12,
-              bottom: rightThumbRailBottom,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (_isDrawingMode) ...[
-                    _ThumbMapButton(
-                      tooltip: _placementStyle == TouchPlacementStyle.drawDrag
+                    ),
+                    const SizedBox(width: 8),
+                  ] else if (isDesktop)
+                    const Spacer()
+                  else
+                    const SizedBox(width: 8),
+                  if (isDesktop && _draft.isDrawingMode) ...[
+                    _MiniToggle(
+                      label: _draft.placementStyle ==
+                              TouchPlacementStyle.drawDrag
                           ? 'Draw-Drag'
                           : 'Crosshair',
-                      icon: _placementStyle == TouchPlacementStyle.drawDrag
+                      icon: _draft.placementStyle ==
+                              TouchPlacementStyle.drawDrag
                           ? Icons.touch_app
                           : Icons.gps_fixed,
                       active: true,
-                      onTap: () => setState(() {
-                        _placementStyle =
-                            _placementStyle == TouchPlacementStyle.drawDrag
-                                ? TouchPlacementStyle.crosshair
-                                : TouchPlacementStyle.drawDrag;
-                      }),
+                      onTap: _draft.togglePlacementStyle,
                     ),
-                    const SizedBox(height: 8),
-                    _ThumbMapButton(
-                      tooltip: 'Loupe',
+                    const SizedBox(width: 6),
+                    _MiniToggle(
+                      label: 'Loupe',
                       icon: Icons.zoom_in,
-                      active: _loupeEnabled,
-                      onTap: () =>
-                          setState(() => _loupeEnabled = !_loupeEnabled),
+                      active: _draft.loupeEnabled,
+                      onTap: _draft.toggleLoupeEnabled,
                     ),
-                  ] else ...[
-                    _ThumbMapButton(
-                      tooltip: _gpsTrackRecording
-                          ? 'Finish GPS Track'
-                          : 'Record GPS Track',
-                      icon: _gpsTrackRecording ? Icons.stop : Icons.route,
-                      active: _gpsTrackRecording,
-                      activeBackground: EarthlyColors.destructive,
-                      activeForeground: Colors.white,
-                      onTap: () => unawaited(
-                        _gpsTrackRecording
-                            ? _finishGpsTrackToDraft()
-                            : _startGpsTrack(),
+                  ] else if (!_draft.isDrawingMode) ...[
+                    if (isDesktop && _draft.undoStack.isNotEmpty) ...[
+                      _MiniIconButton(
+                        tooltip: 'Undo Draft Edit (Cmd+Z)',
+                        icon: Icons.undo,
+                        active: false,
+                        onTap: () => _draft.undoDraftEdit(
+                          onRefreshInspectedFeature:
+                              _refreshInspectedDraftFeature,
+                          onPersist: _schedulePersistWorkingDraft,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    _ThumbMapButton(
-                      tooltip: 'Measure',
-                      icon: Icons.straighten,
-                      active: _isMeasureMode,
-                      activeBackground: EarthlyColors.measureViolet,
-                      activeForeground: Colors.white,
-                      onTap: _toggleMeasureMode,
-                    ),
-                    const SizedBox(height: 8),
-                    _ThumbMapButton(
-                      tooltip: 'Map Style & Overlays',
-                      icon: Icons.layers_outlined,
-                      active: effectiveBasemap == BasemapKind.offlinePmtiles,
-                      onTap: () => _openBasemapSwitcher(effectiveBasemap),
-                    ),
-                    const SizedBox(height: 8),
-                    _ThumbMapButton(
-                      tooltip: switch (_calloutMode) {
-                        CalloutDisplayMode.full => 'Callouts: Full',
-                        CalloutDisplayMode.compact => 'Callouts: Compact',
-                        CalloutDisplayMode.pins => 'Callouts: Pins',
-                        CalloutDisplayMode.hidden => 'Callouts: Off',
-                      },
-                      icon: switch (_calloutMode) {
-                        CalloutDisplayMode.full => Icons.chat_bubble_outline,
-                        CalloutDisplayMode.compact => Icons.short_text,
-                        CalloutDisplayMode.pins => Icons.push_pin_outlined,
-                        CalloutDisplayMode.hidden =>
-                          Icons.comments_disabled_outlined,
-                      },
-                      active: _calloutMode != CalloutDisplayMode.hidden &&
-                          visibleCallouts.isNotEmpty,
-                      badgeDotColor: _calloutMode == CalloutDisplayMode.hidden
-                          ? null
-                          : EarthlyColors.amber,
-                      onTap: () => setState(
-                        () => _calloutMode =
-                            nextCalloutDisplayMode(_calloutMode),
+                      const SizedBox(width: 6),
+                    ],
+                    if (isDesktop && _draft.redoStack.isNotEmpty) ...[
+                      _MiniIconButton(
+                        tooltip: 'Redo Draft Edit (Cmd+Shift+Z)',
+                        icon: Icons.redo,
+                        active: false,
+                        onTap: () => _draft.redoDraftEdit(
+                          onRefreshInspectedFeature:
+                              _refreshInspectedDraftFeature,
+                          onPersist: _schedulePersistWorkingDraft,
+                        ),
                       ),
+                      const SizedBox(width: 6),
+                    ],
+                    if (isDesktop && visibleCalloutCount > 0) ...[
+                      _MiniToggle(
+                        label: calloutModeShortLabel(_mapLayers.calloutMode),
+                        icon: Icons.chat_bubble_outline,
+                        active: _mapLayers.calloutMode !=
+                            CalloutDisplayMode.hidden,
+                        onTap: _mapLayers.cycleCalloutMode,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    _MiniIconButton(
+                      tooltip: 'Search Place / Coords / naddr',
+                      icon: Icons.search,
+                      active: _isDrawerOpen(_ActiveDrawer.search),
+                      onTap: () => _toggleDrawer(_ActiveDrawer.search),
                     ),
-                  ],
-                  if (Platform.isAndroid) ...[
-                    const SizedBox(height: 8),
-                    _ThumbMapButton(
-                      tooltip: 'Center on GPS',
-                      icon: Icons.my_location,
-                      active: false,
-                      onTap: () => unawaited(_locateMe()),
-                    ),
+                    if (isDesktop) ...[
+                      const SizedBox(width: 6),
+                      _MiniIconButton(
+                        tooltip: _draft.gpsTrackRecording
+                            ? 'Finish GPS Track'
+                            : 'Record GPS Track',
+                        icon: _draft.gpsTrackRecording
+                            ? Icons.stop
+                            : Icons.route,
+                        active: _draft.gpsTrackRecording,
+                        onTap: () => unawaited(
+                          _draft.gpsTrackRecording
+                              ? _finishGpsTrackToDraft()
+                              : _startGpsTrack(),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      _MiniIconButton(
+                        tooltip: 'Measure Distance & Area',
+                        icon: Icons.straighten,
+                        active: _draft.isMeasureMode,
+                        onTap: () => _draft.toggleMeasureMode(
+                          onCloseDrawers: _closeAllDrawers,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      _MiniIconButton(
+                        tooltip: 'Basemap & Overlays',
+                        icon: Icons.map_outlined,
+                        active: _mapLayers.selectedBasemap ==
+                            BasemapKind.offlinePmtiles,
+                        onTap: _openBasemapSwitcher,
+                      ),
+                    ],
+                    const SizedBox(width: 6),
+                    if (isDesktop)
+                      _MiniToggle(
+                        label: _accountWallet.accountChipLabel,
+                        icon: _accountWallet.account != null
+                            ? Icons.verified_user
+                            : Icons.account_circle_outlined,
+                        active: _isDrawerOpen(_ActiveDrawer.account),
+                        onTap: () => _toggleDrawer(_ActiveDrawer.account),
+                      )
+                    else
+                      _MiniIconButton(
+                        tooltip: _accountWallet.account != null
+                            ? 'Account (${_accountWallet.accountChipLabel})'
+                            : 'Account & Session',
+                        icon: _accountWallet.account != null
+                            ? Icons.verified_user
+                            : Icons.account_circle_outlined,
+                        active: _isDrawerOpen(_ActiveDrawer.account) ||
+                            _accountWallet.account != null,
+                        onTap: () => _toggleDrawer(_ActiveDrawer.account),
+                      ),
                   ],
                 ],
-              ),
-            ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
 
-          // Active Atlas Lens Bar (matches Web's `.earthly-lensbar`: signals Atlas-scoped browse & authoring)
-          if (_activeAtlasLens != null && !_isDrawingMode)
-            Positioned(
-              key: const Key('earthly-atlas-lens-bar'),
-              top: 62,
-              left: hudLeftInset,
-              right: hudRightInset,
-              child: SafeArea(
-                bottom: false,
-                child: Align(
-                  alignment: Alignment.topLeft,
-                  child: EarthlyGlassSurface(
-                    borderRadius: BorderRadius.circular(14),
-                    color: EarthlyColors.amber.withValues(
-                      alpha: systemIsDark ? 0.24 : 0.92,
-                    ),
-                    borderColor: EarthlyColors.amber,
-                    borderWidth: 1.4,
-                    padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.public,
-                          size: 16,
-                          color: systemIsDark
-                              ? EarthlyColors.amber
-                              : EarthlyColors.amberInk,
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _activeAtlasLens!.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: systemIsDark
-                                      ? EarthlyColors.darkInk
-                                      : EarthlyColors.amberInk,
-                                ),
-                              ),
-                              Text(
-                                '${_activeAtlasLens!.pinnedAddresses.length} pinned · ${_activeAtlasLens!.governance} · Atlas Lens',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 9.5,
-                                  color: (systemIsDark
-                                          ? EarthlyColors.darkInk
-                                          : EarthlyColors.amberInk)
-                                      .withValues(alpha: 0.8),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        TextButton(
-                          style: TextButton.styleFrom(
-                            visualDensity: VisualDensity.compact,
-                            foregroundColor: systemIsDark
-                                ? EarthlyColors.amber
-                                : EarthlyColors.amberInk,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                          ),
-                          onPressed: () => _inspectAtlas(_activeAtlasLens!),
-                          child: const Text('About'),
-                        ),
-                        IconButton(
-                          tooltip: 'Leave Atlas Lens',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: _leaveAtlasLens,
-                          icon: Icon(
-                            Icons.close,
+  Widget _buildRightThumbRailScope({
+    required double screenHeight,
+    required double bottomSafeInset,
+    required bool isWideStudio,
+  }) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        _drawerNotifier,
+        _draft.placementListenable,
+        _draft.gpsTrackListenable,
+        _mapLayers.presentationListenable,
+        _catalog.mapContentListenable,
+      ]),
+      builder: (context, _) {
+        final leftTarget = _drawer != _ActiveDrawer.none
+            ? _drawer
+            : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
+        final hideBottomDockOnMobile =
+            leftTarget != _ActiveDrawer.none && !_draft.isDrawingMode;
+        final rightThumbRailBottom = hideBottomDockOnMobile
+            ? (screenHeight * 0.54).clamp(180.0, screenHeight - 220.0)
+            : bottomSafeInset + (_draft.isDrawingMode ? 76.0 : 74.0);
+        final hasCallouts =
+            (_mapLayers.lastSnapshot?.visibleCallouts.isNotEmpty ?? false);
+
+        return Positioned(
+          key: const Key('earthly-right-thumb-rail'),
+          right: 12,
+          bottom: rightThumbRailBottom,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (_draft.isDrawingMode) ...[
+                _ThumbMapButton(
+                  tooltip: _draft.placementStyle == TouchPlacementStyle.drawDrag
+                      ? 'Draw-Drag'
+                      : 'Crosshair',
+                  icon: _draft.placementStyle == TouchPlacementStyle.drawDrag
+                      ? Icons.touch_app
+                      : Icons.gps_fixed,
+                  active: true,
+                  onTap: _draft.togglePlacementStyle,
+                ),
+                const SizedBox(height: 8),
+                _ThumbMapButton(
+                  tooltip: 'Loupe',
+                  icon: Icons.zoom_in,
+                  active: _draft.loupeEnabled,
+                  onTap: _draft.toggleLoupeEnabled,
+                ),
+              ] else ...[
+                _ThumbMapButton(
+                  tooltip: _draft.gpsTrackRecording
+                      ? 'Finish GPS Track'
+                      : 'Record GPS Track',
+                  icon: _draft.gpsTrackRecording ? Icons.stop : Icons.route,
+                  active: _draft.gpsTrackRecording,
+                  activeBackground: EarthlyColors.destructive,
+                  activeForeground: Colors.white,
+                  onTap: () => unawaited(
+                    _draft.gpsTrackRecording
+                        ? _finishGpsTrackToDraft()
+                        : _startGpsTrack(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _ThumbMapButton(
+                  tooltip: 'Measure',
+                  icon: Icons.straighten,
+                  active: _draft.isMeasureMode,
+                  activeBackground: EarthlyColors.measureViolet,
+                  activeForeground: Colors.white,
+                  onTap: () => _draft.toggleMeasureMode(
+                    onCloseDrawers: _closeAllDrawers,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _ThumbMapButton(
+                  tooltip: 'Map Style & Overlays',
+                  icon: Icons.layers_outlined,
+                  active:
+                      _mapLayers.selectedBasemap == BasemapKind.offlinePmtiles,
+                  onTap: _openBasemapSwitcher,
+                ),
+                const SizedBox(height: 8),
+                _ThumbMapButton(
+                  tooltip: switch (_mapLayers.calloutMode) {
+                    CalloutDisplayMode.full => 'Callouts: Full',
+                    CalloutDisplayMode.compact => 'Callouts: Compact',
+                    CalloutDisplayMode.pins => 'Callouts: Pins',
+                    CalloutDisplayMode.hidden => 'Callouts: Off',
+                  },
+                  icon: switch (_mapLayers.calloutMode) {
+                    CalloutDisplayMode.full => Icons.chat_bubble_outline,
+                    CalloutDisplayMode.compact => Icons.short_text,
+                    CalloutDisplayMode.pins => Icons.push_pin_outlined,
+                    CalloutDisplayMode.hidden =>
+                      Icons.comments_disabled_outlined,
+                  },
+                  active: _mapLayers.calloutMode != CalloutDisplayMode.hidden &&
+                      hasCallouts,
+                  badgeDotColor:
+                      _mapLayers.calloutMode == CalloutDisplayMode.hidden
+                          ? null
+                          : EarthlyColors.amber,
+                  onTap: _mapLayers.cycleCalloutMode,
+                ),
+              ],
+              if (Platform.isAndroid) ...[
+                const SizedBox(height: 8),
+                _ThumbMapButton(
+                  tooltip: 'Center on GPS',
+                  icon: Icons.my_location,
+                  active: false,
+                  onTap: () => unawaited(_locateMe()),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHudOverlaysScope({
+    required bool isDesktop,
+    required bool isWideStudio,
+    required bool systemIsDark,
+    required double bottomSafeInset,
+  }) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        _drawerNotifier,
+        _catalog.lensListenable,
+        _catalog.overlayListenable,
+        _spaces.circleLensListenable,
+        _draft.modeListenable,
+        _draft.placementListenable,
+        _draft.measureListenable,
+        _draft.gpsTrackListenable,
+        _agent.ghostListenable,
+      ]),
+      builder: (context, _) {
+        final leftTarget = _drawer != _ActiveDrawer.none
+            ? _drawer
+            : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
+        final hasLeft =
+            !_draft.isDrawingMode && leftTarget != _ActiveDrawer.none;
+        final hasRight = !_draft.isDrawingMode &&
+            isWideStudio &&
+            _rightStudioDrawer != _ActiveDrawer.none;
+        final hudLeftInset = isDesktop && hasLeft ? 440.0 : 12.0;
+        final hudRightInset = isWideStudio && hasRight ? 440.0 : 12.0;
+        final activeAtlas = _catalog.activeAtlasLens;
+        final activeCircle = _spaces.activeCircleLens;
+        final pendingAi = _agent.pendingAiEdit;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (activeAtlas != null && !_draft.isDrawingMode)
+              Positioned(
+                key: const Key('earthly-atlas-lens-bar'),
+                top: 62,
+                left: hudLeftInset,
+                right: hudRightInset,
+                child: SafeArea(
+                  bottom: false,
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: EarthlyGlassSurface(
+                      borderRadius: BorderRadius.circular(14),
+                      color: EarthlyColors.amber.withValues(
+                        alpha: systemIsDark ? 0.24 : 0.92,
+                      ),
+                      borderColor: EarthlyColors.amber,
+                      borderWidth: 1.4,
+                      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.public,
                             size: 16,
                             color: systemIsDark
-                                ? EarthlyColors.darkInk
+                                ? EarthlyColors.amber
                                 : EarthlyColors.amberInk,
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Active Circle Lens Bar (MLS-encrypted private workspace scoping & indicator)
-          if (_activeCircleLens != null && !_isDrawingMode)
-            Positioned(
-              key: const Key('earthly-circle-lens-bar'),
-              top: _activeAtlasLens != null ? 114 : 62,
-              left: hudLeftInset,
-              right: hudRightInset,
-              child: SafeArea(
-                bottom: false,
-                child: Align(
-                  alignment: Alignment.topLeft,
-                  child: EarthlyGlassSurface(
-                    borderRadius: BorderRadius.circular(14),
-                    color: EarthlyColors.measureViolet.withValues(
-                      alpha: systemIsDark ? 0.28 : 0.92,
-                    ),
-                    borderColor: EarthlyColors.measureViolet,
-                    borderWidth: 1.4,
-                    padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.lock,
-                          size: 15,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _activeCircleLens!.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              Text(
-                                '${_activeCircleLens!.datasets.length} maps · ${_activeCircleLens!.members.length} members · epoch ${_activeCircleLens!.epoch} · MLS',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 9.5,
-                                  color: Colors.white.withValues(alpha: 0.85),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        TextButton(
-                          style: TextButton.styleFrom(
-                            visualDensity: VisualDensity.compact,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                          ),
-                          onPressed: () => setState(() {
-                            _selectedCircleId = _activeCircleLens!.workspaceId;
-                            _drawer = _ActiveDrawer.circles;
-                          }),
-                          child: const Text('Open'),
-                        ),
-                        IconButton(
-                          tooltip: 'Leave Circle Lens',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: _leaveCircleLens,
-                          icon: const Icon(
-                            Icons.close,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Active Proposal / Comment map overlay banner
-          if ((_activeProposalLabel != null || _activeCommentOverlayId != null) &&
-              !_isDrawingMode)
-            Positioned(
-              top: 66,
-              left: hudLeftInset,
-              right: hudRightInset,
-              child: SafeArea(
-                bottom: false,
-                child: Align(
-                  alignment: Alignment.topLeft,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: (_activeProposalLabel != null
-                              ? EarthlyColors.proposedAmber
-                              : EarthlyColors.commentGreen)
-                          .withValues(alpha: 0.94),
-                      borderRadius: BorderRadius.circular(999),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.22),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _activeProposalLabel ?? 'Comment geometry overlay',
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => setState(() {
-                            _activeProposalOverlayId = null;
-                            _activeProposalLabel = null;
-                            _proposalOverlayShapes = const [];
-                            _activeCommentOverlayId = null;
-                            _showingAllCommentPins = false;
-                            _commentOverlayShapes = const [];
-                            _activeCommentPins = const [];
-                          }),
-                          child: const Icon(
-                            Icons.close,
-                            size: 14,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Precision Draw-Drag Measure Ruler live HUD pill
-          if (_isMeasureMode)
-            Positioned(
-              top: 66,
-              left: 12,
-              right: 12,
-              child: SafeArea(
-                bottom: false,
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 7,
-                    ),
-                    decoration: BoxDecoration(
-                      color: EarthlyColors.measureViolet.withValues(alpha: 0.95),
-                      borderRadius: BorderRadius.circular(999),
-                      boxShadow: [
-                        BoxShadow(
-                          color: EarthlyColors.measureViolet
-                              .withValues(alpha: 0.35),
-                          blurRadius: 16,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.straighten,
-                          size: 15,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _draftVertices.isEmpty
-                              ? 'Drag with 1 finger to place vertices'
-                              : _draftVertices.length < 3
-                                  ? '${DrawingMath.formatDistance(_measureDistanceMeters)} (${_draftVertices.length} pts)'
-                                  : '${DrawingMath.formatDistance(_measureDistanceMeters)} · ${(_measureAreaM2 / 10000).toStringAsFixed(2)} ha',
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                        if (_draftVertices.isNotEmpty) ...[
                           const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () => setState(() {
-                              _draftVertices.clear();
-                              _measureDistanceMeters = 0.0;
-                              _measureAreaM2 = 0.0;
-                            }),
-                            child: const Text(
-                              'CLEAR',
-                              style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white70,
-                              ),
+                          Flexible(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  activeAtlas.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: systemIsDark
+                                        ? EarthlyColors.darkInk
+                                        : EarthlyColors.amberInk,
+                                  ),
+                                ),
+                                Text(
+                                  '${activeAtlas.pinnedAddresses.length} pinned · ${activeAtlas.governance} · Atlas Lens',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 9.5,
+                                    color: (systemIsDark
+                                            ? EarthlyColors.darkInk
+                                            : EarthlyColors.amberInk)
+                                        .withValues(alpha: 0.8),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              foregroundColor: systemIsDark
+                                  ? EarthlyColors.amber
+                                  : EarthlyColors.amberInk,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                            ),
+                            onPressed: () => _inspectAtlas(activeAtlas),
+                            child: const Text('About'),
+                          ),
+                          IconButton(
+                            tooltip: 'Leave Atlas Lens',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _catalog.leaveAtlasLens,
+                            icon: Icon(
+                              Icons.close,
+                              size: 16,
+                              color: systemIsDark
+                                  ? EarthlyColors.darkInk
+                                  : EarthlyColors.amberInk,
                             ),
                           ),
                         ],
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: _toggleMeasureMode,
-                          child: const Icon(
-                            Icons.close,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (activeCircle != null && !_draft.isDrawingMode)
+              Positioned(
+                key: const Key('earthly-circle-lens-bar'),
+                top: activeAtlas != null ? 114 : 62,
+                left: hudLeftInset,
+                right: hudRightInset,
+                child: SafeArea(
+                  bottom: false,
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: EarthlyGlassSurface(
+                      borderRadius: BorderRadius.circular(14),
+                      color: EarthlyColors.measureViolet.withValues(
+                        alpha: systemIsDark ? 0.28 : 0.92,
+                      ),
+                      borderColor: EarthlyColors.measureViolet,
+                      borderWidth: 1.4,
+                      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.lock, size: 15, color: Colors.white),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  activeCircle.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                Text(
+                                  '${activeCircle.datasets.length} maps · ${activeCircle.members.length} members · epoch ${activeCircle.epoch} · MLS',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 9.5,
+                                    color: Colors.white.withValues(alpha: 0.85),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              foregroundColor: Colors.white,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                            ),
+                            onPressed: () {
+                              _spaces
+                                  .setSelectedCircleId(activeCircle.workspaceId);
+                              _openDrawer(_ActiveDrawer.circles);
+                            },
+                            child: const Text('Open'),
+                          ),
+                          IconButton(
+                            tooltip: 'Leave Circle Lens',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _leaveCircleLens,
+                            icon: const Icon(
+                              Icons.close,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if ((_catalog.activeProposalLabel != null ||
+                    _catalog.activeCommentOverlayId != null) &&
+                !_draft.isDrawingMode)
+              Positioned(
+                top: 66,
+                left: hudLeftInset,
+                right: hudRightInset,
+                child: SafeArea(
+                  bottom: false,
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: (_catalog.activeProposalLabel != null
+                                ? EarthlyColors.proposedAmber
+                                : EarthlyColors.commentGreen)
+                            .withValues(alpha: 0.94),
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.22),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _catalog.activeProposalLabel ??
+                                'Comment geometry overlay',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: _catalog.clearAllMapOverlays,
+                            child: const Icon(
+                              Icons.close,
+                              size: 14,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (_draft.isMeasureMode)
+              Positioned(
+                top: 66,
+                left: 12,
+                right: 12,
+                child: SafeArea(
+                  bottom: false,
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color:
+                            EarthlyColors.measureViolet.withValues(alpha: 0.95),
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: EarthlyColors.measureViolet
+                                .withValues(alpha: 0.35),
+                            blurRadius: 16,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.straighten,
                             size: 15,
                             color: Colors.white,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 8),
+                          Text(
+                            _draft.draftVertices.isEmpty
+                                ? 'Drag with 1 finger to place vertices'
+                                : _draft.draftVertices.length < 3
+                                    ? '${DrawingMath.formatDistance(_draft.measureDistanceMeters)} (${_draft.draftVertices.length} pts)'
+                                    : '${DrawingMath.formatDistance(_draft.measureDistanceMeters)} · ${(_draft.measureAreaM2 / 10000).toStringAsFixed(2)} ha',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                          if (_draft.draftVertices.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: _draft.clearMeasureVertices,
+                              child: const Text(
+                                'CLEAR',
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () => _draft.toggleMeasureMode(
+                              onCloseDrawers: _closeAllDrawers,
+                            ),
+                            child: const Icon(
+                              Icons.close,
+                              size: 15,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-
-          // Contextual floating guidance pill while drawing
-          if (_isDrawingMode)
-            Positioned(
-              left: 14,
-              right: 70,
-              bottom: 84 + bottomSafeInset,
-              child: Align(
-                alignment: Alignment.bottomLeft,
-                child: EarthlyGlassSurface(
-                  borderRadius: BorderRadius.circular(999),
-                  color: EarthlyColors.darkSurface.withValues(alpha: 0.88),
-                  borderColor: Colors.white.withValues(alpha: 0.14),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 7,
-                  ),
-                  child: Text(
-                    _placementStyle == TouchPlacementStyle.drawDrag
-                        ? '1 finger: place & drag · 2 fingers: pan/zoom · 2-finger tap: undo'
-                        : 'Pan map under reticle · tap Drop to place',
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 10.5,
-                      color: EarthlyColors.darkInk,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // AI safeEditing Amber Ghost Preview Bar (Accept / Discard right on the map)
-          if (_pendingAiEdit != null && !_isDrawingMode)
-            Positioned(
-              key: const Key('earthly-ai-ghost-bar'),
-              top: (_activeAtlasLens != null || _activeCircleLens != null)
-                  ? 118
-                  : 66,
-              left: hudLeftInset,
-              right: hudRightInset,
-              child: SafeArea(
-                bottom: false,
+            if (_draft.isDrawingMode)
+              Positioned(
+                left: 14,
+                right: 70,
+                bottom: 84 + bottomSafeInset,
                 child: Align(
-                  alignment: Alignment.topCenter,
+                  alignment: Alignment.bottomLeft,
                   child: EarthlyGlassSurface(
                     borderRadius: BorderRadius.circular(999),
-                    color: EarthlyColors.proposedAmber.withValues(alpha: 0.94),
-                    borderColor: EarthlyColors.amber,
-                    borderWidth: 1.4,
-                    padding: const EdgeInsets.fromLTRB(12, 5, 6, 5),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.auto_awesome,
-                          size: 14,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            'AI Ghost +${_pendingAiEdit!.diffAdded} ~${_pendingAiEdit!.diffModified} -${_pendingAiEdit!.diffRemoved}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                    color: EarthlyColors.darkSurface.withValues(alpha: 0.88),
+                    borderColor: Colors.white.withValues(alpha: 0.14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    child: Text(
+                      _draft.placementStyle == TouchPlacementStyle.drawDrag
+                          ? '1 finger: place & drag · 2 fingers: pan/zoom · 2-finger tap: undo'
+                          : 'Pan map under reticle · tap Drop to place',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                        color: EarthlyColors.darkInk,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (pendingAi != null && !_draft.isDrawingMode)
+              Positioned(
+                key: const Key('earthly-ai-ghost-bar'),
+                top: (activeAtlas != null || activeCircle != null) ? 118 : 66,
+                left: hudLeftInset,
+                right: hudRightInset,
+                child: SafeArea(
+                  bottom: false,
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: EarthlyGlassSurface(
+                      borderRadius: BorderRadius.circular(999),
+                      color: EarthlyColors.proposedAmber.withValues(alpha: 0.94),
+                      borderColor: EarthlyColors.amber,
+                      borderWidth: 1.4,
+                      padding: const EdgeInsets.fromLTRB(12, 5, 6, 5),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.auto_awesome,
+                            size: 14,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'AI Ghost +${pendingAi.diffAdded} ~${pendingAi.diffModified} -${pendingAi.diffRemoved}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: EarthlyColors.amberInk,
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              minimumSize: const Size(0, 28),
+                            ),
+                            onPressed: _acceptPendingAiEdit,
+                            child: const Text(
+                              'Accept',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          IconButton(
+                            tooltip: 'Discard AI Ghost',
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            onPressed: _agent.clearPendingGhost,
+                            icon: const Icon(
+                              Icons.close,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (_draft.gpsTrackRecording)
+              Positioned(
+                key: const Key('earthly-gps-track-bar'),
+                top: (pendingAi != null ? 116 : 66) +
+                    ((activeAtlas != null || activeCircle != null) ? 52 : 0),
+                left: hudLeftInset,
+                right: hudRightInset,
+                child: SafeArea(
+                  bottom: false,
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: EarthlyGlassSurface(
+                      borderRadius: BorderRadius.circular(999),
+                      color: EarthlyColors.destructive.withValues(alpha: 0.94),
+                      borderColor: Colors.white.withValues(alpha: 0.35),
+                      borderWidth: 1.2,
+                      padding: const EdgeInsets.fromLTRB(12, 5, 6, 5),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _draft.gpsTrackPaused
+                                ? Icons.pause_circle_filled
+                                : Icons.fiber_manual_record,
+                            size: 13,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${_draft.gpsTrackPaused ? 'PAUSED' : 'REC'} · ${DrawingMath.formatDistance(_draft.gpsTrackDistanceMeters)} · ${_draft.gpsTrackPoints.length} pts',
                             style: const TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 11,
@@ -9559,443 +5435,436 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                               color: Colors.white,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: EarthlyColors.amberInk,
+                          const SizedBox(width: 6),
+                          IconButton(
+                            tooltip: _draft.gpsTrackPaused
+                                ? 'Resume GPS Track'
+                                : 'Pause GPS Track',
                             visualDensity: VisualDensity.compact,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
                             ),
-                            minimumSize: const Size(0, 28),
-                          ),
-                          onPressed: _acceptPendingAiEdit,
-                          child: const Text(
-                            'Accept',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        IconButton(
-                          tooltip: 'Discard AI Ghost',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 28,
-                            minHeight: 28,
-                          ),
-                          onPressed: _discardPendingAiEdit,
-                          icon: const Icon(
-                            Icons.close,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Live Background GPS Track Recorder HUD Pill
-          if (_gpsTrackRecording)
-            Positioned(
-              key: const Key('earthly-gps-track-bar'),
-              top: (_pendingAiEdit != null ? 116 : 66) +
-                  ((_activeAtlasLens != null || _activeCircleLens != null)
-                      ? 52
-                      : 0),
-              left: hudLeftInset,
-              right: hudRightInset,
-              child: SafeArea(
-                bottom: false,
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: EarthlyGlassSurface(
-                    borderRadius: BorderRadius.circular(999),
-                    color: EarthlyColors.destructive.withValues(alpha: 0.94),
-                    borderColor: Colors.white.withValues(alpha: 0.35),
-                    borderWidth: 1.2,
-                    padding: const EdgeInsets.fromLTRB(12, 5, 6, 5),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _gpsTrackPaused
-                              ? Icons.pause_circle_filled
-                              : Icons.fiber_manual_record,
-                          size: 13,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${_gpsTrackPaused ? 'PAUSED' : 'REC'} · ${DrawingMath.formatDistance(_gpsTrackDistanceMeters)} · ${_gpsTrackPoints.length} pts',
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        IconButton(
-                          tooltip: _gpsTrackPaused
-                              ? 'Resume GPS Track'
-                              : 'Pause GPS Track',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 28,
-                            minHeight: 28,
-                          ),
-                          onPressed: () => unawaited(_togglePauseGpsTrack()),
-                          icon: Icon(
-                            _gpsTrackPaused ? Icons.play_arrow : Icons.pause,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                        ),
-                        TextButton(
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            visualDensity: VisualDensity.compact,
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
-                            minimumSize: const Size(0, 28),
-                          ),
-                          onPressed: () => unawaited(_addTrackWaypointNow()),
-                          child: const Text(
-                            '+Pt',
-                            style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
+                            onPressed: () =>
+                                unawaited(_draft.togglePauseGpsTrack()),
+                            icon: Icon(
+                              _draft.gpsTrackPaused
+                                  ? Icons.play_arrow
+                                  : Icons.pause,
+                              size: 16,
+                              color: Colors.white,
                             ),
                           ),
-                        ),
-                        FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: EarthlyColors.destructive,
-                            visualDensity: VisualDensity.compact,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              visualDensity: VisualDensity.compact,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                              minimumSize: const Size(0, 28),
                             ),
-                            minimumSize: const Size(0, 28),
-                          ),
-                          onPressed: () => unawaited(_finishGpsTrackToDraft()),
-                          child: const Text(
-                            'Save',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Discard GPS Track',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 28,
-                            minHeight: 28,
-                          ),
-                          onPressed: () => unawaited(_cancelGpsTrack()),
-                          icon: const Icon(
-                            Icons.close,
-                            size: 15,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Unified Google-Maps-style independent bottom drawer (mobile) or docked left Margin (desktop)
-          ?leftDrawerWidget,
-
-          // macOS / Wide Studio simultaneous right column (width >= 1100px)
-          if (rightDrawerWidget != null)
-            EarthlyDrawerPlacement(
-              side: EarthlyDrawerSide.right,
-              child: rightDrawerWidget,
-            ),
-
-          // Frosted-Glass Bottom Dock: surface extends flush to bottom: 0 behind gesture pill & rounded corners;
-          // SafeArea pads ONLY the inner row so there is NEVER a gap on any phone screen shape!
-          if (!hideBottomDockOnMobile && (!isDesktop || _isDrawingMode))
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: ClipRect(
-                child: BackdropFilter(
-                  filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                  child: Container(
-                    key: const Key('earthly-bottom-dock'),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface.withValues(
-                        alpha: systemIsDark ? 0.90 : 0.93,
-                      ),
-                      border: Border(
-                        top: BorderSide(
-                          color: systemIsDark
-                              ? Colors.white.withValues(alpha: 0.12)
-                              : Colors.black.withValues(alpha: 0.08),
-                        ),
-                      ),
-                    ),
-                    child: SafeArea(
-                      top: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
-                        child: _isDrawingMode
-                      ? LayoutBuilder(
-                          builder: (context, constraints) =>
-                              SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                minWidth: constraints.maxWidth,
+                            onPressed: () => unawaited(
+                              _draft.addTrackWaypointNow(
+                                fallbackCenter: _controller?.camera?.center,
                               ),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (_isMeasureMode)
-                                        const Padding(
-                                          padding: EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.straighten,
-                                                size: 18,
-                                                color: EarthlyColors.measureViolet,
-                                              ),
-                                              SizedBox(width: 6),
-                                              Text(
-                                                'MEASURE',
-                                                style: TextStyle(
-                                                  fontFamily: 'monospace',
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w800,
-                                                  color: EarthlyColors.measureViolet,
+                            ),
+                            child: const Text(
+                              '+Pt',
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: EarthlyColors.destructive,
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              minimumSize: const Size(0, 28),
+                            ),
+                            onPressed: () => unawaited(_finishGpsTrackToDraft()),
+                            child: const Text(
+                              'Save',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Discard GPS Track',
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            onPressed: () =>
+                                unawaited(_draft.cancelGpsTrack()),
+                            icon: const Icon(
+                              Icons.close,
+                              size: 15,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildLeftDrawerScope({required bool isWideStudio}) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([_drawerNotifier, _draft.modeListenable]),
+      builder: (context, _) {
+        if (_draft.isDrawingMode) return const SizedBox.shrink();
+        final leftTarget = _drawer != _ActiveDrawer.none
+            ? _drawer
+            : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
+        if (leftTarget == _ActiveDrawer.none) return const SizedBox.shrink();
+        return _buildScopedDrawerSlot(leftTarget);
+      },
+    );
+  }
+
+  Widget _buildRightDrawerScope() {
+    return ListenableBuilder(
+      listenable: Listenable.merge([_drawerNotifier, _draft.modeListenable]),
+      builder: (context, _) {
+        if (_draft.isDrawingMode || _rightStudioDrawer == _ActiveDrawer.none) {
+          return const SizedBox.shrink();
+        }
+        return EarthlyDrawerPlacement(
+          side: EarthlyDrawerSide.right,
+          child: _buildScopedDrawerSlot(_rightStudioDrawer),
+        );
+      },
+    );
+  }
+
+  Widget _buildBottomDockScope({
+    required bool isDesktop,
+    required bool isWideStudio,
+    required bool systemIsDark,
+  }) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        _drawerNotifier,
+        _draft.modeListenable,
+        _draft.placementListenable,
+        _draft.geometryListenable,
+        _spaces.badgeListenable,
+      ]),
+      builder: (context, _) {
+        final leftTarget = _drawer != _ActiveDrawer.none
+            ? _drawer
+            : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
+        final hideBottomDockOnMobile = !isDesktop &&
+            leftTarget != _ActiveDrawer.none &&
+            !_draft.isDrawingMode;
+        if (hideBottomDockOnMobile || (isDesktop && !_draft.isDrawingMode)) {
+          return const SizedBox.shrink();
+        }
+        final theme = Theme.of(context);
+        final totalBadge = _spaces.totalSpacesBadgeCount;
+
+        return Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: ClipRect(
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Container(
+                key: const Key('earthly-bottom-dock'),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface.withValues(
+                    alpha: systemIsDark ? 0.90 : 0.93,
+                  ),
+                  border: Border(
+                    top: BorderSide(
+                      color: systemIsDark
+                          ? Colors.white.withValues(alpha: 0.12)
+                          : Colors.black.withValues(alpha: 0.08),
+                    ),
+                  ),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
+                    child: _draft.isDrawingMode
+                        ? LayoutBuilder(
+                            builder: (context, constraints) =>
+                                SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minWidth: constraints.maxWidth,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (_draft.isMeasureMode)
+                                          const Padding(
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.straighten,
+                                                  size: 18,
+                                                  color: EarthlyColors
+                                                      .measureViolet,
                                                 ),
+                                                SizedBox(width: 6),
+                                                Text(
+                                                  'MEASURE',
+                                                  style: TextStyle(
+                                                    fontFamily: 'monospace',
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: EarthlyColors
+                                                        .measureViolet,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        else ...[
+                                          _DockTool(
+                                            label: 'Point',
+                                            icon: Icons.location_on_outlined,
+                                            selected: _draft.mode ==
+                                                DrawToolMode.point,
+                                            onTap: () => _draft.selectMode(
+                                              DrawToolMode.point,
+                                              onCloseDrawers: _closeAllDrawers,
+                                            ),
+                                          ),
+                                          _DockTool(
+                                            label: 'Line',
+                                            icon: Icons.timeline,
+                                            selected:
+                                                _draft.mode == DrawToolMode.line,
+                                            onTap: () => _draft.selectMode(
+                                              DrawToolMode.line,
+                                              onCloseDrawers: _closeAllDrawers,
+                                            ),
+                                          ),
+                                          _DockTool(
+                                            label: 'Area',
+                                            icon: Icons.pentagon_outlined,
+                                            selected: _draft.mode ==
+                                                DrawToolMode.polygon,
+                                            onTap: () => _draft.selectMode(
+                                              DrawToolMode.polygon,
+                                              onCloseDrawers: _closeAllDrawers,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (_draft.placementStyle ==
+                                            TouchPlacementStyle.crosshair) ...[
+                                          FilledButton.icon(
+                                            style: FilledButton.styleFrom(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 11,
+                                                vertical: 8,
                                               ),
-                                            ],
+                                              minimumSize: const Size(0, 36),
+                                            ),
+                                            onPressed: () =>
+                                                _draft.dropCrosshairPoint(
+                                              _controller?.camera?.center,
+                                              onPersist:
+                                                  _schedulePersistWorkingDraft,
+                                            ),
+                                            icon: const Icon(
+                                              Icons.add_location_alt,
+                                              size: 16,
+                                            ),
+                                            label: const Text('Drop'),
                                           ),
-                                        )
-                                      else ...[
-                                        _DockTool(
-                                          label: 'Point',
-                                          icon: Icons.location_on_outlined,
-                                          selected: _mode == DrawToolMode.point,
-                                          onTap: () =>
-                                              _selectMode(DrawToolMode.point),
+                                          const SizedBox(width: 4),
+                                        ],
+                                        if (_draft.canFinishDraft) ...[
+                                          FilledButton(
+                                            style: FilledButton.styleFrom(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 11,
+                                                vertical: 8,
+                                              ),
+                                              minimumSize: const Size(0, 36),
+                                            ),
+                                            onPressed: () => _draft.finishDraft(
+                                              onPersist:
+                                                  _schedulePersistWorkingDraft,
+                                            ),
+                                            child: Text(
+                                              _draft.editingDraftFeature != null
+                                                  ? 'Save · ${_draft.draftVertices.length}'
+                                                  : 'Finish · ${_draft.draftVertices.length}',
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                        ],
+                                        IconButton(
+                                          tooltip: 'Undo',
+                                          visualDensity: VisualDensity.compact,
+                                          onPressed: (_draft.draftVertices
+                                                      .isNotEmpty ||
+                                                  _draft.features.isNotEmpty)
+                                              ? () => _draft.undoLastPoint(
+                                                    onPersist:
+                                                        _schedulePersistWorkingDraft,
+                                                  )
+                                              : null,
+                                          icon:
+                                              const Icon(Icons.undo, size: 20),
                                         ),
-                                        _DockTool(
-                                          label: 'Line',
-                                          icon: Icons.timeline,
-                                          selected: _mode == DrawToolMode.line,
-                                          onTap: () =>
-                                              _selectMode(DrawToolMode.line),
-                                        ),
-                                        _DockTool(
-                                          label: 'Area',
-                                          icon: Icons.pentagon_outlined,
-                                          selected:
-                                              _mode == DrawToolMode.polygon,
-                                          onTap: () =>
-                                              _selectMode(DrawToolMode.polygon),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (_placementStyle ==
-                                          TouchPlacementStyle.crosshair) ...[
-                                        FilledButton.icon(
-                                          style: FilledButton.styleFrom(
+                                        OutlinedButton(
+                                          style: OutlinedButton.styleFrom(
                                             padding: const EdgeInsets.symmetric(
                                               horizontal: 11,
                                               vertical: 8,
                                             ),
                                             minimumSize: const Size(0, 36),
                                           ),
-                                          onPressed: _dropCrosshairPoint,
-                                          icon: const Icon(
-                                            Icons.add_location_alt,
-                                            size: 16,
-                                          ),
-                                          label: const Text('Drop'),
-                                        ),
-                                        const SizedBox(width: 4),
-                                      ],
-                                      if (_canFinishDraft) ...[
-                                        FilledButton(
-                                          style: FilledButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 11,
-                                              vertical: 8,
-                                            ),
-                                            minimumSize: const Size(0, 36),
-                                          ),
-                                          onPressed: _finishDraft,
+                                          onPressed:
+                                              _draft.cancelEditingDraftFeature,
                                           child: Text(
-                                            _editingDraftFeature != null
-                                                ? 'Save · ${_draftVertices.length}'
-                                                : 'Finish · ${_draftVertices.length}',
+                                            _draft.editingDraftFeature != null
+                                                ? 'Cancel'
+                                                : 'Done',
                                           ),
                                         ),
-                                        const SizedBox(width: 4),
                                       ],
-                                      IconButton(
-                                        tooltip: 'Undo',
-                                        visualDensity: VisualDensity.compact,
-                                        onPressed: (_draftVertices.isNotEmpty ||
-                                                _features.isNotEmpty)
-                                            ? _undoLastPoint
-                                            : null,
-                                        icon: const Icon(Icons.undo, size: 20),
-                                      ),
-                                      OutlinedButton(
-                                        style: OutlinedButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 11,
-                                            vertical: 8,
-                                          ),
-                                          minimumSize: const Size(0, 36),
-                                        ),
-                                        onPressed: _cancelEditingDraftFeature,
-                                        child: Text(
-                                          _editingDraftFeature != null
-                                              ? 'Cancel'
-                                              : 'Done',
-                                        ),
-                                      ),
-                                    ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          )
+                        : Row(
+                            children: [
+                              Expanded(
+                                child: _DockTool(
+                                  label: 'Explore',
+                                  icon: Icons.explore_outlined,
+                                  selected: _isDrawerOpen(_ActiveDrawer.explore),
+                                  onTap: () =>
+                                      _toggleDrawer(_ActiveDrawer.explore),
+                                ),
+                              ),
+                              Expanded(
+                                child: _DockTool(
+                                  label: 'Desk',
+                                  icon: Icons.layers_outlined,
+                                  selected: _isDrawerOpen(_ActiveDrawer.desk),
+                                  onTap: () =>
+                                      _toggleDrawer(_ActiveDrawer.desk),
+                                ),
+                              ),
+                              Expanded(
+                                child: _DockTool(
+                                  label: totalBadge > 0
+                                      ? 'Spaces ($totalBadge)'
+                                      : 'Spaces',
+                                  icon: Icons.hub_outlined,
+                                  selected:
+                                      _isDrawerOpen(_ActiveDrawer.spaces) ||
+                                          _isDrawerOpen(_ActiveDrawer.circles) ||
+                                          _isDrawerOpen(_ActiveDrawer.inbox) ||
+                                          _isDrawerOpen(_ActiveDrawer.outbox) ||
+                                          totalBadge > 0,
+                                  onTap: () =>
+                                      _toggleDrawer(_ActiveDrawer.spaces),
+                                ),
+                              ),
+                              Expanded(
+                                child: _DockTool(
+                                  label: 'Agent',
+                                  icon: Icons.auto_awesome,
+                                  selected: _isDrawerOpen(_ActiveDrawer.agent),
+                                  onTap: () =>
+                                      _toggleDrawer(_ActiveDrawer.agent),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: theme
+                                      .colorScheme.surfaceContainerHighest,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: theme.dividerColor),
+                                ),
+                                child: IconButton(
+                                  tooltip: 'Drop Field Sighting',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: _openSightingComposer,
+                                  icon: const Icon(
+                                    Icons.add_a_photo_outlined,
+                                    size: 18,
                                   ),
-                                ],
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 6),
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: EarthlyColors.amber,
+                                  foregroundColor: EarthlyColors.amberInk,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(13),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 9,
+                                  ),
+                                  minimumSize: const Size(0, 40),
+                                ),
+                                onPressed: () => _draft.selectMode(
+                                  DrawToolMode.line,
+                                  onCloseDrawers: _closeAllDrawers,
+                                ),
+                                icon: const Icon(Icons.edit, size: 15),
+                                label: const Text('Draw'),
+                              ),
+                            ],
                           ),
-                        )
-                      : Row(
-                          children: [
-                            Expanded(
-                              child: _DockTool(
-                                label: 'Explore',
-                                icon: Icons.explore_outlined,
-                                selected: _isDrawerOpen(_ActiveDrawer.explore),
-                                onTap: () =>
-                                    _toggleDrawer(_ActiveDrawer.explore),
-                              ),
-                            ),
-                            Expanded(
-                              child: _DockTool(
-                                label: 'Desk',
-                                icon: Icons.layers_outlined,
-                                selected: _isDrawerOpen(_ActiveDrawer.desk),
-                                onTap: () => _toggleDrawer(_ActiveDrawer.desk),
-                              ),
-                            ),
-                            Expanded(
-                              child: _DockTool(
-                                label: (_pendingClaimCount +
-                                            _circlePendingJoins.length +
-                                            _inboxUnreadCount +
-                                            _pendingOutboxCount) >
-                                        0
-                                    ? 'Spaces (${_pendingClaimCount + _circlePendingJoins.length + _inboxUnreadCount + _pendingOutboxCount})'
-                                    : 'Spaces',
-                                icon: Icons.hub_outlined,
-                                selected: _isDrawerOpen(_ActiveDrawer.spaces) ||
-                                    _isDrawerOpen(_ActiveDrawer.circles) ||
-                                    _isDrawerOpen(_ActiveDrawer.inbox) ||
-                                    _isDrawerOpen(_ActiveDrawer.outbox) ||
-                                    _pendingClaimCount > 0 ||
-                                    _circlePendingJoins.isNotEmpty ||
-                                    _inboxUnreadCount > 0 ||
-                                    _pendingOutboxCount > 0,
-                                onTap: () =>
-                                    _toggleDrawer(_ActiveDrawer.spaces),
-                              ),
-                            ),
-                            Expanded(
-                              child: _DockTool(
-                                label: 'Agent',
-                                icon: Icons.auto_awesome,
-                                selected: _isDrawerOpen(_ActiveDrawer.agent),
-                                onTap: () => _toggleDrawer(_ActiveDrawer.agent),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Container(
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.surfaceContainerHighest,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: theme.dividerColor),
-                              ),
-                              child: IconButton(
-                                tooltip: 'Drop Field Sighting',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: _openSightingComposer,
-                                icon: const Icon(
-                                  Icons.add_a_photo_outlined,
-                                  size: 18,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: EarthlyColors.amber,
-                                foregroundColor: EarthlyColors.amberInk,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(13),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 9,
-                                ),
-                                minimumSize: const Size(0, 40),
-                              ),
-                              onPressed: () => _selectMode(DrawToolMode.line),
-                              icon: const Icon(Icons.edit, size: 15),
-                              label: const Text('Draw'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
                   ),
                 ),
               ),
             ),
-        ],
-      ),
-    ),
-    ),
-    ),
+          ),
+        );
+      },
     );
   }
 }
@@ -10055,7 +5924,7 @@ class _ThumbMapButton extends StatelessWidget {
                   ? (activeBackground ?? EarthlyColors.amber)
                       .withValues(alpha: 0.34)
                   : Colors.black.withValues(alpha: isDark ? 0.42 : 0.16),
-              blurRadius: active ? 14 : 14,
+              blurRadius: 14,
               offset: const Offset(0, 5),
             ),
           ],
