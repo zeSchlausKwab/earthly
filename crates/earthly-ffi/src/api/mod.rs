@@ -9,3 +9,4 @@ pub mod publish;
 pub mod relay_pool;
 pub mod settings;
 pub mod spike;
+pub mod wallet;

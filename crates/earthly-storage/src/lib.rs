@@ -8,6 +8,7 @@ pub mod drafts;
 pub mod outbox;
 pub mod secret_box;
 pub mod settings;
+pub mod wallet_store;
 
 pub use account_session::{
     AccountSession, AccountSessionError, AccountSessionInput, AccountSessionStore,
@@ -23,4 +24,8 @@ pub use secret_box::{decode_master_key, is_encrypted_secret, SecretBox, SECRET_B
 pub use settings::{
     AppSettingsStore, MountedAtlasWorkspaceRecord, PersistedAppSettings,
     SavedAccountSessionRecord, SavedOfflinePackRecord, SettingsStoreError,
+};
+pub use wallet_store::{
+    CashuHistoryRecord, CashuProofRecord, CashuWalletStore, PendingCashuToken,
+    PersistedCashuWallet, WalletStoreError,
 };
