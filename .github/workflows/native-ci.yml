@@ -1,0 +1,100 @@
+name: Native CI
+
+on:
+  pull_request:
+  push:
+    branches: [master, main, feat/native-flutter-rust]
+
+permissions:
+  contents: read
+
+jobs:
+  rust-workspace:
+    name: Rust workspace & wasm32 check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Cargo workspace tests
+        run: cargo test --workspace --exclude earthly-desktop
+
+      - name: Check wasm32-unknown-unknown crates
+        run: >
+          cargo check --target wasm32-unknown-unknown
+          -p earthly-spatial
+          -p earthly-domain
+          -p earthly-geo
+          -p earthly-agent
+          -p earthly-wasm
+
+  wasm-bun:
+    name: earthly-wasm & Bun tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build earthly-wasm package
+        run: ./scripts/build-earthly-wasm.sh
+
+      - name: Run earthly-wasm Bun tests
+        run: bun test src/lib/wasm/earthlyWasm.test.ts
+
+      - name: Run Bun test suite
+        run: bun run test
+
+  flutter:
+    name: Flutter analyze & test
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/native
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.1"
+          channel: stable
+          cache: true
+
+      - name: Fetch Flutter dependencies
+        run: flutter pub get
+
+      - name: Run Flutter static analysis
+        run: flutter analyze
+
+      - name: Run Flutter tests
+        run: flutter test

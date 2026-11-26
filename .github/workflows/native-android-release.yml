@@ -1,0 +1,154 @@
+name: Native Android Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "native-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build signed arm64-v8a APK & AAB
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install Android build packages & NDK
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.1"
+          channel: stable
+          cache: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Build earthly-ffi arm64-v8a shared library
+        run: |
+          set -euo pipefail
+          RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384 ${RUSTFLAGS:-}" \
+            cargo ndk -t arm64-v8a -p 26 -o apps/native/android/app/src/main/jniLibs \
+            build -p earthly-ffi --release
+          test -f apps/native/android/app/src/main/jniLibs/arm64-v8a/libearthly_ffi.so
+
+      - name: Configure Android release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${ANDROID_KEYSTORE_BASE64:?Missing ANDROID_KEYSTORE_BASE64}"
+          : "${ANDROID_KEYSTORE_PASSWORD:?Missing ANDROID_KEYSTORE_PASSWORD}"
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD}"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/earthly-release.jks"
+          {
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/earthly-release.jks"
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > apps/native/android/keystore.properties
+
+      - name: Fetch Flutter dependencies
+        working-directory: apps/native
+        run: flutter pub get
+
+      - name: Build signed arm64-v8a APK & AAB
+        working-directory: apps/native
+        run: |
+          set -euo pipefail
+          flutter build apk --release --target-platform android-arm64
+          flutter build appbundle --release --target-platform android-arm64
+
+      - name: Verify arm64-v8a-only ABI and APK/AAB signatures
+        run: |
+          set -euo pipefail
+          APK="apps/native/build/app/outputs/flutter-apk/app-release.apk"
+          AAB="apps/native/build/app/outputs/bundle/release/app-release.aab"
+          test -f "$APK"
+          test -f "$AAB"
+
+          APK_ENTRIES="$(unzip -Z1 "$APK")"
+          printf '%s\n' "$APK_ENTRIES" | grep -qx 'lib/arm64-v8a/libearthly_ffi.so'
+          if printf '%s\n' "$APK_ENTRIES" | grep -qE '^lib/(armeabi-v7a|x86|x86_64)/'; then
+            echo "Unexpected non-arm64-v8a ABI found in APK" >&2
+            exit 1
+          fi
+
+          AAB_ENTRIES="$(unzip -Z1 "$AAB")"
+          printf '%s\n' "$AAB_ENTRIES" | grep -qx 'base/lib/arm64-v8a/libearthly_ffi.so'
+          if printf '%s\n' "$AAB_ENTRIES" | grep -qE '^base/lib/(armeabi-v7a|x86|x86_64)/'; then
+            echo "Unexpected non-arm64-v8a ABI found in AAB" >&2
+            exit 1
+          fi
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          VERIFY_OUT="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
+          printf '%s\n' "$VERIFY_OUT"
+          if printf '%s\n' "$VERIFY_OUT" | grep -q 'CN=Android Debug'; then
+            echo "Release APK was signed with the debug certificate instead of the release keystore" >&2
+            exit 1
+          fi
+
+          jarsigner -verify "$AAB"
+
+      - name: Stage release artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p out/native-android
+          cp apps/native/build/app/outputs/flutter-apk/app-release.apk out/native-android/app-release.apk
+          cp apps/native/build/app/outputs/bundle/release/app-release.aab out/native-android/app-release.aab
+          (cd out/native-android && sha256sum app-release.apk app-release.aab > SHA256SUMS.txt)
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: earthly-native-android-${{ github.ref_name }}
+          path: out/native-android/
+          if-no-files-found: error
+
+      - name: Attach artifacts to tagged GitHub release
+        if: startsWith(github.ref, 'refs/tags/native-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            out/native-android/app-release.apk
+            out/native-android/app-release.aab
+            out/native-android/SHA256SUMS.txt

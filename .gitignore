@@ -52,6 +52,7 @@ deploy.tar.gz
 
 # Android release signing material (generated locally or in CI)
 src-tauri/gen/android/keystore.properties
+apps/native/android/keystore.properties
 *.jks
 *.keystore
 

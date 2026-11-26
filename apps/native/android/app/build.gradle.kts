@@ -1,8 +1,43 @@
+import java.io.File
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        FileInputStream(keystorePropertiesFile).use { load(it) }
+    }
+}
+
+fun signingPathOrAlias(propertyKey: String, envKey: String): String? =
+    keystoreProperties.getProperty(propertyKey)?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv(envKey)?.trim()?.takeIf { it.isNotEmpty() }
+
+fun signingSecret(propertyKey: String, envKey: String): String? =
+    keystoreProperties.getProperty(propertyKey)?.takeIf { it.isNotEmpty() }
+        ?: System.getenv(envKey)?.takeIf { it.isNotEmpty() }
+
+val releaseStorePath = signingPathOrAlias("storeFile", "ANDROID_KEYSTORE_PATH")
+val releaseStoreFile = releaseStorePath?.let { path ->
+    val candidate = File(path)
+    if (candidate.isAbsolute) candidate else rootProject.file(path)
+}
+val releaseStorePassword = signingSecret("storePassword", "ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingPathOrAlias("keyAlias", "ANDROID_KEY_ALIAS")
+val releaseKeyPassword = signingSecret("keyPassword", "ANDROID_KEY_PASSWORD")
+
+val hasReleaseSigning =
+    releaseStoreFile != null &&
+        releaseStoreFile.isFile &&
+        !releaseStorePassword.isNullOrEmpty() &&
+        !releaseKeyAlias.isNullOrEmpty() &&
+        !releaseKeyPassword.isNullOrEmpty()
 
 android {
     namespace = "city.earthly.earthly_native"
@@ -43,11 +78,26 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasReleaseSigning) {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Use the release keystore when valid signing credentials exist;
+            // fall back cleanly to debug signing for local developer builds.
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
