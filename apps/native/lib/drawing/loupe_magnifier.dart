@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/earthly_theme.dart';
@@ -14,6 +16,8 @@ class DrawingLoupe extends StatelessWidget {
     required this.targetPosition,
     required this.telemetry,
     required this.snapped,
+    this.toolBadge,
+    this.snapLabel = 'SNAP',
     this.size = 136,
     this.magnificationScale = 2.2,
     super.key,
@@ -24,8 +28,19 @@ class DrawingLoupe extends StatelessWidget {
   final Offset targetPosition;
   final String telemetry;
   final bool snapped;
+  final String? toolBadge;
+  final String snapLabel;
   final double size;
   final double magnificationScale;
+
+  String get _formattedTelemetry {
+    final parts = <String>[
+      if (toolBadge != null && toolBadge!.trim().isNotEmpty) toolBadge!.trim(),
+      if (telemetry.trim().isNotEmpty) telemetry.trim(),
+      if (snapped && !telemetry.contains(snapLabel)) snapLabel,
+    ];
+    return parts.join(' · ');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -91,29 +106,39 @@ class DrawingLoupe extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: EarthlyColors.darkSurface.withValues(alpha: 0.92),
-                border: Border.all(
-                  color: snapped
-                      ? EarthlyColors.proposedAmber
-                      : EarthlyColors.darkInk.withValues(alpha: 0.25),
+            if (_formattedTelemetry.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: math.max(120.0, viewportSize.width - 28),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: EarthlyColors.darkSurface.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: snapped
+                          ? EarthlyColors.proposedAmber
+                          : EarthlyColors.darkInk.withValues(alpha: 0.25),
+                    ),
+                  ),
+                  child: Text(
+                    _formattedTelemetry,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: snapped
+                          ? EarthlyColors.proposedAmber
+                          : EarthlyColors.darkInk,
+                    ),
+                  ),
                 ),
               ),
-              child: Text(
-                snapped ? 'SNAP · $telemetry' : telemetry,
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: snapped
-                      ? EarthlyColors.proposedAmber
-                      : EarthlyColors.darkInk,
-                ),
-              ),
-            ),
+            ],
           ],
         ),
       ),

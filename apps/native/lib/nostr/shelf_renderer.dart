@@ -684,8 +684,7 @@ String draftFeaturesToGeoJson({
             'coordinates': [closeRing(f.vertices)],
           };
         }
-      case DrawToolMode.browse:
-      case DrawToolMode.measure:
+      default:
         continue;
     }
     final props = <String, Object?>{
@@ -1026,7 +1025,7 @@ List<MapCalloutItem> collectVisibleCallouts({
         DrawToolMode.point => ShelfShapeKind.point,
         DrawToolMode.line => ShelfShapeKind.line,
         DrawToolMode.polygon => ShelfShapeKind.polygon,
-        DrawToolMode.browse || DrawToolMode.measure => ShelfShapeKind.point,
+        _ => ShelfShapeKind.point,
       },
       f.vertices,
     );
@@ -1056,7 +1055,7 @@ List<MapCalloutItem> collectVisibleCallouts({
         DrawToolMode.point => 'Point',
         DrawToolMode.line => 'LineString',
         DrawToolMode.polygon => 'Polygon',
-        DrawToolMode.browse || DrawToolMode.measure => 'Point',
+        _ => 'Point',
       },
       title: f.name ?? 'Draft Feature',
       properties: {
@@ -1415,8 +1414,7 @@ List<Layer> buildEarthlyGpuLayers({
               DrawToolMode.point => ShelfShapeKind.point,
               DrawToolMode.line => ShelfShapeKind.line,
               DrawToolMode.polygon => ShelfShapeKind.polygon,
-              DrawToolMode.browse || DrawToolMode.measure =>
-                ShelfShapeKind.point,
+              _ => ShelfShapeKind.point,
             },
             f.vertices,
           );
@@ -1585,8 +1583,7 @@ List<Layer> buildEarthlyGpuLayers({
           },
           callouts: draftCalloutItems,
         ));
-      case DrawToolMode.browse:
-      case DrawToolMode.measure:
+      default:
         continue;
     }
   }

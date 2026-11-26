@@ -1,8 +1,36 @@
+import 'package:earthly_native/controllers/draft_workbench_controller.dart';
 import 'package:earthly_native/drawing/drawing_model.dart';
+import 'package:earthly_native/drawing/loupe_magnifier.dart';
+import 'package:earthly_native/drawing/touch_draw_overlay.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maplibre/maplibre.dart';
+import 'package:material_ui/material_ui.dart';
+
+class _FakeMapController implements MapController {
+  static Offset projectFn(Geographic g) => Offset(
+        (g.lon - 16.35) * 10000,
+        (48.22 - g.lat) * 10000,
+      );
+
+  static Geographic unprojectFn(Offset p) => Geographic(
+        lon: 16.35 + p.dx / 10000,
+        lat: 48.22 - p.dy / 10000,
+      );
+
+  @override
+  Offset toScreenLocation(Geographic lngLat) => projectFn(lngLat);
+
+  @override
+  Geographic toLngLat(Offset screenLocation) => unprojectFn(screenLocation);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
+  Offset project(Geographic g) => _FakeMapController.projectFn(g);
+  Geographic unproject(Offset p) => _FakeMapController.unprojectFn(p);
+
   group('DrawingMath', () {
     test('computes realistic distance and bearing in Vienna', () {
       const stephansdom = Geographic(lon: 16.3738, lat: 48.2082);
@@ -25,11 +53,6 @@ void main() {
         kind: DrawToolMode.point,
         vertices: <Geographic>[origin],
       );
-
-      Offset project(Geographic g) => Offset(
-            (g.lon - 16.36) * 10000,
-            (48.22 - g.lat) * 10000,
-          );
 
       final near = project(origin) + const Offset(8, -6);
       final snap = DrawingMath.findVertexSnap(
@@ -62,11 +85,6 @@ void main() {
       );
       const shelfA = Geographic(lon: 16.36, lat: 48.20);
       const shelfB = Geographic(lon: 16.38, lat: 48.20);
-
-      Offset project(Geographic g) => Offset(
-            (g.lon - 16.35) * 10000,
-            (48.22 - g.lat) * 10000,
-          );
 
       // 1. Midpoint along draft edge -> snaps to edge
       final nearMidEdge =
@@ -123,6 +141,550 @@ void main() {
       expect(shelfEdgeSnap, isNotNull);
       expect(shelfEdgeSnap!.label, 'shelf edge');
       expect(shelfEdgeSnap.point.lon, closeTo(16.37, 1e-5));
+    });
+
+    test('simplifyPolyline reduces collinear jitter while preserving corners', () {
+      const raw = <Geographic>[
+        Geographic(lon: 16.36000, lat: 48.21000),
+        Geographic(lon: 16.36200, lat: 48.21001), // ~1m off straight line
+        Geographic(lon: 16.36400, lat: 48.21000),
+        Geographic(lon: 16.36600, lat: 48.21001),
+        Geographic(lon: 16.36800, lat: 48.21000), // corner
+        Geographic(lon: 16.36800, lat: 48.21500), // ~555m north
+      ];
+
+      final simplified = DrawingMath.simplifyPolyline(raw, toleranceMeters: 4.0);
+      expect(simplified.length, 3);
+      expect(simplified.first, raw.first);
+      expect(simplified[1], raw[4]);
+      expect(simplified.last, raw.last);
+    });
+
+    test('computeShapeRingFromScreenDrag generates expected vertex counts and telemetry', () {
+      const anchor = Offset(200, 200);
+      const edge = Offset(260, 240);
+
+      expect(
+        DrawingMath.computeShapeRingFromScreenDrag(
+          shape: PrimitiveShapeKind.circle,
+          anchorScreen: anchor,
+          currentScreen: edge,
+          unproject: unproject,
+          circleSteps: 24,
+        ).length,
+        24,
+      );
+      expect(
+        DrawingMath.computeShapeRingFromScreenDrag(
+          shape: PrimitiveShapeKind.square,
+          anchorScreen: anchor,
+          currentScreen: edge,
+          unproject: unproject,
+        ).length,
+        4,
+      );
+      expect(
+        DrawingMath.computeShapeRingFromScreenDrag(
+          shape: PrimitiveShapeKind.rectangle,
+          anchorScreen: anchor,
+          currentScreen: edge,
+          unproject: unproject,
+        ).length,
+        4,
+      );
+      expect(
+        DrawingMath.computeShapeRingFromScreenDrag(
+          shape: PrimitiveShapeKind.triangle,
+          anchorScreen: anchor,
+          currentScreen: edge,
+          unproject: unproject,
+        ).length,
+        3,
+      );
+      expect(
+        DrawingMath.computeShapeRingFromScreenDrag(
+          shape: PrimitiveShapeKind.diamond,
+          anchorScreen: anchor,
+          currentScreen: edge,
+          unproject: unproject,
+        ).length,
+        4,
+      );
+      expect(
+        DrawingMath.computeShapeRingFromScreenDrag(
+          shape: PrimitiveShapeKind.hexagon,
+          anchorScreen: anchor,
+          currentScreen: edge,
+          unproject: unproject,
+        ).length,
+        6,
+      );
+
+      final circleTelemetry = DrawingMath.formatShapeTelemetry(
+        shape: PrimitiveShapeKind.circle,
+        anchorGeo: unproject(anchor),
+        currentGeo: unproject(edge),
+        anchorScreen: anchor,
+        currentScreen: edge,
+      );
+      expect(circleTelemetry, startsWith('CIRCLE · r '));
+
+      final rectTelemetry = DrawingMath.formatShapeTelemetry(
+        shape: PrimitiveShapeKind.rectangle,
+        anchorGeo: unproject(anchor),
+        currentGeo: unproject(edge),
+        anchorScreen: anchor,
+        currentScreen: edge,
+      );
+      expect(rectTelemetry, startsWith('RECTANGLE · '));
+      expect(rectTelemetry, contains('×'));
+    });
+
+    test('hitTestDraftFeature, selectFeaturesInScreenRect, translateFeatureVertices, and featureCentroid work accurately', () {
+      final pt = DrawnFeature(
+        id: 'pt-1',
+        kind: DrawToolMode.point,
+        vertices: <Geographic>[unproject(const Offset(100, 100))],
+      );
+      final line = DrawnFeature(
+        id: 'line-1',
+        kind: DrawToolMode.line,
+        vertices: <Geographic>[
+          unproject(const Offset(200, 100)),
+          unproject(const Offset(300, 100)),
+        ],
+      );
+      final poly = DrawnFeature(
+        id: 'poly-1',
+        kind: DrawToolMode.polygon,
+        vertices: <Geographic>[
+          unproject(const Offset(150, 200)),
+          unproject(const Offset(250, 200)),
+          unproject(const Offset(250, 300)),
+          unproject(const Offset(150, 300)),
+        ],
+      );
+      final all = <DrawnFeature>[pt, line, poly];
+
+      expect(
+        DrawingMath.hitTestDraftFeature(
+          tapScreen: const Offset(105, 104),
+          features: all,
+          project: project,
+        )?.id,
+        'pt-1',
+      );
+      expect(
+        DrawingMath.hitTestDraftFeature(
+          tapScreen: const Offset(250, 108),
+          features: all,
+          project: project,
+        )?.id,
+        'line-1',
+      );
+      expect(
+        DrawingMath.hitTestDraftFeature(
+          tapScreen: const Offset(200, 250), // interior of poly
+          features: all,
+          project: project,
+        )?.id,
+        'poly-1',
+      );
+
+      final boxMatches = DrawingMath.selectFeaturesInScreenRect(
+        rect: const Rect.fromLTRB(90, 90, 220, 130),
+        features: all,
+        project: project,
+      );
+      expect(boxMatches.map((f) => f.id).toSet(), {'pt-1', 'line-1'});
+
+      final centroid = DrawingMath.featureCentroid(poly)!;
+      expect(project(centroid).dx, closeTo(200, 1e-4));
+      expect(project(centroid).dy, closeTo(250, 1e-4));
+
+      final shifted = DrawingMath.translateFeatureVertices(
+        feature: poly,
+        deltaScreen: const Offset(40, -20),
+        project: project,
+        unproject: unproject,
+      );
+      final shiftedCentroid = DrawingMath.featureCentroid(shifted)!;
+      expect(project(shiftedCentroid).dx, closeTo(240, 1e-4));
+      expect(project(shiftedCentroid).dy, closeTo(230, 1e-4));
+    });
+
+    test('splitLineByLine and splitPolygonByLine bisect target geometry cleanly', () {
+      final line = <Geographic>[
+        unproject(const Offset(100, 200)),
+        unproject(const Offset(300, 200)),
+      ];
+      final cutter = <Geographic>[
+        unproject(const Offset(200, 150)),
+        unproject(const Offset(200, 250)),
+      ];
+      final lineParts = DrawingMath.splitLineByLine(line, cutter);
+      expect(lineParts.length, 2);
+      expect(project(lineParts[0].last).dx, closeTo(200, 0.5));
+      expect(project(lineParts[1].first).dx, closeTo(200, 0.5));
+
+      final square = <Geographic>[
+        unproject(const Offset(100, 100)),
+        unproject(const Offset(300, 100)),
+        unproject(const Offset(300, 300)),
+        unproject(const Offset(100, 300)),
+      ];
+      final polyCutter = <Geographic>[
+        unproject(const Offset(200, 80)),
+        unproject(const Offset(200, 320)),
+      ];
+      final polyParts = DrawingMath.splitPolygonByLine(square, polyCutter);
+      expect(polyParts.length, 2);
+      expect(polyParts[0].length, greaterThanOrEqualTo(4));
+      expect(polyParts[1].length, greaterThanOrEqualTo(4));
+    });
+  });
+
+  group('DraftWorkbenchController Phase D authoring', () {
+    test('supports in-place vertex insert/move/delete, canvas translate, undo/redo', () {
+      final ctrl = DraftWorkbenchController();
+      addTearDown(ctrl.dispose);
+
+      ctrl.selectMode(DrawToolMode.polygon);
+      ctrl.commitVertex(unproject(const Offset(100, 100)));
+      ctrl.commitVertex(unproject(const Offset(200, 100)));
+      ctrl.commitVertex(unproject(const Offset(200, 200)));
+      expect(ctrl.canFinishDraft, isTrue);
+      ctrl.finishDraft();
+      expect(ctrl.features.length, 1);
+
+      final featId = ctrl.features.first.id;
+      ctrl.selectEditingTargetFeature(featId);
+      expect(ctrl.mode, DrawToolMode.editVertices);
+      expect(ctrl.activeEditingFeature?.id, featId);
+
+      // Insert vertex
+      ctrl.insertEditingFeatureVertex(2, unproject(const Offset(240, 150)));
+      expect(ctrl.activeEditingFeature!.vertices.length, 4);
+      expect(ctrl.selectedVertexIndex, 2);
+
+      // Move vertex with undo checkpoint
+      ctrl.updateEditingFeatureVertex(
+        2,
+        unproject(const Offset(260, 160)),
+        pushUndoBefore: true,
+      );
+      expect(
+        project(ctrl.activeEditingFeature!.vertices[2]).dx,
+        closeTo(260, 0.1),
+      );
+
+      // Delete selected vertex
+      final removed = ctrl.removeSelectedEditingVertex();
+      expect(removed, isTrue);
+      expect(ctrl.activeEditingFeature!.vertices.length, 3);
+
+      // Guard: cannot delete polygon below 3 vertices
+      expect(ctrl.removeSelectedEditingVertex(), isFalse);
+      expect(ctrl.activeEditingFeature!.vertices.length, 3);
+
+      // Canvas translate
+      ctrl.translateFeatureOnCanvas(
+        featId,
+        const Offset(30, 15),
+        project,
+        unproject,
+        pushUndoBefore: true,
+      );
+      expect(
+        project(ctrl.activeEditingFeature!.vertices.first).dx,
+        closeTo(130, 0.1),
+      );
+
+      // Undo restores pre-translate position
+      ctrl.undoDraftEdit();
+      expect(
+        project(ctrl.activeEditingFeature!.vertices.first).dx,
+        closeTo(100, 0.1),
+      );
+    });
+
+    test('commits freehand stroke, primitive shape, arrow, annotation, box select, and split', () async {
+      final ctrl = DraftWorkbenchController();
+      addTearDown(ctrl.dispose);
+
+      // 1. Freehand open stroke
+      final sketch = ctrl.commitFreehandStroke(<Geographic>[
+        const Geographic(lon: 16.360, lat: 48.210),
+        const Geographic(lon: 16.362, lat: 48.21001),
+        const Geographic(lon: 16.364, lat: 48.210),
+        const Geographic(lon: 16.364, lat: 48.214),
+      ]);
+      expect(sketch, isNotNull);
+      expect(sketch!.kind, DrawToolMode.line);
+      expect(sketch.vertices.length, 3);
+
+      // 2. Primitive shape ring
+      ctrl.setActivePrimitiveShape(PrimitiveShapeKind.hexagon);
+      final hexRing = DrawingMath.computeShapeRingFromScreenDrag(
+        shape: PrimitiveShapeKind.hexagon,
+        anchorScreen: const Offset(200, 200),
+        currentScreen: const Offset(260, 200),
+        unproject: unproject,
+      );
+      final hex = ctrl.commitPrimitiveRing(
+        PrimitiveShapeKind.hexagon,
+        hexRing,
+        radiusMeters: 120,
+      );
+      expect(hex, isNotNull);
+      expect(hex!.kind, DrawToolMode.polygon);
+      expect(hex.name, 'Hexagon (120m)');
+
+      // 3. Arrow draft
+      ctrl.selectMode(DrawToolMode.arrow);
+      ctrl.commitVertex(unproject(const Offset(50, 50)));
+      ctrl.commitVertex(unproject(const Offset(120, 80)));
+      expect(ctrl.canFinishDraft, isTrue);
+      ctrl.finishDraft();
+      final arrowFeat = ctrl.features.last;
+      expect(arrowFeat.kind, DrawToolMode.line);
+      expect(arrowFeat.arrowEnd, isTrue);
+
+      // 4. Annotation label
+      final note = ctrl.commitAnnotationAt(
+        unproject(const Offset(80, 300)),
+        'Check gate',
+      );
+      expect(note.kind, DrawToolMode.point);
+      expect(note.name, 'Check gate');
+      expect(note.customProperties['annotation'], 'true');
+
+      // 5. Box select (only covers arrowFeat, not sketch at (100, 100))
+      final count = ctrl.commitBoxSelect(
+        const Rect.fromLTRB(40, 40, 95, 95),
+        project,
+      );
+      expect(count, 1);
+      expect(ctrl.selectedDraftFeatureIds, contains(arrowFeat.id));
+
+      // 6. Split line by line
+      ctrl.selectMode(DrawToolMode.splitByLine);
+      ctrl.commitVertex(unproject(const Offset(85, 30)));
+      ctrl.commitVertex(unproject(const Offset(85, 110)));
+      expect(ctrl.canFinishDraft, isTrue);
+      final lineSplit = await ctrl.finishSplitByLine();
+      expect(lineSplit.ok, isTrue);
+      expect(ctrl.features.where((f) => f.id.startsWith('split-')).length, 2);
+
+      // 7. Split polygon by line (pure-Dart fallback when FFI uninitialized)
+      ctrl.selectEditingTargetFeature(hex.id, enterMode: false);
+      if (ctrl.mode != DrawToolMode.splitByLine) {
+        ctrl.selectMode(DrawToolMode.splitByLine);
+      }
+      ctrl.commitVertex(unproject(const Offset(200, 120)));
+      ctrl.commitVertex(unproject(const Offset(200, 280)));
+      final polySplit = await ctrl.finishSplitByLine();
+      expect(polySplit.ok, isTrue, reason: polySplit.message);
+      expect(ctrl.features.any((f) => f.id == hex.id), isFalse);
+    });
+
+    test('snapping toggles and listenables fire cleanly', () {
+      final ctrl = DraftWorkbenchController();
+      addTearDown(ctrl.dispose);
+
+      var placementCalls = 0;
+      ctrl.placementListenable.addListener(() => placementCalls += 1);
+      expect(ctrl.snappingEnabled, isTrue);
+      expect(ctrl.snapToEdgesEnabled, isTrue);
+
+      ctrl.toggleSnapping();
+      ctrl.toggleSnapToEdges();
+      expect(ctrl.snappingEnabled, isFalse);
+      expect(ctrl.snapToEdgesEnabled, isFalse);
+      expect(placementCalls, 2);
+    });
+  });
+
+  group('TouchDrawOverlay & DrawingLoupe widget tests', () {
+    testWidgets('DrawingLoupe formats tool telemetry cleanly without duplicating SNAP', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              children: [
+                DrawingLoupe(
+                  viewportSize: Size(400, 800),
+                  fingerPosition: Offset(200, 400),
+                  targetPosition: Offset(200, 352),
+                  telemetry: 'CIRCLE · r 120 m',
+                  snapped: true,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('CIRCLE · r 120 m · SNAP'), findsOneWidget);
+    });
+
+    testWidgets('TouchDrawOverlay handles boxSelect, freehand, shape, annotation, select, and editVertices gestures', (tester) async {
+      final mapController = _FakeMapController();
+      final ctrl = DraftWorkbenchController();
+      addTearDown(ctrl.dispose);
+
+      // Seed one line feature for select / editVertices tests.
+      final seedLine = DrawnFeature(
+        id: 'line-seed',
+        kind: DrawToolMode.line,
+        vertices: <Geographic>[
+          unproject(const Offset(100, 200)),
+          unproject(const Offset(220, 200)),
+        ],
+      );
+      ctrl.features.add(seedLine);
+
+      Geographic? requestedAnnotation;
+
+      Widget buildHarness() => MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 400,
+                height: 400,
+                child: ListenableBuilder(
+                  listenable: Listenable.merge([
+                    ctrl.modeListenable,
+                    ctrl.geometryListenable,
+                    ctrl.placementListenable,
+                  ]),
+                  builder: (context, _) => TouchDrawOverlay(
+                    controller: mapController,
+                    mode: ctrl.mode,
+                    placementStyle: ctrl.placementStyle,
+                    loupeEnabled: ctrl.loupeEnabled,
+                    features: ctrl.features,
+                    draftVertices: ctrl.draftVertices,
+                    activePrimitiveShape: ctrl.activePrimitiveShape,
+                    snappingEnabled: ctrl.snappingEnabled,
+                    snapToEdgesEnabled: ctrl.snapToEdgesEnabled,
+                    editingFeature: ctrl.activeEditingFeature,
+                    selectedVertexIndex: ctrl.selectedVertexIndex,
+                    selectedFeatureIds: ctrl.selectedDraftFeatureIds,
+                    onCommitVertex: ctrl.commitVertex,
+                    onUpdateDraftVertex: ctrl.updateDraftVertex,
+                    onInsertDraftVertex: ctrl.insertDraftVertex,
+                    onTwoFingerUndo: ctrl.undoLastPoint,
+                    onPreviewChanged: ctrl.updatePreview,
+                    onTapFeatureInSelectMode: ctrl.toggleSelectFeature,
+                    onBoxSelect: (rect) => ctrl.commitBoxSelect(rect, project),
+                    onCommitFreehand: ctrl.commitFreehandStroke,
+                    onCommitShape: (shape, ring, r) =>
+                        ctrl.commitPrimitiveRing(shape, ring, radiusMeters: r),
+                    onRequestAnnotationAt: (pt) => requestedAnnotation = pt,
+                    onSelectEditingFeature: ctrl.selectEditingTargetFeature,
+                    onSelectEditingVertex: ctrl.selectVertexIndex,
+                    onUpdateEditingVertex: ctrl.updateEditingFeatureVertex,
+                    onInsertEditingVertex: ctrl.insertEditingFeatureVertex,
+                    onTranslateFeature: (id, delta, {bool pushUndoBefore = false}) =>
+                        ctrl.translateFeatureOnCanvas(
+                      id,
+                      delta,
+                      project,
+                      unproject,
+                      pushUndoBefore: pushUndoBefore,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(buildHarness());
+
+      // 1. Box select drag selects seedLine
+      ctrl.selectMode(DrawToolMode.boxSelect);
+      await tester.pump();
+      final boxGesture = await tester.startGesture(const Offset(80, 180));
+      await boxGesture.moveTo(const Offset(240, 220));
+      await tester.pump();
+      expect(find.text('1 selected'), findsOneWidget);
+      await boxGesture.up();
+      await tester.pump();
+      expect(ctrl.selectedDraftFeatureIds, contains('line-seed'));
+
+      // 2. Select mode: tap toggles off, tap again toggles on, drag centroid Move handle translates
+      ctrl.selectMode(DrawToolMode.select);
+      await tester.pump();
+      await tester.tapAt(const Offset(160, 200)); // centroid of seedLine
+      await tester.pump();
+      expect(ctrl.selectedDraftFeatureIds, isEmpty);
+      await tester.tapAt(const Offset(160, 200));
+      await tester.pump();
+      expect(ctrl.selectedDraftFeatureIds, contains('line-seed'));
+
+      final moveGesture = await tester.startGesture(const Offset(160, 200));
+      await moveGesture.moveTo(const Offset(180, 220));
+      await tester.pump();
+      await moveGesture.up();
+      await tester.pump();
+      expect(project(ctrl.features.first.vertices.first).dx, closeTo(120, 0.5));
+      expect(project(ctrl.features.first.vertices.first).dy, closeTo(220, 0.5));
+
+      // 3. Edit vertices: drag first vertex (120, 220) to (120, 260)
+      ctrl.selectEditingTargetFeature('line-seed');
+      await tester.pump();
+      final vDrag = await tester.startGesture(const Offset(120, 220));
+      await vDrag.moveTo(const Offset(120, 260));
+      await tester.pump();
+      await vDrag.up();
+      await tester.pump();
+      expect(project(ctrl.features.first.vertices.first).dy, closeTo(260, 0.5));
+
+      // 4. Freehand drag commits simplified line
+      ctrl.selectMode(DrawToolMode.freehand);
+      await tester.pump();
+      final fh = await tester.startGesture(const Offset(40, 40));
+      await fh.moveTo(const Offset(90, 40));
+      await fh.moveTo(const Offset(140, 90));
+      await tester.pump();
+      await fh.up();
+      await tester.pump();
+      expect(ctrl.features.length, 2);
+      expect(ctrl.features.last.id, startsWith('sketch-'));
+
+      // 5. Shape drag commits polygon
+      ctrl.selectMode(DrawToolMode.shape);
+      ctrl.setActivePrimitiveShape(PrimitiveShapeKind.triangle);
+      await tester.pump();
+      final sh = await tester.startGesture(const Offset(300, 300));
+      await sh.moveTo(const Offset(340, 300));
+      await tester.pump();
+      await sh.up();
+      await tester.pump();
+      expect(ctrl.features.length, 3);
+      expect(ctrl.features.last.kind, DrawToolMode.polygon);
+      expect(ctrl.features.last.vertices.length, 3);
+
+      // 6. Annotation tap fires onRequestAnnotationAt
+      ctrl.selectMode(DrawToolMode.annotation);
+      await tester.pump();
+      await tester.tapAt(const Offset(200, 320));
+      await tester.pump();
+      expect(requestedAnnotation, isNotNull);
+
+      // 7. Disabling snapping prevents magnetic snap in TouchDrawOverlay
+      ctrl.selectMode(DrawToolMode.point);
+      ctrl.setSnappingEnabled(false);
+      await tester.pump();
+      final nearExisting = project(ctrl.features.first.vertices.first) +
+          const Offset(4, 48 + 4); // offset by -48dp thumb clearance
+      final ptTap = await tester.startGesture(nearExisting);
+      await ptTap.up();
+      await tester.pump();
+      expect(
+        ctrl.features.last.vertices.first.lon,
+        isNot(equals(ctrl.features.first.vertices.first.lon)),
+      );
     });
   });
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -54,8 +55,11 @@ class DraftWorkbenchController extends ChangeNotifier {
       ValueNotifier<DraftPreviewState>(const DraftPreviewState());
 
   DrawToolMode mode = DrawToolMode.browse;
+  PrimitiveShapeKind activePrimitiveShape = PrimitiveShapeKind.circle;
   TouchPlacementStyle placementStyle = TouchPlacementStyle.drawDrag;
   bool loupeEnabled = true;
+  bool snappingEnabled = true;
+  bool snapToEdgesEnabled = true;
 
   double measureDistanceMeters = 0.0;
   double measureAreaM2 = 0.0;
@@ -72,6 +76,8 @@ class DraftWorkbenchController extends ChangeNotifier {
   final List<List<DrawnFeature>> redoStack = <List<DrawnFeature>>[];
   final List<Geographic> draftVertices = <Geographic>[];
   DrawnFeature? editingDraftFeature;
+  String? editingFeatureId;
+  int? selectedVertexIndex;
   int featureCounter = 0;
 
   int draftRevision = 0;
@@ -83,16 +89,33 @@ class DraftWorkbenchController extends ChangeNotifier {
   final List<Geographic> gpsTrackPoints = <Geographic>[];
   double gpsTrackDistanceMeters = 0.0;
 
+  DrawnFeature? get activeEditingFeature {
+    final id = editingFeatureId;
+    if (id == null) return null;
+    for (final f in features) {
+      if (f.id == id) return f;
+    }
+    return null;
+  }
+
   bool get isDrawingMode => mode != DrawToolMode.browse;
   bool get isMeasureMode => mode == DrawToolMode.measure;
   bool get canFinishDraft => switch (mode) {
         DrawToolMode.line => draftVertices.length >= 2,
         DrawToolMode.polygon => draftVertices.length >= 3,
+        DrawToolMode.arrow => draftVertices.length >= 2,
+        DrawToolMode.splitByLine => draftVertices.length >= 2,
         _ => false,
       };
 
   MapGestures get activeMapGestures {
-    if (isDrawingMode && placementStyle == TouchPlacementStyle.drawDrag) {
+    final forcesSingleFingerCanvas = mode == DrawToolMode.boxSelect ||
+        mode == DrawToolMode.freehand ||
+        mode == DrawToolMode.editVertices ||
+        mode == DrawToolMode.select;
+    if (isDrawingMode &&
+        (placementStyle == TouchPlacementStyle.drawDrag ||
+            forcesSingleFingerCanvas)) {
       return const MapGestures(
         drag: false,
         fling: false,
@@ -149,6 +172,32 @@ class DraftWorkbenchController extends ChangeNotifier {
     placementListenable.notifyListeners();
     notifyListeners();
   }
+
+  void setActivePrimitiveShape(PrimitiveShapeKind shape) {
+    if (activePrimitiveShape == shape) return;
+    activePrimitiveShape = shape;
+    modeListenable.notifyListeners();
+    placementListenable.notifyListeners();
+    notifyListeners();
+  }
+
+  void setSnappingEnabled(bool enabled) {
+    if (snappingEnabled == enabled) return;
+    snappingEnabled = enabled;
+    placementListenable.notifyListeners();
+    notifyListeners();
+  }
+
+  void toggleSnapping() => setSnappingEnabled(!snappingEnabled);
+
+  void setSnapToEdgesEnabled(bool enabled) {
+    if (snapToEdgesEnabled == enabled) return;
+    snapToEdgesEnabled = enabled;
+    placementListenable.notifyListeners();
+    notifyListeners();
+  }
+
+  void toggleSnapToEdges() => setSnapToEdgesEnabled(!snapToEdgesEnabled);
 
   void setDraftTitle(String title, {VoidCallback? onPersist}) {
     draftTitle = title;
@@ -213,6 +262,17 @@ class DraftWorkbenchController extends ChangeNotifier {
   void _pruneSelectionInternal() {
     final validIds = features.map((f) => f.id).toSet();
     selectedDraftFeatureIds.removeWhere((id) => !validIds.contains(id));
+    if (editingFeatureId != null && !validIds.contains(editingFeatureId)) {
+      editingFeatureId = null;
+      selectedVertexIndex = null;
+    } else if (selectedVertexIndex != null) {
+      final active = activeEditingFeature;
+      if (active == null ||
+          selectedVertexIndex! < 0 ||
+          selectedVertexIndex! >= active.vertices.length) {
+        selectedVertexIndex = null;
+      }
+    }
   }
 
   void toggleSelectFeature(String id) {
@@ -241,10 +301,29 @@ class DraftWorkbenchController extends ChangeNotifier {
   }) {
     if (mode == next) {
       mode = DrawToolMode.browse;
+      editingFeatureId = null;
+      selectedVertexIndex = null;
     } else {
       draftVertices.clear();
       onCloseDrawers?.call();
       mode = next;
+      if (next == DrawToolMode.editVertices) {
+        if (editingFeatureId == null ||
+            !features.any((f) => f.id == editingFeatureId)) {
+          String? pick;
+          for (final id in selectedDraftFeatureIds) {
+            if (features.any((f) => f.id == id)) {
+              pick = id;
+              break;
+            }
+          }
+          editingFeatureId = pick ?? (features.isNotEmpty ? features.last.id : null);
+        }
+        selectedVertexIndex = null;
+      } else {
+        editingFeatureId = null;
+        selectedVertexIndex = null;
+      }
     }
     modeListenable.notifyListeners();
     placementListenable.notifyListeners();
@@ -350,6 +429,8 @@ class DraftWorkbenchController extends ChangeNotifier {
     }
     if (mode == DrawToolMode.line ||
         mode == DrawToolMode.polygon ||
+        mode == DrawToolMode.arrow ||
+        mode == DrawToolMode.splitByLine ||
         mode == DrawToolMode.measure) {
       draftVertices.add(point);
       geometryListenable.notifyListeners();
@@ -371,6 +452,10 @@ class DraftWorkbenchController extends ChangeNotifier {
 
   void finishDraft({VoidCallback? onPersist}) {
     if (!canFinishDraft) return;
+    if (mode == DrawToolMode.splitByLine) {
+      unawaited(finishSplitByLine(onPersist: onPersist));
+      return;
+    }
     pushUndo();
     HapticFeedback.mediumImpact();
     if (editingDraftFeature != null) {
@@ -384,6 +469,18 @@ class DraftWorkbenchController extends ChangeNotifier {
       mode = DrawToolMode.browse;
       modeListenable.notifyListeners();
       placementListenable.notifyListeners();
+    } else if (mode == DrawToolMode.arrow) {
+      featureCounter += 1;
+      features.add(
+        DrawnFeature(
+          id: 'arrow-$featureCounter',
+          kind: DrawToolMode.line,
+          arrowEnd: true,
+          name: 'Arrow #$featureCounter',
+          vertices: List<Geographic>.unmodifiable(draftVertices),
+        ),
+      );
+      draftVertices.clear();
     } else {
       featureCounter += 1;
       features.add(
@@ -397,6 +494,389 @@ class DraftWorkbenchController extends ChangeNotifier {
     }
     _notifyGeometry();
     onPersist?.call();
+  }
+
+  void selectEditingTargetFeature(String featureId, {bool enterMode = true}) {
+    final idx = features.indexWhere((f) => f.id == featureId);
+    if (idx < 0) return;
+    editingFeatureId = featureId;
+    selectedVertexIndex = null;
+    selectedDraftFeatureIds
+      ..clear()
+      ..add(featureId);
+    if (enterMode && mode != DrawToolMode.editVertices) {
+      draftVertices.clear();
+      mode = DrawToolMode.editVertices;
+      modeListenable.notifyListeners();
+      placementListenable.notifyListeners();
+    }
+    _notifyGeometry(selectionChanged: true);
+  }
+
+  void selectVertexIndex(int? index) {
+    final active = activeEditingFeature;
+    if (index == null ||
+        active == null ||
+        index < 0 ||
+        index >= active.vertices.length) {
+      if (selectedVertexIndex == null) return;
+      selectedVertexIndex = null;
+      _notifySelection();
+      return;
+    }
+    if (selectedVertexIndex == index) return;
+    selectedVertexIndex = index;
+    _notifySelection();
+  }
+
+  void updateEditingFeatureVertex(
+    int index,
+    Geographic pos, {
+    bool pushUndoBefore = false,
+    VoidCallback? onPersist,
+  }) {
+    final id = editingFeatureId;
+    if (id == null) return;
+    final idx = features.indexWhere((f) => f.id == id);
+    if (idx < 0) return;
+    final verts = features[idx].vertices;
+    if (index < 0 || index >= verts.length) return;
+    if (pushUndoBefore) {
+      pushUndo();
+    }
+    final nextVerts = List<Geographic>.from(verts);
+    nextVerts[index] = pos;
+    features[idx] = features[idx].copyWith(
+      vertices: List<Geographic>.unmodifiable(nextVerts),
+    );
+    _notifyGeometry();
+    onPersist?.call();
+  }
+
+  void insertEditingFeatureVertex(
+    int insertIndex,
+    Geographic pos, {
+    VoidCallback? onPersist,
+  }) {
+    final id = editingFeatureId;
+    if (id == null) return;
+    final idx = features.indexWhere((f) => f.id == id);
+    if (idx < 0) return;
+    pushUndo();
+    final nextVerts = List<Geographic>.from(features[idx].vertices);
+    final clamped = insertIndex.clamp(0, nextVerts.length);
+    nextVerts.insert(clamped, pos);
+    features[idx] = features[idx].copyWith(
+      vertices: List<Geographic>.unmodifiable(nextVerts),
+    );
+    selectedVertexIndex = clamped;
+    _notifyGeometry(selectionChanged: true);
+    onPersist?.call();
+  }
+
+  bool removeSelectedEditingVertex({VoidCallback? onPersist}) {
+    final id = editingFeatureId;
+    final vIdx = selectedVertexIndex;
+    if (id == null || vIdx == null) return false;
+    final idx = features.indexWhere((f) => f.id == id);
+    if (idx < 0) return false;
+    final feat = features[idx];
+    if (vIdx < 0 || vIdx >= feat.vertices.length) return false;
+    final minVertices = switch (feat.kind) {
+      DrawToolMode.polygon => 3,
+      DrawToolMode.line => 2,
+      _ => 1,
+    };
+    if (feat.vertices.length <= minVertices) return false;
+
+    pushUndo();
+    final nextVerts = List<Geographic>.from(feat.vertices)..removeAt(vIdx);
+    features[idx] = feat.copyWith(
+      vertices: List<Geographic>.unmodifiable(nextVerts),
+    );
+    selectedVertexIndex =
+        nextVerts.isEmpty ? null : vIdx.clamp(0, nextVerts.length - 1);
+    HapticFeedback.selectionClick();
+    _notifyGeometry(selectionChanged: true);
+    onPersist?.call();
+    return true;
+  }
+
+  void translateFeatureOnCanvas(
+    String featureId,
+    Offset deltaScreen,
+    Offset Function(Geographic) project,
+    Geographic Function(Offset) unproject, {
+    bool pushUndoBefore = false,
+    VoidCallback? onPersist,
+  }) {
+    if (deltaScreen == Offset.zero) return;
+    final idx = features.indexWhere((f) => f.id == featureId);
+    if (idx < 0) return;
+    if (pushUndoBefore) {
+      pushUndo();
+    }
+    features[idx] = DrawingMath.translateFeatureVertices(
+      feature: features[idx],
+      deltaScreen: deltaScreen,
+      project: project,
+      unproject: unproject,
+    );
+    _notifyGeometry();
+    onPersist?.call();
+  }
+
+  DrawnFeature? commitFreehandStroke(
+    List<Geographic> rawPoints, {
+    VoidCallback? onPersist,
+  }) {
+    if (rawPoints.isEmpty) return null;
+    final simplified = DrawingMath.simplifyPolyline(
+      rawPoints,
+      toleranceMeters: 4.0,
+    );
+    if (simplified.length < 2) return null;
+
+    var west = simplified.first.lon;
+    var east = simplified.first.lon;
+    var south = simplified.first.lat;
+    var north = simplified.first.lat;
+    for (final p in simplified) {
+      west = math.min(west, p.lon);
+      east = math.max(east, p.lon);
+      south = math.min(south, p.lat);
+      north = math.max(north, p.lat);
+    }
+    final diagMeters = DrawingMath.distanceMeters(
+      Geographic(lon: west, lat: south),
+      Geographic(lon: east, lat: north),
+    );
+    final perimeter = DrawingMath.polylineLengthMeters(simplified);
+    final endGap = DrawingMath.distanceMeters(simplified.first, simplified.last);
+    final isClosedLoop = simplified.length >= 5 &&
+        diagMeters > 5.0 &&
+        endGap <= math.max(10.0, perimeter * 0.12) &&
+        endGap < diagMeters * 0.28;
+
+    pushUndo();
+    featureCounter += 1;
+    final vertices = isClosedLoop && endGap < 2.0 && simplified.length >= 4
+        ? simplified.sublist(0, simplified.length - 1)
+        : simplified;
+    final created = DrawnFeature(
+      id: 'sketch-$featureCounter',
+      kind: isClosedLoop ? DrawToolMode.polygon : DrawToolMode.line,
+      name: 'Sketch #$featureCounter',
+      vertices: List<Geographic>.unmodifiable(vertices),
+    );
+    features.add(created);
+    HapticFeedback.mediumImpact();
+    _notifyGeometry();
+    onPersist?.call();
+    return created;
+  }
+
+  DrawnFeature? commitPrimitiveRing(
+    PrimitiveShapeKind shape,
+    List<Geographic> ring, {
+    double? radiusMeters,
+    VoidCallback? onPersist,
+  }) {
+    if (ring.length < 3) return null;
+    final label =
+        '${shape.name[0].toUpperCase()}${shape.name.substring(1)}';
+    final name = radiusMeters != null
+        ? '$label (${radiusMeters.round()}m)'
+        : label;
+    pushUndo();
+    featureCounter += 1;
+    final created = DrawnFeature(
+      id: 'prim-$featureCounter',
+      kind: DrawToolMode.polygon,
+      vertices: List<Geographic>.unmodifiable(ring),
+      name: name,
+    );
+    features.add(created);
+    selectedDraftFeatureIds
+      ..clear()
+      ..add(created.id);
+    HapticFeedback.mediumImpact();
+    _notifyGeometry(selectionChanged: true);
+    onPersist?.call();
+    return created;
+  }
+
+  DrawnFeature commitAnnotationAt(
+    Geographic point,
+    String label, {
+    VoidCallback? onPersist,
+  }) {
+    final trimmed = label.trim();
+    pushUndo();
+    featureCounter += 1;
+    final finalLabel = trimmed.isEmpty ? 'Label #$featureCounter' : trimmed;
+    final created = DrawnFeature(
+      id: 'note-$featureCounter',
+      kind: DrawToolMode.point,
+      vertices: <Geographic>[point],
+      name: finalLabel,
+      colorHex: '#0E7490',
+      displayIcon: 'lucide:message-square',
+      customProperties: const <String, String>{'annotation': 'true'},
+    );
+    features.add(created);
+    HapticFeedback.mediumImpact();
+    _notifyGeometry();
+    onPersist?.call();
+    return created;
+  }
+
+  int commitBoxSelect(
+    Rect screenRect,
+    Offset Function(Geographic) project, {
+    bool additive = false,
+  }) {
+    final matched = DrawingMath.selectFeaturesInScreenRect(
+      rect: screenRect,
+      features: features,
+      project: project,
+    );
+    if (!additive) {
+      selectedDraftFeatureIds.clear();
+    }
+    for (final f in matched) {
+      selectedDraftFeatureIds.add(f.id);
+    }
+    _notifySelection();
+    return matched.length;
+  }
+
+  Future<({bool ok, String message})> finishSplitByLine({
+    VoidCallback? onPersist,
+  }) async {
+    if (draftVertices.length < 2) {
+      return (
+        ok: false,
+        message: 'Draw at least 2 points for the cutting line.',
+      );
+    }
+
+    int? targetIdx;
+    final candidateIds = <String>[
+      ?editingFeatureId,
+      ...selectedDraftFeatureIds,
+    ];
+    for (final id in candidateIds.reversed) {
+      final idx = features.indexWhere((f) => f.id == id);
+      if (idx >= 0 &&
+          (features[idx].kind == DrawToolMode.polygon ||
+              features[idx].kind == DrawToolMode.line)) {
+        targetIdx = idx;
+        break;
+      }
+    }
+
+    if (targetIdx == null) {
+      // Prefer any feature that actually intersects the cutting line.
+      for (var i = features.length - 1; i >= 0; i--) {
+        final f = features[i];
+        if (f.kind == DrawToolMode.line &&
+            DrawingMath.splitLineByLine(f.vertices, draftVertices).length >= 2) {
+          targetIdx = i;
+          break;
+        }
+        if (f.kind == DrawToolMode.polygon &&
+            DrawingMath.splitPolygonByLine(f.vertices, draftVertices).length >=
+                2) {
+          targetIdx = i;
+          break;
+        }
+      }
+    }
+
+    targetIdx ??= features.lastIndexWhere(
+      (f) => f.kind == DrawToolMode.polygon || f.kind == DrawToolMode.line,
+    );
+
+    if (targetIdx < 0) {
+      return (ok: false, message: 'No line or polygon feature to split.');
+    }
+
+    final target = features[targetIdx];
+    final cutter = List<Geographic>.unmodifiable(draftVertices);
+    List<List<Geographic>> pieces = const <List<Geographic>>[];
+
+    if (target.kind == DrawToolMode.polygon) {
+      try {
+        await RustBridge.ensureInitialized();
+        final out = await geoSplitPolygonByLine(
+          ring: target.vertices
+              .map((v) => LonLatPoint(lon: v.lon, lat: v.lat))
+              .toList(growable: false),
+          splitter: cutter
+              .map((v) => LonLatPoint(lon: v.lon, lat: v.lat))
+              .toList(growable: false),
+        );
+        pieces = [
+          for (final ring in out)
+            ring.map((p) => Geographic(lon: p.lon, lat: p.lat)).toList(),
+        ];
+      } catch (_) {
+        pieces = DrawingMath.splitPolygonByLine(target.vertices, cutter);
+      }
+      if (pieces.length < 2) {
+        pieces = DrawingMath.splitPolygonByLine(target.vertices, cutter);
+      }
+    } else if (target.kind == DrawToolMode.line) {
+      pieces = DrawingMath.splitLineByLine(target.vertices, cutter);
+    }
+
+    if (pieces.length < 2) {
+      return (
+        ok: false,
+        message: 'Cutting line did not bisect the target feature.',
+      );
+    }
+
+    final freshIdx = features.indexWhere((f) => f.id == target.id);
+    if (freshIdx < 0) {
+      return (ok: false, message: 'Target feature is no longer present.');
+    }
+
+    pushUndo();
+    final baseName = (target.name?.trim().isNotEmpty ?? false)
+        ? target.name!.trim()
+        : (target.kind == DrawToolMode.polygon ? 'Polygon' : 'Line');
+    features.removeAt(freshIdx);
+    selectedDraftFeatureIds.remove(target.id);
+    if (editingFeatureId == target.id) {
+      editingFeatureId = null;
+      selectedVertexIndex = null;
+    }
+
+    final createdIds = <String>[];
+    for (var i = 0; i < pieces.length; i++) {
+      featureCounter += 1;
+      final id = 'split-$featureCounter';
+      createdIds.add(id);
+      features.insert(
+        freshIdx + i,
+        target.copyWith(
+          id: id,
+          vertices: List<Geographic>.unmodifiable(pieces[i]),
+          extraParts: const <List<Geographic>>[],
+          name: '$baseName (Part ${i + 1})',
+        ),
+      );
+    }
+    selectedDraftFeatureIds
+      ..clear()
+      ..addAll(createdIds);
+    draftVertices.clear();
+    HapticFeedback.mediumImpact();
+    _notifyGeometry(selectionChanged: true);
+    onPersist?.call();
+    return (ok: true, message: 'Split into ${pieces.length} parts');
   }
 
   void undoLastPoint({VoidCallback? onPersist}) {
@@ -477,6 +957,8 @@ class DraftWorkbenchController extends ChangeNotifier {
     pushUndo();
     features.clear();
     selectedDraftFeatureIds.clear();
+    editingFeatureId = null;
+    selectedVertexIndex = null;
     draftVertices.clear();
     _notifyGeometry(selectionChanged: true);
     onPersist?.call();
@@ -556,6 +1038,7 @@ class DraftWorkbenchController extends ChangeNotifier {
     pushUndo();
     features.removeWhere((f) => f.id == featureId);
     selectedDraftFeatureIds.remove(featureId);
+    _pruneSelectionInternal();
     _notifyGeometry(selectionChanged: true);
     onPersist?.call();
     return true;
@@ -624,6 +1107,7 @@ class DraftWorkbenchController extends ChangeNotifier {
     pushUndo();
     features.removeWhere((f) => deleted.contains(f.id));
     selectedDraftFeatureIds.clear();
+    _pruneSelectionInternal();
     HapticFeedback.mediumImpact();
     _notifyGeometry(selectionChanged: true);
     onPersist?.call();
