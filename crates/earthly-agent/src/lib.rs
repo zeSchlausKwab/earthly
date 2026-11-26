@@ -8,6 +8,7 @@
 
 pub mod executor;
 pub mod schema;
+pub mod vision;
 #[cfg(feature = "native-http")]
 pub mod runtime;
 
@@ -19,6 +20,9 @@ pub use schema::{
     AgentChatMessage, AgentProviderConfig, AgentRole, ToolDefinition, earthly_system_prompt,
     earthly_tool_definitions,
 };
+pub use vision::{VisionSupport, detect_vision_name_heuristic};
+#[cfg(feature = "native-http")]
+pub use vision::detect_model_vision_support;
 #[cfg(feature = "native-http")]
 pub use runtime::{
     AgentStreamEvent, ResearchPageExtract, fetch_research_webpage, run_agent_turn,

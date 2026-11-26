@@ -342,5 +342,23 @@ pub fn earthly_tool_definitions() -> Vec<ToolDefinition> {
                 }
             }),
         },
+        ToolDefinition {
+            name: "capture_map_snapshot".to_owned(),
+            description: "Inspect the current visible map canvas snapshot PNG when vision is enabled, returning camera center, zoom, and draft feature count and attaching the snapshot for visual reasoning.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "scope": {
+                        "type": "string",
+                        "enum": ["viewport", "dataset", "selection"],
+                        "description": "Framing scope of the map snapshot (default viewport)."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional note describing what visual detail to inspect."
+                    }
+                }
+            }),
+        },
     ]
 }

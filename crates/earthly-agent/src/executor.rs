@@ -45,6 +45,10 @@ pub struct AgentWorkspaceContext {
     pub working_set_titles: Vec<String>,
     #[serde(default)]
     pub catalog_items: Vec<String>,
+    #[serde(default)]
+    pub map_snapshot_base64: Option<String>,
+    #[serde(default)]
+    pub allow_vision: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -817,6 +821,68 @@ pub fn execute_tool_call(
             )
         }
 
+        "capture_map_snapshot" => {
+            if !workspace.allow_vision {
+                let reason = "Vision is disabled or unsupported for the active model.";
+                return (
+                    ExecutedToolRecord {
+                        name: name.to_owned(),
+                        ok: false,
+                        summary: reason.to_owned(),
+                    },
+                    json!({
+                        "visionAvailable": false,
+                        "reason": reason,
+                    }),
+                );
+            }
+            let Some(b64) = workspace
+                .map_snapshot_base64
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            else {
+                let reason = "No map canvas snapshot is available.";
+                return (
+                    ExecutedToolRecord {
+                        name: name.to_owned(),
+                        ok: false,
+                        summary: reason.to_owned(),
+                    },
+                    json!({
+                        "visionAvailable": false,
+                        "reason": reason,
+                    }),
+                );
+            };
+            let raw_b64 = b64
+                .split_once(";base64,")
+                .map(|(_, rhs)| rhs)
+                .unwrap_or(b64);
+            let padding = raw_b64
+                .bytes()
+                .rev()
+                .take_while(|&b| b == b'=')
+                .count()
+                .min(2);
+            let bytes_approx = ((raw_b64.len() * 3) / 4).saturating_sub(padding);
+            let feature_count = state.features().len();
+            ok_tool(
+                name,
+                format!(
+                    "Captured map snapshot (~{} B) at zoom {:.1}",
+                    bytes_approx, workspace.zoom
+                ),
+                json!({
+                    "visionAvailable": true,
+                    "bytesApprox": bytes_approx,
+                    "center": [workspace.center_lon, workspace.center_lat],
+                    "zoom": workspace.zoom,
+                    "draftFeatureCount": feature_count,
+                }),
+            )
+        }
+
         other => err_tool(other, &format!("Unknown tool \"{other}\"")),
     }
 }
@@ -1164,6 +1230,8 @@ mod tests {
                 atlas_workspaces: vec![],
                 working_set_titles: vec![],
                 catalog_items: vec![],
+                map_snapshot_base64: None,
+                allow_vision: false,
             },
         });
 
@@ -1215,6 +1283,8 @@ mod tests {
                 atlas_workspaces: vec![],
                 working_set_titles: vec![],
                 catalog_items: vec![],
+                map_snapshot_base64: None,
+                allow_vision: false,
             },
         });
         assert_eq!(out.tool_calls[0].name, "deduplicate_draft");
@@ -1226,6 +1296,7 @@ mod tests {
             .into_iter()
             .map(|t| t.name)
             .collect();
+        assert_eq!(names.len(), 23);
         for expected in [
             "deduplicate_draft",
             "geocode_place",
@@ -1234,6 +1305,7 @@ mod tests {
             "valhalla_isochrone",
             "lookup_admin_boundary",
             "draft_story_outline",
+            "capture_map_snapshot",
         ] {
             assert!(names.iter().any(|n| n == expected), "missing tool {expected}");
         }
@@ -1260,6 +1332,8 @@ mod tests {
                 atlas_workspaces: vec![],
                 working_set_titles: vec![],
                 catalog_items: vec![],
+                map_snapshot_base64: None,
+                allow_vision: false,
             },
         });
         assert_eq!(story_out.tool_calls[0].name, "draft_story_outline");
@@ -1282,6 +1356,8 @@ mod tests {
                     "[Map] Danube Trails | 37515:alice:danube | #cycling | 8 features".to_owned(),
                     "[Story] Alps Ridge | 37520:bob:alps | #hiking".to_owned(),
                 ],
+                map_snapshot_base64: None,
+                allow_vision: false,
             },
         });
         assert_eq!(catalog_out.tool_calls[0].name, "query_catalog");
@@ -1303,10 +1379,88 @@ mod tests {
                 catalog_items: vec![
                     "[Map] Danube Trails | 37515:alice:danube | #cycling | 8 features".to_owned(),
                 ],
+                map_snapshot_base64: None,
+                allow_vision: false,
             },
         });
         assert_eq!(atlas_out.tool_calls[0].name, "draft_atlas_manifest");
         assert!(atlas_out.reply.contains("# Vienna Trails Atlas"));
         assert!(atlas_out.reply.contains("Danube Island Loop"));
+    }
+
+    #[test]
+    fn capture_map_snapshot_is_gated_when_allow_vision_is_false() {
+        let workspace = AgentWorkspaceContext {
+            center_lon: 16.375,
+            center_lat: 48.208,
+            zoom: 14.5,
+            draft_title: "Test".to_owned(),
+            draft_geojson: json!({ "type": "FeatureCollection", "features": [] }).to_string(),
+            shelf_map_titles: vec![],
+            atlas_workspaces: vec![],
+            working_set_titles: vec![],
+            catalog_items: vec![],
+            map_snapshot_base64: Some("iVBORw0KGgo=".to_owned()),
+            allow_vision: false,
+        };
+        let mut state = MutableDraftState::from_geojson(&workspace.draft_geojson, &workspace.draft_title);
+
+        let (rec, val) = execute_tool_call("capture_map_snapshot", &json!({}), &workspace, &mut state);
+        assert!(!rec.ok);
+        assert_eq!(val["visionAvailable"], json!(false));
+        assert_eq!(
+            val["reason"],
+            json!("Vision is disabled or unsupported for the active model.")
+        );
+    }
+
+    #[test]
+    fn capture_map_snapshot_returns_metadata_when_vision_enabled() {
+        let workspace = AgentWorkspaceContext {
+            center_lon: 16.375,
+            center_lat: 48.208,
+            zoom: 15.0,
+            draft_title: "Test".to_owned(),
+            draft_geojson: json!({
+                "type": "FeatureCollection",
+                "features": [{
+                    "type": "Feature",
+                    "id": "p1",
+                    "geometry": { "type": "Point", "coordinates": [16.375, 48.208] },
+                    "properties": { "name": "Peak" }
+                }]
+            })
+            .to_string(),
+            shelf_map_titles: vec![],
+            atlas_workspaces: vec![],
+            working_set_titles: vec![],
+            catalog_items: vec![],
+            map_snapshot_base64: Some("iVBORw0KGgo=".to_owned()),
+            allow_vision: true,
+        };
+        let mut state = MutableDraftState::from_geojson(&workspace.draft_geojson, &workspace.draft_title);
+
+        let (rec, val) = execute_tool_call("capture_map_snapshot", &json!({}), &workspace, &mut state);
+        assert!(rec.ok);
+        assert_eq!(val["visionAvailable"], json!(true));
+        assert_eq!(val["bytesApprox"], json!(8));
+        assert_eq!(val["center"], json!([16.375, 48.208]));
+        assert_eq!(val["zoom"], json!(15.0));
+        assert_eq!(val["draftFeatureCount"], json!(1));
+    }
+
+    #[test]
+    fn workspace_context_serde_defaults_vision_fields_safely() {
+        let raw = json!({
+            "centerLon": 16.37,
+            "centerLat": 48.20,
+            "zoom": 13.0,
+            "draftTitle": "Draft",
+            "draftGeojson": "{\"type\":\"FeatureCollection\",\"features\":[]}",
+            "shelfMapTitles": []
+        });
+        let parsed: AgentWorkspaceContext = serde_json::from_value(raw).unwrap();
+        assert!(!parsed.allow_vision);
+        assert_eq!(parsed.map_snapshot_base64, None);
     }
 }

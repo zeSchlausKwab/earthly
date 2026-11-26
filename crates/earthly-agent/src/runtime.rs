@@ -10,7 +10,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::executor::{
-    AgentTurnInput, AgentTurnOutput, ExecutedToolRecord, MutableDraftState,
+    AgentTurnInput, AgentTurnOutput, AgentWorkspaceContext, ExecutedToolRecord, MutableDraftState,
     execute_local_offline_turn, execute_tool_call,
 };
 use crate::schema::{
@@ -198,6 +198,83 @@ fn process_sse_data_line(
     }
 }
 
+fn format_snapshot_data_url(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.starts_with("data:image/") {
+        Some(trimmed.to_owned())
+    } else {
+        Some(format!("data:image/png;base64,{trimmed}"))
+    }
+}
+
+pub(crate) fn advertised_tools_json(allow_vision: bool) -> Vec<Value> {
+    earthly_tool_definitions()
+        .into_iter()
+        .filter(|t| allow_vision || t.name != "capture_map_snapshot")
+        .map(|t| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters
+                }
+            })
+        })
+        .collect()
+}
+
+/// Builds the OpenAI-compatible user message, attaching the visible map canvas
+/// snapshot PNG ONLY when `workspace.allow_vision` is true and
+/// `workspace.map_snapshot_base64` is non-empty.
+pub(crate) fn build_user_message(prompt: &str, workspace: &AgentWorkspaceContext) -> Value {
+    if workspace.allow_vision {
+        if let Some(url) = workspace
+            .map_snapshot_base64
+            .as_deref()
+            .and_then(format_snapshot_data_url)
+        {
+            return json!({
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": prompt },
+                    { "type": "image_url", "image_url": { "url": url } }
+                ]
+            });
+        }
+    }
+    json!({ "role": "user", "content": prompt })
+}
+
+/// Builds a multimodal user observation after `capture_map_snapshot` succeeds.
+/// Returns `None` whenever `workspace.allow_vision` is false or no snapshot exists.
+pub(crate) fn build_snapshot_observation_message(
+    workspace: &AgentWorkspaceContext,
+    feature_count: usize,
+) -> Option<Value> {
+    if !workspace.allow_vision {
+        return None;
+    }
+    let url = workspace
+        .map_snapshot_base64
+        .as_deref()
+        .and_then(format_snapshot_data_url)?;
+    let caption = format!(
+        "Map canvas snapshot attached (center=({:.5}, {:.5}), zoom={:.1}, draftFeatureCount={}).",
+        workspace.center_lat, workspace.center_lon, workspace.zoom, feature_count
+    );
+    Some(json!({
+        "role": "user",
+        "content": [
+            { "type": "text", "text": caption },
+            { "type": "image_url", "image_url": { "url": url } }
+        ]
+    }))
+}
+
 pub async fn run_agent_turn(
     provider: &AgentProviderConfig,
     input: &AgentTurnInput,
@@ -246,19 +323,7 @@ where
         .build()
         .map_err(|e| format!("failed to build HTTP client: {e}"))?;
 
-    let tools_json: Vec<Value> = earthly_tool_definitions()
-        .into_iter()
-        .map(|t| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters
-                }
-            })
-        })
-        .collect();
+    let tools_json = advertised_tools_json(input.workspace.allow_vision);
 
     let mut state = MutableDraftState::from_geojson(
         &input.workspace.draft_geojson,
@@ -290,7 +355,7 @@ where
         };
         messages.push(json!({ "role": role, "content": msg.content }));
     }
-    messages.push(json!({ "role": "user", "content": input.prompt }));
+    messages.push(build_user_message(&input.prompt, &input.workspace));
 
     let mut executed: Vec<ExecutedToolRecord> = Vec::new();
     let mut sum_prompt_tokens: u32 = 0;
@@ -569,6 +634,7 @@ where
                 }
                 _ => execute_tool_call(&fn_name, &parsed_args, &input.workspace, &mut state),
             };
+            let tool_ok = record.ok;
             on_event(AgentStreamEvent::ToolFinished {
                 record: record.clone(),
                 step: step + 1,
@@ -580,6 +646,14 @@ where
                 "tool_call_id": call_id,
                 "content": serde_json::to_string(&tool_result).unwrap_or_default()
             }));
+            if fn_name == "capture_map_snapshot" && tool_ok && input.workspace.allow_vision {
+                let feature_count = state.fc["features"].as_array().map(Vec::len).unwrap_or(0);
+                if let Some(obs) =
+                    build_snapshot_observation_message(&input.workspace, feature_count)
+                {
+                    messages.push(obs);
+                }
+            }
         }
     }
 
@@ -1458,5 +1532,71 @@ mod tests {
         let parsed: Value = serde_json::from_str(&tc.arguments).unwrap();
         assert_eq!(parsed["name"], "Hub");
         assert_eq!(parsed["lon"], 16.37);
+    }
+
+    #[test]
+    fn multimodal_user_payload_never_sends_images_when_allow_vision_is_false() {
+        let workspace_disabled = AgentWorkspaceContext {
+            center_lon: 16.375,
+            center_lat: 48.208,
+            zoom: 14.0,
+            draft_title: "Vienna".to_owned(),
+            draft_geojson: json!({ "type": "FeatureCollection", "features": [] }).to_string(),
+            shelf_map_titles: vec![],
+            atlas_workspaces: vec![],
+            working_set_titles: vec![],
+            catalog_items: vec![],
+            map_snapshot_base64: Some("iVBORw0KGgo=".to_owned()),
+            allow_vision: false,
+        };
+
+        let msg = build_user_message("Describe the map", &workspace_disabled);
+        assert_eq!(msg["role"], "user");
+        assert_eq!(msg["content"], json!("Describe the map"));
+        assert!(build_snapshot_observation_message(&workspace_disabled, 0).is_none());
+        let tools_disabled = advertised_tools_json(false);
+        assert!(!tools_disabled.iter().any(|t| t["function"]["name"] == "capture_map_snapshot"));
+    }
+
+    #[test]
+    fn multimodal_user_payload_attaches_png_data_url_when_vision_enabled() {
+        let workspace_enabled = AgentWorkspaceContext {
+            center_lon: 16.375,
+            center_lat: 48.208,
+            zoom: 15.0,
+            draft_title: "Vienna".to_owned(),
+            draft_geojson: json!({ "type": "FeatureCollection", "features": [] }).to_string(),
+            shelf_map_titles: vec![],
+            atlas_workspaces: vec![],
+            working_set_titles: vec![],
+            catalog_items: vec![],
+            map_snapshot_base64: Some("iVBORw0KGgo=".to_owned()),
+            allow_vision: true,
+        };
+
+        let msg = build_user_message("What features do you see?", &workspace_enabled);
+        assert_eq!(msg["role"], "user");
+        let parts = msg["content"].as_array().unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0], json!({ "type": "text", "text": "What features do you see?" }));
+        assert_eq!(
+            parts[1],
+            json!({
+                "type": "image_url",
+                "image_url": { "url": "data:image/png;base64,iVBORw0KGgo=" }
+            })
+        );
+
+        let obs = build_snapshot_observation_message(&workspace_enabled, 3).unwrap();
+        let obs_parts = obs["content"].as_array().unwrap();
+        assert_eq!(obs_parts.len(), 2);
+        assert!(obs_parts[0]["text"].as_str().unwrap().contains("draftFeatureCount=3"));
+        assert_eq!(
+            obs_parts[1]["image_url"]["url"],
+            json!("data:image/png;base64,iVBORw0KGgo=")
+        );
+
+        let tools_enabled = advertised_tools_json(true);
+        assert!(tools_enabled.iter().any(|t| t["function"]["name"] == "capture_map_snapshot"));
     }
 }
