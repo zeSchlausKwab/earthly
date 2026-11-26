@@ -361,6 +361,161 @@ pub fn split_line_at_point(
     Ok((LineString::new(first), LineString::new(second)))
 }
 
+/// Splits `line` at every interior intersection with `splitter`, returning
+/// ordered `LineString` segments (`>= 2` points each) along `line`.
+pub fn split_line_by_line(
+    line: &LineString<f64>,
+    splitter: &LineString<f64>,
+) -> Result<Vec<LineString<f64>>, GeoError> {
+    if line.0.len() < 2 || splitter.0.len() < 2 {
+        return Err(GeoError::InsufficientCoordinates(
+            "split_line_by_line requires >= 2 points for both line and splitter",
+        ));
+    }
+    for &c in line.0.iter().chain(splitter.0.iter()) {
+        if !c.x.is_finite() || !c.y.is_finite() {
+            return Err(GeoError::InvalidCoordinate(c.x, c.y));
+        }
+    }
+
+    let proj = LocalProjection::from_coords(line.0.iter());
+    let line_m = proj.forward_line(line);
+    let splitter_m = proj.forward_line(splitter);
+
+    let mut cum_len = Vec::with_capacity(line_m.0.len());
+    cum_len.push(0.0_f64);
+    for i in 1..line_m.0.len() {
+        let dx = line_m.0[i].x - line_m.0[i - 1].x;
+        let dy = line_m.0[i].y - line_m.0[i - 1].y;
+        cum_len.push(cum_len[i - 1] + dx.hypot(dy));
+    }
+    let total_len = *cum_len.last().unwrap_or(&0.0);
+    if total_len < 1e-6 {
+        return Err(GeoError::EmptyResult("line has zero length"));
+    }
+
+    // Collect interior intersections parameterized monotonically by arc-length along `line`.
+    let mut hits: Vec<(f64, Coord<f64>)> = Vec::new();
+    for (i, subj_seg) in line_m.0.windows(2).enumerate() {
+        let seg_len = cum_len[i + 1] - cum_len[i];
+        if seg_len < 1e-9 {
+            continue;
+        }
+        for blade_seg in splitter_m.0.windows(2) {
+            if let Some((t, pt)) =
+                segment_intersection_metric(subj_seg[0], subj_seg[1], blade_seg[0], blade_seg[1])
+            {
+                let arc_s = cum_len[i] + t * seg_len;
+                if arc_s > 1e-4 && arc_s < total_len - 1e-4 {
+                    hits.push((arc_s, pt));
+                }
+            }
+        }
+    }
+
+    if hits.is_empty() {
+        return Err(GeoError::EmptyResult("splitter does not intersect line"));
+    }
+
+    hits.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut splits: Vec<(f64, Coord<f64>)> = Vec::with_capacity(hits.len());
+    for (s, pt) in hits {
+        if splits
+            .last()
+            .map_or(true, |(prev_s, _)| (s - prev_s).abs() > 1e-4)
+        {
+            splits.push((s, pt));
+        }
+    }
+
+    if splits.is_empty() {
+        return Err(GeoError::EmptyResult("splitter does not intersect line"));
+    }
+
+    let mut parts: Vec<LineString<f64>> = Vec::new();
+    let mut current_wgs: Vec<Coord<f64>> = vec![line.0[0]];
+    let mut last_m = line_m.0[0];
+    let mut split_idx = 0usize;
+
+    let push_if_distinct = |buf: &mut Vec<Coord<f64>>,
+                            last: &mut Coord<f64>,
+                            wgs: Coord<f64>,
+                            m: Coord<f64>| {
+        if (m.x - last.x).hypot(m.y - last.y) > 1e-5 {
+            buf.push(wgs);
+            *last = m;
+        }
+    };
+
+    for i in 0..(line.0.len() - 1) {
+        let seg_end_s = cum_len[i + 1];
+        while split_idx < splits.len() && splits[split_idx].0 <= seg_end_s + 1e-5 {
+            let (s, split_m_raw) = splits[split_idx];
+            split_idx += 1;
+
+            let (split_wgs, split_m) = if (s - seg_end_s).abs() <= 1e-5 {
+                (line.0[i + 1], line_m.0[i + 1])
+            } else if (s - cum_len[i]).abs() <= 1e-5 {
+                (line.0[i], line_m.0[i])
+            } else {
+                (proj.inverse(split_m_raw), split_m_raw)
+            };
+
+            push_if_distinct(&mut current_wgs, &mut last_m, split_wgs, split_m);
+            if current_wgs.len() >= 2 {
+                parts.push(LineString::new(current_wgs));
+            }
+            current_wgs = vec![split_wgs];
+            last_m = split_m;
+        }
+
+        push_if_distinct(&mut current_wgs, &mut last_m, line.0[i + 1], line_m.0[i + 1]);
+    }
+
+    if current_wgs.len() >= 2 {
+        parts.push(LineString::new(current_wgs));
+    }
+
+    if parts.len() < 2 {
+        return Err(GeoError::EmptyResult("splitter does not intersect line"));
+    }
+    Ok(parts)
+}
+
+fn segment_intersection_metric(
+    a: Coord<f64>,
+    b: Coord<f64>,
+    c: Coord<f64>,
+    d: Coord<f64>,
+) -> Option<(f64, Coord<f64>)> {
+    let rx = b.x - a.x;
+    let ry = b.y - a.y;
+    let sx = d.x - c.x;
+    let sy = d.y - c.y;
+    let denom = rx * sy - ry * sx;
+    let scale = (rx.hypot(ry) * sx.hypot(sy)).max(1.0);
+    if denom.abs() <= 1e-12 * scale {
+        return None;
+    }
+    let qpx = c.x - a.x;
+    let qpy = c.y - a.y;
+    let t = (qpx * sy - qpy * sx) / denom;
+    let u = (qpx * ry - qpy * rx) / denom;
+    let eps = 1e-9;
+    if (-eps..=1.0 + eps).contains(&t) && (-eps..=1.0 + eps).contains(&u) {
+        let tc = t.clamp(0.0, 1.0);
+        Some((
+            tc,
+            Coord {
+                x: a.x + tc * rx,
+                y: a.y + tc * ry,
+            },
+        ))
+    } else {
+        None
+    }
+}
+
 /// Creates a parallel copy of `line` offset by `distance_meters`
 /// (positive = left of travel direction, negative = right).
 pub fn offset_line(
@@ -878,5 +1033,95 @@ mod tests {
         let dissolved = dissolve_lines(&[seg_a, seg_a_dup, seg_b], 5.0).unwrap();
         assert_eq!(dissolved.len(), 1);
         assert_eq!(dissolved[0].0.len(), 3);
+    }
+
+    #[test]
+    fn split_line_by_line_single_split_preserves_order_and_length() {
+        let line = LineString::new(vec![
+            Coord { x: 16.360, y: 48.200 },
+            Coord { x: 16.370, y: 48.200 },
+            Coord { x: 16.380, y: 48.210 },
+        ]);
+        let splitter = LineString::new(vec![
+            Coord { x: 16.365, y: 48.195 },
+            Coord { x: 16.365, y: 48.205 },
+        ]);
+        let parts = split_line_by_line(&line, &splitter).unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0].0.len(), 2);
+        assert_eq!(parts[1].0.len(), 3);
+        assert!((parts[0].0.last().unwrap().x - 16.365).abs() < 1e-6);
+        assert!((parts[1].0.first().unwrap().x - 16.365).abs() < 1e-6);
+        assert!((parts[0].0.first().unwrap().x - 16.360).abs() < 1e-9);
+        assert!((parts[1].0.last().unwrap().x - 16.380).abs() < 1e-9);
+
+        let sum_len: f64 = parts.iter().map(geodesic_length_m).sum();
+        assert!((sum_len - geodesic_length_m(&line)).abs() < 1.0);
+    }
+
+    #[test]
+    fn split_line_by_line_multi_intersection_splits_into_three_ordered_parts() {
+        let line = LineString::new(vec![
+            Coord { x: 16.350, y: 48.200 },
+            Coord { x: 16.390, y: 48.200 },
+        ]);
+        // Zig-zag splitter crossing the horizontal subject line twice (at x=16.360 and x=16.380).
+        let splitter = LineString::new(vec![
+            Coord { x: 16.360, y: 48.195 },
+            Coord { x: 16.360, y: 48.205 },
+            Coord { x: 16.380, y: 48.205 },
+            Coord { x: 16.380, y: 48.195 },
+        ]);
+        let parts = split_line_by_line(&line, &splitter).unwrap();
+        assert_eq!(parts.len(), 3);
+        for part in &parts {
+            assert!(part.0.len() >= 2);
+        }
+        assert!((parts[0].0[0].x - 16.350).abs() < 1e-9);
+        assert!((parts[0].0[1].x - 16.360).abs() < 1e-6);
+        assert!((parts[1].0[0].x - 16.360).abs() < 1e-6);
+        assert!((parts[1].0[1].x - 16.380).abs() < 1e-6);
+        assert!((parts[2].0[0].x - 16.380).abs() < 1e-6);
+        assert!((parts[2].0[1].x - 16.390).abs() < 1e-9);
+    }
+
+    #[test]
+    fn split_line_by_line_vertex_crossing_avoids_duplicate_segments() {
+        let line = LineString::new(vec![
+            Coord { x: 16.360, y: 48.200 },
+            Coord { x: 16.370, y: 48.200 },
+            Coord { x: 16.380, y: 48.210 },
+        ]);
+        let splitter = LineString::new(vec![
+            Coord { x: 16.370, y: 48.195 },
+            Coord { x: 16.370, y: 48.205 },
+        ]);
+        let parts = split_line_by_line(&line, &splitter).unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0].0.len(), 2);
+        assert_eq!(parts[1].0.len(), 2);
+        assert_eq!(parts[0].0[1], Coord { x: 16.370, y: 48.200 });
+        assert_eq!(parts[1].0[0], Coord { x: 16.370, y: 48.200 });
+    }
+
+    #[test]
+    fn split_line_by_line_non_intersecting_and_endpoint_return_empty_result() {
+        let line = LineString::new(vec![
+            Coord { x: 16.360, y: 48.200 },
+            Coord { x: 16.380, y: 48.200 },
+        ]);
+        let non_intersecting = LineString::new(vec![
+            Coord { x: 16.360, y: 48.210 },
+            Coord { x: 16.380, y: 48.210 },
+        ]);
+        let err = split_line_by_line(&line, &non_intersecting).unwrap_err();
+        assert!(matches!(err, GeoError::EmptyResult(_)));
+
+        let endpoint_only = LineString::new(vec![
+            Coord { x: 16.360, y: 48.195 },
+            Coord { x: 16.360, y: 48.205 },
+        ]);
+        let endpoint_err = split_line_by_line(&line, &endpoint_only).unwrap_err();
+        assert!(matches!(endpoint_err, GeoError::EmptyResult(_)));
     }
 }

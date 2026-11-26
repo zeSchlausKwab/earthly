@@ -9,7 +9,8 @@ use earthly_geo::{
     export_geojson_to_shapefile_zip, extrude_line, geodesic_area_m2, geodesic_length_m,
     geojson_to_gpx, geojson_to_kml, import_spatial_text_to_geojson, merge_to_multipart,
     offset_line, offset_polygon, simplify_line, simplify_polygon, split_line_at_point,
-    split_polygon_by_line, union_polygons, validate_feature_collection, parse_shapefile_bytes,
+    split_line_by_line, split_polygon_by_line, union_polygons, validate_feature_collection,
+    parse_shapefile_bytes,
 };
 use geo::{Coord, Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
 
@@ -200,6 +201,16 @@ pub fn geo_split_line_at_point(
     )
     .map_err(|e| e.to_string())?;
     Ok(vec![from_coords(&a.0), from_coords(&b.0)])
+}
+
+/// Splits a polyline into ordered polylines at every interior intersection with `splitter`.
+pub fn geo_split_line_by_line(
+    points: Vec<LonLatPoint>,
+    splitter: Vec<LonLatPoint>,
+) -> Result<Vec<Vec<LonLatPoint>>, String> {
+    let parts =
+        split_line_by_line(&to_line(&points), &to_line(&splitter)).map_err(|e| e.to_string())?;
+    Ok(parts.into_iter().map(|l| from_coords(&l.0)).collect())
 }
 
 /// Translates, rotates (clockwise degrees around centroid), and scales a set of
@@ -1184,6 +1195,31 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn splits_line_by_line_via_ffi() {
+        let line = vec![
+            LonLatPoint { lon: 16.35, lat: 48.20 },
+            LonLatPoint { lon: 16.39, lat: 48.20 },
+        ];
+        let splitter = vec![
+            LonLatPoint { lon: 16.36, lat: 48.195 },
+            LonLatPoint { lon: 16.36, lat: 48.205 },
+            LonLatPoint { lon: 16.38, lat: 48.205 },
+            LonLatPoint { lon: 16.38, lat: 48.195 },
+        ];
+        let parts = geo_split_line_by_line(line.clone(), splitter).unwrap();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0].len(), 2);
+        assert!((parts[0][1].lon - 16.36).abs() < 1e-6);
+        assert!((parts[1][1].lon - 16.38).abs() < 1e-6);
+
+        let non_intersecting = vec![
+            LonLatPoint { lon: 16.35, lat: 48.22 },
+            LonLatPoint { lon: 16.39, lat: 48.22 },
+        ];
+        assert!(geo_split_line_by_line(line, non_intersecting).is_err());
     }
 }
 
