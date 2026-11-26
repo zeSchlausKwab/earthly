@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 axum = "0.8"
 base64 = "0.22"
+earthly-agent = { path = "../earthly-agent", features = ["native-http"] }
 flate2 = "1.1.9"
 fs2 = "0.4"
 futures-util = "0.3"

@@ -8,6 +8,7 @@ mod config;
 mod descriptor;
 mod error;
 mod identity;
+mod mcp_server;
 mod node;
 mod pairing;
 mod policy;
@@ -28,6 +29,9 @@ pub use descriptor::{
 };
 pub use error::NodeError;
 pub use identity::NodeIdentity;
+pub use mcp_server::{
+    McpBridgeServer, McpBridgeStatus, McpPendingMutation, McpToolCallLogEntry, McpWorkspaceState,
+};
 pub use node::{LocalBlobAccess, LocalNode};
 pub use pairing::{
     FieldSessionConversationPolicy, FieldSessionInfo, FieldSessionInternetPolicy,
