@@ -2,11 +2,11 @@
 //! (for NIP-55 Amber signing / local nsec signing) + crash-safe SQLite outbox
 //! relay delivery.
 
-mod drafts;
-mod events;
-mod keys;
-mod outbox;
-mod validation;
+pub mod drafts;
+pub mod events;
+pub mod keys;
+pub mod outbox;
+pub mod validation;
 
 pub use drafts::{
     LocalDraftDto, delete_local_draft, list_local_drafts, load_local_draft, save_local_draft,

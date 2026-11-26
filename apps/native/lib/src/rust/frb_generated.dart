@@ -8,10 +8,18 @@ import 'api/blossom.dart';
 import 'api/geo.dart';
 import 'api/mcp_bridge.dart';
 import 'api/nip46.dart';
-import 'api/nostr_client.dart';
+import 'api/nostr_client/blob_media.dart';
+import 'api/nostr_client/catalog.dart';
+import 'api/nostr_client/entities.dart';
+import 'api/nostr_client/profiles_relays.dart';
+import 'api/nostr_client/search_geo.dart';
 import 'api/nwc.dart';
 import 'api/private_groups.dart';
-import 'api/publish.dart';
+import 'api/publish/drafts.dart';
+import 'api/publish/events.dart';
+import 'api/publish/keys.dart';
+import 'api/publish/outbox.dart';
+import 'api/publish/validation.dart';
 import 'api/relay_pool.dart';
 import 'api/settings.dart';
 import 'api/spike.dart';
@@ -87,7 +95,7 @@ class EarthlyRustLib
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -1013527988;
+  int get rustContentHash => 1160951656;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -195,11 +203,11 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String rawLink,
   });
 
-  Future<DecodedNaddrDto?> crateApiNostrClientDecodeNaddrCoordinate({
+  Future<DecodedNaddrDto?> crateApiNostrClientEntitiesDecodeNaddrCoordinate({
     required String naddrUri,
   });
 
-  Future<String?> crateApiNostrClientDecodeNpubToHex({
+  Future<String?> crateApiNostrClientProfilesRelaysDecodeNpubToHex({
     required String pubkeyOrNpub,
   });
 
@@ -213,7 +221,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String workspaceId,
   });
 
-  Future<bool> crateApiPublishDeleteLocalDraft({
+  Future<bool> crateApiPublishDraftsDeleteLocalDraft({
     required String databasePath,
     required String draftId,
   });
@@ -224,7 +232,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? apiKey,
   });
 
-  Future<OutboxItemDto> crateApiPublishDiscardOutboxItem({
+  Future<OutboxItemDto> crateApiPublishOutboxDiscardOutboxItem({
     required String databasePath,
     required String itemId,
   });
@@ -234,11 +242,11 @@ abstract class EarthlyRustLibApi extends BaseApi {
 
   Future<List<McpMutationDto>> crateApiMcpBridgeDrainMcpMutations();
 
-  Future<String> crateApiNostrClientEncodeHexToNpub({
+  Future<String> crateApiNostrClientProfilesRelaysEncodeHexToNpub({
     required String pubkeyHex,
   });
 
-  Future<String> crateApiNostrClientEncodeNaddrCoordinate({
+  Future<String> crateApiNostrClientEntitiesEncodeNaddrCoordinate({
     required int kind,
     required String pubkeyHex,
     required String dTag,
@@ -251,7 +259,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? apiKey,
   });
 
-  Future<AuthorPortfolioDto> crateApiNostrClientFetchAuthorPortfolio({
+  Future<AuthorPortfolioDto> crateApiNostrClientEntitiesFetchAuthorPortfolio({
     required List<String> relayUrls,
     required String pubkeyOrNpub,
   });
@@ -265,47 +273,50 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String workspaceId,
   });
 
-  Future<EarthlyCatalogSnapshot> crateApiNostrClientFetchEarthlyCatalog({
+  Future<EarthlyCatalogSnapshot> crateApiNostrClientCatalogFetchEarthlyCatalog({
     required List<String> relayUrls,
     required int limitPerKind,
   });
 
-  Future<LiveRelayEventDto?> crateApiNostrClientFetchEntityByAddress({
+  Future<LiveRelayEventDto?> crateApiNostrClientEntitiesFetchEntityByAddress({
     required List<String> relayUrls,
     required String address,
   });
 
-  Future<EntityDiscussionSnapshot> crateApiNostrClientFetchEntityDiscussion({
+  Future<EntityDiscussionSnapshot>
+  crateApiNostrClientEntitiesFetchEntityDiscussion({
     required List<String> relayUrls,
     required String rootAddress,
     String? baseGeojson,
     String? baseMarkdown,
   });
 
-  Future<EntitySocialCountsDto> crateApiNostrClientFetchEntitySocialCounts({
+  Future<EntitySocialCountsDto>
+  crateApiNostrClientEntitiesFetchEntitySocialCounts({
     required List<String> relayUrls,
     required String targetAddress,
     String? targetEventId,
     String? currentUserPubkey,
   });
 
-  Future<List<InboxItemDto>> crateApiNostrClientFetchInboxItems({
+  Future<List<InboxItemDto>> crateApiNostrClientEntitiesFetchInboxItems({
     required List<String> relayUrls,
     required String currentUserPubkey,
     required List<String> ownedAtlasAddresses,
     String? knownTitlesJson,
   });
 
-  Future<ZapInvoiceDto> crateApiNostrClientFetchLnurlZapInvoice({
+  Future<ZapInvoiceDto> crateApiNostrClientProfilesRelaysFetchLnurlZapInvoice({
     required String lud16,
     required BigInt amountSats,
     String? signedZapRequestJson,
     String? comment,
   });
 
-  Future<EarthlyCatalogSnapshot> crateApiNostrClientFetchLocalNodeCatalog();
+  Future<EarthlyCatalogSnapshot>
+  crateApiNostrClientCatalogFetchLocalNodeCatalog();
 
-  Future<List<MapSummaryDto>> crateApiNostrClientFetchMapsByAddresses({
+  Future<List<MapSummaryDto>> crateApiNostrClientEntitiesFetchMapsByAddresses({
     required List<String> relayUrls,
     required List<String> addresses,
   });
@@ -314,7 +325,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String nwcUri,
   });
 
-  Future<List<ProfileMetadataDto>> crateApiNostrClientFetchProfiles({
+  Future<List<ProfileMetadataDto>>
+  crateApiNostrClientProfilesRelaysFetchProfiles({
     required List<String> relayUrls,
     required List<String> pubkeys,
   });
@@ -323,24 +335,26 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String url,
   });
 
-  Future<List<ShoutboxPostDto>> crateApiNostrClientFetchShoutboxPosts({
+  Future<List<ShoutboxPostDto>>
+  crateApiNostrClientProfilesRelaysFetchShoutboxPosts({
     required List<String> relayUrls,
     required String category,
     required int limit,
   });
 
-  Future<List<RelayListEntryDto>> crateApiNostrClientFetchUserRelayList({
+  Future<List<RelayListEntryDto>>
+  crateApiNostrClientProfilesRelaysFetchUserRelayList({
     required List<String> relayUrls,
     required String pubkeyOrNpub,
   });
 
-  Future<OutboxFlushReportDto> crateApiPublishFlushOutboxQueue({
+  Future<OutboxFlushReportDto> crateApiPublishOutboxFlushOutboxQueue({
     required String databasePath,
   });
 
   Future<bool> crateApiSpikeForgetNearbyPeer({required String nodeId});
 
-  Future<LocalKeypairDto> crateApiPublishGenerateLocalNostrKeypair();
+  Future<LocalKeypairDto> crateApiPublishKeysGenerateLocalNostrKeypair();
 
   Future<List<List<LonLatPoint>>> crateApiGeoGeoConnectLines({
     required List<List<LonLatPoint>> lines,
@@ -492,7 +506,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
 
   Future<McpBridgeStatusDto> crateApiMcpBridgeGetMcpBridgeStatus();
 
-  Future<LocalKeypairDto> crateApiPublishImportLocalNostrNsec({
+  Future<LocalKeypairDto> crateApiPublishKeysImportLocalNostrNsec({
     required String nsecOrHex,
   });
 
@@ -540,11 +554,11 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? peerName,
   });
 
-  Future<List<LocalDraftDto>> crateApiPublishListLocalDrafts({
+  Future<List<LocalDraftDto>> crateApiPublishDraftsListLocalDrafts({
     required String databasePath,
   });
 
-  Future<List<OutboxItemDto>> crateApiPublishListOutboxItems({
+  Future<List<OutboxItemDto>> crateApiPublishOutboxListOutboxItems({
     required String databasePath,
   });
 
@@ -563,7 +577,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String ownerPubkeyHex,
   });
 
-  Future<LocalDraftDto?> crateApiPublishLoadLocalDraft({
+  Future<LocalDraftDto?> crateApiPublishDraftsLoadLocalDraft({
     required String databasePath,
     required String draftId,
   });
@@ -591,7 +605,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String bolt11,
   });
 
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedAtlasEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedAtlasEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String name,
@@ -604,7 +619,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? schemaJson,
   });
 
-  Future<UnsignedSightingEventDto> crateApiPublishPrepareUnsignedBeaconEvent({
+  Future<UnsignedSightingEventDto>
+  crateApiPublishEventsPrepareUnsignedBeaconEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required double lon,
@@ -620,7 +636,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? message,
   });
 
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedCommentEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedCommentEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String rootAddress,
@@ -633,7 +650,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? parentPubkey,
   });
 
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedDeletionEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedDeletionEvent({
     required String pubkeyOrNpub,
     required String targetAddress,
     String? targetEventId,
@@ -641,7 +659,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? reason,
   });
 
-  Future<UnsignedMapEventDto> crateApiPublishPrepareUnsignedMapEvent({
+  Future<UnsignedMapEventDto> crateApiPublishEventsPrepareUnsignedMapEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String title,
@@ -653,7 +671,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     ExternalGeoBlobDto? externalBlob,
   });
 
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedProfileEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedProfileEvent({
     required String pubkeyOrNpub,
     String? name,
     String? displayName,
@@ -665,7 +684,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? lud16,
   });
 
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedProposalEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedProposalEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String targetAddress,
@@ -676,7 +696,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
   });
 
   Future<UnsignedCommentEventDto>
-  crateApiPublishPrepareUnsignedProposalStatusEvent({
+  crateApiPublishEventsPrepareUnsignedProposalStatusEvent({
     required String pubkeyOrNpub,
     required String proposalAddress,
     required String proposalEventId,
@@ -685,7 +705,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? note,
   });
 
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedReactionEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedReactionEvent({
     required String pubkeyOrNpub,
     required String targetAddress,
     String? targetEventId,
@@ -694,18 +715,21 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? content,
   });
 
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedRelayListEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedRelayListEvent({
     required String pubkeyOrNpub,
     required List<RelayListEntryDto> relays,
   });
 
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedShoutboxPost({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedShoutboxPost({
     required String pubkeyOrNpub,
     required String category,
     required String content,
   });
 
-  Future<UnsignedSightingEventDto> crateApiPublishPrepareUnsignedSightingEvent({
+  Future<UnsignedSightingEventDto>
+  crateApiPublishEventsPrepareUnsignedSightingEvent({
     required String pubkeyOrNpub,
     required String dTag,
     String? title,
@@ -720,7 +744,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? fieldSessionId,
   });
 
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedStoryEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedStoryEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String title,
@@ -734,7 +759,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
   });
 
   Future<UnsignedCommentEventDto>
-  crateApiPublishPrepareUnsignedStoryProposalEvent({
+  crateApiPublishEventsPrepareUnsignedStoryProposalEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String targetAddress,
@@ -745,7 +770,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
   });
 
   Future<UnsignedCommentEventDto>
-  crateApiPublishPrepareUnsignedZapRequestEvent({
+  crateApiPublishEventsPrepareUnsignedZapRequestEvent({
     required String senderPubkeyOrNpub,
     required String recipientPubkeyHex,
     required BigInt amountSats,
@@ -756,15 +781,16 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? lnurl,
   });
 
-  Future<List<RelayHealthDto>> crateApiNostrClientProbeRelaysHealth({
+  Future<List<RelayHealthDto>>
+  crateApiNostrClientProfilesRelaysProbeRelaysHealth({
     required List<String> relayUrls,
   });
 
-  Future<String> crateApiNostrClientPubkeyToNpub({
+  Future<String> crateApiNostrClientProfilesRelaysPubkeyToNpub({
     required String pubkeyOrNpub,
   });
 
-  Future<PublishOutcomeDto> crateApiPublishPublishNearbyEventViaOutbox({
+  Future<PublishOutcomeDto> crateApiPublishOutboxPublishNearbyEventViaOutbox({
     required String databasePath,
     required String signedEventJson,
     required List<String> remoteNodeIds,
@@ -778,7 +804,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? masterKeyB64,
   });
 
-  Future<PublishOutcomeDto> crateApiPublishPublishSignedEventViaOutbox({
+  Future<PublishOutcomeDto> crateApiPublishOutboxPublishSignedEventViaOutbox({
     required String databasePath,
     required String signedEventJson,
     required List<String> relayUrls,
@@ -834,17 +860,17 @@ abstract class EarthlyRustLibApi extends BaseApi {
 
   Future<String?> crateApiSpikeResolveLocalBlobUrl({required String sha256});
 
-  Future<String> crateApiNostrClientResolveMapBlobGeojson({
+  Future<String> crateApiNostrClientBlobMediaResolveMapBlobGeojson({
     required String baseGeojson,
     required List<BlobRefDto> blobRefs,
   });
 
-  Future<OutboxItemDto> crateApiPublishRetryOutboxItem({
+  Future<OutboxItemDto> crateApiPublishOutboxRetryOutboxItem({
     required String databasePath,
     required String itemId,
   });
 
-  Future<ReverseGeocodeDto> crateApiNostrClientReverseGeocodeLocation({
+  Future<ReverseGeocodeDto> crateApiNostrClientSearchGeoReverseGeocodeLocation({
     required double lat,
     required double lon,
   });
@@ -871,7 +897,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required AppSettingsDto settings,
   });
 
-  Future<LocalDraftDto> crateApiPublishSaveLocalDraft({
+  Future<LocalDraftDto> crateApiPublishDraftsSaveLocalDraft({
     required String databasePath,
     required String draftId,
     required String dTag,
@@ -882,11 +908,12 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String geojson,
   });
 
-  Future<List<PlaceSearchResultDto>> crateApiNostrClientSearchPlaces({
+  Future<List<PlaceSearchResultDto>> crateApiNostrClientSearchGeoSearchPlaces({
     required String query,
   });
 
-  Future<EarthlyCatalogSnapshot> crateApiNostrClientSearchRelayCatalogNip50({
+  Future<EarthlyCatalogSnapshot>
+  crateApiNostrClientSearchGeoSearchRelayCatalogNip50({
     required List<String> relayUrls,
     required String query,
   });
@@ -955,7 +982,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String unsignedEventJson,
   });
 
-  Future<String> crateApiPublishSignEventWithNsec({
+  Future<String> crateApiPublishKeysSignEventWithNsec({
     required String nsecOrHex,
     required String unsignedEventJson,
   });
@@ -999,7 +1026,8 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required bool allowVision,
   });
 
-  Stream<LiveRelayEventDto> crateApiNostrClientSubscribeEarthlyRelayStream({
+  Stream<LiveRelayEventDto>
+  crateApiNostrClientCatalogSubscribeEarthlyRelayStream({
     required List<String> relayUrls,
   });
 
@@ -1032,7 +1060,7 @@ abstract class EarthlyRustLibApi extends BaseApi {
   });
 
   Future<AtlasSchemaValidationDto>
-  crateApiPublishValidateMapAgainstAtlasSchema({
+  crateApiPublishValidationValidateMapAgainstAtlasSchema({
     required String geojson,
     required String schemaJson,
     String? publishedSchemaHash,
@@ -1690,7 +1718,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<DecodedNaddrDto?> crateApiNostrClientDecodeNaddrCoordinate({
+  Future<DecodedNaddrDto?> crateApiNostrClientEntitiesDecodeNaddrCoordinate({
     required String naddrUri,
   }) {
     return handler.executeNormal(
@@ -1709,21 +1737,22 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_opt_box_autoadd_decoded_naddr_dto,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiNostrClientDecodeNaddrCoordinateConstMeta,
+        constMeta: kCrateApiNostrClientEntitiesDecodeNaddrCoordinateConstMeta,
         argValues: [naddrUri],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientDecodeNaddrCoordinateConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientEntitiesDecodeNaddrCoordinateConstMeta =>
       const TaskConstMeta(
         debugName: "decode_naddr_coordinate",
         argNames: ["naddrUri"],
       );
 
   @override
-  Future<String?> crateApiNostrClientDecodeNpubToHex({
+  Future<String?> crateApiNostrClientProfilesRelaysDecodeNpubToHex({
     required String pubkeyOrNpub,
   }) {
     return handler.executeNormal(
@@ -1742,14 +1771,15 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_opt_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiNostrClientDecodeNpubToHexConstMeta,
+        constMeta: kCrateApiNostrClientProfilesRelaysDecodeNpubToHexConstMeta,
         argValues: [pubkeyOrNpub],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientDecodeNpubToHexConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientProfilesRelaysDecodeNpubToHexConstMeta =>
       const TaskConstMeta(
         debugName: "decode_npub_to_hex",
         argNames: ["pubkeyOrNpub"],
@@ -1854,7 +1884,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<bool> crateApiPublishDeleteLocalDraft({
+  Future<bool> crateApiPublishDraftsDeleteLocalDraft({
     required String databasePath,
     required String draftId,
   }) {
@@ -1875,14 +1905,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_bool,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishDeleteLocalDraftConstMeta,
+        constMeta: kCrateApiPublishDraftsDeleteLocalDraftConstMeta,
         argValues: [databasePath, draftId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishDeleteLocalDraftConstMeta =>
+  TaskConstMeta get kCrateApiPublishDraftsDeleteLocalDraftConstMeta =>
       const TaskConstMeta(
         debugName: "delete_local_draft",
         argNames: ["databasePath", "draftId"],
@@ -1926,7 +1956,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<OutboxItemDto> crateApiPublishDiscardOutboxItem({
+  Future<OutboxItemDto> crateApiPublishOutboxDiscardOutboxItem({
     required String databasePath,
     required String itemId,
   }) {
@@ -1947,14 +1977,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_outbox_item_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishDiscardOutboxItemConstMeta,
+        constMeta: kCrateApiPublishOutboxDiscardOutboxItemConstMeta,
         argValues: [databasePath, itemId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishDiscardOutboxItemConstMeta =>
+  TaskConstMeta get kCrateApiPublishOutboxDiscardOutboxItemConstMeta =>
       const TaskConstMeta(
         debugName: "discard_outbox_item",
         argNames: ["databasePath", "itemId"],
@@ -2020,7 +2050,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       const TaskConstMeta(debugName: "drain_mcp_mutations", argNames: []);
 
   @override
-  Future<String> crateApiNostrClientEncodeHexToNpub({
+  Future<String> crateApiNostrClientProfilesRelaysEncodeHexToNpub({
     required String pubkeyHex,
   }) {
     return handler.executeNormal(
@@ -2039,21 +2069,22 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_String,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientEncodeHexToNpubConstMeta,
+        constMeta: kCrateApiNostrClientProfilesRelaysEncodeHexToNpubConstMeta,
         argValues: [pubkeyHex],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientEncodeHexToNpubConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientProfilesRelaysEncodeHexToNpubConstMeta =>
       const TaskConstMeta(
         debugName: "encode_hex_to_npub",
         argNames: ["pubkeyHex"],
       );
 
   @override
-  Future<String> crateApiNostrClientEncodeNaddrCoordinate({
+  Future<String> crateApiNostrClientEntitiesEncodeNaddrCoordinate({
     required int kind,
     required String pubkeyHex,
     required String dTag,
@@ -2080,14 +2111,15 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_String,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientEncodeNaddrCoordinateConstMeta,
+        constMeta: kCrateApiNostrClientEntitiesEncodeNaddrCoordinateConstMeta,
         argValues: [kind, pubkeyHex, dTag, relays, featureId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientEncodeNaddrCoordinateConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientEntitiesEncodeNaddrCoordinateConstMeta =>
       const TaskConstMeta(
         debugName: "encode_naddr_coordinate",
         argNames: ["kind", "pubkeyHex", "dTag", "relays", "featureId"],
@@ -2129,7 +2161,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<AuthorPortfolioDto> crateApiNostrClientFetchAuthorPortfolio({
+  Future<AuthorPortfolioDto> crateApiNostrClientEntitiesFetchAuthorPortfolio({
     required List<String> relayUrls,
     required String pubkeyOrNpub,
   }) {
@@ -2150,14 +2182,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_author_portfolio_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchAuthorPortfolioConstMeta,
+        constMeta: kCrateApiNostrClientEntitiesFetchAuthorPortfolioConstMeta,
         argValues: [relayUrls, pubkeyOrNpub],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchAuthorPortfolioConstMeta =>
+  TaskConstMeta get kCrateApiNostrClientEntitiesFetchAuthorPortfolioConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_author_portfolio",
         argNames: ["relayUrls", "pubkeyOrNpub"],
@@ -2218,7 +2250,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<EarthlyCatalogSnapshot> crateApiNostrClientFetchEarthlyCatalog({
+  Future<EarthlyCatalogSnapshot> crateApiNostrClientCatalogFetchEarthlyCatalog({
     required List<String> relayUrls,
     required int limitPerKind,
   }) {
@@ -2239,21 +2271,21 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_earthly_catalog_snapshot,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchEarthlyCatalogConstMeta,
+        constMeta: kCrateApiNostrClientCatalogFetchEarthlyCatalogConstMeta,
         argValues: [relayUrls, limitPerKind],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchEarthlyCatalogConstMeta =>
+  TaskConstMeta get kCrateApiNostrClientCatalogFetchEarthlyCatalogConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_earthly_catalog",
         argNames: ["relayUrls", "limitPerKind"],
       );
 
   @override
-  Future<LiveRelayEventDto?> crateApiNostrClientFetchEntityByAddress({
+  Future<LiveRelayEventDto?> crateApiNostrClientEntitiesFetchEntityByAddress({
     required List<String> relayUrls,
     required String address,
   }) {
@@ -2274,21 +2306,22 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_opt_box_autoadd_live_relay_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchEntityByAddressConstMeta,
+        constMeta: kCrateApiNostrClientEntitiesFetchEntityByAddressConstMeta,
         argValues: [relayUrls, address],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchEntityByAddressConstMeta =>
+  TaskConstMeta get kCrateApiNostrClientEntitiesFetchEntityByAddressConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_entity_by_address",
         argNames: ["relayUrls", "address"],
       );
 
   @override
-  Future<EntityDiscussionSnapshot> crateApiNostrClientFetchEntityDiscussion({
+  Future<EntityDiscussionSnapshot>
+  crateApiNostrClientEntitiesFetchEntityDiscussion({
     required List<String> relayUrls,
     required String rootAddress,
     String? baseGeojson,
@@ -2313,21 +2346,23 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_entity_discussion_snapshot,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchEntityDiscussionConstMeta,
+        constMeta: kCrateApiNostrClientEntitiesFetchEntityDiscussionConstMeta,
         argValues: [relayUrls, rootAddress, baseGeojson, baseMarkdown],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchEntityDiscussionConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientEntitiesFetchEntityDiscussionConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_entity_discussion",
         argNames: ["relayUrls", "rootAddress", "baseGeojson", "baseMarkdown"],
       );
 
   @override
-  Future<EntitySocialCountsDto> crateApiNostrClientFetchEntitySocialCounts({
+  Future<EntitySocialCountsDto>
+  crateApiNostrClientEntitiesFetchEntitySocialCounts({
     required List<String> relayUrls,
     required String targetAddress,
     String? targetEventId,
@@ -2352,14 +2387,15 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_entity_social_counts_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchEntitySocialCountsConstMeta,
+        constMeta: kCrateApiNostrClientEntitiesFetchEntitySocialCountsConstMeta,
         argValues: [relayUrls, targetAddress, targetEventId, currentUserPubkey],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchEntitySocialCountsConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientEntitiesFetchEntitySocialCountsConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_entity_social_counts",
         argNames: [
@@ -2371,7 +2407,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<List<InboxItemDto>> crateApiNostrClientFetchInboxItems({
+  Future<List<InboxItemDto>> crateApiNostrClientEntitiesFetchInboxItems({
     required List<String> relayUrls,
     required String currentUserPubkey,
     required List<String> ownedAtlasAddresses,
@@ -2396,7 +2432,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_list_inbox_item_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchInboxItemsConstMeta,
+        constMeta: kCrateApiNostrClientEntitiesFetchInboxItemsConstMeta,
         argValues: [
           relayUrls,
           currentUserPubkey,
@@ -2408,7 +2444,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchInboxItemsConstMeta =>
+  TaskConstMeta get kCrateApiNostrClientEntitiesFetchInboxItemsConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_inbox_items",
         argNames: [
@@ -2420,7 +2456,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<ZapInvoiceDto> crateApiNostrClientFetchLnurlZapInvoice({
+  Future<ZapInvoiceDto> crateApiNostrClientProfilesRelaysFetchLnurlZapInvoice({
     required String lud16,
     required BigInt amountSats,
     String? signedZapRequestJson,
@@ -2445,21 +2481,24 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_zap_invoice_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchLnurlZapInvoiceConstMeta,
+        constMeta:
+            kCrateApiNostrClientProfilesRelaysFetchLnurlZapInvoiceConstMeta,
         argValues: [lud16, amountSats, signedZapRequestJson, comment],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchLnurlZapInvoiceConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientProfilesRelaysFetchLnurlZapInvoiceConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_lnurl_zap_invoice",
         argNames: ["lud16", "amountSats", "signedZapRequestJson", "comment"],
       );
 
   @override
-  Future<EarthlyCatalogSnapshot> crateApiNostrClientFetchLocalNodeCatalog() {
+  Future<EarthlyCatalogSnapshot>
+  crateApiNostrClientCatalogFetchLocalNodeCatalog() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -2475,18 +2514,18 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_earthly_catalog_snapshot,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchLocalNodeCatalogConstMeta,
+        constMeta: kCrateApiNostrClientCatalogFetchLocalNodeCatalogConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchLocalNodeCatalogConstMeta =>
+  TaskConstMeta get kCrateApiNostrClientCatalogFetchLocalNodeCatalogConstMeta =>
       const TaskConstMeta(debugName: "fetch_local_node_catalog", argNames: []);
 
   @override
-  Future<List<MapSummaryDto>> crateApiNostrClientFetchMapsByAddresses({
+  Future<List<MapSummaryDto>> crateApiNostrClientEntitiesFetchMapsByAddresses({
     required List<String> relayUrls,
     required List<String> addresses,
   }) {
@@ -2507,14 +2546,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_list_map_summary_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchMapsByAddressesConstMeta,
+        constMeta: kCrateApiNostrClientEntitiesFetchMapsByAddressesConstMeta,
         argValues: [relayUrls, addresses],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchMapsByAddressesConstMeta =>
+  TaskConstMeta get kCrateApiNostrClientEntitiesFetchMapsByAddressesConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_maps_by_addresses",
         argNames: ["relayUrls", "addresses"],
@@ -2554,7 +2593,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<List<ProfileMetadataDto>> crateApiNostrClientFetchProfiles({
+  Future<List<ProfileMetadataDto>>
+  crateApiNostrClientProfilesRelaysFetchProfiles({
     required List<String> relayUrls,
     required List<String> pubkeys,
   }) {
@@ -2575,14 +2615,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_list_profile_metadata_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchProfilesConstMeta,
+        constMeta: kCrateApiNostrClientProfilesRelaysFetchProfilesConstMeta,
         argValues: [relayUrls, pubkeys],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchProfilesConstMeta =>
+  TaskConstMeta get kCrateApiNostrClientProfilesRelaysFetchProfilesConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_profiles",
         argNames: ["relayUrls", "pubkeys"],
@@ -2622,7 +2662,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<List<ShoutboxPostDto>> crateApiNostrClientFetchShoutboxPosts({
+  Future<List<ShoutboxPostDto>>
+  crateApiNostrClientProfilesRelaysFetchShoutboxPosts({
     required List<String> relayUrls,
     required String category,
     required int limit,
@@ -2645,21 +2686,24 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_list_shoutbox_post_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchShoutboxPostsConstMeta,
+        constMeta:
+            kCrateApiNostrClientProfilesRelaysFetchShoutboxPostsConstMeta,
         argValues: [relayUrls, category, limit],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchShoutboxPostsConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientProfilesRelaysFetchShoutboxPostsConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_shoutbox_posts",
         argNames: ["relayUrls", "category", "limit"],
       );
 
   @override
-  Future<List<RelayListEntryDto>> crateApiNostrClientFetchUserRelayList({
+  Future<List<RelayListEntryDto>>
+  crateApiNostrClientProfilesRelaysFetchUserRelayList({
     required List<String> relayUrls,
     required String pubkeyOrNpub,
   }) {
@@ -2680,21 +2724,23 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_list_relay_list_entry_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientFetchUserRelayListConstMeta,
+        constMeta:
+            kCrateApiNostrClientProfilesRelaysFetchUserRelayListConstMeta,
         argValues: [relayUrls, pubkeyOrNpub],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientFetchUserRelayListConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientProfilesRelaysFetchUserRelayListConstMeta =>
       const TaskConstMeta(
         debugName: "fetch_user_relay_list",
         argNames: ["relayUrls", "pubkeyOrNpub"],
       );
 
   @override
-  Future<OutboxFlushReportDto> crateApiPublishFlushOutboxQueue({
+  Future<OutboxFlushReportDto> crateApiPublishOutboxFlushOutboxQueue({
     required String databasePath,
   }) {
     return handler.executeNormal(
@@ -2713,14 +2759,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_outbox_flush_report_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishFlushOutboxQueueConstMeta,
+        constMeta: kCrateApiPublishOutboxFlushOutboxQueueConstMeta,
         argValues: [databasePath],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishFlushOutboxQueueConstMeta =>
+  TaskConstMeta get kCrateApiPublishOutboxFlushOutboxQueueConstMeta =>
       const TaskConstMeta(
         debugName: "flush_outbox_queue",
         argNames: ["databasePath"],
@@ -2758,7 +2804,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<LocalKeypairDto> crateApiPublishGenerateLocalNostrKeypair() {
+  Future<LocalKeypairDto> crateApiPublishKeysGenerateLocalNostrKeypair() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -2774,14 +2820,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_local_keypair_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishGenerateLocalNostrKeypairConstMeta,
+        constMeta: kCrateApiPublishKeysGenerateLocalNostrKeypairConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishGenerateLocalNostrKeypairConstMeta =>
+  TaskConstMeta get kCrateApiPublishKeysGenerateLocalNostrKeypairConstMeta =>
       const TaskConstMeta(
         debugName: "generate_local_nostr_keypair",
         argNames: [],
@@ -3814,7 +3860,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       const TaskConstMeta(debugName: "get_mcp_bridge_status", argNames: []);
 
   @override
-  Future<LocalKeypairDto> crateApiPublishImportLocalNostrNsec({
+  Future<LocalKeypairDto> crateApiPublishKeysImportLocalNostrNsec({
     required String nsecOrHex,
   }) {
     return handler.executeNormal(
@@ -3833,14 +3879,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_local_keypair_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishImportLocalNostrNsecConstMeta,
+        constMeta: kCrateApiPublishKeysImportLocalNostrNsecConstMeta,
         argValues: [nsecOrHex],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishImportLocalNostrNsecConstMeta =>
+  TaskConstMeta get kCrateApiPublishKeysImportLocalNostrNsecConstMeta =>
       const TaskConstMeta(
         debugName: "import_local_nostr_nsec",
         argNames: ["nsecOrHex"],
@@ -4164,7 +4210,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<List<LocalDraftDto>> crateApiPublishListLocalDrafts({
+  Future<List<LocalDraftDto>> crateApiPublishDraftsListLocalDrafts({
     required String databasePath,
   }) {
     return handler.executeNormal(
@@ -4183,21 +4229,21 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_list_local_draft_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishListLocalDraftsConstMeta,
+        constMeta: kCrateApiPublishDraftsListLocalDraftsConstMeta,
         argValues: [databasePath],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishListLocalDraftsConstMeta =>
+  TaskConstMeta get kCrateApiPublishDraftsListLocalDraftsConstMeta =>
       const TaskConstMeta(
         debugName: "list_local_drafts",
         argNames: ["databasePath"],
       );
 
   @override
-  Future<List<OutboxItemDto>> crateApiPublishListOutboxItems({
+  Future<List<OutboxItemDto>> crateApiPublishOutboxListOutboxItems({
     required String databasePath,
   }) {
     return handler.executeNormal(
@@ -4216,14 +4262,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_list_outbox_item_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishListOutboxItemsConstMeta,
+        constMeta: kCrateApiPublishOutboxListOutboxItemsConstMeta,
         argValues: [databasePath],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishListOutboxItemsConstMeta =>
+  TaskConstMeta get kCrateApiPublishOutboxListOutboxItemsConstMeta =>
       const TaskConstMeta(
         debugName: "list_outbox_items",
         argNames: ["databasePath"],
@@ -4335,7 +4381,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<LocalDraftDto?> crateApiPublishLoadLocalDraft({
+  Future<LocalDraftDto?> crateApiPublishDraftsLoadLocalDraft({
     required String databasePath,
     required String draftId,
   }) {
@@ -4356,14 +4402,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_opt_box_autoadd_local_draft_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishLoadLocalDraftConstMeta,
+        constMeta: kCrateApiPublishDraftsLoadLocalDraftConstMeta,
         argValues: [databasePath, draftId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishLoadLocalDraftConstMeta =>
+  TaskConstMeta get kCrateApiPublishDraftsLoadLocalDraftConstMeta =>
       const TaskConstMeta(
         debugName: "load_local_draft",
         argNames: ["databasePath", "draftId"],
@@ -4566,7 +4612,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedAtlasEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedAtlasEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String name,
@@ -4603,7 +4650,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedAtlasEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedAtlasEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           dTag,
@@ -4621,7 +4668,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedAtlasEventConstMeta =>
+  TaskConstMeta get kCrateApiPublishEventsPrepareUnsignedAtlasEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_atlas_event",
         argNames: [
@@ -4639,7 +4686,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<UnsignedSightingEventDto> crateApiPublishPrepareUnsignedBeaconEvent({
+  Future<UnsignedSightingEventDto>
+  crateApiPublishEventsPrepareUnsignedBeaconEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required double lon,
@@ -4670,7 +4718,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_sighting_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedBeaconEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedBeaconEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           dTag,
@@ -4685,7 +4733,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedBeaconEventConstMeta =>
+  TaskConstMeta get kCrateApiPublishEventsPrepareUnsignedBeaconEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_beacon_event",
         argNames: [
@@ -4737,7 +4785,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedCommentEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedCommentEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String rootAddress,
@@ -4774,7 +4823,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedCommentEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedCommentEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           dTag,
@@ -4792,7 +4841,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedCommentEventConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishEventsPrepareUnsignedCommentEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_comment_event",
         argNames: [
@@ -4810,7 +4860,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedDeletionEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedDeletionEvent({
     required String pubkeyOrNpub,
     required String targetAddress,
     String? targetEventId,
@@ -4837,7 +4888,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedDeletionEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedDeletionEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           targetAddress,
@@ -4850,7 +4901,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedDeletionEventConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishEventsPrepareUnsignedDeletionEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_deletion_event",
         argNames: [
@@ -4863,7 +4915,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<UnsignedMapEventDto> crateApiPublishPrepareUnsignedMapEvent({
+  Future<UnsignedMapEventDto> crateApiPublishEventsPrepareUnsignedMapEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String title,
@@ -4901,7 +4953,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_map_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedMapEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedMapEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           dTag,
@@ -4918,7 +4970,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedMapEventConstMeta =>
+  TaskConstMeta get kCrateApiPublishEventsPrepareUnsignedMapEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_map_event",
         argNames: [
@@ -4935,7 +4987,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedProfileEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedProfileEvent({
     required String pubkeyOrNpub,
     String? name,
     String? displayName,
@@ -4970,7 +5023,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedProfileEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedProfileEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           name,
@@ -4987,7 +5040,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedProfileEventConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishEventsPrepareUnsignedProfileEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_profile_event",
         argNames: [
@@ -5004,7 +5058,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedProposalEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedProposalEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String targetAddress,
@@ -5035,7 +5090,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedProposalEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedProposalEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           dTag,
@@ -5050,7 +5105,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedProposalEventConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishEventsPrepareUnsignedProposalEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_proposal_event",
         argNames: [
@@ -5066,7 +5122,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
 
   @override
   Future<UnsignedCommentEventDto>
-  crateApiPublishPrepareUnsignedProposalStatusEvent({
+  crateApiPublishEventsPrepareUnsignedProposalStatusEvent({
     required String pubkeyOrNpub,
     required String proposalAddress,
     required String proposalEventId,
@@ -5095,7 +5151,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedProposalStatusEventConstMeta,
+        constMeta:
+            kCrateApiPublishEventsPrepareUnsignedProposalStatusEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           proposalAddress,
@@ -5110,7 +5167,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   TaskConstMeta
-  get kCrateApiPublishPrepareUnsignedProposalStatusEventConstMeta =>
+  get kCrateApiPublishEventsPrepareUnsignedProposalStatusEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_proposal_status_event",
         argNames: [
@@ -5124,7 +5181,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedReactionEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedReactionEvent({
     required String pubkeyOrNpub,
     required String targetAddress,
     String? targetEventId,
@@ -5153,7 +5211,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedReactionEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedReactionEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           targetAddress,
@@ -5167,7 +5225,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedReactionEventConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishEventsPrepareUnsignedReactionEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_reaction_event",
         argNames: [
@@ -5181,7 +5240,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedRelayListEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedRelayListEvent({
     required String pubkeyOrNpub,
     required List<RelayListEntryDto> relays,
   }) {
@@ -5202,21 +5262,23 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedRelayListEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedRelayListEventConstMeta,
         argValues: [pubkeyOrNpub, relays],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedRelayListEventConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishEventsPrepareUnsignedRelayListEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_relay_list_event",
         argNames: ["pubkeyOrNpub", "relays"],
       );
 
   @override
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedShoutboxPost({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedShoutboxPost({
     required String pubkeyOrNpub,
     required String category,
     required String content,
@@ -5239,21 +5301,23 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedShoutboxPostConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedShoutboxPostConstMeta,
         argValues: [pubkeyOrNpub, category, content],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedShoutboxPostConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishEventsPrepareUnsignedShoutboxPostConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_shoutbox_post",
         argNames: ["pubkeyOrNpub", "category", "content"],
       );
 
   @override
-  Future<UnsignedSightingEventDto> crateApiPublishPrepareUnsignedSightingEvent({
+  Future<UnsignedSightingEventDto>
+  crateApiPublishEventsPrepareUnsignedSightingEvent({
     required String pubkeyOrNpub,
     required String dTag,
     String? title,
@@ -5294,7 +5358,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_sighting_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedSightingEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedSightingEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           dTag,
@@ -5314,7 +5378,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedSightingEventConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishEventsPrepareUnsignedSightingEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_sighting_event",
         argNames: [
@@ -5334,7 +5399,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<UnsignedCommentEventDto> crateApiPublishPrepareUnsignedStoryEvent({
+  Future<UnsignedCommentEventDto>
+  crateApiPublishEventsPrepareUnsignedStoryEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String title,
@@ -5371,7 +5437,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedStoryEventConstMeta,
+        constMeta: kCrateApiPublishEventsPrepareUnsignedStoryEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           dTag,
@@ -5389,7 +5455,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedStoryEventConstMeta =>
+  TaskConstMeta get kCrateApiPublishEventsPrepareUnsignedStoryEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_story_event",
         argNames: [
@@ -5408,7 +5474,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
 
   @override
   Future<UnsignedCommentEventDto>
-  crateApiPublishPrepareUnsignedStoryProposalEvent({
+  crateApiPublishEventsPrepareUnsignedStoryProposalEvent({
     required String pubkeyOrNpub,
     required String dTag,
     required String targetAddress,
@@ -5439,7 +5505,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedStoryProposalEventConstMeta,
+        constMeta:
+            kCrateApiPublishEventsPrepareUnsignedStoryProposalEventConstMeta,
         argValues: [
           pubkeyOrNpub,
           dTag,
@@ -5455,7 +5522,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   TaskConstMeta
-  get kCrateApiPublishPrepareUnsignedStoryProposalEventConstMeta =>
+  get kCrateApiPublishEventsPrepareUnsignedStoryProposalEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_story_proposal_event",
         argNames: [
@@ -5471,7 +5538,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
 
   @override
   Future<UnsignedCommentEventDto>
-  crateApiPublishPrepareUnsignedZapRequestEvent({
+  crateApiPublishEventsPrepareUnsignedZapRequestEvent({
     required String senderPubkeyOrNpub,
     required String recipientPubkeyHex,
     required BigInt amountSats,
@@ -5504,7 +5571,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_unsigned_comment_event_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPrepareUnsignedZapRequestEventConstMeta,
+        constMeta:
+            kCrateApiPublishEventsPrepareUnsignedZapRequestEventConstMeta,
         argValues: [
           senderPubkeyOrNpub,
           recipientPubkeyHex,
@@ -5520,7 +5588,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPrepareUnsignedZapRequestEventConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishEventsPrepareUnsignedZapRequestEventConstMeta =>
       const TaskConstMeta(
         debugName: "prepare_unsigned_zap_request_event",
         argNames: [
@@ -5536,7 +5605,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<List<RelayHealthDto>> crateApiNostrClientProbeRelaysHealth({
+  Future<List<RelayHealthDto>>
+  crateApiNostrClientProfilesRelaysProbeRelaysHealth({
     required List<String> relayUrls,
   }) {
     return handler.executeNormal(
@@ -5555,21 +5625,22 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_list_relay_health_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientProbeRelaysHealthConstMeta,
+        constMeta: kCrateApiNostrClientProfilesRelaysProbeRelaysHealthConstMeta,
         argValues: [relayUrls],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientProbeRelaysHealthConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientProfilesRelaysProbeRelaysHealthConstMeta =>
       const TaskConstMeta(
         debugName: "probe_relays_health",
         argNames: ["relayUrls"],
       );
 
   @override
-  Future<String> crateApiNostrClientPubkeyToNpub({
+  Future<String> crateApiNostrClientProfilesRelaysPubkeyToNpub({
     required String pubkeyOrNpub,
   }) {
     return handler.executeNormal(
@@ -5588,21 +5659,21 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_String,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientPubkeyToNpubConstMeta,
+        constMeta: kCrateApiNostrClientProfilesRelaysPubkeyToNpubConstMeta,
         argValues: [pubkeyOrNpub],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientPubkeyToNpubConstMeta =>
+  TaskConstMeta get kCrateApiNostrClientProfilesRelaysPubkeyToNpubConstMeta =>
       const TaskConstMeta(
         debugName: "pubkey_to_npub",
         argNames: ["pubkeyOrNpub"],
       );
 
   @override
-  Future<PublishOutcomeDto> crateApiPublishPublishNearbyEventViaOutbox({
+  Future<PublishOutcomeDto> crateApiPublishOutboxPublishNearbyEventViaOutbox({
     required String databasePath,
     required String signedEventJson,
     required List<String> remoteNodeIds,
@@ -5625,14 +5696,15 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_publish_outcome_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPublishNearbyEventViaOutboxConstMeta,
+        constMeta: kCrateApiPublishOutboxPublishNearbyEventViaOutboxConstMeta,
         argValues: [databasePath, signedEventJson, remoteNodeIds],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPublishNearbyEventViaOutboxConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishOutboxPublishNearbyEventViaOutboxConstMeta =>
       const TaskConstMeta(
         debugName: "publish_nearby_event_via_outbox",
         argNames: ["databasePath", "signedEventJson", "remoteNodeIds"],
@@ -5686,7 +5758,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<PublishOutcomeDto> crateApiPublishPublishSignedEventViaOutbox({
+  Future<PublishOutcomeDto> crateApiPublishOutboxPublishSignedEventViaOutbox({
     required String databasePath,
     required String signedEventJson,
     required List<String> relayUrls,
@@ -5709,14 +5781,15 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_publish_outcome_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishPublishSignedEventViaOutboxConstMeta,
+        constMeta: kCrateApiPublishOutboxPublishSignedEventViaOutboxConstMeta,
         argValues: [databasePath, signedEventJson, relayUrls],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishPublishSignedEventViaOutboxConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishOutboxPublishSignedEventViaOutboxConstMeta =>
       const TaskConstMeta(
         debugName: "publish_signed_event_via_outbox",
         argNames: ["databasePath", "signedEventJson", "relayUrls"],
@@ -6057,7 +6130,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<String> crateApiNostrClientResolveMapBlobGeojson({
+  Future<String> crateApiNostrClientBlobMediaResolveMapBlobGeojson({
     required String baseGeojson,
     required List<BlobRefDto> blobRefs,
   }) {
@@ -6078,21 +6151,22 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_String,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientResolveMapBlobGeojsonConstMeta,
+        constMeta: kCrateApiNostrClientBlobMediaResolveMapBlobGeojsonConstMeta,
         argValues: [baseGeojson, blobRefs],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientResolveMapBlobGeojsonConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientBlobMediaResolveMapBlobGeojsonConstMeta =>
       const TaskConstMeta(
         debugName: "resolve_map_blob_geojson",
         argNames: ["baseGeojson", "blobRefs"],
       );
 
   @override
-  Future<OutboxItemDto> crateApiPublishRetryOutboxItem({
+  Future<OutboxItemDto> crateApiPublishOutboxRetryOutboxItem({
     required String databasePath,
     required String itemId,
   }) {
@@ -6113,21 +6187,21 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_outbox_item_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishRetryOutboxItemConstMeta,
+        constMeta: kCrateApiPublishOutboxRetryOutboxItemConstMeta,
         argValues: [databasePath, itemId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishRetryOutboxItemConstMeta =>
+  TaskConstMeta get kCrateApiPublishOutboxRetryOutboxItemConstMeta =>
       const TaskConstMeta(
         debugName: "retry_outbox_item",
         argNames: ["databasePath", "itemId"],
       );
 
   @override
-  Future<ReverseGeocodeDto> crateApiNostrClientReverseGeocodeLocation({
+  Future<ReverseGeocodeDto> crateApiNostrClientSearchGeoReverseGeocodeLocation({
     required double lat,
     required double lon,
   }) {
@@ -6148,14 +6222,15 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_reverse_geocode_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientReverseGeocodeLocationConstMeta,
+        constMeta: kCrateApiNostrClientSearchGeoReverseGeocodeLocationConstMeta,
         argValues: [lat, lon],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientReverseGeocodeLocationConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientSearchGeoReverseGeocodeLocationConstMeta =>
       const TaskConstMeta(
         debugName: "reverse_geocode_location",
         argNames: ["lat", "lon"],
@@ -6309,7 +6384,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<LocalDraftDto> crateApiPublishSaveLocalDraft({
+  Future<LocalDraftDto> crateApiPublishDraftsSaveLocalDraft({
     required String databasePath,
     required String draftId,
     required String dTag,
@@ -6342,7 +6417,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_local_draft_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishSaveLocalDraftConstMeta,
+        constMeta: kCrateApiPublishDraftsSaveLocalDraftConstMeta,
         argValues: [
           databasePath,
           draftId,
@@ -6358,7 +6433,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     );
   }
 
-  TaskConstMeta get kCrateApiPublishSaveLocalDraftConstMeta =>
+  TaskConstMeta get kCrateApiPublishDraftsSaveLocalDraftConstMeta =>
       const TaskConstMeta(
         debugName: "save_local_draft",
         argNames: [
@@ -6374,7 +6449,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<List<PlaceSearchResultDto>> crateApiNostrClientSearchPlaces({
+  Future<List<PlaceSearchResultDto>> crateApiNostrClientSearchGeoSearchPlaces({
     required String query,
   }) {
     return handler.executeNormal(
@@ -6393,18 +6468,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_list_place_search_result_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientSearchPlacesConstMeta,
+        constMeta: kCrateApiNostrClientSearchGeoSearchPlacesConstMeta,
         argValues: [query],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientSearchPlacesConstMeta =>
+  TaskConstMeta get kCrateApiNostrClientSearchGeoSearchPlacesConstMeta =>
       const TaskConstMeta(debugName: "search_places", argNames: ["query"]);
 
   @override
-  Future<EarthlyCatalogSnapshot> crateApiNostrClientSearchRelayCatalogNip50({
+  Future<EarthlyCatalogSnapshot>
+  crateApiNostrClientSearchGeoSearchRelayCatalogNip50({
     required List<String> relayUrls,
     required String query,
   }) {
@@ -6425,14 +6501,16 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_earthly_catalog_snapshot,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiNostrClientSearchRelayCatalogNip50ConstMeta,
+        constMeta:
+            kCrateApiNostrClientSearchGeoSearchRelayCatalogNip50ConstMeta,
         argValues: [relayUrls, query],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiNostrClientSearchRelayCatalogNip50ConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientSearchGeoSearchRelayCatalogNip50ConstMeta =>
       const TaskConstMeta(
         debugName: "search_relay_catalog_nip50",
         argNames: ["relayUrls", "query"],
@@ -6849,7 +6927,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Future<String> crateApiPublishSignEventWithNsec({
+  Future<String> crateApiPublishKeysSignEventWithNsec({
     required String nsecOrHex,
     required String unsignedEventJson,
   }) {
@@ -6870,14 +6948,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_String,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishSignEventWithNsecConstMeta,
+        constMeta: kCrateApiPublishKeysSignEventWithNsecConstMeta,
         argValues: [nsecOrHex, unsignedEventJson],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishSignEventWithNsecConstMeta =>
+  TaskConstMeta get kCrateApiPublishKeysSignEventWithNsecConstMeta =>
       const TaskConstMeta(
         debugName: "sign_event_with_nsec",
         argNames: ["nsecOrHex", "unsignedEventJson"],
@@ -7148,7 +7226,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
-  Stream<LiveRelayEventDto> crateApiNostrClientSubscribeEarthlyRelayStream({
+  Stream<LiveRelayEventDto>
+  crateApiNostrClientCatalogSubscribeEarthlyRelayStream({
     required List<String> relayUrls,
   }) {
     final sink = RustStreamSink<LiveRelayEventDto>();
@@ -7170,7 +7249,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
             decodeSuccessData: sse_decode_unit,
             decodeErrorData: sse_decode_String,
           ),
-          constMeta: kCrateApiNostrClientSubscribeEarthlyRelayStreamConstMeta,
+          constMeta:
+              kCrateApiNostrClientCatalogSubscribeEarthlyRelayStreamConstMeta,
           argValues: [relayUrls, sink],
           apiImpl: this,
         ),
@@ -7179,7 +7259,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiNostrClientSubscribeEarthlyRelayStreamConstMeta =>
+  TaskConstMeta
+  get kCrateApiNostrClientCatalogSubscribeEarthlyRelayStreamConstMeta =>
       const TaskConstMeta(
         debugName: "subscribe_earthly_relay_stream",
         argNames: ["relayUrls", "sink"],
@@ -7379,7 +7460,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
 
   @override
   Future<AtlasSchemaValidationDto>
-  crateApiPublishValidateMapAgainstAtlasSchema({
+  crateApiPublishValidationValidateMapAgainstAtlasSchema({
     required String geojson,
     required String schemaJson,
     String? publishedSchemaHash,
@@ -7402,14 +7483,16 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           decodeSuccessData: sse_decode_atlas_schema_validation_dto,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublishValidateMapAgainstAtlasSchemaConstMeta,
+        constMeta:
+            kCrateApiPublishValidationValidateMapAgainstAtlasSchemaConstMeta,
         argValues: [geojson, schemaJson, publishedSchemaHash],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublishValidateMapAgainstAtlasSchemaConstMeta =>
+  TaskConstMeta
+  get kCrateApiPublishValidationValidateMapAgainstAtlasSchemaConstMeta =>
       const TaskConstMeta(
         debugName: "validate_map_against_atlas_schema",
         argNames: ["geojson", "schemaJson", "publishedSchemaHash"],

@@ -62,7 +62,7 @@ void main() {
       : null;
 
   group('Live Rust FFI bridge round-trips', skip: skipReason, () {
-    late Directory tempDir;
+    Directory? tempDir;
     late String masterKeyB64;
 
     setUpAll(() async {
@@ -82,14 +82,14 @@ void main() {
           await stopMcpBridge();
         } catch (_) {}
       }
-      if (await tempDir.exists()) {
-        await tempDir.delete(recursive: true);
+      if (tempDir != null && await tempDir!.exists()) {
+        await tempDir!.delete(recursive: true);
       }
     });
 
     test('encrypted settings persist with ChaCha20-Poly1305 and decrypt cleanly',
         () async {
-      final dbPath = '${tempDir.path}/settings.sqlite3';
+      final dbPath = '${tempDir!.path}/settings.sqlite3';
       const secretNsec =
           'nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqwxyz';
       const secretNwc =
@@ -155,7 +155,7 @@ void main() {
     });
 
     test('local drafts save, load, list, and delete in SQLite', () async {
-      final dbPath = '${tempDir.path}/drafts.sqlite3';
+      final dbPath = '${tempDir!.path}/drafts.sqlite3';
       const geojson =
           '{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.3738,48.2082]},"properties":{"name":"Stephansplatz"}}]}';
 
@@ -196,7 +196,7 @@ void main() {
 
     test('Cashu wallet initializes, manages mints, and persists encrypted state',
         () async {
-      final dbPath = '${tempDir.path}/cashu.sqlite3';
+      final dbPath = '${tempDir!.path}/cashu.sqlite3';
       final kp = await generateLocalNostrKeypair();
       expect(kp.pubkeyHex.length, 64);
 

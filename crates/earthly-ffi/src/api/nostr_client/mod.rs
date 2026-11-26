@@ -2,11 +2,11 @@
 //! Atlases 37518, Stories 37520, Live Beacons 37521, Sightings 37522) and
 //! parsing them through `earthly-domain`.
 
-mod blob_media;
-mod catalog;
-mod entities;
-mod profiles_relays;
-mod search_geo;
+pub mod blob_media;
+pub mod catalog;
+pub mod entities;
+pub mod profiles_relays;
+pub mod search_geo;
 
 pub const DEFAULT_EARTHLY_RELAY: &str = "wss://relay.earthly.city";
 pub const EARTHLY_CITY_DEVELOPER_NPUB: &str =
