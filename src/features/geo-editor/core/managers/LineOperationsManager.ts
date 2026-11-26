@@ -1,4 +1,5 @@
 import type { Geometry, Position } from 'geojson'
+import { dissolveLinesWasm, type Position2D } from '@/lib/wasm/earthlyWasm'
 import type { EditorFeature, EditorOperationContext } from '../types'
 import { generateId } from '../utils/geometry'
 import {
@@ -157,7 +158,14 @@ export class LineOperationsManager {
 			}
 		}
 
-		const mergedLines = mergeLinePartsBySharedEndpoints(snappedParts, safeTolerance)
+		const all2d = snappedParts.every((line) => line.every((coord) => coord.length === 2))
+		const wasmMerged = all2d
+			? dissolveLinesWasm(snappedParts as Position2D[][], safeTolerance * 111_320)
+			: null
+		const mergedLines =
+			wasmMerged && wasmMerged.length > 0
+				? wasmMerged
+				: mergeLinePartsBySharedEndpoints(snappedParts, safeTolerance)
 		if (mergedLines.length === 0) {
 			return {
 				sourceFeatureCount: selected.length,

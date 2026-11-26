@@ -1,4 +1,9 @@
 import type { Geometry } from 'geojson'
+import {
+	explodeMultipartWasm,
+	mergeToMultipartWasm,
+	type GeoJsonGeometryOrFeature,
+} from '@/lib/wasm/earthlyWasm'
 import type { EditorFeature, EditorOperationContext } from '../types'
 import { generateId } from '../utils/geometry'
 import {
@@ -9,6 +14,20 @@ import {
 	normalizeFeature,
 	toMultiGeometryType,
 } from '../utils/featureHelpers'
+
+function geometryHasOnly2d(geometry: Geometry): boolean {
+	const checkCoords = (value: unknown): boolean => {
+		if (!Array.isArray(value)) return true
+		if (value.length > 0 && typeof value[0] === 'number') {
+			return value.length === 2 && Number.isFinite(value[0]) && Number.isFinite(value[1])
+		}
+		return value.every(checkCoords)
+	}
+	if (geometry.type === 'GeometryCollection') {
+		return geometry.geometries.every(geometryHasOnly2d)
+	}
+	return checkCoords(geometry.coordinates)
+}
 
 export class CombineManager {
 	constructor(private ctx: EditorOperationContext) {}
@@ -37,17 +56,30 @@ export class CombineManager {
 		const multiType = toMultiGeometryType(baseType)
 		if (!multiType) return false
 
-		const parts = selected.flatMap((feature) => extractGeometryParts(feature.geometry, baseType))
-		if (parts.length === 0) return false
+		const all2d = selected.every((feature) => geometryHasOnly2d(feature.geometry))
+		const wasmMerged = all2d
+			? mergeToMultipartWasm(
+					selected.map((feature) => feature.geometry as GeoJsonGeometryOrFeature),
+				)
+			: null
+
+		let mergedGeometry: Geometry
+		if (wasmMerged) {
+			mergedGeometry = wasmMerged as Geometry
+		} else {
+			const parts = selected.flatMap((feature) => extractGeometryParts(feature.geometry, baseType))
+			if (parts.length === 0) return false
+			mergedGeometry = {
+				type: multiType,
+				coordinates: JSON.parse(JSON.stringify(parts)),
+			} as Geometry
+		}
 
 		const template = cloneFeature(selected[0])
 		const newFeature: EditorFeature = {
 			...template,
 			id: generateId(),
-			geometry: {
-				type: multiType,
-				coordinates: JSON.parse(JSON.stringify(parts)),
-			} as Geometry,
+			geometry: mergedGeometry,
 		}
 
 		selected.forEach((feature) => this.ctx.features.delete(feature.id))
@@ -77,6 +109,18 @@ export class CombineManager {
 		selected.forEach((feature) => {
 			const baseType = getBaseGeometryType(feature.geometry.type)
 			if (!baseType) return
+			const wasmParts = geometryHasOnly2d(feature.geometry)
+				? explodeMultipartWasm(feature.geometry as GeoJsonGeometryOrFeature)
+				: null
+			if (wasmParts && wasmParts.length > 0) {
+				wasmParts.forEach((partGeometry) => {
+					const clone = cloneFeature(feature)
+					clone.id = generateId()
+					clone.geometry = partGeometry as Geometry
+					newFeatures.push(normalizeFeature(clone))
+				})
+				return
+			}
 			const parts = extractGeometryParts(feature.geometry, baseType)
 			parts.forEach((coords) => {
 				const clone = cloneFeature(feature)

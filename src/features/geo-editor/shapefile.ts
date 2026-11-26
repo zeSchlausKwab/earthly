@@ -1,4 +1,9 @@
 import type { FeatureCollection, Geometry } from 'geojson'
+import {
+	exportShapefileZipWasm,
+	parseShapefileZipWasm,
+	preloadEarthlyWasm,
+} from '@/lib/wasm/earthlyWasm'
 
 type ShpJsCollection = FeatureCollection & { fileName?: unknown }
 
@@ -309,23 +314,28 @@ async function loadJsZip() {
 	return (await import('jszip')).default
 }
 
-async function readEarthlyMetadata(
-	input: ArrayBuffer,
-): Promise<EarthlyShapefileMetadata | undefined> {
+async function inspectZipArchive(input: ArrayBuffer): Promise<{
+	metadata?: EarthlyShapefileMetadata
+	shpEntryCount: number
+}> {
 	const JSZip = await loadJsZip()
 	const archive = await JSZip.loadAsync(input)
-	const sidecars = Object.values(archive.files).filter(
-		(entry) =>
-			!entry.dir && entry.name.split('/').at(-1)?.toLowerCase() === EARTHLY_SHAPEFILE_METADATA_FILE,
+	const entries = Object.values(archive.files).filter((entry) => !entry.dir)
+	const shpEntryCount = entries.filter((entry) => entry.name.toLowerCase().endsWith('.shp')).length
+	const sidecars = entries.filter(
+		(entry) => entry.name.split('/').at(-1)?.toLowerCase() === EARTHLY_SHAPEFILE_METADATA_FILE,
 	)
-	if (sidecars.length === 0) return undefined
+	if (sidecars.length === 0) return { shpEntryCount }
 	if (sidecars.length !== 1) throw invalidEarthlyMetadata()
 	const sidecar = sidecars[0]
 	if (!sidecar) throw invalidEarthlyMetadata()
 
 	try {
 		const text = await sidecar.async('text')
-		return parseEarthlyMetadata(JSON.parse(text))
+		return {
+			metadata: parseEarthlyMetadata(JSON.parse(text)),
+			shpEntryCount,
+		}
 	} catch (error) {
 		if (error instanceof Error && error.message === EARTHLY_SHAPEFILE_METADATA_ERROR) {
 			throw error
@@ -398,19 +408,47 @@ async function loadShpWrite() {
 	return (await import('@mapbox/shp-write')) as ShpWriteModule
 }
 
+function countUniqueDbfKeys(collection: FeatureCollection): number {
+	const keys = new Set<string>()
+	for (const feature of collection.features) {
+		if (!feature.properties || typeof feature.properties !== 'object') continue
+		for (const key of Object.keys(feature.properties)) {
+			keys.add(key)
+		}
+	}
+	return keys.size
+}
+
 export async function importShapefile(file: File): Promise<FeatureCollection> {
+	void preloadEarthlyWasm()
 	const extension = file.name.split('.').pop()?.toLowerCase()
-	const shp = (await loadShpJs()).default
 
 	if (extension === 'zip') {
 		const input = await file.arrayBuffer()
-		const metadata = await readEarthlyMetadata(input)
+		const { metadata, shpEntryCount } = await inspectZipArchive(input)
+		if (shpEntryCount === 1) {
+			const wasmParsed = await parseShapefileZipWasm(new Uint8Array(input), file.name).catch(
+				() => null,
+			)
+			if (wasmParsed?.geojson) {
+				return mergeImportedCollections(wasmParsed.geojson, metadata)
+			}
+		}
+		const shp = (await loadShpJs()).default
 		const parsed = await shp(input)
 		return mergeImportedCollections(parsed, metadata)
 	}
 
 	if (extension === 'shp') {
-		const parsed = await shp({ shp: await file.arrayBuffer() })
+		const input = await file.arrayBuffer()
+		const wasmParsed = await parseShapefileZipWasm(new Uint8Array(input), file.name).catch(
+			() => null,
+		)
+		if (wasmParsed?.geojson) {
+			return mergeImportedCollections(wasmParsed.geojson)
+		}
+		const shp = (await loadShpJs()).default
+		const parsed = await shp({ shp: input })
 		return mergeImportedCollections(parsed)
 	}
 
@@ -421,7 +459,7 @@ export async function exportShapefile(
 	collection: FeatureCollection,
 	filename: string,
 ): Promise<{ blob: Blob; skippedCount: number; downloadName: string }> {
-	const { zip } = await loadShpWrite()
+	void preloadEarthlyWasm()
 	const {
 		collection: normalizedCollection,
 		skippedCount,
@@ -433,15 +471,28 @@ export async function exportShapefile(
 	}
 
 	const safeFileName = sanitizeFileName(filename)
-	const shapefileBlob = await zip<'blob'>(normalizedCollection, {
-		filename: safeFileName,
-		folder: safeFileName,
-		outputType: 'blob',
-		compression: 'STORE',
-		prj: SHAPEFILE_PRJ_WGS84,
-	})
+	const wasmZipBytes =
+		countUniqueDbfKeys(normalizedCollection) <= 12
+			? await exportShapefileZipWasm(normalizedCollection, safeFileName).catch(() => null)
+			: null
+
+	let archiveData: ArrayBuffer | Uint8Array
+	if (wasmZipBytes && wasmZipBytes.length > 0) {
+		archiveData = wasmZipBytes
+	} else {
+		const { zip } = await loadShpWrite()
+		const shapefileBlob = await zip<'blob'>(normalizedCollection, {
+			filename: safeFileName,
+			folder: safeFileName,
+			outputType: 'blob',
+			compression: 'STORE',
+			prj: SHAPEFILE_PRJ_WGS84,
+		})
+		archiveData = await shapefileBlob.arrayBuffer()
+	}
+
 	const JSZip = await loadJsZip()
-	const archive = await JSZip.loadAsync(await shapefileBlob.arrayBuffer())
+	const archive = await JSZip.loadAsync(archiveData)
 	archive.file(EARTHLY_SHAPEFILE_METADATA_FILE, JSON.stringify(metadata, null, 2))
 	const blob = await archive.generateAsync({
 		type: 'blob',

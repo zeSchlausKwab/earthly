@@ -26,6 +26,7 @@ import type {
 	Polygon,
 	Position,
 } from 'geojson'
+import { createCorridorRingWasm, type Position2D } from '@/lib/wasm/earthlyWasm'
 import { MAX_DISTANCE_METERS, type PrimitiveUnits } from './primitives'
 import { nearestPointOnRenderedSegment } from './webMercator'
 import { makeLineBand, type LineBandOptions } from './lineBand'
@@ -413,12 +414,32 @@ function offsetLineGeometry(
 			]
 }
 
+function is2dPositions(coords: Position[]): coords is Position2D[] {
+	return coords.every(
+		(c) =>
+			c.length === 2 &&
+			typeof c[0] === 'number' &&
+			typeof c[1] === 'number' &&
+			Number.isFinite(c[0]) &&
+			Number.isFinite(c[1]),
+	)
+}
+
 function corridorGeometry(
 	target: Feature<LineString | MultiLineString>,
 	width: number,
 	units: PrimitiveUnits,
 ): Geometry[] {
 	const validWidth = assertPositiveDistance(width, units, 'Corridor width')
+	if (target.geometry.type === 'LineString' && is2dPositions(target.geometry.coordinates)) {
+		const ring = createCorridorRingWasm(
+			target.geometry.coordinates,
+			validWidth * METERS_PER_UNIT[units],
+		)
+		if (ring && ring.length >= 4) {
+			return [{ type: 'Polygon', coordinates: [ring] }]
+		}
+	}
 	const result = turfBuffer(target, validWidth / 2, { units })
 	if (!result?.geometry) {
 		throw new GeometryOperationError('The line could not be converted into a corridor.')

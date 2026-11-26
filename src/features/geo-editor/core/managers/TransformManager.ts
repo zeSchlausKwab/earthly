@@ -12,6 +12,7 @@ import {
 } from '@turf/turf'
 import type { Position } from 'geojson'
 import type { Map } from 'maplibre-gl'
+import { simplifyLineWasm, type Position2D } from '@/lib/wasm/earthlyWasm'
 import type { EditorFeature, IManager, TransformOptions } from '../types'
 import { rotateGeometry, splitLineAtPoint } from '../utils/geometry'
 
@@ -159,6 +160,27 @@ export class TransformManager implements IManager {
 	}
 
 	simplify(feature: EditorFeature, tolerance: number = 0.01): EditorFeature {
+		if (
+			feature.geometry.type === 'LineString' &&
+			feature.geometry.coordinates.every(
+				(c) => c.length === 2 && Number.isFinite(c[0]) && Number.isFinite(c[1]),
+			)
+		) {
+			const simplifiedCoords = simplifyLineWasm(
+				feature.geometry.coordinates as Position2D[],
+				Math.max(0, tolerance) * 111_320,
+			)
+			if (simplifiedCoords && simplifiedCoords.length >= 2) {
+				return {
+					...feature,
+					geometry: {
+						type: 'LineString',
+						coordinates: simplifiedCoords,
+					},
+				}
+			}
+		}
+
 		const simplified = simplify(feature, { tolerance, highQuality: true })
 
 		return {

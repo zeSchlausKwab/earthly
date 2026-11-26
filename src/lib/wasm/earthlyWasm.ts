@@ -94,7 +94,9 @@ export interface ProposalDiffSummary {
 }
 
 export interface EarthlyWasmRawExports {
-	default: (moduleOrPath?: { module_or_path: ArrayBuffer | Uint8Array | URL | string }) => Promise<unknown>
+	default: (moduleOrPath?: {
+		module_or_path: ArrayBuffer | Uint8Array | URL | string
+	}) => Promise<unknown>
 	validate_geojson_json(featureCollectionJson: string): string
 	parse_pmtiles_header_json(bytes: Uint8Array): string
 	parse_earthly_entity_json(rawEventJson: string): string
@@ -144,6 +146,7 @@ export class EarthlyWasmUnavailableError extends Error {
 const DEFAULT_PKG_JS_URL = new URL('./pkg/earthly_wasm.js', import.meta.url).href
 const DEFAULT_PKG_WASM_URL = new URL('./pkg/earthly_wasm_bg.wasm', import.meta.url).href
 
+let cachedExports: EarthlyWasmRawExports | null = null
 let cachedExportsPromise: Promise<EarthlyWasmRawExports> | null = null
 let cachedModuleUrl: string | null = null
 
@@ -221,13 +224,21 @@ export async function loadEarthlyWasm(
 		return cachedExportsPromise
 	}
 
-	const pending = importAndInitWasm(options).catch((error) => {
-		if (cachedExportsPromise === pending) {
-			cachedExportsPromise = null
-			cachedModuleUrl = null
-		}
-		throw error
-	})
+	const pending = importAndInitWasm(options)
+		.then((exports) => {
+			if (cachedExportsPromise === pending) {
+				cachedExports = exports
+			}
+			return exports
+		})
+		.catch((error) => {
+			if (cachedExportsPromise === pending) {
+				cachedExports = null
+				cachedExportsPromise = null
+				cachedModuleUrl = null
+			}
+			throw error
+		})
 	cachedExportsPromise = pending
 	cachedModuleUrl = targetUrl
 	return pending
@@ -250,6 +261,24 @@ export async function tryLoadEarthlyWasm(
 	}
 }
 
+/**
+ * Warm-up hook that lazily preloads and caches `earthly-wasm` without throwing
+ * when `src/lib/wasm/pkg/` has not been built yet.
+ */
+export function preloadEarthlyWasm(
+	options?: LoadEarthlyWasmOptions,
+): Promise<EarthlyWasmRawExports | null> {
+	return tryLoadEarthlyWasm(options)
+}
+
+/**
+ * Returns the initialized `earthly-wasm` exports synchronously if already loaded,
+ * or `null` when WASM has not been loaded yet.
+ */
+export function getLoadedEarthlyWasm(): EarthlyWasmRawExports | null {
+	return cachedExports
+}
+
 /** Returns `true` when `earthly-wasm` is built and initializes cleanly. */
 export async function isEarthlyWasmAvailable(options?: LoadEarthlyWasmOptions): Promise<boolean> {
 	return (await tryLoadEarthlyWasm(options)) !== null
@@ -257,15 +286,28 @@ export async function isEarthlyWasmAvailable(options?: LoadEarthlyWasmOptions): 
 
 /** Clears the memoized WASM instance (for unit tests). */
 export function resetEarthlyWasmCache(): void {
+	cachedExports = null
 	cachedExportsPromise = null
 	cachedModuleUrl = null
+}
+
+function callLoadedWasmSync<T>(fn: (wasm: EarthlyWasmRawExports) => T): T | null {
+	const wasm = cachedExports
+	if (!wasm) return null
+	try {
+		return fn(wasm)
+	} catch {
+		return null
+	}
 }
 
 export async function validateGeoJson(
 	featureCollection: unknown | string,
 ): Promise<GeoJsonValidationSummary> {
 	const wasm = await loadEarthlyWasm()
-	return JSON.parse(wasm.validate_geojson_json(serializeJsonArg(featureCollection))) as GeoJsonValidationSummary
+	return JSON.parse(
+		wasm.validate_geojson_json(serializeJsonArg(featureCollection)),
+	) as GeoJsonValidationSummary
 }
 
 export async function parsePmtilesHeader(bytes: Uint8Array): Promise<PmtilesHeaderInfo> {
@@ -307,7 +349,9 @@ export async function simplifyLine(
 	toleranceMeters: number,
 ): Promise<Position2D[]> {
 	const wasm = await loadEarthlyWasm()
-	return JSON.parse(wasm.simplify_line_json(JSON.stringify(coords), toleranceMeters)) as Position2D[]
+	return JSON.parse(
+		wasm.simplify_line_json(JSON.stringify(coords), toleranceMeters),
+	) as Position2D[]
 }
 
 export async function createCorridorRing(
@@ -385,7 +429,9 @@ export async function dissolveLines(
 	toleranceMeters: number,
 ): Promise<Position2D[][]> {
 	const wasm = await loadEarthlyWasm()
-	return JSON.parse(wasm.dissolve_lines_json(JSON.stringify(lines), toleranceMeters)) as Position2D[][]
+	return JSON.parse(
+		wasm.dissolve_lines_json(JSON.stringify(lines), toleranceMeters),
+	) as Position2D[][]
 }
 
 export async function mergeToMultipart(
@@ -425,9 +471,7 @@ export async function parseShapefileZipBytes(
 	filename?: string | null,
 ): Promise<SpatialImportResult> {
 	const wasm = await loadEarthlyWasm()
-	return JSON.parse(
-		wasm.parse_shapefile_zip_bytes(filename ?? null, bytes),
-	) as SpatialImportResult
+	return JSON.parse(wasm.parse_shapefile_zip_bytes(filename ?? null, bytes)) as SpatialImportResult
 }
 
 export async function detectVisionSupportHeuristic(model: string): Promise<VisionSupport> {
@@ -445,4 +489,116 @@ export async function detectVisionSupportHeuristicOrFallback(
 	const wasm = await tryLoadEarthlyWasm()
 	if (!wasm) return 'no-vision'
 	return wasm.detect_vision_support_heuristic(model) as VisionSupport
+}
+
+/**
+ * Synchronous cached WASM vision heuristic. Returns `null` when WASM is not yet
+ * loaded so callers can fall back to the JS token-boundary heuristic without
+ * altering synchronous contracts.
+ */
+export function detectVisionSupportWasmHeuristic(model: string): VisionSupport | null {
+	return callLoadedWasmSync((wasm) => wasm.detect_vision_support_heuristic(model) as VisionSupport)
+}
+
+/** Synchronous cached WASM line simplification; returns `null` if WASM is unloaded or fails. */
+export function simplifyLineWasm(
+	coords: Position2D[],
+	toleranceMeters: number,
+): Position2D[] | null {
+	return callLoadedWasmSync(
+		(wasm) =>
+			JSON.parse(wasm.simplify_line_json(JSON.stringify(coords), toleranceMeters)) as Position2D[],
+	)
+}
+
+/** Synchronous cached WASM corridor builder; returns `null` if WASM is unloaded or fails. */
+export function createCorridorRingWasm(
+	coords: Position2D[],
+	totalWidthMeters: number,
+): Position2D[] | null {
+	return callLoadedWasmSync(
+		(wasm) =>
+			JSON.parse(
+				wasm.create_corridor_ring_json(JSON.stringify(coords), totalWidthMeters),
+			) as Position2D[],
+	)
+}
+
+/** Synchronous cached WASM arrow extruder; returns `null` if WASM is unloaded or fails. */
+export function extrudeArrowRingWasm(
+	coords: Position2D[],
+	startWidthMeters: number,
+	endWidthMeters: number,
+): Position2D[] | null {
+	return callLoadedWasmSync(
+		(wasm) =>
+			JSON.parse(
+				wasm.extrude_arrow_ring_json(JSON.stringify(coords), startWidthMeters, endWidthMeters),
+			) as Position2D[],
+	)
+}
+
+/** Synchronous cached WASM line dissolve; returns `null` if WASM is unloaded or fails. */
+export function dissolveLinesWasm(
+	lines: Position2D[][],
+	toleranceMeters: number,
+): Position2D[][] | null {
+	return callLoadedWasmSync(
+		(wasm) =>
+			JSON.parse(
+				wasm.dissolve_lines_json(JSON.stringify(lines), toleranceMeters),
+			) as Position2D[][],
+	)
+}
+
+/** Synchronous cached WASM multipart merge; returns `null` if WASM is unloaded or fails. */
+export function mergeToMultipartWasm(
+	geometries: GeoJsonGeometryOrFeature[] | string,
+): GeoJsonGeometry | null {
+	return callLoadedWasmSync(
+		(wasm) =>
+			JSON.parse(wasm.merge_to_multipart_json(serializeJsonArg(geometries))) as GeoJsonGeometry,
+	)
+}
+
+/** Synchronous cached WASM multipart explode; returns `null` if WASM is unloaded or fails. */
+export function explodeMultipartWasm(
+	geometry: GeoJsonGeometryOrFeature | string,
+): GeoJsonGeometry[] | null {
+	return callLoadedWasmSync(
+		(wasm) =>
+			JSON.parse(wasm.explode_multipart_json(serializeJsonArg(geometry))) as GeoJsonGeometry[],
+	)
+}
+
+/** Parses CSV/TSV into GeoJSON using WASM when available, or `null` if WASM is unavailable. */
+export async function parseCsvToGeoJsonWasm(
+	content: string,
+	filename?: string | null,
+): Promise<SpatialImportResult | null> {
+	const wasm = await tryLoadEarthlyWasm()
+	if (!wasm) return null
+	return JSON.parse(
+		wasm.parse_csv_to_geojson_json(filename ?? null, content),
+	) as SpatialImportResult
+}
+
+/** Exports GeoJSON to Shapefile ZIP bytes using WASM when available, or `null` if unavailable. */
+export async function exportShapefileZipWasm(
+	geojson: unknown | string,
+	title?: string | null,
+): Promise<Uint8Array | null> {
+	const wasm = await tryLoadEarthlyWasm()
+	if (!wasm) return null
+	return wasm.export_shapefile_zip_bytes(serializeJsonArg(geojson), title ?? null)
+}
+
+/** Parses Shapefile `.zip` or `.shp` bytes using WASM when available, or `null` if unavailable. */
+export async function parseShapefileZipWasm(
+	bytes: Uint8Array,
+	filename?: string | null,
+): Promise<SpatialImportResult | null> {
+	const wasm = await tryLoadEarthlyWasm()
+	if (!wasm) return null
+	return JSON.parse(wasm.parse_shapefile_zip_bytes(filename ?? null, bytes)) as SpatialImportResult
 }

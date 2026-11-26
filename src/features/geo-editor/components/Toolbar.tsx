@@ -1285,7 +1285,7 @@ export function Toolbar({
 			type="file"
 			ref={fileInputRef}
 			className="hidden"
-			accept=".geojson,.json,.zip,.shp"
+			accept=".geojson,.json,.zip,.shp,.csv,.tsv"
 			multiple
 			onChange={handleFileImport}
 		/>

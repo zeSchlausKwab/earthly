@@ -642,7 +642,7 @@ export function MobileToolMenu({
 					type="file"
 					ref={fileInputRef}
 					className="hidden"
-					accept=".geojson,.json,.zip,.shp"
+					accept=".geojson,.json,.zip,.shp,.csv,.tsv"
 					onChange={(event) => {
 						const file = event.target.files?.[0]
 						if (file) onImport(file)

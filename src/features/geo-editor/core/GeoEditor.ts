@@ -16,6 +16,7 @@ import type {
 	MapMouseEvent,
 	MapTouchEvent,
 } from 'maplibre-gl'
+import { preloadEarthlyWasm } from '@/lib/wasm/earthlyWasm'
 import type { CollectionMeta } from '../types'
 import { BooleanManager } from './managers/BooleanManager'
 import { CombineManager } from './managers/CombineManager'
@@ -292,6 +293,7 @@ export class GeoEditor {
 	}
 
 	private initialize(): void {
+		void preloadEarthlyWasm()
 		// Add managers to map
 		this.history.onAdd(this.map)
 		this.datasetSnapshots.onAdd(this.map)

@@ -274,6 +274,7 @@ import {
 	type PresentationSourceAuthorization,
 	type StoryViewSnapshotV1,
 } from '@/lib/map-presentation'
+import { importCsvAsFeatureCollection } from './csvImport'
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import {
@@ -3766,11 +3767,14 @@ export function GeoEditorView() {
 				if (extension === 'zip' || extension === 'shp') {
 					collection = await importShapefile(file)
 					importSource = 'shapefile'
+				} else if (extension === 'csv' || extension === 'tsv') {
+					collection = await importCsvAsFeatureCollection(file)
+					importSource = 'csv'
 				} else if (extension === 'geojson' || extension === 'json') {
 					const json = JSON.parse(await file.text())
 					collection = ensureFeatureCollection(json)
 				} else {
-					toast.error('Unsupported import format. Use GeoJSON, zipped SHP, or .shp.')
+					toast.error('Unsupported import format. Use GeoJSON, CSV/TSV, zipped SHP, or .shp.')
 					return
 				}
 

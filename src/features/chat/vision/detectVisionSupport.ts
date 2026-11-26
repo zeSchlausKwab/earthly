@@ -24,6 +24,7 @@
  * `(type, baseUrl, modelId)` so detection costs at most one network call per
  * model per session (T-03-12).
  */
+import { detectVisionSupportWasmHeuristic, preloadEarthlyWasm } from '@/lib/wasm/earthlyWasm'
 import type { ProviderConfig, RoutstrModel } from '../routstr'
 
 export type VisionSupport = 'vision' | 'no-vision' | 'uncertain'
@@ -89,11 +90,17 @@ function hintMatchesTokenBoundary(id: string, hint: string): boolean {
 
 /** Tier 3: name heuristic → `'uncertain'` when a hint matches, else `'no-vision'`. */
 function nameHeuristic(modelId: string): VisionSupport {
+	const wasmResult = detectVisionSupportWasmHeuristic(modelId)
+	if (wasmResult !== null) {
+		return wasmResult
+	}
 	const lower = modelId.toLowerCase()
 	return VISION_NAME_HINTS.some((hint) => hintMatchesTokenBoundary(lower, hint))
 		? 'uncertain'
 		: 'no-vision'
 }
+
+export { detectVisionSupportWasmHeuristic }
 
 const visionCache = new Map<string, VisionSupport>()
 
@@ -224,6 +231,8 @@ export async function detectVisionSupport(
 	modelId: string,
 	model?: Pick<RoutstrModel, 'inputModalities'>,
 ): Promise<VisionSupport> {
+	// Warm the optional Rust WASM heuristic in the background without blocking or failing.
+	void preloadEarthlyWasm()
 	const key = cacheKey(provider, modelId)
 	// Prefer the result of the model-list request Earthly already made. Besides
 	// avoiding a duplicate probe, this preserves capability metadata from custom
