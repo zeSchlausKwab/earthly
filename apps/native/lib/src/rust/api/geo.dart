@@ -118,6 +118,15 @@ Future<List<List<LonLatPoint>>> geoSplitLineAtPoint({
   splitPoint: splitPoint,
 );
 
+/// Splits a polyline into ordered polylines at every interior intersection with `splitter`.
+Future<List<List<LonLatPoint>>> geoSplitLineByLine({
+  required List<LonLatPoint> points,
+  required List<LonLatPoint> splitter,
+}) => EarthlyRustLib.instance.api.crateApiGeoGeoSplitLineByLine(
+  points: points,
+  splitter: splitter,
+);
+
 /// Translates, rotates (clockwise degrees around centroid), and scales a set of
 /// coordinates accurately in local metric tangent space (`LocalProjection`).
 Future<List<LonLatPoint>> geoTransformPoints({

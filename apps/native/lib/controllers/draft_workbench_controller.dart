@@ -806,29 +806,30 @@ class DraftWorkbenchController extends ChangeNotifier {
     final cutter = List<Geographic>.unmodifiable(draftVertices);
     List<List<Geographic>> pieces = const <List<Geographic>>[];
 
-    if (target.kind == DrawToolMode.polygon) {
+    final isPolygon = target.kind == DrawToolMode.polygon;
+    if (isPolygon || target.kind == DrawToolMode.line) {
+      List<LonLatPoint> toLonLat(List<Geographic> pts) => [
+            for (final v in pts) LonLatPoint(lon: v.lon, lat: v.lat),
+          ];
       try {
         await RustBridge.ensureInitialized();
-        final out = await geoSplitPolygonByLine(
-          ring: target.vertices
-              .map((v) => LonLatPoint(lon: v.lon, lat: v.lat))
-              .toList(growable: false),
-          splitter: cutter
-              .map((v) => LonLatPoint(lon: v.lon, lat: v.lat))
-              .toList(growable: false),
-        );
+        final targetPts = toLonLat(target.vertices);
+        final cutterPts = toLonLat(cutter);
+        final out = isPolygon
+            ? await geoSplitPolygonByLine(ring: targetPts, splitter: cutterPts)
+            : await geoSplitLineByLine(points: targetPts, splitter: cutterPts);
         pieces = [
-          for (final ring in out)
-            ring.map((p) => Geographic(lon: p.lon, lat: p.lat)).toList(),
+          for (final part in out)
+            part.map((p) => Geographic(lon: p.lon, lat: p.lat)).toList(),
         ];
       } catch (_) {
-        pieces = DrawingMath.splitPolygonByLine(target.vertices, cutter);
+        // Fall back to pure-Dart splitter when Rust FFI dylib is unavailable.
       }
       if (pieces.length < 2) {
-        pieces = DrawingMath.splitPolygonByLine(target.vertices, cutter);
+        pieces = isPolygon
+            ? DrawingMath.splitPolygonByLine(target.vertices, cutter)
+            : DrawingMath.splitLineByLine(target.vertices, cutter);
       }
-    } else if (target.kind == DrawToolMode.line) {
-      pieces = DrawingMath.splitLineByLine(target.vertices, cutter);
     }
 
     if (pieces.length < 2) {
