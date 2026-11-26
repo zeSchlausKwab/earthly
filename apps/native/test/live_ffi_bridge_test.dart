@@ -1,0 +1,342 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:earthly_native/src/rust/api/geo.dart';
+import 'package:earthly_native/src/rust/api/mcp_bridge.dart';
+import 'package:earthly_native/src/rust/api/publish.dart';
+import 'package:earthly_native/src/rust/api/settings.dart';
+import 'package:earthly_native/src/rust/api/wallet.dart';
+import 'package:earthly_native/src/rust/frb_generated.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+String? _probeEarthlyFfiDylib() {
+  final envOverride = Platform.environment['EARTHLY_FFI_DYLIB']?.trim();
+  if (envOverride != null &&
+      envOverride.isNotEmpty &&
+      File(envOverride).existsSync()) {
+    return envOverride;
+  }
+
+  final candidates = <String>[];
+  if (Platform.isMacOS) {
+    candidates.addAll([
+      'macos/Frameworks/libearthly_ffi.dylib',
+      'apps/native/macos/Frameworks/libearthly_ffi.dylib',
+      'build/macos/Build/Products/Release/earthly_native.app/Contents/Frameworks/libearthly_ffi.dylib',
+      'build/macos/Build/Products/Debug/earthly_native.app/Contents/Frameworks/libearthly_ffi.dylib',
+      '../../target/aarch64-apple-darwin/release/libearthly_ffi.dylib',
+      '../../target/x86_64-apple-darwin/release/libearthly_ffi.dylib',
+      '../../target/release/libearthly_ffi.dylib',
+      '../../target/debug/libearthly_ffi.dylib',
+      '../../crates/earthly-ffi/target/release/libearthly_ffi.dylib',
+    ]);
+  } else if (Platform.isLinux) {
+    candidates.addAll([
+      'build/linux/x64/release/bundle/lib/libearthly_ffi.so',
+      'build/linux/arm64/release/bundle/lib/libearthly_ffi.so',
+      '../../target/release/libearthly_ffi.so',
+      '../../target/debug/libearthly_ffi.so',
+      '../../crates/earthly-ffi/target/release/libearthly_ffi.so',
+    ]);
+  } else if (Platform.isWindows) {
+    candidates.addAll([
+      'build/windows/x64/runner/Release/earthly_ffi.dll',
+      '../../target/release/earthly_ffi.dll',
+      '../../crates/earthly-ffi/target/release/earthly_ffi.dll',
+    ]);
+  }
+
+  for (final path in candidates) {
+    if (File(path).existsSync()) {
+      return path;
+    }
+  }
+  return null;
+}
+
+void main() {
+  final dylibPath = _probeEarthlyFfiDylib();
+  final skipReason = dylibPath == null
+      ? 'Compiled earthly_ffi native library not present (probed macos/Frameworks/ and build/ target paths)'
+      : null;
+
+  group('Live Rust FFI bridge round-trips', skip: skipReason, () {
+    late Directory tempDir;
+    late String masterKeyB64;
+
+    setUpAll(() async {
+      if (!EarthlyRustLib.instance.initialized) {
+        await EarthlyRustLib.init(
+          externalLibrary: ExternalLibrary.open(dylibPath!),
+        );
+      }
+      tempDir = await Directory.systemTemp.createTemp('earthly_live_ffi_test_');
+      masterKeyB64 = base64Encode(List<int>.generate(32, (i) => (i * 7 + 3) & 0xff));
+      await setSettingsMasterKey(masterKeyBase64: masterKeyB64);
+    });
+
+    tearDownAll(() async {
+      if (EarthlyRustLib.instance.initialized) {
+        try {
+          await stopMcpBridge();
+        } catch (_) {}
+      }
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    test('encrypted settings persist with ChaCha20-Poly1305 and decrypt cleanly',
+        () async {
+      final dbPath = '${tempDir.path}/settings.sqlite3';
+      const secretNsec =
+          'nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqwxyz';
+      const secretNwc =
+          'nostr+walletconnect://svc?relay=wss://relay.earthly.city&secret=supersecret';
+      const secretApiKey = 'sk-or-v1-live-ffi-secret-key';
+
+      final input = AppSettingsDto(
+        relayUrls: const ['wss://relay.earthly.city'],
+        localPubkeyHex: 'a' * 64,
+        localNsec: secretNsec,
+        agentPreset: 'openrouter',
+        agentBaseUrl: 'https://openrouter.ai/api/v1',
+        agentModel: 'anthropic/claude-sonnet-4',
+        agentApiKey: secretApiKey,
+        offlinePacks: const [],
+        pinnedEntityIds: const ['map:37515:aaa:danube'],
+        recentEntityIds: const [],
+        cordnServerPubkey: 'b' * 64,
+        bunkerUri: null,
+        bunkerClientNsec: 'nsec1clientbunkertest',
+        mountedAtlasWorkspaces: const [],
+        blossomServerUrl: 'https://blossom.earthly.city',
+        inboxReadAllBefore: BigInt.zero,
+        inboxReadIds: const [],
+        savedAccounts: [
+          SavedAccountSessionDto(
+            id: 'local:${'a' * 64}',
+            kind: 'local',
+            pubkeyHex: 'a' * 64,
+            localNsec: secretNsec,
+            label: 'Live FFI Test',
+          ),
+        ],
+        activeAccountId: 'local:${'a' * 64}',
+        mutedPubkeys: const [],
+        themeMode: 'system',
+        basemapStyle: 'auto',
+        satelliteMode: 'osm',
+        satelliteOpacity: 0.75,
+        storyDraftJson: null,
+        agentMessagesJson: null,
+        nwcUri: secretNwc,
+      );
+
+      final saved = await saveAppSettings(databasePath: dbPath, settings: input);
+      expect(saved.localNsec, secretNsec);
+      expect(saved.nwcUri, secretNwc);
+      expect(saved.agentApiKey, secretApiKey);
+
+      final loaded = await loadAppSettings(databasePath: dbPath);
+      expect(loaded.localNsec, secretNsec);
+      expect(loaded.nwcUri, secretNwc);
+      expect(loaded.agentApiKey, secretApiKey);
+      expect(loaded.bunkerClientNsec, 'nsec1clientbunkertest');
+      expect(loaded.savedAccounts.single.localNsec, secretNsec);
+
+      // Raw SQLite bytes must never leak plaintext sensitive credentials.
+      final rawText = latin1.decode(await File(dbPath).readAsBytes());
+      expect(rawText, contains('enc:v1:'));
+      expect(rawText, isNot(contains(secretNsec)));
+      expect(rawText, isNot(contains(secretNwc)));
+      expect(rawText, isNot(contains(secretApiKey)));
+    });
+
+    test('local drafts save, load, list, and delete in SQLite', () async {
+      final dbPath = '${tempDir.path}/drafts.sqlite3';
+      const geojson =
+          '{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.3738,48.2082]},"properties":{"name":"Stephansplatz"}}]}';
+
+      final saved = await saveLocalDraft(
+        databasePath: dbPath,
+        draftId: 'draft-live-1',
+        dTag: 'vienna-live',
+        title: 'Vienna Live Draft',
+        description: 'FFI round-trip test',
+        audienceChannel: 'public',
+        audienceId: null,
+        geojson: geojson,
+      );
+      expect(saved.draftId, 'draft-live-1');
+      expect(saved.title, 'Vienna Live Draft');
+
+      final loaded = await loadLocalDraft(
+        databasePath: dbPath,
+        draftId: 'draft-live-1',
+      );
+      expect(loaded, isNotNull);
+      expect(loaded!.dTag, 'vienna-live');
+      expect(loaded.geojson, contains('Stephansplatz'));
+
+      final all = await listLocalDrafts(databasePath: dbPath);
+      expect(all.map((d) => d.draftId), contains('draft-live-1'));
+
+      final deleted = await deleteLocalDraft(
+        databasePath: dbPath,
+        draftId: 'draft-live-1',
+      );
+      expect(deleted, isTrue);
+      expect(
+        await loadLocalDraft(databasePath: dbPath, draftId: 'draft-live-1'),
+        isNull,
+      );
+    });
+
+    test('Cashu wallet initializes, manages mints, and persists encrypted state',
+        () async {
+      final dbPath = '${tempDir.path}/cashu.sqlite3';
+      final kp = await generateLocalNostrKeypair();
+      expect(kp.pubkeyHex.length, 64);
+
+      final initialized = await initCashuWallet(
+        databasePath: dbPath,
+        pubkeyHex: kp.pubkeyHex,
+        mints: const ['https://mint.minibits.cash/Bitcoin'],
+        relays: const ['wss://relay.earthly.city'],
+        masterKeyB64: masterKeyB64,
+      );
+      expect(initialized.pubkeyHex, kp.pubkeyHex);
+      expect(initialized.mints, ['https://mint.minibits.cash/Bitcoin']);
+      expect(initialized.p2PkPubkeyHex.length, 66);
+      expect(initialized.balanceSats, BigInt.zero);
+
+      final withMint = await addCashuMint(
+        databasePath: dbPath,
+        pubkeyHex: kp.pubkeyHex,
+        mintUrl: 'https://mint.coinos.io',
+        masterKeyB64: masterKeyB64,
+      );
+      expect(withMint.mints.length, 2);
+
+      final reloaded = await loadCashuWalletState(
+        databasePath: dbPath,
+        pubkeyHex: kp.pubkeyHex,
+        masterKeyB64: masterKeyB64,
+      );
+      expect(reloaded.mints, contains('https://mint.coinos.io'));
+
+      final afterRemove = await removeCashuMint(
+        databasePath: dbPath,
+        pubkeyHex: kp.pubkeyHex,
+        mintUrl: 'https://mint.coinos.io',
+        masterKeyB64: masterKeyB64,
+      );
+      expect(afterRemove.mints, ['https://mint.minibits.cash/Bitcoin']);
+    });
+
+    test('Geo bridge validates, measures, generates primitives, and round-trips GPX/Shapefile/Multipart',
+        () async {
+      const sampleGeojson =
+          '{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.3738,48.2082]},"properties":{"name":"Vienna Center"}},{"type":"Feature","id":"l1","geometry":{"type":"LineString","coordinates":[[16.36,48.20],[16.38,48.22]]},"properties":{"name":"Danube Spur"}}]}';
+
+      final validation = await geoValidateDraftGeojson(geojson: sampleGeojson);
+      expect(validation.valid, isTrue);
+      expect(validation.featureCount, 2);
+
+      final meters = await geoMeasureLineMeters(
+        points: const [
+          LonLatPoint(lon: 16.36, lat: 48.20),
+          LonLatPoint(lon: 16.38, lat: 48.22),
+        ],
+      );
+      expect(meters, greaterThan(1000.0));
+
+      final hexRing = await geoCreatePrimitiveShape(
+        center: const LonLatPoint(lon: 16.3738, lat: 48.2082),
+        shape: 'hexagon',
+        radiusMeters: 200.0,
+      );
+      expect(hexRing.length, greaterThanOrEqualTo(6));
+
+      final gpx = await geoExportGpx(geojson: sampleGeojson, title: 'LiveGPX');
+      expect(gpx, contains('<gpx'));
+      final importedGpx = await geoImportSpatialFile(
+        filename: 'live.gpx',
+        content: gpx,
+      );
+      expect(importedGpx.featureCount, greaterThanOrEqualTo(1));
+
+      final shpZip = await geoExportShapefileZip(
+        geojson:
+            '{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.3738,48.2082]},"properties":{"name":"Vienna"}}]}',
+        title: 'LiveSHP',
+      );
+      expect(shpZip.length, greaterThan(32));
+      expect(shpZip.sublist(0, 2), [0x50, 0x4B]); // ZIP magic PK
+      final importedShp = await geoImportShapefileBytes(
+        filename: 'LiveSHP.zip',
+        bytes: shpZip,
+      );
+      expect(importedShp.featureCount, 1);
+
+      final merged = await geoMergeToMultipart(
+        geojsonGeometries: const [
+          '{"type":"Point","coordinates":[16.37,48.20]}',
+          '{"type":"Point","coordinates":[16.39,48.22]}',
+        ],
+      );
+      expect(jsonDecode(merged)['type'], 'MultiPoint');
+      final exploded = await geoExplodeMultipart(geojsonGeometry: merged);
+      expect(exploded.length, 2);
+    });
+
+    test('MCP bridge starts on loopback, syncs workspace, drains mutations, and stops',
+        () async {
+      await stopMcpBridge();
+
+      const workspace = McpWorkspaceDto(
+        centerLon: 16.3738,
+        centerLat: 48.2082,
+        zoom: 13.5,
+        draftTitle: 'Live FFI MCP Workspace',
+        draftGeojson: '{"type":"FeatureCollection","features":[]}',
+        shelfMapTitles: ['Danube Trails'],
+        atlasWorkspaces: [],
+        workingSetTitles: [],
+        catalogItems: [],
+      );
+
+      final started = await startMcpBridge(port: 0, workspace: workspace);
+      expect(started.running, isTrue);
+      expect(started.port, greaterThan(0));
+      expect(started.endpointUrl, startsWith('http://127.0.0.1:'));
+      expect(started.authToken, isNotEmpty);
+      expect(started.toolCount, greaterThan(0));
+
+      await syncMcpWorkspace(
+        workspace: const McpWorkspaceDto(
+          centerLon: 16.38,
+          centerLat: 48.21,
+          zoom: 14.0,
+          draftTitle: 'Updated Workspace',
+          draftGeojson: '{"type":"FeatureCollection","features":[]}',
+          shelfMapTitles: ['Danube Trails'],
+          atlasWorkspaces: [],
+          workingSetTitles: ['Danube Trails'],
+          catalogItems: [],
+        ),
+      );
+      final mutations = await drainMcpMutations();
+      expect(mutations, isEmpty);
+
+      final status = await getMcpBridgeStatus();
+      expect(status.running, isTrue);
+      expect(status.port, started.port);
+
+      final stopped = await stopMcpBridge();
+      expect(stopped.running, isFalse);
+    });
+  });
+}
