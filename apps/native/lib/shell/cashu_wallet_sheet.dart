@@ -181,6 +181,8 @@ class CashuWalletSheet extends StatefulWidget {
     required this.onToggleNutzaps,
     required this.onClaimNutzaps,
     required this.onClose,
+    this.walletEnabled = true,
+    this.onSetWalletEnabled,
     this.busy = false,
     super.key,
   });
@@ -204,6 +206,8 @@ class CashuWalletSheet extends StatefulWidget {
   final FutureOr<void> Function() onToggleNutzaps;
   final FutureOr<void> Function() onClaimNutzaps;
   final VoidCallback onClose;
+  final bool walletEnabled;
+  final FutureOr<void> Function(bool enabled)? onSetWalletEnabled;
   final bool busy;
 
   @override
@@ -221,6 +225,10 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
   final _sendAmountController = TextEditingController(text: '100');
 
   bool _enableNutzapsOnCreate = true;
+  bool _nutzapsExpanded = true;
+  bool _mintsExpanded = true;
+  bool _historyExpanded = true;
+  bool _settingsExpanded = true;
   bool _localBusy = false;
   String? _error;
   String? _notice;
@@ -452,11 +460,44 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
     });
   }
 
+  Future<void> _setWalletEnabled(bool enabled) async {
+    final handler = widget.onSetWalletEnabled;
+    if (handler == null) return;
+    await _runGuarded(() async {
+      await handler(enabled);
+      if (!mounted) return;
+      setState(() {
+        _notice = enabled
+            ? 'NIP-60 Wallet enabled'
+            : 'NIP-60 Wallet disabled';
+      });
+    });
+  }
+
+  Future<void> _syncWallet() async {
+    await _runGuarded(() async {
+      await widget.onSyncWallet();
+      if (!mounted) return;
+      setState(() => _notice = 'Wallet synced with relays');
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final state = widget.state;
+    final walletEnabled = widget.walletEnabled;
+    final badgeLabel = !walletEnabled
+        ? 'Opt-in'
+        : state.initialized
+            ? 'NIP-60'
+            : 'Setup';
+    final badgeColor = !walletEnabled
+        ? theme.colorScheme.onSurfaceVariant
+        : state.initialized
+            ? EarthlyColors.commentGreen
+            : EarthlyColors.amber;
 
     return EarthlyMapDrawer(
       initialFraction: 0.68,
@@ -480,23 +521,19 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
                 runSpacing: 4,
                 children: [
                   Text(
-                    'CASHU WALLET',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.7,
+                    'Wallet',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   EarthlyBadge(
-                    label: state.initialized ? 'NIP-60 · ACTIVE' : 'SETUP',
-                    color: state.initialized
-                        ? EarthlyColors.commentGreen
-                        : EarthlyColors.amber,
+                    label: badgeLabel,
+                    color: badgeColor,
                   ),
                 ],
               ),
             ),
-            if (state.initialized)
+            if (walletEnabled)
               TextButton.icon(
                 key: const Key('cashu-sync-btn'),
                 style: TextButton.styleFrom(
@@ -504,13 +541,7 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 ),
-                onPressed: _isBusy
-                    ? null
-                    : () => _runGuarded(() async {
-                          await widget.onSyncWallet();
-                          if (!mounted) return;
-                          setState(() => _notice = 'Wallet synced with relays');
-                        }),
+                onPressed: _isBusy ? null : _syncWallet,
                 icon: _isBusy
                     ? const SizedBox(
                         width: 13,
@@ -530,7 +561,7 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
         ),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
         children: [
           if (_error != null) ...[
             _StatusBanner(
@@ -548,7 +579,9 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
             ),
             const SizedBox(height: 10),
           ],
-          if (!state.initialized)
+          if (!walletEnabled)
+            _buildDisabledOptInView(theme, isDark)
+          else if (!state.initialized)
             _buildUninitializedView(theme, isDark)
           else ...[
             _buildBalanceHero(theme, isDark, state),
@@ -560,17 +593,19 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
             ],
             const SizedBox(height: 14),
             _buildNutzapsCard(theme, isDark, state),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             _buildMintsSection(theme, isDark, state),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             _buildHistorySection(theme, isDark, state),
+            const SizedBox(height: 12),
+            _buildSettingsSection(theme, isDark),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildUninitializedView(ThemeData theme, bool isDark) {
+  Widget _buildDisabledOptInView(ThemeData theme, bool isDark) {
     return _SectionCard(
       isDark: isDark,
       child: Column(
@@ -582,16 +617,16 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: EarthlyColors.amber.withValues(alpha: 0.16),
+                  color: EarthlyColors.amber.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(11),
                   border: Border.all(
-                    color: EarthlyColors.amber.withValues(alpha: 0.4),
+                    color: EarthlyColors.amber.withValues(alpha: 0.35),
                   ),
                 ),
                 child: const Icon(
-                  Icons.bolt,
+                  Icons.account_balance_wallet_outlined,
                   color: EarthlyColors.amber,
-                  size: 22,
+                  size: 20,
                 ),
               ),
               const SizedBox(width: 12),
@@ -600,77 +635,220 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Create NIP-60 Ecash Wallet',
+                      'NIP-60 Cashu Ecash Wallet',
                       style: theme.textTheme.titleSmall,
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Encrypted Cashu proofs synced to Nostr relays, with optional NIP-61 P2PK Nutzaps.',
+                      'Disabled by default for new users.',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            key: const Key('cashu-starter-mint-input'),
-            controller: _starterMintController,
-            enabled: !_isBusy,
-            keyboardType: TextInputType.url,
-            decoration: const InputDecoration(
-              labelText: 'Starter Mint URL',
-              hintText: CashuWalletSheet.defaultStarterMintUrl,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Enable NIP-61 Nutzaps',
-                      style: theme.textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Publish kind 10019 receiving info with a P2PK ecash key.',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Switch.adaptive(
-                key: const Key('cashu-enable-nutzaps-switch'),
-                value: _enableNutzapsOnCreate,
-                onChanged: _isBusy
-                    ? null
-                    : (value) =>
-                        setState(() => _enableNutzapsOnCreate = value),
               ),
             ],
           ),
           const SizedBox(height: 12),
+          Text(
+            'Enable the opt-in NIP-60 wallet to store encrypted Cashu ecash proofs on Nostr relays, send and receive sats, and claim NIP-61 Nutzaps.',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 14),
           FilledButton.icon(
-            key: const Key('cashu-create-wallet-btn'),
-            onPressed: _isBusy ? null : _createWallet,
+            key: const Key('cashu-enable-wallet-btn'),
+            onPressed: _isBusy ? null : () => _setWalletEnabled(true),
             icon: _isBusy
                 ? const SizedBox(
                     width: 15,
                     height: 15,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.add_circle_outline, size: 17),
-            label: Text(
-              _isBusy ? 'Creating Wallet…' : 'Create NIP-60 Wallet',
-            ),
+                : const Icon(Icons.bolt, size: 17),
+            label: const Text('Enable NIP-60 Wallet'),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildUninitializedView(ThemeData theme, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionCard(
+          isDark: isDark,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: EarthlyColors.amber.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: EarthlyColors.amber.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.sync,
+                      color: EarthlyColors.amber,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Already have a NIP-60 wallet?',
+                          style: theme.textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Sync encrypted mints and proofs from your Nostr relays.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                key: const Key('cashu-sync-existing-btn'),
+                onPressed: _isBusy ? null : _syncWallet,
+                icon: _isBusy
+                    ? const SizedBox(
+                        width: 15,
+                        height: 15,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.cloud_download_outlined, size: 17),
+                label: const Text('Sync Existing Wallet from Relays'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _SectionCard(
+          isDark: isDark,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: EarthlyColors.amber.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: EarthlyColors.amber.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.bolt,
+                      color: EarthlyColors.amber,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Create New NIP-60 Wallet',
+                          style: theme.textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Encrypted Cashu proofs synced to Nostr relays, with optional NIP-61 P2PK Nutzaps.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                key: const Key('cashu-starter-mint-input'),
+                controller: _starterMintController,
+                enabled: !_isBusy,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'Starter Mint URL',
+                  hintText: CashuWalletSheet.defaultStarterMintUrl,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Enable NIP-61 Nutzaps',
+                          style: theme.textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Publish kind 10019 receiving info with a P2PK ecash key.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch.adaptive(
+                    key: const Key('cashu-enable-nutzaps-switch'),
+                    value: _enableNutzapsOnCreate,
+                    onChanged: _isBusy
+                        ? null
+                        : (value) =>
+                            setState(() => _enableNutzapsOnCreate = value),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('cashu-create-wallet-btn'),
+                onPressed: _isBusy ? null : _createWallet,
+                icon: _isBusy
+                    ? const SizedBox(
+                        width: 15,
+                        height: 15,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.add_circle_outline, size: 17),
+                label: Text(
+                  _isBusy ? 'Creating Wallet…' : 'Create New NIP-60 Wallet',
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const Key('cashu-disable-wallet-btn'),
+            onPressed: _isBusy ? null : () => _setWalletEnabled(false),
+            style: TextButton.styleFrom(
+              foregroundColor: theme.colorScheme.onSurfaceVariant,
+            ),
+            icon: const Icon(Icons.visibility_off_outlined, size: 15),
+            label: const Text('Disable NIP-60 Wallet'),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1047,44 +1225,32 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
     CashuWalletViewState state,
   ) {
     final p2pk = state.p2pkPubkeyHex?.trim() ?? '';
-    return _SectionCard(
+    return _CollapsibleSectionCard(
       isDark: isDark,
+      toggleKey: const Key('cashu-section-nutzaps-toggle'),
+      icon: const Icon(Icons.bolt, size: 17, color: EarthlyColors.amber),
+      title: 'NIP-61 Nutzaps',
+      badge: EarthlyBadge(
+        label: state.nutzapEnabled ? 'ENABLED' : 'OFF',
+        color: state.nutzapEnabled
+            ? EarthlyColors.commentGreen
+            : EarthlyColors.published,
+      ),
+      trailing: Switch.adaptive(
+        key: const Key('cashu-toggle-nutzaps-btn'),
+        value: state.nutzapEnabled,
+        onChanged: _isBusy
+            ? null
+            : (_) => _runGuarded(() async {
+                  await widget.onToggleNutzaps();
+                }),
+      ),
+      expanded: _nutzapsExpanded,
+      onToggle: () => setState(() => _nutzapsExpanded = !_nutzapsExpanded),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.bolt, size: 17, color: EarthlyColors.amber),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'NIP-61 NUTZAPS',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontFamily: 'monospace',
-                    letterSpacing: 0.6,
-                  ),
-                ),
-              ),
-              EarthlyBadge(
-                label: state.nutzapEnabled ? 'ENABLED' : 'OFF',
-                color: state.nutzapEnabled
-                    ? EarthlyColors.commentGreen
-                    : EarthlyColors.published,
-              ),
-              const SizedBox(width: 6),
-              Switch.adaptive(
-                key: const Key('cashu-toggle-nutzaps-btn'),
-                value: state.nutzapEnabled,
-                onChanged: _isBusy
-                    ? null
-                    : (_) => _runGuarded(() async {
-                          await widget.onToggleNutzaps();
-                        }),
-              ),
-            ],
-          ),
           if (p2pk.isNotEmpty) ...[
-            const SizedBox(height: 6),
             Row(
               children: [
                 Expanded(
@@ -1106,8 +1272,8 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
                 ),
               ],
             ),
+            const SizedBox(height: 6),
           ],
-          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -1147,28 +1313,19 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
     bool isDark,
     CashuWalletViewState state,
   ) {
-    return _SectionCard(
+    return _CollapsibleSectionCard(
       isDark: isDark,
+      toggleKey: const Key('cashu-section-mints-toggle'),
+      title: 'Mints',
+      badge: EarthlyBadge(
+        label: '${state.mints.length}',
+        color: EarthlyColors.amber,
+      ),
+      expanded: _mintsExpanded,
+      onToggle: () => setState(() => _mintsExpanded = !_mintsExpanded),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Text(
-                'MINTS',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.7,
-                ),
-              ),
-              const SizedBox(width: 8),
-              EarthlyBadge(
-                label: '${state.mints.length}',
-                color: EarthlyColors.amber,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
           if (state.mints.isEmpty)
             Text(
               'No mints added yet.',
@@ -1220,28 +1377,19 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
     bool isDark,
     CashuWalletViewState state,
   ) {
-    return _SectionCard(
+    return _CollapsibleSectionCard(
       isDark: isDark,
+      toggleKey: const Key('cashu-section-history-toggle'),
+      title: 'History',
+      badge: EarthlyBadge(
+        label: '${state.history.length}',
+        color: EarthlyColors.published,
+      ),
+      expanded: _historyExpanded,
+      onToggle: () => setState(() => _historyExpanded = !_historyExpanded),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Text(
-                'RECENT HISTORY',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.7,
-                ),
-              ),
-              const SizedBox(width: 8),
-              EarthlyBadge(
-                label: '${state.history.length}',
-                color: EarthlyColors.published,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
           if (state.history.isEmpty)
             Text(
               'Deposits, withdrawals, ecash transfers, and nutzaps will appear here.',
@@ -1255,6 +1403,118 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
               ),
               if (i < state.history.length - 1) const Divider(height: 12),
             ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsSection(ThemeData theme, bool isDark) {
+    return _CollapsibleSectionCard(
+      isDark: isDark,
+      toggleKey: const Key('cashu-section-settings-toggle'),
+      icon: Icon(
+        Icons.tune,
+        size: 16,
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+      title: 'Settings',
+      expanded: _settingsExpanded,
+      onToggle: () => setState(() => _settingsExpanded = !_settingsExpanded),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Disable the opt-in NIP-60 wallet to hide it from the drawer and skip relay wallet sync. Your encrypted proofs on relays and local database remain intact.',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            key: const Key('cashu-disable-wallet-btn'),
+            onPressed: _isBusy ? null : () => _setWalletEnabled(false),
+            icon: const Icon(Icons.visibility_off_outlined, size: 16),
+            label: const Text('Disable NIP-60 Wallet'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CollapsibleSectionCard extends StatelessWidget {
+  const _CollapsibleSectionCard({
+    required this.isDark,
+    required this.title,
+    required this.expanded,
+    required this.onToggle,
+    required this.child,
+    this.icon,
+    this.badge,
+    this.trailing,
+    this.toggleKey,
+  });
+
+  final bool isDark;
+  final String title;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final Widget child;
+  final Widget? icon;
+  final Widget? badge;
+  final Widget? trailing;
+  final Key? toggleKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return _SectionCard(
+      isDark: isDark,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  key: toggleKey,
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: onToggle,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: [
+                        if (icon != null) ...[
+                          icon!,
+                          const SizedBox(width: 6),
+                        ],
+                        Text(
+                          title,
+                          style: theme.textTheme.titleSmall,
+                        ),
+                        if (badge != null) ...[
+                          const SizedBox(width: 8),
+                          badge!,
+                        ],
+                        const Spacer(),
+                        Icon(
+                          expanded ? Icons.expand_less : Icons.expand_more,
+                          size: 18,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                trailing!,
+              ],
+            ],
+          ),
+          if (expanded) ...[
+            const SizedBox(height: 10),
+            child,
+          ],
         ],
       ),
     );

@@ -38,9 +38,76 @@ class AccountWalletController extends ChangeNotifier {
 
   String? nwcUri;
   String? settingsMasterKey;
+  bool nip60WalletEnabled = false;
   CashuWalletStateDto? cashuWalletState;
   bool cashuBusy = false;
   final Map<String, int> cashuQuoteAmounts = <String, int>{};
+
+  void setNip60WalletEnabled(bool enabled, {VoidCallback? onPersistSettings}) {
+    nip60WalletEnabled = enabled;
+    if (!enabled) {
+      cashuWalletState = null;
+    }
+    walletListenable.notifyListeners();
+    notifyListeners();
+    onPersistSettings?.call();
+  }
+
+  bool get canDecryptNip44 {
+    if (activeSavedSession?.kind == 'readonly') return false;
+    if (localNsec != null && localNsec!.trim().isNotEmpty) return true;
+    if (bunkerUri != null &&
+        bunkerUri!.trim().isNotEmpty &&
+        bunkerClientNsec != null &&
+        bunkerClientNsec!.trim().isNotEmpty) {
+      return true;
+    }
+    if (Platform.isAndroid && account != null) return true;
+    return false;
+  }
+
+  Future<String> nip44DecryptForSelf(
+    String ciphertext, {
+    required Future<String> Function(String ciphertext) decryptWithLocalNsec,
+    required Future<String> Function(String pubkeyHex, String ciphertext)
+        decryptWithBunker,
+  }) async {
+    if (activeSavedSession?.kind == 'readonly') {
+      throw StateError(
+        'Active account is a read-only watch session. Switch to a signing session in Account.',
+      );
+    }
+    final nsec = localNsec?.trim();
+    if (nsec != null && nsec.isNotEmpty) {
+      return decryptWithLocalNsec(ciphertext);
+    }
+    final bunker = bunkerUri?.trim();
+    final clientNsec = bunkerClientNsec?.trim();
+    final acct = account;
+    if (bunker != null &&
+        bunker.isNotEmpty &&
+        clientNsec != null &&
+        clientNsec.isNotEmpty) {
+      final pubkeyHex = acct?.pubkey ?? activeSavedSession?.pubkeyHex ?? '';
+      if (pubkeyHex.isEmpty) {
+        throw StateError(
+          'Active bunker session is missing a user public key.',
+        );
+      }
+      return decryptWithBunker(pubkeyHex, ciphertext);
+    }
+    if (Platform.isAndroid && acct != null) {
+      return Nip55Signer.nip44Decrypt(
+        ciphertext: ciphertext,
+        pubkey: acct.pubkey,
+        currentUser: acct.pubkey,
+        signerPackage: acct.signerPackage,
+      );
+    }
+    throw StateError(
+      'Active session cannot decrypt NIP-44 payloads. Sign in with nsec, NIP-46 bunker, or Android Amber.',
+    );
+  }
 
   SavedAccountSessionDto? get activeSavedSession =>
       savedAccounts.where((s) => s.id == activeAccountId).firstOrNull;
@@ -484,6 +551,12 @@ class AccountWalletController extends ChangeNotifier {
 
   Future<void> refreshCashuWalletState({bool isHeadlessTest = false}) async {
     if (isHeadlessTest) return;
+    if (!nip60WalletEnabled) {
+      cashuWalletState = null;
+      walletListenable.notifyListeners();
+      notifyListeners();
+      return;
+    }
     final acct = account;
     if (acct == null) {
       cashuWalletState = null;

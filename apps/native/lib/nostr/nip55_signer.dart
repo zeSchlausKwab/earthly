@@ -73,4 +73,46 @@ abstract final class Nip55Signer {
       signature: raw?['signature'] as String?,
     );
   }
+
+  static Future<String> nip44Decrypt({
+    required String ciphertext,
+    required String pubkey,
+    String? currentUser,
+    String? signerPackage,
+  }) async {
+    final out = await _channel.invokeMethod<String>(
+      'nip44Decrypt',
+      <String, dynamic>{
+        'ciphertext': ciphertext,
+        'pubkey': pubkey,
+        'currentUser': ?currentUser,
+        'package': ?signerPackage,
+      },
+    );
+    if (out == null || out.isEmpty) {
+      throw StateError('NIP-55 signer returned an empty NIP-44 decryption result');
+    }
+    return out;
+  }
+
+  static Future<String> nip44Encrypt({
+    required String plaintext,
+    required String pubkey,
+    String? currentUser,
+    String? signerPackage,
+  }) async {
+    final out = await _channel.invokeMethod<String>(
+      'nip44Encrypt',
+      <String, dynamic>{
+        'plaintext': plaintext,
+        'pubkey': pubkey,
+        'currentUser': ?currentUser,
+        'package': ?signerPackage,
+      },
+    );
+    if (out == null || out.isEmpty) {
+      throw StateError('NIP-55 signer returned an empty NIP-44 encryption result');
+    }
+    return out;
+  }
 }

@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import com.google.zxing.integration.android.IntentIntegrator
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import java.security.KeyStore
@@ -43,6 +44,8 @@ class MainActivity : FlutterActivity() {
         private const val GCM_TAG_BITS = 128
         private const val REQUEST_GET_PUBKEY = 5501
         private const val REQUEST_SIGN_EVENT = 5502
+        private const val REQUEST_NIP44_DECRYPT = 5503
+        private const val REQUEST_NIP44_ENCRYPT = 5504
         private const val REQUEST_CAPTURE_PHOTO = 5601
         private const val REQUEST_PICK_IMAGE = 5602
         private const val REQUEST_PICK_PMTILES = 5603
@@ -138,6 +141,10 @@ class MainActivity : FlutterActivity() {
                         }
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("nostrsigner:")).apply {
                             putExtra("type", "get_public_key")
+                            putExtra(
+                                "permissions",
+                                "[{\"type\":\"sign_event\"},{\"type\":\"nip44_encrypt\"},{\"type\":\"nip44_decrypt\"}]",
+                            )
                         }
                         if (intent.resolveActivity(packageManager) == null) {
                             result.error("no_signer", "No NIP-55 signer app (such as Amber) is installed", null)
@@ -183,6 +190,10 @@ class MainActivity : FlutterActivity() {
                         @Suppress("DEPRECATION")
                         startActivityForResult(intent, REQUEST_SIGN_EVENT)
                     }
+
+                    "nip44Decrypt" -> handleNip44Method(call, result, isEncrypt = false)
+
+                    "nip44Encrypt" -> handleNip44Method(call, result, isEncrypt = true)
 
                     else -> result.notImplemented()
                 }
@@ -424,6 +435,117 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun resolveNip55Package(requested: String?): String? {
+        if (!requested.isNullOrBlank()) return requested
+        val probe = Intent(Intent.ACTION_VIEW, Uri.parse("nostrsigner:"))
+        return packageManager.queryIntentActivities(probe, 0)
+            .firstOrNull()
+            ?.activityInfo
+            ?.packageName
+    }
+
+    private fun handleNip44Method(
+        call: MethodCall,
+        result: MethodChannel.Result,
+        isEncrypt: Boolean,
+    ) {
+        val payload = if (isEncrypt) {
+            call.argument<String>("plaintext") ?: call.argument<String>("payload")
+        } else {
+            call.argument<String>("ciphertext") ?: call.argument<String>("payload")
+        }
+        if (payload.isNullOrEmpty()) {
+            result.error(
+                "invalid_args",
+                "${if (isEncrypt) "plaintext" else "ciphertext"} is required",
+                null,
+            )
+            return
+        }
+        val pubkey = call.argument<String>("pubkey") ?: call.argument<String>("pubKey")
+        if (pubkey.isNullOrBlank()) {
+            result.error("invalid_args", "pubkey is required", null)
+            return
+        }
+        val currentUser = call.argument<String>("currentUser")
+        val signerPackage = resolveNip55Package(call.argument<String>("package"))
+        if (signerPackage.isNullOrBlank()) {
+            result.error("no_signer", "No NIP-55 signer app (such as Amber) is installed", null)
+            return
+        }
+
+        val authoritySuffix = if (isEncrypt) "NIP44_ENCRYPT" else "NIP44_DECRYPT"
+        val projection = if (!currentUser.isNullOrBlank()) {
+            arrayOf(payload, pubkey, currentUser)
+        } else {
+            arrayOf(payload, pubkey)
+        }
+        try {
+            contentResolver.query(
+                Uri.parse("content://$signerPackage.$authoritySuffix"),
+                projection,
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val rejectedIdx = cursor.getColumnIndex("rejected")
+                    if (rejectedIdx >= 0) {
+                        val rejectedVal = cursor.getString(rejectedIdx)
+                        if (!rejectedVal.isNullOrBlank() &&
+                            !rejectedVal.equals("false", ignoreCase = true) &&
+                            rejectedVal != "0"
+                        ) {
+                            result.error(
+                                "rejected",
+                                "Signer rejected NIP-55 $authoritySuffix request",
+                                null,
+                            )
+                            return
+                        }
+                    }
+                    val resultIdx = cursor.getColumnIndex("result")
+                    val sigIdx = cursor.getColumnIndex("signature")
+                    val resultVal = if (resultIdx >= 0) cursor.getString(resultIdx) else null
+                    val sigVal = if (sigIdx >= 0) cursor.getString(sigIdx) else null
+                    val value = resultVal?.takeIf { it.isNotBlank() }
+                        ?: sigVal?.takeIf { it.isNotBlank() }
+                    if (value != null) {
+                        result.success(value)
+                        return
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Fall back to interactive Intent when ContentProvider query is unavailable.
+        }
+
+        if (pendingResult != null) {
+            result.error("busy", "Another request is already pending", null)
+            return
+        }
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("nostrsigner:${Uri.encode(payload)}"),
+        ).apply {
+            putExtra("type", if (isEncrypt) "nip44_encrypt" else "nip44_decrypt")
+            putExtra("pubKey", pubkey)
+            if (!currentUser.isNullOrBlank()) {
+                putExtra("current_user", currentUser)
+            }
+            setPackage(signerPackage)
+        }
+        if (intent.resolveActivity(packageManager) == null) {
+            result.error("no_signer", "No NIP-55 signer app is available", null)
+            return
+        }
+        val requestCode = if (isEncrypt) REQUEST_NIP44_ENCRYPT else REQUEST_NIP44_DECRYPT
+        pendingResult = result
+        pendingRequestCode = requestCode
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, requestCode)
     }
 
     private fun getOrCreateWrappingKey(): SecretKey {
@@ -677,6 +799,15 @@ class MainActivity : FlutterActivity() {
                             "signature" to signature,
                         ),
                     )
+                }
+
+                REQUEST_NIP44_DECRYPT, REQUEST_NIP44_ENCRYPT -> {
+                    val value = data.getStringExtra("result") ?: data.getStringExtra("signature")
+                    if (value.isNullOrEmpty()) {
+                        callback.error("empty_result", "Signer returned an empty NIP-44 result", null)
+                    } else {
+                        callback.success(value)
+                    }
                 }
 
                 REQUEST_CAPTURE_PHOTO -> {

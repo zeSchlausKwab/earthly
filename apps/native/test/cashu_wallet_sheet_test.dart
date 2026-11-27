@@ -1,5 +1,8 @@
+import 'package:earthly_native/controllers/account_wallet_controller.dart';
 import 'package:earthly_native/shell/cashu_wallet_sheet.dart';
 import 'package:earthly_native/shell/qr_code_view.dart';
+import 'package:earthly_native/src/rust/api/settings.dart';
+import 'package:earthly_native/src/rust/api/wallet.dart';
 import 'package:earthly_native/theme/earthly_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,10 +16,14 @@ void main() {
       )
       .first;
 
-  Future<void> scrollAndTap(WidgetTester tester, Finder finder) async {
+  Future<void> scrollAndTap(
+    WidgetTester tester,
+    Finder finder, {
+    double delta = 120,
+  }) async {
     await tester.scrollUntilVisible(
       finder,
-      120,
+      delta,
       scrollable: verticalScrollable(),
     );
     await tester.ensureVisible(finder);
@@ -41,6 +48,8 @@ void main() {
 
   CashuWalletSheet buildSheet({
     required CashuWalletViewState state,
+    bool walletEnabled = true,
+    Future<void> Function(bool enabled)? onSetWalletEnabled,
     Future<void> Function(List<String> mints, bool enableNutzaps)?
         onInitializeWallet,
     Future<void> Function()? onSyncWallet,
@@ -58,6 +67,8 @@ void main() {
   }) {
     return CashuWalletSheet(
       state: state,
+      walletEnabled: walletEnabled,
+      onSetWalletEnabled: onSetWalletEnabled,
       onInitializeWallet: onInitializeWallet ?? (_, _) async {},
       onSyncWallet: onSyncWallet ?? () async {},
       onAddMint: onAddMint ?? (_) async {},
@@ -123,16 +134,49 @@ void main() {
   }
 
   group('CashuWalletSheet', () {
-    testWidgets('uninitialized create flow pre-fills minibits mint and passes nutzap toggle',
+    testWidgets(
+        'disabled opt-in state hides sync, explains default, and enables wallet',
+        (WidgetTester tester) async {
+      bool? setEnabledArg;
+
+      await tester.pumpWidget(
+        wrapSheet(
+          buildSheet(
+            walletEnabled: false,
+            state: const CashuWalletViewState(initialized: false),
+            onSetWalletEnabled: (enabled) async => setEnabledArg = enabled,
+          ),
+        ),
+      );
+
+      expect(find.text('Wallet'), findsOneWidget);
+      expect(find.text('Opt-in'), findsOneWidget);
+      expect(find.byKey(const Key('cashu-sync-btn')), findsNothing);
+      expect(find.text('Disabled by default for new users.'), findsOneWidget);
+      expect(find.byKey(const Key('cashu-enable-wallet-btn')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('cashu-enable-wallet-btn')));
+      await tester.pumpAndSettle();
+
+      expect(setEnabledArg, isTrue);
+    });
+
+    testWidgets(
+        'uninitialized enabled flow supports header sync, sync existing CTA, create wallet, and disable toggle',
         (WidgetTester tester) async {
       List<String>? createdMints;
       bool? createdNutzaps;
+      var syncCount = 0;
+      bool? setEnabledArg;
       var closed = false;
 
       await tester.pumpWidget(
         wrapSheet(
           buildSheet(
+            walletEnabled: true,
             state: const CashuWalletViewState(initialized: false),
+            onSetWalletEnabled: (enabled) async => setEnabledArg = enabled,
+            onSyncWallet: () async => syncCount++,
             onInitializeWallet: (mints, enableNutzaps) async {
               createdMints = mints;
               createdNutzaps = enableNutzaps;
@@ -142,9 +186,22 @@ void main() {
         ),
       );
 
-      expect(find.text('CASHU WALLET'), findsOneWidget);
-      expect(find.text('SETUP'), findsOneWidget);
+      expect(find.text('Wallet'), findsOneWidget);
+      expect(find.text('Setup'), findsOneWidget);
+      // Sync button in header is visible even when uninitialized.
+      expect(find.byKey(const Key('cashu-sync-btn')), findsOneWidget);
+      expect(find.byKey(const Key('cashu-sync-existing-btn')), findsOneWidget);
       expect(find.text('Enable NIP-61 Nutzaps'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('cashu-sync-btn')));
+      await tester.pumpAndSettle();
+      expect(syncCount, 1);
+
+      await scrollAndTap(
+        tester,
+        find.byKey(const Key('cashu-sync-existing-btn')),
+      );
+      expect(syncCount, 2);
 
       final starterField = tester.widget<TextField>(
         find.byKey(const Key('cashu-starter-mint-input')),
@@ -155,32 +212,45 @@ void main() {
       );
 
       // Toggle off NIP-61 Nutzaps before creating
-      await tester.tap(find.byKey(const Key('cashu-enable-nutzaps-switch')));
-      await tester.pump();
+      await scrollAndTap(
+        tester,
+        find.byKey(const Key('cashu-enable-nutzaps-switch')),
+      );
 
-      await tester.tap(find.byKey(const Key('cashu-create-wallet-btn')));
-      await tester.pumpAndSettle();
+      await scrollAndTap(
+        tester,
+        find.byKey(const Key('cashu-create-wallet-btn')),
+      );
 
       expect(createdMints, ['https://mint.minibits.cash/Bitcoin']);
       expect(createdNutzaps, isFalse);
+
+      await scrollAndTap(
+        tester,
+        find.byKey(const Key('cashu-disable-wallet-btn')),
+      );
+      expect(setEnabledArg, isFalse);
 
       await tester.tap(find.byTooltip('Close Cashu Wallet'));
       await tester.pump();
       expect(closed, isTrue);
     });
 
-    testWidgets('initialized view displays balance, sync, mint management, and nutzap claim',
+    testWidgets(
+        'initialized view displays balance, sync, collapsible sections, mint management, nutzap claim, and disable button',
         (WidgetTester tester) async {
       var syncCount = 0;
       String? addedMint;
       String? removedMint;
       var toggledNutzaps = 0;
       var claimedNutzaps = 0;
+      bool? setEnabledArg;
 
       await tester.pumpWidget(
         wrapSheet(
           buildSheet(
             state: initializedState(),
+            onSetWalletEnabled: (enabled) async => setEnabledArg = enabled,
             onSyncWallet: () async => syncCount++,
             onAddMint: (url) async => addedMint = url,
             onRemoveMint: (url) async => removedMint = url,
@@ -191,6 +261,8 @@ void main() {
         ),
       );
 
+      expect(find.text('Wallet'), findsOneWidget);
+      expect(find.text('NIP-60'), findsOneWidget);
       expect(find.text('1420 sats'), findsOneWidget);
       expect(find.byKey(const Key('cashu-balance-sats')), findsOneWidget);
       expect(find.text('2 mints'), findsOneWidget);
@@ -211,6 +283,18 @@ void main() {
         find.byKey(const Key('cashu-toggle-nutzaps-btn')),
       );
       expect(toggledNutzaps, 1);
+
+      // Collapse & re-expand Nutzaps section
+      await scrollAndTap(
+        tester,
+        find.byKey(const Key('cashu-section-nutzaps-toggle')),
+      );
+      expect(find.byKey(const Key('cashu-claim-nutzaps-btn')), findsNothing);
+      await scrollAndTap(
+        tester,
+        find.byKey(const Key('cashu-section-nutzaps-toggle')),
+      );
+      expect(find.byKey(const Key('cashu-claim-nutzaps-btn')), findsOneWidget);
 
       // Mints list
       await tester.scrollUntilVisible(
@@ -249,6 +333,20 @@ void main() {
         scrollable: verticalScrollable(),
       );
       expect(find.text('Field survey tip · 3m ago'), findsOneWidget);
+
+      // Collapse History section
+      await scrollAndTap(
+        tester,
+        find.byKey(const Key('cashu-section-history-toggle')),
+      );
+      expect(find.text('Field survey tip · 3m ago'), findsNothing);
+
+      // Disable wallet inside Settings section
+      await scrollAndTap(
+        tester,
+        find.byKey(const Key('cashu-disable-wallet-btn')),
+      );
+      expect(setEnabledArg, isFalse);
     });
 
     testWidgets('deposit flow requests quote, renders QR, and claims deposit',
@@ -357,7 +455,8 @@ void main() {
       );
     });
 
-    testWidgets('send token flow creates outgoing token QR and copies to clipboard',
+    testWidgets(
+        'send token flow creates outgoing token QR and copies to clipboard',
         (WidgetTester tester) async {
       String? sentMint;
       int? sentAmount;
@@ -464,6 +563,139 @@ void main() {
 
       expect(paidMint, 'https://mint.minibits.cash/Bitcoin');
       expect(paidInvoice, 'lnbc200n1pwithdrawtest');
+    });
+  });
+
+  group('AccountWalletController NIP-60 opt-in & NIP-44 helpers', () {
+    test(
+        'nip60WalletEnabled defaults false, guards refreshCashuWalletState, and toggles cleanly',
+        () async {
+      final controller = AccountWalletController();
+      addTearDown(controller.dispose);
+
+      expect(controller.nip60WalletEnabled, isFalse);
+
+      controller.updateCashuWalletState(
+        CashuWalletStateDto(
+          pubkeyHex: 'aaaa',
+          mints: const ['https://mint.example'],
+          relays: const ['wss://relay.earthly.city'],
+          defaultMint: 'https://mint.example',
+          balanceSats: BigInt.from(100),
+          proofCount: BigInt.from(1),
+          pendingTokens: const [],
+          mintBalances: const [],
+          p2PkPubkeyHex: '',
+          nutzapEnabled: false,
+          history: const [],
+          updatedAt: BigInt.from(1700000000),
+        ),
+      );
+      expect(controller.cashuWalletState, isNotNull);
+
+      var walletNotifications = 0;
+      controller.walletListenable.addListener(() => walletNotifications++);
+
+      // Guarded refresh clears state immediately when disabled without loading SQLite.
+      await controller.refreshCashuWalletState();
+      expect(controller.cashuWalletState, isNull);
+      expect(walletNotifications, 1);
+
+      var persisted = 0;
+      controller.setNip60WalletEnabled(
+        true,
+        onPersistSettings: () => persisted++,
+      );
+      expect(controller.nip60WalletEnabled, isTrue);
+      expect(persisted, 1);
+      expect(walletNotifications, 2);
+
+      controller.updateCashuWalletState(
+        CashuWalletStateDto(
+          pubkeyHex: 'aaaa',
+          mints: const ['https://mint.example'],
+          relays: const ['wss://relay.earthly.city'],
+          defaultMint: 'https://mint.example',
+          balanceSats: BigInt.from(250),
+          proofCount: BigInt.from(2),
+          pendingTokens: const [],
+          mintBalances: const [],
+          p2PkPubkeyHex: '',
+          nutzapEnabled: false,
+          history: const [],
+          updatedAt: BigInt.from(1700000001),
+        ),
+      );
+
+      controller.setNip60WalletEnabled(
+        false,
+        onPersistSettings: () => persisted++,
+      );
+      expect(controller.nip60WalletEnabled, isFalse);
+      expect(controller.cashuWalletState, isNull);
+      expect(persisted, 2);
+    });
+
+    test('canDecryptNip44 and nip44DecryptForSelf dispatch across signers',
+        () async {
+      final controller = AccountWalletController();
+      addTearDown(controller.dispose);
+
+      expect(controller.canDecryptNip44, isFalse);
+
+      // Read-only watch session cannot decrypt.
+      controller.addReadOnlySession(
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      );
+      expect(controller.canDecryptNip44, isFalse);
+      await expectLater(
+        controller.nip44DecryptForSelf(
+          'cipher',
+          decryptWithLocalNsec: (_) async => 'local',
+          decryptWithBunker: (_, _) async => 'bunker',
+        ),
+        throwsStateError,
+      );
+
+      // Local nsec session dispatches to decryptWithLocalNsec.
+      controller.upsertAndActivateSession(
+        const SavedAccountSessionDto(
+          id: 'local:aaaa',
+          kind: 'local',
+          pubkeyHex:
+              'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          localNsec: 'nsec1test',
+        ),
+      );
+      expect(controller.canDecryptNip44, isTrue);
+      final localPlain = await controller.nip44DecryptForSelf(
+        'cipher-local',
+        decryptWithLocalNsec: (c) async => 'plain:$c',
+        decryptWithBunker: (_, _) async => 'unexpected',
+      );
+      expect(localPlain, 'plain:cipher-local');
+
+      // NIP-46 bunker session dispatches to decryptWithBunker.
+      controller.upsertAndActivateSession(
+        const SavedAccountSessionDto(
+          id: 'bunker:cccc',
+          kind: 'bunker',
+          pubkeyHex:
+              'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+          bunkerUri: 'bunker://cccc?relay=wss://relay.earthly.city',
+          bunkerClientNsec: 'nsec1client',
+        ),
+      );
+      expect(controller.canDecryptNip44, isTrue);
+      final bunkerPlain = await controller.nip44DecryptForSelf(
+        'cipher-bunker',
+        decryptWithLocalNsec: (_) async => 'unexpected',
+        decryptWithBunker: (pk, c) async => '$pk:$c',
+      );
+      expect(
+        bunkerPlain,
+        'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc:cipher-bunker',
+      );
     });
   });
 }
