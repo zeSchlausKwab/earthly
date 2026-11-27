@@ -45,6 +45,7 @@ jobs:
         run: |
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
           echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
       - name: Install Flutter
@@ -62,18 +63,11 @@ jobs:
       - name: Cache Cargo artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Install cargo-ndk
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-ndk
-
       - name: Build earthly-ffi arm64-v8a shared library
         run: |
           set -euo pipefail
-          CARGO_INCREMENTAL=0 \
-          RUSTFLAGS="-C debuginfo=0 -C link-arg=-Wl,-z,max-page-size=16384 ${RUSTFLAGS:-}" \
-            cargo ndk -t arm64-v8a -p 26 -o apps/native/android/app/src/main/jniLibs \
-            build -p earthly-ffi --release
+          CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0 ${RUSTFLAGS:-}" \
+            ./apps/native/scripts/build-android-rust.sh
           test -f apps/native/android/app/src/main/jniLibs/arm64-v8a/libearthly_ffi.so
 
       - name: Configure Android release signing
@@ -173,7 +167,7 @@ jobs:
 
   macos:
     name: macOS (Apple Silicon DMG)
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Check out release commit
         uses: actions/checkout@v4
