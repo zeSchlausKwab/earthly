@@ -71,6 +71,8 @@ class CirclesSheet extends StatefulWidget {
     required this.onClose,
     this.initialWorkspaceId,
     this.initialInviteLink,
+    this.isReadOnlySession = false,
+    this.onEnsureExternalSigner,
     super.key,
   });
 
@@ -110,6 +112,8 @@ class CirclesSheet extends StatefulWidget {
   final VoidCallback onClose;
   final String? initialWorkspaceId;
   final String? initialInviteLink;
+  final bool isReadOnlySession;
+  final Future<void> Function()? onEnsureExternalSigner;
 
   @override
   State<CirclesSheet> createState() => _CirclesSheetState();
@@ -142,12 +146,17 @@ class _CirclesSheetState extends State<CirclesSheet>
   DecodedCircleInviteDto? _decodedInvitePreview;
   Timer? _syncTimer;
 
-  bool get _hasSupportedSigner =>
+  bool get _hasDirectRustSigner =>
       (widget.localNsec != null && widget.localNsec!.isNotEmpty) ||
       (widget.bunkerUri != null &&
           widget.bunkerUri!.isNotEmpty &&
           widget.bunkerClientNsec != null &&
           widget.bunkerClientNsec!.isNotEmpty);
+
+  bool get _hasSupportedSigner =>
+      !widget.isReadOnlySession &&
+      (_hasDirectRustSigner ||
+          (widget.account != null && widget.account!.pubkey.trim().isNotEmpty));
 
   CircleWorkspaceDto? get _selectedWorkspace {
     final id = _selectedWorkspaceId;
@@ -211,7 +220,10 @@ class _CirclesSheetState extends State<CirclesSheet>
 
   Future<void> _backgroundSyncSelected() async {
     final ws = _selectedWorkspace;
-    if (ws == null || _busy || !_hasSupportedSigner || ws.status != 'active') {
+    if (ws == null ||
+        _busy ||
+        !_hasDirectRustSigner ||
+        ws.status != 'active') {
       return;
     }
     try {
@@ -236,6 +248,9 @@ class _CirclesSheetState extends State<CirclesSheet>
     });
     try {
       await RustBridge.ensureInitialized();
+      if (widget.onEnsureExternalSigner != null) {
+        await widget.onEnsureExternalSigner!();
+      }
       await action();
     } catch (err) {
       if (mounted) setState(() => _error = err.toString());
@@ -712,13 +727,17 @@ class _CirclesSheetState extends State<CirclesSheet>
         ),
         const SizedBox(height: 12),
         Text(
-          'MLS Private Circles',
+          widget.isReadOnlySession
+              ? 'Read-Only Account Active'
+              : 'MLS Groups',
           textAlign: TextAlign.center,
           style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 6),
         Text(
-          'Sign in with a persisted Local Key or a NIP-46 Remote Bunker to create or join MLS-encrypted Cordn Circles (100% compatible with Earthly Web).',
+          widget.isReadOnlySession
+              ? 'Read-only watch sessions cannot sign MLS messages. Switch to Amber (NIP-55), a NIP-46 Remote Bunker, or a Local Key in Account.'
+              : 'Sign in with Amber (NIP-55), a NIP-46 Remote Bunker, or a Local Key to create or join MLS-encrypted Groups (compatible with Earthly Web).',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall,
         ),

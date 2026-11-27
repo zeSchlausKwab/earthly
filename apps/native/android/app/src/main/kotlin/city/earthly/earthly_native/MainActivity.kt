@@ -156,40 +156,7 @@ class MainActivity : FlutterActivity() {
                         startActivityForResult(intent, REQUEST_GET_PUBKEY)
                     }
 
-                    "signEvent" -> {
-                        if (pendingResult != null) {
-                            result.error("busy", "Another request is already pending", null)
-                            return@setMethodCallHandler
-                        }
-                        val eventJson = call.argument<String>("eventJson")
-                        if (eventJson.isNullOrBlank()) {
-                            result.error("invalid_args", "eventJson is required", null)
-                            return@setMethodCallHandler
-                        }
-                        val currentUser = call.argument<String>("currentUser")
-                        val signerPackage = call.argument<String>("package")
-                        val intent = Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("nostrsigner:$eventJson"),
-                        ).apply {
-                            putExtra("type", "sign_event")
-                            putExtra("returnType", "event")
-                            if (!currentUser.isNullOrBlank()) {
-                                putExtra("current_user", currentUser)
-                            }
-                            if (!signerPackage.isNullOrBlank()) {
-                                setPackage(signerPackage)
-                            }
-                        }
-                        if (intent.resolveActivity(packageManager) == null) {
-                            result.error("no_signer", "No NIP-55 signer app is available", null)
-                            return@setMethodCallHandler
-                        }
-                        pendingResult = result
-                        pendingRequestCode = REQUEST_SIGN_EVENT
-                        @Suppress("DEPRECATION")
-                        startActivityForResult(intent, REQUEST_SIGN_EVENT)
-                    }
+                    "signEvent" -> handleSignEvent(call, result)
 
                     "nip44Decrypt" -> handleNip44Method(call, result, isEncrypt = false)
 
@@ -444,6 +411,99 @@ class MainActivity : FlutterActivity() {
             .firstOrNull()
             ?.activityInfo
             ?.packageName
+    }
+
+    private fun handleSignEvent(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val eventJson = call.argument<String>("eventJson")
+        if (eventJson.isNullOrBlank()) {
+            result.error("invalid_args", "eventJson is required", null)
+            return
+        }
+        val currentUser = call.argument<String>("currentUser")
+        val signerPackage = resolveNip55Package(call.argument<String>("package"))
+        if (signerPackage.isNullOrBlank()) {
+            result.error("no_signer", "No NIP-55 signer app is available", null)
+            return
+        }
+
+        // First try background NIP-55 ContentProvider signing so approved MLS
+        // and Nostr requests complete silently without popping up an Activity.
+        val projection = if (!currentUser.isNullOrBlank()) {
+            arrayOf(eventJson, "", currentUser)
+        } else {
+            arrayOf(eventJson, "")
+        }
+        try {
+            contentResolver.query(
+                Uri.parse("content://$signerPackage.SIGN_EVENT"),
+                projection,
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val rejectedIdx = cursor.getColumnIndex("rejected")
+                    if (rejectedIdx >= 0) {
+                        val rejectedVal = cursor.getString(rejectedIdx)
+                        if (!rejectedVal.isNullOrBlank() &&
+                            !rejectedVal.equals("false", ignoreCase = true) &&
+                            rejectedVal != "0"
+                        ) {
+                            result.error(
+                                "rejected",
+                                "Signer rejected NIP-55 SIGN_EVENT request",
+                                null,
+                            )
+                            return
+                        }
+                    }
+                    val eventIdx = cursor.getColumnIndex("event")
+                    val sigIdx = cursor.getColumnIndex("signature")
+                    val resIdx = cursor.getColumnIndex("result")
+                    val signedEvent = if (eventIdx >= 0) cursor.getString(eventIdx) else null
+                    val signature = (if (sigIdx >= 0) cursor.getString(sigIdx) else null)
+                        ?: (if (resIdx >= 0) cursor.getString(resIdx) else null)
+                    if (!signedEvent.isNullOrBlank() || !signature.isNullOrBlank()) {
+                        result.success(
+                            mapOf(
+                                "event" to signedEvent,
+                                "signature" to signature,
+                            ),
+                        )
+                        return
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Fall back to interactive Intent when ContentProvider signing is unavailable.
+        }
+
+        if (pendingResult != null) {
+            result.error("busy", "Another request is already pending", null)
+            return
+        }
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("nostrsigner:${Uri.encode(eventJson)}"),
+        ).apply {
+            putExtra("type", "sign_event")
+            putExtra("returnType", "event")
+            if (!currentUser.isNullOrBlank()) {
+                putExtra("current_user", currentUser)
+            }
+            setPackage(signerPackage)
+        }
+        if (intent.resolveActivity(packageManager) == null) {
+            result.error("no_signer", "No NIP-55 signer app is available", null)
+            return
+        }
+        pendingResult = result
+        pendingRequestCode = REQUEST_SIGN_EVENT
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQUEST_SIGN_EVENT)
     }
 
     private fun handleNip44Method(

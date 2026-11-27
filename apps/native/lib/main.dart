@@ -291,6 +291,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     if (masterKeyReady && hasSecrets) {
       unawaited(_persistAppSettings());
     }
+    unawaited(
+      _accountWallet.syncExternalCircleSigner(isHeadlessTest: _isHeadlessTest),
+    );
     if (_accountWallet.nip60WalletEnabled) {
       unawaited(
         _accountWallet.refreshCashuWalletState(isHeadlessTest: _isHeadlessTest),
@@ -568,6 +571,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
   void _onSessionActivated() {
     unawaited(_persistAppSettings());
+    unawaited(
+      _accountWallet.syncExternalCircleSigner(isHeadlessTest: _isHeadlessTest),
+    );
     unawaited(
       _accountWallet.resolveSessionProfiles(
         _catalog.relayUrls,
@@ -1419,6 +1425,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         throw StateError('Create or select an MLS Group first');
       }
       final mlsPath = await _spaces.ensureMlsDatabasePath();
+      await _accountWallet.syncExternalCircleSigner(
+        isHeadlessTest: _isHeadlessTest,
+      );
       final updated = await sendCircleDataset(
         databasePath: mlsPath,
         signerNsec: _accountWallet.localNsec,
@@ -1897,6 +1906,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           }
         }());
       }
+    } else if (target == _ActiveDrawer.circles) {
+      unawaited(
+        _accountWallet.syncExternalCircleSigner(isHeadlessTest: _isHeadlessTest),
+      );
     } else if (target == _ActiveDrawer.mcpBridge) {
       unawaited(
         _agent.refreshMcpBridgeStatus(
@@ -2817,6 +2830,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           localNsec: _accountWallet.localNsec,
           bunkerUri: _accountWallet.bunkerUri,
           bunkerClientNsec: _accountWallet.bunkerClientNsec,
+          isReadOnlySession: _accountWallet.isReadOnlySession,
+          onEnsureExternalSigner: () => _accountWallet.syncExternalCircleSigner(
+            isHeadlessTest: _isHeadlessTest,
+          ),
           mlsDatabasePath: _spaces.mlsDatabasePath,
           cordnServerPubkey: _spaces.cordnServerPubkey,
           relayUrls: _catalog.relayUrls,
@@ -2880,6 +2897,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           },
           onSendCircleComment: (workspaceId, text, attachDraft) async {
             await RustBridge.ensureInitialized();
+            await _accountWallet.syncExternalCircleSigner(
+              isHeadlessTest: _isHeadlessTest,
+            );
             final mlsPath = await _spaces.ensureMlsDatabasePath();
             final geojson = (attachDraft && _draft.features.isNotEmpty)
                 ? draftFeaturesToGeoJson(

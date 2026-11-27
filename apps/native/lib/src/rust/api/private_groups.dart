@@ -7,8 +7,25 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `resolve_signer`, `workspace_to_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `external_signer_lock`, `normalize_pubkey_hex`, `parse_external_signed_event`, `resolve_signer`, `workspace_to_dto`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ExternalDartCircleSigner`, `ExternalSignEnvelope`, `ExternalSignPayload`, `RegisteredExternalSigner`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `pubkey_hex`, `sign_event_template`
+
+/// Registers an external Dart-backed Nostr event signer (such as Android Amber
+/// NIP-55) so MLS Circles and Cordn ContextVM operations work seamlessly
+/// without a local `nsec` or NIP-46 bunker.
+Future<String> registerExternalCircleSigner({
+  required String pubkeyOrNpub,
+  required FutureOr<String> Function(String) signEvent,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsRegisterExternalCircleSigner(
+      pubkeyOrNpub: pubkeyOrNpub,
+      signEvent: signEvent,
+    );
+
+/// Clears any registered external Dart-backed Circle signer.
+Future<void> clearExternalCircleSigner() => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsClearExternalCircleSigner();
 
 Future<String> defaultCordnCoordinatorPubkey() => EarthlyRustLib.instance.api
     .crateApiPrivateGroupsDefaultCordnCoordinatorPubkey();

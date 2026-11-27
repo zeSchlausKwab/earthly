@@ -121,6 +121,97 @@ void main() {
   });
 
   testWidgets(
+      'CirclesSheet supports Android Amber NIP-55 sessions without local nsec or bunker and blocks read-only sessions',
+      (WidgetTester tester) async {
+    const amberPk =
+        'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+
+    await tester.pumpWidget(
+      wrapSheetInStack(
+        CirclesSheet(
+          account: const Nip55Account(
+            pubkey: amberPk,
+            signerPackage: 'com.greenart7c3.nostrsigner',
+          ),
+          localNsec: null,
+          bunkerUri: null,
+          bunkerClientNsec: null,
+          isReadOnlySession: false,
+          mlsDatabasePath: '/tmp/test_mls_amber.sqlite3',
+          cordnServerPubkey:
+              'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+          relayUrls: const ['wss://relay.earthly.city'],
+          workspaces: const [],
+          pendingJoins: const [],
+          activeCircleId: null,
+          mountedCircleDatasetKeys: const {},
+          activeCommentOverlayId: null,
+          hasDraftGeometry: false,
+          profilesByPubkey: const {},
+          onCordnPubkeyChanged: (_) {},
+          onRefreshCircles: () async {},
+          onWorkspaceUpdated: (_) {},
+          onEnterCircleLens: (_) {},
+          onLeaveCircleLens: () {},
+          onToggleDatasetOnMap: (_, _) {},
+          onZoomToDataset: (_, _) {},
+          onEditDatasetInDraft: (_, _) {},
+          onStartNewPrivateMap: (_) {},
+          onToggleCommentGeometry: (_) {},
+          onSendCircleComment: (_, _, _) async => throw UnimplementedError(),
+          onOpenAccount: () {},
+          onClose: () {},
+        ),
+      ),
+    );
+
+    // Amber NIP-55 session should render the full MLS Groups UI, NOT the sign-in wall.
+    expect(find.text('Open Account & Sign In'), findsNothing);
+    expect(find.text('MLS Groups'), findsOneWidget);
+
+    // Read-only watch session should display read-only guidance instead.
+    await tester.pumpWidget(
+      wrapSheetInStack(
+        CirclesSheet(
+          account: const Nip55Account(pubkey: amberPk),
+          localNsec: null,
+          bunkerUri: null,
+          bunkerClientNsec: null,
+          isReadOnlySession: true,
+          mlsDatabasePath: '/tmp/test_mls_ro.sqlite3',
+          cordnServerPubkey:
+              'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+          relayUrls: const ['wss://relay.earthly.city'],
+          workspaces: const [],
+          pendingJoins: const [],
+          activeCircleId: null,
+          mountedCircleDatasetKeys: const {},
+          activeCommentOverlayId: null,
+          hasDraftGeometry: false,
+          profilesByPubkey: const {},
+          onCordnPubkeyChanged: (_) {},
+          onRefreshCircles: () async {},
+          onWorkspaceUpdated: (_) {},
+          onEnterCircleLens: (_) {},
+          onLeaveCircleLens: () {},
+          onToggleDatasetOnMap: (_, _) {},
+          onZoomToDataset: (_, _) {},
+          onEditDatasetInDraft: (_, _) {},
+          onStartNewPrivateMap: (_) {},
+          onToggleCommentGeometry: (_) {},
+          onSendCircleComment: (_, _, _) async => throw UnimplementedError(),
+          onOpenAccount: () {},
+          onClose: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Read-Only Account Active'), findsOneWidget);
+    expect(find.text('Open Account & Sign In'), findsOneWidget);
+  });
+
+  testWidgets(
       'AccountSessionSheet shows NIP-46 Bunker connection controls and status',
       (WidgetTester tester) async {
     await tester.pumpWidget(

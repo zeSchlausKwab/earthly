@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,7 @@ import '../shell/cashu_wallet_sheet.dart';
 import '../src/rust/api/nip46.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/nwc.dart';
+import '../src/rust/api/private_groups.dart';
 import '../src/rust/api/publish.dart';
 import '../src/rust/api/settings.dart';
 import '../src/rust/api/wallet.dart';
@@ -111,6 +113,53 @@ class AccountWalletController extends ChangeNotifier {
 
   SavedAccountSessionDto? get activeSavedSession =>
       savedAccounts.where((s) => s.id == activeAccountId).firstOrNull;
+
+  bool get isReadOnlySession => activeSavedSession?.kind == 'readonly';
+
+  bool get usesExternalNip55Signer {
+    final acct = account;
+    if (acct == null || acct.pubkey.trim().isEmpty || isReadOnlySession) {
+      return false;
+    }
+    final hasLocal = localNsec?.trim().isNotEmpty ?? false;
+    final hasBunker = (bunkerUri?.trim().isNotEmpty ?? false) &&
+        (bunkerClientNsec?.trim().isNotEmpty ?? false);
+    return !hasLocal && !hasBunker;
+  }
+
+  /// Registers or clears the Dart-backed external signer (Android Amber NIP-55)
+  /// in Rust `earthly-ffi` so MLS Groups / Cordn operations sign with Amber.
+  Future<void> syncExternalCircleSigner({bool isHeadlessTest = false}) async {
+    if (isHeadlessTest) return;
+    try {
+      await RustBridge.ensureInitialized();
+      if (!usesExternalNip55Signer) {
+        await clearExternalCircleSigner();
+        return;
+      }
+      final acct = account!;
+      await registerExternalCircleSigner(
+        pubkeyOrNpub: acct.pubkey,
+        signEvent: (unsignedEventJson) async {
+          try {
+            final res = await Nip55Signer.signEvent(
+              eventJson: unsignedEventJson,
+              currentUser: acct.pubkey,
+              signerPackage: acct.signerPackage,
+            );
+            return jsonEncode(<String, Object?>{
+              'ok': <String, Object?>{
+                'event': res.signedEventJson,
+                'signature': res.signature,
+              },
+            });
+          } catch (err) {
+            return jsonEncode(<String, Object?>{'err': err.toString()});
+          }
+        },
+      );
+    } catch (_) {}
+  }
 
   String get accountChipLabel {
     final acct = account;

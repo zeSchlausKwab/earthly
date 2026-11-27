@@ -46,6 +46,13 @@ abstract class EarthlyRustLibApiImplPlatform
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
+  FutureOr<String> Function(String)
+  dco_decode_DartFn_Inputs_String_Output_String_AnyhowException(dynamic raw);
+
+  @protected
+  Object dco_decode_DartOpaque(dynamic raw);
+
+  @protected
   RustStreamSink<AgentStreamEventDto>
   dco_decode_StreamSink_agent_stream_event_dto_Sse(dynamic raw);
 
@@ -248,6 +255,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   IngestedPmtilesSnapshot dco_decode_ingested_pmtiles_snapshot(dynamic raw);
+
+  @protected
+  PlatformInt64 dco_decode_isize(dynamic raw);
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
@@ -659,6 +669,9 @@ abstract class EarthlyRustLibApiImplPlatform
   UnsignedSightingEventDto dco_decode_unsigned_sighting_event_dto(dynamic raw);
 
   @protected
+  BigInt dco_decode_usize(dynamic raw);
+
+  @protected
   ValhallaIsochroneResultDto dco_decode_valhalla_isochrone_result_dto(
     dynamic raw,
   );
@@ -677,6 +690,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+
+  @protected
+  Object sse_decode_DartOpaque(SseDeserializer deserializer);
 
   @protected
   RustStreamSink<AgentStreamEventDto>
@@ -965,6 +981,9 @@ abstract class EarthlyRustLibApiImplPlatform
   IngestedPmtilesSnapshot sse_decode_ingested_pmtiles_snapshot(
     SseDeserializer deserializer,
   );
+
+  @protected
+  PlatformInt64 sse_decode_isize(SseDeserializer deserializer);
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
@@ -1524,6 +1543,9 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  BigInt sse_decode_usize(SseDeserializer deserializer);
+
+  @protected
   ValhallaIsochroneResultDto sse_decode_valhalla_isochrone_result_dto(
     SseDeserializer deserializer,
   );
@@ -1550,6 +1572,15 @@ abstract class EarthlyRustLibApiImplPlatform
     AnyhowException self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_DartFn_Inputs_String_Output_String_AnyhowException(
+    FutureOr<String> Function(String) self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_DartOpaque(Object self, SseSerializer serializer);
 
   @protected
   void sse_encode_StreamSink_agent_stream_event_dto_Sse(
@@ -1913,6 +1944,9 @@ abstract class EarthlyRustLibApiImplPlatform
     IngestedPmtilesSnapshot self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_isize(PlatformInt64 self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
@@ -2603,6 +2637,9 @@ abstract class EarthlyRustLibApiImplPlatform
     UnsignedSightingEventDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_usize(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_valhalla_isochrone_result_dto(

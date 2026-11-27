@@ -1,15 +1,178 @@
 //! Flutter Rust Bridge facade for Earthly Circles (RFC 9420 MLS + Cordn ContextVM).
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, RwLock};
 
 use earthly_mls::coordinator::PendingJoinRequest;
-use earthly_mls::envelope::{LocalKeysSigner, NostrEventSigner};
+use earthly_mls::envelope::{compute_nostr_event_id, LocalKeysSigner, NostrEventSigner};
 use earthly_mls::invitation::decode_private_map_invitation;
 use earthly_mls::service::PrivateWorkspaceService;
 use earthly_mls::storage::{SqlitePrivateWorkspaceStore, StoredWorkspace, WorkspaceMetadata};
 use earthly_mls::DEFAULT_CORDN_SERVER_PUBKEY;
+use flutter_rust_bridge::DartFnFuture;
+use nostr::{Event, JsonUtil, PublicKey};
+use serde::Deserialize;
 
 use crate::api::nip46::Nip46CircleSigner;
+
+type ExternalSignCallback = Arc<dyn Fn(String) -> DartFnFuture<String> + Send + Sync>;
+
+#[derive(Clone)]
+struct RegisteredExternalSigner {
+    pubkey_hex: String,
+    sign_fn: ExternalSignCallback,
+}
+
+static EXTERNAL_CIRCLE_SIGNER: OnceLock<RwLock<Option<RegisteredExternalSigner>>> = OnceLock::new();
+
+fn external_signer_lock() -> &'static RwLock<Option<RegisteredExternalSigner>> {
+    EXTERNAL_CIRCLE_SIGNER.get_or_init(|| RwLock::new(None))
+}
+
+fn normalize_pubkey_hex(raw: &str) -> Result<String, String> {
+    PublicKey::parse(raw.trim())
+        .map(|pk| pk.to_hex())
+        .map_err(|e| format!("Invalid Nostr public key: {e}"))
+}
+
+#[derive(Deserialize)]
+struct ExternalSignEnvelope {
+    ok: Option<ExternalSignPayload>,
+    err: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ExternalSignPayload {
+    event: Option<String>,
+    signature: Option<String>,
+}
+
+fn parse_external_signed_event(
+    expected_id: &str,
+    pubkey_hex: &str,
+    created_at: u64,
+    kind: u16,
+    tags: &[Vec<String>],
+    content: &str,
+    response_json: &str,
+) -> Result<Event, String> {
+    let envelope: ExternalSignEnvelope = serde_json::from_str(response_json)
+        .map_err(|e| format!("Invalid external signer response: {e}"))?;
+    if let Some(err) = envelope.err.filter(|s| !s.trim().is_empty()) {
+        return Err(err);
+    }
+    let payload = envelope
+        .ok
+        .ok_or_else(|| "External signer returned an empty signing response".to_owned())?;
+
+    let event = if let Some(raw_event) = payload
+        .event
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Event::from_json(raw_event)
+            .map_err(|e| format!("External signer returned invalid signed event JSON: {e}"))?
+    } else if let Some(sig) = payload
+        .signature
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let assembled = serde_json::json!({
+            "id": expected_id,
+            "pubkey": pubkey_hex,
+            "created_at": created_at,
+            "kind": kind,
+            "tags": tags,
+            "content": content,
+            "sig": sig,
+        });
+        Event::from_json(assembled.to_string()).map_err(|e| {
+            format!("External signer returned invalid signature for event: {e}")
+        })?
+    } else {
+        return Err("External signer did not return a signed event or signature".to_owned());
+    };
+
+    event
+        .verify()
+        .map_err(|e| format!("External signer produced invalid Nostr signature: {e}"))?;
+    Ok(event)
+}
+
+#[derive(Clone)]
+struct ExternalDartCircleSigner {
+    pubkey_hex: String,
+    sign_fn: ExternalSignCallback,
+}
+
+impl NostrEventSigner for ExternalDartCircleSigner {
+    fn pubkey_hex(&self) -> String {
+        self.pubkey_hex.clone()
+    }
+
+    fn sign_event_template(
+        &self,
+        kind: u16,
+        created_at: u64,
+        tags: Vec<Vec<String>>,
+        content: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Event, String>> + Send + '_>>
+    {
+        let pubkey_hex = self.pubkey_hex.clone();
+        let sign_fn = Arc::clone(&self.sign_fn);
+        Box::pin(async move {
+            let expected_id =
+                compute_nostr_event_id(&pubkey_hex, created_at, kind, &tags, &content)?;
+            let unsigned_json = serde_json::json!({
+                "id": expected_id,
+                "pubkey": pubkey_hex,
+                "created_at": created_at,
+                "kind": kind,
+                "tags": tags,
+                "content": content,
+            })
+            .to_string();
+            let response_json = (sign_fn)(unsigned_json).await;
+            parse_external_signed_event(
+                &expected_id,
+                &pubkey_hex,
+                created_at,
+                kind,
+                &tags,
+                &content,
+                &response_json,
+            )
+        })
+    }
+}
+
+/// Registers an external Dart-backed Nostr event signer (such as Android Amber
+/// NIP-55) so MLS Circles and Cordn ContextVM operations work seamlessly
+/// without a local `nsec` or NIP-46 bunker.
+pub fn register_external_circle_signer(
+    pubkey_or_npub: String,
+    sign_event: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static,
+) -> Result<String, String> {
+    let pubkey_hex = normalize_pubkey_hex(&pubkey_or_npub)?;
+    let mut guard = external_signer_lock()
+        .write()
+        .map_err(|_| "External circle signer lock poisoned".to_owned())?;
+    *guard = Some(RegisteredExternalSigner {
+        pubkey_hex: pubkey_hex.clone(),
+        sign_fn: Arc::new(sign_event),
+    });
+    Ok(pubkey_hex)
+}
+
+/// Clears any registered external Dart-backed Circle signer.
+pub fn clear_external_circle_signer() -> Result<(), String> {
+    let mut guard = external_signer_lock()
+        .write()
+        .map_err(|_| "External circle signer lock poisoned".to_owned())?;
+    *guard = None;
+    Ok(())
+}
 
 #[derive(Clone, Debug)]
 pub struct CircleDatasetDto {
@@ -124,8 +287,16 @@ async fn resolve_signer(
         let signer = Nip46CircleSigner::connect(uri.to_owned(), client.to_owned()).await?;
         return Ok(Arc::new(signer));
     }
+    if let Ok(guard) = external_signer_lock().read() {
+        if let Some(entry) = guard.as_ref() {
+            return Ok(Arc::new(ExternalDartCircleSigner {
+                pubkey_hex: entry.pubkey_hex.clone(),
+                sign_fn: Arc::clone(&entry.sign_fn),
+            }));
+        }
+    }
     Err(
-        "Circles require a local keypair or NIP-46 remote bunker session (open Account to sign in)"
+        "MLS Groups require a signing account (Amber NIP-55, NIP-46 remote bunker, or local keypair — open Account to sign in)"
             .to_owned(),
     )
 }
@@ -188,14 +359,16 @@ pub fn load_circles_snapshot(
     database_path: String,
     owner_pubkey_hex: String,
 ) -> Result<CircleSnapshotDto, String> {
+    let normalized_owner =
+        normalize_pubkey_hex(&owner_pubkey_hex).unwrap_or_else(|_| owner_pubkey_hex.trim().to_owned());
     let store = SqlitePrivateWorkspaceStore::open(database_path)?;
     let workspaces = store
-        .list_workspaces(&owner_pubkey_hex)?
+        .list_workspaces(&normalized_owner)?
         .iter()
         .map(workspace_to_dto)
         .collect();
     let pending_joins = store
-        .list_pending_joins(&owner_pubkey_hex)?
+        .list_pending_joins(&normalized_owner)?
         .into_iter()
         .map(|p| CirclePendingJoinDto {
             workspace_id: p.workspace_id,
@@ -487,6 +660,120 @@ pub fn delete_circle_workspace(
     owner_pubkey_hex: String,
     workspace_id: String,
 ) -> Result<(), String> {
+    let normalized_owner =
+        normalize_pubkey_hex(&owner_pubkey_hex).unwrap_or_else(|_| owner_pubkey_hex.trim().to_owned());
     let store = SqlitePrivateWorkspaceStore::open(database_path)?;
-    store.delete_workspace(&owner_pubkey_hex, &workspace_id)
+    store.delete_workspace(&normalized_owner, &workspace_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nostr::nips::nip19::ToBech32;
+    use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
+
+    #[tokio::test]
+    async fn external_circle_signer_signs_full_event_and_signature_only_responses() {
+        let keys = Keys::generate();
+        let npub = keys.public_key().to_bech32().expect("npub");
+        let hex_pk = keys.public_key().to_hex();
+
+        // 1. Full signed event response (Amber `returnType: "event"`)
+        let keys_full = keys.clone();
+        let registered = register_external_circle_signer(npub.clone(), move |unsigned_json| {
+            let k = keys_full.clone();
+            Box::pin(async move {
+                let v: serde_json::Value = serde_json::from_str(&unsigned_json).unwrap();
+                let kind = v["kind"].as_u64().unwrap() as u16;
+                let created_at = v["created_at"].as_u64().unwrap();
+                let content = v["content"].as_str().unwrap().to_owned();
+                let tags: Vec<Tag> = v["tags"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|arr| {
+                        let items: Vec<String> = arr
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|s| s.as_str().unwrap().to_owned())
+                            .collect();
+                        Tag::parse(items).unwrap()
+                    })
+                    .collect();
+                let signed = EventBuilder::new(Kind::Custom(kind), content)
+                    .tags(tags)
+                    .custom_created_at(Timestamp::from(created_at))
+                    .sign_with_keys(&k)
+                    .unwrap();
+                serde_json::json!({ "ok": { "event": signed.as_json() } }).to_string()
+            })
+        })
+        .expect("register external signer");
+        assert_eq!(registered, hex_pk);
+
+        let signer = resolve_signer(None, None, None)
+            .await
+            .expect("resolve external signer");
+        assert_eq!(signer.pubkey_hex(), hex_pk);
+        let ev = signer
+            .sign_event_template(
+                27_523,
+                1_760_000_000,
+                vec![vec!["t".to_owned(), "earthly-private-workspace-authorization-v1".to_owned()]],
+                "digest-hex".to_owned(),
+            )
+            .await
+            .expect("sign via full event response");
+        ev.verify().expect("valid signature");
+        assert_eq!(ev.pubkey.to_hex(), hex_pk);
+
+        // 2. Signature-only response (some NIP-55 ContentProviders return only `signature`)
+        let keys_sig = keys.clone();
+        register_external_circle_signer(hex_pk.clone(), move |unsigned_json| {
+            let k = keys_sig.clone();
+            Box::pin(async move {
+                let v: serde_json::Value = serde_json::from_str(&unsigned_json).unwrap();
+                let kind = v["kind"].as_u64().unwrap() as u16;
+                let created_at = v["created_at"].as_u64().unwrap();
+                let content = v["content"].as_str().unwrap().to_owned();
+                let signed = EventBuilder::new(Kind::Custom(kind), content)
+                    .custom_created_at(Timestamp::from(created_at))
+                    .sign_with_keys(&k)
+                    .unwrap();
+                serde_json::json!({ "ok": { "signature": signed.sig.to_string() } }).to_string()
+            })
+        })
+        .expect("register sig-only signer");
+
+        let signer2 = resolve_signer(None, None, None).await.unwrap();
+        let ev2 = signer2
+            .sign_event_template(25_910, 1_760_000_005, vec![], "hello".to_owned())
+            .await
+            .expect("sign via signature-only response");
+        ev2.verify().expect("valid sig-only event");
+
+        // 3. Creating & loading workspace via npub normalization
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("mls.sqlite3").to_string_lossy().to_string();
+        let created = create_circle_workspace(
+            db.clone(),
+            None,
+            None,
+            None,
+            DEFAULT_CORDN_SERVER_PUBKEY.to_owned(),
+            vec!["wss://relay.earthly.city".to_owned()],
+            "Amber Field Crew".to_owned(),
+            None,
+            None,
+        )
+        .await
+        .expect("create workspace with external signer");
+        assert_eq!(created.name, "Amber Field Crew");
+        let snap = load_circles_snapshot(db, npub).expect("load snapshot by npub");
+        assert_eq!(snap.workspaces.len(), 1);
+        assert_eq!(snap.workspaces[0].workspace_id, created.workspace_id);
+
+        clear_external_circle_signer().expect("clear external signer");
+    }
 }

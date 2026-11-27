@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:earthly_native/src/rust/api/geo.dart';
 import 'package:earthly_native/src/rust/api/mcp_bridge.dart';
+import 'package:earthly_native/src/rust/api/private_groups.dart';
 import 'package:earthly_native/src/rust/api/publish.dart';
 import 'package:earthly_native/src/rust/api/settings.dart';
 import 'package:earthly_native/src/rust/api/wallet.dart';
@@ -340,6 +341,57 @@ void main() {
 
       final stopped = await stopMcpBridge();
       expect(stopped.running, isFalse);
+    });
+
+    test('External Dart Circle signer creates workspace and signs MLS invite across FRB DartFnFuture',
+        () async {
+      final dbPath = '${tempDir!.path}/mls_external.sqlite3';
+      final kp = await generateLocalNostrKeypair();
+      var callbackCount = 0;
+
+      final normalized = await registerExternalCircleSigner(
+        pubkeyOrNpub: kp.npub,
+        signEvent: (unsignedEventJson) async {
+          callbackCount += 1;
+          final signed = await signEventWithNsec(
+            nsecOrHex: kp.nsec,
+            unsignedEventJson: unsignedEventJson,
+          );
+          return jsonEncode(<String, Object?>{
+            'ok': <String, Object?>{'event': signed},
+          });
+        },
+      );
+      expect(normalized, kp.pubkeyHex);
+
+      try {
+        final ws = await createCircleWorkspace(
+          databasePath: dbPath,
+          coordinatorPubkey: await defaultCordnCoordinatorPubkey(),
+          relays: const ['wss://relay.earthly.city'],
+          name: 'Amber Live Group',
+        );
+        expect(ws.name, 'Amber Live Group');
+
+        final inviteUrl = await createCircleInviteUrl(
+          databasePath: dbPath,
+          workspaceId: ws.workspaceId,
+        );
+        expect(callbackCount, greaterThanOrEqualTo(1));
+        expect(inviteUrl, contains('private-invite='));
+
+        final decoded = await decodeCircleInviteLink(rawLink: inviteUrl);
+        expect(decoded.workspaceId, ws.workspaceId);
+        expect(decoded.adminPubkey, kp.pubkeyHex);
+
+        final snap = await loadCirclesSnapshot(
+          databasePath: dbPath,
+          ownerPubkeyHex: kp.npub,
+        );
+        expect(snap.workspaces.map((w) => w.workspaceId), contains(ws.workspaceId));
+      } finally {
+        await clearExternalCircleSigner();
+      }
     });
   });
 }
